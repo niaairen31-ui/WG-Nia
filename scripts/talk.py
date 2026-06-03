@@ -43,6 +43,27 @@ NPC_LABEL = "Maelis"
 PLAYER_LABEL = "Joran"
 
 
+def load_npc_dialogue_prompt(db: Session) -> m.PromptTemplate:
+    """Return the active npc_dialogue template (world-specific, else global)."""
+    templates = db.exec(
+        select(m.PromptTemplate).where(
+            m.PromptTemplate.usage == "npc_dialogue",
+            m.PromptTemplate.is_active == True,  # noqa: E712
+        )
+    ).all()
+    if not templates:
+        print(
+            "\n[error] No active 'npc_dialogue' prompt template found.\n"
+            "        Seed it first: python scripts/seed_pilot.py"
+        )
+        sys.exit(1)
+    for prefer in (lambda t: t.world_id == WORLD_ID, lambda t: t.world_id is None):
+        match = next((t for t in templates if prefer(t)), None)
+        if match is not None:
+            return match
+    return templates[0]
+
+
 def get_or_open_session(db: Session) -> m.Session:
     """Return the world's open session, creating one if none exists."""
     existing = db.exec(
@@ -89,8 +110,12 @@ def main() -> None:
     with Session(engine) as db:
         session_row = get_or_open_session(db)
 
-        # Assemble Maelis's context and open the conversation with it stored.
-        system_prompt = assemble_npc_context(NPC_ID, PLAYER_ID, LOCATION_ID, db)
+        # System prompt = universal behaviour template + Maelis's assembled
+        # context. The model can only reveal what the context contains, and the
+        # template hard-bans inventing anything beyond it.
+        behaviour = load_npc_dialogue_prompt(db)
+        assembled_context = assemble_npc_context(NPC_ID, PLAYER_ID, LOCATION_ID, db)
+        system_prompt = f"{behaviour.system_prompt}\n\n{assembled_context}"
         conversation = m.Conversation(
             world_id=WORLD_ID,
             session_id=session_row.id,
@@ -103,6 +128,9 @@ def main() -> None:
                 "npc_id": NPC_ID,
                 "interlocutor_id": PLAYER_ID,
                 "location_id": LOCATION_ID,
+                "prompt_template_id": behaviour.id,
+                "behaviour_prompt": behaviour.system_prompt,
+                "assembled_context": assembled_context,
                 "system_prompt": system_prompt,
             },
             started_at=datetime.now(UTC),
