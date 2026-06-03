@@ -33,6 +33,7 @@ _created: list[tuple[str, str]] = []
 _existing: list[tuple[str, str]] = []
 _updated: list[tuple[str, str]] = []
 _deleted: list[tuple[str, str]] = []
+_audit: list[str] = []
 
 
 def get_or_create(session: Session, model, id: str, **fields):
@@ -80,6 +81,30 @@ def delete_if_exists(session: Session, model, id: str) -> None:
     if obj is not None:
         session.delete(obj)
         _deleted.append((model.__tablename__, id))
+
+
+def align_relation_intensity(session: Session, id: str, target: int) -> None:
+    """Bring an existing relation's intensity to `target` (idempotent).
+
+    Used to align a Step-2 placeholder to the founding-graph value without
+    touching the rest of the row. Records a before/after note for the summary.
+    """
+    rel = session.get(m.Relation, id)
+    if rel is None:
+        return
+    before = rel.intensity
+    if before != target:
+        rel.intensity = target
+        _updated.append((m.Relation.__tablename__, id))
+        _audit.append(
+            f"{id}: intensity {before} -> {target} "
+            f"(type={rel.type}, direction={rel.direction})"
+        )
+    else:
+        _audit.append(
+            f"{id}: intensity {before} unchanged "
+            f"(type={rel.type}, direction={rel.direction})"
+        )
 
 
 def seed(session: Session) -> None:
@@ -461,8 +486,23 @@ def seed(session: Session) -> None:
         is_secret=True,
     )
 
+    # ----- magic (entity — an actor in the relation graph) ------------------
+    get_or_create(
+        session,
+        m.Entity,
+        "magic-verkhaal",
+        world_id=WORLD_ID,
+        type="magic",
+        name="La Magie",
+        is_public=True,
+    )
+
     # ----- relations ---------------------------------------------------------
-    # Tavern is secretly run by L'Innommée (hidden control).
+    # Tavern secretly run by L'Innommée (hidden control). This row already
+    # encodes the network<->place edge (founding-graph Row 9), better formed as
+    # fac-unnamed -> loc-dernier-verre (a_to_b), so Row 9 itself is not inserted.
+    # We keep this row and only align its intensity to the 1-100 scale (it was a
+    # Step-2 placeholder of 50; the founding graph rates this edge 85).
     get_or_create(
         session,
         m.Relation,
@@ -472,10 +512,11 @@ def seed(session: Session) -> None:
         entity_b_id="loc-dernier-verre",
         type="instrumentalizes",
         direction="a_to_b",
-        intensity=50,
+        intensity=85,
         visible_to_b=False,
         notes="Le Dernier Verre sert de point d'appui à L'Innommée ; lien dissimulé.",
     )
+    align_relation_intensity(session, "rel-unnamed-tavern", 85)
 
     # Player -> Maelis: knows her by sight; she doesn't notice him yet.
     get_or_create(
@@ -520,6 +561,162 @@ def seed(session: Session) -> None:
         notes="Neutre ; Senna ne remarque pas encore le joueur.",
     )
 
+    # ----- founding NPC / location / faction / magic relation graph ----------
+    # Creator-set founding world state, inserted directly (not via
+    # proposed_mutation). All intensities on the 1-100 scale, all above 50
+    # (attention/interest, none hostile). Row 9 of the brief is intentionally
+    # omitted — it duplicates rel-unnamed-tavern above.
+
+    # 1. Senna observes Maelis, suspects what she hides; Maelis doesn't perceive it.
+    get_or_create(
+        session,
+        m.Relation,
+        "rel-senna-maelis",
+        world_id=WORLD_ID,
+        entity_a_id="npc-senna",
+        entity_b_id="npc-maelis",
+        type="passive_attention",
+        direction="a_to_b",
+        intensity=68,
+        visible_to_b=False,
+        notes="Senna observe Maelis, soupçonne ce qu'elle cache sur le lieu. Maelis ne le perçoit pas.",
+    )
+
+    # 2. Maelis keeps a discreet eye on Reike (Guard); he thinks he's unnoticed.
+    get_or_create(
+        session,
+        m.Relation,
+        "rel-maelis-reike",
+        world_id=WORLD_ID,
+        entity_a_id="npc-maelis",
+        entity_b_id="npc-reike",
+        type="passive_attention",
+        direction="a_to_b",
+        intensity=60,
+        visible_to_b=False,
+        notes="Maelis sait Reike de la Garde, le surveille discrètement (l'info a de la valeur). Reike se croit inaperçu.",
+    )
+
+    # 3. Reike notices the old woman "knows something" — vague cop's curiosity.
+    get_or_create(
+        session,
+        m.Relation,
+        "rel-reike-senna",
+        world_id=WORLD_ID,
+        entity_a_id="npc-reike",
+        entity_b_id="npc-senna",
+        type="fascination",
+        direction="a_to_b",
+        intensity=58,
+        visible_to_b=False,
+        notes="Reike remarque que la vieille femme « sait quelque chose ». Curiosité de flic, encore vague.",
+    )
+
+    # 4. Senna spotted a man who doubts the official line — ally or risk; she waits.
+    get_or_create(
+        session,
+        m.Relation,
+        "rel-senna-reike",
+        world_id=WORLD_ID,
+        entity_a_id="npc-senna",
+        entity_b_id="npc-reike",
+        type="passive_attention",
+        direction="a_to_b",
+        intensity=63,
+        visible_to_b=False,
+        notes="Senna a repéré un homme qui doute de la version officielle — allié potentiel ou risque. Elle attend.",
+    )
+
+    # 5. The tavern is Maelis's asset: neutrality = cover, a listening post.
+    get_or_create(
+        session,
+        m.Relation,
+        "rel-maelis-verre",
+        world_id=WORLD_ID,
+        entity_a_id="npc-maelis",
+        entity_b_id="loc-dernier-verre",
+        type="interest",
+        direction="a_to_b",
+        intensity=88,
+        visible_to_b=False,
+        notes="Le lieu est son atout. Neutralité = couverture. Elle le protège et s'en sert comme poste d'écoute.",
+    )
+
+    # 6. Senna returns because the place is sensitive; the location draws her.
+    get_or_create(
+        session,
+        m.Relation,
+        "rel-senna-verre",
+        world_id=WORLD_ID,
+        entity_a_id="npc-senna",
+        entity_b_id="loc-dernier-verre",
+        type="fascination",
+        direction="a_to_b",
+        intensity=75,
+        visible_to_b=False,
+        notes="Senna revient parce que le lieu est sensible. C'est le lieu qui l'attire, pas la clientèle.",
+    )
+
+    # 7. Reike comes to unwind, not suspecting what's at play.
+    get_or_create(
+        session,
+        m.Relation,
+        "rel-reike-verre",
+        world_id=WORLD_ID,
+        entity_a_id="npc-reike",
+        entity_b_id="loc-dernier-verre",
+        type="interest",
+        direction="a_to_b",
+        intensity=63,
+        visible_to_b=False,
+        notes="Un refuge où personne ne parle boutique. Il vient décompresser, sans soupçonner ce qui s'y joue.",
+    )
+
+    # 8. Maelis knowingly serves The Unnamed and will always deny it.
+    get_or_create(
+        session,
+        m.Relation,
+        "rel-maelis-unnamed",
+        world_id=WORLD_ID,
+        entity_a_id="npc-maelis",
+        entity_b_id="fac-unnamed",
+        type="shared_secret",
+        direction="a_to_b",
+        intensity=95,
+        visible_to_b=True,
+        notes="Elle sert sciemment L'Innommée et le niera toujours. Lien fort, jamais admis publiquement.",
+    )
+
+    # 10. Magic "lingers" gently on the place (magic as actor: a_to_b).
+    get_or_create(
+        session,
+        m.Relation,
+        "rel-magic-verre",
+        world_id=WORLD_ID,
+        entity_a_id="magic-verkhaal",
+        entity_b_id="loc-dernier-verre",
+        type="passive_attention",
+        direction="a_to_b",
+        intensity=60,
+        visible_to_b=True,
+        notes="La magie « s'attarde » doucement sur le lieu. Phénomènes légers non négatifs. Cause inconnue, lien au nœud non confirmé.",
+    )
+
+    # 11. Senna perceives magic's presence without mastering it (magic as actor).
+    get_or_create(
+        session,
+        m.Relation,
+        "rel-magic-senna",
+        world_id=WORLD_ID,
+        entity_a_id="magic-verkhaal",
+        entity_b_id="npc-senna",
+        type="passive_attention",
+        direction="a_to_b",
+        intensity=58,
+        visible_to_b=True,
+        notes="Senna perçoit la présence de la magie sans la maîtriser. Cohérent avec le savoir des Marcheurs.",
+    )
+
 
 def main() -> None:
     with Session(engine) as session:
@@ -542,6 +739,11 @@ def main() -> None:
             for table, id in rows:
                 print(f"  {sign} {table}: {id}")
 
+    if _audit:
+        print("\nRelation intensity audit:")
+        for line in _audit:
+            print(f"  {line}")
+
     # Verification: knowledge granularity on the affected NPCs.
     with Session(engine) as session:
         print("\nKnowledge after seed (affected NPCs):")
@@ -556,6 +758,16 @@ def main() -> None:
             for k in rows:
                 flag = "SECRET   " if k.is_secret else "shareable"
                 print(f"    - [{flag}] {k.subject} (level={k.level})")
+
+        # Verification: the full relation graph.
+        rels = session.exec(select(m.Relation).order_by(m.Relation.id)).all()
+        print(f"\nRelation graph ({len(rels)} edges):")
+        for r in rels:
+            vis = "vis" if r.visible_to_b else "hid"
+            print(
+                f"    {r.entity_a_id} -> {r.entity_b_id}  "
+                f"[{r.type}, {r.direction}, {r.intensity}, {vis}]"
+            )
 
 
 if __name__ == "__main__":
