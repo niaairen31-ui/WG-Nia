@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-*Version 1.2 — Local phase (SQLite → Supabase)*
+*Version 1.3 — Local phase (SQLite → Supabase)*
 
 -----
 
@@ -173,10 +173,18 @@ CREATE TABLE knowledge (
   source           TEXT,            -- how it learned it
   is_incorrect     BOOLEAN DEFAULT FALSE,  -- knows but it's wrong
   is_secret        BOOLEAN DEFAULT FALSE,  -- does not share
+  share_threshold  INTEGER DEFAULT 50 CHECK (share_threshold BETWEEN 1 AND 100),
+                   -- minimum NPC→interlocutor relation intensity (1–100) required
+                   -- for the NPC to share this row in conversation. Ignored when
+                   -- is_secret = TRUE (secrets are never shared, whatever the relation).
   acquired_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
   session_id       TEXT             -- acquired during which session
 );
+-- NOTE: when the NPC has no relation toward the interlocutor, the assembler
+--       treats the relation as neutral (intensity 50). A row therefore shares
+--       by default (threshold 50) and only becomes warmth-gated when its
+--       share_threshold is raised above 50.
 ```
 
 -----
@@ -515,7 +523,8 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.3** — Added `knowledge.share_threshold` (INTEGER DEFAULT 50, CHECK 1–100): the minimum NPC→interlocutor relation intensity required to share a non-secret knowledge row in conversation; ignored when `is_secret = TRUE`. Recorded the convention that an absent NPC→interlocutor relation is treated as neutral (50) by the assembler.
 - **v1.2** — Added `conversation`, `conversation_message`, and `proposed_mutation` for live sessions and the unified mutation pipeline. Removed `pass_play.local_proposal`. Documented the role-toggle rule on `user`. Added `npc_dialogue` to prompt usages. Changed `relation.intensity` to a 1–100 scale (default 50 = neutral) with a clamp-on-apply rule. Added `updated_at` to `entity` and `knowledge`. Added an INDEXES section for frequent lookups. Schema translated to English.
 - **v1.1** — Initial local-phase schema.
 
-*Version 1.2 — Co-built with Claude, June 2026*
+*Version 1.3 — Co-built with Claude, June 2026*

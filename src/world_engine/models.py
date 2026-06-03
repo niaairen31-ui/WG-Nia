@@ -198,7 +198,13 @@ class Relation(SQLModel, table=True):
 # -----------------------------------------------------------------------------
 class Knowledge(SQLModel, table=True):
     __tablename__ = "knowledge"
-    __table_args__ = (Index("idx_knowledge_entity", "entity_id"),)
+    __table_args__ = (
+        CheckConstraint(
+            "share_threshold BETWEEN 1 AND 100",
+            name="ck_knowledge_share_threshold",
+        ),
+        Index("idx_knowledge_entity", "entity_id"),
+    )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     entity_id: str = Field(foreign_key="entity.id", nullable=False)
@@ -211,6 +217,11 @@ class Knowledge(SQLModel, table=True):
     )
     is_secret: bool = Field(
         default=False, sa_column_kwargs={"server_default": text("0")}
+    )
+    # Minimum NPC->interlocutor relation intensity (1-100) to share this row;
+    # ignored when is_secret = TRUE (see world-engine-schema.md v1.3).
+    share_threshold: int = Field(
+        default=50, sa_column_kwargs={"server_default": text("50")}
     )
     acquired_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
