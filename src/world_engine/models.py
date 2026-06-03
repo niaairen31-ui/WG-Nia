@@ -14,7 +14,7 @@ Conventions used throughout:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -39,7 +39,7 @@ def _uuid() -> str:
 def _created_ts() -> Any:
     """A NOT NULL timestamp column defaulting to CURRENT_TIMESTAMP."""
     return Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         sa_column=Column(DateTime, nullable=False, server_default=func.now()),
     )
 

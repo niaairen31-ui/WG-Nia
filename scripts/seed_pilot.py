@@ -14,7 +14,7 @@ Run from the project root, after `scripts/init_db.py`:
 from __future__ import annotations
 
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Make the `src` package importable without an editable install.
@@ -67,7 +67,7 @@ def upsert_knowledge(session: Session, id: str, **fields):
             setattr(obj, key, value)
             changed = True
     if changed:
-        obj.updated_at = datetime.utcnow()
+        obj.updated_at = datetime.now(UTC)
         _updated.append((m.Knowledge.__tablename__, id))
     else:
         _existing.append((m.Knowledge.__tablename__, id))
