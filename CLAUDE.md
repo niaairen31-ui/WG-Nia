@@ -16,7 +16,7 @@ Read both before making any structural change.
 - **Web:** FastAPI
 - **ORM / DB:** SQLModel over SQLite (Supabase/PostgreSQL-compatible later)
 - **UI:** server-rendered HTML with HTMX (no heavy frontend framework)
-- **Local models:** Ollama (Llama, GLM)
+- **Local models:** Ollama. Current target model: `huihui_ai/qwen3-abliterated:8b-v2` (see Local model notes below).
 
 ## Working rules
 
@@ -26,6 +26,14 @@ Read both before making any structural change.
 - **Injected context depends on the active role, never the account.** In player mode, never expose an NPC's secrets, others' secrets, or anything the player character is not meant to know.
 - Keep the database engine URL in an environment variable (default to a local SQLite file) so switching to PostgreSQL/Supabase needs no code change.
 - History is sacred: prefer preserving successive states over overwriting them.
+
+## Local model notes
+
+Target local model for NPC dialogue and analysis: **`huihui_ai/qwen3-abliterated:8b-v2`**, run via Ollama. Relevant when wiring the model (not before — context assembly is model-agnostic):
+
+- **Abliterated** = refusal mechanisms removed. Will not refuse, and is generally more compliant to *any* instruction — including a player pushing it to reveal. This makes it the strictest possible test of the "concealed knowledge / under guard" mechanism: if secrets hold here, they hold anywhere. The creator checkpoint remains the real safety net regardless.
+- **Thinking mode:** Qwen3 can emit a reasoning block before its answer. At wire-up, disable it or parse the output so only the NPC's spoken line is shown — otherwise the model's internal deliberation (including reasoning about the secret it must hide) could surface to the player.
+- **French quality:** multilingual but not Mistral-grade idiomatic French. Acceptable for validating logic; if narrative quality disappoints, that's a model-selection signal, not a code defect.
 
 ## Conventions
 
