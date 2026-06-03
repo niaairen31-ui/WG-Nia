@@ -360,21 +360,59 @@ def seed(session: Session) -> None:
     )
 
     # ----- knowledge ---------------------------------------------------------
-    # Maelis: knows she serves the network (secret), and the local micro-incidents.
-    get_or_create(
+    # Maelis: ordinary tavern-keeper material she shares freely from neutral,
+    # warmth-gated local phenomena, and a secret kept in the DB but never
+    # injected (is_secret = TRUE, excluded by the assembler).
+
+    # Shareable from neutral (threshold 50): everyday tavern-keeper talk.
+    upsert_knowledge(
         session,
-        m.Knowledge,
-        "kn-maelis-unnamed",
+        "kn-maelis-tavern-daily",
         entity_id="npc-maelis",
-        subject="the_unnamed",
-        level="partial",
-        content="Sait servir le réseau, le nie en public.",
-        source="appartenance",
-        is_secret=True,
+        subject="tavern_daily",
+        level="knows",
+        content=(
+            "Tient Le Dernier Verre au quotidien : ce qu'elle sert à boire et à "
+            "manger, le rythme des soirées, une clientèle de passage où l'on ne "
+            "pose pas de questions."
+        ),
+        source="son métier",
+        is_secret=False,
+        share_threshold=50,
     )
-    get_or_create(
+    upsert_knowledge(
         session,
-        m.Knowledge,
+        "kn-maelis-tavern-clientele",
+        entity_id="npc-maelis",
+        subject="tavern_clientele",
+        level="knows",
+        content=(
+            "Connaît les habitués et les voyageurs des deux nations qui passent "
+            "par le comptoir ; habituée aux inconnus et à la discrétion."
+        ),
+        source="son métier",
+        is_secret=False,
+        share_threshold=50,
+    )
+    upsert_knowledge(
+        session,
+        "kn-maelis-verkhaal-city",
+        entity_id="npc-maelis",
+        subject="verkhaal_city",
+        level="knows",
+        content=(
+            "Savoir public d'habitante : Verkhaal est la ville-forteresse qui "
+            "contrôle l'unique passage entre deux nations ; le commerce et les "
+            "voyageurs y transitent ; sa neutralité fait sa valeur."
+        ),
+        source="savoir commun de Verkhaal",
+        is_secret=False,
+        share_threshold=50,
+    )
+
+    # Not shared with a stranger — only as the relationship warms (threshold 65).
+    upsert_knowledge(
+        session,
         "kn-maelis-incidents",
         entity_id="npc-maelis",
         subject="local_magic_incidents",
@@ -385,6 +423,21 @@ def seed(session: Session) -> None:
         ),
         source="observation du lieu",
         is_secret=False,
+        share_threshold=65,
+    )
+
+    # Core secret: kept in the DB for audit/future use, NEVER injected. It is
+    # is_secret = TRUE, so the assembler excludes it. Do not delete.
+    get_or_create(
+        session,
+        m.Knowledge,
+        "kn-maelis-unnamed",
+        entity_id="npc-maelis",
+        subject="the_unnamed",
+        level="partial",
+        content="Sait servir le réseau, le nie en public.",
+        source="appartenance",
+        is_secret=True,
     )
 
     # Reike: conceals everything (per his sheet) — two secret rows. He reveals
@@ -757,7 +810,10 @@ def main() -> None:
             print(f"  {npc}  ({shareable} shareable / {len(rows)} total):")
             for k in rows:
                 flag = "SECRET   " if k.is_secret else "shareable"
-                print(f"    - [{flag}] {k.subject} (level={k.level})")
+                print(
+                    f"    - [{flag}] {k.subject} "
+                    f"(level={k.level}, threshold={k.share_threshold})"
+                )
 
         # Verification: the full relation graph.
         rels = session.exec(select(m.Relation).order_by(m.Relation.id)).all()
