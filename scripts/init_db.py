@@ -1,0 +1,40 @@
+"""Initialize the World Engine database.
+
+Creates the SQLite database file with every table and index defined in
+`world_engine.models`. Safe to run repeatedly — existing tables are left as-is.
+
+Run from the project root:
+
+    python scripts/init_db.py
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# Make the `src` package importable without an editable install.
+SRC = Path(__file__).resolve().parent.parent / "src"
+sys.path.insert(0, str(SRC))
+
+from sqlalchemy import inspect  # noqa: E402
+
+from world_engine.db import DATABASE_URL, create_db_and_tables, engine  # noqa: E402
+
+
+def main() -> None:
+    create_db_and_tables()
+
+    inspector = inspect(engine)
+    tables = sorted(inspector.get_table_names())
+
+    print(f"Database ready at: {DATABASE_URL}")
+    print(f"Created/verified {len(tables)} tables:")
+    for name in tables:
+        index_count = len(inspector.get_indexes(name))
+        suffix = f" ({index_count} index{'es' if index_count != 1 else ''})" if index_count else ""
+        print(f"  - {name}{suffix}")
+
+
+if __name__ == "__main__":
+    main()
