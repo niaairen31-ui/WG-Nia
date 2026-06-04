@@ -422,7 +422,8 @@ CREATE TABLE prompt_template (
   name             TEXT NOT NULL,
   usage            TEXT NOT NULL,
                    -- pass_play_analysis | lore_coherence | event_generation |
-                   -- player_narration | session_summary | npc_dialogue | other
+                   -- player_narration | session_summary | npc_dialogue |
+                   -- conversation_analysis | other
   system_prompt    TEXT NOT NULL,
   user_template    TEXT NOT NULL,   -- user message template (with variables)
   variables        JSON,            -- expected variable list
@@ -523,8 +524,9 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.4** — No new tables or columns. Added `conversation_analysis` to the documented `prompt_template.usage` values (the column is TEXT — the value was already valid, this is a doc-only update). The post-conversation analysis pipeline (`analyze_conversation.py` + `analyzer.py`) is now implemented; see `ARCHITECTURE_DECISIONS.md` for the circuit description.
 - **v1.3** — Added `knowledge.share_threshold` (INTEGER DEFAULT 50, CHECK 1–100): the minimum NPC→interlocutor relation intensity required to share a non-secret knowledge row in conversation; ignored when `is_secret = TRUE`. Recorded the convention that an absent NPC→interlocutor relation is treated as neutral (50) by the assembler.
 - **v1.2** — Added `conversation`, `conversation_message`, and `proposed_mutation` for live sessions and the unified mutation pipeline. Removed `pass_play.local_proposal`. Documented the role-toggle rule on `user`. Added `npc_dialogue` to prompt usages. Changed `relation.intensity` to a 1–100 scale (default 50 = neutral) with a clamp-on-apply rule. Added `updated_at` to `entity` and `knowledge`. Added an INDEXES section for frequent lookups. Schema translated to English.
 - **v1.1** — Initial local-phase schema.
 
-*Version 1.3 — Co-built with Claude, June 2026*
+*Version 1.4 — Co-built with Claude, June 2026*

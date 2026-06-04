@@ -51,6 +51,21 @@ When a player talks to an NPC, the engine builds that NPC's prompt: who it is, w
 
 ---
 
+## CONVERSATION ANALYSIS — How proposals are generated
+
+After a live conversation ends, `scripts/analyze_conversation.py` reads the closed transcript and proposes canon changes:
+
+1. **Load** — reads the `conversation` row, its ordered `conversation_message` rows, and the `injected_context` snapshot (what the NPC was authorised to know).
+2. **Prompt** — the `pt-conversation-analysis` prompt template (`usage = conversation_analysis`, stored in `prompt_template`, editable by the creator) instructs the local Ollama model to identify ONLY concrete changes that ACTUALLY occurred: relation shifts, knowledge acquired, notable events. An empty result is explicitly valid for idle chat.
+3. **Call** — `ollama_client.chat()` with `format="json"` (constrains output to valid JSON syntax). Thinking mode is left enabled; `strip_think()` removes the reasoning block before parsing.
+4. **Normalise** — `analyzer._normalize_to_schema()` maps the model's natural field names to our schema. The 8b Qwen3 model reliably detects *what* changed but consistently ignores exact field-name requirements (it uses `type` / `subject` / `content` rather than `mutation_type` / `payload` / etc.). Fighting the model with stricter prompting failed; normalising the output is more robust.
+5. **Validate** — items that cannot be normalised to a known `mutation_type` + valid `payload` are skipped and logged.
+6. **Write** — each valid item becomes one `proposed_mutation` row: `status = proposed`, `proposed_by = local_ai`, `source_type = conversation`. No other table is touched.
+
+Idempotency: re-running on the same `conversation_id` exits with a message unless `--force` is passed, which deletes the existing proposals and re-runs.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

@@ -32,7 +32,9 @@ Read both before making any structural change.
 Target local model for NPC dialogue and analysis: **`huihui_ai/qwen3-abliterated:8b-v2`**, run via Ollama. Relevant when wiring the model (not before — context assembly is model-agnostic):
 
 - **Abliterated** = refusal mechanisms removed. Will not refuse, and is generally more compliant to *any* instruction — including a player pushing it to reveal. This makes it the strictest possible test of the "concealed knowledge / under guard" mechanism: if secrets hold here, they hold anywhere. The creator checkpoint remains the real safety net regardless.
-- **Thinking mode:** Qwen3 can emit a reasoning block before its answer. At wire-up, disable it or parse the output so only the NPC's spoken line is shown — otherwise the model's internal deliberation (including reasoning about the secret it must hide) could surface to the player.
+- **Thinking mode:** Qwen3 emits a `<think>...</think>` reasoning block before its answer. `ollama_client.strip_think()` handles this robustly (complete block, unclosed tag, orphan closing tag). Two different policies apply depending on the call site:
+  - **NPC dialogue** (`talk.py`): disable thinking with `/no_think` in the user message — deterministic, faster, and the reasoning block must never reach the player.
+  - **Conversation analysis** (`analyze_conversation.py`): leave thinking enabled — the reasoning helps the model follow format instructions; `strip_think` removes the block before JSON parsing.
 - **French quality:** multilingual but not Mistral-grade idiomatic French. Acceptable for validating logic; if narrative quality disappoints, that's a model-selection signal, not a code defect.
 
 ## Conventions
@@ -45,9 +47,15 @@ World-genrator/
 │   └── world_engine/        # the importable package
 │       ├── __init__.py
 │       ├── db.py            # engine + session; URL from env var
-│       └── models.py        # all SQLModel table classes (the schema)
+│       ├── models.py        # all SQLModel table classes (the schema)
+│       ├── context.py       # NPC context assembly (secret-exclusion + relation-gating)
+│       ├── ollama_client.py # HTTP client for local Ollama; strips <think> blocks
+│       └── analyzer.py      # post-conversation mutation analysis; normalizer
 ├── scripts/
-│   └── init_db.py           # creates the SQLite file with every table + index
+│   ├── init_db.py           # creates the SQLite file with every table + index
+│   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)
+│   ├── talk.py              # live CLI conversation with an NPC via Ollama
+│   └── analyze_conversation.py  # extract proposed mutations from a closed conversation
 ├── pyproject.toml           # src-layout package metadata
 ├── requirements.txt
 ├── .env.example
@@ -86,6 +94,13 @@ prepend `src` to `sys.path`, so they run without an editable install.
   this variable, never code.
 - **Initialize the DB:** `python scripts/init_db.py` — idempotent; prints the
   tables and index counts it created.
+- **Seed pilot data:** `python scripts/seed_pilot.py` — inserts Verkhaal world,
+  NPCs, relations, knowledge, and prompt templates. Idempotent.
+- **Live conversation:** `python scripts/talk.py` — opens a terminal conversation
+  with Maelis. Requires Ollama running (`ollama serve`).
+- **Analyse a conversation:** `python scripts/analyze_conversation.py <conversation_id>`
+  — reads the closed transcript, calls Ollama locally, writes `proposed_mutation`
+  rows. Use `--dry-run` to preview without writing; `--force` to re-run.
 
 ---
 
