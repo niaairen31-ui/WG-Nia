@@ -10,7 +10,6 @@ POST /api/conversations/{id}/analyze  (re)generate proposed mutations via Ollama
 GET  /api/mutations?status=proposed   list proposed_mutation rows
 POST /api/mutations/{id}/reject       mark rejected; no canon write
 POST /api/mutations/{id}/approve      apply to canon; on failure set 'approved'
-                                       (approve endpoint wired in next commit)
 
 Security
 --------
@@ -22,6 +21,7 @@ Security
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
@@ -29,6 +29,7 @@ from typing import Optional
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
 from .. import ollama_client
@@ -38,7 +39,9 @@ from ..models import (
     Conversation,
     ConversationMessage,
     Entity,
+    Knowledge,
     ProposedMutation,
+    Relation,
 )
 
 _INDEX_HTML = Path(__file__).parent / "index.html"
@@ -70,6 +73,139 @@ def _mutation_dict(m: ProposedMutation) -> dict:
         "reviewed_at": _iso(m.reviewed_at),
         "applied_at": _iso(m.applied_at),
     }
+
+
+# ── Canon writer ──────────────────────────────────────────────────────────────
+
+def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
+    """Write one mutation to the canon tables.
+
+    Returns an error string when the apply cannot proceed, None on success.
+    Never raises — errors are returned so the caller can set status='approved'
+    and store the message rather than crashing the request.
+
+    Implemented types
+    -----------------
+    - relation_change  : find / create the relation, apply intensity delta,
+                         clamp to 1–100, append previous state to change_history.
+    - new_knowledge    : insert a knowledge row for the target entity.
+    - status_change    : update entity.status and entity.updated_at.
+
+    Unimplemented types (event_creation, entity_creation, knowledge_change, other)
+    are left as 'approved' with a note — better un-applied than wrongly applied.
+    """
+    payload: dict = mut.payload if isinstance(mut.payload, dict) else {}
+    now = datetime.now(UTC)
+
+    # ── relation_change ───────────────────────────────────────────────────────
+    if mut.mutation_type == "relation_change":
+        a_id = payload.get("entity_a_id")
+        b_id = payload.get("entity_b_id")
+        if not a_id or not b_id:
+            return "relation_change: payload must contain entity_a_id and entity_b_id"
+
+        try:
+            delta = int(payload.get("intensity_delta", 0))
+        except (TypeError, ValueError):
+            return "relation_change: intensity_delta must be an integer"
+
+        rel_type = str(payload.get("relation_type") or "other")
+
+        # Search in both directions; take first match if several types exist.
+        # Design choice: no UNIQUE constraint in schema on (a, b) pair, so we
+        # take the first match.  A future version could match by type too.
+        rel = db.exec(
+            select(Relation).where(
+                ((Relation.entity_a_id == a_id) & (Relation.entity_b_id == b_id))
+                | ((Relation.entity_a_id == b_id) & (Relation.entity_b_id == a_id))
+            )
+        ).first()
+
+        if rel is None:
+            rel = Relation(
+                world_id=mut.world_id,
+                entity_a_id=a_id,
+                entity_b_id=b_id,
+                type=rel_type,
+                direction="mutual",
+                intensity=max(1, min(100, 50 + delta)),
+                change_history=[],
+                created_at=now,
+                last_evolved_at=now,
+            )
+        else:
+            # Append a snapshot of the previous state (history is sacred).
+            history = list(rel.change_history or [])
+            history.append({
+                "intensity": rel.intensity,
+                "last_evolved_at": _iso(rel.last_evolved_at),
+                "mutation_id": mut.id,
+            })
+            rel.change_history = history
+            # flag_modified ensures SQLAlchemy detects the JSON list change
+            # even though we replaced the object (not mutated it in place).
+            sa_attrs.flag_modified(rel, "change_history")
+            rel.intensity = max(1, min(100, rel.intensity + delta))
+            rel.last_evolved_at = now
+
+        db.add(rel)
+        return None
+
+    # ── new_knowledge ─────────────────────────────────────────────────────────
+    elif mut.mutation_type == "new_knowledge":
+        entity_id = payload.get("entity_id") or mut.target_id
+        if not entity_id:
+            return "new_knowledge: payload must contain entity_id (or set target_id)"
+
+        # Pass session_id from the source conversation when available.
+        session_id: Optional[str] = None
+        if mut.conversation_id:
+            conv = db.get(Conversation, mut.conversation_id)
+            if conv:
+                session_id = conv.session_id
+
+        k = Knowledge(
+            entity_id=entity_id,
+            subject=str(payload.get("subject") or "unknown"),
+            level=str(payload.get("level") or "rumor"),
+            content=str(payload.get("content") or ""),
+            source=str(payload.get("source") or "conversation"),
+            is_incorrect=bool(payload.get("is_incorrect", False)),
+            is_secret=bool(payload.get("is_secret", False)),
+            session_id=session_id,
+        )
+        db.add(k)
+        return None
+
+    # ── status_change ─────────────────────────────────────────────────────────
+    elif mut.mutation_type == "status_change":
+        entity_id = payload.get("entity_id") or mut.target_id
+        new_status = (
+            payload.get("status")
+            or payload.get("new_status")
+            or payload.get("value")
+        )
+
+        if not entity_id:
+            return "status_change: need entity_id in payload or target_id on mutation"
+        if not new_status:
+            return "status_change: need 'status' (or 'new_status') in payload"
+
+        entity = db.get(Entity, str(entity_id))
+        if entity is None:
+            return f"status_change: entity {entity_id!r} not found"
+
+        entity.status = str(new_status)
+        entity.updated_at = now
+        db.add(entity)
+        return None
+
+    # ── unimplemented ─────────────────────────────────────────────────────────
+    else:
+        return (
+            f"mutation_type '{mut.mutation_type}' is not implemented in "
+            f"_apply_mutation — left as 'approved' for manual handling."
+        )
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -265,3 +401,80 @@ def reject_mutation(
     db.commit()
     db.refresh(mut)
     return _mutation_dict(mut)
+
+
+class ApproveBody(BaseModel):
+    # The creator may edit the payload in the UI before approving.
+    # Sent as a JSON string so the textarea value is passed verbatim.
+    payload: Optional[str] = None
+    creator_notes: Optional[str] = None
+
+
+@app.post("/api/mutations/{mut_id}/approve")
+def approve_mutation(
+    mut_id: str,
+    body: ApproveBody = ApproveBody(),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Approve and apply a mutation to canon.
+
+    Success path  → status='applied',  applied_at set.
+    Failure path  → status='approved', error stored in creator_notes, returned
+                    to the caller.  Canon is never partially written.
+
+    The canon writes happen inside a SAVEPOINT so a failure rolls back only
+    those writes — the mutation row update (reviewed_at, notes, status) lives
+    in the outer transaction and is always committed.
+    """
+    mut = db.get(ProposedMutation, mut_id)
+    if mut is None:
+        raise HTTPException(status_code=404, detail="Mutation not found")
+
+    if mut.status == "applied":
+        return {"status": "already_applied", "mutation": _mutation_dict(mut)}
+
+    # Apply an edited payload from the form before writing anything.
+    if body.payload is not None:
+        try:
+            mut.payload = json.loads(body.payload)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=422, detail=f"Payload is not valid JSON: {exc}"
+            )
+
+    if body.creator_notes is not None:
+        mut.creator_notes = body.creator_notes
+
+    now = datetime.now(UTC)
+    mut.reviewed_at = now
+
+    try:
+        # SAVEPOINT: canon writes are rolled back on failure; the outer
+        # transaction (mutation row update) stays live either way.
+        with db.begin_nested():
+            error = _apply_mutation(mut, db)
+            if error:
+                raise RuntimeError(error)
+
+        # Savepoint committed → canon updated.
+        mut.status = "applied"
+        mut.applied_at = now
+        db.add(mut)
+        db.commit()
+        db.refresh(mut)
+        return {"status": "applied", "mutation": _mutation_dict(mut)}
+
+    except Exception as exc:
+        # Savepoint rolled back — canon is clean.
+        error_msg = str(exc)
+        mut.status = "approved"
+        prior = mut.creator_notes or ""
+        mut.creator_notes = f"{prior}\n[apply error] {error_msg}".strip()
+        db.add(mut)
+        db.commit()
+        db.refresh(mut)
+        return {
+            "status": "approved",
+            "error": error_msg,
+            "mutation": _mutation_dict(mut),
+        }
