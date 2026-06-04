@@ -107,6 +107,69 @@ def align_relation_intensity(session: Session, id: str, target: int) -> None:
         )
 
 
+# Analysis prompt for post-conversation mutation extraction. Usage value is
+# "conversation_analysis" — not in the schema's listed examples but the column
+# is plain TEXT, so any slug works. world_id = NULL means it applies to every
+# world. Variables are substituted with str.replace(), not .format(), so curly
+# braces inside the JSON examples below are stored as-is without escaping.
+CONVERSATION_ANALYSIS_SYSTEM_PROMPT = """\
+You extract world-state changes from an RPG conversation transcript.
+Output: a JSON array only. No prose. No markdown fences. Start with [, end with ].
+Nothing changed → output exactly: []
+
+Every element must have these EXACT 5 keys — no other keys allowed:
+  "mutation_type"  (string) — relation_change | new_knowledge | knowledge_change | event_creation | status_change | entity_creation | other
+  "target_table"   (string) — relation | knowledge | event | entity | character | location | faction | artifact | other
+  "target_id"      (string or null) — id of the row to update; null for a new row
+  "payload"        (object) — fields matching the target table (see below)
+  "rationale"      (string) — one line quoting or summarising the evidence
+
+Payload shapes:
+  relation_change  → {"entity_a_id":"…","entity_b_id":"…","relation_type":"…","intensity_delta":<signed int>}
+  new_knowledge    → {"entity_id":"…","subject":"…","level":"rumor|partial|knows|…","content":"…","source":"…"}
+  knowledge_change → {"entity_id":"…","subject":"…","field":"…","new_value":"…"}
+  event_creation   → {"title":"…","description":"…","type":"social|political|other","involved_entities":[…]}
+
+Only report changes that ACTUALLY happened in the transcript. Idle chat → [].
+
+=== EXAMPLE A (relation warms) ===
+Transcript:
+[PLAYER] I have been coming here for two years.
+[NPC] Two years, yes. I recognise you. You do not cause trouble. I appreciate that.
+Output:
+[{"mutation_type":"relation_change","target_table":"relation","target_id":"rel-maelis-player","payload":{"entity_a_id":"npc-maelis","entity_b_id":"char-player","relation_type":"passive_attention","intensity_delta":6},"rationale":"NPC explicitly recognised player and evaluated positively — trust warmed."}]
+
+=== EXAMPLE B (player learns fact) ===
+Transcript:
+[PLAYER] Is there sometimes an odd warmth in here?
+[NPC] A warmth, yes. For a few weeks now. I cannot explain it.
+Output:
+[{"mutation_type":"new_knowledge","target_table":"knowledge","target_id":null,"payload":{"entity_id":"char-player","subject":"local_magic_incidents","level":"rumor","content":"NPC confirmed an unexplained warmth in the tavern for several weeks.","source":"conversation with NPC"},"rationale":"NPC directly confirmed the warmth — player now has external corroboration."}]
+
+=== EXAMPLE C (multiple changes) ===
+Transcript:
+[PLAYER] I have been coming here for two years.
+[NPC] Two years, yes. I know you. Lately the Guard patrols more — some travellers vanish, they say.
+Output:
+[{"mutation_type":"relation_change","target_table":"relation","target_id":"rel-maelis-player","payload":{"entity_a_id":"npc-maelis","entity_b_id":"char-player","relation_type":"passive_attention","intensity_delta":5},"rationale":"NPC recognised player as a known, trustworthy patron."},{"mutation_type":"new_knowledge","target_table":"knowledge","target_id":null,"payload":{"entity_id":"char-player","subject":"guard_activity","level":"rumor","content":"Guard patrols have increased and some travellers have reportedly vanished.","source":"conversation with NPC"},"rationale":"NPC told the player about increased Guard patrols and disappearing travellers."}]
+
+=== EXAMPLE D (idle, nothing to record) ===
+Transcript:
+[PLAYER] A drink, please.
+[NPC] Here you go.
+Output:
+[]"""
+
+CONVERSATION_ANALYSIS_USER_TEMPLATE = """\
+NPC CONTEXT (what the NPC was authorised to know):
+{injected_context}
+
+TRANSCRIPT:
+{transcript}
+
+JSON array of canon mutations ([] if nothing changed):"""
+
+
 # Universal behaviour prompt for every NPC. Prepended to the assembled context
 # as the system prompt. Creator-owned and editable in the DB.
 NPC_DIALOGUE_SYSTEM_PROMPT = """\
@@ -198,6 +261,25 @@ def seed(session: Session) -> None:
         system_prompt=NPC_DIALOGUE_SYSTEM_PROMPT,
         user_template="{player_line}",
         variables=["player_line", "relation_intensity"],
+        destination="local",
+    )
+
+    # ----- prompt template: post-conversation mutation analysis --------------
+    # usage = "conversation_analysis" (not in the schema's example list, but
+    # the column is plain TEXT — any slug is valid). world_id = NULL so it
+    # applies to every world. Variables are {transcript} and {injected_context};
+    # substituted with str.replace() in analyzer.py, not .format(), so the
+    # JSON examples inside the system_prompt are stored verbatim.
+    get_or_create(
+        session,
+        m.PromptTemplate,
+        "pt-conversation-analysis",
+        world_id=None,
+        name="Conversation analysis — extraction de mutations",
+        usage="conversation_analysis",
+        system_prompt=CONVERSATION_ANALYSIS_SYSTEM_PROMPT,
+        user_template=CONVERSATION_ANALYSIS_USER_TEMPLATE,
+        variables=["transcript", "injected_context"],
         destination="local",
     )
 

@@ -80,13 +80,18 @@ def chat(
     model: str = DEFAULT_MODEL,
     host: str = OLLAMA_HOST,
     timeout: float = 300.0,
+    format: str | dict | None = None,
 ) -> str:
     """Send a chat request; return the assistant content WITH the think block stripped.
 
     `messages` is a list of {"role": "system"|"user"|"assistant", "content": str}.
+    Pass `format="json"` to enable Ollama's JSON-constrained generation (Ollama ≥ 0.1.x).
+    Pass `format={...schema...}` for structured outputs (Ollama ≥ 0.4).
     """
     url = f"{host}/api/chat"
-    payload = {"model": model, "messages": messages, "stream": False}
+    payload: dict = {"model": model, "messages": messages, "stream": False}
+    if format is not None:
+        payload["format"] = format
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url, data=data, headers={"Content-Type": "application/json"}
