@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>World Engine — Cockpit</title>
+<style>
+/* ── Reset ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+
+/* ── Design tokens ───────────────────────────────────────────────────────── */
+:root {
+  --bg:        #0d1117;
+  --panel:     #161b22;
+  --card:      #21262d;
+  --border:    #30363d;
+  --text:      #c9d1d9;
+  --muted:     #8b949e;
+  --accent:    #58a6ff;
+  --green:     #3fb950;
+  --yellow:    #d29922;
+  --red:       #f85149;
+  --radius:    6px;
+  --mono:      "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+header {
+  flex-shrink: 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+header h1 { font-size: 15px; font-weight: 600; }
+header .sub { color: var(--muted); font-size: 12px; }
+header .spacer { flex: 1; }
+header .local-badge {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px 10px;
+}
+
+/* ── Two-column layout ───────────────────────────────────────────────────── */
+.layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  overflow: hidden;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+.sidebar {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sidebar-head {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sidebar-head button { margin-left: auto; }
+.conv-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+.conv-item {
+  padding: 9px 14px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.1s;
+}
+.conv-item:hover  { background: rgba(255,255,255,0.04); }
+.conv-item.active { background: var(--card); border-left-color: var(--accent); }
+.conv-item .ci-id { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+.conv-item .ci-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* ── Right column ────────────────────────────────────────────────────────── */
+.right-col {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Transcript panel ────────────────────────────────────────────────────── */
+.transcript-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 2px solid var(--border);
+}
+.panel-head {
+  flex-shrink: 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.panel-head h2 { font-size: 13px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.analyze-status { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+.transcript-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── Chat messages ───────────────────────────────────────────────────────── */
+.msg { display: flex; flex-direction: column; max-width: 72%; gap: 3px; }
+.msg.player { align-self: flex-end; align-items: flex-end; }
+.msg.npc    { align-self: flex-start; align-items: flex-start; }
+.msg-name { font-size: 11px; color: var(--muted); padding: 0 6px; }
+.msg-bubble {
+  padding: 8px 13px;
+  border-radius: var(--radius);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+.msg.player .msg-bubble {
+  background: #1c3a5e;
+  border-bottom-right-radius: 2px;
+  color: #79c0ff;
+}
+.msg.npc .msg-bubble {
+  background: #1a2e1a;
+  border-bottom-left-radius: 2px;
+  color: #7ee787;
+}
+
+/* ── Queue panel ─────────────────────────────────────────────────────────── */
+.queue-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.queue-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.filter-bar { display: flex; gap: 4px; }
+.f-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
+}
+.f-btn:hover  { color: var(--text); border-color: var(--muted); }
+.f-btn.active { background: var(--card); color: var(--text); border-color: var(--accent); }
+
+/* ── Mutation card ───────────────────────────────────────────────────────── */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.card.s-applied  { border-left: 3px solid var(--green); }
+.card.s-rejected { border-left: 3px solid var(--red);   opacity: 0.6; }
+.card.s-approved { border-left: 3px solid var(--yellow); }
+
+.card-head {
+  padding: 9px 13px;
+  background: rgba(255,255,255,0.02);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.card-head .ts { margin-left: auto; font-size: 11px; color: var(--muted); }
+
+/* Rationale block — the reason the AI proposed the change */
+.card-rationale {
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--border);
+  font-style: italic;
+  color: var(--text);
+  line-height: 1.5;
+}
+.card-rationale::before { content: '\201C'; color: var(--muted); margin-right: 2px; }
+.card-rationale::after  { content: '\201D'; color: var(--muted); margin-left: 2px; }
+
+.card-fields {
+  padding: 11px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  border-bottom: 1px solid var(--border);
+}
+.field-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+textarea.payload {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 7px;
+  resize: vertical;
+  min-height: 72px;
+}
+textarea.payload:focus { outline: none; border-color: var(--accent); }
+textarea.payload[readonly] { opacity: 0.7; }
+input.notes {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
+}
+input.notes:focus { outline: none; border-color: var(--accent); }
+input.notes[readonly] { opacity: 0.7; }
+input.notes::placeholder { color: var(--muted); }
+
+.card-actions {
+  padding: 9px 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-result {
+  font-size: 12px;
+  padding: 0 13px;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.2s, padding 0.2s;
+  white-space: pre-wrap;
+}
+.card-result.show {
+  max-height: 120px;
+  padding: 8px 13px;
+  border-top: 1px solid var(--border);
+}
+.r-ok   { color: var(--green); }
+.r-warn { color: var(--yellow); }
+.r-err  { color: var(--red); }
+
+/* ── Badges ──────────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* mutation_type colours */
+.b-relation_change   { background:#0d2138; color:#79c0ff; border:1px solid #1f6feb; }
+.b-new_knowledge     { background:#0d2c12; color:#7ee787; border:1px solid #238636; }
+.b-knowledge_change  { background:#0d2c12; color:#7ee787; border:1px solid #1a7f37; }
+.b-status_change     { background:#271a00; color:#ffa657; border:1px solid #9e6a03; }
+.b-event_creation    { background:#1e1130; color:#d2a8ff; border:1px solid #6e40c9; }
+.b-entity_creation   { background:#1e1130; color:#d2a8ff; border:1px solid #6e40c9; }
+.b-other             { background:#1c2128; color:var(--muted); border:1px solid var(--border); }
+/* status colours */
+.b-proposed { background:#2b1d00; color:var(--yellow); border:1px solid #9e6a03; }
+.b-applied  { background:#0d2c12; color:var(--green);  border:1px solid #238636; }
+.b-rejected { background:#2a0e10; color:var(--red);    border:1px solid #b62324; }
+.b-approved { background:#0d1f38; color:var(--accent); border:1px solid #1f6feb; }
+/* conversation status */
+.b-open   { background:#0d2c12; color:var(--green); }
+.b-closed { background:#1c2128; color:var(--muted); }
+
+.target-ref { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+button {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 13px;
+  border-radius: var(--radius);
+  border: 1px solid;
+  transition: filter 0.1s;
+}
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button:not(:disabled):hover { filter: brightness(1.15); }
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text);
+  padding: 4px 11px;
+  font-size: 12px;
+}
+.btn-icon {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  padding: 4px 8px;
+  font-size: 15px;
+  line-height: 1;
+}
+.btn-icon:hover { color: var(--text) !important; filter: none !important; }
+.btn-approve {
+  background: #12261e;
+  border-color: #238636;
+  color: var(--green);
+  font-weight: 600;
+}
+.btn-reject {
+  background: #2a0e10;
+  border-color: #b62324;
+  color: var(--red);
+  font-weight: 600;
+}
+
+/* ── Empty / info states ─────────────────────────────────────────────────── */
+.empty { color: var(--muted); font-style: italic; text-align: center; padding: 28px 16px; }
+.spin  { display: inline-block; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ══ Header ══════════════════════════════════════════════════════════════ -->
+<header>
+  <h1>🌍 World Engine</h1>
+  <span style="color:var(--border)">│</span>
+  <span style="font-weight:600; color:var(--accent)">Cockpit</span>
+  <span class="sub">creator review dashboard</span>
+  <span class="spacer"></span>
+  <span class="local-badge">127.0.0.1 · local only</span>
+</header>
+
+<!-- ══ Two-column layout ════════════════════════════════════════════════════ -->
+<div class="layout">
+
+  <!-- ── Sidebar: conversation list ── -->
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      Conversations
+      <button class="btn-icon" onclick="loadConversations()" title="Refresh list">↻</button>
+    </div>
+    <div class="conv-list" id="conv-list">
+      <div class="empty"><span class="spin">⟳</span></div>
+    </div>
+  </aside>
+
+  <!-- ── Right column: transcript + queue ── -->
+  <div class="right-col">
+
+    <!-- ── Transcript ── -->
+    <div class="transcript-panel">
+      <div class="panel-head">
+        <h2 id="transcript-title">Transcript</h2>
+        <button class="btn-ghost" id="btn-analyze"
+                onclick="analyzeConv(false)" disabled>Analyze</button>
+        <button class="btn-ghost" id="btn-force"
+                onclick="analyzeConv(true)" disabled
+                title="Delete existing proposals and re-run">Force</button>
+        <span class="analyze-status" id="analyze-status"></span>
+      </div>
+      <div class="transcript-body" id="transcript-body">
+        <div class="empty">Select a conversation on the left.</div>
+      </div>
+    </div>
+
+    <!-- ── Review queue ── -->
+    <div class="queue-panel">
+      <div class="panel-head">
+        <h2>Review Queue</h2>
+        <div class="filter-bar" id="filter-bar">
+          <button class="f-btn active" data-s="proposed"  onclick="setFilter(this,'proposed')">Proposed</button>
+          <button class="f-btn"        data-s="approved"  onclick="setFilter(this,'approved')">Approved</button>
+          <button class="f-btn"        data-s="applied"   onclick="setFilter(this,'applied')">Applied</button>
+          <button class="f-btn"        data-s="rejected"  onclick="setFilter(this,'rejected')">Rejected</button>
+        </div>
+        <button class="btn-icon" onclick="loadQueue()" title="Refresh queue">↻</button>
+      </div>
+      <div class="queue-body" id="queue-body">
+        <div class="empty"><span class="spin">⟳</span></div>
+      </div>
+    </div>
+
+  </div><!-- .right-col -->
+</div><!-- .layout -->
+
+<script>
+'use strict';
+
+/* ════════════════════════════════════════════════════════════════════════════
+   State
+   ════════════════════════════════════════════════════════════════════════════ */
+let currentConvId  = null;
+let currentFilter  = 'proposed';
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Utilities
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/** HTML-escape a value (null/undefined → empty string). */
+function esc(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Shorten a UUID for display: first 8 chars + ellipsis. */
+function shortId(id) { return id ? id.slice(0, 8) + '…' : ''; }
+
+/** Format an ISO datetime string using local locale. */
+function fmtDate(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      dateStyle: 'short', timeStyle: 'short'
+    });
+  } catch { return iso; }
+}
+
+/**
+ * Thin fetch wrapper.
+ * Parses the JSON body; throws an Error with `data.detail` on non-2xx.
+ */
+async function api(path, opts = {}) {
+  const res  = await fetch(path, opts);
+  const data = await res.json().catch(() => ({ detail: res.statusText }));
+  if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+  return data;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Conversations
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function loadConversations() {
+  const el = document.getElementById('conv-list');
+  el.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  try {
+    const convs = await api('/api/conversations');
+    if (!convs.length) {
+      el.innerHTML = '<div class="empty">No conversations in the database.</div>';
+      return;
+    }
+    el.innerHTML = convs.map(c => `
+      <div class="conv-item" id="ci-${esc(c.id)}" onclick="selectConv('${esc(c.id)}')">
+        <div class="ci-id">${esc(shortId(c.id))}</div>
+        <div class="ci-meta">
+          <span class="badge b-${esc(c.status)}">${esc(c.status)}</span>
+          ${c.location ? ' · ' + esc(c.location) : ''}
+          · ${c.message_count} msg${c.message_count !== 1 ? 's' : ''}
+          <br>${fmtDate(c.started_at)}
+        </div>
+      </div>`).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="empty" style="color:var(--red)">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+async function selectConv(id) {
+  currentConvId = id;
+
+  document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
+  const item = document.getElementById('ci-' + id);
+  if (item) item.classList.add('active');
+
+  document.getElementById('btn-analyze').disabled = false;
+  document.getElementById('btn-force').disabled   = false;
+  document.getElementById('analyze-status').textContent = '';
+
+  const body = document.getElementById('transcript-body');
+  body.innerHTML = '<div class="empty"><span class="spin">⟳</span> Loading…</div>';
+  document.getElementById('transcript-title').textContent = 'Transcript';
+
+  try {
+    const data = await api('/api/conversations/' + id);
+    renderTranscript(data);
+    document.getElementById('transcript-title').textContent =
+      (data.npc_name || '?') + ' ↔ ' + (data.player_name || '?') +
+      (data.location ? '  ·  ' + data.location : '');
+  } catch (e) {
+    body.innerHTML = `<div class="empty" style="color:var(--red)">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderTranscript(data) {
+  const body = document.getElementById('transcript-body');
+  if (!data.messages || !data.messages.length) {
+    body.innerHTML = '<div class="empty">No messages.</div>';
+    return;
+  }
+  body.innerHTML = data.messages.map(m => `
+    <div class="msg ${esc(m.speaker)}">
+      <div class="msg-name">${esc(m.display_name)}</div>
+      <div class="msg-bubble">${esc(m.content)}</div>
+    </div>`).join('');
+  body.scrollTop = body.scrollHeight;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Analysis
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function analyzeConv(force) {
+  if (!currentConvId) return;
+
+  const btnA   = document.getElementById('btn-analyze');
+  const btnF   = document.getElementById('btn-force');
+  const status = document.getElementById('analyze-status');
+
+  btnA.disabled = true;
+  btnF.disabled = true;
+  status.style.color = 'var(--muted)';
+  status.textContent = '⟳ Analyzing…';
+
+  try {
+    const data = await api(
+      '/api/conversations/' + currentConvId + '/analyze?force=' + force,
+      { method: 'POST' }
+    );
+    const n = data.count || 0;
+    if (data.status === 'existing') {
+      status.textContent = `↩ ${n} existing proposal${n !== 1 ? 's' : ''} — use Force to re-run`;
+    } else {
+      status.textContent = `✓ ${n} proposal${n !== 1 ? 's' : ''} written`;
+    }
+    // Switch to proposed tab and reload the queue so new proposals are visible.
+    setFilterByName('proposed');
+    await loadQueue();
+  } catch (e) {
+    status.style.color = 'var(--red)';
+    status.textContent = '✗ ' + e.message;
+  } finally {
+    btnA.disabled = false;
+    btnF.disabled = false;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Review queue
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function setFilter(btn, status) {
+  document.querySelectorAll('.f-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentFilter = status;
+  loadQueue();
+}
+
+function setFilterByName(status) {
+  const btn = document.querySelector(`.f-btn[data-s="${status}"]`);
+  if (btn) {
+    document.querySelectorAll('.f-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFilter = status;
+  }
+}
+
+async function loadQueue() {
+  const body = document.getElementById('queue-body');
+  try {
+    const mutations = await api('/api/mutations?status=' + currentFilter);
+    if (!mutations.length) {
+      body.innerHTML = `<div class="empty">No "${esc(currentFilter)}" proposals.</div>`;
+      return;
+    }
+    body.innerHTML = mutations.map(renderCard).join('');
+  } catch (e) {
+    body.innerHTML = `<div class="empty" style="color:var(--red)">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderCard(m) {
+  const editable  = (m.status === 'proposed');
+  const payloadStr = JSON.stringify(m.payload, null, 2);
+
+  const targetTxt = [m.target_table, m.target_id ? shortId(m.target_id) : null]
+    .filter(Boolean).join(' · ');
+
+  const sourceRef = m.conversation_id
+    ? `conv:${shortId(m.conversation_id)}`
+    : m.pass_play_id
+      ? `pass-play:${shortId(m.pass_play_id)}`
+      : '';
+
+  return `
+<div class="card s-${esc(m.status)}" id="card-${esc(m.id)}">
+  <div class="card-head">
+    <span class="badge b-${esc(m.mutation_type)}">${esc(m.mutation_type)}</span>
+    ${targetTxt ? `<span class="target-ref">${esc(targetTxt)}</span>` : ''}
+    <span class="badge b-${esc(m.status)}">${esc(m.status)}</span>
+    ${sourceRef ? `<span class="target-ref">${esc(sourceRef)}</span>` : ''}
+    <span class="ts">${fmtDate(m.proposed_at)}</span>
+  </div>
+
+  <div class="card-rationale">${esc(m.rationale || '(no rationale provided)')}</div>
+
+  <div class="card-fields">
+    <div>
+      <div class="field-label">Payload</div>
+      <textarea class="payload" id="pl-${esc(m.id)}" rows="5"
+        spellcheck="false"${editable ? '' : ' readonly'}>${esc(payloadStr)}</textarea>
+    </div>
+    <div>
+      <div class="field-label">Creator notes</div>
+      <input class="notes" type="text" id="nt-${esc(m.id)}"
+        value="${esc(m.creator_notes || '')}"
+        placeholder="${editable ? 'optional note…' : ''}"
+        ${editable ? '' : 'readonly'}>
+    </div>
+  </div>
+
+  ${editable ? `
+  <div class="card-actions" id="ca-${esc(m.id)}">
+    <button class="btn-approve" id="bap-${esc(m.id)}"
+            onclick="doApprove('${esc(m.id)}')">✓ Approve</button>
+    <button class="btn-reject"  id="brj-${esc(m.id)}"
+            onclick="doReject('${esc(m.id)}')">✗ Reject</button>
+  </div>` : ''}
+
+  <div class="card-result" id="cr-${esc(m.id)}"></div>
+</div>`;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Approve
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function doApprove(id) {
+  const plEl  = document.getElementById('pl-' + id);
+  const ntEl  = document.getElementById('nt-' + id);
+  const crEl  = document.getElementById('cr-' + id);
+  const bapEl = document.getElementById('bap-' + id);
+  const brjEl = document.getElementById('brj-' + id);
+
+  // Validate JSON before sending — saves a round trip.
+  const payloadStr = plEl ? plEl.value : null;
+  if (payloadStr) {
+    try { JSON.parse(payloadStr); }
+    catch (e) { showResult(crEl, 'err', 'Invalid JSON in payload: ' + e.message); return; }
+  }
+
+  lockCard(bapEl, brjEl);
+  showResult(crEl, '', '⟳ Applying to canon…');
+
+  try {
+    const data = await api('/api/mutations/' + id + '/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        payload:       payloadStr,
+        creator_notes: ntEl ? ntEl.value || null : null,
+      }),
+    });
+
+    if (data.status === 'applied') {
+      showResult(crEl, 'ok', '✓ Applied to canon.');
+      markCardDone(id, 'applied');
+    } else if (data.status === 'already_applied') {
+      showResult(crEl, 'warn', '⚠ Already applied.');
+      markCardDone(id, 'applied');
+    } else {
+      // 'approved' — reviewed but not applied; error stored server-side.
+      showResult(crEl, 'warn',
+        '⚠ Saved as "approved" (not applied to canon):\n' + (data.error || ''));
+      markCardDone(id, 'approved');
+    }
+  } catch (e) {
+    showResult(crEl, 'err', '✗ ' + e.message);
+    unlockCard(bapEl, brjEl);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Reject
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function doReject(id) {
+  const ntEl  = document.getElementById('nt-' + id);
+  const crEl  = document.getElementById('cr-' + id);
+  const bapEl = document.getElementById('bap-' + id);
+  const brjEl = document.getElementById('brj-' + id);
+
+  lockCard(bapEl, brjEl);
+  showResult(crEl, '', '⟳ Rejecting…');
+
+  try {
+    await api('/api/mutations/' + id + '/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ creator_notes: ntEl ? ntEl.value || null : null }),
+    });
+    showResult(crEl, 'ok', '✓ Rejected. World state unchanged.');
+    markCardDone(id, 'rejected');
+  } catch (e) {
+    showResult(crEl, 'err', '✗ ' + e.message);
+    unlockCard(bapEl, brjEl);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Card helpers
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function showResult(el, cls, msg) {
+  if (!el) return;
+  el.className = 'card-result show' + (cls ? ' r-' + cls : '');
+  el.textContent = msg;
+}
+
+function lockCard(bap, brj) {
+  if (bap) bap.disabled = true;
+  if (brj) brj.disabled = true;
+}
+
+function unlockCard(bap, brj) {
+  if (bap) bap.disabled = false;
+  if (brj) brj.disabled = false;
+}
+
+/** Update card visual state after an approve / reject action completes. */
+function markCardDone(id, newStatus) {
+  const card = document.getElementById('card-' + id);
+  if (!card) return;
+
+  // Swap the status colour class on the card border.
+  card.className = card.className.replace(/s-\w+/, 's-' + newStatus);
+
+  // Swap the status badge text + class.
+  const badge = card.querySelector('.b-proposed, .b-approved');
+  if (badge) {
+    badge.className = 'badge b-' + newStatus;
+    badge.textContent = newStatus;
+  }
+
+  // Hide action buttons — card is no longer actionable.
+  const actions = document.getElementById('ca-' + id);
+  if (actions) actions.style.display = 'none';
+
+  // Make fields read-only.
+  const pl = card.querySelector('.payload');
+  if (pl) pl.readOnly = true;
+  const nt = card.querySelector('.notes');
+  if (nt) nt.readOnly = true;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Boot
+   ════════════════════════════════════════════════════════════════════════════ */
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadConversations();
+  loadQueue();
+});
+</script>
+</body>
+</html>
