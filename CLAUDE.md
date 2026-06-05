@@ -15,7 +15,9 @@ Read both before making any structural change.
 - **Language:** Python
 - **Web:** FastAPI
 - **ORM / DB:** SQLModel over SQLite (Supabase/PostgreSQL-compatible later)
-- **UI:** server-rendered HTML with HTMX (no heavy frontend framework)
+- **UI:** two modes — server-rendered HTML with HTMX for the player-facing app
+  (not yet built); single-page HTML + vanilla `fetch()` for the creator cockpit
+  (no framework, no CDN, no build step, works fully offline).
 - **Local models:** Ollama. Current target model: `huihui_ai/qwen3-abliterated:8b-v2` (see Local model notes below).
 
 ## Working rules
@@ -26,6 +28,11 @@ Read both before making any structural change.
 - **Injected context depends on the active role, never the account.** In player mode, never expose an NPC's secrets, others' secrets, or anything the player character is not meant to know.
 - Keep the database engine URL in an environment variable (default to a local SQLite file) so switching to PostgreSQL/Supabase needs no code change.
 - History is sacred: prefer preserving successive states over overwriting them.
+- **`--force` only deletes `proposed` rows.** Any `proposed_mutation` row with
+  status `applied`, `approved`, or `rejected` is reviewed history and must never
+  be deleted — not by the CLI `--force` flag, not by the cockpit re-analyze
+  endpoint. A forced re-analysis regenerates proposals alongside existing
+  reviewed rows.
 
 ## Local model notes
 
@@ -50,12 +57,17 @@ World-genrator/
 │       ├── models.py        # all SQLModel table classes (the schema)
 │       ├── context.py       # NPC context assembly (secret-exclusion + relation-gating)
 │       ├── ollama_client.py # HTTP client for local Ollama; strips <think> blocks
-│       └── analyzer.py      # post-conversation mutation analysis; normalizer
+│       ├── analyzer.py      # post-conversation mutation analysis; normalizer
+│       └── cockpit/         # creator review web UI (FastAPI sub-app)
+│           ├── __init__.py
+│           ├── app.py       # JSON endpoints + HTML route; _apply_mutation
+│           └── index.html   # single-page UI (inline CSS/JS, zero external deps)
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)
 │   ├── talk.py              # live CLI conversation with an NPC via Ollama
-│   └── analyze_conversation.py  # extract proposed mutations from a closed conversation
+│   ├── analyze_conversation.py  # extract proposed mutations from a closed conversation
+│   └── cockpit.py           # launch the review cockpit (uvicorn, 127.0.0.1 only)
 ├── pyproject.toml           # src-layout package metadata
 ├── requirements.txt
 ├── .env.example
@@ -100,7 +112,12 @@ prepend `src` to `sys.path`, so they run without an editable install.
   with Maelis. Requires Ollama running (`ollama serve`).
 - **Analyse a conversation:** `python scripts/analyze_conversation.py <conversation_id>`
   — reads the closed transcript, calls Ollama locally, writes `proposed_mutation`
-  rows. Use `--dry-run` to preview without writing; `--force` to re-run.
+  rows. Use `--dry-run` to preview without writing; `--force` to replace existing
+  *proposed* rows and re-run (reviewed rows are never deleted — see Working rules).
+- **Creator cockpit:** `python scripts/cockpit.py` — starts the local review UI
+  at http://127.0.0.1:8000. Browse conversations, read transcripts, trigger
+  analysis, and approve / reject proposed mutations. Binds to loopback only.
+  Requires the DB to be seeded; Ollama only needed for the Analyze action.
 
 ---
 

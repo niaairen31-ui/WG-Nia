@@ -62,7 +62,84 @@ After a live conversation ends, `scripts/analyze_conversation.py` reads the clos
 5. **Validate** — items that cannot be normalised to a known `mutation_type` + valid `payload` are skipped and logged.
 6. **Write** — each valid item becomes one `proposed_mutation` row: `status = proposed`, `proposed_by = local_ai`, `source_type = conversation`. No other table is touched.
 
-Idempotency: re-running on the same `conversation_id` exits with a message unless `--force` is passed, which deletes the existing proposals and re-runs.
+Idempotency: re-running on the same `conversation_id` exits with a message unless
+`--force` is passed. `--force` deletes ONLY rows with `status = 'proposed'`;
+reviewed rows (`applied`, `approved`, `rejected`) are permanent audit history and
+survive regardless. If a conversation has only reviewed rows and no pending
+proposals, re-analysis runs freely without `--force`.
+
+---
+
+## CREATOR REVIEW COCKPIT
+
+`src/world_engine/cockpit/` is the local web UI for the two tasks that were
+previously CLI-only: reading conversation transcripts and reviewing / applying
+proposed mutations. It is the **only place where world state gets written** in
+response to approved proposals.
+
+### What it does
+
+- Reads conversations and renders them as a chat transcript (speaker names
+  resolved from the `entity` table).
+- Triggers (re-)analysis via the existing `analyzer.analyze_conversation` — no
+  logic duplication.
+- Lists the review queue filterable by status (`proposed` / applied / rejected /
+  needs attention).
+- Approve / reject mutations with an optional creator note and (for approve) an
+  editable payload before writing.
+
+### apply_mutation — the only canon-write path
+
+`_apply_mutation()` in `cockpit/app.py` is the single function authorised to
+write to canon tables. Three types are implemented:
+
+| mutation_type    | What is written |
+|------------------|-----------------|
+| `relation_change`  | Find or create the Relation row; apply intensity delta (clamped 1–100); append previous state to `change_history`. |
+| `new_knowledge`    | Insert a `knowledge` row; inherits `session_id` from the source conversation. |
+| `status_change`    | Update `entity.status` + `entity.updated_at`. |
+
+Any other type is left at `status = 'approved'` with a note — never wrongly
+applied. Better un-applied than wrongly applied.
+
+Canon writes are wrapped in a **SAVEPOINT** (`db.begin_nested()`): if the apply
+fails, only the canon writes roll back; the mutation-row update (status,
+`reviewed_at`, error note) lives in the outer transaction and always commits.
+
+### The "Needs attention" tab
+
+`status = 'approved'` is an **exception bucket**, not a success state. A
+proposal lands there only when it was reviewed but could NOT be applied:
+
+- Unimplemented `mutation_type`
+- Apply error (e.g. entity not found, malformed payload)
+- Duplicate-application blocked (see below)
+
+A successful approval always reaches `status = 'applied'`. The "Needs
+attention" tab being empty is the normal, healthy state.
+
+### Duplicate-application guard
+
+`_find_applied_duplicate()` runs as the first check inside `_apply_mutation`.
+If an equivalent mutation was already applied for the same conversation, the
+new one is blocked and routed to "Needs attention" instead of writing a
+duplicate row.
+
+Match keys (same `conversation_id` required in all cases):
+
+- `new_knowledge`   → `entity_id` + `subject`
+- `relation_change` → unordered entity pair + `relation_type`
+- `status_change`   → `entity_id`
+
+This prevents the worst-case scenario: a forced re-analysis after an approval
+generates a fresh proposal that, if approved again, would double a relation
+delta or create a duplicate knowledge row.
+
+### History is sacred — force protection
+
+`--force` (CLI and cockpit endpoint) deletes ONLY rows with `status = 'proposed'`.
+Reviewed rows (`applied`, `approved`, `rejected`) are immutable audit history
+and are never deleted.
 
 ---
 
@@ -78,7 +155,6 @@ Goal: find out fast whether the local models can hold a character. That is the p
 - **Role toggle.** The single test user switches between creator mode and player mode. The rule: injected context depends on the *active role*, not the account. In creator mode the user sees real world state (secrets included), edits, and reviews mutations. In player mode the app injects only what the player character is meant to know — secrets are hidden from view even though the same human knows them. This makes solo testing more honest and is the exact mechanism multiplayer will reuse later (a real player just gets their own account, locked to player mode).
 
 **Out of scope for v1 (but kept easy to add later):**
-- The checkpoint validation UI and real application of mutations to world state.
 - Multiplayer / real concurrent players (solo testing first).
 - The neighbouring nation and wider lore expansion.
 - Migration to Supabase (stay on SQLite).
