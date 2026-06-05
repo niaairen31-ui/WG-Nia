@@ -34,6 +34,7 @@ from sqlmodel import Session, select
 
 from .. import ollama_client
 from ..analyzer import analyze_conversation as _analyze_conversation
+from ..analyzer import analyze_single_turn as _analyze_single_turn
 from ..context import assemble_npc_context
 from ..db import engine, get_session
 from ..models import (
@@ -154,6 +155,28 @@ def _find_applied_duplicate(
                     f"applied by mutation {prev.id[:8]}…"
                 )
 
+    return None
+
+
+# ── Deduplication key ────────────────────────────────────────────────────────
+
+def _mutation_match_key(mutation_type: str, payload: dict):
+    """Return a hashable match key for per-conversation deduplication, or None.
+
+    Mirrors the _find_applied_duplicate match logic so both guards use the
+    same semantics (same mutation in same conversation = same key).
+    """
+    if mutation_type == "new_knowledge":
+        return ("new_knowledge", payload.get("entity_id"), payload.get("subject"))
+    if mutation_type == "relation_change":
+        return (
+            "relation_change",
+            frozenset([payload.get("entity_a_id"), payload.get("entity_b_id")]),
+            payload.get("relation_type"),
+        )
+    if mutation_type == "status_change":
+        eid = payload.get("entity_id")
+        return ("status_change", eid) if eid else None
     return None
 
 
@@ -634,6 +657,26 @@ def say(
             ))
             persist_db.commit()
 
+        # Per-turn immediate analysis (sync-after-stream: player already received
+        # [DONE] and can type while this runs). Writes proposed_mutation rows tagged
+        # proposed_by='local_ai_immediate'. Empty turns produce no rows — correct.
+        # Failures are silently swallowed — analysis must never surface to the player.
+        with Session(engine) as flag_db:
+            try:
+                immediate = _analyze_single_turn(
+                    player_line=content,
+                    npc_reply=npc_reply,
+                    conversation_id=conv_id,
+                    db=flag_db,
+                    model=model,
+                )
+                for mut in immediate:
+                    flag_db.add(mut)
+                if immediate:
+                    flag_db.commit()
+            except (Exception, SystemExit):
+                pass
+
     return StreamingResponse(_stream(), media_type="text/event-stream")
 
 
@@ -795,6 +838,32 @@ def analyze_conversation_endpoint(
         # analyzer.py calls sys.exit(1) when no prompt template found;
         # catch SystemExit so we return HTTP 400 instead of killing the process.
         raise HTTPException(status_code=400, detail=str(exc))
+
+    # Dedupe against existing proposed rows for this conversation (per-turn
+    # immediate flags). Uses the same logical match key as _find_applied_duplicate.
+    # Only write what the per-turn flags missed; never re-propose an equivalent.
+    # After force=True the per-turn rows were already deleted above, so this
+    # set is empty and all final-pass results are written as-is.
+    still_proposed = db.exec(
+        select(ProposedMutation).where(
+            ProposedMutation.conversation_id == conv_id,
+            ProposedMutation.status == "proposed",
+        )
+    ).all()
+    if still_proposed:
+        covered: set = set()
+        for ep in still_proposed:
+            ep_payload = ep.payload if isinstance(ep.payload, dict) else {}
+            key = _mutation_match_key(ep.mutation_type, ep_payload)
+            if key is not None:
+                covered.add(key)
+        mutations = [
+            m for m in mutations
+            if _mutation_match_key(
+                m.mutation_type,
+                m.payload if isinstance(m.payload, dict) else {},
+            ) not in covered
+        ]
 
     for mut in mutations:
         db.add(mut)

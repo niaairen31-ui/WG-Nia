@@ -289,6 +289,86 @@ def _validate_item(item: Any) -> str | None:
     return None
 
 
+def analyze_single_turn(
+    player_line: str,
+    npc_reply: str,
+    conversation_id: str,
+    db: Session,
+    model: str = ollama_client.DEFAULT_MODEL,
+    host: str = ollama_client.OLLAMA_HOST,
+) -> list[ProposedMutation]:
+    """Per-turn immediate analysis: propose mutations for ONE player/NPC exchange.
+
+    Reuses the same prompt, JSON extraction, normalizer, and validator as
+    analyze_conversation. Returns un-persisted ProposedMutation objects tagged
+    proposed_by='local_ai_immediate'. Returns [] on any failure.
+
+    Note: load_analysis_prompt calls sys.exit(1) when no template is found;
+    the caller must wrap this in try/except (Exception, SystemExit).
+    """
+    conv = db.get(Conversation, conversation_id)
+    if conv is None:
+        return []
+
+    # Mini-transcript: just this turn's exchange.
+    transcript = f"[JOUEUR] {player_line}\n[PNJ] {npc_reply}"
+
+    ctx = conv.injected_context or {}
+    if isinstance(ctx, dict) and ctx.get("assembled_context"):
+        injected_ctx_str = str(ctx["assembled_context"])
+    elif ctx:
+        injected_ctx_str = json.dumps(ctx, ensure_ascii=False, indent=2)
+    else:
+        injected_ctx_str = "(aucun contexte enregistré)"
+
+    template = load_analysis_prompt(db, world_id=conv.world_id)
+    user_message = (
+        template.user_template
+        .replace("{transcript}", transcript)
+        .replace("{injected_context}", injected_ctx_str)
+    )
+    llm_messages = [
+        {"role": "system", "content": template.system_prompt},
+        {"role": "user",   "content": user_message},
+    ]
+
+    raw = ollama_client.chat(llm_messages, model=model, host=host, format="json")
+    json_str = _extract_json_array(raw)
+    try:
+        items = json.loads(json_str)
+    except json.JSONDecodeError:
+        return []
+
+    if not isinstance(items, list):
+        return []
+
+    now = datetime.now(UTC)
+    mutations: list[ProposedMutation] = []
+    for raw_item in items:
+        normalized = _normalize_to_schema(raw_item, conv)
+        if normalized is None:
+            continue
+        if _validate_item(normalized):
+            continue
+        mutations.append(ProposedMutation(
+            world_id=conv.world_id,
+            source_type="conversation",
+            conversation_id=conversation_id,
+            pass_play_id=None,
+            mutation_type=normalized["mutation_type"],
+            target_table=normalized.get("target_table"),
+            target_id=normalized.get("target_id"),
+            payload=normalized["payload"],
+            status="proposed",
+            rationale=normalized.get("rationale"),
+            # Tag as per-turn so the final-pass dedupe can see what was already flagged.
+            proposed_by="local_ai_immediate",
+            proposed_at=now,
+        ))
+
+    return mutations
+
+
 def analyze_conversation(
     conversation_id: str,
     db: Session,
