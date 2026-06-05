@@ -378,6 +378,26 @@ def _load_npc_dialogue_template(world_id: str, db: Session) -> PromptTemplate:
     return templates[0]
 
 
+def _load_mj_narration_template(world_id: str, db: Session) -> PromptTemplate:
+    """Return the active player_narration (MJ) prompt template (world-specific preferred)."""
+    templates = db.exec(
+        select(PromptTemplate).where(
+            PromptTemplate.usage == "player_narration",
+            PromptTemplate.is_active == True,  # noqa: E712
+        )
+    ).all()
+    if not templates:
+        raise HTTPException(
+            status_code=503,
+            detail="No active 'player_narration' prompt template found. Run seed_pilot.py.",
+        )
+    for prefer in (lambda t: t.world_id == world_id, lambda t: t.world_id is None):
+        match = next((t for t in templates if prefer(t)), None)
+        if match is not None:
+            return match
+    return templates[0]
+
+
 class StartConversationBody(BaseModel):
     npc_id: str
     # Defaults: pilot player and tavern location (set by /start handler).
@@ -453,15 +473,26 @@ def say(
     body: SayBody,
     db: Session = Depends(get_session),
 ) -> StreamingResponse:
-    """Persist the player's line, call Ollama in streaming mode, and stream the NPC reply.
+    """Persist the player's line, run the NPC reply internally, then stream the MJ narration.
 
-    Protocol: text/event-stream (SSE).
-      - No events are emitted while <think> is active (UI keeps its indicator).
-      - Each spoken token is: data: <JSON-encoded string>\n\n
-      - End of stream: data: [DONE]\n\n
+    MJ layer (per turn)
+    -------------------
+    The NPC generates its reply internally (buffered, never sent raw to the player).
+    The MJ then wraps that reply in light narrative prose and streams IT to the player.
+    Both the canonical NPC line and the MJ narration are persisted.
 
-    The full stripped reply is persisted as a conversation_message at stream end.
-    The <think> block is NEVER persisted.
+    SSE protocol (text/event-stream):
+      - No events while the NPC is generating (indicator stays up server-side).
+      - Each MJ narration token: data: <JSON-encoded string>\\n\\n
+      - Raw NPC line event (before DONE): data: {"npc_raw": "<escaped>"}\\n\\n
+        — lets the browser render the audit annotation without a separate request.
+      - End of stream: data: [DONE]\\n\\n
+      - Error event: data: {"error": "<msg>"}\\n\\n
+
+    turn_order layout per player turn:
+      player_turn  → player line (canonical)
+      player_turn+1 → npc line (canonical, internal)
+      player_turn+2 → mj line (presentation, streamed)
     """
     conv = db.get(Conversation, conv_id)
     if conv is None:
@@ -491,7 +522,8 @@ def say(
     ))
     db.commit()
 
-    # Build the full message list for Ollama: system prompt + all history.
+    # Build the NPC message list: system prompt + player/npc history only.
+    # 'mj' rows are presentation-only and must not be fed back to the NPC model.
     injected = conv.injected_context or {}
     system_prompt = injected.get("system_prompt", "")
     model = injected.get("model", ollama_client.DEFAULT_MODEL)
@@ -501,41 +533,104 @@ def say(
         .where(ConversationMessage.conversation_id == conv_id)
         .order_by(ConversationMessage.turn_order)
     ).all()
-    history = [
+    npc_history = [
         {"role": "user" if m.speaker == "player" else "assistant", "content": m.content}
         for m in all_msgs
+        if m.speaker in ("player", "npc")
     ]
-    messages = [{"role": "system", "content": system_prompt}, *history]
+    npc_messages = [{"role": "system", "content": system_prompt}, *npc_history]
 
+    # Turn order slots.
     npc_id    = conv.npc_id
     npc_turn  = player_turn + 1
+    mj_turn   = player_turn + 2
+
+    # Load MJ narration template (raises HTTP 503 if missing — before stream opens).
+    world_id = conv.world_id
+    mj_template = _load_mj_narration_template(world_id, db)
+
+    # Resolve display names for the MJ prompt.
+    npc_entity  = db.get(Entity, npc_id)
+    npc_name    = npc_entity.name if npc_entity else npc_id
+    loc_entity  = db.get(Entity, conv.location_id) if conv.location_id else None
+    location_name = loc_entity.name if loc_entity else "inconnu"
+
+    # Capture for closure.
+    mj_user_template = mj_template.user_template
+    mj_system_prompt = mj_template.system_prompt
 
     def _stream() -> Iterator[str]:
-        # Avoid yield-in-finally (raises RuntimeError: generator ignored
-        # GeneratorExit on client disconnect).  Collect any error, then emit
-        # [DONE] and persist outside the try/except.
-        chunks: list[str] = []
-        stream_error: str | None = None
+        # ── Phase 1: NPC generation (buffered, not sent to the player) ────────
+        # The "réflexion…" indicator on the client covers this entire phase.
+        npc_chunks: list[str] = []
+        npc_error: str | None = None
         try:
-            for chunk in ollama_client.chat_stream(messages, model=model):
-                chunks.append(chunk)
-                yield f"data: {json.dumps(chunk)}\n\n"
+            for chunk in ollama_client.chat_stream(npc_messages, model=model):
+                npc_chunks.append(chunk)
         except ollama_client.OllamaError as exc:
-            stream_error = str(exc)
+            npc_error = str(exc)
 
-        if stream_error:
-            yield f"data: {json.dumps({'error': stream_error})}\n\n"
-        yield "data: [DONE]\n\n"
+        if npc_error:
+            yield f"data: {json.dumps({'error': npc_error})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
 
-        # Persist the spoken reply (think block already stripped by chat_stream).
-        full_reply = "".join(chunks)
+        npc_reply = "".join(npc_chunks)
+
+        # Persist the NPC line (canonical truth).
         with Session(engine) as persist_db:
             persist_db.add(ConversationMessage(
                 conversation_id=conv_id,
                 turn_order=npc_turn,
                 speaker="npc",
                 speaker_id=npc_id,
-                content=full_reply,
+                content=npc_reply,
+            ))
+            persist_db.commit()
+
+        # ── Phase 2: MJ narration (streamed to the player) ───────────────────
+        # Substitute placeholders; /no_think for speed (strip_think in
+        # chat_stream handles any stray block that slips through anyway).
+        mj_user = (
+            mj_user_template
+            .replace("{npc_name}", npc_name)
+            .replace("{location_name}", location_name)
+            .replace("{player_line}", content)
+            .replace("{npc_reply}", npc_reply)
+            + "\n/no_think"
+        )
+        mj_messages = [
+            {"role": "system", "content": mj_system_prompt},
+            {"role": "user",   "content": mj_user},
+        ]
+
+        mj_chunks: list[str] = []
+        mj_error: str | None = None
+        try:
+            for chunk in ollama_client.chat_stream(mj_messages, model=model):
+                mj_chunks.append(chunk)
+                yield f"data: {json.dumps(chunk)}\n\n"
+        except ollama_client.OllamaError as exc:
+            mj_error = str(exc)
+
+        # Send the raw NPC line before [DONE] so the client can append the
+        # audit annotation without a separate HTTP request.
+        yield f"data: {json.dumps({'npc_raw': npc_reply})}\n\n"
+
+        if mj_error:
+            yield f"data: {json.dumps({'error': mj_error})}\n\n"
+        yield "data: [DONE]\n\n"
+
+        # Persist the MJ narration (presentation layer).
+        # Runs after [DONE] — the player can read and type while this completes.
+        mj_narration = "".join(mj_chunks)
+        with Session(engine) as persist_db:
+            persist_db.add(ConversationMessage(
+                conversation_id=conv_id,
+                turn_order=mj_turn,
+                speaker="mj",
+                speaker_id=None,
+                content=mj_narration,
             ))
             persist_db.commit()
 
@@ -621,11 +716,12 @@ def get_conversation(conv_id: str, db: Session = Depends(get_session)) -> dict:
     messages = []
     for msg in msgs:
         # Priority: explicit speaker_id entity name → role-matched party name
-        # → raw speaker label ('player' / 'npc').
+        # → 'mj' sentinel → raw speaker label.
         display_name: str = (
             name_map.get(msg.speaker_id or "")
             or (player_entity.name if msg.speaker == "player" and player_entity else "")
             or (npc_entity.name if msg.speaker == "npc" and npc_entity else "")
+            or ("MJ" if msg.speaker == "mj" else "")
             or msg.speaker
         )
         messages.append({

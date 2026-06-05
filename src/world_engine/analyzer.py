@@ -309,6 +309,9 @@ def analyze_conversation(
         .where(ConversationMessage.conversation_id == conversation_id)
         .order_by(ConversationMessage.turn_order)
     ).all()
+    # 'mj' rows are presentation-only narration — never analyse them.
+    # Only canonical player/npc lines carry world-state information.
+    rows = [r for r in rows if r.speaker in ("player", "npc")]
     if not rows:
         print("[info] Conversation has no messages — nothing to analyse.")
         return []

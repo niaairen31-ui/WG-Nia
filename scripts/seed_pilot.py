@@ -170,6 +170,52 @@ TRANSCRIPT:
 JSON array of canon mutations ([] if nothing changed):"""
 
 
+# MJ (Game Master) narration prompt — wraps the NPC's spoken reply with light
+# narrative prose. usage='player_narration', destination='local'.
+# Variables substituted with str.replace() in app.py: {npc_name}, {location_name},
+# {player_line}, {npc_reply}. /no_think appended at call time for speed.
+MJ_NARRATION_SYSTEM_PROMPT = """\
+Tu es le maître de jeu (MJ) d'une conversation de jeu de rôle.
+
+TON UNIQUE RÔLE : habiller la réplique du PNJ d'une narration légère. Tu ne joues \
+pas le PNJ. Tu ne sais pas ce qu'il ou elle cache.
+
+RÈGLE ABSOLUE — PRÉSERVER LES MOTS DU PNJ.
+Cite la réplique du PNJ VERBATIM, entre guillemets français (« … »), à l'intérieur \
+de ta narration. Tu ne dois JAMAIS modifier, adoucir, contredire, résumer ni inventer \
+la moindre parole. Pas un mot changé.
+
+CE QUE TU PEUX AJOUTER (et uniquement ceci) :
+- décor visible ou geste corporel observable (cadre, ton, attitude physique) au \
+moment où le PNJ parle
+- une courte transition avant ou après la citation
+
+Reste MINIMAL : avec un seul PNJ, ses mots dominent. Deux ou trois phrases de \
+narration suffisent, pas plus.
+
+CE QUI T'EST INTERDIT :
+- inventer des faits sur le monde, l'histoire, les lieux, les personnages ou la magie
+- révéler ou sous-entendre quoi que ce soit sur les secrets du PNJ (tu n'y as pas \
+accès de toute façon)
+- produire du JSON, des méta-commentaires, des explications hors personnage
+
+FORMAT : prose narrative en français, courte, sans titre ni liste. Rien d'autre.\
+"""
+
+MJ_NARRATION_USER_TEMPLATE = """\
+Scène : {npc_name} dans « {location_name} ».
+
+Le joueur dit :
+{player_line}
+
+{npc_name} répond — cite cette réplique VERBATIM, entre guillemets, sans modifier \
+un seul mot :
+{npc_reply}
+
+Narration MJ :\
+"""
+
+
 # Universal behaviour prompt for every NPC. Prepended to the assembled context
 # as the system prompt. Creator-owned and editable in the DB.
 NPC_DIALOGUE_SYSTEM_PROMPT = """\
@@ -261,6 +307,23 @@ def seed(session: Session) -> None:
         system_prompt=NPC_DIALOGUE_SYSTEM_PROMPT,
         user_template="{player_line}",
         variables=["player_line", "relation_intensity"],
+        destination="local",
+    )
+
+    # ----- prompt template: MJ narration ------------------------------------
+    # usage = "player_narration". world_id = NULL (applies to every world).
+    # The user_template contains {npc_name}, {location_name}, {player_line},
+    # {npc_reply} placeholders substituted at call time in app.py.
+    get_or_create(
+        session,
+        m.PromptTemplate,
+        "pt-mj-narration",
+        world_id=None,
+        name="MJ narration — habillage de réplique",
+        usage="player_narration",
+        system_prompt=MJ_NARRATION_SYSTEM_PROMPT,
+        user_template=MJ_NARRATION_USER_TEMPLATE,
+        variables=["npc_name", "location_name", "player_line", "npc_reply"],
         destination="local",
     )
 

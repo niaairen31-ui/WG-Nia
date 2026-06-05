@@ -144,6 +144,7 @@ header .local-badge {
 .msg { display: flex; flex-direction: column; max-width: 72%; gap: 3px; }
 .msg.player { align-self: flex-end; align-items: flex-end; }
 .msg.npc    { align-self: flex-start; align-items: flex-start; }
+.msg.mj     { align-self: flex-start; align-items: flex-start; }
 .msg-name { font-size: 11px; color: var(--muted); padding: 0 6px; }
 .msg-bubble {
   padding: 8px 13px;
@@ -162,6 +163,27 @@ header .local-badge {
   border-bottom-left-radius: 2px;
   color: #7ee787;
 }
+/* MJ narration: warm amber/sepia — clearly distinct from player (blue) and
+   raw NPC (green). This is the presentation layer the player reads. */
+.msg.mj .msg-bubble {
+  background: #251e10;
+  border-bottom-left-radius: 2px;
+  color: #d4b896;
+}
+
+/* NPC raw annotation — muted secondary text shown below the MJ narration
+   for creator audit (verify the MJ preserved the NPC's words verbatim). */
+.npc-raw-annotation {
+  align-self: flex-start;
+  max-width: 72%;
+  padding: 2px 8px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+  line-height: 1.5;
+  margin-top: -2px;
+}
+.npc-raw-label { font-weight: 600; opacity: 0.8; margin-right: 4px; }
 
 /* ── Queue panel ─────────────────────────────────────────────────────────── */
 .queue-panel {
@@ -766,11 +788,38 @@ function renderTranscript(data) {
     body.innerHTML = '<div class="empty">No messages yet — say something!</div>';
     return;
   }
-  body.innerHTML = data.messages.map(msgHtml).join('');
+  const msgs = data.messages;
+  const parts = [];
+  let i = 0;
+  while (i < msgs.length) {
+    const m = msgs[i];
+    // Pair consecutive npc+mj rows (produced by the MJ flow): render mj
+    // narration first (primary), then the raw npc line as a muted annotation
+    // below it so the creator can verify the MJ quoted verbatim.
+    if (m.speaker === 'npc' && i + 1 < msgs.length && msgs[i + 1].speaker === 'mj') {
+      parts.push(mjPairHtml(msgs[i + 1], m));
+      i += 2;
+    } else {
+      parts.push(msgHtml(m));
+      i++;
+    }
+  }
+  body.innerHTML = parts.join('');
   body.scrollTop = body.scrollHeight;
 }
 
-/** Build the HTML for a single message bubble. */
+/** MJ narration bubble + NPC raw annotation below (reader / audit view). */
+function mjPairHtml(mjMsg, npcMsg) {
+  return `<div class="msg mj" id="msg-${esc(mjMsg.id || '')}">
+    <div class="msg-name">${esc(mjMsg.display_name)}</div>
+    <div class="msg-bubble">${esc(mjMsg.content)}</div>
+  </div>
+  <div class="npc-raw-annotation">
+    <span class="npc-raw-label">${esc(npcMsg.display_name)} (brut) :</span>${esc(npcMsg.content)}
+  </div>`;
+}
+
+/** Build the HTML for a single message bubble (player, or legacy npc/mj). */
 function msgHtml(m) {
   return `<div class="msg ${esc(m.speaker)}" id="msg-${esc(m.id || '')}">
     <div class="msg-name">${esc(m.display_name)}</div>
@@ -806,14 +855,29 @@ async function sendPlayerLine() {
   endBtn.disabled  = true;
 
   const transcriptEl = document.getElementById('transcript-body');
-  const npcName = currentConvData ? currentConvData.npc_name : 'NPC';
+  const npcName    = currentConvData ? currentConvData.npc_name : 'PNJ';
   const playerName = currentConvData ? currentConvData.player_name : 'Joueur';
 
   // Append player line immediately.
   _appendBubble(transcriptEl, 'player', playerName, content);
 
-  // Show "réflexion…" indicator as an NPC bubble.
+  // "réflexion…" indicator covers the entire hidden phase:
+  // NPC generation (buffered server-side) + MJ setup until the first narration token.
   const thinkEl = _appendBubble(transcriptEl, 'npc msg-thinking', npcName, 'réflexion…');
+
+  // MJ bubble is created on the first token (thinkEl replaced then).
+  // If no tokens arrive (error before MJ starts), finally cleans up thinkEl.
+  let mjBubble = null;
+  let npcRawContent = null;
+
+  /** Replace indicator with MJ narration bubble; return its text node. */
+  const _ensureMj = () => {
+    if (!mjBubble) {
+      thinkEl.remove();
+      mjBubble = _appendBubble(transcriptEl, 'mj', 'Narration', '');
+    }
+    return mjBubble.querySelector('.msg-bubble');
+  };
 
   try {
     const res = await fetch('/api/conversations/' + currentConvId + '/say', {
@@ -827,12 +891,6 @@ async function sendPlayerLine() {
       throw new Error(err.detail || 'Request failed');
     }
 
-    // Replace thinking indicator with a live NPC bubble.
-    thinkEl.remove();
-    const npcBubble = _appendBubble(transcriptEl, 'npc', npcName, '');
-    const bubbleText = npcBubble.querySelector('.msg-bubble');
-
-    // Read the SSE stream token by token.
     const reader  = res.body.getReader();
     const decoder = new TextDecoder();
     let lineBuffer = '';
@@ -842,27 +900,42 @@ async function sendPlayerLine() {
       if (done) break;
       lineBuffer += decoder.decode(value, { stream: true });
 
-      // SSE lines end with \n; events end with \n\n — split on every \n.
       const lines = lineBuffer.split('\n');
-      lineBuffer = lines.pop();   // keep incomplete last line
+      lineBuffer = lines.pop();
 
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
         const payload = line.slice(6);
         if (payload === '[DONE]') break outer;
-        try {
-          const token = JSON.parse(payload);
-          if (token && typeof token === 'object' && token.error) {
-            bubbleText.style.color = 'var(--red)';
-            bubbleText.textContent = '⚠ ' + token.error;
+        let token;
+        try { token = JSON.parse(payload); } catch { continue; }
+
+        if (token && typeof token === 'object' && token !== null) {
+          if (token.error) {
+            // Server error — show it in the MJ bubble.
+            const bt = _ensureMj();
+            bt.style.color = 'var(--red)';
+            bt.textContent = '⚠ ' + token.error;
             break outer;
           }
-          if (typeof token === 'string') {
-            bubbleText.textContent += token;
-            transcriptEl.scrollTop = transcriptEl.scrollHeight;
+          if (typeof token.npc_raw === 'string') {
+            // Raw NPC line delivered after MJ narration stream completes.
+            // Stored here; appended below after the loop.
+            npcRawContent = token.npc_raw;
+            continue;
           }
-        } catch { /* ignore malformed line */ }
+        } else if (typeof token === 'string') {
+          // MJ narration token — create bubble on first one (drops indicator).
+          const bt = _ensureMj();
+          bt.textContent += token;
+          transcriptEl.scrollTop = transcriptEl.scrollHeight;
+        }
       }
+    }
+
+    // Append the NPC raw annotation below the MJ narration for creator audit.
+    if (npcRawContent !== null) {
+      _appendNpcRaw(transcriptEl, npcName, npcRawContent);
     }
 
     // Refresh the sidebar count for this conversation.
@@ -870,13 +943,10 @@ async function sendPlayerLine() {
     if (ciEl) {
       const metaEl = ciEl.querySelector('.ci-meta');
       if (metaEl) {
-        // Re-fetch just the list entry via the full list (lightweight).
         const convs = await api('/api/conversations').catch(() => null);
         if (convs) {
           const updated = convs.find(c => c.id === currentConvId);
           if (updated) {
-            const countSpan = metaEl.querySelector('.badge');
-            // Update message count text (the node after the status badge).
             metaEl.innerHTML =
               `<span class="badge b-${esc(updated.status)}">${esc(updated.status)}</span>` +
               (updated.location ? ' · ' + esc(updated.location) : '') +
@@ -888,16 +958,28 @@ async function sendPlayerLine() {
     }
 
   } catch (e) {
-    thinkEl.remove();
-    _appendBubble(transcriptEl, 'npc', npcName,
-      '⚠ Erreur : ' + e.message).querySelector('.msg-bubble').style.color = 'var(--red)';
+    const bt = _ensureMj();
+    bt.style.color = 'var(--red)';
+    bt.textContent = '⚠ Erreur : ' + e.message;
   } finally {
+    // If no tokens arrived (error before MJ started), thinkEl was never removed.
+    if (!mjBubble && document.body.contains(thinkEl)) thinkEl.remove();
     _streamingActive = false;
     inputEl.disabled = false;
     sendBtn.disabled = false;
     endBtn.disabled  = false;
     inputEl.focus();
   }
+}
+
+/** Append the NPC raw annotation below the MJ narration bubble (live play). */
+function _appendNpcRaw(container, npcName, content) {
+  const el = document.createElement('div');
+  el.className = 'npc-raw-annotation';
+  el.innerHTML =
+    `<span class="npc-raw-label">${esc(npcName)} (brut) :</span>${esc(content)}`;
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
 }
 
 /** Append a message bubble to the transcript and scroll into view. */

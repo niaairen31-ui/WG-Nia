@@ -329,7 +329,7 @@ class ConversationMessage(SQLModel, table=True):
         foreign_key="conversation.id", nullable=False
     )
     turn_order: int
-    speaker: str  # player | npc
+    speaker: str  # player | npc | mj
     speaker_id: Optional[str] = Field(default=None, foreign_key="entity.id")
     content: str
     created_at: datetime = _created_ts()
