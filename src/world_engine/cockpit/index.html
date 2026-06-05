@@ -199,6 +199,10 @@ header .local-badge {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+  /* flex-shrink: 0 prevents the card from being compressed by the flex-column
+     parent (.queue-body). Without this, 3+ cards shrink to fit the container
+     height and overflow:hidden clips their content. The parent scrolls instead. */
+  flex-shrink: 0;
 }
 .card.s-applied  { border-left: 3px solid var(--green); }
 .card.s-rejected { border-left: 3px solid var(--red);   opacity: 0.6; }
@@ -362,8 +366,37 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   font-weight: 600;
 }
 
+/* ── Apply-error block (shown on 'approved' / duplicate-risk cards) ──────── */
+/* "approved" status = proposal was reviewed but could NOT be applied to canon:
+   unhandled mutation_type, apply error, or duplicate-application guard.
+   The creator_notes field holds the stored reason. */
+.card-apply-error {
+  padding: 9px 13px;
+  background: #1f0d0d;
+  border-bottom: 1px solid #6b2020;
+  color: #f0a0a0;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.card-apply-error strong { color: var(--red); display: block; margin-bottom: 3px; }
+
+/* Duplicate-risk banner (shown on 'proposed' cards that shadow an applied one) */
+.card-dup-warn {
+  padding: 9px 13px;
+  background: #1f1500;
+  border-bottom: 1px solid #9e6a03;
+  color: var(--yellow);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.card-dup-warn strong { display: block; margin-bottom: 3px; }
+
 /* ── Empty / info states ─────────────────────────────────────────────────── */
-.empty { color: var(--muted); font-style: italic; text-align: center; padding: 28px 16px; }
+.empty    { color: var(--muted);  font-style: italic; text-align: center; padding: 28px 16px; }
+/* Used for the "Needs attention" tab when empty — green = healthy */
+.empty-ok { color: var(--green); font-style: italic; text-align: center; padding: 28px 16px; }
 .spin  { display: inline-block; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -424,7 +457,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
         <h2>Review Queue</h2>
         <div class="filter-bar" id="filter-bar">
           <button class="f-btn active" data-s="proposed"  onclick="setFilter(this,'proposed')">Proposed</button>
-          <button class="f-btn"        data-s="approved"  onclick="setFilter(this,'approved')">Approved</button>
+          <button class="f-btn"        data-s="approved"  onclick="setFilter(this,'approved')" title="Proposals that were approved but could not be applied to canon (apply error, unhandled type, or duplicate block). Needs creator attention.">⚠ Needs attention</button>
           <button class="f-btn"        data-s="applied"   onclick="setFilter(this,'applied')">Applied</button>
           <button class="f-btn"        data-s="rejected"  onclick="setFilter(this,'rejected')">Rejected</button>
         </div>
@@ -617,7 +650,14 @@ async function loadQueue() {
   try {
     const mutations = await api('/api/mutations?status=' + currentFilter);
     if (!mutations.length) {
-      body.innerHTML = `<div class="empty">No "${esc(currentFilter)}" proposals.</div>`;
+      // "approved" (Needs attention) being empty is the healthy, expected state.
+      if (currentFilter === 'approved') {
+        body.innerHTML =
+          '<div class="empty-ok">✓ Empty — no apply errors or duplicate blocks.' +
+          '<br>This is the normal, healthy state.</div>';
+      } else {
+        body.innerHTML = `<div class="empty">No "${esc(currentFilter)}" proposals.</div>`;
+      }
       return;
     }
     body.innerHTML = mutations.map(renderCard).join('');
@@ -627,7 +667,7 @@ async function loadQueue() {
 }
 
 function renderCard(m) {
-  const editable  = (m.status === 'proposed');
+  const editable   = (m.status === 'proposed');
   const payloadStr = JSON.stringify(m.payload, null, 2);
 
   const targetTxt = [m.target_table, m.target_id ? shortId(m.target_id) : null]
@@ -639,6 +679,18 @@ function renderCard(m) {
       ? `pass-play:${shortId(m.pass_play_id)}`
       : '';
 
+  // "approved" status = approved but NOT applied to canon.
+  // creator_notes holds the stored reason (apply error or duplicate block).
+  const applyErrorBlock = (m.status === 'approved' && m.creator_notes)
+    ? `<div class="card-apply-error"><strong>⚠ Could not apply to canon — needs attention:</strong>${esc(m.creator_notes)}</div>`
+    : '';
+
+  // Duplicate-risk banner: the backend sets applied_duplicate when a logically
+  // equivalent mutation was already applied for this conversation.
+  const dupBlock = m.applied_duplicate
+    ? `<div class="card-dup-warn"><strong>⚠ Duplicate risk — approving will be blocked:</strong>${esc(m.applied_duplicate)}</div>`
+    : '';
+
   return `
 <div class="card s-${esc(m.status)}" id="card-${esc(m.id)}">
   <div class="card-head">
@@ -648,6 +700,8 @@ function renderCard(m) {
     ${sourceRef ? `<span class="target-ref">${esc(sourceRef)}</span>` : ''}
     <span class="ts">${fmtDate(m.proposed_at)}</span>
   </div>
+
+  ${applyErrorBlock}${dupBlock}
 
   <div class="card-rationale">${esc(m.rationale || '(no rationale provided)')}</div>
 
