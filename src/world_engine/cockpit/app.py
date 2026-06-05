@@ -24,24 +24,28 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
 from .. import ollama_client
 from ..analyzer import analyze_conversation as _analyze_conversation
-from ..db import get_session
+from ..context import assemble_npc_context
+from ..db import engine, get_session
 from ..models import (
+    Character,
     Conversation,
     ConversationMessage,
     Entity,
     Knowledge,
+    PromptTemplate,
     ProposedMutation,
     Relation,
+    Session as GameSession,
 )
 
 _INDEX_HTML = Path(__file__).parent / "index.html"
@@ -299,6 +303,259 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
 @app.get("/", response_class=HTMLResponse)
 def serve_ui() -> str:
     return _INDEX_HTML.read_text(encoding="utf-8")
+
+
+# ── Play loop — provisional creator entry point ───────────────────────────────
+# These three endpoints (npcs, conversations/start, say, end) form the play
+# loop introduced for browser-based conversations.  The NPC selector and
+# /start endpoint are PROVISIONAL creator-side scaffolding; they will be
+# replaced by a full player view.  The persistence and streaming logic (say,
+# end) is the durable piece.
+
+@app.get("/api/npcs")
+def list_npcs(db: Session = Depends(get_session)) -> list:
+    """Return every NPC character in the world (id, display name, faction)."""
+    chars = db.exec(
+        select(Character).where(Character.character_type == "npc")
+    ).all()
+    result = []
+    for char in chars:
+        entity = db.get(Entity, char.id)
+        if entity is None:
+            continue
+        faction_name: Optional[str] = None
+        if char.faction_id:
+            fac = db.get(Entity, char.faction_id)
+            if fac:
+                faction_name = fac.name
+        result.append({"id": char.id, "name": entity.name, "faction": faction_name})
+    return result
+
+
+def _get_or_open_session(world_id: str, db: Session) -> GameSession:
+    """Return the world's open session, creating one if none exists."""
+    existing = db.exec(
+        select(GameSession)
+        .where(GameSession.world_id == world_id, GameSession.status == "open")
+        .order_by(GameSession.number.desc())
+    ).first()
+    if existing is not None:
+        return existing
+    numbers = db.exec(
+        select(GameSession.number).where(GameSession.world_id == world_id)
+    ).all()
+    number = (max(numbers) if numbers else 0) + 1
+    sess = GameSession(
+        world_id=world_id,
+        number=number,
+        title="Live play session",
+        status="open",
+        started_at=datetime.now(UTC),
+    )
+    db.add(sess)
+    db.commit()
+    db.refresh(sess)
+    return sess
+
+
+def _load_npc_dialogue_template(world_id: str, db: Session) -> PromptTemplate:
+    """Return the active npc_dialogue prompt template (world-specific preferred)."""
+    templates = db.exec(
+        select(PromptTemplate).where(
+            PromptTemplate.usage == "npc_dialogue",
+            PromptTemplate.is_active == True,  # noqa: E712
+        )
+    ).all()
+    if not templates:
+        raise HTTPException(
+            status_code=503,
+            detail="No active 'npc_dialogue' prompt template found. Run seed_pilot.py.",
+        )
+    for prefer in (lambda t: t.world_id == world_id, lambda t: t.world_id is None):
+        match = next((t for t in templates if prefer(t)), None)
+        if match is not None:
+            return match
+    return templates[0]
+
+
+class StartConversationBody(BaseModel):
+    npc_id: str
+    # Defaults: pilot player and tavern location (set by /start handler).
+    location_id: Optional[str] = None
+    player_id: Optional[str] = None
+
+
+@app.post("/api/conversations/start")
+def start_conversation(
+    body: StartConversationBody,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Create and open a new conversation between the player and an NPC.
+
+    Assembles the NPC context via assemble_npc_context (same as talk.py) and
+    stores it in injected_context for audit and for the /say handler to reuse.
+
+    Defaults: player = char-player (Joran), location = loc-dernier-verre.
+    These defaults are the pilot setup; a future player view will pass explicit
+    IDs from the player's active session instead.
+    """
+    # Resolve defaults (pilot player / pilot location).
+    player_id   = body.player_id   or "char-player"
+    location_id = body.location_id or "loc-dernier-verre"
+
+    npc_entity = db.get(Entity, body.npc_id)
+    if npc_entity is None:
+        raise HTTPException(status_code=404, detail=f"NPC {body.npc_id!r} not found")
+    npc_char = db.get(Character, body.npc_id)
+    if npc_char is None or npc_char.character_type != "npc":
+        raise HTTPException(status_code=400, detail=f"{body.npc_id!r} is not an NPC character")
+
+    world_id = npc_entity.world_id
+    sess = _get_or_open_session(world_id, db)
+
+    behaviour = _load_npc_dialogue_template(world_id, db)
+    assembled_context = assemble_npc_context(body.npc_id, player_id, location_id, db)
+    system_prompt = f"{behaviour.system_prompt}\n\n{assembled_context}"
+
+    model = ollama_client.DEFAULT_MODEL
+    conv = Conversation(
+        world_id=world_id,
+        session_id=sess.id,
+        location_id=location_id,
+        player_id=player_id,
+        npc_id=body.npc_id,
+        status="open",
+        injected_context={
+            "model": model,
+            "npc_id": body.npc_id,
+            "interlocutor_id": player_id,
+            "location_id": location_id,
+            "prompt_template_id": behaviour.id,
+            "behaviour_prompt": behaviour.system_prompt,
+            "assembled_context": assembled_context,
+            "system_prompt": system_prompt,
+        },
+        started_at=datetime.now(UTC),
+    )
+    db.add(conv)
+    db.commit()
+    db.refresh(conv)
+    return {"conversation_id": conv.id}
+
+
+class SayBody(BaseModel):
+    content: str
+
+
+@app.post("/api/conversations/{conv_id}/say")
+def say(
+    conv_id: str,
+    body: SayBody,
+    db: Session = Depends(get_session),
+) -> StreamingResponse:
+    """Persist the player's line, call Ollama in streaming mode, and stream the NPC reply.
+
+    Protocol: text/event-stream (SSE).
+      - No events are emitted while <think> is active (UI keeps its indicator).
+      - Each spoken token is: data: <JSON-encoded string>\n\n
+      - End of stream: data: [DONE]\n\n
+
+    The full stripped reply is persisted as a conversation_message at stream end.
+    The <think> block is NEVER persisted.
+    """
+    conv = db.get(Conversation, conv_id)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if conv.status != "open":
+        raise HTTPException(status_code=400, detail="Conversation is already closed")
+
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(status_code=422, detail="Player line must not be empty")
+
+    # Determine next turn_order.
+    last_msg = db.exec(
+        select(ConversationMessage)
+        .where(ConversationMessage.conversation_id == conv_id)
+        .order_by(ConversationMessage.turn_order.desc())
+    ).first()
+    player_turn = (last_msg.turn_order + 1) if last_msg else 1
+
+    # Persist the player message immediately (before streaming starts).
+    db.add(ConversationMessage(
+        conversation_id=conv_id,
+        turn_order=player_turn,
+        speaker="player",
+        speaker_id=conv.player_id,
+        content=content,
+    ))
+    db.commit()
+
+    # Build the full message list for Ollama: system prompt + all history.
+    injected = conv.injected_context or {}
+    system_prompt = injected.get("system_prompt", "")
+    model = injected.get("model", ollama_client.DEFAULT_MODEL)
+
+    all_msgs = db.exec(
+        select(ConversationMessage)
+        .where(ConversationMessage.conversation_id == conv_id)
+        .order_by(ConversationMessage.turn_order)
+    ).all()
+    history = [
+        {"role": "user" if m.speaker == "player" else "assistant", "content": m.content}
+        for m in all_msgs
+    ]
+    messages = [{"role": "system", "content": system_prompt}, *history]
+
+    npc_id    = conv.npc_id
+    npc_turn  = player_turn + 1
+
+    def _stream() -> Iterator[str]:
+        # Avoid yield-in-finally (raises RuntimeError: generator ignored
+        # GeneratorExit on client disconnect).  Collect any error, then emit
+        # [DONE] and persist outside the try/except.
+        chunks: list[str] = []
+        stream_error: str | None = None
+        try:
+            for chunk in ollama_client.chat_stream(messages, model=model):
+                chunks.append(chunk)
+                yield f"data: {json.dumps(chunk)}\n\n"
+        except ollama_client.OllamaError as exc:
+            stream_error = str(exc)
+
+        if stream_error:
+            yield f"data: {json.dumps({'error': stream_error})}\n\n"
+        yield "data: [DONE]\n\n"
+
+        # Persist the spoken reply (think block already stripped by chat_stream).
+        full_reply = "".join(chunks)
+        with Session(engine) as persist_db:
+            persist_db.add(ConversationMessage(
+                conversation_id=conv_id,
+                turn_order=npc_turn,
+                speaker="npc",
+                speaker_id=npc_id,
+                content=full_reply,
+            ))
+            persist_db.commit()
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/conversations/{conv_id}/end")
+def end_conversation(conv_id: str, db: Session = Depends(get_session)) -> dict:
+    """Close a conversation; analysis stays manual (use the Analyze button)."""
+    conv = db.get(Conversation, conv_id)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if conv.status == "closed":
+        return {"status": "already_closed"}
+    conv.status = "closed"
+    conv.ended_at = datetime.now(UTC)
+    db.add(conv)
+    db.commit()
+    db.refresh(conv)
+    return {"status": "closed", "ended_at": _iso(conv.ended_at)}
 
 
 @app.get("/api/conversations")

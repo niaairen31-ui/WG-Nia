@@ -404,6 +404,110 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Play input (shown only for open conversations) ──────────────────────── */
+.play-input-area {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+.play-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.play-input-row textarea {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  resize: none;
+  line-height: 1.5;
+  min-height: 38px;
+  max-height: 120px;
+}
+.play-input-row textarea:focus { outline: none; border-color: var(--accent); }
+.play-input-row textarea:disabled { opacity: 0.5; }
+.btn-send {
+  background: #12261e;
+  border-color: #238636;
+  color: var(--green);
+  font-weight: 600;
+  padding: 7px 16px;
+  white-space: nowrap;
+}
+.play-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+}
+.btn-end {
+  background: #2a0e10;
+  border-color: #b62324;
+  color: var(--red);
+  font-size: 11px;
+  padding: 3px 10px;
+}
+.play-hint { font-style: italic; }
+
+/* "réflexion…" streaming indicator */
+.msg-thinking .msg-bubble {
+  font-style: italic;
+  color: var(--muted) !important;
+  background: var(--card) !important;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+/* ── Start-conversation panel (PROVISIONAL creator scaffolding) ──────────── */
+/* This panel is a temporary creator entry point and will be replaced by a
+   full player view. The play loop itself (say / end) is the durable piece. */
+.start-panel {
+  flex-shrink: 0;
+  border-bottom: 2px solid var(--border);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.start-panel-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--yellow);
+}
+.start-panel select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+.start-panel select:focus { outline: none; border-color: var(--accent); }
+.btn-start {
+  background: #0d2138;
+  border-color: #1f6feb;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 0;
+  width: 100%;
+}
+.start-status { font-size: 11px; min-height: 16px; }
 </style>
 </head>
 <body>
@@ -421,8 +525,17 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 <!-- ══ Two-column layout ════════════════════════════════════════════════════ -->
 <div class="layout">
 
-  <!-- ── Sidebar: conversation list ── -->
+  <!-- ── Sidebar: start panel (PROVISIONAL) + conversation list ── -->
   <aside class="sidebar">
+    <!-- PROVISIONAL: creator-side NPC selector — will be replaced by a full
+         player view. The play / persistence logic is the durable piece. -->
+    <div class="start-panel" id="start-panel">
+      <div class="start-panel-title">▶ Start a conversation</div>
+      <select id="npc-select"><option value="">Loading NPCs…</option></select>
+      <button class="btn-start" onclick="startConversation()">Start</button>
+      <div class="start-status" id="start-status"></div>
+    </div>
+
     <div class="sidebar-head">
       Conversations
       <button class="btn-icon" onclick="loadConversations()" title="Refresh list">↻</button>
@@ -448,6 +561,20 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       </div>
       <div class="transcript-body" id="transcript-body">
         <div class="empty">Select a conversation on the left.</div>
+      </div>
+
+      <!-- Play input — shown only when the selected conversation is open -->
+      <div class="play-input-area" id="play-input-area" style="display:none">
+        <div class="play-input-row">
+          <textarea id="play-input" rows="2"
+            placeholder="Votre réplique…"
+            onkeydown="onPlayKeydown(event)"></textarea>
+          <button class="btn-send" id="btn-send" onclick="sendPlayerLine()">Envoyer</button>
+        </div>
+        <div class="play-footer">
+          <span class="play-hint" id="play-hint">Entrée pour envoyer · Maj+Entrée pour nouvelle ligne</span>
+          <button class="btn-end" id="btn-end" onclick="endConversation()">Terminer</button>
+        </div>
       </div>
     </div>
 
@@ -477,8 +604,10 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 /* ════════════════════════════════════════════════════════════════════════════
    State
    ════════════════════════════════════════════════════════════════════════════ */
-let currentConvId  = null;
-let currentFilter  = 'proposed';
+let currentConvId    = null;
+let currentConvData  = null;   // full detail object from the server
+let currentFilter    = 'proposed';
+let _streamingActive = false;  // true while an NPC reply is in flight
 
 /* ════════════════════════════════════════════════════════════════════════════
    Utilities
@@ -516,6 +645,53 @@ async function api(path, opts = {}) {
   const data = await res.json().catch(() => ({ detail: res.statusText }));
   if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
   return data;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Start conversation (PROVISIONAL creator scaffolding)
+   — This panel will be replaced by a full player view.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function loadNpcs() {
+  const sel = document.getElementById('npc-select');
+  try {
+    const npcs = await api('/api/npcs');
+    if (!npcs.length) {
+      sel.innerHTML = '<option value="">No NPCs found</option>';
+      return;
+    }
+    sel.innerHTML = npcs.map(n =>
+      `<option value="${esc(n.id)}">${esc(n.name)}${n.faction ? ' · ' + esc(n.faction) : ''}</option>`
+    ).join('');
+  } catch (e) {
+    sel.innerHTML = '<option value="">Error loading NPCs</option>';
+  }
+}
+
+async function startConversation() {
+  const sel    = document.getElementById('npc-select');
+  const status = document.getElementById('start-status');
+  const npcId  = sel.value;
+  if (!npcId) return;
+
+  status.style.color = 'var(--muted)';
+  status.textContent = '⟳ Démarrage…';
+
+  try {
+    const data = await api('/api/conversations/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ npc_id: npcId }),
+    });
+    status.style.color = 'var(--green)';
+    status.textContent = '✓ Conversation ouverte';
+    // Reload list and immediately select the new conversation.
+    await loadConversations();
+    await selectConv(data.conversation_id);
+  } catch (e) {
+    status.style.color = 'var(--red)';
+    status.textContent = '✗ ' + e.message;
+  }
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -563,27 +739,200 @@ async function selectConv(id) {
 
   try {
     const data = await api('/api/conversations/' + id);
+    currentConvData = data;
     renderTranscript(data);
     document.getElementById('transcript-title').textContent =
       (data.npc_name || '?') + ' ↔ ' + (data.player_name || '?') +
       (data.location ? '  ·  ' + data.location : '');
+    setPlayInputVisible(data.status === 'open');
   } catch (e) {
     body.innerHTML = `<div class="empty" style="color:var(--red)">Error: ${esc(e.message)}</div>`;
+    setPlayInputVisible(false);
+  }
+}
+
+/** Show or hide the play input area based on conversation status. */
+function setPlayInputVisible(open) {
+  const area = document.getElementById('play-input-area');
+  area.style.display = open ? 'flex' : 'none';
+  if (open) {
+    document.getElementById('play-input').focus();
   }
 }
 
 function renderTranscript(data) {
   const body = document.getElementById('transcript-body');
   if (!data.messages || !data.messages.length) {
-    body.innerHTML = '<div class="empty">No messages.</div>';
+    body.innerHTML = '<div class="empty">No messages yet — say something!</div>';
     return;
   }
-  body.innerHTML = data.messages.map(m => `
-    <div class="msg ${esc(m.speaker)}">
-      <div class="msg-name">${esc(m.display_name)}</div>
-      <div class="msg-bubble">${esc(m.content)}</div>
-    </div>`).join('');
+  body.innerHTML = data.messages.map(msgHtml).join('');
   body.scrollTop = body.scrollHeight;
+}
+
+/** Build the HTML for a single message bubble. */
+function msgHtml(m) {
+  return `<div class="msg ${esc(m.speaker)}" id="msg-${esc(m.id || '')}">
+    <div class="msg-name">${esc(m.display_name)}</div>
+    <div class="msg-bubble">${esc(m.content)}</div>
+  </div>`;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Play loop — send / stream / end
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/** Enter key sends; Shift+Enter inserts a newline. */
+function onPlayKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendPlayerLine();
+  }
+}
+
+async function sendPlayerLine() {
+  if (_streamingActive || !currentConvId) return;
+
+  const inputEl  = document.getElementById('play-input');
+  const sendBtn  = document.getElementById('btn-send');
+  const endBtn   = document.getElementById('btn-end');
+  const content  = inputEl.value.trim();
+  if (!content) return;
+
+  inputEl.value = '';
+  _streamingActive = true;
+  inputEl.disabled = true;
+  sendBtn.disabled = true;
+  endBtn.disabled  = true;
+
+  const transcriptEl = document.getElementById('transcript-body');
+  const npcName = currentConvData ? currentConvData.npc_name : 'NPC';
+  const playerName = currentConvData ? currentConvData.player_name : 'Joueur';
+
+  // Append player line immediately.
+  _appendBubble(transcriptEl, 'player', playerName, content);
+
+  // Show "réflexion…" indicator as an NPC bubble.
+  const thinkEl = _appendBubble(transcriptEl, 'npc msg-thinking', npcName, 'réflexion…');
+
+  try {
+    const res = await fetch('/api/conversations/' + currentConvId + '/say', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ content }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Request failed');
+    }
+
+    // Replace thinking indicator with a live NPC bubble.
+    thinkEl.remove();
+    const npcBubble = _appendBubble(transcriptEl, 'npc', npcName, '');
+    const bubbleText = npcBubble.querySelector('.msg-bubble');
+
+    // Read the SSE stream token by token.
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let lineBuffer = '';
+
+    outer: while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      lineBuffer += decoder.decode(value, { stream: true });
+
+      // SSE lines end with \n; events end with \n\n — split on every \n.
+      const lines = lineBuffer.split('\n');
+      lineBuffer = lines.pop();   // keep incomplete last line
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6);
+        if (payload === '[DONE]') break outer;
+        try {
+          const token = JSON.parse(payload);
+          if (token && typeof token === 'object' && token.error) {
+            bubbleText.style.color = 'var(--red)';
+            bubbleText.textContent = '⚠ ' + token.error;
+            break outer;
+          }
+          if (typeof token === 'string') {
+            bubbleText.textContent += token;
+            transcriptEl.scrollTop = transcriptEl.scrollHeight;
+          }
+        } catch { /* ignore malformed line */ }
+      }
+    }
+
+    // Refresh the sidebar count for this conversation.
+    const ciEl = document.getElementById('ci-' + currentConvId);
+    if (ciEl) {
+      const metaEl = ciEl.querySelector('.ci-meta');
+      if (metaEl) {
+        // Re-fetch just the list entry via the full list (lightweight).
+        const convs = await api('/api/conversations').catch(() => null);
+        if (convs) {
+          const updated = convs.find(c => c.id === currentConvId);
+          if (updated) {
+            const countSpan = metaEl.querySelector('.badge');
+            // Update message count text (the node after the status badge).
+            metaEl.innerHTML =
+              `<span class="badge b-${esc(updated.status)}">${esc(updated.status)}</span>` +
+              (updated.location ? ' · ' + esc(updated.location) : '') +
+              ` · ${updated.message_count} msg${updated.message_count !== 1 ? 's' : ''}` +
+              `<br>${fmtDate(updated.started_at)}`;
+          }
+        }
+      }
+    }
+
+  } catch (e) {
+    thinkEl.remove();
+    _appendBubble(transcriptEl, 'npc', npcName,
+      '⚠ Erreur : ' + e.message).querySelector('.msg-bubble').style.color = 'var(--red)';
+  } finally {
+    _streamingActive = false;
+    inputEl.disabled = false;
+    sendBtn.disabled = false;
+    endBtn.disabled  = false;
+    inputEl.focus();
+  }
+}
+
+/** Append a message bubble to the transcript and scroll into view. */
+function _appendBubble(container, speakerClass, displayName, content) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + speakerClass;
+  el.innerHTML =
+    `<div class="msg-name">${esc(displayName)}</div>` +
+    `<div class="msg-bubble">${esc(content)}</div>`;
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+  return el;
+}
+
+async function endConversation() {
+  if (_streamingActive || !currentConvId) return;
+  const endBtn = document.getElementById('btn-end');
+  endBtn.disabled = true;
+  try {
+    await api('/api/conversations/' + currentConvId + '/end', { method: 'POST' });
+    setPlayInputVisible(false);
+    // Update the sidebar badge and refresh the transcript header.
+    await loadConversations();
+    // Re-highlight the current item.
+    const item = document.getElementById('ci-' + currentConvId);
+    if (item) item.classList.add('active');
+    // Re-enable analyze buttons.
+    document.getElementById('btn-analyze').disabled = false;
+    document.getElementById('btn-force').disabled   = false;
+    // Update conversation data status.
+    if (currentConvData) currentConvData.status = 'closed';
+  } catch (e) {
+    endBtn.disabled = false;
+    alert('Erreur : ' + e.message);
+  }
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -859,6 +1208,7 @@ function markCardDone(id, newStatus) {
    ════════════════════════════════════════════════════════════════════════════ */
 
 document.addEventListener('DOMContentLoaded', () => {
+  loadNpcs();
   loadConversations();
   loadQueue();
 });
