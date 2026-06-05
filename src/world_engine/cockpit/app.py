@@ -75,6 +75,84 @@ def _mutation_dict(m: ProposedMutation) -> dict:
     }
 
 
+# ── Duplicate-application guard ───────────────────────────────────────────────
+
+def _find_applied_duplicate(
+    mut: ProposedMutation,
+    db: Session,
+) -> Optional[str]:
+    """Return a warning string if an equivalent mutation was already applied for
+    this conversation; return None if it is safe to apply.
+
+    This guard prevents double-application when --force re-generates proposals
+    after a previous round already applied one.  Only mutations from the SAME
+    conversation are compared — the same knowledge acquired in two different
+    conversations is not a duplicate.
+
+    Match keys (design choice):
+    - new_knowledge   : same conversation_id + entity_id + subject.
+        Rationale: (entity, subject) is the identity of a fact; the same fact
+        written twice creates duplicate rows and inflates NPC context.
+    - relation_change : same conversation_id + unordered entity pair + relation_type.
+        Rationale: applying the delta twice doubles the intensity shift.
+    - status_change   : same conversation_id + entity_id (any applied change on
+        the same entity from this conversation counts as a conflict).
+        Rationale: two status changes on the same entity in one conversation
+        are unlikely to both be correct; surface for creator review.
+    """
+    if not mut.conversation_id:
+        return None
+
+    payload = mut.payload if isinstance(mut.payload, dict) else {}
+
+    applied_same_type = db.exec(
+        select(ProposedMutation).where(
+            ProposedMutation.conversation_id == mut.conversation_id,
+            ProposedMutation.status == "applied",
+            ProposedMutation.mutation_type == mut.mutation_type,
+        )
+    ).all()
+
+    if not applied_same_type:
+        return None
+
+    for prev in applied_same_type:
+        prev_p = prev.payload if isinstance(prev.payload, dict) else {}
+
+        if mut.mutation_type == "new_knowledge":
+            if (prev_p.get("entity_id") == payload.get("entity_id")
+                    and prev_p.get("subject") == payload.get("subject")):
+                return (
+                    f"new_knowledge for entity {str(payload.get('entity_id',''))[:8]}… "
+                    f"subject={payload.get('subject')!r} was already applied by "
+                    f"mutation {prev.id[:8]}…  Applying again would create a "
+                    f"duplicate knowledge row."
+                )
+
+        elif mut.mutation_type == "relation_change":
+            prev_pair = frozenset([prev_p.get("entity_a_id"), prev_p.get("entity_b_id")])
+            cur_pair  = frozenset([payload.get("entity_a_id"), payload.get("entity_b_id")])
+            if (prev_pair == cur_pair
+                    and prev_p.get("relation_type") == payload.get("relation_type")):
+                return (
+                    f"relation_change for this entity pair + type "
+                    f"({payload.get('relation_type')!r}) was already applied by "
+                    f"mutation {prev.id[:8]}…  Applying again would double the "
+                    f"intensity delta."
+                )
+
+        elif mut.mutation_type == "status_change":
+            prev_eid = prev_p.get("entity_id") or prev.target_id
+            cur_eid  = payload.get("entity_id") or mut.target_id
+            if prev_eid == cur_eid:
+                return (
+                    f"status_change for entity {str(cur_eid)[:8]}… was already "
+                    f"applied by mutation {prev.id[:8]}…"
+                )
+
+    return None
+
+
 # ── Canon writer ──────────────────────────────────────────────────────────────
 
 def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
@@ -94,6 +172,14 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
     Unimplemented types (event_creation, entity_creation, knowledge_change, other)
     are left as 'approved' with a note — better un-applied than wrongly applied.
     """
+    # ── Duplicate guard ───────────────────────────────────────────────────────
+    # Must run before any write.  If an equivalent mutation was already applied
+    # for the same conversation, we block and surface it in the "Needs attention"
+    # tab rather than silently doubling the effect.
+    dup = _find_applied_duplicate(mut, db)
+    if dup:
+        return f"[duplicate blocked] {dup}"
+
     payload: dict = mut.payload if isinstance(mut.payload, dict) else {}
     now = datetime.now(UTC)
 
@@ -315,26 +401,33 @@ def analyze_conversation_endpoint(
 ) -> dict:
     """Run post-conversation analysis; return the resulting proposals.
 
-    Without force: if proposals already exist, return them unchanged (same
-    idempotency contract as the CLI script).
-    With force=True: delete existing proposals and re-run.
+    Without force: if unreviewed (proposed) rows already exist, return them.
+    With force=True: delete ONLY unreviewed rows and re-run.
+    Reviewed rows (applied/approved/rejected) are NEVER deleted — history is sacred.
     """
-    existing = db.exec(
+    all_for_conv = db.exec(
         select(ProposedMutation).where(
             ProposedMutation.conversation_id == conv_id
         )
     ).all()
 
-    if existing and not force:
+    # Separate unreviewed (deletable) from reviewed (immutable history).
+    proposed_rows = [r for r in all_for_conv if r.status == "proposed"]
+    reviewed_rows = [r for r in all_for_conv if r.status != "proposed"]
+
+    # Idempotency guard: only block on unreviewed proposals (reviewed rows are
+    # fine to have — they don't block a re-analysis).
+    if proposed_rows and not force:
         return {
             "status": "existing",
-            "count": len(existing),
-            "proposals": [_mutation_dict(m) for m in existing],
+            "count": len(proposed_rows),
+            "proposals": [_mutation_dict(m) for m in proposed_rows],
         }
 
-    if existing and force:
-        for row in existing:
-            db.delete(row)
+    # Force: delete only proposed rows; reviewed rows survive regardless.
+    for row in proposed_rows:
+        db.delete(row)
+    if proposed_rows:
         db.commit()
 
     # Fail fast if Ollama is unreachable.
@@ -354,10 +447,18 @@ def analyze_conversation_endpoint(
         db.add(mut)
     db.commit()
 
+    # Include duplicate warnings so the queue shows the banner immediately
+    # after a forced re-analysis on a conversation that already has applied rows.
+    proposals = []
+    for m in mutations:
+        d = _mutation_dict(m)
+        d["applied_duplicate"] = _find_applied_duplicate(m, db)
+        proposals.append(d)
+
     return {
         "status": "ok",
         "count": len(mutations),
-        "proposals": [_mutation_dict(m) for m in mutations],
+        "proposals": proposals,
     }
 
 
@@ -371,7 +472,16 @@ def list_mutations(
         .where(ProposedMutation.status == status)
         .order_by(ProposedMutation.proposed_at)
     ).all()
-    return [_mutation_dict(m) for m in mutations]
+    result = []
+    for m in mutations:
+        d = _mutation_dict(m)
+        # For proposed rows only: surface any already-applied equivalent so the
+        # UI can show the duplicate-risk banner before the creator clicks Approve.
+        d["applied_duplicate"] = (
+            _find_applied_duplicate(m, db) if m.status == "proposed" else None
+        )
+        result.append(d)
+    return result
 
 
 class RejectBody(BaseModel):

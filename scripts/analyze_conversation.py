@@ -73,18 +73,39 @@ def main() -> None:
                 m.ProposedMutation.conversation_id == args.conversation_id
             )
         ).all()
+
+        # Separate unreviewed (deletable) from reviewed (immutable history).
+        # --force ONLY deletes proposed rows; applied/approved/rejected rows
+        # are permanent audit history and must never be destroyed.
+        proposed_rows = [r for r in existing if r.status == "proposed"]
+        reviewed_rows = [r for r in existing if r.status != "proposed"]
+
         if existing:
             if not args.force:
-                print(
-                    f"[skip] {len(existing)} proposal(s) already exist for "
-                    f"conversation {args.conversation_id}.\n"
-                    f"       Run with --force to delete them and re-run."
-                )
-                sys.exit(0)
-            for row in existing:
+                if proposed_rows:
+                    print(
+                        f"[skip] {len(proposed_rows)} proposed proposal(s) already exist for "
+                        f"conversation {args.conversation_id}.\n"
+                        f"       Run with --force to delete them and re-run."
+                    )
+                    if reviewed_rows:
+                        print(
+                            f"       ({len(reviewed_rows)} reviewed row(s) will be kept regardless.)"
+                        )
+                    sys.exit(0)
+                # Only reviewed rows exist — no pending proposals blocking re-analysis.
+
+            # Force (or no proposed rows): delete only proposed rows.
+            for row in proposed_rows:
                 db.delete(row)
-            db.commit()
-            print(f"[force] Deleted {len(existing)} existing proposal(s).")
+            if proposed_rows:
+                db.commit()
+                print(f"[force] Deleted {len(proposed_rows)} proposed proposal(s).")
+            if reviewed_rows:
+                print(
+                    f"[force] Kept {len(reviewed_rows)} reviewed proposal(s) "
+                    f"({', '.join(r.status for r in reviewed_rows)}) — history is sacred."
+                )
 
         try:
             mutations = analyze_conversation(
