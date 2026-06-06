@@ -95,15 +95,18 @@ def _find_applied_duplicate(
     conversations is not a duplicate.
 
     Match keys (design choice):
-    - new_knowledge   : same conversation_id + entity_id + subject.
-        Rationale: (entity, subject) is the identity of a fact; the same fact
-        written twice creates duplicate rows and inflates NPC context.
-    - relation_change : same conversation_id + unordered entity pair + relation_type.
-        Rationale: applying the delta twice doubles the intensity shift.
-    - status_change   : same conversation_id + entity_id (any applied change on
-        the same entity from this conversation counts as a conflict).
+    - new_knowledge : same conversation_id + entity_id + subject.
+        Rationale: (entity, subject) is the identity of a fact; applying twice
+        creates duplicate knowledge rows and inflates NPC context.
+    - status_change : same conversation_id + entity_id.
         Rationale: two status changes on the same entity in one conversation
         are unlikely to both be correct; surface for creator review.
+
+    relation_change is intentionally EXCLUDED from this guard.
+    Relation deltas ACCUMULATE — two independent +5 events sum to +10 and must
+    both apply. These come only from per-turn immediate flags (one per turn),
+    so they are never re-proposed by the final pass and can never be
+    double-applied by --force.
     """
     if not mut.conversation_id:
         return None
@@ -134,18 +137,6 @@ def _find_applied_duplicate(
                     f"duplicate knowledge row."
                 )
 
-        elif mut.mutation_type == "relation_change":
-            prev_pair = frozenset([prev_p.get("entity_a_id"), prev_p.get("entity_b_id")])
-            cur_pair  = frozenset([payload.get("entity_a_id"), payload.get("entity_b_id")])
-            if (prev_pair == cur_pair
-                    and prev_p.get("relation_type") == payload.get("relation_type")):
-                return (
-                    f"relation_change for this entity pair + type "
-                    f"({payload.get('relation_type')!r}) was already applied by "
-                    f"mutation {prev.id[:8]}…  Applying again would double the "
-                    f"intensity delta."
-                )
-
         elif mut.mutation_type == "status_change":
             prev_eid = prev_p.get("entity_id") or prev.target_id
             cur_eid  = payload.get("entity_id") or mut.target_id
@@ -163,17 +154,16 @@ def _find_applied_duplicate(
 def _mutation_match_key(mutation_type: str, payload: dict):
     """Return a hashable match key for per-conversation deduplication, or None.
 
-    Mirrors the _find_applied_duplicate match logic so both guards use the
-    same semantics (same mutation in same conversation = same key).
+    Used by the final-pass analyze endpoint to avoid re-proposing what per-turn
+    immediate flags already captured.  Only idempotent mutation types are keyed
+    here — applying the same idempotent fact twice is wrong; accumulating deltas
+    (relation_change) must never be suppressed.
+
+    relation_change is intentionally EXCLUDED: deltas accumulate across turns
+    and the final pass never proposes them (per-turn flags own all relation arcs).
     """
     if mutation_type == "new_knowledge":
         return ("new_knowledge", payload.get("entity_id"), payload.get("subject"))
-    if mutation_type == "relation_change":
-        return (
-            "relation_change",
-            frozenset([payload.get("entity_a_id"), payload.get("entity_b_id")]),
-            payload.get("relation_type"),
-        )
     if mutation_type == "status_change":
         eid = payload.get("entity_id")
         return ("status_change", eid) if eid else None

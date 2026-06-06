@@ -366,7 +366,25 @@ def analyze_single_turn(
             proposed_at=now,
         ))
 
-    return mutations
+    # Within-turn collapse: if the model emits duplicate relation_change entries
+    # for the same entity pair + type in a SINGLE call, keep only the first.
+    # This is model stutter inside one turn — not two distinct events.
+    # Never collapse across turns (across separate calls to analyze_single_turn).
+    seen_rel_keys: set = set()
+    deduped: list[ProposedMutation] = []
+    for mut in mutations:
+        if mut.mutation_type == "relation_change":
+            p = mut.payload if isinstance(mut.payload, dict) else {}
+            rel_key = (
+                frozenset([p.get("entity_a_id"), p.get("entity_b_id")]),
+                p.get("relation_type"),
+            )
+            if rel_key in seen_rel_keys:
+                continue
+            seen_rel_keys.add(rel_key)
+        deduped.append(mut)
+
+    return deduped
 
 
 def analyze_conversation(
@@ -473,5 +491,17 @@ def analyze_conversation(
                 proposed_at=now,
             )
         )
+
+    # relation_change is excluded from the final pass: deltas accumulate across
+    # turns and the per-turn immediate flags already sum the full arc. Proposing
+    # them here too would double-count any trust shift the per-turn flags caught.
+    # Trade-off: a gradual shift that no single turn trips won't be auto-proposed;
+    # the creator can still add a relation_change manually if needed.
+    before = len(mutations)
+    mutations = [m for m in mutations if m.mutation_type != "relation_change"]
+    dropped = before - len(mutations)
+    if dropped:
+        print(f"[info] Final pass: dropped {dropped} relation_change item(s) "
+              f"(owned by per-turn flags).")
 
     return mutations
