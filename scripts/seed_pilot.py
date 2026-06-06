@@ -75,6 +75,32 @@ def upsert_knowledge(session: Session, id: str, **fields):
     return obj
 
 
+def upsert_prompt_template(session: Session, id: str, **fields):
+    """Create or update a prompt template row.
+
+    Prompt wording is revised over time; re-seeding must converge the DB to
+    the latest text — same as upsert_knowledge does for knowledge rows.
+    Idempotent: a second run with unchanged content records nothing changed.
+    """
+    obj = session.get(m.PromptTemplate, id)
+    if obj is None:
+        obj = m.PromptTemplate(id=id, **fields)
+        session.add(obj)
+        _created.append((m.PromptTemplate.__tablename__, id))
+        return obj
+    changed = False
+    for key, value in fields.items():
+        if getattr(obj, key) != value:
+            setattr(obj, key, value)
+            changed = True
+    if changed:
+        obj.updated_at = datetime.now(UTC)
+        _updated.append((m.PromptTemplate.__tablename__, id))
+    else:
+        _existing.append((m.PromptTemplate.__tablename__, id))
+    return obj
+
+
 def delete_if_exists(session: Session, model, id: str) -> None:
     """Remove a row that should no longer exist (idempotent)."""
     obj = session.get(model, id)
@@ -175,31 +201,56 @@ JSON array of canon mutations ([] if nothing changed):"""
 # Variables substituted with str.replace() in app.py: {npc_name}, {location_name},
 # {player_line}, {npc_reply}. /no_think appended at call time for speed.
 MJ_NARRATION_SYSTEM_PROMPT = """\
-Tu es le maître de jeu (MJ) d'une conversation de jeu de rôle.
+Tu es le maître de jeu (MJ) d'une conversation de jeu de rôle. Tu ne joues pas le \
+PNJ et tu ne connais pas ses secrets.
 
-TON UNIQUE RÔLE : habiller la réplique du PNJ d'une narration légère. Tu ne joues \
-pas le PNJ. Tu ne sais pas ce qu'il ou elle cache.
+TON TRAVAIL : reformuler la réplique brute du PNJ en prose narrative légère à la \
+troisième personne, sans perdre un seul mot de son discours.
 
-RÈGLE ABSOLUE — PRÉSERVER LES MOTS DU PNJ.
-Cite la réplique du PNJ VERBATIM, entre guillemets français (« … »), à l'intérieur \
-de ta narration. Tu ne dois JAMAIS modifier, adoucir, contredire, résumer ni inventer \
-la moindre parole. Pas un mot changé.
+=== RÈGLE 1 — PRÉSERVER TOUT LE DIALOGUE (priorité absolue) ===
+Cite la réplique du PNJ VERBATIM et INTÉGRALEMENT, entre guillemets français \
+(« … »). Chaque phrase prononcée doit apparaître telle quelle — rien de coupé, rien \
+de résumé, rien de fusionné, rien d'adouci. Si le PNJ a donné une vraie réponse, le \
+joueur DOIT la lire dans son intégralité. SUPPRIMER OU RACCOURCIR DU DIALOGUE EST LA \
+PIRE ERREUR QUE TU PEUX COMMETTRE.
 
-CE QUE TU PEUX AJOUTER (et uniquement ceci) :
-- décor visible ou geste corporel observable (cadre, ton, attitude physique) au \
-moment où le PNJ parle
-- une courte transition avant ou après la citation
+=== RÈGLE 2 — TROISIÈME PERSONNE HORS GUILLEMETS ===
+Tout ce que tu ajoutes HORS des « » est à la troisième personne. Les actions, gestes \
+et postures du PNJ s'écrivent ainsi :
+  Correct   : Maelis hausse les épaules. / Elle jette un regard vers lui.
+  Interdit  : Je hausse les épaules. / Je jette un regard.
+EXCEPTION CRITIQUE : à l'intérieur des « », la première personne EST la parole du \
+personnage et doit rester intacte. Ne change jamais rien dans les guillemets — \
+ni les mots, ni la personne grammaticale.
 
-Reste MINIMAL : avec un seul PNJ, ses mots dominent. Deux ou trois phrases de \
-narration suffisent, pas plus.
+=== RÈGLE 3 — CADRAGE MINIMAL, PAS D'INVENTION ===
+Ajoute seulement : un geste visible, un détail de décor, une courte transition. \
+N'invente aucun fait sur le monde, les lieux, les personnages ou les événements. \
+Avec un seul PNJ, ses mots dominent — ne parle pas par-dessus elle. \
+2 à 4 phrases au total suffisent.
 
-CE QUI T'EST INTERDIT :
-- inventer des faits sur le monde, l'histoire, les lieux, les personnages ou la magie
-- révéler ou sous-entendre quoi que ce soit sur les secrets du PNJ (tu n'y as pas \
-accès de toute façon)
-- produire du JSON, des méta-commentaires, des explications hors personnage
+=== RÈGLE 4 — VARIER LES IMAGES ===
+Ne répète pas la même image d'ouverture à chaque narration (lumière des bougies, \
+chaleur de la salle). Change d'angle à chaque tour.
 
-FORMAT : prose narrative en français, courte, sans titre ni liste. Rien d'autre.\
+=== EXEMPLE ===
+
+Réplique brute du PNJ :
+Je hausse les épaules, un peu amusée. « Je sers mon propre intérêt, monsieur. \
+Le Dernier Verre est mon domaine. » Je jette un regard vers Reike.
+
+Bonne narration MJ :
+Maelis hausse les épaules, un rien amusée. « Je sers mon propre intérêt, monsieur. \
+Le Dernier Verre est mon domaine. » Elle jette un regard vers Reike, à l'autre bout \
+de la salle.
+
+Explication : les actions de la PNJ (« Je hausse », « Je jette ») sont converties à \
+la troisième personne (« Maelis hausse », « Elle jette ») ; le discours entre \
+guillemets est reproduit VERBATIM, premier personne conservé à l'intérieur ; rien \
+n'est inventé ou supprimé ; le cadrage reste minimal.
+
+=== FORMAT ===
+Prose narrative en français, courte. Rien d'autre — pas de JSON, pas de méta.\
 """
 
 MJ_NARRATION_USER_TEMPLATE = """\
@@ -208,8 +259,8 @@ Scène : {npc_name} dans « {location_name} ».
 Le joueur dit :
 {player_line}
 
-{npc_name} répond — cite cette réplique VERBATIM, entre guillemets, sans modifier \
-un seul mot :
+{npc_name} répond — cite cette réplique INTÉGRALEMENT et VERBATIM, sans modifier ni \
+supprimer un seul mot :
 {npc_reply}
 
 Narration MJ :\
@@ -314,9 +365,9 @@ def seed(session: Session) -> None:
     # usage = "player_narration". world_id = NULL (applies to every world).
     # The user_template contains {npc_name}, {location_name}, {player_line},
     # {npc_reply} placeholders substituted at call time in app.py.
-    get_or_create(
+    # Uses upsert so re-seeding always converges the DB to the latest wording.
+    upsert_prompt_template(
         session,
-        m.PromptTemplate,
         "pt-mj-narration",
         world_id=None,
         name="MJ narration — habillage de réplique",
