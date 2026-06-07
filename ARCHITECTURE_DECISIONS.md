@@ -51,42 +51,63 @@ When a player talks to an NPC, the engine builds that NPC's prompt: who it is, w
 
 ---
 
-## CONVERSATION ANALYSIS — How proposals are generated
+## CONVERSATION ANALYSIS — Two-tier proposal system
 
-After a live conversation ends, `scripts/analyze_conversation.py` reads the closed transcript and proposes canon changes:
+Proposals are generated at two moments, by two functions in `analyzer.py`.
 
-1. **Load** — reads the `conversation` row, its ordered `conversation_message` rows, and the `injected_context` snapshot (what the NPC was authorised to know).
-2. **Prompt** — the `pt-conversation-analysis` prompt template (`usage = conversation_analysis`, stored in `prompt_template`, editable by the creator) instructs the local Ollama model to identify ONLY concrete changes that ACTUALLY occurred: relation shifts, knowledge acquired, notable events. An empty result is explicitly valid for idle chat.
-3. **Call** — `ollama_client.chat()` with `format="json"` (constrains output to valid JSON syntax). Thinking mode is left enabled; `strip_think()` removes the reasoning block before parsing.
-4. **Normalise** — `analyzer._normalize_to_schema()` maps the model's natural field names to our schema. The 8b Qwen3 model reliably detects *what* changed but consistently ignores exact field-name requirements (it uses `type` / `subject` / `content` rather than `mutation_type` / `payload` / etc.). Fighting the model with stricter prompting failed; normalising the output is more robust.
-5. **Validate** — items that cannot be normalised to a known `mutation_type` + valid `payload` are skipped and logged.
-6. **Write** — each valid item becomes one `proposed_mutation` row: `status = proposed`, `proposed_by = local_ai`, `source_type = conversation`. No other table is touched.
+### Per-turn immediate analysis (`analyze_single_turn`)
 
-Idempotency: re-running on the same `conversation_id` exits with a message unless
-`--force` is passed. `--force` deletes ONLY rows with `status = 'proposed'`;
-reviewed rows (`applied`, `approved`, `rejected`) are permanent audit history and
-survive regardless. If a conversation has only reviewed rows and no pending
-proposals, re-analysis runs freely without `--force`.
+Fires automatically **after each turn's MJ narration stream**, while the player is composing their next line. Analyses only the current exchange (one `[JOUEUR]` + one `[PNJ]` line). Uses the same prompt, normaliser, and validator as the final pass.
+
+- Tagged `proposed_by = 'local_ai_immediate'`.
+- **Owns all `relation_change` proposals.** Relation deltas accumulate across turns (two independent +5 events total +10); the final pass must never re-propose them.
+- Within-turn collapse: if the model emits duplicate `relation_change` entries for the same entity pair + type in one response (model stutter), only the first is kept.
+- Failures are silently swallowed — analysis must never surface to the player.
+
+### Final-pass analysis (`analyze_conversation`)
+
+Triggered manually via the **Analyze** button in the cockpit (or `scripts/analyze_conversation.py`). Reads the full transcript (`player` and `npc` rows only — `mj` rows are excluded).
+
+1. **Load** — reads the `conversation` row, its ordered `conversation_message` rows (speaker ∈ {`player`, `npc`}), and the `injected_context` snapshot.
+2. **Prompt** — the `pt-conversation-analysis` template (`usage = conversation_analysis`, editable in DB) instructs the model to identify ONLY concrete changes that ACTUALLY occurred. An empty result is explicitly valid for idle chat.
+3. **Call** — `ollama_client.chat()` with `format="json"`. Thinking mode enabled; `strip_think()` removes the block before parsing.
+4. **Normalise** — `_normalize_to_schema()` maps the model's natural field names to our schema (the 8b model reliably detects *what* changed but ignores exact field names).
+5. **Validate** — items that cannot be normalised are skipped and logged.
+6. **Filter** — `relation_change` items are dropped before writing. Rationale: the per-turn flags already sum the full arc; re-proposing them would double-count.
+7. **Deduplicate** — remaining items are checked against existing `proposed` rows for this conversation using the idempotent match key (`entity_id` + `subject` for `new_knowledge`; `entity_id` for `status_change`). Only what the per-turn flags missed is written.
+8. **Write** — each surviving item becomes one `proposed_mutation` row: `status = proposed`, `proposed_by = local_ai`.
+
+Idempotency: re-running without `--force` returns existing proposals. `--force` deletes ONLY rows with `status = 'proposed'` (including per-turn flags); reviewed rows (`applied`, `approved`, `rejected`) are permanent audit history and survive regardless.
 
 ---
 
 ## CREATOR REVIEW COCKPIT
 
-`src/world_engine/cockpit/` is the local web UI for the two tasks that were
-previously CLI-only: reading conversation transcripts and reviewing / applying
-proposed mutations. It is the **only place where world state gets written** in
-response to approved proposals.
+`src/world_engine/cockpit/` is the local web UI for live play **and** creator
+review. It is the **only place where world state gets written** in response to
+approved proposals.
 
 ### What it does
 
-- Reads conversations and renders them as a chat transcript (speaker names
-  resolved from the `entity` table).
-- Triggers (re-)analysis via the existing `analyzer.analyze_conversation` — no
-  logic duplication.
+- **Live play** — select an NPC, start a conversation, type turns. Each turn runs
+  the three-phase `/say` flow (see below). Per-turn proposals accumulate silently.
+- Reads conversations and renders them as a chat transcript with the MJ narration
+  as primary text and the raw NPC line as a muted audit annotation below each turn.
+- Triggers (re-)analysis via `analyzer.analyze_conversation` (final pass).
 - Lists the review queue filterable by status (`proposed` / applied / rejected /
   needs attention).
 - Approve / reject mutations with an optional creator note and (for approve) an
   editable payload before writing.
+
+### The three-phase `/say` flow
+
+Each player turn runs three phases inside one SSE generator:
+
+1. **NPC phase** — `chat_stream` (buffered; thinking filtered by `_StreamThinkFilter`). The player sees no tokens yet; the "réflexion…" indicator stays. Result persisted as `speaker='npc'` (canonical truth).
+2. **MJ phase** — MJ narration generated from `pt-mj-narration` template (`usage='player_narration'`). Streamed to the player token by token. A `{"npc_raw": "..."}` SSE event is sent before `[DONE]` so the browser can render the audit annotation without an extra HTTP request. Result persisted as `speaker='mj'` (presentation layer).
+3. **Per-turn analysis** (sync-after-stream) — runs after `[DONE]` is sent, while the player reads and types. Calls `analyze_single_turn()`. Silently writes `proposed_mutation` rows tagged `proposed_by='local_ai_immediate'`.
+
+The NPC's words never reach the player directly — the player always reads the MJ's narration, which quotes them verbatim.
 
 ### apply_mutation — the only canon-write path
 
@@ -125,15 +146,18 @@ If an equivalent mutation was already applied for the same conversation, the
 new one is blocked and routed to "Needs attention" instead of writing a
 duplicate row.
 
-Match keys (same `conversation_id` required in all cases):
+**Idempotent types** — applying the same fact twice is wrong; the guard is active:
 
-- `new_knowledge`   → `entity_id` + `subject`
-- `relation_change` → unordered entity pair + `relation_type`
-- `status_change`   → `entity_id`
+| mutation_type  | Match key (same `conversation_id` required) |
+|----------------|----------------------------------------------|
+| `new_knowledge` | `entity_id` + `subject` |
+| `status_change` | `entity_id` |
 
-This prevents the worst-case scenario: a forced re-analysis after an approval
-generates a fresh proposal that, if approved again, would double a relation
-delta or create a duplicate knowledge row.
+**Accumulating type — `relation_change` is intentionally excluded.** Relation
+deltas sum across turns: two independent +5 events total +10 and must both apply.
+`relation_change` proposals come only from per-turn immediate flags (one per turn);
+the final pass never proposes them. There is therefore no double-application risk,
+and the guard would incorrectly block a legitimate second event.
 
 ### History is sacred — force protection
 

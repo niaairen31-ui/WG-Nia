@@ -39,9 +39,11 @@ Read both before making any structural change.
 Target local model for NPC dialogue and analysis: **`huihui_ai/qwen3-abliterated:8b-v2`**, run via Ollama. Relevant when wiring the model (not before — context assembly is model-agnostic):
 
 - **Abliterated** = refusal mechanisms removed. Will not refuse, and is generally more compliant to *any* instruction — including a player pushing it to reveal. This makes it the strictest possible test of the "concealed knowledge / under guard" mechanism: if secrets hold here, they hold anywhere. The creator checkpoint remains the real safety net regardless.
-- **Thinking mode:** Qwen3 emits a `<think>...</think>` reasoning block before its answer. `ollama_client.strip_think()` handles this robustly (complete block, unclosed tag, orphan closing tag). Two different policies apply depending on the call site:
-  - **NPC dialogue** (`talk.py`): disable thinking with `/no_think` in the user message — deterministic, faster, and the reasoning block must never reach the player.
-  - **Conversation analysis** (`analyze_conversation.py`): leave thinking enabled — the reasoning helps the model follow format instructions; `strip_think` removes the block before JSON parsing.
+- **Thinking mode:** Qwen3 emits a `<think>...</think>` reasoning block before its answer. `ollama_client.strip_think()` handles this robustly (complete block, unclosed tag, orphan closing tag). Three policies apply depending on the call site:
+  - **NPC dialogue** (`talk.py` CLI): disable thinking with `/no_think` in the user message — deterministic, faster, and the reasoning block must never reach the player.
+  - **NPC dialogue** (cockpit `/say`, NPC phase): `chat_stream` with the built-in `_StreamThinkFilter` — thinking is left enabled, the filter suppresses the block before any token is yielded. The NPC reply is buffered internally; the player never sees it raw.
+  - **MJ narration** (cockpit `/say`, MJ phase): `chat_stream` + `/no_think` appended to the user message — same filter as a backstop, `/no_think` for speed. What streams to the player is narration prose only.
+  - **Conversation analysis** (`analyze_conversation.py`, `analyzer.py`): leave thinking enabled — the reasoning helps the model follow format instructions; `strip_think` removes the block before JSON parsing.
 - **French quality:** multilingual but not Mistral-grade idiomatic French. Acceptable for validating logic; if narrative quality disappoints, that's a model-selection signal, not a code defect.
 
 ## Conventions
@@ -57,11 +59,18 @@ World-genrator/
 │       ├── models.py        # all SQLModel table classes (the schema)
 │       ├── context.py       # NPC context assembly (secret-exclusion + relation-gating)
 │       ├── ollama_client.py # HTTP client for local Ollama; strips <think> blocks
-│       ├── analyzer.py      # post-conversation mutation analysis; normalizer
+│       ├── analyzer.py      # mutation analysis; _normalize_to_schema; _validate_item;
+│       │                    # analyze_conversation (final pass, filters relation_change);
+│       │                    # analyze_single_turn (per-turn immediate flags,
+│       │                    #   proposed_by='local_ai_immediate', within-turn collapse)
 │       └── cockpit/         # creator review web UI (FastAPI sub-app)
 │           ├── __init__.py
-│           ├── app.py       # JSON endpoints + HTML route; _apply_mutation
-│           └── index.html   # single-page UI (inline CSS/JS, zero external deps)
+│           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
+│           │                # MJ narration layer (_load_mj_narration_template);
+│           │                # _find_applied_duplicate (new_knowledge + status_change only);
+│           │                # _mutation_match_key (idempotent types only)
+│           └── index.html   # single-page UI; MJ narration rendering;
+│                            # NPC raw audit annotation (inline CSS/JS, zero external deps)
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)
@@ -115,9 +124,18 @@ prepend `src` to `sys.path`, so they run without an editable install.
   rows. Use `--dry-run` to preview without writing; `--force` to replace existing
   *proposed* rows and re-run (reviewed rows are never deleted — see Working rules).
 - **Creator cockpit:** `python scripts/cockpit.py` — starts the local review UI
-  at http://127.0.0.1:8000. Browse conversations, read transcripts, trigger
-  analysis, and approve / reject proposed mutations. Binds to loopback only.
-  Requires the DB to be seeded; Ollama only needed for the Analyze action.
+  at http://127.0.0.1:8000. Select an NPC → Start → play turns live. Each turn:
+  NPC reply is generated internally (buffered), MJ narration is streamed to the
+  player; both are persisted (`speaker='npc'` canonical, `speaker='mj'`
+  presentation). Raw NPC line appears as a muted annotation for creator audit.
+  Per-turn `proposed_mutation` rows (`proposed_by='local_ai_immediate'`) are
+  written silently after each turn. Use **Analyze** to run the final pass (which
+  filters `relation_change` and deduplicates against the per-turn flags). Approve
+  / reject proposals in the queue. Binds to loopback only. Requires Ollama for
+  all AI calls (NPC, MJ, analysis).
+- **Re-seeding prompts:** `python scripts/seed_pilot.py` uses `upsert_prompt_template`
+  for `pt-mj-narration` — re-running the seed converges the DB to the latest
+  wording without losing other data.
 
 ---
 

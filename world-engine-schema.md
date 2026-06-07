@@ -294,11 +294,21 @@ CREATE TABLE conversation_message (
   id              TEXT PRIMARY KEY,
   conversation_id TEXT NOT NULL REFERENCES conversation(id),
   turn_order      INTEGER NOT NULL,        -- sequence within the conversation
-  speaker         TEXT NOT NULL,           -- player | npc
-  speaker_id      TEXT REFERENCES entity(id),  -- which entity spoke
+  speaker         TEXT NOT NULL,           -- player | npc | mj
+                                           --   player : canonical player turn
+                                           --   npc    : canonical NPC reply (buffered,
+                                           --            never streamed raw to player)
+                                           --   mj     : MJ narration prose (presentation
+                                           --            layer — what the player sees)
+  speaker_id      TEXT REFERENCES entity(id),  -- which entity spoke (NULL for mj)
   content         TEXT NOT NULL,           -- the line itself
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+-- turn_order layout per player turn:
+--   N   → player (canonical)
+--   N+1 → npc    (canonical)
+--   N+2 → mj     (presentation)
+-- Analysis reads only player + npc rows; mj rows are never fed to the model.
 ```
 
 -----
@@ -330,7 +340,11 @@ CREATE TABLE proposed_mutation (
                   -- proposed | approved | rejected | applied
   rationale       TEXT,                    -- why the AI proposed it (raw draft text)
   creator_notes   TEXT,                    -- creator edit/justification
-  proposed_by     TEXT DEFAULT 'local_ai', -- local_ai | claude | creator
+  proposed_by     TEXT DEFAULT 'local_ai', -- local_ai          : final-pass analysis
+                                           -- local_ai_immediate : per-turn analysis
+                                           --                      (fires after each turn,
+                                           --                       owns all relation_change)
+                                           -- claude | creator
   proposed_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   reviewed_at     DATETIME,
   applied_at      DATETIME
@@ -524,6 +538,18 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.6** — No new tables or columns. Comment-level changes only:
+  (1) `conversation_message.speaker` now documents three values: `player` |
+  `npc` | `mj`. `mj` rows are the MJ narration (presentation layer); `player`
+  and `npc` remain the canonical truth the analysis reads.
+  (2) `proposed_mutation.proposed_by` now documents `local_ai_immediate` as a
+  second AI source tag, used by the per-turn analysis that fires after each turn
+  (owns all `relation_change` proposals).
+  Application-layer changes: `relation_change` removed from the duplicate-apply
+  guard (`_find_applied_duplicate`) because relation deltas accumulate — two
+  independent events must both apply. The final-pass analysis now filters out
+  `relation_change` (owned by per-turn flags). Both guards continue to protect
+  the idempotent types (`new_knowledge`, `status_change`).
 - **v1.5** — No new tables or columns. The creator review cockpit
   (`src/world_engine/cockpit/`) implements the full approve → apply pipeline,
   making the `proposed_mutation` lifecycle operational end-to-end. Two
@@ -541,4 +567,4 @@ batch   → event
 - **v1.2** — Added `conversation`, `conversation_message`, and `proposed_mutation` for live sessions and the unified mutation pipeline. Removed `pass_play.local_proposal`. Documented the role-toggle rule on `user`. Added `npc_dialogue` to prompt usages. Changed `relation.intensity` to a 1–100 scale (default 50 = neutral) with a clamp-on-apply rule. Added `updated_at` to `entity` and `knowledge`. Added an INDEXES section for frequent lookups. Schema translated to English.
 - **v1.1** — Initial local-phase schema.
 
-*Version 1.4 — Co-built with Claude, June 2026*
+*Version 1.6 — Co-built with Claude, June 2026*
