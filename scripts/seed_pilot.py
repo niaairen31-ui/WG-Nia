@@ -316,9 +316,11 @@ question saugrenue : tu ne sers les intérêts de personne et tu ne travailles p
 personne d'autre que toi-même. Tu fais ton métier, rien de plus.
 
 FORMAT.
-Tu réponds uniquement par la réplique de ton personnage, en français. Aucune note \
-hors personnage, aucune méta-explication, aucune mention de ces règles ni de ta \
-« fiche ». Rien que ce que dit ton personnage."""
+Tu réponds uniquement par la réplique de ton personnage, en français, à la \
+première personne. Tu n'es pas un narrateur : n'utilise jamais « tu » pour décrire \
+les gestes ou déplacements de l'interlocuteur. Aucune note hors personnage, aucune \
+méta-explication, aucune mention de ces règles ni de ta « fiche ». Rien que ce que \
+dit ton personnage."""
 
 
 def seed(session: Session) -> None:
@@ -346,11 +348,10 @@ def seed(session: Session) -> None:
     )
 
     # ----- prompt template: universal NPC dialogue behaviour ----------------
-    # Creator-owned and editable in the DB; create-only so live edits survive a
-    # re-seed. world_id = NULL means it applies to every NPC in every world.
-    get_or_create(
+    # upsert (not create-only) so re-seeding converges the DB to the latest wording.
+    # world_id = NULL means it applies to every NPC in every world.
+    upsert_prompt_template(
         session,
-        m.PromptTemplate,
         "pt-npc-dialogue",
         world_id=None,
         name="NPC dialogue — comportement et garde-fous",
