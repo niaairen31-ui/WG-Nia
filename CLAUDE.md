@@ -43,6 +43,7 @@ Target local model for NPC dialogue and analysis: **`huihui_ai/qwen3-abliterated
   - **NPC dialogue** (`talk.py` CLI): disable thinking with `/no_think` in the user message — deterministic, faster, and the reasoning block must never reach the player.
   - **NPC dialogue** (cockpit `/say`, NPC phase): `chat_stream` with the built-in `_StreamThinkFilter` — thinking is left enabled, the filter suppresses the block before any token is yielded. The NPC reply is buffered internally; the player never sees it raw.
   - **MJ narration** (cockpit `/say`, MJ phase): `chat_stream` + `/no_think` appended to the user message — same filter as a backstop, `/no_think` for speed. What streams to the player is narration prose only.
+  - **MJ interpretation** (cockpit `/say`, phase 0): `chat()` non-streaming + `/no_think` + `format="json"`. Classifies the player's input into `dialogue` / `npc_reaction` / `scene`. Fallback to `dialogue` on any error — a misclassification must never break a turn.
   - **Conversation analysis** (`analyze_conversation.py`, `analyzer.py`): leave thinking enabled — the reasoning helps the model follow format instructions; `strip_think` removes the block before JSON parsing.
 - **French quality:** multilingual but not Mistral-grade idiomatic French. Acceptable for validating logic; if narrative quality disappoints, that's a model-selection signal, not a code defect.
 
@@ -67,6 +68,9 @@ World-genrator/
 │           ├── __init__.py
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
 │           │                # MJ narration layer (_load_mj_narration_template);
+│           │                # MJ interpretation layer (ResponseMode,
+│           │                #   _interpret_mode, _build_mj_user,
+│           │                #   _load_mj_interpret_template);
 │           │                # _find_applied_duplicate (new_knowledge + status_change only);
 │           │                # _mutation_match_key (idempotent types only)
 │           └── index.html   # single-page UI; MJ narration rendering;
@@ -134,8 +138,8 @@ prepend `src` to `sys.path`, so they run without an editable install.
   / reject proposals in the queue. Binds to loopback only. Requires Ollama for
   all AI calls (NPC, MJ, analysis).
 - **Re-seeding prompts:** `python scripts/seed_pilot.py` uses `upsert_prompt_template`
-  for `pt-mj-narration` — re-running the seed converges the DB to the latest
-  wording without losing other data.
+  for `pt-mj-narration` and `pt-mj-interpretation` — re-running the seed converges
+  the DB to the latest wording without losing other data.
 
 ---
 

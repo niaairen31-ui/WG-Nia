@@ -99,15 +99,45 @@ approved proposals.
 - Approve / reject mutations with an optional creator note and (for approve) an
   editable payload before writing.
 
-### The three-phase `/say` flow
+### The four-phase `/say` flow
 
-Each player turn runs three phases inside one SSE generator:
+Each player turn runs four phases inside one SSE generator:
 
-1. **NPC phase** — `chat_stream` (buffered; thinking filtered by `_StreamThinkFilter`). The player sees no tokens yet; the "réflexion…" indicator stays. Result persisted as `speaker='npc'` (canonical truth).
-2. **MJ phase** — MJ narration generated from `pt-mj-narration` template (`usage='player_narration'`). Streamed to the player token by token. A `{"npc_raw": "..."}` SSE event is sent before `[DONE]` so the browser can render the audit annotation without an extra HTTP request. Result persisted as `speaker='mj'` (presentation layer).
-3. **Per-turn analysis** (sync-after-stream) — runs after `[DONE]` is sent, while the player reads and types. Calls `analyze_single_turn()`. Silently writes `proposed_mutation` rows tagged `proposed_by='local_ai_immediate'`.
+0. **Interpret phase** — `_interpret_mode()` classifies the player's raw input
+   into one of three `ResponseMode` values via a non-streaming `chat()` call
+   (`pt-mj-interpretation`, `usage='mj_interpretation'`). Falls back to
+   `ResponseMode.dialogue` on any failure — a misclassification must never break
+   a turn.
 
-The NPC's words never reach the player directly — the player always reads the MJ's narration, which quotes them verbatim.
+   | Mode | Trigger | NPC called? |
+   |---|---|---|
+   | `dialogue` | speech / question to the NPC (default) | yes, full reply |
+   | `npc_reaction` | visible action *toward* the NPC, no words | yes, wordless gesture only |
+   | `scene` | environment action, NPC not engaged | **no** |
+
+   For `npc_reaction`, a `[MODE RÉACTION NON-VERBALE]` instruction is appended
+   to the NPC system prompt at call time (not persisted; one-shot).
+
+1. **NPC phase** (conditional) — `chat_stream` (buffered; thinking filtered by
+   `_StreamThinkFilter`). Skipped entirely for `scene` turns; no `npc` row is
+   written. The player sees no tokens yet; the "réflexion…" indicator stays.
+   Result persisted as `speaker='npc'` (canonical truth).
+
+2. **MJ phase** — MJ narration generated from `pt-mj-narration`
+   (`usage='player_narration'`) for `dialogue`; mode-specific user messages for
+   `npc_reaction` (third-person gesture, no dialogue quote) and `scene`
+   (environment prose, NPC not mentioned). Streamed to the player token by token.
+   `{"mode": "..."}` and `{"npc_raw": "..."}` SSE events are sent before `[DONE]`
+   for creator audit (`npc_raw` is an empty string for `scene` turns). Result
+   persisted as `speaker='mj'` (presentation layer).
+
+3. **Per-turn analysis** (sync-after-stream) — runs after `[DONE]` is sent, while
+   the player reads and types. Calls `analyze_single_turn()`. For `scene` turns
+   `npc_reply` is `""`; the mini-transcript ends with `[PNJ] ` and the model
+   correctly returns `[]`. Silently writes `proposed_mutation` rows tagged
+   `proposed_by='local_ai_immediate'`.
+
+The NPC's words never reach the player directly — the player always reads the MJ's narration, which quotes them verbatim (`dialogue`) or renders them as third-person prose (`npc_reaction`).
 
 ### apply_mutation — the only canon-write path
 

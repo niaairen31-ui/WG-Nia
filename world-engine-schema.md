@@ -306,9 +306,11 @@ CREATE TABLE conversation_message (
 );
 -- turn_order layout per player turn:
 --   N   → player (canonical)
---   N+1 → npc    (canonical)
+--   N+1 → npc    (canonical; ABSENT for scene turns — NPC was not called)
 --   N+2 → mj     (presentation)
 -- Analysis reads only player + npc rows; mj rows are never fed to the model.
+-- For scene turns npc_reply="" → mini-transcript ends "[PNJ] " → analyzer
+-- returns [] (correct: no world-state change in a pure environment action).
 ```
 
 -----
@@ -437,7 +439,7 @@ CREATE TABLE prompt_template (
   usage            TEXT NOT NULL,
                    -- pass_play_analysis | lore_coherence | event_generation |
                    -- player_narration | session_summary | npc_dialogue |
-                   -- conversation_analysis | other
+                   -- conversation_analysis | mj_interpretation | other
   system_prompt    TEXT NOT NULL,
   user_template    TEXT NOT NULL,   -- user message template (with variables)
   variables        JSON,            -- expected variable list
@@ -538,6 +540,21 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.7** — No new tables or columns. Application-layer change only:
+  the `/say` flow gains a **mode-routing interpretation phase** (phase 0)
+  that classifies the player's input into `dialogue` | `npc_reaction` | `scene`
+  before calling the NPC. Consequences:
+  — `scene` turns skip the NPC call entirely; no `npc` row is written;
+    the MJ narrates the environment without any NPC involvement.
+  — `npc_reaction` turns call the NPC with a one-shot wordless-reaction
+    instruction; the NPC produces a gesture, not speech; the MJ renders it
+    in third-person prose with no quoted dialogue.
+  — `dialogue` turns are unchanged (the prior behavior).
+  New template: `pt-mj-interpretation` (`usage='mj_interpretation'`,
+  `world_id=NULL`, upsert). Seeded by `seed_pilot.py`.
+  The `prompt_template` usage column comment is updated to include
+  `mj_interpretation`. The `conversation_message` turn_order note is updated:
+  N+1 is absent for scene turns.
 - **v1.6** — No new tables or columns. Comment-level changes only:
   (1) `conversation_message.speaker` now documents three values: `player` |
   `npc` | `mj`. `mj` rows are the MJ narration (presentation layer); `player`
