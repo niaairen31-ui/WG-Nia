@@ -23,6 +23,15 @@ DEFAULT_MODEL = os.getenv(
     "WORLD_ENGINE_OLLAMA_MODEL", "huihui_ai/qwen3-abliterated:8b-v2"
 )
 
+# Repetition controls for NPC dialogue.  repeat_penalty=1.25 provides a mild
+# but meaningful penalty for re-using recent tokens without degrading coherence;
+# repeat_last_n=256 covers roughly 3-4 turns of context — enough to break
+# exact-phrase loops without over-penalising common words.  Tune here.
+NPC_DIALOGUE_OPTIONS: dict = {"repeat_penalty": 1.25, "repeat_last_n": 256}
+
+# Milder controls for the MJ narration pass: shorter output, lower drift risk.
+MJ_NARRATION_OPTIONS: dict = {"repeat_penalty": 1.1, "repeat_last_n": 128}
+
 # Matches a well-formed <think> ... </think> block (any case, across newlines).
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
@@ -82,17 +91,21 @@ def chat(
     host: str = OLLAMA_HOST,
     timeout: float = 300.0,
     format: str | dict | None = None,
+    options: dict | None = None,
 ) -> str:
     """Send a chat request; return the assistant content WITH the think block stripped.
 
     `messages` is a list of {"role": "system"|"user"|"assistant", "content": str}.
     Pass `format="json"` to enable Ollama's JSON-constrained generation (Ollama ≥ 0.1.x).
     Pass `format={...schema...}` for structured outputs (Ollama ≥ 0.4).
+    Pass `options` for generation parameters (repeat_penalty, temperature, etc.).
     """
     url = f"{host}/api/chat"
     payload: dict = {"model": model, "messages": messages, "stream": False}
     if format is not None:
         payload["format"] = format
+    if options:
+        payload["options"] = options
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url, data=data, headers={"Content-Type": "application/json"}
@@ -200,6 +213,7 @@ def chat_stream(
     model: str = DEFAULT_MODEL,
     host: str = OLLAMA_HOST,
     timeout: float = 300.0,
+    options: dict | None = None,
 ) -> Iterator[str]:
     """Yield spoken token chunks from Ollama with the <think> block stripped.
 
@@ -208,10 +222,15 @@ def chat_stream(
     is yielded.  The caller sees nothing until the first spoken token, which
     gives the UI its "réflexion…" window naturally.
 
+    Pass `options` for generation parameters (repeat_penalty, repeat_last_n, etc.).
+    Use NPC_DIALOGUE_OPTIONS / MJ_NARRATION_OPTIONS for the standard dialogue calls.
+
     Raises OllamaError if the server is unreachable or returns an error.
     """
     url = f"{host}/api/chat"
     payload: dict = {"model": model, "messages": messages, "stream": True}
+    if options:
+        payload["options"] = options
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url, data=data, headers={"Content-Type": "application/json"}

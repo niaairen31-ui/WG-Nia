@@ -578,7 +578,10 @@ def say(
         npc_chunks: list[str] = []
         npc_error: str | None = None
         try:
-            for chunk in ollama_client.chat_stream(npc_messages, model=model):
+            for chunk in ollama_client.chat_stream(
+                npc_messages, model=model,
+                options=ollama_client.NPC_DIALOGUE_OPTIONS,
+            ):
                 npc_chunks.append(chunk)
         except ollama_client.OllamaError as exc:
             npc_error = str(exc)
@@ -620,7 +623,10 @@ def say(
         mj_chunks: list[str] = []
         mj_error: str | None = None
         try:
-            for chunk in ollama_client.chat_stream(mj_messages, model=model):
+            for chunk in ollama_client.chat_stream(
+                mj_messages, model=model,
+                options=ollama_client.MJ_NARRATION_OPTIONS,
+            ):
                 mj_chunks.append(chunk)
                 yield f"data: {json.dumps(chunk)}\n\n"
         except ollama_client.OllamaError as exc:
