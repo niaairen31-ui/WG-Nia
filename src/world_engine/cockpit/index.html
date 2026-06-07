@@ -184,6 +184,12 @@ header .local-badge {
   margin-top: -2px;
 }
 .npc-raw-label { font-weight: 600; opacity: 0.8; margin-right: 4px; }
+.mode-badge { font-size: 0.7rem; font-weight: 700; padding: 1px 5px; border-radius: 3px;
+  background: #e2e8f0; color: #4a5568; margin-left: 5px; vertical-align: middle;
+  letter-spacing: 0.02em; }
+.mode-badge.b-scene        { background: #e8f4f8; color: #2b6cb0; }
+.mode-badge.b-npc_reaction { background: #fef3e2; color: #c05621; }
+.mode-badge.b-dialogue     { background: #f0fff4; color: #276749; }
 
 /* ── Queue panel ─────────────────────────────────────────────────────────── */
 .queue-panel {
@@ -869,6 +875,7 @@ async function sendPlayerLine() {
   // If no tokens arrive (error before MJ starts), finally cleans up thinkEl.
   let mjBubble = null;
   let npcRawContent = null;
+  let turnMode = null;
 
   /** Replace indicator with MJ narration bubble; return its text node. */
   const _ensureMj = () => {
@@ -924,6 +931,12 @@ async function sendPlayerLine() {
             npcRawContent = token.npc_raw;
             continue;
           }
+          if (typeof token.mode === 'string') {
+            // Routing mode chosen by the MJ interpretation pass (dialogue /
+            // npc_reaction / scene). Stored for the audit annotation.
+            turnMode = token.mode;
+            continue;
+          }
         } else if (typeof token === 'string') {
           // MJ narration token — create bubble on first one (drops indicator).
           const bt = _ensureMj();
@@ -934,8 +947,9 @@ async function sendPlayerLine() {
     }
 
     // Append the NPC raw annotation below the MJ narration for creator audit.
-    if (npcRawContent !== null) {
-      _appendNpcRaw(transcriptEl, npcName, npcRawContent);
+    // Always shown when we have mode info (even scene turns with no NPC output).
+    if (npcRawContent !== null || turnMode !== null) {
+      _appendNpcRaw(transcriptEl, npcName, npcRawContent ?? '', turnMode);
     }
 
     // Refresh the sidebar count for this conversation.
@@ -972,12 +986,23 @@ async function sendPlayerLine() {
   }
 }
 
-/** Append the NPC raw annotation below the MJ narration bubble (live play). */
-function _appendNpcRaw(container, npcName, content) {
+/** Append the NPC raw annotation below the MJ narration bubble (live play).
+ *  mode (optional): routing mode from the MJ interpretation pass.
+ *  - dialogue     → show raw NPC text as-is (existing behavior).
+ *  - npc_reaction → show raw wordless gesture.
+ *  - scene        → no NPC was called; show "(aucun PNJ impliqué)" instead.
+ */
+function _appendNpcRaw(container, npcName, content, mode) {
   const el = document.createElement('div');
   el.className = 'npc-raw-annotation';
+  const modeTag = mode
+    ? ` <span class="mode-badge b-${esc(mode)}">[${esc(mode)}]</span>`
+    : '';
+  const body = (mode === 'scene')
+    ? '<em>(aucun PNJ impliqué)</em>'
+    : esc(content);
   el.innerHTML =
-    `<span class="npc-raw-label">${esc(npcName)} (brut) :</span>${esc(content)}`;
+    `<span class="npc-raw-label">${esc(npcName)} (brut) :${modeTag}</span> ${body}`;
   container.appendChild(el);
   container.scrollTop = container.scrollHeight;
 }

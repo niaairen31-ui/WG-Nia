@@ -21,7 +21,9 @@ Security
 
 from __future__ import annotations
 
+import enum
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Iterator, Optional
@@ -50,6 +52,7 @@ from ..models import (
 )
 
 _INDEX_HTML = Path(__file__).parent / "index.html"
+_log = logging.getLogger(__name__)
 
 app = FastAPI(title="World Engine Cockpit", docs_url=None, redoc_url=None)
 
@@ -411,6 +414,134 @@ def _load_mj_narration_template(world_id: str, db: Session) -> PromptTemplate:
     return templates[0]
 
 
+# ── Mode routing (MJ interpretation layer) ────────────────────────────────────
+
+class ResponseMode(str, enum.Enum):
+    """Classification of the player's input for routing a /say turn.
+
+    Extensible: add new values here when more routing modes are needed (e.g.
+    'address_different_npc'). Unknown values returned by the model fall back
+    to 'dialogue' in _interpret_mode — new modes are backward-compatible
+    without any change to the fallback logic.
+    """
+    dialogue     = "dialogue"      # player speaks / questions / solicits NPC reply
+    npc_reaction = "npc_reaction"  # action toward NPC, no words → wordless NPC gesture
+    scene        = "scene"         # environment action, NPC not engaged → skip NPC call
+
+
+def _load_mj_interpret_template(world_id: str, db: Session) -> PromptTemplate:
+    """Return the active mj_interpretation prompt template (world-specific preferred)."""
+    templates = db.exec(
+        select(PromptTemplate).where(
+            PromptTemplate.usage == "mj_interpretation",
+            PromptTemplate.is_active == True,  # noqa: E712
+        )
+    ).all()
+    if not templates:
+        raise HTTPException(
+            status_code=503,
+            detail="No active 'mj_interpretation' prompt template found. Run seed_pilot.py.",
+        )
+    for prefer in (lambda t: t.world_id == world_id, lambda t: t.world_id is None):
+        match = next((t for t in templates if prefer(t)), None)
+        if match is not None:
+            return match
+    return templates[0]
+
+
+def _interpret_mode(
+    *,
+    player_line: str,
+    npc_name: str,
+    location_name: str,
+    recent_transcript: str,
+    interpret_system: str,
+    interpret_user_tpl: str,
+    model: str,
+) -> ResponseMode:
+    """Classify the player's input into a ResponseMode via the local model.
+
+    Falls back to ResponseMode.dialogue on any failure (parse error, unknown
+    value, Ollama error). A misclassification must never break a turn.
+    """
+    user_msg = (
+        interpret_user_tpl
+        .replace("{npc_name}", npc_name)
+        .replace("{location_name}", location_name)
+        .replace("{recent_transcript}", recent_transcript or "(aucun historique)")
+        .replace("{player_line}", player_line)
+        + "\n/no_think"
+    )
+    try:
+        raw = ollama_client.chat(
+            [
+                {"role": "system", "content": interpret_system},
+                {"role": "user",   "content": user_msg},
+            ],
+            model=model,
+            format="json",
+        )
+        obj = json.loads(raw)
+        mode_str = str(obj.get("mode", "")).strip()
+        mode = ResponseMode(mode_str)
+        _log.info(
+            "MJ interpret: %r → %s (reason: %s)",
+            player_line[:60], mode.value, obj.get("reason", ""),
+        )
+        return mode
+    except Exception as exc:
+        _log.warning("MJ interpret failed (%s), fallback to dialogue", exc)
+        return ResponseMode.dialogue
+
+
+def _build_mj_user(
+    *,
+    mode: ResponseMode,
+    mj_user_template: str,
+    npc_name: str,
+    location_name: str,
+    player_line: str,
+    npc_reply: str,
+) -> str:
+    """Build the MJ narration user message for the given mode.
+
+    dialogue     → existing template (verbatim NPC quote contract unchanged).
+    npc_reaction → third-person wordless reaction; no dialogue to quote.
+    scene        → environment description only; NPC not involved.
+    /no_think appended on all modes; the stream filter backs it up.
+    """
+    if mode == ResponseMode.dialogue:
+        return (
+            mj_user_template
+            .replace("{npc_name}", npc_name)
+            .replace("{location_name}", location_name)
+            .replace("{player_line}", player_line)
+            .replace("{npc_reply}", npc_reply)
+            + "\n/no_think"
+        )
+    if mode == ResponseMode.npc_reaction:
+        return (
+            f"Scène : {npc_name} dans « {location_name} ».\n"
+            f"Mode : réaction non-verbale.\n\n"
+            f"Le joueur fait :\n{player_line}\n\n"
+            f"{npc_name} réagit sans prononcer un mot :\n{npc_reply}\n\n"
+            f"Narration MJ — traduis cette réaction en prose narrative à la troisième "
+            f"personne. Aucun guillemet français, aucune ligne de dialogue, aucun mot "
+            f"inventé. 2–3 phrases courtes.\n"
+            f"Narration MJ :\n/no_think"
+        )
+    # ResponseMode.scene
+    return (
+        f"Lieu : « {location_name} ».\n"
+        f"Mode : description d'environnement — le PNJ n'est pas impliqué.\n\n"
+        f"Action du joueur :\n{player_line}\n\n"
+        f"Narration MJ — décris le résultat de cette action sur l'environnement en "
+        f"troisième personne. N'implique pas le PNJ, n'invente aucun fait sur le "
+        f"monde, aucun nom propre. 2–3 phrases courtes.\n"
+        f"Narration MJ :\n/no_think"
+    )
+
+
 class StartConversationBody(BaseModel):
     npc_id: str
     # Defaults: pilot player and tavern location (set by /start handler).
@@ -486,25 +617,29 @@ def say(
     body: SayBody,
     db: Session = Depends(get_session),
 ) -> StreamingResponse:
-    """Persist the player's line, run the NPC reply internally, then stream the MJ narration.
+    """Persist the player's line, interpret its mode, conditionally run the NPC,
+    then stream the MJ narration.
 
-    MJ layer (per turn)
-    -------------------
-    The NPC generates its reply internally (buffered, never sent raw to the player).
-    The MJ then wraps that reply in light narrative prose and streams IT to the player.
-    Both the canonical NPC line and the MJ narration are persisted.
+    Mode routing (MJ interpretation pass — runs before NPC)
+    -------------------------------------------------------
+    'dialogue'     : player speaks / questions NPC. NPC replies in full. Current behavior.
+    'npc_reaction' : action toward NPC without words. NPC reacts wordlessly.
+    'scene'        : environment action, NPC not engaged. NPC call is skipped.
+    Fallback: 'dialogue' on any interpretation error (never breaks a turn).
 
     SSE protocol (text/event-stream):
-      - No events while the NPC is generating (indicator stays up server-side).
+      - No events while interpreting + NPC (if called) is generating (indicator up).
       - Each MJ narration token: data: <JSON-encoded string>\\n\\n
+      - Mode event (before DONE): data: {"mode": "<value>"}\\n\\n
+        — tells the browser WHY a turn produced no NPC dialogue.
       - Raw NPC line event (before DONE): data: {"npc_raw": "<escaped>"}\\n\\n
-        — lets the browser render the audit annotation without a separate request.
+        — empty string for scene turns (no NPC call).
       - End of stream: data: [DONE]\\n\\n
       - Error event: data: {"error": "<msg>"}\\n\\n
 
     turn_order layout per player turn:
-      player_turn  → player line (canonical)
-      player_turn+1 → npc line (canonical, internal)
+      player_turn   → player line (canonical)
+      player_turn+1 → npc line (canonical, internal; absent for scene turns)
       player_turn+2 → mj line (presentation, streamed)
     """
     conv = db.get(Conversation, conv_id)
@@ -553,67 +688,108 @@ def say(
     ]
     npc_messages = [{"role": "system", "content": system_prompt}, *npc_history]
 
-    # Turn order slots.
+    # Turn order slots (npc_turn may remain unused for scene turns).
     npc_id    = conv.npc_id
     npc_turn  = player_turn + 1
     mj_turn   = player_turn + 2
 
-    # Load MJ narration template (raises HTTP 503 if missing — before stream opens).
+    # Load templates (both raise HTTP 503 if missing — before stream opens).
     world_id = conv.world_id
-    mj_template = _load_mj_narration_template(world_id, db)
+    mj_template        = _load_mj_narration_template(world_id, db)
+    interpret_template = _load_mj_interpret_template(world_id, db)
 
     # Resolve display names for the MJ prompt.
-    npc_entity  = db.get(Entity, npc_id)
-    npc_name    = npc_entity.name if npc_entity else npc_id
-    loc_entity  = db.get(Entity, conv.location_id) if conv.location_id else None
+    npc_entity    = db.get(Entity, npc_id)
+    npc_name      = npc_entity.name if npc_entity else npc_id
+    loc_entity    = db.get(Entity, conv.location_id) if conv.location_id else None
     location_name = loc_entity.name if loc_entity else "inconnu"
 
+    # Recent player/npc transcript for the interpret call (excludes 'mj' rows
+    # and the current player line, which is passed separately as {player_line}).
+    history_only = [m for m in all_msgs if m.speaker in ("player", "npc")][:-1]
+    recent_transcript = "\n".join(
+        (f"[Joueur] {m.content}" if m.speaker == "player"
+         else f"[{npc_name}] {m.content}")
+        for m in history_only[-6:]  # last 3 exchanges
+    )
+
     # Capture for closure.
-    mj_user_template = mj_template.user_template
-    mj_system_prompt = mj_template.system_prompt
+    mj_user_template   = mj_template.user_template
+    mj_system_prompt   = mj_template.system_prompt
+    interpret_system   = interpret_template.system_prompt
+    interpret_user_tpl = interpret_template.user_template
 
     def _stream() -> Iterator[str]:
-        # ── Phase 1: NPC generation (buffered, not sent to the player) ────────
-        # The "réflexion…" indicator on the client covers this entire phase.
-        npc_chunks: list[str] = []
-        npc_error: str | None = None
-        try:
-            for chunk in ollama_client.chat_stream(
-                npc_messages, model=model,
-                options=ollama_client.NPC_DIALOGUE_OPTIONS,
-            ):
-                npc_chunks.append(chunk)
-        except ollama_client.OllamaError as exc:
-            npc_error = str(exc)
+        # ── Phase 0: Interpret the player's input (mode routing) ──────────────
+        # Classify as dialogue / npc_reaction / scene before calling the NPC,
+        # so scene turns skip the NPC entirely. Falls back to 'dialogue' on any
+        # failure — a misclassification must never break a turn.
+        mode = _interpret_mode(
+            player_line=content,
+            npc_name=npc_name,
+            location_name=location_name,
+            recent_transcript=recent_transcript,
+            interpret_system=interpret_system,
+            interpret_user_tpl=interpret_user_tpl,
+            model=model,
+        )
 
-        if npc_error:
-            yield f"data: {json.dumps({'error': npc_error})}\n\n"
-            yield "data: [DONE]\n\n"
-            return
+        # ── Phase 1: NPC generation (conditional, buffered) ───────────────────
+        # dialogue / npc_reaction: call NPC; persist raw reply as 'npc'.
+        # scene: skip entirely; npc_reply stays "".
+        npc_reply = ""
+        if mode in (ResponseMode.dialogue, ResponseMode.npc_reaction):
+            npc_msg_list = list(npc_messages)
+            if mode == ResponseMode.npc_reaction:
+                # Append a one-shot instruction to the system prompt so the NPC
+                # produces a brief wordless gesture rather than spoken dialogue.
+                npc_msg_list[0] = {
+                    "role": "system",
+                    "content": npc_msg_list[0]["content"] + (
+                        "\n\n[MODE RÉACTION NON-VERBALE] Le joueur n'a pas adressé "
+                        "la parole au personnage. Réponds UNIQUEMENT par un bref geste "
+                        "ou expression physique à la première personne. "
+                        "AUCUN MOT PRONONCÉ — pas de dialogue, pas de phrase dite."
+                    ),
+                }
 
-        npc_reply = "".join(npc_chunks)
+            npc_chunks: list[str] = []
+            npc_error: str | None = None
+            try:
+                for chunk in ollama_client.chat_stream(
+                    npc_msg_list, model=model,
+                    options=ollama_client.NPC_DIALOGUE_OPTIONS,
+                ):
+                    npc_chunks.append(chunk)
+            except ollama_client.OllamaError as exc:
+                npc_error = str(exc)
 
-        # Persist the NPC line (canonical truth).
-        with Session(engine) as persist_db:
-            persist_db.add(ConversationMessage(
-                conversation_id=conv_id,
-                turn_order=npc_turn,
-                speaker="npc",
-                speaker_id=npc_id,
-                content=npc_reply,
-            ))
-            persist_db.commit()
+            if npc_error:
+                yield f"data: {json.dumps({'error': npc_error})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+
+            npc_reply = "".join(npc_chunks)
+
+            # Persist the NPC line (canonical truth).
+            with Session(engine) as persist_db:
+                persist_db.add(ConversationMessage(
+                    conversation_id=conv_id,
+                    turn_order=npc_turn,
+                    speaker="npc",
+                    speaker_id=npc_id,
+                    content=npc_reply,
+                ))
+                persist_db.commit()
 
         # ── Phase 2: MJ narration (streamed to the player) ───────────────────
-        # Substitute placeholders; /no_think for speed (strip_think in
-        # chat_stream handles any stray block that slips through anyway).
-        mj_user = (
-            mj_user_template
-            .replace("{npc_name}", npc_name)
-            .replace("{location_name}", location_name)
-            .replace("{player_line}", content)
-            .replace("{npc_reply}", npc_reply)
-            + "\n/no_think"
+        mj_user = _build_mj_user(
+            mode=mode,
+            mj_user_template=mj_user_template,
+            npc_name=npc_name,
+            location_name=location_name,
+            player_line=content,
+            npc_reply=npc_reply,
         )
         mj_messages = [
             {"role": "system", "content": mj_system_prompt},
@@ -632,8 +808,10 @@ def say(
         except ollama_client.OllamaError as exc:
             mj_error = str(exc)
 
-        # Send the raw NPC line before [DONE] so the client can append the
-        # audit annotation without a separate HTTP request.
+        # Send mode and raw NPC line before [DONE] for client-side audit.
+        # mode: tells the UI why a turn may have produced no NPC dialogue.
+        # npc_raw: empty string for scene turns (no NPC call).
+        yield f"data: {json.dumps({'mode': mode.value})}\n\n"
         yield f"data: {json.dumps({'npc_raw': npc_reply})}\n\n"
 
         if mj_error:
@@ -653,9 +831,8 @@ def say(
             ))
             persist_db.commit()
 
-        # Per-turn immediate analysis (sync-after-stream: player already received
-        # [DONE] and can type while this runs). Writes proposed_mutation rows tagged
-        # proposed_by='local_ai_immediate'. Empty turns produce no rows — correct.
+        # Per-turn immediate analysis (sync-after-stream). For scene turns
+        # npc_reply is "" — the analyzer handles empty replies correctly (no rows).
         # Failures are silently swallowed — analysis must never surface to the player.
         with Session(engine) as flag_db:
             try:

@@ -267,6 +267,46 @@ Narration MJ :\
 """
 
 
+# MJ interpretation prompt — classifies each player turn into one of 3 routing
+# modes: dialogue / npc_reaction / scene. Usage = 'mj_interpretation', called
+# before the NPC so scene turns can skip the NPC entirely. Non-streaming JSON
+# call; /no_think appended at call time. world_id = NULL.
+MJ_INTERPRETATION_SYSTEM_PROMPT = """\
+Tu es un routeur de scène pour un jeu de rôle à la première personne du joueur.
+Tu lis l'input du joueur et tu classes le tour en exactement un des 3 modes.
+
+MODES :
+- dialogue      : le joueur parle, pose une question ou sollicite une réponse du PNJ
+                  (même si combiné à un geste). MODE PAR DÉFAUT en cas de doute.
+- npc_reaction  : le joueur fait une action visible, dirigée vers le PNJ ou clairement
+                  remarquée par lui, SANS lui adresser la parole (exemples : tape sur
+                  la table, le fixe, pose une pièce en silence, sort brusquement,
+                  croise son regard, lui tend un objet sans rien dire).
+- scene         : le joueur agit sur l'environnement sans engager le PNJ (se déplace,
+                  observe la salle, inspecte un objet, attend, décrit une attitude
+                  générale non dirigée).
+
+RÈGLE DE DÉCISION :
+1. Y a-t-il des mots, une question ou une sollicitation adressés au PNJ ? → dialogue.
+2. Y a-t-il un geste ou une action clairement dirigés vers le PNJ, sans parole ? → npc_reaction.
+3. Sinon → scene.
+QUAND INCERTAIN → dialogue (mieux qu'elle parle trop que pas assez).
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre :
+{"mode":"dialogue|npc_reaction|scene","reason":"<une phrase courte d'explication>"}\
+"""
+
+MJ_INTERPRETATION_USER_TEMPLATE = """\
+PNJ présent : {npc_name}
+Lieu : {location_name}
+
+Historique récent (joueur/PNJ, sans lignes du MJ) :
+{recent_transcript}
+
+Input du joueur → {player_line}\
+"""
+
+
 # Universal behaviour prompt for every NPC. Prepended to the assembled context
 # as the system prompt. Creator-owned and editable in the DB.
 NPC_DIALOGUE_SYSTEM_PROMPT = """\
@@ -376,6 +416,23 @@ def seed(session: Session) -> None:
         system_prompt=MJ_NARRATION_SYSTEM_PROMPT,
         user_template=MJ_NARRATION_USER_TEMPLATE,
         variables=["npc_name", "location_name", "player_line", "npc_reply"],
+        destination="local",
+    )
+
+    # ----- prompt template: MJ scene interpretation -------------------------
+    # usage = "mj_interpretation". Classifies each player turn into one of 3
+    # modes (dialogue / npc_reaction / scene) to route the /say flow. Non-
+    # streaming JSON call; /no_think appended at call time. world_id = NULL.
+    # Uses upsert so re-seeding always converges the DB to the latest wording.
+    upsert_prompt_template(
+        session,
+        "pt-mj-interpretation",
+        world_id=None,
+        name="MJ interprétation — routage de tour",
+        usage="mj_interpretation",
+        system_prompt=MJ_INTERPRETATION_SYSTEM_PROMPT,
+        user_template=MJ_INTERPRETATION_USER_TEMPLATE,
+        variables=["npc_name", "location_name", "recent_transcript", "player_line"],
         destination="local",
     )
 
