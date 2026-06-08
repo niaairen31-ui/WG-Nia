@@ -35,6 +35,7 @@ from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
 from .. import ollama_client
+from ..gathering import enter_location as _enter_location
 from ..analyzer import analyze_conversation as _analyze_conversation
 from ..analyzer import analyze_single_turn as _analyze_single_turn
 from ..context import assemble_npc_context
@@ -980,8 +981,13 @@ def say(
     interpret_template = _load_mj_interpret_template(world_id, db)
 
     # Resolve display names for the MJ prompt.
-    npc_entity    = db.get(Entity, npc_id)
-    npc_name      = npc_entity.name if npc_entity else npc_id
+    # npc_id may be None for pure gathering conversations (conv started from
+    # the scene-level join without a seed NPC — see POST /api/scene/join).
+    npc_entity    = db.get(Entity, npc_id) if npc_id else None
+    npc_name: str = (
+        npc_entity.name if npc_entity
+        else (npc_id or "le groupe")  # gathering conv: use "le groupe" as display name
+    )
     loc_entity    = db.get(Entity, conv.location_id) if conv.location_id else None
     location_name = loc_entity.name if loc_entity else "inconnu"
 
@@ -1084,7 +1090,24 @@ def say(
                             model=model,
                         )
                 elif not body.target:
-                    responder_id = npc_id  # backward-compatible default (1:1)
+                    if npc_id is None and conv.gathering_id:
+                        # Pure gathering conversation (started from scene-level
+                        # join, no seed NPC). Treat omitted target as "group"
+                        # so the MJ always picks a responder — the player joined
+                        # a gathering, not a 1:1.
+                        responder_id = _select_group_speaker(
+                            template=_load_mj_speaker_template(world_id, db),
+                            location_name=location_name,
+                            gathering=player_gathering,
+                            members=[
+                                (gm, e) for gm, e in _active_members(player_gathering.id, db)
+                                if e.id != conv.player_id
+                            ] if player_gathering else [],
+                            player_line=content,
+                            model=model,
+                        ) if player_gathering and _active_members(player_gathering.id, db) else None
+                    else:
+                        responder_id = npc_id  # backward-compatible default (1:1)
 
                 if responder_id is None:
                     # Addressed the group with nobody able to answer — narrate
@@ -1272,6 +1295,215 @@ def join_gathering(conv_id: str, body: JoinBody, db: Session = Depends(get_sessi
     return {"joined": True, "gathering": _gathering_brief(gathering.id, db)}
 
 
+# ── Scene-level endpoints (location entry surface, Tier 1 step 3) ──────────
+# These sit above the conversation layer: the player enters a location and sees
+# the gathering partition before any conversation is opened.
+
+def _scene_response(location_id: str, player_id: str, world_id: str, db: Session) -> dict:
+    """Build the canonical scene dict (shared by GET /api/scene and POST /api/scene/enter)."""
+    loc_entity    = db.get(Entity, location_id)
+    sess          = _get_or_open_session(world_id, db)
+    open_g        = _open_gatherings(location_id, sess.id, db)
+    player_g      = _player_gathering(player_id, location_id, sess.id, db)
+    return {
+        "location_id":    location_id,
+        "location_name":  loc_entity.name if loc_entity else location_id,
+        "session_id":     sess.id,
+        "gatherings":     [_gathering_brief(g.id, db) for g in open_g],
+        "player_gathering": _gathering_brief(player_g.id, db) if player_g else None,
+    }
+
+
+@app.get("/api/scene")
+def get_scene(
+    player_id: str = Query("char-player"),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Current scene for the player's location: open gatherings + their rosters.
+
+    Read-only — never calls enter_location. Use POST /api/scene/enter to
+    generate the gathering partition on a genuine location transition.
+    """
+    char = db.get(Character, player_id)
+    if char is None:
+        raise HTTPException(status_code=404, detail=f"Player character {player_id!r} not found")
+    if not char.current_location_id:
+        raise HTTPException(status_code=404, detail="Player has no current location")
+    player_entity = db.get(Entity, player_id)
+    if player_entity is None:
+        raise HTTPException(status_code=404, detail=f"Player entity {player_id!r} not found")
+    return _scene_response(char.current_location_id, player_id, player_entity.world_id, db)
+
+
+@app.post("/api/scene/enter")
+def enter_scene(
+    player_id: str = Query("char-player"),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Enter the player's current location.
+
+    Calls enter_location (dissolve open gatherings + generate a fresh partition)
+    ONLY if no open gatherings already exist for this location+session — which
+    distinguishes a genuine location transition from a re-render or F5 refresh
+    (contract B1 / invariant C1: generating once at entry, no spontaneous
+    reshuffling on re-load).
+
+    Idempotent: calling enter again while open gatherings exist is a silent
+    no-op that returns the existing partition.
+    """
+    char = db.get(Character, player_id)
+    if char is None:
+        raise HTTPException(status_code=404, detail=f"Player character {player_id!r} not found")
+    if not char.current_location_id:
+        raise HTTPException(status_code=404, detail="Player has no current location")
+    player_entity = db.get(Entity, player_id)
+    if player_entity is None:
+        raise HTTPException(status_code=404, detail=f"Player entity {player_id!r} not found")
+
+    location_id = char.current_location_id
+    world_id    = player_entity.world_id
+    sess        = _get_or_open_session(world_id, db)
+
+    # ── Idempotent enter guard (protects C1 from F5 reshuffling) ──────────
+    open_g = _open_gatherings(location_id, sess.id, db)
+    if not open_g:
+        # No open gatherings → genuine location transition (or first load).
+        # Generate the partition; never raises (falls back to all-solo on error).
+        _enter_location(location_id, sess.id, db)
+
+    return _scene_response(location_id, player_id, world_id, db)
+
+
+class SceneJoinBody(BaseModel):
+    player_text: str                # player's free-text join expression
+    player_id: str = "char-player"  # defaults to the pilot player
+
+
+@app.post("/api/scene/join")
+def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
+    """Join a gathering from the scene view — creates the conversation.
+
+    Autonomous join: no pre-existing conversation required. Interprets the
+    player's text (via the full pt-mj-interpretation pipeline) to resolve a
+    gathering target (contract A2), then:
+
+    - Resolved (exactly one match): inserts gathering_member, creates a
+      conversation anchored to the gathering (npc_id=None — pure gathering
+      conversation; responder selection is A3-group by default). Returns
+      {"conversation_id": ..., "gathering": {...}}.
+    - Unresolved / ambiguous: returns {"join_candidates": [...]} so the
+      cockpit picker (C2 selector) can surface the open gatherings for an
+      explicit click.
+    - Already joined: returns {"already_joined": True, "gathering": {...},
+      "conversation_id": ...} with the active conversation if one exists.
+
+    Joining is not a canon mutation — no proposed_mutation row is produced.
+    """
+    player_id     = body.player_id
+    char          = db.get(Character, player_id)
+    if char is None:
+        raise HTTPException(status_code=404, detail=f"Player {player_id!r} not found")
+    if not char.current_location_id:
+        raise HTTPException(status_code=400, detail="Player has no current location")
+    player_entity = db.get(Entity, player_id)
+    if player_entity is None:
+        raise HTTPException(status_code=404, detail=f"Player entity {player_id!r} not found")
+
+    location_id  = char.current_location_id
+    world_id     = player_entity.world_id
+    loc_entity   = db.get(Entity, location_id)
+    location_name = loc_entity.name if loc_entity else location_id
+
+    sess    = _get_or_open_session(world_id, db)
+    open_g  = _open_gatherings(location_id, sess.id, db)
+    player_g = _player_gathering(player_id, location_id, sess.id, db)
+
+    if player_g is not None:
+        # Already a member — find any open conversation anchored to this gathering.
+        existing_conv = db.exec(
+            select(Conversation).where(
+                Conversation.gathering_id == player_g.id,
+                Conversation.player_id    == player_id,
+                Conversation.status       == "open",
+            )
+        ).first()
+        return {
+            "already_joined":  True,
+            "gathering":       _gathering_brief(player_g.id, db),
+            "conversation_id": existing_conv.id if existing_conv else None,
+        }
+
+    if not open_g:
+        raise HTTPException(status_code=400, detail="No open gatherings at this location")
+
+    # ── Interpret the player's text via the full MJ pipeline (A2 reused) ──
+    gathering_status  = _render_gathering_status(player_id, None, open_g, db)
+    interpret_template = _load_mj_interpret_template(world_id, db)
+    model             = ollama_client.DEFAULT_MODEL
+
+    # Provide a plausible NPC name for the template context (any member present).
+    any_npc_name = "?"
+    for g in open_g:
+        for _gm, e in _active_members(g.id, db):
+            any_npc_name = e.name
+            break
+        if any_npc_name != "?":
+            break
+
+    mode, reference = _interpret_mode(
+        player_line       = body.player_text,
+        npc_name          = any_npc_name,
+        location_name     = location_name,
+        gathering_status  = gathering_status,
+        recent_transcript = "",
+        interpret_system  = interpret_template.system_prompt,
+        interpret_user_tpl = interpret_template.user_template,
+        model             = model,
+    )
+
+    # If the model didn't classify as join, treat the full text as the reference
+    # anyway — the player typed in a join-specific field, so intent is clear.
+    if mode != ResponseMode.join:
+        reference = body.player_text
+
+    resolved_id = _resolve_join_target(reference, open_g, db)
+
+    if resolved_id is None:
+        return {"join_candidates": [_gathering_brief(g.id, db) for g in open_g]}
+
+    # ── Create the conversation anchored to the resolved gathering ─────────
+    behaviour   = _load_npc_dialogue_template(world_id, db)
+    conv = Conversation(
+        world_id    = world_id,
+        session_id  = sess.id,
+        location_id = location_id,
+        player_id   = player_id,
+        npc_id      = None,   # pure gathering conversation — responder chosen per turn (A3)
+        status      = "open",
+        injected_context = {
+            "model":              model,
+            "interlocutor_id":    player_id,
+            "location_id":        location_id,
+            "prompt_template_id": behaviour.id,
+            "behaviour_prompt":   behaviour.system_prompt,
+            # system_prompt left empty — assembled fresh per responder in _stream (D1)
+            "system_prompt":      "",
+        },
+        started_at = datetime.now(UTC),
+    )
+    db.add(conv)
+    db.flush()  # get conv.id before _join_gathering commits
+
+    # _join_gathering inserts gathering_member + sets conv.gathering_id, then commits.
+    gathering = _join_gathering(conv, resolved_id, db)
+    db.refresh(conv)
+
+    return {
+        "conversation_id": conv.id,
+        "gathering":       _gathering_brief(gathering.id, db),
+    }
+
+
 @app.get("/api/conversations")
 def list_conversations(db: Session = Depends(get_session)) -> list:
     convs = db.exec(
@@ -1361,7 +1593,7 @@ def get_conversation(conv_id: str, db: Session = Depends(get_session)) -> dict:
         "ended_at": _iso(conv.ended_at),
         "player_id": conv.player_id,
         "player_name": player_entity.name if player_entity else conv.player_id,
-        "npc_name": npc_entity.name if npc_entity else conv.npc_id,
+        "npc_name": (npc_entity.name if npc_entity else conv.npc_id) or "le groupe",
         "gathering": _gathering_brief(conv.gathering_id, db) if conv.gathering_id else None,
         "messages": messages,
     }

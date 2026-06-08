@@ -459,6 +459,97 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   font-size: 12px;
   padding: 3px 6px;
 }
+/* ── Scene view (location entry surface, Tier 1 step 3) ── */
+.scene-view {
+  padding: 20px 24px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  overflow-y: auto;
+}
+.scene-location-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.scene-location-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.scene-location-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.scene-gatherings-title {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: -6px;
+}
+.scene-gathering-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.scene-gathering-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  font-style: italic;
+}
+.scene-gathering-members {
+  font-size: 12px;
+  color: var(--muted);
+}
+.scene-join-area {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.scene-join-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.scene-join-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.scene-join-input-row textarea {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  resize: none;
+  line-height: 1.5;
+  min-height: 38px;
+  max-height: 100px;
+}
+.scene-join-input-row textarea:focus { outline: none; border-color: var(--accent); }
+.scene-join-input-row textarea:disabled { opacity: 0.5; }
+.scene-join-status {
+  font-size: 12px;
+  color: var(--muted);
+  min-height: 16px;
+}
 .join-candidates {
   display: flex;
   flex-wrap: wrap;
@@ -612,7 +703,10 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <!-- ── Transcript ── -->
     <div class="transcript-panel">
       <div class="panel-head">
-        <h2 id="transcript-title">Transcript</h2>
+        <h2 id="transcript-title">Scène</h2>
+        <!-- "← Lieu" back button — shown only when a conversation is open -->
+        <button class="btn-ghost" id="btn-scene" onclick="showSceneView()"
+                style="display:none" title="Retour à la vue du lieu">← Lieu</button>
         <button class="btn-ghost" id="btn-analyze"
                 onclick="analyzeConv(false)" disabled>Analyze</button>
         <button class="btn-ghost" id="btn-force"
@@ -620,9 +714,35 @@ button:not(:disabled):hover { filter: brightness(1.15); }
                 title="Delete existing proposals and re-run">Force</button>
         <span class="analyze-status" id="analyze-status"></span>
       </div>
-      <div class="transcript-body" id="transcript-body">
-        <div class="empty">Select a conversation on the left.</div>
+
+      <!-- Scene view (location entry surface — shown on load, hidden when
+           a conversation is active; see showSceneView / selectConv). -->
+      <div class="scene-view" id="scene-view">
+        <div class="scene-location-row">
+          <span class="scene-location-label">Lieu actuel</span>
+          <span class="scene-location-name" id="scene-location-name">
+            <span class="spin">⟳</span>
+          </span>
+        </div>
+        <div class="scene-gatherings-title">Groupes présents</div>
+        <div id="scene-gathering-list">
+          <div class="empty"><span class="spin">⟳</span> Entrée dans le lieu…</div>
+        </div>
+        <div class="scene-join-area">
+          <div class="scene-join-label">Que faites-vous ?</div>
+          <div class="scene-join-input-row">
+            <textarea id="scene-join-input" rows="2"
+              placeholder="Je m'approche de Maelis et Korin à leur table…"
+              onkeydown="onSceneKeydown(event)"></textarea>
+            <button class="btn-send" id="scene-join-btn" onclick="sceneJoin()">Rejoindre</button>
+          </div>
+          <div class="scene-join-status" id="scene-join-status"></div>
+          <div class="join-candidates" id="scene-join-candidates" style="display:none"></div>
+        </div>
       </div>
+
+      <!-- Conversation transcript (hidden until a conversation is selected) -->
+      <div class="transcript-body" id="transcript-body" style="display:none"></div>
 
       <!-- Play input — shown only when the selected conversation is open -->
       <div class="play-input-area" id="play-input-area" style="display:none">
@@ -718,6 +838,175 @@ async function api(path, opts = {}) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
+   Scene view — location entry surface (Tier 1, step 3)
+   Enters the player's current location on load (idempotent — safe on F5).
+   Provides a join-phrase input that creates the conversation when it resolves.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/** Enter the player's current location (idempotent — only generates gathering
+ *  partition if none exists yet, so F5 does not reshuffle — contract C1). */
+async function loadScene() {
+  const nameEl   = document.getElementById('scene-location-name');
+  const listEl   = document.getElementById('scene-gathering-list');
+  const statusEl = document.getElementById('scene-join-status');
+  nameEl.innerHTML = '<span class="spin">⟳</span>';
+  listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span> Entrée dans le lieu…</div>';
+  statusEl.textContent = '';
+  try {
+    const scene = await api('/api/scene/enter', { method: 'POST' });
+    _renderScene(scene);
+  } catch (e) {
+    nameEl.textContent = '?';
+    listEl.innerHTML = `<div class="empty" style="color:var(--red)">Erreur : ${esc(e.message)}</div>`;
+  }
+}
+
+/** Render the scene returned by /api/scene/enter (or /api/scene). */
+function _renderScene(scene) {
+  const nameEl = document.getElementById('scene-location-name');
+  const listEl = document.getElementById('scene-gathering-list');
+
+  nameEl.textContent = scene.location_name || '?';
+  document.getElementById('transcript-title').textContent = scene.location_name || 'Scène';
+
+  if (!scene.gatherings || !scene.gatherings.length) {
+    listEl.innerHTML = '<div class="empty">Personne d\'autre ici pour le moment.</div>';
+    return;
+  }
+  listEl.innerHTML = scene.gatherings.map(g => {
+    const npcMembers = (g.members || []).filter(m => m.id !== 'char-player');
+    const names = npcMembers.map(m => esc(m.name)).join(', ');
+    return `<div class="scene-gathering-card">
+      <div class="scene-gathering-label">${esc(g.label || '(groupe sans nom)')}</div>
+      ${names ? `<div class="scene-gathering-members">${names}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  // If the player is already in a gathering, note it in the join area.
+  const statusEl = document.getElementById('scene-join-status');
+  if (scene.player_gathering) {
+    const g = scene.player_gathering;
+    const others = (g.members || []).filter(m => m.id !== 'char-player').map(m => m.name).join(', ');
+    statusEl.textContent = `Vous êtes déjà dans le groupe « ${g.label || '(sans nom)'} »${others ? ' avec ' + others : ''}.`;
+    document.getElementById('scene-join-btn').disabled = true;
+    document.getElementById('scene-join-input').disabled = true;
+  }
+}
+
+/** Enter key in the scene join input submits; Shift+Enter inserts a newline. */
+function onSceneKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sceneJoin(); }
+}
+
+/** Submit the join-phrase from the scene view.
+ *  On success → create the conversation and transition to the transcript view.
+ *  On ambiguous → show the gathering picker (C2 fallback). */
+async function sceneJoin() {
+  const input    = document.getElementById('scene-join-input');
+  const btn      = document.getElementById('scene-join-btn');
+  const statusEl = document.getElementById('scene-join-status');
+  const candEl   = document.getElementById('scene-join-candidates');
+  const text     = input.value.trim();
+  if (!text) return;
+
+  btn.disabled   = true;
+  input.disabled = true;
+  statusEl.textContent = 'Interprétation…';
+  candEl.style.display = 'none';
+  candEl.innerHTML = '';
+
+  try {
+    const result = await api('/api/scene/join', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ player_text: text }),
+    });
+
+    if (result.conversation_id) {
+      // Join resolved → switch to conversation view
+      statusEl.textContent = '';
+      input.value = '';
+      await loadConversations();
+      await selectConv(result.conversation_id);
+    } else if (result.join_candidates && result.join_candidates.length) {
+      statusEl.textContent = 'Quel groupe souhaitez-vous rejoindre ?';
+      candEl.style.display = 'flex';
+      candEl.innerHTML = result.join_candidates.map(g => {
+        const names = (g.members || []).filter(m => m.id !== 'char-player').map(m => esc(m.name)).join(', ');
+        const label = esc(g.label || '(groupe sans nom)') + (names ? ' — ' + names : '');
+        return `<button onclick="_scenePickGathering('${esc(g.id)}')">${label}</button>`;
+      }).join('');
+      btn.disabled   = false;
+      input.disabled = false;
+    } else if (result.already_joined) {
+      statusEl.textContent = 'Vous êtes déjà dans ce groupe.';
+      if (result.conversation_id) {
+        await loadConversations();
+        await selectConv(result.conversation_id);
+      }
+    } else {
+      statusEl.textContent = 'Référence non reconnue — essayez de nommer le groupe ou un de ses membres.';
+      btn.disabled   = false;
+      input.disabled = false;
+    }
+  } catch (e) {
+    statusEl.textContent = '⚠ ' + e.message;
+    btn.disabled   = false;
+    input.disabled = false;
+  }
+}
+
+/** Explicit gathering pick from the C2 fallback picker (scene view).
+ *  Takes the first NPC member name from the chosen gathering and calls
+ *  scene/join with it — a single-NPC name always resolves unambiguously
+ *  when the player is ungrouped (A2 contract). */
+async function _scenePickGathering(gatheringId) {
+  const statusEl = document.getElementById('scene-join-status');
+  const candEl   = document.getElementById('scene-join-candidates');
+  candEl.querySelectorAll('button').forEach(b => b.disabled = true);
+  statusEl.textContent = 'Rejoindre…';
+  try {
+    // Re-read the scene to get current members (stale cache-safe).
+    const sceneData = await api('/api/scene');
+    const gathering = (sceneData.gatherings || []).find(g => g.id === gatheringId);
+    if (!gathering) { statusEl.textContent = 'Groupe introuvable.'; return; }
+    const firstNpc = (gathering.members || []).find(m => m.id !== 'char-player');
+    if (!firstNpc) { statusEl.textContent = 'Ce groupe est vide.'; return; }
+
+    // Pass the NPC name as the reference — always resolves to exactly one gathering.
+    const result = await api('/api/scene/join', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ player_text: firstNpc.name }),
+    });
+    candEl.style.display = 'none';
+    if (result.conversation_id) {
+      await loadConversations();
+      await selectConv(result.conversation_id);
+    } else {
+      statusEl.textContent = 'Impossible de rejoindre ce groupe.';
+      candEl.querySelectorAll('button').forEach(b => b.disabled = false);
+    }
+  } catch (e) {
+    statusEl.textContent = '⚠ ' + e.message;
+    candEl.querySelectorAll('button').forEach(b => b.disabled = false);
+  }
+}
+
+/** Show the scene view (hide conversation transcript + play input). */
+function showSceneView() {
+  document.getElementById('scene-view').style.display      = 'flex';
+  document.getElementById('transcript-body').style.display = 'none';
+  document.getElementById('play-input-area').style.display = 'none';
+  document.getElementById('btn-scene').style.display       = 'none';
+  document.getElementById('transcript-title').textContent  =
+    document.getElementById('scene-location-name').textContent || 'Scène';
+  currentConvId   = null;
+  currentConvData = null;
+  document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
    Start conversation (PROVISIONAL creator scaffolding)
    — This panel will be replaced by a full player view.
    ════════════════════════════════════════════════════════════════════════════ */
@@ -794,6 +1083,11 @@ async function loadConversations() {
 
 async function selectConv(id) {
   currentConvId = id;
+
+  // Switch from scene view to conversation view.
+  document.getElementById('scene-view').style.display      = 'none';
+  document.getElementById('transcript-body').style.display = '';
+  document.getElementById('btn-scene').style.display       = 'inline-flex';
 
   document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
   const item = document.getElementById('ci-' + id);
@@ -1100,7 +1394,7 @@ function _appendNpcRaw(container, npcName, content, mode) {
   const modeTag = mode
     ? ` <span class="mode-badge b-${esc(mode)}">[${esc(mode)}]</span>`
     : '';
-  const body = (mode === 'scene')
+  const body = (mode === 'scene' || mode === 'join')
     ? '<em>(aucun PNJ impliqué)</em>'
     : esc(content);
   el.innerHTML =
@@ -1459,6 +1753,7 @@ function markCardDone(id, newStatus) {
    ════════════════════════════════════════════════════════════════════════════ */
 
 document.addEventListener('DOMContentLoaded', () => {
+  loadScene();         // enter the player's location (idempotent, protects C1)
   loadNpcs();
   loadConversations();
   loadQueue();
