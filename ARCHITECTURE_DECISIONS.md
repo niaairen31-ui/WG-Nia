@@ -197,6 +197,62 @@ and are never deleted.
 
 ---
 
+## MULTI-NPC SCENES — Gatherings (schema v1.8, Tier 1)
+
+A location can hold more than one NPC at once, and a scene should reflect who's
+actually clustered together — not force every conversation into a 1:1 with a
+single NPC. **Tier 1 is the migration only**: `gathering` and
+`gathering_member` exist in the schema and `conversation` can reference a
+gathering, but nothing yet generates gatherings, resolves MJ-mentioned names
+to entities, or drives a multi-participant `/say` flow. Those are the next
+steps, designed against — but not built on top of — these invariants:
+
+**Forming or dissolving a gathering is not a canon mutation.** A gathering is
+a *reading* of who's standing together for the scene's duration, scoped to the
+session — not a lasting fact about the world. It produces no
+`proposed_mutation` row by itself. Only what happens *inside* it (a relation
+shifting, a secret slipping, a fact learned) generates proposals, exactly as
+today. This keeps "creator control is structural" intact: the checkpoint
+guards consequences, not scene bookkeeping.
+
+### A2 — Name resolution is structural, not generative
+
+The MJ narrates in terms of *names* ("Maelis se tourne vers Joren"), never
+entity ids — that's the natural register for prose, and the only one a local
+model can produce reliably. The application resolves those names against the
+entities actually present in the gathering roster (`gathering_member` with
+`left_at IS NULL`). **A name that does not resolve to a present entity is
+dropped and logged — never guessed, never silently mapped to the nearest
+match.** A misresolution would let the wrong NPC "hear" or "say" something;
+better an omission the creator can audit than a false attribution baked into
+the transcript.
+
+### B1 — Partition fully at entry; one open gathering per location
+
+When a player enters a location, the engine partitions **every** NPC present
+into gatherings **once, completely, in a single pass** — there is no
+"unassigned" remainder. An NPC standing alone still gets a gathering: a solo
+gathering of one. This guarantees the invariant the rest of the design leans
+on: **at any moment, a given location holds exactly one open `gathering`**
+(more precisely: `gathering` rows with `status = 'open'` and a given
+`location_id` number at most one). Conversations, earshot, and later
+multi-participant dialogue all key off "the open gathering at this location" —
+a partial or ambiguous partition would break that lookup.
+
+### C1 — Generated once at entry; no spontaneous reshuffling
+
+The gathering's shape (who's clustered with whom, the MJ's descriptive
+`label`) is decided **once, when the player arrives**, and holds for the scene.
+NPCs do not spontaneously regroup mid-conversation — that would make the
+roster (and therefore earshot, and therefore secret-exclusion) a moving
+target the player could not reason about, and would multiply the surface for
+local-model drift. Membership still *evolves* through explicit, narratively
+grounded events (someone leaves, someone new arrives) — recorded by closing
+or adding `gathering_member` rows (`left_at` set, never deleted; new rows
+appended) — but the *partition itself* is not regenerated from scratch.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

@@ -297,18 +297,61 @@ class PassPlay(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
+# gathering  (ephemeral social cluster, attached to a session)
+# -----------------------------------------------------------------------------
+class Gathering(SQLModel, table=True):
+    __tablename__ = "gathering"
+    __table_args__ = (
+        Index("idx_gathering_location", "location_id"),
+        Index("idx_gathering_session", "session_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    session_id: str = Field(foreign_key="session.id", nullable=False)
+    location_id: str = Field(foreign_key="entity.id", nullable=False)
+    label: Optional[str] = None
+    status: str = Field(
+        default="open", sa_column_kwargs={"server_default": text("'open'")}
+    )
+    created_at: datetime = _created_ts()
+    dissolved_at: Optional[datetime] = None
+
+
+# -----------------------------------------------------------------------------
+# gathering_member  (roster — also the conversation's participant list)
+# -----------------------------------------------------------------------------
+class GatheringMember(SQLModel, table=True):
+    __tablename__ = "gathering_member"
+    __table_args__ = (
+        Index("idx_gathering_member_group", "gathering_id"),
+        Index("idx_gathering_member_entity", "entity_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    gathering_id: str = Field(foreign_key="gathering.id", nullable=False)
+    entity_id: str = Field(foreign_key="entity.id", nullable=False)
+    joined_at: datetime = _created_ts()
+    left_at: Optional[datetime] = None  # NULL = still present, never erased
+
+
+# -----------------------------------------------------------------------------
 # conversation  (live player <-> NPC exchange)
 # -----------------------------------------------------------------------------
 class Conversation(SQLModel, table=True):
     __tablename__ = "conversation"
-    __table_args__ = (Index("idx_conversation_world", "world_id"),)
+    __table_args__ = (
+        Index("idx_conversation_world", "world_id"),
+        Index("idx_conversation_gathering", "gathering_id"),
+    )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     world_id: str = Field(foreign_key="world.id", nullable=False)
     session_id: str = Field(foreign_key="session.id", nullable=False)
     location_id: Optional[str] = Field(default=None, foreign_key="entity.id")
     player_id: str = Field(foreign_key="entity.id", nullable=False)
-    npc_id: str = Field(foreign_key="entity.id", nullable=False)
+    npc_id: Optional[str] = Field(default=None, foreign_key="entity.id")
+    gathering_id: Optional[str] = Field(default=None, foreign_key="gathering.id")
     status: str = Field(
         default="open", sa_column_kwargs={"server_default": text("'open'")}
     )
@@ -489,6 +532,8 @@ __all__ = [
     "Session",
     "Batch",
     "PassPlay",
+    "Gathering",
+    "GatheringMember",
     "Conversation",
     "ConversationMessage",
     "ProposedMutation",
