@@ -201,11 +201,32 @@ and are never deleted.
 
 A location can hold more than one NPC at once, and a scene should reflect who's
 actually clustered together — not force every conversation into a 1:1 with a
-single NPC. **Tier 1 is the migration only**: `gathering` and
+single NPC. **Tier 1, step 1 was the migration**: `gathering` and
 `gathering_member` exist in the schema and `conversation` can reference a
-gathering, but nothing yet generates gatherings, resolves MJ-mentioned names
-to entities, or drives a multi-participant `/say` flow. Those are the next
-steps, designed against — but not built on top of — these invariants:
+gathering. **Tier 1, step 2 — now implemented (`src/world_engine/gathering.py`,
+application layer, no schema change)** — generates the initial partition when
+a player enters a location:
+
+- `generate_gatherings(location_id, session_id, db)`: the structural core.
+  Loads the present NPCs (`vital_status='alive'`, `entity.status='active'`,
+  player excluded), asks the MJ to partition them via the `pt-mj-gathering`
+  template, resolves the returned names to entity ids (contract A2 below),
+  completes the partition so it is total (invariant B1 below), and writes
+  `gathering` (`status='open'`) and `gathering_member` (`left_at=NULL`) rows.
+  Never raises — a missing template, an unreachable model, malformed JSON, or
+  zero resolved names all fall back to an all-solo partition. Dissolves
+  nothing.
+- `enter_location(location_id, session_id, db)`: the single-player caller.
+  Dissolves the location's open gatherings for the session first, then calls
+  `generate_gatherings`. The dissolve step deliberately lives here rather than
+  in the core — see the function's docstring for the multiplayer-decoupling
+  rationale (a future second player should *join* the existing partition, not
+  wipe it out from under the first).
+
+The player is never placed in a gathering at entry — joining one is a later,
+explicit action. The multi-participant `/say` flow and the "join a gathering"
+action remain the next steps, designed against — but not yet built on top of —
+these invariants:
 
 **Forming or dissolving a gathering is not a canon mutation.** A gathering is
 a *reading* of who's standing together for the scene's duration, scoped to the
@@ -227,17 +248,20 @@ match.** A misresolution would let the wrong NPC "hear" or "say" something;
 better an omission the creator can audit than a false attribution baked into
 the transcript.
 
-### B1 — Partition fully at entry; one open gathering per location
+### B1 — Partition fully at entry; every present NPC in exactly one open gathering
 
 When a player enters a location, the engine partitions **every** NPC present
 into gatherings **once, completely, in a single pass** — there is no
 "unassigned" remainder. An NPC standing alone still gets a gathering: a solo
-gathering of one. This guarantees the invariant the rest of the design leans
-on: **at any moment, a given location holds exactly one open `gathering`**
-(more precisely: `gathering` rows with `status = 'open'` and a given
-`location_id` number at most one). Conversations, earshot, and later
-multi-participant dialogue all key off "the open gathering at this location" —
-a partial or ambiguous partition would break that lookup.
+gathering of one. A location can (and typically will) hold **several**
+simultaneous open `gathering` rows — one per cluster the MJ identified, plus
+one per loner — that is the partition, by definition. The invariant the rest
+of the design leans on is narrower and per-NPC: **at any moment, a present NPC
+belongs to exactly one open `gathering`** (`gathering_member` with
+`left_at IS NULL` resolves unambiguously to a single open gathering).
+Conversations, earshot, and later multi-participant dialogue all key off "the
+open gathering this NPC currently belongs to" — a partial or overlapping
+partition would break that lookup.
 
 ### C1 — Generated once at entry; no spontaneous reshuffling
 

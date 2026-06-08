@@ -306,6 +306,39 @@ Historique récent (joueur/PNJ, sans lignes du MJ) :
 Input du joueur → {player_line}\
 """
 
+# Initial NPC clustering when a player enters a location (schema v1.8, Tier 1).
+# usage = "mj_gathering". Single non-streaming JSON call; /no_think appended
+# at call time (see gathering.py). world_id = NULL (applies to every world).
+# Variables: {location_name}, {present_list} — substituted with str.replace(),
+# not .format(), so the JSON example in the system prompt is stored verbatim.
+MJ_GATHERING_SYSTEM_PROMPT = """\
+Tu es le metteur en scène d'un jeu de rôle. On te donne la liste des PNJ \
+présents dans un lieu au moment où le joueur y entre. Ton travail : décider \
+qui se trouve avec qui — qui forme un petit groupe, qui est seul.
+
+RÈGLES :
+- Chaque PNJ de la liste doit apparaître dans EXACTEMENT un groupe.
+- Un PNJ qui n'est avec personne forme son propre groupe (un seul membre).
+- Utilise les noms EXACTS fournis dans la liste, et seulement ceux-là — \
+jamais d'autre nom, jamais un PNJ qui n'y figure pas.
+- "label" : une description courte de ce que fait le groupe (ex. \
+« Discutent au comptoir », « Boit seul dans un coin », « Jouent aux cartes \
+près de la fenêtre »).
+- N'invente aucun fait sur le monde, aucun nom, aucun personnage de plus.
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre :
+{"groups":[{"label":"<description courte>","members":["<Nom1>","<Nom2>"]}]}\
+"""
+
+MJ_GATHERING_USER_TEMPLATE = """\
+Lieu : {location_name}
+
+PNJ présents :
+{present_list}
+
+Partage ces PNJ en groupes (ou solos) plausibles pour la scène qui commence.\
+"""
+
 
 # Universal behaviour prompt for every NPC. Prepended to the assembled context
 # as the system prompt. Creator-owned and editable in the DB.
@@ -433,6 +466,23 @@ def seed(session: Session) -> None:
         system_prompt=MJ_INTERPRETATION_SYSTEM_PROMPT,
         user_template=MJ_INTERPRETATION_USER_TEMPLATE,
         variables=["npc_name", "location_name", "recent_transcript", "player_line"],
+        destination="local",
+    )
+
+    # ----- prompt template: MJ gathering (initial NPC clustering) ------------
+    # usage = "mj_gathering". Partitions the NPCs present at a location into
+    # social clusters when the player enters (schema v1.8, Tier 1 — see
+    # gathering.py: generate_gatherings / enter_location). world_id = NULL.
+    # Uses upsert so re-seeding always converges the DB to the latest wording.
+    upsert_prompt_template(
+        session,
+        "pt-mj-gathering",
+        world_id=None,
+        name="MJ regroupement — partition initiale des PNJ présents",
+        usage="mj_gathering",
+        system_prompt=MJ_GATHERING_SYSTEM_PROMPT,
+        user_template=MJ_GATHERING_USER_TEMPLATE,
+        variables=["location_name", "present_list"],
         destination="local",
     )
 
@@ -649,6 +699,50 @@ def seed(session: Session) -> None:
         appearance="Figure âgée, voyageuse, « passe par là » régulièrement.",
         backstory="Détient un savoir oral transmis ; observe le réveil avec inquiétude.",
         secrets={"knows_more": "En sait plus qu'elle n'en dit sur le nœud et le réveil."},
+    )
+
+    # Bryn — jeune coursier, attend un message au comptoir.
+    # Minimal NPC: present and namable, no faction/knowledge/relations of its
+    # own — added to bring the tavern to 5 NPCs for testing gathering
+    # generation (schema v1.8, see gathering.py).
+    get_or_create(
+        session,
+        m.Entity,
+        "npc-bryn",
+        world_id=WORLD_ID,
+        type="character",
+        name="Bryn",
+        is_public=True,
+    )
+    get_or_create(
+        session,
+        m.Character,
+        "npc-bryn",
+        character_type="npc",
+        current_location_id="loc-dernier-verre",
+        appearance="Jeune coursier nerveux, surveille la porte en attendant quelqu'un.",
+        backstory="Livre des messages qu'il ne lit jamais ; ne pose pas de questions.",
+    )
+
+    # Korin — vieil habitué, raconte ses histoires à qui veut bien l'entendre.
+    # Minimal NPC, same rationale as Bryn above.
+    get_or_create(
+        session,
+        m.Entity,
+        "npc-korin",
+        world_id=WORLD_ID,
+        type="character",
+        name="Korin",
+        is_public=True,
+    )
+    get_or_create(
+        session,
+        m.Character,
+        "npc-korin",
+        character_type="npc",
+        current_location_id="loc-dernier-verre",
+        appearance="Vieil habitué à la voix éraillée, raconte volontiers ses histoires de jeunesse.",
+        backstory="Passe ses soirées au comptoir ; connaît la taverne mieux que sa propre maison.",
     )
 
     # ----- player character (entity + character) ----------------------------

@@ -616,9 +616,23 @@ batch   → event
   entities present, and a name that doesn't resolve is dropped and logged, never
   guessed. **B1** — partitioning into gatherings happens once, in full, at
   entry: every present NPC lands in exactly one gathering (a lone NPC forms a
-  solo gathering of one), preserving the invariant "in one location = exactly
-  one open gathering." **C1** — gatherings are generated once at entry; no
-  spontaneous reshuffling mid-scene.
+  solo gathering of one), preserving the invariant that a present NPC always
+  belongs to exactly one open gathering — a location may hold several
+  simultaneous open gatherings, one per cluster. **C1** — gatherings are
+  generated once at entry; no spontaneous reshuffling mid-scene.
+  — *Tier 1, step 2 (application layer, no schema change)*: `gathering.py`
+  implements the A2/B1 contracts above as two deliberately separate functions —
+  `generate_gatherings` (loads the present NPCs, asks the MJ to partition them
+  via the new `pt-mj-gathering` template, resolves names to entity ids,
+  completes the partition, writes `gathering`/`gathering_member` rows; never
+  raises, falls back to an all-solo partition on any failure) and
+  `enter_location` (the single-player caller: dissolves the location's open
+  gatherings for the session, then regenerates — see the function's docstring
+  for why dissolution must live in the caller, not the core). New template:
+  `pt-mj-gathering` (`usage='mj_gathering'`, `world_id=NULL`, upsert). Seeded
+  by `seed_pilot.py`, which also gained two NPCs (Bryn, Korin) so the pilot
+  tavern has five present NPCs to exercise clustering. The multi-participant
+  `/say` flow and the "join a gathering" action remain later steps.
 - **v1.7** — No new tables or columns. Application-layer change only:
   the `/say` flow gains a **mode-routing interpretation phase** (phase 0)
   that classifies the player's input into `dialogue` | `npc_reaction` | `scene`
