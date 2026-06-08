@@ -273,7 +273,7 @@ Narration MJ :\
 # call; /no_think appended at call time. world_id = NULL.
 MJ_INTERPRETATION_SYSTEM_PROMPT = """\
 Tu es un routeur de scène pour un jeu de rôle à la première personne du joueur.
-Tu lis l'input du joueur et tu classes le tour en exactement un des 3 modes.
+Tu lis l'input du joueur et tu classes le tour en exactement un des 4 modes.
 
 MODES :
 - dialogue      : le joueur parle, pose une question ou sollicite une réponse du PNJ
@@ -285,20 +285,38 @@ MODES :
 - scene         : le joueur agit sur l'environnement sans engager le PNJ (se déplace,
                   observe la salle, inspecte un objet, attend, décrit une attitude
                   générale non dirigée).
+- join          : le joueur exprime l'intention de s'approcher d'un groupe de
+                  personnes présentes et de s'installer avec elles (exemples :
+                  « je rejoins les deux près du feu », « je vais m'asseoir avec
+                  eux », « je m'approche du groupe au comptoir »). Pertinent
+                  UNIQUEMENT si « Votre situation » indique que le joueur n'a
+                  encore rejoint aucun groupe — sinon, ignore cette option et
+                  classe normalement (dialogue/npc_reaction/scene).
 
 RÈGLE DE DÉCISION :
-1. Y a-t-il des mots, une question ou une sollicitation adressés au PNJ ? → dialogue.
+0. Le joueur n'a rejoint aucun groupe ET son input décrit l'intention de
+   s'approcher / s'installer avec des gens présents → join (priorité absolue
+   sur les autres modes).
+1. Sinon, y a-t-il des mots, une question ou une sollicitation adressés au PNJ ? → dialogue.
 2. Y a-t-il un geste ou une action clairement dirigés vers le PNJ, sans parole ? → npc_reaction.
 3. Sinon → scene.
-QUAND INCERTAIN → dialogue (mieux qu'elle parle trop que pas assez).
+QUAND INCERTAIN entre dialogue et les autres → dialogue (mieux qu'elle parle trop que pas assez).
+
+Pour le mode join UNIQUEMENT, ajoute un champ "reference" : reprends tels quels
+les mots du joueur qui désignent le groupe visé (un nom de personne, une
+description de lieu ou d'activité — ex. « les deux près du feu », « Maelis et
+Korin », « ceux qui jouent aux cartes »). Pour tous les autres modes, laisse
+"reference" vide.
 
 Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre :
-{"mode":"dialogue|npc_reaction|scene","reason":"<une phrase courte d'explication>"}\
+{"mode":"dialogue|npc_reaction|scene|join","reason":"<une phrase courte d'explication>","reference":"<vide sauf pour join>"}\
 """
 
 MJ_INTERPRETATION_USER_TEMPLATE = """\
 PNJ présent : {npc_name}
 Lieu : {location_name}
+
+Votre situation : {gathering_status}
 
 Historique récent (joueur/PNJ, sans lignes du MJ) :
 {recent_transcript}
@@ -337,6 +355,43 @@ PNJ présents :
 {present_list}
 
 Partage ces PNJ en groupes (ou solos) plausibles pour la scène qui commence.\
+"""
+
+# Speaker selection for group-addressed turns (multi-NPC scenes, schema v1.8,
+# Tier 1 — contract A3 hybrid). usage = "mj_speaker_selection". When the player
+# addresses the group rather than a named PNJ, this single non-streaming JSON
+# call picks EXACTLY ONE active gathering member to answer this turn — never
+# more (cadence B1: one responder per turn, no PNJ↔PNJ exchange — Tier 3).
+# /no_think appended at call time. world_id = NULL. Variables substituted with
+# str.replace(), not .format().
+MJ_SPEAKER_SYSTEM_PROMPT = """\
+Tu es le metteur en scène d'un jeu de rôle. Le joueur s'adresse à un groupe de \
+PNJ plutôt qu'à une personne précise. Ton travail : choisir LA personne qui \
+prendrait la parole en premier dans cette situation — une seule.
+
+RÈGLES :
+- Choisis EXACTEMENT un nom dans la liste fournie, et seulement celui-là — \
+jamais d'autre nom, jamais une personne qui n'y figure pas.
+- Base ton choix sur la situation : qui est le plus concerné par ce qui vient \
+d'être dit, le plus direct, le plus bavard, ou simplement le plus proche du sujet.
+- Une seule personne répond ; les autres restent silencieuses pour ce tour.
+- N'invente aucun fait, aucun nom, aucune réplique.
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre :
+{"speaker":"<Nom exact>","reason":"<une phrase courte d'explication>"}\
+"""
+
+MJ_SPEAKER_USER_TEMPLATE = """\
+Lieu : {location_name}
+Groupe : {group_label}
+
+Personnes pouvant répondre :
+{member_list}
+
+Le joueur, s'adressant au groupe, dit ou fait :
+{player_line}
+
+Qui prend la parole en premier ?\
 """
 
 
@@ -465,7 +520,7 @@ def seed(session: Session) -> None:
         usage="mj_interpretation",
         system_prompt=MJ_INTERPRETATION_SYSTEM_PROMPT,
         user_template=MJ_INTERPRETATION_USER_TEMPLATE,
-        variables=["npc_name", "location_name", "recent_transcript", "player_line"],
+        variables=["npc_name", "location_name", "gathering_status", "recent_transcript", "player_line"],
         destination="local",
     )
 
@@ -483,6 +538,23 @@ def seed(session: Session) -> None:
         system_prompt=MJ_GATHERING_SYSTEM_PROMPT,
         user_template=MJ_GATHERING_USER_TEMPLATE,
         variables=["location_name", "present_list"],
+        destination="local",
+    )
+
+    # ----- prompt template: MJ speaker selection (group-addressed turns) -----
+    # usage = "mj_speaker_selection". Contract A3 hybrid: when the player
+    # addresses a gathering rather than a named PNJ, picks exactly one active
+    # member to answer (cadence B1 — one responder per turn). world_id = NULL.
+    # Uses upsert so re-seeding always converges the DB to the latest wording.
+    upsert_prompt_template(
+        session,
+        "pt-mj-speaker",
+        world_id=None,
+        name="MJ sélection de locuteur — qui répond dans le groupe",
+        usage="mj_speaker_selection",
+        system_prompt=MJ_SPEAKER_SYSTEM_PROMPT,
+        user_template=MJ_SPEAKER_USER_TEMPLATE,
+        variables=["location_name", "group_label", "member_list", "player_line"],
         destination="local",
     )
 

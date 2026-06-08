@@ -58,7 +58,8 @@ World-genrator/
 │       ├── __init__.py
 │       ├── db.py            # engine + session; URL from env var
 │       ├── models.py        # all SQLModel table classes (the schema)
-│       ├── context.py       # NPC context assembly (secret-exclusion + relation-gating)
+│       ├── context.py       # NPC context assembly (secret-exclusion + relation-gating;
+│       │                    #   gathering co-presence injection, contract D1)
 │       ├── ollama_client.py # HTTP client for local Ollama; strips <think> blocks
 │       ├── analyzer.py      # mutation analysis; _normalize_to_schema; _validate_item;
 │       │                    # analyze_conversation (final pass, filters relation_change);
@@ -68,13 +69,21 @@ World-genrator/
 │           ├── __init__.py
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
 │           │                # MJ narration layer (_load_mj_narration_template);
-│           │                # MJ interpretation layer (ResponseMode,
-│           │                #   _interpret_mode, _build_mj_user,
+│           │                # MJ interpretation layer (ResponseMode incl. join,
+│           │                #   _interpret_mode → (mode, reference), _build_mj_user,
 │           │                #   _load_mj_interpret_template);
+│           │                # multi-NPC scenes (_open_gatherings, _active_members,
+│           │                #   _gathering_brief, _player_gathering,
+│           │                #   _render_gathering_status, _resolve_join_target (A2),
+│           │                #   _join_gathering, _load_mj_speaker_template,
+│           │                #   _select_group_speaker (A3), _build_join_narration_user;
+│           │                #   POST .../join endpoint, JoinBody);
 │           │                # _find_applied_duplicate (new_knowledge + status_change only);
 │           │                # _mutation_match_key (idempotent types only)
 │           └── index.html   # single-page UI; MJ narration rendering;
-│                            # NPC raw audit annotation (inline CSS/JS, zero external deps)
+│                            # NPC raw audit annotation; speaker-target selector
+│                            #   (contract C2) + join-candidates picker
+│                            #   (inline CSS/JS, zero external deps)
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)

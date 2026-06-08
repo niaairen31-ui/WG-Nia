@@ -99,45 +99,100 @@ approved proposals.
 - Approve / reject mutations with an optional creator note and (for approve) an
   editable payload before writing.
 
-### The four-phase `/say` flow
+### The `/say` flow — multi-participant (Tier 1, step 3)
 
-Each player turn runs four phases inside one SSE generator:
+Each player turn runs through one SSE generator. With gatherings (schema
+v1.8), the flow generalises from a fixed 1:1 NPC to a **selected responder**
+drawn from the player's gathering — while staying perfectly backward
+compatible for plain 1:1 conversations (`conv.gathering_id IS NULL`).
 
 0. **Interpret phase** — `_interpret_mode()` classifies the player's raw input
-   into one of three `ResponseMode` values via a non-streaming `chat()` call
-   (`pt-mj-interpretation`, `usage='mj_interpretation'`). Falls back to
-   `ResponseMode.dialogue` on any failure — a misclassification must never break
-   a turn.
+   into one of four `ResponseMode` values via a non-streaming `chat()` call
+   (`pt-mj-interpretation`, `usage='mj_interpretation'`), now also fed the
+   player's `gathering_status` (free text: which gathering they're in, or which
+   open gatherings exist if they're not in one yet). Returns `(mode, reference)`
+   — `reference` is the player's exact words naming a group, populated only for
+   `join`. Falls back to `(dialogue, "")` on any failure — a misclassification
+   must never break a turn.
 
    | Mode | Trigger | NPC called? |
    |---|---|---|
    | `dialogue` | speech / question to the NPC (default) | yes, full reply |
    | `npc_reaction` | visible action *toward* the NPC, no words | yes, wordless gesture only |
    | `scene` | environment action, NPC not engaged | **no** |
+   | `join` | settling with an open gathering — *only while ungrouped* | **no** (action, not dialogue) |
 
    For `npc_reaction`, a `[MODE RÉACTION NON-VERBALE]` instruction is appended
-   to the NPC system prompt at call time (not persisted; one-shot).
+   to the NPC system prompt at call time (not persisted; one-shot). A `join`
+   classification while already grouped is a misread — `_stream` downgrades it
+   to `dialogue` as a safety net, since "join" is meaningless once anchored.
+
+   **Join resolution (contract A2 reused)** — `reference` is matched against
+   the open gatherings' labels and member names (`_resolve_join_target`,
+   exact-ish matching, never guessed). Exactly one match → `_join_gathering`
+   inserts a `gathering_member` row (`left_at=NULL`, idempotent) and sets
+   `conversation.gathering_id`; the MJ narrates the player settling in. Zero or
+   ambiguous matches → the cockpit lists the open gatherings (`join_candidates`
+   SSE event) and the player clicks one — the **C2** target selector doubles as
+   this fallback picker, posting to `POST .../join`. **Joining is not a canon
+   mutation** (same rationale as forming a gathering, see MULTI-NPC SCENES
+   below); no `proposed_mutation` row is produced either way.
+
+   **Speaker selection (contract A3 — hybrid)** — for `dialogue` /
+   `npc_reaction` turns, the responder is resolved from `SayBody.target`:
+   absent/`None` → the conversation's seed NPC (`conv.npc_id`, the 1:1
+   default); an explicit entity id → that NPC answers directly; `"group"` →
+   one MJ call (`pt-mj-speaker`, `usage='mj_speaker_selection'`) picks exactly
+   one active co-member to respond. **Cadence B1bis: exactly one responder per
+   turn — no PNJ↔PNJ exchange** (that is Tier 3). If addressing the group
+   resolves to nobody (no active co-members, or selection fails), the turn
+   downgrades to `scene` rather than inventing a reply.
 
 1. **NPC phase** (conditional) — `chat_stream` (buffered; thinking filtered by
-   `_StreamThinkFilter`). Skipped entirely for `scene` turns; no `npc` row is
+   `_StreamThinkFilter`). Skipped for `scene` and `join` turns; no `npc` row is
    written. The player sees no tokens yet; the "réflexion…" indicator stays.
-   Result persisted as `speaker='npc'` (canonical truth).
+   Result persisted as `speaker='npc'`, `speaker_id=<responder id>` (canonical
+   truth) — the per-message speaker, not a fixed conversation-level NPC.
+
+   **Context per responder (contract D1 — mutual awareness)** — the frozen
+   `injected_context.system_prompt` from conversation start is reused only for
+   the seed NPC in a non-gathering conversation; any other responder gets a
+   freshly assembled `assemble_npc_context(responder_id, player_id, location_id,
+   db, gathering_id=conv.gathering_id)`, which injects an "AVEC QUI TU TE
+   TROUVES EN CE MOMENT" section naming co-present gathering members and their
+   *public* description (appearance/entity description — never knowledge or
+   relations). Simple co-presence; no relation-based modulation of who an NPC
+   "notices" — that is a later refinement.
 
 2. **MJ phase** — MJ narration generated from `pt-mj-narration`
    (`usage='player_narration'`) for `dialogue`; mode-specific user messages for
-   `npc_reaction` (third-person gesture, no dialogue quote) and `scene`
-   (environment prose, NPC not mentioned). Streamed to the player token by token.
-   `{"mode": "..."}` and `{"npc_raw": "..."}` SSE events are sent before `[DONE]`
-   for creator audit (`npc_raw` is an empty string for `scene` turns). Result
+   `npc_reaction` (third-person gesture), `scene` (environment prose, no NPC),
+   and `join` (settling-in narration, or hesitation while the cockpit shows the
+   picker). Streamed to the player token by token. `{"mode": "..."}` and
+   `{"npc_raw": "..."}` SSE events are sent before `[DONE]` for creator audit
+   (`npc_raw` is `""` for `scene`/`join` turns); a `join` turn additionally
+   sends either `{"joined": {...}}` or `{"join_candidates": [...]}`. Result
    persisted as `speaker='mj'` (presentation layer).
 
 3. **Per-turn analysis** (sync-after-stream) — runs after `[DONE]` is sent, while
-   the player reads and types. Calls `analyze_single_turn()`. For `scene` turns
-   `npc_reply` is `""`; the mini-transcript ends with `[PNJ] ` and the model
-   correctly returns `[]`. Silently writes `proposed_mutation` rows tagged
-   `proposed_by='local_ai_immediate'`.
+   the player reads and types. Calls `analyze_single_turn()`. For `scene` and
+   `join` turns `npc_reply` is `""`; the mini-transcript ends with `[PNJ] ` and
+   the model correctly returns `[]`. Silently writes `proposed_mutation` rows
+   tagged `proposed_by='local_ai_immediate'`.
 
-The NPC's words never reach the player directly — the player always reads the MJ's narration, which quotes them verbatim (`dialogue`) or renders them as third-person prose (`npc_reaction`).
+The NPC's words never reach the player directly — the player always reads the MJ's narration, which quotes them verbatim (`dialogue`) or renders them as third-person prose (`npc_reaction`, `join`).
+
+### C2 — Cockpit speaker-target selector (distinct from C1)
+
+A selector ("le groupe" / a named active member) sits next to the `/say`
+field, populated from the joined gathering's roster, and drives `SayBody.target`
+(contract A3). It is hidden for plain 1:1 conversations (no gathering yet —
+`/say` keeps its backward-compatible default). It doubles as the fallback
+picker for an unresolved `join` reference. **Naming note:** the task spec that
+requested this selector labelled it "C1" — colliding with the existing,
+unrelated C1 ("generated once at entry; no spontaneous reshuffling", below).
+It is labelled **C2** throughout the code and docs to keep both concepts
+addressable without ambiguity.
 
 ### apply_mutation — the only canon-write path
 
@@ -223,10 +278,11 @@ a player enters a location:
   rationale (a future second player should *join* the existing partition, not
   wipe it out from under the first).
 
-The player is never placed in a gathering at entry — joining one is a later,
-explicit action. The multi-participant `/say` flow and the "join a gathering"
-action remain the next steps, designed against — but not yet built on top of —
-these invariants:
+The player is never placed in a gathering at entry — joining one is an
+explicit action. **Tier 1, step 3 — now implemented** — closes the tier: the
+multi-participant `/say` flow and the "join a gathering" action (see the
+`/say` flow section above for `join` mode, contracts A3/C2/D1, and cadence
+B1bis) are built on top of these invariants:
 
 **Forming or dissolving a gathering is not a canon mutation.** A gathering is
 a *reading* of who's standing together for the scene's duration, scoped to the

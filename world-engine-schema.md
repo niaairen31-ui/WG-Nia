@@ -631,8 +631,35 @@ batch   → event
   for why dissolution must live in the caller, not the core). New template:
   `pt-mj-gathering` (`usage='mj_gathering'`, `world_id=NULL`, upsert). Seeded
   by `seed_pilot.py`, which also gained two NPCs (Bryn, Korin) so the pilot
-  tavern has five present NPCs to exercise clustering. The multi-participant
-  `/say` flow and the "join a gathering" action remain later steps.
+  tavern has five present NPCs to exercise clustering.
+  — *Tier 1, step 3 — closes the tier (application layer, no schema change)*:
+  the `/say` flow gains a fourth interpretation mode, **`join`** — the player's
+  intent to settle with an open gathering. While ungrouped, `join` takes
+  priority over the other three modes ("parler n'a pas de cible tant qu'on n'a
+  pas rejoint"); the model is given the player's `gathering_status` and a
+  free-text `reference` to the named group, resolved against the open
+  gatherings' rosters by the same A2 contract (exact match against present
+  names/labels; ambiguous or unresolved → the cockpit lists the open
+  gatherings and the player picks — reusing the new C2 target selector, see
+  below). Joining inserts one `gathering_member` row (`left_at=NULL`) and
+  anchors `conversation.gathering_id`; like forming one, **joining a gathering
+  is not a canon mutation** — no `proposed_mutation` row is produced.
+  The NPC phase generalises from a single fixed NPC to a **selected
+  responder**: contract **A3 (hybrid speaker selection)** — an explicitly
+  targeted NPC always answers; an address to "the group" triggers one MJ call
+  (`pt-mj-speaker`, `usage='mj_speaker_selection'`, new template) that picks
+  exactly one active member to respond (cadence **B1bis**: exactly one
+  responder per turn, no PNJ↔PNJ exchange — that stays Tier 3). The cockpit
+  gains a **C2** target selector ("groupe" / a named NPC) next to the `/say`
+  field, populated from the joined gathering's active roster — distinct from
+  the existing **C1** ("generated once at entry; no reshuffling"); the label
+  collision is deliberate disambiguation, not a renumbering. Context assembly
+  gains contract **D1 (mutual awareness)**: `assemble_npc_context` now accepts
+  a `gathering_id` and injects an "AVEC QUI TU TE TROUVES EN CE MOMENT" section
+  naming co-present members and their public description — simple co-presence,
+  no relation-based modulation (that stays a later refinement). New template:
+  `pt-mj-speaker`. The `pt-mj-interpretation` template and its `ResponseMode`
+  enum gain `join`; `_interpret_mode` now returns `(mode, reference)`.
 - **v1.7** — No new tables or columns. Application-layer change only:
   the `/say` flow gains a **mode-routing interpretation phase** (phase 0)
   that classifies the player's input into `dialogue` | `npc_reaction` | `scene`

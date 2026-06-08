@@ -443,6 +443,39 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
+.target-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.target-row select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+}
+.join-candidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.join-candidates button {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.join-candidates button:hover { border-color: var(--accent); }
 .play-input-row {
   display: flex;
   gap: 8px;
@@ -593,6 +626,15 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 
       <!-- Play input — shown only when the selected conversation is open -->
       <div class="play-input-area" id="play-input-area" style="display:none">
+        <!-- Target selector (contract C2 — shown only once the player has
+             joined a gathering; absent → conversation stays 1:1, backward
+             compatible). "Groupe" lets the MJ pick exactly one responder
+             among active members (A3 hybrid); a named NPC always answers
+             directly. Doubles as the join-resolution fallback picker. -->
+        <div class="target-row" id="target-row" style="display:none">
+          <label for="target-select">S'adresser à :</label>
+          <select id="target-select"></select>
+        </div>
         <div class="play-input-row">
           <textarea id="play-input" rows="2"
             placeholder="Votre réplique…"
@@ -772,6 +814,7 @@ async function selectConv(id) {
     document.getElementById('transcript-title').textContent =
       (data.npc_name || '?') + ' ↔ ' + (data.player_name || '?') +
       (data.location ? '  ·  ' + data.location : '');
+    _renderTargetSelector(data);
     setPlayInputVisible(data.status === 'open');
   } catch (e) {
     body.innerHTML = `<div class="empty" style="color:var(--red)">Error: ${esc(e.message)}</div>`;
@@ -786,6 +829,31 @@ function setPlayInputVisible(open) {
   if (open) {
     document.getElementById('play-input').focus();
   }
+}
+
+/** Populate the speaker-target selector (contract C2 — A3 hybrid).
+ *  Only shown once the conversation is anchored to a gathering: "Groupe"
+ *  (the MJ picks exactly one active member to answer) plus one option per
+ *  active co-member (that NPC answers directly). Absent gathering → the
+ *  selector stays hidden and /say defaults to the seed NPC, unchanged. */
+function _renderTargetSelector(data) {
+  const row    = document.getElementById('target-row');
+  const select = document.getElementById('target-select');
+  const gathering = data.gathering;
+
+  if (!gathering || !gathering.members || !gathering.members.length) {
+    row.style.display = 'none';
+    select.innerHTML = '';
+    return;
+  }
+
+  const options = [`<option value="group">Le groupe (${esc(gathering.label || 'sans nom')})</option>`];
+  for (const m of gathering.members) {
+    if (m.id === data.player_id) continue;
+    options.push(`<option value="${esc(m.id)}">${esc(m.name)}</option>`);
+  }
+  select.innerHTML = options.join('');
+  row.style.display = 'flex';
 }
 
 function renderTranscript(data) {
@@ -876,6 +944,8 @@ async function sendPlayerLine() {
   let mjBubble = null;
   let npcRawContent = null;
   let turnMode = null;
+  let joinedInfo = null;       // {gathering_id, label} — resolved join (phase 0c)
+  let joinCandidates = null;   // [_gathering_brief, ...] — unresolved join, player picks
 
   /** Replace indicator with MJ narration bubble; return its text node. */
   const _ensureMj = () => {
@@ -886,11 +956,18 @@ async function sendPlayerLine() {
     return mjBubble.querySelector('.msg-bubble');
   };
 
+  // Speaker target (contract C2 — A3 hybrid). The selector is only visible
+  // once the player has joined a gathering; otherwise omit it entirely so
+  // /say keeps its 1:1 backward-compatible default (conv.npc_id answers).
+  const targetRow = document.getElementById('target-row');
+  const targetSel = document.getElementById('target-select');
+  const target = (targetRow.style.display !== 'none' && targetSel.value) ? targetSel.value : null;
+
   try {
     const res = await fetch('/api/conversations/' + currentConvId + '/say', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ content }),
+      body:    JSON.stringify(target ? { content, target } : { content }),
     });
 
     if (!res.ok) {
@@ -933,8 +1010,21 @@ async function sendPlayerLine() {
           }
           if (typeof token.mode === 'string') {
             // Routing mode chosen by the MJ interpretation pass (dialogue /
-            // npc_reaction / scene). Stored for the audit annotation.
+            // npc_reaction / scene / join). Stored for the audit annotation.
             turnMode = token.mode;
+            continue;
+          }
+          if (token.joined) {
+            // Join resolved (contract A2 — name/label matched a single open
+            // gathering). Conversation is now anchored; refresh after the
+            // stream so the target selector picks up the new roster.
+            joinedInfo = token.joined;
+            continue;
+          }
+          if (Array.isArray(token.join_candidates)) {
+            // Resolution failed (ambiguous/not found) — cockpit fallback:
+            // let the player pick from the open gatherings (reuses C2).
+            joinCandidates = token.join_candidates;
             continue;
           }
         } else if (typeof token === 'string') {
@@ -950,6 +1040,18 @@ async function sendPlayerLine() {
     // Always shown when we have mode info (even scene turns with no NPC output).
     if (npcRawContent !== null || turnMode !== null) {
       _appendNpcRaw(transcriptEl, npcName, npcRawContent ?? '', turnMode);
+    }
+
+    if (joinedInfo) {
+      // Anchored to a gathering — reload conversation data so the target
+      // selector (C2) populates from the new roster (D1 co-presence).
+      const fresh = await api('/api/conversations/' + currentConvId).catch(() => null);
+      if (fresh) {
+        currentConvData = fresh;
+        _renderTargetSelector(fresh);
+      }
+    } else if (joinCandidates && joinCandidates.length) {
+      _renderJoinCandidates(transcriptEl, joinCandidates);
     }
 
     // Refresh the sidebar count for this conversation.
@@ -1005,6 +1107,48 @@ function _appendNpcRaw(container, npcName, content, mode) {
     `<span class="npc-raw-label">${esc(npcName)} (brut) :${modeTag}</span> ${body}`;
   container.appendChild(el);
   container.scrollTop = container.scrollHeight;
+}
+
+/** Cockpit fallback for an unresolved 'join' intent (contract A2 — ambiguous
+ *  or not-found reference). Reuses the C2 target-selector roster info: one
+ *  button per open gathering, labelled with its members; clicking calls
+ *  POST /join directly (not a canon mutation — see ARCHITECTURE_DECISIONS.md). */
+function _renderJoinCandidates(container, candidates) {
+  const wrap = document.createElement('div');
+  wrap.className = 'join-candidates';
+  for (const g of candidates) {
+    const names = (g.members || []).map(m => m.name).join(', ');
+    const btn = document.createElement('button');
+    btn.textContent = (g.label || 'Groupe') + (names ? ' — ' + names : '');
+    btn.onclick = () => _joinGathering(g.id, btn);
+    wrap.appendChild(btn);
+  }
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+}
+
+/** Join the chosen gathering via the explicit /join endpoint, then refresh
+ *  the conversation so the target selector (C2) reflects the new roster. */
+async function _joinGathering(gatheringId, triggerBtn) {
+  if (!currentConvId) return;
+  const wrap = triggerBtn.closest('.join-candidates');
+  if (wrap) wrap.querySelectorAll('button').forEach(b => b.disabled = true);
+  try {
+    await api('/api/conversations/' + currentConvId + '/join', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gathering_id: gatheringId }),
+    });
+    if (wrap) wrap.remove();
+    const fresh = await api('/api/conversations/' + currentConvId).catch(() => null);
+    if (fresh) {
+      currentConvData = fresh;
+      _renderTargetSelector(fresh);
+    }
+  } catch (e) {
+    if (wrap) wrap.querySelectorAll('button').forEach(b => b.disabled = false);
+    alert('Erreur en rejoignant le groupe : ' + e.message);
+  }
 }
 
 /** Append a message bubble to the transcript and scroll into view. */

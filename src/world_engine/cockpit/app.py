@@ -44,6 +44,8 @@ from ..models import (
     Conversation,
     ConversationMessage,
     Entity,
+    Gathering,
+    GatheringMember,
     Knowledge,
     PromptTemplate,
     ProposedMutation,
@@ -394,6 +396,240 @@ def _load_npc_dialogue_template(world_id: str, db: Session) -> PromptTemplate:
     return templates[0]
 
 
+# ── Multi-NPC scenes — gatherings (schema v1.8, Tier 1, step 3) ───────────────
+# Helpers consumed by the /say flow's join handling (contract A2) and speaker
+# selection (contract A3 hybrid). Generation itself lives in gathering.py;
+# these only read the partition that `enter_location` already produced.
+
+def _open_gatherings(location_id: str, session_id: str, db: Session) -> list[Gathering]:
+    return list(db.exec(
+        select(Gathering).where(
+            Gathering.location_id == location_id,
+            Gathering.session_id == session_id,
+            Gathering.status == "open",
+        )
+    ).all())
+
+
+def _active_members(gathering_id: str, db: Session) -> list[tuple[GatheringMember, Entity]]:
+    return list(db.exec(
+        select(GatheringMember, Entity)
+        .join(Entity, Entity.id == GatheringMember.entity_id)
+        .where(
+            GatheringMember.gathering_id == gathering_id,
+            GatheringMember.left_at.is_(None),
+        )
+    ).all())
+
+
+def _gathering_brief(gathering_id: str, db: Session) -> Optional[dict]:
+    """{id, label, members:[{id, name}]} for an open gathering, or None."""
+    gathering = db.get(Gathering, gathering_id)
+    if gathering is None:
+        return None
+    return {
+        "id": gathering.id,
+        "label": gathering.label,
+        "members": [{"id": e.id, "name": e.name} for _gm, e in _active_members(gathering_id, db)],
+    }
+
+
+def _player_gathering(player_id: str, location_id: str, session_id: str, db: Session) -> Optional[Gathering]:
+    """The open gathering at this location+session the player currently belongs to, if any."""
+    row = db.exec(
+        select(Gathering)
+        .join(GatheringMember, GatheringMember.gathering_id == Gathering.id)
+        .where(
+            Gathering.location_id == location_id,
+            Gathering.session_id == session_id,
+            Gathering.status == "open",
+            GatheringMember.entity_id == player_id,
+            GatheringMember.left_at.is_(None),
+        )
+    ).first()
+    return row
+
+
+def _render_gathering_status(
+    player_id: str,
+    player_gathering: Optional[Gathering],
+    open_gatherings: list[Gathering],
+    db: Session,
+) -> str:
+    """Free-text block fed to the interpretation prompt.
+
+    Describes the player's current group membership and — when ungrouped —
+    the open gatherings actually present, by label and member names, so the
+    model can recognize a join attempt and quote a `reference` against names
+    it was actually shown (contract A2: never invent).
+    """
+    if player_gathering is not None:
+        names = ", ".join(e.name for _gm, e in _active_members(player_gathering.id, db) if e.id != player_id)
+        if names:
+            return f"Vous faites partie du groupe « {player_gathering.label} », avec {names}."
+        return f"Vous faites partie du groupe « {player_gathering.label} »."
+    if not open_gatherings:
+        return "Vous n'avez rejoint aucun groupe ; aucun groupe ne s'est encore formé ici."
+    lines = []
+    for gathering in open_gatherings:
+        names = ", ".join(e.name for _gm, e in _active_members(gathering.id, db))
+        lines.append(f"- « {gathering.label} »" + (f" : {names}" if names else ""))
+    return (
+        "Vous n'avez rejoint aucun groupe. Groupes présents dans la salle :\n"
+        + "\n".join(lines)
+    )
+
+
+def _resolve_join_target(reference: str, open_gatherings: list[Gathering], db: Session) -> Optional[str]:
+    """Resolve the player's join `reference` to exactly one open gathering id.
+
+    A2 — structural, not generative: matches the model's free-text reference
+    against the labels and member names of the gatherings actually present,
+    case-insensitively. Returns a gathering id only on an unambiguous match;
+    None (no match, or more than one) routes to the cockpit fallback picker.
+    Never guesses, never invents.
+    """
+    ref = (reference or "").strip().lower()
+    if not ref:
+        return None
+    candidates: set[str] = set()
+    for gathering in open_gatherings:
+        if gathering.label and gathering.label.strip().lower() in ref:
+            candidates.add(gathering.id)
+            continue
+        if any(e.name.strip().lower() in ref for _gm, e in _active_members(gathering.id, db)):
+            candidates.add(gathering.id)
+    if len(candidates) == 1:
+        return next(iter(candidates))
+    return None
+
+
+def _join_gathering(conv: Conversation, gathering_id: str, db: Session) -> Gathering:
+    """Insert the player as an active member of `gathering_id` and anchor the
+    conversation to it. Idempotent — rejoining the same gathering is a no-op
+    on membership (the row already exists and stays open)."""
+    gathering = db.get(Gathering, gathering_id)
+    if gathering is None:
+        raise HTTPException(status_code=404, detail=f"Gathering {gathering_id!r} not found")
+    existing = db.exec(
+        select(GatheringMember).where(
+            GatheringMember.gathering_id == gathering_id,
+            GatheringMember.entity_id == conv.player_id,
+            GatheringMember.left_at.is_(None),
+        )
+    ).first()
+    if existing is None:
+        db.add(GatheringMember(
+            gathering_id=gathering_id,
+            entity_id=conv.player_id,
+            joined_at=datetime.now(UTC),
+            left_at=None,
+        ))
+    conv.gathering_id = gathering_id
+    db.add(conv)
+    db.commit()
+    db.refresh(gathering)
+    return gathering
+
+
+def _load_mj_speaker_template(world_id: str, db: Session) -> Optional[PromptTemplate]:
+    """Return the active mj_speaker_selection prompt template, or None."""
+    templates = db.exec(
+        select(PromptTemplate).where(
+            PromptTemplate.usage == "mj_speaker_selection",
+            PromptTemplate.is_active == True,  # noqa: E712
+        )
+    ).all()
+    if not templates:
+        return None
+    for prefer in (lambda t: t.world_id == world_id, lambda t: t.world_id is None):
+        match = next((t for t in templates if prefer(t)), None)
+        if match is not None:
+            return match
+    return templates[0]
+
+
+def _select_group_speaker(
+    *,
+    template: Optional[PromptTemplate],
+    location_name: str,
+    gathering: Gathering,
+    members: list[tuple[GatheringMember, Entity]],
+    player_line: str,
+    model: str,
+) -> str:
+    """Pick exactly one active gathering member to respond (contract A3 hybrid).
+
+    Asks the MJ to choose; resolves the returned name against the active
+    roster (A2-style exact, case-insensitive match). Falls back to the first
+    active member on a missing template, a call failure, or an unresolved
+    name — cadence B1 (exactly one responder per turn) holds regardless; the
+    scene must stay playable.
+    """
+    if template is not None:
+        member_lines = "\n".join(f"- {e.name}" for _gm, e in members)
+        user_msg = (
+            template.user_template
+            .replace("{location_name}", location_name)
+            .replace("{group_label}", gathering.label or "Groupe")
+            .replace("{member_list}", member_lines)
+            .replace("{player_line}", player_line)
+            + "\n/no_think"
+        )
+        try:
+            raw = ollama_client.chat(
+                [
+                    {"role": "system", "content": template.system_prompt},
+                    {"role": "user",   "content": user_msg},
+                ],
+                model=model,
+                format="json",
+            )
+            obj = json.loads(raw)
+            name = str(obj.get("speaker", "")).strip().lower()
+            for _gm, e in members:
+                if e.name.strip().lower() == name:
+                    return e.id
+            _log.info("MJ speaker selection: unresolved name %r — fallback to first member", name)
+        except Exception as exc:
+            _log.warning("MJ speaker selection call failed (%s) — fallback to first member", exc)
+    return members[0][1].id
+
+
+def _build_join_narration_user(
+    *,
+    location_name: str,
+    player_line: str,
+    joined: bool,
+    gathering_label: Optional[str],
+) -> str:
+    """MJ narration for a join action — third-person, no dialogue, no NPC call.
+
+    `joined=True`  : the player successfully settles in with the named group.
+    `joined=False` : resolution was ambiguous; the player hesitates while the
+                     cockpit shows the fallback picker (see /join endpoint).
+    """
+    if joined:
+        return (
+            f"Lieu : « {location_name} ».\n"
+            f"Mode : le joueur rejoint un groupe — « {gathering_label} ».\n\n"
+            f"Action du joueur :\n{player_line}\n\n"
+            f"Narration MJ — décris en 2-3 phrases courtes, à la troisième personne, "
+            f"comment le joueur s'approche et s'installe avec ce groupe. Aucun "
+            f"dialogue, aucun guillemet, aucun nom inventé.\n"
+            f"Narration MJ :\n/no_think"
+        )
+    return (
+        f"Lieu : « {location_name} ».\n"
+        f"Mode : le joueur cherche à rejoindre un groupe, mais sa cible reste floue.\n\n"
+        f"Action du joueur :\n{player_line}\n\n"
+        f"Narration MJ — décris en 2-3 phrases courtes, à la troisième personne, "
+        f"le joueur hésitant, regardant autour de lui sans encore se décider. Aucun "
+        f"dialogue, aucun guillemet, aucun nom inventé.\n"
+        f"Narration MJ :\n/no_think"
+    )
+
+
 def _load_mj_narration_template(world_id: str, db: Session) -> PromptTemplate:
     """Return the active player_narration (MJ) prompt template (world-specific preferred)."""
     templates = db.exec(
@@ -427,6 +663,8 @@ class ResponseMode(str, enum.Enum):
     dialogue     = "dialogue"      # player speaks / questions / solicits NPC reply
     npc_reaction = "npc_reaction"  # action toward NPC, no words → wordless NPC gesture
     scene        = "scene"         # environment action, NPC not engaged → skip NPC call
+    join         = "join"          # player approaches and settles with a gathering;
+                                    # only meaningful while ungrouped (see _stream)
 
 
 def _load_mj_interpret_template(world_id: str, db: Session) -> PromptTemplate:
@@ -454,20 +692,27 @@ def _interpret_mode(
     player_line: str,
     npc_name: str,
     location_name: str,
+    gathering_status: str,
     recent_transcript: str,
     interpret_system: str,
     interpret_user_tpl: str,
     model: str,
-) -> ResponseMode:
+) -> tuple[ResponseMode, str]:
     """Classify the player's input into a ResponseMode via the local model.
 
-    Falls back to ResponseMode.dialogue on any failure (parse error, unknown
-    value, Ollama error). A misclassification must never break a turn.
+    Returns `(mode, reference)`. `reference` is the model's free-text quote of
+    what the player named when joining a group (contract A2 — resolved against
+    the actual roster downstream by `_resolve_join_target`, never invented);
+    empty for every other mode.
+
+    Falls back to `(ResponseMode.dialogue, "")` on any failure (parse error,
+    unknown value, Ollama error). A misclassification must never break a turn.
     """
     user_msg = (
         interpret_user_tpl
         .replace("{npc_name}", npc_name)
         .replace("{location_name}", location_name)
+        .replace("{gathering_status}", gathering_status)
         .replace("{recent_transcript}", recent_transcript or "(aucun historique)")
         .replace("{player_line}", player_line)
         + "\n/no_think"
@@ -484,14 +729,16 @@ def _interpret_mode(
         obj = json.loads(raw)
         mode_str = str(obj.get("mode", "")).strip()
         mode = ResponseMode(mode_str)
+        reference = str(obj.get("reference", "") or "").strip()
         _log.info(
-            "MJ interpret: %r → %s (reason: %s)",
+            "MJ interpret: %r → %s (reason: %s)%s",
             player_line[:60], mode.value, obj.get("reason", ""),
+            f" [reference: {reference!r}]" if mode == ResponseMode.join else "",
         )
-        return mode
+        return mode, reference
     except Exception as exc:
         _log.warning("MJ interpret failed (%s), fallback to dialogue", exc)
-        return ResponseMode.dialogue
+        return ResponseMode.dialogue, ""
 
 
 def _build_mj_user(
@@ -609,6 +856,17 @@ def start_conversation(
 
 class SayBody(BaseModel):
     content: str
+    # Speaker target (contract A3 hybrid — cockpit selector, contract C2):
+    #   None / absent → the conversation's seed NPC (conv.npc_id) — backward
+    #     compatible with plain 1:1 conversations.
+    #   "group"       → addresses the gathering; the MJ picks exactly one
+    #     active member to answer (requires the player to have joined one).
+    #   <entity id>   → addresses that NPC directly; it answers.
+    target: Optional[str] = None
+
+
+class JoinBody(BaseModel):
+    gathering_id: str
 
 
 @app.post("/api/conversations/{conv_id}/say")
@@ -617,15 +875,35 @@ def say(
     body: SayBody,
     db: Session = Depends(get_session),
 ) -> StreamingResponse:
-    """Persist the player's line, interpret its mode, conditionally run the NPC,
+    """Persist the player's line, interpret its mode, conditionally run an NPC,
     then stream the MJ narration.
 
-    Mode routing (MJ interpretation pass — runs before NPC)
-    -------------------------------------------------------
-    'dialogue'     : player speaks / questions NPC. NPC replies in full. Current behavior.
-    'npc_reaction' : action toward NPC without words. NPC reacts wordlessly.
-    'scene'        : environment action, NPC not engaged. NPC call is skipped.
+    Mode routing (MJ interpretation pass — runs before any NPC)
+    ------------------------------------------------------------
+    'dialogue'     : player speaks / questions an NPC. The NPC replies in full.
+    'npc_reaction' : action toward an NPC without words. It reacts wordlessly.
+    'scene'        : environment action, no NPC engaged. NPC call is skipped.
+    'join'         : player approaches and settles with an open gathering —
+                     only considered while the player belongs to none yet
+                     ("parler n'a pas de cible tant qu'on n'a pas rejoint").
+                     No NPC call; the MJ narrates the approach. The reference
+                     the player used is resolved against the gatherings
+                     actually present (contract A2 — exact, case-insensitive,
+                     never invented); on failure the cockpit shows a picker
+                     (`join_candidates` event, completed via POST .../join).
     Fallback: 'dialogue' on any interpretation error (never breaks a turn).
+
+    Speaker selection for dialogue / npc_reaction (contract A3 hybrid)
+    -------------------------------------------------------------------
+    `body.target` drives who answers:
+      - omitted/None : the conversation's seed NPC (`conv.npc_id`) — plain 1:1.
+      - "group"      : addresses the player's gathering; the MJ picks exactly
+                       one active member to answer this turn (cadence B1 — one
+                       responder, no PNJ↔PNJ exchange, that's Tier 3).
+      - <entity id>  : addresses that NPC directly; it answers.
+    Each responding NPC gets a freshly assembled context (contract D1 —
+    co-participants of its current gathering are injected) and produces its
+    canonical `npc` line under its own `speaker_id`.
 
     SSE protocol (text/event-stream):
       - No events while interpreting + NPC (if called) is generating (indicator up).
@@ -633,13 +911,16 @@ def say(
       - Mode event (before DONE): data: {"mode": "<value>"}\\n\\n
         — tells the browser WHY a turn produced no NPC dialogue.
       - Raw NPC line event (before DONE): data: {"npc_raw": "<escaped>"}\\n\\n
-        — empty string for scene turns (no NPC call).
+        — empty string when no NPC was called.
+      - Join outcome (join mode only, before DONE):
+          data: {"joined": {"gathering_id":..., "label":...}}\\n\\n        — resolved
+          data: {"join_candidates": [{"id":..., "label":..., "members":[...]}]}\\n\\n — ambiguous
       - End of stream: data: [DONE]\\n\\n
       - Error event: data: {"error": "<msg>"}\\n\\n
 
     turn_order layout per player turn:
       player_turn   → player line (canonical)
-      player_turn+1 → npc line (canonical, internal; absent for scene turns)
+      player_turn+1 → npc line (canonical, internal; absent when no NPC answers)
       player_turn+2 → mj line (presentation, streamed)
     """
     conv = db.get(Conversation, conv_id)
@@ -706,10 +987,18 @@ def say(
 
     # Recent player/npc transcript for the interpret call (excludes 'mj' rows
     # and the current player line, which is passed separately as {player_line}).
+    # Multi-NPC scenes mean different turns may have different speakers — each
+    # 'npc' row is labelled with its own speaker_id's name, not conv.npc_id.
     history_only = [m for m in all_msgs if m.speaker in ("player", "npc")][:-1]
+    history_speaker_ids = {m.speaker_id for m in history_only if m.speaker == "npc" and m.speaker_id}
+    history_name_map: dict[str, str] = {}
+    if history_speaker_ids:
+        history_name_map = {
+            e.id: e.name for e in db.exec(select(Entity).where(Entity.id.in_(history_speaker_ids))).all()
+        }
     recent_transcript = "\n".join(
         (f"[Joueur] {m.content}" if m.speaker == "player"
-         else f"[{npc_name}] {m.content}")
+         else f"[{history_name_map.get(m.speaker_id or '', npc_name)}] {m.content}")
         for m in history_only[-6:]  # last 3 exchanges
     )
 
@@ -720,77 +1009,163 @@ def say(
     interpret_user_tpl = interpret_template.user_template
 
     def _stream() -> Iterator[str]:
-        # ── Phase 0: Interpret the player's input (mode routing) ──────────────
-        # Classify as dialogue / npc_reaction / scene before calling the NPC,
-        # so scene turns skip the NPC entirely. Falls back to 'dialogue' on any
-        # failure — a misclassification must never break a turn.
-        mode = _interpret_mode(
+        # ── Phase 0a: gathering membership (multi-NPC scenes, schema v1.8) ────
+        # Drives both join-priority and speaker selection below. A conversation
+        # with no location (shouldn't happen in the pilot) simply has no gatherings.
+        player_gathering: Optional[Gathering] = None
+        open_gatherings: list[Gathering] = []
+        if conv.location_id:
+            player_gathering = _player_gathering(conv.player_id, conv.location_id, conv.session_id, db)
+            open_gatherings = _open_gatherings(conv.location_id, conv.session_id, db)
+        gathering_status = _render_gathering_status(conv.player_id, player_gathering, open_gatherings, db)
+
+        # ── Phase 0b: Interpret the player's input (mode routing) ─────────────
+        # Classify as dialogue / npc_reaction / scene / join before calling any
+        # NPC. Falls back to 'dialogue' on any failure — a misclassification
+        # must never break a turn.
+        mode, reference = _interpret_mode(
             player_line=content,
             npc_name=npc_name,
             location_name=location_name,
+            gathering_status=gathering_status,
             recent_transcript=recent_transcript,
             interpret_system=interpret_system,
             interpret_user_tpl=interpret_user_tpl,
             model=model,
         )
+        # 'join' is only meaningful while ungrouped — a misclassification while
+        # already in a gathering degrades to dialogue (never breaks a turn).
+        if mode == ResponseMode.join and player_gathering is not None:
+            mode = ResponseMode.dialogue
 
-        # ── Phase 1: NPC generation (conditional, buffered) ───────────────────
-        # dialogue / npc_reaction: call NPC; persist raw reply as 'npc'.
-        # scene: skip entirely; npc_reply stays "".
         npc_reply = ""
-        if mode in (ResponseMode.dialogue, ResponseMode.npc_reaction):
-            npc_msg_list = list(npc_messages)
-            if mode == ResponseMode.npc_reaction:
-                # Append a one-shot instruction to the system prompt so the NPC
-                # produces a brief wordless gesture rather than spoken dialogue.
-                npc_msg_list[0] = {
-                    "role": "system",
-                    "content": npc_msg_list[0]["content"] + (
-                        "\n\n[MODE RÉACTION NON-VERBALE] Le joueur n'a pas adressé "
-                        "la parole au personnage. Réponds UNIQUEMENT par un bref geste "
-                        "ou expression physique à la première personne. "
-                        "AUCUN MOT PRONONCÉ — pas de dialogue, pas de phrase dite."
-                    ),
+        responder_id: Optional[str] = None
+        responder_name = npc_name
+        extra_event: Optional[dict] = None
+
+        # ── Phase 0c: join handling — takes priority while ungrouped ──────────
+        # "Parler n'a pas de cible tant qu'on n'a pas rejoint": joining is an
+        # action, not dialogue — narrated in third person, no NPC call, and
+        # forms/anchors no canon mutation (see ARCHITECTURE_DECISIONS.md).
+        if mode == ResponseMode.join:
+            resolved_id = _resolve_join_target(reference, open_gatherings, db)
+            if resolved_id is not None:
+                gathering = _join_gathering(conv, resolved_id, db)
+                extra_event = {"joined": {"gathering_id": gathering.id, "label": gathering.label}}
+                mj_user = _build_join_narration_user(
+                    location_name=location_name, player_line=content,
+                    joined=True, gathering_label=gathering.label,
+                )
+            else:
+                extra_event = {
+                    "join_candidates": [_gathering_brief(g.id, db) for g in open_gatherings]
                 }
+                mj_user = _build_join_narration_user(
+                    location_name=location_name, player_line=content,
+                    joined=False, gathering_label=None,
+                )
+        else:
+            # ── Speaker / target resolution (contract A3 hybrid) ──────────────
+            if mode in (ResponseMode.dialogue, ResponseMode.npc_reaction):
+                if body.target and body.target != "group":
+                    responder_id = body.target
+                elif body.target == "group" and player_gathering is not None:
+                    co_members = [
+                        (gm, e) for gm, e in _active_members(player_gathering.id, db)
+                        if e.id != conv.player_id
+                    ]
+                    if co_members:
+                        responder_id = _select_group_speaker(
+                            template=_load_mj_speaker_template(world_id, db),
+                            location_name=location_name,
+                            gathering=player_gathering,
+                            members=co_members,
+                            player_line=content,
+                            model=model,
+                        )
+                elif not body.target:
+                    responder_id = npc_id  # backward-compatible default (1:1)
 
-            npc_chunks: list[str] = []
-            npc_error: str | None = None
-            try:
-                for chunk in ollama_client.chat_stream(
-                    npc_msg_list, model=model,
-                    options=ollama_client.NPC_DIALOGUE_OPTIONS,
-                ):
-                    npc_chunks.append(chunk)
-            except ollama_client.OllamaError as exc:
-                npc_error = str(exc)
+                if responder_id is None:
+                    # Addressed the group with nobody able to answer — narrate
+                    # the silence rather than inventing a respondent. Cadence
+                    # B1 still holds: zero is a valid responder count here.
+                    mode = ResponseMode.scene
 
-            if npc_error:
-                yield f"data: {json.dumps({'error': npc_error})}\n\n"
-                yield "data: [DONE]\n\n"
-                return
+            # ── Phase 1: NPC generation (conditional, buffered) ───────────────
+            # dialogue / npc_reaction: call the responder; persist raw reply as 'npc'.
+            # scene: skip entirely; npc_reply stays "".
+            if mode in (ResponseMode.dialogue, ResponseMode.npc_reaction) and responder_id:
+                responder_entity = db.get(Entity, responder_id)
+                responder_name = responder_entity.name if responder_entity else responder_id
 
-            npc_reply = "".join(npc_chunks)
+                # The frozen baseline system_prompt only matches the seed NPC
+                # in a plain (non-gathering) conversation — contract D1 needs
+                # a freshly assembled, NPC-specific context for anyone else.
+                if responder_id == npc_id and conv.gathering_id is None:
+                    responder_system_prompt = system_prompt
+                else:
+                    responder_behaviour = _load_npc_dialogue_template(world_id, db)
+                    responder_context = assemble_npc_context(
+                        responder_id, conv.player_id, conv.location_id, db,
+                        gathering_id=conv.gathering_id,
+                    )
+                    responder_system_prompt = f"{responder_behaviour.system_prompt}\n\n{responder_context}"
 
-            # Persist the NPC line (canonical truth).
-            with Session(engine) as persist_db:
-                persist_db.add(ConversationMessage(
-                    conversation_id=conv_id,
-                    turn_order=npc_turn,
-                    speaker="npc",
-                    speaker_id=npc_id,
-                    content=npc_reply,
-                ))
-                persist_db.commit()
+                npc_msg_list = [{"role": "system", "content": responder_system_prompt}, *npc_history]
+                if mode == ResponseMode.npc_reaction:
+                    # Append a one-shot instruction so the NPC produces a brief
+                    # wordless gesture rather than spoken dialogue.
+                    npc_msg_list[0] = {
+                        "role": "system",
+                        "content": npc_msg_list[0]["content"] + (
+                            "\n\n[MODE RÉACTION NON-VERBALE] Le joueur n'a pas adressé "
+                            "la parole au personnage. Réponds UNIQUEMENT par un bref geste "
+                            "ou expression physique à la première personne. "
+                            "AUCUN MOT PRONONCÉ — pas de dialogue, pas de phrase dite."
+                        ),
+                    }
 
-        # ── Phase 2: MJ narration (streamed to the player) ───────────────────
-        mj_user = _build_mj_user(
-            mode=mode,
-            mj_user_template=mj_user_template,
-            npc_name=npc_name,
-            location_name=location_name,
-            player_line=content,
-            npc_reply=npc_reply,
-        )
+                npc_chunks: list[str] = []
+                npc_error: str | None = None
+                try:
+                    for chunk in ollama_client.chat_stream(
+                        npc_msg_list, model=model,
+                        options=ollama_client.NPC_DIALOGUE_OPTIONS,
+                    ):
+                        npc_chunks.append(chunk)
+                except ollama_client.OllamaError as exc:
+                    npc_error = str(exc)
+
+                if npc_error:
+                    yield f"data: {json.dumps({'error': npc_error})}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+
+                npc_reply = "".join(npc_chunks)
+
+                # Persist the NPC line (canonical truth) under its own speaker_id.
+                with Session(engine) as persist_db:
+                    persist_db.add(ConversationMessage(
+                        conversation_id=conv_id,
+                        turn_order=npc_turn,
+                        speaker="npc",
+                        speaker_id=responder_id,
+                        content=npc_reply,
+                    ))
+                    persist_db.commit()
+
+            # ── Phase 2: MJ narration user message ─────────────────────────────
+            mj_user = _build_mj_user(
+                mode=mode,
+                mj_user_template=mj_user_template,
+                npc_name=responder_name,
+                location_name=location_name,
+                player_line=content,
+                npc_reply=npc_reply,
+            )
+
+        # ── MJ narration (streamed to the player) ─────────────────────────────
         mj_messages = [
             {"role": "system", "content": mj_system_prompt},
             {"role": "user",   "content": mj_user},
@@ -813,6 +1188,8 @@ def say(
         # npc_raw: empty string for scene turns (no NPC call).
         yield f"data: {json.dumps({'mode': mode.value})}\n\n"
         yield f"data: {json.dumps({'npc_raw': npc_reply})}\n\n"
+        if extra_event is not None:
+            yield f"data: {json.dumps(extra_event)}\n\n"
 
         if mj_error:
             yield f"data: {json.dumps({'error': mj_error})}\n\n"
@@ -867,6 +1244,32 @@ def end_conversation(conv_id: str, db: Session = Depends(get_session)) -> dict:
     db.commit()
     db.refresh(conv)
     return {"status": "closed", "ended_at": _iso(conv.ended_at)}
+
+
+@app.post("/api/conversations/{conv_id}/join")
+def join_gathering(conv_id: str, body: JoinBody, db: Session = Depends(get_session)) -> dict:
+    """Explicit join action — the C2 cockpit-selector fallback for an
+    unresolved 'join' intent (contract A2: ambiguous/not-found → the player
+    picks from the list of open gatherings rather than the model guessing).
+
+    Joining is not a canon mutation (see ARCHITECTURE_DECISIONS.md, MULTI-NPC
+    SCENES) — it only inserts a `gathering_member` row and anchors the
+    conversation's `gathering_id`; no `proposed_mutation` is written here.
+    """
+    conv = db.get(Conversation, conv_id)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if conv.status != "open":
+        raise HTTPException(status_code=400, detail="Conversation is not open")
+
+    gathering = db.get(Gathering, body.gathering_id)
+    if gathering is None or gathering.status != "open":
+        raise HTTPException(status_code=404, detail="Gathering not found or not open")
+    if gathering.location_id != conv.location_id or gathering.session_id != conv.session_id:
+        raise HTTPException(status_code=400, detail="Gathering does not match this conversation's location/session")
+
+    gathering = _join_gathering(conv, gathering.id, db)
+    return {"joined": True, "gathering": _gathering_brief(gathering.id, db)}
 
 
 @app.get("/api/conversations")
@@ -956,8 +1359,10 @@ def get_conversation(conv_id: str, db: Session = Depends(get_session)) -> dict:
         "status": conv.status,
         "started_at": _iso(conv.started_at),
         "ended_at": _iso(conv.ended_at),
+        "player_id": conv.player_id,
         "player_name": player_entity.name if player_entity else conv.player_id,
         "npc_name": npc_entity.name if npc_entity else conv.npc_id,
+        "gathering": _gathering_brief(conv.gathering_id, db) if conv.gathering_id else None,
         "messages": messages,
     }
 

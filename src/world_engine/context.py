@@ -29,13 +29,14 @@ from __future__ import annotations
 
 from sqlmodel import Session, select
 
-from .models import Character, Entity, Knowledge, Location, Relation
+from .models import Character, Entity, Gathering, GatheringMember, Knowledge, Location, Relation
 
 # Section headers (kept stable so a harness can split the output reliably).
 H_IDENTITY = "QUI TU ES"
 H_SETTING = "OÙ TU TE TROUVES"
 H_SPEAK = "CE QUE TU PEUX ÉVOQUER"
 H_PERCEPTION = "COMMENT TU VOIS CEUX QUI T'ENTOURENT"
+H_COMPANY = "AVEC QUI TU TE TROUVES EN CE MOMENT"
 H_BOUNDARIES = "LIMITES STRICTES"
 
 # Neutral relation intensity assumed when the NPC has no read on the interlocutor.
@@ -82,11 +83,21 @@ def assemble_npc_context(
     interlocutor_id: str,
     location_id: str,
     session: Session,
+    gathering_id: str | None = None,
 ) -> str:
     """Assemble the text briefing that drives this NPC's dialogue.
 
     Secrets are excluded outright; non-secret knowledge is gated by the
     NPC→interlocutor relation intensity against each row's share_threshold.
+
+    `gathering_id` (multi-NPC scenes, schema v1.8 — contract D1): when given,
+    a "AVEC QUI TU TE TROUVES EN CE MOMENT" section lists the NPC's current
+    co-participants (active members of the same gathering, excluding itself
+    and the interlocutor) by name and *public* description only — appearance
+    and entity description, never knowledge or relations. Simple co-presence,
+    no relation-based modulation (that stays in the perception section above;
+    modulating who an NPC notices in a crowd by relation warmth is a later
+    refinement, not built now).
     """
     npc_entity = session.get(Entity, npc_id)
     npc_char = session.get(Character, npc_id)
@@ -199,6 +210,29 @@ def assemble_npc_context(
         )
     perception = "\n".join(perception_lines)
 
+    # ----- 4b. Gathering co-presence (D1 — simple, no relation modulation) --
+    company: str | None = None
+    if gathering_id:
+        co_rows = session.exec(
+            select(GatheringMember, Entity, Character)
+            .join(Entity, Entity.id == GatheringMember.entity_id)
+            .join(Character, Character.id == GatheringMember.entity_id)
+            .where(
+                GatheringMember.gathering_id == gathering_id,
+                GatheringMember.left_at.is_(None),
+            )
+        ).all()
+        co_lines = []
+        for _member, co_entity, co_char in co_rows:
+            if co_entity.id in (npc_id, interlocutor_id):
+                continue
+            description = co_char.appearance or co_entity.description or "(pas de description)"
+            co_lines.append(f"- {co_entity.name} : {description}")
+        if co_lines:
+            company = (
+                "Sont avec vous, dans le même groupe :\n" + "\n".join(co_lines)
+            )
+
     # ----- 5. Hard boundaries ----------------------------------------------
     boundaries = (
         "Tu ne sais que ce qui est écrit ci-dessus. N'invente aucun fait sur le "
@@ -206,6 +240,8 @@ def assemble_npc_context(
         "contexte. Si l'on t'interroge sur quelque chose que tu ignores, réagis "
         "comme quelqu'un qui, simplement, ne sait pas."
     )
+
+    company_section = _section(H_COMPANY, company) + "\n" if company else ""
 
     return (
         _section(H_IDENTITY, identity)
@@ -216,5 +252,6 @@ def assemble_npc_context(
         + "\n"
         + _section(H_PERCEPTION, perception)
         + "\n"
+        + company_section
         + _section(H_BOUNDARIES, boundaries)
     )
