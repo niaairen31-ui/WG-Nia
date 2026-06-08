@@ -1299,18 +1299,39 @@ def join_gathering(conv_id: str, body: JoinBody, db: Session = Depends(get_sessi
 # These sit above the conversation layer: the player enters a location and sees
 # the gathering partition before any conversation is opened.
 
+def _active_conv_for_gathering(player_id: str, gathering_id: str, db: Session) -> Optional[str]:
+    """Return the id of any open conversation the player has in this gathering, or None."""
+    conv = db.exec(
+        select(Conversation).where(
+            Conversation.gathering_id == gathering_id,
+            Conversation.player_id    == player_id,
+            Conversation.status       == "open",
+        )
+    ).first()
+    return conv.id if conv else None
+
+
 def _scene_response(location_id: str, player_id: str, world_id: str, db: Session) -> dict:
-    """Build the canonical scene dict (shared by GET /api/scene and POST /api/scene/enter)."""
+    """Build the canonical scene dict (shared by GET /api/scene and POST /api/scene/enter).
+
+    Includes `active_conversation_id`: the open conversation for the player's
+    current gathering, if any. The UI uses this to offer "Reprendre" vs
+    "Continuer à parler" (a new conversation in the same gathering).
+    """
     loc_entity    = db.get(Entity, location_id)
     sess          = _get_or_open_session(world_id, db)
     open_g        = _open_gatherings(location_id, sess.id, db)
     player_g      = _player_gathering(player_id, location_id, sess.id, db)
+    active_conv_id: Optional[str] = (
+        _active_conv_for_gathering(player_id, player_g.id, db) if player_g else None
+    )
     return {
-        "location_id":    location_id,
-        "location_name":  loc_entity.name if loc_entity else location_id,
-        "session_id":     sess.id,
-        "gatherings":     [_gathering_brief(g.id, db) for g in open_g],
-        "player_gathering": _gathering_brief(player_g.id, db) if player_g else None,
+        "location_id":           location_id,
+        "location_name":         loc_entity.name if loc_entity else location_id,
+        "session_id":            sess.id,
+        "gatherings":            [_gathering_brief(g.id, db) for g in open_g],
+        "player_gathering":      _gathering_brief(player_g.id, db) if player_g else None,
+        "active_conversation_id": active_conv_id,  # None when no open conv in gathering
     }
 
 
@@ -1419,7 +1440,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
     player_g = _player_gathering(player_id, location_id, sess.id, db)
 
     if player_g is not None:
-        # Already a member — find any open conversation anchored to this gathering.
+        # Already a gathering member — find any open conversation in it.
         existing_conv = db.exec(
             select(Conversation).where(
                 Conversation.gathering_id == player_g.id,
@@ -1427,10 +1448,43 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
                 Conversation.status       == "open",
             )
         ).first()
+        if existing_conv:
+            # Resume the active conversation.
+            return {
+                "already_joined":  True,
+                "gathering":       _gathering_brief(player_g.id, db),
+                "conversation_id": existing_conv.id,
+            }
+        # In the gathering but no open conversation (e.g. previous one was
+        # closed, or the player re-loaded after the test). Create a fresh one
+        # anchored to the same gathering — identical to the resolve path below.
+        behaviour = _load_npc_dialogue_template(world_id, db)
+        model     = ollama_client.DEFAULT_MODEL
+        new_conv  = Conversation(
+            world_id    = world_id,
+            session_id  = sess.id,
+            location_id = location_id,
+            player_id   = player_id,
+            npc_id      = None,
+            status      = "open",
+            injected_context = {
+                "model":              model,
+                "interlocutor_id":    player_id,
+                "location_id":        location_id,
+                "prompt_template_id": behaviour.id,
+                "behaviour_prompt":   behaviour.system_prompt,
+                "system_prompt":      "",
+            },
+            gathering_id = player_g.id,
+            started_at   = datetime.now(UTC),
+        )
+        db.add(new_conv)
+        db.commit()
+        db.refresh(new_conv)
         return {
             "already_joined":  True,
             "gathering":       _gathering_brief(player_g.id, db),
-            "conversation_id": existing_conv.id if existing_conv else None,
+            "conversation_id": new_conv.id,
         }
 
     if not open_g:

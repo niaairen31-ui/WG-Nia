@@ -882,14 +882,23 @@ function _renderScene(scene) {
     </div>`;
   }).join('');
 
-  // If the player is already in a gathering, note it in the join area.
-  const statusEl = document.getElementById('scene-join-status');
+  // If the player is already in a gathering, swap the join area for a
+  // "resume / continue" panel — the textarea is for ungrouped players only.
+  const statusEl  = document.getElementById('scene-join-status');
+  const joinArea  = document.getElementById('scene-join-input').parentElement; // .scene-join-input-row
+  const joinLabel = joinArea.previousElementSibling; // .scene-join-label
   if (scene.player_gathering) {
-    const g = scene.player_gathering;
+    const g      = scene.player_gathering;
     const others = (g.members || []).filter(m => m.id !== 'char-player').map(m => m.name).join(', ');
-    statusEl.textContent = `Vous êtes déjà dans le groupe « ${g.label || '(sans nom)'} »${others ? ' avec ' + others : ''}.`;
-    document.getElementById('scene-join-btn').disabled = true;
-    document.getElementById('scene-join-input').disabled = true;
+    const convId = scene.active_conversation_id;
+    joinLabel.textContent = 'Vous êtes dans ce groupe';
+    joinArea.style.display = 'none';   // hide the textarea row
+    statusEl.innerHTML =
+      `Vous faites partie du groupe « ${esc(g.label || '(sans nom)')} »` +
+      (others ? ` avec ${esc(others)}` : '') + '. ' +
+      (convId
+        ? `<button class="btn-send" style="margin-left:8px" onclick="selectConv('${esc(convId)}')">Reprendre la conversation</button>`
+        : `<button class="btn-send" style="margin-left:8px" onclick="_sceneResumeOrStart()">Continuer à parler</button>`);
   }
 }
 
@@ -993,8 +1002,32 @@ async function _scenePickGathering(gatheringId) {
   }
 }
 
-/** Show the scene view (hide conversation transcript + play input). */
-function showSceneView() {
+/** Called when the player is already in a gathering but has no open
+ *  conversation. POST /api/scene/join now creates one in that case. */
+async function _sceneResumeOrStart() {
+  const statusEl = document.getElementById('scene-join-status');
+  statusEl.innerHTML = 'Création de la conversation…';
+  try {
+    // Any text works — scene/join detects already_joined and creates a new conv.
+    const result = await api('/api/scene/join', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ player_text: '.' }),
+    });
+    if (result.conversation_id) {
+      await loadConversations();
+      await selectConv(result.conversation_id);
+    } else {
+      statusEl.textContent = '⚠ Impossible de démarrer la conversation.';
+    }
+  } catch (e) {
+    statusEl.textContent = '⚠ ' + e.message;
+  }
+}
+
+/** Show the scene view (hide conversation transcript + play input).
+ *  Re-loads the scene so the "Reprendre / Continuer" state refreshes. */
+async function showSceneView() {
   document.getElementById('scene-view').style.display      = 'flex';
   document.getElementById('transcript-body').style.display = 'none';
   document.getElementById('play-input-area').style.display = 'none';
@@ -1004,6 +1037,16 @@ function showSceneView() {
   currentConvId   = null;
   currentConvData = null;
   document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
+  // Restore the join area in case it was hidden for an already-grouped player.
+  const joinArea  = document.getElementById('scene-join-input').parentElement;
+  const joinLabel = joinArea.previousElementSibling;
+  joinArea.style.display  = '';
+  joinLabel.textContent   = 'Que faites-vous ?';
+  document.getElementById('scene-join-status').innerHTML = '';
+  document.getElementById('scene-join-input').disabled = false;
+  document.getElementById('scene-join-btn').disabled   = false;
+  // Re-read the scene (fast, no enter_location) to update the join area state.
+  await loadScene();
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
