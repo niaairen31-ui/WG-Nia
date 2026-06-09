@@ -171,6 +171,14 @@ header .local-badge {
   color: #d4b896;
 }
 
+/* Initiative MJ narration — same amber as main MJ but with a left accent bar
+   so the creator can visually distinguish a bystander's spontaneous act. */
+.msg.mj.initiative .msg-bubble {
+  border-left: 2px solid var(--muted);
+  opacity: 0.9;
+}
+.msg.mj.initiative .msg-name::before { content: '↩ '; }
+
 /* NPC raw annotation — muted secondary text shown below the MJ narration
    for creator audit (verify the MJ preserved the NPC's words verbatim). */
 .npc-raw-annotation {
@@ -1311,6 +1319,9 @@ async function sendPlayerLine() {
   let turnMode = null;
   let joinedInfo = null;       // {gathering_id, label} — resolved join (phase 0c)
   let joinCandidates = null;   // [_gathering_brief, ...] — unresolved join, player picks
+  let initiativeBubble = null; // separate MJ bubble for spontaneous NPC initiative (C1)
+  let initiativeName = null;   // name of the NPC who took initiative
+  let initiativeNpcRaw = null; // raw initiative NPC line for creator audit
 
   /** Replace indicator with MJ narration bubble; return its text node. */
   const _ensureMj = () => {
@@ -1392,10 +1403,31 @@ async function sendPlayerLine() {
             joinCandidates = token.join_candidates;
             continue;
           }
+          if (token.initiative_start && typeof token.initiative_start.npc_name === 'string') {
+            // A bystander NPC takes spontaneous initiative (Tier 3 — C1).
+            // Open a distinct MJ bubble so initiative narration is visually
+            // separated from the main turn narration.
+            initiativeName = token.initiative_start.npc_name;
+            initiativeBubble = _appendBubble(
+              transcriptEl, 'mj initiative',
+              'Initiative — ' + initiativeName, ''
+            );
+            continue;
+          }
+          if (typeof token.initiative_npc_raw === 'string') {
+            // Raw initiative NPC line for creator audit (stored; annotated below).
+            initiativeNpcRaw = token.initiative_npc_raw;
+            continue;
+          }
         } else if (typeof token === 'string') {
-          // MJ narration token — create bubble on first one (drops indicator).
-          const bt = _ensureMj();
-          bt.textContent += token;
+          if (initiativeBubble) {
+            // Initiative MJ narration token — append to the initiative bubble.
+            initiativeBubble.querySelector('.msg-bubble').textContent += token;
+          } else {
+            // Main MJ narration token — create bubble on first one (drops indicator).
+            const bt = _ensureMj();
+            bt.textContent += token;
+          }
           transcriptEl.scrollTop = transcriptEl.scrollHeight;
         }
       }
@@ -1405,6 +1437,10 @@ async function sendPlayerLine() {
     // Always shown when we have mode info (even scene turns with no NPC output).
     if (npcRawContent !== null || turnMode !== null) {
       _appendNpcRaw(transcriptEl, npcName, npcRawContent ?? '', turnMode);
+    }
+    // Append initiative raw annotation for creator audit (null mode = show content).
+    if (initiativeNpcRaw !== null && initiativeName) {
+      _appendNpcRaw(transcriptEl, initiativeName, initiativeNpcRaw, null);
     }
 
     if (joinedInfo) {

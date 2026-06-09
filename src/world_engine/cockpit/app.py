@@ -413,6 +413,18 @@ def _open_gatherings(location_id: str, session_id: str, db: Session) -> list[Gat
 
 
 def _active_members(gathering_id: str, db: Session) -> list[tuple[GatheringMember, Entity]]:
+    """Return the active (left_at IS NULL) members of a gathering.
+
+    Single source of truth for gathering rosters (C2 preparation rule a).
+    All roster reads — initiative vote, speaker selection, context assembly —
+    must go through this function so that when C2 updates membership, every
+    consumer automatically sees the correct composition.
+
+    Unicité invariant (C2 preparation rule b): an entity must be an active
+    member of at most one open gathering at a time. Not yet enforced
+    mechanically (nothing migrates members before C2), but the invariant is
+    designated here for when C2 lifts the restriction.
+    """
     return list(db.exec(
         select(GatheringMember, Entity)
         .join(Entity, Entity.id == GatheringMember.entity_id)
@@ -627,6 +639,159 @@ def _build_join_narration_user(
         f"Narration MJ — décris en 2-3 phrases courtes, à la troisième personne, "
         f"le joueur hésitant, regardant autour de lui sans encore se décider. Aucun "
         f"dialogue, aucun guillemet, aucun nom inventé.\n"
+        f"Narration MJ :\n/no_think"
+    )
+
+
+def _load_mj_initiative_template(world_id: str, db: Session) -> Optional[PromptTemplate]:
+    """Return the active mj_initiative prompt template, or None (initiative silently skipped)."""
+    templates = db.exec(
+        select(PromptTemplate).where(
+            PromptTemplate.usage == "mj_initiative",
+            PromptTemplate.is_active == True,  # noqa: E712
+        )
+    ).all()
+    if not templates:
+        return None
+    for prefer in (lambda t: t.world_id == world_id, lambda t: t.world_id is None):
+        match = next((t for t in templates if prefer(t)), None)
+        if match is not None:
+            return match
+    return templates[0]
+
+
+def _npc_initiative_vote(
+    *,
+    template: PromptTemplate,
+    location_name: str,
+    members: list[tuple[GatheringMember, Entity]],
+    player_line: str,
+    interpreted_mode: ResponseMode,
+    player_id: str,
+    model: str,
+    db: Session,
+) -> tuple[bool, Optional[str]]:
+    """Ask the MJ if a bystander NPC takes spontaneous initiative this turn.
+
+    Returns (act, entity_id). Resolves the model's answer against the active
+    roster (A2-style: case-insensitive exact match on the list of names
+    actually shown). Unresolved name → (False, None); never invents.
+
+    Cadence E1: at most one NPC per turn. The caller is responsible for not
+    calling this function more than once per turn.
+
+    C2 preparation (rule a): all roster reads that reach this function already
+    come from _active_members; this function reads only relations and statuses.
+    """
+    if not members:
+        return False, None
+
+    npc_ids = [e.id for _gm, e in members]
+    # Batch-query NPC→player relations for all candidates in one round-trip.
+    all_rels = db.exec(
+        select(Relation).where(
+            ((Relation.entity_a_id.in_(npc_ids)) & (Relation.entity_b_id == player_id))
+            | ((Relation.entity_b_id.in_(npc_ids)) & (Relation.entity_a_id == player_id))
+        )
+    ).all()
+
+    def _npc_rel(npc_id: str) -> Optional[Relation]:
+        for rel in all_rels:
+            if rel.entity_a_id == npc_id and rel.direction in ("a_to_b", "mutual"):
+                return rel
+            if rel.entity_b_id == npc_id and rel.direction in ("b_to_a", "mutual"):
+                return rel
+        return None
+
+    lines = []
+    for _gm, e in members:
+        rel = _npc_rel(e.id)
+        signal = (
+            f"relation={rel.type} ({rel.intensity}/100)"
+            if rel else "relation=neutre (50/100)"
+        )
+        lines.append(f"- {e.name} : {signal}, statut={e.status}")
+
+    user_msg = (
+        template.user_template
+        .replace("{location_name}", location_name)
+        .replace("{interpreted_mode}", interpreted_mode.value)
+        .replace("{player_line}", player_line)
+        .replace("{member_signal_list}", "\n".join(lines))
+        + "\n/no_think"
+    )
+    try:
+        raw = ollama_client.chat(
+            [
+                {"role": "system", "content": template.system_prompt},
+                {"role": "user",   "content": user_msg},
+            ],
+            model=model,
+            format="json",
+        )
+        obj = json.loads(raw)
+        if not obj.get("act"):
+            return False, None
+        npc_name = str(obj.get("npc", "")).strip().lower()
+        for _gm, e in members:
+            if e.name.strip().lower() == npc_name:
+                _log.info(
+                    "MJ initiative: %s takes initiative (reason: %s)",
+                    e.name, obj.get("reason", ""),
+                )
+                return True, e.id
+        _log.info("MJ initiative: unresolved name %r → no initiative", npc_name)
+        return False, None
+    except Exception as exc:
+        _log.warning("MJ initiative vote failed (%s) → no initiative", exc)
+        return False, None
+
+
+def _build_initiative_trigger(
+    player_line: str,
+    npc_reply: str,
+    responder_name: Optional[str],
+) -> str:
+    """Scene-context message that triggers a spontaneous NPC initiative.
+
+    The NPC acts without being addressed. This gives it scene context (what
+    just happened in the room) so it can react authentically. This message is
+    appended after npc_history; it is not stored as a permanent conversation
+    message.
+
+    C2 preparation (rule c): the NPC acts from its gathering position — its
+    gathering_member row does not change here. Physical movement is a C2 concern.
+    """
+    if npc_reply and responder_name:
+        return (
+            f"[Contexte de scène : le joueur vient de dire/faire — {player_line}\n"
+            f"{responder_name} vient de répondre — {npc_reply}\n"
+            f"Tu prends maintenant l'initiative spontanément, depuis ta place.]"
+        )
+    return (
+        f"[Contexte de scène : le joueur vient de dire/faire — {player_line}\n"
+        f"Tu prends maintenant l'initiative spontanément, depuis ta place.]"
+    )
+
+
+def _build_initiative_mj_user(
+    *,
+    npc_name: str,
+    location_name: str,
+    initiative_line: str,
+    player_line: str,
+) -> str:
+    """MJ narration user message for a spontaneous NPC initiative.
+
+    Follows the same verbatim-quote contract as the main MJ narration template:
+    the NPC's line is cited in full. /no_think is appended; the stream filter
+    backs it up.
+    """
+    return (
+        f"Scène : {npc_name} dans « {location_name} ».\n\n"
+        f"Contexte : le joueur vient de faire/dire — {player_line}\n\n"
+        f"{npc_name} intervient spontanément — cite cette réplique INTÉGRALEMENT "
+        f"et VERBATIM, sans modifier ni supprimer un seul mot :\n{initiative_line}\n\n"
         f"Narration MJ :\n/no_think"
     )
 
@@ -916,13 +1081,19 @@ def say(
       - Join outcome (join mode only, before DONE):
           data: {"joined": {"gathering_id":..., "label":...}}\\n\\n        — resolved
           data: {"join_candidates": [{"id":..., "label":..., "members":[...]}]}\\n\\n — ambiguous
+      - Initiative events (gathering scenes, before DONE — Tier 3 step 1 C1):
+          data: {"initiative_start": {"npc_name": "<name>"}}\\n\\n  — bystander NPC acts
+          data: <JSON token>\\n\\n  (initiative MJ narration, same format as main tokens)
+          data: {"initiative_npc_raw": "<escaped>"}\\n\\n  — raw NPC line for creator audit
       - End of stream: data: [DONE]\\n\\n
       - Error event: data: {"error": "<msg>"}\\n\\n
 
     turn_order layout per player turn:
       player_turn   → player line (canonical)
       player_turn+1 → npc line (canonical, internal; absent when no NPC answers)
-      player_turn+2 → mj line (presentation, streamed)
+      player_turn+2 → mj line (presentation, streamed; persisted after [DONE])
+      player_turn+3 → initiative npc line (canonical; absent when no initiative)
+      player_turn+4 → initiative mj line (presentation; absent when no initiative)
     """
     conv = db.get(Conversation, conv_id)
     if conv is None:
@@ -1216,9 +1387,133 @@ def say(
 
         if mj_error:
             yield f"data: {json.dumps({'error': mj_error})}\n\n"
+
+        # ── Phase 3 & 4: NPC initiative (Tier 3, step 1 — C1) ────────────────
+        # Vote (cheap, non-streaming): ask the MJ if a bystander NPC acts.
+        # Generation (costly, conditional): only when the vote fires.
+        # Cadence E1: at most one NPC per turn.
+        # Only fires when the player is in a gathering (initiative is a
+        # gathering-level concept; 1:1 conversations have no bystanders).
+        # C2 rule (c): the acting NPC's gathering_member row does not change —
+        # it acts from its gathering position; physical migration is deferred to C2.
+        initiative_npc_reply = ""
+        if player_gathering is not None:
+            # Exclude the player and the main-turn responder (they already spoke).
+            co_members_initiative = [
+                (gm, e) for gm, e in _active_members(player_gathering.id, db)
+                if e.id != conv.player_id and e.id != responder_id
+            ]
+            if co_members_initiative:
+                initiative_template = _load_mj_initiative_template(world_id, db)
+                if initiative_template is not None:
+                    act, initiator_id = _npc_initiative_vote(
+                        template=initiative_template,
+                        location_name=location_name,
+                        members=co_members_initiative,
+                        player_line=content,
+                        interpreted_mode=mode,
+                        player_id=conv.player_id,
+                        model=model,
+                        db=db,
+                    )
+                    if act and initiator_id:
+                        initiator_entity = db.get(Entity, initiator_id)
+                        initiator_name = (
+                            initiator_entity.name if initiator_entity else initiator_id
+                        )
+
+                        # Fresh context (D1 — same pipeline as normal responders).
+                        init_behaviour = _load_npc_dialogue_template(world_id, db)
+                        init_ctx = assemble_npc_context(
+                            initiator_id, conv.player_id, conv.location_id, db,
+                            gathering_id=conv.gathering_id,
+                        )
+                        init_system = (
+                            f"{init_behaviour.system_prompt}\n\n{init_ctx}"
+                            "\n\n[MODE INITIATIVE] Tu prends la parole SPONTANÉMENT, "
+                            "sans qu'on te l'ait demandé. Produis une courte "
+                            "intervention — parole, geste ou interpellation — en "
+                            "accord avec ton caractère. 1 à 2 phrases maximum."
+                        )
+
+                        init_trigger = _build_initiative_trigger(
+                            player_line=content,
+                            npc_reply=npc_reply,
+                            responder_name=responder_name if responder_id else None,
+                        )
+                        init_msg_list = [
+                            {"role": "system", "content": init_system},
+                            *npc_history,
+                            {"role": "user", "content": init_trigger},
+                        ]
+
+                        init_chunks: list[str] = []
+                        try:
+                            for chunk in ollama_client.chat_stream(
+                                init_msg_list, model=model,
+                                options=ollama_client.NPC_DIALOGUE_OPTIONS,
+                            ):
+                                init_chunks.append(chunk)
+                        except ollama_client.OllamaError:
+                            pass  # initiative failure is silent — never surfaces
+
+                        if init_chunks:
+                            initiative_npc_reply = "".join(init_chunks)
+
+                            # Persist initiative NPC line (canonical, speaker='npc').
+                            with Session(engine) as persist_db:
+                                persist_db.add(ConversationMessage(
+                                    conversation_id=conv_id,
+                                    turn_order=player_turn + 3,
+                                    speaker="npc",
+                                    speaker_id=initiator_id,
+                                    content=initiative_npc_reply,
+                                ))
+                                persist_db.commit()
+
+                            # Stream initiative MJ narration to the player.
+                            init_mj_user = _build_initiative_mj_user(
+                                npc_name=initiator_name,
+                                location_name=location_name,
+                                initiative_line=initiative_npc_reply,
+                                player_line=content,
+                            )
+                            init_mj_messages = [
+                                {"role": "system", "content": mj_system_prompt},
+                                {"role": "user",   "content": init_mj_user},
+                            ]
+
+                            yield f"data: {json.dumps({'initiative_start': {'npc_name': initiator_name}})}\n\n"
+
+                            init_mj_chunks: list[str] = []
+                            try:
+                                for chunk in ollama_client.chat_stream(
+                                    init_mj_messages, model=model,
+                                    options=ollama_client.MJ_NARRATION_OPTIONS,
+                                ):
+                                    init_mj_chunks.append(chunk)
+                                    yield f"data: {json.dumps(chunk)}\n\n"
+                            except ollama_client.OllamaError:
+                                pass
+
+                            yield f"data: {json.dumps({'initiative_npc_raw': initiative_npc_reply})}\n\n"
+
+                            # Persist initiative MJ narration before [DONE] so that
+                            # the next turn's player_turn computation (last+1) sees
+                            # the correct last row and avoids turn_order collisions.
+                            with Session(engine) as persist_db:
+                                persist_db.add(ConversationMessage(
+                                    conversation_id=conv_id,
+                                    turn_order=player_turn + 4,
+                                    speaker="mj",
+                                    speaker_id=None,
+                                    content="".join(init_mj_chunks),
+                                ))
+                                persist_db.commit()
+
         yield "data: [DONE]\n\n"
 
-        # Persist the MJ narration (presentation layer).
+        # Persist the main MJ narration (presentation layer).
         # Runs after [DONE] — the player can read and type while this completes.
         mj_narration = "".join(mj_chunks)
         with Session(engine) as persist_db:
@@ -1249,6 +1544,25 @@ def say(
                     flag_db.commit()
             except (Exception, SystemExit):
                 pass
+
+        # Per-turn analysis for the initiative NPC line (same pipeline — the
+        # act itself creates no mutation, only its consequences do, per D1).
+        if initiative_npc_reply:
+            with Session(engine) as flag_db:
+                try:
+                    initiative_immediate = _analyze_single_turn(
+                        player_line="",  # spontaneous — no player line to re-analyze
+                        npc_reply=initiative_npc_reply,
+                        conversation_id=conv_id,
+                        db=flag_db,
+                        model=model,
+                    )
+                    for mut in initiative_immediate:
+                        flag_db.add(mut)
+                    if initiative_immediate:
+                        flag_db.commit()
+                except (Exception, SystemExit):
+                    pass
 
     return StreamingResponse(_stream(), media_type="text/event-stream")
 

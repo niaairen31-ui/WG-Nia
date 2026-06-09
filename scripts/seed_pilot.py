@@ -394,6 +394,48 @@ Le joueur, s'adressant au groupe, dit ou fait :
 Qui prend la parole en premier ?\
 """
 
+# MJ initiative vote — decides whether a bystander NPC acts spontaneously this
+# turn (Tier 3, step 1 — C1). Cheap non-streaming JSON call; /no_think appended
+# at call time. usage = "mj_initiative", world_id = NULL.
+# Output: {"act": false} or {"act": true, "npc": "<Nom exact>", "reason": "…"}
+# Variables: {location_name}, {interpreted_mode}, {player_line}, {member_signal_list}.
+# Cadence E1: at most one NPC per turn. The prompt intentionally gives no
+# hard threshold — that is the MJ's judgment, informed by relation signals.
+MJ_INITIATIVE_SYSTEM_PROMPT = """\
+Tu es le metteur en scène d'un jeu de rôle. Un tour vient de se jouer dans une \
+scène multi-PNJ. Tu décides si UN PNJ présent prend spontanément l'initiative — \
+interpeller le joueur, réagir à voix haute, agir de façon remarquée — SANS y \
+avoir été invité.
+
+RÈGLES :
+- Si aucun signal ne justifie une intervention → {"act": false}.
+- Un PNJ à relation basse (intensité < 40) est plus susceptible d'intervenir \
+par hostilité ou méfiance.
+- Un PNJ à relation haute (intensité > 70) peut réagir par implication affective \
+ou intérêt.
+- Le mode du tour (dialogue, npc_reaction, scene) donne le ton de la scène.
+- Choisis EXACTEMENT UN nom dans la liste fournie — jamais d'autre nom, jamais \
+un PNJ absent de la liste.
+- Si la liste est vide → {"act": false}.
+- Cadence : au plus un PNJ prend l'initiative par tour.
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre :
+{"act": false}
+ou
+{"act": true, "npc": "<Nom exact de la liste>", "reason": "<une phrase courte>"}\
+"""
+
+MJ_INITIATIVE_USER_TEMPLATE = """\
+Lieu : {location_name}
+Mode du tour joueur : {interpreted_mode}
+Ce que le joueur a dit ou fait : {player_line}
+
+PNJ présents — noms exacts (utiliser uniquement ceux de cette liste) :
+{member_signal_list}
+
+Un de ces PNJ prend-il spontanément l'initiative ce tour ?\
+"""
+
 
 # Universal behaviour prompt for every NPC. Prepended to the assembled context
 # as the system prompt. Creator-owned and editable in the DB.
@@ -555,6 +597,22 @@ def seed(session: Session) -> None:
         system_prompt=MJ_SPEAKER_SYSTEM_PROMPT,
         user_template=MJ_SPEAKER_USER_TEMPLATE,
         variables=["location_name", "group_label", "member_list", "player_line"],
+        destination="local",
+    )
+
+    # ----- prompt template: MJ initiative vote (spontaneous NPC, Tier 3 C1) ---
+    # usage = "mj_initiative". Cheap non-streaming JSON call; at most one NPC
+    # per turn (cadence E1). world_id = NULL. Uses upsert so re-seeding always
+    # converges the DB to the latest wording.
+    upsert_prompt_template(
+        session,
+        "pt-mj-initiative",
+        world_id=None,
+        name="MJ initiative — vote et désignation d'un PNJ spontané",
+        usage="mj_initiative",
+        system_prompt=MJ_INITIATIVE_SYSTEM_PROMPT,
+        user_template=MJ_INITIATIVE_USER_TEMPLATE,
+        variables=["location_name", "interpreted_mode", "player_line", "member_signal_list"],
         destination="local",
     )
 
