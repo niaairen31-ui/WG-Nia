@@ -1191,6 +1191,26 @@ def seed(session: Session) -> None:
         visible_to_b=False,
         notes="Neutre ; Reike ne remarque pas encore le joueur.",
     )
+    # Reike -> Player: low-grade suspicion — the reflex of a cop who can't switch off.
+    # Intensity 28 (< 30) signals hostility/mistrust in the MJ initiative vote,
+    # making Reike a live candidate for spontaneous intervention.
+    get_or_create(
+        session,
+        m.Relation,
+        "rel-reike-player",
+        world_id=WORLD_ID,
+        entity_a_id="npc-reike",
+        entity_b_id="char-player",
+        type="méfiance",
+        direction="a_to_b",
+        intensity=28,
+        visible_to_b=False,
+        notes=(
+            "Reike surveille le joueur par réflexe professionnel — un inconnu "
+            "silencieux dans un lieu où il vient décompresser. Pas d'hostilité "
+            "déclarée, mais l'œil ne le lâche pas."
+        ),
+    )
     get_or_create(
         session,
         m.Relation,
