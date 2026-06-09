@@ -36,6 +36,7 @@ from sqlmodel import Session, select
 
 from .. import ollama_client
 from ..gathering import enter_location as _enter_location
+from ..gathering import migrate_npc as _migrate_npc
 from ..analyzer import analyze_conversation as _analyze_conversation
 from ..analyzer import analyze_single_turn as _analyze_single_turn
 from ..context import assemble_npc_context
@@ -660,6 +661,36 @@ def _load_mj_initiative_template(world_id: str, db: Session) -> Optional[PromptT
     return templates[0]
 
 
+def _load_npc_initiative_act_template(world_id: str, db: Session) -> Optional[PromptTemplate]:
+    """Return the active npc_initiative_act template, or None (caller uses fallback constant)."""
+    templates = db.exec(
+        select(PromptTemplate).where(
+            PromptTemplate.usage == "npc_initiative_act",
+            PromptTemplate.is_active == True,  # noqa: E712
+        )
+    ).all()
+    if not templates:
+        return None
+    for prefer in (lambda t: t.world_id == world_id, lambda t: t.world_id is None):
+        match = next((t for t in templates if prefer(t)), None)
+        if match is not None:
+            return match
+    return templates[0]
+
+
+# Hardcoded fallback used when the npc_initiative_act template is not yet seeded.
+# Keeps initiative working on pre-C2 databases without requiring a seed re-run.
+_NPC_INITIATIVE_ACT_FALLBACK = (
+    "[MODE INITIATIVE] Tu prends l'initiative SPONTANÉMENT, sans qu'on te l'ait demandé.\n\n"
+    "Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre :\n"
+    '{"act_text":"<ton acte spontané, 1 à 2 phrases, première personne>","move":false}\n\n'
+    '"act_text" : ta parole ou ton geste spontané. 1 à 2 phrases, première personne.\n'
+    "             Aucun mot inventé, aucun fait inventé — reste dans ta fiche de contexte.\n"
+    '"move"     : true UNIQUEMENT si tu te lèves physiquement pour rejoindre le groupe du\n'
+    "             joueur. false par défaut. En cas de doute, false."
+)
+
+
 def _npc_initiative_vote(
     *,
     template: PromptTemplate,
@@ -759,18 +790,18 @@ def _build_initiative_trigger(
     appended after npc_history; it is not stored as a permanent conversation
     message.
 
-    C2 preparation (rule c): the NPC acts from its gathering position — its
-    gathering_member row does not change here. Physical movement is a C2 concern.
+    C2: "depuis ta place" removed — the NPC may now choose to move (move=true
+    in the JSON act object). Physical migration is handled by the caller.
     """
     if npc_reply and responder_name:
         return (
             f"[Contexte de scène : le joueur vient de dire/faire — {player_line}\n"
             f"{responder_name} vient de répondre — {npc_reply}\n"
-            f"Tu prends maintenant l'initiative spontanément, depuis ta place.]"
+            f"Tu prends maintenant l'initiative spontanément.]"
         )
     return (
         f"[Contexte de scène : le joueur vient de dire/faire — {player_line}\n"
-        f"Tu prends maintenant l'initiative spontanément, depuis ta place.]"
+        f"Tu prends maintenant l'initiative spontanément.]"
     )
 
 
@@ -1388,14 +1419,14 @@ def say(
         if mj_error:
             yield f"data: {json.dumps({'error': mj_error})}\n\n"
 
-        # ── Phase 3 & 4: NPC initiative (Tier 3, step 1 — C1) ────────────────
+        # ── Phase 3 & 4: NPC initiative (Tier 3 — C1 vote, C2 migration) ───────
         # Vote (cheap, non-streaming): ask the MJ if a bystander NPC acts.
-        # Generation (costly, conditional): only when the vote fires.
+        # Generation (non-streaming JSON): only when the vote fires. Produces
+        # {"act_text": "…", "move": <bool>}. move=true → NPC physically migrates
+        # to the player's gathering before the act is narrated (C2).
         # Cadence E1: at most one NPC per turn.
         # Only fires when the player is in a gathering (initiative is a
         # gathering-level concept; 1:1 conversations have no bystanders).
-        # C2 rule (c): the acting NPC's gathering_member row does not change —
-        # it acts from its gathering position; physical migration is deferred to C2.
         initiative_npc_reply = ""
         initiative_initiator_id: str | None = None  # entity_id of the NPC who took initiative
         if player_gathering is not None:
@@ -1429,12 +1460,18 @@ def say(
                             initiator_id, conv.player_id, conv.location_id, db,
                             gathering_id=conv.gathering_id,
                         )
+                        # C2: load JSON-output contract from dedicated template
+                        # (usage="npc_initiative_act") — never bleeds into normal
+                        # /say turns which use the shared npc_dialogue template.
+                        init_act_tmpl = _load_npc_initiative_act_template(world_id, db)
+                        init_act_instruction = (
+                            init_act_tmpl.system_prompt
+                            if init_act_tmpl is not None
+                            else _NPC_INITIATIVE_ACT_FALLBACK
+                        )
                         init_system = (
                             f"{init_behaviour.system_prompt}\n\n{init_ctx}"
-                            "\n\n[MODE INITIATIVE] Tu prends la parole SPONTANÉMENT, "
-                            "sans qu'on te l'ait demandé. Produis une courte "
-                            "intervention — parole, geste ou interpellation — en "
-                            "accord avec ton caractère. 1 à 2 phrases maximum."
+                            f"\n\n{init_act_instruction}"
                         )
 
                         init_trigger = _build_initiative_trigger(
@@ -1448,19 +1485,57 @@ def say(
                             {"role": "user", "content": init_trigger},
                         ]
 
-                        init_chunks: list[str] = []
+                        # C2: non-streaming JSON call replaces streaming free text.
+                        # Accepted debt: act appears all-at-once (short pause); restoring
+                        # incremental streaming is a future improvement, not this session.
+                        initiative_act_text = ""
+                        initiative_move = False
                         try:
-                            for chunk in ollama_client.chat_stream(
+                            raw_act = ollama_client.chat(
                                 init_msg_list, model=model,
+                                format="json",
                                 options=ollama_client.NPC_DIALOGUE_OPTIONS,
-                            ):
-                                init_chunks.append(chunk)
+                            )
+                            raw_act = ollama_client.strip_think(raw_act)
+                            try:
+                                act_obj = json.loads(raw_act)
+                                initiative_act_text = str(
+                                    act_obj.get("act_text") or ""
+                                ).strip()
+                                initiative_move = bool(act_obj.get("move", False))
+                            except (json.JSONDecodeError, ValueError):
+                                # Salvage: model emitted prose instead of JSON.
+                                # Use raw text as act; migration must not fire on
+                                # degraded output — move stays False.
+                                initiative_act_text = raw_act.strip()
+                                initiative_move = False
                         except ollama_client.OllamaError:
                             pass  # initiative failure is silent — never surfaces
 
-                        if init_chunks:
-                            initiative_npc_reply = "".join(init_chunks)
+                        # Conscious choice: a valid JSON response with an empty
+                        # act_text (e.g. {"move": true}) skips the act AND the
+                        # migration. No migration without narration — avoids invisible
+                        # NPC movement that the player would never see narrated.
+                        if initiative_act_text:
+                            initiative_npc_reply = initiative_act_text
                             initiative_initiator_id = initiator_id
+
+                            # C2 migration: move the NPC into the player's gathering
+                            # BEFORE persisting or narrating, so the DB roster is
+                            # already at destination when post-[DONE] analysis runs.
+                            # mig_db is a short-lived session; the SSE generator's db
+                            # session has no open write transaction at this point
+                            # (all earlier writes used their own Session(engine) blocks
+                            # and committed), so there is no nested-transaction conflict.
+                            # player_gathering is in scope — captured before the stream
+                            # started and remains valid for the duration of the generator.
+                            if initiative_move and player_gathering is not None:
+                                with Session(engine) as mig_db:
+                                    _migrate_npc(
+                                        initiator_id,
+                                        player_gathering.id,
+                                        mig_db,
+                                    )
 
                             # Persist initiative NPC line (canonical, speaker='npc').
                             with Session(engine) as persist_db:

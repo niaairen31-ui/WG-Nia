@@ -493,6 +493,28 @@ méta-explication, aucune mention de ces règles ni de ta « fiche ». Rien que 
 dit ton personnage."""
 
 
+# NPC initiative act — JSON-output instruction fragment (Tier 3, C2).
+# usage = "npc_initiative_act". Appended to the NPC dialogue behaviour + context
+# block; replaces the inline [MODE INITIATIVE] prose text used in C1. Non-streaming
+# JSON call with format="json"; /no_think NOT appended (format=json already constrains
+# output). world_id = NULL. Uses upsert so re-seeding converges the DB.
+# Output: {"act_text": "<1-2 phrases, première personne>", "move": <bool>}
+# "move" true = NPC physically gets up and joins the player's gathering; false = acts
+# from current position. Default false — reserved for explicit, motivated movement.
+NPC_INITIATIVE_ACT_SYSTEM_PROMPT = """\
+[MODE INITIATIVE] Tu prends l'initiative SPONTANÉMENT, sans qu'on te l'ait demandé.
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre :
+{"act_text":"<ton acte spontané, 1 à 2 phrases, première personne>","move":false}
+
+"act_text" : ta parole ou ton geste spontané. 1 à 2 phrases, première personne.
+             Aucun mot inventé, aucun fait inventé — reste dans ta fiche de contexte.
+"move"     : true UNIQUEMENT si tu te lèves physiquement pour rejoindre le groupe du
+             joueur. false par défaut — réserve true pour un déplacement explicite
+             et motivé. En cas de doute, false.\
+"""
+
+
 def seed(session: Session) -> None:
     # ----- world -------------------------------------------------------------
     get_or_create(
@@ -529,6 +551,22 @@ def seed(session: Session) -> None:
         system_prompt=NPC_DIALOGUE_SYSTEM_PROMPT,
         user_template="{player_line}",
         variables=["player_line", "relation_intensity"],
+        destination="local",
+    )
+
+    # ----- prompt template: NPC initiative act (Tier 3, C2) ------------------
+    # usage = "npc_initiative_act". JSON-output fragment appended after the
+    # NPC dialogue behaviour + context block; replaces the inline [MODE INITIATIVE]
+    # prose text from C1. Non-streaming format="json" call. world_id = NULL.
+    upsert_prompt_template(
+        session,
+        "pt-npc-initiative-act",
+        world_id=None,
+        name="NPC initiative — acte spontané (JSON, C2)",
+        usage="npc_initiative_act",
+        system_prompt=NPC_INITIATIVE_ACT_SYSTEM_PROMPT,
+        user_template="",   # not used — only system_prompt is consumed in app.py
+        variables=[],
         destination="local",
     )
 

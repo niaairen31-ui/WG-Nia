@@ -252,6 +252,78 @@ def generate_gatherings(
     return created
 
 
+def migrate_npc(npc_id: str, target_gathering_id: str, db: Session) -> None:
+    """Move an NPC from its current gathering to target_gathering_id.
+
+    Primitive — takes an explicit target; caller resolves policy (which
+    gathering to move into). Built for C2 (NPC joins the player's gathering)
+    but reusable for future NPC↔NPC reshuffles: pass a different target_id.
+
+    Invariants:
+    - B1: all active rows for this entity are closed before the new one is
+      inserted (single transaction). Closes ALL active rows even though B1
+      normally guarantees at most one — this makes B1 true by repair if
+      upstream ever drifts.
+    - Idempotent: if the NPC already has an active row in target_gathering_id,
+      returns immediately without any write.
+    - Auto-dissolve: if closing the source leaves it with zero active members,
+      the gathering is dissolved. Only fires on NPC-cluster sources — the
+      player's gathering is always the target via C2, never the source.
+    - Not a canon mutation: no proposed_mutation row is created.
+    """
+    now = datetime.now(UTC)
+
+    # Idempotent guard: already in the target → nothing to do.
+    already = db.exec(
+        select(GatheringMember).where(
+            GatheringMember.entity_id == npc_id,
+            GatheringMember.gathering_id == target_gathering_id,
+            GatheringMember.left_at == None,  # noqa: E711
+        )
+    ).first()
+    if already is not None:
+        return
+
+    # Collect ALL active rows for this entity (B1 repair: close every one).
+    active_rows = db.exec(
+        select(GatheringMember).where(
+            GatheringMember.entity_id == npc_id,
+            GatheringMember.left_at == None,  # noqa: E711
+        )
+    ).all()
+    source_gathering_ids = {row.gathering_id for row in active_rows}
+
+    # Single transaction: close all active source rows + insert destination row.
+    for row in active_rows:
+        row.left_at = now
+        db.add(row)
+    db.add(GatheringMember(
+        gathering_id=target_gathering_id,
+        entity_id=npc_id,
+        joined_at=now,
+        left_at=None,
+    ))
+    db.commit()
+
+    # Auto-dissolve: any source gathering now empty of active members is dissolved.
+    for source_id in source_gathering_ids:
+        if source_id == target_gathering_id:
+            continue
+        remaining = db.exec(
+            select(GatheringMember).where(
+                GatheringMember.gathering_id == source_id,
+                GatheringMember.left_at == None,  # noqa: E711
+            )
+        ).first()
+        if remaining is None:
+            source_g = db.get(Gathering, source_id)
+            if source_g is not None and source_g.status == "open":
+                source_g.status = "dissolved"
+                source_g.dissolved_at = now
+                db.add(source_g)
+    db.commit()
+
+
 def enter_location(
     location_id: str,
     session_id: str,
