@@ -1558,6 +1558,67 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
     }
 
 
+@app.post("/api/scene/leave")
+def scene_leave(
+    player_id: str = Query("char-player"),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Remove the player from their current gathering.
+
+    Sets GatheringMember.left_at to now — the gathering itself and its other
+    members are unaffected.  Any open conversation the player had in that
+    gathering is closed (the player has left; no more turns).
+
+    Returns the updated scene so the UI can re-render directly.
+    """
+    char = db.get(Character, player_id)
+    if char is None:
+        raise HTTPException(status_code=404, detail=f"Player {player_id!r} not found")
+    location_id = char.current_location_id
+    if not location_id:
+        raise HTTPException(status_code=400, detail="Player has no current location")
+
+    player_entity = db.get(Entity, player_id)
+    if player_entity is None:
+        raise HTTPException(status_code=404, detail=f"Player entity {player_id!r} not found")
+    world_id = player_entity.world_id
+
+    sess     = _get_or_open_session(world_id, db)
+    player_g = _player_gathering(player_id, location_id, sess.id, db)
+
+    if player_g is None:
+        # Already ungrouped — return fresh scene (idempotent).
+        return _scene_response(location_id, player_id, world_id, db)
+
+    # 1. Mark the player's GatheringMember row as left.
+    gm = db.exec(
+        select(GatheringMember).where(
+            GatheringMember.gathering_id == player_g.id,
+            GatheringMember.entity_id   == player_id,
+            GatheringMember.left_at.is_(None),
+        )
+    ).first()
+    if gm:
+        gm.left_at = datetime.now(UTC)
+        db.add(gm)
+
+    # 2. Close any open conversation the player had in this gathering.
+    open_conv = db.exec(
+        select(Conversation).where(
+            Conversation.gathering_id == player_g.id,
+            Conversation.player_id   == player_id,
+            Conversation.status      == "open",
+        )
+    ).first()
+    if open_conv:
+        open_conv.status = "closed"
+        db.add(open_conv)
+
+    db.commit()
+
+    return _scene_response(location_id, player_id, world_id, db)
+
+
 @app.get("/api/conversations")
 def list_conversations(db: Session = Depends(get_session)) -> list:
     convs = db.exec(

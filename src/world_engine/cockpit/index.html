@@ -893,12 +893,16 @@ function _renderScene(scene) {
     const convId = scene.active_conversation_id;
     joinLabel.textContent = 'Vous êtes dans ce groupe';
     joinArea.style.display = 'none';   // hide the textarea row
+    // Primary action: resume or start conversation.
+    const primaryBtn = convId
+      ? `<button class="btn-send" style="margin-left:8px" onclick="selectConv('${esc(convId)}')">Reprendre la conversation</button>`
+      : `<button class="btn-send" style="margin-left:8px" onclick="_sceneResumeOrStart()">Continuer à parler</button>`;
+    // Secondary action: leave the gathering — always visible.
+    const leaveBtn = `<button class="btn-ghost" style="margin-left:8px;font-size:11px" onclick="sceneLeave()">Quitter le groupe</button>`;
     statusEl.innerHTML =
       `Vous faites partie du groupe « ${esc(g.label || '(sans nom)')} »` +
-      (others ? ` avec ${esc(others)}` : '') + '. ' +
-      (convId
-        ? `<button class="btn-send" style="margin-left:8px" onclick="selectConv('${esc(convId)}')">Reprendre la conversation</button>`
-        : `<button class="btn-send" style="margin-left:8px" onclick="_sceneResumeOrStart()">Continuer à parler</button>`);
+      (others ? ` avec ${esc(others)}` : '') + '.' +
+      `<br>${primaryBtn}${leaveBtn}`;
   }
 }
 
@@ -1020,6 +1024,30 @@ async function _sceneResumeOrStart() {
     } else {
       statusEl.textContent = '⚠ Impossible de démarrer la conversation.';
     }
+  } catch (e) {
+    statusEl.textContent = '⚠ ' + e.message;
+  }
+}
+
+/** Leave the current gathering, close the open conversation, and return to
+ *  the ungrouped scene view so the player can choose what to do next. */
+async function sceneLeave() {
+  const statusEl = document.getElementById('scene-join-status');
+  const joinArea  = document.getElementById('scene-join-input').parentElement;
+  const joinLabel = joinArea.previousElementSibling;
+  statusEl.innerHTML = 'Quitter le groupe…';
+  try {
+    const scene = await api('/api/scene/leave', { method: 'POST' });
+    // Restore the join area (hidden while player was grouped).
+    joinArea.style.display = '';
+    joinLabel.textContent  = 'Que faites-vous ?';
+    document.getElementById('scene-join-input').disabled = false;
+    document.getElementById('scene-join-btn').disabled   = false;
+    document.getElementById('scene-join-candidates').style.display = 'none';
+    // Render the fresh scene (player is now ungrouped → full picker shown).
+    _renderScene(scene);
+    // Refresh the conversation list so the closed conv appears correctly.
+    await loadConversations();
   } catch (e) {
     statusEl.textContent = '⚠ ' + e.message;
   }
