@@ -418,6 +418,11 @@ ou intérêt.
 un PNJ absent de la liste.
 - Si la liste est vide → {"act": false}.
 - Cadence : au plus un PNJ prend l'initiative par tour.
+- Un PNJ de la section « DANS UN AUTRE GROUPE » ne peut être choisi QUE s'il a \
+une raison forte et narrative de se lever et de rejoindre le groupe du joueur. \
+En cas de doute, préférer {"act": false} — un PNJ distant n'intervient pas par \
+réflexe, seulement sous une impulsion claire. N'invente aucun fait pour justifier \
+le déplacement.
 
 Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre :
 {"act": false}

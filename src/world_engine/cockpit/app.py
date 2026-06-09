@@ -696,6 +696,7 @@ def _npc_initiative_vote(
     template: PromptTemplate,
     location_name: str,
     members: list[tuple[GatheringMember, Entity]],
+    non_member_ids: set[str],
     player_line: str,
     interpreted_mode: ResponseMode,
     player_id: str,
@@ -711,8 +712,10 @@ def _npc_initiative_vote(
     Cadence E1: at most one NPC per turn. The caller is responsible for not
     calling this function more than once per turn.
 
-    C2 preparation (rule a): all roster reads that reach this function already
-    come from _active_members; this function reads only relations and statuses.
+    members = all_candidates (in-group + non-members from other open gatherings
+    at the same location). non_member_ids identifies the non-member subset so
+    the prompt labels the two classes distinctly and the caller can apply the
+    structural move override.
     """
     if not members:
         return False, None
@@ -734,21 +737,33 @@ def _npc_initiative_vote(
                 return rel
         return None
 
-    lines = []
-    for _gm, e in members:
+    def _signal_line(e: Entity) -> str:
         rel = _npc_rel(e.id)
-        signal = (
-            f"relation={rel.type} ({rel.intensity}/100)"
-            if rel else "relation=neutre (50/100)"
+        signal = f"relation={rel.type} ({rel.intensity}/100)" if rel else "relation=neutre (50/100)"
+        return f"- {e.name} : {signal}, statut={e.status}"
+
+    # Two-section signal list: in-group members react in place; non-members can
+    # only intervene by approaching the player's gathering (structural move=True).
+    group_lines   = [_signal_line(e) for _gm, e in members if e.id not in non_member_ids]
+    distant_lines = [_signal_line(e) for _gm, e in members if e.id in non_member_ids]
+    parts: list[str] = []
+    if group_lines:
+        parts.append(
+            "DANS LE GROUPE DU JOUEUR (réagissent en restant sur place) :\n"
+            + "\n".join(group_lines)
         )
-        lines.append(f"- {e.name} : {signal}, statut={e.status}")
+    if distant_lines:
+        parts.append(
+            "DANS UN AUTRE GROUPE (ne peuvent intervenir QU'EN se levant pour rejoindre le groupe du joueur) :\n"
+            + "\n".join(distant_lines)
+        )
 
     user_msg = (
         template.user_template
         .replace("{location_name}", location_name)
         .replace("{interpreted_mode}", interpreted_mode.value)
         .replace("{player_line}", player_line)
-        .replace("{member_signal_list}", "\n".join(lines))
+        .replace("{member_signal_list}", "\n\n".join(parts))
         + "\n/no_think"
     )
     try:
@@ -1430,18 +1445,29 @@ def say(
         initiative_npc_reply = ""
         initiative_initiator_id: str | None = None  # entity_id of the NPC who took initiative
         if player_gathering is not None:
-            # Exclude the player and the main-turn responder (they already spoke).
-            co_members_initiative = [
+            # In-group: player's gathering members, excluding player and this-turn responder.
+            in_group_initiative = [
                 (gm, e) for gm, e in _active_members(player_gathering.id, db)
                 if e.id != conv.player_id and e.id != responder_id
             ]
-            if co_members_initiative:
+            # Non-members: active members of all OTHER open gatherings at this location.
+            # open_gatherings is a live snapshot from phase 0a; no migration has occurred
+            # yet this turn (E1: at most one initiative, which fires after the vote).
+            non_member_initiative: list[tuple[GatheringMember, Entity]] = []
+            for _g in open_gatherings:
+                if _g.id == player_gathering.id:
+                    continue
+                non_member_initiative.extend(_active_members(_g.id, db))
+            non_member_ids_initiative: set[str] = {e.id for _gm, e in non_member_initiative}
+            all_candidates = in_group_initiative + non_member_initiative
+            if all_candidates:
                 initiative_template = _load_mj_initiative_template(world_id, db)
                 if initiative_template is not None:
                     act, initiator_id = _npc_initiative_vote(
                         template=initiative_template,
                         location_name=location_name,
-                        members=co_members_initiative,
+                        members=all_candidates,
+                        non_member_ids=non_member_ids_initiative,
                         player_line=content,
                         interpreted_mode=mode,
                         player_id=conv.player_id,
@@ -1455,6 +1481,10 @@ def say(
                         )
 
                         # Fresh context (D1 — same pipeline as normal responders).
+                        # For non-members, gathering_id = player's gathering: the NPC
+                        # sees who it is approaching, not where it currently stands.
+                        # v1 conscious choice: distant NPCs are at-a-glance distance
+                        # (same room). Revisit if out-of-sight gatherings are added.
                         init_behaviour = _load_npc_dialogue_template(world_id, db)
                         init_ctx = assemble_npc_context(
                             initiator_id, conv.player_id, conv.location_id, db,
@@ -1511,6 +1541,13 @@ def say(
                                 initiative_move = False
                         except ollama_client.OllamaError:
                             pass  # initiative failure is silent — never surfaces
+
+                        # Structural override: a non-member winning the vote implies
+                        # physical migration regardless of what the model returned.
+                        # The idempotent guard in migrate_npc makes this a no-op for
+                        # in-group NPCs if they somehow emit move=True.
+                        if initiator_id in non_member_ids_initiative:
+                            initiative_move = True
 
                         # Conscious choice: a valid JSON response with an empty
                         # act_text (e.g. {"move": true}) skips the act AND the
