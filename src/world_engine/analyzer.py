@@ -176,12 +176,21 @@ def _first_of(item: dict, *keys: str, default: Any = None) -> Any:
     return default
 
 
-def _normalize_to_schema(raw_item: Any, conv: Conversation) -> dict | None:
+def _normalize_to_schema(
+    raw_item: Any,
+    conv: Conversation,
+    npc_entity_id: str | None = None,
+) -> dict | None:
     """Map a model's natural output object to our ProposedMutation schema fields.
 
     Returns None when normalization cannot produce a usable item.
     The model reliably tells us what changed but uses its own field names.
     This function bridges the gap so we don't lose correct detections.
+
+    `npc_entity_id`: when provided, takes priority over `conv.npc_id` as the
+    default for `entity_a_id` in relation_change payloads.  Required for
+    gathering conversations where `conv.npc_id` is None (no single NPC owns
+    the conversation).
     """
     if not isinstance(raw_item, dict):
         return None
@@ -230,7 +239,8 @@ def _normalize_to_schema(raw_item: Any, conv: Conversation) -> dict | None:
         elif mt == "relation_change":
             item["payload"] = {
                 "entity_a_id": _first_of(
-                    item, "entity_a_id", "entity_a", "from", default=conv.npc_id
+                    item, "entity_a_id", "entity_a", "from",
+                    default=npc_entity_id or conv.npc_id,
                 ),
                 "entity_b_id": _first_of(
                     item, "entity_b_id", "entity_b", "to", default=conv.player_id
@@ -296,12 +306,17 @@ def analyze_single_turn(
     db: Session,
     model: str = ollama_client.DEFAULT_MODEL,
     host: str = ollama_client.OLLAMA_HOST,
+    npc_entity_id: str | None = None,
 ) -> list[ProposedMutation]:
     """Per-turn immediate analysis: propose mutations for ONE player/NPC exchange.
 
     Reuses the same prompt, JSON extraction, normalizer, and validator as
     analyze_conversation. Returns un-persisted ProposedMutation objects tagged
     proposed_by='local_ai_immediate'. Returns [] on any failure.
+
+    `npc_entity_id`: entity id of the NPC who spoke this turn.  Passed to
+    _normalize_to_schema so that relation_change entity_a_id is correctly
+    attributed in gathering conversations (where conv.npc_id is None).
 
     Note: load_analysis_prompt calls sys.exit(1) when no template is found;
     the caller must wrap this in try/except (Exception, SystemExit).
@@ -345,7 +360,7 @@ def analyze_single_turn(
     now = datetime.now(UTC)
     mutations: list[ProposedMutation] = []
     for raw_item in items:
-        normalized = _normalize_to_schema(raw_item, conv)
+        normalized = _normalize_to_schema(raw_item, conv, npc_entity_id)
         if normalized is None:
             continue
         if _validate_item(normalized):

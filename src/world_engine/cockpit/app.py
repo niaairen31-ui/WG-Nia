@@ -1397,6 +1397,7 @@ def say(
         # C2 rule (c): the acting NPC's gathering_member row does not change —
         # it acts from its gathering position; physical migration is deferred to C2.
         initiative_npc_reply = ""
+        initiative_initiator_id: str | None = None  # entity_id of the NPC who took initiative
         if player_gathering is not None:
             # Exclude the player and the main-turn responder (they already spoke).
             co_members_initiative = [
@@ -1459,6 +1460,7 @@ def say(
 
                         if init_chunks:
                             initiative_npc_reply = "".join(init_chunks)
+                            initiative_initiator_id = initiator_id
 
                             # Persist initiative NPC line (canonical, speaker='npc').
                             with Session(engine) as persist_db:
@@ -1537,6 +1539,7 @@ def say(
                     conversation_id=conv_id,
                     db=flag_db,
                     model=model,
+                    npc_entity_id=responder_id,
                 )
                 for mut in immediate:
                     flag_db.add(mut)
@@ -1556,6 +1559,7 @@ def say(
                         conversation_id=conv_id,
                         db=flag_db,
                         model=model,
+                        npc_entity_id=initiative_initiator_id,
                     )
                     for mut in initiative_immediate:
                         flag_db.add(mut)

@@ -57,6 +57,58 @@ et son `entity.status`. Pas de seuil codé en dur — jugement MJ.
 - **(c)** Le `gathering_member` du PNJ initiant ne bouge pas. C2 = lever
   uniquement cette restriction.
 
+---
+
+### Correctif : attribution entity_a_id des relation_change en contexte gathering
+
+**Périmètre :** `src/world_engine/analyzer.py`, `src/world_engine/cockpit/app.py`.
+Aucun changement de schéma.
+
+#### Problème
+
+`_normalize_to_schema` utilisait `conv.npc_id` comme valeur par défaut pour
+`entity_a_id` dans les payloads `relation_change`.  En conversation gathering,
+`conv.npc_id` vaut `None` (pas de PNJ unique propriétaire de la conversation) →
+les mutations `relation_change` produites par `analyze_single_turn` portaient
+`entity_a_id=None`, rendant ces lignes inutilisables.
+
+#### Correctif
+
+`_normalize_to_schema` reçoit un nouveau paramètre optionnel `npc_entity_id`
+(`str | None = None`).  Quand il est fourni, il prend priorité sur `conv.npc_id`
+comme valeur par défaut pour `entity_a_id` dans `relation_change`.  `conv.npc_id`
+reste le fallback pour les conversations 1:1 existantes (rétrocompatible).
+
+`analyze_single_turn` expose le même paramètre et le transmet à
+`_normalize_to_schema`.
+
+Les deux call sites dans `_stream()` sont mis à jour :
+- Tour principal : `npc_entity_id=responder_id` (entity_id du PNJ qui a répondu).
+- Tour initiative : `npc_entity_id=initiative_initiator_id` (entity_id du PNJ
+  qui a pris l'initiative — capturé dans la variable `initiative_initiator_id`
+  introduite en même temps).
+
+#### Périmètre strict — autres types non corrigés
+
+`_normalize_to_schema` utilise aussi `conv.npc_id` pour deux autres types, qui
+présentent le même problème en gathering mais sont hors périmètre de ce correctif :
+- `new_knowledge` : fallback `entity_id = conv.npc_id` quand le sujet n'est pas
+  le joueur → `entity_id=None` pour une connaissance acquise par un PNJ gathering.
+- `event_creation` : `involved_entities = [conv.player_id, conv.npc_id]` →
+  `None` dans la liste pour les événements en gathering.
+
+Ces deux cas ne sont pas corrigés ici ; ils doivent faire l'objet d'une tâche
+séparée si les mutations `new_knowledge` et `event_creation` sont activées en
+contexte gathering.
+
+#### Pass final non affecté
+
+`analyze_conversation` filtre tous les `relation_change` à la fin (ligne ~501) ;
+même si `entity_a_id` était `None`, ces lignes ne seraient jamais proposées par
+le pass final.
+
+---
+
 #### Scénario de test fondateur
 
 Entrer dans la taverne (Reike en gathering, relation basse/nerveux). Jouer
