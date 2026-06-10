@@ -31,7 +31,6 @@ from typing import Iterator, Optional
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
 from .. import ollama_client
@@ -48,17 +47,19 @@ from ..models import (
     Entity,
     Gathering,
     GatheringMember,
-    Knowledge,
     PromptTemplate,
     ProposedMutation,
     Relation,
     Session as GameSession,
 )
+from ..writes import write_knowledge, write_relation
+from . import crud as _crud
 
 _INDEX_HTML = Path(__file__).parent / "index.html"
 _log = logging.getLogger(__name__)
 
 app = FastAPI(title="World Engine Cockpit", docs_url=None, redoc_url=None)
+app.include_router(_crud.router)
 
 
 # ── Serialisation helpers ─────────────────────────────────────────────────────
@@ -205,7 +206,6 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
         return f"[duplicate blocked] {dup}"
 
     payload: dict = mut.payload if isinstance(mut.payload, dict) else {}
-    now = datetime.now(UTC)
 
     # ── relation_change ───────────────────────────────────────────────────────
     if mut.mutation_type == "relation_change":
@@ -221,44 +221,16 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
 
         rel_type = str(payload.get("relation_type") or "other")
 
-        # Search in both directions; take first match if several types exist.
-        # Design choice: no UNIQUE constraint in schema on (a, b) pair, so we
-        # take the first match.  A future version could match by type too.
-        rel = db.exec(
-            select(Relation).where(
-                ((Relation.entity_a_id == a_id) & (Relation.entity_b_id == b_id))
-                | ((Relation.entity_a_id == b_id) & (Relation.entity_b_id == a_id))
-            )
-        ).first()
-
-        if rel is None:
-            rel = Relation(
-                world_id=mut.world_id,
-                entity_a_id=a_id,
-                entity_b_id=b_id,
-                type=rel_type,
-                direction="mutual",
-                intensity=max(1, min(100, 50 + delta)),
-                change_history=[],
-                created_at=now,
-                last_evolved_at=now,
-            )
-        else:
-            # Append a snapshot of the previous state (history is sacred).
-            history = list(rel.change_history or [])
-            history.append({
-                "intensity": rel.intensity,
-                "last_evolved_at": _iso(rel.last_evolved_at),
-                "mutation_id": mut.id,
-            })
-            rel.change_history = history
-            # flag_modified ensures SQLAlchemy detects the JSON list change
-            # even though we replaced the object (not mutated it in place).
-            sa_attrs.flag_modified(rel, "change_history")
-            rel.intensity = max(1, min(100, rel.intensity + delta))
-            rel.last_evolved_at = now
-
-        db.add(rel)
+        write_relation(
+            db,
+            mode="delta",
+            world_id=mut.world_id,
+            entity_a_id=a_id,
+            entity_b_id=b_id,
+            type=rel_type,
+            value=delta,
+            mutation_id=mut.id,
+        )
         return None
 
     # ── new_knowledge ─────────────────────────────────────────────────────────
@@ -274,7 +246,8 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
             if conv:
                 session_id = conv.session_id
 
-        k = Knowledge(
+        write_knowledge(
+            db,
             entity_id=entity_id,
             subject=str(payload.get("subject") or "unknown"),
             level=str(payload.get("level") or "rumor"),
@@ -284,7 +257,6 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
             is_secret=bool(payload.get("is_secret", False)),
             session_id=session_id,
         )
-        db.add(k)
         return None
 
     # ── status_change ─────────────────────────────────────────────────────────
@@ -306,7 +278,7 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
             return f"status_change: entity {entity_id!r} not found"
 
         entity.status = str(new_status)
-        entity.updated_at = now
+        entity.updated_at = datetime.now(UTC)
         db.add(entity)
         return None
 

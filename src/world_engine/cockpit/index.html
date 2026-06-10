@@ -668,6 +668,95 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   width: 100%;
 }
 .start-status { font-size: 11px; min-height: 16px; }
+
+/* ── Mode tabs (header) ──────────────────────────────────────────────────── */
+.mode-tabs { display: flex; gap: 4px; }
+.mode-tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: var(--radius);
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.mode-tab.active { background: var(--card); color: var(--text); border-color: var(--accent); }
+
+/* ── Author view (Master CRUD tool) ──────────────────────────────────────── */
+.author-type-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.author-new-row {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.author-new-row select { flex: 1; }
+.author-main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+.author-status { font-size: 12px; color: var(--muted); }
+.author-status.ok  { color: var(--green); }
+.author-status.err { color: var(--red); }
+
+.field-section { margin-bottom: 20px; }
+.field-section-title {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--muted); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px;
+}
+.field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px 16px; }
+.field-row { display: flex; flex-direction: column; gap: 3px; }
+.field-row.span-2 { grid-column: span 2; }
+.field-row label { font-size: 11px; color: var(--muted); }
+.field-row input[type="text"],
+.field-row input[type="number"],
+.field-row textarea,
+.field-row select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+.field-row input:disabled { opacity: 0.6; }
+.field-row textarea { resize: vertical; min-height: 50px; font-family: var(--mono); }
+.field-row input:focus, .field-row textarea:focus, .field-row select:focus { outline: none; border-color: var(--accent); }
+.field-row.checkbox { flex-direction: row; align-items: center; gap: 6px; }
+.field-row.checkbox label { font-size: 12px; color: var(--text); }
+
+.author-list-item {
+  padding: 9px 14px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+}
+.author-list-item:hover  { background: rgba(255,255,255,0.04); }
+.author-list-item.active { background: var(--card); border-left-color: var(--accent); }
+.author-list-item .ali-name { font-size: 13px; }
+.author-list-item .ali-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.author-list-item.inactive .ali-name { opacity: 0.5; text-decoration: line-through; }
+
+.row-table { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.row-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.row-card-actions { display: flex; gap: 6px; justify-content: flex-end; }
 </style>
 </head>
 <body>
@@ -679,11 +768,15 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   <span style="font-weight:600; color:var(--accent)">Cockpit</span>
   <span class="sub">creator review dashboard</span>
   <span class="spacer"></span>
+  <div class="mode-tabs">
+    <button class="mode-tab active" id="mode-tab-play" onclick="showPlayView()">Play</button>
+    <button class="mode-tab" id="mode-tab-author" onclick="showAuthorView()">Author</button>
+  </div>
   <span class="local-badge">127.0.0.1 · local only</span>
 </header>
 
-<!-- ══ Two-column layout ════════════════════════════════════════════════════ -->
-<div class="layout">
+<!-- ══ Two-column layout (Play mode) ═══════════════════════════════════════ -->
+<div class="layout" id="play-view">
 
   <!-- ── Sidebar: start panel (PROVISIONAL) + conversation list ── -->
   <aside class="sidebar">
@@ -795,6 +888,46 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 
   </div><!-- .right-col -->
 </div><!-- .layout -->
+
+<!-- ══ Author CRUD (Master tool) — creator-mode-only direct world editor ══ -->
+<div class="layout" id="author-view" style="display:none">
+
+  <!-- ── Sidebar: type filter + entity list ── -->
+  <aside class="sidebar">
+    <div class="author-type-tabs" id="author-type-tabs">
+      <button class="f-btn active" data-type="" onclick="authorSetTypeFilter(this,'')">All</button>
+      <button class="f-btn" data-type="character" onclick="authorSetTypeFilter(this,'character')">Characters</button>
+      <button class="f-btn" data-type="faction" onclick="authorSetTypeFilter(this,'faction')">Factions</button>
+      <button class="f-btn" data-type="location" onclick="authorSetTypeFilter(this,'location')">Locations</button>
+    </div>
+    <div class="author-new-row">
+      <select id="author-new-type"></select>
+      <button class="btn-ghost" onclick="authorNewEntity()">+ New</button>
+    </div>
+    <div class="sidebar-head">
+      Entities
+      <button class="btn-icon" onclick="authorLoadEntityList()" title="Refresh list">↻</button>
+    </div>
+    <div class="conv-list" id="author-entity-list">
+      <div class="empty"><span class="spin">⟳</span></div>
+    </div>
+  </aside>
+
+  <!-- ── Right column: entity sheet ── -->
+  <div class="right-col">
+    <div class="transcript-panel" style="border-bottom: none">
+      <div class="panel-head">
+        <h2 id="author-sheet-title">Select an entity</h2>
+        <span class="author-status" id="author-status"></span>
+        <button class="btn-send" id="author-save-btn" onclick="authorSave()" style="display:none">Save</button>
+        <button class="btn-end" id="author-delete-btn" onclick="authorDelete()" style="display:none">Delete</button>
+      </div>
+      <div class="author-main" id="author-main">
+        <div class="empty">Select an entity from the list, or create a new one.</div>
+      </div>
+    </div>
+  </div>
+</div><!-- #author-view -->
 
 <script>
 'use strict';
@@ -1853,6 +1986,506 @@ function markCardDone(id, newStatus) {
   if (pl) pl.readOnly = true;
   const nt = card.querySelector('.notes');
   if (nt) nt.readOnly = true;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Author CRUD (Master tool) — direct canonical writes, creator-mode-only
+   ════════════════════════════════════════════════════════════════════════════ */
+
+let authorRegistry    = null;  // cached /api/entity-types response
+let authorAllEntities = [];    // flat list, used for entity_ref pickers and relation targets
+let authorTypeFilter  = '';    // '' = all types
+let authorEntityId    = null;  // currently displayed entity id, or null when creating
+let authorEntityType  = null;  // type of the entity currently displayed
+
+/* ── Mode switching ──────────────────────────────────────────────────────── */
+
+function showPlayView() {
+  document.getElementById('play-view').style.display = '';
+  document.getElementById('author-view').style.display = 'none';
+  document.getElementById('mode-tab-play').classList.add('active');
+  document.getElementById('mode-tab-author').classList.remove('active');
+}
+
+function showAuthorView() {
+  document.getElementById('play-view').style.display = 'none';
+  document.getElementById('author-view').style.display = '';
+  document.getElementById('mode-tab-play').classList.remove('active');
+  document.getElementById('mode-tab-author').classList.add('active');
+  if (!authorRegistry) authorInit();
+}
+
+/* ── Bootstrap ───────────────────────────────────────────────────────────── */
+
+async function authorInit() {
+  try {
+    authorRegistry = await api('/api/entity-types');
+  } catch (e) {
+    document.getElementById('author-entity-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    return;
+  }
+  const sel = document.getElementById('author-new-type');
+  sel.innerHTML = authorRegistry.entity_types
+    .map(t => `<option value="${esc(t)}">${esc(authorRegistry.types[t].label)}</option>`)
+    .join('');
+  await authorLoadEntityList();
+}
+
+/* ── Entity list (sidebar) ───────────────────────────────────────────────── */
+
+function authorSetTypeFilter(btn, type) {
+  document.querySelectorAll('#author-type-tabs .f-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  authorTypeFilter = type;
+  authorRenderEntityList();
+}
+
+function authorRenderEntityList() {
+  const listEl = document.getElementById('author-entity-list');
+  const entities = authorTypeFilter
+    ? authorAllEntities.filter(e => e.type === authorTypeFilter)
+    : authorAllEntities;
+  if (entities.length === 0) {
+    listEl.innerHTML = '<div class="empty">No entities yet.</div>';
+    return;
+  }
+  listEl.innerHTML = entities.map(e => `
+    <div class="author-list-item ${e.id === authorEntityId ? 'active' : ''} ${e.status === 'inactive' ? 'inactive' : ''}"
+         onclick="authorSelectEntity('${esc(e.id)}')">
+      <div class="ali-name">${esc(e.name)}</div>
+      <div class="ali-meta">${esc(e.type)} · ${esc(e.status)}</div>
+    </div>
+  `).join('');
+}
+
+async function authorLoadEntityList() {
+  const listEl = document.getElementById('author-entity-list');
+  listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  try {
+    authorAllEntities = await api('/api/entities');
+  } catch (e) {
+    listEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    return;
+  }
+  authorRenderEntityList();
+}
+
+/* ── Field rendering ─────────────────────────────────────────────────────── */
+
+/** Render one field-spec as a labeled form control. Returns an HTML string. */
+function authorRenderField(field, value, idPrefix) {
+  if (value === undefined && field.default !== undefined) value = field.default;
+  const id = `${idPrefix}-${field.name}`;
+  const label = `${esc(field.label)}${field.required ? ' *' : ''}`;
+  switch (field.kind) {
+    case 'textarea':
+      return `<div class="field-row"><label for="${id}">${label}</label>
+        <textarea id="${id}" data-field="${esc(field.name)}" data-kind="textarea">${esc(value ?? '')}</textarea></div>`;
+    case 'json':
+      return `<div class="field-row"><label for="${id}">${label}</label>
+        <textarea id="${id}" data-field="${esc(field.name)}" data-kind="json" placeholder="null"
+          >${value != null ? esc(JSON.stringify(value, null, 2)) : ''}</textarea></div>`;
+    case 'bool':
+      return `<div class="field-row checkbox">
+        <input type="checkbox" id="${id}" data-field="${esc(field.name)}" data-kind="bool" ${value ? 'checked' : ''}>
+        <label for="${id}">${label}</label></div>`;
+    case 'number':
+      return `<div class="field-row"><label for="${id}">${label}</label>
+        <input type="number" id="${id}" data-field="${esc(field.name)}" data-kind="number"
+          ${field.min != null ? `min="${field.min}"` : ''} ${field.max != null ? `max="${field.max}"` : ''}
+          value="${value != null ? esc(value) : ''}"></div>`;
+    case 'select': {
+      const opts = (field.options || []).map(o =>
+        `<option value="${esc(o)}" ${o === value ? 'selected' : ''}>${esc(o === '' ? '—' : o)}</option>`
+      ).join('');
+      return `<div class="field-row"><label for="${id}">${label}</label>
+        <select id="${id}" data-field="${esc(field.name)}" data-kind="select">${opts}</select></div>`;
+    }
+    case 'datalist': {
+      const dlid = `${id}-dl`;
+      const opts = (field.options || []).map(o => `<option value="${esc(o)}">`).join('');
+      return `<div class="field-row"><label for="${id}">${label}</label>
+        <input type="text" id="${id}" data-field="${esc(field.name)}" data-kind="text" list="${dlid}" value="${esc(value ?? '')}">
+        <datalist id="${dlid}">${opts}</datalist></div>`;
+    }
+    case 'entity_ref': {
+      const candidates = authorAllEntities.filter(e => e.type === field.ref_type);
+      const opts = ['<option value="">—</option>'].concat(
+        candidates.map(e => `<option value="${esc(e.id)}" ${e.id === value ? 'selected' : ''}>${esc(e.name)}</option>`)
+      ).join('');
+      return `<div class="field-row"><label for="${id}">${label}</label>
+        <select id="${id}" data-field="${esc(field.name)}" data-kind="entity_ref">${opts}</select></div>`;
+    }
+    default: // text
+      return `<div class="field-row"><label for="${id}">${label}</label>
+        <input type="text" id="${id}" data-field="${esc(field.name)}" data-kind="text" value="${esc(value ?? '')}"></div>`;
+  }
+}
+
+/** Read a rendered field's current value back into JS, coerced per field.kind.
+ *  Throws on invalid JSON in a "json"-kind field. */
+function authorReadField(field, idPrefix) {
+  const el = document.getElementById(`${idPrefix}-${field.name}`);
+  switch (field.kind) {
+    case 'bool':   return el.checked;
+    case 'number': return el.value === '' ? null : Number(el.value);
+    case 'json': {
+      const raw = el.value.trim();
+      return raw ? JSON.parse(raw) : null;
+    }
+    default: return el.value;
+  }
+}
+
+/* ── Entity sheet ─────────────────────────────────────────────────────────── */
+
+function authorRenderSheet(detail, isNew, type) {
+  authorEntityId   = isNew ? null : detail.id;
+  authorEntityType = type;
+
+  const titleEl = document.getElementById('author-sheet-title');
+  titleEl.textContent = isNew
+    ? `New ${authorRegistry.types[type].label}`
+    : `${detail.name} (${authorRegistry.types[type].label})`;
+
+  const statusEl = document.getElementById('author-status');
+  statusEl.className = 'author-status';
+  statusEl.textContent = '';
+  document.getElementById('author-save-btn').style.display = '';
+  document.getElementById('author-delete-btn').style.display = isNew ? 'none' : '';
+
+  const baseFields = authorRegistry.entity_base_fields;
+  const extFields  = authorRegistry.types[type].fields;
+
+  let html = '<div class="field-section"><div class="field-section-title">Entity</div><div class="field-grid">';
+
+  if (isNew) {
+    const opts = authorRegistry.entity_types.map(t =>
+      `<option value="${esc(t)}" ${t === type ? 'selected' : ''}>${esc(authorRegistry.types[t].label)}</option>`
+    ).join('');
+    html += `<div class="field-row"><label for="author-f-type">Type *</label>
+      <select id="author-f-type" onchange="authorTypeChanged()">${opts}</select></div>`;
+  } else {
+    html += `<div class="field-row"><label>Type</label>
+      <input type="text" value="${esc(authorRegistry.types[type].label)}" disabled></div>`;
+  }
+
+  for (const field of baseFields) {
+    const value = isNew ? undefined : (field.name === 'metadata' ? detail.metadata : detail[field.name]);
+    html += authorRenderField(field, value, 'author-f');
+  }
+  html += '</div></div>';
+
+  html += `<div class="field-section"><div class="field-section-title">${esc(authorRegistry.types[type].label)}</div><div class="field-grid">`;
+  for (const field of extFields) {
+    const value = isNew ? undefined : (detail.extension ? detail.extension[field.name] : undefined);
+    html += authorRenderField(field, value, 'author-x');
+  }
+  html += '</div></div>';
+
+  if (!isNew) {
+    html += '<div class="field-section"><div class="field-section-title">Relations</div>';
+    html += `<div id="author-relations">${authorRenderRelations(detail.relations)}</div>`;
+    html += authorRenderRelationForm();
+    html += '</div>';
+
+    html += '<div class="field-section"><div class="field-section-title">Knowledge</div>';
+    html += `<div id="author-knowledge">${authorRenderKnowledge(detail.knowledge)}</div>`;
+    html += authorRenderKnowledgeForm();
+    html += '</div>';
+  }
+
+  document.getElementById('author-main').innerHTML = html;
+}
+
+/** Re-render the sheet for a new entity when the type selector changes. */
+function authorTypeChanged() {
+  const type = document.getElementById('author-f-type').value;
+  authorRenderSheet({}, true, type);
+}
+
+function authorNewEntity() {
+  const type = document.getElementById('author-new-type').value;
+  authorRenderSheet({}, true, type);
+}
+
+async function authorSelectEntity(id) {
+  document.getElementById('author-main').innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  try {
+    const detail = await api(`/api/entities/${encodeURIComponent(id)}`);
+    authorRenderSheet(detail, false, detail.type);
+    authorRenderEntityList();
+  } catch (e) {
+    document.getElementById('author-main').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+async function authorSave() {
+  const statusEl = document.getElementById('author-status');
+  statusEl.className = 'author-status';
+  statusEl.textContent = 'Saving…';
+
+  const isNew = authorEntityId === null;
+  const type = isNew ? document.getElementById('author-f-type').value : authorEntityType;
+
+  const entityData = {};
+  const extData = {};
+  try {
+    for (const field of authorRegistry.entity_base_fields) {
+      entityData[field.name] = authorReadField(field, 'author-f');
+    }
+    for (const field of authorRegistry.types[type].fields) {
+      extData[field.name] = authorReadField(field, 'author-x');
+    }
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = `Invalid JSON: ${e.message}`;
+    return;
+  }
+  if (isNew) entityData.type = type;
+
+  try {
+    const body = JSON.stringify({ entity: entityData, extension: extData });
+    const detail = isNew
+      ? await api('/api/entities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+      : await api(`/api/entities/${encodeURIComponent(authorEntityId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
+
+    await authorLoadEntityList();
+    authorRenderSheet(detail, false, detail.type);
+    document.getElementById('author-status').className = 'author-status ok';
+    document.getElementById('author-status').textContent = 'Saved.';
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = e.message;
+  }
+}
+
+async function authorDelete() {
+  if (!authorEntityId) return;
+  if (!confirm('Set this entity to inactive (soft delete)? Relations and knowledge are preserved, and this is reversible.')) return;
+  const statusEl = document.getElementById('author-status');
+  try {
+    await api(`/api/entities/${encodeURIComponent(authorEntityId)}/delete`, { method: 'POST' });
+    await authorLoadEntityList();
+    await authorSelectEntity(authorEntityId);
+    statusEl.className = 'author-status ok';
+    statusEl.textContent = 'Marked inactive.';
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = e.message;
+  }
+}
+
+/* ── Relations panel (in-context editor) ─────────────────────────────────── */
+
+function authorRenderRelations(relations) {
+  if (!relations || relations.length === 0) return '<div class="empty">No relations.</div>';
+  return '<div class="row-table">' + relations.map(r => `
+    <div class="row-card">
+      <div class="field-grid">
+        <div class="field-row"><label>With</label>
+          <input type="text" value="${esc(r.other_entity_name)} (${esc(r.other_entity_type)})" disabled></div>
+        <div class="field-row"><label>Type</label>
+          <input type="text" id="rel-type-${esc(r.id)}" value="${esc(r.type)}"></div>
+        <div class="field-row"><label>Direction</label>
+          <select id="rel-dir-${esc(r.id)}">
+            ${RELATION_DIRECTIONS.map(d => `<option value="${d}" ${d === r.direction ? 'selected' : ''}>${d}</option>`).join('')}
+          </select></div>
+        <div class="field-row"><label>Intensity (1-100)</label>
+          <input type="number" id="rel-int-${esc(r.id)}" min="1" max="100" value="${r.intensity}"></div>
+        <div class="field-row checkbox">
+          <input type="checkbox" id="rel-vis-${esc(r.id)}" ${r.visible_to_b ? 'checked' : ''}>
+          <label for="rel-vis-${esc(r.id)}">Visible to B</label></div>
+        <div class="field-row span-2"><label>Notes</label>
+          <textarea id="rel-notes-${esc(r.id)}">${esc(r.notes ?? '')}</textarea></div>
+      </div>
+      <div class="row-card-actions">
+        <button class="btn-ghost" onclick="authorUpdateRelation('${esc(r.id)}')">Save</button>
+        <button class="btn-end" onclick="authorDeleteRelation('${esc(r.id)}')">Delete</button>
+      </div>
+    </div>
+  `).join('') + '</div>';
+}
+
+const RELATION_DIRECTIONS = ['mutual', 'a_to_b', 'b_to_a'];
+
+function authorRenderRelationForm() {
+  const candidates = authorAllEntities.filter(e => e.id !== authorEntityId);
+  const opts = candidates.map(e => `<option value="${esc(e.id)}">${esc(e.name)} (${esc(e.type)})</option>`).join('');
+  const typeOptions = authorRegistry.relation_fields.find(f => f.name === 'type').options || [];
+  const typeOpts = typeOptions.map(o => `<option value="${esc(o)}">`).join('');
+  return `
+    <div class="row-card">
+      <div class="field-grid">
+        <div class="field-row"><label>With</label><select id="rel-new-other">${opts}</select></div>
+        <div class="field-row"><label>Type *</label>
+          <input type="text" id="rel-new-type" list="rel-new-type-dl">
+          <datalist id="rel-new-type-dl">${typeOpts}</datalist></div>
+        <div class="field-row"><label>Direction</label>
+          <select id="rel-new-dir">
+            ${RELATION_DIRECTIONS.map(d => `<option value="${d}" ${d === 'mutual' ? 'selected' : ''}>${d}</option>`).join('')}
+          </select></div>
+        <div class="field-row"><label>Intensity (1-100)</label>
+          <input type="number" id="rel-new-int" min="1" max="100" value="50"></div>
+        <div class="field-row checkbox">
+          <input type="checkbox" id="rel-new-vis" checked><label for="rel-new-vis">Visible to B</label></div>
+        <div class="field-row span-2"><label>Notes</label><textarea id="rel-new-notes"></textarea></div>
+      </div>
+      <div class="row-card-actions">
+        <button class="btn-send" onclick="authorAddRelation()">Add relation</button>
+      </div>
+    </div>
+  `;
+}
+
+async function authorAddRelation() {
+  const body = JSON.stringify({
+    other_entity_id: document.getElementById('rel-new-other').value,
+    type:            document.getElementById('rel-new-type').value,
+    direction:       document.getElementById('rel-new-dir').value,
+    intensity:       Number(document.getElementById('rel-new-int').value),
+    visible_to_b:    document.getElementById('rel-new-vis').checked,
+    notes:           document.getElementById('rel-new-notes').value || null,
+  });
+  await authorRelationRequest(`/api/entities/${encodeURIComponent(authorEntityId)}/relations`, 'POST', body);
+}
+
+async function authorUpdateRelation(id) {
+  const body = JSON.stringify({
+    type:         document.getElementById(`rel-type-${id}`).value,
+    direction:    document.getElementById(`rel-dir-${id}`).value,
+    intensity:    Number(document.getElementById(`rel-int-${id}`).value),
+    visible_to_b: document.getElementById(`rel-vis-${id}`).checked,
+    notes:        document.getElementById(`rel-notes-${id}`).value || null,
+  });
+  await authorRelationRequest(`/api/relations/${encodeURIComponent(id)}`, 'PUT', body);
+}
+
+async function authorDeleteRelation(id) {
+  if (!confirm('Permanently delete this relation?')) return;
+  await authorRelationRequest(`/api/relations/${encodeURIComponent(id)}`, 'DELETE', null);
+}
+
+async function authorRelationRequest(path, method, body) {
+  const statusEl = document.getElementById('author-status');
+  try {
+    const opts = { method };
+    if (body !== null) {
+      opts.headers = { 'Content-Type': 'application/json' };
+      opts.body = body;
+    }
+    await api(path, opts);
+    const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}`);
+    document.getElementById('author-relations').innerHTML = authorRenderRelations(detail.relations);
+    statusEl.className = 'author-status ok';
+    statusEl.textContent = 'Saved.';
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = e.message;
+  }
+}
+
+/* ── Knowledge panel (in-context editor) ─────────────────────────────────── */
+
+function authorRenderKnowledge(knowledge) {
+  if (!knowledge || knowledge.length === 0) return '<div class="empty">No knowledge entries.</div>';
+  const levels = authorRegistry.knowledge_fields.find(f => f.name === 'level').options;
+  return '<div class="row-table">' + knowledge.map(k => `
+    <div class="row-card">
+      <div class="field-grid">
+        <div class="field-row"><label>Subject</label><input type="text" id="kn-subj-${esc(k.id)}" value="${esc(k.subject)}"></div>
+        <div class="field-row"><label>Level</label>
+          <select id="kn-level-${esc(k.id)}">
+            ${levels.map(l => `<option value="${l}" ${l === k.level ? 'selected' : ''}>${l}</option>`).join('')}
+          </select></div>
+        <div class="field-row"><label>Source</label><input type="text" id="kn-src-${esc(k.id)}" value="${esc(k.source ?? '')}"></div>
+        <div class="field-row"><label>Share threshold (1-100)</label>
+          <input type="number" id="kn-share-${esc(k.id)}" min="1" max="100" value="${k.share_threshold}"></div>
+        <div class="field-row checkbox">
+          <input type="checkbox" id="kn-incorrect-${esc(k.id)}" ${k.is_incorrect ? 'checked' : ''}>
+          <label for="kn-incorrect-${esc(k.id)}">Incorrect</label></div>
+        <div class="field-row checkbox">
+          <input type="checkbox" id="kn-secret-${esc(k.id)}" ${k.is_secret ? 'checked' : ''}>
+          <label for="kn-secret-${esc(k.id)}">Secret</label></div>
+        <div class="field-row span-2"><label>Content</label><textarea id="kn-content-${esc(k.id)}">${esc(k.content ?? '')}</textarea></div>
+      </div>
+      <div class="row-card-actions">
+        <button class="btn-ghost" onclick="authorUpdateKnowledge('${esc(k.id)}')">Save</button>
+        <button class="btn-end" onclick="authorDeleteKnowledge('${esc(k.id)}')">Delete</button>
+      </div>
+    </div>
+  `).join('') + '</div>';
+}
+
+function authorRenderKnowledgeForm() {
+  const levels = authorRegistry.knowledge_fields.find(f => f.name === 'level').options;
+  return `
+    <div class="row-card">
+      <div class="field-grid">
+        <div class="field-row"><label>Subject *</label><input type="text" id="kn-new-subj"></div>
+        <div class="field-row"><label>Level *</label>
+          <select id="kn-new-level">${levels.map(l => `<option value="${l}" ${l === 'rumor' ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div class="field-row"><label>Source</label><input type="text" id="kn-new-src"></div>
+        <div class="field-row"><label>Share threshold (1-100)</label><input type="number" id="kn-new-share" min="1" max="100" value="50"></div>
+        <div class="field-row checkbox"><input type="checkbox" id="kn-new-incorrect"><label for="kn-new-incorrect">Incorrect</label></div>
+        <div class="field-row checkbox"><input type="checkbox" id="kn-new-secret"><label for="kn-new-secret">Secret</label></div>
+        <div class="field-row span-2"><label>Content</label><textarea id="kn-new-content"></textarea></div>
+      </div>
+      <div class="row-card-actions">
+        <button class="btn-send" onclick="authorAddKnowledge()">Add knowledge</button>
+      </div>
+    </div>
+  `;
+}
+
+async function authorAddKnowledge() {
+  const body = JSON.stringify({
+    subject:         document.getElementById('kn-new-subj').value,
+    level:           document.getElementById('kn-new-level').value,
+    source:          document.getElementById('kn-new-src').value || null,
+    share_threshold: Number(document.getElementById('kn-new-share').value),
+    is_incorrect:    document.getElementById('kn-new-incorrect').checked,
+    is_secret:       document.getElementById('kn-new-secret').checked,
+    content:         document.getElementById('kn-new-content').value || null,
+  });
+  await authorKnowledgeRequest(`/api/entities/${encodeURIComponent(authorEntityId)}/knowledge`, 'POST', body);
+}
+
+async function authorUpdateKnowledge(id) {
+  const body = JSON.stringify({
+    subject:         document.getElementById(`kn-subj-${id}`).value,
+    level:           document.getElementById(`kn-level-${id}`).value,
+    source:          document.getElementById(`kn-src-${id}`).value || null,
+    share_threshold: Number(document.getElementById(`kn-share-${id}`).value),
+    is_incorrect:    document.getElementById(`kn-incorrect-${id}`).checked,
+    is_secret:       document.getElementById(`kn-secret-${id}`).checked,
+    content:         document.getElementById(`kn-content-${id}`).value || null,
+  });
+  await authorKnowledgeRequest(`/api/knowledge/${encodeURIComponent(id)}`, 'PUT', body);
+}
+
+async function authorDeleteKnowledge(id) {
+  if (!confirm('Permanently delete this knowledge entry?')) return;
+  await authorKnowledgeRequest(`/api/knowledge/${encodeURIComponent(id)}`, 'DELETE', null);
+}
+
+async function authorKnowledgeRequest(path, method, body) {
+  const statusEl = document.getElementById('author-status');
+  try {
+    const opts = { method };
+    if (body !== null) {
+      opts.headers = { 'Content-Type': 'application/json' };
+      opts.body = body;
+    }
+    await api(path, opts);
+    const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}`);
+    document.getElementById('author-knowledge').innerHTML = authorRenderKnowledge(detail.knowledge);
+    statusEl.className = 'author-status ok';
+    statusEl.textContent = 'Saved.';
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = e.message;
+  }
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
