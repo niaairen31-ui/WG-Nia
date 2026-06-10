@@ -33,6 +33,40 @@ Read both before making any structural change.
   be deleted — not by the CLI `--force` flag, not by the cockpit re-analyze
   endpoint. A forced re-analysis regenerates proposals alongside existing
   reviewed rows.
+- **Language convention:** design conversation happens in French; all code,
+  schema, comments, commit messages, and documentation are in English.
+- **Step closure:** every closed step updates the schema changelog (if
+  schema-touching) and keeps `ARCHITECTURE_DECISIONS.md` and this file
+  consistent with the code. Use the `/close-step` command.
+
+## Invariants (verified at every review)
+
+- **Per-NPC uniqueness:** each present NPC belongs to exactly ONE open
+  gathering. The invariant is per-NPC, NOT per-location (multiple open
+  gatherings in one location are legal). Defended on every join/migrate path.
+- **Dissolve-before-create lives in the caller** (`enter_location`), never
+  inside `generate_gatherings` — preserves the multiplayer upgrade path.
+- **`relation_change` is an accumulating type:** never deduplicated across
+  turns, owned exclusively by per-turn analysis (`local_ai_immediate`); the
+  final pass filters it out.
+- **`new_knowledge` / `status_change` are idempotent facts:** identity-based
+  dedup (`entity_id` + `subject`; `entity_id`), same conversation required.
+- **Secrets are structurally excluded** from every assembled context — never
+  "guarded by instruction". `character.secrets` is creator meta-narrative
+  (notes ABOUT the character: true nature, planned arcs) and is NEVER read
+  by any context assembler. What an NPC knows-but-conceals lives in
+  `knowledge` rows with `is_secret = TRUE`, excluded by the assembler.
+- **`entity_a_id` in gathering analysis** comes from the analyzed NPC line's
+  `speaker_id`, never from `conv.npc_id` (legacy single-NPC fallback only).
+- **Two sanctioned canon-write paths, no others:** `_apply_mutation` (AI
+  proposals, after creator approval) and the creator CRUD (direct creator
+  authority). No code path may ever write canon in response to an AI
+  proposal outside `_apply_mutation`.
+- **History is sacred on BOTH write paths:** any edit to `relation` (either
+  path) appends the previous state to `change_history`; states are
+  preserved, never silently overwritten.
+- **Commit before touching any canon-writing path** (`_apply_mutation`, the
+  creator CRUD, and everything they call).
 
 ## Local model notes
 

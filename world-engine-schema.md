@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-*Version 1.9 — Local phase (SQLite → Supabase)*
+*Version 1.10 — Local phase (SQLite → Supabase)*
 
 -----
 
@@ -77,6 +77,13 @@ CREATE TABLE character (
   secrets         JSON                          -- creator-only
 );
 ```
+-- NOTE on `secrets` vs `knowledge.is_secret`: `character.secrets` holds
+-- creator meta-narrative ABOUT the character (true nature, planned reveal
+-- arcs, creator intentions). It is NEVER read by any context assembler.
+-- What a character knows-but-conceals is modeled as `knowledge` rows with
+-- `is_secret = TRUE`, structurally excluded by the assembler. Suggested
+-- shape: {"secrets": [{"id", "content", "category", "narrative_role",
+-- "creator_notes"}]} — free-form, engine-invisible.
 
 -----
 
@@ -595,6 +602,15 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.10** — No new tables or columns. Doc-level change only: documented the
+  `character.secrets` / `knowledge.is_secret` boundary convention (NOTE under
+  the `character` table — `secrets` is creator meta-narrative, never read by
+  any context assembler; concealment is modeled via `knowledge.is_secret`,
+  excluded by the assembler) and the two-sanctioned-canon-write-paths rule
+  (`_apply_mutation` for AI proposals after creator approval, and the creator
+  CRUD for direct creator authority — no other path may write canon). Added
+  project tooling: a permanent `## Invariants (verified at every review)`
+  section in `CLAUDE.md`, plus `/close-step` and `/review-step` commands.
 - **v1.9** — No new tables or columns. Application-layer change only: NPC
   initiative — bystander NPCs can act spontaneously without being addressed
   (Tier 3, C1–C3; full rationale in `ARCHITECTURE_DECISIONS.md`).
@@ -719,4 +735,4 @@ batch   → event
 - **v1.2** — Added `conversation`, `conversation_message`, and `proposed_mutation` for live sessions and the unified mutation pipeline. Removed `pass_play.local_proposal`. Documented the role-toggle rule on `user`. Added `npc_dialogue` to prompt usages. Changed `relation.intensity` to a 1–100 scale (default 50 = neutral) with a clamp-on-apply rule. Added `updated_at` to `entity` and `knowledge`. Added an INDEXES section for frequent lookups. Schema translated to English.
 - **v1.1** — Initial local-phase schema.
 
-*Version 1.9 — Co-built with Claude, June 2026*
+*Version 1.10 — Co-built with Claude, June 2026*
