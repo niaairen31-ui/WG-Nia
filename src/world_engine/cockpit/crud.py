@@ -21,8 +21,10 @@ Deletion policy:
 - `relation` / `knowledge` rows: **hard delete** — they are edges/facts the
   author poses and must be able to remove cleanly.
 
-Author edits write **no** `change_history` and pass through **no**
-`proposed_mutation` (decision 1 — state-setting, not delta accumulation).
+Author edits to `relation` are state-setting, not delta accumulation —
+but still append the previous state to `change_history` first (history is
+sacred on both write paths; see `writes.write_relation(mode="set")`).
+Author edits pass through **no** `proposed_mutation` (decision 1).
 
 Creator-mode-only: this router is mounted on the cockpit app, which is the
 creator's tool (bound to 127.0.0.1, no auth, "creator review dashboard" —

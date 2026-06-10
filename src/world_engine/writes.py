@@ -8,8 +8,10 @@ functions so that clamping and field validation live in exactly one place.
   relation by (a, b) pair, apply a clamped intensity delta, append the
   previous state to `change_history`. Used by `_apply_mutation`.
 - `write_relation(mode="set", ...)`    : author CRUD. Set intensity to an
-  absolute value on a specific row (or create a new edge). Writes no
-  `change_history`.
+  absolute value on a specific row (or create a new edge). Updating an
+  existing row appends its previous state to `change_history` first
+  (history is sacred on both write paths); creating a new edge starts with
+  an empty `change_history`, same as `mode="delta"`.
 - `write_knowledge(...)`               : insert or update a `knowledge` row.
   `knowledge_id=None` creates; otherwise updates that row in place.
 
@@ -35,6 +37,25 @@ KNOWLEDGE_LEVELS = frozenset(
 
 def _clamp(value: int, lo: int = 1, hi: int = 100) -> int:
     return max(lo, min(hi, int(value)))
+
+
+def _append_history_snapshot(rel: Relation, mutation_id: Optional[str] = None) -> None:
+    """Append a snapshot of `rel`'s current state to its `change_history`.
+
+    Shared by both `write_relation` modes — history is sacred on either
+    write path (delta or set). `mutation_id` is None for author-CRUD edits
+    (no `proposed_mutation` row is involved).
+    """
+    history = list(rel.change_history or [])
+    history.append({
+        "intensity": rel.intensity,
+        "last_evolved_at": rel.last_evolved_at.isoformat() if rel.last_evolved_at else None,
+        "mutation_id": mutation_id,
+    })
+    rel.change_history = history
+    # flag_modified ensures SQLAlchemy detects the JSON list change
+    # even though we replaced the object (not mutated it in place).
+    sa_attrs.flag_modified(rel, "change_history")
 
 
 def write_relation(
@@ -64,10 +85,12 @@ def write_relation(
 
     mode="set" (author CRUD):
         `relation_id=None` creates a new edge with intensity = clamp(value)
-        (`entity_a_id`, `entity_b_id`, `world_id`, `type` required).
-        `relation_id=<id>` updates that row in place: intensity is set to
-        clamp(value); `type`, `direction`, `visible_to_b`, `notes` are
-        overwritten. No `change_history` entry is written either way.
+        (`entity_a_id`, `entity_b_id`, `world_id`, `type` required); starts
+        with an empty `change_history`, same as a new `mode="delta"` edge.
+        `relation_id=<id>` updates that row in place: the previous state is
+        appended to `change_history` first (history is sacred), then
+        intensity is set to clamp(value); `type`, `direction`,
+        `visible_to_b`, `notes` are overwritten.
 
     Clamp 1-100 is a backstop in both modes; CRUD callers should also
     validate the input range before calling this.
@@ -109,17 +132,7 @@ def write_relation(
                 last_evolved_at=now,
             )
         else:
-            # Append a snapshot of the previous state (history is sacred).
-            history = list(rel.change_history or [])
-            history.append({
-                "intensity": rel.intensity,
-                "last_evolved_at": rel.last_evolved_at.isoformat() if rel.last_evolved_at else None,
-                "mutation_id": mutation_id,
-            })
-            rel.change_history = history
-            # flag_modified ensures SQLAlchemy detects the JSON list change
-            # even though we replaced the object (not mutated it in place).
-            sa_attrs.flag_modified(rel, "change_history")
+            _append_history_snapshot(rel, mutation_id=mutation_id)
             rel.intensity = _clamp(rel.intensity + value)
             rel.last_evolved_at = now
 
@@ -131,6 +144,7 @@ def write_relation(
         rel = db.get(Relation, relation_id)
         if rel is None:
             raise ValueError(f"write_relation(mode='set'): relation {relation_id!r} not found")
+        _append_history_snapshot(rel, mutation_id=None)
         if type is not None:
             rel.type = type
         rel.direction = direction
