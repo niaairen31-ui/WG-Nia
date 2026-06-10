@@ -333,6 +333,99 @@ appended) — but the *partition itself* is not regenerated from scratch.
 
 ---
 
+## NPC INITIATIVE — Spontaneous bystander actions (Tier 3)
+
+Gatherings (Tier 1) give every present NPC a roster; Tier 3 lets a bystander
+NPC act on its own, without being addressed — the room feels alive even when
+the player is talking to just one person. Built in three steps on top of the
+existing gathering/relation/conversation tables — **no schema change**.
+
+### C1 — The initiative vote
+
+After the main NPC reply and MJ narration for a turn, `_npc_initiative_vote`
+makes one cheap, non-streaming `format="json"` call (`pt-mj-initiative`,
+`usage='mj_initiative'`, `/no_think` appended) asking: does any bystander NPC
+spontaneously act this turn?
+
+- **Cadence E1** — at most one NPC takes initiative per turn.
+- **Candidate pool** — every active member of the player's gathering except
+  the player and this turn's responder (C3 widens this further, see below).
+- **Signal list** — for each candidate, the prompt states its
+  `relation=<type> (<intensity>/100)` toward the player (or "neutre (50/100)"
+  if no relation row exists) and its `entity.status`. The MJ's judgment, not a
+  hard threshold, decides whether a signal is "enough"; the prompt only hints
+  (relation < 40 → hostility/mistrust more likely to intervene; > 70 →
+  affective involvement more likely).
+- **Relation directionality convention** — a candidate NPC's "view of the
+  player" is read as: `entity_a_id == npc` with `direction ∈ {a_to_b,
+  mutual}`, OR `entity_b_id == npc` with `direction ∈ {b_to_a, mutual}`. A
+  relation row stored from the *player's* perspective does not automatically
+  give the NPC a signal — each side of an asymmetric relation needs its own
+  row to carry its own signal (e.g. `rel-reike-player`, a `méfiance` edge from
+  Reike toward the player, distinct from `rel-player-reike`).
+- **Resolution (contract A2 reused)** — exact name from the candidate list;
+  unresolved/invented → `(False, None)`, never guessed.
+- Vote failure (timeout, bad JSON) is silent — initiative simply doesn't fire.
+
+### C2 — The initiative act and migration
+
+When the vote returns `act: true`, the chosen NPC gets a second, non-streaming
+`format="json"` call (`pt-npc-initiative-act`, `usage='npc_initiative_act'`) —
+fresh context assembled exactly like a normal responder (contract D1), with a
+`{"act_text": "...", "move": <bool>}` JSON contract appended in place of the
+shared `npc_dialogue` template's free-text contract. `/no_think` is **not**
+appended — `format="json"` already constrains output. A hardcoded fallback
+(`_NPC_INITIATIVE_ACT_FALLBACK`) covers databases predating this template.
+
+- `act_text` — first person, 1–2 sentences, grounded only in its context sheet
+  (same "never invent" rule as normal dialogue).
+- `move` — `true` only if the NPC physically joins the player's gathering.
+  Migration runs via `migrate_npc` (Tier 1's idempotent primitive) **before**
+  narration, so the DB roster is already correct for the per-turn analysis and
+  the next turn's context. **Migration is not a canon mutation** — same
+  rationale as forming/dissolving a gathering: scene bookkeeping, not a
+  lasting world fact. No `proposed_mutation` row for the move itself.
+- An empty `act_text` (e.g. bare `{"move": true}`) skips **both** the act and
+  the migration — no migration without narration.
+- The initiative line persists as a normal `conversation_message`
+  (`speaker='npc'`), its MJ narration as `speaker='mj'`, and both feed
+  `analyze_single_turn` — an initiative act can produce `proposed_mutation`
+  rows like any other line; only the act of speaking/moving itself is exempt.
+
+### C3 — Widening the vote to the whole location (Option A v1)
+
+C1/C2 only considered the player's own gathering. C3 widens the candidate pool
+to **every active member of every open gathering at the player's location** —
+a hostile NPC two tables over can now notice and approach.
+
+- **Two-section signal list** — "DANS LE GROUPE DU JOUEUR" (in-group; react in
+  place) vs. "DANS UN AUTRE GROUPE" (non-members; can only intervene by
+  getting up and joining). Structural, not flavour: it tells the model the
+  *only* way a non-member can act is to move.
+- **Structural `move=True` override** — if the vote picks a non-member, the
+  caller forces `move=True` regardless of the act-generation result. A
+  non-member NPC cannot "act in place" in the player's scene; true by
+  construction rather than relying on the model. `migrate_npc`'s idempotent
+  guard makes this a no-op if an in-group NPC ever emits `move=True` itself.
+- **Conservatism lever** — `MJ_INITIATIVE_SYSTEM_PROMPT` now requires a
+  strong, narratively grounded reason for picking a "DANS UN AUTRE GROUPE"
+  candidate; when in doubt, `{"act": false}` — guards against the wider pool
+  inflating `act: true` just because more names are listed.
+- **v1 context-assembly choice for non-members** — a winning non-member's
+  fresh context (D1) is assembled with `gathering_id = <player's gathering>`
+  — it sees who it's *approaching*, not who it currently stands with. The
+  whole location is "at a glance" distance (same room). Revisit if
+  out-of-sight gatherings (different rooms) are ever introduced.
+- **No mechanical tie-break** — left entirely to the MJ's judgment in one JSON
+  call; no secondary scoring or randomization, consistent with `act:
+  true/false` already being a judgment call.
+- **Open question (not yet measured)** — whether the model "prefers" in-group
+  over distant candidates given a mixed pool. To verify in play (cockpit):
+  compare a mono-gathering scene vs. a multi-gathering scene without strong
+  relations. Not yet executed.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

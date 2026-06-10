@@ -44,6 +44,8 @@ Target local model for NPC dialogue and analysis: **`huihui_ai/qwen3-abliterated
   - **NPC dialogue** (cockpit `/say`, NPC phase): `chat_stream` with the built-in `_StreamThinkFilter` — thinking is left enabled, the filter suppresses the block before any token is yielded. The NPC reply is buffered internally; the player never sees it raw.
   - **MJ narration** (cockpit `/say`, MJ phase): `chat_stream` + `/no_think` appended to the user message — same filter as a backstop, `/no_think` for speed. What streams to the player is narration prose only.
   - **MJ interpretation** (cockpit `/say`, phase 0): `chat()` non-streaming + `/no_think` + `format="json"`. Classifies the player's input into `dialogue` / `npc_reaction` / `scene`. Fallback to `dialogue` on any error — a misclassification must never break a turn.
+  - **NPC initiative vote** (cockpit `/say`, Tier 3 C1): `chat()` non-streaming + `format="json"` + `/no_think` — same policy as MJ interpretation. Failure is silent (initiative simply doesn't fire).
+  - **NPC initiative act** (cockpit `/say`, Tier 3 C2): `chat()` non-streaming + `format="json"`, **no** `/no_think` — the JSON schema already constrains output, and leaving thinking on helps the small model follow the two-field contract (`act_text`, `move`). Falls back to `_NPC_INITIATIVE_ACT_FALLBACK` if `pt-npc-initiative-act` isn't seeded; any error → silent skip.
   - **Conversation analysis** (`analyze_conversation.py`, `analyzer.py`): leave thinking enabled — the reasoning helps the model follow format instructions; `strip_think` removes the block before JSON parsing.
 - **French quality:** multilingual but not Mistral-grade idiomatic French. Acceptable for validating logic; if narrative quality disappoints, that's a model-selection signal, not a code defect.
 
@@ -60,6 +62,10 @@ World-genrator/
 │       ├── models.py        # all SQLModel table classes (the schema)
 │       ├── context.py       # NPC context assembly (secret-exclusion + relation-gating;
 │       │                    #   gathering co-presence injection, contract D1)
+│       ├── gathering.py     # initial NPC clustering (generate_gatherings,
+│       │                    #   enter_location, contracts A2/B1/C1) + migrate_npc
+│       │                    #   (idempotent NPC migration between gatherings,
+│       │                    #   auto-dissolve emptied source — B1 repair)
 │       ├── ollama_client.py # HTTP client for local Ollama; strips <think> blocks
 │       ├── analyzer.py      # mutation analysis; _normalize_to_schema; _validate_item;
 │       │                    # analyze_conversation (final pass, filters relation_change);
@@ -78,6 +84,11 @@ World-genrator/
 │           │                #   _join_gathering, _load_mj_speaker_template,
 │           │                #   _select_group_speaker (A3), _build_join_narration_user;
 │           │                #   POST .../join endpoint, JoinBody);
+│           │                # NPC initiative (Tier 3): _load_mj_initiative_template,
+│           │                #   _load_npc_initiative_act_template, _npc_initiative_vote
+│           │                #   (two-section signal list, non_member_ids, cadence E1),
+│           │                #   _build_initiative_trigger, _build_initiative_mj_user;
+│           │                #   structural move=True override for non-member winners (C3)
 │           │                # _find_applied_duplicate (new_knowledge + status_change only);
 │           │                # _mutation_match_key (idempotent types only)
 │           └── index.html   # single-page UI; MJ narration rendering;
@@ -147,7 +158,8 @@ prepend `src` to `sys.path`, so they run without an editable install.
   / reject proposals in the queue. Binds to loopback only. Requires Ollama for
   all AI calls (NPC, MJ, analysis).
 - **Re-seeding prompts:** `python scripts/seed_pilot.py` uses `upsert_prompt_template`
-  for `pt-mj-narration` and `pt-mj-interpretation` — re-running the seed converges
+  for `pt-mj-narration`, `pt-mj-interpretation`, `pt-mj-gathering`, `pt-mj-speaker`,
+  `pt-mj-initiative`, and `pt-npc-initiative-act` — re-running the seed converges
   the DB to the latest wording without losing other data.
 
 ---

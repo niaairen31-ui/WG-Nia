@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-*Version 1.8 — Local phase (SQLite → Supabase)*
+*Version 1.9 — Local phase (SQLite → Supabase)*
 
 -----
 
@@ -595,6 +595,21 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.9** — No new tables or columns. Application-layer change only: NPC
+  initiative — bystander NPCs can act spontaneously without being addressed
+  (Tier 3, C1–C3; full rationale in `ARCHITECTURE_DECISIONS.md`).
+  — **C1**: a per-turn vote (`pt-mj-initiative`, `usage='mj_initiative'`)
+  decides whether one bystander acts (cadence E1: at most one per turn),
+  using each candidate's `relation` signal toward the player and `entity.status`.
+  — **C2**: the chosen NPC's act (`pt-npc-initiative-act`,
+  `usage='npc_initiative_act'`) is a `{"act_text", "move"}` JSON object;
+  `move=true` triggers `migrate_npc` (Tier 1 primitive) before narration —
+  not a canon mutation, same as forming/dissolving a gathering. Both new
+  templates seeded with `world_id=NULL`, upsert.
+  — **C3**: the candidate pool widens from the player's gathering to every
+  open gathering at the location; a non-member winner has `move=true` forced
+  structurally. New `prompt_template.usage` values: `mj_initiative`,
+  `npc_initiative_act`.
 - **v1.8** — Multi-NPC scenes, Tier 1 (migration only — generation, name
   resolution, and the multi-participant `/say` flow are later steps). Two new
   tables and one relaxed column:
@@ -704,4 +719,4 @@ batch   → event
 - **v1.2** — Added `conversation`, `conversation_message`, and `proposed_mutation` for live sessions and the unified mutation pipeline. Removed `pass_play.local_proposal`. Documented the role-toggle rule on `user`. Added `npc_dialogue` to prompt usages. Changed `relation.intensity` to a 1–100 scale (default 50 = neutral) with a clamp-on-apply rule. Added `updated_at` to `entity` and `knowledge`. Added an INDEXES section for frequent lookups. Schema translated to English.
 - **v1.1** — Initial local-phase schema.
 
-*Version 1.8 — Co-built with Claude, June 2026*
+*Version 1.9 — Co-built with Claude, June 2026*
