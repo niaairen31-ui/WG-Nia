@@ -67,6 +67,12 @@ Read both before making any structural change.
   preserved, never silently overwritten.
 - **Commit before touching any canon-writing path** (`_apply_mutation`, the
   creator CRUD, and everything they call).
+- **The MJ context assembler is scoped to the player's perception
+  boundary:** only what the player may perceive (current location, public
+  co-presents, public/confirmed events) or already knows (the player
+  character's own knowledge). Never NPC-private knowledge, secrets,
+  internal names, non-public entities, or invisible relations. Enforced
+  by query construction, never by instruction.
 
 ## Local model notes
 
@@ -95,7 +101,10 @@ World-genrator/
 │       ├── db.py            # engine + session; URL from env var
 │       ├── models.py        # all SQLModel table classes (the schema)
 │       ├── context.py       # NPC context assembly (secret-exclusion + relation-gating;
-│       │                    #   gathering co-presence injection, contract D1)
+│       │                    #   gathering co-presence injection, contract D1);
+│       │                    #   MJ context assembler (assemble_mj_context,
+│       │                    #   format_mj_context — player's perception
+│       │                    #   boundary, scope D-b3)
 │       ├── gathering.py     # initial NPC clustering (generate_gatherings,
 │       │                    #   enter_location, contracts A2/B1/C1) + migrate_npc
 │       │                    #   (idempotent NPC migration between gatherings,
@@ -124,7 +133,10 @@ World-genrator/
 │           │                #   _build_initiative_trigger, _build_initiative_mj_user;
 │           │                #   structural move=True override for non-member winners (C3)
 │           │                # _find_applied_duplicate (new_knowledge + status_change only);
-│           │                # _mutation_match_key (idempotent types only)
+│           │                # _mutation_match_key (idempotent types only);
+│           │                # MJ context wiring (_build_mj_user mj_context param,
+│           │                #   assemble_mj_context calls in start_conversation,
+│           │                #   scene_join, say — scope D-b3)
 │           └── index.html   # single-page UI; MJ narration rendering;
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker

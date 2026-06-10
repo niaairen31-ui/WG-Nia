@@ -38,7 +38,7 @@ from ..gathering import enter_location as _enter_location
 from ..gathering import migrate_npc as _migrate_npc
 from ..analyzer import analyze_conversation as _analyze_conversation
 from ..analyzer import analyze_single_turn as _analyze_single_turn
-from ..context import assemble_npc_context
+from ..context import assemble_mj_context, assemble_npc_context, format_mj_context
 from ..db import engine, get_session
 from ..models import (
     Character,
@@ -933,17 +933,30 @@ def _build_mj_user(
     location_name: str,
     player_line: str,
     npc_reply: str,
+    mj_context: dict | None = None,
 ) -> str:
     """Build the MJ narration user message for the given mode.
 
     dialogue     → existing template (verbatim NPC quote contract unchanged).
     npc_reaction → third-person wordless reaction; no dialogue to quote.
     scene        → environment description only; NPC not involved.
+
+    `mj_context` (schema v1.12, scope D-b3): the dict returned by
+    `assemble_mj_context`, rendered via `format_mj_context` and prepended as
+    a "CONTEXTE DE SCÈNE" block — the player's perception boundary (location,
+    co-presents, player knowledge, public events). Empty/None → no block.
+    `scene` mode benefits most (environment prose finally has material).
+
     /no_think appended on all modes; the stream filter backs it up.
     """
+    context_block = format_mj_context(mj_context) if mj_context else ""
+    if context_block:
+        context_block = f"=== CONTEXTE DE SCÈNE ===\n{context_block}\n"
+
     if mode == ResponseMode.dialogue:
         return (
             mj_user_template
+            .replace("{mj_context}", context_block)
             .replace("{npc_name}", npc_name)
             .replace("{location_name}", location_name)
             .replace("{player_line}", player_line)
@@ -952,6 +965,7 @@ def _build_mj_user(
         )
     if mode == ResponseMode.npc_reaction:
         return (
+            f"{context_block}"
             f"Scène : {npc_name} dans « {location_name} ».\n"
             f"Mode : réaction non-verbale.\n\n"
             f"Le joueur fait :\n{player_line}\n\n"
@@ -963,12 +977,14 @@ def _build_mj_user(
         )
     # ResponseMode.scene
     return (
+        f"{context_block}"
         f"Lieu : « {location_name} ».\n"
         f"Mode : description d'environnement — le PNJ n'est pas impliqué.\n\n"
         f"Action du joueur :\n{player_line}\n\n"
         f"Narration MJ — décris le résultat de cette action sur l'environnement en "
-        f"troisième personne. N'implique pas le PNJ, n'invente aucun fait sur le "
-        f"monde, aucun nom propre. 2–3 phrases courtes.\n"
+        f"troisième personne, en t'appuyant sur le CONTEXTE DE SCÈNE ci-dessus s'il "
+        f"est fourni. N'implique pas le PNJ, n'invente aucun fait au-delà de ce "
+        f"contexte, aucun nom propre. 2–3 phrases courtes.\n"
         f"Narration MJ :\n/no_think"
     )
 
@@ -1012,6 +1028,13 @@ def start_conversation(
     assembled_context = assemble_npc_context(body.npc_id, player_id, location_id, db)
     system_prompt = f"{behaviour.system_prompt}\n\n{assembled_context}"
 
+    # MJ context snapshot (schema v1.12, scope D-b3): static parts only
+    # (location, player_knowledge, public_events) — co_presents is dynamic
+    # and read fresh at narration time, never snapshotted. This is what a
+    # future bleed auditor compares MJ narration against.
+    mj_context = assemble_mj_context(db, player_id, location_id)
+    mj_snapshot = {k: v for k, v in mj_context.items() if k != "co_presents"}
+
     model = ollama_client.DEFAULT_MODEL
     conv = Conversation(
         world_id=world_id,
@@ -1029,6 +1052,7 @@ def start_conversation(
             "behaviour_prompt": behaviour.system_prompt,
             "assembled_context": assembled_context,
             "system_prompt": system_prompt,
+            "mj": mj_snapshot,
         },
         started_at=datetime.now(UTC),
     )
@@ -1368,6 +1392,16 @@ def say(
                     persist_db.commit()
 
             # ── Phase 2: MJ narration user message ─────────────────────────────
+            # MJ context (schema v1.12, scope D-b3): the player's perception
+            # boundary — read fresh every turn (co-presents change with C2
+            # migrations); see assemble_mj_context for the static/dynamic split.
+            mj_context = (
+                assemble_mj_context(
+                    db, conv.player_id, conv.location_id,
+                    gathering_id=player_gathering.id if player_gathering else None,
+                )
+                if conv.location_id else None
+            )
             mj_user = _build_mj_user(
                 mode=mode,
                 mj_user_template=mj_user_template,
@@ -1375,6 +1409,7 @@ def say(
                 location_name=location_name,
                 player_line=content,
                 npc_reply=npc_reply,
+                mj_context=mj_context,
             )
 
         # ── MJ narration (streamed to the player) ─────────────────────────────
@@ -1862,6 +1897,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
         # anchored to the same gathering — identical to the resolve path below.
         behaviour = _load_npc_dialogue_template(world_id, db)
         model     = ollama_client.DEFAULT_MODEL
+        mj_context = assemble_mj_context(db, player_id, location_id, gathering_id=player_g.id)
         new_conv  = Conversation(
             world_id    = world_id,
             session_id  = sess.id,
@@ -1876,6 +1912,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
                 "prompt_template_id": behaviour.id,
                 "behaviour_prompt":   behaviour.system_prompt,
                 "system_prompt":      "",
+                "mj": {k: v for k, v in mj_context.items() if k != "co_presents"},
             },
             gathering_id = player_g.id,
             started_at   = datetime.now(UTC),
@@ -1929,6 +1966,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
 
     # ── Create the conversation anchored to the resolved gathering ─────────
     behaviour   = _load_npc_dialogue_template(world_id, db)
+    mj_context = assemble_mj_context(db, player_id, location_id, gathering_id=resolved_id)
     conv = Conversation(
         world_id    = world_id,
         session_id  = sess.id,
@@ -1944,6 +1982,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
             "behaviour_prompt":   behaviour.system_prompt,
             # system_prompt left empty — assembled fresh per responder in _stream (D1)
             "system_prompt":      "",
+            "mj": {k: v for k, v in mj_context.items() if k != "co_presents"},
         },
         started_at = datetime.now(UTC),
     )

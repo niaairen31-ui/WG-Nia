@@ -469,6 +469,61 @@ a hostile NPC two tables over can now notice and approach.
 
 ---
 
+## MJ CONTEXT — the player's perception boundary (schema v1.12, scope D-b3)
+
+Until now the MJ (`pt-mj-narration`) was a near-blind presentation layer: it
+received the NPC's reply and the bare scene labels (`npc_name`,
+`location_name`) and dressed them in prose. It had no material to describe
+the room, reference who else was around, or anchor a scene in something that
+had actually happened in the world. `assemble_mj_context` (in `context.py`)
+gives it exactly that — and only that.
+
+**The doctrine:** the MJ context contains ONLY what the player may perceive
+or already knows. This is a *different* boundary from the NPC's
+(`assemble_npc_context`, gated by NPC→interlocutor relation intensity) — the
+MJ doesn't roleplay a character with opinions and secrets to guard, it
+narrates the player's surroundings. So its boundary is simpler and stricter
+in one sense (no NPC-private knowledge ever, regardless of relation) and
+broader in another (the player's own knowledge, including their own
+`is_secret` rows, is fair game — it's not a leak to describe to the player
+what they already know).
+
+**Static vs dynamic split:**
+
+- **Static** (assembled once at conversation start, snapshotted under the new
+  `"mj"` key in `conversation.injected_context`, alongside the existing NPC
+  snapshot): the location's name/description and an allow-listed slice of its
+  `subculture` (ambiance is perceptible; `magic_status` is not, by default),
+  the player character's own `knowledge` rows, and up to 5 of the most recent
+  `event` rows with `knowledge_status IN ('public', 'confirmed')` for the
+  world (location-matched events preferred). The snapshot is the baseline a
+  future bleed auditor compares MJ narration against.
+- **Dynamic** (read fresh at every narration phase, never snapshotted):
+  co-present NPCs' public name + public `entity.description`, read from the
+  gathering roster (`gathering_member` with `left_at IS NULL` — the same
+  single source of truth `_active_members` uses). Fresh because C2 migrations
+  change who's standing where mid-conversation.
+
+**Structural exclusions, by query construction, never by instruction:** no
+NPC `knowledge` row (the assembler never reads another entity's knowledge at
+all), `character.secrets`, `entity.internal_name`, entities with `is_public =
+FALSE`, relations (the assembler doesn't query `relation` at all), and
+`event` rows with `knowledge_status IN ('secret', 'rumor')`. This is the
+invariant the new assembler most directly threatens, simply by being a new
+context consumer — hence "impossible by construction" rather than "the prompt
+says don't".
+
+**Wiring:** `pt-mj-narration` and `_build_mj_user` (all three response
+modes — `dialogue`, `npc_reaction`, `scene`) receive the rendered context as a
+"CONTEXTE DE SCÈNE" block; the MJ system prompt gains an anti-invention rule
+("describe only from the provided context"), mirroring the `npc_dialogue`
+rule. `scene` mode benefits most — environment prose finally has material to
+draw on. The `relevance_hint` parameter (also added to `assemble_npc_context`)
+is accepted and inert: a future relevance-selection stage may only narrow
+this set further, never widen it.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

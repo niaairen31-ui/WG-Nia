@@ -602,6 +602,40 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.12** — No new tables or columns. Three application-layer changes
+  (BRIEF-03-assembler-prompts, scope D-b3):
+  — **Sign rubric for `relation_change`**: `pt-conversation-analysis`
+  (`usage='conversation_analysis'`, used by both `analyze_conversation` and
+  `analyze_single_turn`) gains an explicit sign rubric — hostility, violence,
+  threats, discovered deception, and humiliation are always NEGATIVE; physical
+  contact is judged by intent (an embrace warms, a shove or brawl is
+  NEGATIVE); helping, defending, gift-giving, and shared danger are POSITIVE
+  — plus contrastive mini-examples. Bumped to `version=2`, delivered via
+  `seed_pilot.py` upsert (the template moved from `get_or_create` to
+  `upsert_prompt_template`).
+  — **`relevance_hint` reserved parameter**: `assemble_npc_context` and the
+  new `assemble_mj_context` both accept an optional `relevance_hint: str |
+  None = None`, accepted and currently ignored. Deferred-decision note: a
+  future relevance-selection stage may only NARROW the security-scoped
+  context, never widen it — inert until context size measurably hurts.
+  — **MJ context assembler** (`assemble_mj_context` in `context.py`): a new,
+  deterministic, scoped context for the MJ narration layer — the player's
+  perception boundary. Three static parts (location name/description +
+  allow-listed `subculture` ambiance, excluding `magic_status`; the player
+  character's own `knowledge` rows; up to 5 most recent `event` rows with
+  `knowledge_status IN ('public','confirmed')`, location-matched first) plus
+  one dynamic part (co-present NPCs' public name + description, read fresh
+  from the gathering roster — `gathering_member` with `left_at IS NULL`).
+  Structural exclusions (by query construction): no NPC `knowledge`, no
+  `character.secrets`, no `entity.internal_name`, no `is_public = FALSE`
+  entities, no `secret`/`rumor` events. The static parts are snapshotted
+  under a new `"mj"` key in `conversation.injected_context` at conversation
+  start (alongside the existing NPC snapshot, unchanged in shape) — the
+  baseline a future bleed auditor compares MJ narration against. Wired into
+  `pt-mj-narration` (bumped to `version=2`, new `{mj_context}` variable) and
+  `_build_mj_user` (all three modes: `dialogue`, `npc_reaction`, `scene`); the
+  MJ system prompt gains an anti-invention rule scoped to the provided
+  context, mirroring `npc_dialogue`'s rule.
 - **v1.11** — No new tables or columns. Retroactive documentation (per
   BRIEF-01-tooling-v2 audit) of the **Author CRUD** (`cockpit/crud.py`,
   shipped just before this entry): a second sanctioned canon-write path —

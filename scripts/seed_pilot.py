@@ -156,6 +156,24 @@ Payload shapes:
   knowledge_change → {"entity_id":"…","subject":"…","field":"…","new_value":"…"}
   event_creation   → {"title":"…","description":"…","type":"social|political|other","involved_entities":[…]}
 
+=== RELATION_CHANGE SIGN RUBRIC ===
+Decide the SIGN of intensity_delta by INTENT, not by surface similarity:
+  - Hostility, violence, threats, insults, discovered deception, humiliation
+    → NEGATIVE delta. A fight is always a negative event for the relation.
+  - Physical contact is NEVER by itself a sign of warming. Classify by
+    intent: an embrace or a reassuring hand → POSITIVE; a shove, a grab, a
+    brawl → NEGATIVE.
+  - Helping, defending, gift-giving, honesty at a cost, shared danger
+    overcome together → POSITIVE delta.
+
+Contrastive examples (sign only — ids/types illustrative):
+  - "[JOUEUR] grabs Korin by the collar and slams him against the wall"
+    → relation_change, NEGATIVE delta.
+  - "[JOUEUR] pulls Bryn out of the way of the falling crate"
+    → relation_change, POSITIVE delta.
+  - "[JOUEUR] shoves past the PNJ to reach the door, knocking the table over"
+    → relation_change, NEGATIVE delta.
+
 Only report changes that ACTUALLY happened in the transcript. Idle chat → [].
 
 === EXAMPLE A (relation warms) ===
@@ -233,6 +251,12 @@ Avec un seul PNJ, ses mots dominent — ne parle pas par-dessus elle. \
 Ne répète pas la même image d'ouverture à chaque narration (lumière des bougies, \
 chaleur de la salle). Change d'angle à chaque tour.
 
+=== RÈGLE 5 — DÉCRIRE UNIQUEMENT À PARTIR DU CONTEXTE FOURNI ===
+Si un bloc « CONTEXTE DE SCÈNE » t'est fourni, appuie-toi dessus pour le lieu, \
+les personnes présentes et les événements évoqués. N'invente aucun lieu, \
+personnage, faction ou événement qui n'y figure pas. En l'absence d'un tel \
+bloc, reste minimal (RÈGLE 3).
+
 === EXEMPLE ===
 
 Réplique brute du PNJ :
@@ -254,7 +278,7 @@ Prose narrative en français, courte. Rien d'autre — pas de JSON, pas de méta
 """
 
 MJ_NARRATION_USER_TEMPLATE = """\
-Scène : {npc_name} dans « {location_name} ».
+{mj_context}Scène : {npc_name} dans « {location_name} ».
 
 Le joueur dit :
 {player_line}
@@ -588,8 +612,9 @@ def seed(session: Session) -> None:
         usage="player_narration",
         system_prompt=MJ_NARRATION_SYSTEM_PROMPT,
         user_template=MJ_NARRATION_USER_TEMPLATE,
-        variables=["npc_name", "location_name", "player_line", "npc_reply"],
+        variables=["npc_name", "location_name", "player_line", "npc_reply", "mj_context"],
         destination="local",
+        version=2,
     )
 
     # ----- prompt template: MJ scene interpretation -------------------------
@@ -665,9 +690,11 @@ def seed(session: Session) -> None:
     # applies to every world. Variables are {transcript} and {injected_context};
     # substituted with str.replace() in analyzer.py, not .format(), so the
     # JSON examples inside the system_prompt are stored verbatim.
-    get_or_create(
+    # Used by BOTH the final pass (analyze_conversation) and the per-turn
+    # immediate analysis (analyze_single_turn) — one template, two call sites.
+    # Uses upsert so re-seeding always converges the DB to the latest wording.
+    upsert_prompt_template(
         session,
-        m.PromptTemplate,
         "pt-conversation-analysis",
         world_id=None,
         name="Conversation analysis — extraction de mutations",
@@ -676,6 +703,7 @@ def seed(session: Session) -> None:
         user_template=CONVERSATION_ANALYSIS_USER_TEMPLATE,
         variables=["transcript", "injected_context"],
         destination="local",
+        version=2,
     )
 
     # ----- factions (entity + faction) --------------------------------------
