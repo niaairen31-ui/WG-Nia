@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-*Version 1.10 — Local phase (SQLite → Supabase)*
+*Version 1.11 — Local phase (SQLite → Supabase)*
 
 -----
 
@@ -602,6 +602,20 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.11** — No new tables or columns. Retroactive documentation (per
+  BRIEF-01-tooling-v2 audit) of the **Author CRUD** (`cockpit/crud.py`,
+  shipped just before this entry): a second sanctioned canon-write path —
+  direct, state-setting creator edits to `character`/`faction`/`location`
+  (composite entity + extension row, soft delete) and in-context
+  `relation`/`knowledge` editors (hard delete), with no `proposed_mutation`
+  checkpoint. Shares `writes.write_relation`/`write_knowledge` with
+  `_apply_mutation` so clamping/validation cannot diverge. **Fix included**:
+  `write_relation(mode="set")` (CRUD relation edits) now appends the previous
+  state to `change_history` before overwriting — history is sacred on both
+  write paths — via a shared `_append_history_snapshot` helper extracted from
+  `mode="delta"`; `_apply_mutation`'s behavior is unchanged. See
+  `ARCHITECTURE_DECISIONS.md`, "Author CRUD — the second sanctioned
+  canon-write path".
 - **v1.10** — No new tables or columns. Doc-level change only: documented the
   `character.secrets` / `knowledge.is_secret` boundary convention (NOTE under
   the `character` table — `secrets` is creator meta-narrative, never read by
@@ -735,4 +749,4 @@ batch   → event
 - **v1.2** — Added `conversation`, `conversation_message`, and `proposed_mutation` for live sessions and the unified mutation pipeline. Removed `pass_play.local_proposal`. Documented the role-toggle rule on `user`. Added `npc_dialogue` to prompt usages. Changed `relation.intensity` to a 1–100 scale (default 50 = neutral) with a clamp-on-apply rule. Added `updated_at` to `entity` and `knowledge`. Added an INDEXES section for frequent lookups. Schema translated to English.
 - **v1.1** — Initial local-phase schema.
 
-*Version 1.10 — Co-built with Claude, June 2026*
+*Version 1.11 — Co-built with Claude, June 2026*

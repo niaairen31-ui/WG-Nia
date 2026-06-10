@@ -194,10 +194,13 @@ unrelated C1 ("generated once at entry; no spontaneous reshuffling", below).
 It is labelled **C2** throughout the code and docs to keep both concepts
 addressable without ambiguity.
 
-### apply_mutation — the only canon-write path
+### apply_mutation — one of two sanctioned canon-write paths
 
-`_apply_mutation()` in `cockpit/app.py` is the single function authorised to
-write to canon tables. Three types are implemented:
+`_apply_mutation()` in `cockpit/app.py` is the only function authorised to
+write canon **in response to an AI proposal**, after creator approval. The
+other sanctioned path is the **author CRUD** (see below), for the creator's
+direct edits — see CLAUDE.md, "Two sanctioned canon-write paths, no others."
+Three mutation types are implemented:
 
 | mutation_type    | What is written |
 |------------------|-----------------|
@@ -249,6 +252,41 @@ and the guard would incorrectly block a legitimate second event.
 `--force` (CLI and cockpit endpoint) deletes ONLY rows with `status = 'proposed'`.
 Reviewed rows (`applied`, `approved`, `rejected`) are immutable audit history
 and are never deleted.
+
+### Author CRUD — the second sanctioned canon-write path
+
+`src/world_engine/cockpit/crud.py` (mounted on the cockpit app under `/api`)
+is the creator's direct world-editing tool — the **Author** view, alongside
+the **Play** view. It is the second of the two sanctioned canon-write paths
+(see CLAUDE.md, "Two sanctioned canon-write paths, no others"): a *direct*,
+state-setting write with no `proposed_mutation` checkpoint, since that
+checkpoint exists to contain AI drift during play, not to gate the creator.
+
+What it edits:
+- **Composite entity editors** for `character`, `faction`, `location` — the
+  `entity` row plus its type extension row, written transactionally
+  (`POST`/`PUT /api/entities/...`). Soft delete only (`entity.status =
+  'inactive'`); relations and knowledge pointing at the entity survive.
+- **In-context `relation` editor** — create/update/hard-delete relation rows
+  from an entity's sheet (`/api/entities/{id}/relations`, `/api/relations/{id}`).
+- **In-context `knowledge` editor** — create/update/hard-delete `knowledge`
+  rows (`/api/entities/{id}/knowledge`, `/api/knowledge/{id}`).
+
+Shared write rules with `_apply_mutation`: both paths call
+`writes.write_relation` / `writes.write_knowledge` so clamping and field
+validation cannot diverge between them. For `relation`:
+`_apply_mutation` uses `mode="delta"` (intensity delta, accumulates);
+the author CRUD uses `mode="set"` (intensity set to an absolute value).
+**Both modes append the previous state to `change_history` before writing**
+— history is sacred on either path — via the shared
+`_append_history_snapshot` helper; the 1-100 intensity clamp applies to both.
+Author edits to `knowledge` are full in-place updates (no history table for
+`knowledge`, per schema) and pass through no `proposed_mutation`.
+
+Creator-mode-only: the CRUD router is mounted on the cockpit app (loopback
+only, no auth) and is never reachable from, or invoked by, any AI-proposal
+flow — `_apply_mutation` and the author CRUD are independent code paths that
+both terminate in `writes.py`, and neither calls the other.
 
 ---
 
@@ -385,6 +423,11 @@ appended — `format="json"` already constrains output. A hardcoded fallback
   the next turn's context. **Migration is not a canon mutation** — same
   rationale as forming/dissolving a gathering: scene bookkeeping, not a
   lasting world fact. No `proposed_mutation` row for the move itself.
+  `migrate_npc` closes ALL of the NPC's active `gathering_member` rows (B1
+  repair, idempotent) and inserts the new one in a single transaction; if
+  closing the source leaves it with zero active members, that source
+  gathering is auto-dissolved (`status='dissolved'`, `dissolved_at` set) —
+  same bookkeeping-only status as a player-triggered dissolve.
 - An empty `act_text` (e.g. bare `{"move": true}`) skips **both** the act and
   the migration — no migration without narration.
 - The initiative line persists as a normal `conversation_message`
