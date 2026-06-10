@@ -98,6 +98,11 @@ approved proposals.
   needs attention).
 - Approve / reject mutations with an optional creator note and (for approve) an
   editable payload before writing.
+- **Travel** (scene view "Voyager" control, `POST /api/travel`, schema v1.13)
+  — a creator tool performing a clean location transition (close conversation,
+  close gathering membership, update `current_location_id`); silent, no
+  narration. Narrative travel (an in-fiction `travel` response mode) is E2,
+  deferred pending an adjacency model decision.
 
 ### The `/say` flow — multi-participant (Tier 1, step 3)
 

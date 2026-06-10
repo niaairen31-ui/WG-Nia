@@ -136,10 +136,12 @@ World-genrator/
 │           │                # _mutation_match_key (idempotent types only);
 │           │                # MJ context wiring (_build_mj_user mj_context param,
 │           │                #   assemble_mj_context calls in start_conversation,
-│           │                #   scene_join, say — scope D-b3)
+│           │                #   scene_join, say — scope D-b3);
+│           │                # creator travel control (POST /api/travel, TravelBody — E1)
 │           └── index.html   # single-page UI; MJ narration rendering;
 │                            # NPC raw audit annotation; speaker-target selector
-│                            #   (contract C2) + join-candidates picker
+│                            #   (contract C2) + join-candidates picker;
+│                            #   scene-view Travel control ("Voyager" — E1)
 │                            #   (inline CSS/JS, zero external deps)
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
@@ -202,7 +204,11 @@ prepend `src` to `sys.path`, so they run without an editable install.
   written silently after each turn. Use **Analyze** to run the final pass (which
   filters `relation_change` and deduplicates against the per-turn flags). Approve
   / reject proposals in the queue. Binds to loopback only. Requires Ollama for
-  all AI calls (NPC, MJ, analysis).
+  all AI calls (NPC, MJ, analysis). The scene view's **Voyager** control
+  (`POST /api/travel`) lets the creator move the player to any location: a
+  silent, clean transition (closes the open conversation and the player's
+  gathering membership, then updates `current_location_id`); the existing
+  scene-entry flow generates the new location's gatherings on next entry.
 - **Re-seeding prompts:** `python scripts/seed_pilot.py` uses `upsert_prompt_template`
   for `pt-mj-narration`, `pt-mj-interpretation`, `pt-mj-gathering`, `pt-mj-speaker`,
   `pt-mj-initiative`, and `pt-npc-initiative-act` — re-running the seed converges

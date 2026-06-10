@@ -602,6 +602,18 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.13** — No new tables or columns. Application-layer **creator travel
+  control** (`POST /api/travel`, cockpit `app.py`): a clean location
+  transition for the player — closes any open `conversation` (status →
+  `closed`, `ended_at` set), closes the player's open `gathering_member`
+  row(s) (`left_at` set; NPC members untouched), then updates
+  `character.current_location_id`, all in one transaction. No-op if the
+  destination equals the current location; rejected (400, no state change)
+  if the destination is not a `location` entity of the player's world. Does
+  not call `generate_gatherings` / `enter_location` — the existing
+  scene-entry transition-detection flow remains the sole owner of gathering
+  generation. Narrative travel (`travel` response mode, adjacency model) is
+  out of scope, deferred to E2.
 - **v1.12** — No new tables or columns. Three application-layer changes
   (BRIEF-03-assembler-prompts, scope D-b3):
   — **Sign rubric for `relation_change`**: `pt-conversation-analysis`

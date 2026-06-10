@@ -2060,6 +2060,85 @@ def scene_leave(
     return _scene_response(location_id, player_id, world_id, db)
 
 
+class TravelBody(BaseModel):
+    location_id: str
+
+
+@app.post("/api/travel")
+def travel(
+    body: TravelBody,
+    player_id: str = Query("char-player"),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Creator travel control — clean location transition (E1).
+
+    Order, in one transaction: close any open conversation of the player
+    (idempotent), close the player's open `gathering_member` row(s)
+    (idempotent; NPC members untouched), then update
+    `character.current_location_id`.
+
+    Does NOT call `enter_location` / `generate_gatherings` — the existing
+    scene-entry flow (transition detection -> `enter_location`) remains the
+    single owner of gathering generation. No narration is produced; this is
+    a silent creator tool (narrative travel is E2, backlogged).
+
+    Travel to the current location is a no-op. Travel to an id that is not
+    a location of the player's world is rejected with 400, no state change.
+    """
+    char = db.get(Character, player_id)
+    if char is None:
+        raise HTTPException(status_code=404, detail=f"Player {player_id!r} not found")
+    player_entity = db.get(Entity, player_id)
+    if player_entity is None:
+        raise HTTPException(status_code=404, detail=f"Player entity {player_id!r} not found")
+    world_id = player_entity.world_id
+
+    dest = db.get(Entity, body.location_id)
+    if dest is None or dest.type != "location" or dest.world_id != world_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{body.location_id!r} is not a location of this world",
+        )
+
+    if char.current_location_id == body.location_id:
+        return {"status": "noop", "location_id": body.location_id}
+
+    # 1. Close any open conversation(s) of the player. Normally at most one,
+    # but close every match defensively — a stray open conversation left at
+    # the old location must not stay open after the player leaves.
+    now = datetime.now(UTC)
+    open_convs = db.exec(
+        select(Conversation).where(
+            Conversation.player_id == player_id,
+            Conversation.status == "open",
+        )
+    ).all()
+    for open_conv in open_convs:
+        open_conv.status = "closed"
+        open_conv.ended_at = now
+        db.add(open_conv)
+
+    # 2. Close the player's open gathering membership(s). NPC members are
+    # untouched; the existing dissolve-before-create in enter_location
+    # handles that location's gatherings when it is next entered.
+    open_memberships = db.exec(
+        select(GatheringMember).where(
+            GatheringMember.entity_id == player_id,
+            GatheringMember.left_at.is_(None),
+        )
+    ).all()
+    for gm in open_memberships:
+        gm.left_at = now
+        db.add(gm)
+
+    # 3. Update the player's location.
+    char.current_location_id = body.location_id
+    db.add(char)
+
+    db.commit()
+    return {"status": "ok", "location_id": body.location_id}
+
+
 @app.get("/api/conversations")
 def list_conversations(db: Session = Depends(get_session)) -> list:
     convs = db.exec(
