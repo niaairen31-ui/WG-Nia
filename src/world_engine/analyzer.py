@@ -39,6 +39,7 @@ from .models import (
     ProposedMutation,
     PromptTemplate,
 )
+from .writes import cap_knowledge_level, knowledge_level_rank
 
 # Canonical mutation_type values (schema).
 VALID_MUTATION_TYPES = frozenset(
@@ -318,6 +319,96 @@ def _validate_item(item: Any) -> str | None:
     return None
 
 
+def _entity_name(entity_id: str | None, db: Session) -> str:
+    if not entity_id:
+        return "?"
+    ent = db.get(Entity, entity_id)
+    return ent.name if ent else entity_id
+
+
+def _maybe_convert_new_knowledge_to_change(
+    item: dict,
+    conv: Conversation,
+    npc_entity_id: str | None,
+    conversation_id: str,
+    db: Session,
+) -> dict | None:
+    """Site 2 (per-turn) normalization for `new_knowledge` items.
+
+    If the target entity already holds a `knowledge` row on the same
+    subject, this is a level UPGRADE (direct affirmation), not a fresh
+    acquisition — convert `item` into a `knowledge_change` proposal, or drop
+    it entirely per the guards below.
+
+    Returns:
+    - `item` unchanged when the receiver holds NO row on the subject (plain
+      acquisition — existing `new_knowledge` flow, untouched).
+    - a converted `item` (mutation_type='knowledge_change') on a successful
+      upgrade.
+    - `None` to drop the item silently (K2 guard, secret guard, or monotone
+      — model noise must not upgrade canon, and levels never go down).
+    """
+    payload = item.get("payload") or {}
+    receiver_id = payload.get("entity_id")
+    subject = payload.get("subject")
+    if not receiver_id or not subject:
+        return item
+
+    existing_row = db.exec(
+        select(Knowledge).where(
+            Knowledge.entity_id == receiver_id,
+            Knowledge.subject == subject,
+        )
+    ).first()
+    if existing_row is None:
+        return item  # plain acquisition — unchanged
+
+    # Two-party speaker resolution: receiver = player → speaker = the turn's
+    # responding NPC; receiver = NPC → speaker = the player.
+    speaker_id = npc_entity_id if receiver_id == conv.player_id else conv.player_id
+    if not speaker_id:
+        return None
+
+    # K2 guard — speaker holds no row on the subject: model noise.
+    speaker_row = db.exec(
+        select(Knowledge).where(
+            Knowledge.entity_id == speaker_id,
+            Knowledge.subject == subject,
+        )
+    ).first()
+    if speaker_row is None:
+        return None
+
+    # Secret guard — secrets are structurally excluded from propagation.
+    if speaker_row.is_secret:
+        return None
+
+    # Direct-affirmation level: speaker's row level, capped at 'knows'.
+    to_level = cap_knowledge_level(speaker_row.level)
+
+    # Monotone — target must exceed the receiver's existing level.
+    if knowledge_level_rank(to_level) <= knowledge_level_rank(existing_row.level):
+        return None
+
+    location = db.get(Entity, conv.location_id) if conv.location_id else None
+    location_name = location.name if location else "?"
+
+    item["mutation_type"] = "knowledge_change"
+    item["target_table"] = "knowledge"
+    item["payload"] = {
+        "entity_id": receiver_id,
+        "subject": subject,
+        "from_level": existing_row.level,
+        "to_level": to_level,
+        "source": f"affirmed:{conversation_id}:{speaker_id}",
+    }
+    item["rationale"] = (
+        f"Affirmed by {_entity_name(speaker_id, db)} at {location_name} "
+        f"({existing_row.level} → {to_level})"
+    )
+    return item
+
+
 def analyze_single_turn(
     player_line: str,
     npc_reply: str,
@@ -336,6 +427,13 @@ def analyze_single_turn(
     `npc_entity_id`: entity id of the NPC who spoke this turn.  Passed to
     _normalize_to_schema so that relation_change entity_a_id is correctly
     attributed in gathering conversations (where conv.npc_id is None).
+
+    Knowledge-level upgrades (direct affirmation): a normalized
+    `new_knowledge` item whose target entity already holds a row on that
+    subject is converted to `knowledge_change` by
+    _maybe_convert_new_knowledge_to_change (K2 guard, secret guard, level
+    capped at 'knows', monotone) — or dropped. Plain acquisitions (receiver
+    has no row) are unaffected.
 
     Note: load_analysis_prompt calls sys.exit(1) when no template is found;
     the caller must wrap this in try/except (Exception, SystemExit).
@@ -382,6 +480,12 @@ def analyze_single_turn(
         normalized = _normalize_to_schema(raw_item, conv, npc_entity_id)
         if normalized is None:
             continue
+        if normalized["mutation_type"] == "new_knowledge":
+            normalized = _maybe_convert_new_knowledge_to_change(
+                normalized, conv, npc_entity_id, conversation_id, db
+            )
+            if normalized is None:
+                continue
         if _validate_item(normalized):
             continue
         mutations.append(ProposedMutation(
@@ -430,14 +534,18 @@ def analyze_overhearing(
     host: str = ollama_client.OLLAMA_HOST,
     npc_entity_id: str | None = None,
 ) -> list[ProposedMutation]:
-    """Tier 4 overhearing pass: bystanders may ACQUIRE knowledge from a turn.
+    """Tier 4 overhearing pass: bystanders may ACQUIRE or UPGRADE knowledge.
 
-    Acquisition-only — a receiver who already holds ANY row on a subject
-    (any level) is skipped; level upgrades are a separate step. Writes ONLY
-    `new_knowledge` proposals tagged `proposed_by='local_ai_overhearing'`; no
-    knowledge row is ever created here. Returns un-persisted ProposedMutation
-    objects — the caller adds and commits them. Returns [] on any failure or
-    when nothing qualifies; failures must never surface to the player.
+    A receiver with NO row on the subject gets a `new_knowledge` proposal
+    (acquisition, level one step below the speaker's, floored at 'rumor').
+    A receiver who already holds a row gets a `knowledge_change` proposal
+    (upgrade) ONLY if the computed level is strictly higher than their
+    existing level — monotone, never a downgrade; otherwise it is skipped
+    silently. Both proposal types are tagged
+    `proposed_by='local_ai_overhearing'`; no knowledge row is ever written
+    here. Returns un-persisted ProposedMutation objects — the caller adds and
+    commits them. Returns [] on any failure or when nothing qualifies;
+    failures must never surface to the player.
 
     `npc_entity_id`: the responding NPC of this turn (the addressed NPC) —
     excluded from the receiver set and used to resolve `speaker = "npc"`.
@@ -536,6 +644,20 @@ def analyze_overhearing(
         p = pm.payload if isinstance(pm.payload, dict) else {}
         proposed_keys.add((p.get("entity_id"), p.get("subject")))
 
+    # Existing 'proposed' knowledge_change rows for this conversation — same
+    # dedup guard (k), extended to upgrade proposals.
+    existing_changes = db.exec(
+        select(ProposedMutation).where(
+            ProposedMutation.conversation_id == conversation_id,
+            ProposedMutation.status == "proposed",
+            ProposedMutation.mutation_type == "knowledge_change",
+        )
+    ).all()
+    proposed_change_keys: set[tuple[Any, Any]] = set()
+    for pm in existing_changes:
+        p = pm.payload if isinstance(pm.payload, dict) else {}
+        proposed_change_keys.add((p.get("entity_id"), p.get("subject")))
+
     location = db.get(Entity, conv.location_id) if conv.location_id else None
     location_name = location.name if location else "?"
     entity_names: dict[str, str] = {}
@@ -579,15 +701,51 @@ def analyze_overhearing(
         acquired_level = _KNOWLEDGE_LEVEL_DOWNGRADE.get(speaker_row.level, "rumor")
 
         for receiver_id in receivers:
-            # j. Acquisition-only filter — a receiver with ANY existing row
-            # on this subject is skipped (upgrades are a separate step).
-            already_known = db.exec(
-                select(Knowledge.id).where(
+            # j. Existing-row check — a receiver with NO row gets a plain
+            # acquisition (new_knowledge); a receiver who already holds a
+            # row is only proposed an UPGRADE (knowledge_change) if the
+            # computed level is strictly higher (monotone) — else skipped
+            # silently, no noise in the queue.
+            existing_row = db.exec(
+                select(Knowledge).where(
                     Knowledge.entity_id == receiver_id,
                     Knowledge.subject == subject,
                 )
             ).first()
-            if already_known is not None:
+
+            if existing_row is not None:
+                if knowledge_level_rank(acquired_level) <= knowledge_level_rank(existing_row.level):
+                    continue
+
+                # k. Proposal-dedup, extended to knowledge_change.
+                change_key = (receiver_id, subject)
+                if change_key in proposed_change_keys:
+                    continue
+                proposed_change_keys.add(change_key)
+
+                mutations.append(ProposedMutation(
+                    world_id=conv.world_id,
+                    source_type="conversation",
+                    conversation_id=conversation_id,
+                    pass_play_id=None,
+                    mutation_type="knowledge_change",
+                    target_table="knowledge",
+                    target_id=None,
+                    payload={
+                        "entity_id": receiver_id,
+                        "subject": subject,
+                        "from_level": existing_row.level,
+                        "to_level": acquired_level,
+                        "source": f"overheard:{conversation_id}:{speaker_id}",
+                    },
+                    status="proposed",
+                    rationale=(
+                        f"Overheard from {_name(speaker_id)} at {location_name} "
+                        f"({existing_row.level} → {acquired_level})"
+                    ),
+                    proposed_by="local_ai_overhearing",
+                    proposed_at=now,
+                ))
                 continue
 
             # k. Proposal-dedup — re-stating the same fact later in the

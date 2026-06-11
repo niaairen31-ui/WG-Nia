@@ -124,6 +124,12 @@ def _find_applied_duplicate(
     both apply. These come only from per-turn immediate flags (one per turn),
     so they are never re-proposed by the final pass and can never be
     double-applied by --force.
+
+    knowledge_change is also intentionally EXCLUDED. Successive legitimate
+    upgrades in one conversation (e.g. rumor → partial, then later
+    partial → knows) must both apply — the monotone re-check inside
+    _apply_mutation ("level already >= proposed") is the correct guard, not
+    an identity-based duplicate check.
     """
     if not mut.conversation_id:
         return None
