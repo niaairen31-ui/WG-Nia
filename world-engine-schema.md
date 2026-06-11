@@ -611,8 +611,9 @@ batch   → event
 ## CHANGELOG
 
 - **v1.17** — No new tables or columns. Application-layer: `knowledge_change`
-  is now implemented in `_apply_mutation` (cockpit `app.py`) — the third
-  implemented mutation type alongside `relation_change` and `new_knowledge`.
+  is now implemented in `_apply_mutation` (cockpit `app.py`) — the fourth
+  implemented mutation type alongside `relation_change`, `new_knowledge`, and
+  `status_change`.
   Finds the `knowledge` row by `entity_id` + `subject` (never creates — that
   is `new_knowledge`'s job); guards, in order: (a) row not found → "Needs
   attention" with note `knowledge row not found`; (b) monotone re-check at

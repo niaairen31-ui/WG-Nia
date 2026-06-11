@@ -127,11 +127,14 @@ World-genrator/
 │       │                    # analyze_conversation (final pass, filters relation_change);
 │       │                    # analyze_single_turn (per-turn immediate flags,
 │       │                    #   proposed_by='local_ai_immediate', within-turn collapse);
-│       │                    # analyze_overhearing (Tier 4, acquisition-only:
+│       │                    # analyze_overhearing (Tier 4, acquire or upgrade:
 │       │                    #   gathering-roster receivers, closed-list subject
 │       │                    #   classification, K2/secret/dedup guards,
-│       │                    #   deterministic level-ladder downgrade,
-│       │                    #   proposed_by='local_ai_overhearing')
+│       │                    #   deterministic level-ladder downgrade for
+│       │                    #   acquisition, knowledge_change for monotone
+│       │                    #   upgrades (v1.17), proposed_by='local_ai_overhearing');
+│       │                    # _maybe_convert_new_knowledge_to_change (per-turn
+│       │                    #   direct-affirmation upgrade, v1.17)
 │       └── cockpit/         # creator review web UI (FastAPI sub-app)
 │           ├── __init__.py
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;

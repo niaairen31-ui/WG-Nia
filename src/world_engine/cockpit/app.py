@@ -1713,7 +1713,7 @@ def say(
             except (Exception, SystemExit):
                 pass
 
-        # Overhearing analysis (sync-after-stream, Tier 4, acquisition-only).
+        # Overhearing analysis (sync-after-stream, Tier 4, acquire or upgrade).
         # 'dialogue' turns only — 'scene' has no NPC line, 'npc_reaction' is
         # wordless (analyze_overhearing's own guard would also catch both via
         # an empty npc_reply, but the mode check keeps the gating explicit).

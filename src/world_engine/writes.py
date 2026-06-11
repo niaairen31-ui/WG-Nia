@@ -94,9 +94,9 @@ def _append_knowledge_history(row: Knowledge, changed_by: str) -> None:
     """Append a snapshot of `row`'s PREVIOUS state to its `change_history`.
 
     Called before any overwrite of an existing `knowledge` row — history is
-    sacred on every write path that updates `knowledge` (creator CRUD today;
-    `knowledge_change` apply in a future step). `changed_by` is
-    `"creator_crud"` or `"apply_mutation"`.
+    sacred on every write path that updates `knowledge` (creator CRUD via
+    `write_knowledge`; `knowledge_change` apply in `_apply_mutation`).
+    `changed_by` is `"creator_crud"` or `"apply_mutation"`.
     """
     history = list(row.change_history or [])
     history.append({
