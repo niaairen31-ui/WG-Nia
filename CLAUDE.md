@@ -77,6 +77,14 @@ Read both before making any structural change.
   character's own knowledge). Never NPC-private knowledge, secrets,
   internal names, non-public entities, or invisible relations. Enforced
   by query construction, never by instruction.
+- **Knowledge levels never decrease through the mutation pipeline:** the
+  ladder `unaware < rumor < suspicious < partial < knows <
+  fully_understands` is monotone for every `knowledge_change` proposal and
+  apply — both at detection (overhearing upgrades, direct affirmation) and
+  at apply time (`_apply_mutation`'s "level already >= proposed" guard).
+  `fully_understands` is never granted via any conversational path
+  (structurally capped at `knows`); downgrades, forgetting, and
+  `is_incorrect` correction are creator CRUD only.
 
 ## Local model notes
 
