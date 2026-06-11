@@ -475,6 +475,31 @@ class Artifact(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
+# item  (mundane tracked objects — static possession, schema v1.15)
+# -----------------------------------------------------------------------------
+class Item(SQLModel, table=True):
+    __tablename__ = "item"
+    __table_args__ = (
+        CheckConstraint(
+            "NOT equipped OR owner_id IS NOT NULL", name="ck_item_equipped_owner"
+        ),
+        Index("idx_item_owner", "owner_id"),
+        Index("idx_item_location", "location_id"),
+    )
+
+    id: str = Field(primary_key=True, foreign_key="entity.id")
+    owner_id: Optional[str] = Field(default=None, foreign_key="entity.id")
+    location_id: Optional[str] = Field(default=None, foreign_key="entity.id")
+    equipped: bool = Field(
+        default=False, sa_column_kwargs={"server_default": text("0")}
+    )
+    condition: str = Field(
+        default="intact",
+        sa_column_kwargs={"server_default": text("'intact'")},
+    )
+
+
+# -----------------------------------------------------------------------------
 # user  (system accounts)
 # -----------------------------------------------------------------------------
 class User(SQLModel, table=True):
@@ -539,6 +564,7 @@ __all__ = [
     "ProposedMutation",
     "Event",
     "Artifact",
+    "Item",
     "User",
     "PromptTemplate",
 ]

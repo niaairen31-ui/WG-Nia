@@ -46,7 +46,7 @@ CREATE TABLE entity (
   id            TEXT PRIMARY KEY,
   world_id      TEXT NOT NULL REFERENCES world(id),
   type          TEXT NOT NULL,
-                -- character | faction | location | concept | magic | artifact | other
+                -- character | faction | location | concept | magic | artifact | item | other
   name          TEXT NOT NULL,
   internal_name TEXT,                  -- creator-only name (ex: "The Unnamed")
   description   TEXT,
@@ -456,6 +456,31 @@ CREATE TABLE artifact (
 
 -----
 
+### `item`
+
+Mundane tracked objects — static possession (schema v1.15). Extension of
+entity for type `item`.
+
+```sql
+CREATE TABLE item (
+  id           TEXT PRIMARY KEY REFERENCES entity(id),
+  owner_id     TEXT REFERENCES entity(id),   -- NULL = lying in a location
+  location_id  TEXT REFERENCES entity(id),   -- NULL = carried (follows owner)
+  equipped     BOOLEAN DEFAULT FALSE,
+  condition    TEXT DEFAULT 'intact',
+  CHECK (NOT equipped OR owner_id IS NOT NULL)
+);
+```
+
+> Three states, never deletion: equipped (`owner_id` set + `equipped=TRUE`),
+> carried but stowed (`owner_id` set + `equipped=FALSE`), lying in a
+> location (`owner_id` NULL + `location_id` set). Mundane tracked objects
+> live here; `artifact` remains reserved for magical/historically
+> significant objects. An item can be promoted to artifact later if the
+> fiction demands it.
+
+-----
+
 ### `user`
 
 System accounts (creator + players).
@@ -556,6 +581,10 @@ CREATE INDEX idx_passplay_batch      ON pass_play(batch_id);
 -- events and conversations scoped to a session / world
 CREATE INDEX idx_event_world         ON event(world_id);
 CREATE INDEX idx_conversation_world  ON conversation(world_id);
+
+-- items: by owner (carried/equipped) and by location (lying around)
+CREATE INDEX idx_item_owner    ON item(owner_id);
+CREATE INDEX idx_item_location ON item(location_id);
 ```
 
 -----
@@ -602,6 +631,24 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.15** — Object permanence, static possession (BRIEF-06). New `item`
+  entity type (added to the documented `entity.type` values) and a new
+  extension table `item` (`owner_id`, `location_id`, `equipped`,
+  `condition`, CHECK `NOT equipped OR owner_id IS NOT NULL`), with
+  `idx_item_owner` and `idx_item_location`. The three-states NOTE (equipped /
+  carried-stowed / lying-in-location, never deletion) is recorded under the
+  table. Application layer: `seed_pilot.py` seeds one `Dague` item
+  (`owner_id = char-player`, `equipped = TRUE`). The MJ narration context gains
+  a per-turn, non-snapshotted inventory line (`{inventory_line}`, schema
+  `context.format_inventory_line`) — "Équipé : … . Sur soi : … ." — read fresh
+  from `item` at every turn, injected into `pt-mj-narration` (bumped to
+  `version=3`), whose system prompt gains the verbatim "RÈGLES SUR LES OBJETS"
+  arbitration rules (ambient props vs tracked items, in-fiction refusal). The
+  cockpit's entity-author flow gains `item` as a creatable/editable type
+  (owner/location pickers, equipped toggle, condition; CHECK enforced
+  server-side), and the character entity sheet gains a read-only Items
+  section. All in-game item mutations (transfer, creation, equip toggle) are
+  deferred to D2 — see `ARCHITECTURE_DECISIONS.md`.
 - **v1.14** — No new tables or columns. Application-layer **cockpit batch
   review** (`POST /api/mutations/batch-review`, cockpit `app.py`): the review
   queue gains per-row checkboxes (rendered only for `status = 'proposed'`
