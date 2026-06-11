@@ -33,6 +33,9 @@ from . import ollama_client
 from .models import (
     Conversation,
     ConversationMessage,
+    Entity,
+    GatheringMember,
+    Knowledge,
     ProposedMutation,
     PromptTemplate,
 )
@@ -97,6 +100,18 @@ _TARGET_TABLE_MAP: dict[str, str] = {
     "entity_creation": "entity",
 }
 
+# knowledge.level ladder (schema): unaware < rumor < suspicious < partial <
+# knows < fully_understands. analyze_overhearing computes the acquired level
+# one step below the speaker's row level, floored at 'rumor'.
+_KNOWLEDGE_LEVEL_DOWNGRADE: dict[str, str] = {
+    "fully_understands": "knows",
+    "knows": "partial",
+    "partial": "suspicious",
+    "suspicious": "rumor",
+    "rumor": "rumor",
+    "unaware": "rumor",
+}
+
 # Strips markdown fences the model might emit despite instructions.
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
@@ -104,21 +119,25 @@ _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 _SLUG_NON_WORD = re.compile(r"[^\w]")
 
 
-def load_analysis_prompt(db: Session, world_id: str | None = None) -> PromptTemplate:
-    """Return the active conversation_analysis template, preferring world-specific.
+def load_analysis_prompt(
+    db: Session,
+    world_id: str | None = None,
+    usage: str = "conversation_analysis",
+) -> PromptTemplate:
+    """Return the active template for `usage`, preferring world-specific.
 
     Exits with a clear message if none is found (mirrors load_npc_dialogue_prompt
     in talk.py for consistent error UX).
     """
     templates = db.exec(
         select(PromptTemplate).where(
-            PromptTemplate.usage == "conversation_analysis",
+            PromptTemplate.usage == usage,
             PromptTemplate.is_active == True,  # noqa: E712
         )
     ).all()
     if not templates:
         print(
-            "\n[error] No active 'conversation_analysis' prompt template found.\n"
+            f"\n[error] No active {usage!r} prompt template found.\n"
             "        Seed it first: python scripts/seed_pilot.py"
         )
         sys.exit(1)
@@ -400,6 +419,211 @@ def analyze_single_turn(
         deduped.append(mut)
 
     return deduped
+
+
+def analyze_overhearing(
+    player_line: str,
+    npc_line: str,
+    conversation_id: str,
+    db: Session,
+    model: str = ollama_client.DEFAULT_MODEL,
+    host: str = ollama_client.OLLAMA_HOST,
+    npc_entity_id: str | None = None,
+) -> list[ProposedMutation]:
+    """Tier 4 overhearing pass: bystanders may ACQUIRE knowledge from a turn.
+
+    Acquisition-only — a receiver who already holds ANY row on a subject
+    (any level) is skipped; level upgrades are a separate step. Writes ONLY
+    `new_knowledge` proposals tagged `proposed_by='local_ai_overhearing'`; no
+    knowledge row is ever created here. Returns un-persisted ProposedMutation
+    objects — the caller adds and commits them. Returns [] on any failure or
+    when nothing qualifies; failures must never surface to the player.
+
+    `npc_entity_id`: the responding NPC of this turn (the addressed NPC) —
+    excluded from the receiver set and used to resolve `speaker = "npc"`.
+
+    Note: load_analysis_prompt calls sys.exit(1) when no template is found;
+    the caller must wrap this in try/except (Exception, SystemExit).
+    """
+    # a. Turn-mode guard — re-checked even though the caller only invokes for
+    # 'dialogue' turns.
+    if not npc_line:
+        return []
+
+    conv = db.get(Conversation, conversation_id)
+    if conv is None:
+        return []
+
+    # b. Receiver computation (code, not model) — active members of the
+    # conversation's gathering, minus the responding NPC and the player.
+    # gathering_member.left_at IS NULL is the single roster source.
+    if not conv.gathering_id:
+        return []
+    member_ids = db.exec(
+        select(GatheringMember.entity_id).where(
+            GatheringMember.gathering_id == conv.gathering_id,
+            GatheringMember.left_at.is_(None),
+        )
+    ).all()
+    eligible = set(member_ids) - {npc_entity_id, conv.player_id}
+    if not eligible:
+        return []
+
+    # c. Subject list — closed list, scoped to the world.
+    subjects = db.exec(
+        select(Knowledge.subject)
+        .join(Entity, Entity.id == Knowledge.entity_id)
+        .where(Entity.world_id == conv.world_id)
+        .distinct()
+    ).all()
+    if not subjects:
+        return []
+    subject_set = set(subjects)
+
+    # d. Model call.
+    template = load_analysis_prompt(
+        db, world_id=conv.world_id, usage="overhearing_classification"
+    )
+    user_message = (
+        template.user_template
+        .replace("{subject_list}", "\n".join(sorted(subject_set)))
+        .replace("{player_line}", player_line)
+        .replace("{npc_line}", npc_line)
+    )
+    llm_messages = [
+        {"role": "system", "content": template.system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+    raw = ollama_client.chat(llm_messages, model=model, host=host, format="json")
+    json_str = _extract_json_array(raw)
+    try:
+        items = json.loads(json_str)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(items, list):
+        return []
+
+    # e. Normalization — exact closed-list match only, no fuzzy matching.
+    classified: list[tuple[str, str]] = []
+    for raw_item in items:
+        if not isinstance(raw_item, dict):
+            print(f"[overhearing] dropped non-dict element: {raw_item!r}")
+            continue
+        subject = raw_item.get("subject")
+        speaker = raw_item.get("speaker")
+        if subject not in subject_set:
+            print(f"[overhearing] dropped unknown subject: {subject!r}")
+            continue
+        if speaker not in ("player", "npc"):
+            print(f"[overhearing] dropped invalid speaker: {speaker!r}")
+            continue
+        classified.append((subject, speaker))
+
+    if not classified:
+        return []
+
+    # Existing 'proposed' new_knowledge rows for this conversation, for the
+    # proposal-dedup guard (k) — keyed by (entity_id, subject).
+    existing = db.exec(
+        select(ProposedMutation).where(
+            ProposedMutation.conversation_id == conversation_id,
+            ProposedMutation.status == "proposed",
+            ProposedMutation.mutation_type == "new_knowledge",
+        )
+    ).all()
+    proposed_keys: set[tuple[Any, Any]] = set()
+    for pm in existing:
+        p = pm.payload if isinstance(pm.payload, dict) else {}
+        proposed_keys.add((p.get("entity_id"), p.get("subject")))
+
+    location = db.get(Entity, conv.location_id) if conv.location_id else None
+    location_name = location.name if location else "?"
+    entity_names: dict[str, str] = {}
+
+    def _name(entity_id: str) -> str:
+        if entity_id not in entity_names:
+            ent = db.get(Entity, entity_id)
+            entity_names[entity_id] = ent.name if ent else entity_id
+        return entity_names[entity_id]
+
+    now = datetime.now(UTC)
+    mutations: list[ProposedMutation] = []
+    for subject, speaker in classified:
+        # f. Speaker resolution. Per line speaker, the eligible receiver set
+        # additionally excludes the resolved speaker (an NPC never overhears
+        # itself).
+        speaker_id = npc_entity_id if speaker == "npc" else conv.player_id
+        if not speaker_id:
+            continue
+        receivers = eligible - {speaker_id}
+        if not receivers:
+            continue
+
+        # g. K2 guard (source authority) — the speaker's row is the only
+        # authority; a speaker "knowing" without a row is model noise.
+        speaker_row = db.exec(
+            select(Knowledge).where(
+                Knowledge.entity_id == speaker_id,
+                Knowledge.subject == subject,
+            )
+        ).first()
+        if speaker_row is None:
+            continue
+
+        # h. Secret guard — secrets are structurally excluded from NPC
+        # context, so a match on one is spurious by definition.
+        if speaker_row.is_secret:
+            continue
+
+        # i. Level computation (deterministic, floored at 'rumor').
+        acquired_level = _KNOWLEDGE_LEVEL_DOWNGRADE.get(speaker_row.level, "rumor")
+
+        for receiver_id in receivers:
+            # j. Acquisition-only filter — a receiver with ANY existing row
+            # on this subject is skipped (upgrades are a separate step).
+            already_known = db.exec(
+                select(Knowledge.id).where(
+                    Knowledge.entity_id == receiver_id,
+                    Knowledge.subject == subject,
+                )
+            ).first()
+            if already_known is not None:
+                continue
+
+            # k. Proposal-dedup — re-stating the same fact later in the
+            # conversation must not stack proposals.
+            key = (receiver_id, subject)
+            if key in proposed_keys:
+                continue
+            proposed_keys.add(key)
+
+            # l. Write — one proposed_mutation per (receiver, subject).
+            mutations.append(ProposedMutation(
+                world_id=conv.world_id,
+                source_type="conversation",
+                conversation_id=conversation_id,
+                pass_play_id=None,
+                mutation_type="new_knowledge",
+                target_table="knowledge",
+                target_id=None,
+                payload={
+                    "entity_id": receiver_id,
+                    "subject": subject,
+                    "level": acquired_level,
+                    "content": speaker_row.content,
+                    "is_incorrect": speaker_row.is_incorrect,
+                    "source": f"overheard:{conversation_id}:{speaker_id}",
+                },
+                status="proposed",
+                rationale=(
+                    f"Overheard from {_name(speaker_id)} at {location_name} "
+                    f"(level {speaker_row.level} → {acquired_level})"
+                ),
+                proposed_by="local_ai_overhearing",
+                proposed_at=now,
+            ))
+
+    return mutations
 
 
 def analyze_conversation(

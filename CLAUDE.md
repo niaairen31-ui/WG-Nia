@@ -55,7 +55,10 @@ Read both before making any structural change.
   "guarded by instruction". `character.secrets` is creator meta-narrative
   (notes ABOUT the character: true nature, planned arcs) and is NEVER read
   by any context assembler. What an NPC knows-but-conceals lives in
-  `knowledge` rows with `is_secret = TRUE`, excluded by the assembler.
+  `knowledge` rows with `is_secret = TRUE`, excluded by the assembler. This
+  exclusion extends to every propagation path, not just context assembly:
+  `analyze_overhearing` (Tier 4) never sources a proposal from a
+  `knowledge` row with `is_secret = TRUE`.
 - **`entity_a_id` in gathering analysis** comes from the analyzed NPC line's
   `speaker_id`, never from `conv.npc_id` (legacy single-NPC fallback only).
 - **Two sanctioned canon-write paths, no others:** `_apply_mutation` (AI
@@ -111,9 +114,15 @@ World-genrator/
 │       │                    #   auto-dissolve emptied source — B1 repair)
 │       ├── ollama_client.py # HTTP client for local Ollama; strips <think> blocks
 │       ├── analyzer.py      # mutation analysis; _normalize_to_schema; _validate_item;
+│       │                    # load_analysis_prompt (usage param, world-specific preferred);
 │       │                    # analyze_conversation (final pass, filters relation_change);
 │       │                    # analyze_single_turn (per-turn immediate flags,
-│       │                    #   proposed_by='local_ai_immediate', within-turn collapse)
+│       │                    #   proposed_by='local_ai_immediate', within-turn collapse);
+│       │                    # analyze_overhearing (Tier 4, acquisition-only:
+│       │                    #   gathering-roster receivers, closed-list subject
+│       │                    #   classification, K2/secret/dedup guards,
+│       │                    #   deterministic level-ladder downgrade,
+│       │                    #   proposed_by='local_ai_overhearing')
 │       └── cockpit/         # creator review web UI (FastAPI sub-app)
 │           ├── __init__.py
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
@@ -142,6 +151,9 @@ World-genrator/
 │           │                #   BatchReviewBody, _append_note, _BATCH_REVIEW_MARKER —
 │           │                #   loops _apply_mutation / unit-reject fields per row,
 │           │                #   skip-if-not-proposed, "batch-review" creator_notes marker)
+│           │                # overhearing analysis (sync-after-stream, dialogue turns
+│           │                #   only): analyze_overhearing call after analyze_single_turn,
+│           │                #   same silent-failure wrapping
 │           └── index.html   # single-page UI; MJ narration rendering;
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;

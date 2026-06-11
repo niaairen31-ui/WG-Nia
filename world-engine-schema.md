@@ -397,6 +397,9 @@ CREATE TABLE proposed_mutation (
                                            -- local_ai_immediate : per-turn analysis
                                            --                      (fires after each turn,
                                            --                       owns all relation_change)
+                                           -- local_ai_overhearing : Tier 4 overhearing
+                                           --                      pass (acquisition-only,
+                                           --                      new_knowledge only)
                                            -- claude | creator
   proposed_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   reviewed_at     DATETIME,
@@ -490,7 +493,8 @@ CREATE TABLE prompt_template (
   usage            TEXT NOT NULL,
                    -- pass_play_analysis | lore_coherence | event_generation |
                    -- player_narration | session_summary | npc_dialogue |
-                   -- conversation_analysis | mj_interpretation | other
+                   -- conversation_analysis | mj_interpretation |
+                   -- overhearing_classification | other
   system_prompt    TEXT NOT NULL,
   user_template    TEXT NOT NULL,   -- user message template (with variables)
   variables        JSON,            -- expected variable list
@@ -602,6 +606,14 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.15** — No new tables or columns. Comment-level changes only:
+  documented `local_ai_overhearing` as a third AI source tag on
+  `proposed_mutation.proposed_by` (Tier 4 overhearing pass — bystanders
+  acquire knowledge from a turn, acquisition-only, never level upgrades) and
+  `overhearing_classification` in the `prompt_template.usage` list. Deferred
+  decision: **E3-general upgrade rule** (`knowledge_change` apply + upgrade
+  detection) is the next step; speaker-level cap at `knows` for direct
+  affirmation belongs to that step.
 - **v1.14** — No new tables or columns. Application-layer **cockpit batch
   review** (`POST /api/mutations/batch-review`, cockpit `app.py`): the review
   queue gains per-row checkboxes (rendered only for `status = 'proposed'`

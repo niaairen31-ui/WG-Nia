@@ -79,6 +79,39 @@ Triggered manually via the **Analyze** button in the cockpit (or `scripts/analyz
 
 Idempotency: re-running without `--force` returns existing proposals. `--force` deletes ONLY rows with `status = 'proposed'` (including per-turn flags); reviewed rows (`applied`, `approved`, `rejected`) are permanent audit history and survive regardless.
 
+### Overhearing analysis pass (`analyze_overhearing`, Tier 4)
+
+A THIRD per-turn pass, fired (sync-after-stream, `dialogue` turns only) after `analyze_single_turn`. NPCs within earshot of a conversation may **acquire** knowledge from what was said — always via `proposed_mutation`, never by direct write. It is **acquisition-only**: a receiver who already holds ANY row on a subject (any level) is skipped. Level upgrades (`knowledge_change`) are a later step.
+
+The model's only job is closed-list classification (`pt-overhearing-classification`, `usage = overhearing_classification`): given the turn's player/NPC lines and the world's distinct `knowledge.subject` values, return `[{"subject": ..., "speaker": "player"|"npc"}, ...]`. All attribution, receiver computation, and level computation happen in code.
+
+Guard chain, all before any model call except (g)/(h)/(j)/(k) which run per classified element:
+
+- **Turn-mode guard** — re-checks `npc_line` is non-empty even though the caller already gates on `dialogue`.
+- **Receiver computation (b)** — eligible receivers = active members of the conversation's gathering (`gathering_member.left_at IS NULL`, the single roster source) MINUS the responding NPC MINUS the player. Empty set → return with **no model call** (two-party conversations cost nothing).
+- **Subject list (c)** — `SELECT DISTINCT subject FROM knowledge` scoped to the world. Empty → no model call.
+- **Normalization (e)** — only elements whose `subject` is an EXACT member of the closed list and whose `speaker` ∈ {`player`, `npc`} survive; everything else is dropped and logged. No fuzzy matching.
+- **Speaker resolution (f)** — `speaker = "npc"` → the responding NPC's entity id; `speaker = "player"` → the conversation's player entity id. The eligible receiver set additionally excludes the resolved speaker (an NPC never overhears itself).
+- **K2 guard (g)** — load the SPEAKER's `knowledge` row for the subject. No row → skip the element entirely. The speaker's canonical knowledge is the only authority; a speaker "knowing" without a row is model noise.
+- **Secret guard (h)** — if the speaker's row has `is_secret = TRUE`, skip. Secrets are structurally excluded from NPC context, so a classification match on one is spurious by definition — this extends the secrets invariant to propagation.
+- **Acquisition-only filter (j)** — for each eligible receiver, an existing row on the subject (any level, any conversation) skips that receiver.
+- **Proposal-dedup (k)** — skip a receiver if a `proposed` `new_knowledge` row already exists for this `(conversation_id, receiver entity_id, subject)` — re-stating a fact later in the conversation must not stack proposals.
+
+**Deterministic level ladder (i)** — the acquired level is one step below the speaker's row level on `unaware < rumor < suspicious < partial < knows < fully_understands`, floored at `rumor`:
+
+```
+fully_understands → knows
+knows             → partial
+partial           → suspicious
+suspicious, rumor → rumor
+```
+
+**Write (l)** — one `proposed_mutation` per surviving (receiver × subject): `mutation_type = 'new_knowledge'`, `proposed_by = 'local_ai_overhearing'`, `payload.content` copied VERBATIM from the speaker's row (no model-generated content — anti-invention), `payload.is_incorrect` inherited from the speaker's row, `payload.source = "overheard:{conversation_id}:{speaker_entity_id}"` (structured form for provenance). `rationale` is human-readable: `Overheard from {speaker name} at {location name} (level {speaker level} → {acquired level})`.
+
+No change to `_apply_mutation` — these are plain `new_knowledge` mutations and use the existing apply path and idempotent duplicate guard.
+
+Deferred: the **E3-general upgrade rule** (`knowledge_change` apply + upgrade detection — "computed level > existing level") is the next step; a speaker-level cap at `knows` for direct affirmation belongs to that step.
+
 ---
 
 ## CREATOR REVIEW COCKPIT
