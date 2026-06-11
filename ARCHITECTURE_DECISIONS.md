@@ -564,6 +564,59 @@ this set further, never widen it.
 
 ---
 
+## OBJECT PERMANENCE — ambient props vs tracked items (schema v1.15, BRIEF-06)
+
+Live tests showed the need to distinguish two kinds of "things" in a scene:
+
+- **Ambient props** (a mug, a stool, a stone) — never canon. The MJ invents
+  them freely in narration, on one condition: they must be *plausible for the
+  current location* (no beer mug in a desert or a church). The player can
+  gesture at this kind of object without it ever existing as a row anywhere.
+- **Tracked items** (weapons, letters, anything the story needs to persist) —
+  canon entities, type `item`, extension table `item`. Three states, never
+  deletion: **equipped** (`owner_id` set + `equipped=TRUE`), **carried but
+  stowed** (`owner_id` set + `equipped=FALSE`), **lying in a location**
+  (`owner_id` NULL + `location_id` set). `artifact` remains reserved for
+  magical/historically significant objects; an `item` can be promoted to
+  `artifact` later if the fiction demands it.
+
+**Arbitration is prompt-level, with in-fiction refusal — not a code gate.**
+Every turn, the MJ narration prompt (`pt-mj-narration`, schema v1.15) is
+given a fresh, non-cached inventory line built by
+`context.format_inventory_line` — `"Équipé : …. Sur soi : ….\"` — listing the
+player character's `item` rows split on `equipped`. The system prompt's
+"RÈGLES SUR LES OBJETS" then tell the model: ambient props are free if
+plausible for the location; tracked-item actions (attack, cut, show) require
+the object to be in the inventory line AND equipped; a stowed item must be
+"sorted out" first; and if the player invokes an object they don't possess or
+that isn't equipped, the MJ refuses **in fiction** ("ta main ne trouve que du
+vide"), never breaking the fourth wall. No code path validates or blocks the
+player's input — the boundary lives entirely in what the model is told it can
+draw on, the same "exclusion, not restraint" doctrine as secrets and the MJ
+perception boundary.
+
+**Static possession only, in v1.** This step delivers the read side: items
+exist in canon, the player owns them, the MJ knows what they carry. Nothing
+in-game changes canon — if the player narrates "je range ma dague", the MJ
+narrates it but the `equipped` flag doesn't flip; the creator corrects via
+the cockpit entity flow if needed. A temporary one-turn mismatch between
+fiction and the inventory line is accepted. No new `mutation_type` is added;
+`analyzer.py` and `_apply_mutation` are untouched.
+
+**Deferred to D2 (next step):**
+- `item_transfer` mutation type (give/take/drop/pick up).
+- `entity_creation` for ambient-prop promotion (e.g. a letter the player
+  picks up becomes a tracked `item`), with creator-editable content at the
+  review checkpoint.
+- In-game equip/unequip as a detected, applied mutation.
+- NPC inventories (no injection into NPC dialogue contexts in v1; no
+  NPC-owned items seeded).
+- The player's personal storage location ("sa maison").
+- Per-location ambient-props override (`ambient_affordances` in
+  `location.subculture`/`metadata`) — model judgment only for now.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

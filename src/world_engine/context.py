@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from sqlmodel import Session, select
 
-from .models import Character, Entity, Event, Gathering, GatheringMember, Knowledge, Location, Relation
+from .models import Character, Entity, Event, Gathering, GatheringMember, Item, Knowledge, Location, Relation
 
 # Section headers (kept stable so a harness can split the output reliably).
 H_IDENTITY = "QUI TU ES"
@@ -440,3 +440,24 @@ def format_mj_context(mj_context: dict) -> str:
     if not blocks:
         return ""
     return "\n".join(blocks) + "\n"
+
+
+def format_inventory_line(db: Session, player_character_id: str) -> str:
+    """Render the player's static inventory as one compact French line.
+
+    Read fresh from `item` at every turn (no caching). Items are split into
+    equipped vs carried-but-stowed by `item.equipped`, listed by entity name,
+    comma-separated; an empty group renders as "—".
+    """
+    rows = db.exec(
+        select(Item, Entity)
+        .join(Entity, Entity.id == Item.id)
+        .where(Item.owner_id == player_character_id)
+    ).all()
+
+    equipped = [entity.name for item, entity in rows if item.equipped]
+    carried = [entity.name for item, entity in rows if not item.equipped]
+
+    equipped_str = ", ".join(equipped) if equipped else "—"
+    carried_str = ", ".join(carried) if carried else "—"
+    return f"Équipé : {equipped_str}. Sur soi : {carried_str}."

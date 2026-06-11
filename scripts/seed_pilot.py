@@ -274,11 +274,24 @@ guillemets est reproduit VERBATIM, premier personne conservé à l'intérieur ; 
 n'est inventé ou supprimé ; le cadrage reste minimal.
 
 === FORMAT ===
-Prose narrative en français, courte. Rien d'autre — pas de JSON, pas de méta.\
+Prose narrative en français, courte. Rien d'autre — pas de JSON, pas de méta.
+
+RÈGLES SUR LES OBJETS :
+— Objets ambiants (chope, tabouret, pierre...) : tu peux les faire exister \
+librement dans ta narration, à une condition : ils doivent être plausibles \
+pour le lieu actuel. Le joueur ne matérialise jamais un objet incongru pour \
+le lieu (pas de chope de bière dans un désert ou une église).
+— Objets suivis (armes, lettres, objets significatifs) : le joueur ne possède \
+QUE ce que la ligne d'inventaire ci-dessus contient. Une action physique avec \
+un objet (attaquer, couper, montrer) exige qu'il soit ÉQUIPÉ. Un objet « sur \
+soi » doit d'abord être sorti. Si le joueur invoque un objet qu'il ne possède \
+pas ou qui n'est pas équipé, refuse EN FICTION : narre l'échec de façon \
+immersive (« ta main ne trouve que du vide »), sans briser le quatrième mur.\
 """
 
 MJ_NARRATION_USER_TEMPLATE = """\
-{mj_context}Scène : {npc_name} dans « {location_name} ».
+{mj_context}{inventory_line}
+Scène : {npc_name} dans « {location_name} ».
 
 Le joueur dit :
 {player_line}
@@ -602,7 +615,8 @@ def seed(session: Session) -> None:
     # ----- prompt template: MJ narration ------------------------------------
     # usage = "player_narration". world_id = NULL (applies to every world).
     # The user_template contains {npc_name}, {location_name}, {player_line},
-    # {npc_reply} placeholders substituted at call time in app.py.
+    # {npc_reply}, {mj_context}, {inventory_line} placeholders substituted at
+    # call time in app.py.
     # Uses upsert so re-seeding always converges the DB to the latest wording.
     upsert_prompt_template(
         session,
@@ -612,9 +626,16 @@ def seed(session: Session) -> None:
         usage="player_narration",
         system_prompt=MJ_NARRATION_SYSTEM_PROMPT,
         user_template=MJ_NARRATION_USER_TEMPLATE,
-        variables=["npc_name", "location_name", "player_line", "npc_reply", "mj_context"],
+        variables=[
+            "npc_name",
+            "location_name",
+            "player_line",
+            "npc_reply",
+            "mj_context",
+            "inventory_line",
+        ],
         destination="local",
-        version=2,
+        version=3,
     )
 
     # ----- prompt template: MJ scene interpretation -------------------------
@@ -976,6 +997,26 @@ def seed(session: Session) -> None:
         secrets={
             "incident": "A vécu un micro-incident magique qu'il n'a dit à personne."
         },
+    )
+
+    # ----- player items (entity + item) --------------------------------------
+    get_or_create(
+        session,
+        m.Entity,
+        "item-dague",
+        world_id=WORLD_ID,
+        type="item",
+        name="Dague",
+        is_public=True,
+    )
+    get_or_create(
+        session,
+        m.Item,
+        "item-dague",
+        owner_id="char-player",
+        location_id=None,
+        equipped=True,
+        condition="intact",
     )
 
     # ----- knowledge ---------------------------------------------------------

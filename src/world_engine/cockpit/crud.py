@@ -47,7 +47,7 @@ from pydantic import BaseModel
 from sqlmodel import Session as DbSession, select
 
 from ..db import get_session
-from ..models import Character, Entity, Faction, Knowledge, Location, Relation, World
+from ..models import Character, Entity, Faction, Item, Knowledge, Location, Relation, World
 from ..writes import KNOWLEDGE_LEVELS, write_knowledge, write_relation
 
 router = APIRouter(prefix="/api", tags=["author-crud"])
@@ -146,6 +146,16 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
                 "options": ["unaware", "suspicious", "partial", "knows", "understands"], "default": "unaware",
             },
             {"name": "internal_tensions", "label": "Internal tensions", "kind": "textarea"},
+        ],
+    },
+    "item": {
+        "label": "Item",
+        "model": Item,
+        "fields": [
+            {"name": "owner_id", "label": "Owner", "kind": "entity_ref", "ref_type": "character"},
+            {"name": "location_id", "label": "Location", "kind": "entity_ref", "ref_type": "location"},
+            {"name": "equipped", "label": "Equipped", "kind": "bool", "default": False},
+            {"name": "condition", "label": "Condition", "kind": "text", "default": "intact"},
         ],
     },
 }
@@ -360,7 +370,10 @@ def _apply_base_fields(db: DbSession, entity: Entity, data: dict) -> None:
 
 def _build_extension_kwargs(db: DbSession, entity_type: str, data: dict) -> dict:
     spec = ENTITY_TYPE_REGISTRY[entity_type]
-    return {f["name"]: _coerce_field(db, f, data.get(f["name"])) for f in spec["fields"]}
+    ext_kwargs = {f["name"]: _coerce_field(db, f, data.get(f["name"])) for f in spec["fields"]}
+    if entity_type == "item" and ext_kwargs.get("equipped") and not ext_kwargs.get("owner_id"):
+        raise HTTPException(422, "Equipping an item requires an owner")
+    return ext_kwargs
 
 
 # ── Request bodies ──────────────────────────────────────────────────────────────
@@ -677,6 +690,34 @@ def delete_knowledge(knowledge_id: str, db: DbSession = Depends(get_session)) ->
     db.delete(k)
     db.commit()
     return {"deleted": True, "id": knowledge_id}
+
+
+# ── In-context items (read-only, for the character sheet) ────────────────────
+
+@router.get("/entities/{entity_id}/items")
+def list_entity_items(entity_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
+    """Items owned by `entity_id` — read-only listing for the character sheet.
+
+    Single write path: item edition lives only in the entity author flow
+    (ENTITY_TYPE_REGISTRY["item"]).
+    """
+    _get_entity(db, entity_id)
+    rows = db.exec(
+        select(Item, Entity)
+        .join(Entity, Entity.id == Item.id)
+        .where(Item.owner_id == entity_id)
+        .order_by(Entity.name)
+    ).all()
+    return [
+        {
+            "id": item.id,
+            "name": entity.name,
+            "equipped": item.equipped,
+            "condition": item.condition,
+            "location_id": item.location_id,
+        }
+        for item, entity in rows
+    ]
 
 
 __all__ = ["router", "ENTITY_TYPE_REGISTRY"]

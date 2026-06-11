@@ -384,6 +384,9 @@ input.notes::placeholder { color: var(--muted); }
 /* conversation status */
 .b-open   { background:#0d2c12; color:var(--green); }
 .b-closed { background:#1c2128; color:var(--muted); }
+/* item equip status */
+.b-equipped { background:#0d2c12; color:var(--green); border:1px solid #238636; }
+.b-stowed   { background:#1c2128; color:var(--muted); border:1px solid var(--border); }
 
 .target-ref { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 
@@ -2399,7 +2402,42 @@ function authorRenderSheet(detail, isNew, type) {
     html += '</div>';
   }
 
+  if (!isNew && type === 'character') {
+    html += '<div class="field-section"><div class="field-section-title">Items</div>';
+    html += '<div id="author-items"><div class="empty"><span class="spin">⟳</span></div></div>';
+    html += '</div>';
+  }
+
   document.getElementById('author-main').innerHTML = html;
+
+  if (!isNew && type === 'character') {
+    authorLoadItems(detail.id);
+  }
+}
+
+/** Read-only "Items" section on a character sheet (single write path: entity flow). */
+async function authorLoadItems(entityId) {
+  const el = document.getElementById('author-items');
+  if (!el) return;
+  try {
+    const items = await api(`/api/entities/${encodeURIComponent(entityId)}/items`);
+    el.innerHTML = authorRenderItems(items);
+  } catch (e) {
+    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function authorRenderItems(items) {
+  if (!items || items.length === 0) return '<div class="empty">No items.</div>';
+  return '<div class="row-table">' + items.map(it => `
+    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between;">
+      <span>${esc(it.name)}</span>
+      <span style="display:flex; align-items:center; gap:8px;">
+        <span style="color:var(--muted); font-size:12px;">${esc(it.condition)}</span>
+        <span class="badge ${it.equipped ? 'b-equipped' : 'b-stowed'}">${it.equipped ? 'equipped' : 'stowed'}</span>
+      </span>
+    </div>
+  `).join('') + '</div>';
 }
 
 /** Re-render the sheet for a new entity when the type selector changes. */

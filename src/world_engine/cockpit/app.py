@@ -40,7 +40,7 @@ from ..gathering import enter_location as _enter_location
 from ..gathering import migrate_npc as _migrate_npc
 from ..analyzer import analyze_conversation as _analyze_conversation
 from ..analyzer import analyze_single_turn as _analyze_single_turn
-from ..context import assemble_mj_context, assemble_npc_context, format_mj_context
+from ..context import assemble_mj_context, assemble_npc_context, format_inventory_line, format_mj_context
 from ..db import engine, get_session
 from ..models import (
     Character,
@@ -936,6 +936,7 @@ def _build_mj_user(
     player_line: str,
     npc_reply: str,
     mj_context: dict | None = None,
+    inventory_line: str = "",
 ) -> str:
     """Build the MJ narration user message for the given mode.
 
@@ -949,16 +950,23 @@ def _build_mj_user(
     co-presents, player knowledge, public events). Empty/None → no block.
     `scene` mode benefits most (environment prose finally has material).
 
+    `inventory_line` (schema v1.15, BRIEF-06): the player's static inventory
+    line (`format_inventory_line`), read fresh every turn — never cached.
+    Prepended ahead of the scene description in every mode.
+
     /no_think appended on all modes; the stream filter backs it up.
     """
     context_block = format_mj_context(mj_context) if mj_context else ""
     if context_block:
         context_block = f"=== CONTEXTE DE SCÈNE ===\n{context_block}\n"
 
+    inventory_block = f"{inventory_line}\n" if inventory_line else ""
+
     if mode == ResponseMode.dialogue:
         return (
             mj_user_template
             .replace("{mj_context}", context_block)
+            .replace("{inventory_line}", inventory_block)
             .replace("{npc_name}", npc_name)
             .replace("{location_name}", location_name)
             .replace("{player_line}", player_line)
@@ -968,6 +976,7 @@ def _build_mj_user(
     if mode == ResponseMode.npc_reaction:
         return (
             f"{context_block}"
+            f"{inventory_block}"
             f"Scène : {npc_name} dans « {location_name} ».\n"
             f"Mode : réaction non-verbale.\n\n"
             f"Le joueur fait :\n{player_line}\n\n"
@@ -980,6 +989,7 @@ def _build_mj_user(
     # ResponseMode.scene
     return (
         f"{context_block}"
+        f"{inventory_block}"
         f"Lieu : « {location_name} ».\n"
         f"Mode : description d'environnement — le PNJ n'est pas impliqué.\n\n"
         f"Action du joueur :\n{player_line}\n\n"
@@ -1404,6 +1414,9 @@ def say(
                 )
                 if conv.location_id else None
             )
+            # Inventory line (schema v1.15, BRIEF-06): read fresh every turn,
+            # never cached or snapshotted alongside mj_context.
+            inventory_line = format_inventory_line(db, conv.player_id)
             mj_user = _build_mj_user(
                 mode=mode,
                 mj_user_template=mj_user_template,
@@ -1412,6 +1425,7 @@ def say(
                 player_line=content,
                 npc_reply=npc_reply,
                 mj_context=mj_context,
+                inventory_line=inventory_line,
             )
 
         # ── MJ narration (streamed to the player) ─────────────────────────────

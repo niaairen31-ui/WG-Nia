@@ -104,7 +104,10 @@ World-genrator/
 │       │                    #   gathering co-presence injection, contract D1);
 │       │                    #   MJ context assembler (assemble_mj_context,
 │       │                    #   format_mj_context — player's perception
-│       │                    #   boundary, scope D-b3)
+│       │                    #   boundary, scope D-b3);
+│       │                    #   format_inventory_line — player's static
+│       │                    #   inventory line, read fresh per turn (BRIEF-06,
+│       │                    #   schema v1.15)
 │       ├── gathering.py     # initial NPC clustering (generate_gatherings,
 │       │                    #   enter_location, contracts A2/B1/C1) + migrate_npc
 │       │                    #   (idempotent NPC migration between gatherings,
@@ -137,6 +140,9 @@ World-genrator/
 │           │                # MJ context wiring (_build_mj_user mj_context param,
 │           │                #   assemble_mj_context calls in start_conversation,
 │           │                #   scene_join, say — scope D-b3);
+│           │                # _build_mj_user inventory_line param — player's
+│           │                #   static inventory, read fresh per turn via
+│           │                #   format_inventory_line (BRIEF-06, schema v1.15);
 │           │                # creator travel control (POST /api/travel, TravelBody — E1)
 │           │                # cockpit batch review (POST /api/mutations/batch-review,
 │           │                #   BatchReviewBody, _append_note, _BATCH_REVIEW_MARKER —
@@ -147,7 +153,9 @@ World-genrator/
 │                            #   (contract C2) + join-candidates picker;
 │                            #   scene-view Travel control ("Voyager" — E1);
 │                            #   review queue batch selection (per-row checkboxes on
-│                            #   'proposed' rows, select all/none, batch approve/reject)
+│                            #   'proposed' rows, select all/none, batch approve/reject);
+│                            #   Author CRUD character sheet — read-only Items
+│                            #   section (equipped vs stowed, BRIEF-06)
 │                            #   (inline CSS/JS, zero external deps)
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
