@@ -65,9 +65,10 @@ Read both before making any structural change.
   proposals, after creator approval) and the creator CRUD (direct creator
   authority). No code path may ever write canon in response to an AI
   proposal outside `_apply_mutation`.
-- **History is sacred on BOTH write paths:** any edit to `relation` (either
-  path) appends the previous state to `change_history`; states are
-  preserved, never silently overwritten.
+- **History is sacred on BOTH write paths:** any edit to `relation` or
+  `knowledge` (either write path — `_apply_mutation` or creator CRUD)
+  appends the previous state to `change_history`; states are preserved,
+  never silently overwritten.
 - **Commit before touching any canon-writing path** (`_apply_mutation`, the
   creator CRUD, and everything they call).
 - **The MJ context assembler is scoped to the player's perception

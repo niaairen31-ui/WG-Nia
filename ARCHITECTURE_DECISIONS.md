@@ -353,8 +353,11 @@ the author CRUD uses `mode="set"` (intensity set to an absolute value).
 **Both modes append the previous state to `change_history` before writing**
 — history is sacred on either path — via the shared
 `_append_history_snapshot` helper; the 1-100 intensity clamp applies to both.
-Author edits to `knowledge` are full in-place updates (no history table for
-`knowledge`, per schema) and pass through no `proposed_mutation`.
+Author edits to `knowledge` are full in-place updates and pass through no
+`proposed_mutation`; as of schema v1.16, `writes.write_knowledge` likewise
+appends the row's previous state to `knowledge.change_history` before any
+in-place update, via the shared `_append_knowledge_history` helper —
+history is sacred on this path too.
 
 Creator-mode-only: the CRUD router is mounted on the cockpit app (loopback
 only, no auth) and is never reachable from, or invoked by, any AI-proposal

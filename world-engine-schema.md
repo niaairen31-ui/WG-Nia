@@ -186,7 +186,9 @@ CREATE TABLE knowledge (
                    -- is_secret = TRUE (secrets are never shared, whatever the relation).
   acquired_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
-  session_id       TEXT             -- acquired during which session
+  session_id       TEXT,            -- acquired during which session
+  change_history   JSON DEFAULT '[]'  -- archived previous states, mirror of
+                     --                  relation.change_history
 );
 -- NOTE: when the NPC has no relation toward the interlocutor, the assembler
 --       treats the relation as neutral (intensity 50). A row therefore shares
@@ -606,6 +608,16 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.16** — Added `knowledge.change_history` (JSON DEFAULT '[]'), an exact
+  mirror of `relation.change_history`. CRUD debt fix (same class as the
+  retroactive `relation` fix in v1.11): `writes.write_knowledge` now appends
+  the row's previous state — `level`, `content`, `source`, `is_incorrect`,
+  `updated_at`, plus `changed_by` (`"creator_crud"` | `"apply_mutation"`) and
+  `changed_at` — to `change_history` via the new `_append_knowledge_history`
+  helper before any in-place update. Existing rows start with `[]`; no
+  backfill (past edits are unrecoverable). Row creation and deletion are
+  unaffected. The helper is shared and ready for `knowledge_change` apply
+  support, which arrives in the following step (not implemented here).
 - **v1.15** — No new tables or columns. Comment-level changes only:
   documented `local_ai_overhearing` as a third AI source tag on
   `proposed_mutation.proposed_by` (Tier 4 overhearing pass — bystanders

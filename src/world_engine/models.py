@@ -226,6 +226,10 @@ class Knowledge(SQLModel, table=True):
     acquired_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
     session_id: Optional[str] = None  # no FK in schema
+    change_history: list = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
+    )
 
 
 # -----------------------------------------------------------------------------
