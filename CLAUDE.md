@@ -138,10 +138,16 @@ World-genrator/
 │           │                #   assemble_mj_context calls in start_conversation,
 │           │                #   scene_join, say — scope D-b3);
 │           │                # creator travel control (POST /api/travel, TravelBody — E1)
+│           │                # cockpit batch review (POST /api/mutations/batch-review,
+│           │                #   BatchReviewBody, _append_note, _BATCH_REVIEW_MARKER —
+│           │                #   loops _apply_mutation / unit-reject fields per row,
+│           │                #   skip-if-not-proposed, "batch-review" creator_notes marker)
 │           └── index.html   # single-page UI; MJ narration rendering;
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;
-│                            #   scene-view Travel control ("Voyager" — E1)
+│                            #   scene-view Travel control ("Voyager" — E1);
+│                            #   review queue batch selection (per-row checkboxes on
+│                            #   'proposed' rows, select all/none, batch approve/reject)
 │                            #   (inline CSS/JS, zero external deps)
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
@@ -203,7 +209,11 @@ prepend `src` to `sys.path`, so they run without an editable install.
   Per-turn `proposed_mutation` rows (`proposed_by='local_ai_immediate'`) are
   written silently after each turn. Use **Analyze** to run the final pass (which
   filters `relation_change` and deduplicates against the per-turn flags). Approve
-  / reject proposals in the queue. Binds to loopback only. Requires Ollama for
+  / reject proposals in the queue individually, or select several `proposed`
+  rows via checkboxes and use **Approve selected** / **Reject selected**
+  (`POST /api/mutations/batch-review`) — sequential, per row, through the same
+  `_apply_mutation` / unit-reject paths; stale or already-reviewed rows are
+  skipped. Binds to loopback only. Requires Ollama for
   all AI calls (NPC, MJ, analysis). The scene view's **Voyager** control
   (`POST /api/travel`) lets the creator move the player to any location: a
   silent, clean transition (closes the open conversation and the player's

@@ -602,6 +602,19 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.14** — No new tables or columns. Application-layer **cockpit batch
+  review** (`POST /api/mutations/batch-review`, cockpit `app.py`): the review
+  queue gains per-row checkboxes (rendered only for `status = 'proposed'`
+  rows) plus a "select all / none" toggle and "Approve selected" / "Reject
+  selected" buttons. The endpoint processes the selected ids sequentially,
+  re-checking each row's status (`!= 'proposed'` → skipped, never touched —
+  history is sacred), and routes approve through the existing
+  `_apply_mutation` (same SAVEPOINT, duplicate guard, and "Needs attention"
+  fallback as unit approve) and reject through the same field updates as unit
+  reject. Processed rows get the literal `batch-review` marker appended to
+  `creator_notes`. Returns verdict counts (`applied` / `needs_attention` /
+  `skipped`, or `rejected` / `skipped`). Deferred decision: payload editing in
+  batch is deliberately excluded — editing means unit review.
 - **v1.13** — No new tables or columns. Application-layer **creator travel
   control** (`POST /api/travel`, cockpit `app.py`): a clean location
   transition for the player — closes any open `conversation` (status →

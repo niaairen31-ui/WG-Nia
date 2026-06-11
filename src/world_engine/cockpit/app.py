@@ -10,6 +10,8 @@ POST /api/conversations/{id}/analyze  (re)generate proposed mutations via Ollama
 GET  /api/mutations?status=proposed   list proposed_mutation rows
 POST /api/mutations/{id}/reject       mark rejected; no canon write
 POST /api/mutations/{id}/approve      apply to canon; on failure set 'approved'
+POST /api/mutations/batch-review      approve/reject several proposed rows,
+                                       sequentially, through the same paths
 
 Security
 --------
@@ -2455,3 +2457,116 @@ def approve_mutation(
             "error": error_msg,
             "mutation": _mutation_dict(mut),
         }
+
+
+_BATCH_REVIEW_MARKER = "batch-review"
+
+
+def _append_note(existing: Optional[str], note: str) -> str:
+    prior = existing or ""
+    return f"{prior}\n{note}".strip()
+
+
+class BatchReviewBody(BaseModel):
+    action: str  # "approve" | "reject"
+    mutation_ids: list[str]
+
+
+@app.post("/api/mutations/batch-review")
+def batch_review_mutations(
+    body: BatchReviewBody,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Approve or reject several proposed mutations in one gesture.
+
+    Sequential, per-row, through the SAME paths as unit review
+    (`_apply_mutation` for approve, the unit reject fields for reject).
+    Payloads are applied exactly as proposed — no batch payload editing.
+
+    Each row is re-loaded and re-checked: only `status == 'proposed'` rows
+    are processed. Anything else (already reviewed, e.g. a stale client
+    selection) is SKIPPED, never touched — reviewed rows are immutable
+    history. One row failing to apply never stops the loop; it lands in
+    "Needs attention" exactly as in unit review.
+
+    Every processed row gets the `batch-review` marker appended to
+    `creator_notes`, so a batch decision is distinguishable from a unit
+    decision later.
+    """
+    if body.action not in ("approve", "reject"):
+        raise HTTPException(
+            status_code=422, detail="action must be 'approve' or 'reject'"
+        )
+
+    now = datetime.now(UTC)
+    skipped = 0
+
+    if body.action == "approve":
+        applied = 0
+        needs_attention = 0
+
+        for mut_id in body.mutation_ids:
+            mut = db.get(ProposedMutation, mut_id)
+            if mut is None or mut.status != "proposed":
+                skipped += 1
+                continue
+
+            mut.reviewed_at = now
+
+            try:
+                # SAVEPOINT: same per-row isolation as unit approve — a failed
+                # apply rolls back only the canon writes for this row.
+                with db.begin_nested():
+                    error = _apply_mutation(mut, db)
+                    if error:
+                        raise RuntimeError(error)
+
+                mut.status = "applied"
+                mut.applied_at = now
+                mut.creator_notes = _append_note(
+                    mut.creator_notes, _BATCH_REVIEW_MARKER
+                )
+                db.add(mut)
+                db.commit()
+                applied += 1
+
+            except Exception as exc:
+                error_msg = str(exc)
+                mut.status = "approved"
+                mut.creator_notes = _append_note(
+                    _append_note(mut.creator_notes, f"[apply error] {error_msg}"),
+                    _BATCH_REVIEW_MARKER,
+                )
+                db.add(mut)
+                db.commit()
+                needs_attention += 1
+
+        return {
+            "status": "ok",
+            "action": "approve",
+            "applied": applied,
+            "needs_attention": needs_attention,
+            "skipped": skipped,
+        }
+
+    # action == "reject"
+    rejected = 0
+    for mut_id in body.mutation_ids:
+        mut = db.get(ProposedMutation, mut_id)
+        if mut is None or mut.status != "proposed":
+            skipped += 1
+            continue
+
+        mut.status = "rejected"
+        mut.reviewed_at = now
+        mut.creator_notes = _append_note(mut.creator_notes, _BATCH_REVIEW_MARKER)
+        db.add(mut)
+        db.commit()
+        rejected += 1
+
+    return {
+        "status": "ok",
+        "action": "reject",
+        "rejected": rejected,
+        "skipped": skipped,
+    }

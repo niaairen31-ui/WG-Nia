@@ -98,6 +98,9 @@ approved proposals.
   needs attention).
 - Approve / reject mutations with an optional creator note and (for approve) an
   editable payload before writing.
+- **Batch review** (`POST /api/mutations/batch-review`, schema v1.14) — select
+  several `proposed` rows via checkboxes and approve/reject them in one
+  gesture, sequentially through the same unit-review paths (see below).
 - **Travel** (scene view "Voyager" control, `POST /api/travel`, schema v1.13)
   — a creator tool performing a clean location transition (close conversation,
   close gathering membership, update `current_location_id`); silent, no
@@ -251,6 +254,38 @@ deltas sum across turns: two independent +5 events total +10 and must both apply
 `relation_change` proposals come only from per-turn immediate flags (one per turn);
 the final pass never proposes them. There is therefore no double-application risk,
 and the guard would incorrectly block a legitimate second event.
+
+### Batch review
+
+`POST /api/mutations/batch-review` (schema v1.14) adds a batch gesture over the
+**existing** unit review paths — no new canon-write path, no payload editing.
+
+**Selection** — the review queue shows one checkbox per row, rendered ONLY for
+`status = 'proposed'` rows; reviewed rows have none. A "select all / none"
+toggle acts on the currently displayed proposed rows. "Approve selected" /
+"Reject selected" are disabled while zero rows are checked.
+
+**Processing** — sequential, per row, in selection order:
+- Re-load the row; if `status != 'proposed'`, SKIP it (counted, not touched).
+  This re-check defends "history is sacred" against a stale client selection
+  (e.g. the row was already reviewed in another tab).
+- Approve: the same `_apply_mutation` call as unit approve, stored payload
+  unmodified, inside its own SAVEPOINT. The duplicate-application guard and
+  the "Needs attention" routing apply per row exactly as in unit review. One
+  row's failure never stops the loop.
+- Reject: same field updates as unit reject (`status='rejected'`,
+  `reviewed_at`). No creator note input in batch.
+
+**Verdict** — the endpoint returns counts (`applied` / `needs_attention` /
+`skipped` for approve; `rejected` / `skipped` for reject); the cockpit shows
+them and refreshes the queue.
+
+**Audit trail** — every row the batch endpoint actually processes (not
+skipped) gets the literal marker `batch-review` appended to `creator_notes`,
+distinguishing a batch decision from a unit decision later.
+
+**Deferred decision** — payload editing in batch is deliberately excluded;
+editing means unit review.
 
 ### History is sacred — force protection
 

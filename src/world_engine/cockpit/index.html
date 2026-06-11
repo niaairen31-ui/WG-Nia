@@ -229,6 +229,33 @@ header .local-badge {
 .f-btn:hover  { color: var(--text); border-color: var(--muted); }
 .f-btn.active { background: var(--card); color: var(--text); border-color: var(--accent); }
 
+/* ── Batch review ────────────────────────────────────────────────────────── */
+.batch-verdict {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  white-space: pre-wrap;
+}
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px 4px;
+  flex-shrink: 0;
+}
+.batch-bar label {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+.batch-count { font-size: 12px; color: var(--muted); }
+.batch-actions { display: flex; gap: 8px; margin-left: auto; }
+.row-select { cursor: pointer; }
+
 /* ── Mutation card ───────────────────────────────────────────────────────── */
 .card {
   background: var(--card);
@@ -900,6 +927,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
         </div>
         <button class="btn-icon" onclick="loadQueue()" title="Refresh queue">↻</button>
       </div>
+      <div class="batch-verdict" id="batch-verdict" style="display:none"></div>
       <div class="queue-body" id="queue-body">
         <div class="empty"><span class="spin">⟳</span></div>
       </div>
@@ -1830,6 +1858,7 @@ function setFilter(btn, status) {
   document.querySelectorAll('.f-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   currentFilter = status;
+  hideBatchVerdict();
   loadQueue();
 }
 
@@ -1857,10 +1886,28 @@ async function loadQueue() {
       }
       return;
     }
-    body.innerHTML = mutations.map(renderCard).join('');
+    const batchBar = (currentFilter === 'proposed') ? renderBatchBar() : '';
+    body.innerHTML = batchBar + mutations.map(renderCard).join('');
+    if (batchBar) updateBatchBar();
   } catch (e) {
     body.innerHTML = `<div class="empty" style="color:var(--red)">Error: ${esc(e.message)}</div>`;
   }
+}
+
+/** Toolbar shown above the "proposed" queue: select all/none + batch actions. */
+function renderBatchBar() {
+  return `
+<div class="batch-bar" id="batch-bar">
+  <label>
+    <input type="checkbox" id="batch-select-all-cb" onchange="toggleSelectAll(this)">
+    Select all / none
+  </label>
+  <span class="batch-count" id="batch-count">0 selected</span>
+  <div class="batch-actions">
+    <button class="btn-approve" id="batch-approve-btn" onclick="doBatchAction('approve')" disabled>✓ Approve selected</button>
+    <button class="btn-reject" id="batch-reject-btn" onclick="doBatchAction('reject')" disabled>✗ Reject selected</button>
+  </div>
+</div>`;
 }
 
 function renderCard(m) {
@@ -1888,9 +1935,16 @@ function renderCard(m) {
     ? `<div class="card-dup-warn"><strong>⚠ Duplicate risk — approving will be blocked:</strong>${esc(m.applied_duplicate)}</div>`
     : '';
 
+  // Checkboxes are rendered ONLY for selectable rows (status='proposed') —
+  // reviewed rows (applied/approved/rejected) get no checkbox.
+  const checkbox = (m.status === 'proposed')
+    ? `<input type="checkbox" class="row-select" data-id="${esc(m.id)}" onchange="updateBatchBar()">`
+    : '';
+
   return `
 <div class="card s-${esc(m.status)}" id="card-${esc(m.id)}">
   <div class="card-head">
+    ${checkbox}
     <span class="badge b-${esc(m.mutation_type)}">${esc(m.mutation_type)}</span>
     ${targetTxt ? `<span class="target-ref">${esc(targetTxt)}</span>` : ''}
     <span class="badge b-${esc(m.status)}">${esc(m.status)}</span>
@@ -2006,6 +2060,87 @@ async function doReject(id) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
+   Batch review
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function getSelectedMutationIds() {
+  return Array.from(document.querySelectorAll('.row-select:checked'))
+    .map(cb => cb.dataset.id);
+}
+
+/** "Select all / none" toggle — acts on the currently displayed proposed rows. */
+function toggleSelectAll(masterCb) {
+  document.querySelectorAll('.row-select').forEach(cb => {
+    cb.checked = masterCb.checked;
+  });
+  updateBatchBar();
+}
+
+/** Sync the batch button states + counter + master checkbox with the current selection. */
+function updateBatchBar() {
+  const checkboxes = document.querySelectorAll('.row-select');
+  const checked    = document.querySelectorAll('.row-select:checked');
+  const count      = checked.length;
+
+  const countEl = document.getElementById('batch-count');
+  if (countEl) countEl.textContent = count + ' selected';
+
+  const apEl = document.getElementById('batch-approve-btn');
+  const rjEl = document.getElementById('batch-reject-btn');
+  if (apEl) apEl.disabled = (count === 0);
+  if (rjEl) rjEl.disabled = (count === 0);
+
+  const masterCb = document.getElementById('batch-select-all-cb');
+  if (masterCb) {
+    masterCb.checked = checkboxes.length > 0 && count === checkboxes.length;
+    masterCb.indeterminate = count > 0 && count < checkboxes.length;
+  }
+}
+
+function hideBatchVerdict() {
+  const el = document.getElementById('batch-verdict');
+  if (el) { el.style.display = 'none'; el.className = 'batch-verdict'; el.textContent = ''; }
+}
+
+function showBatchVerdict(cls, msg) {
+  const el = document.getElementById('batch-verdict');
+  if (!el) return;
+  el.className = 'batch-verdict' + (cls ? ' r-' + cls : '');
+  el.textContent = msg;
+  el.style.display = '';
+}
+
+/** Approve / reject the selected proposed mutations as one batch. */
+async function doBatchAction(action) {
+  const ids = getSelectedMutationIds();
+  if (!ids.length) return;
+
+  const apEl = document.getElementById('batch-approve-btn');
+  const rjEl = document.getElementById('batch-reject-btn');
+  if (apEl) apEl.disabled = true;
+  if (rjEl) rjEl.disabled = true;
+  showBatchVerdict('', '⟳ Processing batch…');
+
+  try {
+    const data = await api('/api/mutations/batch-review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, mutation_ids: ids }),
+    });
+
+    const msg = (action === 'approve')
+      ? `${data.applied} applied, ${data.needs_attention} needs attention, ${data.skipped} skipped`
+      : `${data.rejected} rejected, ${data.skipped} skipped`;
+    showBatchVerdict('ok', '✓ ' + msg);
+  } catch (e) {
+    showBatchVerdict('err', '✗ ' + e.message);
+  } finally {
+    // Refresh so row statuses (and the proposed list) are current.
+    await loadQueue();
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
    Card helpers
    ════════════════════════════════════════════════════════════════════════════ */
 
@@ -2049,6 +2184,12 @@ function markCardDone(id, newStatus) {
   if (pl) pl.readOnly = true;
   const nt = card.querySelector('.notes');
   if (nt) nt.readOnly = true;
+
+  // Row is no longer 'proposed' — drop its batch checkbox and refresh the
+  // batch bar (count / select-all state may have changed).
+  const cb = card.querySelector('.row-select');
+  if (cb) cb.remove();
+  updateBatchBar();
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
