@@ -36,6 +36,36 @@ KNOWLEDGE_LEVELS = frozenset(
     {"unaware", "rumor", "suspicious", "partial", "knows", "fully_understands"}
 )
 
+# Ordered ladder, lowest to highest. Shared by the analyzer (overhearing /
+# direct-affirmation upgrade detection) and `_apply_mutation`'s monotone
+# guard for `knowledge_change` — one source of truth for level ordering.
+KNOWLEDGE_LEVEL_LADDER: tuple[str, ...] = (
+    "unaware", "rumor", "suspicious", "partial", "knows", "fully_understands",
+)
+
+
+def knowledge_level_rank(level: Optional[str]) -> int:
+    """Return `level`'s position on `KNOWLEDGE_LEVEL_LADDER`, or -1 if unrecognised.
+
+    An unrecognised level ranks below 'unaware' so it can never satisfy a
+    monotone "target > existing" check — invalid levels fail safe.
+    """
+    try:
+        return KNOWLEDGE_LEVEL_LADDER.index(level)
+    except ValueError:
+        return -1
+
+
+def cap_knowledge_level(level: str, cap: str = "knows") -> str:
+    """Clamp `level` to at most `cap` on the ladder.
+
+    Direct-affirmation rule: a target level is never granted above `cap`
+    (default `knows`) by hearsay — `fully_understands` is creator CRUD only.
+    """
+    if knowledge_level_rank(level) > knowledge_level_rank(cap):
+        return cap
+    return level
+
 
 def _clamp(value: int, lo: int = 1, hi: int = 100) -> int:
     return max(lo, min(hi, int(value)))
@@ -268,4 +298,12 @@ def write_knowledge(
     return k
 
 
-__all__ = ["write_relation", "write_knowledge", "KNOWLEDGE_LEVELS"]
+__all__ = [
+    "write_relation",
+    "write_knowledge",
+    "KNOWLEDGE_LEVELS",
+    "KNOWLEDGE_LEVEL_LADDER",
+    "knowledge_level_rank",
+    "cap_knowledge_level",
+    "_append_knowledge_history",
+]

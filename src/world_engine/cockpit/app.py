@@ -50,12 +50,18 @@ from ..models import (
     Entity,
     Gathering,
     GatheringMember,
+    Knowledge,
     PromptTemplate,
     ProposedMutation,
     Relation,
     Session as GameSession,
 )
-from ..writes import write_knowledge, write_relation
+from ..writes import (
+    _append_knowledge_history,
+    knowledge_level_rank,
+    write_knowledge,
+    write_relation,
+)
 from . import crud as _crud
 
 _INDEX_HTML = Path(__file__).parent / "index.html"
@@ -196,9 +202,13 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                          clamp to 1–100, append previous state to change_history.
     - new_knowledge    : insert a knowledge row for the target entity.
     - status_change    : update entity.status and entity.updated_at.
+    - knowledge_change : find the knowledge row by entity_id + subject, append
+                         its previous state to change_history, update level
+                         and source. Monotone — never applies a level that is
+                         not strictly higher than the row's current level.
 
-    Unimplemented types (event_creation, entity_creation, knowledge_change, other)
-    are left as 'approved' with a note — better un-applied than wrongly applied.
+    Unimplemented types (event_creation, entity_creation, other) are left as
+    'approved' with a note — better un-applied than wrongly applied.
     """
     # ── Duplicate guard ───────────────────────────────────────────────────────
     # Must run before any write.  If an equivalent mutation was already applied
@@ -283,6 +293,33 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
         entity.status = str(new_status)
         entity.updated_at = datetime.now(UTC)
         db.add(entity)
+        return None
+
+    # ── knowledge_change ──────────────────────────────────────────────────────
+    elif mut.mutation_type == "knowledge_change":
+        entity_id = payload.get("entity_id") or mut.target_id
+        subject = payload.get("subject")
+        if not entity_id or not subject:
+            return "knowledge_change: payload must contain entity_id and subject"
+
+        row = db.exec(
+            select(Knowledge).where(
+                Knowledge.entity_id == entity_id,
+                Knowledge.subject == subject,
+            )
+        ).first()
+        if row is None:
+            return "knowledge row not found"
+
+        to_level = payload.get("to_level")
+        if knowledge_level_rank(row.level) >= knowledge_level_rank(to_level):
+            return "level already >= proposed"
+
+        _append_knowledge_history(row, "apply_mutation")
+        row.level = to_level
+        row.source = str(payload.get("source") or row.source)
+        row.updated_at = datetime.now(UTC)
+        db.add(row)
         return None
 
     # ── unimplemented ─────────────────────────────────────────────────────────
