@@ -13,7 +13,9 @@ functions so that clamping and field validation live in exactly one place.
   (history is sacred on both write paths); creating a new edge starts with
   an empty `change_history`, same as `mode="delta"`.
 - `write_knowledge(...)`               : insert or update a `knowledge` row.
-  `knowledge_id=None` creates; otherwise updates that row in place.
+  `knowledge_id=None` creates; otherwise updates that row in place, appending
+  the previous state to `change_history` first (history is sacred on this
+  path too — see `_append_knowledge_history`).
 
 Callers add the returned row to the session; neither function commits.
 """
@@ -33,6 +35,36 @@ from .models import Knowledge, Relation
 KNOWLEDGE_LEVELS = frozenset(
     {"unaware", "rumor", "suspicious", "partial", "knows", "fully_understands"}
 )
+
+# Ordered ladder, lowest to highest. Shared by the analyzer (overhearing /
+# direct-affirmation upgrade detection) and `_apply_mutation`'s monotone
+# guard for `knowledge_change` — one source of truth for level ordering.
+KNOWLEDGE_LEVEL_LADDER: tuple[str, ...] = (
+    "unaware", "rumor", "suspicious", "partial", "knows", "fully_understands",
+)
+
+
+def knowledge_level_rank(level: Optional[str]) -> int:
+    """Return `level`'s position on `KNOWLEDGE_LEVEL_LADDER`, or -1 if unrecognised.
+
+    An unrecognised level ranks below 'unaware' so it can never satisfy a
+    monotone "target > existing" check — invalid levels fail safe.
+    """
+    try:
+        return KNOWLEDGE_LEVEL_LADDER.index(level)
+    except ValueError:
+        return -1
+
+
+def cap_knowledge_level(level: str, cap: str = "knows") -> str:
+    """Clamp `level` to at most `cap` on the ladder.
+
+    Direct-affirmation rule: a target level is never granted above `cap`
+    (default `knows`) by hearsay — `fully_understands` is creator CRUD only.
+    """
+    if knowledge_level_rank(level) > knowledge_level_rank(cap):
+        return cap
+    return level
 
 
 def _clamp(value: int, lo: int = 1, hi: int = 100) -> int:
@@ -56,6 +88,30 @@ def _append_history_snapshot(rel: Relation, mutation_id: Optional[str] = None) -
     # flag_modified ensures SQLAlchemy detects the JSON list change
     # even though we replaced the object (not mutated it in place).
     sa_attrs.flag_modified(rel, "change_history")
+
+
+def _append_knowledge_history(row: Knowledge, changed_by: str) -> None:
+    """Append a snapshot of `row`'s PREVIOUS state to its `change_history`.
+
+    Called before any overwrite of an existing `knowledge` row — history is
+    sacred on every write path that updates `knowledge` (creator CRUD via
+    `write_knowledge`; `knowledge_change` apply in `_apply_mutation`).
+    `changed_by` is `"creator_crud"` or `"apply_mutation"`.
+    """
+    history = list(row.change_history or [])
+    history.append({
+        "level": row.level,
+        "content": row.content,
+        "source": row.source,
+        "is_incorrect": row.is_incorrect,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "changed_by": changed_by,
+        "changed_at": datetime.now(UTC).isoformat(),
+    })
+    row.change_history = history
+    # flag_modified ensures SQLAlchemy detects the JSON list change
+    # even though we replaced the object (not mutated it in place).
+    sa_attrs.flag_modified(row, "change_history")
 
 
 def write_relation(
@@ -189,11 +245,15 @@ def write_knowledge(
     is_secret: bool = False,
     share_threshold: int = 50,
     session_id: Optional[str] = None,
+    changed_by: str = "creator_crud",
 ) -> Knowledge:
     """Insert or update a `knowledge` row. Caller adds the row to the session.
 
     `knowledge_id=None` inserts a new row (`entity_id`, `subject` and `level`
-    required). Otherwise updates that row in place and bumps `updated_at`.
+    required); `change_history` starts empty. Otherwise updates that row in
+    place and bumps `updated_at` — the previous state is appended to
+    `change_history` first (history is sacred), tagged with `changed_by`
+    (`"creator_crud"` or `"apply_mutation"`).
 
     `level` falls back to "rumor" if missing or outside `KNOWLEDGE_LEVELS` —
     matching the analyzer's existing default for model output that doesn't
@@ -209,6 +269,7 @@ def write_knowledge(
         k = db.get(Knowledge, knowledge_id)
         if k is None:
             raise ValueError(f"write_knowledge: knowledge {knowledge_id!r} not found")
+        _append_knowledge_history(k, changed_by=changed_by)
         if subject is not None:
             k.subject = subject
         k.level = norm_level
@@ -237,4 +298,12 @@ def write_knowledge(
     return k
 
 
-__all__ = ["write_relation", "write_knowledge", "KNOWLEDGE_LEVELS"]
+__all__ = [
+    "write_relation",
+    "write_knowledge",
+    "KNOWLEDGE_LEVELS",
+    "KNOWLEDGE_LEVEL_LADDER",
+    "knowledge_level_rank",
+    "cap_knowledge_level",
+    "_append_knowledge_history",
+]

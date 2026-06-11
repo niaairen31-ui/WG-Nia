@@ -39,6 +39,7 @@ from .. import ollama_client
 from ..gathering import enter_location as _enter_location
 from ..gathering import migrate_npc as _migrate_npc
 from ..analyzer import analyze_conversation as _analyze_conversation
+from ..analyzer import analyze_overhearing as _analyze_overhearing
 from ..analyzer import analyze_single_turn as _analyze_single_turn
 from ..context import assemble_mj_context, assemble_npc_context, format_mj_context
 from ..db import engine, get_session
@@ -49,12 +50,18 @@ from ..models import (
     Entity,
     Gathering,
     GatheringMember,
+    Knowledge,
     PromptTemplate,
     ProposedMutation,
     Relation,
     Session as GameSession,
 )
-from ..writes import write_knowledge, write_relation
+from ..writes import (
+    _append_knowledge_history,
+    knowledge_level_rank,
+    write_knowledge,
+    write_relation,
+)
 from . import crud as _crud
 
 _INDEX_HTML = Path(__file__).parent / "index.html"
@@ -117,6 +124,12 @@ def _find_applied_duplicate(
     both apply. These come only from per-turn immediate flags (one per turn),
     so they are never re-proposed by the final pass and can never be
     double-applied by --force.
+
+    knowledge_change is also intentionally EXCLUDED. Successive legitimate
+    upgrades in one conversation (e.g. rumor → partial, then later
+    partial → knows) must both apply — the monotone re-check inside
+    _apply_mutation ("level already >= proposed") is the correct guard, not
+    an identity-based duplicate check.
     """
     if not mut.conversation_id:
         return None
@@ -195,9 +208,13 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                          clamp to 1–100, append previous state to change_history.
     - new_knowledge    : insert a knowledge row for the target entity.
     - status_change    : update entity.status and entity.updated_at.
+    - knowledge_change : find the knowledge row by entity_id + subject, append
+                         its previous state to change_history, update level
+                         and source. Monotone — never applies a level that is
+                         not strictly higher than the row's current level.
 
-    Unimplemented types (event_creation, entity_creation, knowledge_change, other)
-    are left as 'approved' with a note — better un-applied than wrongly applied.
+    Unimplemented types (event_creation, entity_creation, other) are left as
+    'approved' with a note — better un-applied than wrongly applied.
     """
     # ── Duplicate guard ───────────────────────────────────────────────────────
     # Must run before any write.  If an equivalent mutation was already applied
@@ -282,6 +299,33 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
         entity.status = str(new_status)
         entity.updated_at = datetime.now(UTC)
         db.add(entity)
+        return None
+
+    # ── knowledge_change ──────────────────────────────────────────────────────
+    elif mut.mutation_type == "knowledge_change":
+        entity_id = payload.get("entity_id") or mut.target_id
+        subject = payload.get("subject")
+        if not entity_id or not subject:
+            return "knowledge_change: payload must contain entity_id and subject"
+
+        row = db.exec(
+            select(Knowledge).where(
+                Knowledge.entity_id == entity_id,
+                Knowledge.subject == subject,
+            )
+        ).first()
+        if row is None:
+            return "knowledge row not found"
+
+        to_level = payload.get("to_level")
+        if knowledge_level_rank(row.level) >= knowledge_level_rank(to_level):
+            return "level already >= proposed"
+
+        _append_knowledge_history(row, "apply_mutation")
+        row.level = to_level
+        row.source = str(payload.get("source") or row.source)
+        row.updated_at = datetime.now(UTC)
+        db.add(row)
         return None
 
     # ── unimplemented ─────────────────────────────────────────────────────────
@@ -1668,6 +1712,30 @@ def say(
                     flag_db.commit()
             except (Exception, SystemExit):
                 pass
+
+        # Overhearing analysis (sync-after-stream, Tier 4, acquire or upgrade).
+        # 'dialogue' turns only — 'scene' has no NPC line, 'npc_reaction' is
+        # wordless (analyze_overhearing's own guard would also catch both via
+        # an empty npc_reply, but the mode check keeps the gating explicit).
+        # Failures are silently swallowed — analysis must never surface to
+        # the player.
+        if mode == ResponseMode.dialogue:
+            with Session(engine) as overhear_db:
+                try:
+                    overheard = _analyze_overhearing(
+                        player_line=content,
+                        npc_line=npc_reply,
+                        conversation_id=conv_id,
+                        db=overhear_db,
+                        model=model,
+                        npc_entity_id=responder_id,
+                    )
+                    for mut in overheard:
+                        overhear_db.add(mut)
+                    if overheard:
+                        overhear_db.commit()
+                except (Exception, SystemExit):
+                    pass
 
         # Per-turn analysis for the initiative NPC line (same pipeline — the
         # act itself creates no mutation, only its consequences do, per D1).

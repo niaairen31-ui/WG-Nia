@@ -186,7 +186,9 @@ CREATE TABLE knowledge (
                    -- is_secret = TRUE (secrets are never shared, whatever the relation).
   acquired_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
-  session_id       TEXT             -- acquired during which session
+  session_id       TEXT,            -- acquired during which session
+  change_history   JSON DEFAULT '[]'  -- archived previous states, mirror of
+                     --                  relation.change_history
 );
 -- NOTE: when the NPC has no relation toward the interlocutor, the assembler
 --       treats the relation as neutral (intensity 50). A row therefore shares
@@ -397,6 +399,11 @@ CREATE TABLE proposed_mutation (
                                            -- local_ai_immediate : per-turn analysis
                                            --                      (fires after each turn,
                                            --                       owns all relation_change)
+                                           -- local_ai_overhearing : Tier 4 overhearing
+                                           --                      pass (new_knowledge
+                                           --                      acquisitions and
+                                           --                      knowledge_change
+                                           --                      upgrades, v1.17)
                                            -- claude | creator
   proposed_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   reviewed_at     DATETIME,
@@ -490,7 +497,8 @@ CREATE TABLE prompt_template (
   usage            TEXT NOT NULL,
                    -- pass_play_analysis | lore_coherence | event_generation |
                    -- player_narration | session_summary | npc_dialogue |
-                   -- conversation_analysis | mj_interpretation | other
+                   -- conversation_analysis | mj_interpretation |
+                   -- overhearing_classification | other
   system_prompt    TEXT NOT NULL,
   user_template    TEXT NOT NULL,   -- user message template (with variables)
   variables        JSON,            -- expected variable list
@@ -602,6 +610,67 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.17** — No new tables or columns. Application-layer: `knowledge_change`
+  is now implemented in `_apply_mutation` (cockpit `app.py`) — the fourth
+  implemented mutation type alongside `relation_change`, `new_knowledge`, and
+  `status_change`.
+  Finds the `knowledge` row by `entity_id` + `subject` (never creates — that
+  is `new_knowledge`'s job); guards, in order: (a) row not found → "Needs
+  attention" with note `knowledge row not found`; (b) monotone re-check at
+  apply time — current `level` >= payload `to_level` → "Needs attention"
+  with note `level already >= proposed`. On success, appends the row's
+  previous state via `_append_knowledge_history(row, "apply_mutation")`
+  (v1.16 helper), then updates `level`, `source`, and `updated_at`.
+  `knowledge_change` is deliberately ABSENT from `_find_applied_duplicate`:
+  unlike `new_knowledge`/`status_change` (idempotent facts), successive
+  legitimate upgrades in one conversation (e.g. `rumor → partial`, then
+  `partial → knows`) must both apply — the monotone check at apply time is
+  the correct guard, not an identity-based duplicate check.
+  — **Deterministic level ladder** (decision E): `unaware < rumor <
+  suspicious < partial < knows < fully_understands`. Two new shared helpers
+  in `writes.py`: `knowledge_level_rank` (ladder position, -1 if
+  unrecognised) and `cap_knowledge_level` (clamp to at most `knows` by
+  default).
+  — **Detection at both per-turn sites**, payload shape `{entity_id,
+  subject, from_level, to_level, source}` with `source` in
+  `"overheard:{conversation_id}:{speaker_id}"` or
+  `"affirmed:{conversation_id}:{speaker_id}"` form (the latter new
+  alongside `overheard:` from v1.15):
+  - `analyze_overhearing` (Tier 4): a receiver who already holds a row on
+    the overheard subject now gets a `knowledge_change` proposal (instead of
+    being skipped outright) when the computed level — one step below the
+    speaker's, floored at `rumor` — is strictly higher than the receiver's
+    existing level (monotone); proposal-dedup (k) extended to
+    `knowledge_change`. Plain acquisitions (`new_knowledge`, no existing
+    row) are unchanged.
+  - `analyze_single_turn` (per-turn pass): a normalized `new_knowledge` item
+    whose target entity already holds a row on the subject is converted to
+    `knowledge_change` (direct affirmation) — two-party speaker resolution
+    (receiver = player → speaker = the turn's responding NPC; receiver = NPC
+    → speaker = the player), K2 guard (speaker holds no row → drop), secret
+    guard (speaker's row `is_secret` → drop), target level = speaker's row
+    level capped at `knows` via `cap_knowledge_level` (model-proposed level
+    ignored; `fully_understands` never granted by hearsay), monotone (target
+    <= receiver's existing level → drop). Plain acquisitions (receiver holds
+    no row) are untouched — no K2 retrofit there, out of scope.
+- **v1.16** — Added `knowledge.change_history` (JSON DEFAULT '[]'), an exact
+  mirror of `relation.change_history`. CRUD debt fix (same class as the
+  retroactive `relation` fix in v1.11): `writes.write_knowledge` now appends
+  the row's previous state — `level`, `content`, `source`, `is_incorrect`,
+  `updated_at`, plus `changed_by` (`"creator_crud"` | `"apply_mutation"`) and
+  `changed_at` — to `change_history` via the new `_append_knowledge_history`
+  helper before any in-place update. Existing rows start with `[]`; no
+  backfill (past edits are unrecoverable). Row creation and deletion are
+  unaffected. The helper is shared and ready for `knowledge_change` apply
+  support, which arrives in the following step (not implemented here).
+- **v1.15** — No new tables or columns. Comment-level changes only:
+  documented `local_ai_overhearing` as a third AI source tag on
+  `proposed_mutation.proposed_by` (Tier 4 overhearing pass — bystanders
+  acquire knowledge from a turn, acquisition-only, never level upgrades) and
+  `overhearing_classification` in the `prompt_template.usage` list. Deferred
+  decision: **E3-general upgrade rule** (`knowledge_change` apply + upgrade
+  detection) is the next step; speaker-level cap at `knows` for direct
+  affirmation belongs to that step.
 - **v1.14** — No new tables or columns. Application-layer **cockpit batch
   review** (`POST /api/mutations/batch-review`, cockpit `app.py`): the review
   queue gains per-row checkboxes (rendered only for `status = 'proposed'`

@@ -55,16 +55,20 @@ Read both before making any structural change.
   "guarded by instruction". `character.secrets` is creator meta-narrative
   (notes ABOUT the character: true nature, planned arcs) and is NEVER read
   by any context assembler. What an NPC knows-but-conceals lives in
-  `knowledge` rows with `is_secret = TRUE`, excluded by the assembler.
+  `knowledge` rows with `is_secret = TRUE`, excluded by the assembler. This
+  exclusion extends to every propagation path, not just context assembly:
+  `analyze_overhearing` (Tier 4) never sources a proposal from a
+  `knowledge` row with `is_secret = TRUE`.
 - **`entity_a_id` in gathering analysis** comes from the analyzed NPC line's
   `speaker_id`, never from `conv.npc_id` (legacy single-NPC fallback only).
 - **Two sanctioned canon-write paths, no others:** `_apply_mutation` (AI
   proposals, after creator approval) and the creator CRUD (direct creator
   authority). No code path may ever write canon in response to an AI
   proposal outside `_apply_mutation`.
-- **History is sacred on BOTH write paths:** any edit to `relation` (either
-  path) appends the previous state to `change_history`; states are
-  preserved, never silently overwritten.
+- **History is sacred on BOTH write paths:** any edit to `relation` or
+  `knowledge` (either write path — `_apply_mutation` or creator CRUD)
+  appends the previous state to `change_history`; states are preserved,
+  never silently overwritten.
 - **Commit before touching any canon-writing path** (`_apply_mutation`, the
   creator CRUD, and everything they call).
 - **The MJ context assembler is scoped to the player's perception
@@ -73,6 +77,14 @@ Read both before making any structural change.
   character's own knowledge). Never NPC-private knowledge, secrets,
   internal names, non-public entities, or invisible relations. Enforced
   by query construction, never by instruction.
+- **Knowledge levels never decrease through the mutation pipeline:** the
+  ladder `unaware < rumor < suspicious < partial < knows <
+  fully_understands` is monotone for every `knowledge_change` proposal and
+  apply — both at detection (overhearing upgrades, direct affirmation) and
+  at apply time (`_apply_mutation`'s "level already >= proposed" guard).
+  `fully_understands` is never granted via any conversational path
+  (structurally capped at `knows`); downgrades, forgetting, and
+  `is_incorrect` correction are creator CRUD only.
 
 ## Local model notes
 
@@ -111,9 +123,18 @@ World-genrator/
 │       │                    #   auto-dissolve emptied source — B1 repair)
 │       ├── ollama_client.py # HTTP client for local Ollama; strips <think> blocks
 │       ├── analyzer.py      # mutation analysis; _normalize_to_schema; _validate_item;
+│       │                    # load_analysis_prompt (usage param, world-specific preferred);
 │       │                    # analyze_conversation (final pass, filters relation_change);
 │       │                    # analyze_single_turn (per-turn immediate flags,
-│       │                    #   proposed_by='local_ai_immediate', within-turn collapse)
+│       │                    #   proposed_by='local_ai_immediate', within-turn collapse);
+│       │                    # analyze_overhearing (Tier 4, acquire or upgrade:
+│       │                    #   gathering-roster receivers, closed-list subject
+│       │                    #   classification, K2/secret/dedup guards,
+│       │                    #   deterministic level-ladder downgrade for
+│       │                    #   acquisition, knowledge_change for monotone
+│       │                    #   upgrades (v1.17), proposed_by='local_ai_overhearing');
+│       │                    # _maybe_convert_new_knowledge_to_change (per-turn
+│       │                    #   direct-affirmation upgrade, v1.17)
 │       └── cockpit/         # creator review web UI (FastAPI sub-app)
 │           ├── __init__.py
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
@@ -142,6 +163,9 @@ World-genrator/
 │           │                #   BatchReviewBody, _append_note, _BATCH_REVIEW_MARKER —
 │           │                #   loops _apply_mutation / unit-reject fields per row,
 │           │                #   skip-if-not-proposed, "batch-review" creator_notes marker)
+│           │                # overhearing analysis (sync-after-stream, dialogue turns
+│           │                #   only): analyze_overhearing call after analyze_single_turn,
+│           │                #   same silent-failure wrapping
 │           └── index.html   # single-page UI; MJ narration rendering;
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;

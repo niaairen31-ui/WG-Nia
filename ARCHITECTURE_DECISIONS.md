@@ -79,6 +79,57 @@ Triggered manually via the **Analyze** button in the cockpit (or `scripts/analyz
 
 Idempotency: re-running without `--force` returns existing proposals. `--force` deletes ONLY rows with `status = 'proposed'` (including per-turn flags); reviewed rows (`applied`, `approved`, `rejected`) are permanent audit history and survive regardless.
 
+### Overhearing analysis pass (`analyze_overhearing`, Tier 4)
+
+A THIRD per-turn pass, fired (sync-after-stream, `dialogue` turns only) after `analyze_single_turn`. NPCs within earshot of a conversation may **acquire** or **upgrade** knowledge from what was said — always via `proposed_mutation`, never by direct write. A receiver with no existing row on the subject gets a `new_knowledge` acquisition; a receiver who already holds a row gets a `knowledge_change` upgrade proposal ONLY if the computed level is strictly higher (monotone) — see "Deterministic level ladder" below (v1.17).
+
+The model's only job is closed-list classification (`pt-overhearing-classification`, `usage = overhearing_classification`): given the turn's player/NPC lines and the world's distinct `knowledge.subject` values, return `[{"subject": ..., "speaker": "player"|"npc"}, ...]`. All attribution, receiver computation, and level computation happen in code.
+
+Guard chain, all before any model call except (g)/(h)/(j)/(k) which run per classified element:
+
+- **Turn-mode guard** — re-checks `npc_line` is non-empty even though the caller already gates on `dialogue`.
+- **Receiver computation (b)** — eligible receivers = active members of the conversation's gathering (`gathering_member.left_at IS NULL`, the single roster source) MINUS the responding NPC MINUS the player. Empty set → return with **no model call** (two-party conversations cost nothing).
+- **Subject list (c)** — `SELECT DISTINCT subject FROM knowledge` scoped to the world. Empty → no model call.
+- **Normalization (e)** — only elements whose `subject` is an EXACT member of the closed list and whose `speaker` ∈ {`player`, `npc`} survive; everything else is dropped and logged. No fuzzy matching.
+- **Speaker resolution (f)** — `speaker = "npc"` → the responding NPC's entity id; `speaker = "player"` → the conversation's player entity id. The eligible receiver set additionally excludes the resolved speaker (an NPC never overhears itself).
+- **K2 guard (g)** — load the SPEAKER's `knowledge` row for the subject. No row → skip the element entirely. The speaker's canonical knowledge is the only authority; a speaker "knowing" without a row is model noise.
+- **Secret guard (h)** — if the speaker's row has `is_secret = TRUE`, skip. Secrets are structurally excluded from NPC context, so a classification match on one is spurious by definition — this extends the secrets invariant to propagation.
+- **Existing-row branch (j)** — for each eligible receiver: no existing row on the subject → `new_knowledge` acquisition (unchanged); an existing row → `knowledge_change` upgrade IF the computed level is strictly higher than the receiver's current level (monotone), else skip silently — no noise in the queue.
+- **Proposal-dedup (k)** — skip a receiver if a `proposed` row already exists for this `(conversation_id, receiver entity_id, subject)` of the SAME mutation type (`new_knowledge` or `knowledge_change`) — re-stating a fact later in the conversation must not stack proposals.
+
+**Deterministic level ladder (i, decision E)** — ladder `unaware < rumor < suspicious < partial < knows < fully_understands`, computed entirely in code (the model never judges levels):
+
+- **Overhearing**: the acquired/target level is one step below the speaker's row level, floored at `rumor`:
+
+```
+fully_understands → knows
+knows             → partial
+partial           → suspicious
+suspicious, rumor → rumor
+```
+
+- **Direct affirmation** (per-turn site, below): the target level is the speaker's row level, capped at `knows` — `fully_understands` is never granted by hearsay, creator CRUD only (`cap_knowledge_level` in `writes.py`).
+- **Monotone everywhere**: levels never go down through this path; if the computed target <= the receiver's existing level, nothing is proposed (silent skip at detection) or nothing is applied (the apply-time guard, "Needs attention").
+
+**Write (l)** — one `proposed_mutation` per surviving (receiver × subject), `proposed_by = 'local_ai_overhearing'`:
+- `new_knowledge` (no existing row): `payload.content` copied VERBATIM from the speaker's row (anti-invention), `payload.is_incorrect` inherited, `payload.source = "overheard:{conversation_id}:{speaker_entity_id}"`. `rationale`: `Overheard from {speaker name} at {location name} (level {speaker level} → {acquired level})`.
+- `knowledge_change` (existing row, upgrade): `payload = {entity_id, subject, from_level, to_level, source}` with `source = "overheard:{conversation_id}:{speaker_entity_id}"`. `rationale`: `Overheard from {speaker name} at {location name} ({from_level} → {to_level})`.
+
+### Per-turn upgrade detection (`analyze_single_turn`, direct affirmation, v1.17)
+
+The per-turn pass's normalization step also detects upgrades: when a normalized `new_knowledge` item's target entity ALREADY holds a `knowledge` row on that subject, it is converted to a `knowledge_change` proposal (or dropped) instead of being proposed as a fresh acquisition — `_maybe_convert_new_knowledge_to_change` in `analyzer.py`.
+
+- **Speaker resolution (two-party)**: receiver = the payload entity. Receiver = the player → speaker = the turn's responding NPC. Receiver = an NPC → speaker = the player.
+- **K2 guard**: speaker holds no row on the subject → DROP the item entirely — model noise must not upgrade canon.
+- **Secret guard**: speaker's row `is_secret = TRUE` → DROP.
+- **Target level**: speaker's row level capped at `knows` (direct-affirmation rule above). The model-proposed level is IGNORED.
+- **Monotone**: target <= receiver's existing level → DROP silently.
+- Surviving items: `payload = {entity_id, subject, from_level, to_level, source}`, `source = "affirmed:{conversation_id}:{speaker_entity_id}"`, `proposed_by = 'local_ai_immediate'`. `rationale`: `Affirmed by {speaker name} at {location name} ({from_level} → {to_level})`.
+
+**Unchanged**: when the receiver holds NO row on the subject, the existing `new_knowledge` flow is untouched — no K2 retrofit on plain acquisitions (out of scope).
+
+`_apply_mutation` now implements `knowledge_change` (see "apply_mutation" above) — both detection sites flow through the same canon-write path and creator approval as every other mutation type.
+
 ---
 
 ## CREATOR REVIEW COCKPIT
@@ -208,13 +259,14 @@ addressable without ambiguity.
 write canon **in response to an AI proposal**, after creator approval. The
 other sanctioned path is the **author CRUD** (see below), for the creator's
 direct edits — see CLAUDE.md, "Two sanctioned canon-write paths, no others."
-Three mutation types are implemented:
+Four mutation types are implemented:
 
 | mutation_type    | What is written |
 |------------------|-----------------|
 | `relation_change`  | Find or create the Relation row; apply intensity delta (clamped 1–100); append previous state to `change_history`. |
 | `new_knowledge`    | Insert a `knowledge` row; inherits `session_id` from the source conversation. |
 | `status_change`    | Update `entity.status` + `entity.updated_at`. |
+| `knowledge_change` | Find the `knowledge` row by `entity_id` + `subject` (never creates — that's `new_knowledge`'s job); append previous state via `_append_knowledge_history(row, "apply_mutation")`; update `level` to payload `to_level`, `source` to payload `source`, `updated_at`. Guards: row not found → "Needs attention" (`knowledge row not found`); current `level` >= `to_level` (monotone re-check at apply time) → "Needs attention" (`level already >= proposed`). |
 
 Any other type is left at `status = 'approved'` with a note — never wrongly
 applied. Better un-applied than wrongly applied.
@@ -254,6 +306,13 @@ deltas sum across turns: two independent +5 events total +10 and must both apply
 `relation_change` proposals come only from per-turn immediate flags (one per turn);
 the final pass never proposes them. There is therefore no double-application risk,
 and the guard would incorrectly block a legitimate second event.
+
+**`knowledge_change` is also intentionally excluded** (v1.17). Successive
+legitimate upgrades in one conversation (e.g. `rumor → partial`, then later
+`partial → knows`) must both apply. The monotone re-check inside
+`_apply_mutation` (current `level` >= proposed `to_level` → "Needs
+attention") is the correct guard here — an identity-based duplicate check
+would incorrectly block the second, legitimate upgrade.
 
 ### Batch review
 
@@ -320,8 +379,11 @@ the author CRUD uses `mode="set"` (intensity set to an absolute value).
 **Both modes append the previous state to `change_history` before writing**
 — history is sacred on either path — via the shared
 `_append_history_snapshot` helper; the 1-100 intensity clamp applies to both.
-Author edits to `knowledge` are full in-place updates (no history table for
-`knowledge`, per schema) and pass through no `proposed_mutation`.
+Author edits to `knowledge` are full in-place updates and pass through no
+`proposed_mutation`; as of schema v1.16, `writes.write_knowledge` likewise
+appends the row's previous state to `knowledge.change_history` before any
+in-place update, via the shared `_append_knowledge_history` helper —
+history is sacred on this path too.
 
 Creator-mode-only: the CRUD router is mounted on the cockpit app (loopback
 only, no auth) and is never reachable from, or invoked by, any AI-proposal
