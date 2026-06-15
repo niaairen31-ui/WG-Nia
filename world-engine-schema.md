@@ -332,7 +332,12 @@ CREATE TABLE conversation (
   injected_context JSON,    -- snapshot of the NPC context used to drive dialogue
                             -- (what the NPC was allowed to know — for audit/replay)
   started_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
-  ended_at         DATETIME
+  ended_at         DATETIME,
+  last_analyzed_turn INTEGER NOT NULL DEFAULT 0
+                            -- high-water mark for window analysis
+                            -- (analyze_window): conversation_message rows with
+                            -- turn_order <= this value have already been
+                            -- analyzed. 0 = never analyzed.
 );
 ```
 
@@ -396,10 +401,25 @@ CREATE TABLE proposed_mutation (
                   -- proposed | approved | rejected | applied
   rationale       TEXT,                    -- why the AI proposed it (raw draft text)
   creator_notes   TEXT,                    -- creator edit/justification
-  proposed_by     TEXT DEFAULT 'local_ai', -- local_ai          : final-pass analysis
-                                           -- local_ai_immediate : per-turn analysis
-                                           --                      (fires after each turn,
-                                           --                       owns all relation_change)
+  proposed_by     TEXT DEFAULT 'local_ai', -- local_ai_window    : window analysis
+                                           --                      (analyze_window, v1.21).
+                                           --                      Fires at scene-boundary
+                                           --                      triggers (conversation
+                                           --                      close, location
+                                           --                      transition, gathering
+                                           --                      dissolution) and the
+                                           --                      manual Analyze button.
+                                           --                      Owns ALL mutation
+                                           --                      types, including
+                                           --                      relation_change (one
+                                           --                      per pair per window —
+                                           --                      see anti-inflation
+                                           --                      rubric).
+                                           -- local_ai_overhearing : Tier 4 overhearing
+                                           --                      pass (new_knowledge
+                                           --                      acquisitions and
+                                           --                      knowledge_change
+                                           --                      upgrades, v1.17)
                                            -- interpretation     : /say interpretation
                                            --                      phase (item_update,
                                            --                      equip toggle) — dormant
@@ -407,11 +427,20 @@ CREATE TABLE proposed_mutation (
                                            --                      no live producer; tag
                                            --                      remains on existing
                                            --                      applied rows
-                                           -- local_ai_overhearing : Tier 4 overhearing
-                                           --                      pass (new_knowledge
-                                           --                      acquisitions and
-                                           --                      knowledge_change
-                                           --                      upgrades, v1.17)
+                                           -- local_ai           : legacy — final-pass
+                                           --                      analysis
+                                           --                      (analyze_conversation,
+                                           --                      removed in v1.21).
+                                           --                      No longer produced;
+                                           --                      historical rows
+                                           --                      preserved.
+                                           -- local_ai_immediate : legacy — per-turn
+                                           --                      analysis
+                                           --                      (analyze_single_turn,
+                                           --                      removed in v1.21).
+                                           --                      No longer produced;
+                                           --                      historical rows
+                                           --                      preserved.
                                            -- claude | creator
   proposed_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   reviewed_at     DATETIME,
@@ -646,6 +675,49 @@ batch   → event
 -----
 
 ## CHANGELOG
+
+- **v1.21** — Window analysis replaces per-turn analysis and the two-tier
+  final pass (BRIEF-09). Adds `conversation.last_analyzed_turn INTEGER NOT
+  NULL DEFAULT 0` — the high-water mark for `analyze_window`
+  (`turn_order <= last_analyzed_turn` already analyzed; 0 = never analyzed).
+  `analyze_single_turn` and `analyze_conversation` (the old final pass, which
+  filtered out `relation_change`) are removed; a single `analyze_window`
+  function now owns all three mutation types (`relation_change`,
+  `new_knowledge`/`knowledge_change`, `status_change`), tagged
+  `proposed_by='local_ai_window'`. It reads only unanalyzed `player`/`npc`
+  `conversation_message` rows (`turn_order > last_analyzed_turn`), is a no-op
+  (no model call, no marker change, no commit) when there is nothing new, and
+  on success persists every surviving proposal AND advances
+  `last_analyzed_turn` atomically in one transaction; on JSON parse failure it
+  logs a warning and returns without advancing the marker so the next trigger
+  retries those turns. Write-time dedup against existing `proposed` rows
+  (via `_mutation_match_key`, idempotent types only) avoids re-proposing a
+  `new_knowledge`/`status_change` already flagged by `analyze_overhearing` for
+  the same window — `relation_change` is never deduped (accumulating type).
+  Fires automatically at three scene-boundary triggers — conversation close
+  (`POST /api/conversations/{id}/end`, `POST /api/travel`), player location
+  transition (`enter_scene`, for any conversation left open at the previous
+  location), and gathering dissolution (`enter_location` and `migrate_npc` in
+  `gathering.py`) — plus the manual cockpit **Analyze** button
+  (`POST /api/conversations/{id}/analyze`), which now returns
+  `{"status": "nothing_new"}` when there are no unanalyzed turns.
+  `--force` semantics changed: deletes only `status='proposed'` rows for the
+  conversation and resets `last_analyzed_turn` to 0, then re-runs over the
+  full transcript — reviewed rows (`applied`/`approved`/`rejected`) are never
+  deleted (history is sacred); re-analyzing the full transcript may re-propose
+  relation deltas that were already applied, so force re-proposals must be
+  reviewed manually. `_normalize_to_schema` is hardened for multi-NPC windows:
+  the old `npc_entity_id`/`conv.npc_id` default for an unresolved
+  `relation_change.entity_a_id` is removed — if either `entity_a_id` or
+  `entity_b_id` cannot be resolved from the model's output, the item is
+  skipped and logged rather than attributed to a window-level default.
+  `pt-conversation-analysis` is bumped to `version=3`, adding an
+  anti-inflation rubric: at most one `relation_change` per ordered entity
+  pair per window (the net effect across the window, not a sum of per-turn
+  deltas), and routine/cordial exchanges are not by themselves grounds for a
+  `relation_change`. `proposed_mutation.proposed_by` gains `local_ai_window`;
+  `local_ai` and `local_ai_immediate` are documented as legacy — no longer
+  produced, historical rows preserved.
 
 - **v1.20** — Possession-only check + NPC reaction to refused gestures
   (BRIEF-08, D2a.1). No new tables or columns. `pt-mj-interpretation`

@@ -51,37 +51,120 @@ When a player talks to an NPC, the engine builds that NPC's prompt: who it is, w
 
 ---
 
-## CONVERSATION ANALYSIS — Two-tier proposal system
+## CONVERSATION ANALYSIS — Window analysis (BRIEF-09, schema v1.21)
 
-Proposals are generated at two moments, by two functions in `analyzer.py`.
+A single function, `analyze_window(conversation_id, db, ...)` in
+`analyzer.py`, owns all proposal generation for a conversation. It replaces
+the former two-tier system (a per-turn immediate pass that owned
+`relation_change`, plus a final pass that filtered it out) — see "Deferred
+decisions" for the rationale.
 
-### Per-turn immediate analysis (`analyze_single_turn`)
+### `analyze_window`
 
-Fires automatically **after each turn's MJ narration stream**, while the player is composing their next line. Analyses only the current exchange (one `[JOUEUR]` + one `[PNJ]` line). Uses the same prompt, normaliser, and validator as the final pass.
+1. **Load** — reads the `conversation` row and its `conversation_message`
+   rows with `turn_order > conversation.last_analyzed_turn` and
+   `speaker ∈ {player, npc}` (`mj` rows are never fed to the model), ordered
+   by `turn_order`.
+2. **No-op** — if there are no such rows, return `[]` immediately: no model
+   call, no marker change, no commit. This is the steady state between scene
+   boundaries when nothing new has happened since the last analysis.
+3. **Prompt** — the `pt-conversation-analysis` template (`usage =
+   conversation_analysis`, v3 — see "Anti-inflation rubric" below) over the
+   unanalyzed transcript + the `injected_context` snapshot.
+4. **Call** — `ollama_client.chat()` with `format="json"`. Thinking mode
+   enabled; `strip_think()` removes the block before parsing.
+5. **Parse failure** — if the response is not valid JSON or not a list, log a
+   warning and return `[]` WITHOUT advancing `last_analyzed_turn` — the next
+   trigger retries these same turns.
+6. **Normalise + validate** — `_normalize_to_schema(raw_item, conv)` maps the
+   model's natural field names to our schema; items that cannot be normalised
+   (including a `relation_change` whose `entity_a_id`/`entity_b_id` cannot be
+   resolved — see "Multi-NPC `relation_change` attribution" below) are skipped
+   and logged. ALL THREE mutation types survive — `relation_change` is no
+   longer filtered.
+7. **Write-time dedup** — `_mutation_match_key` (idempotent types only:
+   `new_knowledge` on `(entity_id, subject)`, `status_change` on `entity_id`)
+   against existing `proposed` rows for this conversation, so a fact already
+   flagged by `analyze_overhearing` (Tier 4, fires sync-after-stream every
+   turn) for the same window isn't re-proposed. `relation_change` is never
+   deduped — it accumulates, and `analyze_window` is its only producer.
+8. **Persist** — `db.add()` each surviving mutation (`proposed_by =
+   'local_ai_window'`), set `conversation.last_analyzed_turn =
+   max(turn_order)` over the rows just read, single `db.commit()`. Returns the
+   list of written mutations.
 
-- Tagged `proposed_by = 'local_ai_immediate'`.
-- **Owns all `relation_change` proposals.** Relation deltas accumulate across turns (two independent +5 events total +10); the final pass must never re-propose them.
-- Within-turn collapse: if the model emits duplicate `relation_change` entries for the same entity pair + type in one response (model stutter), only the first is kept.
-- Failures are silently swallowed — analysis must never surface to the player.
+### Triggers
 
-### Final-pass analysis (`analyze_conversation`)
+`analyze_window` fires automatically at three scene-boundary points, plus a
+manual button. Each automatic trigger calls it inside `try/except (Exception,
+SystemExit)`, logged via `_log.exception` — analysis must never block a scene
+transition or a conversation close.
 
-Triggered manually via the **Analyze** button in the cockpit (or `scripts/analyze_conversation.py`). Reads the full transcript (`player` and `npc` rows only — `mj` rows are excluded).
+- **(a) Conversation close** — `POST /api/conversations/{id}/end` and
+  `POST /api/travel` (the loop that closes the player's open conversations),
+  before the row's `status` is set to `closed`.
+- **(b) Player location transition** — `enter_scene`, inside the "no open
+  gatherings yet" guard: any conversation the player left open at a
+  *different* location is analyzed before `enter_location` regenerates the
+  new location's partition.
+- **(c) Gathering dissolution** — `gathering.py`'s `enter_location`
+  (dissolving the location's open gatherings before regenerating) and
+  `migrate_npc` (auto-dissolving an emptied source gathering): any
+  conversation still open on the dissolving gathering is analyzed first.
+- **Manual** — the cockpit's **Analyze** button
+  (`POST /api/conversations/{id}/analyze`). Returns `{"status":
+  "nothing_new", "count": 0, "proposals": []}` when there are no unanalyzed
+  turns (no model call).
 
-1. **Load** — reads the `conversation` row, its ordered `conversation_message` rows (speaker ∈ {`player`, `npc`}), and the `injected_context` snapshot.
-2. **Prompt** — the `pt-conversation-analysis` template (`usage = conversation_analysis`, editable in DB) instructs the model to identify ONLY concrete changes that ACTUALLY occurred. An empty result is explicitly valid for idle chat.
-3. **Call** — `ollama_client.chat()` with `format="json"`. Thinking mode enabled; `strip_think()` removes the block before parsing.
-4. **Normalise** — `_normalize_to_schema()` maps the model's natural field names to our schema (the 8b model reliably detects *what* changed but ignores exact field names).
-5. **Validate** — items that cannot be normalised are skipped and logged.
-6. **Filter** — `relation_change` items are dropped before writing. Rationale: the per-turn flags already sum the full arc; re-proposing them would double-count.
-7. **Deduplicate** — remaining items are checked against existing `proposed` rows for this conversation using the idempotent match key (`entity_id` + `subject` for `new_knowledge`; `entity_id` for `status_change`). Only what the per-turn flags missed is written.
-8. **Write** — each surviving item becomes one `proposed_mutation` row: `status = proposed`, `proposed_by = local_ai`.
+### Force (debug path)
 
-Idempotency: re-running without `--force` returns existing proposals. `--force` deletes ONLY rows with `status = 'proposed'` (including per-turn flags); reviewed rows (`applied`, `approved`, `rejected`) are permanent audit history and survive regardless.
+`--force` (cockpit `Force` button, or `scripts/analyze_conversation.py
+--force`) deletes ONLY `status='proposed'` rows for the conversation and
+resets `conversation.last_analyzed_turn` to 0, then re-runs over the full
+transcript. Reviewed rows (`applied`, `approved`, `rejected`) are NEVER
+deleted — history is sacred.
+
+> Force is a debug path: re-analyzing the full transcript may re-propose
+> relation deltas that were already applied. Review re-proposals manually.
+
+### Anti-inflation rubric (`pt-conversation-analysis` v3)
+
+Per-turn analysis caused relation inflation — every cordial exchange produced
+a `+5 relation_change`, aggressive scenes could still net positive, and the
+review queue filled with near-duplicate deltas. `analyze_window` runs over a
+multi-turn window instead, and the prompt (v3) instructs the model to: emit at
+most ONE `relation_change` per ordered entity pair per window, representing
+the NET effect across the whole window (not a sum of per-turn increments);
+not treat routine/cordial exchanges as relation-worthy by themselves; and keep
+`|intensity_delta|` proportionate to the weight of the event. This moves
+`relation_change` ownership from "one delta per turn, summed" to "one delta
+per pair per window, judged holistically".
+
+### Multi-NPC `relation_change` attribution
+
+In a window spanning a multi-NPC gathering, more than one entity pair may be
+in play. `_normalize_to_schema` therefore does NOT fall back to a
+window-level "entity_a" (the old `npc_entity_id`/`conv.npc_id` default is
+removed): a `relation_change` is kept only if the model's own output resolves
+both `entity_a_id` and `entity_b_id` per item; otherwise the item is skipped
+and logged (`[skip] Item {i}: normalization failed`). A lost-but-visible
+consequence beats a false-but-recorded one. Per-item resolution against the
+gathering roster is deferred — see "Deferred decisions".
 
 ### Overhearing analysis pass (`analyze_overhearing`, Tier 4)
 
-A THIRD per-turn pass, fired (sync-after-stream, `dialogue` turns only) after `analyze_single_turn`. NPCs within earshot of a conversation may **acquire** or **upgrade** knowledge from what was said — always via `proposed_mutation`, never by direct write. A receiver with no existing row on the subject gets a `new_knowledge` acquisition; a receiver who already holds a row gets a `knowledge_change` upgrade proposal ONLY if the computed level is strictly higher (monotone) — see "Deterministic level ladder" below (v1.17).
+A per-turn pass, fired (sync-after-stream, `dialogue` turns only) after the
+main turn's NPC/MJ phases. NPCs within earshot of a conversation may
+**acquire** or **upgrade** knowledge from what was said — always via
+`proposed_mutation`, never by direct write. A receiver with no existing row on
+the subject gets a `new_knowledge` acquisition; a receiver who already holds a
+row gets a `knowledge_change` upgrade proposal ONLY if the computed level is
+strictly higher (monotone) — see "Deterministic level ladder" below (v1.17).
+It coexists with `analyze_window` via the write-time dedup in step 7 above:
+`analyze_window` never re-proposes a `new_knowledge` acquisition that
+`analyze_overhearing` already flagged for the same window (idempotent types
+only — `relation_change` and `knowledge_change` are not covered by this key
+and may both legitimately appear from either pass).
 
 The model's only job is closed-list classification (`pt-overhearing-classification`, `usage = overhearing_classification`): given the turn's player/NPC lines and the world's distinct `knowledge.subject` values, return `[{"subject": ..., "speaker": "player"|"npc"}, ...]`. All attribution, receiver computation, and level computation happen in code.
 
@@ -108,27 +191,22 @@ partial           → suspicious
 suspicious, rumor → rumor
 ```
 
-- **Direct affirmation** (per-turn site, below): the target level is the speaker's row level, capped at `knows` — `fully_understands` is never granted by hearsay, creator CRUD only (`cap_knowledge_level` in `writes.py`).
+- `analyze_overhearing` caps the acquired/upgraded level at `knows` in code
+  (`_KNOWLEDGE_LEVEL_DOWNGRADE` above). `analyze_window` applies no such
+  ceiling: a model-proposed `knowledge_change` only passes
+  `_apply_mutation`'s monotonicity guard (no level decrease) — there is no
+  upper bound. The effective ceiling on this path is creator approval, not a
+  structural guarantee. Downgrades, forgetting, and `is_incorrect` correction
+  remain creator CRUD only.
 - **Monotone everywhere**: levels never go down through this path; if the computed target <= the receiver's existing level, nothing is proposed (silent skip at detection) or nothing is applied (the apply-time guard, "Needs attention").
 
 **Write (l)** — one `proposed_mutation` per surviving (receiver × subject), `proposed_by = 'local_ai_overhearing'`:
 - `new_knowledge` (no existing row): `payload.content` copied VERBATIM from the speaker's row (anti-invention), `payload.is_incorrect` inherited, `payload.source = "overheard:{conversation_id}:{speaker_entity_id}"`. `rationale`: `Overheard from {speaker name} at {location name} (level {speaker level} → {acquired level})`.
 - `knowledge_change` (existing row, upgrade): `payload = {entity_id, subject, from_level, to_level, source}` with `source = "overheard:{conversation_id}:{speaker_entity_id}"`. `rationale`: `Overheard from {speaker name} at {location name} ({from_level} → {to_level})`.
 
-### Per-turn upgrade detection (`analyze_single_turn`, direct affirmation, v1.17)
-
-The per-turn pass's normalization step also detects upgrades: when a normalized `new_knowledge` item's target entity ALREADY holds a `knowledge` row on that subject, it is converted to a `knowledge_change` proposal (or dropped) instead of being proposed as a fresh acquisition — `_maybe_convert_new_knowledge_to_change` in `analyzer.py`.
-
-- **Speaker resolution (two-party)**: receiver = the payload entity. Receiver = the player → speaker = the turn's responding NPC. Receiver = an NPC → speaker = the player.
-- **K2 guard**: speaker holds no row on the subject → DROP the item entirely — model noise must not upgrade canon.
-- **Secret guard**: speaker's row `is_secret = TRUE` → DROP.
-- **Target level**: speaker's row level capped at `knows` (direct-affirmation rule above). The model-proposed level is IGNORED.
-- **Monotone**: target <= receiver's existing level → DROP silently.
-- Surviving items: `payload = {entity_id, subject, from_level, to_level, source}`, `source = "affirmed:{conversation_id}:{speaker_entity_id}"`, `proposed_by = 'local_ai_immediate'`. `rationale`: `Affirmed by {speaker name} at {location name} ({from_level} → {to_level})`.
-
-**Unchanged**: when the receiver holds NO row on the subject, the existing `new_knowledge` flow is untouched — no K2 retrofit on plain acquisitions (out of scope).
-
-`_apply_mutation` now implements `knowledge_change` (see "apply_mutation" above) — both detection sites flow through the same canon-write path and creator approval as every other mutation type.
+`_apply_mutation` implements `knowledge_change` (see "apply_mutation" above) —
+both `analyze_overhearing` and `analyze_window` proposals flow through the
+same canon-write path and creator approval as every other mutation type.
 
 ---
 
@@ -141,10 +219,13 @@ approved proposals.
 ### What it does
 
 - **Live play** — select an NPC, start a conversation, type turns. Each turn runs
-  the three-phase `/say` flow (see below). Per-turn proposals accumulate silently.
+  the three-phase `/say` flow (interpret → NPC → MJ; see below). Overhearing
+  proposals (Tier 4) accumulate silently each turn; window analysis runs only
+  at scene boundaries.
 - Reads conversations and renders them as a chat transcript with the MJ narration
   as primary text and the raw NPC line as a muted audit annotation below each turn.
-- Triggers (re-)analysis via `analyzer.analyze_conversation` (final pass).
+- Triggers (re-)analysis via `analyzer.analyze_window` — automatically at
+  scene-boundary triggers, or manually via the **Analyze** button.
 - Lists the review queue filterable by status (`proposed` / applied / rejected /
   needs attention).
 - Approve / reject mutations with an optional creator note and (for approve) an
@@ -261,14 +342,13 @@ compatible for plain 1:1 conversations (`conv.gathering_id IS NULL`).
    sends either `{"joined": {...}}` or `{"join_candidates": [...]}`. Result
    persisted as `speaker='mj'` (presentation layer).
 
-3. **Per-turn analysis** (sync-after-stream) — runs after `[DONE]` is sent, while
-   the player reads and types. Calls `analyze_single_turn()`. For `scene` and
-   `join` turns `npc_reply` is `""`; the mini-transcript ends with `[PNJ] ` and
-   the model correctly returns `[]`. Silently writes `proposed_mutation` rows
-   tagged `proposed_by='local_ai_immediate'`. A refused turn (BRIEF-08/D2a.1) is
-   `dialogue` mode with a normal, non-empty `npc_reply` — analysis runs exactly
-   as for any other dialogue turn, so a ridiculous or threatening failed gesture
-   can legitimately produce a `relation_change`.
+Overhearing analysis (Tier 4, `analyze_overhearing`) still runs
+sync-after-stream for `dialogue` turns, after the MJ phase. Window analysis
+(`analyze_window`, BRIEF-09) no longer runs per turn — it fires only at scene
+boundaries (conversation close, location transition, gathering dissolution)
+and via the cockpit's manual Analyze button; see "CONVERSATION ANALYSIS —
+Window analysis" above. No `proposed_mutation` rows (other than overhearing's)
+are written during a turn itself.
 
 The NPC's words never reach the player directly — the player always reads the MJ's narration, which quotes them verbatim (`dialogue`) or renders them as third-person prose (`npc_reaction`, `join`).
 
@@ -592,9 +672,10 @@ appended — `format="json"` already constrains output. A hardcoded fallback
 - An empty `act_text` (e.g. bare `{"move": true}`) skips **both** the act and
   the migration — no migration without narration.
 - The initiative line persists as a normal `conversation_message`
-  (`speaker='npc'`), its MJ narration as `speaker='mj'`, and both feed
-  `analyze_single_turn` — an initiative act can produce `proposed_mutation`
-  rows like any other line; only the act of speaking/moving itself is exempt.
+  (`speaker='npc'`), its MJ narration as `speaker='mj'`, and both are
+  included in the next `analyze_window` pass (BRIEF-09) — an initiative act
+  can produce `proposed_mutation` rows like any other turn; only the act of
+  speaking/moving itself is exempt.
 
 ### C3 — Widening the vote to the whole location (Option A v1)
 
@@ -764,6 +845,43 @@ The minimal version tells us in a few days whether the dialogue "holds" before b
 - History is sacred — nothing overwritten; successive states preserved.
 - Creator owns and edits every master prompt.
 - Everything is an entity; magic is an actor.
+
+---
+
+## Deferred decisions
+
+Recorded here so each is revisited deliberately rather than forgotten:
+
+- **Generic `scene_state` table** (investigation/fire/chase scenes). Deferred
+  because v1 scope is conversation-centric; no step has yet needed structured
+  non-conversation scene state.
+- **Coup-de-grâce exception to the unconsciousness ceiling.** Deferred because
+  no combat-resolution step has been scoped yet; the ceiling rule has no
+  carve-out until one is.
+- **Every-N-turns fallback cadence for long scenes** (window analysis,
+  BRIEF-09). Deferred because scene-boundary triggers (close, location
+  transition, gathering dissolution) plus the manual button were judged
+  sufficient for v1; revisit only if live testing shows scenes running long
+  enough that unanalyzed turns accumulate noticeably between boundaries.
+- **Code-level relation-amplitude threshold (D2 guard)** (window analysis,
+  BRIEF-09). Deferred pending live-test results of the
+  `pt-conversation-analysis` v3 anti-inflation rubric — add a code-side cap
+  only if the prompt-level rubric proves insufficient in practice.
+- **Per-item `entity_a`/`entity_b` resolution against the gathering roster**
+  for multi-NPC windows (window analysis, BRIEF-09). Today an unresolvable
+  `relation_change` is skipped and logged (`_normalize_to_schema`, see
+  "CONVERSATION ANALYSIS — Window analysis" above) rather than attributed to a
+  default NPC. If live testing in multi-NPC scenes shows the model frequently
+  omits `entity_a_id`/`entity_b_id`, a follow-up step should resolve them
+  per-item against the gathering membership (candidate set = present roster)
+  — separate change, separate commit.
+- **Player knowledge acquisition and organization.** How the player character
+  accumulates and structures what they know is an open design question. The
+  current `knows` ceiling on `analyze_overhearing` (see "Deterministic level
+  ladder" above) is a v1 testing safeguard, not a settled invariant — do not
+  harden a code-level `knows` cap on `analyze_window`'s `knowledge_change`
+  path until this is decided; doing so would lock in a choice that is
+  deliberately still open.
 
 ---
 

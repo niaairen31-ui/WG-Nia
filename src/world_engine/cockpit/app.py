@@ -38,9 +38,8 @@ from sqlmodel import Session, select
 from .. import ollama_client
 from ..gathering import enter_location as _enter_location
 from ..gathering import migrate_npc as _migrate_npc
-from ..analyzer import analyze_conversation as _analyze_conversation
 from ..analyzer import analyze_overhearing as _analyze_overhearing
-from ..analyzer import analyze_single_turn as _analyze_single_turn
+from ..analyzer import analyze_window as _analyze_window
 from ..context import (
     assemble_mj_context,
     assemble_npc_context,
@@ -183,27 +182,6 @@ def _find_applied_duplicate(
                     f"applied by mutation {prev.id[:8]}…"
                 )
 
-    return None
-
-
-# ── Deduplication key ────────────────────────────────────────────────────────
-
-def _mutation_match_key(mutation_type: str, payload: dict):
-    """Return a hashable match key for per-conversation deduplication, or None.
-
-    Used by the final-pass analyze endpoint to avoid re-proposing what per-turn
-    immediate flags already captured.  Only idempotent mutation types are keyed
-    here — applying the same idempotent fact twice is wrong; accumulating deltas
-    (relation_change) must never be suppressed.
-
-    relation_change is intentionally EXCLUDED: deltas accumulate across turns
-    and the final pass never proposes them (per-turn flags own all relation arcs).
-    """
-    if mutation_type == "new_knowledge":
-        return ("new_knowledge", payload.get("entity_id"), payload.get("subject"))
-    if mutation_type == "status_change":
-        eid = payload.get("entity_id")
-        return ("status_change", eid) if eid else None
     return None
 
 
@@ -1840,26 +1818,6 @@ def say(
             ))
             persist_db.commit()
 
-        # Per-turn immediate analysis (sync-after-stream). For scene turns
-        # npc_reply is "" — the analyzer handles empty replies correctly (no rows).
-        # Failures are silently swallowed — analysis must never surface to the player.
-        with Session(engine) as flag_db:
-            try:
-                immediate = _analyze_single_turn(
-                    player_line=content,
-                    npc_reply=npc_reply,
-                    conversation_id=conv_id,
-                    db=flag_db,
-                    model=model,
-                    npc_entity_id=responder_id,
-                )
-                for mut in immediate:
-                    flag_db.add(mut)
-                if immediate:
-                    flag_db.commit()
-            except (Exception, SystemExit):
-                pass
-
         # Overhearing analysis (sync-after-stream, Tier 4, acquire or upgrade).
         # 'dialogue' turns only — 'scene' has no NPC line, 'npc_reaction' is
         # wordless (analyze_overhearing's own guard would also catch both via
@@ -1884,37 +1842,21 @@ def say(
                 except (Exception, SystemExit):
                     pass
 
-        # Per-turn analysis for the initiative NPC line (same pipeline — the
-        # act itself creates no mutation, only its consequences do, per D1).
-        if initiative_npc_reply:
-            with Session(engine) as flag_db:
-                try:
-                    initiative_immediate = _analyze_single_turn(
-                        player_line="",  # spontaneous — no player line to re-analyze
-                        npc_reply=initiative_npc_reply,
-                        conversation_id=conv_id,
-                        db=flag_db,
-                        model=model,
-                        npc_entity_id=initiative_initiator_id,
-                    )
-                    for mut in initiative_immediate:
-                        flag_db.add(mut)
-                    if initiative_immediate:
-                        flag_db.commit()
-                except (Exception, SystemExit):
-                    pass
-
     return StreamingResponse(_stream(), media_type="text/event-stream")
 
 
 @app.post("/api/conversations/{conv_id}/end")
 def end_conversation(conv_id: str, db: Session = Depends(get_session)) -> dict:
-    """Close a conversation; analysis stays manual (use the Analyze button)."""
+    """Close a conversation, running window analysis first (trigger a)."""
     conv = db.get(Conversation, conv_id)
     if conv is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     if conv.status == "closed":
         return {"status": "already_closed"}
+    try:
+        _analyze_window(conv_id, db)
+    except (Exception, SystemExit):
+        _log.exception("analyze_window failed for conversation %s", conv_id)
     conv.status = "closed"
     conv.ended_at = datetime.now(UTC)
     db.add(conv)
@@ -2043,6 +1985,21 @@ def enter_scene(
     open_g = _open_gatherings(location_id, sess.id, db)
     if not open_g:
         # No open gatherings → genuine location transition (or first load).
+        # Run window analysis on any conversation left open at the previous
+        # location (trigger b) before regenerating the partition here.
+        left_convs = db.exec(
+            select(Conversation).where(
+                Conversation.player_id == player_id,
+                Conversation.status == "open",
+                Conversation.location_id != location_id,
+            )
+        ).all()
+        for oc in left_convs:
+            try:
+                _analyze_window(oc.id, db)
+            except (Exception, SystemExit):
+                _log.exception("analyze_window failed for conversation %s", oc.id)
+
         # Generate the partition; never raises (falls back to all-solo on error).
         _enter_location(location_id, sess.id, db)
 
@@ -2332,6 +2289,10 @@ def travel(
         )
     ).all()
     for open_conv in open_convs:
+        try:
+            _analyze_window(open_conv.id, db)
+        except (Exception, SystemExit):
+            _log.exception("analyze_window failed for conversation %s", open_conv.id)
         open_conv.status = "closed"
         open_conv.ended_at = now
         db.add(open_conv)
@@ -2458,36 +2419,47 @@ def analyze_conversation_endpoint(
     force: bool = Query(default=False),
     db: Session = Depends(get_session),
 ) -> dict:
-    """Run post-conversation analysis; return the resulting proposals.
+    """Run window analysis on unanalyzed turns; return the resulting proposals.
 
-    Without force: if unreviewed (proposed) rows already exist, return them.
-    With force=True: delete ONLY unreviewed rows and re-run.
-    Reviewed rows (applied/approved/rejected) are NEVER deleted — history is sacred.
+    Without force: analyzes only `ConversationMessage` rows past
+    `conversation.last_analyzed_turn`. If there is nothing new, returns
+    {"status": "nothing_new"} without calling the model.
+    With force=True: delete ONLY unreviewed ('proposed') rows for this
+    conversation, reset `last_analyzed_turn` to 0, and re-run over the full
+    transcript. Reviewed rows (applied/approved/rejected) are NEVER deleted —
+    history is sacred.
     """
-    all_for_conv = db.exec(
-        select(ProposedMutation).where(
-            ProposedMutation.conversation_id == conv_id
-        )
-    ).all()
+    conv = db.get(Conversation, conv_id)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
 
-    # Separate unreviewed (deletable) from reviewed (immutable history).
-    proposed_rows = [r for r in all_for_conv if r.status == "proposed"]
-    reviewed_rows = [r for r in all_for_conv if r.status != "proposed"]
-
-    # Idempotency guard: only block on unreviewed proposals (reviewed rows are
-    # fine to have — they don't block a re-analysis).
-    if proposed_rows and not force:
-        return {
-            "status": "existing",
-            "count": len(proposed_rows),
-            "proposals": [_mutation_dict(m) for m in proposed_rows],
-        }
-
-    # Force: delete only proposed rows; reviewed rows survive regardless.
-    for row in proposed_rows:
-        db.delete(row)
-    if proposed_rows:
+    if force:
+        # Force is a debug path: re-analyzing the full transcript may
+        # re-propose relation deltas that were already applied. Review
+        # re-proposals manually.
+        proposed_rows = db.exec(
+            select(ProposedMutation).where(
+                ProposedMutation.conversation_id == conv_id,
+                ProposedMutation.status == "proposed",
+            )
+        ).all()
+        for row in proposed_rows:
+            db.delete(row)
+        if proposed_rows:
+            db.commit()
+        conv.last_analyzed_turn = 0
+        db.add(conv)
         db.commit()
+
+    has_new = db.exec(
+        select(ConversationMessage).where(
+            ConversationMessage.conversation_id == conv_id,
+            ConversationMessage.turn_order > conv.last_analyzed_turn,
+            ConversationMessage.speaker.in_(("player", "npc")),
+        )
+    ).first()
+    if has_new is None:
+        return {"status": "nothing_new", "count": 0, "proposals": []}
 
     # Fail fast if Ollama is unreachable.
     try:
@@ -2496,49 +2468,18 @@ def analyze_conversation_endpoint(
         raise HTTPException(status_code=503, detail=str(exc))
 
     try:
-        mutations = _analyze_conversation(conv_id, db)
+        mutations = _analyze_window(conv_id, db)
     except (ValueError, SystemExit) as exc:
         # analyzer.py calls sys.exit(1) when no prompt template found;
         # catch SystemExit so we return HTTP 400 instead of killing the process.
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # Dedupe against existing proposed rows for this conversation (per-turn
-    # immediate flags). Uses the same logical match key as _find_applied_duplicate.
-    # Only write what the per-turn flags missed; never re-propose an equivalent.
-    # After force=True the per-turn rows were already deleted above, so this
-    # set is empty and all final-pass results are written as-is.
-    still_proposed = db.exec(
-        select(ProposedMutation).where(
-            ProposedMutation.conversation_id == conv_id,
-            ProposedMutation.status == "proposed",
-        )
-    ).all()
-    if still_proposed:
-        covered: set = set()
-        for ep in still_proposed:
-            ep_payload = ep.payload if isinstance(ep.payload, dict) else {}
-            key = _mutation_match_key(ep.mutation_type, ep_payload)
-            if key is not None:
-                covered.add(key)
-        mutations = [
-            m for m in mutations
-            if _mutation_match_key(
-                m.mutation_type,
-                m.payload if isinstance(m.payload, dict) else {},
-            ) not in covered
-        ]
-
-    for mut in mutations:
-        db.add(mut)
-    db.commit()
-
     # Include duplicate warnings so the queue shows the banner immediately
     # after a forced re-analysis on a conversation that already has applied rows.
-    proposals = []
-    for m in mutations:
-        d = _mutation_dict(m)
-        d["applied_duplicate"] = _find_applied_duplicate(m, db)
-        proposals.append(d)
+    proposals = [
+        {**_mutation_dict(m), "applied_duplicate": _find_applied_duplicate(m, db)}
+        for m in mutations
+    ]
 
     return {
         "status": "ok",

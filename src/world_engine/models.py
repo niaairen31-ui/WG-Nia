@@ -362,6 +362,9 @@ class Conversation(SQLModel, table=True):
     injected_context: Optional[Any] = Field(default=None, sa_column=Column(JSON))
     started_at: datetime = _created_ts()
     ended_at: Optional[datetime] = None
+    last_analyzed_turn: int = Field(
+        default=0, sa_column_kwargs={"server_default": text("0")}
+    )
 
 
 # -----------------------------------------------------------------------------

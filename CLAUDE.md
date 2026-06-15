@@ -46,11 +46,15 @@ Read both before making any structural change.
   gatherings in one location are legal). Defended on every join/migrate path.
 - **Dissolve-before-create lives in the caller** (`enter_location`), never
   inside `generate_gatherings` — preserves the multiplayer upgrade path.
-- **`relation_change` is an accumulating type:** never deduplicated across
-  turns, owned exclusively by per-turn analysis (`local_ai_immediate`); the
-  final pass filters it out.
+- **`relation_change` is owned by window analysis** (`analyze_window`,
+  `proposed_by='local_ai_window'`): the `pt-conversation-analysis` v3
+  anti-inflation rubric targets at most one `relation_change` per NPC pair
+  per window, proportionate to what happened in that window. Not covered by
+  `_mutation_match_key` — each window's deltas are independent, never
+  deduplicated against prior windows.
 - **`new_knowledge` / `status_change` are idempotent facts:** identity-based
-  dedup (`entity_id` + `subject`; `entity_id`), same conversation required.
+  dedup (`entity_id` + `subject`; `entity_id`) via `_mutation_match_key`,
+  same conversation required.
 - **Secrets are structurally excluded** from every assembled context — never
   "guarded by instruction". `character.secrets` is creator meta-narrative
   (notes ABOUT the character: true nature, planned arcs) and is NEVER read
@@ -59,8 +63,11 @@ Read both before making any structural change.
   exclusion extends to every propagation path, not just context assembly:
   `analyze_overhearing` (Tier 4) never sources a proposal from a
   `knowledge` row with `is_secret = TRUE`.
-- **`entity_a_id` in gathering analysis** comes from the analyzed NPC line's
-  `speaker_id`, never from `conv.npc_id` (legacy single-NPC fallback only).
+- **`relation_change`'s `entity_a_id`/`entity_b_id` come from the model's
+  payload.** If either is missing, the item is skipped and logged
+  (`_normalize_to_schema` returns `None`) — never attributed via a
+  conversation-level default. Per-item resolution against the gathering
+  roster is deferred (see "Deferred decisions" in `ARCHITECTURE_DECISIONS.md`).
 - **Two sanctioned canon-write paths, no others:** `_apply_mutation` (AI
   proposals, after creator approval) and the creator CRUD (direct creator
   authority). No code path may ever write canon in response to an AI
@@ -84,12 +91,14 @@ Read both before making any structural change.
   by query construction, never by instruction.
 - **Knowledge levels never decrease through the mutation pipeline:** the
   ladder `unaware < rumor < suspicious < partial < knows <
-  fully_understands` is monotone for every `knowledge_change` proposal and
-  apply — both at detection (overhearing upgrades, direct affirmation) and
-  at apply time (`_apply_mutation`'s "level already >= proposed" guard).
-  `fully_understands` is never granted via any conversational path
-  (structurally capped at `knows`); downgrades, forgetting, and
-  `is_incorrect` correction are creator CRUD only.
+  fully_understands` is monotone for every `knowledge_change` apply
+  (`_apply_mutation`'s "level already >= proposed" guard). At detection,
+  `analyze_overhearing` additionally caps the acquired/upgraded level at
+  `knows` in code (`_KNOWLEDGE_LEVEL_DOWNGRADE`); `analyze_window` applies no
+  such ceiling — a model-proposed `knowledge_change` is bounded only by the
+  monotonicity guard and creator approval, not a structural cap (see
+  "Deferred decisions" in `ARCHITECTURE_DECISIONS.md`). Downgrades,
+  forgetting, and `is_incorrect` correction remain creator CRUD only.
 
 ## Local model notes
 
@@ -133,21 +142,26 @@ World-genrator/
 │       ├── gathering.py     # initial NPC clustering (generate_gatherings,
 │       │                    #   enter_location, contracts A2/B1/C1) + migrate_npc
 │       │                    #   (idempotent NPC migration between gatherings,
-│       │                    #   auto-dissolve emptied source — B1 repair)
+│       │                    #   auto-dissolve emptied source — B1 repair);
+│       │                    #   enter_location and migrate_npc's dissolve paths
+│       │                    #   call analyze_window on each open conversation
+│       │                    #   before dissolving (trigger c, BRIEF-09/v1.21)
 │       ├── ollama_client.py # HTTP client for local Ollama; strips <think> blocks
 │       ├── analyzer.py      # mutation analysis; _normalize_to_schema; _validate_item;
 │       │                    # load_analysis_prompt (usage param, world-specific preferred);
-│       │                    # analyze_conversation (final pass, filters relation_change);
-│       │                    # analyze_single_turn (per-turn immediate flags,
-│       │                    #   proposed_by='local_ai_immediate', within-turn collapse);
+│       │                    # _mutation_match_key (write-time dedup: new_knowledge on
+│       │                    #   entity_id+subject, status_change on entity_id);
+│       │                    # analyze_window (window analysis — reads unanalyzed
+│       │                    #   turns past conversation.last_analyzed_turn, proposes
+│       │                    #   all mutation types incl. relation_change, write-time
+│       │                    #   dedup, advances last_analyzed_turn atomically,
+│       │                    #   proposed_by='local_ai_window', BRIEF-09/v1.21);
 │       │                    # analyze_overhearing (Tier 4, acquire or upgrade:
 │       │                    #   gathering-roster receivers, closed-list subject
 │       │                    #   classification, K2/secret/dedup guards,
 │       │                    #   deterministic level-ladder downgrade for
 │       │                    #   acquisition, knowledge_change for monotone
-│       │                    #   upgrades (v1.17), proposed_by='local_ai_overhearing');
-│       │                    # _maybe_convert_new_knowledge_to_change (per-turn
-│       │                    #   direct-affirmation upgrade, v1.17)
+│       │                    #   upgrades (v1.17), proposed_by='local_ai_overhearing')
 │       └── cockpit/         # creator review web UI (FastAPI sub-app)
 │           ├── __init__.py
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
@@ -177,7 +191,6 @@ World-genrator/
 │           │                #   _build_initiative_trigger, _build_initiative_mj_user;
 │           │                #   structural move=True override for non-member winners (C3)
 │           │                # _find_applied_duplicate (new_knowledge + status_change only);
-│           │                # _mutation_match_key (idempotent types only);
 │           │                # MJ context wiring (_build_mj_user mj_context param,
 │           │                #   assemble_mj_context calls in start_conversation,
 │           │                #   scene_join, say — scope D-b3);
@@ -189,9 +202,16 @@ World-genrator/
 │           │                #   BatchReviewBody, _append_note, _BATCH_REVIEW_MARKER —
 │           │                #   loops _apply_mutation / unit-reject fields per row,
 │           │                #   skip-if-not-proposed, "batch-review" creator_notes marker)
-│           │                # overhearing analysis (sync-after-stream, dialogue turns
-│           │                #   only): analyze_overhearing call after analyze_single_turn,
-│           │                #   same silent-failure wrapping
+│           │                # overhearing analysis (sync-after-stream, dialogue
+│           │                #   turns only): analyze_overhearing call after the
+│           │                #   NPC/MJ phases, silent-failure wrapping;
+│           │                # window analysis (BRIEF-09, v1.21): analyze_window
+│           │                #   called at scene-boundary triggers — conversation
+│           │                #   close (end_conversation, travel) and location
+│           │                #   transition (enter_scene) — plus the manual
+│           │                #   Analyze endpoint (analyze_conversation_endpoint;
+│           │                #   force resets last_analyzed_turn to 0 and deletes
+│           │                #   only 'proposed' rows)
 │           └── index.html   # single-page UI; MJ narration rendering;
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;
@@ -250,27 +270,39 @@ prepend `src` to `sys.path`, so they run without an editable install.
 - **Live conversation:** `python scripts/talk.py` — opens a terminal conversation
   with Maelis. Requires Ollama running (`ollama serve`).
 - **Analyse a conversation:** `python scripts/analyze_conversation.py <conversation_id>`
-  — reads the closed transcript, calls Ollama locally, writes `proposed_mutation`
-  rows. Use `--dry-run` to preview without writing; `--force` to replace existing
-  *proposed* rows and re-run (reviewed rows are never deleted — see Working rules).
+  — reads unanalyzed turns (`turn_order > conversation.last_analyzed_turn`),
+  calls Ollama locally, writes `proposed_mutation` rows
+  (`proposed_by='local_ai_window'`) and advances `last_analyzed_turn`
+  atomically. Prints "Nothing new to analyze." if there are no unanalyzed
+  turns. Use `--force` to delete existing *proposed* rows for this
+  conversation, reset `last_analyzed_turn` to 0, and re-run over the full
+  transcript (reviewed rows are never deleted — see Working rules).
 - **Creator cockpit:** `python scripts/cockpit.py` — starts the local review UI
   at http://127.0.0.1:8000. Select an NPC → Start → play turns live. Each turn:
   NPC reply is generated internally (buffered), MJ narration is streamed to the
   player; both are persisted (`speaker='npc'` canonical, `speaker='mj'`
   presentation). Raw NPC line appears as a muted annotation for creator audit.
-  Per-turn `proposed_mutation` rows (`proposed_by='local_ai_immediate'`) are
-  written silently after each turn. Use **Analyze** to run the final pass (which
-  filters `relation_change` and deduplicates against the per-turn flags). Approve
-  / reject proposals in the queue individually, or select several `proposed`
-  rows via checkboxes and use **Approve selected** / **Reject selected**
-  (`POST /api/mutations/batch-review`) — sequential, per row, through the same
-  `_apply_mutation` / unit-reject paths; stale or already-reviewed rows are
-  skipped. Binds to loopback only. Requires Ollama for
-  all AI calls (NPC, MJ, analysis). The scene view's **Voyager** control
+  Overhearing proposals (Tier 4, `proposed_by='local_ai_overhearing'`)
+  accumulate silently each turn for `dialogue` mode; no other
+  `proposed_mutation` rows are written during a turn. Window analysis
+  (`analyze_window`, `proposed_by='local_ai_window'`) fires automatically at
+  scene boundaries — conversation close, the player leaving a location, and
+  gathering dissolution — and can also be run manually via **Analyze**, which
+  reports "nothing new to analyze" if there are no unanalyzed turns since the
+  last run. **Force** is a debug path: it deletes this conversation's
+  `proposed` rows, resets `last_analyzed_turn` to 0, and re-analyzes the full
+  transcript (may re-propose already-applied relation deltas — review
+  manually). Approve / reject proposals in the queue individually, or select
+  several `proposed` rows via checkboxes and use **Approve selected** /
+  **Reject selected** (`POST /api/mutations/batch-review`) — sequential, per
+  row, through the same `_apply_mutation` / unit-reject paths; stale or
+  already-reviewed rows are skipped. Binds to loopback only. Requires Ollama
+  for all AI calls (NPC, MJ, analysis). The scene view's **Voyager** control
   (`POST /api/travel`) lets the creator move the player to any location: a
-  silent, clean transition (closes the open conversation and the player's
-  gathering membership, then updates `current_location_id`); the existing
-  scene-entry flow generates the new location's gatherings on next entry.
+  silent, clean transition (runs window analysis on, then closes, the open
+  conversation and the player's gathering membership, then updates
+  `current_location_id`); the existing scene-entry flow generates the new
+  location's gatherings on next entry.
 - **Re-seeding prompts:** `python scripts/seed_pilot.py` uses `upsert_prompt_template`
   for `pt-mj-narration`, `pt-mj-interpretation`, `pt-mj-gathering`, `pt-mj-speaker`,
   `pt-mj-initiative`, and `pt-npc-initiative-act` — re-running the seed converges

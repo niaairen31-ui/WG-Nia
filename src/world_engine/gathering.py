@@ -27,7 +27,8 @@ from typing import Any
 from sqlmodel import Session, select
 
 from . import ollama_client
-from .models import Character, Entity, Gathering, GatheringMember, PromptTemplate
+from .analyzer import analyze_window
+from .models import Character, Conversation, Entity, Gathering, GatheringMember, PromptTemplate
 
 _log = logging.getLogger(__name__)
 
@@ -318,6 +319,17 @@ def migrate_npc(npc_id: str, target_gathering_id: str, db: Session) -> None:
         if remaining is None:
             source_g = db.get(Gathering, source_id)
             if source_g is not None and source_g.status == "open":
+                open_convs = db.exec(
+                    select(Conversation).where(
+                        Conversation.gathering_id == source_id,
+                        Conversation.status == "open",
+                    )
+                ).all()
+                for conv in open_convs:
+                    try:
+                        analyze_window(conv.id, db)
+                    except (Exception, SystemExit):
+                        _log.exception("analyze_window failed for conversation %s", conv.id)
                 source_g.status = "dissolved"
                 source_g.dissolved_at = now
                 db.add(source_g)
@@ -349,6 +361,17 @@ def enter_location(
         )
     ).all()
     for gathering in open_gatherings:
+        open_convs = db.exec(
+            select(Conversation).where(
+                Conversation.gathering_id == gathering.id,
+                Conversation.status == "open",
+            )
+        ).all()
+        for conv in open_convs:
+            try:
+                analyze_window(conv.id, db, model=model, host=host)
+            except (Exception, SystemExit):
+                _log.exception("analyze_window failed for conversation %s", conv.id)
         gathering.status = "dissolved"
         gathering.dissolved_at = now
         db.add(gathering)

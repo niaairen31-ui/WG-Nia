@@ -202,6 +202,34 @@ Transcript:
 [PLAYER] A drink, please.
 [NPC] Here you go.
 Output:
+[]
+
+=== ANTI-INFLATION RUBRIC (relation_change, multi-turn window) ===
+This transcript may span several turns and several NPCs. For relation_change:
+  - Emit AT MOST ONE relation_change per ordered pair (entity_a_id,
+    entity_b_id) for the ENTIRE window — never one per turn or per exchange.
+    If several moments in the window affected the same pair, merge them into
+    a single payload whose intensity_delta is the NET effect across the
+    whole window, not a sum of per-turn increments.
+  - A cordial, routine, or merely polite exchange (greetings, small talk,
+    ordinary service) is NOT by itself grounds for a relation_change. Report
+    one only when something in the window would plausibly change how the two
+    parties feel about each other (a promise, a betrayal, a kindness, a
+    threat, a shared risk, a revealing admission).
+  - Keep |intensity_delta| proportionate to the weight of the event: a minor
+    courtesy is worth about 1-3, a meaningful gesture or admission about
+    4-8, a serious betrayal, rescue, or attack about 9-15. Do not pad deltas
+    to make a window "feel" eventful — idle chat → [].
+
+=== EXAMPLE E (multi-turn window, routine exchange → nothing to record) ===
+Transcript:
+[PLAYER] Good evening.
+[NPC] Evening.
+[PLAYER] Could I get a room for the night?
+[NPC] Of course. Second door on the left.
+[PLAYER] Thank you, that's very kind.
+[NPC] It's my job, but you're welcome.
+Output:
 []"""
 
 CONVERSATION_ANALYSIS_USER_TEMPLATE = """\
@@ -758,8 +786,8 @@ def seed(session: Session) -> None:
     # applies to every world. Variables are {transcript} and {injected_context};
     # substituted with str.replace() in analyzer.py, not .format(), so the
     # JSON examples inside the system_prompt are stored verbatim.
-    # Used by BOTH the final pass (analyze_conversation) and the per-turn
-    # immediate analysis (analyze_single_turn) — one template, two call sites.
+    # Used by analyze_window — one template, one call site (BRIEF-09, v3:
+    # anti-inflation rubric for relation_change in multi-turn windows).
     # Uses upsert so re-seeding always converges the DB to the latest wording.
     upsert_prompt_template(
         session,
@@ -771,7 +799,7 @@ def seed(session: Session) -> None:
         user_template=CONVERSATION_ANALYSIS_USER_TEMPLATE,
         variables=["transcript", "injected_context"],
         destination="local",
-        version=2,
+        version=3,
     )
 
     # ----- prompt template: overhearing classification (Tier 4, step 2) -----

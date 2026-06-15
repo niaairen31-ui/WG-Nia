@@ -857,7 +857,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
                 onclick="analyzeConv(false)" disabled>Analyze</button>
         <button class="btn-ghost" id="btn-force"
                 onclick="analyzeConv(true)" disabled
-                title="Delete existing proposals and re-run">Force</button>
+                title="Force is a debug path: re-analyzing the full transcript may re-propose relation deltas that were already applied. Review re-proposals manually.">Force</button>
         <span class="analyze-status" id="analyze-status"></span>
       </div>
 
@@ -1836,8 +1836,8 @@ async function analyzeConv(force) {
       { method: 'POST' }
     );
     const n = data.count || 0;
-    if (data.status === 'existing') {
-      status.textContent = `↩ ${n} existing proposal${n !== 1 ? 's' : ''} — use Force to re-run`;
+    if (data.status === 'nothing_new') {
+      status.textContent = '— nothing new to analyze';
     } else {
       status.textContent = `✓ ${n} proposal${n !== 1 ? 's' : ''} written`;
     }

@@ -1,11 +1,14 @@
-"""Post-conversation analysis — extract proposed mutations from a closed transcript.
+"""Conversation analysis — extract proposed mutations from unanalyzed turns.
 
-Calls the local model with the full transcript and the NPC's injected_context
-snapshot (what the NPC was authorised to know).  Returns a list of
-ProposedMutation instances that are NOT yet persisted; the caller decides
-whether to write them (or just print them for --dry-run).
+analyze_window() reads the conversation's transcript window (turns since
+conv.last_analyzed_turn), calls the local model with that window and the NPC's
+injected_context snapshot (what the NPC was authorised to know), persists the
+resulting ProposedMutation rows, and advances conv.last_analyzed_turn — all in
+one transaction.
 
-Nothing here touches world state or any real table.
+analyze_overhearing() (Tier 4, separate pass) is unaffected by the above: it
+classifies a single turn against a closed subject list and proposes
+acquisition/upgrade knowledge mutations for bystanders.
 
 # Format note
 Local 8b models reliably identify WHAT changed but consistently ignore exact
@@ -39,7 +42,7 @@ from .models import (
     ProposedMutation,
     PromptTemplate,
 )
-from .writes import cap_knowledge_level, knowledge_level_rank
+from .writes import knowledge_level_rank
 
 # Canonical mutation_type values (schema).
 VALID_MUTATION_TYPES = frozenset(
@@ -199,18 +202,12 @@ def _first_of(item: dict, *keys: str, default: Any = None) -> Any:
 def _normalize_to_schema(
     raw_item: Any,
     conv: Conversation,
-    npc_entity_id: str | None = None,
 ) -> dict | None:
     """Map a model's natural output object to our ProposedMutation schema fields.
 
     Returns None when normalization cannot produce a usable item.
     The model reliably tells us what changed but uses its own field names.
     This function bridges the gap so we don't lose correct detections.
-
-    `npc_entity_id`: when provided, takes priority over `conv.npc_id` as the
-    default for `entity_a_id` in relation_change payloads.  Required for
-    gathering conversations where `conv.npc_id` is None (no single NPC owns
-    the conversation).
     """
     if not isinstance(raw_item, dict):
         return None
@@ -259,8 +256,7 @@ def _normalize_to_schema(
         elif mt == "relation_change":
             item["payload"] = {
                 "entity_a_id": _first_of(
-                    item, "entity_a_id", "entity_a", "from",
-                    default=npc_entity_id or conv.npc_id,
+                    item, "entity_a_id", "entity_a", "from", default=None
                 ),
                 "entity_b_id": _first_of(
                     item, "entity_b_id", "entity_b", "to", default=conv.player_id
@@ -292,6 +288,16 @@ def _normalize_to_schema(
     if not item.get("payload"):
         return None
 
+    # relation_change with an unresolved entity_a_id/entity_b_id is dropped
+    # rather than attributed to a window-level default: in a multi-NPC
+    # gathering window, "the last NPC who spoke" is not necessarily the
+    # entity the model meant. A silent wrong attribution is worse than a
+    # dropped proposal — history is sacred.
+    if item["mutation_type"] == "relation_change":
+        payload = item["payload"]
+        if not payload.get("entity_a_id") or not payload.get("entity_b_id"):
+            return None
+
     # ── rationale ────────────────────────────────────────────────────────────
     if not item.get("rationale"):
         item["rationale"] = str(
@@ -317,212 +323,6 @@ def _validate_item(item: Any) -> str | None:
     if not isinstance(item.get("payload"), dict):
         return "payload missing or not a dict"
     return None
-
-
-def _entity_name(entity_id: str | None, db: Session) -> str:
-    if not entity_id:
-        return "?"
-    ent = db.get(Entity, entity_id)
-    return ent.name if ent else entity_id
-
-
-def _maybe_convert_new_knowledge_to_change(
-    item: dict,
-    conv: Conversation,
-    npc_entity_id: str | None,
-    conversation_id: str,
-    db: Session,
-) -> dict | None:
-    """Site 2 (per-turn) normalization for `new_knowledge` items.
-
-    If the target entity already holds a `knowledge` row on the same
-    subject, this is a level UPGRADE (direct affirmation), not a fresh
-    acquisition — convert `item` into a `knowledge_change` proposal, or drop
-    it entirely per the guards below.
-
-    Returns:
-    - `item` unchanged when the receiver holds NO row on the subject (plain
-      acquisition — existing `new_knowledge` flow, untouched).
-    - a converted `item` (mutation_type='knowledge_change') on a successful
-      upgrade.
-    - `None` to drop the item silently (K2 guard, secret guard, or monotone
-      — model noise must not upgrade canon, and levels never go down).
-    """
-    payload = item.get("payload") or {}
-    receiver_id = payload.get("entity_id")
-    subject = payload.get("subject")
-    if not receiver_id or not subject:
-        return item
-
-    existing_row = db.exec(
-        select(Knowledge).where(
-            Knowledge.entity_id == receiver_id,
-            Knowledge.subject == subject,
-        )
-    ).first()
-    if existing_row is None:
-        return item  # plain acquisition — unchanged
-
-    # Two-party speaker resolution: receiver = player → speaker = the turn's
-    # responding NPC; receiver = NPC → speaker = the player.
-    speaker_id = npc_entity_id if receiver_id == conv.player_id else conv.player_id
-    if not speaker_id:
-        return None
-
-    # K2 guard — speaker holds no row on the subject: model noise.
-    speaker_row = db.exec(
-        select(Knowledge).where(
-            Knowledge.entity_id == speaker_id,
-            Knowledge.subject == subject,
-        )
-    ).first()
-    if speaker_row is None:
-        return None
-
-    # Secret guard — secrets are structurally excluded from propagation.
-    if speaker_row.is_secret:
-        return None
-
-    # Direct-affirmation level: speaker's row level, capped at 'knows'.
-    to_level = cap_knowledge_level(speaker_row.level)
-
-    # Monotone — target must exceed the receiver's existing level.
-    if knowledge_level_rank(to_level) <= knowledge_level_rank(existing_row.level):
-        return None
-
-    location = db.get(Entity, conv.location_id) if conv.location_id else None
-    location_name = location.name if location else "?"
-
-    item["mutation_type"] = "knowledge_change"
-    item["target_table"] = "knowledge"
-    item["payload"] = {
-        "entity_id": receiver_id,
-        "subject": subject,
-        "from_level": existing_row.level,
-        "to_level": to_level,
-        "source": f"affirmed:{conversation_id}:{speaker_id}",
-    }
-    item["rationale"] = (
-        f"Affirmed by {_entity_name(speaker_id, db)} at {location_name} "
-        f"({existing_row.level} → {to_level})"
-    )
-    return item
-
-
-def analyze_single_turn(
-    player_line: str,
-    npc_reply: str,
-    conversation_id: str,
-    db: Session,
-    model: str = ollama_client.DEFAULT_MODEL,
-    host: str = ollama_client.OLLAMA_HOST,
-    npc_entity_id: str | None = None,
-) -> list[ProposedMutation]:
-    """Per-turn immediate analysis: propose mutations for ONE player/NPC exchange.
-
-    Reuses the same prompt, JSON extraction, normalizer, and validator as
-    analyze_conversation. Returns un-persisted ProposedMutation objects tagged
-    proposed_by='local_ai_immediate'. Returns [] on any failure.
-
-    `npc_entity_id`: entity id of the NPC who spoke this turn.  Passed to
-    _normalize_to_schema so that relation_change entity_a_id is correctly
-    attributed in gathering conversations (where conv.npc_id is None).
-
-    Knowledge-level upgrades (direct affirmation): a normalized
-    `new_knowledge` item whose target entity already holds a row on that
-    subject is converted to `knowledge_change` by
-    _maybe_convert_new_knowledge_to_change (K2 guard, secret guard, level
-    capped at 'knows', monotone) — or dropped. Plain acquisitions (receiver
-    has no row) are unaffected.
-
-    Note: load_analysis_prompt calls sys.exit(1) when no template is found;
-    the caller must wrap this in try/except (Exception, SystemExit).
-    """
-    conv = db.get(Conversation, conversation_id)
-    if conv is None:
-        return []
-
-    # Mini-transcript: just this turn's exchange.
-    transcript = f"[JOUEUR] {player_line}\n[PNJ] {npc_reply}"
-
-    ctx = conv.injected_context or {}
-    if isinstance(ctx, dict) and ctx.get("assembled_context"):
-        injected_ctx_str = str(ctx["assembled_context"])
-    elif ctx:
-        injected_ctx_str = json.dumps(ctx, ensure_ascii=False, indent=2)
-    else:
-        injected_ctx_str = "(aucun contexte enregistré)"
-
-    template = load_analysis_prompt(db, world_id=conv.world_id)
-    user_message = (
-        template.user_template
-        .replace("{transcript}", transcript)
-        .replace("{injected_context}", injected_ctx_str)
-    )
-    llm_messages = [
-        {"role": "system", "content": template.system_prompt},
-        {"role": "user",   "content": user_message},
-    ]
-
-    raw = ollama_client.chat(llm_messages, model=model, host=host, format="json")
-    json_str = _extract_json_array(raw)
-    try:
-        items = json.loads(json_str)
-    except json.JSONDecodeError:
-        return []
-
-    if not isinstance(items, list):
-        return []
-
-    now = datetime.now(UTC)
-    mutations: list[ProposedMutation] = []
-    for raw_item in items:
-        normalized = _normalize_to_schema(raw_item, conv, npc_entity_id)
-        if normalized is None:
-            continue
-        if normalized["mutation_type"] == "new_knowledge":
-            normalized = _maybe_convert_new_knowledge_to_change(
-                normalized, conv, npc_entity_id, conversation_id, db
-            )
-            if normalized is None:
-                continue
-        if _validate_item(normalized):
-            continue
-        mutations.append(ProposedMutation(
-            world_id=conv.world_id,
-            source_type="conversation",
-            conversation_id=conversation_id,
-            pass_play_id=None,
-            mutation_type=normalized["mutation_type"],
-            target_table=normalized.get("target_table"),
-            target_id=normalized.get("target_id"),
-            payload=normalized["payload"],
-            status="proposed",
-            rationale=normalized.get("rationale"),
-            # Tag as per-turn so the final-pass dedupe can see what was already flagged.
-            proposed_by="local_ai_immediate",
-            proposed_at=now,
-        ))
-
-    # Within-turn collapse: if the model emits duplicate relation_change entries
-    # for the same entity pair + type in a SINGLE call, keep only the first.
-    # This is model stutter inside one turn — not two distinct events.
-    # Never collapse across turns (across separate calls to analyze_single_turn).
-    seen_rel_keys: set = set()
-    deduped: list[ProposedMutation] = []
-    for mut in mutations:
-        if mut.mutation_type == "relation_change":
-            p = mut.payload if isinstance(mut.payload, dict) else {}
-            rel_key = (
-                frozenset([p.get("entity_a_id"), p.get("entity_b_id")]),
-                p.get("relation_type"),
-            )
-            if rel_key in seen_rel_keys:
-                continue
-            seen_rel_keys.add(rel_key)
-        deduped.append(mut)
-
-    return deduped
 
 
 def analyze_overhearing(
@@ -784,15 +584,44 @@ def analyze_overhearing(
     return mutations
 
 
-def analyze_conversation(
+def _mutation_match_key(mutation_type: str, payload: dict):
+    """Return a hashable match key for write-time deduplication, or None.
+
+    Used by analyze_window to avoid re-proposing an idempotent fact that
+    analyze_overhearing already flagged (as a 'proposed' row) for the same
+    window. Only idempotent mutation types are keyed here — applying the same
+    idempotent fact twice is wrong; accumulating deltas (relation_change) are
+    never deduplicated.
+    """
+    if mutation_type == "new_knowledge":
+        return ("new_knowledge", payload.get("entity_id"), payload.get("subject"))
+    if mutation_type == "status_change":
+        eid = payload.get("entity_id")
+        return ("status_change", eid) if eid else None
+    return None
+
+
+def analyze_window(
     conversation_id: str,
     db: Session,
     model: str = ollama_client.DEFAULT_MODEL,
     host: str = ollama_client.OLLAMA_HOST,
 ) -> list[ProposedMutation]:
-    """Run post-conversation analysis; return validated ProposedMutation objects.
+    """Window analysis: propose mutations for turns since last_analyzed_turn.
 
-    Does NOT persist anything.  Raises ValueError if the conversation is missing.
+    Reads ConversationMessage rows with turn_order > conv.last_analyzed_turn
+    (player/npc only, ordered). Proposes ALL mutation types — including
+    relation_change, per the anti-inflation rubric in pt-conversation-analysis
+    — persists the surviving proposals, and advances
+    conv.last_analyzed_turn to the highest turn_order read, all in one
+    transaction. Returns the written ProposedMutation rows.
+
+    No-op when there is nothing new: returns [] without a model call, a
+    marker change, or a commit. Raises ValueError if the conversation is
+    missing. On a JSON parse failure (or a non-list response), logs a warning
+    and returns [] WITHOUT advancing the marker, so the next trigger retries
+    the same turns.
+
     ollama_client.chat already strips <think> blocks before returning.
     """
     conv = db.get(Conversation, conversation_id)
@@ -801,14 +630,16 @@ def analyze_conversation(
 
     rows = db.exec(
         select(ConversationMessage)
-        .where(ConversationMessage.conversation_id == conversation_id)
+        .where(
+            ConversationMessage.conversation_id == conversation_id,
+            ConversationMessage.turn_order > conv.last_analyzed_turn,
+        )
         .order_by(ConversationMessage.turn_order)
     ).all()
     # 'mj' rows are presentation-only narration — never analyse them.
     # Only canonical player/npc lines carry world-state information.
     rows = [r for r in rows if r.speaker in ("player", "npc")]
     if not rows:
-        print("[info] Conversation has no messages — nothing to analyse.")
         return []
 
     # French labels so the model's French analysis aligns with the transcript.
@@ -861,6 +692,23 @@ def analyze_conversation(
         print("[warn] Model returned a non-list JSON value — treating as empty.")
         return []
 
+    # Existing 'proposed' rows for this conversation — write-time dedup so a
+    # new_knowledge/status_change analyze_overhearing already flagged for
+    # this window isn't proposed twice.
+    existing = db.exec(
+        select(ProposedMutation).where(
+            ProposedMutation.conversation_id == conversation_id,
+            ProposedMutation.status == "proposed",
+        )
+    ).all()
+    covered: set = set()
+    for pm in existing:
+        key = _mutation_match_key(
+            pm.mutation_type, pm.payload if isinstance(pm.payload, dict) else {}
+        )
+        if key is not None:
+            covered.add(key)
+
     now = datetime.now(UTC)
     mutations: list[ProposedMutation] = []
     for i, raw_item in enumerate(items):
@@ -872,6 +720,14 @@ def analyze_conversation(
         if err:
             print(f"[skip] Item {i}: {err} — {normalized!r}")
             continue
+
+        key = _mutation_match_key(normalized["mutation_type"], normalized["payload"])
+        if key is not None:
+            if key in covered:
+                print(f"[skip] Item {i}: already proposed this window — {key!r}")
+                continue
+            covered.add(key)
+
         mutations.append(
             ProposedMutation(
                 world_id=conv.world_id,
@@ -884,21 +740,15 @@ def analyze_conversation(
                 payload=normalized["payload"],
                 status="proposed",
                 rationale=normalized.get("rationale"),
-                proposed_by="local_ai",
+                proposed_by="local_ai_window",
                 proposed_at=now,
             )
         )
 
-    # relation_change is excluded from the final pass: deltas accumulate across
-    # turns and the per-turn immediate flags already sum the full arc. Proposing
-    # them here too would double-count any trust shift the per-turn flags caught.
-    # Trade-off: a gradual shift that no single turn trips won't be auto-proposed;
-    # the creator can still add a relation_change manually if needed.
-    before = len(mutations)
-    mutations = [m for m in mutations if m.mutation_type != "relation_change"]
-    dropped = before - len(mutations)
-    if dropped:
-        print(f"[info] Final pass: dropped {dropped} relation_change item(s) "
-              f"(owned by per-turn flags).")
+    for mutation in mutations:
+        db.add(mutation)
+    conv.last_analyzed_turn = max(r.turn_order for r in rows)
+    db.add(conv)
+    db.commit()
 
     return mutations
