@@ -507,6 +507,30 @@ class Item(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
+# skill  (player character skill sheet — physical/sensory domains, schema v1.22)
+# -----------------------------------------------------------------------------
+class Skill(SQLModel, table=True):
+    __tablename__ = "skill"
+    __table_args__ = (
+        CheckConstraint("tier BETWEEN -1 AND 2", name="ck_skill_tier"),
+        Index("idx_skill_character", "character_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    character_id: str = Field(foreign_key="entity.id", nullable=False)
+    domain: str  # physical | agility | perception | composure
+    tier: int = Field(
+        default=0, sa_column_kwargs={"server_default": text("0")}
+    )
+    change_history: list = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
+    )
+    created_at: datetime = _created_ts()
+    updated_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
 # user  (system accounts)
 # -----------------------------------------------------------------------------
 class User(SQLModel, table=True):
@@ -572,6 +596,7 @@ __all__ = [
     "Event",
     "Artifact",
     "Item",
+    "Skill",
     "User",
     "PromptTemplate",
 ]

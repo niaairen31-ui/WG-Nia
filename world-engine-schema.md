@@ -525,6 +525,37 @@ CREATE TABLE item (
 
 -----
 
+### `skill`
+
+The player character's skill sheet (schema v1.22) — physical/sensory domains
+with a tier value and full change history.
+
+```sql
+CREATE TABLE skill (
+  id              TEXT PRIMARY KEY,
+  character_id    TEXT NOT NULL REFERENCES entity(id),
+  domain          TEXT NOT NULL,
+                  -- physical | agility | perception | composure
+  tier            INTEGER NOT NULL DEFAULT 0 CHECK (tier BETWEEN -1 AND 2),
+                  -- -1 weak | 0 average | +1 trained | +2 exceptional
+                  -- translated directly into the 2d6 modifier (later step)
+  change_history  JSON DEFAULT '[]',  -- archived previous states, same
+                                      -- pattern as relation.change_history
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_skill_character ON skill(character_id);
+```
+
+-- NOTE: skill rows exist ONLY for player characters in this phase. NPC
+-- physical capability is a single tier in entity.metadata (key
+-- "physical_tier", -1..2, default 0 when absent). Domains are strictly
+-- physical/sensory: social abilities (persuasion, deception, charm) are
+-- NEVER skill domains — they belong to the free-dialogue layer and the
+-- relation graph. This is a standing design guard, not a deferral.
+
+-----
+
 ### `user`
 
 System accounts (creator + players).
@@ -630,6 +661,9 @@ CREATE INDEX idx_conversation_world  ON conversation(world_id);
 -- items: by owner (carried/equipped) and by location (lying around)
 CREATE INDEX idx_item_owner    ON item(owner_id);
 CREATE INDEX idx_item_location ON item(location_id);
+
+-- skill sheet rows, by character
+CREATE INDEX idx_skill_character ON skill(character_id);
 ```
 
 -----
@@ -676,6 +710,30 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.22** — Player skill sheet foundation (BRIEF-10). New table `skill`
+  (`character_id` REFERENCES `entity(id)`, `domain` — physical | agility |
+  perception | composure, `tier` INTEGER NOT NULL DEFAULT 0 CHECK BETWEEN -1
+  AND 2, `change_history` JSON DEFAULT '[]', `created_at`/`updated_at`), plus
+  `idx_skill_character`. Verbatim NOTE under the table: skill rows exist ONLY
+  for player characters in this phase — an NPC's physical capability is a
+  single tier in `entity.metadata` (key `physical_tier`, -1..2, default 0 when
+  absent, read in a later step — not added to any NPC metadata yet); social
+  abilities (persuasion, deception, charm) are NEVER skill domains — a
+  standing design guard, not a deferral. Application layer: `seed_pilot.py`
+  seeds a new test player character (id `char-pc-test-2`, name from the
+  `SKILL_SHEET_PC_NAME` constant, placeholder `"PC_TEST_2"`) with four `skill`
+  rows, all `tier = 0`. The cockpit gains a "Fiche" view: a creator-mode
+  inline editor (tier `-1..2` per domain, direct write to the `skill` row —
+  **no `proposed_mutation`**, same rule as all creator-mode editing — appends
+  the previous `{"tier", "changed_at", "by": "creator"}` to `change_history`
+  and bumps `updated_at` on every change) and a player-mode read-only
+  rendering of the same view. No dice, no arbiter, no `ResponseMode.physical`,
+  no `skill_change` mutation type, no automatic skill progression — skills
+  evolve only by creator edit until a later step. See "Physical layer — skill
+  sheet" in `ARCHITECTURE_DECISIONS.md`. Deferred: automatic skill progression
+  (a future `skill_change` mutation type), numeric HP, opposed rolls, NPC
+  skill rows, passive perception, scene description on location entry (MJ
+  establishes the scene — backlog).
 - **v1.21** — Window analysis replaces per-turn analysis and the two-tier
   final pass (BRIEF-09). Adds `conversation.last_analyzed_turn INTEGER NOT
   NULL DEFAULT 0` — the high-water mark for `analyze_window`
