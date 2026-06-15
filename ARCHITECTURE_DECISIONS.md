@@ -118,10 +118,16 @@ compatible for plain 1:1 conversations (`conv.gathering_id IS NULL`).
    into one of four `ResponseMode` values via a non-streaming `chat()` call
    (`pt-mj-interpretation`, `usage='mj_interpretation'`), now also fed the
    player's `gathering_status` (free text: which gathering they're in, or which
-   open gatherings exist if they're not in one yet). Returns `(mode, reference)`
-   — `reference` is the player's exact words naming a group, populated only for
-   `join`. Falls back to `(dialogue, "")` on any failure — a misclassification
-   must never break a turn.
+   open gatherings exist if they're not in one yet) and, since BRIEF-07
+   (schema v1.16), an `item_list` (`context.format_item_list_for_interpretation`
+   — the player's tracked items and their equip state, e.g. "Objets du joueur :
+   Dague (équipé)."). Returns `(mode, reference, used_object, equip_action)` —
+   `reference` is the player's exact words naming a group, populated only for
+   `join`; `used_object` is the canonical name of the item the player physically
+   uses this turn (`null`, or `"unknown_object"` if their wording matches
+   nothing in `item_list`); `equip_action` is `"draw"` | `"stow"` | `null`.
+   Falls back to `(dialogue, "", null, null)` on any failure — a
+   misclassification or extraction failure must never break a turn.
 
    | Mode | Trigger | NPC called? |
    |---|---|---|
@@ -134,6 +140,30 @@ compatible for plain 1:1 conversations (`conv.gathering_id IS NULL`).
    to the NPC system prompt at call time (not persisted; one-shot). A `join`
    classification while already grouped is a misread — `_stream` downgrades it
    to `dialogue` as a safety net, since "join" is meaningless once anchored.
+
+   **Possession check + auto-applied equip toggle (BRIEF-07, schema v1.16)** —
+   runs immediately after interpretation, for any non-`join` mode where
+   `used_object` is not `null`. The CODE judges possession against canon
+   `item` rows — the structural fix for a close-step finding on D1: the 8b
+   model does not reliably honor prohibition-style rules in the narration
+   prompt (same lesson as secrets — structural mechanisms, not prompt
+   discipline). Processing order:
+   (a) if `equip_action` is not `null` and the item is owned and the toggle
+   changes its state, `_auto_apply_item_update` writes and immediately
+   self-applies an `item_update` `proposed_mutation` (see "Auto-applied
+   mutations" below); a redundant toggle (already in the target state) is a
+   silent no-op — no row written;
+   (b) then, if `used_object` is not `null`: `"unknown_object"`, not owned, or
+   (owned but `equipped = FALSE` after step (a), unless step (a)'s
+   `equip_action` was itself `"stow"` — ending up unequipped is the intended
+   outcome of a stow, not a possession failure) → **refused**.
+   A refusal forces `mode = ResponseMode.scene` (the NPC phase below is
+   skipped — no `npc` row is written for that turn) and appends a one-shot
+   `[ACTION REFUSÉE]` instruction to the MJ system prompt for this turn only
+   (not persisted, same pattern as `[MODE RÉACTION NON-VERBALE]`), directing
+   the MJ to narrate the failure in fiction without breaking the fourth wall.
+   The inventory line (step 2 below) is read AFTER step (a), so a same-turn
+   "je sors ma dague et j'attaque" sees the dagger already in hand.
 
    **Join resolution (contract A2 reused)** — `reference` is matched against
    the open gatherings' labels and member names (`_resolve_join_target`,
@@ -205,16 +235,19 @@ addressable without ambiguity.
 ### apply_mutation — one of two sanctioned canon-write paths
 
 `_apply_mutation()` in `cockpit/app.py` is the only function authorised to
-write canon **in response to an AI proposal**, after creator approval. The
-other sanctioned path is the **author CRUD** (see below), for the creator's
-direct edits — see CLAUDE.md, "Two sanctioned canon-write paths, no others."
-Three mutation types are implemented:
+write canon **in response to an AI proposal**, after creator approval (or,
+for `item_update`, after self-approval at proposal time — see "Auto-applied
+mutations" below; same function, same guards). The other sanctioned path is
+the **author CRUD** (see below), for the creator's direct edits — see
+CLAUDE.md, "Two sanctioned canon-write paths, no others." Four mutation types
+are implemented:
 
 | mutation_type    | What is written |
 |------------------|-----------------|
 | `relation_change`  | Find or create the Relation row; apply intensity delta (clamped 1–100); append previous state to `change_history`. |
 | `new_knowledge`    | Insert a `knowledge` row; inherits `session_id` from the source conversation. |
 | `status_change`    | Update `entity.status` + `entity.updated_at`. |
+| `item_update`      | Set `item.equipped` (BRIEF-07, schema v1.16). Verifies the item exists and `owner_id IS NOT NULL` (the schema CHECK: no equipping without an owner) — on violation, left at `status='approved'` with a note, never wrongly applied. |
 
 Any other type is left at `status = 'approved'` with a note — never wrongly
 applied. Better un-applied than wrongly applied.
@@ -222,6 +255,18 @@ applied. Better un-applied than wrongly applied.
 Canon writes are wrapped in a **SAVEPOINT** (`db.begin_nested()`): if the apply
 fails, only the canon writes roll back; the mutation-row update (status,
 `reviewed_at`, error note) lives in the outer transaction and always commits.
+
+### Auto-applied mutations
+
+> **Auto-applied mutations.** A mutation may bypass creator review and
+> self-apply at proposal time only if ALL of the following hold: (1) it
+> is trivially reversible by an inverse mutation of the same type; (2)
+> it creates and destroys nothing — no entity, no knowledge, no event;
+> (3) it affects no relation and no knowledge state; (4) it still flows
+> through `_apply_mutation` and is recorded with `status='applied'` and
+> its own `proposed_by` tag, fully visible in the review cockpit. First
+> and currently only member: `item_update` (equip toggle). Any extension
+> of this category is a creator decision, recorded here.
 
 ### The "Needs attention" tab
 
@@ -254,6 +299,12 @@ deltas sum across turns: two independent +5 events total +10 and must both apply
 `relation_change` proposals come only from per-turn immediate flags (one per turn);
 the final pass never proposes them. There is therefore no double-application risk,
 and the guard would incorrectly block a legitimate second event.
+
+**State-transition type — `item_update` is intentionally excluded** (BRIEF-07,
+schema v1.16). Redundancy is already prevented at proposal time — a toggle
+that wouldn't change `item.equipped` is a silent no-op, no row is written —
+and a legitimate draw→stow→draw sequence within one conversation must apply
+each time.
 
 ### Batch review
 

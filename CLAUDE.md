@@ -66,7 +66,10 @@ Read both before making any structural change.
   path) appends the previous state to `change_history`; states are
   preserved, never silently overwritten.
 - **Commit before touching any canon-writing path** (`_apply_mutation`, the
-  creator CRUD, and everything they call).
+  creator CRUD, the analyzers, and everything they call) — a hard invariant.
+  Recommended (not hard): also commit before touching the `/say` flow or the
+  interpretation phase — playability-critical, and, since BRIEF-07, a mutation
+  producer in its own right (auto-applied `item_update`).
 - **The MJ context assembler is scoped to the player's perception
   boundary:** only what the player may perceive (current location, public
   co-presents, public/confirmed events) or already knows (the player
@@ -107,7 +110,10 @@ World-genrator/
 │       │                    #   boundary, scope D-b3);
 │       │                    #   format_inventory_line — player's static
 │       │                    #   inventory line, read fresh per turn (BRIEF-06,
-│       │                    #   schema v1.15)
+│       │                    #   schema v1.15);
+│       │                    #   format_item_list_for_interpretation — player's
+│       │                    #   items + equip state for {item_list}, fed to
+│       │                    #   pt-mj-interpretation (BRIEF-07, schema v1.16)
 │       ├── gathering.py     # initial NPC clustering (generate_gatherings,
 │       │                    #   enter_location, contracts A2/B1/C1) + migrate_npc
 │       │                    #   (idempotent NPC migration between gatherings,
@@ -122,8 +128,18 @@ World-genrator/
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
 │           │                # MJ narration layer (_load_mj_narration_template);
 │           │                # MJ interpretation layer (ResponseMode incl. join,
-│           │                #   _interpret_mode → (mode, reference), _build_mj_user,
+│           │                #   _interpret_mode → (mode, reference, used_object,
+│           │                #   equip_action), _build_mj_user,
 │           │                #   _load_mj_interpret_template);
+│           │                # possession check + auto-applied equip toggle
+│           │                #   (BRIEF-07, schema v1.16): _find_player_item,
+│           │                #   _build_refusal_instruction ([ACTION REFUSÉE],
+│           │                #   one-shot, forces scene mode + skips NPC phase),
+│           │                #   _auto_apply_item_update (writes + self-applies
+│           │                #   item_update via _apply_mutation,
+│           │                #   proposed_by='interpretation'); _apply_mutation
+│           │                #   item_update branch (sets item.equipped, requires
+│           │                #   owner_id);
 │           │                # multi-NPC scenes (_open_gatherings, _active_members,
 │           │                #   _gathering_brief, _player_gathering,
 │           │                #   _render_gathering_status, _resolve_join_target (A2),

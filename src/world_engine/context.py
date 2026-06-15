@@ -461,3 +461,27 @@ def format_inventory_line(db: Session, player_character_id: str) -> str:
     equipped_str = ", ".join(equipped) if equipped else "—"
     carried_str = ", ".join(carried) if carried else "—"
     return f"Équipé : {equipped_str}. Sur soi : {carried_str}."
+
+
+def format_item_list_for_interpretation(db: Session, player_character_id: str) -> str:
+    """Render the player's tracked items as one line for the interpretation
+    prompt (BRIEF-07, schema v1.16): canonical names + equip state, so the
+    model's job is normalization (mapping the player's wording to one of
+    these names) rather than judgment.
+
+    Read fresh from `item` at every turn, same as `format_inventory_line`.
+    """
+    rows = db.exec(
+        select(Item, Entity)
+        .join(Entity, Entity.id == Item.id)
+        .where(Item.owner_id == player_character_id)
+    ).all()
+
+    if not rows:
+        return "Objets du joueur : aucun."
+
+    items = ", ".join(
+        f"{entity.name} ({'équipé' if item.equipped else 'rangé'})"
+        for item, entity in rows
+    )
+    return f"Objets du joueur : {items}."

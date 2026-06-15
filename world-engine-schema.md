@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-*Version 1.11 — Local phase (SQLite → Supabase)*
+*Version 1.16 — Local phase (SQLite → Supabase)*
 
 -----
 
@@ -383,7 +383,8 @@ CREATE TABLE proposed_mutation (
   -- what kind of change
   mutation_type   TEXT NOT NULL,
                   -- relation_change | new_knowledge | knowledge_change |
-                  -- event_creation | status_change | entity_creation | other
+                  -- event_creation | status_change | entity_creation |
+                  -- item_update | other
   target_table    TEXT,                    -- table the change applies to
   target_id       TEXT,                    -- row affected (NULL if creation)
   payload         JSON NOT NULL,           -- the proposed change, structured
@@ -397,6 +398,9 @@ CREATE TABLE proposed_mutation (
                                            -- local_ai_immediate : per-turn analysis
                                            --                      (fires after each turn,
                                            --                       owns all relation_change)
+                                           -- interpretation     : /say interpretation
+                                           --                      phase (currently only
+                                           --                      item_update)
                                            -- claude | creator
   proposed_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   reviewed_at     DATETIME,
@@ -631,6 +635,35 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.16** — Possession check + auto-applied equip toggle (BRIEF-07). No new
+  tables or columns. `proposed_mutation.mutation_type` gains `item_update`
+  (the equip toggle) and `proposed_mutation.proposed_by` gains
+  `interpretation` (mutations produced by the `/say` interpretation phase;
+  currently only `item_update`). Application layer: `pt-mj-interpretation`
+  (bumped to `version=2`) now also extracts `used_object` (canonical item
+  name the player physically uses this turn, `null`, or `"unknown_object"`)
+  and `equip_action` (`"draw"` | `"stow"` | `null`), reading a new
+  `{item_list}` template variable (`context.format_item_list_for_interpretation`
+  — "Objets du joueur : Dague (équipé)."). The `/say` flow then judges
+  possession in code against canon `item` rows: an equip toggle that changes
+  state writes and immediately self-applies an `item_update`
+  `proposed_mutation` (`proposed_by='interpretation'`, `status='applied'`,
+  fully visible in the cockpit); a redundant toggle is a silent no-op (no
+  row); an unowned/`unknown_object` action, or a `used_object` that remains
+  unequipped after the toggle (unless the toggle was itself a `"stow"`), is
+  refused — the MJ receives a one-shot `[ACTION REFUSÉE]` system instruction
+  (not persisted) and the turn is forced to `scene` mode, skipping the NPC
+  phase (no `npc` row written). The inventory line
+  (`context.format_inventory_line`) is read after the toggle, so the same
+  turn's narration reflects it. `_apply_mutation` gains the `item_update`
+  branch (verifies `item.owner_id IS NOT NULL` per the schema CHECK, sets
+  `item.equipped`, same SAVEPOINT pattern). `item_update` is excluded from
+  `_find_applied_duplicate` — it is a state transition, redundancy is already
+  prevented at proposal time, and a legitimate draw→stow→draw sequence must
+  apply each time. On any interpretation failure, falls back to
+  `ResponseMode.dialogue` with `used_object = null, equip_action = null` — no
+  check, no toggle, turn proceeds normally. See "Auto-applied mutations" in
+  `ARCHITECTURE_DECISIONS.md`.
 - **v1.15** — Object permanence, static possession (BRIEF-06). New `item`
   entity type (added to the documented `entity.type` values) and a new
   extension table `item` (`owner_id`, `location_id`, `equipped`,
@@ -855,4 +888,4 @@ batch   → event
 - **v1.2** — Added `conversation`, `conversation_message`, and `proposed_mutation` for live sessions and the unified mutation pipeline. Removed `pass_play.local_proposal`. Documented the role-toggle rule on `user`. Added `npc_dialogue` to prompt usages. Changed `relation.intensity` to a 1–100 scale (default 50 = neutral) with a clamp-on-apply rule. Added `updated_at` to `entity` and `knowledge`. Added an INDEXES section for frequent lookups. Schema translated to English.
 - **v1.1** — Initial local-phase schema.
 
-*Version 1.11 — Co-built with Claude, June 2026*
+*Version 1.16 — Co-built with Claude, June 2026*

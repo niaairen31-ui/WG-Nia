@@ -304,10 +304,12 @@ Narration MJ :\
 """
 
 
-# MJ interpretation prompt — classifies each player turn into one of 3 routing
-# modes: dialogue / npc_reaction / scene. Usage = 'mj_interpretation', called
-# before the NPC so scene turns can skip the NPC entirely. Non-streaming JSON
-# call; /no_think appended at call time. world_id = NULL.
+# MJ interpretation prompt — classifies each player turn into one of 4 routing
+# modes (dialogue / npc_reaction / scene / join) and, since v2 (BRIEF-07,
+# schema v1.16), extracts used_object / equip_action for the code-side
+# possession check. Usage = 'mj_interpretation', called before the NPC so
+# scene turns can skip the NPC entirely. Non-streaming JSON call; /no_think
+# appended at call time. world_id = NULL.
 MJ_INTERPRETATION_SYSTEM_PROMPT = """\
 Tu es un routeur de scène pour un jeu de rôle à la première personne du joueur.
 Tu lis l'input du joueur et tu classes le tour en exactement un des 4 modes.
@@ -345,8 +347,22 @@ description de lieu ou d'activité — ex. « les deux près du feu », « Maeli
 Korin », « ceux qui jouent aux cartes »). Pour tous les autres modes, laisse
 "reference" vide.
 
+OBJETS (used_object / equip_action) :
+La liste « Objets du joueur » donne les noms canoniques de ses objets et leur
+état (équipé/rangé). Le joueur peut les désigner par d'autres mots ("ma lame",
+"mon couteau" pour « Dague ») — ta tâche est de RECONNAÎTRE, pas de juger.
+- "used_object" : si le joueur utilise PHYSIQUEMENT un objet ce tour (attaque,
+  coupe, montre, lance, dégaine, range...), indique le nom canonique EXACT de
+  la liste qui correspond le mieux. Si le joueur dit utiliser un objet qui ne
+  correspond à rien dans la liste → "unknown_object". Si aucun objet n'est en
+  jeu ce tour → null.
+- "equip_action" : "draw" si le joueur dégaine / sort / prend en main un objet
+  ce tour, "stow" s'il le range / rengaine, null sinon. Si "equip_action"
+  n'est pas null, "used_object" doit nommer l'objet concerné (ou
+  "unknown_object" s'il ne correspond à rien dans la liste).
+
 Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre :
-{"mode":"dialogue|npc_reaction|scene|join","reason":"<une phrase courte d'explication>","reference":"<vide sauf pour join>"}\
+{"mode":"dialogue|npc_reaction|scene|join","reason":"<une phrase courte d'explication>","reference":"<vide sauf pour join>","used_object":"<nom canonique>|unknown_object|null","equip_action":"draw|stow|null"}\
 """
 
 MJ_INTERPRETATION_USER_TEMPLATE = """\
@@ -354,6 +370,8 @@ PNJ présent : {npc_name}
 Lieu : {location_name}
 
 Votre situation : {gathering_status}
+
+{item_list}
 
 Historique récent (joueur/PNJ, sans lignes du MJ) :
 {recent_transcript}
@@ -651,8 +669,9 @@ def seed(session: Session) -> None:
         usage="mj_interpretation",
         system_prompt=MJ_INTERPRETATION_SYSTEM_PROMPT,
         user_template=MJ_INTERPRETATION_USER_TEMPLATE,
-        variables=["npc_name", "location_name", "gathering_status", "recent_transcript", "player_line"],
+        variables=["npc_name", "location_name", "gathering_status", "item_list", "recent_transcript", "player_line"],
         destination="local",
+        version=2,
     )
 
     # ----- prompt template: MJ gathering (initial NPC clustering) ------------

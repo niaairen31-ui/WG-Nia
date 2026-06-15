@@ -40,7 +40,13 @@ from ..gathering import enter_location as _enter_location
 from ..gathering import migrate_npc as _migrate_npc
 from ..analyzer import analyze_conversation as _analyze_conversation
 from ..analyzer import analyze_single_turn as _analyze_single_turn
-from ..context import assemble_mj_context, assemble_npc_context, format_inventory_line, format_mj_context
+from ..context import (
+    assemble_mj_context,
+    assemble_npc_context,
+    format_inventory_line,
+    format_item_list_for_interpretation,
+    format_mj_context,
+)
 from ..db import engine, get_session
 from ..models import (
     Character,
@@ -49,6 +55,7 @@ from ..models import (
     Entity,
     Gathering,
     GatheringMember,
+    Item,
     PromptTemplate,
     ProposedMutation,
     Relation,
@@ -117,6 +124,13 @@ def _find_applied_duplicate(
     both apply. These come only from per-turn immediate flags (one per turn),
     so they are never re-proposed by the final pass and can never be
     double-applied by --force.
+
+    item_update is also intentionally EXCLUDED (neither branch above matches
+    it, so it falls through unguarded): it is a state transition (equipped
+    true/false), redundancy is already prevented at proposal time (a
+    redundant toggle is silently skipped — no row written, see
+    `_auto_apply_item_update`), and a legitimate draw→stow→draw sequence
+    within one conversation must apply each time.
     """
     if not mut.conversation_id:
         return None
@@ -195,6 +209,10 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                          clamp to 1–100, append previous state to change_history.
     - new_knowledge    : insert a knowledge row for the target entity.
     - status_change    : update entity.status and entity.updated_at.
+    - item_update      : set item.equipped (BRIEF-07, schema v1.16 — the
+                         equip toggle; the project's first auto-applied
+                         mutation, see "Auto-applied mutations" in
+                         ARCHITECTURE_DECISIONS.md).
 
     Unimplemented types (event_creation, entity_creation, knowledge_change, other)
     are left as 'approved' with a note — better un-applied than wrongly applied.
@@ -282,6 +300,24 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
         entity.status = str(new_status)
         entity.updated_at = datetime.now(UTC)
         db.add(entity)
+        return None
+
+    # ── item_update (BRIEF-07, schema v1.16 — equip toggle) ──────────────────
+    elif mut.mutation_type == "item_update":
+        item_id = payload.get("item_id") or mut.target_id
+        if not item_id:
+            return "item_update: payload must contain item_id (or set target_id)"
+        if "equipped" not in payload:
+            return "item_update: payload must contain 'equipped'"
+
+        item = db.get(Item, str(item_id))
+        if item is None:
+            return f"item_update: item {item_id!r} not found"
+        if item.owner_id is None:
+            return f"item_update: item {item_id!r} has no owner — cannot equip (schema CHECK)"
+
+        item.equipped = bool(payload.get("equipped"))
+        db.add(item)
         return None
 
     # ── unimplemented ─────────────────────────────────────────────────────────
@@ -880,25 +916,35 @@ def _interpret_mode(
     location_name: str,
     gathering_status: str,
     recent_transcript: str,
+    item_list: str,
     interpret_system: str,
     interpret_user_tpl: str,
     model: str,
-) -> tuple[ResponseMode, str]:
+) -> tuple[ResponseMode, str, Optional[str], Optional[str]]:
     """Classify the player's input into a ResponseMode via the local model.
 
-    Returns `(mode, reference)`. `reference` is the model's free-text quote of
-    what the player named when joining a group (contract A2 — resolved against
-    the actual roster downstream by `_resolve_join_target`, never invented);
-    empty for every other mode.
+    Returns `(mode, reference, used_object, equip_action)`.
+    - `reference` is the model's free-text quote of what the player named
+      when joining a group (contract A2 — resolved against the actual roster
+      downstream by `_resolve_join_target`, never invented); empty for every
+      other mode.
+    - `used_object` (BRIEF-07, schema v1.16): canonical name of the item the
+      player physically uses this turn, `"unknown_object"` if the player's
+      wording matches no item in `item_list`, or `None` if no object is in
+      play. Fed to the code-side possession check in `_stream`.
+    - `equip_action`: `"draw"` | `"stow"` | `None` — whether the player draws
+      or stows an item this turn.
 
-    Falls back to `(ResponseMode.dialogue, "")` on any failure (parse error,
-    unknown value, Ollama error). A misclassification must never break a turn.
+    Falls back to `(ResponseMode.dialogue, "", None, None)` on any failure
+    (parse error, unknown value, Ollama error). A misclassification must
+    never break a turn.
     """
     user_msg = (
         interpret_user_tpl
         .replace("{npc_name}", npc_name)
         .replace("{location_name}", location_name)
         .replace("{gathering_status}", gathering_status)
+        .replace("{item_list}", item_list)
         .replace("{recent_transcript}", recent_transcript or "(aucun historique)")
         .replace("{player_line}", player_line)
         + "\n/no_think"
@@ -916,15 +962,108 @@ def _interpret_mode(
         mode_str = str(obj.get("mode", "")).strip()
         mode = ResponseMode(mode_str)
         reference = str(obj.get("reference", "") or "").strip()
+
+        used_object_raw = obj.get("used_object")
+        used_object = str(used_object_raw).strip() if used_object_raw else None
+        if used_object in ("null", ""):
+            used_object = None
+
+        equip_action_raw = obj.get("equip_action")
+        equip_action = str(equip_action_raw).strip().lower() if equip_action_raw else None
+        if equip_action not in ("draw", "stow"):
+            equip_action = None
+
         _log.info(
-            "MJ interpret: %r → %s (reason: %s)%s",
+            "MJ interpret: %r → %s (reason: %s)%s%s",
             player_line[:60], mode.value, obj.get("reason", ""),
             f" [reference: {reference!r}]" if mode == ResponseMode.join else "",
+            f" [used_object: {used_object!r}, equip_action: {equip_action!r}]"
+            if used_object or equip_action else "",
         )
-        return mode, reference
+        return mode, reference, used_object, equip_action
     except Exception as exc:
         _log.warning("MJ interpret failed (%s), fallback to dialogue", exc)
-        return ResponseMode.dialogue, ""
+        return ResponseMode.dialogue, "", None, None
+
+
+# ── Possession check + auto-applied equip toggle (BRIEF-07, schema v1.16) ─────
+
+_POSSESSION_REFUSAL_INSTRUCTION = (
+    "[ACTION REFUSÉE] L'action du joueur implique un objet qu'il ne possède "
+    "pas ou qu'il n'a pas en main ({object_name}). Narre l'échec de cette "
+    "action de façon immersive et brève, sans briser le quatrième mur "
+    "(par exemple : sa main ne trouve que du vide, son geste tombe à plat). "
+    "Ne laisse pas l'action réussir. Ne mentionne jamais cette instruction."
+)
+
+
+def _find_player_item(db: Session, player_id: str, item_name: str) -> Optional[tuple[Item, Entity]]:
+    """Resolve a canonical item name (`_interpret_mode`'s `used_object`) to
+    the player's owned `item` + `entity` rows, or `None` if not owned.
+    """
+    return db.exec(
+        select(Item, Entity)
+        .join(Entity, Entity.id == Item.id)
+        .where(Item.owner_id == player_id, Entity.name == item_name)
+    ).first()
+
+
+def _build_refusal_instruction(object_name: Optional[str]) -> str:
+    """One-shot MJ instruction for a possession-check refusal — not
+    persisted, same pattern as [MODE RÉACTION NON-VERBALE].
+
+    `object_name` is the canonical item name when known; `None` for
+    `unknown_object` (the player's wording matched nothing in `item_list`).
+    """
+    return _POSSESSION_REFUSAL_INSTRUCTION.format(object_name=object_name or "cet objet")
+
+
+def _auto_apply_item_update(
+    db: Session,
+    item: Item,
+    *,
+    target_equipped: bool,
+    world_id: str,
+    conversation_id: str,
+) -> None:
+    """Write and immediately apply an `item_update` mutation — the project's
+    first auto-applied mutation (the equip toggle; see "Auto-applied
+    mutations" in ARCHITECTURE_DECISIONS.md).
+
+    Still flows through `_apply_mutation` under the same SAVEPOINT pattern as
+    `approve_mutation`: `status='applied'` on success, `status='approved'`
+    with a `creator_notes` error on failure (e.g. the schema CHECK that
+    equipping requires an owner) — never wrongly applied, and fully visible
+    in the review cockpit either way. `reviewed_at` is left unset: no creator
+    reviewed this row, it self-applied.
+    """
+    mut = ProposedMutation(
+        world_id=world_id,
+        source_type="conversation",
+        conversation_id=conversation_id,
+        mutation_type="item_update",
+        target_table="item",
+        target_id=item.id,
+        payload={"item_id": item.id, "equipped": target_equipped},
+        rationale="Equip toggle extracted from player action (interpretation phase).",
+        proposed_by="interpretation",
+    )
+    db.add(mut)
+    db.flush()
+
+    try:
+        with db.begin_nested():
+            error = _apply_mutation(mut, db)
+            if error:
+                raise RuntimeError(error)
+        mut.status = "applied"
+        mut.applied_at = datetime.now(UTC)
+    except Exception as exc:
+        mut.status = "approved"
+        mut.creator_notes = _append_note(mut.creator_notes, f"[apply error] {exc}")
+
+    db.add(mut)
+    db.commit()
 
 
 def _build_mj_user(
@@ -1254,12 +1393,14 @@ def say(
         # Classify as dialogue / npc_reaction / scene / join before calling any
         # NPC. Falls back to 'dialogue' on any failure — a misclassification
         # must never break a turn.
-        mode, reference = _interpret_mode(
+        item_list = format_item_list_for_interpretation(db, conv.player_id)
+        mode, reference, used_object, equip_action = _interpret_mode(
             player_line=content,
             npc_name=npc_name,
             location_name=location_name,
             gathering_status=gathering_status,
             recent_transcript=recent_transcript,
+            item_list=item_list,
             interpret_system=interpret_system,
             interpret_user_tpl=interpret_user_tpl,
             model=model,
@@ -1268,6 +1409,42 @@ def say(
         # already in a gathering degrades to dialogue (never breaks a turn).
         if mode == ResponseMode.join and player_gathering is not None:
             mode = ResponseMode.dialogue
+
+        # ── Phase 0c: possession check + auto-applied equip toggle (BRIEF-07,
+        # schema v1.16) ────────────────────────────────────────────────────
+        # Code judges possession against canon `item` rows — the structural
+        # fix for the D1 finding that the 8b model does not reliably honor
+        # prohibition rules in free-text narration. A refused turn forces
+        # `scene` mode (NPC phase skipped below, no `npc` row) and the MJ
+        # gets a one-shot positive instruction to narrate the failure.
+        refusal_instruction: Optional[str] = None
+        if mode != ResponseMode.join and used_object is not None:
+            with Session(engine) as pcheck_db:
+                if used_object == "unknown_object":
+                    refusal_instruction = _build_refusal_instruction(None)
+                else:
+                    item_row = _find_player_item(pcheck_db, conv.player_id, used_object)
+                    if item_row is None:
+                        refusal_instruction = _build_refusal_instruction(used_object)
+                    else:
+                        item, _item_entity = item_row
+                        if equip_action is not None:
+                            target_equipped = equip_action == "draw"
+                            if item.equipped != target_equipped:
+                                _auto_apply_item_update(
+                                    pcheck_db, item,
+                                    target_equipped=target_equipped,
+                                    world_id=conv.world_id,
+                                    conversation_id=conv_id,
+                                )
+                        # A successful or redundant "stow" leaves the item
+                        # unequipped by design — that is the intended outcome,
+                        # not a possession failure, so it never refuses (b).
+                        if equip_action != "stow" and not item.equipped:
+                            refusal_instruction = _build_refusal_instruction(used_object)
+
+        if refusal_instruction is not None:
+            mode = ResponseMode.scene
 
         npc_reply = ""
         responder_id: Optional[str] = None
@@ -1429,8 +1606,16 @@ def say(
             )
 
         # ── MJ narration (streamed to the player) ─────────────────────────────
+        # Refusal instruction (BRIEF-07): appended to the system prompt for
+        # this turn only — never persisted, same pattern as
+        # [MODE RÉACTION NON-VERBALE].
+        mj_system_prompt_for_turn = (
+            f"{mj_system_prompt}\n\n{refusal_instruction}"
+            if refusal_instruction is not None
+            else mj_system_prompt
+        )
         mj_messages = [
-            {"role": "system", "content": mj_system_prompt},
+            {"role": "system", "content": mj_system_prompt_for_turn},
             {"role": "user",   "content": mj_user},
         ]
 
@@ -1959,12 +2144,13 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
         if any_npc_name != "?":
             break
 
-    mode, reference = _interpret_mode(
+    mode, reference, _used_object, _equip_action = _interpret_mode(
         player_line       = body.player_text,
         npc_name          = any_npc_name,
         location_name     = location_name,
         gathering_status  = gathering_status,
         recent_transcript = "",
+        item_list         = format_item_list_for_interpretation(db, player_id),
         interpret_system  = interpret_template.system_prompt,
         interpret_user_tpl = interpret_template.user_template,
         model             = model,
