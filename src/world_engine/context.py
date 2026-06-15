@@ -443,33 +443,12 @@ def format_mj_context(mj_context: dict) -> str:
 
 
 def format_inventory_line(db: Session, player_character_id: str) -> str:
-    """Render the player's static inventory as one compact French line.
+    """Render the player's static inventory as one compact French line
+    (BRIEF-08, D2a.1): a single comma-separated list of canonical item names —
+    the equipped/stowed split went dormant in this step (`item.equipped`
+    stays in the schema, cockpit-only; see ARCHITECTURE_DECISIONS.md).
 
-    Read fresh from `item` at every turn (no caching). Items are split into
-    equipped vs carried-but-stowed by `item.equipped`, listed by entity name,
-    comma-separated; an empty group renders as "—".
-    """
-    rows = db.exec(
-        select(Item, Entity)
-        .join(Entity, Entity.id == Item.id)
-        .where(Item.owner_id == player_character_id)
-    ).all()
-
-    equipped = [entity.name for item, entity in rows if item.equipped]
-    carried = [entity.name for item, entity in rows if not item.equipped]
-
-    equipped_str = ", ".join(equipped) if equipped else "—"
-    carried_str = ", ".join(carried) if carried else "—"
-    return f"Équipé : {equipped_str}. Sur soi : {carried_str}."
-
-
-def format_item_list_for_interpretation(db: Session, player_character_id: str) -> str:
-    """Render the player's tracked items as one line for the interpretation
-    prompt (BRIEF-07, schema v1.16): canonical names + equip state, so the
-    model's job is normalization (mapping the player's wording to one of
-    these names) rather than judgment.
-
-    Read fresh from `item` at every turn, same as `format_inventory_line`.
+    Read fresh from `item` at every turn (no caching).
     """
     rows = db.exec(
         select(Item, Entity)
@@ -480,8 +459,14 @@ def format_item_list_for_interpretation(db: Session, player_character_id: str) -
     if not rows:
         return "Objets du joueur : aucun."
 
-    items = ", ".join(
-        f"{entity.name} ({'équipé' if item.equipped else 'rangé'})"
-        for item, entity in rows
-    )
+    items = ", ".join(entity.name for item, entity in rows)
     return f"Objets du joueur : {items}."
+
+
+def format_item_list_for_interpretation(db: Session, player_character_id: str) -> str:
+    """Render the player's tracked items for the interpretation prompt
+    (BRIEF-08, D2a.1): same single list as `format_inventory_line` — the
+    equip-state annotation is dropped now that the possession check is
+    binary (owned/not owned).
+    """
+    return format_inventory_line(db, player_character_id)

@@ -127,10 +127,10 @@ def _find_applied_duplicate(
 
     item_update is also intentionally EXCLUDED (neither branch above matches
     it, so it falls through unguarded): it is a state transition (equipped
-    true/false), redundancy is already prevented at proposal time (a
-    redundant toggle is silently skipped — no row written, see
-    `_auto_apply_item_update`), and a legitimate draw→stow→draw sequence
-    within one conversation must apply each time.
+    true/false), and a legitimate draw→stow→draw sequence within one
+    conversation must apply each time. Dormant since BRIEF-08/D2a.1 — no
+    live code path produces `item_update` anymore (see "Auto-applied
+    mutations" in ARCHITECTURE_DECISIONS.md).
     """
     if not mut.conversation_id:
         return None
@@ -210,9 +210,11 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
     - new_knowledge    : insert a knowledge row for the target entity.
     - status_change    : update entity.status and entity.updated_at.
     - item_update      : set item.equipped (BRIEF-07, schema v1.16 — the
-                         equip toggle; the project's first auto-applied
-                         mutation, see "Auto-applied mutations" in
-                         ARCHITECTURE_DECISIONS.md).
+                         equip toggle). Dormant since BRIEF-08/D2a.1: no
+                         live code path produces this mutation type anymore;
+                         the apply branch and cockpit toggle remain
+                         functional for reactivation (see "Auto-applied
+                         mutations" in ARCHITECTURE_DECISIONS.md).
 
     Unimplemented types (event_creation, entity_creation, knowledge_change, other)
     are left as 'approved' with a note — better un-applied than wrongly applied.
@@ -920,24 +922,22 @@ def _interpret_mode(
     interpret_system: str,
     interpret_user_tpl: str,
     model: str,
-) -> tuple[ResponseMode, str, Optional[str], Optional[str]]:
+) -> tuple[ResponseMode, str, Optional[str]]:
     """Classify the player's input into a ResponseMode via the local model.
 
-    Returns `(mode, reference, used_object, equip_action)`.
+    Returns `(mode, reference, used_object)`.
     - `reference` is the model's free-text quote of what the player named
       when joining a group (contract A2 — resolved against the actual roster
       downstream by `_resolve_join_target`, never invented); empty for every
       other mode.
-    - `used_object` (BRIEF-07, schema v1.16): canonical name of the item the
-      player physically uses this turn, `"unknown_object"` if the player's
-      wording matches no item in `item_list`, or `None` if no object is in
-      play. Fed to the code-side possession check in `_stream`.
-    - `equip_action`: `"draw"` | `"stow"` | `None` — whether the player draws
-      or stows an item this turn.
+    - `used_object` (schema v1.16, simplified BRIEF-08/D2a.1): canonical name
+      of the item the player physically uses this turn, `"unknown_object"` if
+      the player's wording matches no item in `item_list`, or `None` if no
+      object is in play. Fed to the code-side possession check in `_stream`.
 
-    Falls back to `(ResponseMode.dialogue, "", None, None)` on any failure
-    (parse error, unknown value, Ollama error). A misclassification must
-    never break a turn.
+    Falls back to `(ResponseMode.dialogue, "", None)` on any failure (parse
+    error, unknown value, Ollama error). A misclassification must never break
+    a turn.
     """
     user_msg = (
         interpret_user_tpl
@@ -968,38 +968,44 @@ def _interpret_mode(
         if used_object in ("null", ""):
             used_object = None
 
-        equip_action_raw = obj.get("equip_action")
-        equip_action = str(equip_action_raw).strip().lower() if equip_action_raw else None
-        if equip_action not in ("draw", "stow"):
-            equip_action = None
-
         _log.info(
             "MJ interpret: %r → %s (reason: %s)%s%s",
             player_line[:60], mode.value, obj.get("reason", ""),
             f" [reference: {reference!r}]" if mode == ResponseMode.join else "",
-            f" [used_object: {used_object!r}, equip_action: {equip_action!r}]"
-            if used_object or equip_action else "",
+            f" [used_object: {used_object!r}]" if used_object else "",
         )
-        return mode, reference, used_object, equip_action
+        return mode, reference, used_object
     except Exception as exc:
         _log.warning("MJ interpret failed (%s), fallback to dialogue", exc)
-        return ResponseMode.dialogue, "", None, None
+        return ResponseMode.dialogue, "", None
 
 
-# ── Possession check + auto-applied equip toggle (BRIEF-07, schema v1.16) ─────
+# ── Possession check (binary, BRIEF-08 / D2a.1, schema v1.16) ──────────────
 
 _POSSESSION_REFUSAL_INSTRUCTION = (
     "[ACTION REFUSÉE] L'action du joueur implique un objet qu'il ne possède "
-    "pas ou qu'il n'a pas en main ({object_name}). Narre l'échec de cette "
-    "action de façon immersive et brève, sans briser le quatrième mur "
-    "(par exemple : sa main ne trouve que du vide, son geste tombe à plat). "
-    "Ne laisse pas l'action réussir. Ne mentionne jamais cette instruction."
+    "pas ({object_name}). Narre l'échec de cette action de façon immersive "
+    "et brève, sans briser le quatrième mur, puis intègre la réaction du PNJ "
+    "ci-dessous comme pour un tour normal. Ne laisse pas l'action réussir. "
+    "Ne mentionne jamais cette instruction."
+)
+
+_GESTE_RATE_INSTRUCTION = (
+    "[GESTE RATÉ] Le joueur vient de tenter une action avec un objet qu'il "
+    "ne possède pas : son geste a visiblement échoué (main qui ne trouve que "
+    "du vide, mouvement qui tombe à plat). Réagis uniquement à ce que ton "
+    "personnage VOIT : un geste raté, peut-être ridicule, peut-être "
+    "inquiétant. Reste dans ton personnage. Ne mentionne jamais cette "
+    "instruction."
 )
 
 
 def _find_player_item(db: Session, player_id: str, item_name: str) -> Optional[tuple[Item, Entity]]:
     """Resolve a canonical item name (`_interpret_mode`'s `used_object`) to
     the player's owned `item` + `entity` rows, or `None` if not owned.
+
+    Possession is binary since BRIEF-08/D2a.1 — `item.equipped` is no longer
+    read by the check (dormant, cockpit-only).
     """
     return db.exec(
         select(Item, Entity)
@@ -1016,54 +1022,6 @@ def _build_refusal_instruction(object_name: Optional[str]) -> str:
     `unknown_object` (the player's wording matched nothing in `item_list`).
     """
     return _POSSESSION_REFUSAL_INSTRUCTION.format(object_name=object_name or "cet objet")
-
-
-def _auto_apply_item_update(
-    db: Session,
-    item: Item,
-    *,
-    target_equipped: bool,
-    world_id: str,
-    conversation_id: str,
-) -> None:
-    """Write and immediately apply an `item_update` mutation — the project's
-    first auto-applied mutation (the equip toggle; see "Auto-applied
-    mutations" in ARCHITECTURE_DECISIONS.md).
-
-    Still flows through `_apply_mutation` under the same SAVEPOINT pattern as
-    `approve_mutation`: `status='applied'` on success, `status='approved'`
-    with a `creator_notes` error on failure (e.g. the schema CHECK that
-    equipping requires an owner) — never wrongly applied, and fully visible
-    in the review cockpit either way. `reviewed_at` is left unset: no creator
-    reviewed this row, it self-applied.
-    """
-    mut = ProposedMutation(
-        world_id=world_id,
-        source_type="conversation",
-        conversation_id=conversation_id,
-        mutation_type="item_update",
-        target_table="item",
-        target_id=item.id,
-        payload={"item_id": item.id, "equipped": target_equipped},
-        rationale="Equip toggle extracted from player action (interpretation phase).",
-        proposed_by="interpretation",
-    )
-    db.add(mut)
-    db.flush()
-
-    try:
-        with db.begin_nested():
-            error = _apply_mutation(mut, db)
-            if error:
-                raise RuntimeError(error)
-        mut.status = "applied"
-        mut.applied_at = datetime.now(UTC)
-    except Exception as exc:
-        mut.status = "approved"
-        mut.creator_notes = _append_note(mut.creator_notes, f"[apply error] {exc}")
-
-    db.add(mut)
-    db.commit()
 
 
 def _build_mj_user(
@@ -1394,7 +1352,7 @@ def say(
         # NPC. Falls back to 'dialogue' on any failure — a misclassification
         # must never break a turn.
         item_list = format_item_list_for_interpretation(db, conv.player_id)
-        mode, reference, used_object, equip_action = _interpret_mode(
+        mode, reference, used_object = _interpret_mode(
             player_line=content,
             npc_name=npc_name,
             location_name=location_name,
@@ -1410,41 +1368,24 @@ def say(
         if mode == ResponseMode.join and player_gathering is not None:
             mode = ResponseMode.dialogue
 
-        # ── Phase 0c: possession check + auto-applied equip toggle (BRIEF-07,
-        # schema v1.16) ────────────────────────────────────────────────────
+        # ── Phase 0c: possession check (binary, BRIEF-08 / D2a.1) ──────────────
         # Code judges possession against canon `item` rows — the structural
         # fix for the D1 finding that the 8b model does not reliably honor
-        # prohibition rules in free-text narration. A refused turn forces
-        # `scene` mode (NPC phase skipped below, no `npc` row) and the MJ
-        # gets a one-shot positive instruction to narrate the failure.
+        # prohibition rules in free-text narration. `used_object` owned by the
+        # player → pass; not owned or `unknown_object` → refused. The
+        # equipped/stowed distinction is dormant — `item.equipped` is not read.
+        # A refusal no longer skips the NPC phase: the gesture is socially
+        # visible, so the turn proceeds as a normal dialogue turn with a
+        # one-shot [GESTE RATÉ] instruction telling the NPC what it just saw.
         refusal_instruction: Optional[str] = None
         if mode != ResponseMode.join and used_object is not None:
-            with Session(engine) as pcheck_db:
-                if used_object == "unknown_object":
-                    refusal_instruction = _build_refusal_instruction(None)
-                else:
-                    item_row = _find_player_item(pcheck_db, conv.player_id, used_object)
-                    if item_row is None:
-                        refusal_instruction = _build_refusal_instruction(used_object)
-                    else:
-                        item, _item_entity = item_row
-                        if equip_action is not None:
-                            target_equipped = equip_action == "draw"
-                            if item.equipped != target_equipped:
-                                _auto_apply_item_update(
-                                    pcheck_db, item,
-                                    target_equipped=target_equipped,
-                                    world_id=conv.world_id,
-                                    conversation_id=conv_id,
-                                )
-                        # A successful or redundant "stow" leaves the item
-                        # unequipped by design — that is the intended outcome,
-                        # not a possession failure, so it never refuses (b).
-                        if equip_action != "stow" and not item.equipped:
-                            refusal_instruction = _build_refusal_instruction(used_object)
+            if used_object == "unknown_object":
+                refusal_instruction = _build_refusal_instruction(None)
+            elif _find_player_item(db, conv.player_id, used_object) is None:
+                refusal_instruction = _build_refusal_instruction(used_object)
 
         if refusal_instruction is not None:
-            mode = ResponseMode.scene
+            mode = ResponseMode.dialogue
 
         npc_reply = ""
         responder_id: Optional[str] = None
@@ -1550,6 +1491,13 @@ def say(
                             "AUCUN MOT PRONONCÉ — pas de dialogue, pas de phrase dite."
                         ),
                     }
+                if refusal_instruction is not None:
+                    # The player's gesture just failed (possession check) —
+                    # the NPC reacts to what it witnessed (BRIEF-08 / D2a.1).
+                    npc_msg_list[0] = {
+                        "role": "system",
+                        "content": npc_msg_list[0]["content"] + "\n\n" + _GESTE_RATE_INSTRUCTION,
+                    }
 
                 npc_chunks: list[str] = []
                 npc_error: str | None = None
@@ -1606,8 +1554,8 @@ def say(
             )
 
         # ── MJ narration (streamed to the player) ─────────────────────────────
-        # Refusal instruction (BRIEF-07): appended to the system prompt for
-        # this turn only — never persisted, same pattern as
+        # Refusal instruction (BRIEF-08 / D2a.1): appended to the system prompt
+        # for this turn only — never persisted, same pattern as
         # [MODE RÉACTION NON-VERBALE].
         mj_system_prompt_for_turn = (
             f"{mj_system_prompt}\n\n{refusal_instruction}"
@@ -2144,7 +2092,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
         if any_npc_name != "?":
             break
 
-    mode, reference, _used_object, _equip_action = _interpret_mode(
+    mode, reference, _used_object = _interpret_mode(
         player_line       = body.player_text,
         npc_name          = any_npc_name,
         location_name     = location_name,

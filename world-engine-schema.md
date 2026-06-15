@@ -635,6 +635,34 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.17** — Possession-only check + NPC reaction to refused gestures
+  (BRIEF-08, D2a.1). No new tables or columns. `pt-mj-interpretation`
+  (bumped to `version=3`) drops `equip_action` from its JSON output and
+  prompt instructions — extraction is `mode` + `used_object` only. The
+  `{item_list}` variable (`context.format_item_list_for_interpretation`, now
+  identical to `format_inventory_line`) drops the equip-state annotation:
+  "Objets du joueur : Dague." The `/say` flow's possession check is now
+  binary: `used_object` owned by the player → pass; not owned or
+  `unknown_object` → refused; `item.equipped` is no longer read by the check,
+  and the equip-toggle step (`_auto_apply_item_update`, the `item_update`
+  producer) is removed entirely. A refused turn no longer skips the NPC
+  phase: it runs as a normal dialogue turn with a one-shot `[GESTE RATÉ]`
+  system instruction telling the responding NPC what it just witnessed; the
+  NPC's reply is persisted as a normal `npc` row. The MJ's one-shot
+  `[ACTION REFUSÉE]` instruction is updated to integrate that NPC reaction
+  "comme pour un tour normal". Per-turn analysis (`analyze_single_turn`) runs
+  on refused turns like any other turn (a threatening or ridiculous failed
+  gesture may legitimately produce a `relation_change`). `pt-mj-narration`
+  (bumped to `version=4`) replaces the D1 "RÈGLES SUR LES OBJETS" wording:
+  drawing, stowing, or otherwise manipulating a possessed item is free
+  narration — only possessing an item that's used matters. `{inventory_line}`
+  drops the Équipé/Sur soi split too: "Objets du joueur : dague."
+  **Dormant machinery, untouched**: `item.equipped` stays in the schema
+  (cockpit-only — no gameplay path reads or writes it); `item_update` remains
+  an implemented `_apply_mutation` branch with no active producer; the
+  cockpit equipped toggle stays functional, reactivatable if the combat
+  chantier needs an in-hand state. See "Auto-applied mutations" in
+  `ARCHITECTURE_DECISIONS.md`.
 - **v1.16** — Possession check + auto-applied equip toggle (BRIEF-07). No new
   tables or columns. `proposed_mutation.mutation_type` gains `item_update`
   (the equip toggle) and `proposed_mutation.proposed_by` gains
