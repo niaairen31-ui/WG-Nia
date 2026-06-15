@@ -47,7 +47,7 @@ from pydantic import BaseModel
 from sqlmodel import Session as DbSession, select
 
 from ..db import get_session
-from ..models import Character, Entity, Faction, Item, Knowledge, Location, Relation, World
+from ..models import Character, Entity, Faction, Item, Knowledge, Location, Relation, Skill, World
 from ..writes import KNOWLEDGE_LEVELS, write_knowledge, write_relation
 
 router = APIRouter(prefix="/api", tags=["author-crud"])
@@ -72,6 +72,10 @@ RELATION_DIRECTIONS = ("mutual", "a_to_b", "b_to_a")
 KNOWLEDGE_LEVELS_ORDERED = (
     "unaware", "rumor", "suspicious", "partial", "knows", "fully_understands",
 )
+
+# skill sheet — fixed display order (schema v1.22, BRIEF-10)
+SKILL_DOMAINS = ("physical", "agility", "perception", "composure")
+SKILL_TIERS = (-1, 0, 1, 2)
 
 
 # ── Entity base fields (the `entity` table) ───────────────────────────────────
@@ -718,6 +722,78 @@ def list_entity_items(entity_id: str, db: DbSession = Depends(get_session)) -> l
         }
         for item, entity in rows
     ]
+
+
+# ── Skill sheet (BRIEF-10, schema v1.22) ──────────────────────────────────────
+# Creator-mode direct write — no `proposed_mutation`, same rule as the rest of
+# this module. Player-mode read-only rendering is a frontend-only distinction
+# (the cockpit is the creator's tool; the player-facing app is separate).
+
+def _skill_dict(s: Skill) -> dict:
+    return {
+        "id": s.id,
+        "character_id": s.character_id,
+        "domain": s.domain,
+        "tier": s.tier,
+        "change_history": s.change_history,
+        "updated_at": _iso(s.updated_at),
+    }
+
+
+@router.get("/skills/player-characters")
+def list_skill_player_characters(db: DbSession = Depends(get_session)) -> list[dict]:
+    """Player characters (`character_type = 'player'`), for the Fiche selector."""
+    rows = db.exec(
+        select(Entity, Character)
+        .join(Character, Character.id == Entity.id)
+        .where(Character.character_type == "player")
+        .order_by(Entity.name)
+    ).all()
+    return [{"id": e.id, "name": e.name} for e, _ in rows]
+
+
+@router.get("/skills")
+def list_skills(character_id: str = Query(...), db: DbSession = Depends(get_session)) -> list[dict]:
+    """A player character's skill sheet, in fixed domain order."""
+    _get_entity(db, character_id)
+    rows = db.exec(select(Skill).where(Skill.character_id == character_id)).all()
+    order = {domain: i for i, domain in enumerate(SKILL_DOMAINS)}
+    rows.sort(key=lambda s: order.get(s.domain, len(SKILL_DOMAINS)))
+    return [_skill_dict(s) for s in rows]
+
+
+class SkillTierBody(BaseModel):
+    tier: int
+
+
+@router.patch("/skills/{skill_id}")
+def update_skill_tier(skill_id: str, body: SkillTierBody, db: DbSession = Depends(get_session)) -> dict:
+    """Creator edit: set a skill's tier directly (canon write, no checkpoint).
+
+    Archives the previous tier into `change_history` and bumps `updated_at`
+    — but only on an actual change, so resubmitting the same tier is a no-op.
+    """
+    skill = db.get(Skill, skill_id)
+    if skill is None:
+        raise HTTPException(404, f"Skill {skill_id!r} not found")
+    if body.tier not in SKILL_TIERS:
+        raise HTTPException(422, f"tier must be one of {SKILL_TIERS}")
+
+    if body.tier != skill.tier:
+        history = list(skill.change_history or [])
+        history.append({
+            "tier": skill.tier,
+            "changed_at": datetime.now(UTC).isoformat(),
+            "by": "creator",
+        })
+        skill.change_history = history
+        skill.tier = body.tier
+        skill.updated_at = datetime.now(UTC)
+        db.add(skill)
+        db.commit()
+        db.refresh(skill)
+
+    return _skill_dict(skill)
 
 
 __all__ = ["router", "ENTITY_TYPE_REGISTRY"]

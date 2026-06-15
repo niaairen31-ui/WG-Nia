@@ -28,6 +28,15 @@ from world_engine.db import engine  # noqa: E402
 
 WORLD_ID = "verkhaal"
 
+# ----- BRIEF-10: skill sheet test player character ---------------------------
+# A second player character, dedicated to exercising the new `skill` table
+# (cockpit "Fiche" view) without touching the live `char-player` (Joran).
+# The creator renames SKILL_SHEET_PC_NAME before running this seed for real
+# testing; SKILL_SHEET_PC_ID stays a stable slug either way.
+SKILL_SHEET_PC_ID = "char-pc-test-2"
+SKILL_SHEET_PC_NAME = "PC_TEST_2"
+SKILL_DOMAINS = ("physical", "agility", "perception", "composure")
+
 # Track what happened for the summary.
 _created: list[tuple[str, str]] = []
 _existing: list[tuple[str, str]] = []
@@ -1109,6 +1118,38 @@ def seed(session: Session) -> None:
         equipped=True,
         condition="intact",
     )
+
+    # ----- skill sheet test player character (entity + character + skill) ----
+    # BRIEF-10: dedicated test character for the skill sheet, separate from
+    # char-player. Four skill rows at tier 0 — the creator edits tiers via the
+    # cockpit "Fiche" view afterwards.
+    get_or_create(
+        session,
+        m.Entity,
+        SKILL_SHEET_PC_ID,
+        world_id=WORLD_ID,
+        type="character",
+        name=SKILL_SHEET_PC_NAME,
+        is_public=True,
+    )
+    get_or_create(
+        session,
+        m.Character,
+        SKILL_SHEET_PC_ID,
+        faction_id=None,
+        character_type="player",
+        user_id=None,
+        current_location_id="loc-dernier-verre",
+    )
+    for domain in SKILL_DOMAINS:
+        get_or_create(
+            session,
+            m.Skill,
+            f"skill-{SKILL_SHEET_PC_ID}-{domain}",
+            character_id=SKILL_SHEET_PC_ID,
+            domain=domain,
+            tier=0,
+        )
 
     # ----- knowledge ---------------------------------------------------------
     # Maelis: ordinary tavern-keeper material she shares freely from neutral,

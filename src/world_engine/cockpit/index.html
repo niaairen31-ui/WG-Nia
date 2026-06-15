@@ -816,6 +816,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   <div class="mode-tabs">
     <button class="mode-tab active" id="mode-tab-play" onclick="showPlayView()">Play</button>
     <button class="mode-tab" id="mode-tab-author" onclick="showAuthorView()">Author</button>
+    <button class="mode-tab" id="mode-tab-skill" onclick="showSkillView()">Fiche</button>
   </div>
   <span class="local-badge">127.0.0.1 · local only</span>
 </header>
@@ -978,6 +979,26 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     </div>
   </div>
 </div><!-- #author-view -->
+
+<!-- ══ Fiche — player skill sheet (BRIEF-10, schema v1.22) ════════════════════ -->
+<div class="layout" id="skill-view" style="display:none; grid-template-columns: 1fr">
+  <div class="right-col">
+    <div class="transcript-panel" style="border-bottom: none">
+      <div class="panel-head">
+        <h2>Fiche de personnage</h2>
+        <select id="skill-character-select" onchange="skillSelectCharacter(this.value)"></select>
+        <label class="field-row checkbox" style="margin:0">
+          <input type="checkbox" id="skill-player-mode" onchange="skillRender()">
+          <span>Mode joueur (lecture seule)</span>
+        </label>
+        <button class="btn-icon" onclick="skillLoadCharacters()" title="Refresh">↻</button>
+      </div>
+      <div class="author-main" id="skill-main">
+        <div class="empty">Select a player character.</div>
+      </div>
+    </div>
+  </div>
+</div><!-- #skill-view -->
 
 <script>
 'use strict';
@@ -2210,16 +2231,30 @@ let authorEntityType  = null;  // type of the entity currently displayed
 function showPlayView() {
   document.getElementById('play-view').style.display = '';
   document.getElementById('author-view').style.display = 'none';
+  document.getElementById('skill-view').style.display = 'none';
   document.getElementById('mode-tab-play').classList.add('active');
   document.getElementById('mode-tab-author').classList.remove('active');
+  document.getElementById('mode-tab-skill').classList.remove('active');
 }
 
 function showAuthorView() {
   document.getElementById('play-view').style.display = 'none';
   document.getElementById('author-view').style.display = '';
+  document.getElementById('skill-view').style.display = 'none';
   document.getElementById('mode-tab-play').classList.remove('active');
   document.getElementById('mode-tab-author').classList.add('active');
+  document.getElementById('mode-tab-skill').classList.remove('active');
   if (!authorRegistry) authorInit();
+}
+
+function showSkillView() {
+  document.getElementById('play-view').style.display = 'none';
+  document.getElementById('author-view').style.display = 'none';
+  document.getElementById('skill-view').style.display = '';
+  document.getElementById('mode-tab-play').classList.remove('active');
+  document.getElementById('mode-tab-author').classList.remove('active');
+  document.getElementById('mode-tab-skill').classList.add('active');
+  if (!skillCharacters) skillInit();
 }
 
 /* ── Bootstrap ───────────────────────────────────────────────────────────── */
@@ -2727,6 +2762,97 @@ async function authorKnowledgeRequest(path, method, body) {
   } catch (e) {
     statusEl.className = 'author-status err';
     statusEl.textContent = e.message;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Fiche — player skill sheet (BRIEF-10, schema v1.22)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+const SKILL_DOMAIN_LABELS = {
+  physical: 'Physical', agility: 'Agility',
+  perception: 'Perception', composure: 'Composure',
+};
+const SKILL_TIER_LABELS = {
+  '-1': '-1 · Weak', '0': '0 · Average', '1': '+1 · Trained', '2': '+2 · Exceptional',
+};
+
+let skillCharacters  = null;  // cached /api/skills/player-characters response
+let skillCharacterId = null;  // currently selected player character
+let skillRows        = [];    // current sheet rows
+
+async function skillInit() {
+  await skillLoadCharacters();
+}
+
+async function skillLoadCharacters() {
+  const sel = document.getElementById('skill-character-select');
+  try {
+    skillCharacters = await api('/api/skills/player-characters');
+  } catch (e) {
+    document.getElementById('skill-main').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    return;
+  }
+  sel.innerHTML = skillCharacters.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+  if (skillCharacters.length === 0) {
+    document.getElementById('skill-main').innerHTML = '<div class="empty">No player characters yet.</div>';
+    return;
+  }
+  if (!skillCharacterId || !skillCharacters.some(c => c.id === skillCharacterId)) {
+    skillCharacterId = skillCharacters[0].id;
+  }
+  sel.value = skillCharacterId;
+  await skillSelectCharacter(skillCharacterId);
+}
+
+async function skillSelectCharacter(characterId) {
+  skillCharacterId = characterId;
+  const mainEl = document.getElementById('skill-main');
+  mainEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  try {
+    skillRows = await api(`/api/skills?character_id=${encodeURIComponent(characterId)}`);
+  } catch (e) {
+    mainEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    return;
+  }
+  skillRender();
+}
+
+function skillRender() {
+  const mainEl = document.getElementById('skill-main');
+  if (!skillRows.length) {
+    mainEl.innerHTML = '<div class="empty">No skill rows for this character.</div>';
+    return;
+  }
+  const playerMode = document.getElementById('skill-player-mode').checked;
+  mainEl.innerHTML = '<div class="field-section"><div class="field-grid">' +
+    skillRows.map(s => {
+      const label = SKILL_DOMAIN_LABELS[s.domain] || s.domain;
+      if (playerMode) {
+        return `<div class="field-row"><label>${esc(label)}</label>
+          <input type="text" value="${esc(SKILL_TIER_LABELS[String(s.tier)] || s.tier)}" disabled></div>`;
+      }
+      const opts = [-1, 0, 1, 2].map(t =>
+        `<option value="${t}" ${t === s.tier ? 'selected' : ''}>${esc(SKILL_TIER_LABELS[String(t)])}</option>`
+      ).join('');
+      return `<div class="field-row"><label>${esc(label)}</label>
+        <select onchange="skillSaveTier('${esc(s.id)}', this.value)">${opts}</select></div>`;
+    }).join('') +
+    '</div></div>';
+}
+
+async function skillSaveTier(skillId, tier) {
+  try {
+    const updated = await api(`/api/skills/${encodeURIComponent(skillId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: Number(tier) }),
+    });
+    const idx = skillRows.findIndex(s => s.id === skillId);
+    if (idx !== -1) skillRows[idx] = updated;
+  } catch (e) {
+    alert(e.message);
+    skillSelectCharacter(skillCharacterId); // reload to discard the failed edit
   }
 }
 

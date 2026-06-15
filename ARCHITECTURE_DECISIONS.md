@@ -819,6 +819,50 @@ fiction and the inventory line is accepted. No new `mutation_type` is added;
 
 ---
 
+## PHYSICAL LAYER — skill sheet (schema v1.22, BRIEF-10)
+
+The first piece of a future dice/arbiter layer: a player character's physical
+and sensory aptitudes, recorded as a small per-domain sheet rather than a
+single number.
+
+- **Dedicated `skill` table, full change history.** Four domains —
+  `physical`, `agility`, `perception`, `composure` — each a row with a
+  `tier` in `-1..2` (-1 weak, 0 average, +1 trained, +2 exceptional), the
+  same "history is sacred" pattern as `relation`/`knowledge`:
+  `change_history` is an append-only JSON array of
+  `{"tier": <old>, "changed_at": <iso>, "by": "creator"}` snapshots, and
+  `updated_at` bumps on every real change. A no-op write (resubmitting the
+  current tier) touches neither.
+- **Seeded minimally, evolution is creator-controlled.** `seed_pilot.py`
+  creates one test player character (`char-pc-test-2`) with all four
+  domains at `tier=0` — a starting point, not a balanced character. From
+  there, tiers change only through the cockpit "Fiche" view (creator mode),
+  a direct canon write with no `proposed_mutation` — the same rule as every
+  other creator-mode edit (Author CRUD, see "Author CRUD" above). There is
+  no automatic progression yet.
+- **NPCs do not get `skill` rows.** An NPC's physical capability, when a
+  scene needs to compare it against the player's, lives as a single
+  opposition tier in `entity.metadata` (key `physical_tier`, `-1..2`,
+  default `0`) — read later, by the arbiter step. This keeps the `skill`
+  table exclusively a player-character sheet and avoids seeding four rows
+  per NPC for a number that, for NPCs, only ever needs to be one.
+- **Social domains are a standing guard, not a deferral.** Persuasion,
+  deception, charm and similar social aptitudes are never `skill` domains.
+  Those interactions stay in dialogue/relation territory (`relation_change`
+  via window analysis) — adding a "social skill" would create two competing
+  systems for the same kind of outcome. This is a permanent design
+  boundary, to be re-affirmed (not relaxed) if a future step considers
+  adding social mechanics.
+
+**Out of scope for this step** (see also "Deferred decisions" below): no
+dice/arbiter or `ResponseMode.physical` (the next step that consumes this
+sheet); no `skill_change` mutation type or automatic progression; no NPC
+`skill` rows or `physical_tier` seeded yet; no condition ladder, `scene_state`,
+HP, or opposed rolls. The `/say` flow, analyzer, and prompt templates are
+untouched.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.
@@ -882,6 +926,14 @@ Recorded here so each is revisited deliberately rather than forgotten:
   harden a code-level `knows` cap on `analyze_window`'s `knowledge_change`
   path until this is decided; doing so would lock in a choice that is
   deliberately still open.
+- **Skill sheet consumers** (physical layer, BRIEF-10). The `skill` table
+  exists but nothing reads it yet. Deferred until a dice/arbiter step:
+  `skill_change` mutation type and automatic progression (tiers stay
+  creator-edit only until then); numeric HP and a condition ladder; opposed
+  rolls (`ResponseMode.physical`); NPC `skill` rows and `entity.metadata`
+  `physical_tier` (seed only when an arbiter needs to read it); passive
+  perception checks; richer scene description on location entry (the MJ
+  establishing what a character with a given perception tier notices).
 
 ---
 
