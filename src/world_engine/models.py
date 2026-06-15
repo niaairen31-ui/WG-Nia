@@ -226,6 +226,10 @@ class Knowledge(SQLModel, table=True):
     acquired_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
     session_id: Optional[str] = None  # no FK in schema
+    change_history: list = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -475,7 +479,7 @@ class Artifact(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
-# item  (mundane tracked objects — static possession, schema v1.15)
+# item  (mundane tracked objects — static possession, schema v1.18)
 # -----------------------------------------------------------------------------
 class Item(SQLModel, table=True):
     __tablename__ = "item"
