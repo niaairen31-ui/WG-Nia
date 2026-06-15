@@ -220,6 +220,11 @@ World-genrator/
 │                            #   'proposed' rows, select all/none, batch approve/reject);
 │                            #   Author CRUD character sheet — read-only Items
 │                            #   section (equipped vs stowed, BRIEF-06)
+│                            #   "Fiche" mode tab — player skill sheet
+│                            #   (BRIEF-10, schema v1.22): creator-mode inline
+│                            #   tier editor (direct write via crud.py, no
+│                            #   proposed_mutation, change_history archived),
+│                            #   player-mode read-only ("Mode joueur" toggle)
 │                            #   (inline CSS/JS, zero external deps)
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
