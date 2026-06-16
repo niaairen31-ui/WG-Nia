@@ -380,33 +380,43 @@ Narration MJ :\
 # world_id = NULL.
 MJ_INTERPRETATION_SYSTEM_PROMPT = """\
 Tu es un routeur de scène pour un jeu de rôle à la première personne du joueur.
-Tu lis l'input du joueur et tu classes le tour en exactement un des 4 modes.
+Tu lis l'input du joueur et tu classes le tour en exactement un des 5 modes.
 
 MODES :
 - dialogue      : le joueur parle, pose une question ou sollicite une réponse du PNJ
                   (même si combiné à un geste). MODE PAR DÉFAUT en cas de doute.
+- physical      : le joueur tente une action physique dont l'issue est incertaine
+                  (grimper, bousculer, esquiver, forcer une porte, se faufiler,
+                  résister physiquement, retenir quelqu'un...) — un jet de dés
+                  pourrait aussi bien réussir qu'échouer. Un geste simple sans
+                  enjeu reste npc_reaction ; une action sur l'environnement sans
+                  enjeu reste scene.
 - npc_reaction  : le joueur fait une action visible, dirigée vers le PNJ ou clairement
-                  remarquée par lui, SANS lui adresser la parole (exemples : tape sur
-                  la table, le fixe, pose une pièce en silence, sort brusquement,
-                  croise son regard, lui tend un objet sans rien dire).
-- scene         : le joueur agit sur l'environnement sans engager le PNJ (se déplace,
-                  observe la salle, inspecte un objet, attend, décrit une attitude
-                  générale non dirigée).
+                  remarquée par lui, SANS lui adresser la parole, ET dont l'issue
+                  n'est pas incertaine (exemples : tape sur la table, le fixe, pose
+                  une pièce en silence, sort brusquement, croise son regard, lui
+                  tend un objet sans rien dire).
+- scene         : le joueur agit sur l'environnement sans engager le PNJ et sans
+                  enjeu incertain (se déplace, observe la salle, inspecte un objet,
+                  attend, décrit une attitude générale non dirigée).
 - join          : le joueur exprime l'intention de s'approcher d'un groupe de
                   personnes présentes et de s'installer avec elles (exemples :
                   « je rejoins les deux près du feu », « je vais m'asseoir avec
                   eux », « je m'approche du groupe au comptoir »). Pertinent
                   UNIQUEMENT si « Votre situation » indique que le joueur n'a
                   encore rejoint aucun groupe — sinon, ignore cette option et
-                  classe normalement (dialogue/npc_reaction/scene).
+                  classe normalement (dialogue/physical/npc_reaction/scene).
 
 RÈGLE DE DÉCISION :
 0. Le joueur n'a rejoint aucun groupe ET son input décrit l'intention de
    s'approcher / s'installer avec des gens présents → join (priorité absolue
    sur les autres modes).
 1. Sinon, y a-t-il des mots, une question ou une sollicitation adressés au PNJ ? → dialogue.
-2. Y a-t-il un geste ou une action clairement dirigés vers le PNJ, sans parole ? → npc_reaction.
-3. Sinon → scene.
+2. Sinon, l'action décrit-elle une tentative physique dont l'issue est incertaine
+   (un jet de dés pourrait échouer ou réussir) ? → physical.
+3. Y a-t-il un geste ou une action clairement dirigés vers le PNJ, sans parole,
+   à l'issue certaine ? → npc_reaction.
+4. Sinon → scene.
 QUAND INCERTAIN entre dialogue et les autres → dialogue (mieux qu'elle parle trop que pas assez).
 
 Pour le mode join UNIQUEMENT, ajoute un champ "reference" : reprends tels quels
@@ -426,7 +436,7 @@ joueur peut les désigner par d'autres mots ("ma lame", "mon couteau" pour
   jeu ce tour → null.
 
 Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre :
-{"mode":"dialogue|npc_reaction|scene|join","reason":"<une phrase courte d'explication>","reference":"<vide sauf pour join>","used_object":"<nom canonique>|unknown_object|null"}\
+{"mode":"dialogue|physical|npc_reaction|scene|join","reason":"<une phrase courte d'explication>","reference":"<vide sauf pour join>","used_object":"<nom canonique>|unknown_object|null"}\
 """
 
 MJ_INTERPRETATION_USER_TEMPLATE = """\
@@ -441,6 +451,43 @@ Historique récent (joueur/PNJ, sans lignes du MJ) :
 {recent_transcript}
 
 Input du joueur → {player_line}\
+"""
+
+# Arbiter classification for physical-resolution turns (BRIEF-11, schema v1.23).
+# usage = "mj_arbitration". Fired only for ResponseMode.physical, between phase 0
+# (mj_interpretation) and the NPC phase. Classifies ONLY — domain + optional NPC
+# opposition; never rolls, never decides outcomes. Non-streaming JSON call;
+# /no_think appended at call time. world_id = NULL.
+MJ_ARBITER_SYSTEM_PROMPT = """\
+Tu es l'arbitre d'un jeu de rôle. Le joueur vient de tenter une action physique
+dont l'issue est incertaine (grimper, bousculer, esquiver, forcer, se faufiler,
+résister...). Ta tâche : classer cette action selon DEUX axes, RIEN d'autre.
+
+1. DOMAINE — choisis exactement un des quatre :
+   - physical   : force brute, endurance, encaissement, porter/pousser/tirer.
+   - agility    : précision corporelle, esquive, équilibre, rapidité, discrétion.
+   - perception : repérer, viser, remarquer un détail sous pression.
+   - composure  : sang-froid, résister à l'intimidation ou à la panique.
+
+2. OPPOSITION — l'action vise-t-elle directement un PNJ présent (bousculer,
+   désarmer, retenir, esquiver son coup...) ?
+   - Si oui : indique le NOM EXACT du PNJ tel qu'il apparaît dans la liste
+     fournie. Ne traduis pas, n'invente pas, ne déduis pas un PNJ absent de
+     la liste.
+   - Si l'action ne vise personne (escalader un mur, sauter un fossé, se
+     faufiler dans l'ombre) : null.
+
+Tu ne juges JAMAIS la réussite ou l'échec — cela est déterminé ailleurs par un
+jet de dés. Tu ne narres rien.
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre :
+{"domain":"physical|agility|perception|composure","opposed_npc_id":"<nom exact ou null>"}\
+"""
+
+MJ_ARBITER_USER_TEMPLATE = """\
+PNJ présents : {npc_list}
+
+Action du joueur → {player_line}\
 """
 
 # Initial NPC clustering when a player enters a location (schema v1.8, Tier 1).
@@ -721,10 +768,11 @@ def seed(session: Session) -> None:
     )
 
     # ----- prompt template: MJ scene interpretation -------------------------
-    # usage = "mj_interpretation". Classifies each player turn into one of 4
-    # modes (dialogue / npc_reaction / scene / join) to route the /say flow,
-    # and extracts used_object (BRIEF-08/D2a.1: equip_action removed). Non-
-    # streaming JSON call; /no_think appended at call time. world_id = NULL.
+    # usage = "mj_interpretation". Classifies each player turn into one of 5
+    # modes (dialogue / physical / npc_reaction / scene / join) to route the
+    # /say flow, and extracts used_object (BRIEF-08/D2a.1: equip_action
+    # removed). Non-streaming JSON call; /no_think appended at call time.
+    # world_id = NULL. v4 adds the `physical` mode (BRIEF-11, schema v1.23).
     # Uses upsert so re-seeding always converges the DB to the latest wording.
     upsert_prompt_template(
         session,
@@ -736,7 +784,29 @@ def seed(session: Session) -> None:
         user_template=MJ_INTERPRETATION_USER_TEMPLATE,
         variables=["npc_name", "location_name", "gathering_status", "item_list", "recent_transcript", "player_line"],
         destination="local",
-        version=3,
+        version=4,
+    )
+
+    # ----- prompt template: MJ arbiter (physical resolution classification) --
+    # usage = "mj_arbitration". Fired only for ResponseMode.physical, between
+    # phase 0 (mj_interpretation) and the NPC phase: classifies the action into
+    # a domain (physical/agility/perception/composure) and optional NPC
+    # opposition (by name, resolved to an id in app.py). Never rolls, never
+    # decides outcomes — resolve_physical (resolution.py) does that in pure
+    # Python. Non-streaming JSON call; /no_think appended at call time.
+    # world_id = NULL (BRIEF-11, schema v1.23).
+    # Uses upsert so re-seeding always converges the DB to the latest wording.
+    upsert_prompt_template(
+        session,
+        "pt-mj-arbiter",
+        world_id=None,
+        name="MJ arbitre — domaine et opposition (résolution physique)",
+        usage="mj_arbitration",
+        system_prompt=MJ_ARBITER_SYSTEM_PROMPT,
+        user_template=MJ_ARBITER_USER_TEMPLATE,
+        variables=["player_line", "npc_list"],
+        destination="local",
+        version=1,
     )
 
     # ----- prompt template: MJ gathering (initial NPC clustering) ------------

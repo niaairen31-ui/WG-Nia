@@ -863,6 +863,92 @@ untouched.
 
 ---
 
+## PHYSICAL LAYER — part 2: arbiter + dice (BRIEF-11, schema v1.23)
+
+The first consumer of the skill sheet: a fourth `/say` interpretation mode for
+actions with an uncertain physical outcome, a small classification ("arbiter")
+call, and a **pure Python 2d6 roll** — the model never rolls.
+
+- **`/say` interpretation modes relevant to physical actions** (`pt-mj-interpretation`, v4):
+
+  | Mode           | Routes to                                                |
+  |----------------|-----------------------------------------------------------|
+  | `dialogue`     | words/question/solicitation toward the NPC — unchanged, highest priority after `join`. |
+  | `physical`     | a physical attempt whose outcome is uncertain — climbing, grabbing, dodging, forcing, sneaking, resisting. Routed to `_arbitrate()` + `resolve_physical()`. |
+  | `npc_reaction` | a gesture/action toward the NPC with a *certain* outcome — wordless reaction, no roll. |
+  | `scene`        | environment action, no stake, NPC not engaged — no roll. |
+
+  `join`'s existing absolute priority (player ungrouped + intent to approach a
+  group) is unchanged and still takes precedence over `physical`.
+
+- **Arbiter circuit.** `_arbitrate()` fires only for `physical` turns, between
+  phase 0 (`mj_interpretation`) and the NPC phase. Non-streaming `chat()` with
+  `format="json"` and `/no_think`, template `pt-mj-arbiter`
+  (`usage='mj_arbitration'`, `world_id=NULL`). Input: the player's line and the
+  names of co-present NPCs (never raw entity rows — same context-assembler
+  boundary as everywhere else). Output:
+  `{"domain": "physical|agility|perception|composure", "opposed_npc_id": "<name
+  or null>"}`. The model **classifies only** — it never rolls and never decides
+  outcomes. `_arbitrate` resolves the returned name to an entity id via
+  case-insensitive lookup against the actual roster (same "exact match, never
+  invented" pattern as `_resolve_join_target`'s `reference`). On any failure —
+  bad JSON, unknown domain, Ollama error, timeout — it falls back to
+  `("physical", None)`; a misclassification must never break a turn.
+
+- **`resolve_physical` (resolution.py) — pure Python, no DB/model access.**
+  `roll = randint(1,6) + randint(1,6) + player_tier - npc_tier`, where
+  `player_tier` is the player's `skill.tier` for the classified domain (schema
+  v1.22, default 0 if no row) and `npc_tier` is `entity.metadata.physical_tier`
+  of `opposed_npc_id` (default 0 when absent or unopposed). Band table:
+
+  | Total    | Band      | Meaning                                                  |
+  |----------|-----------|----------------------------------------------------------|
+  | `<= 6`   | `failure` | the action fails outright.                                |
+  | `7–9`    | `partial` | success with a cost/complication, or failure with a silver lining — narration's choice, band is the law. |
+  | `>= 10`  | `success` | the action clearly succeeds.                              |
+
+  The `Verdict` (`domain`, `dice`, `modifier`, `total`, `band`) is logged
+  (audit) and sent to the player as an SSE event `data: {"verdict": {...}}`
+  before narration — same pattern as `npc_raw`.
+
+- **Player-roll rule (verbatim)**: "The roll always belongs to the player.
+  When an NPC initiates a physical action against the player, we do not roll
+  the NPC's attempt — we roll the player's response (dodge, resist, endure),
+  with the NPC tier as opposition. One mechanic, one code path, one audit
+  point." There is no code path that rolls for an NPC; an NPC-initiated grab is
+  handled by the player describing their own response, classified and resolved
+  exactly like any other physical turn.
+
+- **NPC phase for physical turns.** If `opposed_npc_id` is set, that NPC is
+  called exactly like `npc_reaction` (one-shot wordless reaction instruction)
+  with the verdict band appended so the reaction matches the outcome; the
+  `npc` row IS written canonically, so `analyze_window` keeps proposing
+  `relation_change` for fights as usual. Unopposed physical turns behave like
+  `scene` — no NPC call, no `npc` row.
+
+- **MJ narration constrained by the verdict.** The `physical` branch of
+  `_build_mj_user` injects a verbatim rubric: *"Tu narres les conséquences ;
+  tu ne rejuges JAMAIS le résultat"* — `failure` must not be softened into a
+  partial success, `partial` must carry a real cost or complication (or a
+  failure with an unexpected upside), `success` succeeds cleanly.
+
+- **Canon boundary.** A physical scene can at most neutralize or constrain.
+  Death, permanent injury, durable capture, or an item being taken require a
+  `proposed_mutation` and creator approval — never a direct effect of this
+  narration. This is enforced twice: at the prompt level (the rubric
+  explicitly forbids death/permanent injury/durable capture, capping outcomes
+  at "neutralized or constrained"), and structurally (the resolution path —
+  arbiter, dice, NPC phase, narration — writes **zero** canon; no new
+  `relation`/`knowledge`/`entity` row is ever produced directly by it).
+
+**Out of scope for this step**: no constraints/contention, `scene_state`, or
+condition ladder (a later step); no perception/search injection; no
+`skill_change` mutation type or automatic progression; no dice UI beyond the
+`verdict` SSE audit event. NPC↔NPC dice are explicitly deferred — see
+"Deferred decisions" below.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.
@@ -926,14 +1012,20 @@ Recorded here so each is revisited deliberately rather than forgotten:
   harden a code-level `knows` cap on `analyze_window`'s `knowledge_change`
   path until this is decided; doing so would lock in a choice that is
   deliberately still open.
-- **Skill sheet consumers** (physical layer, BRIEF-10). The `skill` table
-  exists but nothing reads it yet. Deferred until a dice/arbiter step:
-  `skill_change` mutation type and automatic progression (tiers stay
-  creator-edit only until then); numeric HP and a condition ladder; opposed
-  rolls (`ResponseMode.physical`); NPC `skill` rows and `entity.metadata`
-  `physical_tier` (seed only when an arbiter needs to read it); passive
-  perception checks; richer scene description on location entry (the MJ
-  establishing what a character with a given perception tier notices).
+- **Skill sheet consumers, remainder** (physical layer, BRIEF-10/BRIEF-11).
+  `ResponseMode.physical` + `resolve_physical` now read the skill sheet (v1.23)
+  — still deferred: `skill_change` mutation type and automatic progression
+  (tiers stay creator-edit only); numeric HP and a condition ladder;
+  constraints/contention/`scene_state` (gated actions, "grabbed" as state
+  rather than prose); passive perception checks; richer scene description on
+  location entry (the MJ establishing what a character with a given
+  perception tier notices).
+- **NPC↔NPC physical dice** (BRIEF-11). When Tier-3 initiative produces an
+  NPC-vs-NPC physical act, the MJ narrates by tier comparison — no roll,
+  nothing implemented this step. Accepted design: the player-roll rule means
+  the resolution machinery (`_arbitrate`, `resolve_physical`) is wired only to
+  player-initiated or player-responding turns; an NPC↔NPC roll would need its
+  own (still hypothetical) trigger and is not scoped.
 
 ---
 

@@ -198,6 +198,15 @@ header .local-badge {
 .mode-badge.b-scene        { background: #e8f4f8; color: #2b6cb0; }
 .mode-badge.b-npc_reaction { background: #fef3e2; color: #c05621; }
 .mode-badge.b-dialogue     { background: #f0fff4; color: #276749; }
+.mode-badge.b-physical     { background: #faf0f6; color: #97266d; }
+
+/* Verdict annotation (BRIEF-11) — dice audit, same muted style as npc-raw. */
+.verdict-annotation { align-self: flex-start; max-width: 72%; padding: 0 8px 6px;
+  font-size: 11px; color: var(--muted); font-style: italic; line-height: 1.5; }
+.verdict-band { font-weight: 700; }
+.verdict-band.band-failure { color: #c53030; }
+.verdict-band.band-partial { color: #c05621; }
+.verdict-band.band-success { color: #276749; }
 
 /* ── Queue panel ─────────────────────────────────────────────────────────── */
 .queue-panel {
@@ -1565,6 +1574,7 @@ async function sendPlayerLine() {
   let mjBubble = null;
   let npcRawContent = null;
   let turnMode = null;
+  let verdictInfo = null;      // {domain, dice, modifier, total, band} — physical resolution (BRIEF-11)
   let joinedInfo = null;       // {gathering_id, label} — resolved join (phase 0c)
   let joinCandidates = null;   // [_gathering_brief, ...] — unresolved join, player picks
   let initiativeBubble = null; // separate MJ bubble for spontaneous NPC initiative (C1)
@@ -1634,8 +1644,15 @@ async function sendPlayerLine() {
           }
           if (typeof token.mode === 'string') {
             // Routing mode chosen by the MJ interpretation pass (dialogue /
-            // npc_reaction / scene / join). Stored for the audit annotation.
+            // physical / npc_reaction / scene / join). Stored for the audit
+            // annotation.
             turnMode = token.mode;
+            continue;
+          }
+          if (token.verdict && typeof token.verdict === 'object') {
+            // Physical resolution verdict (BRIEF-11) — sent before narration,
+            // same pattern as npc_raw. Stored for the audit annotation.
+            verdictInfo = token.verdict;
             continue;
           }
           if (token.joined) {
@@ -1681,6 +1698,11 @@ async function sendPlayerLine() {
       }
     }
 
+    // Append the dice verdict annotation (BRIEF-11) before the NPC raw line,
+    // for creator audit — no UI beyond this audit line (see ARCHITECTURE_DECISIONS.md).
+    if (verdictInfo) {
+      _appendVerdict(transcriptEl, verdictInfo);
+    }
     // Append the NPC raw annotation below the MJ narration for creator audit.
     // Always shown when we have mode info (even scene turns with no NPC output).
     if (npcRawContent !== null || turnMode !== null) {
@@ -1743,15 +1765,31 @@ async function sendPlayerLine() {
  *  - npc_reaction → show raw wordless gesture.
  *  - scene        → no NPC was called; show "(aucun PNJ impliqué)" instead.
  */
+/** Dice verdict audit annotation (BRIEF-11) — "domain · dice → total (band)". */
+function _appendVerdict(container, verdict) {
+  const el = document.createElement('div');
+  el.className = 'verdict-annotation';
+  const dice = Array.isArray(verdict.dice) ? verdict.dice.join('+') : '?';
+  const modifier = typeof verdict.modifier === 'number'
+    ? (verdict.modifier >= 0 ? `+${verdict.modifier}` : `${verdict.modifier}`)
+    : '+0';
+  el.innerHTML =
+    `<span class="npc-raw-label">Jet (${esc(verdict.domain)}) :</span> ` +
+    `${esc(dice)} ${esc(modifier)} = ${esc(verdict.total)} ` +
+    `(<span class="verdict-band band-${esc(verdict.band)}">${esc(verdict.band)}</span>)`;
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+}
+
 function _appendNpcRaw(container, npcName, content, mode) {
   const el = document.createElement('div');
   el.className = 'npc-raw-annotation';
   const modeTag = mode
     ? ` <span class="mode-badge b-${esc(mode)}">[${esc(mode)}]</span>`
     : '';
-  const body = (mode === 'scene' || mode === 'join')
-    ? '<em>(aucun PNJ impliqué)</em>'
-    : esc(content);
+  const body = content
+    ? esc(content)
+    : '<em>(aucun PNJ impliqué)</em>';
   el.innerHTML =
     `<span class="npc-raw-label">${esc(npcName)} (brut) :${modeTag}</span> ${body}`;
   container.appendChild(el);

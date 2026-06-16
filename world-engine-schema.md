@@ -591,7 +591,7 @@ CREATE TABLE prompt_template (
                    -- pass_play_analysis | lore_coherence | event_generation |
                    -- player_narration | session_summary | npc_dialogue |
                    -- conversation_analysis | mj_interpretation |
-                   -- overhearing_classification | other
+                   -- overhearing_classification | mj_arbitration | other
   system_prompt    TEXT NOT NULL,
   user_template    TEXT NOT NULL,   -- user message template (with variables)
   variables        JSON,            -- expected variable list
@@ -710,6 +710,43 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.23** — Arbiter phase + Python dice for physical resolution (BRIEF-11).
+  No new tables or columns. Adds `ResponseMode.physical` to the `/say`
+  interpretation modes (`pt-mj-interpretation` bumped to v4): a physical
+  attempt whose outcome is uncertain — climbing, grabbing, dodging, forcing,
+  sneaking, resisting. New template `pt-mj-arbiter` (`usage='mj_arbitration'`,
+  `world_id=NULL`, upsert) — a non-streaming JSON classification call,
+  `/no_think`, fired only for `physical` turns, that returns
+  `{"domain": "physical|agility|perception|composure", "opposed_npc_id": "<name
+  or null>"}`; the model classifies ONLY, never rolls, never decides outcomes,
+  and falls back to `domain="physical"`, `opposed_npc_id=null` on any failure.
+  New module `resolution.py`: pure-Python `resolve_physical(domain,
+  player_tier, npc_tier=0) -> Verdict` —
+  `roll = randint(1,6) + randint(1,6) + player_tier - npc_tier`, banded
+  `<=6 failure`, `7-9 partial`, `>=10 success`. `player_tier` comes from the
+  player's `skill.tier` for the classified domain (schema v1.22); `npc_tier`
+  comes from `entity.metadata.physical_tier` of `opposed_npc_id` (key
+  documented in v1.22, default 0 when absent — now actually read for the
+  first time). The verdict is logged (audit) and sent to the player as an SSE
+  event `data: {"verdict": {...}}` before narration, same pattern as
+  `npc_raw`. **Player-roll rule**: the roll always belongs to the player —
+  when an NPC initiates a physical action against the player, we do not roll
+  the NPC's attempt, we roll the player's response (dodge, resist, endure)
+  with the NPC tier as opposition. One mechanic, one code path, one audit
+  point. For opposed physical turns, the targeted NPC is called exactly like
+  `npc_reaction` (one-shot wordless reaction, `npc` row written canonically,
+  so `analyze_window` keeps proposing `relation_change` as usual); unopposed
+  physical turns behave like `scene` (no NPC call, no `npc` row). MJ narration
+  for `physical` is constrained by the verdict band via a verbatim rubric
+  ("Tu narres les conséquences ; tu ne rejuges JAMAIS le résultat", with a
+  canon-boundary clause — at most neutralized/constrained, never killed,
+  permanently injured, or durably captured by this narration). The resolution
+  path writes zero canon — no new `relation`/`knowledge`/`entity` writes; the
+  canon boundary above is enforced both at the prompt level (rubric) and
+  structurally (no write path exists). Deferred, nothing implemented this
+  step: NPC↔NPC physical acts arising from Tier-3 initiative continue to be
+  narrated by tier comparison, no roll — accepted design, see
+  "Deferred decisions" in `ARCHITECTURE_DECISIONS.md`.
 - **v1.22** — Player skill sheet foundation (BRIEF-10). New table `skill`
   (`character_id` REFERENCES `entity(id)`, `domain` — physical | agility |
   perception | composure, `tier` INTEGER NOT NULL DEFAULT 0 CHECK BETWEEN -1

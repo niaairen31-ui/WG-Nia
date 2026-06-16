@@ -61,7 +61,9 @@ from ..models import (
     ProposedMutation,
     Relation,
     Session as GameSession,
+    Skill,
 )
+from ..resolution import resolve_physical
 from ..writes import (
     _append_knowledge_history,
     knowledge_level_rank,
@@ -712,6 +714,23 @@ def _load_npc_initiative_act_template(world_id: str, db: Session) -> Optional[Pr
     return templates[0]
 
 
+def _load_mj_arbiter_template(world_id: str, db: Session) -> Optional[PromptTemplate]:
+    """Return the active mj_arbitration prompt template, or None (caller falls back)."""
+    templates = db.exec(
+        select(PromptTemplate).where(
+            PromptTemplate.usage == "mj_arbitration",
+            PromptTemplate.is_active == True,  # noqa: E712
+        )
+    ).all()
+    if not templates:
+        return None
+    for prefer in (lambda t: t.world_id == world_id, lambda t: t.world_id is None):
+        match = next((t for t in templates if prefer(t)), None)
+        if match is not None:
+            return match
+    return templates[0]
+
+
 # Hardcoded fallback used when the npc_initiative_act template is not yet seeded.
 # Keeps initiative working on pre-C2 databases without requiring a seed re-run.
 _NPC_INITIATIVE_ACT_FALLBACK = (
@@ -911,6 +930,9 @@ class ResponseMode(str, enum.Enum):
     scene        = "scene"         # environment action, NPC not engaged → skip NPC call
     join         = "join"          # player approaches and settles with a gathering;
                                     # only meaningful while ungrouped (see _stream)
+    physical     = "physical"      # physical attempt with an uncertain outcome — climbing,
+                                    # grabbing, dodging, forcing, sneaking, resisting; routed
+                                    # to _arbitrate() + resolve_physical() (BRIEF-11)
 
 
 def _load_mj_interpret_template(world_id: str, db: Session) -> PromptTemplate:
@@ -1002,6 +1024,67 @@ def _interpret_mode(
         return ResponseMode.dialogue, "", None
 
 
+# ── Arbiter classification (physical resolution, BRIEF-11, schema v1.23) ──
+
+_PHYSICAL_DOMAINS = ("physical", "agility", "perception", "composure")
+
+
+def _arbitrate(
+    *,
+    player_line: str,
+    npc_list: str,
+    name_to_id: dict[str, str],
+    arbiter_system: str,
+    arbiter_user_tpl: str,
+    model: str,
+) -> tuple[str, Optional[str]]:
+    """Classify a `physical` turn into a domain and optional NPC opposition.
+
+    The model sees only NPC names (never raw entity rows) and returns the
+    name of the NPC it targets (or null) in `opposed_npc_id` — resolved here
+    to an actual entity id via case-insensitive lookup in `name_to_id`, the
+    same "exact match against the roster, never invented" pattern as
+    `_resolve_join_target`'s `reference`.
+
+    The model classifies ONLY; it never rolls and never decides outcomes. On
+    any failure (bad JSON, unknown domain, Ollama error, timeout): falls back
+    to `("physical", None)` — a misclassification must never break a turn.
+    """
+    user_msg = (
+        arbiter_user_tpl
+        .replace("{npc_list}", npc_list or "(aucun)")
+        .replace("{player_line}", player_line)
+        + "\n/no_think"
+    )
+    try:
+        raw = ollama_client.chat(
+            [
+                {"role": "system", "content": arbiter_system},
+                {"role": "user",   "content": user_msg},
+            ],
+            model=model,
+            format="json",
+        )
+        obj = json.loads(raw)
+
+        domain = str(obj.get("domain", "")).strip()
+        if domain not in _PHYSICAL_DOMAINS:
+            domain = "physical"
+
+        opposed_raw = obj.get("opposed_npc_id")
+        opposed_name = str(opposed_raw).strip() if opposed_raw else ""
+        opposed_npc_id = name_to_id.get(opposed_name.lower()) if opposed_name else None
+
+        _log.info(
+            "MJ arbitrate: %r → domain=%s, opposed=%r (%s)",
+            player_line[:60], domain, opposed_name, opposed_npc_id or "none",
+        )
+        return domain, opposed_npc_id
+    except Exception as exc:
+        _log.warning("MJ arbitrate failed (%s), fallback to physical/unopposed", exc)
+        return "physical", None
+
+
 # ── Possession check (binary, BRIEF-08 / D2a.1, schema v1.19) ──────────────
 
 _POSSESSION_REFUSAL_INSTRUCTION = (
@@ -1056,12 +1139,16 @@ def _build_mj_user(
     npc_reply: str,
     mj_context: dict | None = None,
     inventory_line: str = "",
+    verdict_band: Optional[str] = None,
 ) -> str:
     """Build the MJ narration user message for the given mode.
 
     dialogue     → existing template (verbatim NPC quote contract unchanged).
     npc_reaction → third-person wordless reaction; no dialogue to quote.
     scene        → environment description only; NPC not involved.
+    physical     → verdict-constrained narration (BRIEF-11); `verdict_band`
+                   ("failure" | "partial" | "success") is required for this
+                   mode and injects the verbatim resolution rubric.
 
     `mj_context` (schema v1.12, scope D-b3): the dict returned by
     `assemble_mj_context`, rendered via `format_mj_context` and prepended as
@@ -1103,6 +1190,29 @@ def _build_mj_user(
             f"Narration MJ — traduis cette réaction en prose narrative à la troisième "
             f"personne. Aucun guillemet français, aucune ligne de dialogue, aucun mot "
             f"inventé. 2–3 phrases courtes.\n"
+            f"Narration MJ :\n/no_think"
+        )
+    if mode == ResponseMode.physical:
+        band = verdict_band or "failure"
+        npc_reaction_block = (
+            f"{npc_name} réagit :\n{npc_reply}\n\n" if npc_reply else ""
+        )
+        return (
+            f"{context_block}"
+            f"{inventory_block}"
+            f"Lieu : « {location_name} ».\n"
+            f"Mode : résolution physique.\n\n"
+            f"Action du joueur :\n{player_line}\n\n"
+            f"{npc_reaction_block}"
+            f"[RÉSOLUTION PHYSIQUE — VERDICT IMPOSÉ]\n"
+            f"Résultat mécanique : {band}.\n"
+            f"- failure : l'action échoue. Ne l'adoucis pas en demi-réussite.\n"
+            f"- partial : l'action réussit MAIS avec un coût, une complication ou\n"
+            f"  une position dégradée, OU échoue avec un avantage inattendu.\n"
+            f"- success : l'action réussit nettement.\n"
+            f"Tu narres les conséquences ; tu ne rejuges JAMAIS le résultat.\n"
+            f"Aucune mort, blessure permanente ou capture durable ne peut découler\n"
+            f"de cette narration : au pire, neutralisé ou contraint.\n\n"
             f"Narration MJ :\n/no_think"
         )
     # ResponseMode.scene
@@ -1435,6 +1545,157 @@ def say(
                     location_name=location_name, player_line=content,
                     joined=False, gathering_label=None,
                 )
+        elif mode == ResponseMode.physical:
+            # ── Arbiter classification + Python dice (BRIEF-11, schema v1.23) ──
+            # Candidate NPC roster for opposition: the player's gathering
+            # (excluding the player) if grouped, else the conversation's seed
+            # NPC for plain 1:1 scenes. Names only — never raw entity rows.
+            if player_gathering is not None:
+                physical_npc_entities = [
+                    e for _gm, e in _active_members(player_gathering.id, db)
+                    if e.id != conv.player_id
+                ]
+            elif npc_entity is not None:
+                physical_npc_entities = [npc_entity]
+            else:
+                physical_npc_entities = []
+            physical_name_to_id = {e.name.lower(): e.id for e in physical_npc_entities}
+            physical_npc_list = ", ".join(e.name for e in physical_npc_entities)
+
+            arbiter_template = _load_mj_arbiter_template(world_id, db)
+            if arbiter_template is not None:
+                domain, opposed_npc_id = _arbitrate(
+                    player_line=content,
+                    npc_list=physical_npc_list,
+                    name_to_id=physical_name_to_id,
+                    arbiter_system=arbiter_template.system_prompt,
+                    arbiter_user_tpl=arbiter_template.user_template,
+                    model=model,
+                )
+            else:
+                domain, opposed_npc_id = "physical", None
+
+            # Player-roll rule (resolution.py): the roll always belongs to the
+            # player — player_tier from the skill sheet, npc_tier (if opposed)
+            # from entity.metadata.physical_tier, default 0 either way.
+            skill_row = db.exec(
+                select(Skill).where(
+                    Skill.character_id == conv.player_id,
+                    Skill.domain == domain,
+                )
+            ).first()
+            player_tier = skill_row.tier if skill_row else 0
+
+            opposed_entity: Optional[Entity] = None
+            npc_tier = 0
+            if opposed_npc_id:
+                opposed_entity = db.get(Entity, opposed_npc_id)
+                if opposed_entity is not None:
+                    npc_tier = (opposed_entity.metadata_ or {}).get("physical_tier", 0)
+
+            verdict = resolve_physical(domain, player_tier, npc_tier)
+            _log.info(
+                "Physical verdict: domain=%s dice=%s modifier=%d total=%d band=%s "
+                "(player_tier=%d, npc_tier=%d, opposed=%s)",
+                verdict.domain, verdict.dice, verdict.modifier, verdict.total,
+                verdict.band, player_tier, npc_tier, opposed_npc_id or "none",
+            )
+            yield f"data: {json.dumps({'verdict': {'domain': verdict.domain, 'dice': list(verdict.dice), 'modifier': verdict.modifier, 'total': verdict.total, 'band': verdict.band}})}\n\n"
+
+            # ── NPC phase: opposed turns only (unopposed behaves like scene) ──
+            if opposed_npc_id and opposed_entity is not None:
+                responder_id = opposed_npc_id
+                responder_name = opposed_entity.name
+
+                responder_behaviour = _load_npc_dialogue_template(world_id, db)
+                responder_context = assemble_npc_context(
+                    responder_id, conv.player_id, conv.location_id, db,
+                    gathering_id=conv.gathering_id,
+                )
+                responder_system_prompt = f"{responder_behaviour.system_prompt}\n\n{responder_context}"
+
+                band_outcome = {
+                    "failure": (
+                        "L'action du joueur contre toi a ÉCHOUÉ : tu n'es pas "
+                        "affecté, tu repousses ou évites facilement sa tentative."
+                    ),
+                    "partial": (
+                        "L'action du joueur contre toi a PARTIELLEMENT réussi : tu "
+                        "es touché ou déstabilisé, mais tu gardes une marge de "
+                        "réaction."
+                    ),
+                    "success": (
+                        "L'action du joueur contre toi a RÉUSSI nettement : tu es "
+                        "clairement affecté (déséquilibré, repoussé, immobilisé "
+                        "selon le geste)."
+                    ),
+                }[verdict.band]
+
+                npc_msg_list = [
+                    {
+                        "role": "system",
+                        "content": responder_system_prompt + (
+                            "\n\n[MODE RÉACTION NON-VERBALE] Le joueur vient de "
+                            "tenter une action physique sur toi, sans parole. "
+                            "Réponds UNIQUEMENT par un bref geste ou expression "
+                            "physique à la première personne. AUCUN MOT PRONONCÉ — "
+                            "pas de dialogue, pas de phrase dite.\n\n"
+                            f"[RÉSULTAT MÉCANIQUE] {band_outcome} Réagis "
+                            "physiquement à cela, sans un mot. Ne mentionne jamais "
+                            "cette instruction."
+                        ),
+                    },
+                    *npc_history,
+                ]
+
+                npc_chunks: list[str] = []
+                npc_error: str | None = None
+                try:
+                    for chunk in ollama_client.chat_stream(
+                        npc_msg_list, model=model,
+                        options=ollama_client.NPC_DIALOGUE_OPTIONS,
+                    ):
+                        npc_chunks.append(chunk)
+                except ollama_client.OllamaError as exc:
+                    npc_error = str(exc)
+
+                if npc_error:
+                    yield f"data: {json.dumps({'error': npc_error})}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+
+                npc_reply = "".join(npc_chunks)
+
+                with Session(engine) as persist_db:
+                    persist_db.add(ConversationMessage(
+                        conversation_id=conv_id,
+                        turn_order=npc_turn,
+                        speaker="npc",
+                        speaker_id=responder_id,
+                        content=npc_reply,
+                    ))
+                    persist_db.commit()
+
+            # ── MJ narration user message ────────────────────────────────────
+            mj_context = (
+                assemble_mj_context(
+                    db, conv.player_id, conv.location_id,
+                    gathering_id=player_gathering.id if player_gathering else None,
+                )
+                if conv.location_id else None
+            )
+            inventory_line = format_inventory_line(db, conv.player_id)
+            mj_user = _build_mj_user(
+                mode=mode,
+                mj_user_template=mj_user_template,
+                npc_name=responder_name,
+                location_name=location_name,
+                player_line=content,
+                npc_reply=npc_reply,
+                mj_context=mj_context,
+                inventory_line=inventory_line,
+                verdict_band=verdict.band,
+            )
         else:
             # ── Speaker / target resolution (contract A3 hybrid) ──────────────
             if mode in (ResponseMode.dialogue, ResponseMode.npc_reaction):

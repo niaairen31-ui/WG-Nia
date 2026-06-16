@@ -162,13 +162,34 @@ World-genrator/
 │       │                    #   deterministic level-ladder downgrade for
 │       │                    #   acquisition, knowledge_change for monotone
 │       │                    #   upgrades (v1.17), proposed_by='local_ai_overhearing')
+│       ├── resolution.py    # physical-action dice resolution (BRIEF-11, schema
+│       │                    #   v1.23): pure 2d6 + tier, no DB/model access;
+│       │                    #   Verdict {domain, dice, modifier, total, band};
+│       │                    #   resolve_physical(domain, player_tier, npc_tier=0)
+│       │                    #   — bands <=6 failure, 7-9 partial, >=10 success;
+│       │                    #   player-roll rule (verbatim in module docstring)
 │       └── cockpit/         # creator review web UI (FastAPI sub-app)
 │           ├── __init__.py
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
 │           │                # MJ narration layer (_load_mj_narration_template);
 │           │                # MJ interpretation layer (ResponseMode incl. join,
+│           │                #   physical — BRIEF-11/v1.23),
 │           │                #   _interpret_mode → (mode, reference, used_object),
-│           │                #   _build_mj_user, _load_mj_interpret_template);
+│           │                #   _build_mj_user (verdict_band param for the
+│           │                #   physical branch), _load_mj_interpret_template);
+│           │                # physical resolution (BRIEF-11, schema v1.23):
+│           │                #   _load_mj_arbiter_template, _arbitrate (pt-mj-
+│           │                #   arbiter, usage='mj_arbitration', classifies
+│           │                #   domain + optional opposed_npc_id, fallback
+│           │                #   ("physical", None) on any failure);
+│           │                #   resolve_physical call in _stream's physical
+│           │                #   branch — player_tier from Skill, npc_tier from
+│           │                #   entity.metadata.physical_tier; verdict sent as
+│           │                #   SSE `{"verdict": {...}}` before narration;
+│           │                #   opposed NPC called like npc_reaction with the
+│           │                #   verdict band appended, npc row written
+│           │                #   canonically; unopposed turns behave like scene
+│           │                #   (no NPC call, no npc row);
 │           │                # possession check, binary (BRIEF-08/D2a.1,
 │           │                #   schema v1.19): _find_player_item,
 │           │                #   _build_refusal_instruction ([ACTION REFUSÉE],
@@ -310,8 +331,8 @@ prepend `src` to `sys.path`, so they run without an editable install.
   location's gatherings on next entry.
 - **Re-seeding prompts:** `python scripts/seed_pilot.py` uses `upsert_prompt_template`
   for `pt-mj-narration`, `pt-mj-interpretation`, `pt-mj-gathering`, `pt-mj-speaker`,
-  `pt-mj-initiative`, and `pt-npc-initiative-act` — re-running the seed converges
-  the DB to the latest wording without losing other data.
+  `pt-mj-initiative`, `pt-npc-initiative-act`, and `pt-mj-arbiter` — re-running
+  the seed converges the DB to the latest wording without losing other data.
 
 ---
 
