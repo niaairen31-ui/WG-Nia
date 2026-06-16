@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-*Version 1.16 — Local phase (SQLite → Supabase)*
+*Version 1.25 — Local phase (SQLite → Supabase)*
 
 -----
 
@@ -333,11 +333,20 @@ CREATE TABLE conversation (
                             -- (what the NPC was allowed to know — for audit/replay)
   started_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
   ended_at         DATETIME,
-  last_analyzed_turn INTEGER NOT NULL DEFAULT 0
+  last_analyzed_turn INTEGER NOT NULL DEFAULT 0,
                             -- high-water mark for window analysis
                             -- (analyze_window): conversation_message rows with
                             -- turn_order <= this value have already been
                             -- analyzed. 0 = never analyzed.
+  scene_state       JSON NOT NULL DEFAULT '{}'
+                            -- EPHEMERAL combat/constraint state, scoped to
+                            -- this conversation. Cleared on close. NOT canon.
+                            -- Structure: {constraints: ["gagged"|"restrained"|
+                            -- "blindfolded"], condition: "unharmed"|"bruised"|
+                            -- "injured"|"neutralized", frozen: false,
+                            -- history: [<snapshots>]}
+                            -- Every write appends the previous state to
+                            -- history[] before overwriting (history is sacred).
 );
 ```
 
@@ -709,6 +718,53 @@ batch   → event
 -----
 
 ## CHANGELOG
+
+- **v1.25** — Contested-attempt penalty for constraint-gated turns (no schema
+  change). Gagged-speech and escape-from-restraint attempts now resolve at
+  `npc_tier = 1` (fixed difficulty) instead of 0. At `player_tier = 0` this
+  shifts failure probability from 41 % to 58 %, making a gated attempt harder
+  than a normal unopposed roll — the "contested resolution" design intent. Both
+  gated cases share a single fixed tier as a pilot simplification: a gag
+  (object) and a grip (person) are mechanically distinct resistances, but
+  provenance (the captor's entity ID and tier) is not yet stored in
+  `scene_state.constraints` (which remains `list[str]`). **Deferred
+  refinement:** escape should eventually roll against the captor's
+  `physical_tier`, read from `entity.metadata_`, once constraint provenance is
+  captured in `scene_state` (e.g. `constraints: [{"type": "restrained",
+  "source_id": "<entity_id>"}]`). The "highest-tier NPC in the gathering"
+  heuristic is explicitly rejected as false certainty: the strongest NPC
+  present is not necessarily the captor.
+
+- **v1.24** — Scene constraints: scene_state, gating, condition ladder (BRIEF-12).
+  New column `conversation.scene_state JSON NOT NULL DEFAULT '{}'`. Structure:
+  `{constraints: ["gagged"|"restrained"|"blindfolded"], condition:
+  "unharmed"|"bruised"|"injured"|"neutralized", frozen: false, history: []}`.
+  **NOTE: `scene_state` is EPHEMERAL combat/constraint state, scoped to the
+  conversation. It is cleared when the conversation closes. It is NOT canon: a
+  durable consequence (lasting injury, capture, death) must go through
+  `proposed_mutation`. Same philosophy as `gathering`: free play inside the
+  scene, controlled consequences outside it.**
+  Constraint effects enforced in code before model calls:
+  `gagged` → dialogue mode rejected, re-routed to contested physical
+  (composure domain, `npc_tier=0`); `restrained` → any physical/scene/
+  npc_reaction mode becomes an escape attempt (physical domain); success
+  removes the constraint. `blindfolded` → `assemble_mj_context` structurally
+  excludes `location.description` and `co_presents[].description` (data
+  exclusion, never instruction). Condition `neutralized` sets `frozen=True`.
+  Frozen scene: `/say` yields a fixed French MJ message, zero model calls;
+  creator panel can unfreeze. Condition ladder `unharmed→bruised→injured→
+  neutralized` moved only by code on `violent=True` physical verdicts:
+  failure or partial degrades one step; `neutralized` auto-sets `frozen=True`.
+  Reaching `injured` or `neutralized` auto-proposes a `status_change` with
+  `proposed_by='engine'` (new value for `ProposedMutation.proposed_by`).
+  `scene_state` writes archive the previous state snapshot to `history[]`
+  before each change (history is sacred). Arbiter template `pt-mj-arbiter`
+  bumped to v2: now returns four fields — `domain`, `opposed_npc_id`,
+  `applies_constraint` (restrained|gagged|blindfolded|null), `violent`
+  (bool). Condition injected into NPC and MJ context when not `unharmed`.
+  Creator cockpit gains a scene_state panel: read + direct edit
+  (constraints, condition, frozen); edits archive to `history[]`. Migration:
+  `python scripts/migrate_v1_24.py`.
 
 - **v1.23** — Arbiter phase + Python dice for physical resolution (BRIEF-11).
   No new tables or columns. Adds `ResponseMode.physical` to the `/say`

@@ -1698,14 +1698,25 @@ def say(
 
             # BRIEF-12: constraint-gated turns bypass the arbiter — domain and
             # opposition are already determined by the constraint effect.
+            # Gated attempts (gagged speech, escape from restraint) resolve against a
+            # fixed npc_tier = 1 — NOT 0. At player_tier 0 this shifts failure 41% -> 58%,
+            # making a gated attempt harder than an unopposed roll, which is the intended
+            # "contested resolution" for acting against a constraint. The 1/1 value is a
+            # deliberate pilot simplification: a gag (object) and a grip (person) are
+            # different resistances but share one tier for now. True provenance — escape
+            # rolling against the captor's physical_tier — is deferred (see changelog);
+            # the "highest-tier NPC in the gathering" heuristic is explicitly rejected as
+            # false certainty (the strongest present NPC is not necessarily the captor).
             applies_constraint: Optional[str] = None
             violent = False
             if is_gagged_attempt:
-                # Gagged speech attempt: composure roll, no NPC opposition.
+                # Gagged speech attempt: composure roll, fixed difficulty.
                 domain, opposed_npc_id = "composure", None
+                npc_tier = 1     # pilot default: fixed restraint difficulty, see note
             elif is_escape_attempt:
-                # Escape from restraint: physical roll, no NPC opposition.
+                # Escape from restraint: physical roll, fixed difficulty.
                 domain, opposed_npc_id = "physical", None
+                npc_tier = 1     # pilot default: fixed restraint difficulty, see note
             else:
                 arbiter_template = _load_mj_arbiter_template(world_id, db)
                 if arbiter_template is not None:
@@ -1732,7 +1743,9 @@ def say(
             player_tier = skill_row.tier if skill_row else 0
 
             opposed_entity: Optional[Entity] = None
-            npc_tier = 0
+            # npc_tier already set for gated turns above; normal turns start at 0.
+            if not (is_gagged_attempt or is_escape_attempt):
+                npc_tier = 0
             if opposed_npc_id:
                 opposed_entity = db.get(Entity, opposed_npc_id)
                 if opposed_entity is not None:
