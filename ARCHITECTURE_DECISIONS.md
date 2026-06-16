@@ -973,8 +973,10 @@ model call:
 | `restrained`  | any physical / scene / npc_reaction   | physical, physical domain   | removes `restrained`  |
 | `blindfolded` | (always active when in constraints)   | context assembler           | excludes location desc + NPC appearance |
 
-Gagged turns use `npc_tier=0` (no NPC opposing); restrained escape is
-contested. Possession check is skipped for constraint-gated turns (the player
+Both gated turn types resolve at `npc_tier=1` — a fixed pilot difficulty
+(schema v1.25). `opposed_npc_id` remains `None` for both; the 1-point
+penalty represents the resistance of the gag / restraint, not a named NPC.
+Possession check is skipped for constraint-gated turns (the player
 isn't deliberately trying to use an item).
 
 Blindfolded exclusion is **structural data exclusion** in `assemble_mj_context`:
