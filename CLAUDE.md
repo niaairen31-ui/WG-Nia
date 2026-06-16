@@ -109,7 +109,8 @@ Target local model for NPC dialogue and analysis: **`huihui_ai/qwen3-abliterated
   - **NPC dialogue** (`talk.py` CLI): disable thinking with `/no_think` in the user message — deterministic, faster, and the reasoning block must never reach the player.
   - **NPC dialogue** (cockpit `/say`, NPC phase): `chat_stream` with the built-in `_StreamThinkFilter` — thinking is left enabled, the filter suppresses the block before any token is yielded. The NPC reply is buffered internally; the player never sees it raw.
   - **MJ narration** (cockpit `/say`, MJ phase): `chat_stream` + `/no_think` appended to the user message — same filter as a backstop, `/no_think` for speed. What streams to the player is narration prose only.
-  - **MJ interpretation** (cockpit `/say`, phase 0): `chat()` non-streaming + `/no_think` + `format="json"`. Classifies the player's input into `dialogue` / `npc_reaction` / `scene`. Fallback to `dialogue` on any error — a misclassification must never break a turn.
+  - **MJ interpretation** (cockpit `/say`, phase 0): `chat()` non-streaming + `/no_think` + `format="json"`. Classifies the player's input into `dialogue` / `physical` / `npc_reaction` / `scene` / `join`. Fallback to `dialogue` on any error — a misclassification must never break a turn.
+  - **MJ arbitration** (cockpit `/say`, physical turns only — between phase 0 and the NPC phase): `chat()` non-streaming + `format="json"` + `/no_think` appended at call time. Classifies domain + optional NPC opposition; falls back to `("physical", None)` on any failure — a misclassification must never break a turn.
   - **NPC initiative vote** (cockpit `/say`, Tier 3 C1): `chat()` non-streaming + `format="json"` + `/no_think` — same policy as MJ interpretation. Failure is silent (initiative simply doesn't fire).
   - **NPC initiative act** (cockpit `/say`, Tier 3 C2): `chat()` non-streaming + `format="json"`, **no** `/no_think` — the JSON schema already constrains output, and leaving thinking on helps the small model follow the two-field contract (`act_text`, `move`). Falls back to `_NPC_INITIATIVE_ACT_FALLBACK` if `pt-npc-initiative-act` isn't seeded; any error → silent skip.
   - **Conversation analysis** (`analyze_conversation.py`, `analyzer.py`): leave thinking enabled — the reasoning helps the model follow format instructions; `strip_think` removes the block before JSON parsing.
@@ -247,6 +248,9 @@ World-genrator/
 │                            #   proposed_mutation, change_history archived),
 │                            #   player-mode read-only ("Mode joueur" toggle)
 │                            #   (inline CSS/JS, zero external deps)
+│                            #   physical resolution audit: verdict annotation
+│                            #   (domain · dice → total, band coloured by outcome),
+│                            #   b-physical mode badge (BRIEF-11, schema v1.23)
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)
