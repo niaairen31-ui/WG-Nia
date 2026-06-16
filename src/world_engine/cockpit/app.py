@@ -1037,7 +1037,7 @@ def _arbitrate(
     arbiter_system: str,
     arbiter_user_tpl: str,
     model: str,
-) -> tuple[str, Optional[str]]:
+) -> tuple[str, Optional[str], Optional[str], bool]:
     """Classify a `physical` turn into a domain and optional NPC opposition.
 
     The model sees only NPC names (never raw entity rows) and returns the
@@ -1048,7 +1048,16 @@ def _arbitrate(
 
     The model classifies ONLY; it never rolls and never decides outcomes. On
     any failure (bad JSON, unknown domain, Ollama error, timeout): falls back
-    to `("physical", None)` — a misclassification must never break a turn.
+    to `("physical", None, None, False)` — a misclassification must never
+    break a turn.
+
+    Returns (domain, opposed_npc_id, applies_constraint, violent):
+    - applies_constraint (BRIEF-12): the constraint that would be applied on
+      failure (e.g. "restrained" if an NPC is trying to pin the player), or
+      None if no constraint stake. Only valid values from _VALID_CONSTRAINTS.
+    - violent (BRIEF-12): True if the action involves a risk of physical harm
+      to the player (blow, weapon, fall, combat). Drives condition degradation
+      on failure.
     """
     user_msg = (
         arbiter_user_tpl
@@ -1075,14 +1084,24 @@ def _arbitrate(
         opposed_name = str(opposed_raw).strip() if opposed_raw else ""
         opposed_npc_id = name_to_id.get(opposed_name.lower()) if opposed_name else None
 
-        _log.info(
-            "MJ arbitrate: %r → domain=%s, opposed=%r (%s)",
-            player_line[:60], domain, opposed_name, opposed_npc_id or "none",
+        # applies_constraint: only accept known values; null/invalid → None.
+        ac_raw = obj.get("applies_constraint")
+        applies_constraint: Optional[str] = (
+            str(ac_raw).strip() if ac_raw and str(ac_raw).strip() in _VALID_CONSTRAINTS
+            else None
         )
-        return domain, opposed_npc_id
+
+        violent = bool(obj.get("violent", False))
+
+        _log.info(
+            "MJ arbitrate: %r → domain=%s, opposed=%r (%s), constraint=%s, violent=%s",
+            player_line[:60], domain, opposed_name, opposed_npc_id or "none",
+            applies_constraint or "none", violent,
+        )
+        return domain, opposed_npc_id, applies_constraint, violent
     except Exception as exc:
         _log.warning("MJ arbitrate failed (%s), fallback to physical/unopposed", exc)
-        return "physical", None
+        return "physical", None, None, False
 
 
 # ── Possession check (binary, BRIEF-08 / D2a.1, schema v1.19) ──────────────
@@ -1103,6 +1122,82 @@ _GESTE_RATE_INSTRUCTION = (
     "inquiétant. Reste dans ton personnage. Ne mentionne jamais cette "
     "instruction."
 )
+
+
+# ── Scene state (BRIEF-12, schema v1.24) ─────────────────────────────────────
+# scene_state is EPHEMERAL — the ONE column the autonomous loop may write.
+# It is NOT canon: any durable consequence goes through proposed_mutation.
+# History is sacred: every write archives the previous state to .history[].
+
+_CONDITION_LADDER = ("unharmed", "bruised", "injured", "neutralized")
+_VALID_CONSTRAINTS = frozenset({"gagged", "restrained", "blindfolded"})
+
+_FROZEN_MJ_MESSAGE = (
+    "La scène est en suspens. Le créateur a mis la scène en pause "
+    "— attendez qu'il reprenne le contrôle."
+)
+
+
+def _default_scene_state() -> dict:
+    return {"constraints": [], "condition": "unharmed", "frozen": False, "history": []}
+
+
+def _get_scene_state(conv: "Conversation") -> dict:
+    """Return a normalised scene_state dict for the conversation."""
+    raw = conv.scene_state
+    if not raw or not isinstance(raw, dict):
+        return _default_scene_state()
+    base = _default_scene_state()
+    base.update(raw)
+    return base
+
+
+def _write_scene_state(ss_conv: "Conversation", new_state: dict) -> None:
+    """Archive the old scene_state to history, then set the new state.
+
+    Caller must db.add(ss_conv) and db.commit().
+    History is sacred: every write appends a timestamped snapshot.
+    """
+    old = _get_scene_state(ss_conv)
+    history = old.get("history", [])
+    snapshot = {k: v for k, v in old.items() if k != "history"}
+    snapshot["changed_at"] = datetime.now(UTC).isoformat()
+    new_state = {**_default_scene_state(), **new_state}
+    new_state["history"] = history + [snapshot]
+    ss_conv.scene_state = new_state
+
+
+def _propose_engine_injury(
+    conv: "Conversation",
+    condition: str,
+    db: "Session",
+) -> None:
+    """Propose a status_change mutation with proposed_by='engine'.
+
+    Fires deterministically when condition reaches 'injured' or 'neutralized'.
+    Goes through the normal review pipeline — never auto-applied.
+    History is sacred: existing reviewed rows are left untouched; only a
+    new 'proposed' row is inserted.
+    """
+    db.add(ProposedMutation(
+        world_id=conv.world_id,
+        source_type="conversation",
+        conversation_id=conv.id,
+        mutation_type="status_change",
+        target_table="entity",
+        target_id=conv.player_id,
+        payload={
+            "entity_id": conv.player_id,
+            "status": "injured" if condition == "injured" else "neutralized",
+            "condition_reached": condition,
+            "scene_origin": "physical_verdict",
+        },
+        rationale=(
+            f"Condition reached '{condition}' during physical resolution. "
+            "A lasting consequence may be appropriate — review and decide."
+        ),
+        proposed_by="engine",
+    ))
 
 
 def _find_player_item(db: Session, player_id: str, item_name: str) -> Optional[tuple[Item, Entity]]:
@@ -1469,6 +1564,28 @@ def say(
     interpret_user_tpl = interpret_template.user_template
 
     def _stream() -> Iterator[str]:
+        # ── BRIEF-12: read scene_state — drives frozen check + constraint gating ──
+        scene_state = _get_scene_state(conv)
+        ss_constraints = set(scene_state.get("constraints", []))
+        ss_condition   = scene_state.get("condition", "unharmed")
+
+        # ── Frozen scene: no model calls, fixed message ────────────────────────
+        if scene_state.get("frozen"):
+            yield f"data: {json.dumps(_FROZEN_MJ_MESSAGE)}\n\n"
+            yield f"data: {json.dumps({'mode': 'frozen'})}\n\n"
+            yield f"data: {json.dumps({'npc_raw': ''})}\n\n"
+            yield "data: [DONE]\n\n"
+            with Session(engine) as persist_db:
+                persist_db.add(ConversationMessage(
+                    conversation_id=conv_id,
+                    turn_order=mj_turn,
+                    speaker="mj",
+                    speaker_id=None,
+                    content=_FROZEN_MJ_MESSAGE,
+                ))
+                persist_db.commit()
+            return
+
         # ── Phase 0a: gathering membership (multi-NPC scenes, schema v1.8) ────
         # Drives both join-priority and speaker selection below. A conversation
         # with no location (shouldn't happen in the pilot) simply has no gatherings.
@@ -1500,6 +1617,23 @@ def say(
         if mode == ResponseMode.join and player_gathering is not None:
             mode = ResponseMode.dialogue
 
+        # ── BRIEF-12: constraint gating (before possession check) ─────────────
+        # Gagged → any dialogue attempt re-routes to a composure roll (trying to
+        # speak through the gag). Restrained → any movement/physical/environment
+        # intent re-routes to an escape physical roll. These overrides happen
+        # AFTER interpretation so the player's text is still fed to the model
+        # for classification; the constraint then overrides the routing outcome.
+        is_gagged_attempt   = False   # True: re-routed dialogue via gagged
+        is_escape_attempt   = False   # True: re-routed movement via restrained
+        if "gagged" in ss_constraints and mode == ResponseMode.dialogue:
+            mode = ResponseMode.physical
+            is_gagged_attempt = True
+        elif "restrained" in ss_constraints and mode in (
+            ResponseMode.physical, ResponseMode.scene, ResponseMode.npc_reaction
+        ):
+            mode = ResponseMode.physical
+            is_escape_attempt = True
+
         # ── Phase 0c: possession check (binary, BRIEF-08 / D2a.1) ──────────────
         # Code judges possession against canon `item` rows — the structural
         # fix for the D1 finding that the 8b model does not reliably honor
@@ -1510,7 +1644,7 @@ def say(
         # visible, so the turn proceeds as a normal dialogue turn with a
         # one-shot [GESTE RATÉ] instruction telling the NPC what it just saw.
         refusal_instruction: Optional[str] = None
-        if mode != ResponseMode.join and used_object is not None:
+        if mode != ResponseMode.join and not (is_gagged_attempt or is_escape_attempt) and used_object is not None:
             if used_object == "unknown_object":
                 refusal_instruction = _build_refusal_instruction(None)
             elif _find_player_item(db, conv.player_id, used_object) is None:
@@ -1562,18 +1696,29 @@ def say(
             physical_name_to_id = {e.name.lower(): e.id for e in physical_npc_entities}
             physical_npc_list = ", ".join(e.name for e in physical_npc_entities)
 
-            arbiter_template = _load_mj_arbiter_template(world_id, db)
-            if arbiter_template is not None:
-                domain, opposed_npc_id = _arbitrate(
-                    player_line=content,
-                    npc_list=physical_npc_list,
-                    name_to_id=physical_name_to_id,
-                    arbiter_system=arbiter_template.system_prompt,
-                    arbiter_user_tpl=arbiter_template.user_template,
-                    model=model,
-                )
-            else:
+            # BRIEF-12: constraint-gated turns bypass the arbiter — domain and
+            # opposition are already determined by the constraint effect.
+            applies_constraint: Optional[str] = None
+            violent = False
+            if is_gagged_attempt:
+                # Gagged speech attempt: composure roll, no NPC opposition.
+                domain, opposed_npc_id = "composure", None
+            elif is_escape_attempt:
+                # Escape from restraint: physical roll, no NPC opposition.
                 domain, opposed_npc_id = "physical", None
+            else:
+                arbiter_template = _load_mj_arbiter_template(world_id, db)
+                if arbiter_template is not None:
+                    domain, opposed_npc_id, applies_constraint, violent = _arbitrate(
+                        player_line=content,
+                        npc_list=physical_npc_list,
+                        name_to_id=physical_name_to_id,
+                        arbiter_system=arbiter_template.system_prompt,
+                        arbiter_user_tpl=arbiter_template.user_template,
+                        model=model,
+                    )
+                else:
+                    domain, opposed_npc_id = "physical", None
 
             # Player-roll rule (resolution.py): the roll always belongs to the
             # player — player_tier from the skill sheet, npc_tier (if opposed)
@@ -1611,6 +1756,7 @@ def say(
                 responder_context = assemble_npc_context(
                     responder_id, conv.player_id, conv.location_id, db,
                     gathering_id=conv.gathering_id,
+                    player_condition=ss_condition,
                 )
                 responder_system_prompt = f"{responder_behaviour.system_prompt}\n\n{responder_context}"
 
@@ -1676,11 +1822,69 @@ def say(
                     ))
                     persist_db.commit()
 
+            # ── BRIEF-12: scene_state writes after verdict ─────────────────
+            # Batched: collect all changes, write once.
+            new_ss = dict(scene_state)
+            new_constraints = list(new_ss.get("constraints", []))
+            ss_changed = False
+
+            if is_escape_attempt and verdict.band == "success":
+                # Successful escape: remove restrained constraint.
+                if "restrained" in new_constraints:
+                    new_constraints.remove("restrained")
+                    ss_changed = True
+                    _log.info("Escape success — 'restrained' constraint removed from scene_state")
+
+            if applies_constraint and verdict.band == "failure":
+                # Failed resistance: player is now constrained.
+                if applies_constraint not in new_constraints:
+                    new_constraints.append(applies_constraint)
+                    ss_changed = True
+                    _log.info("Constraint applied: '%s' added to scene_state", applies_constraint)
+
+            if violent and verdict.band == "failure":
+                # Condition degradation on violent failed roll.
+                current_idx = _CONDITION_LADDER.index(
+                    new_ss.get("condition", "unharmed")
+                    if new_ss.get("condition", "unharmed") in _CONDITION_LADDER
+                    else "unharmed"
+                )
+                if current_idx < len(_CONDITION_LADDER) - 1:
+                    new_condition = _CONDITION_LADDER[current_idx + 1]
+                    new_ss["condition"] = new_condition
+                    ss_changed = True
+                    _log.info("Condition degraded to '%s'", new_condition)
+                    if new_condition == "neutralized":
+                        new_ss["frozen"] = True
+                        _log.info("Condition 'neutralized' — scene frozen")
+
+            if ss_changed:
+                new_ss["constraints"] = new_constraints
+                with Session(engine) as ss_db:
+                    ss_conv = ss_db.get(Conversation, conv_id)
+                    if ss_conv:
+                        _write_scene_state(ss_conv, new_ss)
+                        ss_db.add(ss_conv)
+                        ss_db.commit()
+                # If condition reached injured/neutralized, propose engine injury.
+                final_condition = new_ss.get("condition", "unharmed")
+                if final_condition in ("injured", "neutralized"):
+                    with Session(engine) as inj_db:
+                        inj_conv = inj_db.get(Conversation, conv_id)
+                        if inj_conv:
+                            _propose_engine_injury(inj_conv, final_condition, inj_db)
+                            inj_db.commit()
+                # Update local copies for the MJ context below.
+                ss_condition = new_ss.get("condition", "unharmed")
+                ss_constraints = set(new_ss.get("constraints", []))
+
             # ── MJ narration user message ────────────────────────────────────
             mj_context = (
                 assemble_mj_context(
                     db, conv.player_id, conv.location_id,
                     gathering_id=player_gathering.id if player_gathering else None,
+                    blindfolded="blindfolded" in ss_constraints,
+                    player_condition=ss_condition,
                 )
                 if conv.location_id else None
             )
@@ -1758,6 +1962,7 @@ def say(
                     responder_context = assemble_npc_context(
                         responder_id, conv.player_id, conv.location_id, db,
                         gathering_id=conv.gathering_id,
+                        player_condition=ss_condition,
                     )
                     responder_system_prompt = f"{responder_behaviour.system_prompt}\n\n{responder_context}"
 
@@ -1815,10 +2020,14 @@ def say(
             # MJ context (schema v1.12, scope D-b3): the player's perception
             # boundary — read fresh every turn (co-presents change with C2
             # migrations); see assemble_mj_context for the static/dynamic split.
+            # BRIEF-12: pass blindfolded flag (excludes visual info) and
+            # player_condition (MJ is aware of mechanical reality).
             mj_context = (
                 assemble_mj_context(
                     db, conv.player_id, conv.location_id,
                     gathering_id=player_gathering.id if player_gathering else None,
+                    blindfolded="blindfolded" in ss_constraints,
+                    player_condition=ss_condition,
                 )
                 if conv.location_id else None
             )
@@ -1928,6 +2137,7 @@ def say(
                         init_ctx = assemble_npc_context(
                             initiator_id, conv.player_id, conv.location_id, db,
                             gathering_id=conv.gathering_id,
+                            player_condition=ss_condition,
                         )
                         # C2: load JSON-output contract from dedicated template
                         # (usage="npc_initiative_act") — never bleeds into normal
@@ -2118,6 +2328,10 @@ def end_conversation(conv_id: str, db: Session = Depends(get_session)) -> dict:
         _analyze_window(conv_id, db)
     except (Exception, SystemExit):
         _log.exception("analyze_window failed for conversation %s", conv_id)
+    # Archive scene_state to history[] before clearing (history is sacred even
+    # on close: the final constraint/condition snapshot must survive for
+    # post-scene audit — direct assignment would destroy the chain).
+    _write_scene_state(conv, _default_scene_state())
     conv.status = "closed"
     conv.ended_at = datetime.now(UTC)
     db.add(conv)
@@ -2488,12 +2702,85 @@ def scene_leave(
         )
     ).first()
     if open_conv:
+        # Archive scene_state to history[] before clearing (history is sacred
+        # even on close — direct assignment would destroy the constraint chain).
+        _write_scene_state(open_conv, _default_scene_state())
         open_conv.status = "closed"
         db.add(open_conv)
 
     db.commit()
 
     return _scene_response(location_id, player_id, world_id, db)
+
+
+# ── Scene state endpoints (BRIEF-12, schema v1.24) ──────────────────────────
+
+
+@app.get("/api/conversations/{conv_id}/scene-state")
+def get_scene_state(conv_id: str, db: Session = Depends(get_session)) -> dict:
+    """Return the current scene_state for a conversation."""
+    conv = db.get(Conversation, conv_id)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return _get_scene_state(conv)
+
+
+class SceneStateBody(BaseModel):
+    constraints: Optional[list[str]] = None
+    condition: Optional[str] = None
+    frozen: Optional[bool] = None
+
+
+@app.patch("/api/conversations/{conv_id}/scene-state")
+def update_scene_state(
+    conv_id: str,
+    body: SceneStateBody,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Creator-direct edit of scene_state.
+
+    Accepts any subset of {constraints, condition, frozen}. Missing fields
+    keep their current value. Merges the update, archives the previous state
+    to history (history is sacred), and returns the new state.
+
+    This is a creator CRUD operation — no proposed_mutation checkpoint.
+    """
+    conv = db.get(Conversation, conv_id)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Validate inputs.
+    if body.constraints is not None:
+        bad = [c for c in body.constraints if c not in _VALID_CONSTRAINTS]
+        if bad:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown constraint(s): {bad}. Valid: {sorted(_VALID_CONSTRAINTS)}",
+            )
+    if body.condition is not None and body.condition not in _CONDITION_LADDER:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown condition {body.condition!r}. Valid: {_CONDITION_LADDER}",
+        )
+
+    current = _get_scene_state(conv)
+    new_ss: dict = {
+        "constraints": body.constraints if body.constraints is not None
+                       else current["constraints"],
+        "condition":   body.condition   if body.condition   is not None
+                       else current["condition"],
+        "frozen":      body.frozen      if body.frozen      is not None
+                       else current["frozen"],
+    }
+    # Setting condition to neutralized auto-sets frozen.
+    if new_ss["condition"] == "neutralized":
+        new_ss["frozen"] = True
+
+    _write_scene_state(conv, new_ss)
+    db.add(conv)
+    db.commit()
+    db.refresh(conv)
+    return _get_scene_state(conv)
 
 
 class TravelBody(BaseModel):
@@ -2554,6 +2841,9 @@ def travel(
             _analyze_window(open_conv.id, db)
         except (Exception, SystemExit):
             _log.exception("analyze_window failed for conversation %s", open_conv.id)
+        # Archive scene_state to history[] before clearing (history is sacred
+        # even on close — direct assignment would destroy the constraint chain).
+        _write_scene_state(open_conv, _default_scene_state())
         open_conv.status = "closed"
         open_conv.ended_at = now
         db.add(open_conv)
