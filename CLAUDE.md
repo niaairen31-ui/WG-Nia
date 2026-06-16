@@ -99,6 +99,24 @@ Read both before making any structural change.
   monotonicity guard and creator approval, not a structural cap (see
   "Deferred decisions" in `ARCHITECTURE_DECISIONS.md`). Downgrades,
   forgetting, and `is_incorrect` correction remain creator CRUD only.
+- **`scene_state` is a third, explicitly ephemeral write path** (BRIEF-12).
+  `_write_scene_state` archives the previous state snapshot to `history[]`
+  before every write — history is sacred even for ephemeral state. `scene_state`
+  is cleared to `{}` when a conversation closes. It is never canon: durable
+  consequences require a `proposed_mutation`.
+- **`proposed_by='engine'`** (BRIEF-12): deterministic engine proposals
+  (injury auto-proposal on `injured`/`neutralized`). They follow the same
+  review queue as AI proposals — never auto-applied.
+- **Constraint gating is structural, not instructional** (BRIEF-12): gagged /
+  restrained / blindfolded effects are enforced in Python before any model call
+  (`_stream` in `app.py`). Blindfolded exclusion is a data exclusion in the
+  context assembler (`assemble_mj_context`), never a "don't describe" prompt.
+- **Condition ladder is monotone for engine writes** (BRIEF-12): `unharmed →
+  bruised → injured → neutralized` — only moved forward by violent-verdict
+  code; only moved backward by creator CRUD. Never decremented by the engine.
+- **Frozen scene yields no model calls** (BRIEF-12): when `scene_state.frozen
+  = True`, `/say` short-circuits with a fixed MJ message. No model is invoked.
+  Only the creator panel can set `frozen=False`.
 
 ## Local model notes
 
@@ -110,7 +128,7 @@ Target local model for NPC dialogue and analysis: **`huihui_ai/qwen3-abliterated
   - **NPC dialogue** (cockpit `/say`, NPC phase): `chat_stream` with the built-in `_StreamThinkFilter` — thinking is left enabled, the filter suppresses the block before any token is yielded. The NPC reply is buffered internally; the player never sees it raw.
   - **MJ narration** (cockpit `/say`, MJ phase): `chat_stream` + `/no_think` appended to the user message — same filter as a backstop, `/no_think` for speed. What streams to the player is narration prose only.
   - **MJ interpretation** (cockpit `/say`, phase 0): `chat()` non-streaming + `/no_think` + `format="json"`. Classifies the player's input into `dialogue` / `physical` / `npc_reaction` / `scene` / `join`. Fallback to `dialogue` on any error — a misclassification must never break a turn.
-  - **MJ arbitration** (cockpit `/say`, physical turns only — between phase 0 and the NPC phase): `chat()` non-streaming + `format="json"` + `/no_think` appended at call time. Classifies domain + optional NPC opposition; falls back to `("physical", None)` on any failure — a misclassification must never break a turn.
+  - **MJ arbitration** (cockpit `/say`, physical turns only — between phase 0 and the NPC phase): `chat()` non-streaming + `format="json"` + `/no_think` appended at call time. Classifies domain + optional NPC opposition + constraint + violent flag; falls back to `("physical", None, None, False)` on any failure — a misclassification must never break a turn.
   - **NPC initiative vote** (cockpit `/say`, Tier 3 C1): `chat()` non-streaming + `format="json"` + `/no_think` — same policy as MJ interpretation. Failure is silent (initiative simply doesn't fire).
   - **NPC initiative act** (cockpit `/say`, Tier 3 C2): `chat()` non-streaming + `format="json"`, **no** `/no_think` — the JSON schema already constrains output, and leaving thinking on helps the small model follow the two-field contract (`act_text`, `move`). Falls back to `_NPC_INITIATIVE_ACT_FALLBACK` if `pt-npc-initiative-act` isn't seeded; any error → silent skip.
   - **Conversation analysis** (`analyze_conversation.py`, `analyzer.py`): leave thinking enabled — the reasoning helps the model follow format instructions; `strip_think` removes the block before JSON parsing.
@@ -180,9 +198,9 @@ World-genrator/
 │           │                #   physical branch), _load_mj_interpret_template);
 │           │                # physical resolution (BRIEF-11, schema v1.23):
 │           │                #   _load_mj_arbiter_template, _arbitrate (pt-mj-
-│           │                #   arbiter, usage='mj_arbitration', classifies
-│           │                #   domain + optional opposed_npc_id, fallback
-│           │                #   ("physical", None) on any failure);
+│           │                #   arbiter v2, usage='mj_arbitration', classifies
+│           │                #   domain + opposed_npc_id + applies_constraint +
+│           │                #   violent, fallback ("physical",None,None,False));
 │           │                #   resolve_physical call in _stream's physical
 │           │                #   branch — player_tier from Skill, npc_tier from
 │           │                #   entity.metadata.physical_tier; verdict sent as
@@ -233,7 +251,19 @@ World-genrator/
 │           │                #   transition (enter_scene) — plus the manual
 │           │                #   Analyze endpoint (analyze_conversation_endpoint;
 │           │                #   force resets last_analyzed_turn to 0 and deletes
-│           │                #   only 'proposed' rows)
+│           │                #   only 'proposed' rows);
+│           │                # scene_state (BRIEF-12, schema v1.24): ephemeral
+│           │                #   combat/constraint state on conversation; cleared
+│           │                #   on close; NOT canon; _default_scene_state,
+│           │                #   _get_scene_state, _write_scene_state (archives
+│           │                #   snapshot to history[] before every write);
+│           │                #   _propose_engine_injury (proposed_by='engine',
+│           │                #   injured/neutralized auto-proposal); constraint
+│           │                #   gating in _stream: gagged→composure physical,
+│           │                #   restrained→escape physical; frozen shortcircuit
+│           │                #   (fixed MJ message, no model calls); condition
+│           │                #   ladder writes on violent verdicts; GET/PATCH
+│           │                #   /api/conversations/{id}/scene-state endpoints
 │           └── index.html   # single-page UI; MJ narration rendering;
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;
@@ -250,12 +280,19 @@ World-genrator/
 │                            #   (inline CSS/JS, zero external deps)
 │                            #   physical resolution audit: verdict annotation
 │                            #   (domain · dice → total, band coloured by outcome),
-│                            #   b-physical mode badge (BRIEF-11, schema v1.23)
+│                            #   b-physical mode badge (BRIEF-11, schema v1.23);
+│                            #   scene_state creator panel (BRIEF-12, schema
+│                            #   v1.24): condition dot + frozen badge, constraint
+│                            #   checkboxes, condition dropdown, save button;
+│                            #   shown on conversation select, hidden on scene
+│                            #   view; auto-refreshes after each /say turn;
+│                            #   frozen annotation in npc-raw audit line
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)
 │   ├── talk.py              # live CLI conversation with an NPC via Ollama
 │   ├── analyze_conversation.py  # extract proposed mutations from a closed conversation
+│   ├── migrate_v1_24.py     # add conversation.scene_state column (BRIEF-12, idempotent)
 │   └── cockpit.py           # launch the review cockpit (uvicorn, 127.0.0.1 only)
 ├── pyproject.toml           # src-layout package metadata
 ├── requirements.txt

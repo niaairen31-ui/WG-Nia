@@ -461,7 +461,7 @@ Input du joueur → {player_line}\
 MJ_ARBITER_SYSTEM_PROMPT = """\
 Tu es l'arbitre d'un jeu de rôle. Le joueur vient de tenter une action physique
 dont l'issue est incertaine (grimper, bousculer, esquiver, forcer, se faufiler,
-résister...). Ta tâche : classer cette action selon DEUX axes, RIEN d'autre.
+résister...). Ta tâche : classer cette action selon QUATRE axes, RIEN d'autre.
 
 1. DOMAINE — choisis exactement un des quatre :
    - physical   : force brute, endurance, encaissement, porter/pousser/tirer.
@@ -477,11 +477,25 @@ résister...). Ta tâche : classer cette action selon DEUX axes, RIEN d'autre.
    - Si l'action ne vise personne (escalader un mur, sauter un fossé, se
      faufiler dans l'ombre) : null.
 
+3. CONTRAINTE APPLIQUÉE — L'action est-elle une RÉSISTANCE à une tentative
+   d'un PNJ de contraindre physiquement le joueur ? Si le joueur ÉCHOUE,
+   quelle contrainte subirait-il ?
+   - "restrained"  : le PNJ tente de l'immobiliser, ligoter, retenir, plaquer.
+   - "gagged"      : le PNJ tente de le bâillonner.
+   - "blindfolded" : le PNJ tente de lui bander les yeux.
+   - null : aucune contrainte en jeu (action offensive, environnementale, etc.)
+   En cas de doute : null.
+
+4. VIOLENT — L'action implique-t-elle un risque de blessure physique pour le
+   joueur (coup, arme, chute dangereuse, combat) ?
+   - true  : oui, une blessure est un résultat plausible.
+   - false : non (action d'esquive pure, acrobatie sans danger mortel, etc.)
+
 Tu ne juges JAMAIS la réussite ou l'échec — cela est déterminé ailleurs par un
 jet de dés. Tu ne narres rien.
 
 Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre :
-{"domain":"physical|agility|perception|composure","opposed_npc_id":"<nom exact ou null>"}\
+{"domain":"physical|agility|perception|composure","opposed_npc_id":"<nom exact ou null>","applies_constraint":"restrained|gagged|blindfolded|null","violent":true|false}\
 """
 
 MJ_ARBITER_USER_TEMPLATE = """\
@@ -800,13 +814,14 @@ def seed(session: Session) -> None:
         session,
         "pt-mj-arbiter",
         world_id=None,
-        name="MJ arbitre — domaine et opposition (résolution physique)",
+        name="MJ arbitre — domaine, opposition, contrainte et violence (résolution physique)",
         usage="mj_arbitration",
         system_prompt=MJ_ARBITER_SYSTEM_PROMPT,
         user_template=MJ_ARBITER_USER_TEMPLATE,
         variables=["player_line", "npc_list"],
         destination="local",
-        version=1,
+        version=2,
+        notes="v2 (BRIEF-12): adds applies_constraint + violent fields",
     )
 
     # ----- prompt template: MJ gathering (initial NPC clustering) ------------

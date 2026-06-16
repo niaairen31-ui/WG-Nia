@@ -85,6 +85,7 @@ def assemble_npc_context(
     session: Session,
     gathering_id: str | None = None,
     relevance_hint: str | None = None,
+    player_condition: str = "unharmed",
 ) -> str:
     """Assemble the text briefing that drives this NPC's dialogue.
 
@@ -134,6 +135,17 @@ def assemble_npc_context(
     setting_lines = [f"Tu te trouves dans un lieu nommé « {loc_name} »."]
     if loc_entity and loc_entity.description:
         setting_lines.append(loc_entity.description)
+    # Inject player condition so the NPC can observe the player's state.
+    if player_condition != "unharmed":
+        _condition_labels = {
+            "bruised": "légèrement blessé / meurtri",
+            "injured": "blessé, en mauvais état",
+            "neutralized": "hors de combat / inconscient",
+        }
+        setting_lines.append(
+            f"[ÉTAT DU JOUEUR] Le joueur est actuellement : "
+            f"{_condition_labels.get(player_condition, player_condition)}."
+        )
     if location:
         atmo = f"L'atmosphère y est magiquement « {location.magic_status} »"
         phenomena = None
@@ -283,6 +295,8 @@ def assemble_mj_context(
     location_id: str,
     gathering_id: str | None = None,
     relevance_hint: str | None = None,
+    blindfolded: bool = False,
+    player_condition: str = "unharmed",
 ) -> dict:
     """Assemble the MJ's narration context — the player's perception boundary.
 
@@ -315,6 +329,15 @@ def assemble_mj_context(
     `character.secrets`, no `entity.internal_name`, no non-public entities,
     no `event` rows with `knowledge_status IN ('secret', 'rumor')`.
 
+    `blindfolded` (BRIEF-12): when True, visual information is structurally
+    excluded — `location.description` is set to None and `co_presents` entries
+    carry no `description`. Sound/touch context stays. Same doctrine as secrets:
+    the data is simply absent from the prompt, never guarded by instruction.
+
+    `player_condition` (BRIEF-12): the player's current scene condition
+    (unharmed | bruised | injured | neutralized). Injected into the returned
+    dict so the MJ narration is bound by the mechanical reality.
+
     `relevance_hint` (schema v1.12, prepared/inert): reserved for a future
     relevance-selection stage that may only NARROW the security-scoped set
     above, never widen it. Inert until context size measurably hurts.
@@ -334,7 +357,8 @@ def assemble_mj_context(
 
     location_block = {
         "name": loc_entity.name if loc_entity else location_id,
-        "description": loc_entity.description if loc_entity else None,
+        # Excluded when blindfolded — visual data structurally absent (BRIEF-12).
+        "description": None if blindfolded else (loc_entity.description if loc_entity else None),
         "subculture": subculture,
     }
 
@@ -386,13 +410,19 @@ def assemble_mj_context(
         for _member, co_entity in co_rows:
             if co_entity.id == player_character_id or not co_entity.is_public:
                 continue
-            co_presents.append({"name": co_entity.name, "description": co_entity.description})
+            co_presents.append({
+                "name": co_entity.name,
+                # Appearance excluded when blindfolded — visual data structurally
+                # absent; sound/touch context (names) stays (BRIEF-12).
+                "description": None if blindfolded else co_entity.description,
+            })
 
     return {
         "location": location_block,
         "player_knowledge": player_knowledge,
         "public_events": public_events,
         "co_presents": co_presents,
+        "player_condition": player_condition,
     }
 
 
@@ -436,6 +466,22 @@ def format_mj_context(mj_context: dict) -> str:
             for e in public_events
         )
         blocks.append(_section(H_MJ_EVENTS, body))
+
+    # Player condition (BRIEF-12) — injected when not unharmed so the MJ
+    # narration is aware of the mechanical reality and cannot contradict it.
+    condition = mj_context.get("player_condition", "unharmed")
+    if condition and condition != "unharmed":
+        _condition_labels = {
+            "bruised": "légèrement blessé / meurtri",
+            "injured": "blessé, en mauvais état",
+            "neutralized": "hors de combat / inconscient",
+        }
+        blocks.append(
+            _section(
+                "ÉTAT DU JOUEUR",
+                f"Le joueur est actuellement : {_condition_labels.get(condition, condition)}.",
+            )
+        )
 
     if not blocks:
         return ""

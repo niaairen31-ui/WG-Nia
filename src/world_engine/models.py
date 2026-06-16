@@ -360,6 +360,15 @@ class Conversation(SQLModel, table=True):
         default="open", sa_column_kwargs={"server_default": text("'open'")}
     )
     injected_context: Optional[Any] = Field(default=None, sa_column=Column(JSON))
+    # scene_state is EPHEMERAL combat/constraint state, scoped to the conversation.
+    # It is cleared when the conversation closes. It is NOT canon: a durable
+    # consequence (lasting injury, capture, death) must go through
+    # proposed_mutation. Same philosophy as gathering: free play inside the
+    # scene, controlled consequences outside it.
+    scene_state: Any = Field(
+        default_factory=dict,
+        sa_column=Column(JSON, nullable=False, server_default=text("'{}'")),
+    )
     started_at: datetime = _created_ts()
     ended_at: Optional[datetime] = None
     last_analyzed_turn: int = Field(

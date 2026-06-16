@@ -208,6 +208,35 @@ header .local-badge {
 .verdict-band.band-partial { color: #c05621; }
 .verdict-band.band-success { color: #276749; }
 
+/* ── Scene state panel (BRIEF-12) ──────────────────────────────────────── */
+.scene-state-panel {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  padding: 6px 14px 8px;
+  font-size: 12px;
+}
+.ss-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.ss-title { font-weight: 600; font-size: 12px; }
+.ss-condition-dot {
+  width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+  margin-left: 2px;
+}
+.ss-condition-dot.c-unharmed   { background: #276749; }
+.ss-condition-dot.c-bruised    { background: #c05621; }
+.ss-condition-dot.c-injured    { background: #c53030; }
+.ss-condition-dot.c-neutralized { background: #4a5568; }
+.ss-frozen-badge { font-size: 11px; background: #4a5568; color: #fff;
+  padding: 1px 6px; border-radius: 3px; }
+.ss-body { display: flex; flex-direction: column; gap: 5px; }
+.ss-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ss-label { color: var(--muted); min-width: 80px; }
+.ss-check { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.ss-check input { cursor: pointer; }
+.ss-footer { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.btn-xs { font-size: 11px; padding: 2px 8px; }
+.ss-saved { font-size: 11px; color: var(--muted); }
+
 /* ── Queue panel ─────────────────────────────────────────────────────────── */
 .queue-panel {
   flex: 1;
@@ -926,6 +955,40 @@ button:not(:disabled):hover { filter: brightness(1.15); }
           <button class="btn-end" id="btn-end" onclick="endConversation()">Terminer</button>
         </div>
       </div>
+
+      <!-- Scene state panel (BRIEF-12) — creator read/edit of ephemeral constraint state -->
+      <div class="scene-state-panel" id="scene-state-panel" style="display:none">
+        <div class="ss-head">
+          <span class="ss-title">État de scène</span>
+          <span class="ss-condition-dot c-unharmed" id="ss-dot" title="Condition du joueur"></span>
+          <span id="ss-frozen-badge" style="display:none" class="ss-frozen-badge">⏸ Figée</span>
+          <button class="btn-ghost btn-xs" onclick="loadSceneState()" title="Rafraîchir">↻</button>
+        </div>
+        <div class="ss-body">
+          <div class="ss-row">
+            <span class="ss-label">Condition :</span>
+            <select id="ss-condition-sel" onchange="sceneStateDirty()">
+              <option value="unharmed">Indemne</option>
+              <option value="bruised">Meurtri</option>
+              <option value="injured">Blessé</option>
+              <option value="neutralized">Neutralisé / inconscient</option>
+            </select>
+          </div>
+          <div class="ss-row">
+            <span class="ss-label">Contraintes :</span>
+            <label class="ss-check"><input type="checkbox" id="ss-c-gagged"      onchange="sceneStateDirty()"> Bâillonné</label>
+            <label class="ss-check"><input type="checkbox" id="ss-c-restrained"  onchange="sceneStateDirty()"> Entravé</label>
+            <label class="ss-check"><input type="checkbox" id="ss-c-blindfolded" onchange="sceneStateDirty()"> Aveuglé</label>
+          </div>
+          <div class="ss-row">
+            <label class="ss-check"><input type="checkbox" id="ss-frozen" onchange="sceneStateDirty()"> Scène figée</label>
+          </div>
+        </div>
+        <div class="ss-footer">
+          <button class="btn-ghost btn-xs" id="ss-save" onclick="saveSceneState()" disabled>Enregistrer</button>
+          <span class="ss-saved" id="ss-saved" style="display:none">✓ Enregistré</span>
+        </div>
+      </div>
     </div>
 
     <!-- ── Review queue ── -->
@@ -1324,6 +1387,7 @@ async function showSceneView() {
   document.getElementById('scene-view').style.display      = 'flex';
   document.getElementById('transcript-body').style.display = 'none';
   document.getElementById('play-input-area').style.display = 'none';
+  document.getElementById('scene-state-panel').style.display = 'none';
   document.getElementById('btn-scene').style.display       = 'none';
   document.getElementById('transcript-title').textContent  =
     document.getElementById('scene-location-name').textContent || 'Scène';
@@ -1436,6 +1500,9 @@ async function selectConv(id) {
   const body = document.getElementById('transcript-body');
   body.innerHTML = '<div class="empty"><span class="spin">⟳</span> Loading…</div>';
   document.getElementById('transcript-title').textContent = 'Transcript';
+
+  document.getElementById('scene-state-panel').style.display = '';
+  loadSceneState();
 
   try {
     const data = await api('/api/conversations/' + id);
@@ -1725,6 +1792,9 @@ async function sendPlayerLine() {
       _renderJoinCandidates(transcriptEl, joinCandidates);
     }
 
+    // Refresh scene state panel (BRIEF-12) — constraints/condition may have changed.
+    loadSceneState();
+
     // Refresh the sidebar count for this conversation.
     const ciEl = document.getElementById('ci-' + currentConvId);
     if (ciEl) {
@@ -1789,7 +1859,9 @@ function _appendNpcRaw(container, npcName, content, mode) {
     : '';
   const body = content
     ? esc(content)
-    : '<em>(aucun PNJ impliqué)</em>';
+    : mode === 'frozen'
+      ? '<em>(scène figée — aucun appel modèle)</em>'
+      : '<em>(aucun PNJ impliqué)</em>';
   el.innerHTML =
     `<span class="npc-raw-label">${esc(npcName)} (brut) :${modeTag}</span> ${body}`;
   container.appendChild(el);
@@ -1869,6 +1941,72 @@ async function endConversation() {
     if (currentConvData) currentConvData.status = 'closed';
   } catch (e) {
     endBtn.disabled = false;
+    alert('Erreur : ' + e.message);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Scene state (BRIEF-12) — ephemeral constraint state, creator panel
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function loadSceneState() {
+  if (!currentConvId) return;
+  try {
+    const ss = await api('/api/conversations/' + currentConvId + '/scene-state');
+    _renderSceneState(ss);
+  } catch (_) {}
+}
+
+function _renderSceneState(ss) {
+  const dotEl       = document.getElementById('ss-dot');
+  const frozenBadge = document.getElementById('ss-frozen-badge');
+  const condSel     = document.getElementById('ss-condition-sel');
+  const frozenCb    = document.getElementById('ss-frozen');
+  const saveBtn     = document.getElementById('ss-save');
+  const savedEl     = document.getElementById('ss-saved');
+
+  dotEl.className = 'ss-condition-dot c-' + (ss.condition || 'unharmed');
+  frozenBadge.style.display = ss.frozen ? '' : 'none';
+  condSel.value = ss.condition || 'unharmed';
+
+  const constraints = Array.isArray(ss.constraints) ? ss.constraints : [];
+  document.getElementById('ss-c-gagged').checked      = constraints.includes('gagged');
+  document.getElementById('ss-c-restrained').checked  = constraints.includes('restrained');
+  document.getElementById('ss-c-blindfolded').checked = constraints.includes('blindfolded');
+  frozenCb.checked = !!ss.frozen;
+
+  saveBtn.disabled = true;
+  savedEl.style.display = 'none';
+}
+
+function sceneStateDirty() {
+  document.getElementById('ss-save').disabled = false;
+  document.getElementById('ss-saved').style.display = 'none';
+}
+
+async function saveSceneState() {
+  if (!currentConvId) return;
+  const constraints = [];
+  if (document.getElementById('ss-c-gagged').checked)      constraints.push('gagged');
+  if (document.getElementById('ss-c-restrained').checked)  constraints.push('restrained');
+  if (document.getElementById('ss-c-blindfolded').checked) constraints.push('blindfolded');
+
+  const payload = {
+    condition:   document.getElementById('ss-condition-sel').value,
+    constraints: constraints,
+    frozen:      document.getElementById('ss-frozen').checked,
+  };
+  try {
+    const updated = await api(
+      '/api/conversations/' + currentConvId + '/scene-state',
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload) }
+    );
+    _renderSceneState(updated);
+    const savedEl = document.getElementById('ss-saved');
+    savedEl.style.display = '';
+    setTimeout(() => { if (savedEl) savedEl.style.display = 'none'; }, 2000);
+  } catch (e) {
     alert('Erreur : ' + e.message);
   }
 }
