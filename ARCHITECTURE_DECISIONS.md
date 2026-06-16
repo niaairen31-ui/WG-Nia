@@ -941,11 +941,114 @@ call, and a **pure Python 2d6 roll** — the model never rolls.
   arbiter, dice, NPC phase, narration — writes **zero** canon; no new
   `relation`/`knowledge`/`entity` row is ever produced directly by it).
 
-**Out of scope for this step**: no constraints/contention, `scene_state`, or
-condition ladder (a later step); no perception/search injection; no
-`skill_change` mutation type or automatic progression; no dice UI beyond the
-`verdict` SSE audit event. NPC↔NPC dice are explicitly deferred — see
-"Deferred decisions" below.
+---
+
+## PHYSICAL LAYER — part 3: scene constraints, condition ladder (BRIEF-12, schema v1.24)
+
+Adds `conversation.scene_state` — an ephemeral JSON blob that tracks transient
+combat/constraint state for the duration of a scene. It is **not canon**: only
+`proposed_mutation` rows (after creator approval) produce lasting consequences.
+Same design philosophy as `gathering`.
+
+### scene_state structure
+
+```json
+{"constraints": ["gagged"|"restrained"|"blindfolded"],
+ "condition":   "unharmed"|"bruised"|"injured"|"neutralized",
+ "frozen":      false,
+ "history":     [<previous state snapshots>]}
+```
+
+Every write to `scene_state` appends the previous state to `history[]` before
+overwriting — history is sacred, even for ephemeral state.
+
+### Constraint gating
+
+Constraints override the MJ interpretation outcome **in code**, before any
+model call:
+
+| Constraint    | Trigger                               | Route                       | Effect on success     |
+|---------------|---------------------------------------|-----------------------------|-----------------------|
+| `gagged`      | player sends dialogue turn            | physical, composure domain  | (none — just narrated)|
+| `restrained`  | any physical / scene / npc_reaction   | physical, physical domain   | removes `restrained`  |
+| `blindfolded` | (always active when in constraints)   | context assembler           | excludes location desc + NPC appearance |
+
+Gagged turns use `npc_tier=0` (no NPC opposing); restrained escape is
+contested. Possession check is skipped for constraint-gated turns (the player
+isn't deliberately trying to use an item).
+
+Blindfolded exclusion is **structural data exclusion** in `assemble_mj_context`:
+`location.description = None`, `co_presents[].description = None`. Never an
+instruction; enforced at the data boundary.
+
+### Condition ladder
+
+`unharmed → bruised → injured → neutralized` — monotone for engine writes.
+
+Moved only on `violent=True` physical verdicts (new `pt-mj-arbiter` v2 field):
+- **failure**: degrade one step on the ladder (partial never degrades
+  condition — it is a complication band, not a damage band; keeping the three
+  2d6 outcome bands mechanically distinct also keeps combat survivable).
+- **success**: no change.
+- `neutralized` auto-sets `frozen=True`.
+
+Reaching `injured` or `neutralized` triggers an automatic `status_change`
+proposal with `proposed_by='engine'` — a new value for `ProposedMutation.
+proposed_by`. The proposal follows the same review queue as AI proposals; the
+creator approves or rejects it. It does not auto-apply.
+
+### Frozen scene checkpoint
+
+When `scene_state.frozen = True`, `/say` short-circuits immediately: player
+message is persisted, a fixed French MJ message is streamed as SSE narration,
+no model calls are made. The creator panel (see below) can unfreeze.
+
+### Arbiter v2
+
+`pt-mj-arbiter` bumped to v2: four output fields instead of two.
+
+```json
+{"domain": "physical|agility|perception|composure",
+ "opposed_npc_id": "<name or null>",
+ "applies_constraint": "restrained|gagged|blindfolded|null",
+ "violent": true|false}
+```
+
+`applies_constraint`: populated on failure/partial when the turn has a
+constraint theme; `null` on success or when the turn has no constraint
+outcome. Written to `scene_state.constraints` only on failure or partial.
+`violent`: True when the physical turn involves harm; gates condition
+degradation. Falls back to `("physical", None, None, False)` on any error —
+a misclassification must never break a turn.
+
+### Condition injection
+
+`player_condition` passed to both `assemble_npc_context` and
+`assemble_mj_context`. When not `"unharmed"`, injected as a labelled
+`[ÉTAT DU JOUEUR]` line in both NPC and MJ context — NPCs and the MJ know the
+player's mechanical state and can react accordingly.
+
+### Creator panel
+
+Creator cockpit gains a `scene_state` panel below the transcript, visible
+whenever a conversation is selected. Shows: condition (colour-coded dot),
+frozen badge, constraint checkboxes, condition dropdown. Direct edit → PATCH
+`/api/conversations/{id}/scene-state` — archives to `history[]`. Refreshes
+automatically after each `/say` turn.
+
+### Invariants
+
+- `scene_state` is cleared to `{}` when a conversation closes (same lifecycle
+  as the gathering membership: scoped to the scene).
+- Constraint and condition writes are batched — a single turn produces at most
+  one `history[]` snapshot, even if both a constraint is added and condition
+  degrades in the same verdict.
+- `proposed_by='engine'` proposals are never auto-applied; they enter the same
+  review queue as AI proposals.
+
+**Out of scope for this step**: no `skill_change` mutation type or automatic
+progression; no passive perception checks; no richer scene-entry description;
+NPC↔NPC dice remain deferred (see "Deferred decisions" below).
 
 ---
 
@@ -982,12 +1085,13 @@ The minimal version tells us in a few days whether the dialogue "holds" before b
 
 Recorded here so each is revisited deliberately rather than forgotten:
 
-- **Generic `scene_state` table** (investigation/fire/chase scenes). Deferred
-  because v1 scope is conversation-centric; no step has yet needed structured
-  non-conversation scene state.
-- **Coup-de-grâce exception to the unconsciousness ceiling.** Deferred because
-  no combat-resolution step has been scoped yet; the ceiling rule has no
-  carve-out until one is.
+- **Coup-de-grâce exception to the unconsciousness ceiling** (`neutralized` +
+  `frozen`). Deferred: the frozen-scene checkpoint already blocks further
+  action; a kill path would need a deliberate creator-level gate and is not
+  scoped.
+- **Generic non-conversation `scene_state`** (investigation, fire, chase
+  scenes outside a conversation). Resolved at the conversation level (BRIEF-12,
+  v1.24); a conversation-spanning or world-level state table remains deferred.
 - **Every-N-turns fallback cadence for long scenes** (window analysis,
   BRIEF-09). Deferred because scene-boundary triggers (close, location
   transition, gathering dissolution) plus the manual button were judged
@@ -1012,14 +1116,12 @@ Recorded here so each is revisited deliberately rather than forgotten:
   harden a code-level `knows` cap on `analyze_window`'s `knowledge_change`
   path until this is decided; doing so would lock in a choice that is
   deliberately still open.
-- **Skill sheet consumers, remainder** (physical layer, BRIEF-10/BRIEF-11).
-  `ResponseMode.physical` + `resolve_physical` now read the skill sheet (v1.23)
-  — still deferred: `skill_change` mutation type and automatic progression
-  (tiers stay creator-edit only); numeric HP and a condition ladder;
-  constraints/contention/`scene_state` (gated actions, "grabbed" as state
-  rather than prose); passive perception checks; richer scene description on
-  location entry (the MJ establishing what a character with a given
-  perception tier notices).
+- **Skill sheet consumers, remainder** (physical layer, post-BRIEF-12).
+  `ResponseMode.physical` + `resolve_physical` read the skill sheet (v1.23);
+  `scene_state` constraints + condition ladder implemented (v1.24) — still
+  deferred: `skill_change` mutation type and automatic progression (tiers stay
+  creator-edit only); passive perception checks; richer scene-entry description
+  (MJ establishing what a character with a given perception tier notices).
 - **NPC↔NPC physical dice** (BRIEF-11). When Tier-3 initiative produces an
   NPC-vs-NPC physical act, the MJ narrates by tier comparison — no roll,
   nothing implemented this step. Accepted design: the player-roll rule means
