@@ -2748,6 +2748,11 @@ def update_scene_state(
     conv = db.get(Conversation, conv_id)
     if conv is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    # Closed conversations have scene_state cleared to the default by the close
+    # path. Guard here so a PATCH-after-close cannot re-populate it and
+    # silently re-falsify the invariant ("fermée ⇒ scene_state vide").
+    if conv.status == "closed":
+        raise HTTPException(status_code=400, detail="Conversation is already closed")
 
     # Validate inputs.
     if body.constraints is not None:
