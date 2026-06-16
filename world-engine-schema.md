@@ -754,7 +754,8 @@ batch   → event
   Frozen scene: `/say` yields a fixed French MJ message, zero model calls;
   creator panel can unfreeze. Condition ladder `unharmed→bruised→injured→
   neutralized` moved only by code on `violent=True` physical verdicts:
-  failure or partial degrades one step; `neutralized` auto-sets `frozen=True`.
+  failure degrades one step (partial never degrades condition — complication
+  band, not damage band); `neutralized` auto-sets `frozen=True`.
   Reaching `injured` or `neutralized` auto-proposes a `status_change` with
   `proposed_by='engine'` (new value for `ProposedMutation.proposed_by`).
   `scene_state` writes archive the previous state snapshot to `history[]`
