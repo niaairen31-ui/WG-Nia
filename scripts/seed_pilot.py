@@ -387,10 +387,14 @@ MODES :
                   (même si combiné à un geste). MODE PAR DÉFAUT en cas de doute.
 - physical      : le joueur tente une action physique dont l'issue est incertaine
                   (grimper, bousculer, esquiver, forcer une porte, se faufiler,
-                  résister physiquement, retenir quelqu'un...) — un jet de dés
-                  pourrait aussi bien réussir qu'échouer. Un geste simple sans
-                  enjeu reste npc_reaction ; une action sur l'environnement sans
-                  enjeu reste scene.
+                  résister physiquement, retenir quelqu'un ; chercher activement
+                  quelque chose de précis — fouiller la pièce, chercher un passage,
+                  examiner les étagères pour trouver quelque chose...) — un jet de
+                  dés pourrait aussi bien réussir qu'échouer.
+                  Test de distinction observation/fouille : chercher activement
+                  quelque chose de précis (un objet, un indice, un passage) =
+                  physical ; simplement observer l'ambiance sans rien chercher de
+                  précis = scene. Un geste simple sans enjeu reste npc_reaction.
 - npc_reaction  : le joueur fait une action visible, dirigée vers le PNJ ou clairement
                   remarquée par lui, SANS lui adresser la parole, ET dont l'issue
                   n'est pas incertaine (exemples : tape sur la table, le fixe, pose
@@ -413,7 +417,7 @@ RÈGLE DE DÉCISION :
    sur les autres modes).
 1. Sinon, y a-t-il des mots, une question ou une sollicitation adressés au PNJ ? → dialogue.
 2. Sinon, l'action décrit-elle une tentative physique dont l'issue est incertaine
-   (un jet de dés pourrait échouer ou réussir) ? → physical.
+   (un jet de dés pourrait échouer ou réussir), y compris une fouille active ? → physical.
 3. Y a-t-il un geste ou une action clairement dirigés vers le PNJ, sans parole,
    à l'issue certaine ? → npc_reaction.
 4. Sinon → scene.
@@ -787,6 +791,7 @@ def seed(session: Session) -> None:
     # /say flow, and extracts used_object (BRIEF-08/D2a.1: equip_action
     # removed). Non-streaming JSON call; /no_think appended at call time.
     # world_id = NULL. v4 adds the `physical` mode (BRIEF-11, schema v1.23).
+    # v5 extends physical to include explicit search intent (BRIEF-13, schema v1.26).
     # Uses upsert so re-seeding always converges the DB to the latest wording.
     upsert_prompt_template(
         session,
@@ -798,7 +803,7 @@ def seed(session: Session) -> None:
         user_template=MJ_INTERPRETATION_USER_TEMPLATE,
         variables=["npc_name", "location_name", "gathering_status", "item_list", "recent_transcript", "player_line"],
         destination="local",
-        version=4,
+        version=5,
     )
 
     # ----- prompt template: MJ arbiter (physical resolution classification) --

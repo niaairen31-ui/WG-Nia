@@ -565,6 +565,50 @@ CREATE INDEX idx_skill_character ON skill(character_id);
 
 -----
 
+### `discoverable_detail`
+
+Pre-seeded hidden content per location, revealed by explicit perception
+searches (schema v1.26, BRIEF-13).
+
+```sql
+CREATE TABLE discoverable_detail (
+  id                  TEXT PRIMARY KEY,
+  world_id            TEXT NOT NULL REFERENCES world(id),
+  location_id         TEXT NOT NULL REFERENCES entity(id),
+  subject             TEXT NOT NULL,   -- short tag, e.g. "lettre_innommee"
+  content             TEXT NOT NULL,   -- what the player learns on discovery
+  access_level        TEXT NOT NULL DEFAULT 'hidden',
+                      -- ambient | hidden
+                      -- ambient : revealed passively on location entry,
+                      --           no roll (DORMANT this brief — see Scope OUT)
+                      -- hidden  : requires an explicit search + a successful
+                      --           perception roll to reveal
+  discovery_threshold INTEGER NOT NULL DEFAULT 0 CHECK (discovery_threshold BETWEEN 0 AND 12),
+                      -- DORMANT this brief: the minimum 2d6 total required to
+                      -- reveal. Compared against a trivial bar for now (any
+                      -- partial/success reveals regardless of this value).
+                      -- Reserved so "some info is better hidden than other"
+                      -- can be activated later without a migration. Same
+                      -- philosophy as knowledge.share_threshold.
+  discovered          BOOLEAN NOT NULL DEFAULT FALSE,
+                      -- flips TRUE when a discovery new_knowledge mutation for
+                      -- this detail is APPLIED (creator-approved), not at
+                      -- propose time.
+  created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_discoverable_location ON discoverable_detail(location_id);
+CREATE INDEX idx_discoverable_world ON discoverable_detail(world_id);
+```
+
+-- NOTE: this table is NEVER read by any context assembler
+-- (assemble_mj_context, assemble_npc_context, or any prompt-building path).
+-- Undiscovered content is absent from every prompt by data exclusion, not
+-- by instruction. Content reaches a model only via the explicit post-selection
+-- injection in _stream() on a partial/success perception search.
+
+-----
+
 ### `user`
 
 System accounts (creator + players).
@@ -673,6 +717,10 @@ CREATE INDEX idx_item_location ON item(location_id);
 
 -- skill sheet rows, by character
 CREATE INDEX idx_skill_character ON skill(character_id);
+
+-- discoverable details: by location (search reveals) and by world
+CREATE INDEX idx_discoverable_location ON discoverable_detail(location_id);
+CREATE INDEX idx_discoverable_world    ON discoverable_detail(world_id);
 ```
 
 -----
@@ -718,6 +766,38 @@ batch   → event
 -----
 
 ## CHANGELOG
+
+- **v1.26** — Explicit search (perception) + discoverable details (BRIEF-13).
+  New table `discoverable_detail` (`id`, `world_id` REFERENCES `world(id)`,
+  `location_id` REFERENCES `entity(id)`, `subject TEXT NOT NULL` — short tag
+  e.g. `"lettre_innommee"`, `content TEXT NOT NULL` — what the player learns,
+  `access_level TEXT NOT NULL DEFAULT 'hidden'` — `ambient | hidden` (ambient
+  is DORMANT this brief: reserved for passive on-entry reveal, no code reads
+  it yet), `discovery_threshold INTEGER NOT NULL DEFAULT 0 CHECK (BETWEEN 0
+  AND 12)` — DORMANT this brief: minimum 2d6 total for reveal, reserved so
+  "some info is better hidden than other" can be activated later without a
+  migration; same philosophy as `knowledge.share_threshold`, `discovered
+  BOOLEAN NOT NULL DEFAULT FALSE` — flips TRUE when the engine-proposed
+  `new_knowledge` is APPLIED by the creator, not at propose time).
+  Indexes: `idx_discoverable_location ON discoverable_detail(location_id)`,
+  `idx_discoverable_world ON discoverable_detail(world_id)`.
+  **NOTE: this table is NEVER read by any context assembler.** Undiscovered
+  content lives only in a table no prompt ever touches; content reaches a model
+  only via the explicit post-selection injection on a partial/success
+  perception search (`_stream()`, `domain="perception"`, `opposed_npc_id=None`).
+  Discovery flows through the existing `new_knowledge` / `_apply_mutation`
+  pipeline — no new canon-write path. The `discovered` flip is a benign
+  side-effect inside the already-sanctioned `_apply_mutation`, wrapped in its
+  SAVEPOINT. `pt-mj-interpretation` bumped to v5: `physical` mode extended to
+  include explicit search intent; distinguishing test added verbatim: *"chercher
+  activement quelque chose de précis (un objet, un indice, un passage) =
+  physical ; simplement observer l'ambiance sans rien chercher de précis =
+  scene."* Migration: `python scripts/migrate_v1_26.py`.
+  **Deferred (recorded for activation):** passive perception on location entry
+  (`access_level='ambient'` — schema present, no code reads it); `discovery_threshold`
+  activation (schema present, never compared against roll total); NPC opposition
+  to a search (a named NPC blocking or hiding information); per-character
+  discovery state (solo `discovered` bool — multiplayer per-player state deferred).
 
 - **v1.25** — Contested-attempt penalty for constraint-gated turns (no schema
   change). Gagged-speech and escape-from-restraint attempts now resolve at

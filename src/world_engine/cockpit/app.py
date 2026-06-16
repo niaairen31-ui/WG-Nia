@@ -52,6 +52,7 @@ from ..models import (
     Character,
     Conversation,
     ConversationMessage,
+    DiscoverableDetail,
     Entity,
     Gathering,
     GatheringMember,
@@ -276,6 +277,21 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
             is_secret=bool(payload.get("is_secret", False)),
             session_id=session_id,
         )
+        # Flip discovered=TRUE on the source detail when this knowledge came
+        # from an engine-proposed discovery. The flip is on APPLY (creator-
+        # approved), not on propose — the creator can reject the proposal and
+        # the detail stays available for re-selection in a later conversation.
+        # Both the in-conversation _find_applied_duplicate guard and the
+        # discovered=FALSE query in _stream() prevent double-proposing the
+        # same detail (in-conversation guard) and re-proposing in future
+        # conversations (discovered flag guard), respectively.
+        detail_id = payload.get("discoverable_detail_id")
+        if detail_id:
+            detail = db.get(DiscoverableDetail, str(detail_id))
+            if detail is not None:
+                detail.discovered = True
+                detail.updated_at = datetime.now(UTC)
+                db.add(detail)
         return None
 
     # ── status_change ─────────────────────────────────────────────────────────
@@ -1200,6 +1216,42 @@ def _propose_engine_injury(
     ))
 
 
+def _propose_engine_discovery(
+    conv: "Conversation",
+    detail: "DiscoverableDetail",
+    db: "Session",
+) -> None:
+    """Propose a new_knowledge mutation with proposed_by='engine'.
+
+    Fires deterministically when a perception search finds an undiscovered
+    hidden detail. Goes through the normal review pipeline — never auto-applied.
+    The discoverable_detail_id back-reference in the payload lets _apply_mutation
+    flip detail.discovered to TRUE when the creator approves (see that branch).
+    """
+    db.add(ProposedMutation(
+        world_id=conv.world_id,
+        source_type="conversation",
+        conversation_id=conv.id,
+        mutation_type="new_knowledge",
+        target_table="entity",
+        target_id=conv.player_id,
+        payload={
+            "entity_id": conv.player_id,
+            "subject": detail.subject,
+            "level": "knows",
+            "content": detail.content,
+            "source": "discovery",
+            "is_secret": False,
+            "discoverable_detail_id": detail.id,
+        },
+        rationale=(
+            f"Perception search in location {conv.location_id!r}: "
+            f"detail '{detail.subject}' found."
+        ),
+        proposed_by="engine",
+    ))
+
+
 def _find_player_item(db: Session, player_id: str, item_name: str) -> Optional[tuple[Item, Entity]]:
     """Resolve a canonical item name (`_interpret_mode`'s `used_object`) to
     the player's owned `item` + `entity` rows, or `None` if not owned.
@@ -1235,6 +1287,7 @@ def _build_mj_user(
     mj_context: dict | None = None,
     inventory_line: str = "",
     verdict_band: Optional[str] = None,
+    search_rubric: Optional[str] = None,
 ) -> str:
     """Build the MJ narration user message for the given mode.
 
@@ -1292,6 +1345,7 @@ def _build_mj_user(
         npc_reaction_block = (
             f"{npc_name} réagit :\n{npc_reply}\n\n" if npc_reply else ""
         )
+        search_rubric_block = f"\n{search_rubric}\n" if search_rubric else ""
         return (
             f"{context_block}"
             f"{inventory_block}"
@@ -1307,7 +1361,7 @@ def _build_mj_user(
             f"- success : l'action réussit nettement.\n"
             f"Tu narres les conséquences ; tu ne rejuges JAMAIS le résultat.\n"
             f"Aucune mort, blessure permanente ou capture durable ne peut découler\n"
-            f"de cette narration : au pire, neutralisé ou contraint.\n\n"
+            f"de cette narration : au pire, neutralisé ou contraint.{search_rubric_block}\n\n"
             f"Narration MJ :\n/no_think"
         )
     # ResponseMode.scene
@@ -1891,6 +1945,61 @@ def say(
                 ss_condition = new_ss.get("condition", "unharmed")
                 ss_constraints = set(new_ss.get("constraints", []))
 
+            # ── Discovery gating (BRIEF-13, schema v1.26) ────────────────────
+            # Fires only for perception searches: domain="perception" AND no NPC
+            # opposition. A perception roll WITH opposition (e.g. spotting a NPC's
+            # hidden weapon under pressure) is NOT a search — must not trigger
+            # discovery. Only the code judges what is found; the model receives
+            # content ONLY after selection.
+            search_rubric: Optional[str] = None
+            if domain == "perception" and opposed_npc_id is None:
+                if verdict.band in ("partial", "success"):
+                    # Select the oldest undiscovered hidden detail for this
+                    # location. discovery_threshold is DORMANT this brief:
+                    # both partial and success reveal equally (binary gate).
+                    found_detail = db.exec(
+                        select(DiscoverableDetail).where(
+                            DiscoverableDetail.location_id == conv.location_id,
+                            DiscoverableDetail.access_level == "hidden",
+                            DiscoverableDetail.discovered == False,  # noqa: E712
+                        ).order_by(
+                            DiscoverableDetail.created_at,
+                            DiscoverableDetail.id,
+                        )
+                    ).first() if conv.location_id else None
+
+                    if found_detail is not None:
+                        with Session(engine) as disc_db:
+                            disc_conv = disc_db.get(Conversation, conv_id)
+                            if disc_conv:
+                                _propose_engine_discovery(disc_conv, found_detail, disc_db)
+                                disc_db.commit()
+                        search_rubric = (
+                            f"[FOUILLE — VERDICT {verdict.band}]\n"
+                            f"success : le personnage trouve ce qu'il cherchait, proprement.\n"
+                            f"partial : le personnage trouve ce qu'il cherchait, MAIS au prix d'une\n"
+                            f"  complication (bruit, objet renversé, un témoin remarque son manège).\n"
+                            f"  L'information est bel et bien trouvée ; seule la position se dégrade.\n"
+                            f"Contenu trouvé : {found_detail.content}\n"
+                            f"Tu narres la découverte ; tu ne rejuges pas le résultat."
+                        )
+                    else:
+                        # Exhausted location — no undiscovered hidden detail.
+                        search_rubric = (
+                            "[FOUILLE INFRUCTUEUSE]\n"
+                            "Le personnage cherche mais ne trouve rien de notable.\n"
+                            "N'invente AUCUN objet, lettre, passage ou indice. Décris la fouille\n"
+                            "elle-même (gestes, recoins inspectés) et le fait que rien ne ressort."
+                        )
+                else:
+                    # failure band: anti-invention rubric, no proposal.
+                    search_rubric = (
+                        "[FOUILLE INFRUCTUEUSE]\n"
+                        "Le personnage cherche mais ne trouve rien de notable.\n"
+                        "N'invente AUCUN objet, lettre, passage ou indice. Décris la fouille\n"
+                        "elle-même (gestes, recoins inspectés) et le fait que rien ne ressort."
+                    )
+
             # ── MJ narration user message ────────────────────────────────────
             mj_context = (
                 assemble_mj_context(
@@ -1912,6 +2021,7 @@ def say(
                 mj_context=mj_context,
                 inventory_line=inventory_line,
                 verdict_band=verdict.band,
+                search_rubric=search_rubric,
             )
         else:
             # ── Speaker / target resolution (contract A3 hybrid) ──────────────

@@ -1054,6 +1054,105 @@ NPC↔NPC dice remain deferred (see "Deferred decisions" below).
 
 ---
 
+## PHYSICAL LAYER — part 4: perception & discovery (BRIEF-13, schema v1.26)
+
+Adds explicit search as a `physical` turn with `domain="perception"`, and the
+`discoverable_detail` table the creator seeds per location.
+
+### Search routing
+
+An explicit search ("je fouille la pièce", "je cherche un passage", "j'examine
+les étagères pour trouver quelque chose") is routed to `physical` by
+`pt-mj-interpretation` v5. Distinguishing test, verbatim in the prompt:
+
+> *"chercher activement quelque chose de précis (un objet, un indice, un
+> passage) = physical ; simplement observer l'ambiance sans rien chercher de
+> précis = scene."*
+
+A stale ambient glance without search intent stays `scene`. The arbiter then
+classifies `domain="perception"`, `opposed_npc_id=null` (a search has no NPC
+opponent — the future "an NPC intervenes to hide information" is deferred).
+
+### Discovery gating (`_stream`, physical branch)
+
+Fires only when `domain == "perception"` AND `opposed_npc_id is None`. A
+perception roll WITH opposition (e.g. spotting something under pressure from a
+NPC) is NOT a search and must not trigger discovery.
+
+| Band | No undiscovered detail | Undiscovered detail present |
+|---|---|---|
+| `failure` | `[FOUILLE INFRUCTUEUSE]` rubric | `[FOUILLE INFRUCTUEUSE]` rubric |
+| `partial` | `[FOUILLE INFRUCTUEUSE]` rubric | `[FOUILLE — VERDICT partial]` rubric + `_propose_engine_discovery` |
+| `success` | `[FOUILLE INFRUCTUEUSE]` rubric | `[FOUILLE — VERDICT success]` rubric + `_propose_engine_discovery` |
+
+The `[FOUILLE INFRUCTUEUSE]` rubric carries the anti-invention rule verbatim:
+no object, letter, passage, or clue may be invented. The model describes the
+search gestures only.
+
+For `partial`, the content IS revealed — partial means a complication (noise,
+knocked-over object, a co-present NPC notices), not withheld information. This
+keeps the three 2d6 outcome bands mechanically distinct (same principle as
+condition degradation: partial is a complication band, not a failure band).
+
+`discovery_threshold` is DORMANT: both `partial` and `success` reveal equally
+(binary gate). The threshold column is reserved for future activation without
+a migration — same philosophy as `knowledge.share_threshold`.
+
+### `_propose_engine_discovery`
+
+Sibling of `_propose_engine_injury`. Writes one `ProposedMutation` row:
+- `mutation_type="new_knowledge"`, `proposed_by="engine"`
+- Payload: `entity_id`, `subject`, `level="knows"`, `content`, `source="discovery"`,
+  `is_secret=False`, `discoverable_detail_id` (back-reference for the flip below)
+- Status `proposed` — enters the normal review queue, never auto-applied.
+
+### `discovered` flip on APPLY
+
+In `_apply_mutation`'s `new_knowledge` branch, after `write_knowledge`, if
+`payload["discoverable_detail_id"]` is set, the corresponding
+`DiscoverableDetail` row's `discovered` is set to `True` and `updated_at`
+is bumped. This is the ONLY new write inside `_apply_mutation` and is a benign
+side-effect inside the already-sanctioned path (wrapped in its SAVEPOINT).
+
+**Why on APPLY, not on propose:** the creator must be able to reject the
+proposal; a pre-flipped `discovered` flag would block re-selection in future
+conversations even when the mutation was never approved.
+
+**Two guards prevent double-discovery:**
+1. `_find_applied_duplicate` (in-conversation): same `conversation_id` + `entity_id`
+   + `subject` blocks re-proposing the same subject within one conversation.
+2. `discovered=TRUE` query gate (cross-conversation): the selection query in
+   `_stream()` excludes `discovered=TRUE` rows, so an already-discovered detail
+   is never re-selected in a later conversation.
+
+### Exclusion guarantee
+
+`discoverable_detail` is **never read by any context assembler**
+(`assemble_mj_context`, `assemble_npc_context`, or any prompt-building path).
+Undiscovered content is absent from every prompt by data exclusion, not by
+instruction. Content reaches a model only via the `{detail_content}` injection
+on partial/success, and only after code-side selection. This is the same
+structural pattern as `character.secrets` and `is_secret=TRUE` knowledge rows.
+
+**`subculture["hidden"]` trap**: the pilot tavern's `subculture` dict has a
+`"hidden"` key (`"point d'appui de L'Innommée"`), already excluded from all
+context via `_SAFE_SUBCULTURE_KEYS`. This key must NEVER be used as a
+discoverable content source, added to the safe-key list, or read into any
+prompt. Discoverable content lives ONLY in `discoverable_detail`.
+
+### Creator CRUD
+
+`GET /locations/{id}/discoverable-details` — list (creator view only).
+`POST /locations/{id}/discoverable-details` — seed a new detail.
+`PUT /discoverable-details/{id}` — edit subject/content/access_level/threshold;
+  creator can also reset `discovered=False` to re-enable re-discovery.
+`DELETE /discoverable-details/{id}` — hard delete.
+
+All four are creator-direct writes (no `proposed_mutation` checkpoint), same
+doctrine as the rest of `crud.py`. In player mode this surface is hidden.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.
@@ -1130,6 +1229,24 @@ Recorded here so each is revisited deliberately rather than forgotten:
   the resolution machinery (`_arbitrate`, `resolve_physical`) is wired only to
   player-initiated or player-responding turns; an NPC↔NPC roll would need its
   own (still hypothetical) trigger and is not scoped.
+- **Passive perception on location entry** (BRIEF-13). `access_level='ambient'`
+  exists in the schema and CRUD so the creator can seed ambient content now, but
+  no code reads or reveals ambient details on entry — no automatic reveal on
+  `enter_location`, no ambient-detail injection, no MJ scene-establishing call.
+  Dedicated later step.
+- **`discovery_threshold` activation** (BRIEF-13). Schema column present and
+  editable, never compared against `verdict.total`. Both `partial` and `success`
+  reveal equally (binary gate). "Some info is better hidden than other" is a
+  deliberate later step.
+- **NPC opposition to a search** (BRIEF-13). A search always resolves at
+  `npc_tier=0`; the future "a named NPC intervenes to block or hide information"
+  (opposition to a perception roll) is deferred. Do not read co-present NPCs
+  into the search roll; do not add an opposed-search path this step.
+- **Per-character discovery state** (BRIEF-13). `discovered` is a single
+  world-level bool (`discoverable_detail.discovered`) — suitable for the solo
+  pilot. Multiplayer per-player discovery (each player character has their own
+  `discovered` flag) requires a join table or a `player_discoveries` column and
+  is explicitly deferred.
 
 ---
 

@@ -2619,10 +2619,20 @@ function authorRenderSheet(detail, isNew, type) {
     html += '</div>';
   }
 
+  if (!isNew && type === 'location') {
+    html += '<div class="field-section"><div class="field-section-title">Discoverable Details</div>';
+    html += '<div id="author-disc-list"><div class="empty"><span class="spin">⟳</span></div></div>';
+    html += authorRenderDiscDetailForm(detail.id, detail.world_id);
+    html += '</div>';
+  }
+
   document.getElementById('author-main').innerHTML = html;
 
   if (!isNew && type === 'character') {
     authorLoadItems(detail.id);
+  }
+  if (!isNew && type === 'location') {
+    authorLoadDiscDetails(detail.id);
   }
 }
 
@@ -2649,6 +2659,174 @@ function authorRenderItems(items) {
       </span>
     </div>
   `).join('') + '</div>';
+}
+
+/* ── Discoverable details (location sheet, BRIEF-13) ────────────────────── */
+
+async function authorLoadDiscDetails(locationId) {
+  const el = document.getElementById('author-disc-list');
+  if (!el) return;
+  try {
+    const rows = await api(`/api/locations/${encodeURIComponent(locationId)}/discoverable-details`);
+    el.innerHTML = authorRenderDiscDetails(rows, locationId);
+  } catch (e) {
+    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function authorRenderDiscDetails(rows, locationId) {
+  if (!rows || rows.length === 0) return '<div class="empty">No discoverable details seeded yet.</div>';
+  return '<div class="row-table">' + rows.map(d => `
+    <div class="row-card" id="disc-row-${esc(d.id)}">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+        <span style="font-weight:600">${esc(d.subject)}</span>
+        <span style="display:flex; align-items:center; gap:6px;">
+          <span class="badge ${d.discovered ? 'b-equipped' : 'b-stowed'}">${d.discovered ? 'discovered' : 'hidden'}</span>
+          <span style="color:var(--muted); font-size:12px;">${esc(d.access_level)} · threshold ${d.discovery_threshold}</span>
+        </span>
+      </div>
+      <div style="color:var(--text); font-size:13px; margin:4px 0 6px; white-space:pre-wrap;">${esc(d.content)}</div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        <button class="btn-ghost" style="font-size:12px"
+          onclick="authorEditDiscDetail('${esc(d.id)}','${esc(locationId)}')">Edit</button>
+        <button class="btn-end" style="font-size:12px; padding:3px 8px"
+          onclick="authorDeleteDiscDetail('${esc(d.id)}','${esc(locationId)}')">Delete</button>
+        ${d.discovered ? `<button class="btn-ghost" style="font-size:12px"
+          onclick="authorResetDiscDetail('${esc(d.id)}','${esc(locationId)}')">Reset discovered</button>` : ''}
+      </div>
+    </div>
+  `).join('') + '</div>';
+}
+
+function authorRenderDiscDetailForm(locationId, worldId) {
+  return `
+  <div class="field-section" id="disc-add-form" style="border-top:1px solid var(--border); margin-top:8px; padding-top:8px;">
+    <div class="field-grid">
+      <div class="field-row">
+        <label for="disc-f-subject">Subject *</label>
+        <input type="text" id="disc-f-subject" placeholder="e.g. lettre_innomee">
+      </div>
+      <div class="field-row" style="grid-column:1/-1">
+        <label for="disc-f-content">Content *</label>
+        <textarea id="disc-f-content" rows="3" placeholder="What the player discovers…" style="resize:vertical"></textarea>
+      </div>
+      <div class="field-row">
+        <label for="disc-f-access">Access level</label>
+        <select id="disc-f-access">
+          <option value="hidden">hidden</option>
+          <option value="ambient">ambient (dormant)</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label for="disc-f-threshold">discovery_threshold (0–12, dormant)</label>
+        <input type="number" id="disc-f-threshold" value="0" min="0" max="12">
+      </div>
+    </div>
+    <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+      <button class="btn-send" onclick="authorAddDiscDetail('${esc(locationId)}','${esc(worldId)}')">+ Add detail</button>
+      <span id="disc-add-status" style="font-size:12px; color:var(--muted)"></span>
+    </div>
+  </div>`;
+}
+
+async function authorAddDiscDetail(locationId, worldId) {
+  const subject   = document.getElementById('disc-f-subject').value.trim();
+  const content   = document.getElementById('disc-f-content').value.trim();
+  const accessLvl = document.getElementById('disc-f-access').value;
+  const threshold = parseInt(document.getElementById('disc-f-threshold').value, 10) || 0;
+  const statusEl  = document.getElementById('disc-add-status');
+  if (!subject || !content) { statusEl.textContent = 'Subject and content required.'; return; }
+  statusEl.textContent = '…';
+  try {
+    await api(`/api/locations/${encodeURIComponent(locationId)}/discoverable-details`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ world_id: worldId, subject, content, access_level: accessLvl, discovery_threshold: threshold }),
+    });
+    document.getElementById('disc-f-subject').value = '';
+    document.getElementById('disc-f-content').value = '';
+    document.getElementById('disc-f-threshold').value = '0';
+    statusEl.textContent = 'Added.';
+    authorLoadDiscDetails(locationId);
+  } catch (e) {
+    statusEl.textContent = e.message;
+  }
+}
+
+async function authorDeleteDiscDetail(detailId, locationId) {
+  if (!confirm('Delete this discoverable detail?')) return;
+  try {
+    await api(`/api/discoverable-details/${encodeURIComponent(detailId)}`, { method: 'DELETE' });
+    authorLoadDiscDetails(locationId);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function authorResetDiscDetail(detailId, locationId) {
+  try {
+    await api(`/api/discoverable-details/${encodeURIComponent(detailId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ discovered: false }),
+    });
+    authorLoadDiscDetails(locationId);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function authorEditDiscDetail(detailId, locationId) {
+  const rowEl = document.getElementById(`disc-row-${detailId}`);
+  if (!rowEl) return;
+  try {
+    const rows = await api(`/api/locations/${encodeURIComponent(locationId)}/discoverable-details`);
+    const d = rows.find(r => r.id === detailId);
+    if (!d) return;
+    rowEl.innerHTML = `
+      <div class="field-grid" style="margin-bottom:6px">
+        <div class="field-row"><label>Subject</label>
+          <input type="text" id="disc-edit-subject-${esc(d.id)}" value="${esc(d.subject)}"></div>
+        <div class="field-row" style="grid-column:1/-1"><label>Content</label>
+          <textarea id="disc-edit-content-${esc(d.id)}" rows="3" style="resize:vertical">${esc(d.content)}</textarea></div>
+        <div class="field-row"><label>Access level</label>
+          <select id="disc-edit-access-${esc(d.id)}">
+            <option value="hidden" ${d.access_level==='hidden'?'selected':''}>hidden</option>
+            <option value="ambient" ${d.access_level==='ambient'?'selected':''}>ambient (dormant)</option>
+          </select></div>
+        <div class="field-row"><label>Threshold (0–12)</label>
+          <input type="number" id="disc-edit-threshold-${esc(d.id)}" value="${d.discovery_threshold}" min="0" max="12"></div>
+      </div>
+      <div style="display:flex; gap:6px; align-items:center;">
+        <button class="btn-send" style="font-size:12px"
+          onclick="authorSaveDiscDetail('${esc(d.id)}','${esc(locationId)}')">Save</button>
+        <button class="btn-ghost" style="font-size:12px"
+          onclick="authorLoadDiscDetails('${esc(locationId)}')">Cancel</button>
+        <span id="disc-edit-status-${esc(d.id)}" style="font-size:12px; color:var(--muted)"></span>
+      </div>`;
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function authorSaveDiscDetail(detailId, locationId) {
+  const subject   = document.getElementById(`disc-edit-subject-${detailId}`).value.trim();
+  const content   = document.getElementById(`disc-edit-content-${detailId}`).value.trim();
+  const accessLvl = document.getElementById(`disc-edit-access-${detailId}`).value;
+  const threshold = parseInt(document.getElementById(`disc-edit-threshold-${detailId}`).value, 10) || 0;
+  const statusEl  = document.getElementById(`disc-edit-status-${detailId}`);
+  if (!subject || !content) { statusEl.textContent = 'Subject and content required.'; return; }
+  statusEl.textContent = '…';
+  try {
+    await api(`/api/discoverable-details/${encodeURIComponent(detailId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject, content, access_level: accessLvl, discovery_threshold: threshold }),
+    });
+    authorLoadDiscDetails(locationId);
+  } catch (e) {
+    statusEl.textContent = e.message;
+  }
 }
 
 /** Re-render the sheet for a new entity when the type selector changes. */

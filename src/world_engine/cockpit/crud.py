@@ -47,7 +47,7 @@ from pydantic import BaseModel
 from sqlmodel import Session as DbSession, select
 
 from ..db import get_session
-from ..models import Character, Entity, Faction, Item, Knowledge, Location, Relation, Skill, World
+from ..models import Character, DiscoverableDetail, Entity, Faction, Item, Knowledge, Location, Relation, Skill, World
 from ..writes import KNOWLEDGE_LEVELS, write_knowledge, write_relation
 
 router = APIRouter(prefix="/api", tags=["author-crud"])
@@ -794,6 +794,136 @@ def update_skill_tier(skill_id: str, body: SkillTierBody, db: DbSession = Depend
         db.refresh(skill)
 
     return _skill_dict(skill)
+
+
+# ── Discoverable details (schema v1.26, BRIEF-13) ────────────────────────────
+# Creator-direct writes — same doctrine as the rest of this module: no
+# proposed_mutation checkpoint, because the creator is the authority.
+# In player mode this entire surface is hidden (index.html conditionally
+# renders it only in creator mode).
+# This table is NEVER read by any context assembler — structural exclusion,
+# not instruction. See models.py DiscoverableDetail NOTE.
+
+ACCESS_LEVELS = ("hidden", "ambient")
+
+
+def _detail_dict(d: DiscoverableDetail) -> dict:
+    return {
+        "id": d.id,
+        "world_id": d.world_id,
+        "location_id": d.location_id,
+        "subject": d.subject,
+        "content": d.content,
+        "access_level": d.access_level,
+        "discovery_threshold": d.discovery_threshold,
+        "discovered": d.discovered,
+        "created_at": _iso(d.created_at),
+        "updated_at": _iso(d.updated_at),
+    }
+
+
+@router.get("/locations/{location_id}/discoverable-details")
+def list_discoverable_details(
+    location_id: str, db: DbSession = Depends(get_session)
+) -> list[dict]:
+    """List all discoverable details for a location (creator view)."""
+    _get_entity(db, location_id)
+    rows = db.exec(
+        select(DiscoverableDetail)
+        .where(DiscoverableDetail.location_id == location_id)
+        .order_by(DiscoverableDetail.created_at, DiscoverableDetail.id)
+    ).all()
+    return [_detail_dict(d) for d in rows]
+
+
+class DiscoverableDetailBody(BaseModel):
+    world_id: str
+    subject: str
+    content: str
+    access_level: str = "hidden"
+    discovery_threshold: int = 0
+
+
+@router.post("/locations/{location_id}/discoverable-details")
+def create_discoverable_detail(
+    location_id: str,
+    body: DiscoverableDetailBody,
+    db: DbSession = Depends(get_session),
+) -> dict:
+    """Seed a new discoverable detail on a location (creator direct write)."""
+    _get_entity(db, location_id)
+    if body.access_level not in ACCESS_LEVELS:
+        raise HTTPException(422, f"access_level must be one of {ACCESS_LEVELS}")
+    if not (0 <= body.discovery_threshold <= 12):
+        raise HTTPException(422, "discovery_threshold must be between 0 and 12")
+    detail = DiscoverableDetail(
+        world_id=body.world_id,
+        location_id=location_id,
+        subject=body.subject,
+        content=body.content,
+        access_level=body.access_level,
+        discovery_threshold=body.discovery_threshold,
+    )
+    db.add(detail)
+    db.commit()
+    db.refresh(detail)
+    return _detail_dict(detail)
+
+
+class DiscoverableDetailPatchBody(BaseModel):
+    subject: Optional[str] = None
+    content: Optional[str] = None
+    access_level: Optional[str] = None
+    discovery_threshold: Optional[int] = None
+    discovered: Optional[bool] = None
+
+
+@router.put("/discoverable-details/{detail_id}")
+def update_discoverable_detail(
+    detail_id: str,
+    body: DiscoverableDetailPatchBody,
+    db: DbSession = Depends(get_session),
+) -> dict:
+    """Edit a discoverable detail (creator direct write).
+
+    `discovered` is normally read-only (flipped by _apply_mutation on approve),
+    but the creator can reset it to False to re-enable re-discovery.
+    """
+    detail = db.get(DiscoverableDetail, detail_id)
+    if detail is None:
+        raise HTTPException(404, f"DiscoverableDetail {detail_id!r} not found")
+    if body.access_level is not None and body.access_level not in ACCESS_LEVELS:
+        raise HTTPException(422, f"access_level must be one of {ACCESS_LEVELS}")
+    if body.discovery_threshold is not None and not (0 <= body.discovery_threshold <= 12):
+        raise HTTPException(422, "discovery_threshold must be between 0 and 12")
+    if body.subject is not None:
+        detail.subject = body.subject
+    if body.content is not None:
+        detail.content = body.content
+    if body.access_level is not None:
+        detail.access_level = body.access_level
+    if body.discovery_threshold is not None:
+        detail.discovery_threshold = body.discovery_threshold
+    if body.discovered is not None:
+        detail.discovered = body.discovered
+    detail.updated_at = datetime.now(UTC)
+    db.add(detail)
+    db.commit()
+    db.refresh(detail)
+    return _detail_dict(detail)
+
+
+@router.delete("/discoverable-details/{detail_id}")
+def delete_discoverable_detail(
+    detail_id: str, db: DbSession = Depends(get_session)
+) -> dict:
+    """Delete a discoverable detail (creator direct write — hard delete)."""
+    detail = db.get(DiscoverableDetail, detail_id)
+    if detail is None:
+        raise HTTPException(404, f"DiscoverableDetail {detail_id!r} not found")
+    db.delete(detail)
+    db.commit()
+    return {"deleted": detail_id}
 
 
 __all__ = ["router", "ENTITY_TYPE_REGISTRY"]

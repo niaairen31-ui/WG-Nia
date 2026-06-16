@@ -540,6 +540,51 @@ class Skill(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
+# discoverable_detail  (pre-seeded hidden content per location, schema v1.26)
+#
+# NOTE: this table is NEVER read by any context assembler (assemble_mj_context,
+# assemble_npc_context, or any prompt-building path). Undiscovered content is
+# absent from every prompt by data exclusion, not by instruction. Content
+# reaches a model only via the explicit post-selection injection in _stream()
+# on a partial/success perception search.
+# -----------------------------------------------------------------------------
+class DiscoverableDetail(SQLModel, table=True):
+    __tablename__ = "discoverable_detail"
+    __table_args__ = (
+        CheckConstraint(
+            "discovery_threshold BETWEEN 0 AND 12",
+            name="ck_discoverable_threshold",
+        ),
+        Index("idx_discoverable_location", "location_id"),
+        Index("idx_discoverable_world", "world_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    location_id: str = Field(foreign_key="entity.id", nullable=False)
+    subject: str  # short tag, e.g. "lettre_innommee"
+    content: str  # what the player learns on discovery
+    access_level: str = Field(
+        default="hidden",
+        sa_column_kwargs={"server_default": text("'hidden'")},
+    )
+    # DORMANT: minimum 2d6 total required to reveal (not compared this brief).
+    # Reserved so "some info is better hidden than other" can be activated later
+    # without a migration — same philosophy as knowledge.share_threshold.
+    discovery_threshold: int = Field(
+        default=0, sa_column_kwargs={"server_default": text("0")}
+    )
+    # Flips TRUE when the discovery new_knowledge mutation is APPLIED
+    # (creator-approved), not at propose time — ensures the creator can reject
+    # the proposal and the detail remains available for re-selection.
+    discovered: bool = Field(
+        default=False, sa_column_kwargs={"server_default": text("0")}
+    )
+    created_at: datetime = _created_ts()
+    updated_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
 # user  (system accounts)
 # -----------------------------------------------------------------------------
 class User(SQLModel, table=True):
@@ -606,6 +651,7 @@ __all__ = [
     "Artifact",
     "Item",
     "Skill",
+    "DiscoverableDetail",
     "User",
     "PromptTemplate",
 ]

@@ -104,9 +104,10 @@ Read both before making any structural change.
   before every write — history is sacred even for ephemeral state. `scene_state`
   is cleared to `{}` when a conversation closes. It is never canon: durable
   consequences require a `proposed_mutation`.
-- **`proposed_by='engine'`** (BRIEF-12): deterministic engine proposals
-  (injury auto-proposal on `injured`/`neutralized`). They follow the same
-  review queue as AI proposals — never auto-applied.
+- **`proposed_by='engine'`** (BRIEF-12/13): deterministic engine proposals —
+  `_propose_engine_injury` (injury on `injured`/`neutralized`) and
+  `_propose_engine_discovery` (discovery on a successful perception search).
+  Both follow the same review queue as AI proposals — never auto-applied.
 - **Constraint gating is structural, not instructional** (BRIEF-12): gagged /
   restrained / blindfolded effects are enforced in Python before any model call
   (`_stream` in `app.py`). Blindfolded exclusion is a data exclusion in the
@@ -117,6 +118,15 @@ Read both before making any structural change.
 - **Frozen scene yields no model calls** (BRIEF-12): when `scene_state.frozen
   = True`, `/say` short-circuits with a fixed MJ message. No model is invoked.
   Only the creator panel can set `frozen=False`.
+- **`discoverable_detail` is structurally excluded from every assembler**
+  (BRIEF-13): `assemble_mj_context`, `assemble_npc_context`, and all
+  prompt-building paths never read this table. Undiscovered content is absent
+  from every prompt by data exclusion, not instruction. Content reaches a model
+  ONLY via the post-selection `{detail_content}` injection in `_stream()` on a
+  partial/success perception search (`domain="perception"`,
+  `opposed_npc_id=None`). `subculture["hidden"]` is a TRAP — do not add it to
+  `_SAFE_SUBCULTURE_KEYS` or use it as discoverable content; discoverable
+  content lives ONLY in `discoverable_detail`.
 
 ## Local model notes
 
@@ -194,8 +204,9 @@ World-genrator/
 │           │                # MJ interpretation layer (ResponseMode incl. join,
 │           │                #   physical — BRIEF-11/v1.23),
 │           │                #   _interpret_mode → (mode, reference, used_object),
-│           │                #   _build_mj_user (verdict_band param for the
-│           │                #   physical branch), _load_mj_interpret_template);
+│           │                #   _build_mj_user (verdict_band + search_rubric
+│           │                #   params for the physical branch),
+│           │                #   _load_mj_interpret_template);
 │           │                # physical resolution (BRIEF-11, schema v1.23):
 │           │                #   _load_mj_arbiter_template, _arbitrate (pt-mj-
 │           │                #   arbiter v2, usage='mj_arbitration', classifies
@@ -263,7 +274,23 @@ World-genrator/
 │           │                #   restrained→escape physical; frozen shortcircuit
 │           │                #   (fixed MJ message, no model calls); condition
 │           │                #   ladder writes on violent verdicts; GET/PATCH
-│           │                #   /api/conversations/{id}/scene-state endpoints
+│           │                #   /api/conversations/{id}/scene-state endpoints;
+│           │                # perception & discovery (BRIEF-13, schema v1.26):
+│           │                #   _propose_engine_discovery (proposed_by='engine',
+│           │                #   discovery new_knowledge on partial/success
+│           │                #   perception search); discovery gating in _stream
+│           │                #   physical branch (domain=perception, no NPC
+│           │                #   opposition — selects oldest undiscovered hidden
+│           │                #   detail, injects rubric into MJ user message);
+│           │                #   _build_mj_user search_rubric param;
+│           │                #   discovered flip in _apply_mutation new_knowledge
+│           │                #   branch on creator approval
+│           ├── crud.py      # Author CRUD — direct canonical writes (no proposed_mutation
+│           │                #   checkpoint): entity/character/location/faction sheets,
+│           │                #   relation/knowledge row editors, skill tier editor
+│           │                #   (BRIEF-10, v1.22), discoverable_detail CRUD (BRIEF-13,
+│           │                #   v1.26): GET/POST /locations/{id}/discoverable-details,
+│           │                #   PUT/DELETE /discoverable-details/{id}; creator mode only
 │           └── index.html   # single-page UI; MJ narration rendering;
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;
@@ -286,13 +313,17 @@ World-genrator/
 │                            #   checkboxes, condition dropdown, save button;
 │                            #   shown on conversation select, hidden on scene
 │                            #   view; auto-refreshes after each /say turn;
-│                            #   frozen annotation in npc-raw audit line
+│                            #   frozen annotation in npc-raw audit line;
+│                            #   discoverable details panel on location sheet
+│                            #   (BRIEF-13, schema v1.26): creator mode only —
+│                            #   list/add/edit/delete details; player mode hidden
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)
 │   ├── talk.py              # live CLI conversation with an NPC via Ollama
 │   ├── analyze_conversation.py  # extract proposed mutations from a closed conversation
 │   ├── migrate_v1_24.py     # add conversation.scene_state column (BRIEF-12, idempotent)
+│   ├── migrate_v1_26.py     # add discoverable_detail table + indexes (BRIEF-13, idempotent)
 │   └── cockpit.py           # launch the review cockpit (uvicorn, 127.0.0.1 only)
 ├── pyproject.toml           # src-layout package metadata
 ├── requirements.txt
