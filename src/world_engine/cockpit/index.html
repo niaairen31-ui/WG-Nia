@@ -884,6 +884,16 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   flex-direction: column; max-height: 45%; overflow: hidden; }
 #creation-artefacts   { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; }
 #creation-queue       { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── Lieux graph panel (BRIEF-15) ────────────────────────────────────────── */
+#creation-lieux-graph { flex-shrink: 0; border-bottom: 1px solid var(--border); }
+.lieux-graph-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-bottom: 1px solid var(--border);
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--muted);
+}
+.lieux-graph-head .btn-send { margin-left: auto; font-size: 12px; padding: 4px 10px; }
 </style>
 </head>
 <body>
@@ -1044,6 +1054,21 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <button class="creation-sub-tab"        id="ctab-objets"    onclick="showCreationSubTab('objets')">Objets</button>
     <button class="creation-sub-tab"        id="ctab-artefacts" onclick="showCreationSubTab('artefacts')">Artefacts</button>
     <button class="creation-sub-tab"        id="ctab-queue"     onclick="showCreationSubTab('queue')">Review Queue</button>
+  </div>
+
+  <!-- ── Lieux — Graph panel (BRIEF-15, schema v1.28) ── -->
+  <div id="creation-lieux-graph" style="display:none">
+    <div class="lieux-graph-head">
+      <span>Carte des lieux</span>
+      <button class="btn-icon" onclick="graphLoad()" title="Rafraîchir">↻</button>
+      <button class="btn-send" onclick="creationNewEntity()">+ Ajouter un lieu</button>
+    </div>
+    <svg id="lieux-graph-svg" viewBox="0 0 960 480" width="100%" height="300"
+         style="display:block; background:var(--bg)"
+         onclick="graphCanvasClick(event)"></svg>
+    <p style="padding:4px 14px 6px; font-size:11px; color:var(--muted)">
+      Cliquez un nœud pour le sélectionner, puis un second pour le connecter. Glissez pour repositionner. Cliquez un lien pour le supprimer.
+    </p>
   </div>
 
   <!-- ── Entity editor (NPC / PJ / Lieux / Factions / Objets) ── -->
@@ -2536,6 +2561,7 @@ function showCreationSubTab(tab) {
   document.getElementById('creation-editor-area').style.display = isEditorTab ? '' : 'none';
   document.getElementById('creation-artefacts').style.display   = (tab === 'artefacts') ? '' : 'none';
   document.getElementById('creation-queue').style.display       = (tab === 'queue')     ? '' : 'none';
+  document.getElementById('creation-lieux-graph').style.display = (tab === 'lieux')     ? '' : 'none';
 
   const pjSkill = document.getElementById('creation-pj-skill');
   pjSkill.style.display = (tab === 'pj') ? 'flex' : 'none';
@@ -2563,6 +2589,7 @@ function showCreationSubTab(tab) {
     if (!authorRegistry) { creationInit(); return; }
     authorLoadEntityList();
     if (tab === 'pj' && !skillCharacters) skillInit();
+    if (tab === 'lieux') graphLoad();
   } else if (tab === 'artefacts') {
     loadCreationArtefacts();
   } else if (tab === 'queue') {
@@ -2607,6 +2634,7 @@ async function creationInit() {
     return;
   }
   await authorLoadEntityList();
+  if (currentCreationSubTab === 'lieux') graphLoad();
 }
 
 /* ── Entity list (sidebar) ───────────────────────────────────────────────── */
@@ -3070,6 +3098,7 @@ async function authorSave() {
     authorRenderSheet(detail, false, detail.type);
     document.getElementById('author-status').className = 'author-status ok';
     document.getElementById('author-status').textContent = 'Saved.';
+    if (currentCreationSubTab === 'lieux') graphLoad();
   } catch (e) {
     statusEl.className = 'author-status err';
     statusEl.textContent = e.message;
@@ -3392,6 +3421,197 @@ async function skillSaveTier(skillId, tier) {
   } catch (e) {
     alert(e.message);
     skillSelectCharacter(skillCharacterId); // reload to discard the failed edit
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Location graph — SVG adjacency editor (BRIEF-15, schema v1.28)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+const GRAPH_W = 960;
+const GRAPH_H = 480;
+const NODE_R  = 20;
+const DRAG_THRESHOLD = 5;
+
+let graphData           = null;  // { nodes, edges } from /api/locations/graph
+let graphSelectedNodeId = null;
+let _graphDrag          = null;  // drag state object
+let _graphPlaced        = null;  // placed nodes with resolved x, y
+
+function graphAutoPlace(nodes) {
+  // Null-coordinate nodes get a deterministic position on a circle (ordered by id).
+  const nullIds = nodes.filter(n => !n.coordinates).map(n => n.id).sort();
+  const cx = GRAPH_W / 2, cy = GRAPH_H / 2;
+  const r  = Math.min(cx, cy) * 0.72;
+  const count = nullIds.length;
+  return nodes.map(n => {
+    if (n.coordinates) return { ...n, x: n.coordinates.x, y: n.coordinates.y };
+    const idx = nullIds.indexOf(n.id);
+    if (count === 1) return { ...n, x: cx, y: cy };
+    const angle = (2 * Math.PI * idx / count) - Math.PI / 2;
+    return { ...n, x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+  });
+}
+
+function graphRender() {
+  const svg = document.getElementById('lieux-graph-svg');
+  if (!svg || !graphData) return;
+  _graphPlaced = graphAutoPlace(graphData.nodes);
+  const nodeMap = Object.fromEntries(_graphPlaced.map(n => [n.id, n]));
+
+  const edgesHTML = graphData.edges.map(e => {
+    const a = nodeMap[e.entity_a_id], b = nodeMap[e.entity_b_id];
+    if (!a || !b) return '';
+    return `<line data-eid="${esc(e.id)}"
+      x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}"
+      x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"
+      stroke="var(--muted)" stroke-width="2" stroke-linecap="round"
+      style="cursor:pointer" onclick="graphEdgeClick(event,'${esc(e.id)}')" />`;
+  }).join('');
+
+  const nodesHTML = _graphPlaced.map(n => {
+    const sel  = n.id === graphSelectedNodeId;
+    const fill = sel ? 'var(--accent)' : 'var(--card)';
+    const strk = sel ? 'var(--accent)' : 'var(--border)';
+    const sw   = sel ? 2.5 : 1.5;
+    return `<g data-nid="${esc(n.id)}" style="cursor:grab"
+        onmousedown="graphNodeMD(event,'${esc(n.id)}')">
+      <circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${NODE_R}"
+        fill="${fill}" stroke="${strk}" stroke-width="${sw}" />
+      <text x="${n.x.toFixed(1)}" y="${(n.y + NODE_R + 13).toFixed(1)}"
+        text-anchor="middle" fill="var(--text)" font-size="11"
+        style="pointer-events:none;user-select:none">${esc(n.name)}</text>
+    </g>`;
+  }).join('');
+
+  svg.innerHTML = edgesHTML + nodesHTML;
+}
+
+function graphNodeMD(e, nodeId) {
+  e.stopPropagation();
+  const svg  = document.getElementById('lieux-graph-svg');
+  const rect = svg.getBoundingClientRect();
+  const node = _graphPlaced && _graphPlaced.find(n => n.id === nodeId);
+  _graphDrag = {
+    nodeId,
+    clientX0: e.clientX, clientY0: e.clientY,
+    svgX0: node ? node.x : 0, svgY0: node ? node.y : 0,
+    scaleX: GRAPH_W / rect.width, scaleY: GRAPH_H / rect.height,
+    moved: false, curX: node ? node.x : 0, curY: node ? node.y : 0,
+  };
+  window.addEventListener('mousemove', _graphMouseMove, { passive: true });
+  window.addEventListener('mouseup', _graphMouseUp);
+}
+
+function _graphMouseMove(e) {
+  if (!_graphDrag) return;
+  const dx = e.clientX - _graphDrag.clientX0;
+  const dy = e.clientY - _graphDrag.clientY0;
+  if (!_graphDrag.moved && Math.hypot(dx, dy) > DRAG_THRESHOLD) _graphDrag.moved = true;
+  if (!_graphDrag.moved) return;
+  _graphDrag.curX = _graphDrag.svgX0 + dx * _graphDrag.scaleX;
+  _graphDrag.curY = _graphDrag.svgY0 + dy * _graphDrag.scaleY;
+  _graphMoveSVGNode(_graphDrag.nodeId, _graphDrag.curX, _graphDrag.curY);
+}
+
+function _graphMouseUp() {
+  window.removeEventListener('mousemove', _graphMouseMove);
+  window.removeEventListener('mouseup', _graphMouseUp);
+  if (!_graphDrag) return;
+  const { nodeId, moved, curX, curY } = _graphDrag;
+  _graphDrag = null;
+  if (moved) graphPersistPos(nodeId, curX, curY);
+  else       graphNodeClick(nodeId);
+}
+
+function _graphMoveSVGNode(nodeId, x, y) {
+  const svg = document.getElementById('lieux-graph-svg');
+  if (!svg) return;
+  const g = svg.querySelector(`[data-nid="${nodeId}"]`);
+  if (g) {
+    const c = g.querySelector('circle'), t = g.querySelector('text');
+    if (c) { c.setAttribute('cx', x.toFixed(1)); c.setAttribute('cy', y.toFixed(1)); }
+    if (t) { t.setAttribute('x', x.toFixed(1)); t.setAttribute('y', (y + NODE_R + 13).toFixed(1)); }
+  }
+  graphData.edges.forEach(edge => {
+    if (edge.entity_a_id !== nodeId && edge.entity_b_id !== nodeId) return;
+    const line = svg.querySelector(`[data-eid="${edge.id}"]`);
+    if (!line) return;
+    if (edge.entity_a_id === nodeId) { line.setAttribute('x1', x.toFixed(1)); line.setAttribute('y1', y.toFixed(1)); }
+    else                             { line.setAttribute('x2', x.toFixed(1)); line.setAttribute('y2', y.toFixed(1)); }
+  });
+}
+
+function graphNodeClick(nodeId) {
+  if (!graphSelectedNodeId) {
+    graphSelectedNodeId = nodeId;
+    graphRender();
+    return;
+  }
+  const A = graphSelectedNodeId;
+  graphSelectedNodeId = null;
+  if (A === nodeId) { graphRender(); return; }
+  // Undirected dedup: refuse to create B→A when A–B already exists.
+  const dup = graphData.edges.some(e =>
+    (e.entity_a_id === A && e.entity_b_id === nodeId) ||
+    (e.entity_a_id === nodeId && e.entity_b_id === A)
+  );
+  if (dup) { graphRender(); return; }
+  graphCreateEdge(A, nodeId);
+}
+
+function graphEdgeClick(e, edgeId) {
+  e.stopPropagation();
+  if (!confirm('Supprimer cette connexion ?')) return;
+  api(`/api/relations/${encodeURIComponent(edgeId)}`, { method: 'DELETE' })
+    .then(() => graphLoad())
+    .catch(err => console.error('graphEdgeClick:', err.message));
+}
+
+function graphCanvasClick(e) {
+  if (e.target === document.getElementById('lieux-graph-svg')) {
+    if (graphSelectedNodeId) { graphSelectedNodeId = null; graphRender(); }
+  }
+}
+
+async function graphCreateEdge(A, B) {
+  try {
+    await api(`/api/entities/${encodeURIComponent(A)}/relations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ other_entity_id: B, type: 'connects_to' }),
+    });
+    await graphLoad();
+  } catch (err) { console.error('graphCreateEdge:', err.message); }
+}
+
+async function graphPersistPos(nodeId, x, y) {
+  // Read-merge-write: fetch the full entity, update only coordinates, PUT back.
+  // This guarantees no other location field (subculture, location_type, etc.) is clobbered.
+  try {
+    const full = await api(`/api/entities/${encodeURIComponent(nodeId)}`);
+    const ext  = Object.assign({}, full.extension, { coordinates: { x: Math.round(x), y: Math.round(y) } });
+    await api(`/api/entities/${encodeURIComponent(nodeId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entity: full, extension: ext }),
+    });
+    // Update local caches so subsequent drags use the persisted position.
+    const node = graphData && graphData.nodes.find(n => n.id === nodeId);
+    if (node) node.coordinates = { x: Math.round(x), y: Math.round(y) };
+    const placed = _graphPlaced && _graphPlaced.find(n => n.id === nodeId);
+    if (placed) { placed.x = Math.round(x); placed.y = Math.round(y); }
+  } catch (err) { console.error('graphPersistPos:', err.message); }
+}
+
+async function graphLoad() {
+  const svg = document.getElementById('lieux-graph-svg');
+  if (svg) svg.innerHTML = '<text x="480" y="240" text-anchor="middle" fill="var(--muted)" font-size="13">Chargement…</text>';
+  try {
+    graphData = await api('/api/locations/graph');
+    graphRender();
+  } catch (err) {
+    if (svg) svg.innerHTML = `<text x="480" y="240" text-anchor="middle" fill="var(--red)" font-size="12">${esc(err.message)}</text>`;
   }
 }
 

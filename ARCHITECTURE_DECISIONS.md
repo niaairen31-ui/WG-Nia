@@ -1184,6 +1184,56 @@ doctrine as the rest of `crud.py`. In player mode this surface is hidden.
 
 ---
 
+## WORLD MAP — location adjacency (Step A, BRIEF-15, schema v1.28)
+
+### `connects_to` convention
+
+Location adjacency is modelled as a `relation` row with `type='connects_to'`,
+`direction='mutual'`, and `intensity=50`. The intensity is a **meaningless
+structural default with no gameplay significance** — it must never be read as
+an affective or relational signal. The same guard comment is embedded verbatim
+in `RELATION_TYPES` in `crud.py`.
+
+**Structural isolation:** every gameplay consumer of the `relation` table is
+keyed on a specific character or player entity id. A `connects_to` row has two
+location endpoints, so it is invisible to the initiative vote, the NPC context
+assembler, and the MJ context assembler (which doesn't query `relation` at
+all). Any future world-wide relation scan added to the codebase **must**
+explicitly exclude `type='connects_to'`.
+
+### `{x,y}` coordinates and the canon-safe write
+
+Node positions are stored in `location.coordinates` as `{"x": <n>, "y": <n>}`
+in SVG canvas units. The write is a **read-merge-write**: on drag-end the
+frontend GETs the full entity, sets only `extension.coordinates`, and PUTs the
+complete body back. This guarantees that no other location field
+(`subculture`, `location_type`, `description`, `access_level`, …) can be
+silently clobbered by a position update.
+
+### Graph endpoint
+
+`GET /api/locations/graph` (creator surface, `crud.py`) is the only new route.
+It is **read-only** — no writes, no pathfinding, no reachability computation.
+Returns active-location nodes (id, name, coordinates) and their `connects_to`
+edges (id, entity_a_id, entity_b_id, direction). Dangling edges (pointing at
+soft-deleted locations) are filtered server-side so the client always receives a
+consistent graph.
+
+The location list payload (`GET /api/entities?type=location`) omits
+`coordinates` (it lives in the extension row, not the entity row), which is
+why a dedicated graph endpoint is needed rather than reusing the list.
+
+### Deferred
+
+- **Step B** — travel itself: intent detection, `travel` ResponseMode, neighbour
+  resolution, player movement. The graph is data + editor only in Step A.
+- **Directed edges (B2)** — `connects_to` is mutual-only for now. The
+  `relation.direction` column is already there.
+- **Edge distance / traversal time / per-edge descriptions.**
+- **Graph/layout libraries** — hand-rolled SVG only; no vendored dependency.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

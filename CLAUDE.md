@@ -127,6 +127,13 @@ Read both before making any structural change.
   `opposed_npc_id=None`). `subculture["hidden"]` is a TRAP — do not add it to
   `_SAFE_SUBCULTURE_KEYS` or use it as discoverable content; discoverable
   content lives ONLY in `discoverable_detail`.
+- **`connects_to` is location map topology, never a social/relational signal**
+  (BRIEF-15, schema v1.28): its `intensity=50` is a meaningless structural
+  default. No world-wide relation scan may treat it as one. Every gameplay
+  reader of `relation` is keyed on a character/player id — `connects_to` rows
+  have two location endpoints and are structurally invisible to them. Any new
+  world-wide relation scan added to the codebase MUST explicitly exclude
+  `type='connects_to'`.
 
 ## Local model notes
 
@@ -290,7 +297,11 @@ World-genrator/
 │           │                #   relation/knowledge row editors, skill tier editor
 │           │                #   (BRIEF-10, v1.22), discoverable_detail CRUD (BRIEF-13,
 │           │                #   v1.26): GET/POST /locations/{id}/discoverable-details,
-│           │                #   PUT/DELETE /discoverable-details/{id}; creator mode only
+│           │                #   PUT/DELETE /discoverable-details/{id}; creator mode only;
+│           │                #   location map graph (BRIEF-15, schema v1.28):
+│           │                #   GET /api/locations/graph — read-only, returns active
+│           │                #   location nodes (id, name, coordinates) + connects_to
+│           │                #   edges (both endpoints must be active locations)
 │           └── index.html   # single-page UI; MJ narration rendering;
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;
@@ -320,7 +331,16 @@ World-genrator/
 │                            #   frozen annotation in npc-raw audit line;
 │                            #   discoverable details panel on location sheet
 │                            #   (BRIEF-13, schema v1.26): creator mode only —
-│                            #   list/add/edit/delete details; player mode hidden
+│                            #   list/add/edit/delete details; player mode hidden;
+│                            #   location adjacency graph panel in Lieux sub-tab
+│                            #   (BRIEF-15, schema v1.28): hand-rolled SVG, zero
+│                            #   deps; graphLoad / graphRender / graphAutoPlace
+│                            #   (deterministic circle for null coordinates);
+│                            #   drag-to-position (read-merge-write via entity PUT,
+│                            #   coordinates-only); click-to-connect (creates
+│                            #   connects_to relation, undirected dedup guard);
+│                            #   click-to-delete-edge; "Ajouter un lieu" reuses
+│                            #   existing creationNewEntity() flow
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)

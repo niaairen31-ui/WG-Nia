@@ -767,6 +767,20 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.28** — No new tables or columns. Introduces the `connects_to` relation
+  convention (location↔location map adjacency: `direction='mutual'`,
+  `intensity=50` is a meaningless structural default that MUST NOT be read as a
+  social signal — structurally isolated, no gameplay consumer reads it).
+  `location.coordinates` is used for the first time, as `{x,y}` SVG node
+  positions persisted via the existing entity PUT (read-merge-write,
+  coordinates-only). New read-only creator endpoint `GET /api/locations/graph`
+  (active-location nodes + their `connects_to` edges). `connects_to` added to
+  `RELATION_TYPES` (suggestion list). Cockpit Lieux sub-tab gains a hand-rolled
+  SVG adjacency editor: view, drag-to-position, click-to-connect,
+  click-to-delete-edge, add-location. Frontend + one read route + one
+  suggestion-list addition; no migration. Travel (consumption of the graph) is
+  deferred to Step B.
+
 - **v1.27** — No new tables or columns. Cockpit reorganized into a two-mode
   Play / Création shell (frontend only, `index.html`): Play gains Discussion /
   Historique / Mes savoirs sub-tabs; the review queue moves out of Play into

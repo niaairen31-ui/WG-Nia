@@ -61,10 +61,17 @@ def _iso(dt: Optional[datetime]) -> Optional[str]:
 
 ENTITY_STATUSES = ("active", "inactive", "destroyed", "missing")
 
+# connects_to is location<->location map topology, NOT a social signal.
+# Stored as a relation row (direction='mutual', intensity=50 — the intensity
+# is a structural default with NO meaning). No gameplay consumer reads it
+# (initiative vote and context assemblers are keyed on character/player ids;
+# a connects_to row has two location endpoints, so it is structurally
+# isolated). Any future world-wide relation scan MUST exclude
+# type='connects_to'.
 RELATION_TYPES = (
     "ally", "enemy", "debt", "fear", "fascination", "shared_secret",
     "instrumentalizes", "interest", "indifference", "rejection",
-    "passive_attention", "other",
+    "passive_attention", "other", "connects_to",
 )
 RELATION_DIRECTIONS = ("mutual", "a_to_b", "b_to_a")
 
@@ -924,6 +931,52 @@ def delete_discoverable_detail(
     db.delete(detail)
     db.commit()
     return {"deleted": detail_id}
+
+
+# ── Location map graph (BRIEF-15, schema v1.28) ──────────────────────────────
+
+@router.get("/locations/graph")
+def get_locations_graph(db: DbSession = Depends(get_session)) -> dict:
+    """Active location nodes + connects_to edges — read-only, creator surface.
+
+    nodes: all active location entities joined to their extension (for coordinates).
+    edges: connects_to relations whose both endpoints are in nodes (dangling
+           edges from soft-deleted locations are filtered out server-side).
+    """
+    world_id = _world_id(db)
+
+    rows = db.exec(
+        select(Entity, Location)
+        .join(Location, Location.id == Entity.id)
+        .where(Entity.type == "location")
+        .where(Entity.world_id == world_id)
+        .where(Entity.status == "active")
+        .order_by(Entity.name)
+    ).all()
+
+    active_ids = {e.id for e, _ in rows}
+    nodes = [
+        {"id": e.id, "name": e.name, "coordinates": loc.coordinates}
+        for e, loc in rows
+    ]
+
+    rels = db.exec(
+        select(Relation)
+        .where(Relation.world_id == world_id)
+        .where(Relation.type == "connects_to")
+    ).all()
+    edges = [
+        {
+            "id": r.id,
+            "entity_a_id": r.entity_a_id,
+            "entity_b_id": r.entity_b_id,
+            "direction": r.direction,
+        }
+        for r in rels
+        if r.entity_a_id in active_ids and r.entity_b_id in active_ids
+    ]
+
+    return {"nodes": nodes, "edges": edges}
 
 
 __all__ = ["router", "ENTITY_TYPE_REGISTRY"]
