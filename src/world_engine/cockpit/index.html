@@ -840,6 +840,50 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   gap: 8px;
 }
 .row-card-actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+/* ── App views ───────────────────────────────────────────────────────────── */
+.app-view { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── Play view header (incarnation banner + sub-tabs) ────────────────────── */
+.play-view-header {
+  flex-shrink: 0; background: var(--panel); border-bottom: 1px solid var(--border);
+  padding: 6px 14px; display: flex; align-items: center; gap: 12px;
+}
+.incarnation-banner { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.incarnation-banner strong { color: var(--accent); font-weight: 600; }
+.sub-tab-bar { display: flex; gap: 4px; margin-left: auto; }
+.sub-tab {
+  background: transparent; border: 1px solid var(--border); color: var(--muted);
+  border-radius: var(--radius); padding: 3px 10px; font-size: 12px;
+  cursor: pointer; font-family: inherit;
+}
+.sub-tab:not(:disabled):hover { color: var(--text); border-color: var(--muted); }
+.sub-tab.active { background: var(--card); color: var(--text); border-color: var(--accent); }
+
+/* ── Play sub-panes ──────────────────────────────────────────────────────── */
+#play-discussion { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+#play-historique { flex: 1; min-height: 0; overflow-y: auto; }
+#play-savoirs    { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* ── Création sub-tab bar ────────────────────────────────────────────────── */
+.creation-sub-tab-bar {
+  flex-shrink: 0; background: var(--panel); border-bottom: 1px solid var(--border);
+  padding: 6px 14px; display: flex; gap: 4px; flex-wrap: wrap;
+}
+.creation-sub-tab {
+  background: transparent; border: 1px solid var(--border); color: var(--muted);
+  border-radius: var(--radius); padding: 4px 12px; font-size: 12px;
+  cursor: pointer; font-family: inherit;
+}
+.creation-sub-tab:not(:disabled):hover { color: var(--text); border-color: var(--muted); }
+.creation-sub-tab.active { background: var(--card); color: var(--text); border-color: var(--accent); }
+
+/* ── Création content areas ──────────────────────────────────────────────── */
+#creation-editor-area { flex: 1; min-height: 0; }
+#creation-pj-skill    { flex-shrink: 0; border-top: 2px solid var(--border);
+  flex-direction: column; max-height: 45%; overflow: hidden; }
+#creation-artefacts   { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; }
+#creation-queue       { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 </style>
 </head>
 <body>
@@ -852,44 +896,30 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   <span class="sub">creator review dashboard</span>
   <span class="spacer"></span>
   <div class="mode-tabs">
-    <button class="mode-tab active" id="mode-tab-play" onclick="showPlayView()">Play</button>
-    <button class="mode-tab" id="mode-tab-author" onclick="showAuthorView()">Author</button>
-    <button class="mode-tab" id="mode-tab-skill" onclick="showSkillView()">Fiche</button>
+    <button class="mode-tab active" id="mode-tab-play"     onclick="showPlayView()">Play</button>
+    <button class="mode-tab"        id="mode-tab-creation" onclick="showCreationView()">Création</button>
   </div>
   <span class="local-badge">127.0.0.1 · local only</span>
 </header>
 
-<!-- ══ Two-column layout (Play mode) ═══════════════════════════════════════ -->
-<div class="layout" id="play-view">
+<!-- ══ Play view ════════════════════════════════════════════════════════════ -->
+<div class="app-view" id="play-view">
 
-  <!-- ── Sidebar: start panel (PROVISIONAL) + conversation list ── -->
-  <aside class="sidebar">
-    <!-- PROVISIONAL: creator-side NPC selector — will be replaced by a full
-         player view. The play / persistence logic is the durable piece. -->
-    <div class="start-panel" id="start-panel">
-      <div class="start-panel-title">▶ Start a conversation</div>
-      <select id="npc-select"><option value="">Loading NPCs…</option></select>
-      <button class="btn-start" onclick="startConversation()">Start</button>
-      <div class="start-status" id="start-status"></div>
+  <!-- ── Play header: incarnation banner + sub-tabs ── -->
+  <div class="play-view-header">
+    <span class="incarnation-banner">Tu incarnes : <strong id="play-pc-name">…</strong></span>
+    <div class="sub-tab-bar">
+      <button class="sub-tab active" id="play-tab-discussion" onclick="showPlaySubTab('discussion')">Discussion</button>
+      <button class="sub-tab"        id="play-tab-historique" onclick="showPlaySubTab('historique')">Historique</button>
+      <button class="sub-tab"        id="play-tab-savoirs"    onclick="showPlaySubTab('savoirs')">Mes savoirs</button>
     </div>
+  </div>
 
-    <div class="sidebar-head">
-      Conversations
-      <button class="btn-icon" onclick="loadConversations()" title="Refresh list">↻</button>
-    </div>
-    <div class="conv-list" id="conv-list">
-      <div class="empty"><span class="spin">⟳</span></div>
-    </div>
-  </aside>
-
-  <!-- ── Right column: transcript + queue ── -->
-  <div class="right-col">
-
-    <!-- ── Transcript ── -->
-    <div class="transcript-panel">
+  <!-- ── Discussion sub-tab (default active) ── -->
+  <div id="play-discussion">
+    <div class="transcript-panel" style="border-bottom:none">
       <div class="panel-head">
         <h2 id="transcript-title">Scène</h2>
-        <!-- "← Lieu" back button — shown only when a conversation is open -->
         <button class="btn-ghost" id="btn-scene" onclick="showSceneView()"
                 style="display:none" title="Retour à la vue du lieu">← Lieu</button>
         <button class="btn-ghost" id="btn-analyze"
@@ -900,8 +930,6 @@ button:not(:disabled):hover { filter: brightness(1.15); }
         <span class="analyze-status" id="analyze-status"></span>
       </div>
 
-      <!-- Scene view (location entry surface — shown on load, hidden when
-           a conversation is active; see showSceneView / selectConv). -->
       <div class="scene-view" id="scene-view">
         <div class="scene-location-row">
           <span class="scene-location-label">Lieu actuel</span>
@@ -930,16 +958,9 @@ button:not(:disabled):hover { filter: brightness(1.15); }
         </div>
       </div>
 
-      <!-- Conversation transcript (hidden until a conversation is selected) -->
       <div class="transcript-body" id="transcript-body" style="display:none"></div>
 
-      <!-- Play input — shown only when the selected conversation is open -->
       <div class="play-input-area" id="play-input-area" style="display:none">
-        <!-- Target selector (contract C2 — shown only once the player has
-             joined a gathering; absent → conversation stays 1:1, backward
-             compatible). "Groupe" lets the MJ pick exactly one responder
-             among active members (A3 hybrid); a named NPC always answers
-             directly. Doubles as the join-resolution fallback picker. -->
         <div class="target-row" id="target-row" style="display:none">
           <label for="target-select">S'adresser à :</label>
           <select id="target-select"></select>
@@ -956,7 +977,6 @@ button:not(:disabled):hover { filter: brightness(1.15); }
         </div>
       </div>
 
-      <!-- Scene state panel (BRIEF-12) — creator read/edit of ephemeral constraint state -->
       <div class="scene-state-panel" id="scene-state-panel" style="display:none">
         <div class="ss-head">
           <span class="ss-title">État de scène</span>
@@ -990,87 +1010,120 @@ button:not(:disabled):hover { filter: brightness(1.15); }
         </div>
       </div>
     </div>
+  </div><!-- #play-discussion -->
 
-    <!-- ── Review queue ── -->
+  <!-- ── Historique sub-tab ── -->
+  <div id="play-historique" style="display:none">
+    <div class="sidebar-head" style="padding:10px 14px; flex-shrink:0">
+      Historique des conversations
+      <button class="btn-icon" onclick="loadConversations()" title="Rafraîchir">↻</button>
+    </div>
+    <div class="conv-list" id="conv-list">
+      <div class="empty"><span class="spin">⟳</span></div>
+    </div>
+  </div><!-- #play-historique -->
+
+  <!-- ── Mes savoirs sub-tab ── -->
+  <div id="play-savoirs" style="display:none">
+    <div id="savoirs-body" style="padding:16px 20px">
+      <div class="empty"><span class="spin">⟳</span></div>
+    </div>
+  </div><!-- #play-savoirs -->
+
+</div><!-- #play-view -->
+
+<!-- ══ Création view ═════════════════════════════════════════════════════════ -->
+<div class="app-view" id="creation-view" style="display:none">
+
+  <!-- ── Sub-tab bar ── -->
+  <div class="creation-sub-tab-bar">
+    <button class="creation-sub-tab active" id="ctab-npc"       onclick="showCreationSubTab('npc')">NPC</button>
+    <button class="creation-sub-tab"        id="ctab-pj"        onclick="showCreationSubTab('pj')">Personnage joueur</button>
+    <button class="creation-sub-tab"        id="ctab-lieux"     onclick="showCreationSubTab('lieux')">Lieux</button>
+    <button class="creation-sub-tab"        id="ctab-factions"  onclick="showCreationSubTab('factions')">Factions</button>
+    <button class="creation-sub-tab"        id="ctab-objets"    onclick="showCreationSubTab('objets')">Objets</button>
+    <button class="creation-sub-tab"        id="ctab-artefacts" onclick="showCreationSubTab('artefacts')">Artefacts</button>
+    <button class="creation-sub-tab"        id="ctab-queue"     onclick="showCreationSubTab('queue')">Review Queue</button>
+  </div>
+
+  <!-- ── Entity editor (NPC / PJ / Lieux / Factions / Objets) ── -->
+  <div class="layout" id="creation-editor-area">
+    <aside class="sidebar">
+      <div class="author-new-row" id="creation-new-row">
+        <button class="btn-send" id="creation-new-btn" onclick="creationNewEntity()" style="width:100%">+ Nouveau</button>
+      </div>
+      <div class="sidebar-head">
+        <span id="creation-list-label">NPC</span>
+        <button class="btn-icon" onclick="authorLoadEntityList()" title="Rafraîchir">↻</button>
+      </div>
+      <div class="conv-list" id="author-entity-list">
+        <div class="empty"><span class="spin">⟳</span></div>
+      </div>
+    </aside>
+
+    <div class="right-col">
+      <div class="transcript-panel" style="border-bottom:none">
+        <div class="panel-head">
+          <h2 id="author-sheet-title">Sélectionner une entité</h2>
+          <span class="author-status" id="author-status"></span>
+          <button class="btn-send" id="author-save-btn" onclick="authorSave()" style="display:none">Save</button>
+          <button class="btn-end" id="author-delete-btn" onclick="authorDelete()" style="display:none">Delete</button>
+        </div>
+        <div class="author-main" id="author-main">
+          <div class="empty">Sélectionnez une entité depuis la liste, ou créez-en une nouvelle.</div>
+        </div>
+      </div>
+
+      <!-- PJ Fiche — shown only when Personnage joueur sub-tab is active -->
+      <div id="creation-pj-skill" style="display:none">
+        <div class="panel-head" style="flex-shrink:0; border-top:2px solid var(--border)">
+          <h2 style="font-size:12px">Fiche de compétences</h2>
+          <select id="skill-character-select" onchange="skillSelectCharacter(this.value)"></select>
+          <label class="field-row checkbox" style="margin:0">
+            <input type="checkbox" id="skill-player-mode" onchange="skillRender()">
+            <span style="font-size:12px">Mode joueur</span>
+          </label>
+          <button class="btn-icon" onclick="skillLoadCharacters()" title="Rafraîchir">↻</button>
+        </div>
+        <div class="author-main" id="skill-main" style="overflow-y:auto">
+          <div class="empty">Sélectionnez un personnage joueur.</div>
+        </div>
+      </div>
+    </div><!-- .right-col -->
+  </div><!-- #creation-editor-area -->
+
+  <!-- ── Artefacts sub-tab ── -->
+  <div id="creation-artefacts" style="display:none">
+    <p style="font-style:italic; color:var(--muted); margin-bottom:16px">
+      La création et l'édition d'artefacts arriveront dans une étape ultérieure (support backend requis).
+    </p>
+    <div id="creation-artefacts-list">
+      <div class="empty"><span class="spin">⟳</span></div>
+    </div>
+  </div><!-- #creation-artefacts -->
+
+  <!-- ── Review Queue sub-tab ── -->
+  <div id="creation-queue" style="display:none">
     <div class="queue-panel">
       <div class="panel-head">
         <h2>Review Queue</h2>
         <div class="filter-bar" id="filter-bar">
           <button class="f-btn active" data-s="proposed"  onclick="setFilter(this,'proposed')">Proposed</button>
-          <button class="f-btn"        data-s="approved"  onclick="setFilter(this,'approved')" title="Proposals that were approved but could not be applied to canon (apply error, unhandled type, or duplicate block). Needs creator attention.">⚠ Needs attention</button>
+          <button class="f-btn"        data-s="approved"  onclick="setFilter(this,'approved')"
+                  title="Proposals that were approved but could not be applied to canon (apply error, unhandled type, or duplicate block). Needs creator attention.">⚠ Needs attention</button>
           <button class="f-btn"        data-s="applied"   onclick="setFilter(this,'applied')">Applied</button>
           <button class="f-btn"        data-s="rejected"  onclick="setFilter(this,'rejected')">Rejected</button>
         </div>
-        <button class="btn-icon" onclick="loadQueue()" title="Refresh queue">↻</button>
+        <button class="btn-icon" onclick="loadQueue()" title="Rafraîchir">↻</button>
       </div>
       <div class="batch-verdict" id="batch-verdict" style="display:none"></div>
       <div class="queue-body" id="queue-body">
         <div class="empty"><span class="spin">⟳</span></div>
       </div>
     </div>
+  </div><!-- #creation-queue -->
 
-  </div><!-- .right-col -->
-</div><!-- .layout -->
-
-<!-- ══ Author CRUD (Master tool) — creator-mode-only direct world editor ══ -->
-<div class="layout" id="author-view" style="display:none">
-
-  <!-- ── Sidebar: type filter + entity list ── -->
-  <aside class="sidebar">
-    <div class="author-type-tabs" id="author-type-tabs">
-      <button class="f-btn active" data-type="" onclick="authorSetTypeFilter(this,'')">All</button>
-      <button class="f-btn" data-type="character" onclick="authorSetTypeFilter(this,'character')">Characters</button>
-      <button class="f-btn" data-type="faction" onclick="authorSetTypeFilter(this,'faction')">Factions</button>
-      <button class="f-btn" data-type="location" onclick="authorSetTypeFilter(this,'location')">Locations</button>
-    </div>
-    <div class="author-new-row">
-      <select id="author-new-type"></select>
-      <button class="btn-ghost" onclick="authorNewEntity()">+ New</button>
-    </div>
-    <div class="sidebar-head">
-      Entities
-      <button class="btn-icon" onclick="authorLoadEntityList()" title="Refresh list">↻</button>
-    </div>
-    <div class="conv-list" id="author-entity-list">
-      <div class="empty"><span class="spin">⟳</span></div>
-    </div>
-  </aside>
-
-  <!-- ── Right column: entity sheet ── -->
-  <div class="right-col">
-    <div class="transcript-panel" style="border-bottom: none">
-      <div class="panel-head">
-        <h2 id="author-sheet-title">Select an entity</h2>
-        <span class="author-status" id="author-status"></span>
-        <button class="btn-send" id="author-save-btn" onclick="authorSave()" style="display:none">Save</button>
-        <button class="btn-end" id="author-delete-btn" onclick="authorDelete()" style="display:none">Delete</button>
-      </div>
-      <div class="author-main" id="author-main">
-        <div class="empty">Select an entity from the list, or create a new one.</div>
-      </div>
-    </div>
-  </div>
-</div><!-- #author-view -->
-
-<!-- ══ Fiche — player skill sheet (BRIEF-10, schema v1.22) ════════════════════ -->
-<div class="layout" id="skill-view" style="display:none; grid-template-columns: 1fr">
-  <div class="right-col">
-    <div class="transcript-panel" style="border-bottom: none">
-      <div class="panel-head">
-        <h2>Fiche de personnage</h2>
-        <select id="skill-character-select" onchange="skillSelectCharacter(this.value)"></select>
-        <label class="field-row checkbox" style="margin:0">
-          <input type="checkbox" id="skill-player-mode" onchange="skillRender()">
-          <span>Mode joueur (lecture seule)</span>
-        </label>
-        <button class="btn-icon" onclick="skillLoadCharacters()" title="Refresh">↻</button>
-      </div>
-      <div class="author-main" id="skill-main">
-        <div class="empty">Select a player character.</div>
-      </div>
-    </div>
-  </div>
-</div><!-- #skill-view -->
+</div><!-- #creation-view -->
 
 <script>
 'use strict';
@@ -1082,6 +1135,9 @@ let currentConvId    = null;
 let currentConvData  = null;   // full detail object from the server
 let currentFilter    = 'proposed';
 let _streamingActive = false;  // true while an NPC reply is in flight
+
+let currentCreationSubTab = 'npc';
+let playerCharIds = new Set();  // IDs of player-character entities (from /api/skills/player-characters)
 
 /* ════════════════════════════════════════════════════════════════════════════
    Utilities
@@ -1483,6 +1539,9 @@ async function loadConversations() {
 
 async function selectConv(id) {
   currentConvId = id;
+
+  // Ensure the Discussion sub-tab is visible (user may have clicked from Historique).
+  showPlaySubTab('discussion');
 
   // Switch from scene view to conversation view.
   document.getElementById('scene-view').style.display      = 'none';
@@ -2402,69 +2461,181 @@ let authorTypeFilter  = '';    // '' = all types
 let authorEntityId    = null;  // currently displayed entity id, or null when creating
 let authorEntityType  = null;  // type of the entity currently displayed
 
-/* ── Mode switching ──────────────────────────────────────────────────────── */
+/* ── Top-level mode switching ────────────────────────────────────────────── */
 
 function showPlayView() {
   document.getElementById('play-view').style.display = '';
-  document.getElementById('author-view').style.display = 'none';
-  document.getElementById('skill-view').style.display = 'none';
+  document.getElementById('creation-view').style.display = 'none';
   document.getElementById('mode-tab-play').classList.add('active');
-  document.getElementById('mode-tab-author').classList.remove('active');
-  document.getElementById('mode-tab-skill').classList.remove('active');
+  document.getElementById('mode-tab-creation').classList.remove('active');
 }
 
-function showAuthorView() {
+function showCreationView() {
   document.getElementById('play-view').style.display = 'none';
-  document.getElementById('author-view').style.display = '';
-  document.getElementById('skill-view').style.display = 'none';
+  document.getElementById('creation-view').style.display = '';
   document.getElementById('mode-tab-play').classList.remove('active');
-  document.getElementById('mode-tab-author').classList.add('active');
-  document.getElementById('mode-tab-skill').classList.remove('active');
-  if (!authorRegistry) authorInit();
+  document.getElementById('mode-tab-creation').classList.add('active');
+  if (!authorRegistry) creationInit();
 }
 
-function showSkillView() {
-  document.getElementById('play-view').style.display = 'none';
-  document.getElementById('author-view').style.display = 'none';
-  document.getElementById('skill-view').style.display = '';
-  document.getElementById('mode-tab-play').classList.remove('active');
-  document.getElementById('mode-tab-author').classList.remove('active');
-  document.getElementById('mode-tab-skill').classList.add('active');
-  if (!skillCharacters) skillInit();
+/* ── Play sub-tabs ───────────────────────────────────────────────────────── */
+
+function showPlaySubTab(tab) {
+  ['discussion', 'historique', 'savoirs'].forEach(t => {
+    document.getElementById('play-tab-' + t).classList.toggle('active', t === tab);
+    document.getElementById('play-' + t).style.display = (t === tab) ? '' : 'none';
+  });
+  if (tab === 'historique') loadConversations();
+  if (tab === 'savoirs')    loadPlayerKnowledge();
 }
 
-/* ── Bootstrap ───────────────────────────────────────────────────────────── */
+async function loadPlayerName() {
+  try {
+    const entity = await api('/api/entities/char-player');
+    const el = document.getElementById('play-pc-name');
+    if (el) el.textContent = entity.name || 'char-player';
+  } catch (_) {}
+}
 
-async function authorInit() {
+async function loadPlayerKnowledge() {
+  const bodyEl = document.getElementById('savoirs-body');
+  bodyEl.innerHTML = '<div class="empty"><span class="spin">⟳</span> Chargement…</div>';
+  try {
+    const rows = await api('/api/entities/char-player/knowledge');
+    if (!rows || !rows.length) {
+      bodyEl.innerHTML = '<div class="empty">Aucun savoir enregistré pour votre personnage.</div>';
+      return;
+    }
+    rows.sort((a, b) => (a.subject || '').localeCompare(b.subject || ''));
+    bodyEl.innerHTML = '<div class="row-table">' + rows.map(k => `
+      <div class="row-card" style="gap:6px">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+          <span style="font-weight:600; font-size:13px">${esc(k.subject)}</span>
+          <span class="badge b-other" style="font-size:10px">${esc(k.level)}</span>
+          ${k.is_secret ? '<span class="badge b-other" style="font-size:10px; border-color:var(--yellow); color:var(--yellow)">secret</span>' : ''}
+        </div>
+        ${k.content ? `<div style="color:var(--text); font-size:13px; white-space:pre-wrap">${esc(k.content)}</div>` : ''}
+        ${k.source  ? `<div style="color:var(--muted); font-size:11px">Source : ${esc(k.source)}</div>` : ''}
+      </div>`).join('') + '</div>';
+  } catch (e) {
+    bodyEl.innerHTML = `<div class="empty" style="color:var(--red)">Erreur : ${esc(e.message)}</div>`;
+  }
+}
+
+/* ── Création sub-tabs ───────────────────────────────────────────────────── */
+
+function showCreationSubTab(tab) {
+  const prev = currentCreationSubTab;
+  currentCreationSubTab = tab;
+
+  document.querySelectorAll('.creation-sub-tab').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('ctab-' + tab);
+  if (btn) btn.classList.add('active');
+
+  const isEditorTab = !['artefacts', 'queue'].includes(tab);
+  document.getElementById('creation-editor-area').style.display = isEditorTab ? '' : 'none';
+  document.getElementById('creation-artefacts').style.display   = (tab === 'artefacts') ? '' : 'none';
+  document.getElementById('creation-queue').style.display       = (tab === 'queue')     ? '' : 'none';
+
+  const pjSkill = document.getElementById('creation-pj-skill');
+  pjSkill.style.display = (tab === 'pj') ? 'flex' : 'none';
+
+  const newRow = document.getElementById('creation-new-row');
+  if (newRow) newRow.style.display = ['pj', 'artefacts', 'queue'].includes(tab) ? 'none' : '';
+
+  const labels = { npc: 'NPC', pj: 'Personnages joueurs', lieux: 'Lieux', factions: 'Factions', objets: 'Objets' };
+  const labelEl = document.getElementById('creation-list-label');
+  if (labelEl && isEditorTab) labelEl.textContent = labels[tab] || '';
+
+  if (isEditorTab && prev !== tab) {
+    authorEntityId   = null;
+    authorEntityType = null;
+    const titleEl = document.getElementById('author-sheet-title');
+    const mainEl  = document.getElementById('author-main');
+    if (titleEl) titleEl.textContent = 'Sélectionner une entité';
+    if (mainEl)  mainEl.innerHTML = '<div class="empty">Sélectionnez une entité depuis la liste, ou créez-en une nouvelle.</div>';
+    document.getElementById('author-save-btn').style.display   = 'none';
+    document.getElementById('author-delete-btn').style.display = 'none';
+    document.getElementById('author-status').textContent       = '';
+  }
+
+  if (isEditorTab) {
+    if (!authorRegistry) { creationInit(); return; }
+    authorLoadEntityList();
+    if (tab === 'pj' && !skillCharacters) skillInit();
+  } else if (tab === 'artefacts') {
+    loadCreationArtefacts();
+  } else if (tab === 'queue') {
+    loadQueue();
+  }
+}
+
+async function loadCreationArtefacts() {
+  const listEl = document.getElementById('creation-artefacts-list');
+  listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  try {
+    const rows = await api('/api/entities?type=artifact');
+    if (!rows || !rows.length) {
+      listEl.innerHTML = '<div class="empty">Aucun artefact dans la base.</div>';
+      return;
+    }
+    listEl.innerHTML = '<div class="row-table">' + rows.map(a => `
+      <div class="row-card">
+        <div style="font-weight:600">${esc(a.name)}</div>
+        ${a.description ? `<div style="font-size:12px; color:var(--muted); white-space:pre-wrap">${esc(a.description)}</div>` : ''}
+        <div style="font-size:11px; color:var(--muted)">${esc(a.status || '')}</div>
+      </div>`).join('') + '</div>';
+  } catch (_) {
+    listEl.innerHTML = '<div class="empty">Aucun artefact disponible.</div>';
+  }
+}
+
+function creationNewEntity() {
+  if (!authorRegistry) return;
+  const typeMap = { npc: 'character', lieux: 'location', factions: 'faction', objets: 'item' };
+  const type = typeMap[currentCreationSubTab] || 'character';
+  authorRenderSheet({}, true, type);
+}
+
+/* ── Création bootstrap ──────────────────────────────────────────────────── */
+
+async function creationInit() {
   try {
     authorRegistry = await api('/api/entity-types');
   } catch (e) {
     document.getElementById('author-entity-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
     return;
   }
-  const sel = document.getElementById('author-new-type');
-  sel.innerHTML = authorRegistry.entity_types
-    .map(t => `<option value="${esc(t)}">${esc(authorRegistry.types[t].label)}</option>`)
-    .join('');
   await authorLoadEntityList();
 }
 
 /* ── Entity list (sidebar) ───────────────────────────────────────────────── */
 
-function authorSetTypeFilter(btn, type) {
-  document.querySelectorAll('#author-type-tabs .f-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  authorTypeFilter = type;
-  authorRenderEntityList();
-}
-
-function authorRenderEntityList() {
+function creationRenderEntityList() {
   const listEl = document.getElementById('author-entity-list');
-  const entities = authorTypeFilter
-    ? authorAllEntities.filter(e => e.type === authorTypeFilter)
-    : authorAllEntities;
-  if (entities.length === 0) {
-    listEl.innerHTML = '<div class="empty">No entities yet.</div>';
+  if (!listEl) return;
+  let entities = [];
+  switch (currentCreationSubTab) {
+    case 'npc':
+      entities = authorAllEntities.filter(e => e.type === 'character' && !playerCharIds.has(e.id));
+      break;
+    case 'pj':
+      entities = authorAllEntities.filter(e => e.type === 'character' && playerCharIds.has(e.id));
+      break;
+    case 'lieux':
+      entities = authorAllEntities.filter(e => e.type === 'location');
+      break;
+    case 'factions':
+      entities = authorAllEntities.filter(e => e.type === 'faction');
+      break;
+    case 'objets':
+      entities = authorAllEntities.filter(e => e.type === 'item');
+      break;
+    default:
+      return;
+  }
+  if (!entities.length) {
+    listEl.innerHTML = '<div class="empty">Aucune entité.</div>';
     return;
   }
   listEl.innerHTML = entities.map(e => `
@@ -2476,16 +2647,25 @@ function authorRenderEntityList() {
   `).join('');
 }
 
+function authorRenderEntityList() {
+  creationRenderEntityList();
+}
+
 async function authorLoadEntityList() {
   const listEl = document.getElementById('author-entity-list');
-  listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  if (listEl) listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
   try {
-    authorAllEntities = await api('/api/entities');
+    const [entities, pcs] = await Promise.all([
+      api('/api/entities'),
+      api('/api/skills/player-characters').catch(() => []),
+    ]);
+    authorAllEntities = entities;
+    playerCharIds = new Set(pcs.map(p => p.id));
   } catch (e) {
-    listEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    if (listEl) listEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
     return;
   }
-  authorRenderEntityList();
+  creationRenderEntityList();
 }
 
 /* ── Field rendering ─────────────────────────────────────────────────────── */
@@ -2846,6 +3026,11 @@ async function authorSelectEntity(id) {
     const detail = await api(`/api/entities/${encodeURIComponent(id)}`);
     authorRenderSheet(detail, false, detail.type);
     authorRenderEntityList();
+    if (currentCreationSubTab === 'pj') {
+      const sel = document.getElementById('skill-character-select');
+      if (sel) sel.value = id;
+      skillSelectCharacter(id);
+    }
   } catch (e) {
     document.getElementById('author-main').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
@@ -3215,10 +3400,8 @@ async function skillSaveTier(skillId, tier) {
    ════════════════════════════════════════════════════════════════════════════ */
 
 document.addEventListener('DOMContentLoaded', () => {
-  loadScene();         // enter the player's location (idempotent, protects C1)
-  loadNpcs();
-  loadConversations();
-  loadQueue();
+  loadScene();        // enter the player's location (idempotent, protects C1)
+  loadPlayerName();   // populate "Tu incarnes" banner
 });
 </script>
 </body>

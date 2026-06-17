@@ -216,18 +216,49 @@ same canon-write path and creator approval as every other mutation type.
 review. It is the **only place where world state gets written** in response to
 approved proposals.
 
+### Shell layout (schema v1.27, BRIEF-14)
+
+The cockpit is a **two-mode shell**: **Play** and **Création**. Both are
+client-side display toggles (no server-side role gating).
+
+**Play** — three sub-tabs:
+- *Discussion* — the scene view (location, gatherings, Voyager travel control,
+  join phrase) and the conversation transcript, full-width. The review queue is
+  not present here.
+- *Historique* — the conversation list; clicking a conversation loads it and
+  switches to Discussion.
+- *Mes savoirs* — read-only view of `char-player`'s knowledge rows (subject,
+  level, content, source). Fetched fresh on each activation.
+
+A persistent banner "Tu incarnes : {name}" shows the hardcoded pilot PC
+(`char-player`) across all Play sub-tabs. No PC-picker exists yet.
+
+**Création** — seven sub-tabs:
+- *NPC* — character entities that are not player characters.
+- *Personnage joueur* — player characters (from `/api/skills/player-characters`),
+  with the Fiche skill editor embedded below the entity sheet.
+- *Lieux* — location entities (including the discoverable-details editor).
+- *Factions* — faction entities.
+- *Objets* — item entities (create + edit via the existing CRUD path).
+- *Artefacts* — read-only scaffold; creation deferred pending backend support.
+- *Review Queue* — the full mutation queue (Proposed / ⚠ Needs attention /
+  Applied / Rejected), batch controls, unit approve/reject.
+
+Each sub-tab fetches its own data on activation (no polling, no boot-time
+pre-fetch for queue or conv-list).
+
 ### What it does
 
-- **Live play** — select an NPC, start a conversation, type turns. Each turn runs
-  the three-phase `/say` flow (interpret → NPC → MJ; see below). Overhearing
-  proposals (Tier 4) accumulate silently each turn; window analysis runs only
-  at scene boundaries.
+- **Live play** — enter a location (scene view), write a join phrase, then type
+  turns. Each turn runs the three-phase `/say` flow (interpret → NPC → MJ; see
+  below). Overhearing proposals (Tier 4) accumulate silently each turn; window
+  analysis runs only at scene boundaries.
 - Reads conversations and renders them as a chat transcript with the MJ narration
   as primary text and the raw NPC line as a muted audit annotation below each turn.
 - Triggers (re-)analysis via `analyzer.analyze_window` — automatically at
-  scene-boundary triggers, or manually via the **Analyze** button.
-- Lists the review queue filterable by status (`proposed` / applied / rejected /
-  needs attention).
+  scene-boundary triggers, or manually via the **Analyze** button (in Discussion).
+- Lists the review queue in Création → Review Queue, filterable by status
+  (`proposed` / applied / rejected / needs attention).
 - Approve / reject mutations with an optional creator note and (for approve) an
   editable payload before writing.
 - **Batch review** (`POST /api/mutations/batch-review`, schema v1.14) — select

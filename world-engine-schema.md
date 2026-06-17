@@ -767,6 +767,14 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.27** — No new tables or columns. Cockpit reorganized into a two-mode
+  Play / Création shell (frontend only, `index.html`): Play gains Discussion /
+  Historique / Mes savoirs sub-tabs; the review queue moves out of Play into
+  Création; the Fiche relocates under Création → Personnage joueur; entity
+  editors split into NPC / Personnage joueur / Lieux / Factions / Objets /
+  Artefacts sub-tabs; Objets surfaces the existing `item` editor; Artefacts is
+  a read-only scaffold pending backend support. No schema migration.
+
 - **v1.26** — Explicit search (perception) + discoverable details (BRIEF-13).
   New table `discoverable_detail` (`id`, `world_id` REFERENCES `world(id)`,
   `location_id` REFERENCES `entity(id)`, `subject TEXT NOT NULL` — short tag

@@ -295,13 +295,17 @@ World-genrator/
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;
 │                            #   scene-view Travel control ("Voyager" — E1);
-│                            #   review queue batch selection (per-row checkboxes on
-│                            #   'proposed' rows, select all/none, batch approve/reject);
-│                            #   Author CRUD character sheet — read-only Items
-│                            #   section (equipped vs stowed, BRIEF-06)
-│                            #   "Fiche" mode tab — player skill sheet
-│                            #   (BRIEF-10, schema v1.22): creator-mode inline
-│                            #   tier editor (direct write via crud.py, no
+│                            #   two-mode shell (BRIEF-14, schema v1.27): Play
+│                            #   sub-tabs Discussion / Historique / Mes savoirs +
+│                            #   persistent "Tu incarnes : {name}" banner for
+│                            #   char-player; Création sub-tabs NPC / Personnage
+│                            #   joueur / Lieux / Factions / Objets / Artefacts
+│                            #   (read-only scaffold) / Review Queue (review queue
+│                            #   batch selection — per-row checkboxes on 'proposed'
+│                            #   rows, select all/none, batch approve/reject);
+│                            #   Création → Personnage joueur embeds Fiche skill
+│                            #   sheet (BRIEF-10, schema v1.22): creator-mode
+│                            #   inline tier editor (direct write via crud.py, no
 │                            #   proposed_mutation, change_history archived),
 │                            #   player-mode read-only ("Mode joueur" toggle)
 │                            #   (inline CSS/JS, zero external deps)
@@ -376,7 +380,8 @@ prepend `src` to `sys.path`, so they run without an editable install.
   conversation, reset `last_analyzed_turn` to 0, and re-run over the full
   transcript (reviewed rows are never deleted — see Working rules).
 - **Creator cockpit:** `python scripts/cockpit.py` — starts the local review UI
-  at http://127.0.0.1:8000. Select an NPC → Start → play turns live. Each turn:
+  at http://127.0.0.1:8000. Enter a location (scene view in Play → Discussion),
+  join a gathering, then type turns live. Each turn:
   NPC reply is generated internally (buffered), MJ narration is streamed to the
   player; both are persisted (`speaker='npc'` canonical, `speaker='mj'`
   presentation). Raw NPC line appears as a muted annotation for creator audit.
