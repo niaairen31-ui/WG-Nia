@@ -1731,6 +1731,8 @@ async function sendPlayerLine() {
   let initiativeBubble = null; // separate MJ bubble for spontaneous NPC initiative (C1)
   let initiativeName = null;   // name of the NPC who took initiative
   let initiativeNpcRaw = null; // raw initiative NPC line for creator audit
+  let traveledInfo     = null; // {location_id, name} — direct travel resolved server-side
+  let travelCandidates = null; // [{id, name}, ...] — ambiguous travel, player picks
 
   /** Replace indicator with MJ narration bubble; return its text node. */
   const _ensureMj = () => {
@@ -1819,6 +1821,17 @@ async function sendPlayerLine() {
             joinCandidates = token.join_candidates;
             continue;
           }
+          if (token.traveled && typeof token.traveled === 'object') {
+            // Direct travel resolved server-side — conversation is now closed
+            // and current_location_id updated. Reset to scene view after stream.
+            traveledInfo = token.traveled;
+            continue;
+          }
+          if (Array.isArray(token.travel_candidates)) {
+            // Ambiguous travel — player must pick from the offered neighbours.
+            travelCandidates = token.travel_candidates;
+            continue;
+          }
           if (token.initiative_start && typeof token.initiative_start.npc_name === 'string') {
             // A bystander NPC takes spontaneous initiative (Tier 3 — C1).
             // Open a distinct MJ bubble so initiative narration is visually
@@ -1874,6 +1887,14 @@ async function sendPlayerLine() {
       }
     } else if (joinCandidates && joinCandidates.length) {
       _renderJoinCandidates(transcriptEl, joinCandidates);
+    }
+
+    if (traveledInfo) {
+      // Direct travel completed — server already closed the conversation and
+      // updated current_location_id. Mirror the Voyager control's success path.
+      await showSceneView();
+    } else if (travelCandidates && travelCandidates.length) {
+      _renderTravelCandidates(transcriptEl, travelCandidates);
     }
 
     // Refresh scene state panel (BRIEF-12) — constraints/condition may have changed.
@@ -1991,6 +2012,46 @@ async function _joinGathering(gatheringId, triggerBtn) {
   } catch (e) {
     if (wrap) wrap.querySelectorAll('button').forEach(b => b.disabled = false);
     alert('Erreur en rejoignant le groupe : ' + e.message);
+  }
+}
+
+/** Picker for an unresolved travel intent (multiple direct neighbours, none named
+ *  unambiguously). Mirrors _renderJoinCandidates — same markup, adapted labels. */
+function _renderTravelCandidates(container, candidates) {
+  const wrap = document.createElement('div');
+  wrap.className = 'join-candidates';
+  const label = document.createElement('div');
+  label.style.cssText = 'font-size:12px; color:var(--muted); width:100%; margin-bottom:2px';
+  label.textContent = 'Où veux-tu aller ?';
+  wrap.appendChild(label);
+  for (const loc of candidates) {
+    const btn = document.createElement('button');
+    btn.textContent = loc.name || loc.id;
+    btn.onclick = () => _pickTravelDestination(loc.id, btn);
+    wrap.appendChild(btn);
+  }
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+}
+
+/** POST the chosen destination to the in-fiction travel callback
+ *  (POST /api/conversations/{id}/travel — NOT the creator POST /api/travel),
+ *  then reset to the scene view of the new location. */
+async function _pickTravelDestination(locationId, triggerBtn) {
+  if (!currentConvId) return;
+  const wrap = triggerBtn.closest('.join-candidates');
+  if (wrap) wrap.querySelectorAll('button').forEach(b => b.disabled = true);
+  try {
+    await api('/api/conversations/' + currentConvId + '/travel', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ location_id: locationId }),
+    });
+    if (wrap) wrap.remove();
+    await showSceneView();
+  } catch (e) {
+    if (wrap) wrap.querySelectorAll('button').forEach(b => b.disabled = false);
+    alert('Erreur de voyage : ' + e.message);
   }
 }
 

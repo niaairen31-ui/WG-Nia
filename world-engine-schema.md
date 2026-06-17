@@ -782,6 +782,10 @@ batch   → event
   transition, NOT a canon mutation — no new `mutation_type`, no `proposed_mutation`
   row is written. Deferrals: arrival narration / step C; conflict→neighbours gate;
   multi-hop; directed edges B2; edge distance/time; graph-endpoint code dedup.
+  Frontend completion (BRIEF-16b, no schema bump): cockpit `index.html` handles
+  `traveled` SSE (scene-view reset, mirroring the Voyager control) and
+  `travel_candidates` SSE (picker → `POST /api/conversations/{id}/travel` →
+  scene-view reset, mirroring the `join_candidates` picker).
 
 - **v1.28** — No new tables or columns. Introduces the `connects_to` relation
   convention (location↔location map adjacency: `direction='mutual'`,

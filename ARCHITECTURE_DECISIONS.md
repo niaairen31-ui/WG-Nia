@@ -1260,6 +1260,12 @@ turn in `_stream`:
    hesitation narration; emit `{"travel_candidates": [...]}` SSE; conversation
    stays open; player clicks → `POST /api/conversations/{conv_id}/travel`.
 
+6. **Cockpit UI (BRIEF-16b):** `traveled` SSE → `showSceneView()` (mirrors the
+   Voyager control's `await loadScene()` success path, closes the transcript view).
+   `travel_candidates` SSE → `_renderTravelCandidates` picker (mirrors
+   `_renderJoinCandidates`); each button calls `_pickTravelDestination` →
+   `POST /api/conversations/{id}/travel` → `showSceneView()`.
+
 ### Key decisions
 
 **B1 — Departure only; arrival scene reforms via `enter_scene`.** The travel

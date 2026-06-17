@@ -321,6 +321,11 @@ World-genrator/
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;
 │                            #   scene-view Travel control ("Voyager" — E1);
+│                            #   in-fiction travel SSE handlers (BRIEF-16b):
+│                            #     traveled → showSceneView() (mirrors Voyager);
+│                            #     travel_candidates → _renderTravelCandidates
+│                            #     picker → POST /api/conversations/{id}/travel
+│                            #     → showSceneView() (mirrors join_candidates);
 │                            #   two-mode shell (BRIEF-14, schema v1.27): Play
 │                            #   sub-tabs Discussion / Historique / Mes savoirs +
 │                            #   persistent "Tu incarnes : {name}" banner for
