@@ -2923,7 +2923,13 @@ def _perform_travel(player_id: str, location_id: str, db: Session) -> dict:
     world_id = player_entity.world_id if player_entity else None
 
     dest = db.get(Entity, location_id)
-    if dest is None or dest.type != "location" or world_id is None or dest.world_id != world_id:
+    if (
+        dest is None
+        or dest.type != "location"
+        or world_id is None
+        or dest.world_id != world_id
+        or dest.status != "active"
+    ):
         return {"status": "invalid_destination", "location_id": location_id}
 
     char = db.get(Character, player_id)
