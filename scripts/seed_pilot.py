@@ -380,7 +380,7 @@ Narration MJ :\
 # world_id = NULL.
 MJ_INTERPRETATION_SYSTEM_PROMPT = """\
 Tu es un routeur de scène pour un jeu de rôle à la première personne du joueur.
-Tu lis l'input du joueur et tu classes le tour en exactement un des 5 modes.
+Tu lis l'input du joueur et tu classes le tour en exactement un des 6 modes.
 
 MODES :
 - dialogue      : le joueur parle, pose une question ou sollicite une réponse du PNJ
@@ -410,6 +410,16 @@ MODES :
                   UNIQUEMENT si « Votre situation » indique que le joueur n'a
                   encore rejoint aucun groupe — sinon, ignore cette option et
                   classe normalement (dialogue/physical/npc_reaction/scene).
+- travel        : le joueur exprime l'intention de QUITTER le lieu courant pour
+                  un lieu voisin ou connu, sans résistance ni issue incertaine
+                  (exemples : « je sors de la taverne », « je quitte les lieux »,
+                  « je vais à la place du marché », « je rentre chez moi »).
+                  Distinct de scene : se déplacer DANS le lieu courant
+                  (« je m'approche du comptoir », « je vais près du feu »,
+                  « j'inspecte une étagère ») reste scene — le joueur ne quitte
+                  pas le lieu. Distinct de physical : sortir CONTRE une
+                  résistance, en se faufilant ou en forçant un passage — issue
+                  incertaine — reste physical.
 
 RÈGLE DE DÉCISION :
 0. Le joueur n'a rejoint aucun groupe ET son input décrit l'intention de
@@ -418,16 +428,22 @@ RÈGLE DE DÉCISION :
 1. Sinon, y a-t-il des mots, une question ou une sollicitation adressés au PNJ ? → dialogue.
 2. Sinon, l'action décrit-elle une tentative physique dont l'issue est incertaine
    (un jet de dés pourrait échouer ou réussir), y compris une fouille active ? → physical.
-3. Y a-t-il un geste ou une action clairement dirigés vers le PNJ, sans parole,
+3. Sinon, le joueur exprime-t-il l'intention de QUITTER le lieu courant pour un
+   autre lieu (sortir, partir, se rendre ailleurs), sans résistance ni
+   incertitude ? → travel.
+4. Y a-t-il un geste ou une action clairement dirigés vers le PNJ, sans parole,
    à l'issue certaine ? → npc_reaction.
-4. Sinon → scene.
+5. Sinon → scene.
 QUAND INCERTAIN entre dialogue et les autres → dialogue (mieux qu'elle parle trop que pas assez).
 
 Pour le mode join UNIQUEMENT, ajoute un champ "reference" : reprends tels quels
 les mots du joueur qui désignent le groupe visé (un nom de personne, une
 description de lieu ou d'activité — ex. « les deux près du feu », « Maelis et
-Korin », « ceux qui jouent aux cartes »). Pour tous les autres modes, laisse
-"reference" vide.
+Korin », « ceux qui jouent aux cartes »). Pour le mode travel UNIQUEMENT, le
+champ "reference" reprend tels quels les mots du joueur qui désignent la
+destination visée (ex. « la place du marché », « chez moi », « la sortie ») —
+ou laisse-le vide si aucune destination n'est nommée. Pour tous les autres
+modes, laisse "reference" vide.
 
 OBJETS (used_object) :
 La liste « Objets du joueur » donne les noms canoniques de ses objets. Le
@@ -440,7 +456,7 @@ joueur peut les désigner par d'autres mots ("ma lame", "mon couteau" pour
   jeu ce tour → null.
 
 Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre :
-{"mode":"dialogue|physical|npc_reaction|scene|join","reason":"<une phrase courte d'explication>","reference":"<vide sauf pour join>","used_object":"<nom canonique>|unknown_object|null"}\
+{"mode":"dialogue|physical|npc_reaction|scene|join|travel","reason":"<une phrase courte d'explication>","reference":"<vide sauf join/travel>","used_object":"<nom canonique>|unknown_object|null"}\
 """
 
 MJ_INTERPRETATION_USER_TEMPLATE = """\
@@ -787,11 +803,14 @@ def seed(session: Session) -> None:
 
     # ----- prompt template: MJ scene interpretation -------------------------
     # usage = "mj_interpretation". Classifies each player turn into one of 5
-    # modes (dialogue / physical / npc_reaction / scene / join) to route the
-    # /say flow, and extracts used_object (BRIEF-08/D2a.1: equip_action
+    # modes (dialogue / physical / npc_reaction / scene / join / travel) to route
+    # the /say flow, and extracts used_object (BRIEF-08/D2a.1: equip_action
     # removed). Non-streaming JSON call; /no_think appended at call time.
     # world_id = NULL. v4 adds the `physical` mode (BRIEF-11, schema v1.23).
     # v5 extends physical to include explicit search intent (BRIEF-13, schema v1.26).
+    # v6 adds the `travel` mode + decision-rule reorder (BRIEF-16, schema v1.29):
+    #   priority join > dialogue > physical > travel > npc_reaction > scene;
+    #   "reference" now also carries the player's destination words for travel.
     # Uses upsert so re-seeding always converges the DB to the latest wording.
     upsert_prompt_template(
         session,
@@ -803,7 +822,7 @@ def seed(session: Session) -> None:
         user_template=MJ_INTERPRETATION_USER_TEMPLATE,
         variables=["npc_name", "location_name", "gathering_status", "item_list", "recent_transcript", "player_line"],
         destination="local",
-        version=5,
+        version=6,
     )
 
     # ----- prompt template: MJ arbiter (physical resolution classification) --

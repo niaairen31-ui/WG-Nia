@@ -767,6 +767,22 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.29** — No new tables or columns. Application-layer: `ResponseMode` gains
+  `travel`; `pt-mj-interpretation` bumped to v6 (travel mode added, decision-rule
+  reordered to `join > dialogue > physical > travel > npc_reaction > scene`;
+  `reference` now also carries the player's destination words for travel).
+  `_perform_travel(player_id, location_id, db)` extracted as a shared helper
+  (creator travel tool + new in-fiction path); now rejects inactive destinations
+  (C-a). `_location_neighbours(location_id, db)` added — reads `connects_to`
+  relations for a single location, excludes inactive neighbours; distinct from
+  `GET /api/locations/graph`, no shared code (decision D1). New in-fiction picker
+  callback `POST /api/conversations/{conv_id}/travel` (neighbour-restricted, body
+  `{"location_id": str}`; distinct from the creator `POST /api/travel`). `restrained`
+  gating tuple extended to include `travel` (decision E1). Travel is a state
+  transition, NOT a canon mutation — no new `mutation_type`, no `proposed_mutation`
+  row is written. Deferrals: arrival narration / step C; conflict→neighbours gate;
+  multi-hop; directed edges B2; edge distance/time; graph-endpoint code dedup.
+
 - **v1.28** — No new tables or columns. Introduces the `connects_to` relation
   convention (location↔location map adjacency: `direction='mutual'`,
   `intensity=50` is a meaningless structural default that MUST NOT be read as a

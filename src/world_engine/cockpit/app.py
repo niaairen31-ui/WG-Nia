@@ -570,6 +570,53 @@ def _resolve_join_target(reference: str, open_gatherings: list[Gathering], db: S
     return None
 
 
+def _location_neighbours(location_id: str, db: Session) -> list[tuple[str, str]]:
+    """Direct connects_to neighbours of a location: (entity_id, name) for each
+    ACTIVE location linked by a connects_to relation touching location_id.
+    A distinct job from GET /api/locations/graph (whole-world graph) — they
+    both read connects_to but are not refactored to share code (decision D1)."""
+    rels_a = db.exec(
+        select(Relation).where(
+            Relation.type == "connects_to",
+            Relation.entity_a_id == location_id,
+        )
+    ).all()
+    rels_b = db.exec(
+        select(Relation).where(
+            Relation.type == "connects_to",
+            Relation.entity_b_id == location_id,
+        )
+    ).all()
+    seen: set[str] = set()
+    result: list[tuple[str, str]] = []
+    for rel in [*rels_a, *rels_b]:
+        neighbour_id = rel.entity_b_id if rel.entity_a_id == location_id else rel.entity_a_id
+        if neighbour_id in seen:
+            continue
+        seen.add(neighbour_id)
+        neighbour = db.get(Entity, neighbour_id)
+        if neighbour is not None and neighbour.status == "active":
+            result.append((neighbour.id, neighbour.name))
+    return result
+
+
+def _resolve_travel_target(reference: str, neighbours: list[tuple[str, str]]) -> Optional[str]:
+    """Case-insensitive exact-ish match of the player's destination words
+    against neighbour names. Returns one entity_id or None. NEVER guesses,
+    NEVER nearest-match (contract A2) — an ambiguous or absent reference
+    returns None and the caller shows the picker."""
+    ref = (reference or "").strip().lower()
+    if not ref:
+        return None
+    candidates: set[str] = set()
+    for entity_id, name in neighbours:
+        if name.strip().lower() in ref or ref in name.strip().lower():
+            candidates.add(entity_id)
+    if len(candidates) == 1:
+        return next(iter(candidates))
+    return None
+
+
 def _join_gathering(conv: Conversation, gathering_id: str, db: Session) -> Gathering:
     """Insert the player as an active member of `gathering_id` and anchor the
     conversation to it. Idempotent — rejoining the same gathering is a no-op
@@ -949,6 +996,8 @@ class ResponseMode(str, enum.Enum):
     physical     = "physical"      # physical attempt with an uncertain outcome — climbing,
                                     # grabbing, dodging, forcing, sneaking, resisting; routed
                                     # to _arbitrate() + resolve_physical() (BRIEF-11)
+    travel       = "travel"        # player intends to leave the current location for a
+                                    # direct connects_to neighbour (BRIEF-16)
 
 
 def _load_mj_interpret_template(world_id: str, db: Session) -> PromptTemplate:
@@ -1288,6 +1337,7 @@ def _build_mj_user(
     inventory_line: str = "",
     verdict_band: Optional[str] = None,
     search_rubric: Optional[str] = None,
+    travel_instruction: Optional[str] = None,
 ) -> str:
     """Build the MJ narration user message for the given mode.
 
@@ -1297,6 +1347,9 @@ def _build_mj_user(
     physical     → verdict-constrained narration (BRIEF-11); `verdict_band`
                    ("failure" | "partial" | "success") is required for this
                    mode and injects the verbatim resolution rubric.
+    travel       → departure-only narration (BRIEF-16); `travel_instruction`
+                   carries the one-shot [DÉPART] / [DÉPART INCERTAIN] /
+                   [SORTIE INTROUVABLE] directive (not persisted).
 
     `mj_context` (schema v1.12, scope D-b3): the dict returned by
     `assemble_mj_context`, rendered via `format_mj_context` and prepended as
@@ -1364,7 +1417,16 @@ def _build_mj_user(
             f"de cette narration : au pire, neutralisé ou contraint.{search_rubric_block}\n\n"
             f"Narration MJ :\n/no_think"
         )
-    # ResponseMode.scene
+    if mode == ResponseMode.travel and travel_instruction:
+        return (
+            f"{context_block}"
+            f"{inventory_block}"
+            f"Lieu : « {location_name} ».\n\n"
+            f"Action du joueur :\n{player_line}\n\n"
+            f"{travel_instruction}\n\n"
+            f"Narration MJ :\n/no_think"
+        )
+    # ResponseMode.scene (also used for zero-neighbour travel downgrade via scene template)
     return (
         f"{context_block}"
         f"{inventory_block}"
@@ -1489,6 +1551,12 @@ def say(
                      actually present (contract A2 — exact, case-insensitive,
                      never invented); on failure the cockpit shows a picker
                      (`join_candidates` event, completed via POST .../join).
+    'travel'       : player intends to leave the current location. No NPC call;
+                     MJ narrates the departure only (arrival is step C,
+                     deferred). Resolved against direct connects_to neighbours
+                     (contract A2 — exact, never guessed); on ambiguity shows
+                     picker (`travel_candidates` event, completed via POST
+                     .../travel). Under `restrained`, rerouted to physical.
     Fallback: 'dialogue' on any interpretation error (never breaks a turn).
 
     Speaker selection for dialogue / npc_reaction (contract A3 hybrid)
@@ -1513,6 +1581,9 @@ def say(
       - Join outcome (join mode only, before DONE):
           data: {"joined": {"gathering_id":..., "label":...}}\\n\\n        — resolved
           data: {"join_candidates": [{"id":..., "label":..., "members":[...]}]}\\n\\n — ambiguous
+      - Travel outcome (travel mode only, before DONE):
+          data: {"traveled": {"location_id":..., "name":...}}\\n\\n           — resolved, player moved
+          data: {"travel_candidates": [{"id":..., "name":...}]}\\n\\n          — ambiguous, picker
       - Initiative events (gathering scenes, before DONE — Tier 3 step 1 C1):
           data: {"initiative_start": {"npc_name": "<name>"}}\\n\\n  — bystander NPC acts
           data: <JSON token>\\n\\n  (initiative MJ narration, same format as main tokens)
@@ -1683,7 +1754,8 @@ def say(
             mode = ResponseMode.physical
             is_gagged_attempt = True
         elif "restrained" in ss_constraints and mode in (
-            ResponseMode.physical, ResponseMode.scene, ResponseMode.npc_reaction
+            ResponseMode.physical, ResponseMode.scene, ResponseMode.npc_reaction,
+            ResponseMode.travel,
         ):
             mode = ResponseMode.physical
             is_escape_attempt = True
@@ -1711,6 +1783,7 @@ def say(
         responder_id: Optional[str] = None
         responder_name = npc_name
         extra_event: Optional[dict] = None
+        travel_dest_id: Optional[str] = None   # set for resolved direct travel
 
         # ── Phase 0c: join handling — takes priority while ungrouped ──────────
         # "Parler n'a pas de cible tant qu'on n'a pas rejoint": joining is an
@@ -1733,6 +1806,86 @@ def say(
                     location_name=location_name, player_line=content,
                     joined=False, gathering_label=None,
                 )
+        elif mode == ResponseMode.travel:
+            # ── Travel: intent → direct-neighbour resolution → picker fallback ──
+            # (BRIEF-16) No NPC phase. MJ narrates departure only; arrival is
+            # step C (deferred). Restrained turns are intercepted above and
+            # rerouted to physical before reaching here.
+            neighbours = _location_neighbours(conv.location_id, db)
+            mj_context_travel = (
+                assemble_mj_context(
+                    db, conv.player_id, conv.location_id,
+                    gathering_id=player_gathering.id if player_gathering else None,
+                    blindfolded="blindfolded" in ss_constraints,
+                    player_condition=ss_condition,
+                )
+                if conv.location_id else None
+            )
+            inventory_line_travel = format_inventory_line(db, conv.player_id)
+
+            if not neighbours:
+                # No exits — downgrade to scene so the SSE mode reflects it;
+                # the [SORTIE INTROUVABLE] instruction prevents the MJ from
+                # inventing exits or moving the player.
+                mode = ResponseMode.scene
+                mj_user = _build_mj_user(
+                    mode=ResponseMode.travel,
+                    mj_user_template=mj_user_template,
+                    npc_name=responder_name,
+                    location_name=location_name,
+                    player_line=content,
+                    npc_reply="",
+                    mj_context=mj_context_travel,
+                    inventory_line=inventory_line_travel,
+                    travel_instruction=(
+                        "[SORTIE INTROUVABLE] Le joueur cherche à quitter le lieu "
+                        "mais aucune sortie évidente ne se présente. Narre sa "
+                        "recherche d'une issue sans en inventer une ; il reste sur place."
+                    ),
+                )
+            else:
+                dest_id = _resolve_travel_target(reference, neighbours)
+                if dest_id is not None:
+                    dest_name = next(name for eid, name in neighbours if eid == dest_id)
+                    extra_event = {"traveled": {"location_id": dest_id, "name": dest_name}}
+                    travel_dest_id = dest_id
+                    mj_user = _build_mj_user(
+                        mode=ResponseMode.travel,
+                        mj_user_template=mj_user_template,
+                        npc_name=responder_name,
+                        location_name=location_name,
+                        player_line=content,
+                        npc_reply="",
+                        mj_context=mj_context_travel,
+                        inventory_line=inventory_line_travel,
+                        travel_instruction=(
+                            f"[DÉPART] Le joueur quitte {location_name} en direction de "
+                            f"{dest_name}. Narre uniquement son départ (il se lève, sort, "
+                            f"s'éloigne) — ne décris PAS le lieu d'arrivée ni ce qu'il y trouve."
+                        ),
+                    )
+                else:
+                    extra_event = {
+                        "travel_candidates": [
+                            {"id": eid, "name": name} for eid, name in neighbours
+                        ]
+                    }
+                    mj_user = _build_mj_user(
+                        mode=ResponseMode.travel,
+                        mj_user_template=mj_user_template,
+                        npc_name=responder_name,
+                        location_name=location_name,
+                        player_line=content,
+                        npc_reply="",
+                        mj_context=mj_context_travel,
+                        inventory_line=inventory_line_travel,
+                        travel_instruction=(
+                            "[DÉPART INCERTAIN] Le joueur cherche à partir mais hésite sur "
+                            "la direction. Narre brièvement ce moment de pause au seuil, "
+                            "sans le faire bouger ni nommer de destination."
+                        ),
+                    )
+
         elif mode == ResponseMode.physical:
             # ── Arbiter classification + Python dice (BRIEF-11, schema v1.23) ──
             # Candidate NPC roster for opposition: the player's gathering
@@ -2397,6 +2550,13 @@ def say(
                                 ))
                                 persist_db.commit()
 
+        # ── Travel state transition (resolved direct travel only) ─────────────
+        # Runs after the traveled SSE and initiative blocks, before [DONE].
+        # Closes the current conversation (runs analyze_window) and updates
+        # current_location_id — same as the creator POST /api/travel path.
+        if travel_dest_id is not None:
+            _perform_travel(conv.player_id, travel_dest_id, db)
+
         yield "data: [DONE]\n\n"
 
         # Persist the main MJ narration (presentation layer).
@@ -2487,6 +2647,47 @@ def join_gathering(conv_id: str, body: JoinBody, db: Session = Depends(get_sessi
 
     gathering = _join_gathering(conv, gathering.id, db)
     return {"joined": True, "gathering": _gathering_brief(gathering.id, db)}
+
+
+class ConvTravelBody(BaseModel):
+    location_id: str
+
+
+@app.post("/api/conversations/{conv_id}/travel")
+def conv_travel(
+    conv_id: str,
+    body: ConvTravelBody,
+    db: Session = Depends(get_session),
+) -> dict:
+    """In-fiction picker callback — the player chose a destination from the
+    travel_candidates picker after an unresolved travel intent (BRIEF-16).
+
+    Distinct from the creator POST /api/travel: this endpoint is
+    neighbour-restricted (only direct connects_to neighbours of the
+    conversation's current location are accepted). A stale or non-neighbour
+    selection is rejected with 400.
+
+    No MJ narration is produced here — the [DÉPART INCERTAIN] hesitation
+    already covered the fictional moment; the move itself is silent, consistent
+    with the creator travel tool. Travel is not a canon mutation.
+    """
+    conv = db.get(Conversation, conv_id)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if conv.status != "open":
+        raise HTTPException(status_code=400, detail="Conversation is not open")
+
+    origin = conv.location_id
+    neighbours = _location_neighbours(origin, db)
+    neighbour_ids = {eid for eid, _name in neighbours}
+    if body.location_id not in neighbour_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{body.location_id!r} is not an active neighbour of the current location",
+        )
+
+    result = _perform_travel(conv.player_id, body.location_id, db)
+    return result
 
 
 # ── Scene-level endpoints (location entry surface, Tier 1 step 3) ──────────

@@ -255,7 +255,20 @@ World-genrator/
 │           │                # _build_mj_user inventory_line param — player's
 │           │                #   static inventory, read fresh per turn via
 │           │                #   format_inventory_line (BRIEF-06, schema v1.18);
-│           │                # creator travel control (POST /api/travel, TravelBody — E1)
+│           │                # travel (BRIEF-16, schema v1.29): _perform_travel
+│           │                #   (shared helper — creator POST /api/travel + in-fiction
+│           │                #   /say travel branch + picker callback; NOT a canon
+│           │                #   mutation; rejects inactive dest C-a);
+│           │                #   _location_neighbours (active connects_to neighbours,
+│           │                #   distinct from GET /api/locations/graph — D1);
+│           │                #   _resolve_travel_target (exact-ish match, A2);
+│           │                #   travel branch in _stream (zero-neighbours→scene,
+│           │                #   resolved→traveled SSE+_perform_travel,
+│           │                #   unresolved→travel_candidates SSE);
+│           │                #   restrained gating extended to travel (E1);
+│           │                #   POST /api/conversations/{id}/travel (in-fiction
+│           │                #   picker callback, neighbour-restricted, ConvTravelBody);
+│           │                #   creator POST /api/travel (TravelBody — god-mode)
 │           │                # cockpit batch review (POST /api/mutations/batch-review,
 │           │                #   BatchReviewBody, _append_note, _BATCH_REVIEW_MARKER —
 │           │                #   loops _apply_mutation / unit-reject fields per row,

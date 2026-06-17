@@ -1223,14 +1223,94 @@ The location list payload (`GET /api/entities?type=location`) omits
 `coordinates` (it lives in the extension row, not the entity row), which is
 why a dedicated graph endpoint is needed rather than reusing the list.
 
+### Deferred (Step A)
+
+- **Graph/layout libraries** — hand-rolled SVG only; no vendored dependency.
+
+---
+
+## WORLD MAP — travel (Step B, BRIEF-16, schema v1.29)
+
+### Travel model
+
+Intent detection via `pt-mj-interpretation` v6 (`travel` mode). On a `travel`
+turn in `_stream`:
+
+1. `_location_neighbours(conv.location_id, db)` reads `connects_to` relation
+   rows touching the current location and returns `(entity_id, name)` for each
+   ACTIVE linked location. Distinct from `GET /api/locations/graph`; no shared
+   code (decision D1 — the two readers have different shapes and different
+   callers; a real dedup opportunity should be reported but not acted on).
+
+2. **Zero neighbours** → downgrade to `scene`; MJ receives `[SORTIE INTROUVABLE]`
+   one-shot instruction; `current_location_id` unchanged; no `traveled`/
+   `travel_candidates` SSE.
+
+3. `_resolve_travel_target(reference, neighbours)` does case-insensitive
+   exact-ish matching of the player's destination words against neighbour names
+   (contract A2 — never guesses, never nearest-match). Returns one `entity_id`
+   or `None`.
+
+4. **Resolved (exactly one)** → `[DÉPART]` instruction to MJ; stream departure
+   narration; emit `{"traveled": {"location_id": ..., "name": ...}}` SSE;
+   call `_perform_travel` → conversation closed, membership closed, location
+   updated; `[DONE]`.
+
+5. **Unresolved / ambiguous** → `[DÉPART INCERTAIN]` instruction to MJ; stream
+   hesitation narration; emit `{"travel_candidates": [...]}` SSE; conversation
+   stays open; player clicks → `POST /api/conversations/{conv_id}/travel`.
+
+### Key decisions
+
+**B1 — Departure only; arrival scene reforms via `enter_scene`.** The travel
+turn narrates the DEPARTURE only. Arrival narration ("what you see entering")
+is step C, deferred. On the next interaction in the new location, the existing
+`enter_scene` flow generates gatherings as normal. `_perform_travel` and the
+picker callback deliberately do NOT call `enter_location` / `generate_gatherings`.
+
+**C1 — `_perform_travel` shared helper.** Callers: (1) creator `POST /api/travel`
+(god-mode, any active location); (2) in-fiction direct resolved case in `_stream`;
+(3) in-fiction picker callback `POST /api/conversations/{conv_id}/travel`.
+The neighbour restriction is NOT in the helper — it is a property of the
+in-fiction callers only. The creator tool keeps its god-mode reach.
+
+**C-a — Inactive-destination guard in `_perform_travel`.** `dest.status != "active"`
+is rejected alongside other destination validation failures. Tightens the creator
+path (previously let inactive locations through) and defends the in-fiction path
+by construction (neighbours are already filtered to active by `_location_neighbours`).
+Isolated in Commit 2 so it can be reverted independently if needed.
+
+**E1 — `restrained` reroutes `travel` to a physical escape attempt.** A travel
+turn under the `restrained` constraint is intercepted before dispatch and
+rerouted to `physical` (escape roll). Same interception as `scene` and
+`npc_reaction`. `gagged` does NOT intercept travel — a gag does not prevent
+walking.
+
+**Travel is not a canon mutation.** `_perform_travel` writes `current_location_id`
+(direct state transition bookkeeping, same category as join/migrate/enter_scene),
+`conversation.status/ended_at`, and `gathering_member.left_at`. None of these are
+world-table mutations; no `proposed_mutation` row is written.
+
+### In-fiction picker callback
+
+`POST /api/conversations/{conv_id}/travel` (body `{"location_id": str}`):
+re-validates that the chosen `location_id` is an active `connects_to` neighbour
+of the current location (stale-client guard); calls `_perform_travel`; returns
+its result. No MJ narration — the `[DÉPART INCERTAIN]` turn already narrated the
+fictional moment. Distinct from the creator `POST /api/travel`.
+
 ### Deferred
 
-- **Step B** — travel itself: intent detection, `travel` ResponseMode, neighbour
-  resolution, player movement. The graph is data + editor only in Step A.
-- **Directed edges (B2)** — `connects_to` is mutual-only for now. The
-  `relation.direction` column is already there.
+- **Arrival narration (step C)** — the destination scene reforms silently via
+  `enter_scene` on the next interaction there. No "what you see entering" prose here.
+- **Directed edges (B2)** — `connects_to` is treated as mutual-only;
+  `_location_neighbours` does not read `relation.direction`.
+- **Conflict → neighbours only gate** — restricting travel out of a conflict scene
+  waits on `gathering.mode` from the combat chantier.
+- **Multi-hop travel** — single direct neighbour only.
 - **Edge distance / traversal time / per-edge descriptions.**
-- **Graph/layout libraries** — hand-rolled SVG only; no vendored dependency.
+- **Graph-endpoint code dedup (D2 rejected)** — `GET /api/locations/graph` and
+  `_location_neighbours` are not refactored to share code.
 
 ---
 
