@@ -130,8 +130,10 @@ Read both before making any structural change.
 - **`connects_to` is location map topology, never a social/relational signal**
   (BRIEF-15, schema v1.28): its `intensity=50` is a meaningless structural
   default. No world-wide relation scan may treat it as one. Every gameplay
-  reader of `relation` is keyed on a character/player id — `connects_to` rows
-  have two location endpoints and are structurally invisible to them. Any new
+  reader of `relation` that is keyed on a character/player id is structurally
+  blind to `connects_to` rows (which have two location endpoints). The sole
+  intentional gameplay reader of `connects_to` is `_location_neighbours`
+  (BRIEF-16), which reads it for topology, not social signal. Any new
   world-wide relation scan added to the codebase MUST explicitly exclude
   `type='connects_to'`.
 
@@ -144,7 +146,7 @@ Target local model for NPC dialogue and analysis: **`huihui_ai/qwen3-abliterated
   - **NPC dialogue** (`talk.py` CLI): disable thinking with `/no_think` in the user message — deterministic, faster, and the reasoning block must never reach the player.
   - **NPC dialogue** (cockpit `/say`, NPC phase): `chat_stream` with the built-in `_StreamThinkFilter` — thinking is left enabled, the filter suppresses the block before any token is yielded. The NPC reply is buffered internally; the player never sees it raw.
   - **MJ narration** (cockpit `/say`, MJ phase): `chat_stream` + `/no_think` appended to the user message — same filter as a backstop, `/no_think` for speed. What streams to the player is narration prose only.
-  - **MJ interpretation** (cockpit `/say`, phase 0): `chat()` non-streaming + `/no_think` + `format="json"`. Classifies the player's input into `dialogue` / `physical` / `npc_reaction` / `scene` / `join`. Fallback to `dialogue` on any error — a misclassification must never break a turn.
+  - **MJ interpretation** (cockpit `/say`, phase 0): `chat()` non-streaming + `/no_think` + `format="json"`. Classifies the player's input into `dialogue` / `physical` / `npc_reaction` / `scene` / `join` / `travel`. Fallback to `dialogue` on any error — a misclassification must never break a turn.
   - **MJ arbitration** (cockpit `/say`, physical turns only — between phase 0 and the NPC phase): `chat()` non-streaming + `format="json"` + `/no_think` appended at call time. Classifies domain + optional NPC opposition + constraint + violent flag; falls back to `("physical", None, None, False)` on any failure — a misclassification must never break a turn.
   - **NPC initiative vote** (cockpit `/say`, Tier 3 C1): `chat()` non-streaming + `format="json"` + `/no_think` — same policy as MJ interpretation. Failure is silent (initiative simply doesn't fire).
   - **NPC initiative act** (cockpit `/say`, Tier 3 C2): `chat()` non-streaming + `format="json"`, **no** `/no_think` — the JSON schema already constrains output, and leaving thinking on helps the small model follow the two-field contract (`act_text`, `move`). Falls back to `_NPC_INITIATIVE_ACT_FALLBACK` if `pt-npc-initiative-act` isn't seeded; any error → silent skip.
