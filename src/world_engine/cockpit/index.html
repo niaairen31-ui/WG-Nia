@@ -1053,6 +1053,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <button class="creation-sub-tab"        id="ctab-factions"  onclick="showCreationSubTab('factions')">Factions</button>
     <button class="creation-sub-tab"        id="ctab-objets"    onclick="showCreationSubTab('objets')">Objets</button>
     <button class="creation-sub-tab"        id="ctab-artefacts" onclick="showCreationSubTab('artefacts')">Artefacts</button>
+    <button class="creation-sub-tab"        id="ctab-registre"  onclick="showCreationSubTab('registre')">Registre</button>
     <button class="creation-sub-tab"        id="ctab-queue"     onclick="showCreationSubTab('queue')">Review Queue</button>
   </div>
 
@@ -1126,6 +1127,57 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       <div class="empty"><span class="spin">⟳</span></div>
     </div>
   </div><!-- #creation-artefacts -->
+
+  <!-- ── Registre sub-tab (schema v1.31, BRIEF-18) ── -->
+  <!-- Global journal, read-only — append-only ledger has no edit/delete UI. -->
+  <div id="creation-registre" style="display:none">
+    <div class="queue-panel">
+      <div class="panel-head">
+        <h2>Registre</h2>
+        <select id="registre-filter-entity" onchange="loadRegistre()" style="max-width:220px">
+          <option value="">Toutes les entités</option>
+        </select>
+        <input type="text" id="registre-filter-session" placeholder="session_id (optionnel)"
+               oninput="loadRegistre()" style="max-width:200px">
+        <button class="btn-icon" onclick="loadRegistre()" title="Rafraîchir">↻</button>
+      </div>
+      <div class="queue-body" id="registre-body">
+        <div class="empty"><span class="spin">⟳</span></div>
+      </div>
+      <div class="field-section" id="registre-add-form" style="border-top:1px solid var(--border); margin-top:8px; padding-top:8px;">
+        <div class="field-section-title">Nouvelle ligne (crédit / débit)</div>
+        <div class="field-grid">
+          <div class="field-row">
+            <label for="registre-f-entity">Entité *</label>
+            <select id="registre-f-entity"><option value="">—</option></select>
+          </div>
+          <div class="field-row">
+            <label for="registre-f-amount">Montant (+ crédit / − débit) *</label>
+            <input type="number" id="registre-f-amount" placeholder="ex : 100 ou -15">
+          </div>
+          <div class="field-row">
+            <label for="registre-f-counterparty">Contrepartie (optionnel)</label>
+            <select id="registre-f-counterparty"><option value="">—</option></select>
+          </div>
+          <div class="field-row">
+            <label for="registre-f-source">source_type</label>
+            <select id="registre-f-source">
+              <option value="creator">creator</option>
+              <option value="correction">correction</option>
+            </select>
+          </div>
+          <div class="field-row" style="grid-column:1/-1">
+            <label for="registre-f-reason">Reason</label>
+            <input type="text" id="registre-f-reason" placeholder="ex : pécule de départ">
+          </div>
+        </div>
+        <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+          <button class="btn-send" onclick="authorAddLedgerEntry()">+ Ajouter la ligne</button>
+          <span id="registre-add-status" style="font-size:12px; color:var(--muted)"></span>
+        </div>
+      </div>
+    </div>
+  </div><!-- #creation-registre -->
 
   <!-- ── Review Queue sub-tab ── -->
   <div id="creation-queue" style="display:none">
@@ -2618,9 +2670,10 @@ function showCreationSubTab(tab) {
   const btn = document.getElementById('ctab-' + tab);
   if (btn) btn.classList.add('active');
 
-  const isEditorTab = !['artefacts', 'queue'].includes(tab);
+  const isEditorTab = !['artefacts', 'registre', 'queue'].includes(tab);
   document.getElementById('creation-editor-area').style.display = isEditorTab ? '' : 'none';
   document.getElementById('creation-artefacts').style.display   = (tab === 'artefacts') ? '' : 'none';
+  document.getElementById('creation-registre').style.display    = (tab === 'registre')  ? '' : 'none';
   document.getElementById('creation-queue').style.display       = (tab === 'queue')     ? '' : 'none';
   document.getElementById('creation-lieux-graph').style.display = (tab === 'lieux')     ? '' : 'none';
 
@@ -2628,7 +2681,7 @@ function showCreationSubTab(tab) {
   pjSkill.style.display = (tab === 'pj') ? 'flex' : 'none';
 
   const newRow = document.getElementById('creation-new-row');
-  if (newRow) newRow.style.display = ['pj', 'artefacts', 'queue'].includes(tab) ? 'none' : '';
+  if (newRow) newRow.style.display = ['pj', 'artefacts', 'registre', 'queue'].includes(tab) ? 'none' : '';
 
   const labels = { npc: 'NPC', pj: 'Personnages joueurs', lieux: 'Lieux', factions: 'Factions', objets: 'Objets' };
   const labelEl = document.getElementById('creation-list-label');
@@ -2653,9 +2706,107 @@ function showCreationSubTab(tab) {
     if (tab === 'lieux') graphLoad();
   } else if (tab === 'artefacts') {
     loadCreationArtefacts();
+  } else if (tab === 'registre') {
+    loadRegistre();
   } else if (tab === 'queue') {
     loadQueue();
   }
+}
+
+/* ── Registre (global ledger journal, schema v1.31, BRIEF-18) ───────────── */
+/* Read-only — append-only ledger has no edit/delete UI by design. */
+
+let _registreEntitiesLoaded = false;
+
+async function _registrePopulateEntityFilter() {
+  if (_registreEntitiesLoaded) return;
+  try {
+    const rows = await api('/api/entities');
+    const fillSelect = (sel) => {
+      for (const e of rows) {
+        const opt = document.createElement('option');
+        opt.value = e.id;
+        opt.textContent = `${e.name} (${e.type})`;
+        sel.appendChild(opt);
+      }
+    };
+    fillSelect(document.getElementById('registre-filter-entity'));
+    fillSelect(document.getElementById('registre-f-entity'));
+    fillSelect(document.getElementById('registre-f-counterparty'));
+    _registreEntitiesLoaded = true;
+  } catch (_) { /* filter still usable without the entity list */ }
+}
+
+async function authorAddLedgerEntry() {
+  const entityId      = document.getElementById('registre-f-entity').value;
+  const amountRaw      = document.getElementById('registre-f-amount').value;
+  const counterpartyId = document.getElementById('registre-f-counterparty').value || null;
+  const sourceType     = document.getElementById('registre-f-source').value;
+  const reason         = document.getElementById('registre-f-reason').value.trim() || null;
+  const statusEl       = document.getElementById('registre-add-status');
+
+  const amount = parseInt(amountRaw, 10);
+  if (!entityId) { statusEl.textContent = 'Entité requise.'; return; }
+  if (!amountRaw || isNaN(amount) || amount === 0) { statusEl.textContent = 'Montant non-nul requis.'; return; }
+
+  statusEl.textContent = '…';
+  try {
+    await api('/api/ledger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entity_id: entityId,
+        amount,
+        counterparty_id: counterpartyId,
+        reason,
+        source_type: sourceType,
+      }),
+    });
+    document.getElementById('registre-f-amount').value = '';
+    document.getElementById('registre-f-reason').value = '';
+    statusEl.textContent = 'Ligne ajoutée.';
+    loadRegistre();
+  } catch (e) {
+    statusEl.textContent = e.message;
+  }
+}
+
+async function loadRegistre() {
+  await _registrePopulateEntityFilter();
+  const bodyEl = document.getElementById('registre-body');
+  bodyEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+
+  const entityId  = document.getElementById('registre-filter-entity').value;
+  const sessionId = document.getElementById('registre-filter-session').value.trim();
+  const params = new URLSearchParams();
+  if (entityId)  params.set('entity_id', entityId);
+  if (sessionId) params.set('session_id', sessionId);
+
+  try {
+    const rows = await api('/api/ledger' + (params.toString() ? '?' + params.toString() : ''));
+    bodyEl.innerHTML = _registreRenderTable(rows);
+  } catch (e) {
+    bodyEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function _registreRenderTable(rows) {
+  if (!rows || rows.length === 0) return '<div class="empty">Aucune ligne dans le registre.</div>';
+  const entityName = (id) => {
+    const opt = document.querySelector(`#registre-filter-entity option[value="${id}"]`);
+    return opt ? opt.textContent : shortId(id);
+  };
+  return '<div class="row-table">' + rows.map(r => `
+    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;">
+      <span style="color:var(--muted); font-size:12px; min-width:120px;">${esc(fmtDate(r.created_at))}</span>
+      <span style="min-width:140px; font-weight:600;">${esc(entityName(r.entity_id))}</span>
+      <span style="font-weight:700; color:${r.amount >= 0 ? 'var(--accent)' : 'var(--danger, #c44)'};">${r.amount >= 0 ? '+' : ''}${r.amount}</span>
+      <span style="color:var(--muted); font-size:12px; min-width:140px;">${r.counterparty_id ? esc(entityName(r.counterparty_id)) : ''}</span>
+      <span style="font-size:12px; flex:1; min-width:160px;">${esc(r.reason || '')}</span>
+      <span class="badge b-other">${esc(r.source_type || '')}</span>
+      <span style="color:var(--muted); font-size:11px;">${r.session_id ? shortId(r.session_id) : ''}</span>
+    </div>
+  `).join('') + '</div>';
 }
 
 async function loadCreationArtefacts() {
@@ -2886,6 +3037,10 @@ function authorRenderSheet(detail, isNew, type) {
     html += '<div class="field-section"><div class="field-section-title">Items</div>';
     html += '<div id="author-items"><div class="empty"><span class="spin">⟳</span></div></div>';
     html += '</div>';
+
+    html += '<div class="field-section"><div class="field-section-title">Solde</div>';
+    html += '<div id="author-ledger"><div class="empty"><span class="spin">⟳</span></div></div>';
+    html += '</div>';
   }
 
   if (!isNew && type === 'location') {
@@ -2899,10 +3054,43 @@ function authorRenderSheet(detail, isNew, type) {
 
   if (!isNew && type === 'character') {
     authorLoadItems(detail.id);
+    authorLoadLedger(detail.id);
   }
   if (!isNew && type === 'location') {
     authorLoadDiscDetails(detail.id);
   }
+}
+
+/** Read-only "Solde" block on a character sheet (schema v1.31, BRIEF-18).
+ *  Write path is the global Registre tab (POST /api/ledger) — this block
+ *  only reads GET /api/entities/{id}/ledger. */
+async function authorLoadLedger(entityId) {
+  const el = document.getElementById('author-ledger');
+  if (!el) return;
+  try {
+    const data = await api(`/api/entities/${encodeURIComponent(entityId)}/ledger`);
+    el.innerHTML = authorRenderLedger(data);
+  } catch (e) {
+    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function authorRenderLedger(data) {
+  const balanceColor = data.balance >= 0 ? 'var(--accent)' : 'var(--danger, #c44)';
+  let html = `<div style="font-size:20px; font-weight:700; color:${balanceColor}; margin-bottom:8px;">${data.balance}</div>`;
+  if (!data.entries || data.entries.length === 0) {
+    html += '<div class="empty">Aucune ligne pour cette entité.</div>';
+    return html;
+  }
+  html += '<div class="row-table">' + data.entries.map(e => `
+    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;">
+      <span style="color:var(--muted); font-size:12px;">${esc(fmtDate(e.created_at))}</span>
+      <span style="font-weight:700; color:${e.amount >= 0 ? 'var(--accent)' : 'var(--danger, #c44)'};">${e.amount >= 0 ? '+' : ''}${e.amount}</span>
+      <span style="font-size:12px; flex:1; min-width:120px;">${esc(e.reason || '')}</span>
+      <span class="badge b-other">${esc(e.source_type || '')}</span>
+    </div>
+  `).join('') + '</div>';
+  return html;
 }
 
 /** Read-only "Items" section on a character sheet (single write path: entity flow). */

@@ -141,6 +141,10 @@ Read both before making any structural change.
   (BRIEF-16), which reads it for topology, not social signal. Any new
   world-wide relation scan added to the codebase MUST explicitly exclude
   `type='connects_to'`.
+- **The `ledger` is append-only** (BRIEF-18, schema v1.31). INSERT-only on
+  both sanctioned canon-write paths; a mistake is corrected by a new
+  compensating line, never by editing or deleting an existing row. No
+  UPDATE/DELETE endpoint or code path may touch a `ledger` row.
 
 ## Local model notes
 
@@ -216,6 +220,10 @@ World-genrator/
 │       │                    #   resolve_physical(domain, player_tier, npc_tier=0)
 │       │                    #   — bands <=6 failure, 7-9 partial, >=10 success;
 │       │                    #   player-roll rule (verbatim in module docstring)
+│       ├── ledger.py        # ledger read helpers (BRIEF-18, schema v1.31):
+│       │                    #   get_balance (SUM(amount) per entity_id, no
+│       │                    #   stored balance), list_entries (entity_id /
+│       │                    #   session_id optional filters, newest first)
 │       └── cockpit/         # creator review web UI (FastAPI sub-app)
 │           ├── __init__.py
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
@@ -334,7 +342,13 @@ World-genrator/
 │           │                #   location map graph (BRIEF-15, schema v1.28):
 │           │                #   GET /api/locations/graph — read-only, returns active
 │           │                #   location nodes (id, name, coordinates) + connects_to
-│           │                #   edges (both endpoints must be active locations)
+│           │                #   edges (both endpoints must be active locations);
+│           │                #   ledger (BRIEF-18, schema v1.31): POST /api/ledger
+│           │                #   (creator-direct write, world_id derived from the
+│           │                #   target entity, source_type in {creator,correction}),
+│           │                #   GET /api/entities/{id}/ledger (balance + entries),
+│           │                #   GET /api/ledger (global journal, entity_id/session_id
+│           │                #   filters) — INSERT-only, no PUT/DELETE route exists
 │           └── index.html   # single-page UI; MJ narration rendering;
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;
@@ -383,7 +397,15 @@ World-genrator/
 │                            #   coordinates-only); click-to-connect (creates
 │                            #   connects_to relation, undirected dedup guard);
 │                            #   click-to-delete-edge; "Ajouter un lieu" reuses
-│                            #   existing creationNewEntity() flow
+│                            #   existing creationNewEntity() flow;
+│                            #   Création → Registre sub-tab (BRIEF-18, schema
+│                            #   v1.31): global ledger journal (GET /api/ledger),
+│                            #   entity/session filters, creator credit/debit
+│                            #   form (POST /api/ledger) — read-only history,
+│                            #   no edit/delete UI (append-only); per-character
+│                            #   "Solde" block on the character sheet (NPC and
+│                            #   Personnage joueur), read-only, GET
+│                            #   /api/entities/{id}/ledger
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)
@@ -392,6 +414,7 @@ World-genrator/
 │   ├── migrate_v1_24.py     # add conversation.scene_state column (BRIEF-12, idempotent)
 │   ├── migrate_v1_26.py     # add discoverable_detail table + indexes (BRIEF-13, idempotent)
 │   ├── migrate_v1_30.py     # add discoverable_detail.signpost_group + index (BRIEF-17, idempotent)
+│   ├── migrate_v1_31_ledger.py  # add the ledger table + indexes (BRIEF-18, idempotent)
 │   └── cockpit.py           # launch the review cockpit (uvicorn, 127.0.0.1 only)
 ├── pyproject.toml           # src-layout package metadata
 ├── requirements.txt

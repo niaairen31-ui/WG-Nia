@@ -20,6 +20,13 @@ Deletion policy:
   relations/knowledge pointing at it survive.
 - `relation` / `knowledge` rows: **hard delete** — they are edges/facts the
   author poses and must be able to remove cleanly.
+- `ledger` rows: **append-only, no delete, no update, ever** (schema v1.31,
+  BRIEF-18) — a deliberate divergence from the policy above. A mistake is
+  corrected with a new compensating line (`source_type='correction'`), never
+  by editing or deleting an existing row. `write_ledger_entry` (`..writes`)
+  is the single chokepoint; this module's `POST /api/ledger` is one of only
+  two sanctioned canon-write paths into `ledger` (the other is step 2's
+  `_apply_mutation`, which will reuse the same helper).
 
 Author edits to `relation` are state-setting, not delta accumulation —
 but still append the previous state to `change_history` first (history is
@@ -47,8 +54,9 @@ from pydantic import BaseModel
 from sqlmodel import Session as DbSession, select
 
 from ..db import get_session
-from ..models import Character, DiscoverableDetail, Entity, Faction, Item, Knowledge, Location, Relation, Skill, World
-from ..writes import KNOWLEDGE_LEVELS, write_knowledge, write_relation
+from ..ledger import get_balance, list_entries
+from ..models import Character, DiscoverableDetail, Entity, Faction, Item, Knowledge, Ledger, Location, Relation, Skill, World
+from ..writes import KNOWLEDGE_LEVELS, write_knowledge, write_ledger_entry, write_relation
 
 router = APIRouter(prefix="/api", tags=["author-crud"])
 
@@ -986,6 +994,100 @@ def get_locations_graph(db: DbSession = Depends(get_session)) -> dict:
     ]
 
     return {"nodes": nodes, "edges": edges}
+
+
+# ── Ledger (schema v1.31, BRIEF-18) ──────────────────────────────────────────
+# Append-only conserved currency. Creator-direct writes — same doctrine as
+# the rest of this module: no proposed_mutation checkpoint. UNLIKE the
+# relation/knowledge editors above, this surface is INSERT-ONLY: no PUT, no
+# DELETE, ever. A mistake is corrected with a new compensating line
+# (source_type='correction'), never by editing or deleting an existing row.
+# God-mode: no non-negative balance guard here (that rule is step 2's, on
+# the AI path).
+
+LEDGER_SOURCE_TYPES_CREATOR = ("creator", "correction")
+
+
+def _ledger_dict(entry: Ledger) -> dict:
+    return {
+        "id": entry.id,
+        "world_id": entry.world_id,
+        "entity_id": entry.entity_id,
+        "amount": entry.amount,
+        "counterparty_id": entry.counterparty_id,
+        "reason": entry.reason,
+        "source_type": entry.source_type,
+        "conversation_id": entry.conversation_id,
+        "pass_play_id": entry.pass_play_id,
+        "session_id": entry.session_id,
+        "created_at": _iso(entry.created_at),
+    }
+
+
+class LedgerWriteBody(BaseModel):
+    entity_id: str
+    amount: int
+    counterparty_id: Optional[str] = None
+    reason: Optional[str] = None
+    source_type: str = "creator"
+    session_id: Optional[str] = None
+
+
+@router.post("/ledger", status_code=201)
+def create_ledger_entry(body: LedgerWriteBody, db: DbSession = Depends(get_session)) -> dict:
+    """Creator-direct ledger write — the starting-money / correction path.
+
+    `world_id` is always derived from the target entity, never trusted from
+    the client. `conversation_id`/`pass_play_id` are always NULL on this
+    path — those legs belong to step 2's AI-detected `resource_change`.
+    """
+    entity = db.get(Entity, body.entity_id)
+    if entity is None:
+        raise HTTPException(422, f"Entity {body.entity_id!r} not found")
+    if not isinstance(body.amount, int) or body.amount == 0:
+        raise HTTPException(422, "amount must be a nonzero integer")
+    if body.source_type not in LEDGER_SOURCE_TYPES_CREATOR:
+        raise HTTPException(422, f"source_type must be one of {LEDGER_SOURCE_TYPES_CREATOR}")
+    if body.counterparty_id is not None:
+        counterparty = db.get(Entity, body.counterparty_id)
+        if counterparty is None or counterparty.world_id != entity.world_id:
+            raise HTTPException(422, f"counterparty_id {body.counterparty_id!r} is not an entity of the same world")
+
+    entry = write_ledger_entry(
+        db,
+        world_id=entity.world_id,
+        entity_id=body.entity_id,
+        amount=body.amount,
+        counterparty_id=body.counterparty_id,
+        reason=body.reason,
+        source_type=body.source_type,
+        conversation_id=None,
+        pass_play_id=None,
+        session_id=body.session_id,
+    )
+    db.commit()
+    db.refresh(entry)
+    return _ledger_dict(entry)
+
+
+@router.get("/entities/{entity_id}/ledger")
+def get_entity_ledger(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
+    """Per-entity balance + recent lines — for the character sheet "Solde" block."""
+    _get_entity(db, entity_id)
+    return {
+        "balance": get_balance(db, entity_id),
+        "entries": [_ledger_dict(e) for e in list_entries(db, entity_id=entity_id)],
+    }
+
+
+@router.get("/ledger")
+def get_ledger_journal(
+    entity_id: Optional[str] = Query(default=None),
+    session_id: Optional[str] = Query(default=None),
+    db: DbSession = Depends(get_session),
+) -> list[dict]:
+    """Global journal (Création → Registre), read-only."""
+    return [_ledger_dict(e) for e in list_entries(db, entity_id=entity_id, session_id=session_id)]
 
 
 __all__ = ["router", "ENTITY_TYPE_REGISTRY"]

@@ -16,6 +16,11 @@ functions so that clamping and field validation live in exactly one place.
   `knowledge_id=None` creates; otherwise updates that row in place, appending
   the previous state to `change_history` first (history is sacred on this
   path too — see `_append_knowledge_history`).
+- `write_ledger_entry(...)`             : pure INSERT into the append-only
+  `ledger` table (BRIEF-18). No UPDATE, no DELETE, ever — a correction is a
+  new compensating line. The single chokepoint for ledger writes, shared by
+  the creator CRUD now and `_apply_mutation`'s `resource_change` branch later
+  (step 2) so the two paths cannot diverge.
 
 Callers add the returned row to the session; neither function commits.
 """
@@ -28,7 +33,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from .models import Knowledge, Relation
+from .models import Knowledge, Ledger, Relation
 
 # knowledge.level enum (world-engine-schema.md): unaware | rumor | suspicious |
 # partial | knows | fully_understands.
@@ -298,9 +303,49 @@ def write_knowledge(
     return k
 
 
+def write_ledger_entry(
+    db: Session,
+    *,
+    world_id: str,
+    entity_id: str,
+    amount: int,
+    counterparty_id: Optional[str] = None,
+    reason: Optional[str] = None,
+    source_type: str = "creator",
+    conversation_id: Optional[str] = None,
+    pass_play_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> Ledger:
+    """Insert one `ledger` row. Caller adds the row to the session.
+
+    Pure INSERT: no balance read, no non-negative guard (that rule belongs to
+    step 2's `_apply_mutation`, on the AI path), no UPDATE, no DELETE. This is
+    the ONLY function that writes a `ledger` row — both sanctioned canon-write
+    paths (creator CRUD now, `_apply_mutation` in step 2) call it so they
+    cannot diverge. `amount == 0` is rejected: a zero line is meaningless.
+    """
+    if amount == 0:
+        raise ValueError("write_ledger_entry: amount must be nonzero")
+
+    entry = Ledger(
+        world_id=world_id,
+        entity_id=entity_id,
+        amount=amount,
+        counterparty_id=counterparty_id,
+        reason=reason,
+        source_type=source_type,
+        conversation_id=conversation_id,
+        pass_play_id=pass_play_id,
+        session_id=session_id,
+    )
+    db.add(entry)
+    return entry
+
+
 __all__ = [
     "write_relation",
     "write_knowledge",
+    "write_ledger_entry",
     "KNOWLEDGE_LEVELS",
     "KNOWLEDGE_LEVEL_LADDER",
     "knowledge_level_rank",

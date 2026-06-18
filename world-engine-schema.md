@@ -198,6 +198,36 @@ CREATE TABLE knowledge (
 
 -----
 
+### `ledger`
+
+Conserved currency, append-only (schema v1.31, BRIEF-18). Balance is `SUM(amount)` per `entity_id`, computed at read time — no stored balance, no `CHECK`.
+
+```sql
+CREATE TABLE ledger (
+  id              TEXT PRIMARY KEY,
+  world_id        TEXT NOT NULL REFERENCES world(id),
+  entity_id       TEXT NOT NULL REFERENCES entity(id),  -- whose balance moves
+  amount          INTEGER NOT NULL,        -- signed: + credit, − debit; world base unit
+  counterparty_id TEXT REFERENCES entity(id),           -- the other party (filled, not double-written)
+  reason          TEXT,                    -- "pécule de départ", "correction prix"
+  source_type     TEXT,                    -- creator | correction | conversation | pass_play
+                                            -- (last two reserved for step 2)
+  conversation_id TEXT REFERENCES conversation(id),
+  pass_play_id    TEXT REFERENCES pass_play(id),
+  session_id      TEXT REFERENCES session(id),
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_ledger_entity  ON ledger(entity_id);
+CREATE INDEX idx_ledger_session ON ledger(session_id);
+```
+-- NOTE: INSERT-only. No UPDATE, no DELETE, ever, on any write path — a
+--       mistake is corrected with a new compensating line
+--       (source_type='correction'), never by editing or deleting a row.
+--       counterparty_id is filled for the registre's legibility but never
+--       triggers a second ledger row (decision A1, no PNJ double-entry).
+
+-----
+
 ### `session`
 
 A period of play. Pass-plays and live conversations attach to it.
@@ -787,6 +817,28 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.31** — Economy foundation: `ledger` (append-only, currency only).
+  New table `ledger` (`id`, `world_id` REFERENCES `world(id)`, `entity_id`
+  REFERENCES `entity(id)`, `amount INTEGER NOT NULL` — signed, world base
+  unit, `counterparty_id` REFERENCES `entity(id)` — filled but not
+  double-written (decision A1), `reason`, `source_type` —
+  creator | correction | conversation | pass_play (last two reserved for
+  step 2), `conversation_id`, `pass_play_id`, `session_id`, `created_at`).
+  Indexes `idx_ledger_entity`, `idx_ledger_session`. Balance =
+  `SUM(amount)` per `entity_id` — no stored balance, no `CHECK`. **Ledger is
+  append-only: INSERT-only on both canon-write paths; corrections are new
+  compensating lines, never edits/deletes.** Single shared INSERT helper
+  `writes.write_ledger_entry`; reads in `ledger.py`
+  (`get_balance`, `list_entries`). Creator-direct writes via `crud.py`
+  (`POST /api/ledger`, `GET /api/entities/{id}/ledger`, `GET /api/ledger`),
+  god-mode (no non-negative guard). Cockpit: read-only "Registre" sub-tab +
+  per-character balance block, creator-mode only. Amounts in the world base
+  unit; the tiered display scale (e.g. 1 or = 100 argent = 10000 bronze) is
+  a display + per-world-config concern, NOT storage. *Deferred:* AI-detected
+  `resource_change` mutation + double-table info purchase (step 2); pricing
+  / `metadata.price_list` (step 3); tracked NPC purses (A2/A3); explicit
+  favors via a future `resource_type` column (zero-migration
+  `ALTER … DEFAULT 'currency'`); ledger-as-pricing-dataset.
 - **v1.30** — Signpost layer + scene-establishing narration on entry
   (BRIEF-17). File jumps v1_26 → v1_30: the intervening schema versions
   (v1.27 UI shell, v1.28 connects_to, v1.29 travel) required no DDL.

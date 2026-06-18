@@ -1431,6 +1431,90 @@ fictional moment. Distinct from the creator `POST /api/travel`.
 
 ---
 
+## ECONOMY — ledger (currency, schema v1.31, BRIEF-18)
+
+### Conserved vs non-conserved: the core split
+
+Two kinds of "value" exist in the world, and they get two different
+mechanisms, never one:
+
+- **Conserved currency** — moving from one pocket to another, with a real
+  total. Gets the append-only `ledger` table: every line is an immutable
+  fact, balance is `SUM(amount)` computed at read time.
+- **Non-conserved influence** — trust, fear, fascination, debt-as-feeling.
+  Stays in `relation` (a jauge, not a ledger): it can be created from
+  nothing and destroyed into nothing: there is no total to conserve.
+
+This step builds only the foundation for the first kind: the table, the
+single write chokepoint, the reads, and a creator-direct write path. No AI
+detection, no pricing, no double-entry — those are steps 2 and 3.
+
+### A1 — player-relevant single line, no PNJ double-entry
+
+When the player buys something from an NPC, only the player's line is
+written. `counterparty_id` is filled (so the registre reads "Maelis → -15,
+counterparty: Aubergiste") but it triggers NO second `ledger` row for the
+NPC. Tracked NPC purses (A2: an NPC gets its own balance) and full
+double-entry bookkeeping (A3) are deferred — most NPCs are not economic
+agents the player needs to audit; building their books now is premature.
+
+### B1 — transactions are detected by `analyze_window`, not a separate path
+
+Step 2 will add `resource_change` as a `proposed_mutation.mutation_type`,
+detected by the SAME analyzer that already proposes `relation_change` and
+`new_knowledge` from a conversation window — not a parallel "economy
+analyzer." One unified detection pass, one more mutation type it can emit.
+
+### Base-unit integer storage, display-layer tiering
+
+`amount` is always an integer in the world's smallest base unit. A world
+that wants "1 or = 100 argent = 10000 bronze" expresses that as a display
+formatting rule (and later, a per-world config), never as a storage
+decision — `ledger.amount` never changes meaning based on which tier the
+narration is currently using.
+
+### Append-only: the deliberate divergence from the rest of `crud.py`
+
+Every other in-context editor in `crud.py` (`relation`, `knowledge`) allows
+creator update and hard-delete — the creator is the authority, free to
+correct or remove. `ledger` does not: it is INSERT-only on every write
+path, full stop. A pricing mistake or accidental credit is corrected with a
+new compensating line (`source_type='correction'`), never an edit or a
+delete. This is a structural choice, not an oversight — an executor reading
+the surrounding `crud.py` conventions must not pattern-match the ledger to
+its neighbors. `writes.write_ledger_entry` is the single INSERT chokepoint,
+shared by the creator-direct path (this step) and `_apply_mutation`'s future
+`resource_change` branch (step 2), so the two canon-write paths cannot
+diverge into different validation or shapes.
+
+### The shadow-economy guard
+
+`resource_change` (step 2) is reserved for conserved currency, plus an
+optional `knowledge` leg when information is the thing being bought (the
+double-table atomic write, also step 2). It must never become the vehicle
+for "a service rendered against relation intensity" — a favor performed
+because someone is liked or feared, with no currency changing hands. That
+stays the implicit-favor path: a pure `relation_change`, no ledger touch,
+ever. This mirrors the existing "social skills are never a skill domain"
+guard in spirit: a deliberately-excluded mechanism must stay excluded by
+construction, not by a model being asked nicely. Favors becoming *explicit*
+(an NPC names a price in favor-currency, trackable like money) is a
+separate, deferred design — see "Deferred decisions."
+
+### Cockpit (creator-mode only, structural)
+
+A read-only "Registre" sub-tab in Création (global journal, `GET
+/api/ledger`, filterable by entity and by session) plus a read-only "Solde"
+block on the character entity sheet (`GET /api/entities/{id}/ledger`). The
+write control (crediting/debiting) lives on the Registre tab, calling `POST
+/api/ledger` — the character sheet block is display-only. Both surfaces are
+reachable only inside the Création shell, which is itself the creator's
+tool (see "Creator control is structural" elsewhere in this doc) — the
+player must never see a balance number or the journal; wealth is felt in
+fiction, never read as a figure.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.
@@ -1525,6 +1609,24 @@ Recorded here so each is revisited deliberately rather than forgotten:
   pilot. Multiplayer per-player discovery (each player character has their own
   `discovered` flag) requires a join table or a `player_discoveries` column and
   is explicitly deferred.
+- **AI-detected `resource_change` + double-table info purchase** (ECONOMY,
+  schema v1.31). This step builds only the read+seed foundation; detecting a
+  transaction from a conversation window and the atomic `ledger` + `knowledge`
+  write for a paid-for fact are step 2.
+- **Pricing** (ECONOMY, schema v1.31). No `entity.metadata.price_list`, no
+  "Tarifs" creator editor, no AI-proposed prices, no `relation.intensity`
+  price modulation. Step 3.
+- **Tracked NPC purses / full double-entry** (ECONOMY, A2/A3, schema v1.31).
+  Today only the player-relevant single line is written per transaction
+  (decision A1); giving NPCs their own auditable balance is a later step, if
+  ever needed.
+- **Explicit favors / `resource_type` column** (ECONOMY, schema v1.31).
+  Favors stay an implicit `relation` delta. Re-adding a `resource_type`
+  column to `ledger` later (to make favor-currency trackable like money) is a
+  zero-migration `ALTER … DEFAULT 'currency'` — deliberately not built now.
+- **Ledger-as-pricing-dataset** (ECONOMY, schema v1.31). Querying historical
+  `ledger` lines to inform AI pricing decisions needs the ledger to actually
+  have lines first — not before step 3.
 
 ---
 
