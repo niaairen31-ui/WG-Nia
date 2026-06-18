@@ -233,6 +233,34 @@ class Knowledge(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
+# ledger  (conserved currency, append-only — schema v1.31, BRIEF-18)
+#
+# NOTE: this table is INSERT-only. No code path may UPDATE or DELETE an
+# existing row — a correction is a new compensating line
+# (writes.write_ledger_entry is the single chokepoint that inserts).
+# -----------------------------------------------------------------------------
+class Ledger(SQLModel, table=True):
+    __tablename__ = "ledger"
+    __table_args__ = (
+        Index("idx_ledger_entity", "entity_id"),
+        Index("idx_ledger_session", "session_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    entity_id: str = Field(foreign_key="entity.id", nullable=False)
+    amount: int  # signed: + credit, - debit; world base unit
+    counterparty_id: Optional[str] = Field(default=None, foreign_key="entity.id")
+    reason: Optional[str] = None
+    source_type: Optional[str] = None
+    # creator | correction | conversation | pass_play (last two reserved for step 2)
+    conversation_id: Optional[str] = Field(default=None, foreign_key="conversation.id")
+    pass_play_id: Optional[str] = Field(default=None, foreign_key="pass_play.id")
+    session_id: Optional[str] = Field(default=None, foreign_key="session.id")
+    created_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
 # session  (a period of play)
 # -----------------------------------------------------------------------------
 class Session(SQLModel, table=True):
