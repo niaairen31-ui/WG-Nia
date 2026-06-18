@@ -524,6 +524,45 @@ PNJ présents : {npc_list}
 Action du joueur → {player_line}\
 """
 
+# Entry narration — scene-establishing description on location entry (schema
+# v1.30, BRIEF-17). usage = "mj_establishment". Single non-streamed chat()
+# call, thinking mode allowed, fired on EVERY entry (G1). Carries the SAME
+# anti-invention rule as pt-mj-narration: describe ONLY from the provided
+# context. Names no NPCs (J1) — the scene UI's gathering list already shows
+# who is present. world_id = NULL.
+MJ_ESTABLISHMENT_SYSTEM_PROMPT = """\
+Tu es le maître de jeu (MJ) d'un jeu de rôle. Le joueur vient d'entrer dans un \
+lieu. Ton travail : décrire en 3 à 4 lignes de prose française ce que le \
+joueur perçoit en y pénétrant — le lieu lui-même, son atmosphère, et tout \
+signe perceptible qui y est signalé.
+
+=== RÈGLE — DÉCRIRE UNIQUEMENT À PARTIR DU CONTEXTE FOURNI ===
+N'invente aucun objet, lettre, passage, indice ou PNJ qui ne figure pas dans \
+le contexte ci-dessous. Si la liste des signes perceptibles est vide ou \
+indique qu'il n'y a rien de particulier, établis la scène nue à partir du \
+lieu et de son ambiance seuls — ne comble jamais ce vide par une invention.
+
+=== RÈGLE — AUCUN PNJ NOMMÉ ===
+Ne nomme et ne décris aucun personnage présent. La scène se limite au lieu \
+et à ses signes perceptibles ; qui s'y trouve est montré ailleurs, pas dans \
+cette narration.
+
+=== FORMAT ===
+Prose narrative en français, 3 à 4 lignes. Rien d'autre — pas de JSON, pas \
+de méta, pas de guillemets de citation (il n'y a pas de PNJ qui parle ici).\
+"""
+
+MJ_ESTABLISHMENT_USER_TEMPLATE = """\
+Lieu : « {location_name} ».
+{description}
+Ambiance : {subculture}
+
+Signes perceptibles à l'entrée :
+{signposts}
+
+Narration d'établissement :\
+"""
+
 # Initial NPC clustering when a player enters a location (schema v1.8, Tier 1).
 # usage = "mj_gathering". Single non-streaming JSON call; /no_think appended
 # at call time (see gathering.py). world_id = NULL (applies to every world).
@@ -846,6 +885,27 @@ def seed(session: Session) -> None:
         destination="local",
         version=2,
         notes="v2 (BRIEF-12): adds applies_constraint + violent fields",
+    )
+
+    # ----- prompt template: MJ establishment (scene-establishing entry narration) --
+    # usage = "mj_establishment". Single non-streamed chat() call fired on
+    # every location entry (G1, schema v1.30, BRIEF-17): describes the scene
+    # the player perceives — the room and any active signpost content — from
+    # entity.description + the allow-listed subculture slice + the silence-
+    # predicate's surviving ambient content. Names no NPCs (J1). world_id =
+    # NULL. Uses upsert so re-seeding always converges the DB to the latest
+    # wording.
+    upsert_prompt_template(
+        session,
+        "pt-mj-establishment",
+        world_id=None,
+        name="MJ établissement — narration de scène à l'entrée",
+        usage="mj_establishment",
+        system_prompt=MJ_ESTABLISHMENT_SYSTEM_PROMPT,
+        user_template=MJ_ESTABLISHMENT_USER_TEMPLATE,
+        variables=["location_name", "description", "subculture", "signposts"],
+        destination="local",
+        version=1,
     )
 
     # ----- prompt template: MJ gathering (initial NPC clustering) ------------
@@ -1689,6 +1749,44 @@ def seed(session: Session) -> None:
         intensity=58,
         visible_to_b=True,
         notes="Senna perçoit la présence de la magie sans la maîtriser. Cohérent avec le savoir des Marcheurs.",
+    )
+
+    # ----- Signpost cluster: "papiers_bureau" at the tavern (schema v1.30, ---
+    # BRIEF-17). One ambient panel + two hidden contents sharing the same
+    # signpost_group. The panel narrates on entry until the player knows
+    # BOTH hidden subjects (E1: silent only when the whole cluster is known).
+    get_or_create(
+        session,
+        m.DiscoverableDetail,
+        "disc-papiers-bureau-panel",
+        world_id=WORLD_ID,
+        location_id="loc-dernier-verre",
+        subject="papiers_bureau_panel",  # organisational only — never knowledge
+        content="Des papiers en désordre traînent sur une table à l'écart.",
+        access_level="ambient",
+        signpost_group="papiers_bureau",
+    )
+    get_or_create(
+        session,
+        m.DiscoverableDetail,
+        "disc-lettre-innommee",
+        world_id=WORLD_ID,
+        location_id="loc-dernier-verre",
+        subject="lettre_innommee",
+        content="Une lettre sans signature évoque un « arrangement habituel » et mentionne L'Innommée à mots couverts.",
+        access_level="hidden",
+        signpost_group="papiers_bureau",
+    )
+    get_or_create(
+        session,
+        m.DiscoverableDetail,
+        "disc-recu-compromettant",
+        world_id=WORLD_ID,
+        location_id="loc-dernier-verre",
+        subject="recu_compromettant",
+        content="Un reçu daté de la semaine passée, pour une somme bien supérieure au prix d'une simple tournée.",
+        access_level="hidden",
+        signpost_group="papiers_bureau",
     )
 
 

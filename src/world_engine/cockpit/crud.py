@@ -824,6 +824,7 @@ def _detail_dict(d: DiscoverableDetail) -> dict:
         "access_level": d.access_level,
         "discovery_threshold": d.discovery_threshold,
         "discovered": d.discovered,
+        "signpost_group": d.signpost_group,
         "created_at": _iso(d.created_at),
         "updated_at": _iso(d.updated_at),
     }
@@ -849,6 +850,7 @@ class DiscoverableDetailBody(BaseModel):
     content: str
     access_level: str = "hidden"
     discovery_threshold: int = 0
+    signpost_group: Optional[str] = None
 
 
 @router.post("/locations/{location_id}/discoverable-details")
@@ -870,6 +872,7 @@ def create_discoverable_detail(
         content=body.content,
         access_level=body.access_level,
         discovery_threshold=body.discovery_threshold,
+        signpost_group=body.signpost_group,
     )
     db.add(detail)
     db.commit()
@@ -883,6 +886,8 @@ class DiscoverableDetailPatchBody(BaseModel):
     access_level: Optional[str] = None
     discovery_threshold: Optional[int] = None
     discovered: Optional[bool] = None
+    signpost_group: Optional[str] = None
+    clear_signpost_group: bool = False  # explicit flag — signpost_group=None alone means "no change"
 
 
 @router.put("/discoverable-details/{detail_id}")
@@ -913,6 +918,10 @@ def update_discoverable_detail(
         detail.discovery_threshold = body.discovery_threshold
     if body.discovered is not None:
         detail.discovered = body.discovered
+    if body.clear_signpost_group:
+        detail.signpost_group = None
+    elif body.signpost_group is not None:
+        detail.signpost_group = body.signpost_group
     detail.updated_at = datetime.now(UTC)
     db.add(detail)
     db.commit()

@@ -2945,13 +2945,44 @@ async function authorLoadDiscDetails(locationId) {
 
 function authorRenderDiscDetails(rows, locationId) {
   if (!rows || rows.length === 0) return '<div class="empty">No discoverable details seeded yet.</div>';
-  return '<div class="row-table">' + rows.map(d => `
+  // Cluster-native display (schema v1.30, BRIEF-17, decision C1): rows sharing
+  // a signpost_group render together under a group header; ungrouped rows
+  // render individually, as before.
+  const groups = new Map();
+  const ungrouped = [];
+  for (const d of rows) {
+    if (d.signpost_group) {
+      if (!groups.has(d.signpost_group)) groups.set(d.signpost_group, []);
+      groups.get(d.signpost_group).push(d);
+    } else {
+      ungrouped.push(d);
+    }
+  }
+  let html = '';
+  for (const [group, groupRows] of groups) {
+    const ambientCount = groupRows.filter(d => d.access_level === 'ambient').length;
+    const hiddenCount  = groupRows.filter(d => d.access_level === 'hidden').length;
+    html += `<div class="signpost-group" style="border:1px solid var(--border); border-radius:6px; margin-bottom:10px; padding:8px;">`;
+    html += `<div style="font-weight:700; font-size:12px; color:var(--muted); margin-bottom:6px;">`
+          + `${esc(group)} : ${ambientCount} ambient panel${ambientCount === 1 ? '' : 's'} + ${hiddenCount} hidden content${hiddenCount === 1 ? '' : 's'}</div>`;
+    html += '<div class="row-table">' + groupRows.map(d => authorRenderDiscDetailRow(d, locationId)).join('') + '</div>';
+    html += '</div>';
+  }
+  if (ungrouped.length) {
+    html += '<div class="row-table">' + ungrouped.map(d => authorRenderDiscDetailRow(d, locationId)).join('') + '</div>';
+  }
+  return html;
+}
+
+function authorRenderDiscDetailRow(d, locationId) {
+  return `
     <div class="row-card" id="disc-row-${esc(d.id)}">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
         <span style="font-weight:600">${esc(d.subject)}</span>
         <span style="display:flex; align-items:center; gap:6px;">
+          <span class="badge b-other">${esc(d.access_level)}</span>
           <span class="badge ${d.discovered ? 'b-equipped' : 'b-stowed'}">${d.discovered ? 'discovered' : 'hidden'}</span>
-          <span style="color:var(--muted); font-size:12px;">${esc(d.access_level)} · threshold ${d.discovery_threshold}</span>
+          <span style="color:var(--muted); font-size:12px;">threshold ${d.discovery_threshold}</span>
         </span>
       </div>
       <div style="color:var(--text); font-size:13px; margin:4px 0 6px; white-space:pre-wrap;">${esc(d.content)}</div>
@@ -2964,7 +2995,7 @@ function authorRenderDiscDetails(rows, locationId) {
           onclick="authorResetDiscDetail('${esc(d.id)}','${esc(locationId)}')">Reset discovered</button>` : ''}
       </div>
     </div>
-  `).join('') + '</div>';
+  `;
 }
 
 function authorRenderDiscDetailForm(locationId, worldId) {
@@ -2990,6 +3021,10 @@ function authorRenderDiscDetailForm(locationId, worldId) {
         <label for="disc-f-threshold">discovery_threshold (0–12, dormant)</label>
         <input type="number" id="disc-f-threshold" value="0" min="0" max="12">
       </div>
+      <div class="field-row">
+        <label for="disc-f-signpost">signpost_group (optional)</label>
+        <input type="text" id="disc-f-signpost" placeholder="e.g. papiers_bureau">
+      </div>
     </div>
     <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
       <button class="btn-send" onclick="authorAddDiscDetail('${esc(locationId)}','${esc(worldId)}')">+ Add detail</button>
@@ -3003,6 +3038,7 @@ async function authorAddDiscDetail(locationId, worldId) {
   const content   = document.getElementById('disc-f-content').value.trim();
   const accessLvl = document.getElementById('disc-f-access').value;
   const threshold = parseInt(document.getElementById('disc-f-threshold').value, 10) || 0;
+  const signpostGroup = document.getElementById('disc-f-signpost').value.trim() || null;
   const statusEl  = document.getElementById('disc-add-status');
   if (!subject || !content) { statusEl.textContent = 'Subject and content required.'; return; }
   statusEl.textContent = '…';
@@ -3010,11 +3046,15 @@ async function authorAddDiscDetail(locationId, worldId) {
     await api(`/api/locations/${encodeURIComponent(locationId)}/discoverable-details`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ world_id: worldId, subject, content, access_level: accessLvl, discovery_threshold: threshold }),
+      body: JSON.stringify({
+        world_id: worldId, subject, content, access_level: accessLvl,
+        discovery_threshold: threshold, signpost_group: signpostGroup,
+      }),
     });
     document.getElementById('disc-f-subject').value = '';
     document.getElementById('disc-f-content').value = '';
     document.getElementById('disc-f-threshold').value = '0';
+    document.getElementById('disc-f-signpost').value = '';
     statusEl.textContent = 'Added.';
     authorLoadDiscDetails(locationId);
   } catch (e) {
@@ -3065,6 +3105,8 @@ async function authorEditDiscDetail(detailId, locationId) {
           </select></div>
         <div class="field-row"><label>Threshold (0–12)</label>
           <input type="number" id="disc-edit-threshold-${esc(d.id)}" value="${d.discovery_threshold}" min="0" max="12"></div>
+        <div class="field-row"><label>signpost_group (optional)</label>
+          <input type="text" id="disc-edit-signpost-${esc(d.id)}" value="${esc(d.signpost_group || '')}" placeholder="e.g. papiers_bureau"></div>
       </div>
       <div style="display:flex; gap:6px; align-items:center;">
         <button class="btn-send" style="font-size:12px"
@@ -3083,14 +3125,21 @@ async function authorSaveDiscDetail(detailId, locationId) {
   const content   = document.getElementById(`disc-edit-content-${detailId}`).value.trim();
   const accessLvl = document.getElementById(`disc-edit-access-${detailId}`).value;
   const threshold = parseInt(document.getElementById(`disc-edit-threshold-${detailId}`).value, 10) || 0;
+  const signpostRaw = document.getElementById(`disc-edit-signpost-${detailId}`).value.trim();
   const statusEl  = document.getElementById(`disc-edit-status-${detailId}`);
   if (!subject || !content) { statusEl.textContent = 'Subject and content required.'; return; }
   statusEl.textContent = '…';
   try {
+    const body = { subject, content, access_level: accessLvl, discovery_threshold: threshold };
+    if (signpostRaw) {
+      body.signpost_group = signpostRaw;
+    } else {
+      body.clear_signpost_group = true;
+    }
     await api(`/api/discoverable-details/${encodeURIComponent(detailId)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subject, content, access_level: accessLvl, discovery_threshold: threshold }),
+      body: JSON.stringify(body),
     });
     authorLoadDiscDetails(locationId);
   } catch (e) {

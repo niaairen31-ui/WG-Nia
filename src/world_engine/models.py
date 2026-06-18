@@ -580,6 +580,11 @@ class DiscoverableDetail(SQLModel, table=True):
     discovered: bool = Field(
         default=False, sa_column_kwargs={"server_default": text("0")}
     )
+    # Clusters an `ambient` panel row with the `hidden` content rows it
+    # signposts (schema v1.30, BRIEF-17): both the panel and its grouped
+    # contents carry the SAME signpost_group value. NULL = no cluster (a
+    # standalone ambient note, or a hidden row with no signpost).
+    signpost_group: str | None = Field(default=None, index=True)
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
 

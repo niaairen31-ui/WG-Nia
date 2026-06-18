@@ -29,7 +29,18 @@ from __future__ import annotations
 
 from sqlmodel import Session, select
 
-from .models import Character, Entity, Event, Gathering, GatheringMember, Item, Knowledge, Location, Relation
+from .models import (
+    Character,
+    DiscoverableDetail,
+    Entity,
+    Event,
+    Gathering,
+    GatheringMember,
+    Item,
+    Knowledge,
+    Location,
+    Relation,
+)
 
 # Section headers (kept stable so a harness can split the output reliably).
 H_IDENTITY = "QUI TU ES"
@@ -486,6 +497,69 @@ def format_mj_context(mj_context: dict) -> str:
     if not blocks:
         return ""
     return "\n".join(blocks) + "\n"
+
+
+def active_signposts(db: Session, location_id: str, player_character_id: str) -> list[str]:
+    """Return the `content` strings of ambient signpost rows that should be
+    narrated on entry (schema v1.30, BRIEF-17).
+
+    Runs BEFORE any assembler, never through `assemble_mj_context`: this is
+    the I3 code-predicate doctrine — the exhaustion judgment is a code
+    predicate, never a prompt instruction. Returns ONLY ambient `content`
+    prose; no `subject` or `signpost_group` value ever leaves this function.
+
+    - Ungrouped ambient rows (`signpost_group IS NULL`) are always active.
+    - Grouped ambient rows are silent iff the player holds a `knowledge` row
+      (any level — existence only) for EVERY `hidden` row sharing that
+      `signpost_group` (E1: silent only when the whole cluster is known).
+
+    `discovered` is NOT a filter here — ambient panels are not "discovered";
+    their visibility is governed by the cluster predicate above.
+    """
+    ambient_rows = db.exec(
+        select(DiscoverableDetail).where(
+            DiscoverableDetail.location_id == location_id,
+            DiscoverableDetail.access_level == "ambient",
+        )
+    ).all()
+    if not ambient_rows:
+        return []
+
+    groups_needed = {row.signpost_group for row in ambient_rows if row.signpost_group}
+    cluster_subjects: dict[str, list[str]] = {}
+    if groups_needed:
+        hidden_rows = db.exec(
+            select(DiscoverableDetail).where(
+                DiscoverableDetail.location_id == location_id,
+                DiscoverableDetail.access_level == "hidden",
+                DiscoverableDetail.signpost_group.in_(groups_needed),
+            )
+        ).all()
+        for row in hidden_rows:
+            cluster_subjects.setdefault(row.signpost_group, []).append(row.subject)
+
+    all_subjects = {s for subs in cluster_subjects.values() for s in subs}
+    known_subjects: set[str] = set()
+    if all_subjects:
+        known_subjects = set(
+            db.exec(
+                select(Knowledge.subject).where(
+                    Knowledge.entity_id == player_character_id,
+                    Knowledge.subject.in_(all_subjects),
+                )
+            ).all()
+        )
+
+    active: list[str] = []
+    for row in ambient_rows:
+        if not row.signpost_group:
+            active.append(row.content)
+            continue
+        subjects = cluster_subjects.get(row.signpost_group, [])
+        if subjects and all(s in known_subjects for s in subjects):
+            continue  # E1: whole cluster known — silent
+        active.append(row.content)
+    return active
 
 
 def format_inventory_line(db: Session, player_character_id: str) -> str:

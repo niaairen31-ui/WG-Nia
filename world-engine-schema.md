@@ -568,7 +568,9 @@ CREATE INDEX idx_skill_character ON skill(character_id);
 ### `discoverable_detail`
 
 Pre-seeded hidden content per location, revealed by explicit perception
-searches (schema v1.26, BRIEF-13).
+searches (schema v1.26, BRIEF-13). `ambient` rows additionally form
+**signpost clusters** with grouped `hidden` content, read by the code-side
+silence predicate on location entry (schema v1.30, BRIEF-17).
 
 ```sql
 CREATE TABLE discoverable_detail (
@@ -579,8 +581,10 @@ CREATE TABLE discoverable_detail (
   content             TEXT NOT NULL,   -- what the player learns on discovery
   access_level        TEXT NOT NULL DEFAULT 'hidden',
                       -- ambient | hidden
-                      -- ambient : revealed passively on location entry,
-                      --           no roll (DORMANT this brief — see Scope OUT)
+                      -- ambient : revealed passively on location entry, no
+                      --           roll. ACTIVE since v1.30 — read by the
+                      --           code-side silence predicate
+                      --           (`active_signposts`), never by an assembler.
                       -- hidden  : requires an explicit search + a successful
                       --           perception roll to reveal
   discovery_threshold INTEGER NOT NULL DEFAULT 0 CHECK (discovery_threshold BETWEEN 0 AND 12),
@@ -593,19 +597,32 @@ CREATE TABLE discoverable_detail (
   discovered          BOOLEAN NOT NULL DEFAULT FALSE,
                       -- flips TRUE when a discovery new_knowledge mutation for
                       -- this detail is APPLIED (creator-approved), not at
-                      -- propose time.
+                      -- propose time. Ambient rows never flip this (they are
+                      -- never "discovered" — their visibility is the cluster
+                      -- predicate below).
+  signpost_group      TEXT,
+                      -- NULL = no cluster. Clusters one `ambient` panel row
+                      -- with N `hidden` content rows that carry the SAME
+                      -- signpost_group value (schema v1.30, BRIEF-17, D1: one
+                      -- signpost groups N contents, each content in exactly
+                      -- one group — no N↔N).
   created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_discoverable_location ON discoverable_detail(location_id);
 CREATE INDEX idx_discoverable_world ON discoverable_detail(world_id);
+CREATE INDEX idx_discoverable_signpost_group ON discoverable_detail(signpost_group);
 ```
 
--- NOTE: this table is NEVER read by any context assembler
--- (assemble_mj_context, assemble_npc_context, or any prompt-building path).
--- Undiscovered content is absent from every prompt by data exclusion, not
--- by instruction. Content reaches a model only via the explicit post-selection
--- injection in _stream() on a partial/success perception search.
+-- NOTE (narrowed in v1.30 — see CHANGELOG): this table is NEVER read by any
+-- context assembler (assemble_mj_context, assemble_npc_context, or any
+-- prompt-building path). `hidden` content remains fully excluded from every
+-- assembler; it reaches a model only via the explicit post-selection
+-- injection in _stream() on a partial/success perception search. `ambient`
+-- content is the one consciously narrowed exception: it is read, but only by
+-- a pure code predicate (`active_signposts`, context.py) that runs BEFORE any
+-- assembler and returns ONLY surviving ambient `content` strings — never a
+-- `subject` or `signpost_group`, never through `assemble_mj_context` itself.
 
 -----
 
@@ -644,7 +661,8 @@ CREATE TABLE prompt_template (
                    -- pass_play_analysis | lore_coherence | event_generation |
                    -- player_narration | session_summary | npc_dialogue |
                    -- conversation_analysis | mj_interpretation |
-                   -- overhearing_classification | mj_arbitration | other
+                   -- overhearing_classification | mj_arbitration |
+                   -- mj_establishment | other
   system_prompt    TEXT NOT NULL,
   user_template    TEXT NOT NULL,   -- user message template (with variables)
   variables        JSON,            -- expected variable list
@@ -718,9 +736,11 @@ CREATE INDEX idx_item_location ON item(location_id);
 -- skill sheet rows, by character
 CREATE INDEX idx_skill_character ON skill(character_id);
 
--- discoverable details: by location (search reveals) and by world
+-- discoverable details: by location (search reveals), by world, and by
+-- signpost cluster (entry-narration silence predicate)
 CREATE INDEX idx_discoverable_location ON discoverable_detail(location_id);
 CREATE INDEX idx_discoverable_world    ON discoverable_detail(world_id);
+CREATE INDEX idx_discoverable_signpost_group ON discoverable_detail(signpost_group);
 ```
 
 -----
@@ -766,6 +786,34 @@ batch   → event
 -----
 
 ## CHANGELOG
+
+- **v1.30** — Signpost layer + scene-establishing narration on entry
+  (BRIEF-17). File jumps v1_26 → v1_30: the intervening schema versions
+  (v1.27 UI shell, v1.28 connects_to, v1.29 travel) required no DDL.
+  New column `discoverable_detail.signpost_group TEXT` (nullable; NULL = no
+  cluster) + `idx_discoverable_signpost_group` index. Both the `ambient`
+  panel row and its grouped `hidden` content rows carry the SAME
+  `signpost_group` value (D1: one signpost groups N contents, each content
+  in exactly one group — no N↔N, deferred as D2). The `ambient` read path,
+  DORMANT since v1.26, is now ACTIVE — but only via a code-side silence
+  predicate (`active_signposts`, context.py), never by an assembler, and
+  only its `content` (see the narrowed `discoverable_detail` NOTE above).
+  E1: a signpost panel falls silent once the player holds a `knowledge` row
+  (any level) for EVERY hidden subject in its cluster; partial knowledge
+  still narrates. New entry-narration call in `enter_scene` (app.py):
+  a single non-streamed `chat()` MJ call (`pt-mj-establishment`, new usage
+  `mj_establishment`), fired on EVERY entry (G1 — no change-detection, that
+  is G2, deferred), reading `entity.description` + the allow-listed
+  `_SAFE_SUBCULTURE_KEYS` subculture slice + `active_signposts(...)`'s
+  surviving content. Names no NPCs (J1). Wrapped in `try/except` — a failed
+  or skipped call never blocks scene entry. `_scene_response` gains one field,
+  `establishment: str | None`. Cockpit Lieux discoverable-details editor
+  (C1): rows sharing a `signpost_group` render together under a group
+  header with per-row ambient/hidden badges; `signpost_group` is editable on
+  create and edit, round-trips through the CRUD endpoints. Deferrals: N↔N
+  (D2), the pickable-object/`item` layer, G2 change-cadence, NPC-naming at
+  entry (J2), `discovery_threshold` activation, opposed search, per-character
+  discovery state — all unchanged from BRIEF-13.
 
 - **v1.29** — No new tables or columns. Application-layer: `ResponseMode` gains
   `travel`; `pt-mj-interpretation` bumped to v6 (travel mode added, decision-rule

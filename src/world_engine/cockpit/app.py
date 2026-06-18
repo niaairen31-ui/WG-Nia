@@ -41,6 +41,8 @@ from ..gathering import migrate_npc as _migrate_npc
 from ..analyzer import analyze_overhearing as _analyze_overhearing
 from ..analyzer import analyze_window as _analyze_window
 from ..context import (
+    _SAFE_SUBCULTURE_KEYS,
+    active_signposts,
     assemble_mj_context,
     assemble_npc_context,
     format_inventory_line,
@@ -58,6 +60,7 @@ from ..models import (
     GatheringMember,
     Item,
     Knowledge,
+    Location,
     PromptTemplate,
     ProposedMutation,
     Relation,
@@ -792,6 +795,101 @@ def _load_mj_arbiter_template(world_id: str, db: Session) -> Optional[PromptTemp
         if match is not None:
             return match
     return templates[0]
+
+
+def _load_mj_establishment_template(world_id: str, db: Session) -> Optional[PromptTemplate]:
+    """Return the active mj_establishment prompt template, or None (caller skips narration)."""
+    templates = db.exec(
+        select(PromptTemplate).where(
+            PromptTemplate.usage == "mj_establishment",
+            PromptTemplate.is_active == True,  # noqa: E712
+        )
+    ).all()
+    if not templates:
+        return None
+    for prefer in (lambda t: t.world_id == world_id, lambda t: t.world_id is None):
+        match = next((t for t in templates if prefer(t)), None)
+        if match is not None:
+            return match
+    return templates[0]
+
+
+def _build_establishment_user(
+    template: str,
+    location_name: str,
+    description: Optional[str],
+    subculture: dict,
+    signposts: list[str],
+) -> str:
+    """Build the establishment user message (schema v1.30, BRIEF-17).
+
+    Reads `entity.description` (passed in by the caller), NOT
+    `location.description` (no such column). Subculture is the SAME
+    `_SAFE_SUBCULTURE_KEYS` allow-listed slice `assemble_mj_context` uses —
+    not widened, "hidden" never read. `signposts` are the ONLY
+    perceptible-detail material (from `active_signposts`, never a raw
+    `subject`/`signpost_group`).
+    """
+    ambiance = " ".join(str(v) for v in subculture.values() if v)
+    sign_block = (
+        "\n".join(f"- {s}" for s in signposts)
+        if signposts
+        else "(rien de particulier ne saute aux yeux)"
+    )
+    return (
+        template
+        .replace("{location_name}", location_name)
+        .replace("{description}", description or "")
+        .replace("{subculture}", ambiance)
+        .replace("{signposts}", sign_block)
+    )
+
+
+def _build_establishment_narration(
+    location_id: str,
+    player_character_id: str,
+    world_id: str,
+    db: Session,
+) -> Optional[str]:
+    """Entry narration (schema v1.30, BRIEF-17, F3/G1): a single non-streamed
+    MJ call describing the scene the player perceives on entering. Fired on
+    every entry; a failure must never block scene entry (resilience doctrine,
+    same as the analysis passes).
+    """
+    try:
+        template = _load_mj_establishment_template(world_id, db)
+        if template is None:
+            return None
+        loc_entity = db.get(Entity, location_id)
+        location = db.get(Location, location_id)
+        description = loc_entity.description if loc_entity else None
+        subculture: dict = {}
+        if location and isinstance(location.subculture, dict):
+            subculture = {
+                key: value
+                for key, value in location.subculture.items()
+                if key in _SAFE_SUBCULTURE_KEYS and value
+            }
+        signposts = active_signposts(db, location_id, player_character_id)
+        user_msg = _build_establishment_user(
+            template.user_template,
+            loc_entity.name if loc_entity else location_id,
+            description,
+            subculture,
+            signposts,
+        )
+        raw = ollama_client.chat(
+            [
+                {"role": "system", "content": template.system_prompt},
+                {"role": "user",   "content": user_msg},
+            ],
+            model=ollama_client.DEFAULT_MODEL,
+        )
+        narration = raw.strip()
+        return narration or None
+    except (Exception, SystemExit):
+        _log.exception("Establishment narration failed for location %s", location_id)
+        return None
 
 
 # Hardcoded fallback used when the npc_initiative_act template is not yet seeded.
@@ -2706,12 +2804,21 @@ def _active_conv_for_gathering(player_id: str, gathering_id: str, db: Session) -
     return conv.id if conv else None
 
 
-def _scene_response(location_id: str, player_id: str, world_id: str, db: Session) -> dict:
+def _scene_response(
+    location_id: str,
+    player_id: str,
+    world_id: str,
+    db: Session,
+    establishment: Optional[str] = None,
+) -> dict:
     """Build the canonical scene dict (shared by GET /api/scene and POST /api/scene/enter).
 
     Includes `active_conversation_id`: the open conversation for the player's
     current gathering, if any. The UI uses this to offer "Reprendre" vs
     "Continuer à parler" (a new conversation in the same gathering).
+
+    `establishment` (schema v1.30, BRIEF-17): the entry narration text, or
+    None when not computed (GET /api/scene, a skipped/failed MJ call).
     """
     loc_entity    = db.get(Entity, location_id)
     sess          = _get_or_open_session(world_id, db)
@@ -2727,6 +2834,7 @@ def _scene_response(location_id: str, player_id: str, world_id: str, db: Session
         "gatherings":            [_gathering_brief(g.id, db) for g in open_g],
         "player_gathering":      _gathering_brief(player_g.id, db) if player_g else None,
         "active_conversation_id": active_conv_id,  # None when no open conv in gathering
+        "establishment":         establishment,  # None when not computed/skipped/failed
     }
 
 
@@ -2802,7 +2910,12 @@ def enter_scene(
         # Generate the partition; never raises (falls back to all-solo on error).
         _enter_location(location_id, sess.id, db)
 
-    return _scene_response(location_id, player_id, world_id, db)
+    # Entry narration (schema v1.30, BRIEF-17, F3/G1): fired on EVERY entry,
+    # not just genuine transitions — no change-detection (G2 deferred).
+    # Resilience doctrine: a failed/skipped call must never block scene entry.
+    establishment = _build_establishment_narration(location_id, player_id, world_id, db)
+
+    return _scene_response(location_id, player_id, world_id, db, establishment=establishment)
 
 
 class SceneJoinBody(BaseModel):

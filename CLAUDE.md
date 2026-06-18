@@ -118,15 +118,20 @@ Read both before making any structural change.
 - **Frozen scene yields no model calls** (BRIEF-12): when `scene_state.frozen
   = True`, `/say` short-circuits with a fixed MJ message. No model is invoked.
   Only the creator panel can set `frozen=False`.
-- **`discoverable_detail` is structurally excluded from every assembler**
-  (BRIEF-13): `assemble_mj_context`, `assemble_npc_context`, and all
-  prompt-building paths never read this table. Undiscovered content is absent
-  from every prompt by data exclusion, not instruction. Content reaches a model
-  ONLY via the post-selection `{detail_content}` injection in `_stream()` on a
-  partial/success perception search (`domain="perception"`,
-  `opposed_npc_id=None`). `subculture["hidden"]` is a TRAP — do not add it to
-  `_SAFE_SUBCULTURE_KEYS` or use it as discoverable content; discoverable
-  content lives ONLY in `discoverable_detail`.
+- **`discoverable_detail` is structurally excluded from every assembler, with
+  one consciously narrowed exception** (BRIEF-13, narrowed BRIEF-17):
+  `assemble_mj_context`, `assemble_npc_context`, and all prompt-building paths
+  never read this table. `hidden` content is absent from every prompt by data
+  exclusion, not instruction — it reaches a model ONLY via the post-selection
+  `{detail_content}` injection in `_stream()` on a partial/success perception
+  search (`domain="perception"`, `opposed_npc_id=None`). `ambient` content
+  (the signpost layer, schema v1.30) IS read, but only via the pure code
+  predicate `active_signposts` (context.py) — never through an assembler,
+  never a `subject`/`signpost_group`, only the surviving `content` strings,
+  passed directly into the MJ establishment call (`enter_scene`).
+  `subculture["hidden"]` is a TRAP — do not add it to `_SAFE_SUBCULTURE_KEYS`
+  or use it as discoverable content; discoverable content lives ONLY in
+  `discoverable_detail`.
 - **`connects_to` is location map topology, never a social/relational signal**
   (BRIEF-15, schema v1.28): its `intensity=50` is a meaningless structural
   default. No world-wide relation scan may treat it as one. Every gameplay
@@ -176,7 +181,12 @@ World-genrator/
 │       │                    #   format_item_list_for_interpretation — player's
 │       │                    #   items for {item_list}, fed to pt-mj-interpretation
 │       │                    #   (BRIEF-07, schema v1.19; delegates to
-│       │                    #   format_inventory_line since BRIEF-08/D2a.1)
+│       │                    #   format_inventory_line since BRIEF-08/D2a.1);
+│       │                    #   active_signposts — signpost layer silence
+│       │                    #   predicate (BRIEF-17, schema v1.30): pure
+│       │                    #   DB-read, sibling to assemble_mj_context, never
+│       │                    #   called from inside it; returns only surviving
+│       │                    #   ambient `content` strings (E1 cluster rule)
 │       ├── gathering.py     # initial NPC clustering (generate_gatherings,
 │       │                    #   enter_location, contracts A2/B1/C1) + migrate_npc
 │       │                    #   (idempotent NPC migration between gatherings,
@@ -306,12 +316,20 @@ World-genrator/
 │           │                #   detail, injects rubric into MJ user message);
 │           │                #   _build_mj_user search_rubric param;
 │           │                #   discovered flip in _apply_mutation new_knowledge
-│           │                #   branch on creator approval
+│           │                #   branch on creator approval;
+│           │                # signpost layer (BRIEF-17, schema v1.30):
+│           │                #   _load_mj_establishment_template,
+│           │                #   _build_establishment_user, _build_establishment_narration
+│           │                #   (non-streamed chat() call, try/except-wrapped, never
+│           │                #   blocks scene entry); wired into enter_scene on EVERY
+│           │                #   entry (G1), before _scene_response — which gains the
+│           │                #   `establishment: str | None` field
 │           ├── crud.py      # Author CRUD — direct canonical writes (no proposed_mutation
 │           │                #   checkpoint): entity/character/location/faction sheets,
 │           │                #   relation/knowledge row editors, skill tier editor
 │           │                #   (BRIEF-10, v1.22), discoverable_detail CRUD (BRIEF-13,
-│           │                #   v1.26): GET/POST /locations/{id}/discoverable-details,
+│           │                #   v1.26; signpost_group field BRIEF-17/v1.30):
+│           │                #   GET/POST /locations/{id}/discoverable-details,
 │           │                #   PUT/DELETE /discoverable-details/{id}; creator mode only;
 │           │                #   location map graph (BRIEF-15, schema v1.28):
 │           │                #   GET /api/locations/graph — read-only, returns active
@@ -352,6 +370,11 @@ World-genrator/
 │                            #   discoverable details panel on location sheet
 │                            #   (BRIEF-13, schema v1.26): creator mode only —
 │                            #   list/add/edit/delete details; player mode hidden;
+│                            #   cluster-native signpost display (BRIEF-17,
+│                            #   schema v1.30): rows sharing a signpost_group
+│                            #   render together under a group header with
+│                            #   per-row ambient/hidden badges; signpost_group
+│                            #   editable on create + edit forms;
 │                            #   location adjacency graph panel in Lieux sub-tab
 │                            #   (BRIEF-15, schema v1.28): hand-rolled SVG, zero
 │                            #   deps; graphLoad / graphRender / graphAutoPlace
@@ -368,6 +391,7 @@ World-genrator/
 │   ├── analyze_conversation.py  # extract proposed mutations from a closed conversation
 │   ├── migrate_v1_24.py     # add conversation.scene_state column (BRIEF-12, idempotent)
 │   ├── migrate_v1_26.py     # add discoverable_detail table + indexes (BRIEF-13, idempotent)
+│   ├── migrate_v1_30.py     # add discoverable_detail.signpost_group + index (BRIEF-17, idempotent)
 │   └── cockpit.py           # launch the review cockpit (uvicorn, 127.0.0.1 only)
 ├── pyproject.toml           # src-layout package metadata
 ├── requirements.txt
@@ -448,8 +472,9 @@ prepend `src` to `sys.path`, so they run without an editable install.
   location's gatherings on next entry.
 - **Re-seeding prompts:** `python scripts/seed_pilot.py` uses `upsert_prompt_template`
   for `pt-mj-narration`, `pt-mj-interpretation`, `pt-mj-gathering`, `pt-mj-speaker`,
-  `pt-mj-initiative`, `pt-npc-initiative-act`, and `pt-mj-arbiter` — re-running
-  the seed converges the DB to the latest wording without losing other data.
+  `pt-mj-initiative`, `pt-npc-initiative-act`, `pt-mj-arbiter`, and
+  `pt-mj-establishment` — re-running the seed converges the DB to the latest
+  wording without losing other data.
 
 ---
 

@@ -1184,6 +1184,117 @@ doctrine as the rest of `crud.py`. In player mode this surface is hidden.
 
 ---
 
+## Signpost layer — perceptible entry cues (BRIEF-17, schema v1.30)
+
+Closes the gap BRIEF-13 left open: `access_level='ambient'` existed in the
+schema but was structurally dead (no code path read it). This step builds the
+missing layer: a **signpost** — a perceptible-without-roll detail, narrated by
+the MJ on location entry, that orients the search and falls silent once its
+linked content is known.
+
+### Signpost/cluster model (D1)
+
+A **signpost** is one `ambient` row. It can group N `hidden` content rows via
+a new `signpost_group TEXT` column: both the panel row and its grouped
+contents carry the SAME `signpost_group` value. One signpost groups N
+contents; each content belongs to exactly one group. The full N↔N
+cardinality (a hidden content under multiple panels) is a named deferral
+(D2) — no link table, no `subject` carrying multiple `signpost_group` values.
+
+### E1 — the silence rule
+
+A grouped signpost is silent iff the player holds a `knowledge` row (existence
+only — any level counts) for EVERY hidden subject in its cluster. Partial
+knowledge (some but not all subjects known) still narrates. Ungrouped ambient
+rows (`signpost_group IS NULL`) are always active — a standalone ambient note
+with no linked content has no silence condition.
+
+### I3 — the silence judgment is code, never a prompt instruction
+
+`active_signposts(db, location_id, player_character_id)` (context.py) is a
+pure DB-read function, sibling to `assemble_mj_context`, called from the entry
+path BEFORE any assembler. It returns ONLY the surviving ambient `content`
+strings — no `subject`, no `signpost_group` value ever leaves this function,
+matching **"Le modèle extrait, le code juge"**: the exhaustion judgment is a
+code predicate, the model receives only the surviving prose and writes from
+it. `assemble_mj_context` is unchanged — it performs no `discoverable_detail`
+query and never holds a `subject` (Preferred wiring from the brief: the entry
+path calls `active_signposts` directly and passes the `list[str]` into the
+establishment prompt builder, never touching the assembler).
+
+### The consciously-narrowed BRIEF-13 invariant
+
+BRIEF-13 stated "discoverable_detail is never read by any context assembler."
+This step narrows that invariant, deliberately and narrowly, for `ambient`
+rows only:
+
+- `hidden` rows remain fully excluded from every assembler, exactly as
+  before — the existing search/reveal path (`_stream`'s perception branch,
+  `_propose_engine_discovery`, the `discovered` flip in `_apply_mutation`) is
+  untouched by this step.
+- `ambient` content is read, but only by the code-side predicate above, never
+  by `assemble_mj_context`/`assemble_npc_context`/any prompt-building path,
+  and only its `content` — never a `subject` or `signpost_group`.
+- `subculture["hidden"]` remains a trap: `_SAFE_SUBCULTURE_KEYS` is not
+  widened by this step.
+
+### F3 / G1 — non-streamed establishment, every entry
+
+`enter_scene` (app.py), after the gathering-partition step, fires a single
+non-streamed `chat()` MJ call (`pt-mj-establishment`, new
+`usage='mj_establishment'`) on EVERY entry — not gated behind the idempotent
+"genuine transition" guard that protects gathering generation, so a same-
+location re-render also re-narrates. No change-detection ("a signpost fell
+silent / an NPC left") is built — that is G2, a named deferral. The user
+message is built from `entity.description` (NOT `location.description` — no
+such column), the same `_SAFE_SUBCULTURE_KEYS` slice `assemble_mj_context`
+reads, and `active_signposts(...)`'s surviving content. The system prompt
+carries the same anti-invention rule as `pt-mj-narration`: describe ONLY from
+the provided context, invent no object, letter, passage, clue, or NPC not
+given. Established prose names no co-present NPCs (J1) — the scene UI's
+gathering list already shows who is present; reading "all NPCs at the
+location" into the establishment call is a named deferral, not built.
+
+The call is wrapped in `try/except (Exception, SystemExit)`, logged via
+`_log.exception`: a failed or skipped establishment narration must never
+block scene entry, same resilience doctrine as the analysis passes.
+`_scene_response` gains one field, `establishment: str | None` — `None` when
+the call was skipped (no active template) or failed.
+
+### Resolution writes zero canon
+
+The establishment call writes no canon: no `proposed_mutation`, no
+`knowledge`, no `entity`. Pure narration, like the MJ narration phase. The
+only writes this step introduces to canon are creator-direct CRUD edits of
+`signpost_group` — the sanctioned author-CRUD path, no `change_history` (same
+as the rest of `discoverable_detail`'s CRUD).
+
+### Cockpit (C1)
+
+The Lieux discoverable-details editor groups rows sharing a `signpost_group`
+under a header (`{group} : N ambient panel(s) + M hidden content(s)`), each
+row carrying an ambient/hidden badge. Ungrouped rows render individually, as
+before. `signpost_group` is editable on create and edit, round-trips through
+`crud.py`'s existing CRUD endpoints (creator-direct write, no
+`proposed_mutation`).
+
+### Named deferrals (this step)
+
+- **N↔N cardinality (D2).** A hidden content under multiple panels, or the
+  full many-to-many. Strictly D1 this step.
+- **Pickable-object layer.** "The player picks up the letter" (the `item`
+  path) is not in scope. Signpost = perceptible panel + its hidden content
+  only.
+- **G2 change-cadence.** Narrate-only-on-change is not built; G1 (every
+  entry) is the chosen cadence.
+- **NPC-naming at entry (J2).** No "all NPCs present, ungathered-scoped" read
+  path for the establishment call.
+- **`discovery_threshold` activation, NPC opposition to a search,
+  per-character discovery state** — unchanged BRIEF-13 deferrals, untouched
+  by this step.
+
+---
+
 ## WORLD MAP — location adjacency (Step A, BRIEF-15, schema v1.28)
 
 ### `connects_to` convention
@@ -1396,11 +1507,11 @@ Recorded here so each is revisited deliberately rather than forgotten:
   the resolution machinery (`_arbitrate`, `resolve_physical`) is wired only to
   player-initiated or player-responding turns; an NPC↔NPC roll would need its
   own (still hypothetical) trigger and is not scoped.
-- **Passive perception on location entry** (BRIEF-13). `access_level='ambient'`
-  exists in the schema and CRUD so the creator can seed ambient content now, but
-  no code reads or reveals ambient details on entry — no automatic reveal on
-  `enter_location`, no ambient-detail injection, no MJ scene-establishing call.
-  Dedicated later step.
+- **Passive perception on location entry** (BRIEF-13) — **resolved by
+  BRIEF-17** (schema v1.30, "Signpost layer — perceptible entry cues" above).
+  `access_level='ambient'` is now read by `active_signposts` (code predicate,
+  never an assembler) and narrated via a new MJ establishment call in
+  `enter_scene`.
 - **`discovery_threshold` activation** (BRIEF-13). Schema column present and
   editable, never compared against `verdict.total`. Both `partial` and `success`
   reveal equally (binary gate). "Some info is better hidden than other" is a
