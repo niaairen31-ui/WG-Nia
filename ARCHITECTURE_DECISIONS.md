@@ -1565,6 +1565,48 @@ relation intensity, with no currency stated, must never become a
 no ledger touch). The rubric makes this explicit to the model; the guard
 exists in the rubric, not in code, the same as before this step.
 
+### Pricing — permanent catalogue vs unique quote (schema v1.33, BRIEF-20)
+
+**The firm/improvised split.** `entity.metadata.price_list` (`{tag: int}`)
+holds a seller's FIRM catalogue — identical for every buyer, never relation-
+modulated. Anything not in the catalogue gets an AI-improvised quote: the
+NPC names one price, anchored on the catalogue's order of magnitude and
+modulated by its relation toward the buyer. The split is deliberate: a
+firm catalogue is config a creator can audit at a glance; an improvised
+quote is free dialogue, bounded only by the anchor and the relation cue
+already surfaced in `assemble_npc_context`. No haggling round either way —
+the NPC states one number.
+
+**One injection, two uses.** The "TES TARIFS" block `assemble_npc_context`
+writes into an NPC's own context block serves both roles at once: it is
+the verbatim text the NPC quotes for catalogue items, AND the reference
+scale the rubric tells it to stay within when improvising an uncatalogued
+price. No second query, no separate "pricing context" — the existing
+seller's-own-list injection already carries everything the rubric needs.
+
+**Why dialogue, not a structured call.** Unlike the arbiter or the
+interpretation phase, pricing has no `pt-pricing` classification step. A
+quoted number is free dialogue precisely because the real control is
+downstream: the money only moves canonically through a `resource_change`
+at the checkpoint (BRIEF-19) when a sale actually concludes. Gating the
+quote itself would duplicate a control that already exists at the point
+that matters — free dialogue, controlled consequences, same doctrine as
+the rest of the engine.
+
+**Metadata-config treatment, not canon history.** `price_list` lives in
+`entity.metadata`, same category as `physical_tier` and `coordinates`: a
+creator-CRUD read-merge-write, no `change_history`. The actual sale audit
+trail is the `ledger`, not the catalogue — editing a price going forward
+does not need to preserve what it used to be, the same way moving a pin on
+the location graph doesn't.
+
+**The exclusion guarantee, reaffirmed.** `price_list` is read ONLY inside
+`assemble_npc_context`, for the NPC being assembled, never for anyone else's
+context and never inside `assemble_mj_context`. A player perceives a price
+exclusively as something they're told in dialogue — never a sheet they can
+see. Enforced by query construction (the assembler reads `npc_entity`'s own
+`metadata_`, nothing else's), not by instruction.
+
 ---
 
 ## V1 SCOPE — Minimal playable
@@ -1673,9 +1715,6 @@ Recorded here so each is revisited deliberately rather than forgotten:
   overhearing receivers, so a player *purchase* is never affected).
   Accepted for the pilot — caught by creator review at the checkpoint; to be
   closed only if live play shows it occurring.
-- **Pricing** (ECONOMY, schema v1.31). No `entity.metadata.price_list`, no
-  "Tarifs" creator editor, no AI-proposed prices, no `relation.intensity`
-  price modulation. Step 3.
 - **Tracked NPC purses / full double-entry** (ECONOMY, A2/A3, schema v1.31).
   Today only the player-relevant single line is written per transaction
   (decision A1); giving NPCs their own auditable balance is a later step, if
@@ -1684,9 +1723,16 @@ Recorded here so each is revisited deliberately rather than forgotten:
   Favors stay an implicit `relation` delta. Re-adding a `resource_type`
   column to `ledger` later (to make favor-currency trackable like money) is a
   zero-migration `ALTER … DEFAULT 'currency'` — deliberately not built now.
-- **Ledger-as-pricing-dataset** (ECONOMY, schema v1.31). Querying historical
-  `ledger` lines to inform AI pricing decisions needs the ledger to actually
-  have lines first — not before step 3.
+- **Ledger-as-pricing-dataset** (ECONOMY, schema v1.31, reaffirmed v1.33).
+  Querying historical `ledger` lines to inform AI pricing decisions needs the
+  ledger to actually have lines first — still deferred post-BRIEF-20.
+- **Haggling / negotiation, relation-modulated catalogue prices, structured
+  pricing call, Claude-routed high-stakes quotes, price→entity linkage,
+  automatic price evolution, NPC purchasing/inventories, per-world currency
+  display name** (ECONOMY, schema v1.33, BRIEF-20). `price_list` itself and
+  its AI-improvised-quote rubric are now built (see "Pricing — permanent
+  catalogue vs unique quote" above); these surrounding refinements remain
+  deliberately out of scope.
 
 ---
 

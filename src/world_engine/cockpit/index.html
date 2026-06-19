@@ -3105,6 +3105,12 @@ function authorRenderSheet(detail, isNew, type) {
     html += '</div>';
   }
 
+  if (!isNew && type === 'character' && currentCreationSubTab === 'npc') {
+    html += '<div class="field-section"><div class="field-section-title">Tarifs</div>';
+    html += `<div id="author-pricing">${authorRenderPricing(detail)}</div>`;
+    html += '</div>';
+  }
+
   if (!isNew && type === 'location') {
     html += '<div class="field-section"><div class="field-section-title">Discoverable Details</div>';
     html += '<div id="author-disc-list"><div class="empty"><span class="spin">⟳</span></div></div>';
@@ -3120,6 +3126,86 @@ function authorRenderSheet(detail, isNew, type) {
   }
   if (!isNew && type === 'location') {
     authorLoadDiscDetails(detail.id);
+  }
+}
+
+/* ── Tarifs editor (BRIEF-20) — entity.metadata.price_list, NPC sheet only ──
+ * Creator-direct read-merge-write on metadata, no proposed_mutation, no
+ * change_history (same treatment as physical_tier / coordinates). Every
+ * mutation re-fetches the entity fresh right before writing, so no other
+ * metadata key is ever clobbered. */
+
+function authorRenderPricing(detail) {
+  const priceList = (detail.metadata && detail.metadata.price_list) || {};
+  const tags = Object.keys(priceList);
+  const rows = tags.length
+    ? tags.map(tag => `
+      <div class="field-row" data-tag="${esc(tag)}" style="flex-direction:row; gap:8px; align-items:center; margin-bottom:6px">
+        <span style="flex:1">${esc(tag)}</span>
+        <input type="number" class="author-price-amt" value="${esc(priceList[tag])}" style="width:90px">
+        <button class="btn-icon" onclick="authorSavePriceEntry(this)" title="Enregistrer">💾</button>
+        <button class="btn-icon" onclick="authorDeletePriceEntry(this)" title="Supprimer">✕</button>
+      </div>`).join('')
+    : '<div class="empty">Aucun tarif.</div>';
+
+  return `<div id="author-pricing-rows">${rows}</div>
+    <div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-top:8px">
+      <input type="text" id="author-price-new-tag" placeholder="tag (ex : biere)" style="flex:1">
+      <input type="number" id="author-price-new-amount" placeholder="montant" style="width:90px">
+      <button class="btn-send" onclick="authorAddPriceEntry()">+ Ajouter</button>
+    </div>`;
+}
+
+function authorSavePriceEntry(btn) {
+  const row = btn.closest('[data-tag]');
+  const tag = row.dataset.tag;
+  const amount = Number(row.querySelector('.author-price-amt').value);
+  if (!Number.isFinite(amount)) { alert('Montant invalide'); return; }
+  authorPriceListMutate(pl => { pl[tag] = amount; });
+}
+
+function authorDeletePriceEntry(btn) {
+  const row = btn.closest('[data-tag]');
+  authorPriceListMutate(pl => { delete pl[row.dataset.tag]; });
+}
+
+function authorAddPriceEntry() {
+  const tagEl = document.getElementById('author-price-new-tag');
+  const amtEl = document.getElementById('author-price-new-amount');
+  const tag = tagEl.value.trim();
+  const amount = Number(amtEl.value);
+  if (!tag) { alert('Tag requis'); return; }
+  if (!Number.isFinite(amount)) { alert('Montant invalide'); return; }
+  authorPriceListMutate(pl => { pl[tag] = amount; });
+}
+
+/** Read-merge-write on entity.metadata: GET fresh, set only metadata.price_list,
+ *  PUT the complete body back — same discipline as the v1.28 coordinates write. */
+async function authorPriceListMutate(mutateFn) {
+  const statusEl = document.getElementById('author-status');
+  try {
+    const fresh = await api(`/api/entities/${encodeURIComponent(authorEntityId)}`);
+    const entityData = {};
+    for (const field of authorRegistry.entity_base_fields) {
+      entityData[field.name] = field.name === 'metadata' ? { ...(fresh.metadata || {}) } : fresh[field.name];
+    }
+    const priceList = { ...(entityData.metadata.price_list || {}) };
+    mutateFn(priceList);
+    if (Object.keys(priceList).length) entityData.metadata.price_list = priceList;
+    else delete entityData.metadata.price_list;
+
+    const extData = {};
+    for (const field of authorRegistry.types[fresh.type].fields) {
+      extData[field.name] = fresh.extension ? fresh.extension[field.name] : undefined;
+    }
+    const body = JSON.stringify({ entity: entityData, extension: extData });
+    const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
+    authorRenderSheet(detail, false, detail.type);
+    document.getElementById('author-status').className = 'author-status ok';
+    document.getElementById('author-status').textContent = 'Tarifs mis à jour.';
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = e.message;
   }
 }
 

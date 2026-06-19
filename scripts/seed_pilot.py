@@ -142,6 +142,27 @@ def align_relation_intensity(session: Session, id: str, target: int) -> None:
         )
 
 
+def merge_entity_metadata(session: Session, entity_id: str, updates: dict) -> None:
+    """Read-merge-write into entity.metadata_ without clobbering other keys.
+
+    Same discipline as the cockpit's Tarifs editor (BRIEF-20): existing keys
+    (e.g. physical_tier) survive untouched. Idempotent — a second run with
+    unchanged values records nothing changed.
+    """
+    entity = session.get(m.Entity, entity_id)
+    if entity is None:
+        return
+    merged = dict(entity.metadata_ or {})
+    changed = False
+    for key, value in updates.items():
+        if merged.get(key) != value:
+            merged[key] = value
+            changed = True
+    if changed:
+        entity.metadata_ = merged
+        _updated.append((m.Entity.__tablename__, entity_id))
+
+
 # Analysis prompt for post-conversation mutation extraction. Usage value is
 # "conversation_analysis" — not in the schema's listed examples but the column
 # is plain TEXT, so any slug works. world_id = NULL means it applies to every
@@ -761,6 +782,20 @@ Si l'on te demande pour qui tu travailles ou quels intérêts tu sers, tu trouve
 question saugrenue : tu ne sers les intérêts de personne et tu ne travailles pour \
 personne d'autre que toi-même. Tu fais ton métier, rien de plus.
 
+RÈGLES DE TARIFICATION (si tu vends quelque chose) :
+- Tes prix affichés (bloc TES TARIFS) sont FERMES et identiques pour tout \
+le monde : tu les énonces tels quels, sans marchander.
+- Pour une chose qui n'est PAS dans tes tarifs (objet rare, service \
+inhabituel, faveur), tu proposes toi-même un prix, en te servant de tes \
+tarifs comme ÉCHELLE de référence : reste dans le même ordre de grandeur, \
+ne lance pas un nombre absurde. Tu peux laisser ta relation avec la \
+personne l'influencer — plus bas pour quelqu'un que tu apprécies, plus \
+haut pour quelqu'un dont tu te méfies. Annonce UN seul prix (pas de \
+marchandage en va-et-vient pour l'instant).
+- Tu ne vends que ce que tu possèdes ou peux raisonnablement fournir ; tu \
+n'inventes pas un stock que tu n'as pas.
+- Les montants sont dans la monnaie du lieu.
+
 FORMAT.
 Tu réponds uniquement par la réplique de ton personnage, en français, à la \
 première personne. Tu n'es pas un narrateur : n'utilise jamais « tu » pour décrire \
@@ -828,6 +863,7 @@ def seed(session: Session) -> None:
         user_template="{player_line}",
         variables=["player_line", "relation_intensity"],
         destination="local",
+        version=2,
     )
 
     # ----- prompt template: NPC initiative act (Tier 3, C2) ------------------
@@ -1174,6 +1210,12 @@ def seed(session: Session) -> None:
                 "discours public nie tout lien."
             )
         },
+    )
+    # Starter catalogue (BRIEF-20) — read-merge so no other metadata key is clobbered.
+    merge_entity_metadata(
+        session,
+        "npc-maelis",
+        {"price_list": {"biere": 5, "chambre": 40, "repas": 12}},
     )
 
     # Reike — La Garde, officier en civil.

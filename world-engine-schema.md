@@ -820,6 +820,26 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.33** — No new tables or columns. Pricing layer. New documented
+  convention `entity.metadata.price_list` (`{tag: int}`, base-unit integers)
+  marking a seller's firm catalogue — same metadata-config category as
+  `physical_tier`/`coordinates` (no `change_history`; the sale audit trail is
+  the ledger). `assemble_npc_context` injects a verbatim "TES TARIFS" block
+  for any NPC with a non-empty `price_list` (the seller's own list only —
+  never another entity's, never `assemble_mj_context`/player perception),
+  serving as both firm catalogue and the reference scale for uncatalogued
+  quotes. `npc_dialogue` bumped (+pricing rubric: catalogue prices firm and
+  universal; uncatalogued items priced by the NPC on the catalogue's scale,
+  relation-modulated, one price, no haggling; sell only what you have).
+  Cockpit "Tarifs" editor (Création → NPC), creator-direct read-merge-write
+  on `metadata` (no clobber, no `proposed_mutation`). `seed_pilot.py` seeds
+  Maelis Vorne a starter `price_list`. **Pricing writes no canon** — a quote
+  is free dialogue; the concluded exchange is a `resource_change` (step 2)
+  through the checkpoint. *Deferred:* haggling/negotiation; relation-modulated
+  catalogue prices; structured pricing call; Claude-routing for high-stakes
+  quotes; ledger-driven pricing dataset; price→entity linkage; automatic
+  price evolution (inflation/scarcity); NPC purchasing/inventories; per-world
+  currency display name.
 - **v1.32** — No new tables or columns. Application-layer: `resource_change`,
   the 6th implemented `proposed_mutation.mutation_type` (alongside
   `relation_change`, `new_knowledge`, `knowledge_change`, `status_change`,

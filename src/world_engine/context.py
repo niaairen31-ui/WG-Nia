@@ -272,6 +272,15 @@ def assemble_npc_context(
 
     company_section = _section(H_COMPANY, company) + "\n" if company else ""
 
+    # ----- 4c. Seller tariffs (BRIEF-20) — this NPC's own price_list only ---
+    price_list = npc_entity.metadata_.get("price_list") if isinstance(npc_entity.metadata_, dict) else None
+    pricing_section = ""
+    if isinstance(price_list, dict) and price_list:
+        tariff_lines = ["TES TARIFS (prix fermes) :"]
+        for tag, amount in price_list.items():
+            tariff_lines.append(f"- {tag} : {amount}")
+        pricing_section = "\n".join(tariff_lines) + "\n\n"
+
     return (
         _section(H_IDENTITY, identity)
         + "\n"
@@ -282,6 +291,7 @@ def assemble_npc_context(
         + _section(H_PERCEPTION, perception)
         + "\n"
         + company_section
+        + pricing_section
         + _section(H_BOUNDARIES, boundaries)
     )
 

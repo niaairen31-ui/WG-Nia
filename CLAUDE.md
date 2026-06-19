@@ -152,6 +152,12 @@ Read both before making any structural change.
   its knowledge leg is idempotent and guarded only at apply time (block-whole
   → Needs attention). The money leg targets the player only (A1) until
   tracked NPC purses are introduced.
+- **`entity.metadata.price_list` is seller configuration** (BRIEF-20, schema
+  v1.33), injected ONLY into that seller's own dialogue context — never into
+  `assemble_mj_context` (player perception) or any other entity's context. A
+  quoted price is free dialogue and writes no canon; the money movement is a
+  `resource_change` through the checkpoint. Catalogue prices are firm and
+  universal; only uncatalogued quotes are relation-modulated.
 
 ## Local model notes
 
@@ -197,7 +203,13 @@ World-genrator/
 │       │                    #   predicate (BRIEF-17, schema v1.30): pure
 │       │                    #   DB-read, sibling to assemble_mj_context, never
 │       │                    #   called from inside it; returns only surviving
-│       │                    #   ambient `content` strings (E1 cluster rule)
+│       │                    #   ambient `content` strings (E1 cluster rule);
+│       │                    #   seller tariffs (BRIEF-20, schema v1.33):
+│       │                    #   assemble_npc_context injects a verbatim "TES
+│       │                    #   TARIFS" block from the NPC's OWN
+│       │                    #   metadata.price_list only, absent when empty —
+│       │                    #   never read by assemble_mj_context or another
+│       │                    #   entity's context
 │       ├── gathering.py     # initial NPC clustering (generate_gatherings,
 │       │                    #   enter_location, contracts A2/B1/C1) + migrate_npc
 │       │                    #   (idempotent NPC migration between gatherings,
@@ -430,7 +442,14 @@ World-genrator/
 │                            #   no edit/delete UI (append-only); per-character
 │                            #   "Solde" block on the character sheet (NPC and
 │                            #   Personnage joueur), read-only, GET
-│                            #   /api/entities/{id}/ledger
+│                            #   /api/entities/{id}/ledger;
+│                            #   Création → NPC "Tarifs" editor (BRIEF-20, schema
+│                            #   v1.33): add/edit/remove entity.metadata.price_list
+│                            #   entries; creator-direct read-merge-write through
+│                            #   the existing entity PUT (GET fresh, set only
+│                            #   metadata.price_list, no clobber of other metadata
+│                            #   keys), no proposed_mutation; shown only on the
+│                            #   NPC sub-tab
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)
@@ -519,8 +538,8 @@ prepend `src` to `sys.path`, so they run without an editable install.
   `current_location_id`); the existing scene-entry flow generates the new
   location's gatherings on next entry.
 - **Re-seeding prompts:** `python scripts/seed_pilot.py` uses `upsert_prompt_template`
-  for `pt-mj-narration`, `pt-mj-interpretation`, `pt-mj-gathering`, `pt-mj-speaker`,
-  `pt-mj-initiative`, `pt-npc-initiative-act`, `pt-mj-arbiter`, and
+  for `pt-npc-dialogue`, `pt-mj-narration`, `pt-mj-interpretation`, `pt-mj-gathering`,
+  `pt-mj-speaker`, `pt-mj-initiative`, `pt-npc-initiative-act`, `pt-mj-arbiter`, and
   `pt-mj-establishment` — re-running the seed converges the DB to the latest
   wording without losing other data.
 
