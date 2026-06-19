@@ -153,8 +153,8 @@ Output: a JSON array only. No prose. No markdown fences. Start with [, end with 
 Nothing changed → output exactly: []
 
 Every element must have these EXACT 5 keys — no other keys allowed:
-  "mutation_type"  (string) — relation_change | new_knowledge | knowledge_change | event_creation | status_change | entity_creation | other
-  "target_table"   (string) — relation | knowledge | event | entity | character | location | faction | artifact | other
+  "mutation_type"  (string) — relation_change | new_knowledge | knowledge_change | event_creation | status_change | entity_creation | resource_change | other
+  "target_table"   (string) — relation | knowledge | event | entity | character | location | faction | artifact | ledger | other
   "target_id"      (string or null) — id of the row to update; null for a new row
   "payload"        (object) — fields matching the target table (see below)
   "rationale"      (string) — one line quoting or summarising the evidence
@@ -164,6 +164,7 @@ Payload shapes:
   new_knowledge    → {"entity_id":"…","subject":"…","level":"rumor|partial|knows|…","content":"…","source":"…"}
   knowledge_change → {"entity_id":"…","subject":"…","field":"…","new_value":"…"}
   event_creation   → {"title":"…","description":"…","type":"social|political|other","involved_entities":[…]}
+  resource_change  → {"entity_id":"char-player","amount":<signed int>,"counterparty_id":"…","reason":"…","knowledge":{"entity_id":"…","subject":"…","level":"…","content":"…","source":"…","is_secret":false} (knowledge is OPTIONAL — only when information changed hands)}
 
 === RELATION_CHANGE SIGN RUBRIC ===
 Decide the SIGN of intensity_delta by INTENT, not by surface similarity:
@@ -239,7 +240,38 @@ Transcript:
 [PLAYER] Thank you, that's very kind.
 [NPC] It's my job, but you're welcome.
 Output:
-[]"""
+[]
+
+=== RESOURCE_CHANGE RUBRIC ===
+resource_change — émets-en un UNIQUEMENT quand de la monnaie change
+réellement de main et que le SOLDE DU JOUEUR bouge : une somme a été
+convenue ET l'échange a lieu dans la scène (pas seulement évoquée ou
+marchandée sans conclusion). `amount` = la somme convenue, entier en
+unité de base, signée du point de vue du joueur (négatif s'il paie,
+positif s'il reçoit). `counterparty_id` = le PNJ en face. N'INVENTE
+JAMAIS un prix que le dialogue n'a pas énoncé — tu enregistres ce qui a
+été convenu, tu ne tarifes pas. N'émets PAS de resource_change pour un
+échange d'argent entre PNJ (le solde des PNJ n'est pas suivi). Ajoute le
+bloc `knowledge` SEULEMENT quand l'objet de la transaction est une
+information, et que c'est le joueur (achat) ou un PNJ (le joueur vend une
+info) qui l'acquiert — `content` recopié de ce qui a été dit, jamais
+inventé.
+
+=== EXAMPLE F (player buys an information for a stated sum) ===
+Transcript:
+[PLAYER] I'll give you 15 coins for what you know about the Council.
+[NPC] Fifteen, fine. The Council is hiding one of its own members.
+[PLAYER] Here.
+[NPC] Pleasure doing business.
+Output:
+[{"mutation_type":"resource_change","target_table":"ledger","target_id":null,"payload":{"entity_id":"char-player","amount":-15,"counterparty_id":"npc-senna","reason":"achat d'une information sur le Conseil","knowledge":{"entity_id":"char-player","subject":"conseil_secret","level":"rumor","content":"Le Conseil cache un de ses membres.","source":"acheté à Senna","is_secret":false}},"rationale":"Player paid 15 coins, NPC stated the price and the information, the exchange concluded in the scene."}]
+
+=== EXAMPLE G (pure money, no information — a drink) ===
+Transcript:
+[PLAYER] A round for everyone, on me. Here's 8 coins.
+[NPC] Much obliged.
+Output:
+[{"mutation_type":"resource_change","target_table":"ledger","target_id":null,"payload":{"entity_id":"char-player","amount":-8,"counterparty_id":"npc-tavern-keeper","reason":"tournée offerte"},"rationale":"Player handed over a stated sum, no information changed hands."}]"""
 
 CONVERSATION_ANALYSIS_USER_TEMPLATE = """\
 NPC CONTEXT (what the NPC was authorised to know):
@@ -965,7 +997,8 @@ def seed(session: Session) -> None:
     # substituted with str.replace() in analyzer.py, not .format(), so the
     # JSON examples inside the system_prompt are stored verbatim.
     # Used by analyze_window — one template, one call site (BRIEF-09, v3:
-    # anti-inflation rubric for relation_change in multi-turn windows).
+    # anti-inflation rubric for relation_change in multi-turn windows; v4
+    # (BRIEF-19): resource_change vocabulary + verbatim rubric).
     # Uses upsert so re-seeding always converges the DB to the latest wording.
     upsert_prompt_template(
         session,
@@ -977,7 +1010,7 @@ def seed(session: Session) -> None:
         user_template=CONVERSATION_ANALYSIS_USER_TEMPLATE,
         variables=["transcript", "injected_context"],
         destination="local",
-        version=3,
+        version=4,
     )
 
     # ----- prompt template: overhearing classification (Tier 4, step 2) -----

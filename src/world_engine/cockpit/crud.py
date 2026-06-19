@@ -25,8 +25,9 @@ Deletion policy:
   corrected with a new compensating line (`source_type='correction'`), never
   by editing or deleting an existing row. `write_ledger_entry` (`..writes`)
   is the single chokepoint; this module's `POST /api/ledger` is one of only
-  two sanctioned canon-write paths into `ledger` (the other is step 2's
-  `_apply_mutation`, which will reuse the same helper).
+  two sanctioned canon-write paths into `ledger` (the other is
+  `_apply_mutation`'s `resource_change` branch, BRIEF-19, which reuses the
+  same helper).
 
 Author edits to `relation` are state-setting, not delta accumulation —
 but still append the previous state to `change_history` first (history is
@@ -1002,8 +1003,8 @@ def get_locations_graph(db: DbSession = Depends(get_session)) -> dict:
 # relation/knowledge editors above, this surface is INSERT-ONLY: no PUT, no
 # DELETE, ever. A mistake is corrected with a new compensating line
 # (source_type='correction'), never by editing or deleting an existing row.
-# God-mode: no non-negative balance guard here (that rule is step 2's, on
-# the AI path).
+# God-mode: no non-negative balance guard here (that rule lives in
+# _apply_mutation's resource_change branch, BRIEF-19, on the AI path only).
 
 LEDGER_SOURCE_TYPES_CREATOR = ("creator", "correction")
 
@@ -1039,7 +1040,8 @@ def create_ledger_entry(body: LedgerWriteBody, db: DbSession = Depends(get_sessi
 
     `world_id` is always derived from the target entity, never trusted from
     the client. `conversation_id`/`pass_play_id` are always NULL on this
-    path — those legs belong to step 2's AI-detected `resource_change`.
+    path — those legs belong to `_apply_mutation`'s AI-detected
+    `resource_change` branch (BRIEF-19).
     """
     entity = db.get(Entity, body.entity_id)
     if entity is None:

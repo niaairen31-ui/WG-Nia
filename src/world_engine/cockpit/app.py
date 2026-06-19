@@ -50,6 +50,7 @@ from ..context import (
     format_mj_context,
 )
 from ..db import engine, get_session
+from ..ledger import get_balance as _get_balance
 from ..models import (
     Character,
     Conversation,
@@ -72,6 +73,7 @@ from ..writes import (
     _append_knowledge_history,
     knowledge_level_rank,
     write_knowledge,
+    write_ledger_entry,
     write_relation,
 )
 from . import crud as _crud
@@ -149,6 +151,13 @@ def _find_applied_duplicate(
     partial → knows) must both apply — the monotone re-check inside
     _apply_mutation ("level already >= proposed") is the correct guard, not
     an identity-based duplicate check.
+
+    resource_change is also intentionally EXCLUDED (BRIEF-19). Its money leg
+    accumulates exactly like relation_change — two genuine purchases in one
+    conversation must both apply. Its knowledge leg IS idempotent, but that
+    guard lives inside the resource_change branch itself
+    (_knowledge_leg_already_applied, guard 4c), not here — this generic
+    guard must never be extended to pattern-match the whole mutation.
     """
     if not mut.conversation_id:
         return None
@@ -191,6 +200,44 @@ def _find_applied_duplicate(
     return None
 
 
+def _knowledge_leg_already_applied(
+    db: Session,
+    conversation_id: str,
+    entity_id: str,
+    subject: str,
+) -> bool:
+    """True if an equivalent knowledge acquisition was already applied for this
+    conversation — scanning BOTH applied `new_knowledge` rows (payload
+    `entity_id`+`subject`) AND applied `resource_change` knowledge legs
+    (payload `knowledge.entity_id`+`knowledge.subject`). Part of the
+    resource_change knowledge-leg block-whole guard (4c, BRIEF-19).
+
+    KNOWN ACCEPTED GAP, one-directional by design: this guard protects a
+    resource_change knowledge leg from colliding with a prior new_knowledge
+    or resource_change row, but the new_knowledge branch's own
+    _find_applied_duplicate is deliberately NOT extended to scan
+    resource_change knowledge legs. Do not touch that guard to close this —
+    see ARCHITECTURE_DECISIONS.md "Deferred decisions".
+    """
+    rows = db.exec(
+        select(ProposedMutation).where(
+            ProposedMutation.conversation_id == conversation_id,
+            ProposedMutation.status == "applied",
+            ProposedMutation.mutation_type.in_(("new_knowledge", "resource_change")),
+        )
+    ).all()
+    for row in rows:
+        p = row.payload if isinstance(row.payload, dict) else {}
+        if row.mutation_type == "new_knowledge":
+            if p.get("entity_id") == entity_id and p.get("subject") == subject:
+                return True
+        else:
+            k = p.get("knowledge")
+            if isinstance(k, dict) and k.get("entity_id") == entity_id and k.get("subject") == subject:
+                return True
+    return False
+
+
 # ── Canon writer ──────────────────────────────────────────────────────────────
 
 def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
@@ -216,6 +263,15 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                          its previous state to change_history, update level
                          and source. Monotone — never applies a level that is
                          not strictly higher than the row's current level.
+    - resource_change  : (BRIEF-19) two-leg write, both inside this one
+                         SAVEPOINT — the single sanctioned exception to
+                         one-branch-one-table. Money leg via
+                         write_ledger_entry (always); optional knowledge leg
+                         via write_knowledge (fresh acquisition only).
+                         Guards: non-negative player balance; knowledge-leg
+                         block-whole (existing row, or an equivalent
+                         knowledge already applied this conversation) →
+                         Needs attention, nothing written.
 
     Unimplemented types (event_creation, entity_creation, other) are left as
     'approved' with a note — better un-applied than wrongly applied.
@@ -363,6 +419,83 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
         row.source = str(payload.get("source") or row.source)
         row.updated_at = datetime.now(UTC)
         db.add(row)
+        return None
+
+    # ── resource_change (BRIEF-19) ────────────────────────────────────────────
+    elif mut.mutation_type == "resource_change":
+        entity_id = payload.get("entity_id")
+        counterparty_id = payload.get("counterparty_id")
+        reason = payload.get("reason")
+        if not entity_id:
+            return "resource_change: payload must contain entity_id"
+        try:
+            amount = int(payload.get("amount"))
+        except (TypeError, ValueError):
+            return "resource_change: payload must contain an integer 'amount'"
+
+        knowledge_leg = payload.get("knowledge")
+        if not isinstance(knowledge_leg, dict):
+            knowledge_leg = None
+
+        # Non-negative guard — AI path only; the creator CRUD path stays
+        # god-mode (no balance check on POST /api/ledger).
+        if amount < 0 and _get_balance(db, entity_id) + amount < 0:
+            return "insufficient balance"
+
+        # Knowledge-leg guard (block-whole) — if a clean fresh row cannot be
+        # created, the WHOLE mutation is routed to Needs attention and
+        # nothing is written (not even the money leg).
+        if knowledge_leg is not None:
+            k_entity_id = knowledge_leg.get("entity_id")
+            k_subject = knowledge_leg.get("subject")
+            if not k_entity_id or not k_subject:
+                return "resource_change: knowledge leg must contain entity_id and subject"
+
+            existing_row = db.exec(
+                select(Knowledge).where(
+                    Knowledge.entity_id == k_entity_id,
+                    Knowledge.subject == k_subject,
+                )
+            ).first()
+            if existing_row is not None:
+                return "knowledge already held (upgrade-by-purchase deferred)"
+
+            if mut.conversation_id and _knowledge_leg_already_applied(
+                db, mut.conversation_id, k_entity_id, k_subject
+            ):
+                return "duplicate knowledge leg"
+
+        # session_id from the source conversation, same as new_knowledge.
+        session_id: Optional[str] = None
+        if mut.conversation_id:
+            conv = db.get(Conversation, mut.conversation_id)
+            if conv:
+                session_id = conv.session_id
+
+        write_ledger_entry(
+            db,
+            world_id=mut.world_id,
+            entity_id=entity_id,
+            amount=amount,
+            counterparty_id=counterparty_id,
+            reason=reason,
+            source_type="conversation",
+            conversation_id=mut.conversation_id,
+            session_id=session_id,
+        )
+
+        if knowledge_leg is not None:
+            write_knowledge(
+                db,
+                entity_id=knowledge_leg.get("entity_id"),
+                subject=str(knowledge_leg.get("subject") or "unknown"),
+                level=str(knowledge_leg.get("level") or "rumor"),
+                content=str(knowledge_leg.get("content") or ""),
+                source=str(knowledge_leg.get("source") or "conversation"),
+                is_incorrect=bool(knowledge_leg.get("is_incorrect", False)),
+                is_secret=bool(knowledge_leg.get("is_secret", False)),
+                session_id=session_id,
+            )
         return None
 
     # ── unimplemented ─────────────────────────────────────────────────────────

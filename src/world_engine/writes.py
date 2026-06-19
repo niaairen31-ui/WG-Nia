@@ -19,8 +19,8 @@ functions so that clamping and field validation live in exactly one place.
 - `write_ledger_entry(...)`             : pure INSERT into the append-only
   `ledger` table (BRIEF-18). No UPDATE, no DELETE, ever — a correction is a
   new compensating line. The single chokepoint for ledger writes, shared by
-  the creator CRUD now and `_apply_mutation`'s `resource_change` branch later
-  (step 2) so the two paths cannot diverge.
+  the creator CRUD and `_apply_mutation`'s `resource_change` branch
+  (BRIEF-19) so the two paths cannot diverge.
 
 Callers add the returned row to the session; neither function commits.
 """
@@ -319,10 +319,11 @@ def write_ledger_entry(
     """Insert one `ledger` row. Caller adds the row to the session.
 
     Pure INSERT: no balance read, no non-negative guard (that rule belongs to
-    step 2's `_apply_mutation`, on the AI path), no UPDATE, no DELETE. This is
-    the ONLY function that writes a `ledger` row — both sanctioned canon-write
-    paths (creator CRUD now, `_apply_mutation` in step 2) call it so they
-    cannot diverge. `amount == 0` is rejected: a zero line is meaningless.
+    `_apply_mutation`'s `resource_change` branch, on the AI path — BRIEF-19),
+    no UPDATE, no DELETE. This is the ONLY function that writes a `ledger`
+    row — both sanctioned canon-write paths (creator CRUD, `_apply_mutation`)
+    call it so they cannot diverge. `amount == 0` is rejected: a zero line is
+    meaningless.
     """
     if amount == 0:
         raise ValueError("write_ledger_entry: amount must be nonzero")

@@ -53,6 +53,7 @@ VALID_MUTATION_TYPES = frozenset(
         "event_creation",
         "status_change",
         "entity_creation",
+        "resource_change",
         "other",
     }
 )
@@ -68,6 +69,7 @@ VALID_TARGET_TABLES = frozenset(
         "location",
         "faction",
         "artifact",
+        "ledger",
         "other",
     }
 )
@@ -88,6 +90,12 @@ _MUTATION_TYPE_MAP: dict[str, str] = {
     "event_creation": "event_creation",
     "status": "status_change",
     "status_change": "status_change",
+    "resource_change": "resource_change",
+    "payment": "resource_change",
+    "purchase": "resource_change",
+    "transaction": "resource_change",
+    "achat": "resource_change",
+    "vente": "resource_change",
     "observation": "new_knowledge",   # reclassify model's "observations" as knowledge
     "rumeur": "new_knowledge",
     "rumor": "new_knowledge",
@@ -102,6 +110,7 @@ _TARGET_TABLE_MAP: dict[str, str] = {
     "event_creation": "event",
     "status_change": "entity",
     "entity_creation": "entity",
+    "resource_change": "ledger",
 }
 
 # knowledge.level ladder (schema): unaware < rumor < suspicious < partial <
@@ -277,6 +286,43 @@ def _normalize_to_schema(
                 "involved_entities": [conv.player_id, conv.npc_id],
             }
 
+        elif mt == "resource_change":
+            # A1: the money leg always targets the player this step.
+            entity_id = _first_of(item, "entity_id", "entity", default=None) or conv.player_id
+            raw_amount = _first_of(
+                item, "amount", "montant", "price", "delta", "value", default=None
+            )
+            try:
+                amount = int(raw_amount) if raw_amount is not None else None
+            except (TypeError, ValueError):
+                amount = None
+            counterparty_id = _first_of(
+                item, "counterparty_id", "counterparty", "npc_id", "with",
+                default=conv.npc_id,
+            )
+            reason = str(
+                _first_of(item, "reason", "raison", "description", default=content) or ""
+            )
+            resource_payload: dict = {
+                "entity_id": entity_id,
+                "amount": amount,
+                "counterparty_id": counterparty_id,
+                "reason": reason,
+            }
+            raw_knowledge = item.get("knowledge")
+            if isinstance(raw_knowledge, dict):
+                k_content = str(raw_knowledge.get("content") or "")
+                resource_payload["knowledge"] = {
+                    "entity_id": raw_knowledge.get("entity_id") or entity_id,
+                    "subject": raw_knowledge.get("subject")
+                    or _content_to_subject_slug(k_content),
+                    "level": raw_knowledge.get("level") or "rumor",
+                    "content": k_content,
+                    "source": raw_knowledge.get("source") or "conversation",
+                    "is_secret": bool(raw_knowledge.get("is_secret", False)),
+                }
+            item["payload"] = resource_payload
+
         else:
             # Generic fallback: collect any leftover fields as payload.
             skip = {
@@ -296,6 +342,14 @@ def _normalize_to_schema(
     if item["mutation_type"] == "relation_change":
         payload = item["payload"]
         if not payload.get("entity_a_id") or not payload.get("entity_b_id"):
+            return None
+
+    # resource_change with an unresolved entity_id (the player) or a
+    # non-numeric amount is dropped rather than guessed at — same discipline
+    # as the relation_change attribution rule above (BRIEF-19).
+    if item["mutation_type"] == "resource_change":
+        payload = item["payload"]
+        if not payload.get("entity_id") or not isinstance(payload.get("amount"), int):
             return None
 
     # ── rationale ────────────────────────────────────────────────────────────
@@ -590,8 +644,10 @@ def _mutation_match_key(mutation_type: str, payload: dict):
     Used by analyze_window to avoid re-proposing an idempotent fact that
     analyze_overhearing already flagged (as a 'proposed' row) for the same
     window. Only idempotent mutation types are keyed here — applying the same
-    idempotent fact twice is wrong; accumulating deltas (relation_change) are
-    never deduplicated.
+    idempotent fact twice is wrong; accumulating deltas (relation_change,
+    and resource_change's money leg — BRIEF-19) are never deduplicated here.
+    resource_change's knowledge leg is idempotent too, but that guard lives
+    in `_apply_mutation` at apply time (4c), not here at propose time.
     """
     if mutation_type == "new_knowledge":
         return ("new_knowledge", payload.get("entity_id"), payload.get("subject"))

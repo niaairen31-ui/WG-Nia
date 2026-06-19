@@ -253,7 +253,8 @@ class Ledger(SQLModel, table=True):
     counterparty_id: Optional[str] = Field(default=None, foreign_key="entity.id")
     reason: Optional[str] = None
     source_type: Optional[str] = None
-    # creator | correction | conversation | pass_play (last two reserved for step 2)
+    # creator | correction | conversation | pass_play ('conversation' written by
+    # _apply_mutation's resource_change branch, BRIEF-19; 'pass_play' still unused)
     conversation_id: Optional[str] = Field(default=None, foreign_key="conversation.id")
     pass_play_id: Optional[str] = Field(default=None, foreign_key="pass_play.id")
     session_id: Optional[str] = Field(default=None, foreign_key="session.id")

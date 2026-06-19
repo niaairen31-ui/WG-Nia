@@ -413,6 +413,7 @@ input.notes::placeholder { color: var(--muted); }
 .b-status_change     { background:#271a00; color:#ffa657; border:1px solid #9e6a03; }
 .b-event_creation    { background:#1e1130; color:#d2a8ff; border:1px solid #6e40c9; }
 .b-entity_creation   { background:#1e1130; color:#d2a8ff; border:1px solid #6e40c9; }
+.b-resource_change   { background:#271a00; color:#ffa657; border:1px solid #9e6a03; }
 .b-other             { background:#1c2128; color:var(--muted); border:1px solid var(--border); }
 /* status colours */
 .b-proposed { background:#2b1d00; color:var(--yellow); border:1px solid #9e6a03; }
@@ -2268,9 +2269,30 @@ function setFilterByName(status) {
   }
 }
 
+/* Lazy entity id → name cache, used to render resource_change's money/
+   knowledge legs in human-readable form (BRIEF-19). Loaded once. */
+let _mutationEntityNames = null;
+
+async function _loadMutationEntityNames() {
+  if (_mutationEntityNames) return;
+  try {
+    const rows = await api('/api/entities');
+    _mutationEntityNames = new Map(rows.map(e => [e.id, e.name]));
+  } catch (_) {
+    _mutationEntityNames = new Map();
+  }
+}
+
+function _mutationEntityName(id) {
+  if (!id) return '';
+  if (_mutationEntityNames && _mutationEntityNames.has(id)) return _mutationEntityNames.get(id);
+  return shortId(id);
+}
+
 async function loadQueue() {
   const body = document.getElementById('queue-body');
   try {
+    await _loadMutationEntityNames();
     const mutations = await api('/api/mutations?status=' + currentFilter);
     if (!mutations.length) {
       // "approved" (Needs attention) being empty is the healthy, expected state.
@@ -2307,6 +2329,42 @@ function renderBatchBar() {
 </div>`;
 }
 
+/** Human-readable money + optional knowledge leg for a resource_change card
+ *  (BRIEF-19) — the creator sees what is being granted before approving.
+ *  Returns '' for every other mutation_type. */
+function _renderResourceChangeLegs(m) {
+  if (m.mutation_type !== 'resource_change') return '';
+  const p = m.payload || {};
+  const amount = Number(p.amount);
+  const amountTxt = isNaN(amount) ? String(p.amount) : (amount >= 0 ? '+' : '') + amount;
+  const amountColor = amount < 0 ? 'var(--danger, #c44)' : 'var(--accent)';
+
+  const moneyLine = `
+    <div class="row-card" style="flex-direction:row; align-items:center; gap:10px; flex-wrap:wrap;">
+      <span style="font-weight:600;">${esc(_mutationEntityName(p.entity_id))}</span>
+      <span style="font-weight:700; color:${amountColor};">${esc(amountTxt)}</span>
+      ${p.counterparty_id ? `<span style="color:var(--muted); font-size:12px;">↔ ${esc(_mutationEntityName(p.counterparty_id))}</span>` : ''}
+      ${p.reason ? `<span style="font-size:12px;">${esc(p.reason)}</span>` : ''}
+    </div>`;
+
+  const k = p.knowledge;
+  const knowledgeLine = (k && typeof k === 'object')
+    ? `
+    <div class="row-card" style="flex-direction:row; align-items:center; gap:10px; flex-wrap:wrap;">
+      <span class="badge b-new_knowledge">knowledge</span>
+      <span style="font-weight:600;">${esc(_mutationEntityName(k.entity_id))}</span>
+      <span style="color:var(--muted); font-size:12px;">${esc(k.subject || '')} · ${esc(k.level || '')}</span>
+      ${k.content ? `<span style="font-size:12px;">${esc(k.content)}</span>` : ''}
+    </div>`
+    : '';
+
+  return `<div class="card-fields" style="margin-bottom:8px;">
+    <div class="field-label">Money leg</div>
+    ${moneyLine}
+    ${knowledgeLine ? `<div class="field-label" style="margin-top:6px;">Knowledge leg</div>${knowledgeLine}` : ''}
+  </div>`;
+}
+
 function renderCard(m) {
   const editable   = (m.status === 'proposed');
   const payloadStr = JSON.stringify(m.payload, null, 2);
@@ -2338,6 +2396,8 @@ function renderCard(m) {
     ? `<input type="checkbox" class="row-select" data-id="${esc(m.id)}" onchange="updateBatchBar()">`
     : '';
 
+  const resourceLegsBlock = _renderResourceChangeLegs(m);
+
   return `
 <div class="card s-${esc(m.status)}" id="card-${esc(m.id)}">
   <div class="card-head">
@@ -2352,6 +2412,8 @@ function renderCard(m) {
   ${applyErrorBlock}${dupBlock}
 
   <div class="card-rationale">${esc(m.rationale || '(no rationale provided)')}</div>
+
+  ${resourceLegsBlock}
 
   <div class="card-fields">
     <div>

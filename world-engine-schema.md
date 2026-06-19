@@ -211,7 +211,10 @@ CREATE TABLE ledger (
   counterparty_id TEXT REFERENCES entity(id),           -- the other party (filled, not double-written)
   reason          TEXT,                    -- "pécule de départ", "correction prix"
   source_type     TEXT,                    -- creator | correction | conversation | pass_play
-                                            -- (last two reserved for step 2)
+                                            -- ('conversation' written by
+                                            -- _apply_mutation's resource_change
+                                            -- branch, BRIEF-19/v1.32; 'pass_play'
+                                            -- still unused)
   conversation_id TEXT REFERENCES conversation(id),
   pass_play_id    TEXT REFERENCES pass_play(id),
   session_id      TEXT REFERENCES session(id),
@@ -430,7 +433,7 @@ CREATE TABLE proposed_mutation (
   mutation_type   TEXT NOT NULL,
                   -- relation_change | new_knowledge | knowledge_change |
                   -- event_creation | status_change | entity_creation |
-                  -- item_update | other
+                  -- item_update | resource_change | other
   target_table    TEXT,                    -- table the change applies to
   target_id       TEXT,                    -- row affected (NULL if creation)
   payload         JSON NOT NULL,           -- the proposed change, structured
@@ -817,6 +820,35 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.32** — No new tables or columns. Application-layer: `resource_change`,
+  the 6th implemented `proposed_mutation.mutation_type` (alongside
+  `relation_change`, `new_knowledge`, `knowledge_change`, `status_change`,
+  `item_update`). Two-leg payload — a mandatory monetary leg (`entity_id`,
+  signed `amount` in base unit, `counterparty_id`, `reason`) and an OPTIONAL
+  `knowledge` leg (fresh acquisition only). Owned by `analyze_window`
+  (`proposed_by='local_ai_window'`); `pt-conversation-analysis` bumped to v4
+  with a verbatim rubric (record only a STATED, concluded exchange that moves
+  the PLAYER's balance — A1; never infer a price — that is step 3; never for
+  NPC↔NPC money). `_apply_mutation` gains the branch: both legs in one
+  SAVEPOINT (atomic), money via `writes.write_ledger_entry`
+  (`source_type='conversation'`), knowledge via `writes.write_knowledge`.
+  Guards: non-negative balance (read via `ledger.get_balance`) → Needs
+  attention; knowledge-leg block-whole guard → Needs attention if the buyer
+  already holds the subject (upgrade-by-purchase deferred) or an equivalent
+  knowledge was already applied this conversation (scanning both applied
+  `new_knowledge` and applied `resource_change` knowledge legs).
+  `resource_change` is EXCLUDED from write-time dedup and from
+  `_find_applied_duplicate` — the money leg accumulates like
+  `relation_change`; knowledge-leg idempotency is enforced at apply only.
+  **Known accepted gap (documented, not closed):** guard 4c is
+  one-directional — a `resource_change` knowledge leg applied before a
+  colliding `new_knowledge` (same conversation/entity/subject) is not caught,
+  since the `new_knowledge` guard is deliberately left unextended; narrow
+  (player-sells-to-an-overhearing-NPC only) and caught by creator review.
+  **Deliberate exception:** this is the only apply branch that writes two
+  canon tables. *Deferred:* knowledge_change leg (upgrade-by-purchase);
+  pricing / `metadata.price_list` (step 3); tracked NPC purses (A2/A3);
+  automation/auto-approval; ledger-as-pricing-dataset.
 - **v1.31** — Economy foundation: `ledger` (append-only, currency only).
   New table `ledger` (`id`, `world_id` REFERENCES `world(id)`, `entity_id`
   REFERENCES `entity(id)`, `amount INTEGER NOT NULL` — signed, world base

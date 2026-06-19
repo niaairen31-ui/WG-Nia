@@ -1445,9 +1445,10 @@ mechanisms, never one:
   Stays in `relation` (a jauge, not a ledger): it can be created from
   nothing and destroyed into nothing: there is no total to conserve.
 
-This step builds only the foundation for the first kind: the table, the
-single write chokepoint, the reads, and a creator-direct write path. No AI
-detection, no pricing, no double-entry — those are steps 2 and 3.
+BRIEF-18 built only the foundation for the first kind: the table, the
+single write chokepoint, the reads, and a creator-direct write path. AI
+detection (`resource_change`) followed in BRIEF-19, below; pricing and
+double-entry remain deferred (see "Deferred decisions").
 
 ### A1 — player-relevant single line, no PNJ double-entry
 
@@ -1460,8 +1461,8 @@ agents the player needs to audit; building their books now is premature.
 
 ### B1 — transactions are detected by `analyze_window`, not a separate path
 
-Step 2 will add `resource_change` as a `proposed_mutation.mutation_type`,
-detected by the SAME analyzer that already proposes `relation_change` and
+`resource_change` (BRIEF-19) is a `proposed_mutation.mutation_type` detected
+by the SAME analyzer that already proposes `relation_change` and
 `new_knowledge` from a conversation window — not a parallel "economy
 analyzer." One unified detection pass, one more mutation type it can emit.
 
@@ -1483,15 +1484,15 @@ new compensating line (`source_type='correction'`), never an edit or a
 delete. This is a structural choice, not an oversight — an executor reading
 the surrounding `crud.py` conventions must not pattern-match the ledger to
 its neighbors. `writes.write_ledger_entry` is the single INSERT chokepoint,
-shared by the creator-direct path (this step) and `_apply_mutation`'s future
-`resource_change` branch (step 2), so the two canon-write paths cannot
-diverge into different validation or shapes.
+shared by the creator-direct path and `_apply_mutation`'s `resource_change`
+branch (BRIEF-19), so the two canon-write paths cannot diverge into
+different validation or shapes.
 
 ### The shadow-economy guard
 
-`resource_change` (step 2) is reserved for conserved currency, plus an
+`resource_change` (BRIEF-19) is reserved for conserved currency, plus an
 optional `knowledge` leg when information is the thing being bought (the
-double-table atomic write, also step 2). It must never become the vehicle
+double-table atomic write, also BRIEF-19). It must never become the vehicle
 for "a service rendered against relation intensity" — a favor performed
 because someone is liked or feared, with no currency changing hands. That
 stays the implicit-favor path: a pure `relation_change`, no ledger touch,
@@ -1512,6 +1513,57 @@ reachable only inside the Création shell, which is itself the creator's
 tool (see "Creator control is structural" elsewhere in this doc) — the
 player must never see a balance number or the journal; wealth is felt in
 fiction, never read as a figure.
+
+### resource_change — the transaction mutation (schema v1.32, BRIEF-19)
+
+The 6th implemented `proposed_mutation.mutation_type`, owned by
+`analyze_window` (decision B1, reaffirmed: window-detected only, no
+overhearing/per-turn path — a purchase is a concluded scene event, not a
+fact a bystander happens to overhear). Two-leg payload: a mandatory money
+leg (`entity_id`, signed `amount`, `counterparty_id`, `reason`) and an
+OPTIONAL `knowledge` leg, present only when the thing exchanged is
+information, and always a fresh acquisition (`new_knowledge` semantics) —
+never an upgrade this step.
+
+**The double-table-in-one-SAVEPOINT exception.** `_apply_mutation` writes
+both legs — `ledger` always, `knowledge` when present — inside the single
+existing `db.begin_nested()` SAVEPOINT that already wraps every apply call.
+This is the ONE documented exception to "one apply branch writes one canon
+table": a partial "paid but didn't receive the info" (or the reverse) is
+impossible by construction, because both writes commit or both roll back
+together. The exception is justified entirely by atomicity, not convenience
+— it must not normalise into a pattern for any other mutation type.
+
+**Accumulating money, idempotent knowledge — and why the two dedup guards
+treat the same mutation differently.** The money leg behaves exactly like
+`relation_change`: two genuine purchases in one conversation both apply,
+so `resource_change` is excluded from BOTH `_mutation_match_key`
+(write-time dedup, propose time) and `_find_applied_duplicate` (apply
+time). The knowledge leg, in contrast, IS idempotent — a fact, once
+granted, must not be granted twice — but its guard does not live in either
+of those generic mechanisms; it lives inside the `resource_change` branch
+itself (`_knowledge_leg_already_applied`, guard 4c), as a block-WHOLE
+check: if the knowledge leg cannot be created cleanly, the entire
+mutation (money leg included) is routed to Needs attention and nothing is
+written. An executor must never "fix" this by adding `resource_change` to
+either generic guard — that would either block legitimate repeat purchases
+(money) or apply a duplicate knowledge row before the block-whole check
+runs (knowledge).
+
+**A1 reaffirmed.** The money leg targets the player only; `counterparty_id`
+is filled for the registre's legibility but never triggers a second
+`ledger` row. Tracked NPC purses remain deferred.
+
+**No price inference, reaffirmed.** The analyzer records the amount the
+dialogue *stated* — `pt-conversation-analysis` v4's rubric explicitly
+forbids inventing a price. Reading `entity.metadata.price_list` or having
+the model propose a price is step 3, not this step.
+
+**The shadow-economy guard, reaffirmed.** A service performed against
+relation intensity, with no currency stated, must never become a
+`resource_change` — it stays the implicit-favor path (`relation_change`,
+no ledger touch). The rubric makes this explicit to the model; the guard
+exists in the rubric, not in code, the same as before this step.
 
 ---
 
@@ -1609,10 +1661,18 @@ Recorded here so each is revisited deliberately rather than forgotten:
   pilot. Multiplayer per-player discovery (each player character has their own
   `discovered` flag) requires a join table or a `player_discoveries` column and
   is explicitly deferred.
-- **AI-detected `resource_change` + double-table info purchase** (ECONOMY,
-  schema v1.31). This step builds only the read+seed foundation; detecting a
-  transaction from a conversation window and the atomic `ledger` + `knowledge`
-  write for a paid-for fact are step 2.
+- **One-directional knowledge-leg dedup gap** (ECONOMY, schema v1.32,
+  BRIEF-19). Guard 4c (`_knowledge_leg_already_applied`) scans both applied
+  `new_knowledge` rows and applied `resource_change` knowledge legs, but the
+  `new_knowledge` branch's own `_find_applied_duplicate` is NOT extended to
+  scan `resource_change` legs. If a `resource_change` knowledge leg applies
+  FIRST, a later colliding `new_knowledge` (same conversation/entity/subject
+  — e.g. from `analyze_overhearing`) is not blocked, producing two knowledge
+  rows. Narrow: requires the player to *sell* information to an NPC who, in
+  the same turn, also overhears that subject (the player is excluded from
+  overhearing receivers, so a player *purchase* is never affected).
+  Accepted for the pilot — caught by creator review at the checkpoint; to be
+  closed only if live play shows it occurring.
 - **Pricing** (ECONOMY, schema v1.31). No `entity.metadata.price_list`, no
   "Tarifs" creator editor, no AI-proposed prices, no `relation.intensity`
   price modulation. Step 3.

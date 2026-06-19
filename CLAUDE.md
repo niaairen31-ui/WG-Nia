@@ -145,6 +145,13 @@ Read both before making any structural change.
   both sanctioned canon-write paths; a mistake is corrected by a new
   compensating line, never by editing or deleting an existing row. No
   UPDATE/DELETE endpoint or code path may touch a `ledger` row.
+- **`resource_change` writes two canon tables** (`ledger` + optional
+  `knowledge`) inside one `_apply_mutation` SAVEPOINT — the single sanctioned
+  exception to one-branch-one-table, justified by atomicity (BRIEF-19, schema
+  v1.32). Its money leg accumulates (never deduped, like `relation_change`);
+  its knowledge leg is idempotent and guarded only at apply time (block-whole
+  → Needs attention). The money leg targets the player only (A1) until
+  tracked NPC purses are introduced.
 
 ## Local model notes
 
@@ -213,7 +220,14 @@ World-genrator/
 │       │                    #   classification, K2/secret/dedup guards,
 │       │                    #   deterministic level-ladder downgrade for
 │       │                    #   acquisition, knowledge_change for monotone
-│       │                    #   upgrades (v1.17), proposed_by='local_ai_overhearing')
+│       │                    #   upgrades (v1.17), proposed_by='local_ai_overhearing');
+│       │                    # resource_change normalization (BRIEF-19, schema
+│       │                    #   v1.32): two-leg payload (money + optional
+│       │                    #   knowledge), entity_id defaults to conv.player_id
+│       │                    #   (A1), dropped (skip+log) if entity_id or amount
+│       │                    #   can't be resolved — same discipline as
+│       │                    #   relation_change; excluded from
+│       │                    #   _mutation_match_key (money leg accumulates)
 │       ├── resolution.py    # physical-action dice resolution (BRIEF-11, schema
 │       │                    #   v1.23): pure 2d6 + tier, no DB/model access;
 │       │                    #   Verdict {domain, dice, modifier, total, band};
@@ -257,6 +271,17 @@ World-genrator/
 │           │                #   item.equipped, requires owner_id) — dormant,
 │           │                #   no live producer since BRIEF-08/D2a.1, kept for
 │           │                #   the cockpit equip toggle;
+│           │                # _apply_mutation resource_change branch (BRIEF-19,
+│           │                #   schema v1.32): the ONE branch writing two canon
+│           │                #   tables (ledger always, knowledge when a leg
+│           │                #   survives) inside the existing SAVEPOINT;
+│           │                #   non-negative balance guard (ledger.get_balance);
+│           │                #   _knowledge_leg_already_applied (block-whole
+│           │                #   guard 4c, scans applied new_knowledge +
+│           │                #   resource_change knowledge legs — one-directional
+│           │                #   by design, see ARCHITECTURE_DECISIONS.md);
+│           │                #   excluded from _find_applied_duplicate (money
+│           │                #   leg accumulates like relation_change);
 │           │                # multi-NPC scenes (_open_gatherings, _active_members,
 │           │                #   _gathering_brief, _player_gathering,
 │           │                #   _render_gathering_status, _resolve_join_target (A2),
