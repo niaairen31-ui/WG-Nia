@@ -463,7 +463,10 @@ World-genrator/
 ├── pyproject.toml           # src-layout package metadata
 ├── requirements.txt
 ├── .env.example
-└── world_engine.db          # local SQLite file (gitignored)
+└── world_engine.db          # legacy in-tree DB location (gitignored); default
+                              #   moved to ~/.world_engine/world_engine.db
+                              #   (BRIEF-21, schema v1.34) — may still appear
+                              #   here only via an env override
 ```
 
 `src` layout: the package lives under `src/world_engine`. Scripts in `scripts/`
@@ -494,8 +497,9 @@ prepend `src` to `sys.path`, so they run without an editable install.
 
 - **Install:** `python -m venv .venv`, activate, `pip install -r requirements.txt`.
 - **Database URL:** from `WORLD_ENGINE_DATABASE_URL` (defaults to
-  `sqlite:///world_engine.db`). Switching to PostgreSQL/Supabase changes only
-  this variable, never code.
+  `~/.world_engine/world_engine.db`, outside the git working tree since
+  BRIEF-21/v1.34). Switching to PostgreSQL/Supabase changes only this
+  variable, never code.
 - **Initialize the DB:** `python scripts/init_db.py` — idempotent; prints the
   tables and index counts it created.
 - **Seed pilot data:** `python scripts/seed_pilot.py` — inserts Verkhaal world,

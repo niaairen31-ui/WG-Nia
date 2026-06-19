@@ -1638,6 +1638,54 @@ The minimal version tells us in a few days whether the dialogue "holds" before b
 
 ---
 
+## DATABASE CARRIER FILE — out-of-tree relocation (incident 2026-06-19)
+
+**Incident.** On 2026-06-19 the live `world_engine.db` (gitignored, at the
+repo root) was destroyed out-of-application; the rebuild produced an empty
+seed-only world. Read-only recon cleared the code — no boot hook, no
+`drop_all`, no file deletion; `create_all` is non-destructive. Most probable
+cause: a `git clean -fdx` or manual deletion of the carrier file, since the
+file sat inside the git working tree.
+
+**Lesson.** "History is sacred" (see DESIGN CONSTRAINTS CARRIED FORWARD)
+protects *rows* — `change_history`, the append-only `ledger`, the reviewed
+`proposed_mutation` queue. It says nothing about the *file that carries
+those rows*. A workspace-clean operation has no concept of "sacred rows
+inside this file" — it only sees an untracked/ignored path inside the tree
+and removes it.
+
+**Guardrails put in place:**
+1. **`scripts/backup.py`** — resolves the DB path from the live `engine`,
+   prints `entities=`/`locations=` counts, and refuses to operate against an
+   empty world (catches a silently-rebuilt empty DB before it's trusted).
+2. **This relocation (BRIEF-21, schema v1.34)** — `db.py`'s default URL now
+   resolves to an absolute `~/.world_engine/world_engine.db`, outside the git
+   working tree, so a workspace-clean can never reach it again. The env
+   override `WORLD_ENGINE_DATABASE_URL` keeps top precedence — the path is
+   never locked. A structural ensure-dir guard (`make_url(...).database` +
+   `mkdir(parents=True, exist_ok=True)`, sqlite-only) guarantees the carrier
+   directory exists before any connection, removing the manual
+   "create the folder first" step from the critical path.
+3. **This changelog entry** (schema v1.34) — the doc record of the
+   incident and the fix, so the reasoning survives independent of the code.
+
+**Manual relocation runbook** (creator-run, in order — wrong order risks an
+empty rebuild):
+1. Stop everything (no app, no scripts, nothing holding the DB open).
+2. `mkdir -p ~/.world_engine`
+3. **Copy** (not move) the good DB to the new path — keep the original as a
+   fallback until verified: `cp <repo>/world_engine.db ~/.world_engine/world_engine.db`
+4. Apply the `db.py` relocation commit.
+5. Verify against the **new** path: run `python scripts/backup.py` — it
+   resolves the path from the engine, prints `entities=`/`locations=`, and
+   refuses an empty world. Fallback: a raw `SELECT count(*) FROM entity`.
+   Expect a non-zero count.
+6. Confirm no new `world_engine.db` reappears at the repo root after a
+   normal start.
+7. Only after 5–6 pass: optionally delete the old repo-root `world_engine.db`.
+
+---
+
 ## Deferred decisions
 
 Recorded here so each is revisited deliberately rather than forgotten:

@@ -820,6 +820,13 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.34** — No new tables or columns. Infra: default DB path relocated out
+  of the git working tree to an absolute `~/.world_engine/world_engine.db`
+  (env override `WORLD_ENGINE_DATABASE_URL` preserved, top precedence);
+  `db.py` now guarantees the carrier directory exists (`mkdir`) before any
+  connection. Rationale: 2026-06-19 incident — a gitignored `.db` at the repo
+  root was destroyed out-of-application; "history is sacred" protects rows,
+  not the carrier file.
 - **v1.33** — No new tables or columns. Pricing layer. New documented
   convention `entity.metadata.price_list` (`{tag: int}`, base-unit integers)
   marking a seller's firm catalogue — same metadata-config category as
