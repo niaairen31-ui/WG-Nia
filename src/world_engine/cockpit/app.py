@@ -36,6 +36,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from .. import ollama_client
+from ..entity_author import generate_entity_draft as _generate_entity_draft
 from ..gathering import enter_location as _enter_location
 from ..gathering import migrate_npc as _migrate_npc
 from ..analyzer import analyze_overhearing as _analyze_overhearing
@@ -83,6 +84,27 @@ _log = logging.getLogger(__name__)
 
 app = FastAPI(title="World Engine Cockpit", docs_url=None, redoc_url=None)
 app.include_router(_crud.router)
+
+
+class EntityGenerateBody(BaseModel):
+    entity_type: str
+    brief: str
+
+
+@app.post("/api/entities/generate")
+def generate_entity(
+    body: EntityGenerateBody,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Creator-side AI draft generator (BRIEF-24).
+
+    Deliberately NOT in crud.py: crud.py is a sanctioned canon-write path
+    and this route writes nothing — keeping it in a separate router makes
+    that property legible. Calls only generate_entity_draft; performs no
+    write itself. Returns {"ok": false, "error": ...} (never a 500) on any
+    failure — see entity_author.generate_entity_draft.
+    """
+    return _generate_entity_draft(body.entity_type, body.brief, db)
 
 
 # ── Serialisation helpers ─────────────────────────────────────────────────────

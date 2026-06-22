@@ -71,7 +71,10 @@ Read both before making any structural change.
 - **Two sanctioned canon-write paths, no others:** `_apply_mutation` (AI
   proposals, after creator approval) and the creator CRUD (direct creator
   authority). No code path may ever write canon in response to an AI
-  proposal outside `_apply_mutation`.
+  proposal outside `_apply_mutation`. The AI entity-authoring assistant's
+  `POST /api/entities/generate` (BRIEF-24) is explicitly NOT one of these
+  two paths — it writes no canon; the creator's accept reuses the creator
+  CRUD path unchanged.
 - **History is sacred on BOTH write paths:** any edit to `relation` or
   `knowledge` (either write path — `_apply_mutation` or creator CRUD)
   appends the previous state to `change_history`; states are preserved,
@@ -250,6 +253,21 @@ World-genrator/
 │       │                    #   get_balance (SUM(amount) per entity_id, no
 │       │                    #   stored balance), list_entries (entity_id /
 │       │                    #   session_id optional filters, newest first)
+│       ├── entity_author.py # AI entity-authoring assistant (BRIEF-24, schema
+│       │                    #   v1.36): generate_entity_draft(entity_type,
+│       │                    #   brief, db) — writes no canon, ever; calls the
+│       │                    #   local Ollama wrapper with model=AUTHOR_MODEL
+│       │                    #   ("llama3.1:8b", a one-line-change constant,
+│       │                    #   decision E1), format="json"; parses the
+│       │                    #   public/secret two-block contract and runs
+│       │                    #   deterministic post-processing (physical_tier
+│       │                    #   clamp, knowledge level validation + forced
+│       │                    #   is_secret=TRUE, case-insensitive faction_name
+│       │                    #   resolution, no auto-create on a miss);
+│       │                    #   _TYPE_FIELDS is the config seam for entity
+│       │                    #   types beyond "character" (A1: only character
+│       │                    #   populated this step); never raises — returns
+│       │                    #   {"ok": false, "error": ...} on any failure
 │       └── cockpit/         # creator review web UI (FastAPI sub-app)
 │           ├── __init__.py
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
@@ -369,6 +387,12 @@ World-genrator/
 │           │                #   blocks scene entry); wired into enter_scene on EVERY
 │           │                #   entry (G1), before _scene_response — which gains the
 │           │                #   `establishment: str | None` field
+│           │                # AI entity-authoring assistant (BRIEF-24, schema v1.36):
+│           │                #   POST /api/entities/generate (EntityGenerateBody) —
+│           │                #   delegates to entity_author.generate_entity_draft and
+│           │                #   nothing else; deliberately NOT on the crud.py router
+│           │                #   (crud.py IS a canon-write path; this route writes
+│           │                #   none, kept legible by living elsewhere)
 │           ├── crud.py      # Author CRUD — direct canonical writes (no proposed_mutation
 │           │                #   checkpoint): entity/character/location/faction sheets,
 │           │                #   relation/knowledge row editors, skill tier editor
@@ -449,7 +473,21 @@ World-genrator/
 │                            #   the existing entity PUT (GET fresh, set only
 │                            #   metadata.price_list, no clobber of other metadata
 │                            #   keys), no proposed_mutation; shown only on the
-│                            #   NPC sub-tab
+│                            #   NPC sub-tab;
+│                            #   Création → NPC "Générer avec l'IA" panel (BRIEF-24,
+│                            #   schema v1.36): one-shot brief → POST
+│                            #   /api/entities/generate → pre-fills the SAME new-NPC
+│                            #   form (authorGenerateEntity), incl. a pendingDraftKnowledge
+│                            #   in-memory list (the entity doesn't exist yet, so secret
+│                            #   knowledge rows can't be POSTed until accept) rendered by
+│                            #   authorRenderPendingKnowledge / edited via
+│                            #   _syncPendingKnowledgeFromDom; "Notes de l'assistant"
+│                            #   read-only block (notes + shared_with); accepting
+│                            #   (authorSave) creates the entity via the EXISTING
+│                            #   composite POST then flushes pendingDraftKnowledge
+│                            #   through the EXISTING POST .../knowledge endpoint — no
+│                            #   new write code; a second "Générer" discards the draft
+│                            #   (F2 conversational refine out of scope)
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)
@@ -543,9 +581,9 @@ prepend `src` to `sys.path`, so they run without an editable install.
   location's gatherings on next entry.
 - **Re-seeding prompts:** `python scripts/seed_pilot.py` uses `upsert_prompt_template`
   for `pt-npc-dialogue`, `pt-mj-narration`, `pt-mj-interpretation`, `pt-mj-gathering`,
-  `pt-mj-speaker`, `pt-mj-initiative`, `pt-npc-initiative-act`, `pt-mj-arbiter`, and
-  `pt-mj-establishment` — re-running the seed converges the DB to the latest
-  wording without losing other data.
+  `pt-mj-speaker`, `pt-mj-initiative`, `pt-npc-initiative-act`, `pt-mj-arbiter`,
+  `pt-mj-establishment`, and `pt-entity-generation` — re-running the seed converges
+  the DB to the latest wording without losing other data.
 
 ---
 

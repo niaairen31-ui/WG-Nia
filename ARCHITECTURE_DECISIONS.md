@@ -1621,6 +1621,96 @@ see. Enforced by query construction (the assembler reads `npc_entity`'s own
 
 ---
 
+## AI entity-authoring assistant (NPC) (schema v1.36, BRIEF-24)
+
+**A1: NPC/`character` only, parameterized for later types.** The generation
+module (`entity_author.py`) has exactly one public function,
+`generate_entity_draft(entity_type, brief, db)`. Its only populated
+per-type config is `_TYPE_FIELDS["character"]`; the `pt-entity-generation`
+template carries `{entity_type}`/`{type_fields}` variables so a future
+`location`/`faction`/etc. is a new `_TYPE_FIELDS` key, not a template or
+parser change. The two-block `public`/`secret` structure itself, not the
+field list inside each block, is what the parser is built around — that
+part of the contract is already type-agnostic.
+
+**The two-block `public`/`secret` contract, enforced structurally.** The
+model proposes a single JSON object with exactly `public` and `secret`
+top-level keys. The parser ignores any key it doesn't recognise (the model
+cannot invent a field that reaches canon) and — critically — `is_secret` on
+every `secret.knowledge` row is forced `TRUE` in code; the model is never
+given the opportunity to set it. This is the same doctrine as the rest of
+the engine ("Secrets are structurally excluded", CLAUDE.md): concealment is
+never trusted to an instruction, even one as explicit as "never merge
+secret into public" (which the system prompt also states, belt-and-braces).
+
+**C3 — full-canon visibility, and why it doesn't weaken exclusion.** The
+generator may see hidden canon because it runs out of the play loop,
+operated by the creator, with every draft reviewed before any write — there
+is no player to leak a secret to. This is a property of WHO is looking at
+the output (the creator, pre-write), not a relaxation of the play-time
+security boundary. `secret.knowledge` rows the generator proposes land in
+the exact same `knowledge` rows, with the exact same `is_secret = TRUE`
+flag, that `assemble_npc_context`/`assemble_mj_context` already exclude by
+query construction. Provenance (AI-authored vs. creator-typed) is invisible
+to the assemblers — they exclude by `is_secret`, never by who wrote the row.
+
+**D1 — draft pre-fills, author-CRUD writes; the generate endpoint is NOT a
+canon-write path.** `generate_entity_draft` and `POST /api/entities/generate`
+write zero canon — no `entity`, `character`, `knowledge`, `relation`, or
+`proposed_mutation` row, ever, in this call path. The endpoint lives in
+`cockpit/app.py`, deliberately outside `crud.py` (`crud.py` IS a sanctioned
+canon-write path; keeping the generator in a separate router makes "this
+writes nothing" legible at a glance, not just true). The ONLY write is the
+creator's accept: the existing composite `POST /api/entities` then the
+existing `POST /api/entities/{id}/knowledge`, run exactly as they would be
+if the creator had typed every field by hand. This step adds no new write
+function anywhere. The two sanctioned canon-write paths
+(`_apply_mutation`, author-CRUD) remain exactly two; this step deliberately
+does not become a third.
+
+**Why this isn't routed through `proposed_mutation`.** That queue exists to
+contain the LOCAL MODEL'S drift during PLAY — a creator-supervised,
+out-of-loop authoring assistant has no analogous risk to contain: the
+creator IS the checkpoint, reviewing every field before the existing
+author-CRUD write. Routing a one-shot authoring draft through the Review
+Queue would relocate creator judgment to the wrong place in the flow,
+not add safety.
+
+**Model extracts, code judges (the post-processing layer).**
+`physical_tier` is clamped to −1..2 (default 0 on anything unparsable);
+`knowledge[].level` is validated against the ladder and dropped to `rumor`
+on anything unrecognised (never `unaware` — the NPC holds the row, by
+definition); `faction_name` is resolved to a `faction` entity by
+case-insensitive name match, same doctrine as other name→id resolution in
+the codebase, with NO auto-creation on a miss (blank field + an
+"introuvable" note for the creator instead). Any `knowledge` row missing a
+`subject` or `content` is dropped and noted. None of this is the model's
+job to get right — the model proposes text, code is the only place a value
+is judged fit for canon.
+
+**G1 — `shared_with` is display-only, never written.** Suspected sharing
+the model infers (`secret.shared_with`) surfaces in the draft's `notes` for
+the creator to act on manually — by hand, later, through the existing
+relation/knowledge editors if they choose. No code path writes a
+`shared_with` entry anywhere; it is pure text in the API response.
+
+**Named deferrals (do not build silently):**
+- **G2 — cross-entity writes.** The generator authors only the NPC's OWN
+  canon. It must never propose or write a `knowledge` row on another
+  entity; that's what `shared_with` notes are for instead.
+- **F2 — conversational refinement.** No "make her older / hostile to the
+  Guild" follow-up. One-shot only: a second "Générer" click discards the
+  current draft (`pendingDraftKnowledge`/`pendingDraftNotes` in the cockpit
+  UI) and starts over.
+- **Generator-proposed `relation` rows.** The model proposes only the
+  single primary `faction_id` link (by name resolution); it never proposes
+  a `relation` row or an intensity — that calibration stays a manual
+  creator act, same as everywhere else in the engine.
+- **Auto-creating a referenced faction/location.** Unresolved name → blank
+  field + note. Never create the entity the brief merely names.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

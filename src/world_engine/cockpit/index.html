@@ -2661,6 +2661,15 @@ let authorTypeFilter  = '';    // '' = all types
 let authorEntityId    = null;  // currently displayed entity id, or null when creating
 let authorEntityType  = null;  // type of the entity currently displayed
 
+/* AI entity-authoring assistant (BRIEF-24) — draft state for the in-creation
+ * NPC form. The entity doesn't exist yet, so secret.knowledge rows are held
+ * here in memory (pendingDraftKnowledge) and only POSTed to
+ * /api/entities/{id}/knowledge after the creator accepts (authorSave creates
+ * the entity first). One-shot: a second "Générer" click discards this state
+ * and starts over (F2 conversational refine is explicitly deferred). */
+let pendingDraftKnowledge = [];
+let pendingDraftNotes     = [];
+
 /* ── Top-level mode switching ────────────────────────────────────────────── */
 
 function showPlayView() {
@@ -2895,6 +2904,8 @@ function creationNewEntity() {
   if (!authorRegistry) return;
   const typeMap = { npc: 'character', lieux: 'location', factions: 'faction', objets: 'item' };
   const type = typeMap[currentCreationSubTab] || 'character';
+  pendingDraftKnowledge = [];
+  pendingDraftNotes     = [];
   authorRenderSheet({}, true, type);
 }
 
@@ -3057,7 +3068,13 @@ function authorRenderSheet(detail, isNew, type) {
   const baseFields = authorRegistry.entity_base_fields;
   const extFields  = authorRegistry.types[type].fields;
 
-  let html = '<div class="field-section"><div class="field-section-title">Entity</div><div class="field-grid">';
+  let html = '';
+
+  if (isNew && type === 'character' && currentCreationSubTab === 'npc') {
+    html += authorRenderGeneratePanel();
+  }
+
+  html += '<div class="field-section"><div class="field-section-title">Entity</div><div class="field-grid">';
 
   if (isNew) {
     const opts = authorRegistry.entity_types.map(t =>
@@ -3095,6 +3112,12 @@ function authorRenderSheet(detail, isNew, type) {
     html += '</div>';
   }
 
+  if (isNew && type === 'character' && currentCreationSubTab === 'npc') {
+    html += '<div class="field-section"><div class="field-section-title">Knowledge (créé à l\'acceptation)</div>';
+    html += `<div id="author-pending-knowledge">${authorRenderPendingKnowledge()}</div>`;
+    html += '</div>';
+  }
+
   if (!isNew && type === 'character') {
     html += '<div class="field-section"><div class="field-section-title">Items</div>';
     html += '<div id="author-items"><div class="empty"><span class="spin">⟳</span></div></div>';
@@ -3127,6 +3150,142 @@ function authorRenderSheet(detail, isNew, type) {
   if (!isNew && type === 'location') {
     authorLoadDiscDetails(detail.id);
   }
+}
+
+/* ── AI entity-authoring assistant (BRIEF-24) — draft generator panel ──────
+ * POST /api/entities/generate writes no canon (entity_author.py). The
+ * creator edits the pre-filled form freely; accepting goes through the
+ * EXISTING create control (authorSave below) and the EXISTING knowledge
+ * CRUD endpoint — no new write code. One-shot (F2 conversational refine is
+ * out of scope): a second "Générer" click discards pendingDraftKnowledge/
+ * pendingDraftNotes and starts over. */
+
+function authorRenderGeneratePanel() {
+  return `
+    <div class="field-section" id="entity-gen-panel" style="border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:12px;">
+      <div class="field-section-title">Générer avec l'IA</div>
+      <textarea id="entity-gen-brief" rows="2" style="width:100%; resize:vertical"
+        placeholder="Intention en une phrase, ex. : « Un ancien soldat devenu aubergiste, bourru, qui en sait trop sur la disparition du marchand Aldric »"></textarea>
+      <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
+        <button class="btn-send" onclick="authorGenerateEntity()">Générer</button>
+        <span id="entity-gen-status" style="font-size:12px; color:var(--muted)"></span>
+      </div>
+      <div id="entity-gen-notes"></div>
+    </div>`;
+}
+
+async function authorGenerateEntity() {
+  const briefEl  = document.getElementById('entity-gen-brief');
+  const statusEl = document.getElementById('entity-gen-status');
+  const brief = briefEl.value.trim();
+  if (!brief) { statusEl.textContent = 'Intention requise.'; return; }
+
+  statusEl.textContent = 'Génération…';
+  let result;
+  try {
+    result = await api('/api/entities/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entity_type: 'character', brief }),
+    });
+  } catch (e) {
+    statusEl.textContent = e.message;
+    return;
+  }
+
+  if (!result || result.ok === false) {
+    statusEl.textContent = (result && result.error) || 'Échec de la génération.';
+    return; // form untouched
+  }
+
+  statusEl.textContent = "Brouillon généré — relisez et éditez avant d'accepter.";
+
+  const draft = result.draft;
+  const setVal = (id, value) => { const el = document.getElementById(id); if (el) el.value = value ?? ''; };
+
+  setVal('author-f-name', draft.public.name);
+  setVal('author-f-description', draft.public.description);
+
+  const metaEl = document.getElementById('author-f-metadata');
+  if (metaEl) {
+    let meta = {};
+    const raw = metaEl.value.trim();
+    if (raw) { try { meta = JSON.parse(raw) || {}; } catch (_) { meta = {}; } }
+    meta.physical_tier = draft.public.physical_tier;
+    metaEl.value = JSON.stringify(meta, null, 2);
+  }
+
+  setVal('author-x-appearance', draft.public.appearance);
+  setVal('author-x-backstory', draft.public.backstory);
+
+  const factionEl = document.getElementById('author-x-faction_id');
+  if (factionEl) factionEl.value = draft.public.faction_id || '';
+
+  const secretsEl = document.getElementById('author-x-secrets');
+  if (secretsEl) secretsEl.value = draft.secret.creator_meta != null ? JSON.stringify(draft.secret.creator_meta) : '';
+
+  pendingDraftKnowledge = (draft.secret.knowledge || []).map(k => ({ ...k }));
+  pendingDraftNotes = [...(result.notes || [])];
+  for (const sw of (draft.secret.shared_with || [])) {
+    pendingDraftNotes.push(`Pourrait être partagé avec ${sw.with}${sw.note ? ' — ' + sw.note : ''}`);
+  }
+
+  const pkEl = document.getElementById('author-pending-knowledge');
+  if (pkEl) pkEl.innerHTML = authorRenderPendingKnowledge();
+
+  const notesEl = document.getElementById('entity-gen-notes');
+  if (notesEl) {
+    notesEl.innerHTML = pendingDraftNotes.length
+      ? '<div class="field-section-title" style="margin-top:8px">Notes de l&#39;assistant</div><div class="row-table">'
+        + pendingDraftNotes.map(n => `<div class="row-card" style="font-size:12px; color:var(--muted)">${esc(n)}</div>`).join('')
+        + '</div>'
+      : '';
+  }
+}
+
+function authorRenderPendingKnowledge() {
+  if (!pendingDraftKnowledge.length) return '<div class="empty">Aucun savoir secret proposé.</div>';
+  const levels = authorRegistry.knowledge_fields.find(f => f.name === 'level').options;
+  return '<div class="row-table">' + pendingDraftKnowledge.map((k, i) => `
+    <div class="row-card">
+      <div class="field-grid">
+        <div class="field-row"><label>Subject</label><input type="text" id="pk-subj-${i}" value="${esc(k.subject)}"></div>
+        <div class="field-row"><label>Level</label>
+          <select id="pk-level-${i}">
+            ${levels.map(l => `<option value="${l}" ${l === k.level ? 'selected' : ''}>${l}</option>`).join('')}
+          </select></div>
+        <div class="field-row checkbox">
+          <input type="checkbox" id="pk-secret-${i}" checked disabled>
+          <label for="pk-secret-${i}">Secret (forcé)</label></div>
+        <div class="field-row span-2"><label>Content</label><textarea id="pk-content-${i}">${esc(k.content)}</textarea></div>
+      </div>
+      <div class="row-card-actions">
+        <button class="btn-end" onclick="authorRemovePendingKnowledge(${i})">Delete</button>
+      </div>
+    </div>
+  `).join('') + '</div>';
+}
+
+function authorRemovePendingKnowledge(i) {
+  _syncPendingKnowledgeFromDom();
+  pendingDraftKnowledge.splice(i, 1);
+  document.getElementById('author-pending-knowledge').innerHTML = authorRenderPendingKnowledge();
+}
+
+/** Reads the pending-knowledge inputs' current values back into
+ *  pendingDraftKnowledge (no per-row save button, unlike the post-creation
+ *  knowledge editor — values are read once, at accept time). Returns the
+ *  rows that still have both a subject and content. */
+function _syncPendingKnowledgeFromDom() {
+  pendingDraftKnowledge.forEach((k, i) => {
+    const subjEl    = document.getElementById(`pk-subj-${i}`);
+    const levelEl   = document.getElementById(`pk-level-${i}`);
+    const contentEl = document.getElementById(`pk-content-${i}`);
+    if (subjEl)    k.subject = subjEl.value;
+    if (levelEl)   k.level   = levelEl.value;
+    if (contentEl) k.content = contentEl.value;
+  });
+  return pendingDraftKnowledge.filter(k => k.subject && k.content);
 }
 
 /* ── Tarifs editor (BRIEF-20) — entity.metadata.price_list, NPC sheet only ──
@@ -3486,6 +3645,8 @@ async function authorSaveDiscDetail(detailId, locationId) {
 /** Re-render the sheet for a new entity when the type selector changes. */
 function authorTypeChanged() {
   const type = document.getElementById('author-f-type').value;
+  pendingDraftKnowledge = [];
+  pendingDraftNotes     = [];
   authorRenderSheet({}, true, type);
 }
 
@@ -3534,11 +3695,38 @@ async function authorSave() {
   }
   if (isNew) entityData.type = type;
 
+  // BRIEF-24: knowledge rows proposed by the AI draft generator are held in
+  // memory until now — read their current (possibly edited) values before
+  // the entity is created, since they're posted through the EXISTING
+  // knowledge CRUD endpoint right after, not written by this function.
+  const knowledgeToCreate = (isNew && type === 'character') ? _syncPendingKnowledgeFromDom() : [];
+
   try {
     const body = JSON.stringify({ entity: entityData, extension: extData });
-    const detail = isNew
+    let detail = isNew
       ? await api('/api/entities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
       : await api(`/api/entities/${encodeURIComponent(authorEntityId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
+
+    if (isNew && knowledgeToCreate.length) {
+      for (const row of knowledgeToCreate) {
+        await api(`/api/entities/${encodeURIComponent(detail.id)}/knowledge`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subject: row.subject,
+            level: row.level,
+            source: null,
+            share_threshold: 50,
+            is_incorrect: false,
+            is_secret: true,
+            content: row.content,
+          }),
+        });
+      }
+      pendingDraftKnowledge = [];
+      pendingDraftNotes = [];
+      detail = await api(`/api/entities/${encodeURIComponent(detail.id)}`);
+    }
 
     await authorLoadEntityList();
     authorRenderSheet(detail, false, detail.type);

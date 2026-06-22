@@ -686,6 +686,53 @@ Le joueur, s'adressant au groupe, dit ou fait :
 Qui prend la parole en premier ?\
 """
 
+# BRIEF-24: AI entity-authoring assistant (NPC). usage = "entity_generation".
+# Creator-side draft generator — entity_author.generate_entity_draft formats
+# this user_template with {entity_type}, {type_fields}, {brief}; system_prompt
+# is passed verbatim (NOT .format()'d, so it carries no variables itself).
+# world_id = NULL. Type-parameterized: only "character" is populated in
+# entity_author._TYPE_FIELDS for this brief (A1) — adding another entity type
+# later is a config entry there, not a change to this template.
+ENTITY_GENERATION_SYSTEM_PROMPT = """\
+Tu es l'assistant de création du créateur d'un monde de jeu de rôle. Le \
+créateur te donne une intention en une phrase pour une nouvelle entité ; ton \
+travail est de proposer un brouillon cohérent que le créateur relira et \
+éditera avant qu'il n'entre dans le canon. Tu ne crées rien toi-même — tu \
+proposes seulement, et le créateur juge.
+
+=== STRUCTURE — DEUX BLOCS, PUBLIC ET SECRET ===
+Ta réponse est TOUJOURS un objet JSON avec exactement deux clés de premier \
+niveau : "public" et "secret".
+- "public" : tout ce qui est perceptible ou partageable dans la fiction.
+- "secret" : tout ce que cette entité SAIT mais CACHE — ses savoirs secrets, \
+une note de méta-narration pour le créateur, et qui pourrait déjà s'en \
+douter. Ne reporte JAMAIS un élément du bloc "secret" dans le bloc "public" \
+— la séparation doit être nette dès ta première proposition.
+
+Le message suivant précise les champs attendus dans chaque bloc pour ce \
+type d'entité — respecte exactement ces noms de champs.
+
+=== RÈGLE — NE RIEN INVENTER HORS DE L'INTENTION ===
+Réponds à l'intention donnée sans ajouter de personnages, lieux ou factions \
+non nommés, sauf si un champ demandé l'exige explicitement (ex. une faction \
+d'appartenance plausible si l'intention n'en précise pas).
+
+=== FORMAT DE SORTIE ===
+Réponds UNIQUEMENT avec l'objet JSON demandé — aucun texte avant ou après, \
+aucun bloc de code Markdown, aucun commentaire.\
+"""
+
+ENTITY_GENERATION_USER_TEMPLATE = """\
+Type d'entité : {entity_type}
+
+Champs attendus :
+{type_fields}
+
+Intention du créateur : {brief}
+
+Brouillon JSON :\
+"""
+
 # MJ initiative vote — decides whether a bystander NPC acts spontaneously this
 # turn (Tier 3, step 1 — C1). Cheap non-streaming JSON call; /no_think appended
 # at call time. usage = "mj_initiative", world_id = NULL.
@@ -1063,6 +1110,24 @@ def seed(session: Session) -> None:
         user_template=OVERHEARING_CLASSIFICATION_USER_TEMPLATE,
         variables=["subject_list", "player_line", "npc_line"],
         destination="local",
+    )
+
+    # ----- prompt template: AI entity-authoring assistant (BRIEF-24) ---------
+    # usage = "entity_generation". world_id = NULL. Calls go through
+    # entity_author.generate_entity_draft, which formats user_template with
+    # {entity_type}/{type_fields}/{brief} and never writes canon. Uses upsert
+    # so re-seeding always converges the DB to the latest wording.
+    upsert_prompt_template(
+        session,
+        "pt-entity-generation",
+        world_id=None,
+        name="Assistant de création d'entité — brouillon PNJ",
+        usage="entity_generation",
+        system_prompt=ENTITY_GENERATION_SYSTEM_PROMPT,
+        user_template=ENTITY_GENERATION_USER_TEMPLATE,
+        variables=["entity_type", "type_fields", "brief"],
+        destination="local",
+        version=1,
     )
 
     # ----- factions (entity + faction) --------------------------------------

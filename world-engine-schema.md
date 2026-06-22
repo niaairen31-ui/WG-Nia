@@ -699,7 +699,7 @@ CREATE TABLE prompt_template (
                    -- player_narration | session_summary | npc_dialogue |
                    -- conversation_analysis | mj_interpretation |
                    -- overhearing_classification | mj_arbitration |
-                   -- mj_establishment | other
+                   -- mj_establishment | entity_generation | other
   system_prompt    TEXT NOT NULL,
   user_template    TEXT NOT NULL,   -- user message template (with variables)
   variables        JSON,            -- expected variable list
@@ -824,6 +824,13 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.36** — No new tables or columns. Application-layer: AI
+  entity-authoring assistant (NPC). New module `entity_author.py`
+  (`generate_entity_draft`, writes no canon); new template
+  `pt-entity-generation` (`usage='entity_generation'`); new cockpit route
+  `POST /api/entities/generate` (outside `crud.py`, no canon write); Création
+  → NPC gains a one-shot generate affordance pre-filling the existing author
+  form. `prompt_template.usage` comment gains `entity_generation`.
 - **v1.35** — Activated `discoverable_detail.discovery_threshold` (no
   migration; column present since v1.26). Explicit perception searches now
   filter revelation candidates by `discovery_threshold <= roll total
