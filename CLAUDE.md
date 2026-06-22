@@ -253,21 +253,39 @@ World-genrator/
 │       │                    #   get_balance (SUM(amount) per entity_id, no
 │       │                    #   stored balance), list_entries (entity_id /
 │       │                    #   session_id optional filters, newest first)
-│       ├── entity_author.py # AI entity-authoring assistant (BRIEF-24, schema
-│       │                    #   v1.36): generate_entity_draft(entity_type,
-│       │                    #   brief, db) — writes no canon, ever; calls the
-│       │                    #   local Ollama wrapper with model=AUTHOR_MODEL
-│       │                    #   ("llama3.1:8b", a one-line-change constant,
-│       │                    #   decision E1), format="json"; parses the
-│       │                    #   public/secret two-block contract and runs
-│       │                    #   deterministic post-processing (physical_tier
-│       │                    #   clamp, knowledge level validation + forced
-│       │                    #   is_secret=TRUE, case-insensitive faction_name
-│       │                    #   resolution, no auto-create on a miss);
+│       ├── entity_author.py # AI entity-authoring assistant (BRIEF-24/25,
+│       │                    #   schema v1.36/v1.37): generate_entity_draft(
+│       │                    #   entity_type, brief, db) — writes no canon,
+│       │                    #   ever; calls the local Ollama wrapper with
+│       │                    #   model=AUTHOR_MODEL ("llama3.1:8b", a
+│       │                    #   one-line-change constant, decision E1),
+│       │                    #   format="json"; parses the public/secret
+│       │                    #   two-block contract per entity_type and runs
+│       │                    #   deterministic post-processing;
+│       │                    #   "character": physical_tier clamp, knowledge
+│       │                    #   level validation + forced is_secret=TRUE,
+│       │                    #   case-insensitive faction_name resolution, no
+│       │                    #   auto-create on a miss;
+│       │                    #   "location" (BRIEF-25): location_type/
+│       │                    #   access_level enum validation (access_level
+│       │                    #   left blank, never defaulted permissive, on a
+│       │                    #   miss); _filter_subculture_public — the B1
+│       │                    #   intra-JSON public/secret segregation, reads
+│       │                    #   the LIVE _SAFE_SUBCULTURE_KEYS constant
+│       │                    #   (imported from context.py) so the public
+│       │                    #   region can never include "hidden" or any
+│       │                    #   other non-allow-listed key; secret.
+│       │                    #   subculture_hidden is the ONLY path to
+│       │                    #   subculture["hidden"]; sensed_links are
+│       │                    #   display-only (no parent_location_id/
+│       │                    #   connects_to/discoverable_detail write);
+│       │                    #   magic_status never proposed; no knowledge
+│       │                    #   rows generated for locations;
 │       │                    #   _TYPE_FIELDS is the config seam for entity
-│       │                    #   types beyond "character" (A1: only character
-│       │                    #   populated this step); never raises — returns
-│       │                    #   {"ok": false, "error": ...} on any failure
+│       │                    #   types ("character", "location" populated;
+│       │                    #   faction/item/artifact not); never raises —
+│       │                    #   returns {"ok": false, "error": ...} on any
+│       │                    #   failure
 │       └── cockpit/         # creator review web UI (FastAPI sub-app)
 │           ├── __init__.py
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
@@ -487,7 +505,23 @@ World-genrator/
 │                            #   composite POST then flushes pendingDraftKnowledge
 │                            #   through the EXISTING POST .../knowledge endpoint — no
 │                            #   new write code; a second "Générer" discards the draft
-│                            #   (F2 conversational refine out of scope)
+│                            #   (F2 conversational refine out of scope);
+│                            #   Création → Lieux "Générer avec l'IA" panel (BRIEF-25,
+│                            #   schema v1.37): same one-shot panel
+│                            #   (authorRenderGeneratePanel, shared with NPC), routed by
+│                            #   authorGenerateEntity through entity_type derived from
+│                            #   currentCreationSubTab; authorApplyLocationDraft pre-fills
+│                            #   name/description/location_type/access_level and merges
+│                            #   draft.public.subculture (allow-listed keys) with
+│                            #   draft.secret.subculture_hidden into the existing
+│                            #   subculture JSON textarea — the merge reads two
+│                            #   already-segregated draft fields, never a single
+│                            #   model-controlled key (B1); magic_status/coordinates
+│                            #   untouched; sensed_links + the full subculture render in
+│                            #   the read-only "Notes de l'assistant" block
+│                            #   (authorRenderGenNotes, shared with NPC); accepting goes
+│                            #   through the EXISTING composite POST only — no knowledge
+│                            #   rows for locations, no new write code
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)

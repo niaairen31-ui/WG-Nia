@@ -1,16 +1,17 @@
-"""AI entity-authoring assistant (NPC) — BRIEF-24.
+"""AI entity-authoring assistant (NPC, Location) — BRIEF-24, BRIEF-25.
 
 A creator-side draft generator: the creator types a one-line intent, this
 module calls the local author model and returns a structured pre-fill plan
 for the existing creator-CRUD form. It writes NO canon — no `entity`, no
-`character`, no `knowledge`, no `proposed_mutation`, no `relation` row is
-ever created or updated here. The creator edits the draft and accepts it
-through the existing author-CRUD path (`cockpit/crud.py`); that accept is
-the only write. See "AI entity-authoring assistant" in
+`character`, no `location`, no `knowledge`, no `proposed_mutation`, no
+`relation` row is ever created or updated here. The creator edits the draft
+and accepts it through the existing author-CRUD path (`cockpit/crud.py`);
+that accept is the only write. See "AI entity-authoring assistant" in
 ARCHITECTURE_DECISIONS.md for the full rationale (C3, D1, G1, G2).
 
-A1 scope: `character` (NPC) entities only. `_TYPE_FIELDS` is the seam for
-adding another entity type later — a config entry, not new code.
+`_TYPE_FIELDS` is the config seam for entity types: `character` (BRIEF-24)
+and `location` (BRIEF-25) are populated; faction/item/artifact are not —
+adding one of those later is a config entry here, not new code.
 """
 
 from __future__ import annotations
@@ -20,9 +21,13 @@ from typing import Any
 
 from sqlmodel import Session, select
 
+from .context import _SAFE_SUBCULTURE_KEYS
 from .models import Entity, PromptTemplate, World
 from .ollama_client import OllamaError, chat
 from .writes import KNOWLEDGE_LEVELS
+
+_LOCATION_TYPES = ("city", "district", "building", "natural", "underground", "other")
+_ACCESS_LEVELS = ("public", "restricted", "secret")
 
 # Decision E1: same Ollama runtime as the game model — Ollama evicts/loads
 # models on demand, so no manual unload logic is needed. The author model
@@ -46,6 +51,19 @@ _TYPE_FIELDS: dict[str, str] = {
         "vraie nature ou l'arc prévu du personnage) ; "
         'secret.shared_with (tableau d\'objets {"with","note"} — qui '
         "pourrait déjà savoir ou se douter, et pourquoi)."
+    ),
+    "location": (
+        'public.name (string) ; public.description (string) ; '
+        'public.location_type (un de city|district|building|natural|'
+        'underground|other) ; public.access_level (un de public|restricted|'
+        'secret) ; public.subculture (objet JSON — uniquement des clés parmi '
+        f"{', '.join(_SAFE_SUBCULTURE_KEYS)} ; n'invente pas d'autre clé).\n"
+        'secret.subculture_hidden (string — ce que ce lieu cache vraiment, '
+        "inaccessible sans découverte en jeu) ; "
+        'secret.sensed_links (tableau d\'objets {"kind","name","note"} — '
+        "kind est un de parent|connection|faction|other ; un lieu parent, un "
+        "lieu voisin, ou une faction qui contrôle ou influence ce lieu, "
+        "perceptible mais non confirmé)."
     ),
 }
 
@@ -137,6 +155,65 @@ def _normalize_shared_with(raw: Any) -> list[dict]:
     return rows
 
 
+def _validate_location_type(raw: Any, notes: list[str]) -> str:
+    if isinstance(raw, str) and raw in _LOCATION_TYPES:
+        return raw
+    notes.append(
+        f"Type de lieu '{raw}' non reconnu ou absent — repli sur 'other'"
+    )
+    return "other"
+
+
+def _validate_access_level(raw: Any, notes: list[str]) -> str | None:
+    """Decision: a missing/unrecognised access level is left BLANK for the
+    creator to set — never defaulted to a permissive value (item 4)."""
+    if isinstance(raw, str) and raw in _ACCESS_LEVELS:
+        return raw
+    notes.append(
+        f"Niveau d'accès '{raw}' non reconnu ou absent — laissé vide pour le créateur"
+    )
+    return None
+
+
+def _filter_subculture_public(raw: Any, notes: list[str]) -> dict:
+    """B1 — the structural core of this brief.
+
+    Reads the LIVE `_SAFE_SUBCULTURE_KEYS` constant (imported, never
+    hardcoded) as the source of truth. Any key the model proposes under
+    `public.subculture` that is not in that allow-list is dropped and
+    noted; it can never reach the public region. `"hidden"` is not in the
+    allow-list, so it cannot be set from here — it can only ever come from
+    `secret.subculture_hidden` (see `generate_entity_draft`).
+    """
+    public: dict = {}
+    if not isinstance(raw, dict):
+        return public
+    for key, value in raw.items():
+        if key in _SAFE_SUBCULTURE_KEYS:
+            public[key] = value
+        else:
+            notes.append(f"Clé subculture '{key}' hors allow-list — ignorée")
+    return public
+
+
+def _normalize_sensed_links(raw: Any) -> list[dict]:
+    """Display-only notes (D1) — never resolved, never written anywhere."""
+    rows: list[dict] = []
+    if not isinstance(raw, list):
+        return rows
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not name:
+            continue
+        kind = item.get("kind")
+        if kind not in ("parent", "connection", "faction", "other"):
+            kind = "other"
+        rows.append({"kind": kind, "name": name, "note": item.get("note") or ""})
+    return rows
+
+
 def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
     """Generate a pre-fill draft for the creator-CRUD form.
 
@@ -188,6 +265,29 @@ def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
     secret_in = secret_in if isinstance(secret_in, dict) else {}
 
     notes: list[str] = []
+
+    if entity_type == "location":
+        subculture_public = _filter_subculture_public(
+            public_in.get("subculture"), notes
+        )
+        draft = {
+            "public": {
+                "name": public_in.get("name") or "",
+                "description": public_in.get("description") or "",
+                "location_type": _validate_location_type(
+                    public_in.get("location_type"), notes
+                ),
+                "access_level": _validate_access_level(
+                    public_in.get("access_level"), notes
+                ),
+                "subculture": subculture_public,
+            },
+            "secret": {
+                "subculture_hidden": secret_in.get("subculture_hidden") or "",
+                "sensed_links": _normalize_sensed_links(secret_in.get("sensed_links")),
+            },
+        }
+        return {"ok": True, "draft": draft, "notes": notes}
 
     faction_id, faction_note = _resolve_faction_id(
         db, _world_id(db), public_in.get("faction_name")

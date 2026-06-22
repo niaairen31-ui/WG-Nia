@@ -1621,7 +1621,7 @@ see. Enforced by query construction (the assembler reads `npc_entity`'s own
 
 ---
 
-## AI entity-authoring assistant (NPC) (schema v1.36, BRIEF-24)
+## AI entity-authoring assistant (NPC, Location) (schema v1.36–v1.37, BRIEF-24, BRIEF-25)
 
 **A1: NPC/`character` only, parameterized for later types.** The generation
 module (`entity_author.py`) has exactly one public function,
@@ -1708,6 +1708,73 @@ relation/knowledge editors if they choose. No code path writes a
   creator act, same as everywhere else in the engine.
 - **Auto-creating a referenced faction/location.** Unresolved name → blank
   field + note. Never create the entity the brief merely names.
+
+**Location (BRIEF-25, schema v1.37) — confirming the seam is config, not
+code.** Adding `location` meant exactly one new `_TYPE_FIELDS` key plus a
+new branch in `generate_entity_draft` that builds a different draft shape;
+the two-block `public`/`secret` contract, the template, the generate
+endpoint, and the accept path were all reused completely unchanged — the
+A1 prediction held.
+
+**B1 — `subculture`'s intra-JSON public/secret segregation, the headline of
+this step.** Every prior `public`/`secret` split in this engine has been a
+split between top-level blocks (NPC `public`/`secret`,
+`character.secrets`/`knowledge.is_secret`). `location.subculture` is the
+first field where BOTH regions live inside the SAME JSON value once
+written — a public region and a `"hidden"` trap key. The parser makes this
+safe structurally, not by instruction:
+- `_filter_subculture_public` reads the LIVE `_SAFE_SUBCULTURE_KEYS`
+  constant (imported from `context.py`, never a hardcoded copy) and drops
+  any key the model proposes under `public.subculture` that isn't on it —
+  noted, never written. `"hidden"` is not on that allow-list, so the model
+  cannot place it in the public region even if it tries.
+- The ONLY path to `subculture["hidden"]` is the model's
+  `secret.subculture_hidden` field, which the cockpit JS merges into the
+  textarea pre-fill (`authorApplyLocationDraft`) from two already-segregated
+  draft fields (`draft.public.subculture`, `draft.secret.subculture_hidden`)
+  — the merge is code reading two trusted buckets, never the model writing
+  one mixed key directly.
+- This means `_SAFE_SUBCULTURE_KEYS` doubles as the SAME allow-list
+  `assemble_npc_context`/`assemble_mj_context`/`active_signposts` already
+  use to decide what's safe ambient atmosphere (CLAUDE.md's "subculture is a
+  TRAP" note) — the generator cannot produce a public subculture the
+  play-time assemblers wouldn't already have surfaced anyway, and it cannot
+  produce a `hidden` value the assemblers will ever read, because no
+  assembler reads it regardless of provenance.
+
+**`access_level` never defaulted permissive — stronger than the NPC step's
+defaults.** Unlike `location_type` (unrecognised → `"other"`, a neutral
+fallback), an unrecognised or missing `access_level` is left BLANK for the
+creator. `"public"` is not a safe default to guess on the model's behalf —
+whether a place is open, restricted, or secret is a creator decision about
+the world's structure, not a detail to infer from a one-line brief.
+
+**`magic_status` never generator-proposed (C2), same doctrine as
+`physical_tier` is NOT — and that asymmetry is intentional.** `physical_tier`
+(NPC) is model-proposed then code-clamped, because a combat capability
+guess is low-stakes and reviewable. `magic_status` going to `nexus`/`active`
+is a world-structuring reveal the creator places deliberately; the
+generator doesn't propose it at all, not even into a field the creator
+must then notice and override. The schema default (`inert`) stands
+untouched; the creator sets it by hand during pre-fill review, same as
+the existing Lieux CRUD editor outside generation entirely.
+
+**D1, restated for Location — hierarchy/adjacency/discoverables stay
+out.** The generator never resolves `parent_location_id`, never proposes a
+`connects_to` edge, never creates a `discoverable_detail`/signpost row.
+Any sensed parent, neighbour, or controlling faction the model infers from
+the brief becomes a `sensed_links` entry in the draft's `secret` block,
+surfaced as a display-only note (`authorApplyLocationDraft` pushes each
+into the notes panel) — identical doctrine to the NPC step's
+`shared_with`. These are separate, already-existing subsystems (travel,
+passive perception) with their own creator-direct CRUD; generation must
+not shortcut them.
+
+**No `knowledge` rows for locations.** A location doesn't "know" anything —
+its concealed lore lives entirely in `subculture["hidden"]`, a column on
+the `location` row itself, not a `knowledge` table entry. This step
+generates zero `knowledge` rows for `location` entities, unlike the NPC
+step's `secret.knowledge` list.
 
 ---
 

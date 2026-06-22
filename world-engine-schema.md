@@ -824,6 +824,24 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.37** — No new tables or columns. Application-layer: AI
+  entity-authoring assistant extended to `location` (BRIEF-25).
+  `_TYPE_FIELDS` gains the `location` key in `entity_author.py`;
+  `pt-entity-generation`'s `{type_fields}` rendering covers `location` (the
+  existing template row is reused, no new row created). `subculture`
+  public/hidden segregation enforced structurally in the parser: the public
+  region is filtered against the LIVE `_SAFE_SUBCULTURE_KEYS` constant
+  (imported from `context.py`, never hardcoded), and `"hidden"` is reachable
+  only from the model's `secret.subculture_hidden` field — the same
+  intra-JSON doctrine as the `public`/`secret` block split. `location_type`
+  validated against its enum (default `"other"` + note); `access_level`
+  validated against its enum but left BLANK on a miss (never defaulted to a
+  permissive value). `magic_status`/`coordinates`/`parent_location_id`/
+  `connects_to`/`discoverable_detail` are all out of generation scope —
+  the generator never proposes or writes any of them; a sensed parent,
+  neighbour, or controlling faction surfaces only as a display-only
+  `sensed_links` note. No `knowledge` rows are generated for locations.
+  Création → Lieux gains the same one-shot generate affordance as NPC.
 - **v1.36** — No new tables or columns. Application-layer: AI
   entity-authoring assistant (NPC). New module `entity_author.py`
   (`generate_entity_draft`, writes no canon); new template
