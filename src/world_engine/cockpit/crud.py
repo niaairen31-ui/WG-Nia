@@ -77,10 +77,23 @@ ENTITY_STATUSES = ("active", "inactive", "destroyed", "missing")
 # a connects_to row has two location endpoints, so it is structurally
 # isolated). Any future world-wide relation scan MUST exclude
 # type='connects_to'.
+#
+# controls: controller (faction OR any entity) -> controlled asset
+# (location | item | artifact | character | other). direction='a_to_b'
+# (controller is entity_a, asset is entity_b). intensity is a MEANINGLESS
+# structural default (50) with no social significance — it MUST NEVER be
+# read as an affective or relational signal. Structurally isolated like
+# connects_to: every gameplay consumer of `relation` is keyed on a
+# character/player id, so a controls row (controller + asset endpoints) is
+# invisible to the initiative vote and to both context assemblers. Any
+# future world-wide relation scan added to the codebase MUST explicitly
+# exclude type='controls' (and type='connects_to'). Reading "who controls
+# asset X" = the entity_a of controls rows whose entity_b = X; shared or
+# contested control = several controls rows, no special handling.
 RELATION_TYPES = (
     "ally", "enemy", "debt", "fear", "fascination", "shared_secret",
     "instrumentalizes", "interest", "indifference", "rejection",
-    "passive_attention", "other", "connects_to",
+    "passive_attention", "other", "connects_to", "controls",
 )
 RELATION_DIRECTIONS = ("mutual", "a_to_b", "b_to_a")
 
@@ -166,6 +179,18 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
                 "options": ["unaware", "suspicious", "partial", "knows", "understands"], "default": "unaware",
             },
             {"name": "internal_tensions", "label": "Internal tensions", "kind": "textarea"},
+            # DORMANT trio (BRIEF-26, schema v1.38): stored and creator-editable,
+            # read by no assembler or guard. See RELATION_TYPES's `controls`
+            # comment and models.Faction for the same dormancy doctrine.
+            {
+                "name": "parent_faction_id", "label": "Parent faction", "kind": "entity_ref",
+                "ref_type": "faction", "exclude_self": True,
+            },
+            {
+                "name": "scope", "label": "Scope", "kind": "select",
+                "options": ["", "global", "national", "regional", "local", "other"],
+            },
+            {"name": "goals", "label": "Goals", "kind": "textarea"},
         ],
     },
     "item": {

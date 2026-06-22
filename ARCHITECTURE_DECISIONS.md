@@ -1778,6 +1778,82 @@ step's `secret.knowledge` list.
 
 ---
 
+## FACTION — structure & resources (BRIEF-26, schema v1.38)
+
+**Scope: creator-CRUD, zero active mechanic.** Factions gain a containment
+hierarchy mirroring `location`, a descriptive scale label, a treasury
+reusing the existing `ledger`, and a generic `controls` relation for owned
+assets. Membership (roster, ranks, secret affiliation) is the NEXT,
+separate chantier (C1) and is explicitly out of scope here —
+`character.faction_id` stays the single primary pointer this step.
+
+**A1a — `parent_faction_id` dormant, same posture as `equipped`.** Three
+new nullable `faction` columns (`parent_faction_id`, `scope`, `goals`) plus
+`idx_faction_parent`, no `CHECK`. All three are placed-but-unread: no
+assembler, guard, or code path reads them. The traversal index exists for
+a deferred consumer (the C1 membership/authority follow-up), not for
+anything live today. The risk this guards against is an executor wiring a
+reader "while it's here" — explicitly forbidden.
+
+**`scope` is descriptive, not depth-derived.** `global | national |
+regional | local | other` is a creator-set label on the faction sheet. It
+is never computed from walking the `parent_faction_id` tree, and no
+mechanic (access gating by reach, etc.) reads it.
+
+**`controls` — the `connects_to` isolation pattern, directed instead of
+undirected.** Reuses the `relation` table exactly like `connects_to`:
+`direction='a_to_b'` (controller is `entity_a`, asset is `entity_b`),
+`intensity=50` is a MEANINGLESS structural default that must never be read
+as an affective or relational signal. Every gameplay consumer of
+`relation` (the initiative vote, both context assemblers) is keyed on a
+character/player id, so a `controls` row is structurally invisible to all
+of them. The guard comment in `RELATION_TYPES` (`crud.py`) is verbatim
+with the brief and mirrors the `connects_to` guard; any future world-wide
+relation scan must explicitly exclude both types. "Who controls asset X"
+is read as the `entity_a` of `controls` rows whose `entity_b = X`; several
+rows means shared/contested control, with no special handling.
+
+**Faction treasury reuses `ledger`, reaffirming A1/A2/A3 — no new table,
+no new route.** `ledger.entity_id` already accepts any entity id, so a
+faction balance is `SUM(amount) WHERE entity_id = <faction_id>`, computed
+at read time exactly like a character's. The only changes are cockpit
+surfacing: the existing read-only "Solde" block (`GET
+/api/entities/{id}/ledger`) now also renders on the faction sheet, and the
+Registre's credit/debit form (`POST /api/ledger`) already targets any
+active entity — no change was needed there, it was generic from BRIEF-18.
+A1 (`resource_change`'s money leg stays player-only through the AI
+pipeline) and A2/A3 (tracked NPC/faction purses, double-entry) are
+reaffirmed as deferred: this step adds no faction-targeting path through
+`_apply_mutation`, only the creator-direct `write_ledger_entry` chokepoint
+that already existed.
+
+**`goals` is prose with no mechanic.** Free text on what the faction is
+trying to do. No event generation, no agenda-driven NPC behavior reads it
+— a structured "agenda" subsystem is a hypothetical future step, not
+implied by storing this field.
+
+**Cycle prevention deferred — excluding self from the dropdown is the only
+guard.** The cockpit's parent-faction picker filters out the faction
+currently being edited (`entity_ref` field gains an `exclude_self` flag,
+read against the in-memory `authorEntityId`). This is a UI nicety, not a
+backend invariant: the API itself does not reject a self-referencing or
+cyclic `parent_faction_id`, because nothing traverses the tree yet, so a
+cycle is inert. Full cycle detection is deferred — revisit only once a
+consumer actually walks `parent_faction_id`.
+
+**Hierarchical authority propagation is explicitly NOT implemented.**
+Being `leader` of a parent faction confers no computed authority over
+child factions. The tree stores facts only; this is a tripwire for the
+next step (C1 membership), not a decision this step makes.
+
+**Next: C1 — faction membership.** A `faction_membership` roster (`role`,
+`is_secret` affiliation, `joined_at`/`left_at`) is the natural next chantier
+once this structural layer exists, and is the first place a reader of
+`parent_faction_id` would plausibly appear (e.g. inherited relations from a
+member's faction — also explicitly deferred, C2).
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

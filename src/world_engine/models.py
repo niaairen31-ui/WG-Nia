@@ -144,6 +144,7 @@ class Location(SQLModel, table=True):
 # -----------------------------------------------------------------------------
 class Faction(SQLModel, table=True):
     __tablename__ = "faction"
+    __table_args__ = (Index("idx_faction_parent", "parent_faction_id"),)
 
     id: str = Field(primary_key=True, foreign_key="entity.id")
     faction_type: Optional[str] = None
@@ -154,6 +155,19 @@ class Faction(SQLModel, table=True):
         sa_column_kwargs={"server_default": text("'unaware'")},
     )
     internal_tensions: Optional[str] = None
+    # DORMANT (BRIEF-26, schema v1.38): containment tree, mirror of
+    # location.parent_location_id. No assembler or guard traverses it yet —
+    # creator-CRUD only, metadata-config category, no change_history (same
+    # as location_type / coordinates).
+    parent_faction_id: Optional[str] = Field(
+        default=None, foreign_key="entity.id"
+    )
+    # DORMANT: descriptive scale label, NOT derived from tree depth. No code
+    # reads it yet. global | national | regional | local | other.
+    scope: Optional[str] = None
+    # DORMANT: prose, what the faction is trying to do. No mechanic, no
+    # structured consumer.
+    goals: Optional[str] = None
 
 
 # -----------------------------------------------------------------------------

@@ -120,8 +120,22 @@ CREATE TABLE faction (
   philosophy            TEXT,
   magic_knowledge_level TEXT DEFAULT 'unaware',
                         -- unaware | suspicious | partial | knows | understands
-  internal_tensions     TEXT
+  internal_tensions     TEXT,
+  parent_faction_id     TEXT REFERENCES entity(id),
+                        -- containment tree, mirror of location.parent_location_id.
+                        -- NULL = root faction. DORMANT (BRIEF-26, schema v1.38):
+                        -- no assembler or guard traverses it yet — creator-CRUD
+                        -- only, metadata-config category, no change_history (same
+                        -- as location_type / coordinates).
+  scope                 TEXT,
+                        -- global | national | regional | local | other.
+                        -- DORMANT: descriptive scale label, NOT derived from
+                        -- tree depth. No code reads it yet.
+  goals                 TEXT
+                        -- DORMANT: prose, what the faction is trying to do.
+                        -- No mechanic, no structured consumer.
 );
+CREATE INDEX idx_faction_parent ON faction(parent_faction_id);
 ```
 
 -----
@@ -139,7 +153,8 @@ CREATE TABLE relation (
   type                TEXT NOT NULL,
                       -- ally | enemy | debt | fear | fascination |
                       -- shared_secret | instrumentalizes | interest |
-                      -- indifference | rejection | passive_attention | other
+                      -- indifference | rejection | passive_attention | other |
+                      -- connects_to | controls
   direction           TEXT DEFAULT 'mutual',
                       -- mutual | a_to_b | b_to_a
                       -- NOTE: magic relations = always a_to_b
@@ -160,6 +175,18 @@ CREATE TABLE relation (
   change_history      JSON DEFAULT '[]'  -- archived evolutions
 );
 ```
+-- NOTE: `connects_to` (location<->location map topology) and `controls`
+--       (controller -> controlled asset, schema v1.38/BRIEF-26) are
+--       structurally isolated relation types. Both carry a MEANINGLESS
+--       structural `intensity=50` default with no social significance.
+--       Every gameplay reader of `relation` keyed on a character/player id
+--       is structurally blind to them (their endpoints are non-character
+--       entities). `controls` is direction='a_to_b' (controller is
+--       entity_a, asset is entity_b); reading "who controls asset X" = the
+--       entity_a of `controls` rows whose entity_b = X — several rows means
+--       shared/contested control, no special handling. Any future
+--       world-wide relation scan MUST explicitly exclude both
+--       type='connects_to' and type='controls'.
 
 -----
 
@@ -824,6 +851,22 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.38** — Faction structure & resources (BRIEF-26). Three new `faction`
+  columns — `parent_faction_id` (containment tree, mirror of
+  `location.parent_location_id`), `scope` (descriptive scale label, NOT
+  derived from tree depth), `goals` (prose) — plus `idx_faction_parent`.
+  All three are DORMANT: placed-but-unread, the `equipped` pattern; no
+  assembler or guard reads them. `controls` added to `RELATION_TYPES`
+  (`crud.py`): controller (faction or any entity) → controlled asset,
+  `direction='a_to_b'`, structurally isolated like `connects_to` (verbatim
+  guard comment, every world-wide relation scan must exclude both). Faction
+  treasury surfaced via the existing `ledger` + `GET/POST .../ledger`
+  endpoints — zero schema, zero new route, creator-direct only; the
+  character-only "Solde" cockpit block now also renders on the faction
+  sheet. Cockpit Factions editor gains the three new fields (parent
+  dropdown excludes self; full cycle detection deferred — nothing traverses
+  the tree). Membership (roster, ranks, secret affiliation — C1) remains
+  the next, separate step; `character.faction_id` untouched.
 - **v1.37** — No new tables or columns. Application-layer: AI
   entity-authoring assistant extended to `location` (BRIEF-25).
   `_TYPE_FIELDS` gains the `location` key in `entity_author.py`;

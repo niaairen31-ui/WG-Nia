@@ -3020,7 +3020,10 @@ function authorRenderField(field, value, idPrefix) {
         <datalist id="${dlid}">${opts}</datalist></div>`;
     }
     case 'entity_ref': {
-      const candidates = authorAllEntities.filter(e => e.type === field.ref_type);
+      let candidates = authorAllEntities.filter(e => e.type === field.ref_type);
+      if (field.exclude_self && authorEntityId) {
+        candidates = candidates.filter(e => e.id !== authorEntityId);
+      }
       const opts = ['<option value="">—</option>'].concat(
         candidates.map(e => `<option value="${esc(e.id)}" ${e.id === value ? 'selected' : ''}>${esc(e.name)}</option>`)
       ).join('');
@@ -3125,7 +3128,9 @@ function authorRenderSheet(detail, isNew, type) {
     html += '<div class="field-section"><div class="field-section-title">Items</div>';
     html += '<div id="author-items"><div class="empty"><span class="spin">⟳</span></div></div>';
     html += '</div>';
+  }
 
+  if (!isNew && (type === 'character' || type === 'faction')) {
     html += '<div class="field-section"><div class="field-section-title">Solde</div>';
     html += '<div id="author-ledger"><div class="empty"><span class="spin">⟳</span></div></div>';
     html += '</div>';
@@ -3148,6 +3153,9 @@ function authorRenderSheet(detail, isNew, type) {
 
   if (!isNew && type === 'character') {
     authorLoadItems(detail.id);
+    authorLoadLedger(detail.id);
+  }
+  if (!isNew && type === 'faction') {
     authorLoadLedger(detail.id);
   }
   if (!isNew && type === 'location') {
