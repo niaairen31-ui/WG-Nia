@@ -597,9 +597,9 @@ class DiscoverableDetail(SQLModel, table=True):
         default="hidden",
         sa_column_kwargs={"server_default": text("'hidden'")},
     )
-    # DORMANT: minimum 2d6 total required to reveal (not compared this brief).
-    # Reserved so "some info is better hidden than other" can be activated later
-    # without a migration — same philosophy as knowledge.share_threshold.
+    # ACTIVE (N1, BRIEF-23): minimum 2d6+modifier roll total required to
+    # reveal, filtered at selection in _stream(). Same philosophy as
+    # knowledge.share_threshold.
     discovery_threshold: int = Field(
         default=0, sa_column_kwargs={"server_default": text("0")}
     )

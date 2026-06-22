@@ -1120,14 +1120,26 @@ The `[FOUILLE INFRUCTUEUSE]` rubric carries the anti-invention rule verbatim:
 no object, letter, passage, or clue may be invented. The model describes the
 search gestures only.
 
-For `partial`, the content IS revealed — partial means a complication (noise,
-knocked-over object, a co-present NPC notices), not withheld information. This
-keeps the three 2d6 outcome bands mechanically distinct (same principle as
-condition degradation: partial is a complication band, not a failure band).
+For a REACHABLE detail, `partial` reveals its content in full — `partial`
+means a complication (noise, a knocked-over object, a co-present NPC
+notices), never a withheld or watered-down version of a detail the roll
+reached. This keeps the three 2d6 bands mechanically distinct (partial is a
+complication band, not a failure band).
 
-`discovery_threshold` is DORMANT: both `partial` and `success` reveal equally
-(binary gate). The threshold column is reserved for future activation without
-a migration — same philosophy as `knowledge.share_threshold`.
+`discovery_threshold` is ACTIVE (N1): a detail is a revelation candidate
+only when `discovery_threshold <= roll total` (`2d6 + modifier`, the same
+total that yields the band). The gate is a fourth `.where()` clause on the
+selection query in `_stream()`, applied AT SELECTION (B1) — so an easy
+detail stays reachable even when a harder detail shares the location. A
+`partial`/`success` search whose candidates are all above threshold returns
+no row and reuses the `[FOUILLE INFRUCTUEUSE]` rubric (C1) —
+indistinguishable from an exhausted location, so the existence of gated
+content never leaks. Effective creator scale: the gate only runs on
+partial/success (total >= 7), so thresholds 0-6 all mean "any successful
+search"; 7-12 carve out harder finds, up to a near-max roll. Doctrine
+refinement (D1): `partial` never *withholds* a detail within its reach; it
+may simply fail to *reach* a higher-threshold detail. Same philosophy as
+`knowledge.share_threshold`.
 
 ### `_propose_engine_discovery`
 
@@ -1289,9 +1301,9 @@ before. `signpost_group` is editable on create and edit, round-trips through
   entry) is the chosen cadence.
 - **NPC-naming at entry (J2).** No "all NPCs present, ungathered-scoped" read
   path for the establishment call.
-- **`discovery_threshold` activation, NPC opposition to a search,
-  per-character discovery state** — unchanged BRIEF-13 deferrals, untouched
-  by this step.
+- **NPC opposition to a search, per-character discovery state** — unchanged
+  BRIEF-13 deferrals, untouched by this step. (`discovery_threshold`
+  activation — resolved by BRIEF-23.)
 
 ---
 
@@ -1738,10 +1750,9 @@ Recorded here so each is revisited deliberately rather than forgotten:
   `access_level='ambient'` is now read by `active_signposts` (code predicate,
   never an assembler) and narrated via a new MJ establishment call in
   `enter_scene`.
-- **`discovery_threshold` activation** (BRIEF-13). Schema column present and
-  editable, never compared against `verdict.total`. Both `partial` and `success`
-  reveal equally (binary gate). "Some info is better hidden than other" is a
-  deliberate later step.
+- **`discovery_threshold` activation** (BRIEF-13) — **resolved by BRIEF-23**
+  (N1, schema v1.35): the column is now compared against `verdict.total` as a
+  fourth `.where()` clause at selection in `_stream()`.
 - **NPC opposition to a search** (BRIEF-13). A search always resolves at
   `npc_tier=0`; the future "a named NPC intervenes to block or hide information"
   (opposition to a perception roll) is deferred. Do not read co-present NPCs

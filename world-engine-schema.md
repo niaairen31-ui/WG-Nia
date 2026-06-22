@@ -621,11 +621,15 @@ CREATE TABLE discoverable_detail (
                       -- hidden  : requires an explicit search + a successful
                       --           perception roll to reveal
   discovery_threshold INTEGER NOT NULL DEFAULT 0 CHECK (discovery_threshold BETWEEN 0 AND 12),
-                      -- DORMANT this brief: the minimum 2d6 total required to
-                      -- reveal. Compared against a trivial bar for now (any
-                      -- partial/success reveals regardless of this value).
-                      -- Reserved so "some info is better hidden than other"
-                      -- can be activated later without a migration. Same
+                      -- ACTIVE (N1): the minimum 2d6+modifier roll total
+                      -- required to reveal. Applied as a candidate filter on
+                      -- explicit perception searches in _stream(): a detail
+                      -- is selectable only when discovery_threshold <= roll
+                      -- total. The gate runs only on partial/success
+                      -- (total >= 7), so 0-6 all mean "any successful
+                      -- search"; 7-12 carve out harder finds up to a
+                      -- near-max roll. All candidates above threshold ->
+                      -- no row -> [FOUILLE INFRUCTUEUSE] (no leak). Same
                       -- philosophy as knowledge.share_threshold.
   discovered          BOOLEAN NOT NULL DEFAULT FALSE,
                       -- flips TRUE when a discovery new_knowledge mutation for
@@ -820,6 +824,14 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.35** — Activated `discoverable_detail.discovery_threshold` (no
+  migration; column present since v1.26). Explicit perception searches now
+  filter revelation candidates by `discovery_threshold <= roll total
+  (2d6 + modifier)` via a fourth `.where()` clause in `_stream()`. Default 0
+  preserves prior behaviour (any partial/success reveals). All candidates
+  above threshold collapse into the existing `[FOUILLE INFRUCTUEUSE]` path —
+  no new rubric, no leak of gated content. Doctrine refined: `partial` never
+  withholds a reached detail but may fail to reach a higher-threshold one.
 - **v1.34** — No new tables or columns. Infra: default DB path relocated out
   of the git working tree to an absolute `~/.world_engine/world_engine.db`
   (env override `WORLD_ENGINE_DATABASE_URL` preserved, top precedence);

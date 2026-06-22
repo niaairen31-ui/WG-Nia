@@ -2338,14 +2338,18 @@ def say(
             search_rubric: Optional[str] = None
             if domain == "perception" and opposed_npc_id is None:
                 if verdict.band in ("partial", "success"):
-                    # Select the oldest undiscovered hidden detail for this
-                    # location. discovery_threshold is DORMANT this brief:
-                    # both partial and success reveal equally (binary gate).
+                    # Select the oldest undiscovered hidden detail REACHABLE at this
+                    # roll: discovery_threshold <= verdict.total (N1). When every
+                    # undiscovered detail is above threshold the query returns no row,
+                    # found_detail is None, and we fall through to [FOUILLE INFRUCTUEUSE]
+                    # below — structurally identical to an exhausted location, so gated
+                    # content never leaks.
                     found_detail = db.exec(
                         select(DiscoverableDetail).where(
                             DiscoverableDetail.location_id == conv.location_id,
                             DiscoverableDetail.access_level == "hidden",
                             DiscoverableDetail.discovered == False,  # noqa: E712
+                            DiscoverableDetail.discovery_threshold <= verdict.total,
                         ).order_by(
                             DiscoverableDetail.created_at,
                             DiscoverableDetail.id,
