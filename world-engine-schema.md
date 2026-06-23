@@ -918,6 +918,18 @@ batch   → event
   row before dropping, aborts otherwise. No re-backfill. Scope OUT, unchanged:
   no membership reader wired into any context assembler; `role` / `is_secret`
   still unread; no AI `membership_change` mutation type.
+  — *Reader A1: TES AFFILIATIONS (BRIEF-29, application layer, no schema
+  change)*: new `read_public_memberships(entity_id, session)` in
+  `context.py` — the single structural choke-point for `faction_membership`
+  reaching any prompt, filtering `is_secret = FALSE` and `left_at IS NULL`
+  in the query itself (no override parameter). `assemble_npc_context`
+  injects its result as a "TES AFFILIATIONS" block (own public/active
+  memberships, primary first then oldest-joined), placed immediately
+  before the existing "TES TARIFS" block; header omitted entirely when the
+  list is empty, mirroring the TES TARIFS empty-case idiom. No secret
+  self-include — the holder's own secret membership stays out of its own
+  prompt; espionage rides on `goals` prose, never a confessable affiliation
+  label. `faction_membership` (v1.39) is otherwise unchanged.
 - **v1.39** — Faction membership, C1 (BRIEF-27). New table
   `faction_membership` — durable member<->faction roster, the durable
   counterpart to session-ephemeral `gathering_member`: `id`, `world_id`,

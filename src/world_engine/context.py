@@ -34,6 +34,7 @@ from .models import (
     DiscoverableDetail,
     Entity,
     Event,
+    FactionMembership,
     Gathering,
     GatheringMember,
     Item,
@@ -87,6 +88,39 @@ def _render_perception(name: str, rel: Relation) -> str:
         f"- {name} : {rel.notes} "
         f"(perception : {rel.type}, intensité {rel.intensity}/100)"
     )
+
+
+def read_public_memberships(
+    entity_id: str, session: Session
+) -> list[tuple[str, str | None]]:
+    """Return this entity's own public, active faction memberships.
+
+    The structural choke-point for membership-in-prompts: `is_secret = FALSE`
+    is enforced in the query itself, never by instruction. No caller can opt
+    into secret rows — there is no parameter for it. This is the only path
+    through which `faction_membership` may ever reach a model prompt.
+
+    Returns `(faction_name, role)` pairs, primary first then oldest-joined.
+    A row whose `faction_id` doesn't resolve to an `Entity` is skipped — a
+    raw id must never render into a prompt.
+    """
+    rows = session.exec(
+        select(FactionMembership)
+        .where(
+            FactionMembership.entity_id == entity_id,
+            FactionMembership.left_at.is_(None),
+            FactionMembership.is_secret == False,  # noqa: E712
+        )
+        .order_by(FactionMembership.is_primary.desc(), FactionMembership.joined_at.asc())
+    ).all()
+
+    memberships: list[tuple[str, str | None]] = []
+    for row in rows:
+        faction_entity = session.get(Entity, row.faction_id)
+        if faction_entity is None:
+            continue
+        memberships.append((faction_entity.name, row.role))
+    return memberships
 
 
 def assemble_npc_context(
@@ -272,6 +306,18 @@ def assemble_npc_context(
 
     company_section = _section(H_COMPANY, company) + "\n" if company else ""
 
+    # ----- 4b. Affiliations (BRIEF-29) — this NPC's own public memberships --
+    memberships = read_public_memberships(npc_id, session)
+    affiliations_section = ""
+    if memberships:
+        affiliation_lines = ["TES AFFILIATIONS :"]
+        for faction_name, role in memberships:
+            if role:
+                affiliation_lines.append(f"- {faction_name} ({role})")
+            else:
+                affiliation_lines.append(f"- {faction_name}")
+        affiliations_section = "\n".join(affiliation_lines) + "\n\n"
+
     # ----- 4c. Seller tariffs (BRIEF-20) — this NPC's own price_list only ---
     price_list = npc_entity.metadata_.get("price_list") if isinstance(npc_entity.metadata_, dict) else None
     pricing_section = ""
@@ -291,6 +337,7 @@ def assemble_npc_context(
         + _section(H_PERCEPTION, perception)
         + "\n"
         + company_section
+        + affiliations_section
         + pricing_section
         + _section(H_BOUNDARIES, boundaries)
     )

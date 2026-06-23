@@ -1976,6 +1976,49 @@ separate brief — not bundled here.
 
 ---
 
+## FACTION MEMBERSHIP — Reader A1: TES AFFILIATIONS (BRIEF-29, no schema change)
+
+**`read_public_memberships` is the single structural choke-point for
+membership-in-prompts.** Co-located in `context.py` (one consumer; not
+promoted to a `reads.py` module). Its query filters
+`is_secret = FALSE` BY CONSTRUCTION — the word "public" in the name encodes
+the guarantee, and there is no parameter to opt into secret rows. Every
+future membership-into-prompt read (third-party perception, MJ context,
+anything) MUST go through this function rather than querying
+`faction_membership` directly or reusing the cockpit's `_membership_dict`
+(which exposes `is_secret` to the creator by design).
+
+**Corrected-B: no secret self-include, even in the holder's own prompt.**
+The original idea — let an NPC's own secret affiliation into its own
+context, trusting the model to keep it concealed — was dropped. On an
+abliterated model (no refusal mechanism), putting a secret label in the
+prompt is handing the model something to confess under pressure. The
+holder's own secret membership stays out of its own prompt exactly like
+every other secret in this engine ("Secrets are structurally excluded",
+CLAUDE.md). Espionage behaviour rides on `goals` prose, never on a
+confessable affiliation label — there is no narrower, "just for self"
+include-secret path anywhere in this step.
+
+**TES AFFILIATIONS — the first `faction_membership` reader, mirroring TES
+TARIFS' house style exactly.** `assemble_npc_context` builds the block
+inline (no new section helper), placed immediately before the TES TARIFS
+block (BRIEF-20) — affiliations are identity, injected before commerce. Same
+empty-case idiom: zero public memberships → `""`, header omitted entirely,
+no signpost of absence. A dangling `faction_id` (entity doesn't resolve) is
+silently skipped — never a raw id rendered into a prompt. `is_primary`/
+ordering is read for static rendering only (primary first, then
+oldest-joined by `joined_at`); no `[principale]` tag, no role-based
+behaviour, no authority propagation — same dormant posture BRIEF-27 set for
+`role`/`is_primary` beyond this.
+
+**Read-only step — no schema change.** This brief touches no canon-write
+path and bumps no schema version; `faction_membership` (v1.39) and its
+columns are unchanged. The changelog note for this step should say so
+explicitly, the same way a read-only step's "Schema: none" gets called out
+elsewhere in this doc.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

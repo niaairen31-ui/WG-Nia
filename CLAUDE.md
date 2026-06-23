@@ -161,6 +161,11 @@ Read both before making any structural change.
   quoted price is free dialogue and writes no canon; the money movement is a
   `resource_change` through the checkpoint. Catalogue prices are firm and
   universal; only uncatalogued quotes are relation-modulated.
+- **Membership reaches a model prompt only via `read_public_memberships`**
+  (BRIEF-29, no schema change); `is_secret` rows never enter any prompt,
+  including the holder's own. The filter is structural (`is_secret = FALSE`
+  in the query), not instructional, with no parameter to override it.
+  Espionage rides on `goals` prose, never a confessable affiliation label.
 
 ## Local model notes
 
@@ -212,7 +217,17 @@ World-genrator/
 │       │                    #   TARIFS" block from the NPC's OWN
 │       │                    #   metadata.price_list only, absent when empty —
 │       │                    #   never read by assemble_mj_context or another
-│       │                    #   entity's context
+│       │                    #   entity's context;
+│       │                    #   read_public_memberships (BRIEF-29, no schema
+│       │                    #   change): the single structural choke-point for
+│       │                    #   faction_membership reaching any prompt —
+│       │                    #   is_secret = FALSE enforced in the query, no
+│       │                    #   override param; assemble_npc_context injects
+│       │                    #   its result as a "TES AFFILIATIONS" block (own
+│       │                    #   public/active memberships only, primary
+│       │                    #   first), placed just before TES TARIFS, absent
+│       │                    #   when empty — no secret self-include, even for
+│       │                    #   the holder's own membership
 │       ├── gathering.py     # initial NPC clustering (generate_gatherings,
 │       │                    #   enter_location, contracts A2/B1/C1) + migrate_npc
 │       │                    #   (idempotent NPC migration between gatherings,
