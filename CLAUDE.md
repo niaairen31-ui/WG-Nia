@@ -277,8 +277,8 @@ World-genrator/
 │       │                    #   get_balance (SUM(amount) per entity_id, no
 │       │                    #   stored balance), list_entries (entity_id /
 │       │                    #   session_id optional filters, newest first)
-│       ├── entity_author.py # AI entity-authoring assistant (BRIEF-24/25,
-│       │                    #   schema v1.36/v1.37): generate_entity_draft(
+│       ├── entity_author.py # AI entity-authoring assistant (BRIEF-24/25/32,
+│       │                    #   schema v1.36/v1.37/v1.43): generate_entity_draft(
 │       │                    #   entity_type, brief, db) — writes no canon,
 │       │                    #   ever; calls the local Ollama wrapper with
 │       │                    #   model=AUTHOR_MODEL ("llama3.1:8b", a
@@ -305,9 +305,20 @@ World-genrator/
 │       │                    #   connects_to/discoverable_detail write);
 │       │                    #   magic_status never proposed; no knowledge
 │       │                    #   rows generated for locations;
+│       │                    #   "faction" (BRIEF-32): faction_type enum
+│       │                    #   validation (falls back to "other"); roles
+│       │                    #   normalization (_normalize_roles — ordered
+│       │                    #   {name,description} list, nameless rows
+│       │                    #   dropped with a note) lands in
+│       │                    #   draft.public.roles for client-side
+│       │                    #   population into entity.metadata['roles'];
+│       │                    #   internal_tensions/goals passthrough to
+│       │                    #   secret block (typed columns, no per-row
+│       │                    #   store); magic_knowledge_level/scope/
+│       │                    #   parent_faction_id never proposed;
 │       │                    #   _TYPE_FIELDS is the config seam for entity
-│       │                    #   types ("character", "location" populated;
-│       │                    #   faction/item/artifact not); never raises —
+│       │                    #   types ("character", "location", "faction"
+│       │                    #   populated; item/artifact not); never raises —
 │       │                    #   returns {"ok": false, "error": ...} on any
 │       │                    #   failure
 │       └── cockpit/         # creator review web UI (FastAPI sub-app)
@@ -567,7 +578,20 @@ World-genrator/
 │                            #   populated from GET /api/entities/{faction_id}/roles in
 │                            #   stored order, plus an always-present "autre" option
 │                            #   that reveals the original free-text input — selecting
-│                            #   "autre" never mutates faction.metadata.roles
+│                            #   "autre" never mutates faction.metadata.roles;
+│                            #   Création → Factions "Générer avec l'IA" panel
+│                            #   (BRIEF-32, schema v1.43): same one-shot panel
+│                            #   (authorRenderGeneratePanel, shared with NPC/Lieux),
+│                            #   routed by authorGenerateEntity when
+│                            #   currentCreationSubTab === 'factions';
+│                            #   authorApplyFactionDraft pre-fills name/description/
+│                            #   faction_type/philosophy/internal_structure (public)
+│                            #   and internal_tensions/goals (secret), and populates
+│                            #   authorFactionRolesDraft from draft.public.roles,
+│                            #   re-rendering the SAME roles editor the BRIEF-31
+│                            #   structured list owns — no new store; accepting goes
+│                            #   through the EXISTING composite POST only, same as
+│                            #   the manual roles editor
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)

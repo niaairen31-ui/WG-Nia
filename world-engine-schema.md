@@ -905,6 +905,22 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.43** — Faction generator (BRIEF-32). Application-layer only, no
+  schema/column change: `entity_author.py` registers `faction` in
+  `_TYPE_FIELDS`, reusing the `entity_generation` template unchanged
+  (no new prompt template, no `proposed_mutation`). Field partition: `name`,
+  `description`, `faction_type` (validated against the enum, falls back to
+  `other`), `philosophy`, `internal_structure` are public/proposed;
+  `roles` (`[{name,description}]`, ordered by rank, nameless rows dropped)
+  is public/proposed into `entity.metadata['roles']` (v1.42 precedent);
+  `internal_tensions` and `goals` are creator-only (secret block → typed
+  columns, passthrough); `magic_knowledge_level`, `scope`, and
+  `parent_faction_id` are never proposed (absent from `_TYPE_FIELDS`, stay
+  at form defaults) — same structural-link invariant as
+  `parent_location_id` for the location generator (v1.37). Accept path
+  reuses the existing composite entity PUT/POST and the existing
+  `authorFactionRolesDraft` editor — no new write code.
+
 - **v1.42** — Faction roles vocabulary (BRIEF-31). No schema/column change:
   factions now use `entity.metadata['roles']`, a flat ordered list of
   `{name, description}` (array order = rank), following the

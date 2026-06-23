@@ -9,9 +9,9 @@ and accepts it through the existing author-CRUD path (`cockpit/crud.py`);
 that accept is the only write. See "AI entity-authoring assistant" in
 ARCHITECTURE_DECISIONS.md for the full rationale (C3, D1, G1, G2).
 
-`_TYPE_FIELDS` is the config seam for entity types: `character` (BRIEF-24)
-and `location` (BRIEF-25) are populated; faction/item/artifact are not —
-adding one of those later is a config entry here, not new code.
+`_TYPE_FIELDS` is the config seam for entity types: `character` (BRIEF-24),
+`location` (BRIEF-25), and `faction` (BRIEF-32) are populated; item/artifact
+are not — adding one of those later is a config entry here, not new code.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from .writes import KNOWLEDGE_LEVELS
 
 _LOCATION_TYPES = ("city", "district", "building", "natural", "underground", "other")
 _ACCESS_LEVELS = ("public", "restricted", "secret")
+_FACTION_TYPES = ("government", "criminal", "military", "esoteric", "other")
 
 # Decision E1: same Ollama runtime as the game model — Ollama evicts/loads
 # models on demand, so no manual unload logic is needed. The author model
@@ -36,8 +37,9 @@ _ACCESS_LEVELS = ("public", "restricted", "secret")
 AUTHOR_MODEL = "llama3.1:8b"
 
 # Per-type field guidance injected into the user message as {type_fields}.
-# Only "character" is populated in this brief (A1) — adding another entity
-# type later means adding a key here, not touching the template or parser.
+# "character" (BRIEF-24), "location" (BRIEF-25), and "faction" (BRIEF-32) are
+# populated — adding another entity type later means adding a key here, not
+# touching the template or parser.
 _TYPE_FIELDS: dict[str, str] = {
     "character": (
         'public.name (string) ; public.description (string) ; '
@@ -64,6 +66,20 @@ _TYPE_FIELDS: dict[str, str] = {
         "kind est un de parent|connection|faction|other ; un lieu parent, un "
         "lieu voisin, ou une faction qui contrôle ou influence ce lieu, "
         "perceptible mais non confirmé)."
+    ),
+    "faction": (
+        "public.name — nom de la faction\n"
+        "public.description — présentation publique : ce que le monde sait d'elle\n"
+        "public.faction_type — exactement un parmi : government | criminal | military | esoteric | other\n"
+        "public.philosophy — credo affiché, valeurs revendiquées publiquement\n"
+        "public.internal_structure — forme d'organisation CONNAISSABLE, en prose "
+        "(ex. « un conseil de sept anciens »). DOIT rester cohérente avec la liste roles.\n"
+        "public.roles — liste ORDONNÉE du rang le plus élevé au plus bas. Chaque "
+        'entrée est un objet { "name": <intitulé du rang>, "description": <une '
+        "phrase décrivant la fonction du rang> }. DOIT refléter internal_structure.\n"
+        "secret.internal_tensions — fractures, rivalités, faiblesses non avouées (créateur seul)\n"
+        "secret.goals — le véritable agenda de la faction : ce qu'elle cherche réellement "
+        "à accomplir, par-delà son credo affiché (créateur seul)"
     ),
 }
 
@@ -196,6 +212,41 @@ def _filter_subculture_public(raw: Any, notes: list[str]) -> dict:
     return public
 
 
+def _validate_faction_type(raw: Any, notes: list[str]) -> str:
+    if isinstance(raw, str) and raw in _FACTION_TYPES:
+        return raw
+    notes.append(
+        f"Type de faction '{raw}' non reconnu ou absent — repli sur 'other'"
+    )
+    return "other"
+
+
+def _normalize_roles(raw: Any, notes: list[str]) -> list[dict]:
+    """Validate each proposed faction role; drop nameless rows, note each drop.
+
+    Order is preserved (order = rank). Unknown keys per entry are dropped;
+    a missing description becomes an empty string.
+    """
+    rows: list[dict] = []
+    if not isinstance(raw, list):
+        return rows
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            notes.append("Rôle proposé sans nom — ignoré")
+            continue
+        description = item.get("description")
+        rows.append(
+            {
+                "name": name,
+                "description": description if isinstance(description, str) else "",
+            }
+        )
+    return rows
+
+
 def _normalize_sensed_links(raw: Any) -> list[dict]:
     """Display-only notes (D1) — never resolved, never written anywhere."""
     rows: list[dict] = []
@@ -285,6 +336,25 @@ def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
             "secret": {
                 "subculture_hidden": secret_in.get("subculture_hidden") or "",
                 "sensed_links": _normalize_sensed_links(secret_in.get("sensed_links")),
+            },
+        }
+        return {"ok": True, "draft": draft, "notes": notes}
+
+    if entity_type == "faction":
+        draft = {
+            "public": {
+                "name": public_in.get("name") or "",
+                "description": public_in.get("description") or "",
+                "faction_type": _validate_faction_type(
+                    public_in.get("faction_type"), notes
+                ),
+                "philosophy": public_in.get("philosophy") or "",
+                "internal_structure": public_in.get("internal_structure") or "",
+                "roles": _normalize_roles(public_in.get("roles"), notes),
+            },
+            "secret": {
+                "internal_tensions": secret_in.get("internal_tensions") or "",
+                "goals": secret_in.get("goals") or "",
             },
         }
         return {"ok": True, "draft": draft, "notes": notes}

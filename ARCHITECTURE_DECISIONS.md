@@ -1621,7 +1621,7 @@ see. Enforced by query construction (the assembler reads `npc_entity`'s own
 
 ---
 
-## AI entity-authoring assistant (NPC, Location) (schema v1.36–v1.37, BRIEF-24, BRIEF-25)
+## AI entity-authoring assistant (NPC, Location, Faction) (schema v1.36–v1.37, v1.43, BRIEF-24, BRIEF-25, BRIEF-32)
 
 **A1: NPC/`character` only, parameterized for later types.** The generation
 module (`entity_author.py`) has exactly one public function,
@@ -1775,6 +1775,47 @@ its concealed lore lives entirely in `subculture["hidden"]`, a column on
 the `location` row itself, not a `knowledge` table entry. This step
 generates zero `knowledge` rows for `location` entities, unlike the NPC
 step's `secret.knowledge` list.
+
+**Faction (BRIEF-32, schema v1.43) — third confirmation of the seam.**
+`faction` is the third `_TYPE_FIELDS` entry, again zero changes to the
+two-block contract, the template, or the accept path. Field partition:
+`name`, `description`, `faction_type` (validated against the enum, falls
+back to `other`), `philosophy`, `internal_structure` are public/proposed;
+`roles` (`[{name,description}]`, ordered by rank) is public/proposed,
+landing in `entity.metadata['roles']` — the same flat ordered list the
+BRIEF-31 roles editor already reads/writes, so generation and the
+structured roles UI share one in-memory array
+(`authorFactionRolesDraft`) with no new store. A nameless proposed role is
+dropped with a note, deliberately closing the gap `authorSave`'s
+`cleanRoles` filter leaves silent today (a creator hand-typing a nameless
+row gets no warning; a generated one does).
+
+**No secret store for factions — simpler than the NPC generator.**
+`internal_tensions` and `goals` route straight to typed `faction` columns
+no assembler reads (CLAUDE.md's "Secrets are structural, not
+instructional" — confirmed by grep before closing this step). There is no
+per-row secret table analogous to `knowledge`, so unlike the NPC step
+there is nothing to hold client-side until accept: the secret block is
+just two passthrough strings into the existing form fields.
+
+**`parent_faction_id` deliberately never model-emitted.** Same
+structural-link invariant as `parent_location_id` for the location
+generator: absent from `_TYPE_FIELDS`, never read out of the parsed dict,
+never coerced from a proposed name. The multi-level faction pyramid (the
+"mondial → local" hierarchy) is left neutral here — neither wired nor
+forbidden in schema — and deferred to its own future brief that will
+follow the "model proposes names → code creates entities and wires the
+links" pattern, never "model emits a parent id."
+
+**`magic_knowledge_level` and `scope` never proposed — both stay
+default,** same doctrine as `magic_status` for locations: these are
+creator-structuring decisions, not details to infer from a one-line
+brief.
+
+**This step creates the faction entity only — no roster.** The roles list
+is vocabulary (rank names + functions), not a membership roster. No NPC
+creation, no `faction_membership` row, no role *assignment* happens here;
+that remains entirely the existing membership CRUD (BRIEF-29/30/31).
 
 ---
 

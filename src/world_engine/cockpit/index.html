@@ -3089,6 +3089,9 @@ function authorRenderSheet(detail, isNew, type) {
   if (isNew && type === 'location' && currentCreationSubTab === 'lieux') {
     html += authorRenderGeneratePanel();
   }
+  if (isNew && type === 'faction' && currentCreationSubTab === 'factions') {
+    html += authorRenderGeneratePanel();
+  }
 
   html += '<div class="field-section"><div class="field-section-title">Entity</div><div class="field-grid">';
 
@@ -3226,7 +3229,9 @@ async function authorGenerateEntity() {
   const brief = briefEl.value.trim();
   if (!brief) { statusEl.textContent = 'Intention requise.'; return; }
 
-  const entityType = currentCreationSubTab === 'lieux' ? 'location' : 'character';
+  const entityType = currentCreationSubTab === 'lieux' ? 'location'
+    : currentCreationSubTab === 'factions' ? 'faction'
+    : 'character';
 
   statusEl.textContent = 'Génération…';
   let result;
@@ -3250,6 +3255,8 @@ async function authorGenerateEntity() {
 
   if (entityType === 'location') {
     authorApplyLocationDraft(result);
+  } else if (entityType === 'faction') {
+    authorApplyFactionDraft(result);
   } else {
     authorApplyCharacterDraft(result);
   }
@@ -3322,6 +3329,31 @@ function authorApplyLocationDraft(result) {
   }
   pendingDraftNotes = notes;
   authorRenderGenNotes(notes);
+}
+
+/* ── Faction draft pre-fill (BRIEF-32) ──────────────────────────────────────
+ * roles flow into authorFactionRolesDraft (the same in-memory array the
+ * BRIEF-31 roles editor reads/writes) and are flushed to entity.metadata.roles
+ * by authorSave on accept — no new write code. magic_knowledge_level, scope,
+ * and parent_faction_id are never set (stay at form defaults). */
+function authorApplyFactionDraft(result) {
+  const draft = result.draft;
+  const setVal = (id, value) => { const el = document.getElementById(id); if (el) el.value = value ?? ''; };
+
+  setVal('author-f-name', draft.public.name);
+  setVal('author-f-description', draft.public.description);
+  setVal('author-x-faction_type', draft.public.faction_type);
+  setVal('author-x-philosophy', draft.public.philosophy);
+  setVal('author-x-internal_structure', draft.public.internal_structure);
+  setVal('author-x-internal_tensions', draft.secret.internal_tensions);
+  setVal('author-x-goals', draft.secret.goals);
+
+  authorFactionRolesDraft = (draft.public.roles || []).map(r => ({ ...r }));
+  const rolesEl = document.getElementById('author-roles');
+  if (rolesEl) rolesEl.innerHTML = authorRenderRolesEditor();
+
+  pendingDraftNotes = [...(result.notes || [])];
+  authorRenderGenNotes(pendingDraftNotes);
 }
 
 function authorRenderGenNotes(notes) {
