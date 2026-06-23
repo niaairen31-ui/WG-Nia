@@ -171,6 +171,53 @@ class Faction(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
+# faction_membership  (durable member <-> faction roster, schema v1.39)
+#
+# Durable counterpart to `gathering_member` (which is session-ephemeral).
+# Roster predicate, single source: a membership is ACTIVE iff
+# `left_at IS NULL`. Rows are append/close only — never updated in place or
+# deleted; a role/primary change is close + reopen (a new row), so the closed
+# rows ARE the history (no `change_history` column here, by construction).
+# `role` and `is_secret` are DORMANT this step: stored, creator-editable, but
+# read by no assembler — the first reader is the next brief, which must also
+# add the structural `is_secret = FALSE` exclusion for non-creator contexts.
+# -----------------------------------------------------------------------------
+class FactionMembership(SQLModel, table=True):
+    __tablename__ = "faction_membership"
+    __table_args__ = (
+        Index("idx_faction_membership_entity", "entity_id"),
+        Index("idx_faction_membership_faction", "faction_id"),
+        # At most one ACTIVE primary membership per member.
+        Index(
+            "idx_membership_one_primary", "entity_id",
+            unique=True, sqlite_where=text("is_primary = 1 AND left_at IS NULL"),
+        ),
+        # No duplicate ACTIVE membership of the same member in the same faction.
+        Index(
+            "idx_membership_unique_active", "entity_id", "faction_id",
+            unique=True, sqlite_where=text("left_at IS NULL"),
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    entity_id: str = Field(foreign_key="entity.id", nullable=False)  # the member (a character, by intent)
+    faction_id: str = Field(foreign_key="entity.id", nullable=False)
+    role: Optional[str] = None  # creator-authored label. DORMANT: no assembler reads it yet.
+    is_primary: bool = Field(
+        default=False, sa_column_kwargs={"server_default": text("0")}
+    )
+    # DORMANT: the mole. Present but its exclusion is NOT enforced this step
+    # (no reader exists). The first reader MUST filter is_secret=FALSE for
+    # every non-creator context, by query construction.
+    is_secret: bool = Field(
+        default=False, sa_column_kwargs={"server_default": text("0")}
+    )
+    joined_at: datetime = _created_ts()
+    left_at: Optional[datetime] = None  # NULL = active, never erased
+
+
+# -----------------------------------------------------------------------------
 # relation  (universal relation graph)
 # -----------------------------------------------------------------------------
 class Relation(SQLModel, table=True):

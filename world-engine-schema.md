@@ -67,7 +67,17 @@ Extension of entity for characters (players and NPCs).
 ```sql
 CREATE TABLE character (
   id              TEXT PRIMARY KEY REFERENCES entity(id),
-  faction_id      TEXT REFERENCES entity(id),   -- primary faction
+  faction_id      TEXT REFERENCES entity(id),   -- primary faction. RETIRED-PENDING
+                                                 -- (BRIEF-27, schema v1.39): `faction_membership`
+                                                 -- (is_primary=TRUE) is now the durable source for
+                                                 -- "this character's primary faction"; this column
+                                                 -- could not yet be dropped — grep found consumers
+                                                 -- beyond the cockpit editor (now read-only here) and
+                                                 -- idx_character_faction: app.py's list_npcs (NPC
+                                                 -- selector display), entity_author.py's AI-authoring
+                                                 -- assistant (resolves+sets it on character creation),
+                                                 -- and scripts/seed_pilot.py. See CHANGELOG v1.39 and
+                                                 -- ARCHITECTURE_DECISIONS.md.
   character_type  TEXT NOT NULL,                -- player | npc
   user_id         TEXT,                         -- NULL for NPCs
   current_location_id TEXT REFERENCES entity(id),
@@ -137,6 +147,55 @@ CREATE TABLE faction (
 );
 CREATE INDEX idx_faction_parent ON faction(parent_faction_id);
 ```
+
+-----
+
+### `faction_membership`
+
+Durable member <-> faction roster (schema v1.39, BRIEF-27). Mirror of
+`gathering_member`'s roster shape, but **durable** — no `session_id`,
+membership persists across sessions (`gathering_member` is session-ephemeral
+co-presence; this table is the long-lived relationship).
+
+```sql
+CREATE TABLE faction_membership (
+  id          TEXT PRIMARY KEY,
+  world_id    TEXT NOT NULL REFERENCES world(id),
+  entity_id   TEXT NOT NULL REFERENCES entity(id),  -- the member (a character, by intent)
+  faction_id  TEXT NOT NULL REFERENCES entity(id),  -- the faction
+  role        TEXT,            -- creator-authored label (e.g. "lieutenant").
+                               -- DORMANT: no assembler reads it yet.
+  is_primary  BOOLEAN DEFAULT FALSE,  -- the member's identifying faction.
+  is_secret   BOOLEAN DEFAULT FALSE,  -- the mole. DORMANT: present but its
+                               -- exclusion is NOT enforced this step (no
+                               -- reader exists). The first reader MUST
+                               -- filter is_secret=FALSE for every
+                               -- non-creator context, by query construction.
+  joined_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  left_at     DATETIME         -- NULL = active. Roster predicate, single
+                               -- source: a membership is active iff
+                               -- left_at IS NULL. Rows are NEVER deleted or
+                               -- edited in place — only closed (left_at set).
+);
+CREATE INDEX idx_faction_membership_entity  ON faction_membership(entity_id);
+CREATE INDEX idx_faction_membership_faction ON faction_membership(faction_id);
+-- Structural guards (enforce by construction, not by instruction):
+CREATE UNIQUE INDEX idx_membership_one_primary
+  ON faction_membership(entity_id) WHERE is_primary = TRUE AND left_at IS NULL;
+CREATE UNIQUE INDEX idx_membership_unique_active
+  ON faction_membership(entity_id, faction_id) WHERE left_at IS NULL;
+```
+-- NOTE: `entity_id`/`faction_id` carry no `CHECK` on type (loose typing,
+-- consistent with the rest of the schema) — membership is character->faction
+-- by INTENT, not enforced. Faction-in-faction containment is
+-- `parent_faction_id`'s job (schema v1.38), not this table.
+-- NOTE: append/close only, by construction — no `change_history` column. A
+-- role or primary-status change is close (set `left_at`) + reopen (a new
+-- row); the closed-row sequence IS the history.
+-- NOTE: `role`/`is_secret` are DORMANT — stored, creator-editable
+-- (`writes.write_membership`), read by no assembler. No reader, no
+-- structural secret-exclusion this step (Scope OUT, BRIEF-27); both are the
+-- next, separate brief.
 
 -----
 
@@ -851,6 +910,35 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.39** — Faction membership, C1 (BRIEF-27). New table
+  `faction_membership` — durable member<->faction roster, the durable
+  counterpart to session-ephemeral `gathering_member`: `id`, `world_id`,
+  `entity_id`, `faction_id`, `role` (DORMANT), `is_primary`, `is_secret`
+  (DORMANT), `joined_at`, `left_at`. Roster predicate, single source: active
+  iff `left_at IS NULL`. Two structural guards, partial unique indexes:
+  `idx_membership_one_primary` (at most one active primary per member),
+  `idx_membership_unique_active` (no duplicate active membership in the
+  same faction) — plus `idx_faction_membership_entity` /
+  `idx_faction_membership_faction`. Append/close only — close + reopen for
+  any role/primary change, no `change_history` column. Backfilled from
+  every `character.faction_id` (one `is_primary=TRUE` row each,
+  `scripts/migrate_v1_39_faction_membership.py`, idempotent). New
+  `writes.write_membership(mode="open"/"close")` — the sole chokepoint,
+  creator-CRUD only (no `_apply_mutation` branch this step). Cockpit:
+  character sheet's "faction primaire" dropdown replaced by an
+  Appartenances sub-block (list/add/close); faction sheet gains a read-only
+  roster (secret members shown with badge — creator sees everything).
+  `character.faction_id` is **retired-pending-follow-up**, not dropped:
+  Scope IN #6's grep gate found consumers beyond the cockpit editor (now
+  read-only, relabeled "legacy") and `idx_character_faction` — `app.py`'s
+  `list_npcs` (NPC-selector display), `entity_author.py`'s AI-authoring
+  assistant (resolves+sets `faction_id` on character creation, BRIEF-24),
+  its cockpit pre-fill mirror in `index.html`, and
+  `scripts/seed_pilot.py`'s seed data. The column and its index stay; the
+  drop is deferred to a follow-up once those consumers migrate to
+  `faction_membership`. No assembler reads `faction_membership`, `role`, or
+  `is_secret` this step — the first reader and the structural
+  `is_secret=FALSE` exclusion it requires are the next, separate brief.
 - **v1.38** — Faction structure & resources (BRIEF-26). Three new `faction`
   columns — `parent_faction_id` (containment tree, mirror of
   `location.parent_location_id`), `scope` (descriptive scale label, NOT

@@ -52,12 +52,26 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session as DbSession, select
 
 from ..db import get_session
 from ..ledger import get_balance, list_entries
-from ..models import Character, DiscoverableDetail, Entity, Faction, Item, Knowledge, Ledger, Location, Relation, Skill, World
-from ..writes import KNOWLEDGE_LEVELS, write_knowledge, write_ledger_entry, write_relation
+from ..models import (
+    Character,
+    DiscoverableDetail,
+    Entity,
+    Faction,
+    FactionMembership,
+    Item,
+    Knowledge,
+    Ledger,
+    Location,
+    Relation,
+    Skill,
+    World,
+)
+from ..writes import KNOWLEDGE_LEVELS, write_knowledge, write_ledger_entry, write_membership, write_relation
 
 router = APIRouter(prefix="/api", tags=["author-crud"])
 
@@ -132,7 +146,17 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
                 "name": "character_type", "label": "Character type", "kind": "select",
                 "options": ["player", "npc"], "default": "npc", "required": True,
             },
-            {"name": "faction_id", "label": "Faction", "kind": "entity_ref", "ref_type": "faction"},
+            # READONLY (BRIEF-27, schema v1.39): the editable "faction primaire"
+            # dropdown is replaced by the Appartenances sub-block (faction_membership,
+            # is_primary=TRUE). The field/column itself stays wired (entity_author.py's
+            # AI-authoring assistant still resolves and sets it on character creation,
+            # and grep found no consumer-free path to drop it yet — see
+            # ARCHITECTURE_DECISIONS.md "FACTION MEMBERSHIP — C1"); only the manual
+            # creator edit control is retired here, not the column.
+            {
+                "name": "faction_id", "label": "Faction (legacy — voir Appartenances)",
+                "kind": "entity_ref", "ref_type": "faction", "readonly": True,
+            },
             {"name": "current_location_id", "label": "Current location", "kind": "entity_ref", "ref_type": "location"},
             {
                 "name": "vital_status", "label": "Vital status", "kind": "select",
@@ -735,6 +759,107 @@ def delete_knowledge(knowledge_id: str, db: DbSession = Depends(get_session)) ->
     db.delete(k)
     db.commit()
     return {"deleted": True, "id": knowledge_id}
+
+
+# ── Faction membership (schema v1.39, BRIEF-27) ───────────────────────────────
+# Creator-CRUD only, INSERT-only / close-only (see writes.write_membership).
+# No PUT route exists for an existing row, by construction — a role/primary
+# change is close + reopen (close_membership_route + create_membership), so
+# the closed-row sequence IS the history (no `change_history` column here).
+
+class MembershipOpenBody(BaseModel):
+    faction_id: str
+    role: Optional[str] = None
+    is_primary: bool = False
+    is_secret: bool = False
+
+
+def _membership_dict(m: FactionMembership, db: DbSession) -> dict:
+    member = db.get(Entity, m.entity_id)
+    faction = db.get(Entity, m.faction_id)
+    return {
+        "id": m.id,
+        "entity_id": m.entity_id,
+        "entity_name": member.name if member else m.entity_id,
+        "faction_id": m.faction_id,
+        "faction_name": faction.name if faction else m.faction_id,
+        "role": m.role,
+        "is_primary": m.is_primary,
+        "is_secret": m.is_secret,
+        "joined_at": _iso(m.joined_at),
+        "left_at": _iso(m.left_at),
+    }
+
+
+@router.get("/entities/{entity_id}/memberships")
+def list_entity_memberships(entity_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
+    """Active memberships for a member (character sheet "Appartenances" list)."""
+    _get_entity(db, entity_id)
+    rows = db.exec(
+        select(FactionMembership)
+        .where(FactionMembership.entity_id == entity_id, FactionMembership.left_at.is_(None))
+    ).all()
+    return [_membership_dict(m, db) for m in rows]
+
+
+@router.post("/entities/{entity_id}/memberships", status_code=201)
+def open_entity_membership(
+    entity_id: str, body: MembershipOpenBody, db: DbSession = Depends(get_session)
+) -> dict:
+    entity = _get_entity(db, entity_id)
+    faction = db.get(Entity, body.faction_id)
+    if faction is None or faction.type != "faction":
+        raise HTTPException(422, f"{body.faction_id!r} is not a valid faction entity id")
+
+    membership = write_membership(
+        db,
+        mode="open",
+        world_id=entity.world_id,
+        entity_id=entity_id,
+        faction_id=body.faction_id,
+        role=body.role,
+        is_primary=body.is_primary,
+        is_secret=body.is_secret,
+    )
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            409,
+            "Membership conflicts with an existing active row — at most one "
+            "active primary per member, and no duplicate active membership "
+            "in the same faction. Close the existing membership first.",
+        )
+    db.refresh(membership)
+    return _membership_dict(membership, db)
+
+
+@router.post("/memberships/{membership_id}/close")
+def close_entity_membership(membership_id: str, db: DbSession = Depends(get_session)) -> dict:
+    try:
+        membership = write_membership(db, mode="close", membership_id=membership_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
+    db.commit()
+    db.refresh(membership)
+    return _membership_dict(membership, db)
+
+
+@router.get("/entities/{entity_id}/faction-roster")
+def get_faction_roster(entity_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
+    """Active members of a faction (faction sheet read-only roster).
+
+    Secret members ARE included, with their `is_secret` badge — the creator
+    sees everything; the structural exclusion belongs to the future
+    player-facing reader, which does not exist yet (Scope OUT, BRIEF-27).
+    """
+    _get_entity(db, entity_id)
+    rows = db.exec(
+        select(FactionMembership)
+        .where(FactionMembership.faction_id == entity_id, FactionMembership.left_at.is_(None))
+    ).all()
+    return [_membership_dict(m, db) for m in rows]
 
 
 # ── In-context items (read-only, for the character sheet) ────────────────────

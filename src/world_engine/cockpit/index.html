@@ -3027,8 +3027,11 @@ function authorRenderField(field, value, idPrefix) {
       const opts = ['<option value="">—</option>'].concat(
         candidates.map(e => `<option value="${esc(e.id)}" ${e.id === value ? 'selected' : ''}>${esc(e.name)}</option>`)
       ).join('');
+      // field.readonly: value still flows through authorReadField on save
+      // (a disabled <select> keeps its .value) — only the manual edit
+      // control is retired, not the underlying write path.
       return `<div class="field-row"><label for="${id}">${label}</label>
-        <select id="${id}" data-field="${esc(field.name)}" data-kind="entity_ref">${opts}</select></div>`;
+        <select id="${id}" data-field="${esc(field.name)}" data-kind="entity_ref" ${field.readonly ? 'disabled' : ''}>${opts}</select></div>`;
     }
     default: // text
       return `<div class="field-row"><label for="${id}">${label}</label>
@@ -3130,6 +3133,19 @@ function authorRenderSheet(detail, isNew, type) {
     html += '</div>';
   }
 
+  if (!isNew && type === 'character') {
+    html += '<div class="field-section"><div class="field-section-title">Appartenances</div>';
+    html += '<div id="author-memberships"><div class="empty"><span class="spin">⟳</span></div></div>';
+    html += authorRenderMembershipForm();
+    html += '</div>';
+  }
+
+  if (!isNew && type === 'faction') {
+    html += '<div class="field-section"><div class="field-section-title">Membres (lecture seule)</div>';
+    html += '<div id="author-faction-roster"><div class="empty"><span class="spin">⟳</span></div></div>';
+    html += '</div>';
+  }
+
   if (!isNew && (type === 'character' || type === 'faction')) {
     html += '<div class="field-section"><div class="field-section-title">Solde</div>';
     html += '<div id="author-ledger"><div class="empty"><span class="spin">⟳</span></div></div>';
@@ -3154,9 +3170,11 @@ function authorRenderSheet(detail, isNew, type) {
   if (!isNew && type === 'character') {
     authorLoadItems(detail.id);
     authorLoadLedger(detail.id);
+    authorLoadMemberships(detail.id);
   }
   if (!isNew && type === 'faction') {
     authorLoadLedger(detail.id);
+    authorLoadFactionRoster(detail.id);
   }
   if (!isNew && type === 'location') {
     authorLoadDiscDetails(detail.id);
@@ -3476,6 +3494,114 @@ function authorRenderItems(items) {
       <span style="display:flex; align-items:center; gap:8px;">
         <span style="color:var(--muted); font-size:12px;">${esc(it.condition)}</span>
         <span class="badge ${it.equipped ? 'b-equipped' : 'b-stowed'}">${it.equipped ? 'equipped' : 'stowed'}</span>
+      </span>
+    </div>
+  `).join('') + '</div>';
+}
+
+/* ── Faction membership (schema v1.39, BRIEF-27) ──────────────────────────
+ * Creator-CRUD only, INSERT-only / close-only: there is no "edit" control —
+ * a role/primary change is close + re-add (authorCloseMembership then
+ * authorAddMembership), the closed-row sequence IS the history. */
+
+async function authorLoadMemberships(entityId) {
+  const el = document.getElementById('author-memberships');
+  if (!el) return;
+  try {
+    const rows = await api(`/api/entities/${encodeURIComponent(entityId)}/memberships`);
+    el.innerHTML = authorRenderMemberships(rows);
+  } catch (e) {
+    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function authorRenderMemberships(rows) {
+  if (!rows || rows.length === 0) return '<div class="empty">No active memberships.</div>';
+  return '<div class="row-table">' + rows.map(m => `
+    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between;">
+      <span>${esc(m.faction_name)}${m.role ? ` — ${esc(m.role)}` : ''}</span>
+      <span style="display:flex; align-items:center; gap:8px;">
+        ${m.is_primary ? '<span class="badge b-equipped">primaire</span>' : ''}
+        ${m.is_secret ? '<span class="badge b-rejected">secret</span>' : ''}
+        <button class="btn-end" style="font-size:12px; padding:3px 8px"
+          onclick="authorCloseMembership('${esc(m.id)}')">Close</button>
+      </span>
+    </div>
+  `).join('') + '</div>';
+}
+
+function authorRenderMembershipForm() {
+  const candidates = authorAllEntities.filter(e => e.type === 'faction');
+  const opts = candidates.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
+  return `
+    <div class="row-card">
+      <div class="field-grid">
+        <div class="field-row"><label>Faction *</label><select id="mem-new-faction">${opts}</select></div>
+        <div class="field-row"><label>Role</label><input type="text" id="mem-new-role"></div>
+        <div class="field-row checkbox"><input type="checkbox" id="mem-new-primary"><label for="mem-new-primary">Primaire</label></div>
+        <div class="field-row checkbox"><input type="checkbox" id="mem-new-secret"><label for="mem-new-secret">Secret</label></div>
+      </div>
+      <div class="row-card-actions">
+        <button class="btn-send" onclick="authorAddMembership()">Add membership</button>
+      </div>
+    </div>
+  `;
+}
+
+async function authorAddMembership() {
+  const statusEl = document.getElementById('author-status');
+  const body = JSON.stringify({
+    faction_id: document.getElementById('mem-new-faction').value,
+    role:       document.getElementById('mem-new-role').value || null,
+    is_primary: document.getElementById('mem-new-primary').checked,
+    is_secret:  document.getElementById('mem-new-secret').checked,
+  });
+  try {
+    await api(`/api/entities/${encodeURIComponent(authorEntityId)}/memberships`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
+    });
+    await authorLoadMemberships(authorEntityId);
+    statusEl.className = 'author-status ok';
+    statusEl.textContent = 'Saved.';
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = e.message;
+  }
+}
+
+async function authorCloseMembership(id) {
+  if (!confirm('Close this membership?')) return;
+  const statusEl = document.getElementById('author-status');
+  try {
+    await api(`/api/memberships/${encodeURIComponent(id)}/close`, { method: 'POST' });
+    await authorLoadMemberships(authorEntityId);
+    statusEl.className = 'author-status ok';
+    statusEl.textContent = 'Saved.';
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = e.message;
+  }
+}
+
+async function authorLoadFactionRoster(entityId) {
+  const el = document.getElementById('author-faction-roster');
+  if (!el) return;
+  try {
+    const rows = await api(`/api/entities/${encodeURIComponent(entityId)}/faction-roster`);
+    el.innerHTML = authorRenderFactionRoster(rows);
+  } catch (e) {
+    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function authorRenderFactionRoster(rows) {
+  if (!rows || rows.length === 0) return '<div class="empty">No active members.</div>';
+  return '<div class="row-table">' + rows.map(m => `
+    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between;">
+      <span>${esc(m.entity_name)}${m.role ? ` — ${esc(m.role)}` : ''}</span>
+      <span style="display:flex; align-items:center; gap:8px;">
+        ${m.is_primary ? '<span class="badge b-equipped">primaire</span>' : ''}
+        ${m.is_secret ? '<span class="badge b-rejected">secret</span>' : ''}
       </span>
     </div>
   `).join('') + '</div>';

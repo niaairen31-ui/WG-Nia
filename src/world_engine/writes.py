@@ -21,6 +21,13 @@ functions so that clamping and field validation live in exactly one place.
   new compensating line. The single chokepoint for ledger writes, shared by
   the creator CRUD and `_apply_mutation`'s `resource_change` branch
   (BRIEF-19) so the two paths cannot diverge.
+- `write_membership(mode="open"/"close", ...)` : the only chokepoint for
+  `faction_membership` writes (BRIEF-27). Creator CRUD only — no
+  `_apply_mutation` branch exists for this table this step. INSERT-only /
+  close-only: never updates `role` / `is_secret` / `faction_id` /
+  `is_primary` of an existing row. A role or primary change is close + open
+  a fresh row — the closed-row sequence IS the history, by construction
+  (no `change_history` column on `faction_membership`).
 
 Callers add the returned row to the session; neither function commits.
 """
@@ -33,7 +40,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from .models import Knowledge, Ledger, Relation
+from .models import FactionMembership, Knowledge, Ledger, Relation
 
 # knowledge.level enum (world-engine-schema.md): unaware | rumor | suspicious |
 # partial | knows | fully_understands.
@@ -343,10 +350,77 @@ def write_ledger_entry(
     return entry
 
 
+def write_membership(
+    db: Session,
+    *,
+    mode: str,
+    membership_id: Optional[str] = None,
+    world_id: Optional[str] = None,
+    entity_id: Optional[str] = None,
+    faction_id: Optional[str] = None,
+    role: Optional[str] = None,
+    is_primary: bool = False,
+    is_secret: bool = False,
+) -> FactionMembership:
+    """Write a `faction_membership` row. Caller adds the row to the session.
+
+    INSERT-only / close-only — there is no third mode. A role or
+    primary-status change is never an in-place update on an existing row; it
+    is `mode="close"` on the old row followed by a fresh `mode="open"` call
+    (history is sacred; the closed-row sequence IS the history, by
+    construction — no `change_history` column on this table).
+
+    mode="open" (creator CRUD only):
+        Inserts a new row (`world_id`, `entity_id`, `faction_id` required).
+        Setting `is_primary=True` while another active primary exists for
+        this `entity_id`, or opening a second active membership in the same
+        faction, violates a partial unique index
+        (`idx_membership_one_primary` / `idx_membership_unique_active`) —
+        the resulting `IntegrityError` propagates to the caller, which must
+        surface it as an error, never silently demote the existing row.
+
+    mode="close" (creator CRUD only):
+        Sets `left_at` on `membership_id`. Never touches `role` /
+        `is_secret` / `faction_id` / `is_primary`. Closing an
+        already-closed row is a no-op (idempotent), not an error.
+    """
+    if mode not in ("open", "close"):
+        raise ValueError(f"write_membership: invalid mode {mode!r}")
+
+    if mode == "open":
+        if not world_id or not entity_id or not faction_id:
+            raise ValueError(
+                "write_membership(mode='open'): world_id, entity_id and "
+                "faction_id are required"
+            )
+        membership = FactionMembership(
+            world_id=world_id,
+            entity_id=entity_id,
+            faction_id=faction_id,
+            role=role,
+            is_primary=is_primary,
+            is_secret=is_secret,
+        )
+        db.add(membership)
+        return membership
+
+    # mode == "close"
+    if not membership_id:
+        raise ValueError("write_membership(mode='close'): membership_id is required")
+    membership = db.get(FactionMembership, membership_id)
+    if membership is None:
+        raise ValueError(f"write_membership(mode='close'): membership {membership_id!r} not found")
+    if membership.left_at is None:
+        membership.left_at = datetime.now(UTC)
+        db.add(membership)
+    return membership
+
+
 __all__ = [
     "write_relation",
     "write_knowledge",
     "write_ledger_entry",
+    "write_membership",
     "KNOWLEDGE_LEVELS",
     "KNOWLEDGE_LEVEL_LADDER",
     "knowledge_level_rank",

@@ -1854,6 +1854,108 @@ member's faction — also explicitly deferred, C2).
 
 ---
 
+## FACTION MEMBERSHIP — C1 (BRIEF-27, schema v1.39)
+
+**Scope: storage + creator-CRUD + cockpit roster only — no assembler reads
+membership.** A character's faction tie moves from a single
+`character.faction_id` pointer to a durable `faction_membership` roster:
+one row per member<->faction tie, supporting multiplicity, rank labels, and
+secret affiliation. The first reader (membership injected into context) and
+the structural secret-exclusion it requires are the next, separate brief.
+
+**A1 — single-source rationale, durable not ephemeral.** `faction_membership`
+mirrors `gathering_member`'s roster shape (active iff `left_at IS NULL`,
+never deleted or edited in place) but drops `session_id`: a faction tie
+outlives any single session, unlike gathering co-presence. This is the
+distinguishing fact between the two tables — same predicate, different
+lifetime.
+
+**B1 — `is_primary` + partial-unique enforcement, structural over
+instructional.** Two invariants are enforced by partial unique indexes, not
+by remembered discipline: `idx_membership_one_primary` (at most one ACTIVE
+primary per member) and `idx_membership_unique_active` (no duplicate ACTIVE
+membership of the same member in the same faction). Both are
+`WHERE ... AND left_at IS NULL` partial indexes — a closed membership never
+counts against either guard, so re-joining a faction or re-establishing a
+primary after a close is always legal. Violating either surfaces as an
+`IntegrityError` → HTTP 409 at the cockpit route; the executor must never
+catch it and silently demote the existing primary.
+
+**Close + reopen, no `change_history` column — append/close only, by
+construction.** `writes.write_membership(mode="open"/"close")` is
+INSERT-only / close-only: it can never update `role`, `is_secret`,
+`faction_id`, or `is_primary` of an existing row. A rank promotion or a
+primary-status change is `mode="close"` on the old row followed by a fresh
+`mode="open"` call — the resulting sequence of closed rows IS the history,
+which is why this table carries no `change_history` column (unlike
+`relation`/`knowledge`). This is a deliberate, narrower instance of "history
+is sacred" than the rest of the schema: instead of snapshotting prior state
+inside one row, the row itself becomes the snapshot once closed.
+
+**`role` and `is_secret` seeded DORMANT — same posture as
+`discoverable_detail.discovery_threshold` before BRIEF-23, or `equipped`
+before its consumer existed.** Both are stored and creator-editable via the
+cockpit Appartenances sub-block, but read by no assembler. The temptation
+this guards against is wiring a reader "while it's here" during this step —
+explicitly out of scope. When the first reader is added, it MUST filter
+`is_secret = FALSE` for every non-creator context by query construction
+(never by instruction) — that filter is the next brief's central job, not
+this one's.
+
+**Creator-CRUD only — no `membership_change` mutation type.** Membership is
+written exclusively through `writes.write_membership`, reached only via the
+cockpit's `POST /api/entities/{id}/memberships` (open) and
+`POST /api/memberships/{id}/close` (close). No `_apply_mutation` branch
+exists for this table this step, and none should be added without a
+deliberate, separate decision — AI-proposed membership change is Scope OUT.
+
+**Backfill is exact-mirror, not best-effort.** Every `character` row with a
+non-NULL `faction_id` gets exactly one membership row
+(`is_primary=TRUE`, `is_secret=FALSE`, `role=NULL`, `joined_at` = the
+character entity's `created_at`). The migration
+(`scripts/migrate_v1_39_faction_membership.py`) is idempotent: it checks
+for an existing active `(entity_id, faction_id)` row before inserting, on
+top of the partial-unique-index backstop.
+
+**The grep-gated `character.faction_id` retirement — REPORT ONLY, not
+dropped.** BRIEF-27 Scope IN #6 conditions the column drop on a clean grep
+(no consumer beyond the cockpit editor and `idx_character_faction`). The
+grep was NOT clean — four additional consumers found:
+- `app.py`'s `list_npcs` reads `char.faction_id` to show a faction name in
+  the provisional play-loop NPC selector.
+- `entity_author.py`'s `_resolve_faction_id` (BRIEF-24) resolves a
+  free-text faction name to `faction_id` for an AI-authored character
+  draft; the creator's accept writes it through the existing composite
+  `POST /api/entities`.
+- `index.html`'s AI-generation pre-fill (`author-x-faction_id`) mirrors the
+  resolved value into the (now read-only) cockpit field.
+- `scripts/seed_pilot.py` seeds initial NPC rows with `faction_id` directly.
+
+Per Scope IN #6, this means REPORT ONLY: the column and
+`idx_character_faction` stay; nothing is dropped. The cockpit's *editable*
+"faction primaire" dropdown is still retired this step (Scope IN #4 is
+independent of the Scope IN #6 gate) — the field is kept in
+`ENTITY_TYPE_REGISTRY` (so `entity_author.py`'s accept path and the
+composite write keep functioning unchanged) but rendered `disabled` and
+relabeled "Faction (legacy — voir Appartenances)", so the only way to set a
+character's primary faction going forward is the Appartenances sub-block.
+The column drop is deferred to a follow-up once the four consumers above
+are migrated to read `faction_membership` instead.
+
+**Hierarchical authority propagation remains explicitly NOT implemented.**
+Being `role`d in a parent faction's membership confers no computed
+authority over a child faction's membership — `role` is a flat label, same
+posture as BRIEF-26's tree-depth non-derivation for `scope`.
+
+**Next: the membership reader + structural secret-exclusion (C1, separate
+brief).** No assembler (`assemble_npc_context`, `assemble_mj_context`)
+reads `faction_membership`, `role`, or `is_secret` this step. Adding that
+reader, the prompt-rubric changes it implies, and the mandatory
+`is_secret = FALSE` filter for every non-creator context are the next,
+separate brief — not bundled here.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.
