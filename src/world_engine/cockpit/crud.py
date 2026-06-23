@@ -146,17 +146,6 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
                 "name": "character_type", "label": "Character type", "kind": "select",
                 "options": ["player", "npc"], "default": "npc", "required": True,
             },
-            # READONLY (BRIEF-27, schema v1.39): the editable "faction primaire"
-            # dropdown is replaced by the Appartenances sub-block (faction_membership,
-            # is_primary=TRUE). The field/column itself stays wired (entity_author.py's
-            # AI-authoring assistant still resolves and sets it on character creation,
-            # and grep found no consumer-free path to drop it yet — see
-            # ARCHITECTURE_DECISIONS.md "FACTION MEMBERSHIP — C1"); only the manual
-            # creator edit control is retired here, not the column.
-            {
-                "name": "faction_id", "label": "Faction (legacy — voir Appartenances)",
-                "kind": "entity_ref", "ref_type": "faction", "readonly": True,
-            },
             {"name": "current_location_id", "label": "Current location", "kind": "entity_ref", "ref_type": "location"},
             {
                 "name": "vital_status", "label": "Vital status", "kind": "select",
@@ -545,6 +534,20 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
     entity = Entity(world_id=_world_id(db), type=entity_type, name=str(name))
     _apply_base_fields(db, entity, data)
 
+    # `faction_id` on a character payload is no longer a `character` column
+    # (BRIEF-28, schema v1.40): it is not in the registry's `fields`, so
+    # `_build_extension_kwargs` never sees it. Pull it separately and recable
+    # it onto a `faction_membership` row AFTER the entity is committed (the
+    # membership write needs the new entity's id) — mirrors the post-accept
+    # flush pattern used for BRIEF-24's `pendingDraftKnowledge`.
+    pending_faction_id: Optional[str] = None
+    if entity_type == "character":
+        pending_faction_id = body.extension.get("faction_id") or None
+        if pending_faction_id:
+            faction = db.get(Entity, pending_faction_id)
+            if faction is None or faction.type != "faction":
+                raise HTTPException(422, f"{pending_faction_id!r} is not a valid faction entity id")
+
     # Validate the extension payload BEFORE adding anything to the session —
     # a 422 here leaves no orphan `entity` row.
     ext_kwargs = _build_extension_kwargs(db, entity_type, body.extension)
@@ -554,13 +557,28 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
     db.add(entity)
     # Flush the entity row first: SQLModel's auto insert-order detection gets
     # confused for extension tables with multiple FK columns to entity.id
-    # (e.g. character.faction_id, character.current_location_id) and may try
-    # to insert the extension row before its own entity row.
+    # (e.g. character.current_location_id) and may try to insert the
+    # extension row before its own entity row.
     db.flush()
     db.add(ext_row)
     db.commit()
     db.refresh(entity)
     db.refresh(ext_row)
+
+    if pending_faction_id:
+        # Creator authority (this create/accept IS the creator action) — not
+        # an AI proposal path. mode="open" only; history is sacred.
+        write_membership(
+            db,
+            mode="open",
+            world_id=entity.world_id,
+            entity_id=entity.id,
+            faction_id=pending_faction_id,
+            role=None,
+            is_primary=True,
+            is_secret=False,
+        )
+        db.commit()
 
     result = _entity_dict(entity)
     result["extension"] = _extension_dict(entity_type, ext_row)

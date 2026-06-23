@@ -25,6 +25,7 @@ from sqlmodel import Session, select  # noqa: E402
 
 from world_engine import models as m  # noqa: E402
 from world_engine.db import engine  # noqa: E402
+from world_engine.writes import write_membership  # noqa: E402
 
 WORLD_ID = "verkhaal"
 
@@ -55,6 +56,37 @@ def get_or_create(session: Session, model, id: str, **fields):
     session.add(obj)
     _created.append((model.__tablename__, id))
     return obj, True
+
+
+def ensure_primary_membership(session: Session, world_id: str, entity_id: str, faction_id: str) -> None:
+    """Open an `is_primary=TRUE` membership for `entity_id` in `faction_id`, idempotently.
+
+    Recables seed NPC faction assignment onto `faction_membership` (BRIEF-28,
+    schema v1.40). The seed's old `faction_id` IDs are already backfilled
+    into `faction_membership` by migrate_v1_38/v1_39 on any pre-existing DB,
+    so a second seed run must not try to open a duplicate active row.
+    """
+    existing = session.exec(
+        select(m.FactionMembership).where(
+            m.FactionMembership.entity_id == entity_id,
+            m.FactionMembership.faction_id == faction_id,
+            m.FactionMembership.left_at.is_(None),
+        )
+    ).first()
+    if existing is not None:
+        _existing.append((m.FactionMembership.__tablename__, f"{entity_id}->{faction_id}"))
+        return
+    membership = write_membership(
+        session,
+        mode="open",
+        world_id=world_id,
+        entity_id=entity_id,
+        faction_id=faction_id,
+        role=None,
+        is_primary=True,
+        is_secret=False,
+    )
+    _created.append((m.FactionMembership.__tablename__, membership.id))
 
 
 def upsert_knowledge(session: Session, id: str, **fields):
@@ -1258,7 +1290,6 @@ def seed(session: Session) -> None:
         session,
         m.Character,
         "npc-maelis",
-        faction_id="fac-unnamed",
         character_type="npc",
         current_location_id="loc-dernier-verre",
         appearance=(
@@ -1276,6 +1307,7 @@ def seed(session: Session) -> None:
             )
         },
     )
+    ensure_primary_membership(session, WORLD_ID, "npc-maelis", "fac-unnamed")
     # Starter catalogue (BRIEF-20) — read-merge so no other metadata key is clobbered.
     merge_entity_metadata(
         session,
@@ -1297,7 +1329,6 @@ def seed(session: Session) -> None:
         session,
         m.Character,
         "npc-reike",
-        faction_id="fac-guard",
         character_type="npc",
         current_location_id="loc-dernier-verre",
         appearance="Officier en civil, boit seul après son service.",
@@ -1309,6 +1340,7 @@ def seed(session: Session) -> None:
             )
         },
     )
+    ensure_primary_membership(session, WORLD_ID, "npc-reike", "fac-guard")
 
     # Senna — Les Marcheurs, de passage au Dernier Verre.
     get_or_create(
@@ -1324,13 +1356,13 @@ def seed(session: Session) -> None:
         session,
         m.Character,
         "npc-senna",
-        faction_id="fac-walkers",
         character_type="npc",
         current_location_id="loc-dernier-verre",
         appearance="Figure âgée, voyageuse, « passe par là » régulièrement.",
         backstory="Détient un savoir oral transmis ; observe le réveil avec inquiétude.",
         secrets={"knows_more": "En sait plus qu'elle n'en dit sur le nœud et le réveil."},
     )
+    ensure_primary_membership(session, WORLD_ID, "npc-senna", "fac-walkers")
 
     # Bryn — jeune coursier, attend un message au comptoir.
     # Minimal NPC: present and namable, no faction/knowledge/relations of its
@@ -1390,7 +1422,6 @@ def seed(session: Session) -> None:
         session,
         m.Character,
         "char-player",
-        faction_id=None,
         character_type="player",
         user_id="user-creator",
         current_location_id="loc-dernier-verre",
@@ -1445,7 +1476,6 @@ def seed(session: Session) -> None:
         session,
         m.Character,
         SKILL_SHEET_PC_ID,
-        faction_id=None,
         character_type="player",
         user_id=None,
         current_location_id="loc-dernier-verre",

@@ -58,6 +58,7 @@ from ..models import (
     ConversationMessage,
     DiscoverableDetail,
     Entity,
+    FactionMembership,
     Gathering,
     GatheringMember,
     Item,
@@ -554,8 +555,15 @@ def list_npcs(db: Session = Depends(get_session)) -> list:
         if entity is None:
             continue
         faction_name: Optional[str] = None
-        if char.faction_id:
-            fac = db.get(Entity, char.faction_id)
+        membership = db.exec(
+            select(FactionMembership).where(
+                FactionMembership.entity_id == char.id,
+                FactionMembership.left_at.is_(None),
+                FactionMembership.is_primary == True,  # noqa: E712
+            )
+        ).first()
+        if membership:
+            fac = db.get(Entity, membership.faction_id)
             if fac:
                 faction_name = fac.name
         result.append({"id": char.id, "name": entity.name, "faction": faction_name})
