@@ -451,7 +451,15 @@ World-genrator/
 │           │                #   target entity, source_type in {creator,correction}),
 │           │                #   GET /api/entities/{id}/ledger (balance + entries),
 │           │                #   GET /api/ledger (global journal, entity_id/session_id
-│           │                #   filters) — INSERT-only, no PUT/DELETE route exists
+│           │                #   filters) — INSERT-only, no PUT/DELETE route exists;
+│           │                #   faction roles vocabulary (BRIEF-31, schema v1.42):
+│           │                #   GET /api/entities/{faction_id}/roles — read-only,
+│           │                #   returns entity.metadata['roles'] (ordered list of
+│           │                #   {name, description}), no secret filtering (public
+│           │                #   org vocabulary); the list itself is written through
+│           │                #   the EXISTING composite entity PUT/POST (no new write
+│           │                #   code — `roles` rides the generic `metadata` JSON base
+│           │                #   field already coerced by _apply_base_fields)
 │           └── index.html   # single-page UI; MJ narration rendering;
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;
@@ -545,7 +553,21 @@ World-genrator/
 │                            #   the read-only "Notes de l'assistant" block
 │                            #   (authorRenderGenNotes, shared with NPC); accepting goes
 │                            #   through the EXISTING composite POST only — no knowledge
-│                            #   rows for locations, no new write code
+│                            #   rows for locations, no new write code;
+│                            #   Création → Factions "Roles" editor (BRIEF-31, schema
+│                            #   v1.42): structured list of {name, description} rows
+│                            #   (add/remove/reorder ↑↓, no raw-JSON textarea) on the
+│                            #   faction create/edit form, held in
+│                            #   authorFactionRolesDraft and merged into
+│                            #   entityData.metadata.roles by authorSave — rides the
+│                            #   EXISTING composite entity PUT/POST, no new backend
+│                            #   write code; name-less rows dropped on save; NPC
+│                            #   "Appartenances" membership form's free-text role
+│                            #   input is now a `<select>` (authorMembershipFactionChanged)
+│                            #   populated from GET /api/entities/{faction_id}/roles in
+│                            #   stored order, plus an always-present "autre" option
+│                            #   that reveals the original free-text input — selecting
+│                            #   "autre" never mutates faction.metadata.roles
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)

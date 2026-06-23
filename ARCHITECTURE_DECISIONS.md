@@ -2064,6 +2064,33 @@ to A1 without touching A1's render block).
 
 ---
 
+## FACTION ROLES — curated vocabulary, picker groundwork (BRIEF-31, schema v1.42)
+
+**Vocabulary, not a referential store.** A faction now carries a curated,
+ordered list of roles (`entity.metadata['roles']`, `{name, description}`,
+array order = rank) for the creator to author and the NPC membership form
+to pick from. `faction_membership.role` stays exactly what it always was —
+a free-text snapshot label, no FK, no enum. Picking a listed role just
+fills that free-text field with a known-good string; the membership write
+path (`writes.write_membership`) is untouched. This is deliberate
+consistency with the append/close membership philosophy (BRIEF-27): the
+row that captures "who held what role, when" is already creator-CRUD and
+history-preserving by construction (close + reopen), so a roles *store*
+referencing it would be a second source of truth for no gain.
+
+**"autre" is one-shot.** Typing a free-text role through the "autre"
+escape hatch writes only to that one `membership.role`; `faction.roles` is
+never mutated in response. Promoting ad-hoc labels into the curated list
+is a deliberate non-feature — the vocabulary is creator-curated, not
+crowd-sourced from play.
+
+**Flat-ordered, tree left open.** `{name, description}` carries no
+`parent` key. A role hierarchy / member-to-member command chain is a
+free additive extension for later, not designed in now — adding `parent`
+later costs one optional key, no migration.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

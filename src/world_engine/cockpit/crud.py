@@ -811,6 +811,21 @@ def _membership_dict(m: FactionMembership, db: DbSession) -> dict:
     }
 
 
+@router.get("/entities/{faction_id}/roles")
+def list_faction_roles(faction_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
+    """Curated, ordered role vocabulary for a faction (BRIEF-31, schema v1.42).
+
+    Public org vocabulary — no secret filtering applies. Reads
+    `entity.metadata['roles']` and nothing else (array order = rank).
+    """
+    faction = _get_entity(db, faction_id)
+    if faction.type != "faction":
+        raise HTTPException(422, f"{faction_id!r} is not a faction entity")
+    metadata = faction.metadata_ if isinstance(faction.metadata_, dict) else {}
+    roles = metadata.get("roles")
+    return roles if isinstance(roles, list) else []
+
+
 @router.get("/entities/{entity_id}/memberships")
 def list_entity_memberships(entity_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
     """Active memberships for a member (character sheet "Appartenances" list)."""

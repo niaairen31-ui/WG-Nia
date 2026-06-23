@@ -2670,6 +2670,13 @@ let authorEntityType  = null;  // type of the entity currently displayed
 let pendingDraftKnowledge = [];
 let pendingDraftNotes     = [];
 
+/* Faction roles editor draft (BRIEF-31, schema v1.42) — entity.metadata.roles,
+ * a flat ordered list of {name, description}. Held in memory while the
+ * faction sheet is open and merged into entityData.metadata on save (no raw-
+ * JSON textarea, per decision G1). Recomputed fresh every authorRenderSheet
+ * call from the faction's own metadata — no separate reset needed. */
+let authorFactionRolesDraft = [];
+
 /* ── Top-level mode switching ────────────────────────────────────────────── */
 
 function showPlayView() {
@@ -3109,6 +3116,15 @@ function authorRenderSheet(detail, isNew, type) {
   }
   html += '</div></div>';
 
+  if (type === 'faction') {
+    authorFactionRolesDraft = (!isNew && detail.metadata && Array.isArray(detail.metadata.roles))
+      ? detail.metadata.roles.map(r => ({ name: r.name || '', description: r.description || '' }))
+      : [];
+    html += '<div class="field-section"><div class="field-section-title">Roles</div>';
+    html += `<div id="author-roles">${authorRenderRolesEditor()}</div>`;
+    html += '</div>';
+  }
+
   if (!isNew) {
     html += '<div class="field-section"><div class="field-section-title">Relations</div>';
     html += `<div id="author-relations">${authorRenderRelations(detail.relations)}</div>`;
@@ -3171,6 +3187,7 @@ function authorRenderSheet(detail, isNew, type) {
     authorLoadItems(detail.id);
     authorLoadLedger(detail.id);
     authorLoadMemberships(detail.id);
+    authorMembershipFactionChanged();
   }
   if (!isNew && type === 'faction') {
     authorLoadLedger(detail.id);
@@ -3530,14 +3547,68 @@ function authorRenderMemberships(rows) {
   `).join('') + '</div>';
 }
 
+/* ── Faction roles editor (BRIEF-31, schema v1.42) ────────────────────────
+ * entity.metadata.roles — flat ordered list of {name, description}, array
+ * order = rank. Structured rows only (decision G1, no raw-JSON textarea).
+ * Held in authorFactionRolesDraft, synced from the DOM before any mutation,
+ * merged into entityData.metadata.roles by authorSave on create/update. */
+
+function authorRenderRolesEditor() {
+  const rows = authorFactionRolesDraft.map((r, i) => `
+    <div class="row-card" style="flex-direction:row; gap:8px; align-items:center;">
+      <input type="text" id="role-name-${i}" placeholder="Nom" value="${esc(r.name || '')}" style="flex:1">
+      <input type="text" id="role-desc-${i}" placeholder="Description" value="${esc(r.description || '')}" style="flex:2">
+      <button class="btn-icon" onclick="authorMoveRoleRow(${i}, -1)" title="Monter" ${i === 0 ? 'disabled' : ''}>↑</button>
+      <button class="btn-icon" onclick="authorMoveRoleRow(${i}, 1)" title="Descendre" ${i === authorFactionRolesDraft.length - 1 ? 'disabled' : ''}>↓</button>
+      <button class="btn-icon" onclick="authorRemoveRoleRow(${i})" title="Supprimer">✕</button>
+    </div>`).join('');
+  return `<div id="author-roles-rows">${rows || '<div class="empty">Aucun rôle.</div>'}</div>
+    <div class="row-card-actions" style="margin-top:6px">
+      <button class="btn-send" onclick="authorAddRoleRow()">+ Add role</button>
+    </div>`;
+}
+
+function _syncFactionRolesFromDom() {
+  authorFactionRolesDraft.forEach((r, i) => {
+    const nameEl = document.getElementById(`role-name-${i}`);
+    const descEl = document.getElementById(`role-desc-${i}`);
+    if (nameEl) r.name = nameEl.value;
+    if (descEl) r.description = descEl.value;
+  });
+}
+
+function authorAddRoleRow() {
+  _syncFactionRolesFromDom();
+  authorFactionRolesDraft.push({ name: '', description: '' });
+  document.getElementById('author-roles').innerHTML = authorRenderRolesEditor();
+}
+
+function authorRemoveRoleRow(i) {
+  _syncFactionRolesFromDom();
+  authorFactionRolesDraft.splice(i, 1);
+  document.getElementById('author-roles').innerHTML = authorRenderRolesEditor();
+}
+
+function authorMoveRoleRow(i, dir) {
+  _syncFactionRolesFromDom();
+  const j = i + dir;
+  if (j < 0 || j >= authorFactionRolesDraft.length) return;
+  [authorFactionRolesDraft[i], authorFactionRolesDraft[j]] = [authorFactionRolesDraft[j], authorFactionRolesDraft[i]];
+  document.getElementById('author-roles').innerHTML = authorRenderRolesEditor();
+}
+
 function authorRenderMembershipForm() {
   const candidates = authorAllEntities.filter(e => e.type === 'faction');
   const opts = candidates.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
   return `
     <div class="row-card">
       <div class="field-grid">
-        <div class="field-row"><label>Faction *</label><select id="mem-new-faction">${opts}</select></div>
-        <div class="field-row"><label>Role</label><input type="text" id="mem-new-role"></div>
+        <div class="field-row"><label>Faction *</label>
+          <select id="mem-new-faction" onchange="authorMembershipFactionChanged()">${opts}</select></div>
+        <div class="field-row"><label>Role</label>
+          <select id="mem-new-role-select" onchange="authorMembershipRoleSelectChanged()"></select></div>
+        <div class="field-row" id="mem-new-role-other-row" style="display:none">
+          <label>Role (autre)</label><input type="text" id="mem-new-role"></div>
         <div class="field-row"><label>Cover role (façade)</label><input type="text" id="mem-new-cover-role"></div>
         <div class="field-row checkbox"><input type="checkbox" id="mem-new-primary"><label for="mem-new-primary">Primaire</label></div>
         <div class="field-row checkbox"><input type="checkbox" id="mem-new-secret"><label for="mem-new-secret">Secret</label></div>
@@ -3549,11 +3620,45 @@ function authorRenderMembershipForm() {
   `;
 }
 
+/** Role picker (BRIEF-31, schema v1.42, decision F1): repopulates
+ *  #mem-new-role-select from the selected faction's curated `roles`
+ *  (GET /api/entities/{id}/roles — public vocabulary, names only, stored
+ *  order) plus an always-present "autre" option. No faction selected, or a
+ *  faction with no roles, degrades to "autre" only (decision 3.4). */
+async function authorMembershipFactionChanged() {
+  const factionEl = document.getElementById('mem-new-faction');
+  const selectEl  = document.getElementById('mem-new-role-select');
+  if (!factionEl || !selectEl) return;
+  const factionId = factionEl.value;
+  let roles = [];
+  if (factionId) {
+    try {
+      roles = await api(`/api/entities/${encodeURIComponent(factionId)}/roles`);
+    } catch (e) {
+      roles = [];
+    }
+  }
+  const opts = roles.map(r => `<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('');
+  selectEl.innerHTML = opts + '<option value="__other__">autre</option>';
+  authorMembershipRoleSelectChanged();
+}
+
+function authorMembershipRoleSelectChanged() {
+  const selectEl = document.getElementById('mem-new-role-select');
+  const otherRow = document.getElementById('mem-new-role-other-row');
+  if (!selectEl || !otherRow) return;
+  otherRow.style.display = selectEl.value === '__other__' ? '' : 'none';
+}
+
 async function authorAddMembership() {
   const statusEl = document.getElementById('author-status');
+  const roleSelectEl = document.getElementById('mem-new-role-select');
+  const role = (!roleSelectEl || roleSelectEl.value === '__other__')
+    ? (document.getElementById('mem-new-role').value || null)
+    : roleSelectEl.value;
   const body = JSON.stringify({
     faction_id:  document.getElementById('mem-new-faction').value,
-    role:        document.getElementById('mem-new-role').value || null,
+    role:        role,
     cover_role:  document.getElementById('mem-new-cover-role').value || null,
     is_primary: document.getElementById('mem-new-primary').checked,
     is_secret:  document.getElementById('mem-new-secret').checked,
@@ -3878,6 +3983,20 @@ async function authorSave() {
     return;
   }
   if (isNew) entityData.type = type;
+
+  // BRIEF-31: faction roles are edited via the structured editor, never the
+  // raw metadata textarea (decision G1) — merge the (synced, name-filtered)
+  // draft into entityData.metadata right before save. A name-less row is
+  // dropped; an empty description is kept.
+  if (type === 'faction') {
+    _syncFactionRolesFromDom();
+    const cleanRoles = authorFactionRolesDraft
+      .map(r => ({ name: (r.name || '').trim(), description: r.description || '' }))
+      .filter(r => r.name);
+    entityData.metadata = { ...(entityData.metadata || {}) };
+    if (cleanRoles.length) entityData.metadata.roles = cleanRoles;
+    else delete entityData.metadata.roles;
+  }
 
   // BRIEF-24: knowledge rows proposed by the AI draft generator are held in
   // memory until now — read their current (possibly edited) values before

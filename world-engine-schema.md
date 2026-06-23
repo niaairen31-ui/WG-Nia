@@ -905,6 +905,19 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.42** — Faction roles vocabulary (BRIEF-31). No schema/column change:
+  factions now use `entity.metadata['roles']`, a flat ordered list of
+  `{name, description}` (array order = rank), following the
+  `metadata.price_list` precedent (v1.33). Creator-CRUD config like
+  `scope`/`goals`/`parent_faction_id` — no `change_history`, no
+  snapshot. Authored via a structured editor on the faction sheet (no raw
+  JSON). The NPC membership panel's free-text `role` input is now a
+  `<select>` populated from the member's chosen faction's `roles` (names
+  only, stored order) plus an "autre" escape hatch; `faction_membership.role`
+  remains a free-text passthrough column — "autre" never writes back to
+  `faction.metadata['roles']` (no auto-promotion). New read endpoint
+  `GET /api/entities/{faction_id}/roles` (public org vocabulary, no
+  secret-filtering). `writes.write_membership` untouched.
 - **v1.41** — Cover-role mechanism for double agents (BRIEF-30). New
   nullable column `faction_membership.cover_role` — the prompt-facing
   façade role; the true `role` stays creator-only. `read_public_memberships`
