@@ -3519,7 +3519,7 @@ function authorRenderMemberships(rows) {
   if (!rows || rows.length === 0) return '<div class="empty">No active memberships.</div>';
   return '<div class="row-table">' + rows.map(m => `
     <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between;">
-      <span>${esc(m.faction_name)}${m.role ? ` — ${esc(m.role)}` : ''}</span>
+      <span>${esc(m.faction_name)}${m.role ? ` — ${esc(m.role)}` : ''}${m.cover_role ? ` <em>(façade : ${esc(m.cover_role)})</em>` : ''}</span>
       <span style="display:flex; align-items:center; gap:8px;">
         ${m.is_primary ? '<span class="badge b-equipped">primaire</span>' : ''}
         ${m.is_secret ? '<span class="badge b-rejected">secret</span>' : ''}
@@ -3538,6 +3538,7 @@ function authorRenderMembershipForm() {
       <div class="field-grid">
         <div class="field-row"><label>Faction *</label><select id="mem-new-faction">${opts}</select></div>
         <div class="field-row"><label>Role</label><input type="text" id="mem-new-role"></div>
+        <div class="field-row"><label>Cover role (façade)</label><input type="text" id="mem-new-cover-role"></div>
         <div class="field-row checkbox"><input type="checkbox" id="mem-new-primary"><label for="mem-new-primary">Primaire</label></div>
         <div class="field-row checkbox"><input type="checkbox" id="mem-new-secret"><label for="mem-new-secret">Secret</label></div>
       </div>
@@ -3551,8 +3552,9 @@ function authorRenderMembershipForm() {
 async function authorAddMembership() {
   const statusEl = document.getElementById('author-status');
   const body = JSON.stringify({
-    faction_id: document.getElementById('mem-new-faction').value,
-    role:       document.getElementById('mem-new-role').value || null,
+    faction_id:  document.getElementById('mem-new-faction').value,
+    role:        document.getElementById('mem-new-role').value || null,
+    cover_role:  document.getElementById('mem-new-cover-role').value || null,
     is_primary: document.getElementById('mem-new-primary').checked,
     is_secret:  document.getElementById('mem-new-secret').checked,
   });
@@ -3598,7 +3600,7 @@ function authorRenderFactionRoster(rows) {
   if (!rows || rows.length === 0) return '<div class="empty">No active members.</div>';
   return '<div class="row-table">' + rows.map(m => `
     <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between;">
-      <span>${esc(m.entity_name)}${m.role ? ` — ${esc(m.role)}` : ''}</span>
+      <span>${esc(m.entity_name)}${m.role ? ` — ${esc(m.role)}` : ''}${m.cover_role ? ` <em>(façade : ${esc(m.cover_role)})</em>` : ''}</span>
       <span style="display:flex; align-items:center; gap:8px;">
         ${m.is_primary ? '<span class="badge b-equipped">primaire</span>' : ''}
         ${m.is_secret ? '<span class="badge b-rejected">secret</span>' : ''}

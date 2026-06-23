@@ -788,6 +788,7 @@ def delete_knowledge(knowledge_id: str, db: DbSession = Depends(get_session)) ->
 class MembershipOpenBody(BaseModel):
     faction_id: str
     role: Optional[str] = None
+    cover_role: Optional[str] = None
     is_primary: bool = False
     is_secret: bool = False
 
@@ -802,6 +803,7 @@ def _membership_dict(m: FactionMembership, db: DbSession) -> dict:
         "faction_id": m.faction_id,
         "faction_name": faction.name if faction else m.faction_id,
         "role": m.role,
+        "cover_role": m.cover_role,
         "is_primary": m.is_primary,
         "is_secret": m.is_secret,
         "joined_at": _iso(m.joined_at),
@@ -836,6 +838,7 @@ def open_entity_membership(
         entity_id=entity_id,
         faction_id=body.faction_id,
         role=body.role,
+        cover_role=body.cover_role,
         is_primary=body.is_primary,
         is_secret=body.is_secret,
     )

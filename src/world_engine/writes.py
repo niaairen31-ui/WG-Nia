@@ -359,6 +359,7 @@ def write_membership(
     entity_id: Optional[str] = None,
     faction_id: Optional[str] = None,
     role: Optional[str] = None,
+    cover_role: Optional[str] = None,
     is_primary: bool = False,
     is_secret: bool = False,
 ) -> FactionMembership:
@@ -381,8 +382,12 @@ def write_membership(
 
     mode="close" (creator CRUD only):
         Sets `left_at` on `membership_id`. Never touches `role` /
-        `is_secret` / `faction_id` / `is_primary`. Closing an
+        `cover_role` / `is_secret` / `faction_id` / `is_primary`. Closing an
         already-closed row is a no-op (idempotent), not an error.
+
+    `cover_role` (schema v1.41, BRIEF-30): the prompt-facing façade role,
+    set at open time only. Like `role`, changing it on an existing
+    membership is close + reopen — no in-place update.
     """
     if mode not in ("open", "close"):
         raise ValueError(f"write_membership: invalid mode {mode!r}")
@@ -398,6 +403,7 @@ def write_membership(
             entity_id=entity_id,
             faction_id=faction_id,
             role=role,
+            cover_role=cover_role,
             is_primary=is_primary,
             is_secret=is_secret,
         )

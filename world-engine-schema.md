@@ -152,8 +152,15 @@ CREATE TABLE faction_membership (
   world_id    TEXT NOT NULL REFERENCES world(id),
   entity_id   TEXT NOT NULL REFERENCES entity(id),  -- the member (a character, by intent)
   faction_id  TEXT NOT NULL REFERENCES entity(id),  -- the faction
-  role        TEXT,            -- creator-authored label (e.g. "lieutenant").
-                               -- DORMANT: no assembler reads it yet.
+  role        TEXT,            -- creator-authored TRUE label (e.g. "espion").
+                               -- Creator-only — never read by any prompt
+                               -- assembler when cover_role is set (schema
+                               -- v1.41, BRIEF-30).
+  cover_role  TEXT,            -- prompt-facing façade role (e.g. "membre").
+                               -- NULL by default. read_public_memberships
+                               -- resolves cover_role ?? role; the true role
+                               -- never crosses that accessor when a cover
+                               -- is set (schema v1.41, BRIEF-30).
   is_primary  BOOLEAN DEFAULT FALSE,  -- the member's identifying faction.
   is_secret   BOOLEAN DEFAULT FALSE,  -- the mole. DORMANT: present but its
                                -- exclusion is NOT enforced this step (no
@@ -898,6 +905,17 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.41** — Cover-role mechanism for double agents (BRIEF-30). New
+  nullable column `faction_membership.cover_role` — the prompt-facing
+  façade role; the true `role` stays creator-only. `read_public_memberships`
+  (`context.py`) now resolves `cover_role ?? role`, so the true role behind
+  a cover never crosses the accessor into any prompt (own-context A1 today,
+  any future third-party reader for free). No backfill — defaults NULL, so
+  every existing membership renders unchanged (`NULL ?? role = role`). Set
+  at OPEN time only; changing it is close + reopen, same as `role`. Espionage
+  behaviour rides on `goals` prose authored by the creator, never a
+  confessable label. Migration: `scripts/migrate_v1_41_cover_role.py`,
+  idempotent.
 - **v1.40** — Drop `character.faction_id` (BRIEF-28). The four v1.39
   consumers recabled onto `faction_membership` (active `is_primary=TRUE`
   row): `app.py`'s `list_npcs` queries `faction_membership` instead of

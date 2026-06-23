@@ -2019,6 +2019,51 @@ elsewhere in this doc.
 
 ---
 
+## FACTION MEMBERSHIP — cas 3, the cover_role mechanism (BRIEF-30, schema v1.41)
+
+**The double agent.** A character can be a PUBLICLY-known member of a
+faction (`is_secret = FALSE`) while presenting a false role: the true
+`role` ("espion") is creator-only and must never reach a prompt; a
+`cover_role` ("membre") is the façade every prompt reader sees. The actual
+espionage behaviour rides on the character's `goals` prose (positive
+framing, no confessable label) — that is creator authoring, not code.
+
+**One resolution rule, baked into the single accessor.** Everywhere a role
+reaches a model prompt — the holder's own context (A1, BRIEF-29) and every
+future third-party reader — the promptable role is `cover_role if
+cover_role is not None else role`. This is resolved INSIDE
+`read_public_memberships` (`context.py`), not by callers: the function now
+enforces TWO structural guarantees, `is_secret = FALSE` AND
+`cover_role ?? role`. The true `role` never crosses the accessor boundary
+when a cover is set — same trust level as a secret.
+
+**Backward-compatible by construction.** `cover_role` defaults NULL;
+`NULL ?? role = role`, so every pre-existing membership (and the committed
+A1 render block, untouched) behaves identically. No backfill needed or
+attempted.
+
+**INSERT-only, set at open time.** `write_membership` gained a
+`cover_role` parameter persisted only on `mode="open"`. Like `role`,
+changing a cover on an existing membership is close + reopen — no
+in-place update, consistent with the table's append-only history
+discipline (BRIEF-27).
+
+**Creator sees both faces.** The cockpit roster (`_membership_dict`,
+membership open form, "Appartenances" / faction-roster renders) shows the
+true `role` AND the `cover_role` side by side (`role — cover ` rendered as
+`role <em>(façade : cover)</em>`) — full creator visibility, mirroring how
+`is_secret` rows are shown to the creator today. Nothing about this is
+read by any prompt path; the cockpit's `_membership_dict` is a creator
+surface, not the prompt-facing accessor.
+
+**Scope held at the line.** This step does NOT add the third-party
+perception block (interlocutor/co-present affiliations) — that is the
+next brief. It only makes the cover mechanism exist and makes the
+holder's own context cover-aware for free (the accessor change propagates
+to A1 without touching A1's render block).
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

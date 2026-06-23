@@ -95,14 +95,19 @@ def read_public_memberships(
 ) -> list[tuple[str, str | None]]:
     """Return this entity's own public, active faction memberships.
 
-    The structural choke-point for membership-in-prompts: `is_secret = FALSE`
-    is enforced in the query itself, never by instruction. No caller can opt
-    into secret rows — there is no parameter for it. This is the only path
-    through which `faction_membership` may ever reach a model prompt.
+    The structural choke-point for membership-in-prompts, with TWO
+    guarantees enforced in the query/resolution itself, never by
+    instruction: `is_secret = FALSE` (no secret membership in any prompt)
+    and `cover_role ?? role` (schema v1.41, BRIEF-30 — when a `cover_role`
+    is set, the true `role` never crosses this boundary). No caller can opt
+    into secret rows or the raw true role — there is no parameter for
+    either. This is the only path through which `faction_membership` may
+    ever reach a model prompt.
 
-    Returns `(faction_name, role)` pairs, primary first then oldest-joined.
-    A row whose `faction_id` doesn't resolve to an `Entity` is skipped — a
-    raw id must never render into a prompt.
+    Returns `(faction_name, promptable_role)` pairs, primary first then
+    oldest-joined. `promptable_role` is `cover_role if cover_role is not
+    None else role`. A row whose `faction_id` doesn't resolve to an
+    `Entity` is skipped — a raw id must never render into a prompt.
     """
     rows = session.exec(
         select(FactionMembership)
@@ -119,7 +124,8 @@ def read_public_memberships(
         faction_entity = session.get(Entity, row.faction_id)
         if faction_entity is None:
             continue
-        memberships.append((faction_entity.name, row.role))
+        promptable_role = row.cover_role if row.cover_role is not None else row.role
+        memberships.append((faction_entity.name, promptable_role))
     return memberships
 
 

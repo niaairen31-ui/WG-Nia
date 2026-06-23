@@ -166,6 +166,11 @@ Read both before making any structural change.
   including the holder's own. The filter is structural (`is_secret = FALSE`
   in the query), not instructional, with no parameter to override it.
   Espionage rides on `goals` prose, never a confessable affiliation label.
+  The true `role` behind a `cover_role` never enters any prompt either
+  (BRIEF-30, schema v1.41): `read_public_memberships` resolves
+  `cover_role ?? role`, so a double agent's true role stays creator-only
+  while the façade is what every prompt reader — own-context today, any
+  future third-party reader — actually sees.
 
 ## Local model notes
 
@@ -219,10 +224,14 @@ World-genrator/
 │       │                    #   never read by assemble_mj_context or another
 │       │                    #   entity's context;
 │       │                    #   read_public_memberships (BRIEF-29, no schema
-│       │                    #   change): the single structural choke-point for
-│       │                    #   faction_membership reaching any prompt —
-│       │                    #   is_secret = FALSE enforced in the query, no
-│       │                    #   override param; assemble_npc_context injects
+│       │                    #   change; cover-role resolution BRIEF-30,
+│       │                    #   schema v1.41): the single structural choke-
+│       │                    #   point for faction_membership reaching any
+│       │                    #   prompt — is_secret = FALSE enforced in the
+│       │                    #   query, no override param, AND the returned
+│       │                    #   role is always cover_role ?? role (the true
+│       │                    #   role behind a cover never crosses this
+│       │                    #   boundary); assemble_npc_context injects
 │       │                    #   its result as a "TES AFFILIATIONS" block (own
 │       │                    #   public/active memberships only, primary
 │       │                    #   first), placed just before TES TARIFS, absent

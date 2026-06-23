@@ -202,6 +202,11 @@ class FactionMembership(SQLModel, table=True):
     entity_id: str = Field(foreign_key="entity.id", nullable=False)  # the member (a character, by intent)
     faction_id: str = Field(foreign_key="entity.id", nullable=False)
     role: Optional[str] = None  # creator-authored label. DORMANT: no assembler reads it yet.
+    # Prompt-facing façade role (schema v1.41, BRIEF-30). NULL by default —
+    # `read_public_memberships` resolves `cover_role ?? role`. The true
+    # `role` stays creator-only when a cover is set; never read directly by
+    # any prompt assembler.
+    cover_role: Optional[str] = None
     is_primary: bool = Field(
         default=False, sa_column_kwargs={"server_default": text("0")}
     )
