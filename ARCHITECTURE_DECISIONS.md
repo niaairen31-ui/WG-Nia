@@ -1917,30 +1917,50 @@ character entity's `created_at`). The migration
 for an existing active `(entity_id, faction_id)` row before inserting, on
 top of the partial-unique-index backstop.
 
-**The grep-gated `character.faction_id` retirement — REPORT ONLY, not
-dropped.** BRIEF-27 Scope IN #6 conditions the column drop on a clean grep
-(no consumer beyond the cockpit editor and `idx_character_faction`). The
-grep was NOT clean — four additional consumers found:
-- `app.py`'s `list_npcs` reads `char.faction_id` to show a faction name in
-  the provisional play-loop NPC selector.
-- `entity_author.py`'s `_resolve_faction_id` (BRIEF-24) resolves a
-  free-text faction name to `faction_id` for an AI-authored character
-  draft; the creator's accept writes it through the existing composite
-  `POST /api/entities`.
-- `index.html`'s AI-generation pre-fill (`author-x-faction_id`) mirrors the
-  resolved value into the (now read-only) cockpit field.
-- `scripts/seed_pilot.py` seeds initial NPC rows with `faction_id` directly.
+**The grep-gated `character.faction_id` retirement — DROPPED (BRIEF-28,
+schema v1.40).** BRIEF-27 Scope IN #6 found four consumers beyond the
+cockpit editor and `idx_character_faction`, so the column stayed at v1.39,
+report-only. A fresh RECON for BRIEF-28 re-confirmed the same four sites
+with no drift and no sixth consumer, so the column is now retired for
+real:
+- `app.py`'s `list_npcs` no longer reads `char.faction_id`; it queries
+  `faction_membership` for the active (`left_at IS NULL`) `is_primary=TRUE`
+  row and resolves the faction name from there. At most one such row is
+  guaranteed by `idx_membership_one_primary` — no `ORDER BY`/`LIMIT` crutch.
+- The composite create (`crud.py`'s `POST /api/entities`) no longer writes
+  `faction_id` into the `character` row — the field was removed from
+  `ENTITY_TYPE_REGISTRY` entirely (the Appartenances sub-block is the only
+  display now). If the incoming character payload carries a non-null
+  `faction_id`, the route opens a primary membership via
+  `writes.write_membership(mode="open", ..., is_primary=True,
+  is_secret=False)` AFTER the entity row commits (the membership write
+  needs the new entity's id — same post-accept-flush shape as BRIEF-24's
+  `pendingDraftKnowledge`). This is **creator authority**: the create/accept
+  is a creator action, not an AI proposal, so it does NOT go through
+  `proposed_mutation`.
+- `entity_author.py`'s `_resolve_faction_id` and its `index.html` pre-fill
+  mirror (`author-x-faction_id`) are explicitly UNCHANGED — they still
+  produce/display a transient `draft.public.faction_id`; the recabled
+  create-path (above) is what now consumes that field correctly. The DOM
+  element it used to mirror into no longer exists in the registry-driven
+  form, so the mirror line is a harmless no-op (guarded by `if (factionEl)`)
+  — not worth touching for a frozen internal.
+- `scripts/seed_pilot.py`'s five `faction_id=` kwargs are replaced by a
+  post-create `ensure_primary_membership(session, world_id, entity_id,
+  faction_id)` call per NPC — idempotent (checks for an existing active
+  `(entity_id, faction_id)` row before calling `write_membership`), so
+  re-seeding an already-migrated DB inserts no duplicate rows.
 
-Per Scope IN #6, this means REPORT ONLY: the column and
-`idx_character_faction` stay; nothing is dropped. The cockpit's *editable*
-"faction primaire" dropdown is still retired this step (Scope IN #4 is
-independent of the Scope IN #6 gate) — the field is kept in
-`ENTITY_TYPE_REGISTRY` (so `entity_author.py`'s accept path and the
-composite write keep functioning unchanged) but rendered `disabled` and
-relabeled "Faction (legacy — voir Appartenances)", so the only way to set a
-character's primary faction going forward is the Appartenances sub-block.
-The column drop is deferred to a follow-up once the four consumers above
-are migrated to read `faction_membership` instead.
+Migration `scripts/migrate_v1_40_drop_character_faction_id.py` drops
+`idx_character_faction` (SQLite refuses `ALTER TABLE ... DROP COLUMN` while
+an index still references the column) then `character.faction_id` itself.
+Pre-check: count of historical non-NULL `character.faction_id` values must
+equal the count of matching `is_primary=TRUE` `faction_membership` rows —
+if they don't match, the migration aborts and drops nothing (no
+re-backfill attempt; that's `migrate_v1_39_faction_membership.py`'s job).
+Commit boundary: the four recabled sites landed in one commit; the drop
+migration in a second commit, so the recabling could be live-verified
+before the column was removed.
 
 **Hierarchical authority propagation remains explicitly NOT implemented.**
 Being `role`d in a parent faction's membership confers no computed

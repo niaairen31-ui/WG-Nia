@@ -67,17 +67,6 @@ Extension of entity for characters (players and NPCs).
 ```sql
 CREATE TABLE character (
   id              TEXT PRIMARY KEY REFERENCES entity(id),
-  faction_id      TEXT REFERENCES entity(id),   -- primary faction. RETIRED-PENDING
-                                                 -- (BRIEF-27, schema v1.39): `faction_membership`
-                                                 -- (is_primary=TRUE) is now the durable source for
-                                                 -- "this character's primary faction"; this column
-                                                 -- could not yet be dropped — grep found consumers
-                                                 -- beyond the cockpit editor (now read-only here) and
-                                                 -- idx_character_faction: app.py's list_npcs (NPC
-                                                 -- selector display), entity_author.py's AI-authoring
-                                                 -- assistant (resolves+sets it on character creation),
-                                                 -- and scripts/seed_pilot.py. See CHANGELOG v1.39 and
-                                                 -- ARCHITECTURE_DECISIONS.md.
   character_type  TEXT NOT NULL,                -- player | npc
   user_id         TEXT,                         -- NULL for NPCs
   current_location_id TEXT REFERENCES entity(id),
@@ -818,8 +807,7 @@ CREATE INDEX idx_relation_a          ON relation(entity_a_id);
 CREATE INDEX idx_relation_b          ON relation(entity_b_id);
 CREATE INDEX idx_relation_world      ON relation(world_id);
 
--- character lookups by faction, location, and owning user
-CREATE INDEX idx_character_faction   ON character(faction_id);
+-- character lookups by location and owning user
 CREATE INDEX idx_character_location  ON character(current_location_id);
 CREATE INDEX idx_character_user      ON character(user_id);
 
@@ -910,6 +898,26 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.40** — Drop `character.faction_id` (BRIEF-28). The four v1.39
+  consumers recabled onto `faction_membership` (active `is_primary=TRUE`
+  row): `app.py`'s `list_npcs` queries `faction_membership` instead of
+  `char.faction_id`; the composite create (`crud.py`'s `POST /api/entities`)
+  strips `faction_id` from the `character` row INSERT and, after the entity
+  commits, opens a primary membership via `writes.write_membership` when the
+  payload carried one — creator authority, not an AI proposal path;
+  `scripts/seed_pilot.py`'s five `faction_id=` kwargs replaced by a
+  post-create `ensure_primary_membership` call (idempotent open). The
+  cockpit's read-only "Faction (legacy)" character field is removed from
+  `ENTITY_TYPE_REGISTRY` (the Appartenances sub-block is the only display).
+  `entity_author.py` and its `index.html` draft pre-fill are untouched — the
+  draft's transient `faction_id` key now flows only into the create-path
+  membership write. Migration `scripts/migrate_v1_40_drop_character_faction_id.py`
+  drops `idx_character_faction` then the column (`ALTER TABLE character DROP
+  COLUMN faction_id`); pre-checks that every historical non-NULL
+  `character.faction_id` has a matching `is_primary=TRUE` `faction_membership`
+  row before dropping, aborts otherwise. No re-backfill. Scope OUT, unchanged:
+  no membership reader wired into any context assembler; `role` / `is_secret`
+  still unread; no AI `membership_change` mutation type.
 - **v1.39** — Faction membership, C1 (BRIEF-27). New table
   `faction_membership` — durable member<->faction roster, the durable
   counterpart to session-ephemeral `gathering_member`: `id`, `world_id`,

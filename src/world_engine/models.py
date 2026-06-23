@@ -99,13 +99,11 @@ class Entity(SQLModel, table=True):
 class Character(SQLModel, table=True):
     __tablename__ = "character"
     __table_args__ = (
-        Index("idx_character_faction", "faction_id"),
         Index("idx_character_location", "current_location_id"),
         Index("idx_character_user", "user_id"),
     )
 
     id: str = Field(primary_key=True, foreign_key="entity.id")
-    faction_id: Optional[str] = Field(default=None, foreign_key="entity.id")
     character_type: str  # player | npc
     user_id: Optional[str] = None  # NULL for NPCs (no FK in schema)
     current_location_id: Optional[str] = Field(
