@@ -796,7 +796,8 @@ CREATE TABLE prompt_template (
                    -- player_narration | session_summary | npc_dialogue |
                    -- conversation_analysis | mj_interpretation |
                    -- overhearing_classification | mj_arbitration |
-                   -- mj_establishment | entity_generation | other
+                   -- mj_establishment | entity_generation | region_manifest |
+                   -- other
   system_prompt    TEXT NOT NULL,
   user_template    TEXT NOT NULL,   -- user message template (with variables)
   variables        JSON,            -- expected variable list
@@ -920,6 +921,21 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.45** — Region orchestrator, chantier 1 (BRIEF-34). Application-layer
+  only: **no new table or column, no canon-write path added**. New module
+  `src/world_engine/region_author.py` (`generate_region_draft(brief, db)`)
+  composes the existing atomic entity generator
+  (`entity_author.generate_entity_draft`) across a four-stage pipeline
+  (manifest -> factions -> locations -> NPCs) to turn a free-text creator
+  region brief into an ephemeral **region draft** — a tree of per-entity
+  drafts plus draft-local id references (`fac-N`/`loc-N`/`npc-N`), never
+  persisted, never wired to real entity ids. New cockpit route `POST
+  /api/regions/generate` (outside `crud.py`, no canon write, mirrors `POST
+  /api/entities/generate`). The only schema-adjacent change is a new
+  `prompt_template.usage` value, `region_manifest` (Stage 0's manifest
+  template, `pt-region-manifest`, consuming only `{brief}`) — added to the
+  `usage` comment enumeration on `prompt_template`. `entity_author.py` /
+  `generate_entity_draft` / `_TYPE_FIELDS` are unmodified.
 - **v1.44** — Aversion prose field, character live + faction dormant
   (BRIEF-33). New nullable `TEXT` column on both `character` and `faction`:
   `aversion`, the prose dual of `philosophy` — what an entity rejects or

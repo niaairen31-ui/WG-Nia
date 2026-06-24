@@ -37,6 +37,7 @@ from sqlmodel import Session, select
 
 from .. import ollama_client
 from ..entity_author import generate_entity_draft as _generate_entity_draft
+from ..region_author import generate_region_draft as _generate_region_draft
 from ..gathering import enter_location as _enter_location
 from ..gathering import migrate_npc as _migrate_npc
 from ..analyzer import analyze_overhearing as _analyze_overhearing
@@ -106,6 +107,26 @@ def generate_entity(
     failure — see entity_author.generate_entity_draft.
     """
     return _generate_entity_draft(body.entity_type, body.brief, db)
+
+
+class RegionGenerateBody(BaseModel):
+    brief: str
+
+
+@app.post("/api/regions/generate")
+def generate_region(
+    body: RegionGenerateBody,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Creator-side AI region draft generator (BRIEF-34, chantier 1).
+
+    Deliberately NOT in crud.py, same neighbourhood as /api/entities/generate:
+    crud.py is a sanctioned canon-write path and this route writes nothing.
+    Calls only generate_region_draft, which composes generate_entity_draft
+    across factions/locations/NPCs and writes no canon itself. Returns
+    {"ok": false, "error": ...} (never a 500) on any failure.
+    """
+    return _generate_region_draft(body.brief, db)
 
 
 # ── Serialisation helpers ─────────────────────────────────────────────────────

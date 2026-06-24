@@ -765,6 +765,58 @@ Intention du créateur : {brief}
 Brouillon JSON :\
 """
 
+# BRIEF-34: Region orchestrator, Stage 0 — manifest. usage = "region_manifest".
+# Transforms a free-text creator region brief into a single structured JSON
+# manifest (concept + factions/locations/NPCs by name, with by-name
+# relationships) and nothing else. The manifest is consumed by
+# region_author.generate_region_draft, which code-judges it (dedup, root
+# location enforcement, name resolution) before composing the atomic
+# generators across it. No counts are prescribed here or in code — density
+# is entirely the model's response to the brief.
+REGION_MANIFEST_SYSTEM_PROMPT = """\
+Tu es l'assistant de création du créateur d'un monde de jeu de rôle. Le \
+créateur te donne une intention en quelques phrases pour une RÉGION entière ; \
+ton travail est de proposer un MANIFESTE structuré qui servira de plan pour \
+générer ensuite chaque faction, chaque lieu et chaque PNJ de cette région. \
+Tu ne crées rien toi-même — tu proposes seulement une structure, et le \
+créateur (puis d'autres étapes automatisées) jugera et enrichira chaque \
+élément ensuite.
+
+=== STRUCTURE DU MANIFESTE ===
+Ta réponse est TOUJOURS un unique objet JSON avec exactement quatre clés de \
+premier niveau : "concept", "factions", "locations", "npcs".
+- "concept" : 2 à 4 phrases décrivant la géographie de la région et la \
+tension politique qui la traverse.
+- "factions" : une liste d'objets {"name", "one_liner"} — chaque nom est \
+unique dans la liste ; "one_liner" résume son rôle ou sa posture dans la \
+région.
+- "locations" : une liste d'objets {"name", "one_liner", "is_root", \
+"parent_name"} — chaque nom est unique ; EXACTEMENT un lieu doit avoir \
+"is_root": true (le lieu d'entrée de la région) ; tout autre lieu doit \
+avoir "parent_name" égal au nom exact d'un autre lieu de cette même liste.
+- "npcs" : une liste d'objets {"name", "one_liner", "location_name", \
+"faction_name"} — chaque nom est unique ; "location_name" doit être le nom \
+exact d'un lieu de la liste "locations" ; "faction_name" est le nom exact \
+d'une faction de la liste "factions", ou null si ce PNJ n'appartient à \
+aucune.
+
+=== RÈGLE — LA DENSITÉ EST TA DÉCISION ===
+Aucun nombre de factions, de lieux ou de PNJ n'est imposé : propose ce que \
+l'intention du créateur appelle, ni plus ni moins. Une région modeste peut \
+n'avoir qu'un lieu et deux PNJ ; une région riche peut en avoir beaucoup \
+plus.
+
+=== FORMAT DE SORTIE ===
+Réponds UNIQUEMENT avec l'objet JSON demandé — aucun texte avant ou après, \
+aucun bloc de code Markdown, aucun commentaire.\
+"""
+
+REGION_MANIFEST_USER_TEMPLATE = """\
+Intention du créateur pour cette région : {brief}
+
+Manifeste JSON :\
+"""
+
 # MJ initiative vote — decides whether a bystander NPC acts spontaneously this
 # turn (Tier 3, step 1 — C1). Cheap non-streaming JSON call; /no_think appended
 # at call time. usage = "mj_initiative", world_id = NULL.
@@ -1158,6 +1210,24 @@ def seed(session: Session) -> None:
         system_prompt=ENTITY_GENERATION_SYSTEM_PROMPT,
         user_template=ENTITY_GENERATION_USER_TEMPLATE,
         variables=["entity_type", "type_fields", "brief"],
+        destination="local",
+        version=1,
+    )
+
+    # ----- prompt template: region orchestrator manifest (BRIEF-34) ----------
+    # usage = "region_manifest" (new usage value). world_id = NULL. Calls go
+    # through region_author.generate_region_draft, which formats
+    # user_template with {brief} only and code-judges the resulting manifest
+    # before composing the atomic generators across it. Writes no canon.
+    upsert_prompt_template(
+        session,
+        "pt-region-manifest",
+        world_id=None,
+        name="Orchestrateur de région — manifeste",
+        usage="region_manifest",
+        system_prompt=REGION_MANIFEST_SYSTEM_PROMPT,
+        user_template=REGION_MANIFEST_USER_TEMPLATE,
+        variables=["brief"],
         destination="local",
         version=1,
     )

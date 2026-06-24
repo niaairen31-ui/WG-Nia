@@ -321,6 +321,25 @@ World-genrator/
 │       │                    #   populated; item/artifact not); never raises —
 │       │                    #   returns {"ok": false, "error": ...} on any
 │       │                    #   failure
+│       ├── region_author.py # Region orchestrator, chantier 1 (BRIEF-34,
+│       │                    #   schema v1.45): generate_region_draft(brief, db)
+│       │                    #   — writes no canon, ever; composes the existing
+│       │                    #   generate_entity_draft across a four-stage
+│       │                    #   pipeline (Stage 0 manifest via pt-region-manifest,
+│       │                    #   usage='region_manifest', then Factions →
+│       │                    #   Locations (root first) → NPCs); each composite
+│       │                    #   brief is built ONLY from the Stage-0 manifest's
+│       │                    #   public one-liners — a drafted entity's own
+│       │                    #   secret block is never read by this module, never
+│       │                    #   fed into a downstream generation prompt;
+│       │                    #   resolves the manifest's by-name relationships
+│       │                    #   into draft-local id pointers (fac-N/loc-N/npc-N)
+│       │                    #   WITHIN the returned tree only — no Entity
+│       │                    #   lookup, no faction_membership/parent_location_id/
+│       │                    #   relation row; a failed/empty manifest aborts the
+│       │                    #   whole run, a failed per-entity sub-generation
+│       │                    #   drops just that entity into region.skipped and
+│       │                    #   the run continues
 │       └── cockpit/         # creator review web UI (FastAPI sub-app)
 │           ├── __init__.py
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
@@ -446,6 +465,14 @@ World-genrator/
 │           │                #   nothing else; deliberately NOT on the crud.py router
 │           │                #   (crud.py IS a canon-write path; this route writes
 │           │                #   none, kept legible by living elsewhere)
+│           │                # Region orchestrator (BRIEF-34, schema v1.45):
+│           │                #   POST /api/regions/generate (RegionGenerateBody) —
+│           │                #   delegates to region_author.generate_region_draft and
+│           │                #   nothing else; same no-canon-write neighbourhood as
+│           │                #   /api/entities/generate, not on the crud.py router;
+│           │                #   returns the region draft as JSON only — no review/
+│           │                #   commit UI, no draft-local-id-to-canon-id wiring
+│           │                #   (both deferred to chantiers 2/3)
 │           ├── crud.py      # Author CRUD — direct canonical writes (no proposed_mutation
 │           │                #   checkpoint): entity/character/location/faction sheets,
 │           │                #   relation/knowledge row editors, skill tier editor
@@ -686,8 +713,9 @@ prepend `src` to `sys.path`, so they run without an editable install.
 - **Re-seeding prompts:** `python scripts/seed_pilot.py` uses `upsert_prompt_template`
   for `pt-npc-dialogue`, `pt-mj-narration`, `pt-mj-interpretation`, `pt-mj-gathering`,
   `pt-mj-speaker`, `pt-mj-initiative`, `pt-npc-initiative-act`, `pt-mj-arbiter`,
-  `pt-mj-establishment`, and `pt-entity-generation` — re-running the seed converges
-  the DB to the latest wording without losing other data.
+  `pt-mj-establishment`, `pt-entity-generation`, and `pt-region-manifest` —
+  re-running the seed converges the DB to the latest wording without losing
+  other data.
 
 ---
 

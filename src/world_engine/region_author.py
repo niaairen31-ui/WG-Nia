@@ -1,0 +1,381 @@
+"""Region orchestrator — BRIEF-34, chantier 1.
+
+Turns a creator region brief into a **region draft**: a tree of per-entity
+drafts plus draft-local references, produced by composing the atomic entity
+generators (`entity_author.generate_entity_draft`) across a four-stage
+pipeline (manifest, factions, locations, NPCs). Writes NO canon — mirrors
+`entity_author.py`'s posture exactly: the draft is returned to the caller,
+ephemeral, never persisted here. `generate_entity_draft` itself is never
+modified or monkeypatched — this module composes it as-is.
+
+Locked design (see ARCHITECTURE_DECISIONS.md, "REGION GENERATION —
+orchestrator (chantier 1)"): A3 (structural skeleton only, link suggestions
+are confirm-by-creator), B1 (order Factions -> Locations -> NPCs), C1
+(bounded forward context), F1 (sequential, peers as context), K1 (the
+manifest IS the density control and the source of compact peer summaries),
+I1 (factions flat in v1), J1 (stage-0 failure aborts; per-entity failure
+drops and continues).
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from sqlmodel import Session, select
+
+from .entity_author import AUTHOR_MODEL, generate_entity_draft
+from .models import PromptTemplate
+from .ollama_client import OllamaError, chat
+
+
+def _load_manifest_template(db: Session) -> PromptTemplate | None:
+    stmt = (
+        select(PromptTemplate)
+        .where(PromptTemplate.usage == "region_manifest")
+        .where(PromptTemplate.is_active == True)  # noqa: E712
+    )
+    return db.exec(stmt).first()
+
+
+# ── Stage 0 — manifest parsing (code judges, mirroring the atomic parsers) ──
+
+
+def _dedupe_by_name(raw: Any, label: str, notes: list[str]) -> list[dict]:
+    """Drop later case-insensitive duplicate names within one manifest list."""
+    rows: list[dict] = []
+    if not isinstance(raw, list):
+        return rows
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        key = name.strip().lower()
+        if key in seen:
+            notes.append(f"{label} dupliqué ignoré : '{name}'")
+            continue
+        seen.add(key)
+        rows.append(item)
+    return rows
+
+
+def _normalize_manifest(parsed: dict, notes: list[str]) -> tuple[dict, list[dict]]:
+    """Structural normalization of a parsed manifest. Returns (manifest, skipped)."""
+    skipped: list[dict] = []
+
+    concept_raw = parsed.get("concept")
+    if isinstance(concept_raw, str):
+        concept = concept_raw
+    elif isinstance(concept_raw, list):
+        # The small local model sometimes emits a list of sentences instead
+        # of one string — coerce rather than drop (see CLAUDE.md "Local
+        # model notes": format compliance is best-effort, not guaranteed).
+        concept = " ".join(str(part) for part in concept_raw if isinstance(part, str))
+    else:
+        concept = ""
+
+    factions = _dedupe_by_name(parsed.get("factions"), "Faction", notes)
+    locations = _dedupe_by_name(parsed.get("locations"), "Lieu", notes)
+    npcs = _dedupe_by_name(parsed.get("npcs"), "PNJ", notes)
+
+    faction_names = {f["name"].strip().lower() for f in factions}
+    location_names = {l["name"].strip().lower() for l in locations}
+
+    # Exactly one root location.
+    root_indices = [i for i, l in enumerate(locations) if l.get("is_root") is True]
+    if not root_indices:
+        if locations:
+            locations[0]["is_root"] = True
+            notes.append(
+                f"Aucun lieu racine désigné — '{locations[0]['name']}' promu racine"
+            )
+    elif len(root_indices) > 1:
+        for i in root_indices[1:]:
+            locations[i]["is_root"] = False
+        notes.append(
+            f"Plusieurs lieux racine désignés — seul '{locations[root_indices[0]]['name']}' "
+            "reste racine"
+        )
+
+    root_name = None
+    for l in locations:
+        if l.get("is_root") is True:
+            root_name = l["name"]
+            break
+
+    # parent_name validation for non-root locations.
+    for l in locations:
+        if l.get("is_root") is True:
+            l["parent_name"] = None
+            continue
+        parent_name = l.get("parent_name")
+        valid = (
+            isinstance(parent_name, str)
+            and parent_name.strip().lower() in location_names
+            and parent_name.strip().lower() != l["name"].strip().lower()
+        )
+        if not valid:
+            l["parent_name"] = root_name
+            notes.append(
+                f"Lieu '{l['name']}' — parent invalide ou absent, rattaché à la racine"
+            )
+
+    # npc.location_name must resolve; on a miss, drop the NPC.
+    placed_npcs: list[dict] = []
+    for n in npcs:
+        location_name = n.get("location_name")
+        if not isinstance(location_name, str) or location_name.strip().lower() not in location_names:
+            skipped.append(
+                {
+                    "stage": "npc",
+                    "name": n.get("name"),
+                    "reason": f"location_name '{location_name}' introuvable dans le manifeste",
+                }
+            )
+            continue
+        faction_name = n.get("faction_name")
+        if faction_name:
+            if not isinstance(faction_name, str) or faction_name.strip().lower() not in faction_names:
+                notes.append(
+                    f"PNJ '{n.get('name')}' — faction_name '{faction_name}' introuvable, "
+                    "mise à null"
+                )
+                n["faction_name"] = None
+        placed_npcs.append(n)
+
+    manifest = {
+        "concept": concept,
+        "factions": factions,
+        "locations": locations,
+        "npcs": placed_npcs,
+    }
+    return manifest, skipped
+
+
+def _parse_manifest_response(raw: str) -> dict:
+    """Returns {"ok": True, "manifest": ..., "notes": [...], "skipped": [...]}
+    or {"ok": False, "error": ...}. Never raises."""
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {"ok": False, "error": "Model returned non-JSON manifest"}
+    if not isinstance(parsed, dict) or not parsed:
+        return {"ok": False, "error": "Model returned an empty or malformed manifest"}
+
+    notes: list[str] = []
+    manifest, skipped = _normalize_manifest(parsed, notes)
+    return {"ok": True, "manifest": manifest, "notes": notes, "skipped": skipped}
+
+
+# ── Stage 2b — compact peer context, manifest-sourced only ──────────────────
+
+
+def _compose_faction_brief(concept: str, factions: list[dict], this_faction: dict) -> str:
+    peers = [
+        f"- {f['name']} : {f.get('one_liner', '')}"
+        for f in factions
+        if f["name"] != this_faction["name"]
+    ]
+    peer_block = "\n".join(peers) if peers else "(aucune autre faction)"
+    return (
+        f"{concept}\n\n"
+        f"--- Autres factions de la région ---\n{peer_block}\n\n"
+        f"--- Cette faction ---\n{this_faction['name']} : {this_faction.get('one_liner', '')}"
+    )
+
+
+def _compose_location_brief(concept: str, locations: list[dict], this_location: dict) -> str:
+    lines = []
+    for l in locations:
+        parent = l.get("parent_name")
+        suffix = f" (sous {parent})" if parent else " (racine)"
+        lines.append(f"- {l['name']}{suffix} : {l.get('one_liner', '')}")
+    loc_block = "\n".join(lines) if lines else "(aucun autre lieu)"
+    return (
+        f"{concept}\n\n"
+        f"--- Lieux de la région ---\n{loc_block}\n\n"
+        f"--- Ce lieu ---\n{this_location['name']} : {this_location.get('one_liner', '')}"
+    )
+
+
+def _compose_npc_brief(
+    concept: str,
+    npc: dict,
+    location: dict | None,
+    faction: dict | None,
+    co_located: list[dict],
+) -> str:
+    parts = [concept, "", f"--- Ce PNJ ---\n{npc['name']} : {npc.get('one_liner', '')}"]
+    if location is not None:
+        parts.append(f"--- Son lieu ---\n{location['name']} : {location.get('one_liner', '')}")
+    if faction is not None:
+        parts.append(f"--- Sa faction ---\n{faction['name']} : {faction.get('one_liner', '')}")
+    peers = [
+        f"- {p['name']} : {p.get('one_liner', '')}"
+        for p in co_located
+        if p["name"] != npc["name"]
+    ]
+    if peers:
+        parts.append("--- Autres PNJ du même lieu ---\n" + "\n".join(peers))
+    return "\n\n".join(parts)
+
+
+# ── Entry point ───────────────────────────────────────────────────────────
+
+
+def generate_region_draft(brief: str, db: Session) -> dict:
+    """Generate a region draft (factions/locations/NPCs) from a creator brief.
+
+    Writes no canon anywhere in this function or its call path. Never raises
+    into the caller: a Stage-0 failure aborts the whole run and returns
+    {"ok": False, "error": ...}; a per-entity Stage 1-3 failure drops that
+    entity (recorded in `region.skipped`) and the run continues.
+    """
+    if not brief or not brief.strip():
+        return {"ok": False, "error": "brief must not be empty"}
+
+    template = _load_manifest_template(db)
+    if template is None:
+        return {"ok": False, "error": "No active pt-region-manifest template found"}
+
+    try:
+        user_message = template.user_template.format(brief=brief)
+    except (KeyError, IndexError) as exc:
+        return {"ok": False, "error": f"Template formatting failed: {exc}"}
+
+    messages = [
+        {"role": "system", "content": template.system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+    try:
+        raw = chat(messages, model=AUTHOR_MODEL, format="json")
+    except OllamaError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    parsed_result = _parse_manifest_response(raw)
+    if not parsed_result["ok"]:
+        return parsed_result
+
+    manifest = parsed_result["manifest"]
+    notes: list[str] = list(parsed_result["notes"])
+    skipped: list[dict] = list(parsed_result["skipped"])
+
+    concept = manifest["concept"]
+    factions_in = manifest["factions"]
+    locations_in = manifest["locations"]
+    npcs_in = manifest["npcs"]
+
+    # Stage 1 — factions.
+    faction_local_id: dict[str, str] = {}
+    factions_out: list[dict] = []
+    for i, fac in enumerate(factions_in):
+        local_id = f"fac-{i}"
+        composite_brief = _compose_faction_brief(concept, factions_in, fac)
+        result = generate_entity_draft("faction", composite_brief, db)
+        if not result.get("ok"):
+            skipped.append(
+                {"stage": "faction", "name": fac["name"], "reason": result.get("error")}
+            )
+            continue
+        faction_local_id[fac["name"].strip().lower()] = local_id
+        factions_out.append({"local_id": local_id, "manifest": fac, "result": result})
+
+    # Stage 2 — locations, root first then the rest in manifest order.
+    root_first = sorted(
+        enumerate(locations_in), key=lambda pair: 0 if pair[1].get("is_root") else 1
+    )
+    location_local_id: dict[str, str] = {}
+    locations_out: list[dict] = []
+    for i, loc in root_first:
+        local_id = f"loc-{i}"
+        composite_brief = _compose_location_brief(concept, locations_in, loc)
+        result = generate_entity_draft("location", composite_brief, db)
+        if not result.get("ok"):
+            skipped.append(
+                {"stage": "location", "name": loc["name"], "reason": result.get("error")}
+            )
+            continue
+        parent_name = loc.get("parent_name")
+        parent_local_id = None
+        if parent_name:
+            parent_local_id = location_local_id.get(parent_name.strip().lower())
+            if parent_local_id is None and not loc.get("is_root"):
+                notes.append(
+                    f"Lieu '{loc['name']}' — parent '{parent_name}' indisponible (généré en échec)"
+                )
+        location_local_id[loc["name"].strip().lower()] = local_id
+        locations_out.append(
+            {
+                "local_id": local_id,
+                "parent_local_id": parent_local_id,
+                "manifest": loc,
+                "result": result,
+            }
+        )
+
+    locations_by_name = {l["name"].strip().lower(): l for l in locations_in}
+    factions_by_name = {f["name"].strip().lower(): f for f in factions_in}
+
+    # Stage 3 — NPCs.
+    npcs_out: list[dict] = []
+    for i, npc in enumerate(npcs_in):
+        location_name = npc["location_name"].strip().lower()
+        loc_local = location_local_id.get(location_name)
+        if loc_local is None:
+            skipped.append(
+                {
+                    "stage": "npc",
+                    "name": npc.get("name"),
+                    "reason": f"lieu '{npc['location_name']}' indisponible (généré en échec)",
+                }
+            )
+            continue
+
+        faction_name = npc.get("faction_name")
+        fac_local = None
+        if faction_name:
+            fac_local = faction_local_id.get(faction_name.strip().lower())
+            if fac_local is None:
+                notes.append(
+                    f"PNJ '{npc['name']}' — faction '{faction_name}' indisponible (généré en échec), "
+                    "affiliation mise à null"
+                )
+
+        co_located = [
+            other for other in npcs_in if other["location_name"].strip().lower() == location_name
+        ]
+        location_obj = locations_by_name.get(location_name)
+        faction_obj = factions_by_name.get(faction_name.strip().lower()) if faction_name else None
+
+        composite_brief = _compose_npc_brief(concept, npc, location_obj, faction_obj, co_located)
+        result = generate_entity_draft("character", composite_brief, db)
+        if not result.get("ok"):
+            skipped.append(
+                {"stage": "npc", "name": npc.get("name"), "reason": result.get("error")}
+            )
+            continue
+
+        local_id = f"npc-{i}"
+        npcs_out.append(
+            {
+                "local_id": local_id,
+                "location_local_id": loc_local,
+                "faction_local_id": fac_local,
+                "manifest": npc,
+                "result": result,
+            }
+        )
+
+    region = {
+        "concept": concept,
+        "factions": factions_out,
+        "locations": locations_out,
+        "npcs": npcs_out,
+        "skipped": skipped,
+        "notes": notes,
+    }
+    return {"ok": True, "region": region}

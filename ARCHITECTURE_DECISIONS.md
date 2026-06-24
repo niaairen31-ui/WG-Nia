@@ -2167,6 +2167,91 @@ to open a second injection path around the membership choke-point.
 
 ---
 
+## REGION GENERATION — orchestrator (chantier 1) (BRIEF-34, schema v1.45)
+
+**Composes the atomic generators; never modifies them.** The orchestrator
+(`region_author.generate_region_draft`) calls
+`entity_author.generate_entity_draft("faction"|"location"|"character", ...)`
+exactly as it exists today — no new parameter, no new entity-type field, no
+change to `_TYPE_FIELDS`. **H1 is retired by K1**: an earlier design
+considered exposing `faction_name` directly on the character draft for the
+orchestrator's benefit; K1 makes that unnecessary because affiliation is
+carried entirely by the Stage-0 manifest (`npc.faction_name`), resolved by
+the orchestrator to a draft-local faction id, never read back out of the
+NPC's own drafted `public.faction_id` (which resolves to `None` during
+region generation since the region's own factions aren't in the DB yet —
+expected and ignored).
+
+**A3 — auto-wire the structural skeleton only; everything else is a
+suggestion.** The manifest's by-name relationships (`location.parent_name`,
+`npc.location_name`, `npc.faction_name`) are resolved into draft-local
+pointers in code — this is the only "wiring" this step does, and it never
+touches canon. The atomic generators' own display-only link channels
+(`sensed_links`, `shared_with`) are harvested as-is, unresolved, exactly as
+`entity_author.py` already produces them — confirm-by-creator suggestions
+for chantier 2, never auto-resolved here (D1, see below).
+
+**B1 — generation order: Concept -> Factions -> Locations -> NPCs.**
+Factions and locations carry no manifest-time dependency on each other in
+v1 (factions are flat, I1), so either could run first; locations run after
+factions and before NPCs because an NPC's composite brief wants both its
+location's and its faction's one-liner already known, and a location's
+brief benefits from knowing the region's factions exist (even though I1
+means a location draft never names a controlling faction structurally).
+Locations are generated root first, then the rest in manifest order — purely
+so a child's composite brief can mention its parent's one-liner.
+
+**C1/F1 — bounded forward context, sequential calls, peers via one-liners
+only.** Each `generate_entity_draft` call in Stages 1-3 receives a composite
+brief built from `concept` + the **manifest's own one-liners** of relevant
+peers (other factions; all locations with their parent relationships; the
+NPC's own location/faction one-liners + co-located NPC one-liners) — never
+from the drafted `public`/`secret` prose of already-generated entities. This
+keeps context bounded (one-liners are short and fixed in number, unlike
+accumulating full drafts) and is the structural enforcement of "secrets
+never spray across prompts": a drafted entity's `secret` block is *never*
+read by `region_author.py`, only the manifest's own public one-liners
+transit between stages.
+
+**K1 — the manifest is both the density control and the peer-summary
+source.** No numeric knob exists anywhere in code; the model's manifest
+response to the creator's brief is the only determinant of how many
+factions/locations/NPCs get generated. The same manifest object that
+encodes "how much" also encodes the one-liners Stage 2b composes into every
+downstream composite brief — one structure serves both jobs, which is why
+H1 (a dedicated `faction_name` parameter on the character generator) became
+redundant once K1 was adopted.
+
+**I1 — factions stay flat in v1.** No `parent_faction_id`, no `controls`,
+no faction-side link-suggestion channel (RECON finding #1: the faction
+generator has no `sensed_links`/`shared_with` analogue) is added. Inter-
+faction tension in a generated region stays prose, inside each faction's own
+`secret.internal_tensions` — never a structural edge.
+
+**J1 — stage-sensitive failure.** A failed or empty Stage-0 manifest aborts
+the entire run (`generate_region_draft` returns `{"ok": false, "error":
+...}`, no downstream stage runs) — a manifest is the plan every later stage
+depends on, so a missing plan cannot degrade gracefully. A failed
+Stage 1-3 `generate_entity_draft` call (which never raises, per its own
+contract) drops only that one entity, recorded in `region.skipped`, and the
+run continues — downstream references to a dropped entity degrade
+gracefully (an NPC whose location was dropped is itself dropped + skipped;
+an NPC whose faction was dropped gets `faction_local_id = null` + a note).
+
+**The region draft is ephemeral; draft-local ids are not canon ids.**
+`generate_region_draft` writes no canon — no `Entity`, no `Character`, no
+`Location`, no `Faction`, no `FactionMembership`, no `Relation` row, ever.
+Its `fac-N`/`loc-N`/`npc-N` draft-local ids exist only as pointers *within
+the one returned tree*; they are never looked up against real entities and
+never persisted anywhere (no staging table, no draft store — the draft is
+held client-side by the caller, mirroring the single-entity author flow).
+Turning a draft-local id into a real entity id — `parent_location_id`,
+`faction_membership`, `connects_to`/`controls` — is canon wiring, deferred
+in full to chantier 3 at commit time; the review/accept surface itself is
+chantier 2 (E1). Neither is built in this step.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.
