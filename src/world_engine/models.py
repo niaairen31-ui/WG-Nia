@@ -114,6 +114,7 @@ class Character(SQLModel, table=True):
     )
     appearance: Optional[str] = None
     backstory: Optional[str] = None
+    aversion: Optional[str] = None
     secrets: Optional[Any] = Field(default=None, sa_column=Column(JSON))
 
 
@@ -166,6 +167,11 @@ class Faction(SQLModel, table=True):
     # DORMANT: prose, what the faction is trying to do. No mechanic, no
     # structured consumer.
     goals: Optional[str] = None
+    # DORMANT (BRIEF-33, schema v1.44): prose dual of `philosophy` — what the
+    # faction rejects/opposes. Public-tagged, authored + proposed, but read
+    # by no assembler yet. Future reader MUST route through
+    # `read_public_memberships` (see ARCHITECTURE_DECISIONS.md).
+    aversion: Optional[str] = None
 
 
 # -----------------------------------------------------------------------------

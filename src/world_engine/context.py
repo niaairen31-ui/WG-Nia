@@ -175,6 +175,8 @@ def assemble_npc_context(
         identity_lines.append(npc_char.appearance)
     if npc_char.backstory:
         identity_lines.append(npc_char.backstory)
+    if npc_char.aversion:
+        identity_lines.append(npc_char.aversion)
     if npc_entity.description:
         identity_lines.append(npc_entity.description)
     identity = " ".join(identity_lines)

@@ -3280,6 +3280,7 @@ function authorApplyCharacterDraft(result) {
 
   setVal('author-x-appearance', draft.public.appearance);
   setVal('author-x-backstory', draft.public.backstory);
+  setVal('author-x-aversion', draft.public.aversion);
 
   const factionEl = document.getElementById('author-x-faction_id');
   if (factionEl) factionEl.value = draft.public.faction_id || '';
@@ -3345,6 +3346,7 @@ function authorApplyFactionDraft(result) {
   setVal('author-x-faction_type', draft.public.faction_type);
   setVal('author-x-philosophy', draft.public.philosophy);
   setVal('author-x-internal_structure', draft.public.internal_structure);
+  setVal('author-x-aversion', draft.public.aversion);
   setVal('author-x-internal_tensions', draft.secret.internal_tensions);
   setVal('author-x-goals', draft.secret.goals);
 

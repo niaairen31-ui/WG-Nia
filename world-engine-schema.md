@@ -73,6 +73,14 @@ CREATE TABLE character (
   vital_status    TEXT DEFAULT 'alive',         -- alive | dead | missing | unknown
   appearance      TEXT,
   backstory       TEXT,
+  aversion        TEXT,                         -- prose dual of philosophy
+                                                  -- (schema v1.44, BRIEF-33):
+                                                  -- what this character
+                                                  -- rejects/fears, a concept
+                                                  -- or category, never a
+                                                  -- named entity. Read into
+                                                  -- the NPC dialogue prompt
+                                                  -- (H_IDENTITY block).
   secrets         JSON                          -- creator-only
 );
 ```
@@ -130,9 +138,16 @@ CREATE TABLE faction (
                         -- global | national | regional | local | other.
                         -- DORMANT: descriptive scale label, NOT derived from
                         -- tree depth. No code reads it yet.
-  goals                 TEXT
+  goals                 TEXT,
                         -- DORMANT: prose, what the faction is trying to do.
                         -- No mechanic, no structured consumer.
+  aversion              TEXT
+                        -- DORMANT (schema v1.44, BRIEF-33): prose dual of
+                        -- philosophy — what the faction rejects/combats, a
+                        -- concept or category, never a named entity. Public-
+                        -- tagged, authored + proposed, but read by no
+                        -- assembler yet; the future reader MUST route
+                        -- through read_public_memberships.
 );
 CREATE INDEX idx_faction_parent ON faction(parent_faction_id);
 ```
@@ -904,6 +919,24 @@ batch   → event
 -----
 
 ## CHANGELOG
+
+- **v1.44** — Aversion prose field, character live + faction dormant
+  (BRIEF-33). New nullable `TEXT` column on both `character` and `faction`:
+  `aversion`, the prose dual of `philosophy` — what an entity rejects or
+  fears as a concept/category (technology, sunlight, magic, outsiders),
+  never a named entity (that belongs to the relation graph). Both are
+  creator-CRUD prose config (no `change_history`, written in place, like
+  `philosophy`/`backstory`) and both are proposed by the entity generator
+  (`entity_author.py`, `_TYPE_FIELDS` for `character` and `faction`).
+  Asymmetric reader: `character.aversion` is read into the NPC dialogue
+  prompt's `H_IDENTITY` block (`assemble_npc_context`), raw prose, no label
+  prefix; `faction.aversion` is stored + proposed but read by NO assembler —
+  public-tagged (injectable in principle) but dormant by minimal-first. A
+  future faction-posture reader is its own brief and MUST route through
+  `read_public_memberships` (the same accessor boundary that excludes
+  secret affiliations and true `role`s from prompts) — it must not, as a
+  side effect, resurrect `philosophy`/`description`/`internal_structure`
+  into prompts. Migration: `scripts/migrate_v1_44_aversion.py`.
 
 - **v1.43** — Faction generator (BRIEF-32). Application-layer only, no
   schema/column change: `entity_author.py` registers `faction` in

@@ -2132,6 +2132,41 @@ later costs one optional key, no migration.
 
 ---
 
+## AVERSION — prose dual of philosophy, character live + faction dormant (BRIEF-33, schema v1.44)
+
+**Prose, not structured.** `aversion` is a free-text `TEXT` column on both
+`character` and `faction`, mirroring `philosophy`/`backstory`: what an
+entity rejects or fears as a concept or category (technology, sunlight,
+magic, outsiders) — never a named entity. A named target belongs to the
+relation graph, not this field; the generator's field guidance carries an
+explicit "PAS une entité nommée" clause on both sides to keep the author
+model from coercing a rival faction or person into prose. No
+`[{thing,intensity}]` list, no mechanical effect, no `change_history` —
+creator-CRUD prose config, written in place, like its `philosophy`/
+`backstory` siblings.
+
+**Deliberate asymmetry: character live, faction dormant.** `character.aversion`
+is read into the NPC dialogue prompt's `H_IDENTITY` block
+(`assemble_npc_context`), raw prose appended after `backstory` and before
+`description` — identical shape to its neighbours. `faction.aversion` is
+authored in CRUD and proposed by the generator exactly like the character
+side, but read by **no** assembler. The value is public-tagged (injectable
+in principle) yet stays dormant: authoring symmetry across both entity
+types is the justification for building it now, while the faction-side
+*reader* is a prompt-architecture decision in its own right, deferred to a
+future brief.
+
+**The future faction-posture reader's only sanctioned path.** When that
+reader is built, it MUST route through `read_public_memberships` — the
+same accessor boundary that already keeps secret affiliations and a
+double agent's true `role` out of every prompt (BRIEF-29/BRIEF-30). It
+must NOT, as a side effect, resurrect `philosophy`, `description`, or
+`internal_structure` into prompts: those have never been read into any
+assembler, and `aversion`'s dormancy precedent must not become an excuse
+to open a second injection path around the membership choke-point.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

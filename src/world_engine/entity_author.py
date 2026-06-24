@@ -44,6 +44,9 @@ _TYPE_FIELDS: dict[str, str] = {
     "character": (
         'public.name (string) ; public.description (string) ; '
         'public.appearance (string) ; public.backstory (string) ; '
+        'public.aversion (string — ce que ce personnage rejette ou fuit : '
+        'un concept, une catégorie ou un phénomène, ex. la technologie, le '
+        'soleil ; PAS une entité nommée) ; '
         'public.physical_tier (entier -1..2 : -1 chétif, 0 ordinaire, '
         '1 capable, 2 redoutable) ; public.faction_name (string ou null — '
         "nom exact d'une faction existante, ou null si aucune).\n"
@@ -77,6 +80,10 @@ _TYPE_FIELDS: dict[str, str] = {
         "public.roles — liste ORDONNÉE du rang le plus élevé au plus bas. Chaque "
         'entrée est un objet { "name": <intitulé du rang>, "description": <une '
         "phrase décrivant la fonction du rang> }. DOIT refléter internal_structure.\n"
+        "public.aversion — ce que la faction rejette ou combat : un concept ou "
+        "une catégorie (ex. la technologie, la magie, les étrangers), PAS une "
+        "entité nommée (les inimitiés envers une entité précise relèvent des "
+        "relations)\n"
         "secret.internal_tensions — fractures, rivalités, faiblesses non avouées (créateur seul)\n"
         "secret.goals — le véritable agenda de la faction : ce qu'elle cherche réellement "
         "à accomplir, par-delà son credo affiché (créateur seul)"
@@ -351,6 +358,7 @@ def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
                 "philosophy": public_in.get("philosophy") or "",
                 "internal_structure": public_in.get("internal_structure") or "",
                 "roles": _normalize_roles(public_in.get("roles"), notes),
+                "aversion": public_in.get("aversion") or "",
             },
             "secret": {
                 "internal_tensions": secret_in.get("internal_tensions") or "",
@@ -374,6 +382,7 @@ def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
             "description": public_in.get("description") or "",
             "appearance": public_in.get("appearance") or "",
             "backstory": public_in.get("backstory") or "",
+            "aversion": public_in.get("aversion") or "",
             "physical_tier": _clamp_physical_tier(public_in.get("physical_tier")),
             "faction_id": faction_id,
         },

@@ -153,6 +153,7 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
             },
             {"name": "appearance", "label": "Appearance", "kind": "textarea"},
             {"name": "backstory", "label": "Backstory", "kind": "textarea"},
+            {"name": "aversion", "label": "Aversion", "kind": "textarea"},
             {"name": "secrets", "label": "Secrets (JSON, creator-only)", "kind": "json"},
         ],
     },
@@ -187,6 +188,7 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
             },
             {"name": "internal_structure", "label": "Internal structure", "kind": "textarea"},
             {"name": "philosophy", "label": "Philosophy", "kind": "textarea"},
+            {"name": "aversion", "label": "Aversion", "kind": "textarea"},
             {
                 "name": "magic_knowledge_level", "label": "Magic knowledge level", "kind": "select",
                 "options": ["unaware", "suspicious", "partial", "knows", "understands"], "default": "unaware",
