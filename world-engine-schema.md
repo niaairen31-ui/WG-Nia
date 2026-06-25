@@ -921,6 +921,23 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.47** — Region review + atomic commit, chantier 2 (BRIEF-36). **No
+  schema/table/column change, no new canon-write semantics** — reuses the
+  commit-free cores added in v1.46. New cockpit route `POST
+  /api/regions/commit` (`cockpit/app.py`, outside `crud.py`, same
+  neighbourhood as `POST /api/regions/generate` but this route DOES write
+  canon): takes a re-sent region draft tree + a raw per-entity accept/reject
+  map (both untrusted client-held state, never server-persisted), re-derives
+  the accept/reject cascade itself, and calls `_create_entity_core` /
+  `_create_knowledge_core` directly in dependency order (factions ->
+  locations, root first -> placeable NPCs + their knowledge) against one
+  shared session with a single `db.commit()` at the end; any exception rolls
+  back the whole batch. Only the structural skeleton is wired
+  (`parent_location_id`, primary public `faction_membership`,
+  `current_location_id`) — judgment-tier links (`connects_to`/`controls`/
+  secret memberships/`shared_with`) stay read-only suggestions, deferred to
+  chantier 3. New cockpit UI: a "Région" Création sub-tab (brief -> generate
+  -> spatial review tree with per-entity accept/reject -> commit).
 - **v1.46** — Commit-boundary seam, pre-step for atomic region commit
   (BRIEF-35). **No schema/table/column change, no canon-write-path semantics
   change** — application-layer only. `create_entity`, `create_knowledge`,

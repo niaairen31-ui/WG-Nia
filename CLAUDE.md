@@ -180,6 +180,14 @@ Read both before making any structural change.
   structural, not a `commit:` flag — a batch caller (e.g. a future region
   commit) calls the cores directly against a shared session and commits or
   rolls back once for the whole batch.
+- **Region commit is atomic and curation is server-authoritative — not yet a
+  numbered invariant.** `POST /api/regions/commit` (BRIEF-36, chantier 2)
+  re-derives the accept/reject cascade from the raw client-sent map and
+  rolls back the whole batch on any failure, but only the structural
+  skeleton (`parent_location_id`, primary public `faction_membership`,
+  `current_location_id`) is wired — judgment-tier links stay deferred to
+  chantier 3. Promote this to a full numbered invariant once chantier 3
+  closes the path.
 
 ## Local model notes
 
@@ -482,6 +490,19 @@ World-genrator/
 │           │                #   returns the region draft as JSON only — no review/
 │           │                #   commit UI, no draft-local-id-to-canon-id wiring
 │           │                #   (both deferred to chantiers 2/3)
+│           │                # Region review + atomic commit, chantier 2 (BRIEF-36,
+│           │                #   no schema change): POST /api/regions/commit
+│           │                #   (RegionCommitBody, commit_region) — outside crud.py
+│           │                #   like /api/regions/generate, but DOES write canon;
+│           │                #   takes the re-sent region draft + a raw accept/reject
+│           │                #   map (both untrusted), re-derives the cascade
+│           │                #   server-side (_region_resolve_location_parent), and
+│           │                #   calls crud._create_entity_core / _create_knowledge_core
+│           │                #   directly in dependency order against one shared
+│           │                #   session — one db.commit() at the end, db.rollback()
+│           │                #   on any exception; only parent_location_id / primary
+│           │                #   public faction_membership / current_location_id are
+│           │                #   wired (judgment-tier links deferred to chantier 3)
 │           ├── crud.py      # Author CRUD — direct canonical writes (no proposed_mutation
 │           │                #   checkpoint): entity/character/location/faction sheets,
 │           │                #   relation/knowledge row editors, skill tier editor
@@ -627,7 +648,20 @@ World-genrator/
 │                            #   re-rendering the SAME roles editor the BRIEF-31
 │                            #   structured list owns — no new store; accepting goes
 │                            #   through the EXISTING composite POST only, same as
-│                            #   the manual roles editor
+│                            #   the manual roles editor;
+│                            #   Création → Région sub-tab (BRIEF-36, chantier 2, no
+│                            #   schema change): brief → POST /api/regions/generate →
+│                            #   region draft held client-side (regionDraft/
+│                            #   regionAccepted, the pendingDraft* pattern at tree
+│                            #   scale) → D1 spatial review tree (regionRenderTree —
+│                            #   root location top, children/NPCs nested, faction
+│                            #   badges, faction panel with member counts, skipped[]
+│                            #   list, per-node generation notes via regionEntityNotes)
+│                            #   → B1 soft cascade preview, advisory only
+│                            #   (regionCascade — mirrors the server's re-derivation,
+│                            #   never sent as a precomputed result) → E1 commit
+│                            #   (regionCommit → POST /api/regions/commit); "Recommencer"
+│                            #   discards the held draft; no inline editing (C1 is OUT)
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)

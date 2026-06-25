@@ -2297,6 +2297,79 @@ stays untouched and commit-free.
 
 ---
 
+## REGION REVIEW + ATOMIC COMMIT — chantier 2 (BRIEF-36, no schema change)
+
+**D1 — the review tree is a spatial spine, not a flat list.** The cockpit's
+Création surface gains a "Région" sub-tab: a brief textarea ->
+`POST /api/regions/generate` -> the returned `region` envelope held in
+client state only (`regionDraft`/`regionAccepted`, mirroring the single-
+entity `pendingDraft*` pattern at tree scale — never server-persisted).
+Locations nest by `parent_local_id` with the root (`parent_local_id == null`)
+at top; NPCs nest under their host location (`location_local_id`) with a
+colour-coded faction badge; factions get a separate non-spatial panel with a
+live member count. Judgment-tier suggestions (`sensed_links`, `shared_with`,
+plus each entity's own generation notes) render read-only, inline per node —
+same content shape `authorApplyLocationDraft`/`authorApplyCharacterDraft`
+already build for the single-entity flow, never applied.
+
+**B1 — soft cascade, advisory only.** Every faction/location/NPC node has an
+accept/reject toggle, default accept. The client renders the same cascade
+rules the manifest parser already encodes (faction rejection greys an NPC's
+badge but still commits it unaffiliated; host-location rejection auto-
+rejects its NPCs; parent-location rejection re-parents children to root,
+walking arbitrarily many levels) **purely for UX** — `regionCascade()` in
+`index.html` is a pure, side-effect-free re-derivation from `regionAccepted`,
+never sent to the server as a precomputed result.
+
+**E1 — the commit is atomic and server-authoritative; this is the chantier's
+load-bearing invariant.** New route `POST /api/regions/commit`
+(`commit_region` in `cockpit/app.py`, deliberately outside `crud.py` like
+`/api/regions/generate` but — unlike that route — this one DOES write canon)
+takes the re-sent region draft tree plus a raw per-`local_id` accept/reject
+map and treats both as **untrusted input**: it re-derives the entire cascade
+itself (`_region_resolve_location_parent` walks the rejection chain to the
+root; an NPC is placeable only if both its own flag and its host location's
+derived acceptance hold; a faction leg is wired only if the faction survived
+the cascade) rather than trusting anything the client rendered. The commit
+walks factions -> locations (dependency order via a small topological pass,
+not raw draft order, so a multi-level reparent-to-root resolves correctly in
+one pass) -> placeable NPCs + their knowledge, calling the BRIEF-35
+commit-free cores (`_crud._create_entity_core`, `_crud._create_knowledge_core`)
+directly against one shared session, building draft-local -> real-id maps as
+it goes. Exactly **one `db.commit()`** fires at the end; any exception
+(`HTTPException`, `IntegrityError`, or anything else) triggers `db.rollback()`
+and a `{"ok": false, "error": ...}` response — verified live: a forced
+validation failure on the second entity left the first entity's already-
+flushed row rolled back too, zero rows in canon. The single-entity creator-
+CRUD path and the route wrappers (`create_entity`, `create_knowledge`,
+`open_entity_membership`) are never called from this loop — only their
+commit-free cores.
+
+**A1 — only the structural skeleton is wired here.** `parent_location_id`
+(re-parented per the server cascade), the primary **public**
+`faction_membership` (riding `extension.faction_id` into
+`_create_entity_core`'s existing `pending_faction_id` leg — no new
+membership-writing code), and `current_location_id` are the only canon
+edges this chantier writes. `sensed_links`/`shared_with` are read only to
+render suggestion notes, never resolved into a `connects_to`/`controls`/
+secret-membership row — that wiring is chantier 3's scope. No
+`is_secret=True` membership is ever written by this route.
+
+**Draft -> commit field mapping.** Public + secret entity fields go straight
+into the create payload (faction: `name/description/faction_type/
+philosophy/internal_structure/aversion` + secret `internal_tensions/goals`,
+with `roles` cleaned exactly as `authorSave`'s structured roles editor does;
+location: `name/description/location_type/access_level` + `subculture`
+merged with `secret.subculture_hidden` exactly as `authorApplyLocationDraft`
+merges it; NPC: `name/description/appearance/backstory/aversion` +
+`metadata.physical_tier` + secret `creator_meta` (JSON-encoded into the
+`secrets` column the same way the single-entity form does) + one
+`_create_knowledge_core` call per `secret.knowledge` item, `is_secret=True`
+forced as it already is at generation time). The two note channels
+(`sensed_links`, `shared_with`) go nowhere — display-only, by construction.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

@@ -28,11 +28,12 @@ import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from .. import ollama_client
@@ -127,6 +128,203 @@ def generate_region(
     {"ok": false, "error": ...} (never a 500) on any failure.
     """
     return _generate_region_draft(body.brief, db)
+
+
+class RegionCommitBody(BaseModel):
+    region: dict[str, Any]
+    accepted: dict[str, bool] = {}
+
+
+def _region_resolve_location_parent(
+    entry: dict, accepted_locations: dict, root_local: Optional[str]
+) -> Optional[str]:
+    """Re-derive a location's effective parent local id from the raw
+    accept/reject map (server-authoritative cascade, never the client's).
+
+    Reject-a-parent re-parents to ROOT (not the nearest accepted ancestor) —
+    same rule as generation's manifest parser. Returns None if there is no
+    surviving parent to attach to (e.g. the root itself was rejected).
+    """
+    parent_local = entry.get("parent_local_id")
+    if parent_local is None:
+        return None
+    if parent_local in accepted_locations:
+        return parent_local
+    if root_local is not None and root_local in accepted_locations and root_local != entry["local_id"]:
+        return root_local
+    return None
+
+
+@app.post("/api/regions/commit")
+def commit_region(
+    body: RegionCommitBody,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Atomic region commit (BRIEF-36, chantier 2, E1).
+
+    Creator-direct, NOT a proposed_mutation path; same no-canon-write-by-
+    default neighbourhood as /api/regions/generate but this route DOES write
+    canon. The region draft + accept/reject map are untrusted client-held
+    state (re-sent, not server-persisted) — every reference and the whole
+    cascade (faction rejection -> NPC unaffiliated, host-location rejection
+    -> NPC dropped, parent rejection -> re-parent to root) is re-derived here
+    from the raw `accepted` map, never trusted from the client's rendering.
+
+    Calls the commit-free cores directly (`_crud._create_entity_core`,
+    `_crud._create_knowledge_core`) in dependency order — factions, then
+    locations (root first), then placeable NPCs + their knowledge — against
+    one shared session, with exactly one `db.commit()` at the end. Any
+    exception rolls back the whole batch and returns {"ok": false, ...}; no
+    half-committed region is ever observable.
+
+    Only the structural skeleton is wired: `parent_location_id`, the primary
+    PUBLIC faction_membership (via `extension.faction_id`), and
+    `current_location_id`. `sensed_links` / `shared_with` are suggestions
+    only — never read here. No `is_secret=True` membership is ever written.
+    """
+    region = body.region
+    accepted = body.accepted
+
+    factions_in = region.get("factions") or []
+    locations_in = region.get("locations") or []
+    npcs_in = region.get("npcs") or []
+
+    accepted_factions = {f["local_id"]: f for f in factions_in if accepted.get(f["local_id"], True)}
+    accepted_locations = {l["local_id"]: l for l in locations_in if accepted.get(l["local_id"], True)}
+    root_local = next((l["local_id"] for l in locations_in if l.get("parent_local_id") is None), None)
+
+    fac_id_map: dict[str, str] = {}
+    loc_id_map: dict[str, str] = {}
+    npc_id_map: dict[str, str] = {}
+    committed = {"factions": [], "locations": [], "npcs": []}
+
+    try:
+        # ── Stage 1 — factions ───────────────────────────────────────────
+        for entry in factions_in:
+            local_id = entry["local_id"]
+            if local_id not in accepted_factions:
+                continue
+            draft = entry["result"]["draft"]
+            pub, sec = draft["public"], draft["secret"]
+            entity_data: dict[str, Any] = {
+                "type": "faction",
+                "name": pub.get("name"),
+                "description": pub.get("description"),
+            }
+            roles = [
+                {"name": r["name"].strip(), "description": r.get("description") or ""}
+                for r in (pub.get("roles") or [])
+                if isinstance(r, dict) and (r.get("name") or "").strip()
+            ]
+            if roles:
+                entity_data["metadata"] = {"roles": roles}
+            ext_data = {
+                "faction_type": pub.get("faction_type"),
+                "philosophy": pub.get("philosophy"),
+                "internal_structure": pub.get("internal_structure"),
+                "aversion": pub.get("aversion"),
+                "internal_tensions": sec.get("internal_tensions"),
+                "goals": sec.get("goals"),
+            }
+            fac_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data)
+            fac_entity = _crud._create_entity_core(fac_body, db)
+            fac_id_map[local_id] = fac_entity.id
+            committed["factions"].append({"local_id": local_id, "id": fac_entity.id, "name": fac_entity.name})
+
+        # ── Stage 2 — locations, dependency order (parent before child) ──
+        remaining = [l for l in locations_in if l["local_id"] in accepted_locations]
+        while remaining:
+            ready = [
+                l for l in remaining
+                if (p := _region_resolve_location_parent(l, accepted_locations, root_local)) is None
+                or p in loc_id_map
+            ]
+            if not ready:
+                break  # cycle guard — should not happen on a well-formed draft
+            for entry in ready:
+                local_id = entry["local_id"]
+                draft = entry["result"]["draft"]
+                pub, sec = draft["public"], draft["secret"]
+                subculture = dict(pub.get("subculture") or {})
+                if sec.get("subculture_hidden"):
+                    subculture["hidden"] = sec["subculture_hidden"]
+                parent_local = _region_resolve_location_parent(entry, accepted_locations, root_local)
+                entity_data = {
+                    "type": "location",
+                    "name": pub.get("name"),
+                    "description": pub.get("description"),
+                }
+                ext_data = {
+                    "location_type": pub.get("location_type"),
+                    "access_level": pub.get("access_level") or None,
+                    "subculture": subculture or None,
+                    "parent_location_id": loc_id_map.get(parent_local) if parent_local else None,
+                }
+                loc_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data)
+                loc_entity = _crud._create_entity_core(loc_body, db)
+                loc_id_map[local_id] = loc_entity.id
+                committed["locations"].append({"local_id": local_id, "id": loc_entity.id, "name": loc_entity.name})
+                remaining.remove(entry)
+
+        # ── Stage 3 — NPCs (accepted + placeable only) + their knowledge ─
+        for entry in npcs_in:
+            local_id = entry["local_id"]
+            if not accepted.get(local_id, True):
+                continue
+            host_local = entry.get("location_local_id")
+            if host_local not in loc_id_map:
+                continue  # host location rejected/missing — NPC is unplaceable, dropped
+
+            draft = entry["result"]["draft"]
+            pub, sec = draft["public"], draft["secret"]
+            entity_data = {
+                "type": "character",
+                "name": pub.get("name"),
+                "description": pub.get("description"),
+            }
+            if pub.get("physical_tier") is not None:
+                entity_data["metadata"] = {"physical_tier": pub["physical_tier"]}
+            ext_data: dict[str, Any] = {
+                "character_type": "npc",
+                "appearance": pub.get("appearance"),
+                "backstory": pub.get("backstory"),
+                "aversion": pub.get("aversion"),
+                "current_location_id": loc_id_map[host_local],
+                "secrets": json.dumps(sec["creator_meta"]) if sec.get("creator_meta") is not None else None,
+            }
+            faction_local = entry.get("faction_local_id")
+            if faction_local and faction_local in fac_id_map:
+                ext_data["faction_id"] = fac_id_map[faction_local]
+
+            npc_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data)
+            npc_entity = _crud._create_entity_core(npc_body, db)
+            npc_id_map[local_id] = npc_entity.id
+            committed["npcs"].append({"local_id": local_id, "id": npc_entity.id, "name": npc_entity.name})
+
+            for k in (sec.get("knowledge") or []):
+                k_body = _crud.KnowledgeWriteBody(
+                    subject=k.get("subject"),
+                    level=k.get("level"),
+                    content=k.get("content"),
+                    source=None,
+                    is_incorrect=False,
+                    is_secret=True,
+                    share_threshold=50,
+                )
+                _crud._create_knowledge_core(npc_entity.id, k_body, db)
+
+        db.commit()
+    except HTTPException as exc:
+        db.rollback()
+        return {"ok": False, "error": str(exc.detail)}
+    except IntegrityError as exc:
+        db.rollback()
+        return {"ok": False, "error": f"Database integrity error: {exc}"}
+    except Exception as exc:  # noqa: BLE001 — atomicity: any failure rolls back, never half-commits
+        db.rollback()
+        return {"ok": False, "error": str(exc)}
+
+    return {"ok": True, "committed": committed}
 
 
 # ── Serialisation helpers ─────────────────────────────────────────────────────
