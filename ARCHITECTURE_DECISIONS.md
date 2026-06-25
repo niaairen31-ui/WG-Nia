@@ -2444,6 +2444,85 @@ reaches a `relation` row.
 
 ---
 
+## REGION GENERATION — two-phase manifest checkpoint (BRIEF-38, schema v1.49)
+
+**Why now.** Live testing of the chantier 1-3 region pipeline showed the
+creator needs to edit the manifest's one-liners *before* the entity stages
+run: the one-liner is the single largest lever on downstream generation
+quality (RECON B5/K1 — one-liners are the only peer text crossing into every
+composite brief built by `_compose_faction_brief`/`_compose_location_brief`/
+`_compose_npc_brief`). Editing after Stage 1-3 (on the full draft tree) is
+too late — the entity prose is already generated from the un-edited
+one-liner.
+
+**Phase split, not a rewrite.** `region_author.py`'s single-shot
+`generate_region_draft(brief, db)` is split at the Stage-0/Stage-1 boundary:
+- `generate_region_manifest(brief, db)` — Phase A. Mechanical extraction of
+  the existing Stage-0 logic (empty-brief check, `pt-region-manifest` load,
+  `chat()` call, `_parse_manifest_response` → `_normalize_manifest`). Every
+  failure path returns the pre-existing `{"ok": False, "error": ...}` shape
+  verbatim — no behavior change.
+- `generate_region_draft(manifest, db)` — Phase B. Signature changes from
+  `brief: str` to `manifest: dict` (already-produced, possibly creator-
+  edited). Its first action re-runs `_normalize_manifest` on the incoming
+  dict and uses the result as authoritative, then runs the existing Stages
+  1-3 unchanged.
+
+**Server-authoritative / client-is-advisory (structural over
+instructional).** The edited manifest re-sent by the client is never trusted
+directly — Phase B re-normalizes it before use, mirroring `commit_region`'s
+posture toward the re-sent draft + accept/reject map. The C1 boundary
+(one-liner is the only writable field) is enforced by the UI (name fields
+rendered read-only) — not by a server-side "reject if a name changed" guard.
+Under B1 (no draft store) the server has no stored Phase-A manifest to diff
+the re-submission against, so re-normalization is the only — and sufficient —
+safeguard: it cannot repair a creator's mistaken edit, but it guarantees
+structural invariants (exactly one root, valid `parent_name`, NPCs placed
+only into locations that exist in the manifest) regardless of what the
+client sends back.
+
+**B1 — no persistence, again.** Same posture as chantiers 1-3: the manifest
+is held in `regionManifest` client-side only, between Phase A and Phase B,
+and re-sent on "Générer les fiches" — no new table, no session store, no
+server-side caching of the Phase-A output. The B1 precedent (region draft
+held client-side, re-sent at commit) extends naturally to the manifest;
+nothing new was invented here.
+
+**C1 — one-liner text only, C2/C3 deferred.** The checkpoint screen
+(`regionRenderManifest`) shows a flat list per kind (Factions, Lieux, PNJ):
+entity name read-only, one-liner in an editable `<textarea>` bound directly
+onto the held `regionManifest` object (`oninput` writes the field in place —
+no separate "apply" step, since C1 was the only practice ever blessed). No
+density steering, NPC floors, faction caps, count editing, add/remove, or
+rewiring (planned R2 / C2 / C3) — the manifest's counts are whatever the
+model produced, unclamped, exactly as chantiers 1-3 left them. K1 is
+unweakened: the composite-brief composers still read only
+`name`/`one_liner`/`parent_name`/`concept`.
+
+**Routes.** `POST /api/regions/manifest` (new, `RegionGenerateBody`,
+`{brief}`) is Phase A — writes no canon, same neighbourhood as
+`/api/entities/generate`. `POST /api/regions/generate` is repurposed: its
+request body changes from `{brief}` to `{manifest}` (`RegionBuildBody`) and
+it now calls the refactored Phase B; its response shape (the full draft
+tree) and its no-canon-write posture are both unchanged. `POST
+/api/regions/commit` is untouched — still the single write point, still
+re-derives the accept/reject cascade and judgment-link resolution
+server-side from raw client state (chantiers 2/3, unaffected by this step).
+
+**UI flow.** `regionGenerate()` now calls `/api/regions/manifest` and stores
+the result in the new `regionManifest` client state, rendering the
+checkpoint screen on success and surfacing the error (without advancing) on
+failure — J1 preserved. A new `regionBuild()`, wired to a "Générer les
+fiches" button, calls `/api/regions/generate` with `{manifest:
+regionManifest}` and stores the result in the existing `regionDraft`,
+handing off to the **unchanged** `regionRenderTree`. `regionRestart()` now
+also nulls `regionManifest`. The review tree, accept/reject, cascade
+preview, link confirm/discard, and the commit button are all byte-for-byte
+untouched — the checkpoint is a new stage inserted *before* generation, not
+a change to anything after it.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

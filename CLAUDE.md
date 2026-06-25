@@ -352,24 +352,32 @@ World-genrator/
 │       │                    #   returns {"ok": false, "error": ...} on any
 │       │                    #   failure
 │       ├── region_author.py # Region orchestrator, chantier 1 (BRIEF-34,
-│       │                    #   schema v1.45): generate_region_draft(brief, db)
-│       │                    #   — writes no canon, ever; composes the existing
-│       │                    #   generate_entity_draft across a four-stage
-│       │                    #   pipeline (Stage 0 manifest via pt-region-manifest,
-│       │                    #   usage='region_manifest', then Factions →
-│       │                    #   Locations (root first) → NPCs); each composite
-│       │                    #   brief is built ONLY from the Stage-0 manifest's
-│       │                    #   public one-liners — a drafted entity's own
-│       │                    #   secret block is never read by this module, never
-│       │                    #   fed into a downstream generation prompt;
-│       │                    #   resolves the manifest's by-name relationships
-│       │                    #   into draft-local id pointers (fac-N/loc-N/npc-N)
-│       │                    #   WITHIN the returned tree only — no Entity
-│       │                    #   lookup, no faction_membership/parent_location_id/
-│       │                    #   relation row; a failed/empty manifest aborts the
-│       │                    #   whole run, a failed per-entity sub-generation
-│       │                    #   drops just that entity into region.skipped and
-│       │                    #   the run continues
+│       │                    #   schema v1.45), split into a two-phase
+│       │                    #   creator checkpoint (BRIEF-38, schema v1.49):
+│       │                    #   generate_region_manifest(brief, db) — Phase
+│       │                    #   A, the Stage-0 model call via
+│       │                    #   pt-region-manifest, usage='region_manifest',
+│       │                    #   returns the manifest for the creator to edit
+│       │                    #   one-liners on; generate_region_draft(manifest,
+│       │                    #   db) — Phase B, re-runs _normalize_manifest on
+│       │                    #   the re-sent manifest first (server-
+│       │                    #   authoritative, client edit is advisory) then
+│       │                    #   composes the existing generate_entity_draft
+│       │                    #   across Factions → Locations (root first) →
+│       │                    #   NPCs; writes no canon, ever, in either phase;
+│       │                    #   each composite brief is built ONLY from the
+│       │                    #   manifest's public one-liners — a drafted
+│       │                    #   entity's own secret block is never read by
+│       │                    #   this module, never fed into a downstream
+│       │                    #   generation prompt; resolves the manifest's
+│       │                    #   by-name relationships into draft-local id
+│       │                    #   pointers (fac-N/loc-N/npc-N) WITHIN the
+│       │                    #   returned tree only — no Entity lookup, no
+│       │                    #   faction_membership/parent_location_id/
+│       │                    #   relation row; a failed/empty manifest aborts
+│       │                    #   the whole run, a failed per-entity
+│       │                    #   sub-generation drops just that entity into
+│       │                    #   region.skipped and the run continues
 │       └── cockpit/         # creator review web UI (FastAPI sub-app)
 │           ├── __init__.py
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
@@ -495,14 +503,21 @@ World-genrator/
 │           │                #   nothing else; deliberately NOT on the crud.py router
 │           │                #   (crud.py IS a canon-write path; this route writes
 │           │                #   none, kept legible by living elsewhere)
-│           │                # Region orchestrator (BRIEF-34, schema v1.45):
-│           │                #   POST /api/regions/generate (RegionGenerateBody) —
-│           │                #   delegates to region_author.generate_region_draft and
-│           │                #   nothing else; same no-canon-write neighbourhood as
-│           │                #   /api/entities/generate, not on the crud.py router;
-│           │                #   returns the region draft as JSON only — no review/
-│           │                #   commit UI, no draft-local-id-to-canon-id wiring
-│           │                #   (both deferred to chantiers 2/3)
+│           │                # Region orchestrator (BRIEF-34, schema v1.45),
+│           │                #   split into a two-phase creator checkpoint
+│           │                #   (BRIEF-38, schema v1.49): POST
+│           │                #   /api/regions/manifest (RegionGenerateBody) —
+│           │                #   Phase A, delegates to
+│           │                #   region_author.generate_region_manifest and
+│           │                #   nothing else; POST /api/regions/generate
+│           │                #   (RegionBuildBody, `{manifest}`) — Phase B,
+│           │                #   delegates to region_author.generate_region_draft
+│           │                #   and nothing else; both in the same no-canon-
+│           │                #   write neighbourhood as /api/entities/generate,
+│           │                #   not on the crud.py router; Phase B returns the
+│           │                #   region draft as JSON only — review/commit UI
+│           │                #   and draft-local-id-to-canon-id wiring live in
+│           │                #   chantiers 2/3 below
 │           │                # Region review + atomic commit, chantier 2 (BRIEF-36,
 │           │                #   no schema change): POST /api/regions/commit
 │           │                #   (RegionCommitBody, commit_region) — outside crud.py
@@ -679,8 +694,19 @@ World-genrator/
 │                            #   through the EXISTING composite POST only, same as
 │                            #   the manual roles editor;
 │                            #   Création → Région sub-tab (BRIEF-36, chantier 2, no
-│                            #   schema change): brief → POST /api/regions/generate →
-│                            #   region draft held client-side (regionDraft/
+│                            #   schema change), now fronted by a two-phase manifest
+│                            #   checkpoint (BRIEF-38, schema v1.49, C1 — one-liner
+│                            #   text editing only): brief → POST /api/regions/manifest
+│                            #   → manifest held client-side (regionManifest) →
+│                            #   checkpoint screen (regionRenderManifest — Factions/
+│                            #   Lieux/PNJ flat lists, entity name read-only, one-liner
+│                            #   editable textarea bound straight onto regionManifest;
+│                            #   name/parent_name/location_name/faction_name shown for
+│                            #   context only, never editable) → "Générer les fiches"
+│                            #   (regionBuild) → POST /api/regions/generate with
+│                            #   {manifest: regionManifest} (server re-normalizes before
+│                            #   use, client edit is advisory) → region draft held
+│                            #   client-side (regionDraft/
 │                            #   regionAccepted, the pendingDraft* pattern at tree
 │                            #   scale) → D1 spatial review tree (regionRenderTree —
 │                            #   root location top, children/NPCs nested, faction
@@ -690,7 +716,10 @@ World-genrator/
 │                            #   (regionCascade — mirrors the server's re-derivation,
 │                            #   never sent as a precomputed result) → E1 commit
 │                            #   (regionCommit → POST /api/regions/commit); "Recommencer"
-│                            #   discards the held draft; no inline editing (C1 is OUT);
+│                            #   discards the held manifest AND draft (regionRestart);
+│                            #   no inline editing of the post-generation review tree
+│                            #   itself (C1 there is still OUT — only the Phase-A
+│                            #   one-liner checkpoint above is editable);
 │                            #   judgment-link confirm/discard toggles (BRIEF-37, chantier
 │                            #   3): each location node's wirable sensed_links rows
 │                            #   (kind=connection/faction only) render a per-row toggle

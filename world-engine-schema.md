@@ -921,6 +921,35 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.49** — Region two-phase pipeline, editable manifest checkpoint
+  (BRIEF-38). **Application-layer only, no table/column/schema change, no
+  canon-write semantics change** — reuses `pt-region-manifest` and the
+  entity-generation templates as-is. `region_author.py`'s Stage-0 (the
+  model call producing the manifest) is extracted into its own function,
+  `generate_region_manifest(brief, db)`, returning
+  `{ok, manifest, notes, skipped}` on success and the existing
+  `{ok: false, error}` shape verbatim on every failure path (empty brief,
+  missing template, template format error, Ollama error, malformed/non-JSON
+  manifest) — a mechanical extraction, no behavior change. `generate_region_draft`
+  is refactored to take an already-produced **manifest dict** instead of a
+  brief; its first action re-runs the existing `_normalize_manifest` on the
+  incoming dict and uses the result as authoritative (the client-edited
+  manifest is advisory, the server re-derives), then runs Stages 1-3
+  unchanged. New cockpit route `POST /api/regions/manifest`
+  (`RegionGenerateBody`, Phase A) — writes no canon. `POST
+  /api/regions/generate` is repurposed to accept `{manifest: dict}`
+  (`RegionBuildBody`) instead of `{brief: str}` and calls the refactored
+  Phase B — still writes no canon, response shape unchanged. Scope is C1 —
+  one-liner *text* editing only at the checkpoint (no count/add/remove/
+  rewiring); persistence is B1 — no draft/manifest store, the edited
+  manifest is held client-side and re-sent, mirroring the commit route's
+  posture. Cockpit UI: the Région sub-tab's generate trigger now stops at a
+  checkpoint screen (`regionRenderManifest` — flat Factions/Lieux/PNJ lists,
+  entity name read-only, one-liner editable) before a new "Générer les
+  fiches" button (`regionBuild`) advances to the existing review tree
+  (`regionRenderTree`, untouched); `regionRestart` now also clears the held
+  manifest. The review tree, accept/reject cascade, link confirm/discard,
+  and `/api/regions/commit` are all untouched.
 - **v1.48** — Judgment-link wiring, chantier 3, closes the region loop
   (BRIEF-37). **No schema/table/column change, no new `RELATION_TYPE`** —
   reuses `connects_to`/`controls` and the commit-free `write_relation`

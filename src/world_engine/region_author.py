@@ -1,12 +1,19 @@
-"""Region orchestrator — BRIEF-34, chantier 1.
+"""Region orchestrator — BRIEF-34, chantier 1; split into two phases by
+BRIEF-38.
 
 Turns a creator region brief into a **region draft**: a tree of per-entity
 drafts plus draft-local references, produced by composing the atomic entity
-generators (`entity_author.generate_entity_draft`) across a four-stage
-pipeline (manifest, factions, locations, NPCs). Writes NO canon — mirrors
+generators (`entity_author.generate_entity_draft`). Writes NO canon — mirrors
 `entity_author.py`'s posture exactly: the draft is returned to the caller,
 ephemeral, never persisted here. `generate_entity_draft` itself is never
 modified or monkeypatched — this module composes it as-is.
+
+Two phases, split by a creator checkpoint (BRIEF-38, C1 — one-liner text
+editing only): `generate_region_manifest(brief, db)` runs Stage 0 (the
+model call producing the manifest) and returns it for the creator to edit;
+`generate_region_draft(manifest, db)` takes that manifest (advisory —
+re-normalized server-side first) and runs Stages 1-3 (Factions ->
+Locations (root first) -> NPCs).
 
 Locked design (see ARCHITECTURE_DECISIONS.md, "REGION GENERATION —
 orchestrator (chantier 1)"): A3 (structural skeleton only, link suggestions
@@ -226,13 +233,13 @@ def _compose_npc_brief(
 # ── Entry point ───────────────────────────────────────────────────────────
 
 
-def generate_region_draft(brief: str, db: Session) -> dict:
-    """Generate a region draft (factions/locations/NPCs) from a creator brief.
+def generate_region_manifest(brief: str, db: Session) -> dict:
+    """Phase A — produce the Stage-0 region manifest from a creator brief.
 
-    Writes no canon anywhere in this function or its call path. Never raises
-    into the caller: a Stage-0 failure aborts the whole run and returns
-    {"ok": False, "error": ...}; a per-entity Stage 1-3 failure drops that
-    entity (recorded in `region.skipped`) and the run continues.
+    Writes no canon. Never raises into the caller: every failure path
+    returns {"ok": False, "error": ...} verbatim (empty brief, missing
+    template, template format error, Ollama error, malformed/non-JSON
+    manifest).
     """
     if not brief or not brief.strip():
         return {"ok": False, "error": "brief must not be empty"}
@@ -256,13 +263,22 @@ def generate_region_draft(brief: str, db: Session) -> dict:
     except OllamaError as exc:
         return {"ok": False, "error": str(exc)}
 
-    parsed_result = _parse_manifest_response(raw)
-    if not parsed_result["ok"]:
-        return parsed_result
+    return _parse_manifest_response(raw)
 
-    manifest = parsed_result["manifest"]
-    notes: list[str] = list(parsed_result["notes"])
-    skipped: list[dict] = list(parsed_result["skipped"])
+
+def generate_region_draft(manifest: dict, db: Session) -> dict:
+    """Phase B — generate a region draft (factions/locations/NPCs) from an
+    already-produced manifest dict (Phase A's output, possibly creator-edited).
+
+    The incoming manifest is advisory; this function re-runs
+    `_normalize_manifest` on it first and uses the result as authoritative,
+    guaranteeing invariants on untrusted re-submitted input. Writes no canon
+    anywhere in this function or its call path. Never raises into the
+    caller: a per-entity Stage 1-3 failure drops that entity (recorded in
+    `region.skipped`) and the run continues.
+    """
+    notes: list[str] = []
+    manifest, skipped = _normalize_manifest(dict(manifest), notes)
 
     concept = manifest["concept"]
     factions_in = manifest["factions"]

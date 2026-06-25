@@ -2935,6 +2935,9 @@ async function loadCreationArtefacts() {
  * /api/regions/commit re-derives it server-side from the raw map — see
  * commit_region in cockpit/app.py. */
 let regionDraft       = null;
+let regionManifest    = null;
+let regionManifestNotes = [];
+let regionManifestSkipped = [];
 let regionAccepted    = {};
 let regionConfirmedLinks = {};
 let regionCommitResult = null;
@@ -3017,10 +3020,10 @@ async function regionGenerate() {
   const brief = briefEl.value.trim();
   if (!brief) { statusEl.textContent = 'Intention requise.'; return; }
 
-  statusEl.textContent = 'Génération de la région… (peut prendre un moment)';
+  statusEl.textContent = 'Génération du manifeste… (peut prendre un moment)';
   let result;
   try {
-    result = await api('/api/regions/generate', {
+    result = await api('/api/regions/manifest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ brief }),
@@ -3034,18 +3037,110 @@ async function regionGenerate() {
     return;
   }
 
-  regionDraft        = result.region;
-  regionAccepted      = {};
+  regionManifest = result.manifest;
+  regionManifestNotes = result.notes || [];
+  regionManifestSkipped = result.skipped || [];
+  regionRenderAll();
+}
+
+/* ── Checkpoint (BRIEF-38) — editable manifest one-liners, name read-only ── */
+
+function regionRenderManifest() {
+  const root = document.getElementById('region-root');
+  const m = regionManifest;
+  const section = (title, rows) => `
+    <div class="field-section" style="border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:10px;">
+      <div class="field-section-title">${esc(title)}</div>
+      ${rows.length ? '<div class="row-table">' + rows + '</div>' : '<div class="empty">Aucun.</div>'}
+    </div>`;
+
+  const factionRows = (m.factions || []).map((f, i) => `
+    <div class="row-card">
+      <div style="font-weight:600">${esc(f.name)}</div>
+      <textarea rows="2" style="width:100%; resize:vertical"
+        oninput="regionManifest.factions[${i}].one_liner = this.value">${esc(f.one_liner || '')}</textarea>
+    </div>`).join('');
+
+  const locationRows = (m.locations || []).map((l, i) => {
+    const ctx = l.is_root ? 'racine' : (l.parent_name ? `sous ${l.parent_name}` : '');
+    return `
+    <div class="row-card">
+      <div style="display:flex; align-items:center; gap:8px">
+        <span style="font-weight:600">${esc(l.name)}</span>
+        ${ctx ? `<span style="font-size:11px; color:var(--muted)">(${esc(ctx)})</span>` : ''}
+      </div>
+      <textarea rows="2" style="width:100%; resize:vertical"
+        oninput="regionManifest.locations[${i}].one_liner = this.value">${esc(l.one_liner || '')}</textarea>
+    </div>`;
+  }).join('');
+
+  const npcRows = (m.npcs || []).map((n, i) => {
+    const ctx = [n.location_name, n.faction_name].filter(Boolean).join(' · ');
+    return `
+    <div class="row-card">
+      <div style="display:flex; align-items:center; gap:8px">
+        <span style="font-weight:600">${esc(n.name)}</span>
+        ${ctx ? `<span style="font-size:11px; color:var(--muted)">(${esc(ctx)})</span>` : ''}
+      </div>
+      <textarea rows="2" style="width:100%; resize:vertical"
+        oninput="regionManifest.npcs[${i}].one_liner = this.value">${esc(n.one_liner || '')}</textarea>
+    </div>`;
+  }).join('');
+
+  const notes = [...(regionManifestNotes || []), ...(regionManifestSkipped || []).map(s =>
+    `${s.stage || ''} · ${s.name || '?'} — ${s.reason || ''}`)];
+
+  root.innerHTML = `
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap">
+      <h2 style="margin:0; font-size:15px">${esc(m.concept || 'Région')}</h2>
+      <button class="btn-send" onclick="regionBuild()" style="margin-left:auto">Générer les fiches</button>
+      <button class="btn-end" onclick="regionRestart()">Recommencer</button>
+    </div>
+    ${notes.length ? `<div class="field-section" style="border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:10px;">
+      <div class="field-section-title">Notes de génération du manifeste</div>
+      ${notes.map(n => `<div style="font-size:11px; color:var(--muted)">${esc(n)}</div>`).join('')}
+    </div>` : ''}
+    ${section('Factions', factionRows)}
+    ${section('Lieux', locationRows)}
+    ${section('PNJ', npcRows)}
+    <div id="region-build-status" style="font-size:12px; color:var(--muted)"></div>
+  `;
+}
+
+async function regionBuild() {
+  const statusEl = document.getElementById('region-build-status');
+  if (statusEl) statusEl.textContent = 'Génération des fiches… (peut prendre un moment)';
+  let result;
+  try {
+    result = await api('/api/regions/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ manifest: regionManifest }),
+    });
+  } catch (e) {
+    if (statusEl) statusEl.textContent = e.message;
+    return;
+  }
+  if (!result || result.ok === false) {
+    if (statusEl) statusEl.textContent = (result && result.error) || 'Échec de la génération.';
+    return;
+  }
+
+  regionDraft         = result.region;
+  regionAccepted       = {};
   regionConfirmedLinks = {};
-  regionCommitResult  = null;
+  regionCommitResult   = null;
   regionRenderAll();
 }
 
 function regionRestart() {
-  regionDraft        = null;
-  regionAccepted      = {};
-  regionConfirmedLinks = {};
-  regionCommitResult  = null;
+  regionDraft          = null;
+  regionManifest       = null;
+  regionManifestNotes  = [];
+  regionManifestSkipped = [];
+  regionAccepted        = {};
+  regionConfirmedLinks  = {};
+  regionCommitResult    = null;
   regionRenderBriefForm();
 }
 
@@ -3195,7 +3290,11 @@ function regionRenderCommitResult() {
 function regionRenderAll() {
   const root = document.getElementById('region-root');
   if (!root) return;
-  if (!regionDraft) { regionRenderBriefForm(); return; }
+  if (!regionDraft) {
+    if (regionManifest) { regionRenderManifest(); return; }
+    regionRenderBriefForm();
+    return;
+  }
 
   const cascade = regionCascade();
   const skipped = regionDraft.skipped || [];

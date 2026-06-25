@@ -1216,9 +1216,11 @@ def seed(session: Session) -> None:
 
     # ----- prompt template: region orchestrator manifest (BRIEF-34) ----------
     # usage = "region_manifest" (new usage value). world_id = NULL. Calls go
-    # through region_author.generate_region_draft, which formats
-    # user_template with {brief} only and code-judges the resulting manifest
-    # before composing the atomic generators across it. Writes no canon.
+    # through region_author.generate_region_manifest (Phase A, BRIEF-38),
+    # which formats user_template with {brief} only and code-judges the
+    # resulting manifest. The manifest is then handed to
+    # generate_region_draft (Phase B), which re-normalizes it and composes
+    # the atomic generators across it. Writes no canon at any stage.
     upsert_prompt_template(
         session,
         "pt-region-manifest",
