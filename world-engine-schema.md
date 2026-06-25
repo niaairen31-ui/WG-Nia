@@ -921,6 +921,29 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.48** — Judgment-link wiring, chantier 3, closes the region loop
+  (BRIEF-37). **No schema/table/column change, no new `RELATION_TYPE`** —
+  reuses `connects_to`/`controls` and the commit-free `write_relation`
+  (v1.31 area). `POST /api/regions/commit` gains **phase 4**, run after
+  factions/locations/NPCs (stages 1-3) and before the existing single
+  `db.commit()`: for each CONFIRMED `sensed_links` suggestion of the two
+  wirable kinds — `connection` (writes `connects_to`, `direction="mutual"`,
+  intensity `50`) and `faction` (writes `controls`, `entity_a_id`=faction,
+  `entity_b_id`=location, `direction="a_to_b"` mandatory) — resolves the
+  named target intra-region first (the local->real id map built this same
+  call) then by DB exact-match scoped to the world (S1 — a new region can
+  stitch into existing geography), never auto-creating a miss. `parent` /
+  `other` `sensed_links` and NPC `shared_with` remain display-only, exactly
+  as chantier 2 left them; no secret-membership channel exists yet (Q1), so
+  none is wired. `RegionCommitBody` gains `confirmed_links: dict[str, bool]`
+  (key `"<location_local_id>#<sensed_links index>"`, default unconfirmed —
+  the creator opts links IN, the inverse of entity default-accept). The
+  commit response gains `links: {written: [...], unresolved: [...]}`; a
+  rejected/uncommitted source or target, or a self-link, writes nothing and
+  is recorded as unresolved instead. Cockpit UI: each wirable `sensed_links`
+  row in the D1 review tree's location nodes gets a confirm/discard toggle
+  (`regionRenderLinkToggles`, `regionConfirmedLinks`); `parent`/`other` rows
+  keep rendering as plain read-only notes.
 - **v1.47** — Region review + atomic commit, chantier 2 (BRIEF-36). **No
   schema/table/column change, no new canon-write semantics** — reuses the
   commit-free cores added in v1.46. New cockpit route `POST

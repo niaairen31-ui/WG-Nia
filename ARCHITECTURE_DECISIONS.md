@@ -2370,6 +2370,80 @@ forced as it already is at generation time). The two note channels
 
 ---
 
+## JUDGMENT-LINK WIRING — chantier 3, closes the region loop (BRIEF-37, no schema change)
+
+**P1 — extends chantier 2's single transaction, not a separate pass.** The
+confirmed-link suggestions live only on the client-held draft; they die with
+it at commit. So chantier 3 adds **phase 4** to `commit_region` — after
+factions/locations/NPCs (stages 1-3) have flushed and the local->real id map
+is complete, before the single `db.commit()` — rather than a second pass that
+would need its own persistence for the suggestions. `write_relation` is
+already commit-free (BRIEF-35/RECON item 7), so it drops in with zero new
+plumbing.
+
+**Default is unconfirmed — opt-in, the inverse of B1.** Entities default-
+accept (creator curates *out*); judgment links default *unconfirmed*
+(creator curates *in*). Confidence framing: entities are direct generation
+output, links are the model's own "I think I sensed X" guess about
+something the generator pipeline didn't structurally verify.
+
+**Only two `sensed_links` kinds map to a relation.** `connection` ->
+`connects_to` (direction `mutual`, intensity `50` — the same meaningless
+structural default BRIEF-15 established for location-map topology).
+`faction` -> `controls`, written **faction -> location**
+(`entity_a_id`=faction, `entity_b_id`=location, `direction="a_to_b"`
+explicit) — the default `direction="mutual"` would be semantically wrong for
+a controller/asset relation, so it is always overridden. `parent` stays
+display-only (the manifest's `parent_location_id` is already authoritative;
+a perceived second opinion must never re-wire it) and `other` stays
+display-only (no relation type fits). NPC `shared_with` stays display-only
+(Q1, below).
+
+**Q1 — secret memberships are out, deliberately, not foreclosed.** No
+channel in the current pipeline produces a secret-membership suggestion, so
+there is nothing to wire; building the write path now would be speculative.
+A future manifest "double-agent" channel (model proposes a cover role +
+true affiliation) would be the natural reader once it exists.
+
+**S1 — targets resolve against the whole committed world.**
+`_region_resolve_link_target` checks the just-committed entities first (by
+name, from the `committed["locations"]`/`committed["factions"]` lists this
+same call already built) then falls back to a DB exact-match scoped to the
+world (mirrors `entity_author._resolve_faction_id`) — so a new region can
+name a connection to, or be claimed by, geography/factions that already
+exist in canon. Never auto-creates a miss; a miss is recorded as an
+unresolved note with a reason, never written as a relation.
+
+**Server-authoritative resolution, same posture as chantier 2's cascade.**
+The client's `confirmed_links` map (`{"<location_local_id>#<index>": bool}`)
+is advisory only. The endpoint independently re-checks: the link's source
+location must itself have committed (`loc_id_map` hit) or the link is
+dropped as unresolved; the resolved target must exist (intra-region or DB)
+or it's dropped; a target resolving to the same entity as the source
+(self-link) is dropped. No confirmed link can ever produce a dangling or
+wrong-typed relation — the same "never trust the client's rendering"
+discipline as `_region_resolve_location_parent`.
+
+**Response shape.** The commit response gains `links: {written: [...],
+unresolved: [...]}` alongside the existing `committed` block — each
+unresolved entry carries `location_local_id`, `kind`, `name`, `reason` for
+creator visibility.
+
+**UI.** The D1 review tree's location nodes gain a small confirm/discard
+toggle per wirable `sensed_links` row (`regionRenderLinkToggles`,
+`regionConfirmedLinks` client state) right where the read-only note used to
+render; `parent`/`other` rows keep rendering as plain notes via the existing
+`regionEntityNotes`/`regionRenderNotes`, untouched.
+
+**The region loop is now closed end-to-end:** the model only ever proposes
+names (chantier 1, `region_author.py`); the creator confirms entities AND
+links (chantier 2's accept/reject, chantier 3's confirm/discard); the code
+resolves names to ids and wires both the structural skeleton and the
+judgment links, atomically, in one transaction. No model-emitted id ever
+reaches a `relation` row.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

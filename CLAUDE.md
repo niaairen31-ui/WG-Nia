@@ -180,14 +180,27 @@ Read both before making any structural change.
   structural, not a `commit:` flag — a batch caller (e.g. a future region
   commit) calls the cores directly against a shared session and commits or
   rolls back once for the whole batch.
-- **Region commit is atomic and curation is server-authoritative — not yet a
-  numbered invariant.** `POST /api/regions/commit` (BRIEF-36, chantier 2)
-  re-derives the accept/reject cascade from the raw client-sent map and
-  rolls back the whole batch on any failure, but only the structural
-  skeleton (`parent_location_id`, primary public `faction_membership`,
-  `current_location_id`) is wired — judgment-tier links stay deferred to
-  chantier 3. Promote this to a full numbered invariant once chantier 3
-  closes the path.
+- **Region generation writes no canon; commit is atomic; curation and link
+  resolution are server-authoritative.** The full region path (chantiers
+  1-3, BRIEF-34/35/36/37) is closed end-to-end. `region_author.py`'s
+  `generate_region_draft` only ever proposes names — no entity, relation, or
+  membership row is written anywhere in its call path. `POST
+  /api/regions/commit` (`commit_region` in `cockpit/app.py`) is the single
+  write point: entities + the structural skeleton (`parent_location_id`,
+  primary public `faction_membership`, `current_location_id`) + the
+  creator-confirmed judgment links (`sensed_links` kind=`connection` ->
+  `connects_to`, kind=`faction` -> `controls` faction->location
+  `direction="a_to_b"`) all commit in **one transaction, all-or-nothing**
+  via the commit-free cores (`_create_entity_core`, `_create_knowledge_core`)
+  and `write_relation` — any failure rolls back the whole batch. The model
+  only ever proposes names; the creator confirms (entity accept/reject,
+  link confirm/discard); the code resolves names to ids and wires — no
+  model-emitted id ever reaches a canon row. Resolution is
+  server-authoritative throughout: the accept/reject cascade and the
+  confirmed-link target lookup are both re-derived from raw untrusted
+  client state, never trusted from the client's rendering, and a
+  rejected/uncommitted/unresolved/self-referential target writes nothing
+  rather than a dangling or wrong-typed reference.
 
 ## Local model notes
 
@@ -502,7 +515,23 @@ World-genrator/
 │           │                #   session — one db.commit() at the end, db.rollback()
 │           │                #   on any exception; only parent_location_id / primary
 │           │                #   public faction_membership / current_location_id are
-│           │                #   wired (judgment-tier links deferred to chantier 3)
+│           │                #   wired in this stage; judgment-link wiring (chantier 3,
+│           │                #   BRIEF-37, no schema change) extends the SAME function
+│           │                #   with phase 4, run after stages 1-3 and before the one
+│           │                #   db.commit(): for each CONFIRMED sensed_links suggestion
+│           │                #   (kind=connection / kind=faction only — parent/other/
+│           │                #   shared_with stay display-only), resolves the target via
+│           │                #   _region_resolve_link_target (intra-region by committed
+│           │                #   name, then DB exact-match scoped to the world, S1 — never
+│           │                #   auto-create) and calls write_relation directly
+│           │                #   (commit-free, joins the same transaction): connection ->
+│           │                #   connects_to (direction="mutual"); faction -> controls
+│           │                #   (entity_a_id=faction, entity_b_id=location,
+│           │                #   direction="a_to_b" mandatory); a rejected/uncommitted
+│           │                #   source or target, or a self-link, writes nothing and is
+│           │                #   recorded in the response's links.unresolved list instead;
+│           │                #   RegionCommitBody gains confirmed_links (client confirm
+│           │                #   flags are advisory only, resolution is server-side)
 │           ├── crud.py      # Author CRUD — direct canonical writes (no proposed_mutation
 │           │                #   checkpoint): entity/character/location/faction sheets,
 │           │                #   relation/knowledge row editors, skill tier editor
@@ -661,7 +690,16 @@ World-genrator/
 │                            #   (regionCascade — mirrors the server's re-derivation,
 │                            #   never sent as a precomputed result) → E1 commit
 │                            #   (regionCommit → POST /api/regions/commit); "Recommencer"
-│                            #   discards the held draft; no inline editing (C1 is OUT)
+│                            #   discards the held draft; no inline editing (C1 is OUT);
+│                            #   judgment-link confirm/discard toggles (BRIEF-37, chantier
+│                            #   3): each location node's wirable sensed_links rows
+│                            #   (kind=connection/faction only) render a per-row toggle
+│                            #   via regionRenderLinkToggles, default UNCONFIRMED
+│                            #   (regionConfirmedLinks, opt-in — inverse of B1's default-
+│                            #   accept); parent/other rows keep rendering as plain notes
+│                            #   via regionEntityNotes; regionCommit now also sends
+│                            #   confirmed_links, and the commit-result panel renders the
+│                            #   response's links.written/links.unresolved
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)

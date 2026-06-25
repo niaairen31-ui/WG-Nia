@@ -133,6 +133,7 @@ def generate_region(
 class RegionCommitBody(BaseModel):
     region: dict[str, Any]
     accepted: dict[str, bool] = {}
+    confirmed_links: dict[str, bool] = {}
 
 
 def _region_resolve_location_parent(
@@ -153,6 +154,40 @@ def _region_resolve_location_parent(
     if root_local is not None and root_local in accepted_locations and root_local != entry["local_id"]:
         return root_local
     return None
+
+
+def _region_resolve_link_target(
+    db: Session,
+    world_id: Optional[str],
+    name: Any,
+    kind: str,
+    committed_locations_by_name: dict[str, str],
+    committed_factions_by_name: dict[str, str],
+) -> tuple[Optional[str], Optional[str]]:
+    """Resolve a confirmed `sensed_links` target (S1): intra-region first
+    (by committed name), then DB exact-match (case-insensitive, whitespace-
+    stripped), scoped to the committed world. Never auto-creates a target —
+    a miss returns (None, <reason>).
+    """
+    if not name or not isinstance(name, str):
+        return None, "Nom de cible manquant"
+    target = name.strip().lower()
+    if not target:
+        return None, "Nom de cible manquant"
+
+    entity_type = "location" if kind == "connection" else "faction"
+    by_name = committed_locations_by_name if kind == "connection" else committed_factions_by_name
+    intra = by_name.get(target)
+    if intra:
+        return intra, None
+
+    stmt = select(Entity).where(Entity.type == entity_type)
+    if world_id is not None:
+        stmt = stmt.where(Entity.world_id == world_id)
+    for candidate in db.exec(stmt).all():
+        if (candidate.name or "").strip().lower() == target:
+            return candidate.id, None
+    return None, f"Cible « {name} » introuvable"
 
 
 @app.post("/api/regions/commit")
@@ -177,13 +212,25 @@ def commit_region(
     exception rolls back the whole batch and returns {"ok": false, ...}; no
     half-committed region is ever observable.
 
-    Only the structural skeleton is wired: `parent_location_id`, the primary
-    PUBLIC faction_membership (via `extension.faction_id`), and
-    `current_location_id`. `sensed_links` / `shared_with` are suggestions
-    only — never read here. No `is_secret=True` membership is ever written.
+    The structural skeleton is wired in stages 1-3: `parent_location_id`,
+    the primary PUBLIC faction_membership (via `extension.faction_id`), and
+    `current_location_id`. No `is_secret=True` membership is ever written.
+
+    Stage 4 (BRIEF-37, chantier 3) extends this same transaction with the
+    CONFIRMED `sensed_links` judgment suggestions — only the two wirable
+    kinds (`connection` -> `connects_to`, `faction` -> `controls`
+    faction->location `direction="a_to_b"`); `parent` / `other` /
+    `shared_with` stay display-only, exactly as chantier 2 left them.
+    Confirm flags are advisory (`body.confirmed_links`); resolution
+    (`_region_resolve_link_target`, S1) is server-authoritative — a
+    rejected/uncommitted source or target, or a miss against both the
+    just-committed entities and the DB, writes no relation and is recorded
+    in the response's `links.unresolved` list instead. `write_relation` is
+    commit-free, so phase 4 joins the SAME transaction with no extra commit.
     """
     region = body.region
     accepted = body.accepted
+    confirmed_links = body.confirmed_links
 
     factions_in = region.get("factions") or []
     locations_in = region.get("locations") or []
@@ -313,6 +360,74 @@ def commit_region(
                 )
                 _crud._create_knowledge_core(npc_entity.id, k_body, db)
 
+        # ── Stage 4 — confirmed judgment links (BRIEF-37, chantier 3) ────
+        world_id = _crud._world_id(db)
+        committed_locations_by_name = {
+            c["name"].strip().lower(): c["id"] for c in committed["locations"] if c.get("name")
+        }
+        committed_factions_by_name = {
+            c["name"].strip().lower(): c["id"] for c in committed["factions"] if c.get("name")
+        }
+        written_links: list[dict] = []
+        unresolved_links: list[dict] = []
+        for entry in locations_in:
+            local_id = entry["local_id"]
+            source_id = loc_id_map.get(local_id)
+            sensed_links = entry["result"]["draft"]["secret"].get("sensed_links") or []
+            for idx, link in enumerate(sensed_links):
+                if not isinstance(link, dict):
+                    continue
+                kind = link.get("kind")
+                if kind not in ("connection", "faction"):
+                    continue  # parent/other stay display-only
+                if not confirmed_links.get(f"{local_id}#{idx}"):
+                    continue  # default unconfirmed — creator opts in
+
+                if source_id is None:
+                    unresolved_links.append({
+                        "location_local_id": local_id, "kind": kind, "name": link.get("name"),
+                        "reason": "Lieu source rejeté ou non commité",
+                    })
+                    continue
+
+                target_id, reason = _region_resolve_link_target(
+                    db, world_id, link.get("name"), kind,
+                    committed_locations_by_name, committed_factions_by_name,
+                )
+                if target_id is None:
+                    unresolved_links.append({
+                        "location_local_id": local_id, "kind": kind, "name": link.get("name"),
+                        "reason": reason,
+                    })
+                    continue
+                if target_id == source_id:
+                    unresolved_links.append({
+                        "location_local_id": local_id, "kind": kind, "name": link.get("name"),
+                        "reason": "Auto-lien ignoré",
+                    })
+                    continue
+
+                if kind == "connection":
+                    write_relation(
+                        db, mode="set", world_id=world_id,
+                        entity_a_id=source_id, entity_b_id=target_id,
+                        type="connects_to", value=50, direction="mutual",
+                    )
+                    written_links.append({
+                        "location_local_id": local_id, "kind": kind, "type": "connects_to",
+                        "entity_a_id": source_id, "entity_b_id": target_id,
+                    })
+                else:  # kind == "faction" — controller is entity_a, asset is entity_b
+                    write_relation(
+                        db, mode="set", world_id=world_id,
+                        entity_a_id=target_id, entity_b_id=source_id,
+                        type="controls", value=50, direction="a_to_b",
+                    )
+                    written_links.append({
+                        "location_local_id": local_id, "kind": kind, "type": "controls",
+                        "entity_a_id": target_id, "entity_b_id": source_id,
+                    })
+
         db.commit()
     except HTTPException as exc:
         db.rollback()
@@ -324,7 +439,7 @@ def commit_region(
         db.rollback()
         return {"ok": False, "error": str(exc)}
 
-    return {"ok": True, "committed": committed}
+    return {"ok": True, "committed": committed, "links": {"written": written_links, "unresolved": unresolved_links}}
 
 
 # ── Serialisation helpers ─────────────────────────────────────────────────────

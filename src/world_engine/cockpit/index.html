@@ -2936,6 +2936,7 @@ async function loadCreationArtefacts() {
  * commit_region in cockpit/app.py. */
 let regionDraft       = null;
 let regionAccepted    = {};
+let regionConfirmedLinks = {};
 let regionCommitResult = null;
 
 const REGION_FACTION_COLORS = ['#e0703c', '#3c91e0', '#5cc06a', '#c95cc0', '#d4b23c', '#6a7bd1', '#c0505c', '#3cc0a8'];
@@ -2952,6 +2953,22 @@ function regionIsAccepted(localId) {
 
 function regionToggleAccept(localId) {
   regionAccepted[localId] = !regionIsAccepted(localId);
+  regionRenderAll();
+}
+
+/* Wirable sensed_links (kind=connection|faction) — confirm/discard toggle,
+ * default UNCONFIRMED (opt-in, BRIEF-37) — the inverse default of entity
+ * accept/reject above (B1 default-accept). Key = `${locationLocalId}#${index}`. */
+function regionLinkKey(locLocalId, idx) {
+  return `${locLocalId}#${idx}`;
+}
+
+function regionIsLinkConfirmed(key) {
+  return !!regionConfirmedLinks[key];
+}
+
+function regionToggleLink(key) {
+  regionConfirmedLinks[key] = !regionIsLinkConfirmed(key);
   regionRenderAll();
 }
 
@@ -3019,6 +3036,7 @@ async function regionGenerate() {
 
   regionDraft        = result.region;
   regionAccepted      = {};
+  regionConfirmedLinks = {};
   regionCommitResult  = null;
   regionRenderAll();
 }
@@ -3026,6 +3044,7 @@ async function regionGenerate() {
 function regionRestart() {
   regionDraft        = null;
   regionAccepted      = {};
+  regionConfirmedLinks = {};
   regionCommitResult  = null;
   regionRenderBriefForm();
 }
@@ -3035,6 +3054,7 @@ function regionEntityNotes(entry, kind) {
   const notes = [...(entry.result.notes || [])];
   if (kind === 'location') {
     for (const link of (draft.secret.sensed_links || [])) {
+      if (link.kind === 'connection' || link.kind === 'faction') continue;  // wirable — rendered as a toggle, not a note
       notes.push(`Lien perçu (${link.kind}) : ${link.name}${link.note ? ' — ' + link.note : ''}`);
     }
     if (draft.secret.subculture_hidden) notes.push(`Subculture cachée proposée : ${draft.secret.subculture_hidden}`);
@@ -3044,6 +3064,27 @@ function regionEntityNotes(entry, kind) {
     }
   }
   return notes;
+}
+
+/* Wirable sensed_links rows for one location — confirm/discard toggle,
+ * default unconfirmed (BRIEF-37). */
+function regionRenderLinkToggles(loc) {
+  const draft = loc.result.draft;
+  const links = draft.secret.sensed_links || [];
+  const wirable = links
+    .map((link, idx) => ({ link, idx }))
+    .filter(({ link }) => link.kind === 'connection' || link.kind === 'faction');
+  if (!wirable.length) return '';
+  return '<div style="margin-top:4px">' + wirable.map(({ link, idx }) => {
+    const key = regionLinkKey(loc.local_id, idx);
+    const confirmed = regionIsLinkConfirmed(key);
+    const kindLabel = link.kind === 'connection' ? 'Connexion' : 'Faction contrôlante';
+    return `
+      <div style="display:flex; align-items:center; gap:6px; font-size:11px; ${confirmed ? '' : 'color:var(--muted)'}">
+        <button class="btn-icon" onclick="regionToggleLink('${esc(key)}')">${confirmed ? '✓ Confirmé' : 'Confirmer'}</button>
+        <span>${kindLabel} : ${esc(link.name)}${link.note ? ' — ' + esc(link.note) : ''}</span>
+      </div>`;
+  }).join('') + '</div>';
 }
 
 function regionRenderNotes(notes) {
@@ -3112,6 +3153,7 @@ function regionRenderLocationNode(loc, cascade, childrenByParent) {
       </div>
       ${draft.public.description ? `<div style="font-size:12px; color:var(--muted)">${esc(draft.public.description)}</div>` : ''}
       ${regionRenderNotes(regionEntityNotes(loc, 'location'))}
+      ${regionRenderLinkToggles(loc)}
       ${npcsHere.map(n => regionRenderNpc(n, cascade)).join('')}
       ${children.length ? `<div class="region-loc-children">${children.map(c => regionRenderLocationNode(c, cascade, childrenByParent)).join('')}</div>` : ''}
     </div>`;
@@ -3139,9 +3181,14 @@ function regionRenderCommitResult() {
     </div>`;
   }
   const c = regionCommitResult.committed;
+  const links = regionCommitResult.links || { written: [], unresolved: [] };
   return `<div class="field-section" style="border:1px solid var(--green); border-radius:6px; padding:10px; margin-top:12px;">
     <div class="field-section-title" style="color:var(--green)">Région commitée</div>
     <div style="font-size:12px">${c.factions.length} faction(s), ${c.locations.length} lieu(x), ${c.npcs.length} PNJ — entités créées dans le canon.</div>
+    ${links.written.length ? `<div style="font-size:12px; margin-top:4px">${links.written.length} lien(s) confirmé(s) câblé(s).</div>` : ''}
+    ${links.unresolved.length ? `<div style="font-size:11px; color:var(--muted); margin-top:4px">
+      ${links.unresolved.map(u => `· ${esc(u.kind)} « ${esc(u.name || '')} » non câblé — ${esc(u.reason || '')}`).join('<br>')}
+    </div>` : ''}
   </div>`;
 }
 
@@ -3185,7 +3232,7 @@ async function regionCommit() {
     result = await api('/api/regions/commit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ region: regionDraft, accepted: regionAccepted }),
+      body: JSON.stringify({ region: regionDraft, accepted: regionAccepted, confirmed_links: regionConfirmedLinks }),
     });
   } catch (e) {
     result = { ok: false, error: e.message };
