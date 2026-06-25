@@ -806,6 +806,18 @@ l'intention du créateur appelle, ni plus ni moins. Une région modeste peut \
 n'avoir qu'un lieu et deux PNJ ; une région riche peut en avoir beaucoup \
 plus.
 
+Plancher de densité de PNJ (à respecter impérativement) :
+- Pour CHAQUE faction listée dans `factions`, la liste `npcs` doit contenir \
+au moins 4 PNJ dont le champ `faction_name` est exactement le nom de \
+cette faction.
+- La liste `npcs` doit aussi contenir au moins 4 PNJ sans faction \
+(`faction_name` = null).
+- Ce sont des minimums : produis-en davantage si le brief le suggère, \
+jamais moins.
+- Chaque PNJ ajouté pour atteindre ces minimums respecte le format normal : \
+`name`, `one_liner`, `location_name` (un lieu existant de la liste \
+`locations`), et `faction_name`.
+
 === FORMAT DE SORTIE ===
 Réponds UNIQUEMENT avec l'objet JSON demandé — aucun texte avant ou après, \
 aucun bloc de code Markdown, aucun commentaire.\

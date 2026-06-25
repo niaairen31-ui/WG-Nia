@@ -2523,6 +2523,49 @@ a change to anything after it.
 
 ---
 
+## REGION NPC DENSITY FLOOR — instructional steering, not a clamp (BRIEF-39, schema v1.50)
+
+**Why now.** Live testing of the region pipeline (chantiers 1-3) showed
+factions coming back thinly staffed and almost no unaffiliated NPCs — the
+manifest model under-populates `npcs` relative to what a playable region
+needs.
+
+**Locked choice: B1 (instructional steering via the Stage-0 prompt) over
+B2 (a re-prompt top-up clamp) or a structural code clamp.** The manifest
+model (`llama3.1`, the authoring model) is compliant, and the failure mode
+here is "a count is off," not "a secret leaked" — the same risk calculus
+that already lets `pt-region-manifest` shape output through instruction
+rather than code. `region_author.py`'s `generate_region_manifest` gained
+**no count-enforcement code**: the floor lives only in
+`REGION_MANIFEST_SYSTEM_PROMPT`'s text. K1 (manifest is the sole density
+determinant — see chantier 1) is unweakened: the model still decides the
+counts, the prompt only asks for more of them.
+
+**Floor values (locked).** At least 4 NPCs per faction (`faction_name`
+exact match) and at least 4 factionless NPCs (`faction_name = null`) per
+region. These are minimums, not targets to hit exactly — the brief can
+still ask for more.
+
+**The floor is a target, not a guarantee.** Live test (brief naming 3
+factions: a garrison, a smuggler guild, a heretic cult) with
+`llama3.1:8b` produced only 1 NPC per faction and 3 factionless NPCs out
+of 6 total — well under the floor. This is **recorded as a finding**, not
+patched in this step (scope OUT: no code clamp, no re-prompt). It is the
+expected signal that motivates **B2** below, not a bug in B1's prompt
+wording.
+
+**Deferred: B2 — re-prompt top-up clamp.** If live testing continues to
+show steering undershoots (as it did above), a follow-up step can add a
+second model call that tops up under-floor factions/factionless NPCs
+without touching the original manifest's accepted entities. Not opened
+automatically by this finding — a deliberate next-step decision.
+
+**Deferred: A2 — role-exact staffing ("1 NPC per role").** Not calculable
+at manifest stage: faction roles are generated fresh in Stage 1, after the
+R1 checkpoint, so the manifest has no role vocabulary to staff against.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

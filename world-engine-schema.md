@@ -921,6 +921,13 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.50** — Region NPC density floor, prompt-text only (BRIEF-39). **No
+  schema/table/route/function change.** The `region_manifest` template's
+  `system_prompt` (`pt-region-manifest`, usage `region_manifest`) gains a
+  density-floor instruction: at least 4 NPCs per faction and at least 4
+  factionless NPCs per region. The floor is steered entirely through the
+  Stage-0 prompt — no count-enforcement code was added to
+  `region_author.py`. The floor is a soft target, not a guarantee.
 - **v1.49** — Region two-phase pipeline, editable manifest checkpoint
   (BRIEF-38). **Application-layer only, no table/column/schema change, no
   canon-write semantics change** — reuses `pt-region-manifest` and the
