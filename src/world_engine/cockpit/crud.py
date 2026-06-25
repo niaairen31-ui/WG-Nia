@@ -516,9 +516,14 @@ def get_entity(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
 
 # ── Composite create / update / soft delete ──────────────────────────────────
 
-@router.post("/entities", status_code=201)
-def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -> dict:
-    """Composite create — entity + extension row in one transaction.
+def _create_entity_core(body: EntityWriteBody, db: DbSession) -> Entity:
+    """Commit-free core of `create_entity`.
+
+    Does everything up to and including `db.add` / `db.flush()` — never
+    `db.commit()` / `db.refresh()`. Returns the `Entity` row (with its
+    extension and, where applicable, primary faction membership already
+    added to the session, uncommitted). Callable directly by a batch caller
+    sharing the same session (BRIEF-35).
 
     If extension validation fails, nothing is written: the entity row is
     constructed in Python (its id is assigned at construction, not by the
@@ -539,7 +544,7 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
     # `faction_id` on a character payload is no longer a `character` column
     # (BRIEF-28, schema v1.40): it is not in the registry's `fields`, so
     # `_build_extension_kwargs` never sees it. Pull it separately and recable
-    # it onto a `faction_membership` row AFTER the entity is committed (the
+    # it onto a `faction_membership` row AFTER the entity's id is usable (the
     # membership write needs the new entity's id) — mirrors the post-accept
     # flush pattern used for BRIEF-24's `pendingDraftKnowledge`.
     pending_faction_id: Optional[str] = None
@@ -563,9 +568,6 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
     # extension row before its own entity row.
     db.flush()
     db.add(ext_row)
-    db.commit()
-    db.refresh(entity)
-    db.refresh(ext_row)
 
     if pending_faction_id:
         # Creator authority (this create/accept IS the creator action) — not
@@ -580,10 +582,32 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
             is_primary=True,
             is_secret=False,
         )
+
+    return entity
+
+
+@router.post("/entities", status_code=201)
+def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -> dict:
+    """Composite create — entity + extension row (+ optional primary
+    membership) in one transaction (single commit — BRIEF-35; previously two:
+    entity+extension, then the membership leg)."""
+    try:
+        entity = _create_entity_core(body, db)
         db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            409,
+            "Membership conflicts with an existing active row — at most one "
+            "active primary per member, and no duplicate active membership "
+            "in the same faction.",
+        )
+    db.refresh(entity)
+    ext_row = db.get(ENTITY_TYPE_REGISTRY[entity.type]["model"], entity.id)
+    db.refresh(ext_row)
 
     result = _entity_dict(entity)
-    result["extension"] = _extension_dict(entity_type, ext_row)
+    result["extension"] = _extension_dict(entity.type, ext_row)
     result["relations"] = []
     result["knowledge"] = []
     return result
@@ -719,15 +743,15 @@ def list_entity_knowledge(entity_id: str, db: DbSession = Depends(get_session)) 
     return _list_knowledge(entity_id, db)
 
 
-@router.post("/entities/{entity_id}/knowledge", status_code=201)
-def create_knowledge(entity_id: str, body: KnowledgeWriteBody, db: DbSession = Depends(get_session)) -> dict:
+def _create_knowledge_core(entity_id: str, body: KnowledgeWriteBody, db: DbSession) -> Knowledge:
+    """Commit-free core of `create_knowledge` — adds, never commits (BRIEF-35)."""
     _get_entity(db, entity_id)
     if not body.subject:
         raise HTTPException(422, "subject is required")
     if body.level not in KNOWLEDGE_LEVELS:
         raise HTTPException(422, f"level must be one of {sorted(KNOWLEDGE_LEVELS)}")
 
-    k = write_knowledge(
+    return write_knowledge(
         db,
         entity_id=entity_id,
         subject=body.subject,
@@ -739,6 +763,11 @@ def create_knowledge(entity_id: str, body: KnowledgeWriteBody, db: DbSession = D
         share_threshold=body.share_threshold if body.share_threshold is not None else 50,
         session_id=None,  # author-created knowledge is foundational, not session-acquired
     )
+
+
+@router.post("/entities/{entity_id}/knowledge", status_code=201)
+def create_knowledge(entity_id: str, body: KnowledgeWriteBody, db: DbSession = Depends(get_session)) -> dict:
+    k = _create_knowledge_core(entity_id, body, db)
     db.commit()
     db.refresh(k)
     return _knowledge_dict(k)
@@ -839,10 +868,15 @@ def list_entity_memberships(entity_id: str, db: DbSession = Depends(get_session)
     return [_membership_dict(m, db) for m in rows]
 
 
-@router.post("/entities/{entity_id}/memberships", status_code=201)
-def open_entity_membership(
-    entity_id: str, body: MembershipOpenBody, db: DbSession = Depends(get_session)
-) -> dict:
+def _open_membership_core(
+    entity_id: str, body: MembershipOpenBody, db: DbSession
+) -> FactionMembership:
+    """Commit-free core of `open_entity_membership` (BRIEF-35).
+
+    Flushes (not commits) so the partial-unique-index `IntegrityError`
+    surfaces deterministically at the core call site, catchable by either
+    caller (this route's wrapper or a future batch caller).
+    """
     entity = _get_entity(db, entity_id)
     faction = db.get(Entity, body.faction_id)
     if faction is None or faction.type != "faction":
@@ -859,7 +893,16 @@ def open_entity_membership(
         is_primary=body.is_primary,
         is_secret=body.is_secret,
     )
+    db.flush()
+    return membership
+
+
+@router.post("/entities/{entity_id}/memberships", status_code=201)
+def open_entity_membership(
+    entity_id: str, body: MembershipOpenBody, db: DbSession = Depends(get_session)
+) -> dict:
     try:
+        membership = _open_membership_core(entity_id, body, db)
         db.commit()
     except IntegrityError:
         db.rollback()

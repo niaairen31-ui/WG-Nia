@@ -921,6 +921,17 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.46** — Commit-boundary seam, pre-step for atomic region commit
+  (BRIEF-35). **No schema/table/column change, no canon-write-path semantics
+  change** — application-layer only. `create_entity`, `create_knowledge`,
+  and `open_entity_membership` (`cockpit/crud.py`) each split into a
+  commit-free core (`_create_entity_core`, `_create_knowledge_core`,
+  `_open_membership_core`) plus a thin route wrapper owning the single
+  `db.commit()`/`db.refresh()`; only *when* the commit fires moves, not
+  *what* is written. Single-entity creator-CRUD behaviour is unchanged (one
+  commit per click, identical responses, identical 409 on a membership
+  conflict); side effect: the character-with-primary-faction create path now
+  commits once instead of twice.
 - **v1.45** — Region orchestrator, chantier 1 (BRIEF-34). Application-layer
   only: **no new table or column, no canon-write path added**. New module
   `src/world_engine/region_author.py` (`generate_region_draft(brief, db)`)

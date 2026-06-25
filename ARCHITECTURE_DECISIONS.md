@@ -2252,6 +2252,51 @@ chantier 2 (E1). Neither is built in this step.
 
 ---
 
+## COMMIT-BOUNDARY SEAM — pre-step for atomic region commit (BRIEF-35, no schema change)
+
+**E1 — atomic region commit needs a caller-owned transaction boundary.**
+Chantier 2 (region review + commit) must batch-commit a whole region as one
+unit: a failure on entity K rolls back entities 1..K-1, leaving canon intact.
+RECON (`RECON-region-commit.md`, item 1) found this impossible as written:
+`create_entity`, `create_knowledge`, and `open_entity_membership` each
+hard-coded their own `db.commit()`, so a batch sharing one session still
+committed irreversibly mid-loop, even though the shared `writes.py` helpers
+(`write_relation`, `write_knowledge`, `write_membership`) already never
+commit.
+
+**The seam: commit-free core + thin route wrapper, not a `commit:` flag.**
+Each of the three creator-direct create helpers now exposes a commit-free
+core (`_create_entity_core`, `_create_knowledge_core`,
+`_open_membership_core` — does the write logic up to `db.add`/`db.flush()`,
+never `db.commit()`/`db.refresh()`, returns the ORM row) plus a route wrapper
+that owns the single commit/refresh and shapes the response exactly as
+before. Chosen over a `commit: bool` parameter threaded through all three
+call sites — structural over disciplinary (every caller would have to
+remember to pass the flag correctly; the structural seam makes the
+commit-free contract the only option for a batch caller). A future chantier-2
+batch caller calls the three cores directly against one shared session, in
+dependency order (factions → locations → NPCs, matching
+`region_author.generate_region_draft`'s own order), and commits or rolls back
+once for the whole region. This step builds no such loop — only the cores
+and the wrappers that preserve today's single-entity behaviour.
+
+**Side effect: closes the pre-existing single-entity two-commit atomicity
+gap.** `create_entity`'s character-with-`faction_id` path collapsed from two
+`db.commit()` calls (entity+extension, then the membership leg) to one — the
+gap RECON flagged, where a process crash between the two old commits could
+leave a character with no primary faction membership despite the form having
+submitted one, no longer exists for this path.
+
+**No behavioural change for any existing caller.** Single-entity creator-CRUD
+("Ajouter un PNJ/lieu/faction") still commits once per click, returns the
+same JSON shape, and still 409s on a membership conflict
+(`open_entity_membership`'s wrapper keeps the `try: ... except
+IntegrityError: db.rollback(); raise HTTPException(409, ...)` guard, now
+wrapping the core call + commit instead of just the commit). `writes.py`
+stays untouched and commit-free.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

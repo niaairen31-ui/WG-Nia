@@ -171,6 +171,15 @@ Read both before making any structural change.
   `cover_role ?? role`, so a double agent's true role stays creator-only
   while the façade is what every prompt reader — own-context today, any
   future third-party reader — actually sees.
+- **Creator-direct create helpers never commit in their core; the commit
+  boundary belongs to the caller** (BRIEF-35, no schema change).
+  `create_entity`, `create_knowledge`, and `open_entity_membership`
+  (`cockpit/crud.py`) each split into a commit-free core (does the write up
+  to `db.add`/`db.flush()`, never `db.commit()`/`db.refresh()`, returns the
+  ORM row) plus a thin route wrapper owning the single commit. The seam is
+  structural, not a `commit:` flag — a batch caller (e.g. a future region
+  commit) calls the cores directly against a shared session and commits or
+  rolls back once for the whole batch.
 
 ## Local model notes
 
