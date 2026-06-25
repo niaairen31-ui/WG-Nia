@@ -2566,6 +2566,88 @@ R1 checkpoint, so the manifest has no role vocabulary to staff against.
 
 ---
 
+## REGION NPC TOP-UP CLAMP — A1, targeted re-prompt (BRIEF-40, schema v1.51)
+
+**Why now.** BRIEF-39's instructional steering (B1) proved unreliable in
+live testing: NPC counts came back at floor one run, zero the next — the
+small authoring model (`llama3.1:8b`) drops the density constraint
+unpredictably. **Locked: A1 — a code-side targeted re-prompt clamp**, the
+B2 deferral named in BRIEF-39.
+
+**K1 amendment (bounded).** K1 previously held "the manifest is the
+**sole** density determinant; no numeric code knob." This step amends K1,
+justified by K1's own escape clause ("no knob until a measured problem
+forces it") — the measured 4-then-0 shortfall is that problem. The
+amendment is bounded: the code floor may only **add** NPCs to reach a
+minimum; it never caps, removes, or overrides the model's choices above
+the floor. The manifest remains the primary density source — B1 steering
+(BRIEF-39's prompt-text floor) stays in place, since it shrinks the gap
+the clamp has to close.
+
+**Mechanism.** Inside `generate_region_manifest` (Phase A), after
+`_parse_manifest_response` succeeds and before return: compute the
+shortfall against `MIN_NPCS_PER_FACTION` (4) per faction and
+`MIN_FACTIONLESS` (4) factionless, per `region_author.py`'s
+`_npc_deficits`. Zero deficit → return unchanged, no model call. A
+non-zero deficit issues **one** narrow re-prompt
+(`pt-region-manifest-topup`, usage `region_manifest_topup`) to the
+**same** `AUTHOR_MODEL` (never the game model — a hard requirement, not a
+default) asking for exactly the missing NPCs per target
+(`_run_npc_topup`). **One pass only**: success or failure, the function
+returns after this single attempt — no loop, no second pass (A3,
+deferred).
+
+**Merge-before-normalize.** The top-up response is never normalized on
+its own partial payload — that would silently drop every new NPC, since
+`_normalize_manifest` expects a full manifest shape (factions/locations
+context to validate `location_name`/`faction_name` against). The new NPCs
+are merged into the full manifest dict first
+(`{**manifest, "npcs": manifest["npcs"] + new_npcs}`), then
+`_normalize_manifest` runs on the merged whole — same function, same
+invariants (dedup, location/faction resolution) as Stage 0's own output.
+Skips from the merge are appended (not overwritten) to the original
+`skipped` list — the original Stage-0 skips survive.
+
+**Graceful degradation, never an abort.** A top-up failure (Ollama down,
+non-JSON response, empty/missing `npcs`, missing template, template
+format error) is caught in an isolated `try/except` around the top-up
+call only. On any failure: append a note to `result["notes"]` and return
+the **original** `result` unchanged — the primary manifest's `{"ok":
+true}` is preserved, downstream stages proceed with a short-but-valid
+manifest. This is asymmetric with the primary path: a failed *primary*
+manifest still aborts via the unchanged `{"ok": false}` J1 path; a failed
+*top-up* never aborts anything, by design (J1 is about the plan being
+missing, not about the plan being merely short).
+
+**Residual shortfall is a note, not a second attempt.** If the merged,
+re-normalized manifest still falls short of the floor (the model
+under-delivered even the requested count, or some new NPCs were skipped
+on a bad `location_name`), a single note is appended
+("Plancher PNJ non atteint après complément : …") and the manifest is
+returned as-is. This records the signal for a possible future A2/A3
+escalation without building it now.
+
+**Real names, no stubs.** Added NPCs are real model-generated entities
+(name + one-liner + location + faction), never placeholder stubs — that
+deferred path is A2 (deterministic name-pool net), out of scope here. This
+keeps the R1 checkpoint invariant intact: every NPC arriving there,
+original or topped-up, has a real name and an editable one-liner.
+
+**Constants/prose coupling.** `MIN_NPCS_PER_FACTION` / `MIN_FACTIONLESS`
+(`region_author.py`) must equal the prose floor in
+`REGION_MANIFEST_SYSTEM_PROMPT` (`seed_pilot.py`, BRIEF-39's text) — a
+one-line sync comment lives at the prose floor pointing back to the
+constants. No code enforces this sync; it's a manual-discipline coupling,
+same posture as other constant/prose pairs in this codebase.
+
+**Deferred (named, not built).** **A2** — a deterministic name-pool net
+guaranteeing the floor with placeholder-derived names if the model still
+falls short. **A3** — more than one re-prompt pass. **Faction caps** —
+the clamp adds only; capping or removing NPCs above the floor is
+explicitly out of scope and was never considered for this step.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

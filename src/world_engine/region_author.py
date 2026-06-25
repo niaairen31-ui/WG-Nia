@@ -35,11 +35,25 @@ from .entity_author import AUTHOR_MODEL, generate_entity_draft
 from .models import PromptTemplate
 from .ollama_client import OllamaError, chat
 
+# BRIEF-40: code-side targeted re-prompt clamp (A1). Must equal the prose
+# floor stated in REGION_MANIFEST_SYSTEM_PROMPT (seed_pilot.py) — keep in sync.
+MIN_NPCS_PER_FACTION = 4
+MIN_FACTIONLESS = 4
+
 
 def _load_manifest_template(db: Session) -> PromptTemplate | None:
     stmt = (
         select(PromptTemplate)
         .where(PromptTemplate.usage == "region_manifest")
+        .where(PromptTemplate.is_active == True)  # noqa: E712
+    )
+    return db.exec(stmt).first()
+
+
+def _load_manifest_topup_template(db: Session) -> PromptTemplate | None:
+    stmt = (
+        select(PromptTemplate)
+        .where(PromptTemplate.usage == "region_manifest_topup")
         .where(PromptTemplate.is_active == True)  # noqa: E712
     )
     return db.exec(stmt).first()
@@ -230,6 +244,108 @@ def _compose_npc_brief(
     return "\n\n".join(parts)
 
 
+# ── BRIEF-40 — NPC top-up clamp (A1: one targeted re-prompt, code-judged) ───
+
+
+def _npc_deficits(manifest: dict) -> dict[str | None, int]:
+    """Map faction name (or None for factionless) -> shortfall against the
+    floor. Only positive deficits are included."""
+    npcs = manifest["npcs"]
+    deficits: dict[str | None, int] = {}
+    for faction in manifest["factions"]:
+        name = faction["name"]
+        count = sum(1 for n in npcs if n.get("faction_name") == name)
+        deficit = max(0, MIN_NPCS_PER_FACTION - count)
+        if deficit:
+            deficits[name] = deficit
+    factionless_count = sum(1 for n in npcs if n.get("faction_name") is None)
+    factionless_deficit = max(0, MIN_FACTIONLESS - factionless_count)
+    if factionless_deficit:
+        deficits[None] = factionless_deficit
+    return deficits
+
+
+def _topup_blocks(manifest: dict, deficits: dict[str | None, int]) -> tuple[str, str, str, str]:
+    factions_block = "\n".join(
+        f"- {f['name']} : {f.get('one_liner', '')}" for f in manifest["factions"]
+    ) or "(aucune)"
+    locations_block = "\n".join(f"- {l['name']}" for l in manifest["locations"]) or "(aucun)"
+    existing_npcs_block = "\n".join(f"- {n['name']}" for n in manifest["npcs"]) or "(aucun)"
+    request_lines = []
+    for faction_name, count in deficits.items():
+        if faction_name is None:
+            request_lines.append(f"Sans faction : {count} PNJ manquants")
+        else:
+            request_lines.append(f"Faction « {faction_name} » : {count} PNJ manquants")
+    requests_block = "\n".join(request_lines)
+    return factions_block, locations_block, existing_npcs_block, requests_block
+
+
+def _run_npc_topup(result: dict, db: Session) -> dict:
+    """Mutates and returns `result` in place: tops up under-floor NPCs via a
+    single targeted re-prompt to AUTHOR_MODEL. Never raises; on any failure,
+    appends a shortfall note and returns the original `result` unchanged."""
+    manifest = result["manifest"]
+    deficits = _npc_deficits(manifest)
+    if not deficits:
+        return result
+
+    template = _load_manifest_topup_template(db)
+    if template is None:
+        result["notes"].append(
+            "Plancher PNJ non atteint : modèle de complément introuvable, pas de complément tenté"
+        )
+        return result
+
+    factions_block, locations_block, existing_npcs_block, requests_block = _topup_blocks(
+        manifest, deficits
+    )
+    try:
+        user_message = template.user_template.format(
+            concept=manifest["concept"],
+            factions_block=factions_block,
+            locations_block=locations_block,
+            existing_npcs_block=existing_npcs_block,
+            requests_block=requests_block,
+        )
+    except (KeyError, IndexError) as exc:
+        result["notes"].append(f"Plancher PNJ non atteint : erreur de gabarit ({exc})")
+        return result
+
+    messages = [
+        {"role": "system", "content": template.system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+    try:
+        raw_topup = chat(messages, model=AUTHOR_MODEL, format="json")
+        data = json.loads(raw_topup)
+    except (OllamaError, json.JSONDecodeError) as exc:
+        result["notes"].append(f"Plancher PNJ non atteint : complément échoué ({exc})")
+        return result
+
+    new_npcs = data.get("npcs") if isinstance(data, dict) else None
+    if not isinstance(new_npcs, list) or not new_npcs:
+        result["notes"].append("Plancher PNJ non atteint : le complément n'a renvoyé aucun PNJ")
+        return result
+
+    merged = {**manifest, "npcs": manifest["npcs"] + new_npcs}
+    normalized_manifest, new_skipped = _normalize_manifest(merged, result["notes"])
+    result["manifest"] = normalized_manifest
+    result["skipped"].extend(new_skipped)
+
+    residual = _npc_deficits(normalized_manifest)
+    if residual:
+        result["notes"].append(
+            "Plancher PNJ non atteint après complément : "
+            + "; ".join(
+                ("sans faction" if k is None else f"faction « {k} »") + f" manque {v}"
+                for k, v in residual.items()
+            )
+        )
+    return result
+
+
 # ── Entry point ───────────────────────────────────────────────────────────
 
 
@@ -240,6 +356,12 @@ def generate_region_manifest(brief: str, db: Session) -> dict:
     returns {"ok": False, "error": ...} verbatim (empty brief, missing
     template, template format error, Ollama error, malformed/non-JSON
     manifest).
+
+    After a successful parse, a code-side clamp (BRIEF-40, A1) checks the
+    manifest against the NPC density floor and, if short, issues one
+    targeted re-prompt to AUTHOR_MODEL for exactly the missing NPCs. The
+    clamp only ever adds NPCs — it never caps, drops, or overrides the
+    model's counts above the floor (K1, amended, bounded).
     """
     if not brief or not brief.strip():
         return {"ok": False, "error": "brief must not be empty"}
@@ -263,7 +385,11 @@ def generate_region_manifest(brief: str, db: Session) -> dict:
     except OllamaError as exc:
         return {"ok": False, "error": str(exc)}
 
-    return _parse_manifest_response(raw)
+    result = _parse_manifest_response(raw)
+    if not result["ok"]:
+        return result
+
+    return _run_npc_topup(result, db)
 
 
 def generate_region_draft(manifest: dict, db: Session) -> dict:

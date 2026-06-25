@@ -921,6 +921,22 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.51** — Region NPC top-up clamp, A1 (BRIEF-40). **No schema/table/
+  route change.** Adds one new prompt template, `pt-region-manifest-topup`
+  (usage `region_manifest_topup`), seeded via `seed_pilot.py`'s existing
+  `upsert_prompt_template` path. `region_author.py` gains two module
+  constants (`MIN_NPCS_PER_FACTION = 4`, `MIN_FACTIONLESS = 4`, must stay
+  in sync with the prose floor in `REGION_MANIFEST_SYSTEM_PROMPT`) and a
+  clamp inside `generate_region_manifest` (Phase A): after the Stage-0
+  manifest is parsed and normalized, code computes the NPC shortfall
+  against the floor and, if non-zero, issues one targeted re-prompt to the
+  same `AUTHOR_MODEL` for exactly the missing NPCs, merges them into the
+  full manifest, and re-normalizes (never normalizes the partial top-up
+  payload alone). One pass only — a residual shortfall is recorded as a
+  note, not retried. A top-up failure degrades to a note; the primary
+  manifest's success path is never aborted by it. This amends K1 (manifest
+  was the *sole* density determinant) to a bounded add-only floor — see
+  ARCHITECTURE_DECISIONS.md.
 - **v1.50** — Region NPC density floor, prompt-text only (BRIEF-39). **No
   schema/table/route/function change.** The `region_manifest` template's
   `system_prompt` (`pt-region-manifest`, usage `region_manifest`) gains a

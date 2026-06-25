@@ -812,6 +812,8 @@ au moins 4 PNJ dont le champ `faction_name` est exactement le nom de \
 cette faction.
 - La liste `npcs` doit aussi contenir au moins 4 PNJ sans faction \
 (`faction_name` = null).
+- (Ces deux valeurs — 4 et 4 — doivent rester synchronisées avec \
+MIN_NPCS_PER_FACTION / MIN_FACTIONLESS dans region_author.py, BRIEF-40.)
 - Ce sont des minimums : produis-en davantage si le brief le suggère, \
 jamais moins.
 - Chaque PNJ ajouté pour atteindre ces minimums respecte le format normal : \
@@ -827,6 +829,49 @@ REGION_MANIFEST_USER_TEMPLATE = """\
 Intention du créateur pour cette région : {brief}
 
 Manifeste JSON :\
+"""
+
+# BRIEF-40: Region NPC top-up clamp (A1) — Stage-0 manifest gained a density
+# floor (BRIEF-39) but the small authoring model honors it unreliably. This
+# template issues ONE targeted re-prompt, to the SAME authoring model, asking
+# only for the exact missing NPCs. usage = "region_manifest_topup". Called
+# from region_author.py's generate_region_manifest, after normalization,
+# only when a deficit remains.
+REGION_MANIFEST_TOPUP_SYSTEM_PROMPT = """\
+Tu complètes un manifeste de région déjà existant. On te fournit le \
+concept, les factions, les lieux et les PNJ déjà présents, ainsi qu'un \
+nombre exact de PNJ à ajouter. Tu produis UNIQUEMENT les PNJ manquants \
+demandés, au format JSON.
+
+Règles impératives :
+- Réponds avec un seul objet JSON : {"npcs": [ ... ]}. Aucun texte hors du JSON.
+- Chaque PNJ : {"name": str, "one_liner": str, "location_name": str, "faction_name": str ou null}.
+- `location_name` DOIT être l'un des lieux fournis, copié à l'identique.
+- `faction_name` DOIT être exactement le nom de la faction demandée pour ce \
+PNJ, ou null pour un PNJ sans faction.
+- Aucun nom de PNJ ne doit reprendre un PNJ déjà présent ni un autre PNJ \
+que tu ajoutes.
+- Produis EXACTEMENT le nombre de PNJ demandé pour chaque cible, ni plus ni moins.
+- `one_liner` : une seule phrase en français qui campe le personnage.\
+"""
+
+REGION_MANIFEST_TOPUP_USER_TEMPLATE = """\
+Concept de la région :
+{concept}
+
+Factions existantes :
+{factions_block}
+
+Lieux existants (valeurs autorisées pour location_name) :
+{locations_block}
+
+PNJ déjà présents (noms à ne pas réutiliser) :
+{existing_npcs_block}
+
+PNJ à ajouter :
+{requests_block}
+
+Produis uniquement ces PNJ manquants, au format JSON {{"npcs": [...]}}.\
 """
 
 # MJ initiative vote — decides whether a bystander NPC acts spontaneously this
@@ -1242,6 +1287,26 @@ def seed(session: Session) -> None:
         system_prompt=REGION_MANIFEST_SYSTEM_PROMPT,
         user_template=REGION_MANIFEST_USER_TEMPLATE,
         variables=["brief"],
+        destination="local",
+        version=1,
+    )
+
+    # ----- prompt template: region manifest NPC top-up (BRIEF-40) ------------
+    # usage = "region_manifest_topup". world_id = NULL. Calls go through
+    # region_author.py's generate_region_manifest, after normalization, only
+    # when the NPC density floor isn't met — one targeted re-prompt to the
+    # same AUTHOR_MODEL for exactly the missing NPCs. The `variables` list is
+    # metadata only (RECON E14) — the call site passes these as explicit
+    # .format() kwargs.
+    upsert_prompt_template(
+        session,
+        "pt-region-manifest-topup",
+        world_id=None,
+        name="Orchestrateur de région — complément PNJ",
+        usage="region_manifest_topup",
+        system_prompt=REGION_MANIFEST_TOPUP_SYSTEM_PROMPT,
+        user_template=REGION_MANIFEST_TOPUP_USER_TEMPLATE,
+        variables=["concept", "factions_block", "locations_block", "existing_npcs_block", "requests_block"],
         destination="local",
         version=1,
     )

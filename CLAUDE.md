@@ -377,7 +377,20 @@ World-genrator/
 │       │                    #   relation row; a failed/empty manifest aborts
 │       │                    #   the whole run, a failed per-entity
 │       │                    #   sub-generation drops just that entity into
-│       │                    #   region.skipped and the run continues
+│       │                    #   region.skipped and the run continues;
+│       │                    #   NPC top-up clamp (BRIEF-40, schema v1.51):
+│       │                    #   generate_region_manifest, after parsing,
+│       │                    #   computes the NPC shortfall against
+│       │                    #   MIN_NPCS_PER_FACTION/MIN_FACTIONLESS (=4/=4,
+│       │                    #   must stay in sync with the
+│       │                    #   REGION_MANIFEST_SYSTEM_PROMPT prose floor)
+│       │                    #   and, if short, issues ONE targeted re-prompt
+│       │                    #   to AUTHOR_MODEL (pt-region-manifest-topup),
+│       │                    #   merges + re-normalizes, then returns — one
+│       │                    #   pass only, residual shortfall noted not
+│       │                    #   retried; bounded add-only floor, amends K1
+│       │                    #   (manifest is no longer the *sole* density
+│       │                    #   determinant — see ARCHITECTURE_DECISIONS.md)
 │       └── cockpit/         # creator review web UI (FastAPI sub-app)
 │           ├── __init__.py
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
@@ -823,9 +836,9 @@ prepend `src` to `sys.path`, so they run without an editable install.
 - **Re-seeding prompts:** `python scripts/seed_pilot.py` uses `upsert_prompt_template`
   for `pt-npc-dialogue`, `pt-mj-narration`, `pt-mj-interpretation`, `pt-mj-gathering`,
   `pt-mj-speaker`, `pt-mj-initiative`, `pt-npc-initiative-act`, `pt-mj-arbiter`,
-  `pt-mj-establishment`, `pt-entity-generation`, and `pt-region-manifest` —
-  re-running the seed converges the DB to the latest wording without losing
-  other data.
+  `pt-mj-establishment`, `pt-entity-generation`, `pt-region-manifest`, and
+  `pt-region-manifest-topup` — re-running the seed converges the DB to the
+  latest wording without losing other data.
 
 ---
 
