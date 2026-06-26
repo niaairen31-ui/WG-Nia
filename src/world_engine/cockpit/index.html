@@ -904,6 +904,39 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   letter-spacing: 0.5px; color: var(--muted);
 }
 .lieux-graph-head .btn-send { margin-left: auto; font-size: 12px; padding: 4px 10px; }
+
+/* ── Generic modal (BRIEF-41) — reusable overlay, body swapped per use ──────── */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.modal-backdrop.hidden { display: none; }
+.modal-container {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  width: 560px; max-width: 90vw; max-height: 84vh;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.modal-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+}
+.modal-header .modal-title { font-weight: 600; font-size: 14px; }
+.modal-close { margin-left: auto; background: none; border: none; color: var(--muted);
+  font-size: 18px; line-height: 1; cursor: pointer; padding: 2px 6px; }
+.modal-close:hover { color: var(--text); }
+.modal-body { padding: 14px 16px; overflow-y: auto; flex: 1; }
+
+/* ── Region full-sheet read-only render (BRIEF-41) ───────────────────────── */
+.sheet-section-title { font-size: 12px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--muted); margin: 14px 0 6px; }
+.sheet-section-title:first-child { margin-top: 0; }
+.sheet-secret-title { color: var(--yellow); }
+.sheet-field { font-size: 13px; margin: 4px 0; }
+.sheet-field .sheet-field-label { color: var(--muted); }
+.sheet-list-item { border-left: 2px solid var(--border); padding: 4px 8px; margin: 4px 0; font-size: 12px; }
+.region-name-link { cursor: pointer; }
+.region-name-link:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -3126,6 +3159,7 @@ async function regionBuild() {
     return;
   }
 
+  genericModalClose();
   regionDraft         = result.region;
   regionAccepted       = {};
   regionConfirmedLinks = {};
@@ -3134,6 +3168,7 @@ async function regionBuild() {
 }
 
 function regionRestart() {
+  genericModalClose();
   regionDraft          = null;
   regionManifest       = null;
   regionManifestNotes  = [];
@@ -3199,7 +3234,7 @@ function regionRenderFactionsPanel(cascade) {
     return `
       <div class="row-card ${accepted ? '' : 'region-rejected'}">
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
-          <span class="region-fac-badge" style="border-color:${color}; color:${color}">${esc(draft.public.name)}</span>
+          <span class="region-fac-badge region-name-link" onclick="regionRenderSheet('faction','${esc(f.local_id)}')" style="border-color:${color}; color:${color}">${esc(draft.public.name)}</span>
           <span style="font-size:11px; color:var(--muted)">${memberCount} membre${memberCount === 1 ? '' : 's'}</span>
           <button class="btn-icon" onclick="regionToggleAccept('${esc(f.local_id)}')" style="margin-left:auto">
             ${accepted ? 'Rejeter' : 'Accepter'}</button>
@@ -3222,7 +3257,7 @@ function regionRenderNpc(n, cascade) {
     : '';
   return `
     <div class="region-npc-row ${placeable ? '' : 'region-rejected'}">
-      <span style="font-weight:600">${esc(draft.public.name)}</span>
+      <span style="font-weight:600" class="region-name-link" onclick="regionRenderSheet('npc','${esc(n.local_id)}')">${esc(draft.public.name)}</span>
       ${badge}
       ${autoRejected ? '<span class="badge b-rejected" style="font-size:10px">auto-rejeté (lieu rejeté)</span>' : ''}
       <button class="btn-icon" onclick="regionToggleAccept('${esc(n.local_id)}')" style="margin-left:auto" ${autoRejected ? 'disabled title="Lieu hôte rejeté"' : ''}>
@@ -3240,7 +3275,7 @@ function regionRenderLocationNode(loc, cascade, childrenByParent) {
   return `
     <div class="region-loc-node ${accepted ? '' : 'region-rejected'}">
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
-        <span style="font-weight:600">${esc(draft.public.name)}</span>
+        <span style="font-weight:600" class="region-name-link" onclick="regionRenderSheet('location','${esc(loc.local_id)}')">${esc(draft.public.name)}</span>
         <span style="font-size:11px; color:var(--muted)">${esc(draft.public.location_type || '')}</span>
         ${reparented ? '<span class="badge b-other" style="font-size:10px">rattaché à la racine</span>' : ''}
         <button class="btn-icon" onclick="regionToggleAccept('${esc(loc.local_id)}')" style="margin-left:auto">
@@ -5024,6 +5059,118 @@ async function graphLoad() {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
+   Generic modal (BRIEF-41) — reusable overlay, body swapped per use
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function genericModalOpen(title, bodyHtml) {
+  document.getElementById('generic-modal-title').textContent = title;
+  document.getElementById('generic-modal-body').innerHTML = bodyHtml;
+  document.getElementById('generic-modal-backdrop').classList.remove('hidden');
+}
+
+function genericModalClose() {
+  document.getElementById('generic-modal-backdrop').classList.add('hidden');
+  document.getElementById('generic-modal-body').innerHTML = '';
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !document.getElementById('generic-modal-backdrop').classList.contains('hidden')) {
+    genericModalClose();
+  }
+});
+
+/* ── Region full-sheet read-only render (BRIEF-41, R4a) ─────────────────────
+   Pure client render from regionDraft — no fetch, no canon, no mutation.
+   Secrets are shown by design (creator surface); in-play structural
+   exclusion is enforced elsewhere (the accessors), never weakened here. */
+
+function _sheetField(label, value) {
+  if (value === undefined || value === null || value === '') return '';
+  return `<div class="sheet-field"><span class="sheet-field-label">${esc(label)} :</span> ${esc(String(value))}</div>`;
+}
+
+function _sheetListSection(title, items, renderItem) {
+  if (!items || !items.length) return '';
+  return `<div class="sheet-field-label" style="font-size:11px; margin-top:6px">${esc(title)}</div>` +
+    items.map(it => `<div class="sheet-list-item">${renderItem(it)}</div>`).join('');
+}
+
+function regionRenderSheet(type, localId) {
+  if (!regionDraft) return;
+  const collection = type === 'npc' ? regionDraft.npcs : (type === 'location' ? regionDraft.locations : regionDraft.factions);
+  const node = (collection || []).find(e => e.local_id === localId);
+  if (!node) return;
+  const draft = node.result.draft;
+  const pub = draft.public || {};
+  const sec = draft.secret || {};
+
+  let publicHtml = '';
+  let secretHtml = '';
+
+  if (type === 'npc') {
+    const fac = pub.faction_local_id ? regionDraft.factions.find(f => f.local_id === node.faction_local_id) : null;
+    const loc = node.location_local_id ? regionDraft.locations.find(l => l.local_id === node.location_local_id) : null;
+    publicHtml += _sheetField('Nom', pub.name);
+    publicHtml += _sheetField('Description', pub.description);
+    publicHtml += _sheetField('Apparence', pub.appearance);
+    publicHtml += _sheetField('Passé', pub.backstory);
+    publicHtml += _sheetField('Aversion', pub.aversion);
+    if (pub.physical_tier !== undefined && pub.physical_tier !== null && pub.physical_tier !== '') {
+      publicHtml += _sheetField('Carrure', pub.physical_tier);
+    }
+    publicHtml += _sheetField('Faction', fac ? fac.result.draft.public.name : 'Sans faction');
+    publicHtml += _sheetField('Lieu', loc ? loc.result.draft.public.name : null);
+
+    secretHtml += _sheetListSection('Savoirs', sec.knowledge, (k) =>
+      `<div>${esc(k.subject || '')} ${k.level ? '· ' + esc(k.level) : ''}${k.is_secret ? ' · secret' : ''}</div>` +
+      (k.content ? `<div style="color:var(--muted)">${esc(k.content)}</div>` : ''));
+    secretHtml += _sheetField('Notes du créateur', sec.creator_meta);
+    secretHtml += _sheetListSection('Partagé avec', sec.shared_with, (sw) =>
+      `<div>${esc(sw.with || '')}${sw.note ? ' — ' + esc(sw.note) : ''}</div>`);
+
+  } else if (type === 'location') {
+    const parent = node.parent_local_id ? regionDraft.locations.find(l => l.local_id === node.parent_local_id) : null;
+    publicHtml += _sheetField('Nom', pub.name);
+    publicHtml += _sheetField('Description', pub.description);
+    publicHtml += _sheetField('Type', pub.location_type);
+    publicHtml += _sheetField('Niveau d\'accès', pub.access_level);
+    publicHtml += _sheetField('Subculture', pub.subculture);
+    if (parent) publicHtml += _sheetField('Contenu dans', parent.result.draft.public.name);
+
+    secretHtml += _sheetField('Subculture cachée', sec.subculture_hidden);
+    secretHtml += _sheetListSection('Liens perçus', sec.sensed_links, (l) =>
+      `<div>${esc(l.kind || '')} · ${esc(l.name || '')}${l.note ? ' — ' + esc(l.note) : ''}</div>`);
+
+  } else if (type === 'faction') {
+    publicHtml += _sheetField('Nom', pub.name);
+    publicHtml += _sheetField('Description', pub.description);
+    publicHtml += _sheetField('Type', pub.faction_type);
+    publicHtml += _sheetField('Philosophie', pub.philosophy);
+    publicHtml += _sheetField('Structure interne', pub.internal_structure);
+    publicHtml += _sheetListSection('Rôles', pub.roles, (r) =>
+      `<div>${esc(r.name || '')}</div>` + (r.description ? `<div style="color:var(--muted)">${esc(r.description)}</div>` : ''));
+    publicHtml += _sheetField('Aversion', pub.aversion);
+
+    secretHtml += _sheetField('Tensions internes', sec.internal_tensions);
+    secretHtml += _sheetField('Objectifs', sec.goals);
+  }
+
+  const notes = (node.result.notes || []);
+  const notesHtml = notes.length
+    ? `<div class="sheet-section-title">Notes</div>` + notes.map(n => `<div class="sheet-field">${esc(n)}</div>`).join('')
+    : '';
+
+  const body = `
+    <div class="sheet-section-title">Public</div>
+    ${publicHtml || '<div class="empty">Aucun champ.</div>'}
+    <div class="sheet-section-title sheet-secret-title">Secret — caché en jeu</div>
+    ${secretHtml || '<div class="empty">Aucun champ.</div>'}
+    ${notesHtml}
+  `;
+  genericModalOpen(pub.name || '', body);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
    Boot
    ════════════════════════════════════════════════════════════════════════════ */
 
@@ -5032,5 +5179,16 @@ document.addEventListener('DOMContentLoaded', () => {
   loadPlayerName();   // populate "Tu incarnes" banner
 });
 </script>
+
+<div id="generic-modal-backdrop" class="modal-backdrop hidden" onclick="if (event.target === this) genericModalClose()">
+  <div class="modal-container">
+    <div class="modal-header">
+      <span id="generic-modal-title" class="modal-title"></span>
+      <button class="modal-close" onclick="genericModalClose()">&times;</button>
+    </div>
+    <div id="generic-modal-body" class="modal-body"></div>
+  </div>
+</div>
+
 </body>
 </html>

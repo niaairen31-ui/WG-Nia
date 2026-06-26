@@ -2648,6 +2648,35 @@ explicitly out of scope and was never considered for this step.
 
 ---
 
+## REGION REVIEW — read-only full-sheet modal (BRIEF-41, R4a, schema v1.52)
+
+RECON (`RECON-region-fullsheet-modal`) confirmed the full draft (every
+public field + the secret block) already rides into every review-tree
+node as `entry.result.draft` since BRIEF-36 — never rendered. This step
+adds a read-only modal, opened by clicking an entity's **name**, showing
+that full draft. **Pure client render** — no new endpoint, no payload
+change, no canon read/write; `regionRenderSheet(type, localId)` reads only
+the in-memory `regionDraft`.
+
+**Secrets shown by design.** This is the creator surface, not the player
+surface — the modal's secret section is labelled "Secret — caché en jeu"
+and is creator-only display. In-play structural exclusion is enforced
+elsewhere (the context assemblers and `read_public_memberships`-style
+accessors), and this step does not touch any of that — the modal feeds no
+prompt and issues no fetch.
+
+**Click target isolation.** The modal opens from the name/header element
+only, structurally distinct from the existing accept/reject
+(`regionToggleAccept`) and link confirm/discard (`regionToggleLink`)
+buttons — no collision, no regression to those controls.
+
+**Deferred (named, not built).** Editing the rendered sheet (D1/D2) and
+add-missing (B/C) stay deferred — the modal body is a swappable plain
+container (not three separate modals) so a future editable mode can mount
+there without restructuring, but no editing is built now.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

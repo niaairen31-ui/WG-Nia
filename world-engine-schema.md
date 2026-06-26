@@ -921,6 +921,22 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.52** — Region review: read-only full-sheet modal, R4a (BRIEF-41).
+  **Client-only, no schema/table/route/canon change.** `cockpit/index.html`
+  gains a single reusable modal (backdrop + container + swappable body) and
+  `regionRenderSheet(type, localId)`, which reads `entry.result.draft`
+  (already client-side in `regionDraft` since BRIEF-36) and renders the
+  entity's full draft — every existing public field plus the secret block,
+  in two labelled sections ("Public" / "Secret — caché en jeu") — with
+  `faction_local_id`/`location_local_id` resolved to names. Opened by
+  clicking an NPC/location/faction **name** in the review tree (a new
+  click target structurally distinct from the existing accept/reject and
+  link-confirm buttons). Pure client render: no new endpoint, no change to
+  `/api/regions/generate` or `/api/regions/commit`, no fetch issued by the
+  modal. Read-only — no inputs, no draft mutation; editing (D1/D2) and
+  add-missing (B/C) remain deferred. Secrets are shown by design (the
+  creator surface); in-play structural exclusion is enforced elsewhere (the
+  accessors) and is untouched by this step.
 - **v1.51** — Region NPC top-up clamp, A1 (BRIEF-40). **No schema/table/
   route change.** Adds one new prompt template, `pt-region-manifest-topup`
   (usage `region_manifest_topup`), seeded via `seed_pilot.py`'s existing
