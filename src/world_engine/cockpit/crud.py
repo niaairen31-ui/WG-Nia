@@ -318,9 +318,9 @@ def _coerce_field(db: DbSession, field: dict, raw: Any) -> Any:
 
 
 def _world_id(db: DbSession) -> str:
-    world = db.exec(select(World)).first()
+    world = db.exec(select(World).where(World.is_active == True)).first()  # noqa: E712
     if world is None:
-        raise HTTPException(status_code=500, detail="No world row found — run scripts/seed_pilot.py")
+        raise HTTPException(status_code=400, detail="No active world. Activate a world before proceeding.")
     return world.id
 
 

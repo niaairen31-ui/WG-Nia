@@ -49,6 +49,13 @@ def _created_ts() -> Any:
 # -----------------------------------------------------------------------------
 class World(SQLModel, table=True):
     __tablename__ = "world"
+    __table_args__ = (
+        # At most one ACTIVE world across the whole database.
+        Index(
+            "idx_world_one_active", "is_active",
+            unique=True, sqlite_where=text("is_active = 1"),
+        ),
+    )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     name: str
@@ -57,6 +64,9 @@ class World(SQLModel, table=True):
     magic_status: str = Field(
         default="dormant",
         sa_column_kwargs={"server_default": text("'dormant'")},
+    )
+    is_active: bool = Field(
+        default=False, sa_column_kwargs={"server_default": text("0")}
     )
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()

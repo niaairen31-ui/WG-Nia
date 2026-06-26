@@ -952,6 +952,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <button class="mode-tab active" id="mode-tab-play"     onclick="showPlayView()">Play</button>
     <button class="mode-tab"        id="mode-tab-creation" onclick="showCreationView()">Création</button>
   </div>
+  <select id="world-selector" onchange="activateWorld(this.value)" title="Monde actif"></select>
   <span class="local-badge">127.0.0.1 · local only</span>
 </header>
 
@@ -5174,9 +5175,35 @@ function regionRenderSheet(type, localId) {
    Boot
    ════════════════════════════════════════════════════════════════════════════ */
 
+async function loadWorldSelector() {
+  const sel = document.getElementById('world-selector');
+  try {
+    const worlds = await api('/api/worlds');
+    sel.innerHTML = '';
+    for (const w of worlds) {
+      const opt = document.createElement('option');
+      opt.value = w.id;
+      opt.textContent = w.is_active ? `${w.name} (actif)` : w.name;
+      if (w.is_active) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  } catch (_) {}
+}
+
+async function activateWorld(worldId) {
+  try {
+    const res = await api(`/api/worlds/${worldId}/activate`, { method: 'POST' });
+    if (!res.ok) alert(`Échec de l'activation du monde : ${res.error}`);
+  } catch (err) {
+    alert(`Échec de l'activation du monde : ${err.message}`);
+  }
+  await loadWorldSelector();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   loadScene();        // enter the player's location (idempotent, protects C1)
   loadPlayerName();   // populate "Tu incarnes" banner
+  loadWorldSelector(); // populate the active-world dropdown
 });
 </script>
 

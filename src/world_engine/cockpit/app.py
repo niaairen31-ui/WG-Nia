@@ -72,6 +72,7 @@ from ..models import (
     Relation,
     Session as GameSession,
     Skill,
+    World,
 )
 from ..resolution import resolve_physical
 from ..writes import (
@@ -892,6 +893,36 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
 @app.get("/", response_class=HTMLResponse)
 def serve_ui() -> str:
     return _INDEX_HTML.read_text(encoding="utf-8")
+
+
+# ── World selection ────────────────────────────────────────────────────────────
+
+@app.get("/api/worlds")
+def list_worlds(db: Session = Depends(get_session)) -> list:
+    worlds = db.exec(select(World)).all()
+    return [
+        {"id": w.id, "name": w.name, "is_active": w.is_active}
+        for w in worlds
+    ]
+
+
+@app.post("/api/worlds/{world_id}/activate")
+def activate_world(world_id: str, db: Session = Depends(get_session)) -> dict:
+    target = db.get(World, world_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"World {world_id!r} not found")
+    try:
+        for w in db.exec(select(World).where(World.is_active == True)).all():  # noqa: E712
+            w.is_active = False
+            db.add(w)
+        db.flush()
+        target.is_active = True
+        db.add(target)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "world_id": target.id}
 
 
 # ── Play loop — provisional creator entry point ───────────────────────────────

@@ -30,9 +30,14 @@ CREATE TABLE world (
   fundamental_laws      JSON,          -- world rules (magic, physics, etc.)
   magic_status          TEXT DEFAULT 'dormant',
                                        -- dormant | awakening | active | suppressed
+  is_active             BOOLEAN NOT NULL DEFAULT FALSE,
+                                       -- the single globally-active world (v1.54)
   created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- At most one ACTIVE world across the whole database.
+CREATE UNIQUE INDEX idx_world_one_active ON world(is_active) WHERE is_active = TRUE;
 ```
 
 -----
@@ -921,6 +926,28 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.54** — Active world selection (BRIEF-43). Added `world.is_active
+  BOOLEAN NOT NULL DEFAULT FALSE` and the partial unique index
+  `idx_world_one_active` (`CREATE UNIQUE INDEX ... WHERE is_active = TRUE`),
+  enforcing at most one active world at a time — same pattern as
+  `faction_membership.is_primary`. `_world_id()` (`cockpit/crud.py`) now
+  resolves `select(World).where(World.is_active == True)` instead of
+  `select(World).first()`, and raises a 400 with the verbatim message
+  "No active world. Activate a world before proceeding." if none is active
+  — no more "guess the first unordered row." New route `POST
+  /api/worlds/{world_id}/activate` (`cockpit/app.py`, not `crud.py` — it
+  flips a selection flag, not narrative canon) deactivates every other
+  world and activates the target in one transaction, with an explicit
+  `db.flush()` between the two steps so the partial-unique index never
+  sees two active rows at once; 404 on an unknown id; `{"ok": false,
+  "error": ...}` + rollback on any other failure. New `GET /api/worlds`
+  lists all worlds with their active flag. `seed_pilot.py` now seeds the
+  pilot `"verkhaal"` world with `is_active=True`. Cockpit gains a header
+  world-selector dropdown (`index.html`) — selection only, no create/
+  delete. Migration: `scripts/migrate_v1_54.py` (idempotent; auto-activates
+  the sole world row on a single-world database). Hard prerequisite for
+  A1 (several worlds in one DB); until A1 lands, only one world is expected
+  to exist.
 - **v1.53** — Bugfix: harden the region manifest dedup comparison key,
   `_name_key` (BRIEF-42). **No schema/table/route/canon change.**
   `_dedupe_by_name` (`region_author.py`) deduped NPC/faction/location names

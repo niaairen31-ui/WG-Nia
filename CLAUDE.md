@@ -394,6 +394,13 @@ World-genrator/
 │       └── cockpit/         # creator review web UI (FastAPI sub-app)
 │           ├── __init__.py
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
+│           │                # world selection (BRIEF-43, schema v1.54):
+│           │                #   GET /api/worlds (list, with is_active),
+│           │                #   POST /api/worlds/{id}/activate (activate_world —
+│           │                #   one transaction: deactivate all, flush, activate
+│           │                #   target; 404 on unknown id; rollback + {"ok":false}
+│           │                #   on any other failure); deliberately in app.py, not
+│           │                #   crud.py — flips a selection flag, not narrative canon;
 │           │                # MJ narration layer (_load_mj_narration_template);
 │           │                # MJ interpretation layer (ResponseMode incl. join,
 │           │                #   physical — BRIEF-11/v1.23),
@@ -586,6 +593,10 @@ World-genrator/
 │           │                #   code — `roles` rides the generic `metadata` JSON base
 │           │                #   field already coerced by _apply_base_fields)
 │           └── index.html   # single-page UI; MJ narration rendering;
+│                            # header world selector (BRIEF-43, schema v1.54):
+│                            #   loadWorldSelector / activateWorld — lists all
+│                            #   worlds, active one marked; selection only, no
+│                            #   create/delete;
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;
 │                            #   scene-view Travel control ("Voyager" — E1);
@@ -751,6 +762,8 @@ World-genrator/
 │   ├── migrate_v1_26.py     # add discoverable_detail table + indexes (BRIEF-13, idempotent)
 │   ├── migrate_v1_30.py     # add discoverable_detail.signpost_group + index (BRIEF-17, idempotent)
 │   ├── migrate_v1_31_ledger.py  # add the ledger table + indexes (BRIEF-18, idempotent)
+│   ├── migrate_v1_54.py     # add world.is_active + idx_world_one_active, auto-activate
+│   │                        #   the sole world row on a single-world DB (BRIEF-43, idempotent)
 │   └── cockpit.py           # launch the review cockpit (uvicorn, 127.0.0.1 only)
 ├── pyproject.toml           # src-layout package metadata
 ├── requirements.txt

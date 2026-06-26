@@ -2873,6 +2873,16 @@ Recorded here so each is revisited deliberately rather than forgotten:
   catalogue vs unique quote" above); these surrounding refinements remain
   deliberately out of scope.
 
+- **Active world is a single global flag, per-session selection deferred**
+  (BRIEF-43, schema v1.54). `world.is_active` is one flag for the whole
+  database, chosen by the creator via the cockpit selector — appropriate for
+  solo, single-creator use. Multiplayer's eventual "each session picks its
+  own world" is a named, not foreclosed, future direction: the global flag
+  is additive (a per-session override could read it as a fallback) and
+  requires no migration away from it. This step is also the hard
+  prerequisite for A1 (several worlds in one database) — until a creator
+  explicitly activates one, `_world_id()` refuses to guess.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -1026,6 +1026,7 @@ def seed(session: Session) -> None:
             "passage praticable entre deux nations."
         ),
         magic_status="awakening",
+        is_active=True,
     )
 
     # ----- test user (creator) ----------------------------------------------
