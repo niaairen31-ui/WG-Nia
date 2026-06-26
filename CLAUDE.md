@@ -457,6 +457,13 @@ World-genrator/
 │           │                #   nothing; deliberately beside
 │           │                #   POST /api/entities/generate, not in crud.py,
 │           │                #   same no-canon-write reasoning;
+│           │                # Création world scoping (BRIEF-48, no schema
+│           │                #   change): list_mutations (GET /api/mutations, the
+│           │                #   review-queue resolution — lives here, not crud.py)
+│           │                #   gained `.where(ProposedMutation.world_id ==
+│           │                #   _crud._world_id(db))`; proposed_mutation.world_id
+│           │                #   already existed on the table, so this is a plain
+│           │                #   clause, not a join;
 │           │                # De-hardcode char-player (BRIEF-45, no schema
 │           │                #   change): GET /api/bootstrap (read-only, opens
 │           │                #   no session) returns {world_id, player_id,
@@ -692,6 +699,14 @@ World-genrator/
 │           │                #   _entity_summary gains world_id (additive), read by
 │           │                #   the cockpit's create-PC location dropdown to scope
 │           │                #   to the active world
+│           │                # Création world scoping (BRIEF-48, no schema change):
+│           │                #   list_entities (the single chokepoint feeding 6
+│           │                #   Création sub-tabs) and list_skill_player_characters
+│           │                #   each gained a `.where(... .world_id == _world_id(db))`
+│           │                #   clause; get_ledger_journal passes _world_id(db) into
+│           │                #   ledger.list_entries' new optional world_id param —
+│           │                #   the per-entity ledger route stays unchanged
+│           │                #   (transitively scoped via entity_id already)
 │           └── index.html   # single-page UI; MJ narration rendering;
 │                            # loadBootstrap (BRIEF-45, no schema change):
 │                            #   awaited FIRST in DOMContentLoaded, calls GET
@@ -701,7 +716,15 @@ World-genrator/
 │                            #   /api/entities/... paths) now reads PLAYER_ID;
 │                            # header world selector (BRIEF-43, schema v1.54):
 │                            #   loadWorldSelector / activateWorld — lists all
-│                            #   worlds, active one marked; selection, plus a
+│                            #   worlds, active one marked; selection (activateWorld,
+│                            #   on success, BRIEF-48: nulls the Création list caches
+│                            #   — authorAllEntities, playerCharIds, skillCharacters,
+│                            #   _registreEntitiesLoaded — then re-invokes
+│                            #   showCreationSubTab(currentCreationSubTab) if the
+│                            #   Création view is visible, so the open sub-tab
+│                            #   refreshes immediately and the rest re-fetch fresh
+│                            #   on next view; a failed activation touches no cache),
+│                            #   plus a
 │                            #   "+ Monde" create form (BRIEF-44, schema v1.55:
 │                            #   worldCreateOpen / worldCreateSubmit, POST
 │                            #   /api/worlds with name + optional description/

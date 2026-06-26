@@ -2826,6 +2826,62 @@ hand-typed world's, confirming the B2 reader needed no change; a second
 
 ---
 
+## CRÉATION WORLD SCOPING (BRIEF-48, no schema change)
+
+**The Création surface listed entities from every world, not just the
+active one.** A single unscoped chokepoint, `GET /api/entities`
+(`cockpit/crud.py`), backed 6 of the 9 Création sub-tabs (NPC, Personnage
+joueur, Lieux, Factions, Objets, Artefacts). Two secondary list endpoints
+(`GET /api/skills/player-characters`, `GET /api/ledger`) and the review
+queue (`GET /api/mutations`) were also unscoped. This step closes all four
+read paths plus the client-side staleness on world switch — no schema, no
+canon-write path touched.
+
+**Scoping is structural at every site — a `.where(... world_id ...)` clause
+in query construction, never a post-fetch filter,** reusing the existing
+`_world_id(db)` resolver unchanged (its raise-on-no-active-world posture is
+not softened):
+- `list_entities` (`crud.py`) — `.where(Entity.world_id == _world_id(db))`.
+- `list_skill_player_characters` (`crud.py`) — `.where(Character.world_id
+  == _world_id(db))` (the BRIEF-46/v1.57 denormalized column).
+- `get_ledger_journal` (`crud.py`) — `ledger.list_entries` gained an
+  optional `world_id` param; the global-journal route passes
+  `_world_id(db)`. `ledger.world_id` exists directly on the table, so this
+  is a plain clause, not a join — the per-entity ledger route
+  (`GET /api/entities/{id}/ledger`) passes no `world_id` and is unaffected,
+  already scoped transitively through its `entity_id`.
+- `list_mutations` (`cockpit/app.py`) — `.where(ProposedMutation.world_id ==
+  _crud._world_id(db))`. `proposed_mutation.world_id` also exists directly;
+  this endpoint lives in `app.py`, not `crud.py` (the review-queue resolver
+  was previously unverified — RECON confirmed its location here).
+
+**Client-side staleness on world switch.** `activateWorld` (`index.html`)
+previously only refreshed the world selector after activation, leaving
+stale other-world rows rendered from cached client state
+(`authorAllEntities`, `playerCharIds`, `skillCharacters`, the Registre
+entity-filter cache) until a manual reload. On a *successful* activation it
+now nulls those four caches and, if the Création view is currently visible,
+re-invokes `showCreationSubTab(currentCreationSubTab)` (or `creationInit()`
+if Création has never been opened) — reusing the same per-tab loader
+dispatch the tab-switch path already calls, rather than a parallel refresh
+mechanism. The visible sub-tab updates immediately; every other sub-tab
+re-fetches fresh on next view because its cache was nulled. A failed
+activation leaves all caches and the visible tab untouched.
+
+**Verified directly against the ORM** (two `World` rows, one `Entity` each,
+toggling `is_active`): with world A active, `list_entities` returned only
+A's entity; flipping the active flag to B returned only B's. The full
+in-browser multi-tab/multi-world walkthrough from the brief's "Done means"
+was not run this step — see Debts below.
+
+**Naming note:** the source brief was filed as `BRIEF-47-creation-world-
+scoping.md`, but BRIEF-47 was already consumed by the World-Bible Generator
+(previous section, same numbering authority). This step is recorded as
+BRIEF-48 to keep the sequence unique; the brief's own content used a
+placeholder `BRIEF-NN` title.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

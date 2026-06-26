@@ -28,14 +28,17 @@ def list_entries(
     *,
     entity_id: Optional[str] = None,
     session_id: Optional[str] = None,
+    world_id: Optional[str] = None,
     limit: int = 200,
 ) -> list[Ledger]:
-    """List `ledger` rows, newest first. `entity_id`/`session_id` are optional, ANDed."""
+    """List `ledger` rows, newest first. `entity_id`/`session_id`/`world_id` are optional, ANDed."""
     stmt = select(Ledger)
     if entity_id is not None:
         stmt = stmt.where(Ledger.entity_id == entity_id)
     if session_id is not None:
         stmt = stmt.where(Ledger.session_id == session_id)
+    if world_id is not None:
+        stmt = stmt.where(Ledger.world_id == world_id)
     stmt = stmt.order_by(Ledger.created_at.desc()).limit(limit)
     return list(db.exec(stmt).all())
 

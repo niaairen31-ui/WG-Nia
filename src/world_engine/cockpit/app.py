@@ -4223,6 +4223,7 @@ def list_mutations(
     mutations = db.exec(
         select(ProposedMutation)
         .where(ProposedMutation.status == status)
+        .where(ProposedMutation.world_id == _crud._world_id(db))
         .order_by(ProposedMutation.proposed_at)
     ).all()
     result = []

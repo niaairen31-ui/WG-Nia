@@ -506,7 +506,7 @@ def list_entities(
     type: Optional[str] = Query(default=None),
     db: DbSession = Depends(get_session),
 ) -> list[dict]:
-    stmt = select(Entity)
+    stmt = select(Entity).where(Entity.world_id == _world_id(db))
     if type is not None:
         stmt = stmt.where(Entity.type == type)
     stmt = stmt.order_by(Entity.type, Entity.name)
@@ -1014,6 +1014,7 @@ def list_skill_player_characters(db: DbSession = Depends(get_session)) -> list[d
         select(Entity, Character)
         .join(Character, Character.id == Entity.id)
         .where(Character.character_type == "player")
+        .where(Character.world_id == _world_id(db))
         .order_by(Entity.name)
     ).all()
     return [{"id": e.id, "name": e.name} for e, _ in rows]
@@ -1340,7 +1341,10 @@ def get_ledger_journal(
     db: DbSession = Depends(get_session),
 ) -> list[dict]:
     """Global journal (Création → Registre), read-only."""
-    return [_ledger_dict(e) for e in list_entries(db, entity_id=entity_id, session_id=session_id)]
+    return [
+        _ledger_dict(e)
+        for e in list_entries(db, entity_id=entity_id, session_id=session_id, world_id=_world_id(db))
+    ]
 
 
 __all__ = ["router", "ENTITY_TYPE_REGISTRY"]

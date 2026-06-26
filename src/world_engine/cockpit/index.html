@@ -5298,13 +5298,36 @@ async function loadWorldSelector() {
 }
 
 async function activateWorld(worldId) {
+  let activated = false;
   try {
     const res = await api(`/api/worlds/${worldId}/activate`, { method: 'POST' });
-    if (!res.ok) alert(`Échec de l'activation du monde : ${res.error}`);
+    if (res.ok) {
+      activated = true;
+    } else {
+      alert(`Échec de l'activation du monde : ${res.error}`);
+    }
   } catch (err) {
     alert(`Échec de l'activation du monde : ${err.message}`);
   }
   await loadWorldSelector();
+  if (!activated) return;
+
+  // Invalidate cached Création list state so no stale other-world row
+  // survives the switch (BRIEF-47 creation-world-scoping): authorAllEntities,
+  // playerCharIds, skillCharacters, and the Registre entity-filter cache.
+  authorAllEntities = [];
+  playerCharIds = new Set();
+  skillCharacters = null;
+  _registreEntitiesLoaded = false;
+
+  const creationView = document.getElementById('creation-view');
+  if (creationView && creationView.style.display !== 'none') {
+    if (authorRegistry) {
+      showCreationSubTab(currentCreationSubTab);
+    } else {
+      creationInit();
+    }
+  }
 }
 
 /** BRIEF-44 (B2): minimal create-world form — name + description +
