@@ -390,7 +390,24 @@ World-genrator/
 │       │                    #   pass only, residual shortfall noted not
 │       │                    #   retried; bounded add-only floor, amends K1
 │       │                    #   (manifest is no longer the *sole* density
-│       │                    #   determinant — see ARCHITECTURE_DECISIONS.md)
+│       │                    #   determinant — see ARCHITECTURE_DECISIONS.md);
+│       │                    #   premise reader (BRIEF-44, schema v1.55):
+│       │                    #   generate_region_manifest loads the active
+│       │                    #   world (_active_world, local is_active==True
+│       │                    #   query — not imported from cockpit.crud, to
+│       │                    #   avoid a core-depends-on-UI-layer inversion)
+│       │                    #   and renders world.description /
+│       │                    #   fundamental_laws as two independently-
+│       │                    #   optional labeled blocks ahead of {brief} in
+│       │                    #   pt-region-manifest's user_template; each is
+│       │                    #   "" when the corresponding field is empty, so
+│       │                    #   a B1-style empty-premise world degrades to
+│       │                    #   the original brief-only prompt; reads
+│       │                    #   World.description/fundamental_laws — public
+│       │                    #   world config, not a secret-accessor path;
+│       │                    #   generate_region_draft renders no template
+│       │                    #   (only composes entity_author prompts), so it
+│       │                    #   needed no change
 │       └── cockpit/         # creator review web UI (FastAPI sub-app)
 │           ├── __init__.py
 │           ├── app.py       # JSON endpoints + HTML route; _apply_mutation;
@@ -401,6 +418,19 @@ World-genrator/
 │           │                #   target; 404 on unknown id; rollback + {"ok":false}
 │           │                #   on any other failure); deliberately in app.py, not
 │           │                #   crud.py — flips a selection flag, not narrative canon;
+│           │                # generic world bootstrap (BRIEF-44, schema v1.55):
+│           │                #   POST /api/worlds (WorldCreateBody — name +
+│           │                #   optional description/fundamental_laws,
+│           │                #   create_world) inserts one fresh-UUID World row
+│           │                #   (default_factory _uuid, never pattern-matched
+│           │                #   to "verkhaal") then auto-activates it by
+│           │                #   reusing activate_world's deactivate-all-then-
+│           │                #   activate-target logic in the SAME transaction,
+│           │                #   one db.commit(); rollback + {"ok":false} on any
+│           │                #   exception; deliberately in app.py, not crud.py,
+│           │                #   same reasoning as the activate route; the
+│           │                #   created world is empty by construction (the
+│           │                #   route does only the one World insert);
 │           │                # MJ narration layer (_load_mj_narration_template);
 │           │                # MJ interpretation layer (ResponseMode incl. join,
 │           │                #   physical — BRIEF-11/v1.23),
@@ -595,8 +625,13 @@ World-genrator/
 │           └── index.html   # single-page UI; MJ narration rendering;
 │                            # header world selector (BRIEF-43, schema v1.54):
 │                            #   loadWorldSelector / activateWorld — lists all
-│                            #   worlds, active one marked; selection only, no
-│                            #   create/delete;
+│                            #   worlds, active one marked; selection, plus a
+│                            #   "+ Monde" create form (BRIEF-44, schema v1.55:
+│                            #   worldCreateOpen / worldCreateSubmit, POST
+│                            #   /api/worlds with name + optional description/
+│                            #   fundamental_laws, then refreshes the selector
+│                            #   — the new world is already active server-side);
+│                            #   no delete;
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;
 │                            #   scene-view Travel control ("Voyager" — E1);

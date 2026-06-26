@@ -33,13 +33,18 @@ from typing import Any
 from sqlmodel import Session, select
 
 from .entity_author import AUTHOR_MODEL, generate_entity_draft
-from .models import PromptTemplate
+from .models import PromptTemplate, World
 from .ollama_client import OllamaError, chat
 
 # BRIEF-40: code-side targeted re-prompt clamp (A1). Must equal the prose
 # floor stated in REGION_MANIFEST_SYSTEM_PROMPT (seed_pilot.py) — keep in sync.
 MIN_NPCS_PER_FACTION = 4
 MIN_FACTIONLESS = 4
+
+
+def _active_world(db: Session) -> World | None:
+    """BRIEF-44: the active world, for the manifest's premise reader."""
+    return db.exec(select(World).where(World.is_active == True)).first()  # noqa: E712
 
 
 def _load_manifest_template(db: Session) -> PromptTemplate | None:
@@ -381,8 +386,21 @@ def generate_region_manifest(brief: str, db: Session) -> dict:
     if template is None:
         return {"ok": False, "error": "No active pt-region-manifest template found"}
 
+    world = _active_world(db)
+    description = (world.description if world else None) or ""
+    fundamental_laws = (world.fundamental_laws if world else None) or ""
+    world_description = f"Contexte du monde : {description}\n\n" if description else ""
+    world_fundamental_laws = (
+        f"Lois fondamentales du monde (contraintes absolues) : {fundamental_laws}\n\n"
+        if fundamental_laws else ""
+    )
+
     try:
-        user_message = template.user_template.format(brief=brief)
+        user_message = template.user_template.format(
+            brief=brief,
+            world_description=world_description,
+            world_fundamental_laws=world_fundamental_laws,
+        )
     except (KeyError, IndexError) as exc:
         return {"ok": False, "error": f"Template formatting failed: {exc}"}
 

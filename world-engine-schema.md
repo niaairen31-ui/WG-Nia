@@ -926,6 +926,13 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.55** — Generic world bootstrap (`POST /api/worlds`, empty
+  auto-activated world, fresh UUID) + B2 premise reader: region manifest
+  now reads the active world's `description` / `fundamental_laws`
+  (previously dormant columns) and composes them with the region brief;
+  `region_manifest` template gains `world_description` /
+  `world_fundamental_laws` (version bumped). No new tables/columns. Note:
+  world premise is public config, not a structural-exclusion exception.
 - **v1.54** — Active world selection (BRIEF-43). Added `world.is_active
   BOOLEAN NOT NULL DEFAULT FALSE` and the partial unique index
   `idx_world_one_active` (`CREATE UNIQUE INDEX ... WHERE is_active = TRUE`),

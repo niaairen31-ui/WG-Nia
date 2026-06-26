@@ -826,7 +826,7 @@ aucun bloc de code Markdown, aucun commentaire.\
 """
 
 REGION_MANIFEST_USER_TEMPLATE = """\
-Intention du créateur pour cette région : {brief}
+{world_description}{world_fundamental_laws}Intention du créateur pour cette région : {brief}
 
 Manifeste JSON :\
 """
@@ -1275,10 +1275,16 @@ def seed(session: Session) -> None:
     # ----- prompt template: region orchestrator manifest (BRIEF-34) ----------
     # usage = "region_manifest" (new usage value). world_id = NULL. Calls go
     # through region_author.generate_region_manifest (Phase A, BRIEF-38),
-    # which formats user_template with {brief} only and code-judges the
+    # which formats user_template with {brief} and code-judges the
     # resulting manifest. The manifest is then handed to
     # generate_region_draft (Phase B), which re-normalizes it and composes
     # the atomic generators across it. Writes no canon at any stage.
+    # BRIEF-44 (B2): gained world_description / world_fundamental_laws —
+    # the active world's (otherwise-dormant) premise columns, read by
+    # generate_region_manifest and composed with the region brief. Each is
+    # a ready-rendered block (label + text + blank line) or "" when the
+    # world field is empty, so an empty-premise world degrades to the
+    # original brief-only prompt with no dangling label.
     upsert_prompt_template(
         session,
         "pt-region-manifest",
@@ -1287,9 +1293,9 @@ def seed(session: Session) -> None:
         usage="region_manifest",
         system_prompt=REGION_MANIFEST_SYSTEM_PROMPT,
         user_template=REGION_MANIFEST_USER_TEMPLATE,
-        variables=["brief"],
+        variables=["world_description", "world_fundamental_laws", "brief"],
         destination="local",
-        version=1,
+        version=2,
     )
 
     # ----- prompt template: region manifest NPC top-up (BRIEF-40) ------------

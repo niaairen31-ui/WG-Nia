@@ -953,6 +953,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <button class="mode-tab"        id="mode-tab-creation" onclick="showCreationView()">Création</button>
   </div>
   <select id="world-selector" onchange="activateWorld(this.value)" title="Monde actif"></select>
+  <button class="btn-icon" onclick="worldCreateOpen()" title="Créer un nouveau monde">+ Monde</button>
   <span class="local-badge">127.0.0.1 · local only</span>
 </header>
 
@@ -5198,6 +5199,51 @@ async function activateWorld(worldId) {
     alert(`Échec de l'activation du monde : ${err.message}`);
   }
   await loadWorldSelector();
+}
+
+/** BRIEF-44 (B2): minimal create-world form — name + description +
+ *  fundamental_laws, both optional. On success the new world is already
+ *  active server-side; just refresh the selector. */
+function worldCreateOpen() {
+  genericModalOpen('Nouveau monde', `
+    <div class="field-grid">
+      <div class="field-row" style="grid-column:1/-1">
+        <label for="world-create-name">Nom *</label>
+        <input type="text" id="world-create-name" placeholder="Nom du monde">
+      </div>
+      <div class="field-row" style="grid-column:1/-1">
+        <label for="world-create-description">Contexte du monde (description, optionnel)</label>
+        <textarea id="world-create-description" rows="3" placeholder="Genre, ton, géographie générale…"></textarea>
+      </div>
+      <div class="field-row" style="grid-column:1/-1">
+        <label for="world-create-laws">Lois fondamentales (contraintes absolues, optionnel)</label>
+        <textarea id="world-create-laws" rows="3" placeholder="Ex. « La magie n'existe pas dans ce monde. »"></textarea>
+      </div>
+    </div>
+    <div id="world-create-status" style="color:var(--red); margin-top:6px;"></div>
+    <button class="btn-send" style="margin-top:8px" onclick="worldCreateSubmit()">Créer et activer</button>
+  `);
+}
+
+async function worldCreateSubmit() {
+  const name = document.getElementById('world-create-name').value.trim();
+  const description = document.getElementById('world-create-description').value.trim();
+  const fundamentalLaws = document.getElementById('world-create-laws').value.trim();
+  const statusEl = document.getElementById('world-create-status');
+  if (!name) { statusEl.textContent = 'Le nom est requis.'; return; }
+  statusEl.textContent = '…';
+  try {
+    const res = await api('/api/worlds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description, fundamental_laws: fundamentalLaws }),
+    });
+    if (!res.ok) { statusEl.textContent = res.error; return; }
+    genericModalClose();
+    await loadWorldSelector();
+  } catch (err) {
+    statusEl.textContent = err.message;
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {

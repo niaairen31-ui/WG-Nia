@@ -925,6 +925,39 @@ def activate_world(world_id: str, db: Session = Depends(get_session)) -> dict:
     return {"ok": True, "world_id": target.id}
 
 
+class WorldCreateBody(BaseModel):
+    name: str
+    description: str = ""
+    fundamental_laws: str = ""
+
+
+@app.post("/api/worlds")
+def create_world(body: WorldCreateBody, db: Session = Depends(get_session)) -> dict:
+    """Generic empty-world bootstrap (BRIEF-44, B2). Creates one fresh-UUID
+    `world` row and auto-activates it in the same transaction (reuses
+    activate_world's deactivate-then-activate logic). The created world is
+    empty: no PC, no session, no locations, no templates, no entities."""
+    try:
+        new_world = World(
+            name=body.name,
+            description=body.description,
+            fundamental_laws=body.fundamental_laws,
+        )
+        db.add(new_world)
+        db.flush()
+        for w in db.exec(select(World).where(World.is_active == True)).all():  # noqa: E712
+            w.is_active = False
+            db.add(w)
+        db.flush()
+        new_world.is_active = True
+        db.add(new_world)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "world_id": new_world.id}
+
+
 # ── Play loop — provisional creator entry point ───────────────────────────────
 # These three endpoints (npcs, conversations/start, say, end) form the play
 # loop introduced for browser-based conversations.  The NPC selector and

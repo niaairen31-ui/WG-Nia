@@ -2701,6 +2701,69 @@ hardening. No schema/route/canon change.
 
 ---
 
+## WORLD BOOTSTRAP + PREMISE READER — B2 (BRIEF-44, schema v1.55)
+
+**Decision β over α.** Two ways to give a newly-bootstrapped world an
+identity were on the table: α — generate the bible (`description` /
+`fundamental_laws`) at creation time via a model call; β — let the creator
+type it at creation, and build only the reader that makes those two
+already-existing, previously-dormant `World` columns load-bearing. β was
+chosen: it is strictly smaller (no new prompt, no new model call, no
+generation-quality risk on a field that gates every future region in the
+world) and it is the same seam a future model-authored generator would
+plug into — B3 = this reader + a generator that fills the same two fields,
+not a parallel mechanism.
+
+**`POST /api/worlds`** (`cockpit/app.py`, beside Brief 1's
+`/api/worlds/{id}/activate` — deliberately not `crud.py`, same reasoning
+as the activate route: this creates a selection-scoped row, not narrative
+canon in an existing world) takes `name` + `description` +
+`fundamental_laws` (the latter two optional), inserts one `World` row
+(fresh UUID via the existing `_uuid` default-factory — never pattern-matched
+to `"verkhaal"`), and auto-activates it by reusing the activate route's
+deactivate-all-then-activate-target logic inside the same transaction and
+single `db.commit()`. The created world is empty by construction — the
+route does nothing beyond the one `World` insert, so there is no PC,
+session, location, template, or entity to clean up.
+
+**Premise reader.** `region_author.generate_region_manifest` now resolves
+the active world (`_active_world`, the same `is_active == True` query as
+`crud._world_id`, kept local to `region_author.py` rather than imported
+from `cockpit.crud` to avoid a core-module-depends-on-UI-layer inversion)
+and renders two additional, independently-optional blocks ahead of the
+existing `brief`: `Contexte du monde : {description}` and `Lois
+fondamentales du monde (contraintes absolues) : {fundamental_laws}`. Each
+block is built in Python as a complete, ready-to-splice string (label +
+text + trailing blank line) or `""` when the corresponding world field is
+empty — the prompt template (`pt-region-manifest`, `user_template`) just
+interpolates `{world_description}{world_fundamental_laws}` ahead of
+`{brief}` via plain `.format()`, so an empty-premise (B1-style) world
+renders byte-identical to the pre-BRIEF-44 brief-only prompt: no dangling
+label, no conditional logic in the template itself. `generate_region_draft`
+does not render this template (it only composes `entity_author`'s
+per-entity prompts), so it needed no change.
+
+**Not a structural-exclusion exception.** `World.description` /
+`fundamental_laws` are public world identity — not secrets, not gated by
+any accessor boundary — so injecting them into the manifest prompt is
+ordinary non-secret world config reaching a prompt, the same category as
+`entity.metadata.price_list` or faction `philosophy`. It must not be read
+as precedent for injecting other, non-public world state into prompts.
+
+**Deferred, named:**
+- **B3 — model-authored bible.** A generator that fills `description` /
+  `fundamental_laws` automatically from a short creator brief, instead of
+  the creator typing them verbatim. Sits directly on top of this reader —
+  no reader-side change anticipated.
+- **Bible editing.** `description` / `fundamental_laws` are set-at-creation
+  only; no `PATCH`/edit route exists yet for an already-created world's
+  premise.
+- **Region provenance (D2).** Entities generated into a world remain flat;
+  no `region` table or `region_id` tags which generation pass produced
+  what. Unaffected by this step.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.
