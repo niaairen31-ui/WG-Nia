@@ -111,9 +111,21 @@ class Character(SQLModel, table=True):
     __table_args__ = (
         Index("idx_character_location", "current_location_id"),
         Index("idx_character_user", "user_id"),
+        Index("idx_character_world", "world_id"),
+        # One player character per user per world (v1 invariant, BRIEF-46).
+        # Multiplayer-safe: scoped to (world_id, user_id), not world-wide —
+        # many users may each hold one PC per world.
+        Index(
+            "idx_character_one_pc_per_user_world", "world_id", "user_id",
+            unique=True, sqlite_where=text("character_type = 'player'"),
+        ),
     )
 
     id: str = Field(primary_key=True, foreign_key="entity.id")
+    # Denormalized from entity.world_id (same pattern as relation.world_id) —
+    # needed because the one-PC-per-user-per-world index lives on this table,
+    # and SQLite indexes can't reach across a join to entity.
+    world_id: str = Field(foreign_key="world.id", nullable=False)
     character_type: str  # player | npc
     user_id: Optional[str] = None  # NULL for NPCs (no FK in schema)
     current_location_id: Optional[str] = Field(

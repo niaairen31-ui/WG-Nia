@@ -233,14 +233,23 @@ client-side display toggles (no server-side role gating).
 A persistent banner "Tu incarnes : {name}" shows the active world's player
 character across all Play sub-tabs. Since BRIEF-45, this id is resolved
 structurally (`character_type='player'` scoped to the active world, via
-`GET /api/bootstrap`) rather than the literal `char-player` — resolution is
-now structural, but the picker/creation of a new PC is still pending (Brief
-3b); for now exactly one player row exists per world, unenforced.
+`GET /api/bootstrap`) rather than the literal `char-player`. Since BRIEF-46,
+a PC can be created and placed: the *Personnage joueur* sub-tab has a
+minimal create-PC form (name + starting-location dropdown) that posts to
+`POST /api/characters/player` and re-bootstraps on success. **One player
+character per user per world is the v1 invariant**, defended structurally
+by the partial unique index `idx_character_one_pc_per_user_world`
+(`character(world_id, user_id) WHERE character_type = 'player'`) — not by
+route discipline alone. Deferred: editing/deleting a PC after creation,
+multiple PCs per user, a PC switcher/picker, and generating a PC's stats or
+backstory from a model (the creator types the name; skills start flat at
+tier 0, exactly like the seed).
 
 **Création** — seven sub-tabs:
 - *NPC* — character entities that are not player characters.
 - *Personnage joueur* — player characters (from `/api/skills/player-characters`),
-  with the Fiche skill editor embedded below the entity sheet.
+  with the Fiche skill editor embedded below the entity sheet, plus the
+  create-PC form (name + starting location) above it.
 - *Lieux* — location entities (including the discoverable-details editor).
 - *Factions* — faction entities.
 - *Objets* — item entities (create + edit via the existing CRUD path).

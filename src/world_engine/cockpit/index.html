@@ -1148,6 +1148,23 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 
       <!-- PJ Fiche — shown only when Personnage joueur sub-tab is active -->
       <div id="creation-pj-skill" style="display:none">
+        <!-- Create-PC path (BRIEF-46): minimal form — name + starting location. -->
+        <div class="panel-head" style="flex-shrink:0">
+          <h2 style="font-size:12px">Créer un personnage joueur</h2>
+        </div>
+        <div class="field-section" style="flex-shrink:0; margin:0; padding:10px 14px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">
+          <div class="field-row" style="margin:0; min-width:180px">
+            <label>Nom</label>
+            <input type="text" id="pc-create-name" placeholder="Nom du personnage">
+          </div>
+          <div class="field-row" style="margin:0; min-width:200px">
+            <label>Lieu de départ</label>
+            <select id="pc-create-location"><option value="">— choisir —</option></select>
+          </div>
+          <button class="btn-send" onclick="pcCreateSubmit()">Créer</button>
+          <span class="author-status" id="pc-create-status"></span>
+        </div>
+
         <div class="panel-head" style="flex-shrink:0; border-top:2px solid var(--border)">
           <h2 style="font-size:12px">Fiche de compétences</h2>
           <select id="skill-character-select" onchange="skillSelectCharacter(this.value)"></select>
@@ -2845,7 +2862,10 @@ function showCreationSubTab(tab) {
   if (isEditorTab) {
     if (!authorRegistry) { creationInit(); return; }
     authorLoadEntityList();
-    if (tab === 'pj' && !skillCharacters) skillInit();
+    if (tab === 'pj') {
+      pcCreateLoadLocations();
+      if (!skillCharacters) skillInit();
+    }
     if (tab === 'lieux') graphLoad();
   } else if (tab === 'artefacts') {
     loadCreationArtefacts();
@@ -3415,6 +3435,10 @@ async function creationInit() {
   }
   await authorLoadEntityList();
   if (currentCreationSubTab === 'lieux') graphLoad();
+  if (currentCreationSubTab === 'pj') {
+    pcCreateLoadLocations();
+    if (!skillCharacters) skillInit();
+  }
 }
 
 /* ── Entity list (sidebar) ───────────────────────────────────────────────── */
@@ -4810,6 +4834,74 @@ let skillRows        = [];    // current sheet rows
 
 async function skillInit() {
   await skillLoadCharacters();
+}
+
+/* ── Create-PC path (BRIEF-46) ─────────────────────────────────────────────
+ * Minimal form: name + starting-location dropdown, scoped to the active
+ * world (WORLD_ID, resolved by loadBootstrap()). On submit, POST
+ * /api/characters/player then re-call GET /api/bootstrap so the UI picks
+ * up the new resolved PC. */
+
+async function pcCreateLoadLocations() {
+  const sel = document.getElementById('pc-create-location');
+  if (!sel) return;
+  const prevValue = sel.value;
+  try {
+    await loadBootstrap(); // re-resolve WORLD_ID — may have changed via the world selector
+    const entities = await api('/api/entities?type=location');
+    const locations = entities.filter(e => e.world_id === WORLD_ID && e.status !== 'inactive');
+    sel.innerHTML = '<option value="">— choisir —</option>' +
+      locations.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('');
+    if (locations.some(l => l.id === prevValue)) sel.value = prevValue;
+  } catch (e) {
+    sel.innerHTML = '<option value="">(erreur de chargement)</option>';
+  }
+}
+
+async function pcCreateSubmit() {
+  const statusEl = document.getElementById('pc-create-status');
+  const nameEl = document.getElementById('pc-create-name');
+  const locEl = document.getElementById('pc-create-location');
+  const name = nameEl.value.trim();
+  const locationId = locEl.value;
+
+  statusEl.className = 'author-status';
+  if (!name) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = 'Le nom est requis.';
+    return;
+  }
+  if (!locationId) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = 'Choisissez un lieu de départ.';
+    return;
+  }
+
+  statusEl.textContent = 'Création…';
+  try {
+    const result = await api('/api/characters/player', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, current_location_id: locationId }),
+    });
+    if (!result.ok) {
+      statusEl.className = 'author-status err';
+      statusEl.textContent = result.error || 'Échec de la création.';
+      return;
+    }
+    statusEl.className = 'author-status';
+    statusEl.textContent = 'Personnage créé.';
+    nameEl.value = '';
+    locEl.value = '';
+    await loadBootstrap();
+    await loadPlayerName();
+    skillCharacters = null;
+    await skillLoadCharacters();
+    authorLoadEntityList();
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = e.message;
+  }
 }
 
 async function skillLoadCharacters() {

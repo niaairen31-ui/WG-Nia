@@ -350,6 +350,7 @@ def _get_entity(db: DbSession, entity_id: str) -> Entity:
 def _entity_summary(e: Entity) -> dict:
     return {
         "id": e.id,
+        "world_id": e.world_id,
         "type": e.type,
         "name": e.name,
         "internal_name": e.internal_name,
@@ -573,6 +574,11 @@ def _create_entity_core(body: EntityWriteBody, db: DbSession) -> Entity:
     # a 422 here leaves no orphan `entity` row.
     ext_kwargs = _build_extension_kwargs(db, entity_type, body.extension)
     ext_model = ENTITY_TYPE_REGISTRY[entity_type]["model"]
+    if entity_type == "character":
+        # `character.world_id` is denormalized from `entity.world_id`
+        # (BRIEF-46, same pattern as `relation.world_id`) — system-managed,
+        # never a user-editable registry field.
+        ext_kwargs["world_id"] = entity.world_id
     ext_row = ext_model(id=entity.id, **ext_kwargs)
 
     db.add(entity)

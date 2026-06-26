@@ -72,6 +72,16 @@ Extension of entity for characters (players and NPCs).
 ```sql
 CREATE TABLE character (
   id              TEXT PRIMARY KEY REFERENCES entity(id),
+  world_id        TEXT NOT NULL REFERENCES world(id),
+                                                  -- denormalized from
+                                                  -- entity.world_id (same
+                                                  -- pattern as
+                                                  -- relation.world_id) —
+                                                  -- needed because the
+                                                  -- one-PC-per-user-per-world
+                                                  -- index lives on this
+                                                  -- table (schema v1.57,
+                                                  -- BRIEF-46)
   character_type  TEXT NOT NULL,                -- player | npc
   user_id         TEXT,                         -- NULL for NPCs
   current_location_id TEXT REFERENCES entity(id),
@@ -838,6 +848,11 @@ CREATE INDEX idx_relation_world      ON relation(world_id);
 -- character lookups by location and owning user
 CREATE INDEX idx_character_location  ON character(current_location_id);
 CREATE INDEX idx_character_user      ON character(user_id);
+CREATE INDEX idx_character_world     ON character(world_id);
+
+-- one player character per user per world (BRIEF-46), multiplayer-safe
+CREATE UNIQUE INDEX idx_character_one_pc_per_user_world
+  ON character(world_id, user_id) WHERE character_type = 'player';
 
 -- location hierarchy traversal
 CREATE INDEX idx_location_parent     ON location(parent_location_id);
@@ -926,6 +941,30 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.57** — Create-PC path: `POST /api/characters/player` (name +
+  starting location, binds to the creator user, mirrors seed skill seeding)
+  + `idx_character_one_pc_per_user_world` partial-unique (one PC per user
+  per world, multiplayer-safe). Closes the create-world → generate →
+  create-PC → play loop (BRIEF-46). Added `character.world_id TEXT NOT NULL
+  REFERENCES world(id)` — denormalized from `entity.world_id` (same pattern
+  as `relation.world_id`), needed because SQLite can't index across a join
+  to `entity`; backfilled for every existing row. New route validates
+  `current_location_id` is a `location` entity in the active world (400, no
+  write, on a miss) before any write; creates the entity + `character` row
+  + the four `skill` rows (physical, agility, perception, composure) at
+  `tier=0` — the same rows the skill sheet and physical-resolution arbiter
+  read off any PC. Exactly one `db.commit()`; `IntegrityError` from the
+  partial-unique index (a second PC for the same world+user) surfaces as a
+  clean `{"ok": false, "error": ...}`, not a 500. Cockpit gains a minimal
+  create-PC form (name + starting-location dropdown) on the *Personnage
+  joueur* sub-tab; on submit it re-calls `GET /api/bootstrap` so the UI
+  picks up the new resolved PC. Migration: `scripts/migrate_v1_57.py`
+  (idempotent — adds the column, backfills it, creates both indexes).
+  Bugfix folded in: `GET /api/bootstrap` previously raised when the active
+  world had no PC yet, which made a freshly created world unable to resolve
+  even `world_id` — the create-PC form's location dropdown had nothing to
+  scope to. It now catches that case and returns `player_id`/
+  `current_location_id` as `null` instead, `world_id` always resolves.
 - **v1.56** — De-hardcode `char-player` (BRIEF-45): player character resolved
   via `character_type='player'` scoped to the active world
   (`_player_character_id`); `GET /api/bootstrap` feeds the resolved id to the

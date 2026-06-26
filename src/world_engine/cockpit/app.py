@@ -72,6 +72,7 @@ from ..models import (
     Relation,
     Session as GameSession,
     Skill,
+    User,
     World,
 )
 from ..resolution import resolve_physical
@@ -967,15 +968,94 @@ def get_bootstrap(db: Session = Depends(get_session)) -> dict:
 
     Returns the active world's id, the structurally-resolved player character
     id (character_type='player'), and that character's current_location_id.
+    `player_id`/`current_location_id` are null when the active world has no
+    PC yet (BRIEF-46: a freshly created world has none until the creator uses
+    the create-PC form) — `world_id` must still resolve so that form can
+    scope its starting-location dropdown.
     """
     world_id = _crud._world_id(db)
-    player_id = _crud._player_character_id(db, world_id)
-    player_char = db.get(Character, player_id)
+    try:
+        player_id = _crud._player_character_id(db, world_id)
+    except HTTPException:
+        player_id = None
+    player_char = db.get(Character, player_id) if player_id else None
     return {
         "world_id": world_id,
         "player_id": player_id,
         "current_location_id": player_char.current_location_id if player_char else None,
     }
+
+
+# ── Create-PC path (BRIEF-46) ──────────────────────────────────────────────────
+
+class PlayerCharacterCreateBody(BaseModel):
+    name: str
+    current_location_id: str
+
+
+@app.post("/api/characters/player")
+def create_player_character(
+    body: PlayerCharacterCreateBody, db: Session = Depends(get_session)
+) -> dict:
+    """Create a PC and place it at a starting location in the active world.
+
+    Binds to the lone creator user (`role='creator'`) — there is no real
+    multiplayer user identity yet. Mirrors `seed_pilot.py`'s `char-player`
+    creation: entity + `character` row + the four `skill` rows (physical,
+    agility, perception, composure) at `tier=0`, since the skill sheet and
+    physical-resolution arbiter both read those rows off a PC. One PC per
+    user per world is defended by `idx_character_one_pc_per_user_world`
+    (partial unique index) — a collision surfaces as a clean `{"ok": false}`,
+    not a 500.
+    """
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+
+    world_id = _crud._world_id(db)
+
+    location_entity = db.get(Entity, body.current_location_id)
+    if (
+        location_entity is None
+        or location_entity.world_id != world_id
+        or location_entity.type != "location"
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="current_location_id must be a location entity in the active world",
+        )
+
+    creator_user = db.exec(select(User).where(User.role == "creator")).first()
+    if creator_user is None:
+        raise HTTPException(status_code=400, detail="No creator user found.")
+
+    try:
+        entity = Entity(world_id=world_id, type="character", name=name)
+        db.add(entity)
+        db.flush()
+        character = Character(
+            id=entity.id,
+            world_id=world_id,
+            character_type="player",
+            user_id=creator_user.id,
+            current_location_id=body.current_location_id,
+        )
+        db.add(character)
+        for domain in ("physical", "agility", "perception", "composure"):
+            db.add(Skill(character_id=entity.id, domain=domain, tier=0))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return {
+            "ok": False,
+            "error": "A player character already exists for this user in this world.",
+        }
+    except Exception as exc:
+        db.rollback()
+        return {"ok": False, "error": str(exc)}
+
+    db.refresh(entity)
+    return {"ok": True, "id": entity.id, "name": entity.name}
 
 
 # ── Play loop — provisional creator entry point ───────────────────────────────

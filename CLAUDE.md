@@ -448,6 +448,22 @@ World-genrator/
 │           │                #   get_scene, enter_scene, scene_join, scene_leave,
 │           │                #   travel) now resolves the same way instead of a
 │           │                #   literal;
+│           │                # Create-PC path (BRIEF-46, schema v1.57): POST
+│           │                #   /api/characters/player (PlayerCharacterCreateBody —
+│           │                #   name + current_location_id) validates the location
+│           │                #   is a `location` entity in the active world (400, no
+│           │                #   write, on a miss) then creates entity + `character`
+│           │                #   row (bound to the lone role='creator' User) + the
+│           │                #   four `skill` rows at tier=0, mirroring seed_pilot.py's
+│           │                #   char-player creation; one db.commit(); IntegrityError
+│           │                #   from idx_character_one_pc_per_user_world surfaces as
+│           │                #   {"ok": false, "error": ...}, not a 500;
+│           │                #   get_bootstrap bugfix (same brief): no longer raises
+│           │                #   when the active world has no PC yet — catches
+│           │                #   _player_character_id's HTTPException and returns
+│           │                #   player_id/current_location_id as None, so world_id
+│           │                #   still resolves for a freshly created empty world
+│           │                #   (needed by the create-PC form's location dropdown);
 │           │                # MJ narration layer (_load_mj_narration_template);
 │           │                # MJ interpretation layer (ResponseMode incl. join,
 │           │                #   physical — BRIEF-11/v1.23),
@@ -645,7 +661,16 @@ World-genrator/
 │           │                #   world; raises "No player character in the active
 │           │                #   world." on a miss, never order-and-guesses;
 │           │                #   consumed by app.py's bootstrap route and every
-│           │                #   former "char-player" default
+│           │                #   former "char-player" default;
+│           │                # _create_entity_core (BRIEF-46, schema v1.57): when
+│           │                #   entity_type == "character", auto-sets
+│           │                #   ext_kwargs["world_id"] = entity.world_id —
+│           │                #   character.world_id is denormalized from
+│           │                #   entity.world_id (mirrors relation.world_id),
+│           │                #   system-managed, never a registry-exposed field;
+│           │                #   _entity_summary gains world_id (additive), read by
+│           │                #   the cockpit's create-PC location dropdown to scope
+│           │                #   to the active world
 │           └── index.html   # single-page UI; MJ narration rendering;
 │                            # loadBootstrap (BRIEF-45, no schema change):
 │                            #   awaited FIRST in DOMContentLoaded, calls GET
@@ -662,6 +687,16 @@ World-genrator/
 │                            #   fundamental_laws, then refreshes the selector
 │                            #   — the new world is already active server-side);
 │                            #   no delete;
+│                            # Création → Personnage joueur "Créer un personnage
+│                            #   joueur" form (BRIEF-46, schema v1.57): minimal —
+│                            #   name + starting-location dropdown
+│                            #   (pcCreateLoadLocations, filters GET
+│                            #   /api/entities?type=location to WORLD_ID);
+│                            #   pcCreateSubmit POSTs /api/characters/player, then
+│                            #   re-calls loadBootstrap + loadPlayerName so the
+│                            #   "Tu incarnes" banner and PLAYER_ID pick up the new
+│                            #   PC, and refreshes the Fiche selector + entity list;
+│                            #   no character builder — skills start flat at tier 0;
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;
 │                            #   scene-view Travel control ("Voyager" — E1);
@@ -831,6 +866,9 @@ World-genrator/
 │   ├── migrate_v1_31_ledger.py  # add the ledger table + indexes (BRIEF-18, idempotent)
 │   ├── migrate_v1_54.py     # add world.is_active + idx_world_one_active, auto-activate
 │   │                        #   the sole world row on a single-world DB (BRIEF-43, idempotent)
+│   ├── migrate_v1_57.py     # add character.world_id (backfilled from entity.world_id)
+│   │                        #   + idx_character_world + idx_character_one_pc_per_user_world
+│   │                        #   partial-unique (BRIEF-46, idempotent)
 │   └── cockpit.py           # launch the review cockpit (uvicorn, 127.0.0.1 only)
 ├── pyproject.toml           # src-layout package metadata
 ├── requirements.txt
