@@ -926,6 +926,11 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.56** — De-hardcode `char-player` (BRIEF-45): player character resolved
+  via `character_type='player'` scoped to the active world
+  (`_player_character_id`); `GET /api/bootstrap` feeds the resolved id to the
+  static cockpit JS (no server-side templating added); `analyzer.py`
+  player-detection now keys on the resolved id. No schema change.
 - **v1.55** — Generic world bootstrap (`POST /api/worlds`, empty
   auto-activated world, fresh UUID) + B2 premise reader: region manifest
   now reads the active world's `description` / `fundamental_laws`

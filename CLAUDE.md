@@ -296,7 +296,12 @@ World-genrator/
 │       │                    #   (A1), dropped (skip+log) if entity_id or amount
 │       │                    #   can't be resolved — same discipline as
 │       │                    #   relation_change; excluded from
-│       │                    #   _mutation_match_key (money leg accumulates)
+│       │                    #   _mutation_match_key (money leg accumulates);
+│       │                    # player-detection de-hardcoded (BRIEF-45, no schema
+│       │                    #   change): _normalize_to_schema's new_knowledge
+│       │                    #   player_hints set drops the literal "char-player"
+│       │                    #   in favour of _resolve_player_id(db, conv.world_id)
+│       │                    #   (character_type='player' scoped to conv's world)
 │       ├── resolution.py    # physical-action dice resolution (BRIEF-11, schema
 │       │                    #   v1.23): pure 2d6 + tier, no DB/model access;
 │       │                    #   Verdict {domain, dice, modifier, total, band};
@@ -431,6 +436,18 @@ World-genrator/
 │           │                #   same reasoning as the activate route; the
 │           │                #   created world is empty by construction (the
 │           │                #   route does only the one World insert);
+│           │                # De-hardcode char-player (BRIEF-45, no schema
+│           │                #   change): GET /api/bootstrap (read-only, opens
+│           │                #   no session) returns {world_id, player_id,
+│           │                #   current_location_id} — player_id resolved via
+│           │                #   crud._player_character_id (character_type=
+│           │                #   'player' scoped to the active world), fed to
+│           │                #   the static cockpit JS since index.html has no
+│           │                #   server-side templating; every other
+│           │                #   "char-player" default in app.py (start_conversation,
+│           │                #   get_scene, enter_scene, scene_join, scene_leave,
+│           │                #   travel) now resolves the same way instead of a
+│           │                #   literal;
 │           │                # MJ narration layer (_load_mj_narration_template);
 │           │                # MJ interpretation layer (ResponseMode incl. join,
 │           │                #   physical — BRIEF-11/v1.23),
@@ -621,8 +638,21 @@ World-genrator/
 │           │                #   org vocabulary); the list itself is written through
 │           │                #   the EXISTING composite entity PUT/POST (no new write
 │           │                #   code — `roles` rides the generic `metadata` JSON base
-│           │                #   field already coerced by _apply_base_fields)
+│           │                #   field already coerced by _apply_base_fields);
+│           │                # _player_character_id (BRIEF-45, no schema change):
+│           │                #   structural PC resolver, sibling to _world_id —
+│           │                #   `character_type='player'` scoped to the active
+│           │                #   world; raises "No player character in the active
+│           │                #   world." on a miss, never order-and-guesses;
+│           │                #   consumed by app.py's bootstrap route and every
+│           │                #   former "char-player" default
 │           └── index.html   # single-page UI; MJ narration rendering;
+│                            # loadBootstrap (BRIEF-45, no schema change):
+│                            #   awaited FIRST in DOMContentLoaded, calls GET
+│                            #   /api/bootstrap and stores WORLD_ID/PLAYER_ID
+│                            #   module-level JS state; every former literal
+│                            #   'char-player' (member-list/knowledge filters,
+│                            #   /api/entities/... paths) now reads PLAYER_ID;
 │                            # header world selector (BRIEF-43, schema v1.54):
 │                            #   loadWorldSelector / activateWorld — lists all
 │                            #   worlds, active one marked; selection, plus a
@@ -643,7 +673,9 @@ World-genrator/
 │                            #   two-mode shell (BRIEF-14, schema v1.27): Play
 │                            #   sub-tabs Discussion / Historique / Mes savoirs +
 │                            #   persistent "Tu incarnes : {name}" banner for
-│                            #   char-player; Création sub-tabs NPC / Personnage
+│                            #   the resolved player character (de-hardcoded
+│                            #   from the char-player literal, BRIEF-45 — see
+│                            #   loadBootstrap below); Création sub-tabs NPC / Personnage
 │                            #   joueur / Lieux / Factions / Objets / Artefacts
 │                            #   (read-only scaffold) / Review Queue (review queue
 │                            #   batch selection — per-row checkboxes on 'proposed'

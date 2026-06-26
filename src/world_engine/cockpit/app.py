@@ -958,6 +958,26 @@ def create_world(body: WorldCreateBody, db: Session = Depends(get_session)) -> d
     return {"ok": True, "world_id": new_world.id}
 
 
+# ── Bootstrap — resolved play context for the static cockpit JS (BRIEF-45) ────
+
+@app.get("/api/bootstrap")
+def get_bootstrap(db: Session = Depends(get_session)) -> dict:
+    """Resolved play context for index.html, which is served as a static file
+    with no server-side templating. Read-only; opens no session.
+
+    Returns the active world's id, the structurally-resolved player character
+    id (character_type='player'), and that character's current_location_id.
+    """
+    world_id = _crud._world_id(db)
+    player_id = _crud._player_character_id(db, world_id)
+    player_char = db.get(Character, player_id)
+    return {
+        "world_id": world_id,
+        "player_id": player_id,
+        "current_location_id": player_char.current_location_id if player_char else None,
+    }
+
+
 # ── Play loop — provisional creator entry point ───────────────────────────────
 # These three endpoints (npcs, conversations/start, say, end) form the play
 # loop introduced for browser-based conversations.  The NPC selector and
@@ -2141,12 +2161,12 @@ def start_conversation(
     Assembles the NPC context via assemble_npc_context (same as talk.py) and
     stores it in injected_context for audit and for the /say handler to reuse.
 
-    Defaults: player = char-player (Joran), location = loc-dernier-verre.
-    These defaults are the pilot setup; a future player view will pass explicit
-    IDs from the player's active session instead.
+    Defaults: player = the active world's resolved player character, location
+    = loc-dernier-verre. These defaults are the pilot setup; a future player
+    view will pass explicit IDs from the player's active session instead.
     """
     # Resolve defaults (pilot player / pilot location).
-    player_id   = body.player_id   or "char-player"
+    player_id   = body.player_id   or _crud._player_character_id(db, _crud._world_id(db))
     location_id = body.location_id or "loc-dernier-verre"
 
     npc_entity = db.get(Entity, body.npc_id)
@@ -3429,7 +3449,7 @@ def _scene_response(
 
 @app.get("/api/scene")
 def get_scene(
-    player_id: str = Query("char-player"),
+    player_id: Optional[str] = Query(None),
     db: Session = Depends(get_session),
 ) -> dict:
     """Current scene for the player's location: open gatherings + their rosters.
@@ -3437,6 +3457,7 @@ def get_scene(
     Read-only — never calls enter_location. Use POST /api/scene/enter to
     generate the gathering partition on a genuine location transition.
     """
+    player_id = player_id or _crud._player_character_id(db, _crud._world_id(db))
     char = db.get(Character, player_id)
     if char is None:
         raise HTTPException(status_code=404, detail=f"Player character {player_id!r} not found")
@@ -3450,7 +3471,7 @@ def get_scene(
 
 @app.post("/api/scene/enter")
 def enter_scene(
-    player_id: str = Query("char-player"),
+    player_id: Optional[str] = Query(None),
     db: Session = Depends(get_session),
 ) -> dict:
     """Enter the player's current location.
@@ -3464,6 +3485,7 @@ def enter_scene(
     Idempotent: calling enter again while open gatherings exist is a silent
     no-op that returns the existing partition.
     """
+    player_id = player_id or _crud._player_character_id(db, _crud._world_id(db))
     char = db.get(Character, player_id)
     if char is None:
         raise HTTPException(status_code=404, detail=f"Player character {player_id!r} not found")
@@ -3508,8 +3530,8 @@ def enter_scene(
 
 
 class SceneJoinBody(BaseModel):
-    player_text: str                # player's free-text join expression
-    player_id: str = "char-player"  # defaults to the pilot player
+    player_text: str                       # player's free-text join expression
+    player_id: Optional[str] = None        # defaults to the resolved player character
 
 
 @app.post("/api/scene/join")
@@ -3532,7 +3554,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
 
     Joining is not a canon mutation — no proposed_mutation row is produced.
     """
-    player_id     = body.player_id
+    player_id     = body.player_id or _crud._player_character_id(db, _crud._world_id(db))
     char          = db.get(Character, player_id)
     if char is None:
         raise HTTPException(status_code=404, detail=f"Player {player_id!r} not found")
@@ -3677,7 +3699,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
 
 @app.post("/api/scene/leave")
 def scene_leave(
-    player_id: str = Query("char-player"),
+    player_id: Optional[str] = Query(None),
     db: Session = Depends(get_session),
 ) -> dict:
     """Remove the player from their current gathering.
@@ -3688,6 +3710,7 @@ def scene_leave(
 
     Returns the updated scene so the UI can re-render directly.
     """
+    player_id = player_id or _crud._player_character_id(db, _crud._world_id(db))
     char = db.get(Character, player_id)
     if char is None:
         raise HTTPException(status_code=404, detail=f"Player {player_id!r} not found")
@@ -3892,7 +3915,7 @@ class TravelBody(BaseModel):
 @app.post("/api/travel")
 def travel(
     body: TravelBody,
-    player_id: str = Query("char-player"),
+    player_id: Optional[str] = Query(None),
     db: Session = Depends(get_session),
 ) -> dict:
     """Creator travel control — clean location transition (E1).
@@ -3905,6 +3928,7 @@ def travel(
     Travel to the current location is a no-op. Travel to an id that is not
     a location of the player's world is rejected with 400, no state change.
     """
+    player_id = player_id or _crud._player_character_id(db, _crud._world_id(db))
     char = db.get(Character, player_id)
     if char is None:
         raise HTTPException(status_code=404, detail=f"Player {player_id!r} not found")

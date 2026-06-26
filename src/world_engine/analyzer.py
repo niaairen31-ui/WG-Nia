@@ -34,6 +34,7 @@ from sqlmodel import Session, select
 
 from . import ollama_client
 from .models import (
+    Character,
     Conversation,
     ConversationMessage,
     Entity,
@@ -208,9 +209,20 @@ def _first_of(item: dict, *keys: str, default: Any = None) -> Any:
     return default
 
 
+def _resolve_player_id(db: Session, world_id: str) -> str | None:
+    """Resolve the active world's player character id (character_type='player')."""
+    char = db.exec(
+        select(Character)
+        .join(Entity, Entity.id == Character.id)
+        .where(Entity.world_id == world_id, Character.character_type == "player")
+    ).first()
+    return char.id if char else None
+
+
 def _normalize_to_schema(
     raw_item: Any,
     conv: Conversation,
+    db: Session,
 ) -> dict | None:
     """Map a model's natural output object to our ProposedMutation schema fields.
 
@@ -249,7 +261,8 @@ def _normalize_to_schema(
         if mt == "new_knowledge":
             # Infer who learned this from "subject"/"entity" field.
             subj = str(_first_of(item, "subject", "entity", default="")).lower()
-            player_hints = {"player", "joueur", "char-player", conv.player_id}
+            resolved_player_id = _resolve_player_id(db, conv.world_id)
+            player_hints = {"player", "joueur", conv.player_id, resolved_player_id} - {None}
             entity_id = (
                 conv.player_id if not subj or any(h in subj for h in player_hints)
                 else conv.npc_id
@@ -768,7 +781,7 @@ def analyze_window(
     now = datetime.now(UTC)
     mutations: list[ProposedMutation] = []
     for i, raw_item in enumerate(items):
-        normalized = _normalize_to_schema(raw_item, conv)
+        normalized = _normalize_to_schema(raw_item, conv, db)
         if normalized is None:
             print(f"[skip] Item {i}: normalization failed — {raw_item!r}")
             continue

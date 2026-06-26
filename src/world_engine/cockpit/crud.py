@@ -324,6 +324,20 @@ def _world_id(db: DbSession) -> str:
     return world.id
 
 
+def _player_character_id(db: DbSession, world_id: str) -> str:
+    char = db.exec(
+        select(Character)
+        .join(Entity, Entity.id == Character.id)
+        .where(
+            Entity.world_id == world_id,
+            Character.character_type == "player",
+        )
+    ).first()
+    if char is None:
+        raise HTTPException(status_code=400, detail="No player character in the active world.")
+    return char.id
+
+
 def _get_entity(db: DbSession, entity_id: str) -> Entity:
     entity = db.get(Entity, entity_id)
     if entity is None:

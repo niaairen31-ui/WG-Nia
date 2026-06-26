@@ -227,11 +227,15 @@ client-side display toggles (no server-side role gating).
   not present here.
 - *Historique* — the conversation list; clicking a conversation loads it and
   switches to Discussion.
-- *Mes savoirs* — read-only view of `char-player`'s knowledge rows (subject,
-  level, content, source). Fetched fresh on each activation.
+- *Mes savoirs* — read-only view of the resolved player character's knowledge
+  rows (subject, level, content, source). Fetched fresh on each activation.
 
-A persistent banner "Tu incarnes : {name}" shows the hardcoded pilot PC
-(`char-player`) across all Play sub-tabs. No PC-picker exists yet.
+A persistent banner "Tu incarnes : {name}" shows the active world's player
+character across all Play sub-tabs. Since BRIEF-45, this id is resolved
+structurally (`character_type='player'` scoped to the active world, via
+`GET /api/bootstrap`) rather than the literal `char-player` — resolution is
+now structural, but the picker/creation of a new PC is still pending (Brief
+3b); for now exactly one player row exists per world, unenforced.
 
 **Création** — seven sub-tabs:
 - *NPC* — character entities that are not player characters.

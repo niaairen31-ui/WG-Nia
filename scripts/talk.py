@@ -36,11 +36,23 @@ from world_engine.db import engine  # noqa: E402
 
 WORLD_ID = "verkhaal"
 NPC_ID = "npc-maelis"
-PLAYER_ID = "char-player"
 LOCATION_ID = "loc-dernier-verre"
 
 NPC_LABEL = "Maelis"
 PLAYER_LABEL = "Joran"
+
+
+def resolve_player_id(db: Session) -> str:
+    """Resolve the active world's player character structurally (character_type='player')."""
+    char = db.exec(
+        select(m.Character)
+        .join(m.Entity, m.Entity.id == m.Character.id)
+        .where(m.Entity.world_id == WORLD_ID, m.Character.character_type == "player")
+    ).first()
+    if char is None:
+        print("\n[error] No player character in the active world.")
+        sys.exit(1)
+    return char.id
 
 
 def load_npc_dialogue_prompt(db: Session) -> m.PromptTemplate:
@@ -109,24 +121,25 @@ def main() -> None:
 
     with Session(engine) as db:
         session_row = get_or_open_session(db)
+        player_id = resolve_player_id(db)
 
         # System prompt = universal behaviour template + Maelis's assembled
         # context. The model can only reveal what the context contains, and the
         # template hard-bans inventing anything beyond it.
         behaviour = load_npc_dialogue_prompt(db)
-        assembled_context = assemble_npc_context(NPC_ID, PLAYER_ID, LOCATION_ID, db)
+        assembled_context = assemble_npc_context(NPC_ID, player_id, LOCATION_ID, db)
         system_prompt = f"{behaviour.system_prompt}\n\n{assembled_context}"
         conversation = m.Conversation(
             world_id=WORLD_ID,
             session_id=session_row.id,
             location_id=LOCATION_ID,
-            player_id=PLAYER_ID,
+            player_id=player_id,
             npc_id=NPC_ID,
             status="open",
             injected_context={
                 "model": model,
                 "npc_id": NPC_ID,
-                "interlocutor_id": PLAYER_ID,
+                "interlocutor_id": player_id,
                 "location_id": LOCATION_ID,
                 "prompt_template_id": behaviour.id,
                 "behaviour_prompt": behaviour.system_prompt,
@@ -167,7 +180,7 @@ def main() -> None:
                     conversation_id=conversation.id,
                     turn_order=turn_order,
                     speaker="player",
-                    speaker_id=PLAYER_ID,
+                    speaker_id=player_id,
                     content=line,
                 )
             )

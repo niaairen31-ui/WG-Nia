@@ -1264,6 +1264,11 @@ let currentConvData  = null;   // full detail object from the server
 let currentFilter    = 'proposed';
 let _streamingActive = false;  // true while an NPC reply is in flight
 
+// Resolved play context (BRIEF-45) — populated by loadBootstrap() before any
+// other init call; never the literal "char-player".
+let WORLD_ID  = null;
+let PLAYER_ID = null;
+
 let currentCreationSubTab = 'npc';
 let playerCharIds = new Set();  // IDs of player-character entities (from /api/skills/player-characters)
 
@@ -1343,7 +1348,7 @@ function _renderScene(scene) {
     return;
   }
   listEl.innerHTML = scene.gatherings.map(g => {
-    const npcMembers = (g.members || []).filter(m => m.id !== 'char-player');
+    const npcMembers = (g.members || []).filter(m => m.id !== PLAYER_ID);
     const names = npcMembers.map(m => esc(m.name)).join(', ');
     return `<div class="scene-gathering-card">
       <div class="scene-gathering-label">${esc(g.label || '(groupe sans nom)')}</div>
@@ -1358,7 +1363,7 @@ function _renderScene(scene) {
   const joinLabel = joinArea.previousElementSibling; // .scene-join-label
   if (scene.player_gathering) {
     const g      = scene.player_gathering;
-    const others = (g.members || []).filter(m => m.id !== 'char-player').map(m => m.name).join(', ');
+    const others = (g.members || []).filter(m => m.id !== PLAYER_ID).map(m => m.name).join(', ');
     const convId = scene.active_conversation_id;
     joinLabel.textContent = 'Vous êtes dans ce groupe';
     joinArea.style.display = 'none';   // hide the textarea row
@@ -1457,7 +1462,7 @@ async function sceneJoin() {
       statusEl.textContent = 'Quel groupe souhaitez-vous rejoindre ?';
       candEl.style.display = 'flex';
       candEl.innerHTML = result.join_candidates.map(g => {
-        const names = (g.members || []).filter(m => m.id !== 'char-player').map(m => esc(m.name)).join(', ');
+        const names = (g.members || []).filter(m => m.id !== PLAYER_ID).map(m => esc(m.name)).join(', ');
         const label = esc(g.label || '(groupe sans nom)') + (names ? ' — ' + names : '');
         return `<button onclick="_scenePickGathering('${esc(g.id)}')">${label}</button>`;
       }).join('');
@@ -1495,7 +1500,7 @@ async function _scenePickGathering(gatheringId) {
     const sceneData = await api('/api/scene');
     const gathering = (sceneData.gatherings || []).find(g => g.id === gatheringId);
     if (!gathering) { statusEl.textContent = 'Groupe introuvable.'; return; }
-    const firstNpc = (gathering.members || []).find(m => m.id !== 'char-player');
+    const firstNpc = (gathering.members || []).find(m => m.id !== PLAYER_ID);
     if (!firstNpc) { statusEl.textContent = 'Ce groupe est vide.'; return; }
 
     // Pass the NPC name as the reference — always resolves to exactly one gathering.
@@ -2755,11 +2760,20 @@ function showPlaySubTab(tab) {
   if (tab === 'savoirs')    loadPlayerKnowledge();
 }
 
+/** Resolve world_id/player_id structurally before any other init call (BRIEF-45). */
+async function loadBootstrap() {
+  try {
+    const ctx = await api('/api/bootstrap');
+    WORLD_ID  = ctx.world_id;
+    PLAYER_ID = ctx.player_id;
+  } catch (_) {}
+}
+
 async function loadPlayerName() {
   try {
-    const entity = await api('/api/entities/char-player');
+    const entity = await api('/api/entities/' + PLAYER_ID);
     const el = document.getElementById('play-pc-name');
-    if (el) el.textContent = entity.name || 'char-player';
+    if (el) el.textContent = entity.name || PLAYER_ID;
   } catch (_) {}
 }
 
@@ -2767,7 +2781,7 @@ async function loadPlayerKnowledge() {
   const bodyEl = document.getElementById('savoirs-body');
   bodyEl.innerHTML = '<div class="empty"><span class="spin">⟳</span> Chargement…</div>';
   try {
-    const rows = await api('/api/entities/char-player/knowledge');
+    const rows = await api('/api/entities/' + PLAYER_ID + '/knowledge');
     if (!rows || !rows.length) {
       bodyEl.innerHTML = '<div class="empty">Aucun savoir enregistré pour votre personnage.</div>';
       return;
@@ -5246,7 +5260,8 @@ async function worldCreateSubmit() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadBootstrap(); // resolve world_id/player_id before anything that needs them
   loadScene();        // enter the player's location (idempotent, protects C1)
   loadPlayerName();   // populate "Tu incarnes" banner
   loadWorldSelector(); // populate the active-world dropdown
