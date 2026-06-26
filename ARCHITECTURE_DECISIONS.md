@@ -2882,6 +2882,34 @@ placeholder `BRIEF-NN` title.
 
 ---
 
+## PER-MODAL BACKDROP DISMISS (BRIEF-50, no schema change)
+
+**Outside-click on the generic modal shell (BRIEF-41) destroyed unsaved
+input in form-bearing modals.** The shared `generic-modal-backdrop` is
+dismissed on outside-click via an inline handler that always calls
+`genericModalClose()` (which clears `generic-modal-body.innerHTML`). Of the
+two `genericModalOpen` consumers, `worldCreateOpen` renders a creation FORM
+(name/description/fundamental_laws) — losing it to an accidental outside
+click is a bug — while `regionRenderSheet` renders a read-only entity sheet,
+where click-away dismissal is a harmless, useful affordance.
+
+**Fix is an opt-out flag, not a new mechanism.** `genericModalOpen(title,
+bodyHtml, options)` gained `options.dismissOnBackdrop` (default `true`,
+preserving existing behavior for every un-migrated caller). The flag is
+written to `generic-modal-backdrop.dataset.dismissOnBackdrop` on every open
+(no stale leak across modals — verified by opening the false-flag form, then
+the default-true sheet, in the same session) and read by the backdrop's
+existing `event.target === this` outside-click guard before calling
+`genericModalClose()`. `worldCreateOpen` now opens with `dismissOnBackdrop:
+false`; `regionRenderSheet` is untouched (keeps the default).
+
+**× and Escape are deliberately untouched** — both call `genericModalClose()`
+unconditionally for every consumer, including form modals. Only the
+*accidental* backdrop dismissal is gated; every modal retains at least one
+working explicit close path regardless of the flag's value.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

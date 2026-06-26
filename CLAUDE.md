@@ -742,6 +742,18 @@ World-genrator/
 │                            #   unchanged; regenerating just re-runs
 │                            #   worldGenerateDraft(), overwriting the fields
 │                            #   in place (no separate discard step);
+│                            #   per-modal backdrop dismiss (BRIEF-50, no schema
+│                            #   change): genericModalOpen(title, bodyHtml, options)
+│                            #   gains an options.dismissOnBackdrop flag (default
+│                            #   true), stored on generic-modal-backdrop's dataset
+│                            #   and re-set on every open (no stale leak across
+│                            #   modals); the backdrop's outside-click handler
+│                            #   checks it before calling genericModalClose() — ×
+│                            #   and Escape are untouched and always close. Form-
+│                            #   bearing modals should pass { dismissOnBackdrop:
+│                            #   false }; worldCreateOpen does so (outside-click no
+│                            #   longer destroys unsaved input); regionRenderSheet
+│                            #   keeps the default (click-away dismissal);
 │                            # Création → Personnage joueur "Créer un personnage
 │                            #   joueur" form (BRIEF-46, schema v1.57): minimal —
 │                            #   name + starting-location dropdown

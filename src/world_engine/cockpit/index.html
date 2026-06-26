@@ -5170,10 +5170,12 @@ async function graphLoad() {
    Generic modal (BRIEF-41) — reusable overlay, body swapped per use
    ════════════════════════════════════════════════════════════════════════════ */
 
-function genericModalOpen(title, bodyHtml) {
+function genericModalOpen(title, bodyHtml, options = {}) {
   document.getElementById('generic-modal-title').textContent = title;
   document.getElementById('generic-modal-body').innerHTML = bodyHtml;
-  document.getElementById('generic-modal-backdrop').classList.remove('hidden');
+  const backdrop = document.getElementById('generic-modal-backdrop');
+  backdrop.dataset.dismissOnBackdrop = options.dismissOnBackdrop === false ? 'false' : 'true';
+  backdrop.classList.remove('hidden');
 }
 
 function genericModalClose() {
@@ -5361,7 +5363,7 @@ function worldCreateOpen() {
     </div>
     <div id="world-create-status" style="color:var(--red); margin-top:6px;"></div>
     <button class="btn-send" style="margin-top:8px" onclick="worldCreateSubmit()">Créer et activer</button>
-  `);
+  `, { dismissOnBackdrop: false });
 }
 
 async function worldCreateSubmit() {
@@ -5433,7 +5435,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 </script>
 
-<div id="generic-modal-backdrop" class="modal-backdrop hidden" onclick="if (event.target === this) genericModalClose()">
+<div id="generic-modal-backdrop" class="modal-backdrop hidden" onclick="if (event.target === this && this.dataset.dismissOnBackdrop !== 'false') genericModalClose()">
   <div class="modal-container">
     <div class="modal-header">
       <span id="generic-modal-title" class="modal-title"></span>
