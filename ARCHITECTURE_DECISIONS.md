@@ -2764,16 +2764,65 @@ ordinary non-secret world config reaching a prompt, the same category as
 as precedent for injecting other, non-public world state into prompts.
 
 **Deferred, named:**
-- **B3 — model-authored bible.** A generator that fills `description` /
-  `fundamental_laws` automatically from a short creator brief, instead of
-  the creator typing them verbatim. Sits directly on top of this reader —
-  no reader-side change anticipated.
+- **B3 — model-authored bible.** Resolved by BRIEF-47 (see "WORLD-BIBLE
+  GENERATOR — B3" below) — sat directly on top of this reader, no
+  reader-side change was needed.
 - **Bible editing.** `description` / `fundamental_laws` are set-at-creation
   only; no `PATCH`/edit route exists yet for an already-created world's
-  premise.
+  premise. Still deferred after BRIEF-47 — the generator only feeds the
+  create-time form, it does not add an edit path.
 - **Region provenance (D2).** Entities generated into a world remain flat;
   no `region` table or `region_id` tags which generation pass produced
   what. Unaffected by this step.
+
+---
+
+## WORLD-BIBLE GENERATOR — B3 (BRIEF-47, no schema change)
+
+**Resolves the B3 deferral above.** A creator-side draft generator that
+turns a one-line seed into a `description` / `fundamental_laws` draft,
+pre-fills the existing "Nouveau monde" create form, and commits through the
+**unchanged** `POST /api/worlds` (`create_world`) — same shape as the B2
+decision: build the smallest thing that fills already-existing, already-read
+fields, not a parallel mechanism.
+
+**Sibling to `generate_entity_draft`, not routed through it.**
+`entity_author.generate_world_draft(brief, db)` mirrors the entity-author
+propose flow (`AUTHOR_MODEL`, `chat(..., format="json")`, JSON parse,
+notes-on-drop) but is its own function: `World` is not an `entity` row (no
+`entity_id` FK), so it can never ride `_create_entity_core`, and there is no
+`_TYPE_FIELDS["world"]` entry — adding one would have been the wrong seam.
+`db` is strictly read-only inside this function: its only use is the new
+`pt-world-generation` template lookup (`_load_world_template`, mirroring
+`_load_template`). Unlike `region_author.generate_region_manifest`, this
+function *creates* a world, so there is no existing premise to read or
+inject — the asymmetry with B2's reader is intentional, not an oversight.
+
+**`fundamental_laws` flattening is structural, not a frontend concern.** The
+model is prompted to return `fundamental_laws` as a JSON array of short,
+world-spanning constraints; `generate_world_draft` flattens that array in
+Python to a numbered, newline-joined string (`"1. ...\n2. ..."`) before
+returning. The draft value that reaches the form — and, once created, the
+exact value `region_author.py`'s premise reader later loads — is always a
+flat `str`, never a list/dict/Python-repr. A non-list `fundamental_laws`
+from the model is dropped with a note rather than coerced.
+
+**`POST /api/worlds/generate`** (`cockpit/app.py`, beside
+`POST /api/entities/generate` — same no-canon-write neighborhood, same
+reasoning: this route writes nothing, so it stays out of `crud.py`)
+delegates only to `generate_world_draft`. The frontend mounts a "Générer
+avec l'IA" panel *inside* the existing `worldCreateOpen()` modal (not a
+separate modal) so the three pre-filled fields are the exact same inputs
+`worldCreateSubmit()` already reads — that submit function, `create_world`,
+and `WorldCreateBody` needed zero changes. Regenerating re-runs the same
+call and overwrites the fields in place; there is no separate "discard"
+step because the fields are ordinary editable inputs.
+
+**Verified end-to-end** against the live cockpit with Ollama
+(`llama3.1:8b`): seed → generate → edit a field → create → the new world's
+premise renders into a region manifest generation identically to a
+hand-typed world's, confirming the B2 reader needed no change; a second
+"Générer" on a different seed fully overwrote the first draft.
 
 ---
 

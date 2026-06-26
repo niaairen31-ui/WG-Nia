@@ -355,7 +355,21 @@ World-genrator/
 │       │                    #   types ("character", "location", "faction"
 │       │                    #   populated; item/artifact not); never raises —
 │       │                    #   returns {"ok": false, "error": ...} on any
-│       │                    #   failure
+│       │                    #   failure;
+│       │                    #   generate_world_draft(brief, db) (BRIEF-47, no
+│       │                    #   schema change): sibling propose function, NOT
+│       │                    #   a _TYPE_FIELDS entry — World has no entity_id
+│       │                    #   FK, never touches _create_entity_core; db is
+│       │                    #   read-only (sole use: the pt-world-generation
+│       │                    #   template lookup); prompts the model for
+│       │                    #   fundamental_laws as a JSON array, then
+│       │                    #   flattens it in Python to a numbered
+│       │                    #   newline-joined string before returning —
+│       │                    #   the draft's fundamental_laws is ALWAYS a flat
+│       │                    #   str; returns the same {"ok","draft","notes"}
+│       │                    #   envelope shape as generate_entity_draft, with
+│       │                    #   draft = {"public": {"name","description",
+│       │                    #   "fundamental_laws"}, "secret": {}}
 │       ├── region_author.py # Region orchestrator, chantier 1 (BRIEF-34,
 │       │                    #   schema v1.45), split into a two-phase
 │       │                    #   creator checkpoint (BRIEF-38, schema v1.49):
@@ -436,6 +450,13 @@ World-genrator/
 │           │                #   same reasoning as the activate route; the
 │           │                #   created world is empty by construction (the
 │           │                #   route does only the one World insert);
+│           │                # World-bible generator (BRIEF-47, no schema
+│           │                #   change): POST /api/worlds/generate
+│           │                #   (WorldGenerateBody — brief) delegates ONLY to
+│           │                #   entity_author.generate_world_draft; writes
+│           │                #   nothing; deliberately beside
+│           │                #   POST /api/entities/generate, not in crud.py,
+│           │                #   same no-canon-write reasoning;
 │           │                # De-hardcode char-player (BRIEF-45, no schema
 │           │                #   change): GET /api/bootstrap (read-only, opens
 │           │                #   no session) returns {world_id, player_id,
@@ -686,7 +707,18 @@ World-genrator/
 │                            #   /api/worlds with name + optional description/
 │                            #   fundamental_laws, then refreshes the selector
 │                            #   — the new world is already active server-side);
-│                            #   no delete;
+│                            #   no delete; "Générer avec l'IA" seed panel
+│                            #   (BRIEF-47, no schema change), mounted INSIDE
+│                            #   the same modal, above the name/description/
+│                            #   laws fields: worldGenerateDraft() POSTs
+│                            #   {brief} to /api/worlds/generate, then
+│                            #   worldApplyDraft() pre-fills the SAME
+│                            #   world-create-name/-description/-laws inputs
+│                            #   worldCreateSubmit() already reads — that
+│                            #   submit function and POST /api/worlds are
+│                            #   unchanged; regenerating just re-runs
+│                            #   worldGenerateDraft(), overwriting the fields
+│                            #   in place (no separate discard step);
 │                            # Création → Personnage joueur "Créer un personnage
 │                            #   joueur" form (BRIEF-46, schema v1.57): minimal —
 │                            #   name + starting-location dropdown
@@ -954,8 +986,8 @@ prepend `src` to `sys.path`, so they run without an editable install.
 - **Re-seeding prompts:** `python scripts/seed_pilot.py` uses `upsert_prompt_template`
   for `pt-npc-dialogue`, `pt-mj-narration`, `pt-mj-interpretation`, `pt-mj-gathering`,
   `pt-mj-speaker`, `pt-mj-initiative`, `pt-npc-initiative-act`, `pt-mj-arbiter`,
-  `pt-mj-establishment`, `pt-entity-generation`, `pt-region-manifest`, and
-  `pt-region-manifest-topup` — re-running the seed converges the DB to the
+  `pt-mj-establishment`, `pt-entity-generation`, `pt-world-generation`,
+  `pt-region-manifest`, and `pt-region-manifest-topup` — re-running the seed converges the DB to the
   latest wording without losing other data.
 
 ---

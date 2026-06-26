@@ -100,6 +100,15 @@ def _load_template(db: Session) -> PromptTemplate | None:
     return db.exec(stmt).first()
 
 
+def _load_world_template(db: Session) -> PromptTemplate | None:
+    stmt = (
+        select(PromptTemplate)
+        .where(PromptTemplate.usage == "world_generation")
+        .where(PromptTemplate.is_active == True)  # noqa: E712
+    )
+    return db.exec(stmt).first()
+
+
 def _world_id(db: Session) -> str | None:
     world = db.exec(select(World)).first()
     return world.id if world is not None else None
@@ -391,5 +400,87 @@ def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
             "creator_meta": secret_in.get("creator_meta") or None,
             "shared_with": shared_with_rows,
         },
+    }
+    return {"ok": True, "draft": draft, "notes": notes}
+
+
+def generate_world_draft(brief: str, db: Session) -> dict:
+    """Generate a pre-fill draft for the world-create modal (BRIEF-47).
+
+    Pure generate-and-return: writes no canon anywhere in this function or
+    its call path — World is not an `entity` row, so this never touches
+    `_create_entity_core`. `db` is read-only here: its single use is the
+    `pt-world-generation` template lookup. Never raises into the caller —
+    every failure mode (missing template, unreachable model, malformed
+    JSON, empty parse) returns {"ok": False, "error": "<reason>"}. On
+    success returns {"ok": True, "draft": {"public": {"name",
+    "description", "fundamental_laws"}, "secret": {}}, "notes": [...]} —
+    same top-level shape as `generate_entity_draft`.
+
+    Unlike `region_author.generate_region_manifest`, this function creates
+    a NEW world, so there is no existing world premise to read or inject
+    here — that asymmetry is intentional.
+    """
+    if not brief or not brief.strip():
+        return {"ok": False, "error": "brief must not be empty"}
+
+    template = _load_world_template(db)
+    if template is None:
+        return {"ok": False, "error": "No active pt-world-generation template found"}
+
+    try:
+        user_message = template.user_template.format(brief=brief)
+    except (KeyError, IndexError) as exc:
+        return {"ok": False, "error": f"Template formatting failed: {exc}"}
+
+    messages = [
+        {"role": "system", "content": template.system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+    try:
+        raw = chat(messages, model=AUTHOR_MODEL, format="json")
+    except OllamaError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {"ok": False, "error": "Model returned non-JSON output"}
+
+    if not isinstance(parsed, dict) or not parsed:
+        return {"ok": False, "error": "Model returned an empty or malformed draft"}
+
+    public_in = parsed.get("public")
+    public_in = public_in if isinstance(public_in, dict) else {}
+
+    notes: list[str] = []
+
+    name = public_in.get("name") or ""
+    if not name:
+        notes.append("Aucun nom de monde proposé — champ laissé vide")
+    description = public_in.get("description") or ""
+    if not description:
+        notes.append("Aucune description de monde proposée — champ laissé vide")
+
+    laws_raw = public_in.get("fundamental_laws")
+    if laws_raw is None:
+        laws = []
+    elif isinstance(laws_raw, list):
+        laws = [str(item).strip() for item in laws_raw if str(item).strip()]
+    else:
+        notes.append(
+            "Lois fondamentales reçues dans un format inattendu — ignorées"
+        )
+        laws = []
+    fundamental_laws_str = "\n".join(f"{i + 1}. {law}" for i, law in enumerate(laws))
+
+    draft = {
+        "public": {
+            "name": name,
+            "description": description,
+            "fundamental_laws": fundamental_laws_str,
+        },
+        "secret": {},
     }
     return {"ok": True, "draft": draft, "notes": notes}

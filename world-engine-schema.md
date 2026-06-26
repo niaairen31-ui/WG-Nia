@@ -941,6 +941,27 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.58** — World-bible generator (BRIEF-47): one-line seed → AI draft →
+  pre-fills the existing "Nouveau monde" create form → unchanged
+  `POST /api/worlds` accept. `entity_author.generate_world_draft(brief, db)`
+  is a sibling to `generate_entity_draft`, not routed through it (World has
+  no `entity_id` FK, so it is not a `_TYPE_FIELDS` entry); `db` is
+  read-only there — its only use is the new `pt-world-generation` prompt
+  template lookup. The model is prompted for `fundamental_laws` as a JSON
+  array of short, world-spanning constraints; the function flattens it in
+  Python to a numbered newline-joined string before returning, so the value
+  reaching the form (and later the region-manifest reader) is always a flat
+  string, never a list/dict. New route `POST /api/worlds/generate`
+  (`app.py`, alongside `POST /api/entities/generate`) delegates only to
+  `generate_world_draft` — writes nothing. New `index.html` "Générer avec
+  l'IA" seed panel lives inside the existing `worldCreateOpen()` modal;
+  `worldGenerateDraft()`/`worldApplyDraft()` pre-fill the same
+  `world-create-name` / `-description` / `-laws` fields `worldCreateSubmit()`
+  already reads — that submit function, `create_world`, and `WorldCreateBody`
+  are untouched. No new World column, no edit/PATCH route — set-at-creation
+  only. **No schema change** — additive `prompt_template` seed row only
+  (`pt-world-generation`, `usage="world_generation"`, seeded via
+  `scripts/seed_pilot.py`'s existing idempotent upsert).
 - **v1.57** — Create-PC path: `POST /api/characters/player` (name +
   starting location, binds to the creator user, mirrors seed skill seeding)
   + `idx_character_one_pc_per_user_world` partial-unique (one PC per user

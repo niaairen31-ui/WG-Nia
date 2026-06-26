@@ -765,6 +765,48 @@ Intention du créateur : {brief}
 Brouillon JSON :\
 """
 
+# BRIEF-47: World-bible generator. usage = "world_generation". Creator-side
+# draft generator for a NEW world's premise — entity_author.generate_world_draft
+# formats this user_template with only {brief} (no {type_fields}: a world
+# isn't typed, and unlike region_author there is no existing world premise to
+# read, since this function creates one). World is not an `entity` row, so
+# this is a separate template from pt-entity-generation, not a _TYPE_FIELDS
+# entry. system_prompt is passed verbatim. world_id = NULL.
+WORLD_GENERATION_SYSTEM_PROMPT = """\
+Tu es l'assistant de création du créateur d'un monde de jeu de rôle. Le \
+créateur te donne une intention en une phrase pour un monde ENTIER ; ton \
+travail est de proposer un brouillon de PRÉMISSE cohérent que le créateur \
+relira et éditera avant de créer le monde. Tu ne crées rien toi-même — tu \
+proposes seulement, et le créateur juge.
+
+=== STRUCTURE — UN SEUL BLOC, PUBLIC ===
+Ta réponse est TOUJOURS un objet JSON avec exactement une clé de premier \
+niveau : "public", contenant exactement trois champs :
+- "name" (string) : un nom de monde court et évocateur.
+- "description" (string) : 2 à 4 phrases — genre, ton, géographie générale.
+- "fundamental_laws" (tableau de strings) : 0 à 6 contraintes ABSOLUES qui \
+s'appliquent à tout le monde (ex. « La magie n'existe pas dans ce monde. », \
+« Aucune divinité n'intervient directement. »). Chaque loi est une phrase \
+courte et générale — jamais un fait propre à un personnage, un lieu ou une \
+faction précis (cela relève d'une génération de région ou d'entité, pas du \
+monde).
+
+=== RÈGLE — NE RIEN INVENTER HORS DE L'INTENTION ===
+Réponds à l'intention donnée sans ajouter de factions, lieux ou personnages \
+nommés — un monde à cette étape n'a encore aucun contenu, seulement une \
+prémisse.
+
+=== FORMAT DE SORTIE ===
+Réponds UNIQUEMENT avec l'objet JSON demandé — aucun texte avant ou après, \
+aucun bloc de code Markdown, aucun commentaire.\
+"""
+
+WORLD_GENERATION_USER_TEMPLATE = """\
+Intention du créateur : {brief}
+
+Brouillon JSON :\
+"""
+
 # BRIEF-34: Region orchestrator, Stage 0 — manifest. usage = "region_manifest".
 # Transforms a free-text creator region brief into a single structured JSON
 # manifest (concept + factions/locations/NPCs by name, with by-name
@@ -1268,6 +1310,24 @@ def seed(session: Session) -> None:
         system_prompt=ENTITY_GENERATION_SYSTEM_PROMPT,
         user_template=ENTITY_GENERATION_USER_TEMPLATE,
         variables=["entity_type", "type_fields", "brief"],
+        destination="local",
+        version=1,
+    )
+
+    # ----- prompt template: world-bible generator (BRIEF-47) -----------------
+    # usage = "world_generation" (new usage value). world_id = NULL. Calls go
+    # through entity_author.generate_world_draft, which formats user_template
+    # with only {brief} and never writes canon — World is not an `entity` row,
+    # so this is a sibling generator, not a _TYPE_FIELDS entry.
+    upsert_prompt_template(
+        session,
+        "pt-world-generation",
+        world_id=None,
+        name="Assistant de création de monde — brouillon de prémisse",
+        usage="world_generation",
+        system_prompt=WORLD_GENERATION_SYSTEM_PROMPT,
+        user_template=WORLD_GENERATION_USER_TEMPLATE,
+        variables=["brief"],
         destination="local",
         version=1,
     )

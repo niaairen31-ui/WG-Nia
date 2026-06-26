@@ -38,6 +38,7 @@ from sqlmodel import Session, select
 
 from .. import ollama_client
 from ..entity_author import generate_entity_draft as _generate_entity_draft
+from ..entity_author import generate_world_draft as _generate_world_draft
 from ..region_author import generate_region_draft as _generate_region_draft
 from ..region_author import generate_region_manifest as _generate_region_manifest
 from ..gathering import enter_location as _enter_location
@@ -111,6 +112,25 @@ def generate_entity(
     failure — see entity_author.generate_entity_draft.
     """
     return _generate_entity_draft(body.entity_type, body.brief, db)
+
+
+class WorldGenerateBody(BaseModel):
+    brief: str
+
+
+@app.post("/api/worlds/generate")
+def generate_world(
+    body: WorldGenerateBody,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Creator-side AI world-premise draft generator (BRIEF-47).
+
+    Deliberately NOT in crud.py and NOT routed through generate_entity:
+    World has no entity_id FK, so it is not an entity type. Writes
+    nothing — delegates only to entity_author.generate_world_draft.
+    Returns {"ok": false, "error": ...} (never a 500) on any failure.
+    """
+    return _generate_world_draft(body.brief, db)
 
 
 class RegionGenerateBody(BaseModel):
