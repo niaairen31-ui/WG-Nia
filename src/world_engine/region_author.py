@@ -27,6 +27,7 @@ drops and continues).
 from __future__ import annotations
 
 import json
+import unicodedata
 from typing import Any
 
 from sqlmodel import Session, select
@@ -62,6 +63,16 @@ def _load_manifest_topup_template(db: Session) -> PromptTemplate | None:
 # ── Stage 0 — manifest parsing (code judges, mirroring the atomic parsers) ──
 
 
+def _name_key(name: str) -> str:
+    """Normalize a name for dedup comparison only — apostrophe/whitespace/
+    accent-composition variants of the same name fold to one key. The
+    surviving row keeps its original, unnormalized name (RECON H1 fix)."""
+    s = unicodedata.normalize("NFC", name)
+    s = s.replace("’", "'").replace("ʼ", "'").replace("`", "'")
+    s = " ".join(s.split())
+    return s.lower()
+
+
 def _dedupe_by_name(raw: Any, label: str, notes: list[str]) -> list[dict]:
     """Drop later case-insensitive duplicate names within one manifest list."""
     rows: list[dict] = []
@@ -74,7 +85,7 @@ def _dedupe_by_name(raw: Any, label: str, notes: list[str]) -> list[dict]:
         name = item.get("name")
         if not isinstance(name, str) or not name.strip():
             continue
-        key = name.strip().lower()
+        key = _name_key(name)
         if key in seen:
             notes.append(f"{label} dupliqué ignoré : '{name}'")
             continue

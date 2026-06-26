@@ -2677,6 +2677,30 @@ there without restructuring, but no editing is built now.
 
 ---
 
+## REGION DEDUP NAME-KEY HARDENING — bugfix (BRIEF-42, schema v1.53)
+
+RECON (`RECON-duplicate-npc-name`) found two NPCs both named "Lysandra la
+Sagesse" surviving in one region draft. Verdict H1: `_dedupe_by_name`'s
+comparison key (`name.strip().lower()`, `region_author.py`) only trims
+outer whitespace and case-folds — it has no defense against
+apostrophe-glyph variants (`'` U+0027 vs `'` U+2019/U+02BC), inner/
+non-breaking whitespace differences, or Unicode accent-composition
+differences, so two byte-different renderings of the same name both
+survive. H2 was ruled out: the A1 top-up merge and the Phase-B re-submit
+both correctly re-run `_normalize_manifest`/`_dedupe_by_name` over the
+full merged list — that wiring was already correct, root cause was the
+weak key, not the merge path.
+
+**Fix.** A module-level `_name_key(name)` (NFC normalize, fold apostrophe
+variants to `'`, collapse inner whitespace incl. NBSP, lowercase) replaces
+the raw key inside `_dedupe_by_name`. Behavior is unchanged: still
+global-by-name, first-occurrence-wins, drop-later + note; the kept row's
+stored `name` stays byte-for-byte the original. `_dedupe_by_name` is
+shared across NPCs/factions/locations, so all three get the same
+hardening. No schema/route/canon change.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

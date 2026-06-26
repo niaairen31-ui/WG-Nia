@@ -921,6 +921,21 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.53** — Bugfix: harden the region manifest dedup comparison key,
+  `_name_key` (BRIEF-42). **No schema/table/route/canon change.**
+  `_dedupe_by_name` (`region_author.py`) deduped NPC/faction/location names
+  on `name.strip().lower()` only, so byte-different renderings of the same
+  name — apostrophe glyph (`'` U+0027 vs `'` U+2019/U+02BC), inner/
+  non-breaking whitespace, Unicode accent-composition (NFC) — both survived
+  as separate rows (RECON `RECON-duplicate-npc-name`, verdict H1; H2 — the
+  A1 top-up merge and Phase-B re-submit's `_normalize_manifest` re-run —
+  ruled out, that wiring was already correct). Fix: new module-level
+  `_name_key(name)` (NFC normalize, fold apostrophe variants to `'`,
+  collapse inner whitespace, lowercase) replaces the raw key. Behavior
+  unchanged: still global-by-name, first-occurrence-wins, drop-later +
+  note; the surviving row's stored `name` is still the original,
+  unnormalized string. Shared helper, so factions and locations get the
+  same hardening.
 - **v1.52** — Region review: read-only full-sheet modal, R4a (BRIEF-41).
   **Client-only, no schema/table/route/canon change.** `cockpit/index.html`
   gains a single reusable modal (backdrop + container + swappable body) and
