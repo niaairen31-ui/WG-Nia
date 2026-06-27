@@ -2910,6 +2910,62 @@ working explicit close path regardless of the flag's value.
 
 ---
 
+## LIEUX HIERARCHY BROWSE (BRIEF-51, no schema change)
+
+**Locked design.** Per-level type grouping (A1): each screen groups the
+current node's children into `LOCATION_TYPE_ORDER` buckets, not a single
+flat list. Breadcrumb replace (B1): descending overwrites the rail in place
+with the children screen; a breadcrumb trail (always starting at "Racine")
+provides the way back — no separate flat-list view, no modal stack. `room`
+is vocabulary + display-order only (C1): it is appended to the creator CRUD
+`location_type` datalist and given a position in `LOCATION_TYPE_ORDER`
+between `building` and `natural` — nothing else changes. No structural
+parent-type constraint exists or is scaffolded; `parent_location_id` stays a
+free tree, and the region generator (`entity_author.py`) is untouched —
+`room` is creator-CRUD-only, never offered to the generator. In-place
+replacement of the existing *Lieux* rail (D1): the browse IS the rail for
+that sub-tab, not an added panel. Dedicated read-only endpoint (E1):
+`GET /api/locations`, separate from `GET /api/locations/graph` (the SVG map
+panel, untouched) and from `GET /api/entities` (which carries neither
+`parent_location_id` nor `location_type`). All statuses returned (F2): the
+endpoint applies no `status` filter (unlike the graph endpoint), and the
+default "Actifs seulement" toggle is OFF. Dimmed + status pill, plus a
+toggle (G2): a non-active node always renders with a `dimmed` class and a
+literal status-string pill; the separate "Actifs seulement" checkbox is the
+only filter, no per-status colour coding. Traverse-through preserved (H2):
+toggling "Actifs seulement" ON hides a node only when it is non-active AND
+has no active descendant (`lieuxHasActiveDescendant`, recursive with a
+`visited` guard against malformed cycles) — a non-active building containing
+an active room stays visible (dimmed) and traversable.
+
+**Orphan locations surface at root, never disappear.** A location whose
+`parent_location_id` points to an id absent from the fetched tree (soft-
+deleted parent, cross-world leftover, etc.) is treated as a root child
+(`lieuxChildrenOf(null)` matches `!parent_location_id || !knownIds.has(...)`)
+— it is never silently dropped from the browse.
+
+**Creator browse intentionally shows what player-facing context never
+would.** `GET /api/locations` applies no `is_public` filter, matching
+`list_entities`'s existing behavior — this is the creator's own management
+surface, not a context assembled for a model or a player. Secret structural
+exclusion (`character.secrets`, `knowledge.is_secret`) governs NPC prompt
+assembly and is not implicated here.
+
+**Active-world scoping is the chokepoint defended.** `GET /api/locations`
+filters `Entity.world_id == _world_id(db)` exactly like `list_entities` and
+the graph endpoint, placed immediately adjacent to
+`GET /api/locations/graph` in `crud.py` to keep the two read patterns
+visually comparable. The endpoint is read-only end to end — no
+`_apply_mutation` call, no `change_history` write, no canon mutation of any
+kind.
+
+**No server-side persistence of browse state.** `lieuxBrowseParentId`,
+`lieuxBreadcrumb`, and `lieuxActiveOnly` are client view-state only, reset
+when the *Lieux* sub-tab is freshly entered — consistent with the project's
+no-draft-persistence doctrine elsewhere in the cockpit.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

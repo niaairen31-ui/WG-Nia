@@ -830,6 +830,62 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 .author-list-item .ali-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .author-list-item.inactive .ali-name { opacity: 0.5; text-decoration: line-through; }
 
+/* ── Lieux hierarchy browse (BRIEF-51) ───────────────────────────────────── */
+.lieux-browse-head {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lieux-browse-head .field-row.checkbox { margin: 0; }
+.lieux-breadcrumb { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px; }
+.lieux-breadcrumb .lb-seg { cursor: pointer; color: var(--accent); }
+.lieux-breadcrumb .lb-seg:hover { text-decoration: underline; }
+.lieux-breadcrumb .lb-sep { color: var(--muted); }
+.lieux-breadcrumb .lb-current { color: var(--text); cursor: default; }
+.lieux-bucket-head {
+  padding: 6px 14px 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.lieux-node-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 14px;
+}
+.lieux-node-row .ali-name-btn {
+  flex: 1;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 7px 0;
+  color: var(--text);
+  font-size: 13px;
+}
+.lieux-node-row .ali-name-btn:hover { text-decoration: underline; }
+.lieux-node-row.dimmed .ali-name-btn { opacity: 0.5; }
+.lieux-status-pill {
+  font-size: 10px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1px 6px;
+}
+.lieux-descend-btn {
+  font-size: 11px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lieux-descend-btn:hover { color: var(--accent); }
+
 .row-table { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
 .row-card {
   background: var(--card);
@@ -2733,6 +2789,18 @@ let authorTypeFilter  = '';    // '' = all types
 let authorEntityId    = null;  // currently displayed entity id, or null when creating
 let authorEntityType  = null;  // type of the entity currently displayed
 
+/* Lieux hierarchy browse (BRIEF-51, no schema change) — read-only
+ * GET /api/locations tree + client view-state only (no server persistence). */
+let authorLocationTree = [];     // [{id, name, parent_location_id, location_type, status}, ...]
+const LOCATION_TYPE_ORDER = ['city', 'district', 'building', 'room', 'natural', 'underground', 'other'];
+const LOCATION_TYPE_LABELS = {
+  city: 'Villes', district: 'Quartiers', building: 'Bâtiments', room: 'Pièces',
+  natural: 'Lieux naturels', underground: 'Souterrains', other: 'Autres',
+};
+let lieuxBrowseParentId = null;  // current node id; null = root
+let lieuxBreadcrumb     = [];    // [{id, name}, ...] root → current
+let lieuxActiveOnly     = false; // "Actifs seulement" toggle (F2 default off)
+
 /* AI entity-authoring assistant (BRIEF-24) — draft state for the in-creation
  * NPC form. The entity doesn't exist yet, so secret.knowledge rows are held
  * here in memory (pendingDraftKnowledge) and only POSTed to
@@ -2850,6 +2918,10 @@ function showCreationSubTab(tab) {
   if (isEditorTab && prev !== tab) {
     authorEntityId   = null;
     authorEntityType = null;
+    if (tab === 'lieux') {
+      lieuxBrowseParentId = null;
+      lieuxBreadcrumb = [];
+    }
     const titleEl = document.getElementById('author-sheet-title');
     const mainEl  = document.getElementById('author-main');
     if (titleEl) titleEl.textContent = 'Sélectionner une entité';
@@ -3446,6 +3518,10 @@ async function creationInit() {
 function creationRenderEntityList() {
   const listEl = document.getElementById('author-entity-list');
   if (!listEl) return;
+  if (currentCreationSubTab === 'lieux') {
+    renderLieuxBrowse();
+    return;
+  }
   let entities = [];
   switch (currentCreationSubTab) {
     case 'npc':
@@ -3453,9 +3529,6 @@ function creationRenderEntityList() {
       break;
     case 'pj':
       entities = authorAllEntities.filter(e => e.type === 'character' && playerCharIds.has(e.id));
-      break;
-    case 'lieux':
-      entities = authorAllEntities.filter(e => e.type === 'location');
       break;
     case 'factions':
       entities = authorAllEntities.filter(e => e.type === 'faction');
@@ -3483,16 +3556,126 @@ function authorRenderEntityList() {
   creationRenderEntityList();
 }
 
+/* ── Lieux hierarchy browse (BRIEF-51) ───────────────────────────────────── */
+
+function lieuxHasActiveDescendant(nodeId, visited) {
+  visited = visited || new Set();
+  if (visited.has(nodeId)) return false;
+  visited.add(nodeId);
+  const children = authorLocationTree.filter(l => l.parent_location_id === nodeId);
+  for (const child of children) {
+    if (child.status === 'active') return true;
+    if (lieuxHasActiveDescendant(child.id, visited)) return true;
+  }
+  return false;
+}
+
+function lieuxChildrenOf(parentId) {
+  const knownIds = new Set(authorLocationTree.map(l => l.id));
+  let children;
+  if (parentId == null) {
+    children = authorLocationTree.filter(l => !l.parent_location_id || !knownIds.has(l.parent_location_id));
+  } else {
+    children = authorLocationTree.filter(l => l.parent_location_id === parentId);
+  }
+  if (lieuxActiveOnly) {
+    children = children.filter(l => l.status === 'active' || lieuxHasActiveDescendant(l.id));
+  }
+  return children;
+}
+
+function lieuxDescend(id, name) {
+  lieuxBreadcrumb.push({ id, name });
+  lieuxBrowseParentId = id;
+  renderLieuxBrowse();
+}
+
+function lieuxJumpTo(index) {
+  if (index < 0) {
+    lieuxBrowseParentId = null;
+    lieuxBreadcrumb = [];
+  } else {
+    lieuxBreadcrumb = lieuxBreadcrumb.slice(0, index + 1);
+    lieuxBrowseParentId = lieuxBreadcrumb[lieuxBreadcrumb.length - 1].id;
+  }
+  renderLieuxBrowse();
+}
+
+function lieuxToggleActiveOnly() {
+  lieuxActiveOnly = !lieuxActiveOnly;
+  renderLieuxBrowse();
+}
+
+function renderLieuxBrowse() {
+  const listEl = document.getElementById('author-entity-list');
+  if (!listEl) return;
+
+  const breadcrumbHtml = [
+    `<span class="lb-seg ${lieuxBrowseParentId == null ? 'lb-current' : ''}" onclick="lieuxJumpTo(-1)">Racine</span>`,
+    ...lieuxBreadcrumb.map((seg, i) => {
+      const isCurrent = i === lieuxBreadcrumb.length - 1;
+      return `<span class="lb-sep">›</span><span class="lb-seg ${isCurrent ? 'lb-current' : ''}" onclick="lieuxJumpTo(${i})">${esc(seg.name)}</span>`;
+    }),
+  ].join('');
+
+  const headHtml = `
+    <div class="lieux-browse-head">
+      <label class="field-row checkbox">
+        <input type="checkbox" id="lieux-active-only" ${lieuxActiveOnly ? 'checked' : ''} onchange="lieuxToggleActiveOnly()">
+        <span style="font-size:12px">Actifs seulement</span>
+      </label>
+      <div class="lieux-breadcrumb">${breadcrumbHtml}</div>
+    </div>
+  `;
+
+  const children = lieuxChildrenOf(lieuxBrowseParentId);
+
+  if (!children.length) {
+    listEl.innerHTML = headHtml + '<div class="empty">Aucun lieu.</div>';
+    return;
+  }
+
+  const buckets = {};
+  for (const loc of children) {
+    const key = LOCATION_TYPE_ORDER.includes(loc.location_type) ? loc.location_type : 'other';
+    (buckets[key] = buckets[key] || []).push(loc);
+  }
+
+  const bucketsHtml = LOCATION_TYPE_ORDER.filter(t => buckets[t] && buckets[t].length).map(t => {
+    const nodes = buckets[t].slice().sort((a, b) => a.name.localeCompare(b.name));
+    const rowsHtml = nodes.map(loc => {
+      const childCount = lieuxChildrenOf(loc.id).length;
+      const dimmed = loc.status !== 'active';
+      const pill = dimmed ? `<span class="lieux-status-pill">${esc(loc.status)}</span>` : '';
+      const descend = childCount > 0
+        ? `<button class="lieux-descend-btn" onclick="lieuxDescend('${esc(loc.id)}', '${esc(loc.name)}')">${childCount} enfant${childCount > 1 ? 's' : ''} ›</button>`
+        : '';
+      return `
+        <div class="lieux-node-row ${dimmed ? 'dimmed' : ''}">
+          <button class="ali-name-btn" onclick="authorSelectEntity('${esc(loc.id)}')">${esc(loc.name)}</button>
+          ${pill}
+          ${descend}
+        </div>
+      `;
+    }).join('');
+    return `<div class="lieux-bucket-head">${esc(LOCATION_TYPE_LABELS[t])}</div>${rowsHtml}`;
+  }).join('');
+
+  listEl.innerHTML = headHtml + bucketsHtml;
+}
+
 async function authorLoadEntityList() {
   const listEl = document.getElementById('author-entity-list');
   if (listEl) listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
   try {
-    const [entities, pcs] = await Promise.all([
+    const [entities, pcs, locations] = await Promise.all([
       api('/api/entities'),
       api('/api/skills/player-characters').catch(() => []),
+      api('/api/locations').catch(() => []),
     ]);
     authorAllEntities = entities;
     playerCharIds = new Set(pcs.map(p => p.id));
+    authorLocationTree = locations;
   } catch (e) {
     if (listEl) listEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
     return;

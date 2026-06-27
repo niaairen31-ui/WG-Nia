@@ -941,6 +941,12 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.59** — No new tables or columns. Application-layer: Lieux hierarchy
+  browse (per-level type grouping, breadcrumb drill), read-only
+  `GET /api/locations` (Entity ⋈ Location, all statuses, active-world
+  scoped), and `room` added to the creator CRUD `location_type` options
+  (BRIEF-51). `location_type` remains free text on the CRUD path; `room` is
+  not offered to the generator.
 - **v1.58** — World-bible generator (BRIEF-47): one-line seed → AI draft →
   pre-fills the existing "Nouveau monde" create form → unchanged
   `POST /api/worlds` accept. `entity_author.generate_world_draft(brief, db)`

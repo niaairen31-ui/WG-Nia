@@ -164,7 +164,7 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
             {"name": "parent_location_id", "label": "Parent location", "kind": "entity_ref", "ref_type": "location"},
             {
                 "name": "location_type", "label": "Location type", "kind": "datalist",
-                "options": ["city", "district", "building", "natural", "underground", "other"],
+                "options": ["city", "district", "building", "room", "natural", "underground", "other"],
             },
             {"name": "subculture", "label": "Subculture (JSON)", "kind": "json"},
             {
@@ -1247,6 +1247,31 @@ def get_locations_graph(db: DbSession = Depends(get_session)) -> dict:
     ]
 
     return {"nodes": nodes, "edges": edges}
+
+
+# ── Location hierarchy browse (BRIEF-51, no schema change) ──────────────────
+
+@router.get("/locations")
+def list_locations(db: DbSession = Depends(get_session)) -> list[dict]:
+    """All locations (every status) with hierarchy fields — read-only, creator browse."""
+    world_id = _world_id(db)
+    rows = db.exec(
+        select(Entity, Location)
+        .join(Location, Location.id == Entity.id)
+        .where(Entity.type == "location")
+        .where(Entity.world_id == world_id)
+        .order_by(Entity.name)
+    ).all()
+    return [
+        {
+            "id": e.id,
+            "name": e.name,
+            "parent_location_id": loc.parent_location_id,
+            "location_type": loc.location_type,
+            "status": e.status,
+        }
+        for e, loc in rows
+    ]
 
 
 # ── Ledger (schema v1.31, BRIEF-18) ──────────────────────────────────────────
