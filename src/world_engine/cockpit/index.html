@@ -1695,7 +1695,8 @@ async function showSceneView() {
   document.getElementById('scene-join-status').innerHTML = '';
   document.getElementById('scene-join-input').disabled = false;
   document.getElementById('scene-join-btn').disabled   = false;
-  // Re-read the scene (fast, no enter_location) to update the join area state.
+  // Re-enter via POST /api/scene/enter (enter_scene); gathering regeneration is
+  // guarded by "no open gatherings yet".
   await loadScene();
 }
 

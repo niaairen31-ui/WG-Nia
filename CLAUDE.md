@@ -221,6 +221,13 @@ Read both before making any structural change.
   decision — an onlooking PC's representation to NPCs there is a separate
   question, decided via a dedicated path reading `description`, not this
   `appearance`-first co-presence default.
+- **Creator-CRUD edits that change a character's `current_location_id`, or set
+  an entity's `status` to a non-active value, MUST close that entity's open
+  `gathering_member` rows via `close_open_memberships` (gatherings are not
+  canon — no `_apply_mutation`, no `change_history`). Roster and co-present
+  reads (`_active_members`, `assemble_npc_context` H_COMPANY,
+  `assemble_mj_context` co-presents) gate on `entity.status='active' AND
+  vital_status='alive'` in addition to `gathering_member.left_at IS NULL`.
 
 ## Local model notes
 

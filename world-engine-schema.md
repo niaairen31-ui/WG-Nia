@@ -941,6 +941,24 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.61** — No new tables or columns. Gathering lifecycle reconciliation
+  (BRIEF-53): `close_open_memberships` (`gathering.py`) extracts
+  `migrate_npc`'s inline B1-repair close (select `gathering_member` rows
+  for an entity with `left_at IS NULL`, set `left_at = now`, never delete)
+  into a reusable helper — `migrate_npc`'s net behavior is unchanged. The
+  creator-CRUD entity editor (`update_entity`, `cockpit/crud.py`) now calls
+  it when a `character`'s `current_location_id` actually changes, or when
+  `entity.status` transitions away from `"active"`; `delete_entity`'s
+  soft-delete calls it unconditionally. Writes no canon (gatherings are not
+  canon) — no `_apply_mutation`, no `proposed_mutation`, no
+  `change_history`. Defensively, `_active_members` (`cockpit/app.py`),
+  `assemble_npc_context`'s H_COMPANY roster query, and
+  `assemble_mj_context`'s co-presents query (`context.py`) each gained a
+  join to `Character` plus `entity.status='active' AND
+  vital_status='alive'`, mirroring `_present_npcs` — an entity-vivacity
+  filter layered on top of the unchanged `gathering_member.left_at IS NULL`
+  membership predicate, not a replacement of it. Selected columns / return
+  shapes of all three reads are unchanged.
 - **v1.60** — No new tables or columns. PC creation assistant (BRIEF-52):
   creator types a concept → the local author model proposes a draft
   (`entity.description` + `character.appearance`/`backstory` + `knowledge[]`

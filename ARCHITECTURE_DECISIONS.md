@@ -3060,6 +3060,60 @@ deserves its own review.
 
 ---
 
+## GATHERING LIFECYCLE RECONCILIATION (BRIEF-53, application-layer, no schema change)
+
+RECON (findings, commit `a5f12c0`) established a single shared root behind
+two live-play bugs: nothing closed an NPC's `gathering_member` row except
+`migrate_npc`, and nothing reconciled `gathering_member` against
+`current_location_id` or `entity.status`. This step seals the root at the
+creator-CRUD write site (A1) and adds a defensive vivacity gate on the
+roster/co-present reads (B1).
+
+**A1 — write-side reconciliation seam.** `close_open_memberships`
+(`gathering.py`) is `migrate_npc`'s inline B1-repair close, extracted
+verbatim into a module-level helper: select `gathering_member` rows for
+`entity_id` with `left_at IS NULL`, set `left_at = now` on each, never
+delete. `migrate_npc` now calls it — net behavior byte-identical. The
+creator-CRUD entity editor (`update_entity`, `cockpit/crud.py`) calls it
+when a `character`'s `current_location_id` actually changes (re-saving the
+same value closes nothing) and when `entity.status` transitions away from
+`"active"`; `delete_entity`'s soft-delete (`status = "inactive"`) calls it
+unconditionally. The helper writes no canon — no `_apply_mutation`, no
+`proposed_mutation`, no `change_history` — because gatherings are not
+canon.
+
+**B1 — defensive read-side vivacity gate.** `_active_members`
+(`cockpit/app.py`, the Play roster), `assemble_npc_context`'s H_COMPANY
+roster query, and `assemble_mj_context`'s co-presents query
+(`context.py`) each gained a join to `Character` and the where clauses
+`Entity.status == "active"` and `Character.vital_status == "alive"`,
+mirroring `_present_npcs`. The roster's membership predicate remains
+`gathering_member.left_at IS NULL` (single source, no snapshot). The added
+`entity.status='active' AND vital_status='alive'` filter is an
+entity-vivacity gate computed live at read time, not a cached roster — it
+narrows *which live members count*, it does not replace the membership
+source. B1 is not redundant with A1: `entity.status`/`vital_status` can
+change via paths other than creator CRUD — the mutation pipeline's
+`status_change` (an NPC dies or is destroyed) closes no membership row. B1
+defends every state-change path at the read; A1 defends only the two CRUD
+edits at the write. Both are needed.
+
+**Named deferral — destination promptness (C1).** A creator move into a
+location that already holds an open gathering this session reflects in
+Play only at the next genuine entry to that location; the busy destination
+is not force-regenerated. This preserves C1 (generated once at entry; no
+mid-scene reshuffle). After A1 the move is already *consistent* (the NPC
+is removed from its old gathering and never double-membered) — only its
+*appearance at the new busy location* waits for re-entry.
+
+**Named deferral — never-closing session.** `GameSession.status` is only
+ever `"open"` (`app.py`); no end-session affordance exists in the cockpit
+or as an endpoint. Stale per-session state (orphaned `Gathering` rows
+whose members were closed, etc.) accumulates indefinitely. Deferred: a
+session-close path that dissolves open gatherings.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.
