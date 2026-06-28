@@ -291,6 +291,7 @@ def assemble_npc_context(
             .where(
                 GatheringMember.gathering_id == gathering_id,
                 GatheringMember.left_at.is_(None),
+                Character.character_type != "player",
             )
         ).all()
         co_lines = []

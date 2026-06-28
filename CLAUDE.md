@@ -201,6 +201,26 @@ Read both before making any structural change.
   client state, never trusted from the client's rendering, and a
   rejected/uncommitted/unresolved/self-referential target writes nothing
   rather than a dangling or wrong-typed reference.
+- **PC knowledge is written `is_secret=False`; `_normalize_knowledge` is
+  NPC-only and forces `is_secret=True` — never reuse it for a PC**
+  (BRIEF-52, schema v1.60). A PC's own knowledge is never secret from the
+  player who *is* that knowledge — the opposite default from an NPC's. The
+  PC creation assistant (`entity_author.generate_player_draft`) normalizes
+  its `knowledge[]` with a dedicated `_normalize_player_knowledge` helper
+  that emits no `is_secret` key at all; `is_secret=False` is applied at
+  write time by the accept route (`create_player_character`, via
+  `writes.write_knowledge`), never by the generator.
+- **A PC is excluded from NPC co-presence by a `character_type` filter, by
+  construction** (BRIEF-52 H1, schema v1.60). The `H_COMPANY` query inside
+  `assemble_npc_context` (`context.py`) carries
+  `Character.character_type != "player"` — a PC's `appearance`/
+  `description` can never reach an NPC's "AVEC QUI TU TE TROUVES" list
+  through this query, regardless of whether a caller correctly passes the
+  player as `interlocutor_id`. Do not widen this filter, and do not repoint
+  it at a future Tier-3 NPC-to-NPC observation feature without a deliberate
+  decision — an onlooking PC's representation to NPCs there is a separate
+  question, decided via a dedicated path reading `description`, not this
+  `appearance`-first co-presence default.
 
 ## Local model notes
 
@@ -231,6 +251,14 @@ World-genrator/
 │       ├── models.py        # all SQLModel table classes (the schema)
 │       ├── context.py       # NPC context assembly (secret-exclusion + relation-gating;
 │       │                    #   gathering co-presence injection, contract D1);
+│       │                    #   H1 co-presence hardening (BRIEF-52, schema
+│       │                    #   v1.60): the H_COMPANY query inside
+│       │                    #   assemble_npc_context gained
+│       │                    #   Character.character_type != "player" —
+│       │                    #   excludes a PC from any NPC's co-presence list
+│       │                    #   by construction, not by interlocutor_id
+│       │                    #   convention; no-op today, every existing
+│       │                    #   call site already excludes the player there;
 │       │                    #   MJ context assembler (assemble_mj_context,
 │       │                    #   format_mj_context — player's perception
 │       │                    #   boundary, scope D-b3);
@@ -369,7 +397,22 @@ World-genrator/
 │       │                    #   str; returns the same {"ok","draft","notes"}
 │       │                    #   envelope shape as generate_entity_draft, with
 │       │                    #   draft = {"public": {"name","description",
-│       │                    #   "fundamental_laws"}, "secret": {}}
+│       │                    #   "fundamental_laws"}, "secret": {}};
+│       │                    #   generate_player_draft(brief, db) (BRIEF-52,
+│       │                    #   schema v1.60): standalone sibling, NOT a
+│       │                    #   _TYPE_FIELDS entry — parses a SINGLE
+│       │                    #   top-level JSON object {"name","description",
+│       │                    #   "appearance","backstory","knowledge"}, no
+│       │                    #   public/secret blocks (D1/G1); never calls
+│       │                    #   _create_entity_core, emits no world_id/
+│       │                    #   current_location_id/faction/entity_id
+│       │                    #   (location stays creator-picked, C1); db is
+│       │                    #   read-only (sole use: the pt-player-generation
+│       │                    #   template lookup); knowledge normalized by
+│       │                    #   _normalize_player_knowledge (NOT
+│       │                    #   _normalize_knowledge, which forces
+│       │                    #   is_secret=True — wrong for a PC) — emits no
+│       │                    #   is_secret key at all, caps at 5 rows
 │       ├── region_author.py # Region orchestrator, chantier 1 (BRIEF-34,
 │       │                    #   schema v1.45), split into a two-phase
 │       │                    #   creator checkpoint (BRIEF-38, schema v1.49):
@@ -492,6 +535,22 @@ World-genrator/
 │           │                #   player_id/current_location_id as None, so world_id
 │           │                #   still resolves for a freshly created empty world
 │           │                #   (needed by the create-PC form's location dropdown);
+│           │                # PC creation assistant (BRIEF-52, schema v1.60):
+│           │                #   POST /api/characters/player/generate
+│           │                #   (PlayerGenerateBody — brief) delegates ONLY to
+│           │                #   entity_author.generate_player_draft; writes
+│           │                #   nothing; deliberately beside
+│           │                #   POST /api/worlds/generate, not in crud.py, same
+│           │                #   no-canon-write reasoning; PlayerCharacterCreateBody
+│           │                #   (the create_player_character accept route, BRIEF-46)
+│           │                #   gained description/appearance/backstory/knowledge
+│           │                #   (all optional) — description set on Entity,
+│           │                #   appearance/backstory on Character, knowledge written
+│           │                #   through writes.write_knowledge with is_secret=False
+│           │                #   (never POST /api/entities/{id}/knowledge, which 422s
+│           │                #   on a bad level instead of defaulting to "rumor"); the
+│           │                #   4-skill seed and the single try/db.commit() block
+│           │                #   stay untouched (B1, byte-identical seed);
 │           │                # MJ narration layer (_load_mj_narration_template);
 │           │                # MJ interpretation layer (ResponseMode incl. join,
 │           │                #   physical — BRIEF-11/v1.23),
@@ -764,6 +823,21 @@ World-genrator/
 │                            #   "Tu incarnes" banner and PLAYER_ID pick up the new
 │                            #   PC, and refreshes the Fiche selector + entity list;
 │                            #   no character builder — skills start flat at tier 0;
+│                            #   PC creation assistant (BRIEF-52, schema v1.60):
+│                            #   concept textarea #pc-generate-brief + "Générer le
+│                            #   brouillon" button (pcGenerateDraft, POSTs {brief} to
+│                            #   /api/characters/player/generate); pcApplyDraft
+│                            #   pre-fills the SAME #pc-create-name/-description/
+│                            #   -appearance/-backstory fields pcCreateSubmit() already
+│                            #   reads, and sets module-scope pcDraftKnowledge, rendered
+│                            #   READ-ONLY into #pc-draft-knowledge (I1 — no inline
+│                            #   knowledge editing); pcCreateSubmit extends its POST
+│                            #   payload with description/appearance/backstory/
+│                            #   knowledge: pcDraftKnowledge; never touches
+│                            #   #pc-create-location (C1); regenerating re-runs
+│                            #   pcGenerateDraft, overwriting the fields/knowledge in
+│                            #   place — no separate discard step (mirrors the
+│                            #   world-bible generator);
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;
 │                            #   scene-view Travel control ("Voyager" — E1);
@@ -1022,8 +1096,9 @@ prepend `src` to `sys.path`, so they run without an editable install.
   for `pt-npc-dialogue`, `pt-mj-narration`, `pt-mj-interpretation`, `pt-mj-gathering`,
   `pt-mj-speaker`, `pt-mj-initiative`, `pt-npc-initiative-act`, `pt-mj-arbiter`,
   `pt-mj-establishment`, `pt-entity-generation`, `pt-world-generation`,
-  `pt-region-manifest`, and `pt-region-manifest-topup` — re-running the seed converges the DB to the
-  latest wording without losing other data.
+  `pt-region-manifest`, `pt-region-manifest-topup`, and `pt-player-generation` —
+  re-running the seed converges the DB to the latest wording without losing
+  other data.
 
 ---
 

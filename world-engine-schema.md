@@ -941,6 +941,31 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.60** — No new tables or columns. PC creation assistant (BRIEF-52):
+  creator types a concept → the local author model proposes a draft
+  (`entity.description` + `character.appearance`/`backstory` + `knowledge[]`
+  only — A1; no `aversion`, `physical_tier`, faction, or starting location) →
+  the creator edits the prose inline → accept extends the existing
+  `POST /api/characters/player`. New `pt-player-generation` prompt template
+  (`usage="player_generation"`) and standalone
+  `entity_author.generate_player_draft(brief, db)` — a sibling to
+  `generate_world_draft`, not a `_TYPE_FIELDS` entry, writes no canon, never
+  calls `_create_entity_core`. New read-only route
+  `POST /api/characters/player/generate` (`app.py`, beside
+  `POST /api/worlds/generate`, deliberately not on the `crud.py` router).
+  `PlayerCharacterCreateBody` gained `description`/`appearance`/`backstory`/
+  `knowledge` (optional); PC knowledge rows are written through the
+  sanctioned `writes.write_knowledge` helper with `is_secret=False` by
+  construction (never `_normalize_knowledge`, which is NPC-only and forces
+  `is_secret=True`); an unrecognised `level` defaults to `"rumor"` instead
+  of 422ing. The 4-skill seed and the creator-picked starting location are
+  untouched (B1/C1). Also closes the H1 structural hardening: the
+  `H_COMPANY` co-presence query inside `assemble_npc_context`
+  (`context.py`) gained a `Character.character_type != "player"` predicate,
+  excluding a PC from any NPC's "AVEC QUI TU TE TROUVES" list by
+  construction rather than by every caller's `interlocutor_id` convention —
+  behaviorally a no-op today, since the player was already excluded
+  downstream at every existing call site.
 - **v1.59** — No new tables or columns. Application-layer: Lieux hierarchy
   browse (per-level type grouping, breadcrumb drill), read-only
   `GET /api/locations` (Entity ⋈ Location, all statuses, active-world

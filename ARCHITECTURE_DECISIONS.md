@@ -2966,6 +2966,100 @@ no-draft-persistence doctrine elsewhere in the cockpit.
 
 ---
 
+## PC CREATION ASSISTANT (BRIEF-52, schema v1.60)
+
+**Locked design.** A1 — the model proposes `entity.description` +
+`knowledge[]` + the player-reference `appearance`/`backstory` only; never
+`aversion`, `physical_tier`, or a secret block. B1 — skills stay flat
+`tier=0`; no model-proposed tiers. C1 — starting location stays
+creator-picked in the dropdown; the model is silent on it. D1 — no secret
+block, no `secret` JSON envelope. E1 — accept goes through the existing
+`POST /api/characters/player`, extended, not a new endpoint. G1 — a
+dedicated `pt-player-generation` template and a standalone
+`generate_player_draft` sibling function; no `_TYPE_FIELDS["player"]`
+entry, no public/secret two-block contract. H1 — structural co-presence
+hardening so A1 holds by construction, not by caller convention. I1 —
+prose fields (`description`/`appearance`/`backstory`) are inline-editable
+in the draft; `knowledge[]` is read-only there, edited post-creation on the
+Fiche via the existing knowledge CRUD.
+
+**Standalone sibling, same shape as `generate_world_draft`, not the
+entity-author parser.** `entity_author.generate_player_draft(brief, db)`
+mirrors `generate_world_draft`'s propose flow (`AUTHOR_MODEL`,
+`chat(..., format="json")`, JSON parse, notes-on-drop, never raises) but
+parses a **single top-level JSON object** — `{name, description,
+appearance, backstory, knowledge}` — with no `public`/`secret` nesting.
+This is deliberately NOT a `_TYPE_FIELDS["player"]` entry routed through
+`generate_entity_draft`: that parser's two-block contract exists to
+segregate public fields from a secret block a PC must never have (D1), and
+reusing it would have required carving out an exception inside a function
+whose entire job is producing one. `db` is read-only: its only use is the
+`pt-player-generation` template lookup (`_load_player_template`, mirroring
+`_load_world_template`). The function never calls `_create_entity_core`
+and emits no `world_id`/`current_location_id`/`faction`/`entity_id` —
+location stays creator-resolved (C1), the same display-only posture as
+`sensed_links`.
+
+**PC knowledge normalization is a new, deliberately separate helper —
+reusing `_normalize_knowledge` was a trap.** `_normalize_knowledge`
+(NPC-only, BRIEF-24) forces `is_secret=True` in code, because every NPC
+knowledge row it produces is concealed-by-default until the creator
+decides otherwise. A PC's own knowledge is the opposite case: it is never
+secret from the player who *is* that knowledge. `_normalize_player_knowledge`
+is a sibling function that validates `{subject, level, content}` rows
+(drops malformed/empty rows, falls back an unrecognised `level` to
+`"rumor"`, caps at 5) and emits no `is_secret` key at all — the draft is
+data only. `is_secret=False` is applied at write time, in the accept
+route, never in the generator.
+
+**Knowledge write rides the sanctioned `writes.write_knowledge` helper,
+not the entity-knowledge CRUD endpoint.** `POST
+/api/entities/{id}/knowledge` (`crud.py`) 422s on an unrecognised `level` —
+correct for a creator typing a value by hand, wrong for a model-proposed
+draft that may carry a level outside the ladder. The accept route
+(`create_player_character`, extended) calls `write_knowledge` directly
+inside its existing single `try`/`db.commit()` block, defaulting an
+invalid level to `"rumor"` exactly like the analyzer already does for
+model output elsewhere (see CLAUDE.md "Local model notes"). The 4-skill
+seed is untouched — byte-identical to BRIEF-46 — and the one-PC-per-user
+guard (`idx_character_one_pc_per_user_world`) still governs the same
+`IntegrityError` → `{"ok": false, "error": ...}` path.
+
+**H1 — co-presence exclusion becomes structural, not conventional.** The
+`H_COMPANY` query inside `assemble_npc_context` (`context.py`) gained
+`Character.character_type != "player"`. Before this commit, A1 ("a PC's
+`appearance`/`description` never reaches an NPC prompt") held only because
+every one of the four call sites passes the player as `interlocutor_id`,
+which a downstream `co_entity.id in (npc_id, interlocutor_id)` check then
+filters. That is caller discipline, not a guarantee — a future call site
+that forgets to pass the player as `interlocutor_id` would silently leak a
+PC's `appearance` into an NPC's "AVEC QUI TU TE TROUVES" list. The new
+predicate excludes a PC from that query's result set unconditionally, by
+construction, independent of any caller's `interlocutor_id` argument.
+Behaviorally a no-op today (the player was already filtered downstream at
+every existing call site) — deliberately shipped as its own commit,
+separate from the assistant itself, because it changes a *different*
+file's invariant surface (`context.py`, not the player-creation path) and
+deserves its own review.
+
+**Carried-forward deferrals, not addressed here:**
+- **B2** — model-proposed skill tiers or a point/zero-sum budget. Skills
+  stay flat `tier=0`.
+- **C2/C3** — model-suggested or model-emitted starting location. Stays
+  creator-picked in the dropdown.
+- **D2/G2** — a secret block, a `secret` JSON envelope, or a
+  `_TYPE_FIELDS["player"]` entry.
+- **I2** — inline knowledge editing inside the draft. `knowledge[]` stays
+  read-only there; post-creation editing is the existing Fiche knowledge
+  CRUD.
+- **Tier-3 onlooking-PC perception.** When NPC-to-NPC observation lands,
+  how an onlooking PC is represented to NPCs is a deliberate decision made
+  then, via a dedicated path reading `description` — not by widening the
+  H1 filter or by routing it back through the `appearance`-first
+  co-presence default this brief just excluded the PC from.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.
