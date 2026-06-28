@@ -56,6 +56,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session as DbSession, select
 
 from ..db import get_session
+from ..gathering import close_open_memberships
 from ..ledger import get_balance, list_entries
 from ..models import (
     Character,
@@ -642,20 +643,33 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
     if new_type is not None and new_type != entity.type:
         raise HTTPException(422, "type cannot be changed after creation")
 
+    prior_status = entity.status
     _apply_base_fields(db, entity, data)
     entity.updated_at = datetime.now(UTC)
     db.add(entity)
 
     ext: Any = None
+    prior_location_id: Optional[str] = None
     if entity.type in ENTITY_TYPE_REGISTRY:
         ext_model = ENTITY_TYPE_REGISTRY[entity.type]["model"]
         ext = db.get(ext_model, entity_id)
         if ext is None:
             raise HTTPException(500, f"Missing {entity.type} extension row for entity {entity_id!r}")
+        if entity.type == "character":
+            prior_location_id = ext.current_location_id
         ext_kwargs = _build_extension_kwargs(db, entity.type, body.extension)
         for key, value in ext_kwargs.items():
             setattr(ext, key, value)
         db.add(ext)
+
+    # BRIEF-53 A1: a character's location change, or any transition to a
+    # non-active entity.status, closes its open gathering_member rows
+    # (gatherings are not canon — no proposed_mutation, no change_history).
+    # Re-saving with the same current_location_id must not close anything.
+    if entity.type == "character" and ext is not None and ext.current_location_id != prior_location_id:
+        close_open_memberships(entity_id, db)
+    if prior_status == "active" and entity.status != "active":
+        close_open_memberships(entity_id, db)
 
     db.commit()
     db.refresh(entity)
@@ -680,6 +694,7 @@ def delete_entity(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
     entity.status = "inactive"
     entity.updated_at = datetime.now(UTC)
     db.add(entity)
+    close_open_memberships(entity_id, db)
     db.commit()
     db.refresh(entity)
     return _entity_dict(entity)

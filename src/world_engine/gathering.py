@@ -253,6 +253,31 @@ def generate_gatherings(
     return created
 
 
+def close_open_memberships(entity_id: str, db: Session) -> list[GatheringMember]:
+    """Close every open `gathering_member` row for entity_id (B1 repair).
+
+    Sets `left_at = now` on each matched row; never deletes a row (history
+    is sacred). Writes no canon — closing a membership is not a
+    `proposed_mutation` (gatherings are not canon). Does not commit; the
+    caller owns the transaction.
+
+    Extracted verbatim from `migrate_npc`'s inline close (the predicate and
+    write are unchanged) so other write sites (creator-CRUD location/status
+    edits — BRIEF-53) can reuse the same repair instead of duplicating it.
+    """
+    now = datetime.now(UTC)
+    active_rows = db.exec(
+        select(GatheringMember).where(
+            GatheringMember.entity_id == entity_id,
+            GatheringMember.left_at == None,  # noqa: E711
+        )
+    ).all()
+    for row in active_rows:
+        row.left_at = now
+        db.add(row)
+    return list(active_rows)
+
+
 def migrate_npc(npc_id: str, target_gathering_id: str, db: Session) -> None:
     """Move an NPC from its current gathering to target_gathering_id.
 
@@ -285,19 +310,10 @@ def migrate_npc(npc_id: str, target_gathering_id: str, db: Session) -> None:
     if already is not None:
         return
 
-    # Collect ALL active rows for this entity (B1 repair: close every one).
-    active_rows = db.exec(
-        select(GatheringMember).where(
-            GatheringMember.entity_id == npc_id,
-            GatheringMember.left_at == None,  # noqa: E711
-        )
-    ).all()
+    # Collect + close ALL active rows for this entity (B1 repair: close every one).
+    active_rows = close_open_memberships(npc_id, db)
     source_gathering_ids = {row.gathering_id for row in active_rows}
 
-    # Single transaction: close all active source rows + insert destination row.
-    for row in active_rows:
-        row.left_at = now
-        db.add(row)
     db.add(GatheringMember(
         gathering_id=target_gathering_id,
         entity_id=npc_id,
