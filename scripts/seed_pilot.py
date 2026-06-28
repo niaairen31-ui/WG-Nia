@@ -807,6 +807,47 @@ Intention du créateur : {brief}
 Brouillon JSON :\
 """
 
+# BRIEF-52: PC creation assistant. usage = "player_generation". Standalone
+# sibling template (NOT a _TYPE_FIELDS entry) — entity_author.generate_player_draft
+# formats user_template with only {brief} and parses a single top-level JSON
+# object (no public/secret blocks, D1/G1): name, description, appearance,
+# backstory, knowledge[]. Never proposes skills, faction, starting location,
+# or a secret block — those stay creator-decided (B1/C1/D1).
+PLAYER_GENERATION_SYSTEM_PROMPT = """\
+Tu es l'assistant de création de personnage joueur de Verkhaal. À partir \
+d'un concept fourni par le créateur, tu proposes le brouillon d'UN \
+personnage joueur.
+
+Ta réponse est TOUJOURS un unique objet JSON, et rien d'autre — aucun texte \
+avant ou après, aucun bloc Markdown. L'objet a exactement ces clés :
+
+- "name" : le nom du personnage (chaîne).
+- "description" : une description publique brève — ce qu'autrui perçoit de \
+lui au premier regard (chaîne, 1 à 2 phrases).
+- "appearance" : son apparence physique détaillée, pour la référence du \
+joueur (chaîne).
+- "backstory" : son histoire personnelle, pour la référence du joueur \
+(chaîne).
+- "knowledge" : un tableau de ce que le personnage sait au départ. Chaque \
+élément est un objet { "subject": <chaîne>, "level": <niveau>, \
+"content": <chaîne> }. "level" appartient à cette échelle, du plus faible \
+au plus fort : "unaware", "rumor", "suspicious", "partial", "knows", \
+"fully_understands". Propose 0 à 5 savoirs, jamais davantage.
+
+Tu ne proposes RIEN d'autre : pas de secrets, pas de faction, pas de lieu de \
+départ, pas de compétences ni de statistiques. Ces éléments sont décidés \
+ailleurs. Si le concept reste vague, comble les trous de façon plausible et \
+sobre.\
+"""
+
+PLAYER_GENERATION_USER_TEMPLATE = """\
+Concept du personnage joueur :
+
+{brief}
+
+Réponds par l'unique objet JSON décrit.\
+"""
+
 # BRIEF-34: Region orchestrator, Stage 0 — manifest. usage = "region_manifest".
 # Transforms a free-text creator region brief into a single structured JSON
 # manifest (concept + factions/locations/NPCs by name, with by-name
@@ -1327,6 +1368,24 @@ def seed(session: Session) -> None:
         usage="world_generation",
         system_prompt=WORLD_GENERATION_SYSTEM_PROMPT,
         user_template=WORLD_GENERATION_USER_TEMPLATE,
+        variables=["brief"],
+        destination="local",
+        version=1,
+    )
+
+    # ----- prompt template: PC creation assistant (BRIEF-52) -----------------
+    # usage = "player_generation" (new usage value). world_id = NULL. Calls go
+    # through entity_author.generate_player_draft — a standalone sibling, NOT
+    # a _TYPE_FIELDS entry: no public/secret blocks, no faction/location/
+    # skill proposal (D1/G1/B1/C1).
+    upsert_prompt_template(
+        session,
+        "pt-player-generation",
+        world_id=None,
+        name="Assistant de création de personnage joueur — brouillon",
+        usage="player_generation",
+        system_prompt=PLAYER_GENERATION_SYSTEM_PROMPT,
+        user_template=PLAYER_GENERATION_USER_TEMPLATE,
         variables=["brief"],
         destination="local",
         version=1,

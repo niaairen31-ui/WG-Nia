@@ -38,6 +38,7 @@ from sqlmodel import Session, select
 
 from .. import ollama_client
 from ..entity_author import generate_entity_draft as _generate_entity_draft
+from ..entity_author import generate_player_draft as _generate_player_draft
 from ..entity_author import generate_world_draft as _generate_world_draft
 from ..region_author import generate_region_draft as _generate_region_draft
 from ..region_author import generate_region_manifest as _generate_region_manifest
@@ -78,6 +79,7 @@ from ..models import (
 )
 from ..resolution import resolve_physical
 from ..writes import (
+    KNOWLEDGE_LEVELS,
     _append_knowledge_history,
     knowledge_level_rank,
     write_knowledge,
@@ -131,6 +133,24 @@ def generate_world(
     Returns {"ok": false, "error": ...} (never a 500) on any failure.
     """
     return _generate_world_draft(body.brief, db)
+
+
+class PlayerGenerateBody(BaseModel):
+    brief: str
+
+
+@app.post("/api/characters/player/generate")
+def generate_player(
+    body: PlayerGenerateBody, db: Session = Depends(get_session)
+) -> dict:
+    """Creator-side AI PC-draft generator (BRIEF-52).
+
+    Deliberately NOT in crud.py: crud.py is a sanctioned canon-write path
+    and this route writes nothing — delegates only to
+    entity_author.generate_player_draft. Returns {"ok": false, "error": ...}
+    (never a 500) on any failure.
+    """
+    return _generate_player_draft(body.brief, db)
 
 
 class RegionGenerateBody(BaseModel):
@@ -1008,9 +1028,19 @@ def get_bootstrap(db: Session = Depends(get_session)) -> dict:
 
 # ── Create-PC path (BRIEF-46) ──────────────────────────────────────────────────
 
+class PlayerKnowledgeItem(BaseModel):
+    subject: str
+    level: str
+    content: str
+
+
 class PlayerCharacterCreateBody(BaseModel):
     name: str
     current_location_id: str
+    description: Optional[str] = None
+    appearance: Optional[str] = None
+    backstory: Optional[str] = None
+    knowledge: Optional[list[PlayerKnowledgeItem]] = None
 
 
 @app.post("/api/characters/player")
@@ -1027,6 +1057,13 @@ def create_player_character(
     user per world is defended by `idx_character_one_pc_per_user_world`
     (partial unique index) — a collision surfaces as a clean `{"ok": false}`,
     not a 500.
+
+    BRIEF-52 (E1): also accepts the optional PC creation assistant draft —
+    `description`/`appearance`/`backstory` set on the rows that own them,
+    and `knowledge` written through `write_knowledge` with `is_secret=False`
+    (never through `POST /api/entities/{id}/knowledge`, which 422s on a bad
+    level instead of defaulting to "rumor"). The skill seed stays untouched
+    (B1, no proposed tiers).
     """
     name = body.name.strip()
     if not name:
@@ -1050,7 +1087,12 @@ def create_player_character(
         raise HTTPException(status_code=400, detail="No creator user found.")
 
     try:
-        entity = Entity(world_id=world_id, type="character", name=name)
+        entity = Entity(
+            world_id=world_id,
+            type="character",
+            name=name,
+            description=(body.description or None),
+        )
         db.add(entity)
         db.flush()
         character = Character(
@@ -1059,10 +1101,26 @@ def create_player_character(
             character_type="player",
             user_id=creator_user.id,
             current_location_id=body.current_location_id,
+            appearance=(body.appearance or None),
+            backstory=(body.backstory or None),
         )
         db.add(character)
         for domain in ("physical", "agility", "perception", "composure"):
             db.add(Skill(character_id=entity.id, domain=domain, tier=0))
+        for item in (body.knowledge or []):
+            level = item.level if item.level in KNOWLEDGE_LEVELS else "rumor"
+            write_knowledge(
+                db,
+                entity_id=entity.id,
+                subject=item.subject,
+                level=level,
+                content=item.content,
+                source="pc_creation",
+                is_incorrect=False,
+                is_secret=False,
+                share_threshold=50,
+                session_id=None,
+            )
         db.commit()
     except IntegrityError:
         db.rollback()

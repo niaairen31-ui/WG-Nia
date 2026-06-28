@@ -1205,8 +1205,21 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       <!-- PJ Fiche — shown only when Personnage joueur sub-tab is active -->
       <div id="creation-pj-skill" style="display:none">
         <!-- Create-PC path (BRIEF-46): minimal form — name + starting location. -->
+        <!-- PC creation assistant (BRIEF-52): concept -> AI draft -> inline-edited
+             prose -> accept. Knowledge stays read-only in the draft (I1). -->
         <div class="panel-head" style="flex-shrink:0">
           <h2 style="font-size:12px">Créer un personnage joueur</h2>
+        </div>
+        <div class="field-section" style="flex-shrink:0; margin:0; padding:10px 14px">
+          <div class="field-row" style="margin:0">
+            <label>Concept (pour l'assistant)</label>
+            <textarea id="pc-generate-brief" rows="2" placeholder="Ex. une ancienne contrebandière qui a tout quitté pour..."></textarea>
+          </div>
+          <div style="display:flex; gap:10px; align-items:center; margin-top:6px">
+            <button class="btn-send" onclick="pcGenerateDraft()">Générer le brouillon</button>
+            <span class="author-status" id="pc-generate-status"></span>
+          </div>
+          <div id="pc-generate-notes"></div>
         </div>
         <div class="field-section" style="flex-shrink:0; margin:0; padding:10px 14px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">
           <div class="field-row" style="margin:0; min-width:180px">
@@ -1219,6 +1232,24 @@ button:not(:disabled):hover { filter: brightness(1.15); }
           </div>
           <button class="btn-send" onclick="pcCreateSubmit()">Créer</button>
           <span class="author-status" id="pc-create-status"></span>
+        </div>
+        <div class="field-section" style="flex-shrink:0; margin:0; padding:0 14px 10px">
+          <div class="field-row" style="margin:0 0 6px 0">
+            <label>Description (publique)</label>
+            <textarea id="pc-create-description" rows="2" placeholder="Ce qu'autrui perçoit au premier regard"></textarea>
+          </div>
+          <div class="field-row" style="margin:0 0 6px 0">
+            <label>Apparence</label>
+            <textarea id="pc-create-appearance" rows="2" placeholder="Référence du joueur"></textarea>
+          </div>
+          <div class="field-row" style="margin:0 0 6px 0">
+            <label>Histoire personnelle</label>
+            <textarea id="pc-create-backstory" rows="3" placeholder="Référence du joueur"></textarea>
+          </div>
+          <div class="field-row" style="margin:0">
+            <label>Savoirs proposés (lecture seule — éditables après création via la Fiche)</label>
+            <div id="pc-draft-knowledge" style="font-size:12px; color:var(--muted)"></div>
+          </div>
         </div>
 
         <div class="panel-head" style="flex-shrink:0; border-top:2px solid var(--border)">
@@ -5065,7 +5096,14 @@ async function pcCreateSubmit() {
     const result = await api('/api/characters/player', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, current_location_id: locationId }),
+      body: JSON.stringify({
+        name,
+        current_location_id: locationId,
+        description: document.getElementById('pc-create-description').value.trim() || null,
+        appearance: document.getElementById('pc-create-appearance').value.trim() || null,
+        backstory: document.getElementById('pc-create-backstory').value.trim() || null,
+        knowledge: pcDraftKnowledge,
+      }),
     });
     if (!result.ok) {
       statusEl.className = 'author-status err';
@@ -5076,6 +5114,13 @@ async function pcCreateSubmit() {
     statusEl.textContent = 'Personnage créé.';
     nameEl.value = '';
     locEl.value = '';
+    document.getElementById('pc-create-description').value = '';
+    document.getElementById('pc-create-appearance').value = '';
+    document.getElementById('pc-create-backstory').value = '';
+    document.getElementById('pc-generate-brief').value = '';
+    document.getElementById('pc-generate-notes').innerHTML = '';
+    pcDraftKnowledge = [];
+    pcRenderDraftKnowledge();
     await loadBootstrap();
     await loadPlayerName();
     skillCharacters = null;
@@ -5085,6 +5130,58 @@ async function pcCreateSubmit() {
     statusEl.className = 'author-status err';
     statusEl.textContent = e.message;
   }
+}
+
+/* ── PC creation assistant (BRIEF-52) ──────────────────────────────────────
+ * Concept -> POST /api/characters/player/generate -> pre-fills the SAME
+ * pc-create-* prose fields above; accept is still pcCreateSubmit()
+ * unchanged. knowledge[] is read-only in the draft (I1) — rendered into
+ * #pc-draft-knowledge, edited post-creation on the Fiche. Regenerating
+ * simply re-runs this and overwrites the fields/knowledge in place — no
+ * separate discard step (mirrors the world-bible generator). */
+
+let pcDraftKnowledge = [];
+
+function pcRenderDraftKnowledge() {
+  const el = document.getElementById('pc-draft-knowledge');
+  if (!el) return;
+  if (!pcDraftKnowledge.length) {
+    el.textContent = '(aucun)';
+    return;
+  }
+  el.innerHTML = pcDraftKnowledge
+    .map(k => `<div>${esc(k.subject)} (${esc(k.level)}) : ${esc(k.content)}</div>`)
+    .join('');
+}
+
+async function pcGenerateDraft() {
+  const briefEl = document.getElementById('pc-generate-brief');
+  const statusEl = document.getElementById('pc-generate-status');
+  const brief = briefEl.value.trim();
+  if (!brief) { statusEl.textContent = 'Concept requis.'; return; }
+  statusEl.textContent = 'Génération…';
+  try {
+    const result = await api('/api/characters/player/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ brief }),
+    });
+    if (!result.ok) { statusEl.textContent = result.error; return; }
+    pcApplyDraft(result.draft);
+    statusEl.textContent = 'Brouillon généré — relisez et éditez avant de créer.';
+  } catch (err) {
+    statusEl.textContent = err.message;
+  }
+}
+
+function pcApplyDraft(draft) {
+  const setVal = (id, value) => { const el = document.getElementById(id); if (el) el.value = value ?? ''; };
+  setVal('pc-create-name', draft.name);
+  setVal('pc-create-description', draft.description);
+  setVal('pc-create-appearance', draft.appearance);
+  setVal('pc-create-backstory', draft.backstory);
+  pcDraftKnowledge = draft.knowledge || [];
+  pcRenderDraftKnowledge();
 }
 
 async function skillLoadCharacters() {

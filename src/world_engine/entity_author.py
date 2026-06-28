@@ -109,6 +109,15 @@ def _load_world_template(db: Session) -> PromptTemplate | None:
     return db.exec(stmt).first()
 
 
+def _load_player_template(db: Session) -> PromptTemplate | None:
+    stmt = (
+        select(PromptTemplate)
+        .where(PromptTemplate.usage == "player_generation")
+        .where(PromptTemplate.is_active == True)  # noqa: E712
+    )
+    return db.exec(stmt).first()
+
+
 def _world_id(db: Session) -> str | None:
     world = db.exec(select(World)).first()
     return world.id if world is not None else None
@@ -173,6 +182,34 @@ def _normalize_knowledge(raw: Any, notes: list[str]) -> list[dict]:
                 "is_secret": True,
             }
         )
+    return rows
+
+
+def _normalize_player_knowledge(raw: Any) -> list[dict]:
+    """Validate each proposed PC knowledge row; drop malformed rows.
+
+    Unlike `_normalize_knowledge` (NPC-only, forces `is_secret=True`), this
+    does NOT set `is_secret` — the draft is data only; `is_secret=False` is
+    applied at write time by the accept route (BRIEF-52, D1). Caps at 5 rows.
+    """
+    rows: list[dict] = []
+    if not isinstance(raw, list):
+        return rows
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        subject = item.get("subject")
+        content = item.get("content")
+        if not isinstance(subject, str) or not subject.strip():
+            continue
+        if not isinstance(content, str) or not content.strip():
+            continue
+        level = item.get("level")
+        if level not in KNOWLEDGE_LEVELS:
+            level = "rumor"
+        rows.append({"subject": subject, "level": level, "content": content})
+        if len(rows) >= 5:
+            break
     return rows
 
 
@@ -482,5 +519,91 @@ def generate_world_draft(brief: str, db: Session) -> dict:
             "fundamental_laws": fundamental_laws_str,
         },
         "secret": {},
+    }
+    return {"ok": True, "draft": draft, "notes": notes}
+
+
+def generate_player_draft(brief: str, db: Session) -> dict:
+    """Generate a pre-fill draft for the PC creation assistant (BRIEF-52).
+
+    Standalone sibling to `generate_world_draft` — NOT a `_TYPE_FIELDS`
+    entry, NOT routed through `generate_entity_draft`. Pure generate-and-
+    return: writes no canon anywhere in this function or its call path; it
+    never calls `_create_entity_core` and emits no `world_id`/
+    `current_location_id`/`faction`/`entity_id` (location stays creator-
+    picked — C1). `db` is read-only here: its single use is the
+    `pt-player-generation` template lookup.
+
+    Parses a SINGLE top-level JSON object (no `public`/`secret` blocks —
+    D1/G1): {"name", "description", "appearance", "backstory", "knowledge"}.
+    Unrecognised keys are dropped. Knowledge is normalised by
+    `_normalize_player_knowledge`, NOT `_normalize_knowledge` (which forces
+    `is_secret=True` — wrong for a PC); `is_secret=False` is applied at
+    write time by the accept route, not here.
+
+    Never raises into the caller — every failure mode (missing template,
+    unreachable model, malformed JSON, empty parse) returns
+    {"ok": False, "error": "<reason>"}. On success returns
+    {"ok": True, "draft": {"name", "description", "appearance", "backstory",
+    "knowledge": [...]}, "notes": [...]}.
+    """
+    if not brief or not brief.strip():
+        return {"ok": False, "error": "brief must not be empty"}
+
+    template = _load_player_template(db)
+    if template is None:
+        return {"ok": False, "error": "No active pt-player-generation template found"}
+
+    try:
+        user_message = template.user_template.format(brief=brief)
+    except (KeyError, IndexError) as exc:
+        return {"ok": False, "error": f"Template formatting failed: {exc}"}
+
+    messages = [
+        {"role": "system", "content": template.system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+    try:
+        raw = chat(messages, model=AUTHOR_MODEL, format="json")
+    except OllamaError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {"ok": False, "error": "Model returned non-JSON output"}
+
+    if not isinstance(parsed, dict) or not parsed:
+        return {"ok": False, "error": "Model returned an empty or malformed draft"}
+
+    notes: list[str] = []
+
+    name = parsed.get("name") or ""
+    if not isinstance(name, str):
+        name = ""
+    if not name:
+        notes.append("Aucun nom de personnage proposé — champ laissé vide")
+
+    description = parsed.get("description") or ""
+    if not isinstance(description, str):
+        description = ""
+
+    appearance = parsed.get("appearance") or ""
+    if not isinstance(appearance, str):
+        appearance = ""
+
+    backstory = parsed.get("backstory") or ""
+    if not isinstance(backstory, str):
+        backstory = ""
+
+    knowledge = _normalize_player_knowledge(parsed.get("knowledge"))
+
+    draft = {
+        "name": name,
+        "description": description,
+        "appearance": appearance,
+        "backstory": backstory,
+        "knowledge": knowledge,
     }
     return {"ok": True, "draft": draft, "notes": notes}
