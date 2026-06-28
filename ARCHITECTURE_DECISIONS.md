@@ -3114,6 +3114,93 @@ session-close path that dissolves open gatherings.
 
 ---
 
+## WORLD BLOCK DELETION (BRIEF-54, schema v1.62)
+
+A prior RECON (`recon-world-block-deletion-findings.md`) established the
+ground truth this step builds on: the cascade is greenfield (no `region`
+precedent; region persistence stays deferred, see "Deferred decisions"
+below), `PRAGMA foreign_keys=ON` is enforced at the engine (`db.py`),
+`prompt_template.world_id` is nullable with 13 global `world_id=NULL`
+seeds that must survive any cascade, and no server-side redirect mechanism
+exists anywhere in the app.
+
+**A1 — hard delete, full cascade, irreversible.** No soft-delete, no
+`deleted_at`, no trash/undo. This is the single deliberate violation of
+*History is sacred* in the whole system, contained entirely inside one
+named helper, `delete_world_cascade` (`writes.py`) — the first delete-side
+helper in that module, registered as the sole exception in `CLAUDE.md`'s
+invariants list. Mirrors the framing already used for `resource_change`'s
+two-table-in-one-SAVEPOINT exception (`:1556` above): a deliberate,
+contained, named violation of a stated invariant, not a precedent for
+more deletion code.
+
+**B2′ — type-`Oui` confirm, not type-the-name.** The original type-the-
+world-name confirmation (B2) was downgraded during planning: a short,
+exact-match `Oui` gate is enough friction against a reflexive misclick
+while staying fast for a single-player creator tool. The confirm modal
+reuses the existing click-away-protected pattern (`genericModalOpen(...,
+{ dismissOnBackdrop: false })`, the same shape `worldCreateOpen()` uses) —
+× and Escape still close it; only the backdrop is gated.
+
+**C2-c — deletion permitted while active; last-world deletion force-opens
+creation.** Deleting the active world is allowed (no "switch away first"
+requirement) and re-resolves `is_active` onto a survivor in the same
+transaction (G1). Deleting the last world leaves zero worlds — there is no
+redirect mechanism in this app (client-side or server-side) to send the
+creator anywhere, so the frontend response handler calls the existing
+`worldCreateOpen()` directly when `remaining === 0`, the same modal the
+"+ Monde" button opens. No `RedirectResponse`/`HX-Redirect`/3xx was added;
+this app has none anywhere and BRIEF-54 doesn't introduce the pattern.
+
+**D1 — `PRAGMA defer_foreign_keys = ON` for the cascade.** Set on the
+session connection inside the caller's transaction, before any DELETE.
+This defers FK *constraint* checks to COMMIT, so the self-referential
+columns (`location.parent_location_id`, `faction.parent_faction_id`,
+`character.current_location_id`) resolve without a separate null-out pass.
+It does NOT make statement order fully arbitrary, though: several deletes
+are correlated subqueries against `entity`/`conversation`/`gathering`/
+`session` (e.g. `knowledge` via `entity_id IN (SELECT id FROM entity WHERE
+world_id = :wid)`), and those must run while the parent rows they query
+still exist, or the subquery returns nothing and rows get orphaned —
+silently, since the FK *check* is deferred to commit and a row that's
+already gone can't raise on a subquery that found zero matches. The
+deferral genuinely buys order-independence among the plain
+`world_id`-scoped deletes (no subquery), and among the self-referential
+columns within `location`/`faction`/`character`; it does not exempt the
+subquery-dependent deletes from running before their parent table is
+cleared.
+
+**E1 — extract `_activate_world_core`, delete-path only.** `app.py`
+already had this deactivate-all → `db.flush()` → activate-one logic
+written out twice (`activate_world`, `create_world`'s auto-activation
+step) with no shared helper — confirmed by the prior RECON (section 6).
+This step extracts a third copy as `_activate_world_core(world_id, db)`
+so the delete route can re-resolve `is_active` onto a survivor without a
+third inline duplication. The flush-between is mandatory regardless of D1:
+`idx_world_one_active` is a partial UNIQUE index, not a FK — `PRAGMA
+defer_foreign_keys` does not cover it, so two `is_active=TRUE` rows must
+never coexist even mid-transaction.
+
+**Named deferral — converging `activate_world`/`create_world` onto
+`_activate_world_core`.** Deliberately NOT done here. The existing inline
+duplication at both call sites stays untouched; converging all three onto
+one helper is a separate, named cleanup, not bundled into a delete-only
+brief.
+
+**F2 — no auto-backup.** `scripts/backup.py` exists, is documented as a
+manual pre-session step, and has zero existing call-sites (confirmed by
+the prior RECON, section 10). BRIEF-54 does not import it or call it from
+the delete path — an automatic backup before an irreversible action was
+considered and explicitly rejected; the creator is expected to back up
+manually if they want a safety net before deleting a world.
+
+**G1 — re-activate the most-recently-created survivor.** `ORDER BY
+created_at DESC LIMIT 1` among the worlds remaining after the cascade.
+Arbitrary but deterministic and the cheapest rule available — no "last
+played" timestamp exists on `World` to prefer instead.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.
@@ -3295,6 +3382,13 @@ Recorded here so each is revisited deliberately rather than forgotten:
   requires no migration away from it. This step is also the hard
   prerequisite for A1 (several worlds in one database) — until a creator
   explicitly activates one, `_world_id()` refuses to guess.
+- **Converging `activate_world`/`create_world` onto `_activate_world_core`**
+  (BRIEF-54, E1). The deactivate-all → flush → activate-one logic now exists
+  three times (`activate_world`, `create_world`'s auto-activation step, and
+  `_activate_world_core`, all `app.py`). BRIEF-54 deliberately added the
+  third copy rather than rewiring the first two onto it, to keep a
+  delete-only brief from also touching the activate/create routes. Revisit
+  as a named, separate cleanup if a fourth caller ever needs the same logic.
 
 ---
 

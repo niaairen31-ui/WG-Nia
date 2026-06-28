@@ -228,6 +228,7 @@ Read both before making any structural change.
   reads (`_active_members`, `assemble_npc_context` H_COMPANY,
   `assemble_mj_context` co-presents) gate on `entity.status='active' AND
   vital_status='alive'` in addition to `gathering_member.left_at IS NULL`.
+- World block deletion (delete_world_cascade) is the sole sanctioned hard-delete of canon and the only exception to "History is sacred"; no other delete-side helper exists.
 
 ## Local model notes
 
@@ -487,6 +488,27 @@ World-genrator/
 │           │                #   target; 404 on unknown id; rollback + {"ok":false}
 │           │                #   on any other failure); deliberately in app.py, not
 │           │                #   crud.py — flips a selection flag, not narrative canon;
+│           │                # World block deletion (BRIEF-54, schema v1.62):
+│           │                #   DELETE /api/worlds/{world_id} (delete_world) — one
+│           │                #   atomic transaction: 404 on unknown id; captures
+│           │                #   was_active, then delete_world_cascade(world_id, db)
+│           │                #   (writes.py — the sole sanctioned hard-delete of
+│           │                #   canon, see CLAUDE.md Invariants); if no worlds
+│           │                #   remain, commits and returns remaining=0,
+│           │                #   active_world_id=None; if the deleted world was
+│           │                #   active and survivors remain, re-activates the
+│           │                #   most-recently-created survivor via
+│           │                #   _activate_world_core (G1); otherwise the still-
+│           │                #   active survivor is untouched; rollback +
+│           │                #   {"ok":false} on any exception; deliberately in
+│           │                #   app.py, not crud.py — same reasoning as the other
+│           │                #   world routes, despite this one actually being
+│           │                #   narrative-canon-shaped (the named exception);
+│           │                #   _activate_world_core(world_id, db) (E1): commit-
+│           │                #   free extraction of the existing deactivate-all →
+│           │                #   flush → activate-one logic, used by the delete
+│           │                #   route ONLY — activate_world/create_world keep
+│           │                #   their own inline duplication (named deferral);
 │           │                # generic world bootstrap (BRIEF-44, schema v1.55):
 │           │                #   POST /api/worlds (WorldCreateBody — name +
 │           │                #   optional description/fundamental_laws,
@@ -796,7 +818,8 @@ World-genrator/
 │                            #   /api/worlds with name + optional description/
 │                            #   fundamental_laws, then refreshes the selector
 │                            #   — the new world is already active server-side);
-│                            #   no delete; "Générer avec l'IA" seed panel
+│                            #   delete control added BRIEF-54 (see below);
+│                            #   "Générer avec l'IA" seed panel
 │                            #   (BRIEF-47, no schema change), mounted INSIDE
 │                            #   the same modal, above the name/description/
 │                            #   laws fields: worldGenerateDraft() POSTs
@@ -1003,6 +1026,23 @@ World-genrator/
 │                            #   via regionEntityNotes; regionCommit now also sends
 │                            #   confirmed_links, and the commit-result panel renders the
 │                            #   response's links.written/links.unresolved
+│                            #   World block deletion (BRIEF-54, schema v1.62):
+│                            #   delete button next to #world-selector
+│                            #   (worldDeleteOpen) reads the selected option's id/
+│                            #   name and opens a B2′ click-away-protected confirm
+│                            #   modal (genericModalOpen(..., { dismissOnBackdrop:
+│                            #   false }), same shape as worldCreateOpen) with a
+│                            #   type-`Oui`-exactly gate (oninput handler) before
+│                            #   "Supprimer définitivement" enables; worldDeleteConfirm
+│                            #   sends DELETE /api/worlds/{id}; on remaining===0
+│                            #   force-opens worldCreateOpen() (C2-c, client-side
+│                            #   only — no redirect mechanism exists in this app);
+│                            #   on remaining>=1, refreshes loadWorldSelector +
+│                            #   loadBootstrap (WORLD_ID/PLAYER_ID repoint), the
+│                            #   same Création-cache invalidation activateWorld
+│                            #   already does, and re-renders Play (loadScene,
+│                            #   loadPlayerName) for the now-active world; ok===false
+│                            #   leaves the modal open with the error shown
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)

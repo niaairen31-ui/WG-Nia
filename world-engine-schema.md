@@ -941,6 +941,30 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.62** — No new tables or columns. World block deletion (BRIEF-54):
+  `DELETE /api/worlds/{world_id}` (`app.py`) hard-deletes a world and every
+  row scoped to it — entities, relations, knowledge, ledger, sessions,
+  gatherings, conversations, proposed mutations, events, discoverable
+  details, and the world row itself — via `delete_world_cascade`
+  (`writes.py`), the first delete-side helper in that module and the sole
+  documented exception to "History is sacred". The cascade sets `PRAGMA
+  defer_foreign_keys = ON` on the transaction before any DELETE so the
+  self-referential columns (`location.parent_location_id`,
+  `faction.parent_faction_id`, `character.current_location_id`) resolve
+  without nulling; `prompt_template` rows are deleted scoped to `world_id`
+  only — the 13 global `world_id IS NULL` seeds are untouched — and the
+  `user` table is never touched. `_activate_world_core` (`app.py`,
+  delete-path only) extracts the existing deactivate-all → flush →
+  activate-one logic so the route can re-resolve `is_active` onto a
+  survivor without violating `idx_world_one_active`. The route is one
+  atomic transaction: deleting the active world re-activates the
+  most-recently-created survivor; deleting the last world returns
+  `remaining: 0` and the frontend force-opens the existing
+  `worldCreateOpen()` creation modal (client-side only — no server-side
+  redirect mechanism exists or was added). Frontend: a delete button next to
+  `#world-selector` opens a click-away-protected confirm modal (B2′) where
+  `Supprimer définitivement` stays disabled until the creator types `Oui`
+  exactly.
 - **v1.61** — No new tables or columns. Gathering lifecycle reconciliation
   (BRIEF-53): `close_open_memberships` (`gathering.py`) extracts
   `migrate_npc`'s inline B1-repair close (select `gathering_member` rows

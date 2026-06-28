@@ -81,6 +81,7 @@ from ..resolution import resolve_physical
 from ..writes import (
     KNOWLEDGE_LEVELS,
     _append_knowledge_history,
+    delete_world_cascade as _delete_world_cascade,
     knowledge_level_rank,
     write_knowledge,
     write_ledger_entry,
@@ -997,6 +998,56 @@ def create_world(body: WorldCreateBody, db: Session = Depends(get_session)) -> d
         db.rollback()
         return {"ok": False, "error": str(exc)}
     return {"ok": True, "world_id": new_world.id}
+
+
+def _activate_world_core(world_id: str, db: Session) -> None:
+    """Commit-free deactivate-then-activate core (BRIEF-54, E1 deferral).
+
+    Replicates `activate_world`'s inline logic: deactivate every currently-
+    active world, `db.flush()`, then activate the target. The flush-between
+    is required — `idx_world_one_active` is a partial UNIQUE index, not a
+    FK, so `PRAGMA defer_foreign_keys` does not cover it; two active rows
+    must never coexist, even mid-transaction. Used by the delete route only
+    in this brief — `activate_world` and `create_world` keep their own
+    inline duplication (named deferral, not rewired here)."""
+    for w in db.exec(select(World).where(World.is_active == True)).all():  # noqa: E712
+        w.is_active = False
+        db.add(w)
+    db.flush()
+    target = db.get(World, world_id)
+    target.is_active = True
+    db.add(target)
+
+
+@app.delete("/api/worlds/{world_id}")
+def delete_world(world_id: str, db: Session = Depends(get_session)) -> dict:
+    """Hard-delete a world block, full cascade, irreversible (BRIEF-54, A1).
+
+    The sole sanctioned exception to "History is sacred" — see
+    `delete_world_cascade` (`writes.py`). One atomic transaction: cascade +
+    survivor re-activation either both happen or neither does."""
+    target = db.get(World, world_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"World {world_id!r} not found")
+    was_active = target.is_active
+    try:
+        _delete_world_cascade(world_id, db)
+        remaining_worlds = db.exec(select(World)).all()
+        remaining = len(remaining_worlds)
+        if remaining == 0:
+            active_world_id = None
+        elif was_active:
+            survivor = max(remaining_worlds, key=lambda w: w.created_at)
+            _activate_world_core(survivor.id, db)
+            active_world_id = survivor.id
+        else:
+            active = next((w for w in remaining_worlds if w.is_active), None)
+            active_world_id = active.id if active else None
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "remaining": remaining, "active_world_id": active_world_id}
 
 
 # ── Bootstrap — resolved play context for the static cockpit JS (BRIEF-45) ────

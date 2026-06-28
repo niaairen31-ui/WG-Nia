@@ -1010,6 +1010,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   </div>
   <select id="world-selector" onchange="activateWorld(this.value)" title="Monde actif"></select>
   <button class="btn-icon" onclick="worldCreateOpen()" title="Créer un nouveau monde">+ Monde</button>
+  <button class="btn-icon" onclick="worldDeleteOpen()" title="Supprimer le monde sélectionné">🗑 Monde</button>
   <span class="local-badge">127.0.0.1 · local only</span>
 </header>
 
@@ -5705,6 +5706,59 @@ function worldApplyDraft(result) {
       result.notes.map(n => `<div>• ${n}</div>`).join('') + '</div>';
   } else {
     notesEl.innerHTML = '';
+  }
+}
+
+/** BRIEF-54 (B2′): delete-world confirm modal. Click-away protected; reads
+ *  the selected world's id/name straight off #world-selector. */
+function worldDeleteOpen() {
+  const sel = document.getElementById('world-selector');
+  const worldId = sel.value;
+  const opt = sel.options[sel.selectedIndex];
+  if (!worldId || !opt) return;
+  const worldName = opt.textContent.replace(/\s*\(actif\)$/, '');
+  genericModalOpen('Supprimer le monde', `
+    <p>Cette action supprime définitivement le monde « ${worldName} » et tout
+    son contenu (entités, relations, historique, sessions). Elle est
+    irréversible.</p>
+    <p>Tapez Oui pour confirmer.</p>
+    <input type="text" id="world-delete-confirm-input" placeholder="Oui"
+      oninput="document.getElementById('world-delete-confirm-btn').disabled = this.value.trim() !== 'Oui'">
+    <div id="world-delete-status" style="color:var(--red); margin-top:6px;"></div>
+    <button class="btn-send" id="world-delete-confirm-btn" style="margin-top:8px" disabled
+      onclick="worldDeleteConfirm('${worldId}')">Supprimer définitivement</button>
+  `, { dismissOnBackdrop: false });
+}
+
+async function worldDeleteConfirm(worldId) {
+  const statusEl = document.getElementById('world-delete-status');
+  statusEl.textContent = '…';
+  try {
+    const res = await api(`/api/worlds/${worldId}`, { method: 'DELETE' });
+    if (!res.ok) { statusEl.textContent = res.error || 'Échec de la suppression.'; return; }
+    genericModalClose();
+    if (res.remaining === 0) {
+      worldCreateOpen();
+      return;
+    }
+    await loadWorldSelector();
+    await loadBootstrap();
+    authorAllEntities = [];
+    playerCharIds = new Set();
+    skillCharacters = null;
+    _registreEntitiesLoaded = false;
+    const creationView = document.getElementById('creation-view');
+    if (creationView && creationView.style.display !== 'none') {
+      if (authorRegistry) {
+        showCreationSubTab(currentCreationSubTab);
+      } else {
+        creationInit();
+      }
+    }
+    await loadScene();
+    await loadPlayerName();
+  } catch (err) {
+    statusEl.textContent = err.message;
   }
 }
 

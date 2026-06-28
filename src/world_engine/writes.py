@@ -28,8 +28,16 @@ functions so that clamping and field validation live in exactly one place.
   `is_primary` of an existing row. A role or primary change is close + open
   a fresh row — the closed-row sequence IS the history, by construction
   (no `change_history` column on `faction_membership`).
+- `delete_world_cascade(world_id, db)`  : the sole delete-side helper in
+  this module, and the sole sanctioned exception to "History is sacred"
+  (BRIEF-54). Hard-deletes every row scoped to a world, including the
+  `world` row itself. Called only from the creator-direct
+  `DELETE /api/worlds/{world_id}` route — never from `_apply_mutation`,
+  never in response to an AI proposal. No other delete-side helper may be
+  added to this module.
 
-Callers add the returned row to the session; neither function commits.
+Callers add the returned row to the session (or, for `delete_world_cascade`,
+own the commit); none of these functions commits.
 """
 
 from __future__ import annotations
@@ -37,6 +45,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, Optional
 
+from sqlalchemy import text
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
@@ -422,11 +431,109 @@ def write_membership(
     return membership
 
 
+# DOCUMENTED EXCEPTION to "History is sacred": delete_world_cascade is the only
+# helper in the codebase that hard-deletes canon. It exists solely for whole-
+# world block deletion (creator authority, irreversible). No other delete-side
+# helper may be added here; History is sacred holds everywhere else.
+def delete_world_cascade(world_id: str, db: Session) -> None:
+    """Hard-delete every row scoped to `world_id`, including the `world` row
+    itself. Caller owns the transaction and the commit (BRIEF-54).
+
+    Sets `PRAGMA defer_foreign_keys = ON` on the session connection before
+    any DELETE, so the self-referential columns
+    (`location.parent_location_id`, `faction.parent_faction_id`,
+    `character.current_location_id`) resolve without nulling — the deferral
+    is per-transaction and resets after commit/rollback.
+
+    Statement order below is NOT arbitrary despite the FK deferral: several
+    deletes are correlated subqueries against `entity`/`conversation`/
+    `gathering`/`session` (e.g. `knowledge` via `entity_id IN (SELECT id FROM
+    entity WHERE world_id = :wid)`) — those must run while the referenced
+    parent rows still exist, or the subquery returns nothing and orphans get
+    left behind. So every subquery-based delete runs before its parent table
+    is cleared; only the direct `world_id`-scoped deletes (no subquery) are
+    free to run in any order relative to each other, per the FK deferral.
+
+    Never touches `prompt_template` rows with `world_id IS NULL` (the global
+    seeds shared by every world) or the `user` table (global accounts, no
+    world scope).
+    """
+    db.execute(text("PRAGMA defer_foreign_keys = ON"))
+    params = {"wid": world_id}
+
+    # Subquery-based deletes — run first, while their parent rows still exist.
+    db.execute(
+        text("DELETE FROM conversation_message WHERE conversation_id IN "
+             "(SELECT id FROM conversation WHERE world_id = :wid)"),
+        params,
+    )
+    db.execute(
+        text("DELETE FROM gathering_member WHERE gathering_id IN "
+             "(SELECT id FROM gathering WHERE world_id = :wid)"),
+        params,
+    )
+    db.execute(
+        text("DELETE FROM batch WHERE session_id IN "
+             "(SELECT id FROM session WHERE world_id = :wid)"),
+        params,
+    )
+    db.execute(
+        text("DELETE FROM pass_play WHERE session_id IN "
+             "(SELECT id FROM session WHERE world_id = :wid)"),
+        params,
+    )
+    db.execute(
+        text("DELETE FROM knowledge WHERE entity_id IN "
+             "(SELECT id FROM entity WHERE world_id = :wid)"),
+        params,
+    )
+    db.execute(
+        text("DELETE FROM skill WHERE character_id IN "
+             "(SELECT id FROM entity WHERE world_id = :wid)"),
+        params,
+    )
+    db.execute(
+        text("DELETE FROM location WHERE id IN "
+             "(SELECT id FROM entity WHERE world_id = :wid)"),
+        params,
+    )
+    db.execute(
+        text("DELETE FROM faction WHERE id IN "
+             "(SELECT id FROM entity WHERE world_id = :wid)"),
+        params,
+    )
+    db.execute(
+        text("DELETE FROM artifact WHERE id IN "
+             "(SELECT id FROM entity WHERE world_id = :wid)"),
+        params,
+    )
+    db.execute(
+        text("DELETE FROM item WHERE id IN "
+             "(SELECT id FROM entity WHERE world_id = :wid)"),
+        params,
+    )
+
+    # Direct world_id-scoped deletes — order free under the FK deferral.
+    for table in (
+        "faction_membership", "relation", "character", "discoverable_detail",
+        "proposed_mutation", "ledger", "event", "gathering", "conversation",
+        "session", "entity",
+    ):
+        db.execute(text(f"DELETE FROM {table} WHERE world_id = :wid"), params)
+
+    # Global prompt-template seeds (world_id IS NULL) are never touched.
+    db.execute(text("DELETE FROM prompt_template WHERE world_id = :wid"), params)
+
+    # The world row itself, last.
+    db.execute(text("DELETE FROM world WHERE id = :wid"), params)
+
+
 __all__ = [
     "write_relation",
     "write_knowledge",
     "write_ledger_entry",
     "write_membership",
+    "delete_world_cascade",
     "KNOWLEDGE_LEVELS",
     "KNOWLEDGE_LEVEL_LADDER",
     "knowledge_level_rank",
