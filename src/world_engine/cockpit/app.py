@@ -1247,9 +1247,12 @@ def _active_members(gathering_id: str, db: Session) -> list[tuple[GatheringMembe
     return list(db.exec(
         select(GatheringMember, Entity)
         .join(Entity, Entity.id == GatheringMember.entity_id)
+        .join(Character, Character.id == Entity.id)
         .where(
             GatheringMember.gathering_id == gathering_id,
             GatheringMember.left_at.is_(None),
+            Entity.status == "active",
+            Character.vital_status == "alive",
         )
     ).all())
 

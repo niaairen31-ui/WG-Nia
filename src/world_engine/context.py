@@ -292,6 +292,8 @@ def assemble_npc_context(
                 GatheringMember.gathering_id == gathering_id,
                 GatheringMember.left_at.is_(None),
                 Character.character_type != "player",
+                Entity.status == "active",
+                Character.vital_status == "alive",
             )
         ).all()
         co_lines = []
@@ -479,9 +481,12 @@ def assemble_mj_context(
         co_rows = db.exec(
             select(GatheringMember, Entity)
             .join(Entity, Entity.id == GatheringMember.entity_id)
+            .join(Character, Character.id == Entity.id)
             .where(
                 GatheringMember.gathering_id == gathering_id,
                 GatheringMember.left_at.is_(None),
+                Entity.status == "active",
+                Character.vital_status == "alive",
             )
         ).all()
         for _member, co_entity in co_rows:
