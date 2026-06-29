@@ -59,6 +59,7 @@ from ..db import get_session
 from ..gathering import close_open_memberships
 from ..ledger import get_balance, list_entries
 from ..models import (
+    BASE_SKILL_DOMAINS,
     Character,
     DiscoverableDetail,
     Entity,
@@ -70,6 +71,7 @@ from ..models import (
     Location,
     Relation,
     Skill,
+    SkillDefinition,
     World,
 )
 from ..writes import KNOWLEDGE_LEVELS, write_knowledge, write_ledger_entry, write_membership, write_relation
@@ -117,8 +119,10 @@ KNOWLEDGE_LEVELS_ORDERED = (
     "unaware", "rumor", "suspicious", "partial", "knows", "fully_understands",
 )
 
-# skill sheet — fixed display order (schema v1.22, BRIEF-10)
-SKILL_DOMAINS = ("physical", "agility", "perception", "composure")
+# skill sheet — fixed display order (schema v1.22, BRIEF-10); the four
+# literal domains are BASE_SKILL_DOMAINS (models.py, schema v1.63 — single
+# source of truth, decision 3).
+SKILL_DOMAINS = BASE_SKILL_DOMAINS
 SKILL_TIERS = (-1, 0, 1, 2)
 
 

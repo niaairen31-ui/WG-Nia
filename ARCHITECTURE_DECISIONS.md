@@ -3201,6 +3201,87 @@ played" timestamp exists on `World` to prefer instead.
 
 ---
 
+## WORLD-SCOPED CUSTOM SKILL CATALOGUE — table + both readers (BRIEF-55, schema v1.63)
+
+**1-C — two readers, asymmetric guarantee, by design.** The catalogue
+(`skill_definition`) is consumed by two structurally different readers, and
+this asymmetry is intentional rather than a violation of
+"structural-over-disciplinary":
+
+- **Arbiter (mechanical) — structural/deterministic.** The candidate domain
+  set, the clamp, and the resolution path (custom name → `base_domain` →
+  the PC's `skill_definition_id`-keyed row → `tier`) are all enforced in
+  Python, by query construction and a code-side clamp. A custom skill
+  either resolves correctly or falls back to `"physical"` — never an
+  invented or silently-wrong outcome.
+- **MJ narration (ambiance) — an assumed probabilistic nudge, not a
+  guarantee.** Injecting custom skill names into the narration prompt only
+  *encourages* the local model to use the world's vocabulary; nothing
+  structurally forces the model to use a name once it is in context, the
+  way the arbiter's clamp forces a valid domain. This is accepted because
+  the narration layer has no canon-write consequence — at worst the
+  vocabulary doesn't surface in a given line, never a wrong roll or a
+  leaked secret.
+
+The master invariant ("structural over disciplinary") is about
+**canon-affecting and security-affecting behavior**: the mechanical layer
+that touches dice/canon stays fully structural. A best-effort vocabulary
+nudge into free narration prose is not in that category, the same way
+`pt-mj-narration`'s prose itself is never structurally guaranteed to use any
+particular word.
+
+**FK-by-id is the rename-safety mechanism.** `skill.skill_definition_id`
+(not a copied name string) is a custom skill's identity. Every reader
+(arbiter resolution, MJ vocabulary, the future skill sheet display) resolves
+the display name by joining to `skill_definition.name` at read time — so
+renaming a `skill_definition` row propagates everywhere instantly and
+orphans nothing. This is the same rename-safety pattern role roles/factions
+already use for membership labels, applied here to a brand-new table instead
+of retrofitted onto the existing free-text `skill.domain` column (which
+stays a base-domain literal, never a definition name).
+
+**Decision 3 — one source of truth for the four base domains.**
+`BASE_SKILL_DOMAINS` (`models.py`) replaces three independently-declared
+literal tuples (`cockpit/app.py` `_PHYSICAL_DOMAINS`, `cockpit/crud.py` and
+`seed_pilot.py` `SKILL_DOMAINS`) that had drifted into existence with no
+shared import (RECON IP-2/IP-7 — see `recon-world-scoped-skills-findings.md`
+for the prior-state inventory). `skill_definition.base_domain`'s CHECK
+constraint is the first-ever validated reference to a domain in this
+codebase; it cites the same constant rather than introducing a fourth copy.
+
+**Deferred to chantier 2 (explicitly not built here):**
+- The creator CRUD surface for `skill_definition` (no "Compétences" sub-tab,
+  no routes, no frontend) — the only way a custom skill exists after this
+  brief is the pilot seed fixture.
+- AI authoring of a catalogue during world creation (no `pt-skill-catalogue`
+  template, no `entity_author.py` change) — RECON IP-6 left the attachment
+  point (extend `generate_world_draft` vs. a standalone generator) as an
+  open choice for chantier 2 to pick.
+- The real delete/rename UX and any cascade. `ON DELETE RESTRICT` (this
+  brief) is a structural floor only — it prevents a silent orphan, it is not
+  the final word on what deleting a custom skill should do (snapshot?
+  confirmation modal? soft-delete with history?).
+- **B2 — per-PC subset selection.** Every PC currently seeds every custom
+  skill of its world (B1, flat). Letting a PC choose a subset at creation
+  remains a live, unforeclosed option — nothing in this brief's `skill_row`
+  lookups assumes "every PC has every definition of its world," they all key
+  off `skill_definition_id` directly, so narrowing the seed later needs no
+  reader change.
+
+**Named risk for chantier 2 — name collision with a base domain.** Nothing
+today prevents a `skill_definition.name` equal to a literal base domain
+(`"physical"`, `"agility"`, `"perception"`, `"composure"`) — the `UNIQUE
+(world_id, name)` index has no exclusion list. No path can create such a
+row this round (no creator CRUD, no AI authoring — Scope OUT), so the risk
+is latent, not live. If it ever happened, the arbiter's
+`world_skill_defs_by_name.get(domain)` lookup (`cockpit/app.py`) would
+treat that base-domain string as a custom hit, shadowing the base-domain
+resolution path. Chantier 2's CRUD/authoring surface should add this
+exclusion (CHECK or application-side validation) before either write path
+opens.
+
+---
+
 ## V1 SCOPE — Minimal playable
 
 Goal: find out fast whether the local models can hold a character. That is the project's real unknown.

@@ -58,6 +58,7 @@ from ..context import (
 from ..db import engine, get_session
 from ..ledger import get_balance as _get_balance
 from ..models import (
+    BASE_SKILL_DOMAINS,
     Character,
     Conversation,
     ConversationMessage,
@@ -74,6 +75,7 @@ from ..models import (
     Relation,
     Session as GameSession,
     Skill,
+    SkillDefinition,
     User,
     World,
 )
@@ -1113,8 +1115,13 @@ def create_player_character(
     `description`/`appearance`/`backstory` set on the rows that own them,
     and `knowledge` written through `write_knowledge` with `is_secret=False`
     (never through `POST /api/entities/{id}/knowledge`, which 422s on a bad
-    level instead of defaulting to "rumor"). The skill seed stays untouched
-    (B1, no proposed tiers).
+    level instead of defaulting to "rumor"). The base-domain skill seed stays
+    untouched (B1, no proposed tiers).
+
+    BRIEF-55 (B1, schema v1.63): after the four base-domain rows, also seeds
+    one `skill` row per `skill_definition` of the PC's world, at `tier=0`,
+    `domain=<definition.base_domain>`, `skill_definition_id=<definition.id>`
+    — never proposed by a model.
     """
     name = body.name.strip()
     if not name:
@@ -1156,8 +1163,21 @@ def create_player_character(
             backstory=(body.backstory or None),
         )
         db.add(character)
-        for domain in ("physical", "agility", "perception", "composure"):
+        for domain in BASE_SKILL_DOMAINS:
             db.add(Skill(character_id=entity.id, domain=domain, tier=0))
+        # B1 (schema v1.63): flat tier-0 seed for every custom skill of the
+        # PC's world — never proposed by a model, set here after the draft
+        # is accepted.
+        custom_defs = db.exec(
+            select(SkillDefinition).where(SkillDefinition.world_id == world_id)
+        ).all()
+        for definition in custom_defs:
+            db.add(Skill(
+                character_id=entity.id,
+                domain=definition.base_domain,
+                tier=0,
+                skill_definition_id=definition.id,
+            ))
         for item in (body.knowledge or []):
             level = item.level if item.level in KNOWLEDGE_LEVELS else "rumor"
             write_knowledge(
@@ -2006,7 +2026,7 @@ def _interpret_mode(
 
 # ── Arbiter classification (physical resolution, BRIEF-11, schema v1.23) ──
 
-_PHYSICAL_DOMAINS = ("physical", "agility", "perception", "composure")
+_PHYSICAL_DOMAINS = BASE_SKILL_DOMAINS  # single source of truth (schema v1.63)
 
 
 def _arbitrate(
@@ -2017,6 +2037,7 @@ def _arbitrate(
     arbiter_system: str,
     arbiter_user_tpl: str,
     model: str,
+    custom_skill_names: tuple[str, ...] = (),
 ) -> tuple[str, Optional[str], Optional[str], bool]:
     """Classify a `physical` turn into a domain and optional NPC opposition.
 
@@ -2031,7 +2052,15 @@ def _arbitrate(
     to `("physical", None, None, False)` — a misclassification must never
     break a turn.
 
+    `custom_skill_names` (BRIEF-55, schema v1.63): the active world's
+    `skill_definition.name` values, filled into the `pt-mj-arbiter` prompt's
+    `{custom_skill_names}` placeholder and widening the domain clamp below —
+    a returned `domain` may be a base domain OR one of these custom names.
+    `(aucune)` when the world has none, and the arbiter behaves byte-for-byte
+    as before (1-C).
+
     Returns (domain, opposed_npc_id, applies_constraint, violent):
+    - domain: a base domain (BASE_SKILL_DOMAINS) or a custom skill name.
     - applies_constraint (BRIEF-12): the constraint that would be applied on
       failure (e.g. "restrained" if an NPC is trying to pin the player), or
       None if no constraint stake. Only valid values from _VALID_CONSTRAINTS.
@@ -2039,6 +2068,11 @@ def _arbitrate(
       to the player (blow, weapon, fall, combat). Drives condition degradation
       on failure.
     """
+    allowed_domains = set(_PHYSICAL_DOMAINS) | set(custom_skill_names)
+    system_msg = arbiter_system.replace(
+        "{custom_skill_names}",
+        ", ".join(custom_skill_names) if custom_skill_names else "(aucune)",
+    )
     user_msg = (
         arbiter_user_tpl
         .replace("{npc_list}", npc_list or "(aucun)")
@@ -2048,7 +2082,7 @@ def _arbitrate(
     try:
         raw = ollama_client.chat(
             [
-                {"role": "system", "content": arbiter_system},
+                {"role": "system", "content": system_msg},
                 {"role": "user",   "content": user_msg},
             ],
             model=model,
@@ -2057,7 +2091,7 @@ def _arbitrate(
         obj = json.loads(raw)
 
         domain = str(obj.get("domain", "")).strip()
-        if domain not in _PHYSICAL_DOMAINS:
+        if domain not in allowed_domains:
             domain = "physical"
 
         opposed_raw = obj.get("opposed_npc_id")
@@ -2818,6 +2852,15 @@ def say(
             physical_name_to_id = {e.name.lower(): e.id for e in physical_npc_entities}
             physical_npc_list = ", ".join(e.name for e in physical_npc_entities)
 
+            # BRIEF-55 (5a, schema v1.63): dynamic candidate list — the active
+            # world's custom skill definitions, injected into the arbiter
+            # prompt as fillable text and used to widen the domain clamp.
+            world_skill_defs = db.exec(
+                select(SkillDefinition).where(SkillDefinition.world_id == world_id)
+            ).all()
+            world_skill_defs_by_name = {d.name: d for d in world_skill_defs}
+            world_custom_skill_names = tuple(world_skill_defs_by_name)
+
             # BRIEF-12: constraint-gated turns bypass the arbiter — domain and
             # opposition are already determined by the constraint effect.
             # Gated attempts (gagged speech, escape from restraint) resolve against a
@@ -2849,19 +2892,46 @@ def say(
                         arbiter_system=arbiter_template.system_prompt,
                         arbiter_user_tpl=arbiter_template.user_template,
                         model=model,
+                        custom_skill_names=world_custom_skill_names,
                     )
                 else:
                     domain, opposed_npc_id = "physical", None
 
+            # BRIEF-55 (5d, schema v1.63): resolution mapping. `domain` may now
+            # be a base domain OR a custom skill name (constraint-gated turns
+            # above only ever set a base domain, so they fall in the first
+            # branch). `resolved_base_domain` is what bands/discovery key off.
+            custom_def = world_skill_defs_by_name.get(domain)
+            if custom_def is None:
+                resolved_base_domain = domain
+                skill_row = db.exec(
+                    select(Skill).where(
+                        Skill.character_id == conv.player_id,
+                        Skill.domain == domain,
+                        Skill.skill_definition_id.is_(None),
+                    )
+                ).first()
+            else:
+                resolved_base_domain = custom_def.base_domain
+                skill_row = db.exec(
+                    select(Skill).where(
+                        Skill.character_id == conv.player_id,
+                        Skill.skill_definition_id == custom_def.id,
+                    )
+                ).first()
+                if skill_row is None:
+                    # Defensive fallback: the PC somehow lacks the custom row.
+                    skill_row = db.exec(
+                        select(Skill).where(
+                            Skill.character_id == conv.player_id,
+                            Skill.domain == resolved_base_domain,
+                            Skill.skill_definition_id.is_(None),
+                        )
+                    ).first()
+
             # Player-roll rule (resolution.py): the roll always belongs to the
             # player — player_tier from the skill sheet, npc_tier (if opposed)
             # from entity.metadata.physical_tier, default 0 either way.
-            skill_row = db.exec(
-                select(Skill).where(
-                    Skill.character_id == conv.player_id,
-                    Skill.domain == domain,
-                )
-            ).first()
             player_tier = skill_row.tier if skill_row else 0
 
             opposed_entity: Optional[Entity] = None
@@ -2873,7 +2943,7 @@ def say(
                 if opposed_entity is not None:
                     npc_tier = (opposed_entity.metadata_ or {}).get("physical_tier", 0)
 
-            verdict = resolve_physical(domain, player_tier, npc_tier)
+            verdict = resolve_physical(resolved_base_domain, player_tier, npc_tier)
             _log.info(
                 "Physical verdict: domain=%s dice=%s modifier=%d total=%d band=%s "
                 "(player_tier=%d, npc_tier=%d, opposed=%s)",
@@ -3020,7 +3090,7 @@ def say(
             # discovery. Only the code judges what is found; the model receives
             # content ONLY after selection.
             search_rubric: Optional[str] = None
-            if domain == "perception" and opposed_npc_id is None:
+            if resolved_base_domain == "perception" and opposed_npc_id is None:
                 if verdict.band in ("partial", "success"):
                     # Select the oldest undiscovered hidden detail REACHABLE at this
                     # roll: discovery_threshold <= verdict.total (N1). When every

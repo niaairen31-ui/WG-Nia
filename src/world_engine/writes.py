@@ -514,10 +514,13 @@ def delete_world_cascade(world_id: str, db: Session) -> None:
     )
 
     # Direct world_id-scoped deletes — order free under the FK deferral.
+    # `skill_definition` (BRIEF-55, schema v1.63) must still come after the
+    # subquery-based `skill` delete above so no `skill.skill_definition_id`
+    # is left pointing at a missing row by commit time (RESTRICT, deferred).
     for table in (
         "faction_membership", "relation", "character", "discoverable_detail",
         "proposed_mutation", "ledger", "event", "gathering", "conversation",
-        "session", "entity",
+        "session", "skill_definition", "entity",
     ):
         db.execute(text(f"DELETE FROM {table} WHERE world_id = :wid"), params)
 

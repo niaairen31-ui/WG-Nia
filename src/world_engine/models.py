@@ -23,6 +23,7 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     DateTime,
+    ForeignKey,
     Index,
     func,
     text,
@@ -636,8 +637,39 @@ class Item(SQLModel, table=True):
     )
 
 
+# The four structural skill domains — single source of truth (decision 3,
+# BRIEF-55, schema v1.63). Previously declared independently in three places
+# (cockpit/app.py `_PHYSICAL_DOMAINS`, cockpit/crud.py and seed_pilot.py
+# `SKILL_DOMAINS`); all three now import this constant instead.
+BASE_SKILL_DOMAINS = ("physical", "agility", "perception", "composure")
+
+
 # -----------------------------------------------------------------------------
-# skill  (player character skill sheet — physical/sensory domains, schema v1.22)
+# skill_definition  (world-scoped custom skill catalogue, schema v1.63)
+# -----------------------------------------------------------------------------
+class SkillDefinition(SQLModel, table=True):
+    __tablename__ = "skill_definition"
+    __table_args__ = (
+        CheckConstraint(
+            "base_domain IN ('physical','agility','perception','composure')",
+            name="ck_skill_definition_base_domain",
+        ),  # canonical list: BASE_SKILL_DOMAINS above
+        Index("idx_skill_definition_world_name", "world_id", "name", unique=True),
+        Index("idx_skill_definition_world", "world_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    name: str
+    base_domain: str  # specialises exactly one of BASE_SKILL_DOMAINS
+    description: Optional[str] = None  # authored in chantier 2, not read this round
+    created_at: datetime = _created_ts()
+    updated_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
+# skill  (player character skill sheet — physical/sensory domains, schema v1.22;
+# skill_definition_id added schema v1.63)
 # -----------------------------------------------------------------------------
 class Skill(SQLModel, table=True):
     __tablename__ = "skill"
@@ -655,6 +687,18 @@ class Skill(SQLModel, table=True):
     change_history: list = Field(
         default_factory=list,
         sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
+    )
+    # NULL for the four base-domain rows; set for custom-skill rows. A custom
+    # skill's identity is this id, never a copied name — rename-safe by
+    # construction (display name is always read by join to
+    # skill_definition.name). ON DELETE RESTRICT is a structural floor only
+    # (chantier 2 owns the real delete/cascade UX).
+    skill_definition_id: Optional[str] = Field(
+        default=None,
+        sa_column=Column(
+            ForeignKey("skill_definition.id", ondelete="RESTRICT"),
+            nullable=True,
+        ),
     )
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()

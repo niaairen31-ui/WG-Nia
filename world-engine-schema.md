@@ -679,24 +679,67 @@ CREATE TABLE item (
 
 -----
 
+### `skill_definition`
+
+World-scoped custom skill catalogue (schema v1.63, BRIEF-55). One row = one
+custom skill definition for one world; each specialises exactly one of the
+four base domains (decision A1). Names only this round — `description` is
+authored in chantier 2 and read by no consumer yet.
+
+```sql
+CREATE TABLE skill_definition (
+  id           TEXT PRIMARY KEY,
+  world_id     TEXT NOT NULL REFERENCES world(id),
+  name         TEXT NOT NULL,
+  base_domain  TEXT NOT NULL,          -- specialises exactly one base domain
+               CHECK (base_domain IN ('physical','agility','perception','composure')),
+  description  TEXT,                   -- prose; authored in chantier 2, NOT
+                                       -- read by any consumer this round
+  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_skill_definition_world_name
+  ON skill_definition(world_id, name);
+CREATE INDEX idx_skill_definition_world ON skill_definition(world_id);
+```
+
+-- NOTE: `UNIQUE(world_id, name)` is the structural guard that makes a name a
+-- stable per-world identifier for the MJ-narration vocabulary and the
+-- arbiter's candidate list. `base_domain`'s CHECK references the canonical
+-- list `BASE_SKILL_DOMAINS` (`models.py`) — the single source of truth for
+-- the four base domains (decision 3).
+
+-----
+
 ### `skill`
 
 The player character's skill sheet (schema v1.22) — physical/sensory domains
-with a tier value and full change history.
+with a tier value and full change history. `skill_definition_id` added
+schema v1.63 distinguishes a base-domain row (NULL) from a custom-skill row
+(set).
 
 ```sql
 CREATE TABLE skill (
-  id              TEXT PRIMARY KEY,
-  character_id    TEXT NOT NULL REFERENCES entity(id),
-  domain          TEXT NOT NULL,
-                  -- physical | agility | perception | composure
-  tier            INTEGER NOT NULL DEFAULT 0 CHECK (tier BETWEEN -1 AND 2),
-                  -- -1 weak | 0 average | +1 trained | +2 exceptional
-                  -- translated directly into the 2d6 modifier (later step)
-  change_history  JSON DEFAULT '[]',  -- archived previous states, same
-                                      -- pattern as relation.change_history
-  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+  id                    TEXT PRIMARY KEY,
+  character_id          TEXT NOT NULL REFERENCES entity(id),
+  domain                TEXT NOT NULL,
+                        -- physical | agility | perception | composure
+  tier                  INTEGER NOT NULL DEFAULT 0 CHECK (tier BETWEEN -1 AND 2),
+                        -- -1 weak | 0 average | +1 trained | +2 exceptional
+                        -- translated directly into the 2d6 modifier (later step)
+  change_history        JSON DEFAULT '[]',  -- archived previous states, same
+                                             -- pattern as relation.change_history
+  skill_definition_id    TEXT REFERENCES skill_definition(id) ON DELETE RESTRICT,
+                        -- NULL for the four base-domain rows; set for a
+                        -- custom-skill row. `domain` always carries the
+                        -- definition's base_domain (so bands/display/CHECK
+                        -- keep working); the display name is read by join
+                        -- to skill_definition.name, never copied onto this
+                        -- row — rename-safe by construction. ON DELETE
+                        -- RESTRICT is a structural floor only (chantier 2
+                        -- owns the real delete/cascade UX).
+  created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_skill_character ON skill(character_id);
 ```
@@ -941,6 +984,46 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.63** — World-scoped custom skill catalogue, table + both readers
+  (BRIEF-55). New table `skill_definition` (world-scoped; `name` + one
+  specialised `base_domain`, CHECK against the four base domains;
+  `UNIQUE(world_id, name)` — a name is a stable per-world identifier).
+  `skill.skill_definition_id` (nullable FK, `ON DELETE RESTRICT`) added:
+  NULL for the four base-domain rows, set for a custom-skill row; the
+  display name is read by join, never copied — rename-safe by construction.
+  Decision 3: the three independently-declared four-literal domain tuples
+  (`cockpit/app.py` `_PHYSICAL_DOMAINS`, `cockpit/crud.py` and
+  `seed_pilot.py` `SKILL_DOMAINS`) are consolidated into one constant,
+  `BASE_SKILL_DOMAINS` (`models.py`), all three now importing it. B1 seed:
+  `create_player_character` (`cockpit/app.py`) and the pilot PC seed
+  (`seed_pilot.py`) both seed one `skill` row per `skill_definition` of the
+  PC's world, flat at `tier=0`, right after the four base-domain rows — the
+  model never proposes a tier. Reader A (mechanical, structural/
+  deterministic): the arbiter's candidate set is now `BASE_SKILL_DOMAINS`
+  plus the active world's `skill_definition.name` values, injected into
+  `pt-mj-arbiter` (bumped to v3) via a `{custom_skill_names}` placeholder
+  (`"(aucune)"` when the world has none — byte-identical arbiter behavior in
+  that case); the domain clamp is widened to match. A returned custom name
+  resolves via its `skill_definition.base_domain`: the PC's `skill` row is
+  looked up by `skill_definition_id` (not `domain`), its `tier` feeds
+  `resolve_physical` keyed on the resolved `base_domain` — the same
+  `base_domain` also gates the perception-discovery check, so a
+  perception-specialised custom skill still triggers discovery. The
+  base-domain lookup path gained `AND skill_definition_id IS NULL` so it
+  deterministically excludes custom rows. Reader B (ambiance, probabilistic
+  nudge): `assemble_mj_context`/`format_mj_context` (`context.py`) gained a
+  `COMPÉTENCES PROPRES À CE MONDE` section listing the active world's custom
+  skill names only (no description, no tier, no per-PC data), world-scoped
+  at query construction, omitted entirely when the world has none. MJ
+  narration only — NPC dialogue is untouched. Pilot fixture: two
+  `skill_definition` rows (`Diplomatie`/composure, `Pistage`/perception),
+  seeded onto the PC_TEST_2 skill-sheet test character. Scope-OUT (chantier
+  2, not built here): no creator CRUD surface, no AI authoring, no delete/
+  rename UX beyond the `ON DELETE RESTRICT` floor, no `description` reader,
+  no NPC-side custom skills, no per-PC subset (B2). `delete_world_cascade`
+  (`writes.py`) gained `skill_definition` in its direct world_id-scoped
+  delete list (after the existing subquery-based `skill` delete) so a world
+  block deletion still removes every row scoped to it.
 - **v1.62** — No new tables or columns. World block deletion (BRIEF-54):
   `DELETE /api/worlds/{world_id}` (`app.py`) hard-deletes a world and every
   row scoped to it — entities, relations, knowledge, ledger, sessions,

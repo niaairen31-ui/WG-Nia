@@ -229,6 +229,17 @@ Read both before making any structural change.
   `assemble_mj_context` co-presents) gate on `entity.status='active' AND
   vital_status='alive'` in addition to `gathering_member.left_at IS NULL`.
 - World block deletion (delete_world_cascade) is the sole sanctioned hard-delete of canon and the only exception to "History is sacred"; no other delete-side helper exists.
+- **Custom skill lookups filter `skill_definition_id`, by construction**
+  (BRIEF-55, schema v1.63). A base-domain `skill` row lookup MUST include
+  `AND skill_definition_id IS NULL` (e.g. `app.py`'s arbiter resolution) so
+  it never accidentally hits a custom-skill row sharing the same `domain`
+  string. A custom skill resolves via its `skill_definition.base_domain` —
+  never its own `domain` column treated as a fifth base domain — and that
+  resolved `base_domain` is what every base-domain-keyed downstream branch
+  (2d6 bands, the perception-discovery gate) keys off, not the raw
+  arbiter-returned name. `skill_definition` and custom `skill` rows are
+  PC-only and MJ-narration-only this phase: no NPC-side read, no NPC
+  dialogue injection (deferred to a future decision, not built).
 
 ## Local model notes
 
@@ -302,7 +313,15 @@ World-genrator/
 │       │                    #   public/active memberships only, primary
 │       │                    #   first), placed just before TES TARIFS, absent
 │       │                    #   when empty — no secret self-include, even for
-│       │                    #   the holder's own membership
+│       │                    #   the holder's own membership;
+│       │                    #   custom skill vocabulary (BRIEF-55, schema
+│       │                    #   v1.63): assemble_mj_context/format_mj_context
+│       │                    #   gained a "COMPÉTENCES PROPRES À CE MONDE"
+│       │                    #   section — the active world's skill_definition
+│       │                    #   names only (no description, no tier, no
+│       │                    #   per-PC data), world-scoped at query
+│       │                    #   construction, omitted entirely when empty;
+│       │                    #   MJ narration only, never assemble_npc_context
 │       ├── gathering.py     # initial NPC clustering (generate_gatherings,
 │       │                    #   enter_location, contracts A2/B1/C1) + migrate_npc
 │       │                    #   (idempotent NPC migration between gatherings,
@@ -555,7 +574,10 @@ World-genrator/
 │           │                #   write, on a miss) then creates entity + `character`
 │           │                #   row (bound to the lone role='creator' User) + the
 │           │                #   four `skill` rows at tier=0, mirroring seed_pilot.py's
-│           │                #   char-player creation; one db.commit(); IntegrityError
+│           │                #   char-player creation, PLUS one `skill` row per
+│           │                #   `skill_definition` of the PC's world (BRIEF-55,
+│           │                #   schema v1.63: B1 flat tier-0 seed, never a
+│           │                #   model-proposed tier); one db.commit(); IntegrityError
 │           │                #   from idx_character_one_pc_per_user_world surfaces as
 │           │                #   {"ok": false, "error": ...}, not a 500;
 │           │                #   get_bootstrap bugfix (same brief): no longer raises
@@ -589,7 +611,7 @@ World-genrator/
 │           │                #   _load_mj_interpret_template);
 │           │                # physical resolution (BRIEF-11, schema v1.23):
 │           │                #   _load_mj_arbiter_template, _arbitrate (pt-mj-
-│           │                #   arbiter v2, usage='mj_arbitration', classifies
+│           │                #   arbiter v3, usage='mj_arbitration', classifies
 │           │                #   domain + opposed_npc_id + applies_constraint +
 │           │                #   violent, fallback ("physical",None,None,False));
 │           │                #   resolve_physical call in _stream's physical
@@ -600,6 +622,21 @@ World-genrator/
 │           │                #   verdict band appended, npc row written
 │           │                #   canonically; unopposed turns behave like scene
 │           │                #   (no NPC call, no npc row);
+│           │                #   world-scoped custom skill catalogue (BRIEF-55,
+│           │                #   schema v1.63): _arbitrate's candidate set and
+│           │                #   domain clamp widen to BASE_SKILL_DOMAINS plus
+│           │                #   the active world's skill_definition.name
+│           │                #   values, filled into pt-mj-arbiter's
+│           │                #   {custom_skill_names} placeholder; a returned
+│           │                #   custom name resolves to its skill_definition's
+│           │                #   base_domain (resolved_base_domain) — the PC's
+│           │                #   skill row is then looked up by
+│           │                #   skill_definition_id, not domain; the
+│           │                #   base-domain lookup path gained
+│           │                #   `AND skill_definition_id IS NULL`;
+│           │                #   resolve_physical and the perception-discovery
+│           │                #   gate both key off resolved_base_domain, never
+│           │                #   the raw arbiter-returned string;
 │           │                # possession check, binary (BRIEF-08/D2a.1,
 │           │                #   schema v1.19): _find_player_item,
 │           │                #   _build_refusal_instruction ([ACTION REFUSÉE],

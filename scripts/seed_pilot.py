@@ -36,7 +36,13 @@ WORLD_ID = "verkhaal"
 # testing; SKILL_SHEET_PC_ID stays a stable slug either way.
 SKILL_SHEET_PC_ID = "char-pc-test-2"
 SKILL_SHEET_PC_NAME = "PC_TEST_2"
-SKILL_DOMAINS = ("physical", "agility", "perception", "composure")
+SKILL_DOMAINS = m.BASE_SKILL_DOMAINS  # single source of truth (schema v1.63)
+
+# ----- BRIEF-55: pilot custom skill catalogue (schema v1.63) ----------------
+# Names are illustrative test fixtures for the world-scoped skill catalogue
+# (item 7 of the brief) — exercises both readers (arbiter + MJ narration).
+SKILL_DEF_DIPLOMATIE_ID = "skilldef-pilot-diplomatie"
+SKILL_DEF_PISTAGE_ID = "skilldef-pilot-pistage"
 
 # Track what happened for the summary.
 _created: list[tuple[str, str]] = []
@@ -568,11 +574,14 @@ Tu es l'arbitre d'un jeu de rôle. Le joueur vient de tenter une action physique
 dont l'issue est incertaine (grimper, bousculer, esquiver, forcer, se faufiler,
 résister...). Ta tâche : classer cette action selon QUATRE axes, RIEN d'autre.
 
-1. DOMAINE — choisis exactement un des quatre :
-   - physical   : force brute, endurance, encaissement, porter/pousser/tirer.
-   - agility    : précision corporelle, esquive, équilibre, rapidité, discrétion.
-   - perception : repérer, viser, remarquer un détail sous pression.
-   - composure  : sang-froid, résister à l'intimidation ou à la panique.
+1. DOMAINE — choisis exactement un élément parmi les domaines de base et les
+   compétences spécialisées de ce monde.
+   Domaines de base : physical / agility / perception / composure
+   Compétences spécialisées de ce monde : {custom_skill_names}
+   Une compétence spécialisée raffine un domaine de base : choisis-la quand
+   l'action correspond précisément à son intitulé ; sinon choisis le domaine
+   de base. S'il n'existe aucune compétence spécialisée pertinente, choisis
+   simplement le domaine de base.
 
 2. OPPOSITION — l'action vise-t-elle directement un PNJ présent (bousculer,
    désarmer, retenir, esquiver son coup...) ?
@@ -600,7 +609,7 @@ Tu ne juges JAMAIS la réussite ou l'échec — cela est déterminé ailleurs pa
 jet de dés. Tu ne narres rien.
 
 Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre :
-{"domain":"physical|agility|perception|composure","opposed_npc_id":"<nom exact ou null>","applies_constraint":"restrained|gagged|blindfolded|null","violent":true|false}\
+{"domain":"<un domaine de base ou une compétence spécialisée listée ci-dessus>","opposed_npc_id":"<nom exact ou null>","applies_constraint":"restrained|gagged|blindfolded|null","violent":true|false}\
 """
 
 MJ_ARBITER_USER_TEMPLATE = """\
@@ -1207,7 +1216,8 @@ def seed(session: Session) -> None:
     # ----- prompt template: MJ arbiter (physical resolution classification) --
     # usage = "mj_arbitration". Fired only for ResponseMode.physical, between
     # phase 0 (mj_interpretation) and the NPC phase: classifies the action into
-    # a domain (physical/agility/perception/composure) and optional NPC
+    # a domain (physical/agility/perception/composure, or — since BRIEF-55,
+    # schema v1.63 — a world-scoped custom skill name) and optional NPC
     # opposition (by name, resolved to an id in app.py). Never rolls, never
     # decides outcomes — resolve_physical (resolution.py) does that in pure
     # Python. Non-streaming JSON call; /no_think appended at call time.
@@ -1221,10 +1231,15 @@ def seed(session: Session) -> None:
         usage="mj_arbitration",
         system_prompt=MJ_ARBITER_SYSTEM_PROMPT,
         user_template=MJ_ARBITER_USER_TEMPLATE,
-        variables=["player_line", "npc_list"],
+        variables=["player_line", "npc_list", "custom_skill_names"],
         destination="local",
-        version=2,
-        notes="v2 (BRIEF-12): adds applies_constraint + violent fields",
+        version=3,
+        notes=(
+            "v3 (BRIEF-55, schema v1.63): domain selection widened to the "
+            "world's custom skill catalogue — {custom_skill_names} filled at "
+            "call time, '(aucune)' when the world has none (byte-identical "
+            "behavior in that case)"
+        ),
     )
 
     # ----- prompt template: MJ establishment (scene-establishing entry narration) --
@@ -1770,6 +1785,41 @@ def seed(session: Session) -> None:
             character_id=SKILL_SHEET_PC_ID,
             domain=domain,
             tier=0,
+        )
+
+    # ----- world-scoped custom skill catalogue (BRIEF-55, schema v1.63) -----
+    # Test fixture exercising both readers: the arbiter (mechanical) and the
+    # MJ narration assembler (ambiance). Names are illustrative.
+    get_or_create(
+        session,
+        m.SkillDefinition,
+        SKILL_DEF_DIPLOMATIE_ID,
+        world_id=WORLD_ID,
+        name="Diplomatie",
+        base_domain="composure",
+    )
+    get_or_create(
+        session,
+        m.SkillDefinition,
+        SKILL_DEF_PISTAGE_ID,
+        world_id=WORLD_ID,
+        name="Pistage",
+        base_domain="perception",
+    )
+    # B1: the pilot PC seeds every custom skill of its world too, flat at
+    # tier 0, mirroring create_player_character's seed loop.
+    for def_id, def_domain in (
+        (SKILL_DEF_DIPLOMATIE_ID, "composure"),
+        (SKILL_DEF_PISTAGE_ID, "perception"),
+    ):
+        get_or_create(
+            session,
+            m.Skill,
+            f"skill-{SKILL_SHEET_PC_ID}-custom-{def_id}",
+            character_id=SKILL_SHEET_PC_ID,
+            domain=def_domain,
+            tier=0,
+            skill_definition_id=def_id,
         )
 
     # ----- knowledge ---------------------------------------------------------

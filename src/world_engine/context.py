@@ -41,6 +41,7 @@ from .models import (
     Knowledge,
     Location,
     Relation,
+    SkillDefinition,
 )
 
 # Section headers (kept stable so a harness can split the output reliably).
@@ -50,6 +51,7 @@ H_SPEAK = "CE QUE TU PEUX ÉVOQUER"
 H_PERCEPTION = "COMMENT TU VOIS CEUX QUI T'ENTOURENT"
 H_COMPANY = "AVEC QUI TU TE TROUVES EN CE MOMENT"
 H_BOUNDARIES = "LIMITES STRICTES"
+H_MJ_CUSTOM_SKILLS = "COMPÉTENCES PROPRES À CE MONDE"
 
 # Neutral relation intensity assumed when the NPC has no read on the interlocutor.
 NEUTRAL_INTENSITY = 50
@@ -499,12 +501,27 @@ def assemble_mj_context(
                 "description": None if blindfolded else co_entity.description,
             })
 
+    # ----- Custom skill vocabulary (BRIEF-55, schema v1.63) — names only ----
+    # World-scoped at query construction, mirroring list_entities' pattern.
+    # Names ONLY — no description, no tier, no per-PC data (Scope OUT 4/7).
+    custom_skills: list[str] = []
+    if world_id:
+        custom_skills = [
+            d.name
+            for d in db.exec(
+                select(SkillDefinition)
+                .where(SkillDefinition.world_id == world_id)
+                .order_by(SkillDefinition.name)
+            ).all()
+        ]
+
     return {
         "location": location_block,
         "player_knowledge": player_knowledge,
         "public_events": public_events,
         "co_presents": co_presents,
         "player_condition": player_condition,
+        "custom_skills": custom_skills,
     }
 
 
@@ -548,6 +565,12 @@ def format_mj_context(mj_context: dict) -> str:
             for e in public_events
         )
         blocks.append(_section(H_MJ_EVENTS, body))
+
+    # Custom skill vocabulary (BRIEF-55) — names only, omitted entirely when
+    # the world has none (no empty header).
+    custom_skills = mj_context.get("custom_skills") or []
+    if custom_skills:
+        blocks.append(_section(H_MJ_CUSTOM_SKILLS, ", ".join(custom_skills)))
 
     # Player condition (BRIEF-12) — injected when not unharmed so the MJ
     # narration is aware of the mechanical reality and cannot contradict it.
