@@ -884,6 +884,16 @@ single number.
   a direct canon write with no `proposed_mutation` — the same rule as every
   other creator-mode edit (Author CRUD, see "Author CRUD" above). There is
   no automatic progression yet.
+- **Create-route seed (BRIEF-46) is forward-only; BRIEF-59 is the explicit
+  retrofit.** `POST /api/characters/player` seeds the four base-domain rows
+  unconditionally for every PC created through it. PCs that predate that
+  route (e.g. `char-player` / Joran Vey, created directly in the seed or
+  before BRIEF-46) received no `skill` rows at origin and must be backfilled
+  explicitly via `migrate_v1_65_pc_skill_backfill.py`. A lazy self-heal on
+  read or create was considered (BRIEF-59 rejected B2) and rejected:
+  implicit healers obscure data state and violate the `structural over
+  disciplinary` principle. The migration is the intentional, one-shot,
+  idempotent retrofit.
 - **NPCs do not get `skill` rows.** An NPC's physical capability, when a
   scene needs to compare it against the player's, lives as a single
   opposition tier in `entity.metadata` (key `physical_tier`, `-1..2`,

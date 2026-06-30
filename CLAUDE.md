@@ -1180,6 +1180,11 @@ World-genrator/
 │   ├── migrate_v1_57.py     # add character.world_id (backfilled from entity.world_id)
 │   │                        #   + idx_character_world + idx_character_one_pc_per_user_world
 │   │                        #   partial-unique (BRIEF-46, idempotent)
+│   ├── migrate_v1_65_pc_skill_backfill.py
+│   │                        #   no new tables/columns; backfills the four base
+│   │                        #   skill rows (tier=0) for every player character
+│   │                        #   missing them — retrofits PCs predating the
+│   │                        #   create-route seed (BRIEF-59, idempotent)
 │   └── cockpit.py           # launch the review cockpit (uvicorn, 127.0.0.1 only)
 ├── pyproject.toml           # src-layout package metadata
 ├── requirements.txt

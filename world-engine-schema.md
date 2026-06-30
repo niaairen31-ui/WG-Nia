@@ -984,6 +984,14 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.65** — No new tables or columns. Data migration
+  (`migrate_v1_65_pc_skill_backfill.py`): backfills the four base `skill`
+  rows (`tier=0`, `change_history='[]'`, `skill_definition_id=NULL`) for
+  every `character_type='player'` entity missing any of them; covers all
+  worlds; idempotent; retrofits PCs predating the create-route seed
+  (BRIEF-46) — e.g. `char-player` / Joran Vey. No NPC rows, no
+  custom-skill rows, no existing row mutated.
+
 - **v1.64** — No new tables or columns. World-scoped custom skill catalogue
   — authoring + creator CRUD (BRIEF-56), chantier 2 of BRIEF-55. Locked
   decisions: D2-attach-b (standalone author call, not folded into the
