@@ -1015,11 +1015,13 @@ def list_entity_items(entity_id: str, db: DbSession = Depends(get_session)) -> l
 # this module. Player-mode read-only rendering is a frontend-only distinction
 # (the cockpit is the creator's tool; the player-facing app is separate).
 
-def _skill_dict(s: Skill) -> dict:
+def _skill_dict(s: Skill, definition_name: str | None = None) -> dict:
     return {
         "id": s.id,
         "character_id": s.character_id,
         "domain": s.domain,
+        "skill_definition_id": s.skill_definition_id,
+        "definition_name": definition_name,
         "tier": s.tier,
         "change_history": s.change_history,
         "updated_at": _iso(s.updated_at),
@@ -1043,10 +1045,14 @@ def list_skill_player_characters(db: DbSession = Depends(get_session)) -> list[d
 def list_skills(character_id: str = Query(...), db: DbSession = Depends(get_session)) -> list[dict]:
     """A player character's skill sheet, in fixed domain order."""
     _get_entity(db, character_id)
-    rows = db.exec(select(Skill).where(Skill.character_id == character_id)).all()
+    pairs = db.exec(
+        select(Skill, SkillDefinition)
+        .outerjoin(SkillDefinition, Skill.skill_definition_id == SkillDefinition.id)
+        .where(Skill.character_id == character_id)
+    ).all()
     order = {domain: i for i, domain in enumerate(SKILL_DOMAINS)}
-    rows.sort(key=lambda s: order.get(s.domain, len(SKILL_DOMAINS)))
-    return [_skill_dict(s) for s in rows]
+    pairs.sort(key=lambda p: order.get(p[0].domain, len(SKILL_DOMAINS)))
+    return [_skill_dict(s, d.name if d else None) for s, d in pairs]
 
 
 class SkillTierBody(BaseModel):

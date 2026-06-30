@@ -5465,15 +5465,18 @@ function skillRender() {
   const playerMode = document.getElementById('skill-player-mode').checked;
   mainEl.innerHTML = '<div class="field-section"><div class="field-grid">' +
     skillRows.map(s => {
-      const label = SKILL_DOMAIN_LABELS[s.domain] || s.domain;
+      const baseName = SKILL_DOMAIN_LABELS[s.domain] || s.domain;
+      const labelHtml = s.definition_name
+        ? `${esc(s.definition_name)}<br><small style="font-weight:normal;color:var(--muted)">${esc(baseName)}</small>`
+        : esc(baseName);
       if (playerMode) {
-        return `<div class="field-row"><label>${esc(label)}</label>
+        return `<div class="field-row"><label>${labelHtml}</label>
           <input type="text" value="${esc(SKILL_TIER_LABELS[String(s.tier)] || s.tier)}" disabled></div>`;
       }
       const opts = [-1, 0, 1, 2].map(t =>
         `<option value="${t}" ${t === s.tier ? 'selected' : ''}>${esc(SKILL_TIER_LABELS[String(t)])}</option>`
       ).join('');
-      return `<div class="field-row"><label>${esc(label)}</label>
+      return `<div class="field-row"><label>${labelHtml}</label>
         <select onchange="skillSaveTier('${esc(s.id)}', this.value)">${opts}</select></div>`;
     }).join('') +
     '</div></div>';

@@ -3245,7 +3245,7 @@ particular word.
 
 **FK-by-id is the rename-safety mechanism.** `skill.skill_definition_id`
 (not a copied name string) is a custom skill's identity. Every reader
-(arbiter resolution, MJ vocabulary, the future skill sheet display) resolves
+(arbiter resolution, MJ vocabulary, the skill sheet display) resolves
 the display name by joining to `skill_definition.name` at read time — so
 renaming a `skill_definition` row propagates everywhere instantly and
 orphans nothing. This is the same rename-safety pattern role roles/factions
