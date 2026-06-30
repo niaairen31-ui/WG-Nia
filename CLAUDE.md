@@ -228,7 +228,7 @@ Read both before making any structural change.
   reads (`_active_members`, `assemble_npc_context` H_COMPANY,
   `assemble_mj_context` co-presents) gate on `entity.status='active' AND
   vital_status='alive'` in addition to `gathering_member.left_at IS NULL`.
-- World block deletion (delete_world_cascade) is the sole sanctioned hard-delete of canon and the only exception to "History is sacred"; no other delete-side helper exists.
+- World block deletion (delete_world_cascade) is the broadest sanctioned hard-delete of canon and the original exception to "History is sacred" — it removes every row scoped to a world, the world row included. `skill_definition` deletion (BRIEF-56, see below) is a second, narrower named exception, scoped to one definition and its dependent `skill` rows only. No other delete-side helper exists; any new hard-delete path must be named here, not added silently.
 - **Custom skill lookups filter `skill_definition_id`, by construction**
   (BRIEF-55, schema v1.63). A base-domain `skill` row lookup MUST include
   `AND skill_definition_id IS NULL` (e.g. `app.py`'s arbiter resolution) so
@@ -240,6 +240,33 @@ Read both before making any structural change.
   arbiter-returned name. `skill_definition` and custom `skill` rows are
   PC-only and MJ-narration-only this phase: no NPC-side read, no NPC
   dialogue injection (deferred to a future decision, not built).
+- **A `skill_definition` delete always succeeds and is never blocked by
+  `ON DELETE RESTRICT`; it carries no `change_history` snapshot of the
+  deletion** (BRIEF-56, no schema change — D2-delete-cascade, locked
+  decision). `DELETE /api/skill-definitions/{id}` (`cockpit/crud.py`)
+  deletes every dependent PC `skill` row, then the definition, in one
+  transaction. The creator-side type-"Oui" confirmation modal is the sole
+  safeguard — the same idiom and the same deliberate exception to "History
+  is sacred" as world block deletion, scoped to one row instead of a whole
+  world.
+- **A new `skill_definition` backfills a tier-0 `skill` row onto every
+  existing player character of its world, in the same transaction as the
+  create** (BRIEF-56, no schema change — D2-backfill-yes, locked decision).
+  `POST /api/skill-definitions` (`cockpit/crud.py`) never leaves the
+  catalogue<->PC alignment partial — every PC always has every world skill,
+  the invariant the arbiter's `skill_definition_id`-keyed lookup depends on
+  being total. Renaming a `skill_definition` touches no `skill` row
+  (FK-by-id); re-basing one (`base_domain` change) updates the `domain`
+  column on every dependent `skill` row in the same write, so the 2d6 band
+  lookup and the `domain` CHECK stay consistent.
+- **A `skill_definition.name` can never equal a base-domain literal**
+  (BRIEF-56, no schema change — closes the named risk from BRIEF-55/schema
+  v1.63). Both write paths — the creator-CRUD `POST`/`PUT
+  /api/skill-definitions` and `entity_author.generate_skill_catalogue_draft`'s
+  `_normalize_skill_catalogue` — reject/drop a name that case-insensitively
+  matches `physical`/`agility`/`perception`/`composure`, so the arbiter's
+  `world_skill_defs_by_name.get(domain)` lookup can never be shadowed by a
+  custom row claiming a base-domain name.
 
 ## Local model notes
 
@@ -439,7 +466,19 @@ World-genrator/
 │       │                    #   _normalize_player_knowledge (NOT
 │       │                    #   _normalize_knowledge, which forces
 │       │                    #   is_secret=True — wrong for a PC) — emits no
-│       │                    #   is_secret key at all, caps at 5 rows
+│       │                    #   is_secret key at all, caps at 5 rows;
+│       │                    #   generate_skill_catalogue_draft(brief, db)
+│       │                    #   (BRIEF-56, no schema change): standalone
+│       │                    #   sibling, NOT a _TYPE_FIELDS entry — parses a
+│       │                    #   SINGLE top-level JSON object {"skills": [...]},
+│       │                    #   each entry {"name","base_domain","description"};
+│       │                    #   never emits a tier or a structural id; db is
+│       │                    #   read-only (sole use: the pt-skill-catalogue
+│       │                    #   template lookup); _normalize_skill_catalogue
+│       │                    #   drops nameless rows, rows whose base_domain
+│       │                    #   doesn't case-insensitively resolve against
+│       │                    #   BASE_SKILL_DOMAINS, and rows whose name
+│       │                    #   collides with a base-domain literal
 │       ├── region_author.py # Region orchestrator, chantier 1 (BRIEF-34,
 │       │                    #   schema v1.45), split into a two-phase
 │       │                    #   creator checkpoint (BRIEF-38, schema v1.49):
@@ -602,6 +641,16 @@ World-genrator/
 │           │                #   on a bad level instead of defaulting to "rumor"); the
 │           │                #   4-skill seed and the single try/db.commit() block
 │           │                #   stay untouched (B1, byte-identical seed);
+│           │                # POST /api/skill-definitions/generate (BRIEF-56,
+│           │                #   no schema change): SkillCatalogueGenerateBody —
+│           │                #   brief — delegates ONLY to
+│           │                #   entity_author.generate_skill_catalogue_draft;
+│           │                #   writes nothing; deliberately beside
+│           │                #   POST /api/characters/player/generate, not in
+│           │                #   crud.py, same no-canon-write reasoning; the
+│           │                #   creator accepts/edits through the existing
+│           │                #   creator-CRUD POST /api/skill-definitions
+│           │                #   (crud.py), never written here;
 │           │                # MJ narration layer (_load_mj_narration_template);
 │           │                # MJ interpretation layer (ResponseMode incl. join,
 │           │                #   physical — BRIEF-11/v1.23),
@@ -800,6 +849,25 @@ World-genrator/
 │           │                #   GET /api/entities/{id}/ledger (balance + entries),
 │           │                #   GET /api/ledger (global journal, entity_id/session_id
 │           │                #   filters) — INSERT-only, no PUT/DELETE route exists;
+│           │                #   skill catalogue CRUD (BRIEF-56, no schema change):
+│           │                #   GET/POST/PUT/DELETE /api/skill-definitions, the
+│           │                #   skill/discoverable_detail/ledger dedicated-router
+│           │                #   shape (NOT the generic composite entity editor —
+│           │                #   skill_definition has no entity_id), all world-scoped
+│           │                #   via _world_id(db); POST validates base_domain ∈
+│           │                #   BASE_SKILL_DOMAINS, name not a base-domain literal,
+│           │                #   and UNIQUE(world_id,name) (409 on conflict), then
+│           │                #   backfills a tier-0 skill row onto every existing PC
+│           │                #   of the world in the same transaction (D2-backfill-yes);
+│           │                #   PUT re-validates the same way and, when base_domain
+│           │                #   changes, also updates domain on every dependent
+│           │                #   skill row (skill_definition_id match); DELETE removes
+│           │                #   every dependent skill row then the definition in one
+│           │                #   transaction — always possible (never RESTRICT-blocked),
+│           │                #   no change_history snapshot of the deletion
+│           │                #   (D2-delete-cascade, the creator's type-"Oui" confirm
+│           │                #   modal is the sole safeguard, same idiom as world
+│           │                #   block deletion);
 │           │                #   faction roles vocabulary (BRIEF-31, schema v1.42):
 │           │                #   GET /api/entities/{faction_id}/roles — read-only,
 │           │                #   returns entity.metadata['roles'] (ordered list of
@@ -905,6 +973,23 @@ World-genrator/
 │                            #   pcGenerateDraft, overwriting the fields/knowledge in
 │                            #   place — no separate discard step (mirrors the
 │                            #   world-bible generator);
+│                            #   "Compétences" Création sub-tab (BRIEF-56, no
+│                            #   schema change): AI-generate panel (concept
+│                            #   textarea + "Générer le brouillon",
+│                            #   competencesGenerateDraft POSTs {brief} to
+│                            #   /api/skill-definitions/generate) renders an
+│                            #   editable draft list (competencesDraft —
+│                            #   name/base_domain/description per row,
+│                            #   accept-individually via competencesAcceptDraftRow
+│                            #   which POSTs /api/skill-definitions, or discard);
+│                            #   "+ Ajouter une compétence" (competencesAddManualRow)
+│                            #   pushes a blank row onto the same draft list — no
+│                            #   separate manual-add form; existing-definitions list
+│                            #   (competencesLoadList/_competencesRenderTable)
+│                            #   supports inline rename/re-base/re-word
+│                            #   (competencesSaveRow, PUT) and delete
+│                            #   (competencesDeleteOpen/-Confirm — type-"Oui"
+│                            #   confirm modal, same idiom as worldDeleteOpen);
 │                            # NPC raw audit annotation; speaker-target selector
 │                            #   (contract C2) + join-candidates picker;
 │                            #   scene-view Travel control ("Voyager" — E1);
@@ -919,8 +1004,9 @@ World-genrator/
 │                            #   the resolved player character (de-hardcoded
 │                            #   from the char-player literal, BRIEF-45 — see
 │                            #   loadBootstrap below); Création sub-tabs NPC / Personnage
-│                            #   joueur / Lieux / Factions / Objets / Artefacts
-│                            #   (read-only scaffold) / Review Queue (review queue
+│                            #   joueur / Lieux / Factions / Objets / Compétences
+│                            #   (BRIEF-56) / Région / Artefacts
+│                            #   (read-only scaffold) / Registre / Review Queue (review queue
 │                            #   batch selection — per-row checkboxes on 'proposed'
 │                            #   rows, select all/none, batch approve/reject);
 │                            #   Création → Personnage joueur embeds Fiche skill
@@ -1180,9 +1266,9 @@ prepend `src` to `sys.path`, so they run without an editable install.
   for `pt-npc-dialogue`, `pt-mj-narration`, `pt-mj-interpretation`, `pt-mj-gathering`,
   `pt-mj-speaker`, `pt-mj-initiative`, `pt-npc-initiative-act`, `pt-mj-arbiter`,
   `pt-mj-establishment`, `pt-entity-generation`, `pt-world-generation`,
-  `pt-region-manifest`, `pt-region-manifest-topup`, and `pt-player-generation` —
-  re-running the seed converges the DB to the latest wording without losing
-  other data.
+  `pt-region-manifest`, `pt-region-manifest-topup`, `pt-player-generation`, and
+  `pt-skill-catalogue` — re-running the seed converges the DB to the latest
+  wording without losing other data.
 
 ---
 

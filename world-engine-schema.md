@@ -984,6 +984,44 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.64** — No new tables or columns. World-scoped custom skill catalogue
+  — authoring + creator CRUD (BRIEF-56), chantier 2 of BRIEF-55. Locked
+  decisions: D2-attach-b (standalone author call, not folded into the
+  world-bible call), D2-template-b (dedicated `pt-skill-catalogue`
+  template, `usage='skill_catalogue'`, `world_id=NULL`), D2-delete-cascade
+  (delete is always possible — never `ON DELETE RESTRICT`-blocked — but
+  carries no separate `change_history` snapshot of the deletion event; the
+  creator-side type-"Oui" confirmation modal is the sole safeguard, same
+  idiom as world block deletion), D2-backfill-yes (a new definition
+  backfills a tier-0 `skill` row onto every existing player character of
+  the world, in the same transaction as the create — keeps the
+  catalogue<->PC alignment that the arbiter lookup depends on total).
+  `entity_author.generate_skill_catalogue_draft` (standalone sibling to
+  `generate_world_draft`/`generate_player_draft`, NOT a `_TYPE_FIELDS`
+  entry) proposes `{name, base_domain, description}` rows only — never a
+  tier, never a structural id; `_normalize_skill_catalogue` drops nameless
+  rows and rows whose `base_domain` doesn't resolve against
+  `BASE_SKILL_DOMAINS` (case-insensitive match, no fifth domain invented).
+  `POST /api/skill-definitions/generate` (`cockpit/app.py`) delegates only
+  to that function, writes nothing. Creator-CRUD dedicated router
+  (`cockpit/crud.py`, the `skill`/`discoverable_detail`/`ledger` shape, NOT
+  the generic composite entity editor — `skill_definition` has no
+  `entity_id`): `GET/POST/PUT/DELETE /api/skill-definitions`, all
+  world-scoped via `_world_id(db)`; `POST` validates `base_domain ∈
+  BASE_SKILL_DOMAINS` and `UNIQUE(world_id, name)` (409 on conflict) and
+  performs the backfill insert in the same transaction; `PUT` re-validates
+  the same way and, when `base_domain` changes, also updates the `domain`
+  column on every dependent `skill` row so 2d6 bands/CHECK/display stay
+  consistent; `DELETE` removes every dependent `skill` row then the
+  definition in one transaction. New "Compétences" Création sub-tab
+  (`index.html`): AI-generate panel pre-fills an editable draft list
+  (accept/edit/discard per row, manual add), plus the existing-definitions
+  list (inline rename/re-base/re-word, delete with the type-"Oui" modal).
+  Closes the chantier-2 deferral noted in BRIEF-55/v1.63's CHANGELOG entry
+  (creator CRUD surface, AI authoring, delete/rename UX, `description`
+  reader still N/A for in-play readers — Scope OUT unchanged: no NPC-side
+  custom skills, no per-PC subset, no `description` injection into any
+  prompt).
 - **v1.63** — World-scoped custom skill catalogue, table + both readers
   (BRIEF-55). New table `skill_definition` (world-scoped; `name` + one
   specialised `base_domain`, CHECK against the four base domains;

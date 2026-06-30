@@ -22,7 +22,7 @@ from typing import Any
 from sqlmodel import Session, select
 
 from .context import _SAFE_SUBCULTURE_KEYS
-from .models import Entity, PromptTemplate, World
+from .models import BASE_SKILL_DOMAINS, Entity, PromptTemplate, World
 from .ollama_client import OllamaError, chat
 from .writes import KNOWLEDGE_LEVELS
 
@@ -113,6 +113,15 @@ def _load_player_template(db: Session) -> PromptTemplate | None:
     stmt = (
         select(PromptTemplate)
         .where(PromptTemplate.usage == "player_generation")
+        .where(PromptTemplate.is_active == True)  # noqa: E712
+    )
+    return db.exec(stmt).first()
+
+
+def _load_skill_catalogue_template(db: Session) -> PromptTemplate | None:
+    stmt = (
+        select(PromptTemplate)
+        .where(PromptTemplate.usage == "skill_catalogue")
         .where(PromptTemplate.is_active == True)  # noqa: E712
     )
     return db.exec(stmt).first()
@@ -294,6 +303,54 @@ def _normalize_roles(raw: Any, notes: list[str]) -> list[dict]:
         rows.append(
             {
                 "name": name,
+                "description": description if isinstance(description, str) else "",
+            }
+        )
+    return rows
+
+
+def _normalize_skill_catalogue(raw: Any, notes: list[str]) -> list[dict]:
+    """Validate each proposed skill; drop nameless rows or rows whose
+    proposed base domain doesn't resolve, note each drop (BRIEF-56).
+
+    Order is preserved. The model names its intended base domain by string;
+    this resolves case-insensitively against `BASE_SKILL_DOMAINS` (the
+    single source of truth, `models.py`) and drops the row on a true miss —
+    the model never invents a fifth domain. A missing description becomes
+    an empty string. Code creates ids/rows; this never emits one.
+    """
+    domain_lookup = {d.lower(): d for d in BASE_SKILL_DOMAINS}
+    rows: list[dict] = []
+    if not isinstance(raw, list):
+        return rows
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            notes.append("Compétence proposée sans nom — ignorée")
+            continue
+        if name.strip().lower() in domain_lookup:
+            notes.append(
+                f"'{name}' coïncide avec un domaine de base — ignorée"
+            )
+            continue
+        domain_raw = item.get("base_domain")
+        base_domain = (
+            domain_lookup.get(domain_raw.strip().lower())
+            if isinstance(domain_raw, str)
+            else None
+        )
+        if base_domain is None:
+            notes.append(
+                f"Domaine de base non reconnu pour '{name}' — compétence ignorée"
+            )
+            continue
+        description = item.get("description")
+        rows.append(
+            {
+                "name": name,
+                "base_domain": base_domain,
                 "description": description if isinstance(description, str) else "",
             }
         )
@@ -606,4 +663,67 @@ def generate_player_draft(brief: str, db: Session) -> dict:
         "backstory": backstory,
         "knowledge": knowledge,
     }
+    return {"ok": True, "draft": draft, "notes": notes}
+
+
+def generate_skill_catalogue_draft(brief: str, db: Session) -> dict:
+    """Generate a pre-fill draft for the world's custom skill catalogue
+    (BRIEF-56, D2-attach-b/D2-template-b).
+
+    Standalone sibling to `generate_world_draft`/`generate_player_draft` —
+    NOT a `_TYPE_FIELDS` entry, NOT routed through `generate_entity_draft`.
+    Pure generate-and-return: writes no canon anywhere in this function or
+    its call path. `skill_definition` has no `entity_id`, so this never
+    calls `_create_entity_core`; the model emits no structural id and no
+    resolved link — code creates rows/ids only on creator accept (the
+    creator-CRUD `POST /api/skill-definitions`, `cockpit/crud.py`). `db` is
+    read-only here: its single use is the `pt-skill-catalogue` template
+    lookup.
+
+    Parses a SINGLE top-level JSON object {"skills": [...]} — each entry
+    {"name", "base_domain", "description"}. Normalised by
+    `_normalize_skill_catalogue`: nameless rows are dropped, and a proposed
+    `base_domain` that doesn't resolve against `BASE_SKILL_DOMAINS` drops
+    the whole row (the model never invents a fifth domain).
+
+    Never raises into the caller — every failure mode (missing template,
+    unreachable model, malformed JSON, empty parse) returns
+    {"ok": False, "error": "<reason>"}. On success returns
+    {"ok": True, "draft": {"skills": [{"name", "base_domain",
+    "description"}, ...]}, "notes": [...]}.
+    """
+    if not brief or not brief.strip():
+        return {"ok": False, "error": "brief must not be empty"}
+
+    template = _load_skill_catalogue_template(db)
+    if template is None:
+        return {"ok": False, "error": "No active pt-skill-catalogue template found"}
+
+    try:
+        user_message = template.user_template.format(brief=brief)
+    except (KeyError, IndexError) as exc:
+        return {"ok": False, "error": f"Template formatting failed: {exc}"}
+
+    messages = [
+        {"role": "system", "content": template.system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+    try:
+        raw = chat(messages, model=AUTHOR_MODEL, format="json")
+    except OllamaError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {"ok": False, "error": "Model returned non-JSON output"}
+
+    if not isinstance(parsed, dict) or not parsed:
+        return {"ok": False, "error": "Model returned an empty or malformed draft"}
+
+    notes: list[str] = []
+    skills = _normalize_skill_catalogue(parsed.get("skills"), notes)
+
+    draft = {"skills": skills}
     return {"ok": True, "draft": draft, "notes": notes}

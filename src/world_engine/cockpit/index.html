@@ -1154,6 +1154,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <button class="creation-sub-tab"        id="ctab-lieux"     onclick="showCreationSubTab('lieux')">Lieux</button>
     <button class="creation-sub-tab"        id="ctab-factions"  onclick="showCreationSubTab('factions')">Factions</button>
     <button class="creation-sub-tab"        id="ctab-objets"    onclick="showCreationSubTab('objets')">Objets</button>
+    <button class="creation-sub-tab"        id="ctab-competences" onclick="showCreationSubTab('competences')">Compétences</button>
     <button class="creation-sub-tab"        id="ctab-region"    onclick="showCreationSubTab('region')">Région</button>
     <button class="creation-sub-tab"        id="ctab-artefacts" onclick="showCreationSubTab('artefacts')">Artefacts</button>
     <button class="creation-sub-tab"        id="ctab-registre"  onclick="showCreationSubTab('registre')">Registre</button>
@@ -1278,6 +1279,34 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       <div class="empty"><span class="spin">⟳</span></div>
     </div>
   </div><!-- #creation-artefacts -->
+
+  <!-- ── Compétences sub-tab (BRIEF-56) — world-scoped custom skill catalogue ── -->
+  <div id="creation-competences" style="display:none">
+    <div class="queue-panel">
+      <div class="panel-head">
+        <h2>Compétences propres au monde</h2>
+        <button class="btn-icon" onclick="competencesLoadList()" title="Rafraîchir">↻</button>
+      </div>
+      <div class="field-section" style="margin:0; padding:10px 14px">
+        <div class="field-row" style="margin:0">
+          <label>Intention (pour l'assistant)</label>
+          <textarea id="competences-gen-brief" rows="2" placeholder="Ex. un monde maritime où la navigation et le troc comptent autant que le combat"></textarea>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center; margin-top:6px">
+          <button class="btn-send" onclick="competencesGenerateDraft()">Générer le brouillon</button>
+          <span class="author-status" id="competences-gen-status"></span>
+        </div>
+        <div id="competences-gen-notes"></div>
+        <div id="competences-draft-list" style="margin-top:10px"></div>
+      </div>
+      <div class="queue-body" id="competences-body" style="border-top:1px solid var(--border)">
+        <div class="empty"><span class="spin">⟳</span></div>
+      </div>
+      <div class="field-section" style="border-top:1px solid var(--border); margin-top:8px; padding-top:8px;">
+        <button class="btn-send" onclick="competencesAddManualRow()">+ Ajouter une compétence</button>
+      </div>
+    </div>
+  </div><!-- #creation-competences -->
 
   <!-- ── Région sub-tab (BRIEF-34/35/36) — generation + D1 review + E1 commit ── -->
   <div id="creation-region" style="display:none">
@@ -2930,19 +2959,20 @@ function showCreationSubTab(tab) {
   const btn = document.getElementById('ctab-' + tab);
   if (btn) btn.classList.add('active');
 
-  const isEditorTab = !['artefacts', 'registre', 'queue', 'region'].includes(tab);
+  const isEditorTab = !['artefacts', 'registre', 'queue', 'region', 'competences'].includes(tab);
   document.getElementById('creation-editor-area').style.display = isEditorTab ? '' : 'none';
   document.getElementById('creation-artefacts').style.display   = (tab === 'artefacts') ? '' : 'none';
   document.getElementById('creation-registre').style.display    = (tab === 'registre')  ? '' : 'none';
   document.getElementById('creation-queue').style.display       = (tab === 'queue')     ? '' : 'none';
   document.getElementById('creation-region').style.display      = (tab === 'region')    ? '' : 'none';
+  document.getElementById('creation-competences').style.display = (tab === 'competences') ? '' : 'none';
   document.getElementById('creation-lieux-graph').style.display = (tab === 'lieux')     ? '' : 'none';
 
   const pjSkill = document.getElementById('creation-pj-skill');
   pjSkill.style.display = (tab === 'pj') ? 'flex' : 'none';
 
   const newRow = document.getElementById('creation-new-row');
-  if (newRow) newRow.style.display = ['pj', 'artefacts', 'registre', 'queue', 'region'].includes(tab) ? 'none' : '';
+  if (newRow) newRow.style.display = ['pj', 'artefacts', 'registre', 'queue', 'region', 'competences'].includes(tab) ? 'none' : '';
 
   const labels = { npc: 'NPC', pj: 'Personnages joueurs', lieux: 'Lieux', factions: 'Factions', objets: 'Objets' };
   const labelEl = document.getElementById('creation-list-label');
@@ -2980,6 +3010,196 @@ function showCreationSubTab(tab) {
     loadQueue();
   } else if (tab === 'region') {
     regionRenderAll();
+  } else if (tab === 'competences') {
+    competencesLoadList();
+  }
+}
+
+/* ── Compétences — world-scoped custom skill catalogue (BRIEF-56) ───────── */
+/* AI draft proposes {name, base_domain, description}; the creator accepts
+   each row individually (creator-CRUD POST), never a bulk silent write.
+   Existing definitions list supports inline rename/re-base/re-word and
+   delete (cascade — confirmation modal is the safeguard, no separate
+   history snapshot, same idiom as world block deletion). */
+
+let competencesDraft = [];
+const COMPETENCES_DOMAINS = ['physical', 'agility', 'perception', 'composure'];
+
+async function competencesGenerateDraft() {
+  const briefEl = document.getElementById('competences-gen-brief');
+  const statusEl = document.getElementById('competences-gen-status');
+  const brief = briefEl.value.trim();
+  if (!brief) { statusEl.textContent = 'Intention requise.'; return; }
+  statusEl.textContent = 'Génération…';
+  try {
+    const result = await api('/api/skill-definitions/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ brief }),
+    });
+    if (!result.ok) { statusEl.textContent = result.error; return; }
+    competencesDraft = result.draft.skills || [];
+    competencesRenderDraft();
+    const notesEl = document.getElementById('competences-gen-notes');
+    notesEl.innerHTML = (result.notes && result.notes.length)
+      ? '<div style="margin-top:8px; font-size:12px; color:var(--muted)">Notes de l\'assistant : ' +
+        result.notes.map(n => `<div>• ${esc(n)}</div>`).join('') + '</div>'
+      : '';
+    statusEl.textContent = competencesDraft.length
+      ? 'Brouillon généré — relisez, éditez puis acceptez chaque compétence.'
+      : 'Aucune compétence proposée.';
+  } catch (err) {
+    statusEl.textContent = err.message;
+  }
+}
+
+function _competencesDomainOptions(selected) {
+  return COMPETENCES_DOMAINS.map(d =>
+    `<option value="${d}" ${d === selected ? 'selected' : ''}>${d}</option>`
+  ).join('');
+}
+
+function competencesRenderDraft() {
+  const el = document.getElementById('competences-draft-list');
+  if (!competencesDraft.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="field-section-title">Brouillon proposé</div>' +
+    competencesDraft.map((s, i) => `
+      <div class="field-grid" style="border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:6px;">
+        <div class="field-row">
+          <label>Nom</label>
+          <input type="text" value="${esc(s.name)}" oninput="competencesDraft[${i}].name = this.value">
+        </div>
+        <div class="field-row">
+          <label>Domaine de base</label>
+          <select onchange="competencesDraft[${i}].base_domain = this.value">${_competencesDomainOptions(s.base_domain)}</select>
+        </div>
+        <div class="field-row" style="grid-column:1/-1">
+          <label>Description</label>
+          <textarea rows="2" oninput="competencesDraft[${i}].description = this.value">${esc(s.description || '')}</textarea>
+        </div>
+        <div style="grid-column:1/-1; display:flex; gap:8px;">
+          <button class="btn-send" onclick="competencesAcceptDraftRow(${i})">Accepter</button>
+          <button class="btn-icon" onclick="competencesDiscardDraftRow(${i})" title="Retirer du brouillon">✕</button>
+          <span class="author-status" id="competences-draft-status-${i}"></span>
+        </div>
+      </div>
+    `).join('');
+}
+
+function competencesDiscardDraftRow(i) {
+  competencesDraft.splice(i, 1);
+  competencesRenderDraft();
+}
+
+async function competencesAcceptDraftRow(i) {
+  const row = competencesDraft[i];
+  const statusEl = document.getElementById(`competences-draft-status-${i}`);
+  if (!row.name || !row.name.trim()) { statusEl.textContent = 'Nom requis.'; return; }
+  statusEl.textContent = '…';
+  try {
+    await api('/api/skill-definitions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: row.name.trim(),
+        base_domain: row.base_domain,
+        description: row.description || '',
+      }),
+    });
+    competencesDraft.splice(i, 1);
+    competencesRenderDraft();
+    competencesLoadList();
+  } catch (err) {
+    statusEl.textContent = err.message;
+  }
+}
+
+function competencesAddManualRow() {
+  competencesDraft.push({ name: '', base_domain: 'physical', description: '' });
+  competencesRenderDraft();
+}
+
+async function competencesLoadList() {
+  const bodyEl = document.getElementById('competences-body');
+  bodyEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  try {
+    const rows = await api('/api/skill-definitions');
+    bodyEl.innerHTML = _competencesRenderTable(rows);
+  } catch (e) {
+    bodyEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function _competencesRenderTable(rows) {
+  if (!rows || rows.length === 0) return '<div class="empty">Aucune compétence propre à ce monde — proposez-en une avec l\'assistant, ou ajoutez-en une manuellement.</div>';
+  return rows.map(d => `
+    <div class="field-grid" style="border-bottom:1px solid var(--border); padding:8px 0;">
+      <div class="field-row">
+        <label>Nom</label>
+        <input type="text" id="comp-name-${d.id}" value="${esc(d.name)}">
+      </div>
+      <div class="field-row">
+        <label>Domaine de base</label>
+        <select id="comp-domain-${d.id}">${_competencesDomainOptions(d.base_domain)}</select>
+      </div>
+      <div class="field-row" style="grid-column:1/-1">
+        <label>Description</label>
+        <textarea id="comp-desc-${d.id}" rows="2">${esc(d.description || '')}</textarea>
+      </div>
+      <div style="grid-column:1/-1; display:flex; gap:8px; align-items:center;">
+        <button class="btn-send" onclick="competencesSaveRow('${d.id}')">Enregistrer</button>
+        <button class="btn-end" onclick="competencesDeleteOpen('${d.id}', '${esc(d.name)}')">Supprimer</button>
+        <span class="author-status" id="comp-status-${d.id}"></span>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function competencesSaveRow(id) {
+  const statusEl = document.getElementById(`comp-status-${id}`);
+  const name = document.getElementById(`comp-name-${id}`).value.trim();
+  const base_domain = document.getElementById(`comp-domain-${id}`).value;
+  const description = document.getElementById(`comp-desc-${id}`).value;
+  if (!name) { statusEl.textContent = 'Nom requis.'; return; }
+  statusEl.textContent = '…';
+  try {
+    await api(`/api/skill-definitions/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, base_domain, description }),
+    });
+    statusEl.textContent = 'Enregistré.';
+  } catch (err) {
+    statusEl.textContent = err.message;
+  }
+}
+
+/** D2-delete-cascade: type-"Oui" confirmation, same idiom as world deletion.
+ *  Cascades — deletes every dependent PC `skill` row, then the definition,
+ *  in one transaction. No separate history snapshot (locked decision). */
+function competencesDeleteOpen(id, name) {
+  genericModalOpen('Supprimer la compétence', `
+    <p>Cette action supprime définitivement la compétence « ${esc(name)} » et,
+    pour chaque personnage joueur qui la possède, sa ligne de compétence
+    correspondante. Elle est irréversible.</p>
+    <p>Tapez Oui pour confirmer.</p>
+    <input type="text" id="comp-delete-confirm-input" placeholder="Oui"
+      oninput="document.getElementById('comp-delete-confirm-btn').disabled = this.value.trim() !== 'Oui'">
+    <div id="comp-delete-status" style="color:var(--red); margin-top:6px;"></div>
+    <button class="btn-send" id="comp-delete-confirm-btn" style="margin-top:8px" disabled
+      onclick="competencesDeleteConfirm('${id}')">Supprimer définitivement</button>
+  `, { dismissOnBackdrop: false });
+}
+
+async function competencesDeleteConfirm(id) {
+  const statusEl = document.getElementById('comp-delete-status');
+  statusEl.textContent = '…';
+  try {
+    await api(`/api/skill-definitions/${id}`, { method: 'DELETE' });
+    genericModalClose();
+    competencesLoadList();
+  } catch (err) {
+    statusEl.textContent = err.message;
   }
 }
 

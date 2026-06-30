@@ -39,6 +39,7 @@ from sqlmodel import Session, select
 from .. import ollama_client
 from ..entity_author import generate_entity_draft as _generate_entity_draft
 from ..entity_author import generate_player_draft as _generate_player_draft
+from ..entity_author import generate_skill_catalogue_draft as _generate_skill_catalogue_draft
 from ..entity_author import generate_world_draft as _generate_world_draft
 from ..region_author import generate_region_draft as _generate_region_draft
 from ..region_author import generate_region_manifest as _generate_region_manifest
@@ -154,6 +155,27 @@ def generate_player(
     (never a 500) on any failure.
     """
     return _generate_player_draft(body.brief, db)
+
+
+class SkillCatalogueGenerateBody(BaseModel):
+    brief: str
+
+
+@app.post("/api/skill-definitions/generate")
+def generate_skill_catalogue(
+    body: SkillCatalogueGenerateBody, db: Session = Depends(get_session)
+) -> dict:
+    """Creator-side AI skill-catalogue draft generator (BRIEF-56,
+    D2-attach-b/D2-template-b).
+
+    Deliberately NOT in crud.py: crud.py is a sanctioned canon-write path
+    and this route writes nothing — delegates only to
+    entity_author.generate_skill_catalogue_draft. Returns
+    {"ok": false, "error": ...} (never a 500) on any failure. The creator
+    edits/accepts the proposed skills through the existing creator-CRUD
+    `POST /api/skill-definitions` (crud.py) — never written here.
+    """
+    return _generate_skill_catalogue_draft(body.brief, db)
 
 
 class RegionGenerateBody(BaseModel):

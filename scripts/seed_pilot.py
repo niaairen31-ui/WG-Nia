@@ -857,6 +857,49 @@ Concept du personnage joueur :
 Réponds par l'unique objet JSON décrit.\
 """
 
+# BRIEF-56: world-scoped custom skill catalogue authoring. usage =
+# "skill_catalogue". Standalone sibling template (NOT a _TYPE_FIELDS entry,
+# D2-attach-b) — entity_author.generate_skill_catalogue_draft formats
+# user_template with only {brief} and parses a single top-level JSON object
+# {"skills": [...]}. The model proposes names + prose + an intended base
+# domain only — never a tier, never a structural id; code creates rows/ids
+# only on creator accept.
+SKILL_CATALOGUE_SYSTEM_PROMPT = """\
+Tu es l'assistant de création du créateur d'un monde de jeu de rôle. Le \
+créateur te donne une intention en une phrase pour le CATALOGUE DE \
+COMPÉTENCES PROPRES à son monde ; ton travail est de proposer une liste de \
+compétences additionnelles que le créateur relira, éditera et complétera \
+avant qu'elles n'existent réellement. Tu ne crées rien toi-même — tu \
+proposes seulement, et le créateur juge.
+
+=== STRUCTURE — UN SEUL OBJET JSON ===
+Ta réponse est TOUJOURS un objet JSON avec exactement une clé de premier \
+niveau : "skills", un tableau de 3 à 8 objets. Chaque objet a exactement \
+trois champs :
+- "name" (string) : le nom court de la compétence (ex. « Pistage », \
+« Marchandage », « Lecture des courants »).
+- "base_domain" (string) : EXACTEMENT un parmi "physical", "agility", \
+"perception", "composure" — le domaine de base que cette compétence \
+spécialise. N'invente jamais un cinquième domaine.
+- "description" (string) : 1 à 2 phrases expliquant ce que cette compétence \
+recouvre dans ce monde précis.
+
+=== RÈGLE — RIEN D'AUTRE ===
+Ne propose ni tier, ni identifiant, ni lien vers un personnage : ces \
+éléments sont décidés ailleurs. Les compétences doivent être spécifiques au \
+monde décrit, pas génériques.
+
+=== FORMAT DE SORTIE ===
+Réponds UNIQUEMENT avec l'objet JSON demandé — aucun texte avant ou après, \
+aucun bloc de code Markdown, aucun commentaire.\
+"""
+
+SKILL_CATALOGUE_USER_TEMPLATE = """\
+Intention du créateur pour le catalogue de compétences : {brief}
+
+Brouillon JSON :\
+"""
+
 # BRIEF-34: Region orchestrator, Stage 0 — manifest. usage = "region_manifest".
 # Transforms a free-text creator region brief into a single structured JSON
 # manifest (concept + factions/locations/NPCs by name, with by-name
@@ -1401,6 +1444,24 @@ def seed(session: Session) -> None:
         usage="player_generation",
         system_prompt=PLAYER_GENERATION_SYSTEM_PROMPT,
         user_template=PLAYER_GENERATION_USER_TEMPLATE,
+        variables=["brief"],
+        destination="local",
+        version=1,
+    )
+
+    # ----- prompt template: skill catalogue authoring (BRIEF-56) -------------
+    # usage = "skill_catalogue" (new usage value). world_id = NULL. Calls go
+    # through entity_author.generate_skill_catalogue_draft — a standalone
+    # sibling, NOT a _TYPE_FIELDS entry: names + prose + intended base domain
+    # only, never a tier, never a structural id (D2-attach-b/D2-template-b).
+    upsert_prompt_template(
+        session,
+        "pt-skill-catalogue",
+        world_id=None,
+        name="Assistant de création — catalogue de compétences propres au monde",
+        usage="skill_catalogue",
+        system_prompt=SKILL_CATALOGUE_SYSTEM_PROMPT,
+        user_template=SKILL_CATALOGUE_USER_TEMPLATE,
         variables=["brief"],
         destination="local",
         version=1,

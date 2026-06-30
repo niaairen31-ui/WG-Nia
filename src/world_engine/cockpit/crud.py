@@ -1083,6 +1083,167 @@ def update_skill_tier(skill_id: str, body: SkillTierBody, db: DbSession = Depend
     return _skill_dict(skill)
 
 
+# ── Skill catalogue — world-scoped custom skill definitions (BRIEF-56) ───────
+# Creator-direct writes, same doctrine as the rest of this module: no
+# proposed_mutation checkpoint. `skill_definition` has no `entity_id` — this
+# is a dedicated-router CRUD surface (the `skill`/`discoverable_detail`/
+# `ledger` shape), NOT the generic composite entity editor.
+
+def _skill_definition_dict(d: SkillDefinition) -> dict:
+    return {
+        "id": d.id,
+        "world_id": d.world_id,
+        "name": d.name,
+        "base_domain": d.base_domain,
+        "description": d.description,
+        "updated_at": _iso(d.updated_at),
+    }
+
+
+@router.get("/skill-definitions")
+def list_skill_definitions(db: DbSession = Depends(get_session)) -> list[dict]:
+    """The active world's custom skill catalogue."""
+    rows = db.exec(
+        select(SkillDefinition)
+        .where(SkillDefinition.world_id == _world_id(db))
+        .order_by(SkillDefinition.name)
+    ).all()
+    return [_skill_definition_dict(d) for d in rows]
+
+
+class SkillDefinitionWriteBody(BaseModel):
+    name: str
+    base_domain: str
+    description: Optional[str] = None
+
+
+@router.post("/skill-definitions", status_code=201)
+def create_skill_definition(
+    body: SkillDefinitionWriteBody, db: DbSession = Depends(get_session)
+) -> dict:
+    """Add a custom skill to the active world's catalogue (D2-backfill-yes).
+
+    Backfills: inserts a tier-0 `skill` row for this definition onto every
+    existing player character of the world, in the SAME transaction, so the
+    catalogue<->PC alignment that makes the arbiter lookup total never
+    lapses (BRIEF-55's invariant — every PC always has every world skill).
+    """
+    world_id = _world_id(db)
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(422, "name is required")
+    if name.lower() in BASE_SKILL_DOMAINS:
+        raise HTTPException(422, "name must not be a base domain literal")
+    if body.base_domain not in BASE_SKILL_DOMAINS:
+        raise HTTPException(422, f"base_domain must be one of {BASE_SKILL_DOMAINS}")
+
+    definition = SkillDefinition(
+        world_id=world_id,
+        name=name,
+        base_domain=body.base_domain,
+        description=body.description,
+    )
+    db.add(definition)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, f"A skill named {name!r} already exists in this world")
+
+    pc_ids = db.exec(
+        select(Character.id)
+        .where(Character.world_id == world_id)
+        .where(Character.character_type == "player")
+    ).all()
+    for character_id in pc_ids:
+        db.add(Skill(
+            character_id=character_id,
+            domain=definition.base_domain,
+            tier=0,
+            skill_definition_id=definition.id,
+        ))
+
+    db.commit()
+    db.refresh(definition)
+    return _skill_definition_dict(definition)
+
+
+@router.put("/skill-definitions/{definition_id}")
+def update_skill_definition(
+    definition_id: str,
+    body: SkillDefinitionWriteBody,
+    db: DbSession = Depends(get_session),
+) -> dict:
+    """Rename / re-base / re-word a custom skill.
+
+    Rename is safe by construction (every reader joins by id, never copies
+    the name onto a `skill` row). Changing `base_domain` re-points
+    resolution for every existing PC `skill` row referencing this
+    definition — also updates their `domain` column so the 2d6 bands and
+    the base-domain CHECK stay consistent (mirrors the create-time seed).
+    """
+    definition = db.get(SkillDefinition, definition_id)
+    if definition is None or definition.world_id != _world_id(db):
+        raise HTTPException(404, f"SkillDefinition {definition_id!r} not found")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(422, "name is required")
+    if name.lower() in BASE_SKILL_DOMAINS:
+        raise HTTPException(422, "name must not be a base domain literal")
+    if body.base_domain not in BASE_SKILL_DOMAINS:
+        raise HTTPException(422, f"base_domain must be one of {BASE_SKILL_DOMAINS}")
+
+    domain_changed = body.base_domain != definition.base_domain
+    definition.name = name
+    definition.base_domain = body.base_domain
+    definition.description = body.description
+    definition.updated_at = datetime.now(UTC)
+    db.add(definition)
+
+    if domain_changed:
+        dependent = db.exec(
+            select(Skill).where(Skill.skill_definition_id == definition.id)
+        ).all()
+        for skill in dependent:
+            skill.domain = body.base_domain
+            skill.updated_at = datetime.now(UTC)
+            db.add(skill)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, f"A skill named {name!r} already exists in this world")
+    db.refresh(definition)
+    return _skill_definition_dict(definition)
+
+
+@router.delete("/skill-definitions/{definition_id}")
+def delete_skill_definition(
+    definition_id: str, db: DbSession = Depends(get_session)
+) -> dict:
+    """Delete a custom skill definition (D2-delete-cascade).
+
+    Always possible — never blocked by the structural `ON DELETE RESTRICT`
+    floor. Deletes every dependent PC `skill` row first, then the
+    definition, in one transaction. Per the locked decision, this cascade
+    carries no separate history snapshot — the creator-side confirmation
+    (type "Oui") is the safeguard, the same idiom as world block deletion.
+    """
+    definition = db.get(SkillDefinition, definition_id)
+    if definition is None or definition.world_id != _world_id(db):
+        raise HTTPException(404, f"SkillDefinition {definition_id!r} not found")
+
+    dependent = db.exec(
+        select(Skill).where(Skill.skill_definition_id == definition.id)
+    ).all()
+    for skill in dependent:
+        db.delete(skill)
+    db.delete(definition)
+    db.commit()
+    return {"deleted": definition_id, "skills_removed": len(dependent)}
+
+
 # ── Discoverable details (schema v1.26, BRIEF-13) ────────────────────────────
 # Creator-direct writes — same doctrine as the rest of this module: no
 # proposed_mutation checkpoint, because the creator is the authority.

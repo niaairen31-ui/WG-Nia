@@ -3249,7 +3249,7 @@ for the prior-state inventory). `skill_definition.base_domain`'s CHECK
 constraint is the first-ever validated reference to a domain in this
 codebase; it cites the same constant rather than introducing a fourth copy.
 
-**Deferred to chantier 2 (explicitly not built here):**
+**Deferred to chantier 2 (closed in BRIEF-56 below):**
 - The creator CRUD surface for `skill_definition` (no "Compétences" sub-tab,
   no routes, no frontend) — the only way a custom skill exists after this
   brief is the pilot seed fixture.
@@ -3268,19 +3268,70 @@ codebase; it cites the same constant rather than introducing a fourth copy.
   off `skill_definition_id` directly, so narrowing the seed later needs no
   reader change.
 
-**Named risk for chantier 2 — name collision with a base domain.** Nothing
-today prevents a `skill_definition.name` equal to a literal base domain
-(`"physical"`, `"agility"`, `"perception"`, `"composure"`) — the `UNIQUE
-(world_id, name)` index has no exclusion list. No path can create such a
-row this round (no creator CRUD, no AI authoring — Scope OUT), so the risk
-is latent, not live. If it ever happened, the arbiter's
-`world_skill_defs_by_name.get(domain)` lookup (`cockpit/app.py`) would
-treat that base-domain string as a custom hit, shadowing the base-domain
-resolution path. Chantier 2's CRUD/authoring surface should add this
-exclusion (CHECK or application-side validation) before either write path
-opens.
+**Named risk, closed in chantier 2.** The base-domain-name collision risk
+named above is now closed: both write paths opened by chantier 2 (the
+creator-CRUD `POST`/`PUT /api/skill-definitions` and
+`entity_author.generate_skill_catalogue_draft`'s normalizer) reject a
+`name` that case-insensitively equals a `BASE_SKILL_DOMAINS` literal —
+application-side validation, not a CHECK constraint (consistent with the
+rest of this module's enum validation, e.g. `base_domain`'s own check).
 
 ---
+
+## WORLD-SCOPED CUSTOM SKILL CATALOGUE — authoring + creator CRUD, chantier 2 (BRIEF-56, no schema change)
+
+Closes every deferral chantier 1 (BRIEF-55) named above. Four decisions were
+locked before this chantier was written-final (Nia's protocol: no silent
+defaults on a deferred design decision):
+
+**D2-attach-b — standalone author call.** `generate_skill_catalogue_draft`
+is a standalone sibling to `generate_world_draft`/`generate_player_draft`
+(NOT a `_TYPE_FIELDS` entry, NOT folded into the world-bible call) — same
+reasoning as those two: independently re-runnable, and `skill_definition`
+has no `entity_id` so it was never going to route through
+`generate_entity_draft` anyway.
+
+**D2-template-b — dedicated `pt-skill-catalogue` template.**
+`usage='skill_catalogue'`, `world_id=NULL`, idempotent upsert via
+`seed_pilot.py` — a separate system prompt from `pt-world-generation`,
+independently editable.
+
+**D2-delete-cascade, narrowed at the table.** The brief's original
+cascade text asked for a `change_history` snapshot of each affected PC
+`skill` row before deletion; this was caught as incoherent during planning
+— the row being deleted carries the column the snapshot would live in, so
+nothing actually survives the delete. Re-decided at the table: the cascade
+carries **no separate history snapshot**. Deletion is always possible
+(never `ON DELETE RESTRICT`-blocked, honoring "no add-only" — D2-delete-block
+would have re-created the soft add-only-after-first-PC pattern Nia
+explicitly rejected for this catalogue); the creator-side type-"Oui"
+confirmation modal is the sole safeguard, the same idiom and the same
+risk profile as world block deletion (`DELETE /api/worlds/{id}`,
+BRIEF-54) — both are now named, deliberate exceptions to "History is
+sacred" at the row-deletion level (world deletion was already the
+sanctioned exception at the world-block level).
+
+**D2-backfill-yes.** `POST /api/skill-definitions` inserts a tier-0
+`skill` row for the new definition onto every existing player character of
+the world, in the same transaction as the create. Preserves the B1
+invariant from chantier 1 ("every PC seeds every world skill") — without
+it, an arbiter that selects a newly-added custom skill could find no `skill`
+row for a PC created before the definition existed, and the chantier-1
+fallback (resolve via `base_domain` when the custom row is absent) would
+become load-bearing rather than defensive, which chantier 1 explicitly
+did not want.
+
+**Rebase propagates to dependent rows.** `PUT /api/skill-definitions/{id}`,
+when `base_domain` changes, also updates the `domain` column on every
+`skill` row referencing that definition (`skill_definition_id` match) — so
+the 2d6 band lookup, the `domain` CHECK, and the chantier-1 readers all see
+a consistent value without a separate migration step. Rename alone touches
+no `skill` row (FK-by-id, chantier 1's rename-safety mechanism, holds).
+
+**Scope OUT, unchanged from chantier 1.** No `description` injection into
+the arbiter or MJ prompts (prose is CRUD-UI-only, same as before); no
+NPC-side custom skills; no per-PC subset selection (B2); no tier authoring
+by the model.
 
 ## V1 SCOPE — Minimal playable
 
