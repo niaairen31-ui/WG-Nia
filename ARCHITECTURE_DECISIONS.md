@@ -248,8 +248,11 @@ tier 0, exactly like the seed).
 **Création** — seven sub-tabs:
 - *NPC* — character entities that are not player characters.
 - *Personnage joueur* — player characters (from `/api/skills/player-characters`),
-  with the Fiche skill editor embedded below the entity sheet, plus the
-  create-PC form (name + starting location) above it.
+  with the Fiche skill editor (`#skill-main`) rendered by default and the
+  create-PC form + generate panel (`#pj-create-block`) collapsed behind a
+  PJ-specific `+ Nouveau` button (`pjCreateNew`, BRIEF-60); Fiche is
+  deliberately left outside the gate so it shows without a click; the
+  list-selection rewire of the Fiche (A2) remains deferred.
 - *Lieux* — location entities (including the discoverable-details editor).
 - *Factions* — faction entities.
 - *Objets* — item entities (create + edit via the existing CRUD path).

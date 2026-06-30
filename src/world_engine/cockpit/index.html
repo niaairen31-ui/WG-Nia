@@ -1209,50 +1209,57 @@ button:not(:disabled):hover { filter: brightness(1.15); }
         <!-- Create-PC path (BRIEF-46): minimal form — name + starting location. -->
         <!-- PC creation assistant (BRIEF-52): concept -> AI draft -> inline-edited
              prose -> accept. Knowledge stays read-only in the draft (I1). -->
-        <div class="panel-head" style="flex-shrink:0">
-          <h2 style="font-size:12px">Créer un personnage joueur</h2>
+        <!-- BRIEF-60: generate panel + create form gated behind pjCreateOpen;
+             #skill-main Fiche stays outside the gate and renders by default. -->
+        <div class="author-new-row">
+          <button class="btn-send" id="pj-create-new-btn" onclick="pjCreateNew()" style="width:100%">+ Nouveau</button>
         </div>
-        <div class="field-section" style="flex-shrink:0; margin:0; padding:10px 14px">
-          <div class="field-row" style="margin:0">
-            <label>Concept (pour l'assistant)</label>
-            <textarea id="pc-generate-brief" rows="2" placeholder="Ex. une ancienne contrebandière qui a tout quitté pour..."></textarea>
+        <div id="pj-create-block" style="display:none">
+          <div class="panel-head" style="flex-shrink:0">
+            <h2 style="font-size:12px">Créer un personnage joueur</h2>
           </div>
-          <div style="display:flex; gap:10px; align-items:center; margin-top:6px">
-            <button class="btn-send" onclick="pcGenerateDraft()">Générer le brouillon</button>
-            <span class="author-status" id="pc-generate-status"></span>
+          <div class="field-section" style="flex-shrink:0; margin:0; padding:10px 14px">
+            <div class="field-row" style="margin:0">
+              <label>Concept (pour l'assistant)</label>
+              <textarea id="pc-generate-brief" rows="2" placeholder="Ex. une ancienne contrebandière qui a tout quitté pour..."></textarea>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center; margin-top:6px">
+              <button class="btn-send" onclick="pcGenerateDraft()">Générer le brouillon</button>
+              <span class="author-status" id="pc-generate-status"></span>
+            </div>
+            <div id="pc-generate-notes"></div>
           </div>
-          <div id="pc-generate-notes"></div>
-        </div>
-        <div class="field-section" style="flex-shrink:0; margin:0; padding:10px 14px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">
-          <div class="field-row" style="margin:0; min-width:180px">
-            <label>Nom</label>
-            <input type="text" id="pc-create-name" placeholder="Nom du personnage">
+          <div class="field-section" style="flex-shrink:0; margin:0; padding:10px 14px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">
+            <div class="field-row" style="margin:0; min-width:180px">
+              <label>Nom</label>
+              <input type="text" id="pc-create-name" placeholder="Nom du personnage">
+            </div>
+            <div class="field-row" style="margin:0; min-width:200px">
+              <label>Lieu de départ</label>
+              <select id="pc-create-location"><option value="">— choisir —</option></select>
+            </div>
+            <button class="btn-send" onclick="pcCreateSubmit()">Créer</button>
+            <span class="author-status" id="pc-create-status"></span>
           </div>
-          <div class="field-row" style="margin:0; min-width:200px">
-            <label>Lieu de départ</label>
-            <select id="pc-create-location"><option value="">— choisir —</option></select>
+          <div class="field-section" style="flex-shrink:0; margin:0; padding:0 14px 10px">
+            <div class="field-row" style="margin:0 0 6px 0">
+              <label>Description (publique)</label>
+              <textarea id="pc-create-description" rows="2" placeholder="Ce qu'autrui perçoit au premier regard"></textarea>
+            </div>
+            <div class="field-row" style="margin:0 0 6px 0">
+              <label>Apparence</label>
+              <textarea id="pc-create-appearance" rows="2" placeholder="Référence du joueur"></textarea>
+            </div>
+            <div class="field-row" style="margin:0 0 6px 0">
+              <label>Histoire personnelle</label>
+              <textarea id="pc-create-backstory" rows="3" placeholder="Référence du joueur"></textarea>
+            </div>
+            <div class="field-row" style="margin:0">
+              <label>Savoirs proposés (lecture seule — éditables après création via la Fiche)</label>
+              <div id="pc-draft-knowledge" style="font-size:12px; color:var(--muted)"></div>
+            </div>
           </div>
-          <button class="btn-send" onclick="pcCreateSubmit()">Créer</button>
-          <span class="author-status" id="pc-create-status"></span>
-        </div>
-        <div class="field-section" style="flex-shrink:0; margin:0; padding:0 14px 10px">
-          <div class="field-row" style="margin:0 0 6px 0">
-            <label>Description (publique)</label>
-            <textarea id="pc-create-description" rows="2" placeholder="Ce qu'autrui perçoit au premier regard"></textarea>
-          </div>
-          <div class="field-row" style="margin:0 0 6px 0">
-            <label>Apparence</label>
-            <textarea id="pc-create-appearance" rows="2" placeholder="Référence du joueur"></textarea>
-          </div>
-          <div class="field-row" style="margin:0 0 6px 0">
-            <label>Histoire personnelle</label>
-            <textarea id="pc-create-backstory" rows="3" placeholder="Référence du joueur"></textarea>
-          </div>
-          <div class="field-row" style="margin:0">
-            <label>Savoirs proposés (lecture seule — éditables après création via la Fiche)</label>
-            <div id="pc-draft-knowledge" style="font-size:12px; color:var(--muted)"></div>
-          </div>
-        </div>
+        </div><!-- #pj-create-block -->
 
         <div class="panel-head" style="flex-shrink:0; border-top:2px solid var(--border)">
           <h2 style="font-size:12px">Fiche de compétences</h2>
@@ -2998,6 +3005,9 @@ function showCreationSubTab(tab) {
     if (!authorRegistry) { creationInit(); return; }
     authorLoadEntityList();
     if (tab === 'pj') {
+      pjCreateOpen = false;
+      document.getElementById('pj-create-block').style.display = 'none';
+      document.getElementById('pj-create-new-btn').textContent = '+ Nouveau';
       pcCreateLoadLocations();
       if (!skillCharacters) skillInit();
     }
@@ -5363,6 +5373,13 @@ async function pcCreateSubmit() {
  * separate discard step (mirrors the world-bible generator). */
 
 let pcDraftKnowledge = [];
+let pjCreateOpen = false;
+
+function pjCreateNew() {
+  pjCreateOpen = !pjCreateOpen;
+  document.getElementById('pj-create-block').style.display = pjCreateOpen ? '' : 'none';
+  document.getElementById('pj-create-new-btn').textContent = pjCreateOpen ? '× Fermer' : '+ Nouveau';
+}
 
 function pcRenderDraftKnowledge() {
   const el = document.getElementById('pc-draft-knowledge');

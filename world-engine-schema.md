@@ -984,6 +984,13 @@ batch   → event
 
 ## CHANGELOG
 
+- **v1.66** — No new tables or columns. Application-layer: Personnage joueur
+  create form + BRIEF-52 generate panel gated behind a dedicated `pjCreateOpen`
+  toggle and a PJ-specific `+ Nouveau` button (`#pj-create-block`), matching
+  the NPC inline collapse-by-default pattern; the skill Fiche (`#skill-main`)
+  stays rendered by default. NPC author path and `#creation-new-row` hide-list
+  untouched (BRIEF-60).
+
 - **v1.65** — No new tables or columns. Data migration
   (`migrate_v1_65_pc_skill_backfill.py`): backfills the four base `skill`
   rows (`tier=0`, `change_history='[]'`, `skill_definition_id=NULL`) for
