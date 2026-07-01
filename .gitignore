@@ -9,7 +9,9 @@ venv/
 # Environment
 .env
 
-# Database
+# Database — never lives in the tree (June 19 incident). Real path: ~/.world_engine/
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3

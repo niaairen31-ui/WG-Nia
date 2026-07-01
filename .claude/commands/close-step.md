@@ -4,8 +4,7 @@ Run the step-closure checklist for the work just completed:
    run, say so explicitly and stop.
 2. **Changelog** — if the schema was touched, add a version entry to
    `world-engine-schema.md`. If not, confirm no entry is needed.
-3. **Docs sync** — diff what `ARCHITECTURE_DECISIONS.md` and `CLAUDE.md`
-   claim against what the code now does. Update any stale statement.
+3. **Docs sync** diff what tooling/standards/ARCHITECTURE_DECISIONS.md and the root CLAUDE.md claim against what the code now does. Update any stale statement.
    Quote each correction made.
 4. **Debts** — list any shortcuts, deferred decisions, or new debts
    introduced in this step. Propose a changelog or backlog note for each.

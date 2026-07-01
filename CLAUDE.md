@@ -6,7 +6,7 @@ A local, single-player-first engine for running a persistent RPG world. A creato
 
 Full context lives in:
 - `world-engine-schema.md` — the authoritative database schema.
-- `ARCHITECTURE_DECISIONS.md` — the design decisions and the v1 scope.
+- `tooling/standards/ARCHITECTURE_DECISIONS.md` — the design decisions and the v1 scope.
 
 Read both before making any structural change.
 
@@ -36,8 +36,35 @@ Read both before making any structural change.
 - **Language convention:** design conversation happens in French; all code,
   schema, comments, commit messages, and documentation are in English.
 - **Step closure:** every closed step updates the schema changelog (if
-  schema-touching) and keeps `ARCHITECTURE_DECISIONS.md` and this file
-  consistent with the code. Use the `/close-step` command.
+  schema-touching) and keeps `tooling/standards/ARCHITECTURE_DECISIONS.md` and
+  this file consistent with the code. Use the `/close-step` command.
+
+## Ticket pipeline (governance)
+
+- **Git (C1):** never push to `main`. Work on a `ticket/NNNN` branch and open
+  a PR. Merge only after a green `/verify` AND Nia's live gate.
+- **Danger classes (D1):** destructive_data | migration | permanent deletion
+  -> human gate, no auto-merge (Nia decides). No automated backup exists;
+  backup.py is a manual, deliberate step. db_write alone triggers nothing.
+- **Escalate to Nia only on:** (a) an unspecified user-visible behavior
+  change, (b) a destructive/irreversible data operation, (c) an architecture
+  change above the ticket's stated `blast_radius`, (d) two consecutive
+  `/verify` failures.
+- **Model lanes (E1):** Opus for intake and escalated architecture
+  decisions; Sonnet for RECON, execution, and verify. `/model opusplan` =
+  plan on Opus, execute on Sonnet.
+- **Protocol gate:** RECON before every brief (report-only, never acts on a
+  finding); briefs are English, `BRIEF-NN`, Nia assigns the number; every
+  commit touching the engine runs `/review-step` then `/close-step`; a
+  ticket ends with `/verify`. Claude Code owns schema version numbers
+  (`vX.YY`), recorded in `tooling/standards/schema_changelog.md`.
+- **Where things live:** `tooling/tickets`, `tooling/recon`, `tooling/briefs`,
+  `tooling/verify/checks`, `tooling/standards`
+  (`ARCHITECTURE_DECISIONS.md`, `schema_changelog.md`, `code_standards.md`),
+  `tooling/improvement/bug_log.jsonl`.
+- This section governs the ticket pipeline itself (process, gating,
+  escalation). It does not replace or relax any invariant below — those
+  still apply to every change regardless of how it was ticketed.
 
 ## Invariants (verified at every review)
 
@@ -67,7 +94,7 @@ Read both before making any structural change.
   payload.** If either is missing, the item is skipped and logged
   (`_normalize_to_schema` returns `None`) — never attributed via a
   conversation-level default. Per-item resolution against the gathering
-  roster is deferred (see "Deferred decisions" in `ARCHITECTURE_DECISIONS.md`).
+  roster is deferred (see "Deferred decisions" in `tooling/standards/ARCHITECTURE_DECISIONS.md`).
 - **Two sanctioned canon-write paths, no others:** `_apply_mutation` (AI
   proposals, after creator approval) and the creator CRUD (direct creator
   authority). No code path may ever write canon in response to an AI
@@ -100,7 +127,7 @@ Read both before making any structural change.
   `knows` in code (`_KNOWLEDGE_LEVEL_DOWNGRADE`); `analyze_window` applies no
   such ceiling — a model-proposed `knowledge_change` is bounded only by the
   monotonicity guard and creator approval, not a structural cap (see
-  "Deferred decisions" in `ARCHITECTURE_DECISIONS.md`). Downgrades,
+  "Deferred decisions" in `tooling/standards/ARCHITECTURE_DECISIONS.md`). Downgrades,
   forgetting, and `is_incorrect` correction remain creator CRUD only.
 - **`scene_state` is a third, explicitly ephemeral write path** (BRIEF-12).
   `_write_scene_state` archives the previous state snapshot to `history[]`
@@ -518,7 +545,7 @@ World-genrator/
 │       │                    #   pass only, residual shortfall noted not
 │       │                    #   retried; bounded add-only floor, amends K1
 │       │                    #   (manifest is no longer the *sole* density
-│       │                    #   determinant — see ARCHITECTURE_DECISIONS.md);
+│       │                    #   determinant — see tooling/standards/ARCHITECTURE_DECISIONS.md);
 │       │                    #   premise reader (BRIEF-44, schema v1.55):
 │       │                    #   generate_region_manifest loads the active
 │       │                    #   world (_active_world, local is_active==True
@@ -704,7 +731,7 @@ World-genrator/
 │           │                #   _knowledge_leg_already_applied (block-whole
 │           │                #   guard 4c, scans applied new_knowledge +
 │           │                #   resource_change knowledge legs — one-directional
-│           │                #   by design, see ARCHITECTURE_DECISIONS.md);
+│           │                #   by design, see tooling/standards/ARCHITECTURE_DECISIONS.md);
 │           │                #   excluded from _find_applied_duplicate (money
 │           │                #   leg accumulates like relation_change);
 │           │                # multi-NPC scenes (_open_gatherings, _active_members,
