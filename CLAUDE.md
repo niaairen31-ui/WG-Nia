@@ -56,15 +56,32 @@ Read both before making any structural change.
 - **Protocol gate:** RECON before every brief (report-only, never acts on a
   finding); briefs are English, `BRIEF-NN`, Nia assigns the number; every
   commit touching the engine runs `/review-step` then `/close-step`; a
-  ticket ends with `/verify`. Claude Code owns schema version numbers
-  (`vX.YY`), recorded in `tooling/standards/schema_changelog.md`.
+  ticket ends with `/verify`. Schema versions are computed, never chosen: on
+  any schema-touching step closure, new version = the `Current schema
+  version:` line in `world-engine-schema.md`, minor + 1 (v1.66 -> v1.67).
+  That header line is the single source for the current number; the
+  append-only log lives in `world-engine-schema-changelog.md` (repo root).
+  If the minor part reaches 99, stop and escalate (D1-c).
 - **Where things live:** `tooling/tickets`, `tooling/recon`, `tooling/briefs`,
-  `tooling/verify/checks`, `tooling/standards`
-  (`ARCHITECTURE_DECISIONS.md`, `schema_changelog.md`, `code_standards.md`),
+  `tooling/glue` (`next_id.py`, `gen_decisions_index.py`),
+  `tooling/verify/checks`, `tooling/verify/baselines`, `tooling/standards`
+  (`ARCHITECTURE_DECISIONS.md`, `DECISIONS_INDEX.md` (generated),
+  `world-engine-schema-changelog.md` (repo root), `code_standards.md`),
   `tooling/improvement/bug_log.jsonl`.
 - This section governs the ticket pipeline itself (process, gating,
   escalation). It does not replace or relax any invariant below — those
   still apply to every change regardless of how it was ticketed.
+
+## Numbering & decisions governance
+- IDs are computed, never chosen: next ID = python tooling/glue/next_id.py
+  (max over tickets/recon/briefs, 4 digits). A ticket, its recon, and its
+  brief(s) share one number: TICKET-NNNN / RECON-NNNN / BRIEF-NNNN-a, -b.
+- Legacy two-digit BRIEF-NN identifiers are a closed, grandfathered
+  namespace: never reused, never renumbered.
+- New decision records in tooling/standards/ARCHITECTURE_DECISIONS.md use
+  the header form: ## TITLE (BRIEF-NNNN[-x][, BRIEF-NNNN[-x]...], schema vX.YY | no schema change)
+  — enforced by verify/checks/decisions_index.py against the baseline.
+- tooling/standards/DECISIONS_INDEX.md is generated; never edit by hand.
 
 ## Invariants (verified at every review)
 
