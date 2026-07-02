@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0001-doc-partition",
+  "when": "2026-07-02T04:46:10.810628+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "schema_partition.py",
+      "status": "PASS",
+      "msg": "PASS: hot/cold partition holds"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    }
+  ]
+}

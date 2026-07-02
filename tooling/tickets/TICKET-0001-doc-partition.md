@@ -1,8 +1,18 @@
-# TICKET-XXXX — Documentation partition: schema changelog extraction + decisions index
-
-status: draft
+---
+id: TICKET-0001
+title: Documentation partition: schema changelog extraction + decisions index
+type: feature
+status: done
+created: 2026-07-02
+model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
+danger_class: []
+blast_radius: small
 brief_ids: [BRIEF-0001-a, BRIEF-0001-b]
 schema_version_touched: none
+retry_count: 0
+---
+
+# TICKET-XXXX — Documentation partition: schema changelog extraction + decisions index
 
 ## Request
 

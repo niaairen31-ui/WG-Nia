@@ -1,0 +1,12 @@
+{
+  "ticket": "TICKET-0003-single-canon-write",
+  "when": "2026-07-02T05:49:05.898390+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    }
+  ]
+}
