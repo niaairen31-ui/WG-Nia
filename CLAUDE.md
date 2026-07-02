@@ -273,6 +273,12 @@ Read both before making any structural change.
   `assemble_mj_context` co-presents) gate on `entity.status='active' AND
   vital_status='alive'` in addition to `gathering_member.left_at IS NULL`.
 - World block deletion (delete_world_cascade) is the broadest sanctioned hard-delete of canon and the original exception to "History is sacred" — it removes every row scoped to a world, the world row included. `skill_definition` deletion (BRIEF-56, see below) is a second, narrower named exception, scoped to one definition and its dependent `skill` rows only. No other delete-side helper exists; any new hard-delete path must be named here, not added silently.
+  Named creator-correction hard-deletes (closed list, BRIEF-0003-b):
+  `delete_relation` (crud.py) and `delete_knowledge` (crud.py) — each
+  discards the row's `change_history` with the row; `delete_discoverable_detail`
+  (crud.py). These exist so the creator can erase a mis-entered row; they
+  are creator-CRUD-only, never reachable from any AI or play path. The
+  closed list is enforced structurally by verify/checks/single_canon_write.py.
 - **Custom skill lookups filter `skill_definition_id`, by construction**
   (BRIEF-55, schema v1.63). A base-domain `skill` row lookup MUST include
   `AND skill_definition_id IS NULL` (e.g. `app.py`'s arbiter resolution) so
