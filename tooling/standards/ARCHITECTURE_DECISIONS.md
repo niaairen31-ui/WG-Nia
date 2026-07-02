@@ -3423,6 +3423,44 @@ empty rebuild):
 
 ---
 
+## DOCUMENTATION PARTITION — hot/cold split, generated index, mechanical numbering (BRIEF-0001-a, BRIEF-0001-b, no schema change)
+
+`world-engine-schema.md` mixed hot truth with a 1,200-line cold history, and
+`ARCHITECTURE_DECISIONS.md` had no cheap lookup surface — every reader paid
+for the whole document to use 5% of it. This record locks the split and the
+numbering scheme that came with it.
+
+- **A1** — extract the `CHANGELOG` section of `world-engine-schema.md` into
+  `world-engine-schema-changelog.md`, moved byte-for-byte: separates cold
+  history from the hot TABLES/INDEXES/RELATIONS/MIGRATION truth.
+- **A1-guard** — the current schema version stays a single header line
+  (`Current schema version: vX.YY`) in `world-engine-schema.md`; the
+  changelog file is the append-only log, never the source of "what version
+  are we at" — one place asserts the current number, not three.
+- **N1** — the new file is named `world-engine-schema-changelog.md` at repo
+  root, deliberately distinct from the pre-existing, unrelated
+  `CHANGELOG.md` (a French application-level changelog) so the two are
+  never confused or merged.
+- **B1** — `DECISIONS_INDEX.md` is a mechanically generated index (one row
+  per `## ` record: line, title, BRIEF refs, schema versions); the archive
+  stays byte-for-byte intact, and a verify check proves index ≡ headers so
+  the two can never silently drift apart.
+- **G1 / G3-b** — the index generator is tolerant of the archive's real
+  header shapes (RECON-0002 found 20/47 deviate from the nominal pattern in
+  three distinct ways) rather than dropping or mis-parsing them; a strict
+  header regex gates only headers added AFTER a frozen baseline snapshot,
+  so future drift is stopped without rewriting the past.
+- **U1** — ticket/recon/brief numbering becomes a computed 4-digit counter
+  (`tooling/glue/next_id.py`, max existing ID + 1) instead of a
+  human-chosen number.
+- **V1** — schema version numbers are likewise computed, never chosen: new
+  version = the header line's minor + 1.
+- **U-now** — the computed-numbering regime takes effect now, for new IDs
+  only: legacy two-digit `BRIEF-NN` filenames are a closed, grandfathered
+  namespace, never renumbered or reused.
+
+---
+
 ## Deferred decisions
 
 Recorded here so each is revisited deliberately rather than forgotten:

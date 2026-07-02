@@ -7,6 +7,11 @@ Run the step-closure checklist for the work just completed:
    compute the new version (minor + 1), prepend the new entry to
    `world-engine-schema-changelog.md`, and update the header line to the
    new version. If the schema was not touched, confirm no entry is needed.
+
+**Decisions index** — if a decision record was added to
+tooling/standards/ARCHITECTURE_DECISIONS.md, run
+python tooling/glue/gen_decisions_index.py and commit the regenerated
+DECISIONS_INDEX.md.
 3. **Docs sync** diff what tooling/standards/ARCHITECTURE_DECISIONS.md and the root CLAUDE.md claim against what the code now does. Update any stale statement.
    Quote each correction made.
 4. **Debts** — list any shortcuts, deferred decisions, or new debts

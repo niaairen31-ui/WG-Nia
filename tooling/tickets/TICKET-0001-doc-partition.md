@@ -63,3 +63,4 @@ append-only history (cold) live in the same files, so every reader who needs
 ### Machine-checkable
 
 - [ ] hot/cold partition holds  -> verify/checks/schema_partition.py
+- [ ] index ≡ headers, new headers strict  -> verify/checks/decisions_index.py
