@@ -56,11 +56,15 @@ Read both before making any structural change.
 - **Protocol gate:** RECON before every brief (report-only, never acts on a
   finding); briefs are English, `BRIEF-NN`, Nia assigns the number; every
   commit touching the engine runs `/review-step` then `/close-step`; a
-  ticket ends with `/verify`. Claude Code owns schema version numbers
-  (`vX.YY`), recorded in `tooling/standards/schema_changelog.md`.
+  ticket ends with `/verify`. Schema versions are computed, never chosen: on
+  any schema-touching step closure, new version = the `Current schema
+  version:` line in `world-engine-schema.md`, minor + 1 (v1.66 -> v1.67).
+  That header line is the single source for the current number; the
+  append-only log lives in `world-engine-schema-changelog.md` (repo root).
+  If the minor part reaches 99, stop and escalate (D1-c).
 - **Where things live:** `tooling/tickets`, `tooling/recon`, `tooling/briefs`,
   `tooling/verify/checks`, `tooling/standards`
-  (`ARCHITECTURE_DECISIONS.md`, `schema_changelog.md`, `code_standards.md`),
+  (`ARCHITECTURE_DECISIONS.md`, `world-engine-schema-changelog.md` (repo root), `code_standards.md`),
   `tooling/improvement/bug_log.jsonl`.
 - This section governs the ticket pipeline itself (process, gating,
   escalation). It does not replace or relax any invariant below — those

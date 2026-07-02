@@ -2,8 +2,11 @@ Run the step-closure checklist for the work just completed:
 
 1. **Tests** — confirm the live test(s) for this step passed. If none were
    run, say so explicitly and stop.
-2. **Changelog** — if the schema was touched, add a version entry to
-   `world-engine-schema.md`. If not, confirm no entry is needed.
+2. **Changelog** — if the schema was touched: read the
+   `Current schema version: vX.YY` line in `world-engine-schema.md`,
+   compute the new version (minor + 1), prepend the new entry to
+   `world-engine-schema-changelog.md`, and update the header line to the
+   new version. If the schema was not touched, confirm no entry is needed.
 3. **Docs sync** diff what tooling/standards/ARCHITECTURE_DECISIONS.md and the root CLAUDE.md claim against what the code now does. Update any stale statement.
    Quote each correction made.
 4. **Debts** — list any shortcuts, deferred decisions, or new debts
