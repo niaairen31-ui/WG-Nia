@@ -38,6 +38,10 @@ Read both before making any structural change.
 - **Step closure:** every closed step updates the schema changelog (if
   schema-touching) and keeps `tooling/standards/ARCHITECTURE_DECISIONS.md` and
   this file consistent with the code. Use the `/close-step` command.
+- **Every Création page is a `CREATION_TABS` registry entry** rendered by the
+  generic dispatcher (`showCreationSubTab`, `cockpit/index.html`); no page or
+  tab-specific branch may exist outside the registry
+  (`verify/checks/page_contract.py` enforces).
 
 ## Ticket pipeline (governance)
 
@@ -937,9 +941,11 @@ World-genrator/
 │                            # header world selector (BRIEF-43, schema v1.54):
 │                            #   loadWorldSelector / activateWorld — lists all
 │                            #   worlds, active one marked; selection (activateWorld,
-│                            #   on success, BRIEF-48: nulls the Création list caches
-│                            #   — authorAllEntities, playerCharIds, skillCharacters,
-│                            #   _registreEntitiesLoaded — then re-invokes
+│                            #   on success, BRIEF-48: nulls the Création list caches;
+│                            #   widened BRIEF-0005-a G1 from the original 4
+│                            #   hardcoded vars to `_creationRunWorldSwitchResets()`
+│                            #   — one loop over every CREATION_TABS entry's
+│                            #   `state.onWorldSwitch` — then re-invokes
 │                            #   showCreationSubTab(currentCreationSubTab) if the
 │                            #   Création view is visible, so the open sub-tab
 │                            #   refreshes immediately and the rest re-fetch fresh
@@ -1066,8 +1072,11 @@ World-genrator/
 │                            #   drag-to-position (read-merge-write via entity PUT,
 │                            #   coordinates-only); click-to-connect (creates
 │                            #   connects_to relation, undirected dedup guard);
-│                            #   click-to-delete-edge; "Ajouter un lieu" reuses
-│                            #   existing creationNewEntity() flow;
+│                            #   click-to-delete-edge; the graph header's own
+│                            #   "Ajouter un lieu" button was removed (BRIEF-0005-a
+│                            #   H1) — Lieux creation goes only through the
+│                            #   standard `#creation-new-btn` (`creationNewEntity()`
+│                            #   unchanged), same control as every other entity tab;
 │                            #   Création → Registre sub-tab (BRIEF-18, schema
 │                            #   v1.31): global ledger journal (GET /api/ledger),
 │                            #   entity/session filters, creator credit/debit

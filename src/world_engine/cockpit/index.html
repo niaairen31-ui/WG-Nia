@@ -938,7 +938,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 /* ── Création content areas ──────────────────────────────────────────────── */
 #creation-editor-area { flex: 1; min-height: 0; }
 #creation-pj-skill    { flex-shrink: 0; border-top: 2px solid var(--border);
-  flex-direction: column; max-height: 45%; overflow: hidden; }
+  display: flex; flex-direction: column; max-height: 45%; overflow: hidden; }
 #creation-artefacts   { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; }
 #creation-region      { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; }
 #creation-queue       { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
@@ -1166,7 +1166,6 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <div class="lieux-graph-head">
       <span>Carte des lieux</span>
       <button class="btn-icon" onclick="graphLoad()" title="Rafraîchir">↻</button>
-      <button class="btn-send" onclick="creationNewEntity()">+ Ajouter un lieu</button>
     </div>
     <svg id="lieux-graph-svg" viewBox="0 0 960 480" width="100%" height="300"
          style="display:block; background:var(--bg)"
@@ -1279,9 +1278,6 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 
   <!-- ── Artefacts sub-tab ── -->
   <div id="creation-artefacts" style="display:none">
-    <p style="font-style:italic; color:var(--muted); margin-bottom:16px">
-      La création et l'édition d'artefacts arriveront dans une étape ultérieure (support backend requis).
-    </p>
     <div id="creation-artefacts-list">
       <div class="empty"><span class="spin">⟳</span></div>
     </div>
@@ -2958,71 +2954,260 @@ async function loadPlayerKnowledge() {
 
 /* ── Création sub-tabs ───────────────────────────────────────────────────── */
 
+// CREATION_TABS entry contract (TICKET-0005):
+// { label:        string, tab title shown in the shell header
+//   archetype:    'entity' | 'bespoke'
+//   containers:   [element ids to show when active; all others hidden]
+//   loader:       function called on activation
+//   state:        { onTabEnter: fn|null, onWorldSwitch: fn|null }
+//                 each fn resets ALL state this tab owns for that event
+//   // entity archetype only:
+//   listLoader:   fn (default authorLoadEntityList)
+//   listRenderer: fn|null (null = flat list; lieux = renderLieuxBrowse)
+//   createPanel:  fn|null (null = no + Nouveau rendered; default =
+//                 () => authorRenderSheet({}, true, <type>))
+//   slots:        [{ id, containerId, loader, onSelect: fn|null }]
+// }
+// Every Création page is a registry entry. No page renders outside it.
+//
+// Implementation notes (not part of the contract above):
+// - An entity entry only receives the shared list+detail shell (the
+//   "+ Nouveau" row, the list label, #author-entity-list/#author-main) when
+//   its `containers` includes 'creation-editor-area' — a shape check on the
+//   entry's own data, never a tab-id check. Artefacts is registered as
+//   `archetype: 'entity'` (BRIEF-0005-a item 7) but keeps its own container
+//   and its own `loader`, so it opts out of that shell.
+// - `type`/`entityFilter` on an entity entry drive the default flat-list
+//   renderer's row selection from `authorAllEntities` (ignored when
+//   `listRenderer` is set, e.g. lieux's `renderLieuxBrowse`).
+function _entityTabEnterReset() {
+  authorEntityId   = null;
+  authorEntityType = null;
+  const titleEl = document.getElementById('author-sheet-title');
+  const mainEl  = document.getElementById('author-main');
+  if (titleEl) titleEl.textContent = 'Sélectionner une entité';
+  if (mainEl)  mainEl.innerHTML = '<div class="empty">Sélectionnez une entité depuis la liste, ou créez-en une nouvelle.</div>';
+  document.getElementById('author-save-btn').style.display   = 'none';
+  document.getElementById('author-delete-btn').style.display = 'none';
+  document.getElementById('author-status').textContent       = '';
+}
+
+function _lieuxTabEnterReset() {
+  _entityTabEnterReset();
+  lieuxBrowseParentId = null;
+  lieuxBreadcrumb = [];
+}
+
+function _pjTabLoader() {
+  pjCreateOpen = false;
+  document.getElementById('pj-create-block').style.display = 'none';
+  document.getElementById('pj-create-new-btn').textContent = '+ Nouveau';
+  pcCreateLoadLocations();
+  if (!skillCharacters) skillInit();
+}
+
+/* Shared authorAllEntities/playerCharIds cache — used by every entity tab
+   that filters the same fetched list (BRIEF-0005-a item 3, G1). */
+function _entityListWorldReset() {
+  authorAllEntities = [];
+  playerCharIds = new Set();
+}
+
+function _npcWorldReset() {
+  _entityListWorldReset();
+  pendingDraftKnowledge = [];
+  pendingDraftNotes     = [];
+}
+
+function _pjWorldReset() {
+  _entityListWorldReset();
+  skillCharacters  = null;
+  pcDraftKnowledge = [];
+}
+
+function _lieuxWorldReset() {
+  _entityListWorldReset();
+  lieuxBrowseParentId = null;
+  lieuxBreadcrumb     = [];
+  lieuxActiveOnly     = false;
+  graphData           = null;
+}
+
+function _factionsWorldReset() {
+  _entityListWorldReset();
+  authorFactionRolesDraft = [];
+}
+
+function _competencesWorldReset() { competencesDraft = []; }
+
+function _regionWorldReset() {
+  regionDraft             = null;
+  regionManifest          = null;
+  regionManifestNotes     = [];
+  regionManifestSkipped   = [];
+  regionAccepted          = {};
+  regionConfirmedLinks    = {};
+}
+
+function _registreWorldReset() { _registreEntitiesLoaded = false; }
+
+const CREATION_TABS = {
+  npc: {
+    label: 'NPC',
+    archetype: 'entity',
+    containers: ['creation-editor-area'],
+    loader: null,
+    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _npcWorldReset },
+    type: 'character',
+    entityFilter: (entities) => entities.filter(e => e.type === 'character' && !playerCharIds.has(e.id)),
+    createPanel: () => authorRenderSheet({}, true, 'character'),
+    slots: [],
+  },
+  pj: {
+    label: 'Personnages joueurs',
+    archetype: 'entity',
+    containers: ['creation-editor-area', 'creation-pj-skill'],
+    loader: _pjTabLoader,
+    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _pjWorldReset },
+    type: 'character',
+    entityFilter: (entities) => entities.filter(e => e.type === 'character' && playerCharIds.has(e.id)),
+    createPanel: null, // BRIEF-0005-b migrates PJ onto the standard + Nouveau
+    slots: [],
+  },
+  lieux: {
+    label: 'Lieux',
+    archetype: 'entity',
+    containers: ['creation-editor-area'],
+    loader: null,
+    state: { onTabEnter: _lieuxTabEnterReset, onWorldSwitch: _lieuxWorldReset },
+    type: 'location',
+    listRenderer: renderLieuxBrowse,
+    createPanel: () => authorRenderSheet({}, true, 'location'),
+    slots: [{ id: 'graph', containerId: 'creation-lieux-graph', loader: graphLoad, onSelect: null }],
+  },
+  factions: {
+    label: 'Factions',
+    archetype: 'entity',
+    containers: ['creation-editor-area'],
+    loader: null,
+    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _factionsWorldReset },
+    type: 'faction',
+    createPanel: () => authorRenderSheet({}, true, 'faction'),
+    slots: [],
+  },
+  objets: {
+    label: 'Objets',
+    archetype: 'entity',
+    containers: ['creation-editor-area'],
+    loader: null,
+    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _entityListWorldReset },
+    type: 'item',
+    createPanel: () => authorRenderSheet({}, true, 'item'),
+    slots: [],
+  },
+  competences: {
+    label: 'Compétences',
+    archetype: 'bespoke',
+    containers: ['creation-competences'],
+    loader: competencesLoadList,
+    state: { onTabEnter: null, onWorldSwitch: _competencesWorldReset },
+  },
+  region: {
+    label: 'Région',
+    archetype: 'bespoke',
+    containers: ['creation-region'],
+    loader: regionRenderAll,
+    state: { onTabEnter: null, onWorldSwitch: _regionWorldReset },
+  },
+  artefacts: {
+    label: 'Artefacts',
+    archetype: 'entity', // degenerate: no create control, own container/loader (BRIEF-0005-a item 7)
+    containers: ['creation-artefacts'],
+    loader: loadCreationArtefacts,
+    state: { onTabEnter: null, onWorldSwitch: null },
+    createPanel: null,
+  },
+  registre: {
+    label: 'Registre',
+    archetype: 'bespoke',
+    containers: ['creation-registre'],
+    loader: loadRegistre,
+    state: { onTabEnter: null, onWorldSwitch: _registreWorldReset },
+  },
+  queue: {
+    label: 'Review Queue',
+    archetype: 'bespoke',
+    containers: ['creation-queue'],
+    loader: loadQueue,
+    state: { onTabEnter: null, onWorldSwitch: null },
+  },
+};
+
+/** Runs a registry entry's activation work: entity-archetype entries load
+ *  their list (via the shared shell) before the entry's own loader, then
+ *  their declared slots; bespoke entries just run their own loader. */
+function _creationActivateTab() {
+  const entry = CREATION_TABS[currentCreationSubTab];
+  if (!entry) return;
+  const usesEditorShell = entry.containers.includes('creation-editor-area');
+  if (usesEditorShell) {
+    (entry.listLoader || authorLoadEntityList)();
+  }
+  if (entry.loader) entry.loader();
+  if (usesEditorShell) {
+    (entry.slots || []).forEach(s => { if (s.loader) s.loader(); });
+  }
+}
+
+/** Generic dispatcher (TICKET-0005): every tab's visibility, reset, and load
+ *  behavior comes from its CREATION_TABS entry — no tab-id literals here. */
 function showCreationSubTab(tab) {
   const prev = currentCreationSubTab;
+  const entry = CREATION_TABS[tab];
+  if (!entry) return;
   currentCreationSubTab = tab;
 
   document.querySelectorAll('.creation-sub-tab').forEach(b => b.classList.remove('active'));
   const btn = document.getElementById('ctab-' + tab);
   if (btn) btn.classList.add('active');
 
-  const isEditorTab = !['artefacts', 'registre', 'queue', 'region', 'competences'].includes(tab);
-  document.getElementById('creation-editor-area').style.display = isEditorTab ? '' : 'none';
-  document.getElementById('creation-artefacts').style.display   = (tab === 'artefacts') ? '' : 'none';
-  document.getElementById('creation-registre').style.display    = (tab === 'registre')  ? '' : 'none';
-  document.getElementById('creation-queue').style.display       = (tab === 'queue')     ? '' : 'none';
-  document.getElementById('creation-region').style.display      = (tab === 'region')    ? '' : 'none';
-  document.getElementById('creation-competences').style.display = (tab === 'competences') ? '' : 'none';
-  document.getElementById('creation-lieux-graph').style.display = (tab === 'lieux')     ? '' : 'none';
+  const allContainerIds = new Set();
+  Object.values(CREATION_TABS).forEach(e => {
+    e.containers.forEach(id => allContainerIds.add(id));
+    (e.slots || []).forEach(s => allContainerIds.add(s.containerId));
+  });
+  allContainerIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  entry.containers.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = '';
+  });
+  (entry.slots || []).forEach(s => {
+    const el = document.getElementById(s.containerId);
+    if (el) el.style.display = '';
+  });
 
-  const pjSkill = document.getElementById('creation-pj-skill');
-  pjSkill.style.display = (tab === 'pj') ? 'flex' : 'none';
-
+  const usesEditorShell = entry.containers.includes('creation-editor-area');
   const newRow = document.getElementById('creation-new-row');
-  if (newRow) newRow.style.display = ['pj', 'artefacts', 'registre', 'queue', 'region', 'competences'].includes(tab) ? 'none' : '';
-
-  const labels = { npc: 'NPC', pj: 'Personnages joueurs', lieux: 'Lieux', factions: 'Factions', objets: 'Objets' };
+  if (newRow) newRow.style.display = (usesEditorShell && entry.createPanel) ? '' : 'none';
   const labelEl = document.getElementById('creation-list-label');
-  if (labelEl && isEditorTab) labelEl.textContent = labels[tab] || '';
+  if (labelEl && usesEditorShell) labelEl.textContent = entry.label || '';
 
-  if (isEditorTab && prev !== tab) {
-    authorEntityId   = null;
-    authorEntityType = null;
-    if (tab === 'lieux') {
-      lieuxBrowseParentId = null;
-      lieuxBreadcrumb = [];
-    }
-    const titleEl = document.getElementById('author-sheet-title');
-    const mainEl  = document.getElementById('author-main');
-    if (titleEl) titleEl.textContent = 'Sélectionner une entité';
-    if (mainEl)  mainEl.innerHTML = '<div class="empty">Sélectionnez une entité depuis la liste, ou créez-en une nouvelle.</div>';
-    document.getElementById('author-save-btn').style.display   = 'none';
-    document.getElementById('author-delete-btn').style.display = 'none';
-    document.getElementById('author-status').textContent       = '';
-  }
+  if (prev !== tab && entry.state.onTabEnter) entry.state.onTabEnter();
 
-  if (isEditorTab) {
-    if (!authorRegistry) { creationInit(); return; }
-    authorLoadEntityList();
-    if (tab === 'pj') {
-      pjCreateOpen = false;
-      document.getElementById('pj-create-block').style.display = 'none';
-      document.getElementById('pj-create-new-btn').textContent = '+ Nouveau';
-      pcCreateLoadLocations();
-      if (!skillCharacters) skillInit();
-    }
-    if (tab === 'lieux') graphLoad();
-  } else if (tab === 'artefacts') {
-    loadCreationArtefacts();
-  } else if (tab === 'registre') {
-    loadRegistre();
-  } else if (tab === 'queue') {
-    loadQueue();
-  } else if (tab === 'region') {
-    regionRenderAll();
-  } else if (tab === 'competences') {
-    competencesLoadList();
-  }
+  if (usesEditorShell && !authorRegistry) { creationInit(); return; }
+
+  _creationActivateTab();
+}
+
+/** Runs every registry entry's world-switch reset (BRIEF-0005-a item 3, G1) —
+ *  called by activateWorld() and worldDeleteConfirm(), never per-tab. */
+function _creationRunWorldSwitchResets() {
+  Object.values(CREATION_TABS).forEach(entry => {
+    if (entry.state && entry.state.onWorldSwitch) entry.state.onWorldSwitch();
+  });
 }
 
 /* ── Compétences — world-scoped custom skill catalogue (BRIEF-56) ───────── */
@@ -3309,23 +3494,28 @@ function _registreRenderTable(rows) {
   `).join('') + '</div>';
 }
 
+const CREATION_ARTEFACTS_NOTICE =
+  '<p style="font-style:italic; color:var(--muted); margin-bottom:16px">' +
+  "La création et l'édition d'artefacts arriveront dans une étape ultérieure (support backend requis)." +
+  '</p>';
+
 async function loadCreationArtefacts() {
   const listEl = document.getElementById('creation-artefacts-list');
   listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
   try {
     const rows = await api('/api/entities?type=artifact');
     if (!rows || !rows.length) {
-      listEl.innerHTML = '<div class="empty">Aucun artefact dans la base.</div>';
+      listEl.innerHTML = CREATION_ARTEFACTS_NOTICE + '<div class="empty">Aucun artefact dans la base.</div>';
       return;
     }
-    listEl.innerHTML = '<div class="row-table">' + rows.map(a => `
+    listEl.innerHTML = CREATION_ARTEFACTS_NOTICE + '<div class="row-table">' + rows.map(a => `
       <div class="row-card">
         <div style="font-weight:600">${esc(a.name)}</div>
         ${a.description ? `<div style="font-size:12px; color:var(--muted); white-space:pre-wrap">${esc(a.description)}</div>` : ''}
         <div style="font-size:11px; color:var(--muted)">${esc(a.status || '')}</div>
       </div>`).join('') + '</div>';
   } catch (_) {
-    listEl.innerHTML = '<div class="empty">Aucun artefact disponible.</div>';
+    listEl.innerHTML = CREATION_ARTEFACTS_NOTICE + '<div class="empty">Aucun artefact disponible.</div>';
   }
 }
 
@@ -3752,11 +3942,11 @@ async function regionCommit() {
 
 function creationNewEntity() {
   if (!authorRegistry) return;
-  const typeMap = { npc: 'character', lieux: 'location', factions: 'faction', objets: 'item' };
-  const type = typeMap[currentCreationSubTab] || 'character';
+  const entry = CREATION_TABS[currentCreationSubTab];
+  if (!entry || !entry.createPanel) return;
   pendingDraftKnowledge = [];
   pendingDraftNotes     = [];
-  authorRenderSheet({}, true, type);
+  entry.createPanel();
 }
 
 /* ── Création bootstrap ──────────────────────────────────────────────────── */
@@ -3768,12 +3958,7 @@ async function creationInit() {
     document.getElementById('author-entity-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
     return;
   }
-  await authorLoadEntityList();
-  if (currentCreationSubTab === 'lieux') graphLoad();
-  if (currentCreationSubTab === 'pj') {
-    pcCreateLoadLocations();
-    if (!skillCharacters) skillInit();
-  }
+  _creationActivateTab();
 }
 
 /* ── Entity list (sidebar) ───────────────────────────────────────────────── */
@@ -3781,27 +3966,13 @@ async function creationInit() {
 function creationRenderEntityList() {
   const listEl = document.getElementById('author-entity-list');
   if (!listEl) return;
-  if (currentCreationSubTab === 'lieux') {
-    renderLieuxBrowse();
-    return;
-  }
-  let entities = [];
-  switch (currentCreationSubTab) {
-    case 'npc':
-      entities = authorAllEntities.filter(e => e.type === 'character' && !playerCharIds.has(e.id));
-      break;
-    case 'pj':
-      entities = authorAllEntities.filter(e => e.type === 'character' && playerCharIds.has(e.id));
-      break;
-    case 'factions':
-      entities = authorAllEntities.filter(e => e.type === 'faction');
-      break;
-    case 'objets':
-      entities = authorAllEntities.filter(e => e.type === 'item');
-      break;
-    default:
-      return;
-  }
+  const entry = CREATION_TABS[currentCreationSubTab];
+  if (!entry || !entry.containers.includes('creation-editor-area')) return;
+  if (entry.listRenderer) { entry.listRenderer(); return; }
+
+  const entities = entry.entityFilter
+    ? entry.entityFilter(authorAllEntities)
+    : authorAllEntities.filter(e => e.type === entry.type);
   if (!entities.length) {
     listEl.innerHTML = '<div class="empty">Aucune entité.</div>';
     return;
@@ -5836,13 +6007,10 @@ async function activateWorld(worldId) {
   await loadWorldSelector();
   if (!activated) return;
 
-  // Invalidate cached Création list state so no stale other-world row
-  // survives the switch (BRIEF-47 creation-world-scoping): authorAllEntities,
-  // playerCharIds, skillCharacters, and the Registre entity-filter cache.
-  authorAllEntities = [];
-  playerCharIds = new Set();
-  skillCharacters = null;
-  _registreEntitiesLoaded = false;
+  // Invalidate every tab's world-scoped state so no stale other-world row
+  // survives the switch (BRIEF-47 creation-world-scoping, widened to every
+  // registry entry's declared reset by BRIEF-0005-a G1).
+  _creationRunWorldSwitchResets();
 
   const creationView = document.getElementById('creation-view');
   if (creationView && creationView.style.display !== 'none') {
@@ -5983,10 +6151,7 @@ async function worldDeleteConfirm(worldId) {
     }
     await loadWorldSelector();
     await loadBootstrap();
-    authorAllEntities = [];
-    playerCharIds = new Set();
-    skillCharacters = null;
-    _registreEntitiesLoaded = false;
+    _creationRunWorldSwitchResets();
     const creationView = document.getElementById('creation-view');
     if (creationView && creationView.style.display !== 'none') {
       if (authorRegistry) {
