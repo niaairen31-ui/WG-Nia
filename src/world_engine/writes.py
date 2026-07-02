@@ -22,6 +22,9 @@ functions so that clamping and field validation live in exactly one place.
   appended to `change_history` first) — `content`, `is_incorrect`,
   `is_secret`, `share_threshold` and `subject` on the existing row are left
   untouched, unlike a default-mode update.
+- `write_skill_tier(...)`               : set a `skill` row's tier,
+  appending the previous tier to `change_history` first (history is sacred
+  on this path too). The sole write shape for `skill` tier changes.
 - `write_ledger_entry(...)`             : pure INSERT into the append-only
   `ledger` table (BRIEF-18). No UPDATE, no DELETE, ever — a correction is a
   new compensating line. The single chokepoint for ledger writes, shared by
@@ -55,7 +58,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from .models import FactionMembership, Knowledge, Ledger, Relation
+from .models import FactionMembership, Knowledge, Ledger, Relation, Skill
 
 # knowledge.level enum (world-engine-schema.md): unaware | rumor | suspicious |
 # partial | knows | fully_understands.
@@ -352,6 +355,41 @@ def write_knowledge(
     return k
 
 
+def write_skill_tier(
+    db: Session,
+    *,
+    skill_id: str,
+    tier: int,
+    changed_by: str = "creator",
+) -> Skill:
+    """Set a `skill` row's tier. Caller adds the row to the session.
+
+    The sole write shape for `skill` tier changes (`cockpit/crud.py`'s
+    `update_skill_tier` is its only caller). Appends the previous tier to
+    `change_history` first (history is sacred), then sets `tier` and bumps
+    `updated_at`. The caller decides whether to call this at all — a
+    resubmission of the same tier should be a no-op, not an empty history
+    entry.
+    """
+    skill = db.get(Skill, skill_id)
+    if skill is None:
+        raise ValueError(f"write_skill_tier: skill {skill_id!r} not found")
+
+    history = list(skill.change_history or [])
+    history.append({
+        "tier": skill.tier,
+        "changed_at": datetime.now(UTC).isoformat(),
+        "by": changed_by,
+    })
+    skill.change_history = history
+    sa_attrs.flag_modified(skill, "change_history")
+    skill.tier = tier
+    skill.updated_at = datetime.now(UTC)
+
+    db.add(skill)
+    return skill
+
+
 def write_ledger_entry(
     db: Session,
     *,
@@ -567,6 +605,7 @@ def delete_world_cascade(world_id: str, db: Session) -> None:
 __all__ = [
     "write_relation",
     "write_knowledge",
+    "write_skill_tier",
     "write_ledger_entry",
     "write_membership",
     "delete_world_cascade",
