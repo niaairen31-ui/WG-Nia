@@ -16,6 +16,12 @@ functions so that clamping and field validation live in exactly one place.
   `knowledge_id=None` creates; otherwise updates that row in place, appending
   the previous state to `change_history` first (history is sacred on this
   path too — see `_append_knowledge_history`).
+- `write_knowledge(mode="level_change", ...)` : `_apply_mutation`'s
+  `knowledge_change` branch. Narrower than the default update: only
+  `level`, `source` and `updated_at` change (the previous state is still
+  appended to `change_history` first) — `content`, `is_incorrect`,
+  `is_secret`, `share_threshold` and `subject` on the existing row are left
+  untouched, unlike a default-mode update.
 - `write_ledger_entry(...)`             : pure INSERT into the append-only
   `ledger` table (BRIEF-18). No UPDATE, no DELETE, ever — a correction is a
   new compensating line. The single chokepoint for ledger writes, shared by
@@ -256,6 +262,7 @@ def write_relation(
 def write_knowledge(
     db: Session,
     *,
+    mode: str = "update",
     knowledge_id: Optional[str] = None,
     entity_id: Optional[str] = None,
     subject: Optional[str] = None,
@@ -270,19 +277,45 @@ def write_knowledge(
 ) -> Knowledge:
     """Insert or update a `knowledge` row. Caller adds the row to the session.
 
-    `knowledge_id=None` inserts a new row (`entity_id`, `subject` and `level`
-    required); `change_history` starts empty. Otherwise updates that row in
-    place and bumps `updated_at` — the previous state is appended to
-    `change_history` first (history is sacred), tagged with `changed_by`
-    (`"creator_crud"` or `"apply_mutation"`).
+    mode="update" (default; creator CRUD and `_apply_mutation`'s
+    `new_knowledge`/`resource_change` branches):
+        `knowledge_id=None` inserts a new row (`entity_id`, `subject` and
+        `level` required); `change_history` starts empty. Otherwise updates
+        that row in place and bumps `updated_at` — the previous state is
+        appended to `change_history` first (history is sacred), tagged with
+        `changed_by` (`"creator_crud"` or `"apply_mutation"`).
 
-    `level` falls back to "rumor" if missing or outside `KNOWLEDGE_LEVELS` —
-    matching the analyzer's existing default for model output that doesn't
-    name a recognised level (the local model is not always reliable here;
-    see CLAUDE.md "Local model notes"). `share_threshold` is clamped to
-    1-100 (the DB CHECK constraint requires this regardless of `is_secret` —
-    share_threshold is simply ignored at read time when `is_secret` is true).
+        `level` falls back to "rumor" if missing or outside
+        `KNOWLEDGE_LEVELS` — matching the analyzer's existing default for
+        model output that doesn't name a recognised level (the local model
+        is not always reliable here; see CLAUDE.md "Local model notes").
+        `share_threshold` is clamped to 1-100 (the DB CHECK constraint
+        requires this regardless of `is_secret` — share_threshold is simply
+        ignored at read time when `is_secret` is true).
+
+    mode="level_change" (`_apply_mutation`'s `knowledge_change` branch
+    only): narrower than "update" — requires `knowledge_id` and `level`
+    (the target level, used verbatim, no `KNOWLEDGE_LEVELS` fallback — the
+    caller has already validated the monotone-ladder guard). Appends the
+    previous state to `change_history` first, then sets only `level`,
+    `source` (falls back to the row's existing `source` if not given, same
+    as the pre-existing hand-rolled branch) and `updated_at`. `content`,
+    `is_incorrect`, `is_secret`, `share_threshold` and `subject` on the
+    existing row are left untouched.
     """
+    if mode == "level_change":
+        if knowledge_id is None:
+            raise ValueError("write_knowledge(mode='level_change'): knowledge_id is required")
+        k = db.get(Knowledge, knowledge_id)
+        if k is None:
+            raise ValueError(f"write_knowledge: knowledge {knowledge_id!r} not found")
+        _append_knowledge_history(k, changed_by=changed_by)
+        k.level = level
+        k.source = str(source or k.source)
+        k.updated_at = datetime.now(UTC)
+        db.add(k)
+        return k
+
     norm_level = level if level in KNOWLEDGE_LEVELS else "rumor"
     threshold = _clamp(share_threshold)
 
