@@ -2,7 +2,7 @@
 id: TICKET-0004
 title: /pipeline orchestration glue (chain to next human gate)
 type: feature
-status: recon
+status: live-gate
 created: 2026-07-02
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
