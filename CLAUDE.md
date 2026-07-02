@@ -68,6 +68,9 @@ Read both before making any structural change.
   (`ARCHITECTURE_DECISIONS.md`, `DECISIONS_INDEX.md` (generated),
   `world-engine-schema-changelog.md` (repo root), `code_standards.md`),
   `tooling/improvement/bug_log.jsonl`.
+- **Orchestration (BRIEF-0004):** `/pipeline TICKET-NNNN` is the entry point
+  that chains exec -> verify -> PR to the next human gate; `tooling/questions/`
+  is where it escalates (D1) for Nia's response.
 - This section governs the ticket pipeline itself (process, gating,
   escalation). It does not replace or relax any invariant below — those
   still apply to every change regardless of how it was ticketed.

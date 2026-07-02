@@ -3537,6 +3537,67 @@ request-serving path.
 
 ---
 
+## PIPELINE GLUE — /pipeline orchestration, derived ticket status, structural permissions (BRIEF-0004, no schema change)
+
+TICKET-0004's intake clarifications, locked; BRIEF-0004 built `/pipeline`
+against them unchanged.
+
+- **P1** — `/pipeline` covers only the Claude Code segment: ticket + brief
+  present -> exec -> verify -> retry -> PR or escalate. Intake and brief
+  authoring stay in chat; the file contract (a brief deposited under
+  `tooling/briefs/`) is the boundary, so future automation of the deposit
+  gesture needs no glue change.
+- **Q1** — a single command, `/pipeline TICKET-NNNN`, idempotent and
+  resumable.
+- **SM1 (transition ownership)** — Nia owns `intake->recon`,
+  `recon->brief`, `brief->exec` (brief deposit is the green light), and
+  `live-gate->done` (merge). `/pipeline` owns `exec->verify`,
+  `verify->live-gate` (green), `->escalated` (D1), `->paused` (clean
+  interruption). `/pipeline` never performs a Nia-owned transition.
+- **V1** — first red `/verify`: one confined fix attempt (the executed
+  brief's Scope IN only), `retry_count` incremented, re-verify. Second
+  consecutive red -> `escalated` + a QUESTION file citing both verdicts
+  (D1-d, literal).
+- **QF1** — `tooling/questions/QUESTION-TICKET-NNNN.md`, fixed sections
+  (Trigger a/b/c/d, Context, exactly one Question, lettered Options,
+  empty `## Response` for Nia). A filled `## Response` on relaunch resumes
+  the chain; an empty one stops it again. The file persists after
+  resolution — an append-only trace, never deleted.
+- **PR1** — a green verify opens the PR (`gh pr create`, body: ticket id,
+  brief id(s), the verdict JSON inline), sets `status: live-gate`. Nia
+  plays and merges on GitHub; C1 stands untouched (`/pipeline` never
+  pushes or merges to `main`; `block-main-push` remains the net).
+- **SES1** — one invocation chains to the next human gate (exec then
+  verify in the same session, when context allows); a clean interruption
+  sets `status: paused`, resumable by a later invocation.
+- **CA1** — the commit-approval wait moves to the PR surface: `/pipeline`
+  states explicitly when it invokes `/review-step`/`/close-step`
+  unattended, and `close-step` skips its wait in that mode only — Nia's
+  approval gate becomes the PR review itself, not a per-commit prompt.
+- **NT2** — `status` is a derived fact, never hand-written: Step 0
+  reconciles it from observable facts (merge state, verdict JSON, PR
+  existence, QUESTION files, brief files on disk) on every invocation.
+  This amends SM1's literal wording — Nia owns the *acts* (deposits,
+  merges); `/pipeline` owns *recording their consequences* as `status`,
+  not the acts themselves.
+- **GT-A** — `tooling/tickets|recon|briefs/` were gitignored in the
+  working tree, hiding BRIEF-0003-a/-b and RECON-0003/-0004 from `git
+  status` and from any commit. Reverted: the exclusion is gone, all
+  pipeline artifacts are tracked. Provenance — a brief's citation of its
+  RECON must be checkable in history, not just present on disk today.
+- **GH1** — `.claude/settings.json` gains a narrow, nominative
+  `permissions.allow` list (exactly `gh pr create`, `git push origin
+  ticket/*`, `tooling/glue/*` scripts, `python -m tooling.verify.run`,
+  and the two read-only git families `git branch`/`git log`) — the
+  structural declaration of what the chain may do unattended. No generic
+  `Bash(*)` entry exists; `block-main-push`/`block-db-in-git` are
+  untouched.
+- **H1** — no backup hook is added (F2 stands: backup.py stays a manual,
+  deliberate step). Destructive/irreversible operations escalate through
+  D1-b instead — the QUESTION file is the net, not an automatic snapshot.
+
+---
+
 ## Deferred decisions
 
 Recorded here so each is revisited deliberately rather than forgotten:

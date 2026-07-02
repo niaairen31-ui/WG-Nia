@@ -1,0 +1,12 @@
+{
+  "ticket": "TICKET-0004-pipeline-glue",
+  "when": "2026-07-02T16:52:21.957644+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "pipeline_state.py",
+      "status": "PASS",
+      "msg": "PASS: every ticket front-matter conforms to TEMPLATE.md"
+    }
+  ]
+}
