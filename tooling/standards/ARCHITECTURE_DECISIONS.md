@@ -427,7 +427,7 @@ Five mutation types are implemented:
 | `new_knowledge`    | Insert a `knowledge` row; inherits `session_id` from the source conversation. |
 | `status_change`    | Update `entity.status` + `entity.updated_at`. |
 | `item_update`      | Set `item.equipped` (BRIEF-07, schema v1.19). Verifies the item exists and `owner_id IS NOT NULL` (the schema CHECK: no equipping without an owner) — on violation, left at `status='approved'` with a note, never wrongly applied. **Dormant since BRIEF-08/D2a.1** — no live code path produces this mutation type; the branch and the cockpit toggle remain functional for reactivation. |
-| `knowledge_change` | Find the `knowledge` row by `entity_id` + `subject` (never creates — that's `new_knowledge`'s job); append previous state via `_append_knowledge_history(row, "apply_mutation")`; update `level` to payload `to_level`, `source` to payload `source`, `updated_at`. Guards: row not found → "Needs attention" (`knowledge row not found`); current `level` >= `to_level` (monotone re-check at apply time) → "Needs attention" (`level already >= proposed`). |
+| `knowledge_change` | Find the `knowledge` row by `entity_id` + `subject` (never creates — that's `new_knowledge`'s job); call `write_knowledge(mode="level_change", knowledge_id=row.id, level=to_level, source=..., changed_by="apply_mutation")` (BRIEF-0003-a) — appends the previous state to `change_history`, updates `level`, `source`, `updated_at`, leaves `content`/`is_incorrect`/`is_secret`/`share_threshold`/`subject` untouched. Guards: row not found → "Needs attention" (`knowledge row not found`); current `level` >= `to_level` (monotone re-check at apply time) → "Needs attention" (`level already >= proposed`). |
 
 Any other type is left at `status = 'approved'` with a note — never wrongly
 applied. Better un-applied than wrongly applied.
@@ -3461,6 +3461,82 @@ numbering scheme that came with it.
 
 ---
 
+## CANON-WRITE DOCTRINE — table classification, write normalization, structural gate (BRIEF-0003-a, BRIEF-0003-b, no schema change)
+
+RECON-0003 mapped every write site in `src/`; this record locks the
+classification and enforcement that followed.
+
+**K1 — three-strata table classification.** Every table in
+`world-engine-schema.md` falls into exactly one stratum:
+- **Canon** (15 tables, listed verbatim in
+  `tooling/verify/canon_write_policy.txt`'s `[CANON_TABLES]`): `world`,
+  `entity`, `character`, `location`, `faction`, `faction_membership`,
+  `relation`, `knowledge`, `ledger`, `item`, `skill`, `skill_definition`,
+  `discoverable_detail`, `event`, `artifact`. These are the tables the "two
+  sanctioned canon-write paths" doctrine actually governs.
+- **Ephemeral** (session/play machinery, never a `proposed_mutation`, never
+  creator-CRUD-reviewed): `gathering`, `gathering_member`, `conversation`,
+  `conversation_message`, `session`, `batch`, `pass_play`.
+- **Pipeline-internal** (the mutation/config plumbing itself, not narrative
+  canon): `proposed_mutation`, `user`, `prompt_template`.
+
+Ephemeral and pipeline tables carry no `canon_write_policy.txt` entries at
+all — a write to one is invisible to the check by construction, not by an
+allowlist exemption.
+
+**M1 — one table, one write shape (`knowledge`).** `_apply_mutation`'s
+`knowledge_change` branch (`cockpit/app.py`) no longer bypasses
+`write_knowledge` to call the private `_append_knowledge_history` directly;
+it calls `write_knowledge(mode="level_change", ...)` (writes.py), which
+reproduces the prior hand-rolled semantics byte-for-byte (same
+`change_history` entry shape). `_append_knowledge_history` now has exactly
+one caller: `write_knowledge` itself.
+
+**W1 — one table, one write shape (`skill`).** `cockpit/crud.py`'s
+`update_skill_tier` no longer hand-rolls the `skill.change_history` append;
+it calls the new `write_skill_tier` (writes.py), the sole write shape for
+`skill` tier changes.
+
+**L1 — the three unnamed hard-deletes become a named, closed list.**
+RECON-0003 C2 found three hard-delete routes in `cockpit/crud.py`
+(`delete_relation`, `delete_knowledge`, `delete_discoverable_detail`)
+existing outside `writes.py`, unnamed in CLAUDE.md's Invariants section
+despite that section's own sentence ("No other delete-side helper exists;
+any new hard-delete path must be named here, not added silently"). CLAUDE.md
+now names all three explicitly, immediately after that sentence — see
+"Named creator-correction hard-deletes (closed list, BRIEF-0003-b)" in
+Invariants. **Soft-archival of these three deletes (converting them to a
+status flag instead of a hard `DELETE`) was considered and explicitly
+deferred, not rejected** — see "Deferred decisions" below; L1 only names the
+existing behavior, it does not change it. The list is closed and enforced
+structurally: `verify/checks/single_canon_write.py` treats any hard-delete
+site on a canon table as a policy violation unless its `path::function` is
+in `canon_write_policy.txt`, so a fourth hard-delete added anywhere else
+fails `/verify` on sight, naming file, function, and table.
+
+**T1 — static AST scan, `src/`-scoped, function-grain allowlist.**
+`tooling/verify/checks/single_canon_write.py` (stdlib `ast` only, no DB)
+walks every `.py` under `src/`, attributes every `.add()`/`.delete()` call on
+a `Session`-typed receiver — and every raw-SQL `.execute()`/`.exec()` call —
+to the table it writes, and fails if a CANON-table write's `path::function`
+is not listed in `canon_write_policy.txt`'s `[ALLOWED_SITES]`. Attribution
+is function-grain (a call inside `write_relation` is legal because
+`write_relation` itself is allowlisted — the check never asks whether
+`write_relation`'s *caller* was also allowed to call it) and purely
+lexical: a call made by a function the scanned function calls is not
+attributed to the scanned function, matching how the two sanctioned paths
+actually compose (`_apply_mutation` and creator CRUD delegate to
+`writes.py`, they do not inline its writes). A canon-table site that cannot
+be attributed to any table at all is always a failure (`unattributable
+write site`) — RECON-0003 D1 confirmed zero dynamic-dispatch write sites
+exist in `src/` today, so an unattributable site is new and must be made
+legible before merging, not silently allowed through. `scripts/` and every
+`migrate_v1_*.py` are out of scope **by construction** (the scan never walks
+outside `src/`), not by an allowlist carve-out — none of them is a live
+request-serving path.
+
+---
+
 ## Deferred decisions
 
 Recorded here so each is revisited deliberately rather than forgotten:
@@ -3572,6 +3648,14 @@ Recorded here so each is revisited deliberately rather than forgotten:
   third copy rather than rewiring the first two onto it, to keep a
   delete-only brief from also touching the activate/create routes. Revisit
   as a named, separate cleanup if a fourth caller ever needs the same logic.
+- **Soft-archival of the three named hard-deletes** (CANON-WRITE DOCTRINE,
+  BRIEF-0003-b, L1). `delete_relation`, `delete_knowledge`, and
+  `delete_discoverable_detail` were considered for conversion to a status
+  flag (soft delete, preserving `change_history`/the row instead of
+  discarding it) when they were named into CLAUDE.md's closed hard-delete
+  list. Considered and deferred, not rejected — L1 only named the existing
+  hard-delete behavior; changing it to a soft pattern is a separate,
+  not-yet-scoped ticket.
 
 ---
 

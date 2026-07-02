@@ -83,7 +83,6 @@ from ..models import (
 from ..resolution import resolve_physical
 from ..writes import (
     KNOWLEDGE_LEVELS,
-    _append_knowledge_history,
     delete_world_cascade as _delete_world_cascade,
     knowledge_level_rank,
     write_knowledge,
@@ -862,11 +861,14 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
         if knowledge_level_rank(row.level) >= knowledge_level_rank(to_level):
             return "level already >= proposed"
 
-        _append_knowledge_history(row, "apply_mutation")
-        row.level = to_level
-        row.source = str(payload.get("source") or row.source)
-        row.updated_at = datetime.now(UTC)
-        db.add(row)
+        write_knowledge(
+            db,
+            mode="level_change",
+            knowledge_id=row.id,
+            level=to_level,
+            source=payload.get("source"),
+            changed_by="apply_mutation",
+        )
         return None
 
     # ── resource_change (BRIEF-19) ────────────────────────────────────────────
