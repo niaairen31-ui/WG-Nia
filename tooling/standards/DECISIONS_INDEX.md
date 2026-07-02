@@ -52,4 +52,5 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 3378 | DATABASE CARRIER FILE — out-of-tree relocation (incident 2026-06-19) |  |  |
 | 3426 | DOCUMENTATION PARTITION — hot/cold split, generated index, mechanical numbering (BRIEF-0001-a, BRIEF-0001-b, no schema change) | BRIEF-0001-a, BRIEF-0001-b |  |
 | 3464 | CANON-WRITE DOCTRINE — table classification, write normalization, structural gate (BRIEF-0003-a, BRIEF-0003-b, no schema change) | BRIEF-0003-a, BRIEF-0003-b |  |
-| 3540 | Deferred decisions |  |  |
+| 3540 | PIPELINE GLUE — /pipeline orchestration, derived ticket status, structural permissions (BRIEF-0004, no schema change) | BRIEF-0004 |  |
+| 3601 | Deferred decisions |  |  |

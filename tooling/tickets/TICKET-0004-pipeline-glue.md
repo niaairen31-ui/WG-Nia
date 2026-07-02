@@ -7,7 +7,7 @@ created: 2026-07-02
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
 blast_radius: medium
-brief_ids: []
+brief_ids: [BRIEF-0004]
 schema_version_touched: none
 retry_count: 0
 ---
@@ -50,8 +50,7 @@ TICKET-0003 merged ("Parfait, on ouvre l'intake glue").
 ## Acceptance criteria
 
 ### Machine-checkable  ->  G1 deterministic gate
-- [ ] (to be defined by BRIEF-0004-*, expected:)
-      pipeline state transitions legal + ownership respected  -> verify/checks/pipeline_state.py
+- [ ] pipeline state conformity  -> verify/checks/pipeline_state.py
 
 ### Live  ->  human gate (Nia)
 - [ ] A real ticket runs end-to-end: brief deposited → /pipeline TICKET-NNNN
