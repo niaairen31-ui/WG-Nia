@@ -21,4 +21,8 @@ DECISIONS_INDEX.md.
 6. **Commit** — propose a commit message summarizing the step. Wait for
    approval before committing.
 
+Unattended mode: when invoked from /pipeline (the invoker will say
+so), skip the approval wait and commit directly. All other steps
+(changelog, decisions index, message quality) unchanged.
+
 Report as a numbered checklist with PASS / FIXED / ATTENTION per item.
