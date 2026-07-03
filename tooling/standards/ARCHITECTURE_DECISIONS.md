@@ -3784,7 +3784,9 @@ Jinja, no `StaticFiles`, no new dependency). Launched on demand via
 
 **I1 (cockpit v1 scope, I2 deferred).** Exactly two surfaces: "Soumettre"
 (paste an artifact; type detected from body shape; number assigned at
-deposit; file written; confirmation displays the created name) and
+deposit; file written; confirmation displays the created name — widened,
+never narrowed, by BRIEF-0007's upload channel, a converging second input
+mode on the same surface) and
 "Questions" (list open QUESTION files, answer inline). No git operation, no
 status board, no `/pipeline` launcher button. **I2, deferred**: a read-only
 ticket status board — add only when live usage shows the need.
@@ -3879,6 +3881,55 @@ exactly the manual resolution that succeeded on TICKET-0005.
 needed by the above: `git fetch origin`, `git merge origin/main`,
 `git merge --abort`, `git diff`, `git status`, `gh pr view`, `gh pr list`.
 No generic `Bash(*)`; `block-main-push` and `block-db-in-git` untouched.
+
+## SOUMETTRE FILE UPLOAD — per-channel detection authority (BRIEF-0007, no schema change)
+
+TICKET-0007. Nia wants to upload the delivered `.md` files directly
+instead of pasting their body.
+
+**A1 (converging adapter, no second logic).** An upload zone
+(`<input type="file" multiple accept=".md">`) sits next to the existing
+textarea in the Soumettre surface; both feed the same downstream write
+logic (`deposit.target_path`, `TargetExists` unchanged). `target_path`
+gained an optional `brief_suffix` parameter (paste channel omits it and
+keeps its existing body-H1 scan; upload channel supplies it directly) so
+the one shared path-building/existence-check function serves both
+channels without duplication.
+
+**B2 (filename is the authority, upload channel only).** `deposit.
+parse_filename` parses `(TICKET|RECON|BRIEF)-(0007|NNNN digits)
+(-[a-z])?-(slug).md` from the filename alone — body shape is never
+consulted on this path. The suffix segment is legal only for BRIEF; its
+presence elsewhere refuses the file (`UnparseableFilename`), never a
+silent fallback to `detect_type`/`extract_slug` (the paste channel's
+unchanged authority). The literal digit string `"0007"` is this
+channel's numeric placeholder (a 4-digit stand-in for the paste
+channel's `"NNNN"`, since the filename grammar's number slot is
+digits-only) — a number segment equal to it resolves to `None`
+(bound at deposit time), for every artifact type, not just TICKET;
+any other 4-digit number is concrete and used as-is. (TICKET-0007's own
+intake example collided "0007-as-placeholder" with "0007-as-this-
+ticket's-real-number"; the implemented rule is the literal, type-uniform
+one stated above — the ticket text was corrected to a non-colliding
+example accordingly.)
+
+**C1 (ordered multi-file upload).** `deposit.order_upload_batch` sorts a
+submitted batch so ticket-typed filenames process first (submitted order
+preserved within each group); `resolve_upload_number` gives a ticket a
+fresh `compute_next_id()` (ignoring whatever was in its filename) and
+binds every placeholder-numbered non-ticket in the same batch to that
+result via a request-local `bound_ticket`, refusing (`MissingBoundTicket`)
+if none is available. A refusal is per file: one bad name writes nothing
+for that file and does not block its siblings.
+
+**No new dependency (forced substitution).** `POST /api/upload` accepts
+JSON with base64-encoded file contents rather than `multipart/form-data`
+— FastAPI's `UploadFile`/`File`/`Form` require `python-multipart`, which
+is not installed and would be a new dependency, explicitly ruled out by
+this brief's scope. The browser still uses a native `<input
+type="file">`; only the wire format differs. Server-side, the payload is
+base64-decoded then UTF-8-decoded explicitly, so an invalid encoding
+still refuses the same way a direct multipart read would have.
 
 ## PROMPT MODEL COLUMN + REGISTRY (BRIEF-0008-a, schema v1.67)
 

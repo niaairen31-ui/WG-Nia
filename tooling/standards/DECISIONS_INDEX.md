@@ -55,7 +55,8 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 3540 | PIPELINE GLUE — /pipeline orchestration, derived ticket status, structural permissions (BRIEF-0004, no schema change) | BRIEF-0004 |  |
 | 3601 | CRÉATION PAGE CONTRACT (BRIEF-0005-a, no schema change) | BRIEF-0005-a |  |
 | 3771 | PIPELINE COCKPIT — deposit surface, question writer, structural boundaries (BRIEF-0006-a, no schema change) | BRIEF-0006-a |  |
-| 3822 | PIPELINE SECOND PASS — recon absorption, CA1 relay, inline escalation, bounded conflict resolution (BRIEF-0006-b, no schema change) | BRIEF-0006-b |  |
-| 3883 | PROMPT MODEL COLUMN + REGISTRY (BRIEF-0008-a, schema v1.67) | BRIEF-0008-a | v1.67 |
-| 3957 | PROMPTS TAB — read-only reader, API, dry-run previews (BRIEF-0008-b, no schema change) | BRIEF-0008-b |  |
-| 3995 | Deferred decisions |  |  |
+| 3824 | PIPELINE SECOND PASS — recon absorption, CA1 relay, inline escalation, bounded conflict resolution (BRIEF-0006-b, no schema change) | BRIEF-0006-b |  |
+| 3885 | SOUMETTRE FILE UPLOAD — per-channel detection authority (BRIEF-0007, no schema change) | BRIEF-0007 |  |
+| 3934 | PROMPT MODEL COLUMN + REGISTRY (BRIEF-0008-a, schema v1.67) | BRIEF-0008-a | v1.67 |
+| 4008 | PROMPTS TAB — read-only reader, API, dry-run previews (BRIEF-0008-b, no schema change) | BRIEF-0008-b |  |
+| 4046 | Deferred decisions |  |  |
