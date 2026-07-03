@@ -6,7 +6,14 @@
       "Bash(python tooling/glue/*)",
       "Bash(python -m tooling.verify.run:*)",
       "Bash(git branch:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(git fetch origin:*)",
+      "Bash(git merge origin/main:*)",
+      "Bash(git merge --abort:*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)"
     ]
   },
   "hooks": {

@@ -1,4 +1,9 @@
-"""Structural gate for ticket front-matter conformity (pipeline glue, BRIEF-0004).
+"""Structural gate for ticket front-matter conformity (pipeline glue, BRIEF-0004),
+extended by BRIEF-0006-b (TICKET-0006) with two grep-grade sentinel checks:
+`.claude/commands/pipeline.md` must contain both the no-recon-spec
+derivation clause and the post-recon push clause within its Step 1 recon
+branch text, and `.claude/commands/brief-exec.md` must contain the CA1
+relay wiring.
 
 No DB. Every tooling/tickets/TICKET-*.md (TEMPLATE.md excluded, its glob
 pattern doesn't match) must carry a parseable YAML front-matter block
@@ -13,6 +18,14 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 TICKETS = ROOT / "tooling" / "tickets"
 QUESTIONS = ROOT / "tooling" / "questions"
+PIPELINE_MD = ROOT / ".claude" / "commands" / "pipeline.md"
+BRIEF_EXEC_MD = ROOT / ".claude" / "commands" / "brief-exec.md"
+
+PIPELINE_MD_SENTINELS = [
+    "A ticket with NO recon spec on disk is not an error",
+    "git push origin ticket/NNNN",
+]
+BRIEF_EXEC_MD_SENTINEL = "unattended mode (CA1)"
 
 REQUIRED_FIELDS = [
     "id", "title", "type", "status", "created", "model_lane",
@@ -85,12 +98,34 @@ def check_ticket(path: pathlib.Path) -> None:
                 )
 
 
+def check_pipeline_md_sentinels() -> None:
+    if not PIPELINE_MD.exists():
+        fail(f"{PIPELINE_MD} not found")
+        return
+    text = PIPELINE_MD.read_text(encoding="utf-8")
+    for sentinel in PIPELINE_MD_SENTINELS:
+        if sentinel not in text:
+            fail(f"{PIPELINE_MD.relative_to(ROOT).as_posix()}: missing sentinel phrase {sentinel!r}")
+
+
+def check_brief_exec_md_sentinel() -> None:
+    if not BRIEF_EXEC_MD.exists():
+        fail(f"{BRIEF_EXEC_MD} not found")
+        return
+    text = BRIEF_EXEC_MD.read_text(encoding="utf-8")
+    if BRIEF_EXEC_MD_SENTINEL not in text:
+        fail(f"{BRIEF_EXEC_MD.relative_to(ROOT).as_posix()}: missing sentinel phrase {BRIEF_EXEC_MD_SENTINEL!r}")
+
+
 def main() -> None:
     if not TICKETS.exists():
         fail(f"{TICKETS} not found")
     else:
         for path in sorted(TICKETS.glob("TICKET-*.md")):
             check_ticket(path)
+
+    check_pipeline_md_sentinels()
+    check_brief_exec_md_sentinel()
 
     if FAILURES:
         for msg in FAILURES:

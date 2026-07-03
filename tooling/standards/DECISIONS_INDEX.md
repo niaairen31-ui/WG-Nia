@@ -55,4 +55,5 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 3540 | PIPELINE GLUE — /pipeline orchestration, derived ticket status, structural permissions (BRIEF-0004, no schema change) | BRIEF-0004 |  |
 | 3601 | CRÉATION PAGE CONTRACT (BRIEF-0005-a, no schema change) | BRIEF-0005-a |  |
 | 3771 | PIPELINE COCKPIT — deposit surface, question writer, structural boundaries (BRIEF-0006-a, no schema change) | BRIEF-0006-a |  |
-| 3822 | Deferred decisions |  |  |
+| 3822 | PIPELINE SECOND PASS — recon absorption, CA1 relay, inline escalation, bounded conflict resolution (BRIEF-0006-b, no schema change) | BRIEF-0006-b |  |
+| 3883 | Deferred decisions |  |  |

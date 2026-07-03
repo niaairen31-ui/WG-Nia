@@ -13,7 +13,10 @@ front-matter, in this precedence order:
 1. `ticket/NNNN` is merged into `main` -> `done`.
 2. The verdict JSON at `tooling/verify/results/<full-slug>.json` is green
    AND a PR exists for the branch (`gh pr list --head ticket/NNNN`) ->
-   `live-gate`.
+   `live-gate`. When this rule resolves `live-gate`, additionally record
+   the PR's mergeable state via `gh pr view --json mergeable,mergeStateStatus`.
+   `live-gate` + `CONFLICTING` triggers the PR-conflict procedure below
+   instead of stopping.
 3. A `tooling/questions/QUESTION-TICKET-NNNN.md` exists with an empty
    `## Response` section -> `escalated`.
 4. Brief file(s) `tooling/briefs/BRIEF-NNNN*.md` exist -> eligible for
@@ -33,10 +36,23 @@ observes and records.
 ## Step 1 — act by status (SES1: chain to the next human gate)
 
 - `done` -> say so, stop.
-- `live-gate` -> say it awaits Nia's play-test and merge, stop.
-- `brief` / `recon` / `intake` -> name the missing artifact (brief, recon
-  spec, or recon result), stop. Those stages are chat-side per P1 — this
-  command does not author them.
+- `live-gate` -> if the PR's mergeable state is `CONFLICTING`, run the
+  PR-conflict procedure (F1/O1) below instead of stopping. Otherwise say
+  it awaits Nia's play-test and merge, stop.
+- `recon` -> execute the recon protocol (as defined in
+  `.claude/commands/recon.md`) against the ticket's spec, in this
+  session. Create `ticket/NNNN` from `main` if it does not exist yet.
+  Commit the result file on `ticket/NNNN`, then
+  `git push origin ticket/NNNN` so the result is readable from the
+  chat-side raw-URL channel. Then STOP and say so: the brief phase is
+  chat-side (P1). A ticket with NO recon spec on disk is not an error:
+  the recon phase is inapplicable by construction (intake judged it
+  unnecessary) and status derivation already proceeds past it.
+  `recon.md` itself is unchanged and remains available standalone for
+  any chat-side ad-hoc use.
+- `brief` / `intake` -> name the missing artifact (brief, or recon
+  result), stop. Those stages are chat-side per P1 — this command does
+  not author them.
 - `escalated` with a filled `## Response` -> resume applying the
   response, then continue the chain from where it left off.
 - Eligible for `exec` -> run the `/brief-exec` protocol for each brief in
@@ -69,6 +85,27 @@ observes and records.
 
 Never push to `main`; never merge — merging is Nia's gate, always.
 `block-main-push` remains the structural net regardless.
+
+## PR-conflict procedure (F1/O1)
+
+On `live-gate` with a CONFLICTING PR:
+1. `git fetch origin`, then `git merge origin/main` on `ticket/NNNN`.
+2. List conflicted paths: `git diff --name-only --diff-filter=U`.
+3. If ANY conflicted path is under `src/`, or is
+   `world-engine-schema-changelog.md`, or is `world-engine-schema.md`:
+   `git merge --abort`, escalate (D1) with a QUESTION file citing the
+   conflicted paths. The machine never resolves semantic or
+   version-numbering conflicts (O1).
+4. Otherwise (append-only docs only): resolve
+   `tooling/standards/ARCHITECTURE_DECISIONS.md` keep-both — main's
+   incoming sections first, this ticket's sections after them (the
+   order proven on TICKET-0005's manual resolution). Regenerate
+   `tooling/standards/DECISIONS_INDEX.md` via
+   `python tooling/glue/gen_decisions_index.py`.
+5. Run the FULL verify set (`python -m tooling.verify.run`) —
+   including checks newly arrived from main. Red -> normal V1 retry
+   rules apply.
+6. Commit the merge, `git push origin ticket/NNNN`, re-derive status.
 
 ## Interruption (SES1)
 
@@ -108,7 +145,19 @@ Trigger: <D1-a|b|c|d>
 
 The file persists after resolution — it is an append-only trace, never
 deleted or rewritten, even once `## Response` is filled and the chain
-resumes.
+resumes. "Empty `## Response`" is defined by
+`tooling/glue/question_response.py:is_open` (stripped content == `""`) —
+the prose above points at the code; the code is the definition.
+
+After writing the QUESTION file, commit it on `ticket/NNNN` (append-only
+trace) but do NOT push it (the cockpit reads the local tree; chat never
+reads QUESTION files). Then: display the `## Question` and `## Options`
+sections in this session and offer to take the answer here. If Nia
+answers in-session, write it through
+`python tooling/glue/question_response.py answer <file>` (stdin) — the
+single sanctioned writer — commit, and resume the chain immediately,
+without requiring a relaunch. The relaunch path (Step 0 detecting a
+filled `## Response`) remains valid and unchanged.
 
 ## CA1 — unattended invocations
 
