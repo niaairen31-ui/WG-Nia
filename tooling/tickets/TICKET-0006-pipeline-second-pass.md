@@ -2,7 +2,7 @@
 id: TICKET-0006
 title: Pipeline second pass — pipeline cockpit, single-command derivation, inline escalation, multi-brief chaining, PR-conflict capability
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-02
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
