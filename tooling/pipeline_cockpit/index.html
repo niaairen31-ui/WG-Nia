@@ -32,6 +32,12 @@
 <button id="submit-btn" onclick="submitArtifact()">Déposer</button>
 <div id="submit-result"></div>
 
+<label for="upload-files">Ou déposer directement les fichiers .md (le nom du fichier fait autorité)</label>
+<input type="file" id="upload-files" multiple accept=".md">
+
+<button id="upload-btn" onclick="uploadArtifacts()">Téléverser</button>
+<div id="upload-result"></div>
+
 <h2>Questions</h2>
 <button onclick="loadQuestions()">Rafraîchir</button>
 <div id="questions-list"></div>
@@ -63,6 +69,55 @@ async function submitArtifact() {
     resultEl.classList.add('err');
     resultEl.textContent = `Erreur : ${data.error}`;
   }
+}
+
+function arrayBufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function uploadArtifacts() {
+  const filesEl = document.getElementById('upload-files');
+  const boundEl = document.getElementById('bound-ticket');
+  const resultEl = document.getElementById('upload-result');
+  resultEl.textContent = '';
+  resultEl.className = 'result';
+
+  if (!filesEl.files.length) {
+    resultEl.classList.add('err');
+    resultEl.textContent = 'Choisir au moins un fichier .md.';
+    return;
+  }
+
+  const files = [];
+  for (const f of filesEl.files) {
+    const buffer = await f.arrayBuffer();
+    files.push({ filename: f.name, content_base64: arrayBufferToBase64(buffer) });
+  }
+
+  const payload = { files, bound_ticket: boundEl.value.trim() || null };
+  const res = await fetch('/api/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+
+  const lines = data.results.map(r => r.ok
+    ? `OK  ${r.filename} -> ${r.path} (${r.type} ${r.number})`
+    : `ERREUR  ${r.filename} : ${r.error}`);
+  resultEl.classList.add(data.results.some(r => !r.ok) ? 'err' : 'ok');
+  resultEl.textContent = lines.join('\n');
+
+  if (data.bound_ticket) {
+    boundEl.value = data.bound_ticket;
+  }
+  filesEl.value = '';
 }
 
 async function loadQuestions() {

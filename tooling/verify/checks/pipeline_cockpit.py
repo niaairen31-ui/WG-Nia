@@ -1,4 +1,5 @@
-"""Structural gate for the pipeline cockpit (BRIEF-0006-a). No network.
+"""Structural gate for the pipeline cockpit (BRIEF-0006-a, extended
+BRIEF-0007). No network.
 
 - imports tooling.pipeline_cockpit.app cleanly; asserts its PORT constant
   is 8100 (distinct from the world cockpit's 8000).
@@ -6,6 +7,9 @@
   from world_engine.
 - deposit round-trip in a temp tree (deposit.py pure functions).
 - QUESTION writer guard (question_response.py).
+- upload channel (BRIEF-0007): parse_filename accept/refuse table, batch
+  ordering + bound_ticket binding through the pure layer in a temp tree,
+  refusal isolation (a refused file writes nothing, siblings proceed).
 """
 from __future__ import annotations
 
@@ -119,6 +123,124 @@ def check_deposit_roundtrip() -> None:
             fail(f"recon deposit round-trip raised unexpectedly: {e}")
 
 
+def check_parse_filename_table() -> None:
+    from tooling.pipeline_cockpit import deposit
+
+    accept_cases = [
+        ("TICKET-0007-my-slug.md", ("ticket", None, None, "my-slug")),
+        ("RECON-0007-my-recon.md", ("recon", None, None, "my-recon")),
+        ("BRIEF-0042-a-thing.md", ("brief", "0042", "a", "thing")),
+        ("BRIEF-0042-thing.md", ("brief", "0042", None, "thing")),
+    ]
+    for name, expected in accept_cases:
+        try:
+            parsed = deposit.parse_filename(name)
+        except Exception as e:  # noqa: BLE001
+            fail(f"parse_filename({name!r}) raised unexpectedly: {e}")
+            continue
+        if tuple(parsed) != expected:
+            fail(f"parse_filename({name!r}) = {tuple(parsed)!r}, expected {expected!r}")
+
+    refuse_cases = [
+        "notes.md",
+        "TICKET-.md",
+        "TICKET-0007-a-my-slug.md",  # suffix segment illegal outside BRIEF
+    ]
+    for name in refuse_cases:
+        try:
+            parsed = deposit.parse_filename(name)
+            fail(f"parse_filename({name!r}) should have raised UnparseableFilename, got {parsed!r}")
+        except deposit.UnparseableFilename:
+            pass
+        except Exception as e:  # noqa: BLE001
+            fail(f"parse_filename({name!r}) raised the wrong exception: {e}")
+
+
+def check_upload_batch_ordering_and_binding() -> None:
+    from tooling.pipeline_cockpit import deposit
+
+    order = deposit.order_upload_batch(["RECON-0007-fixture-order.md", "TICKET-0007-fixture-order.md"])
+    if order != [1, 0]:
+        fail(f"order_upload_batch did not put the ticket first: got {order}, expected [1, 0]")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = pathlib.Path(tmp)
+        names = ["RECON-0007-fixture-order.md", "TICKET-0007-fixture-order.md"]
+        bodies = [
+            "<!-- slug: fixture-order -->\n# RECON\nSpec: RECON-0007-fixture-order.md.\n",
+            "---\nid: TICKET-0007\nslug: fixture-order\n---\n\n# TICKET-0007 — fixture\n",
+        ]
+
+        current_bound = None
+        resolved = {}
+        try:
+            for i in deposit.order_upload_batch(names):
+                parsed = deposit.parse_filename(names[i])
+                number = deposit.resolve_upload_number(parsed, current_bound)
+                numbered_body = deposit.substitute_upload_number(bodies[i], number)
+                path = deposit.target_path(
+                    parsed.type_, number, parsed.slug, numbered_body, tmp_root,
+                    brief_suffix=parsed.brief_suffix,
+                )
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(numbered_body, encoding="utf-8")
+                if parsed.type_ == "ticket":
+                    current_bound = number
+                resolved[parsed.type_] = number
+        except Exception as e:  # noqa: BLE001
+            fail(f"upload batch ordering/binding raised unexpectedly: {e}")
+            return
+
+        if resolved.get("recon") != resolved.get("ticket"):
+            fail(
+                "recon did not bind to the ticket's resolved number: "
+                f"recon={resolved.get('recon')!r}, ticket={resolved.get('ticket')!r}"
+            )
+
+
+def check_upload_refusal_isolation() -> None:
+    from tooling.pipeline_cockpit import deposit
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = pathlib.Path(tmp)
+        names = ["notes.md", "RECON-0099-fixture-refusal.md"]
+        bodies = ["not an artifact\n", "<!-- slug: fixture-refusal -->\n# RECON\nfixture.\n"]
+        outcomes = {}
+
+        for i in deposit.order_upload_batch(names):
+            try:
+                parsed = deposit.parse_filename(names[i])
+                number = deposit.resolve_upload_number(parsed, None)
+                numbered_body = deposit.substitute_upload_number(bodies[i], number)
+                path = deposit.target_path(
+                    parsed.type_, number, parsed.slug, numbered_body, tmp_root,
+                    brief_suffix=parsed.brief_suffix,
+                )
+            except (
+                deposit.UnparseableFilename,
+                deposit.MissingBoundTicket,
+                deposit.TargetExists,
+                deposit.UnknownArtifactType,
+            ) as e:
+                outcomes[names[i]] = ("refused", str(e))
+                continue
+
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(numbered_body, encoding="utf-8")
+            outcomes[names[i]] = ("written", path)
+
+        if outcomes.get("notes.md", (None,))[0] != "refused":
+            fail(f"'notes.md' should have been refused, got {outcomes.get('notes.md')!r}")
+        if any(tmp_root.rglob("*notes*")):
+            fail("a refused upload left a file behind under the temp tree")
+
+        recon_outcome = outcomes.get("RECON-0099-fixture-refusal.md")
+        if recon_outcome is None or recon_outcome[0] != "written":
+            fail(f"sibling 'RECON-0099-fixture-refusal.md' should have been written, got {recon_outcome!r}")
+        elif not recon_outcome[1].exists():
+            fail(f"sibling recon file was not actually written to {recon_outcome[1]}")
+
+
 QUESTION_TEMPLATE = (
     "# QUESTION — TICKET-9999\n"
     "Trigger: D1-a\n"
@@ -191,12 +313,18 @@ def main() -> None:
     check_k1_import_boundary()
     check_deposit_roundtrip()
     check_question_writer_guard()
+    check_parse_filename_table()
+    check_upload_batch_ordering_and_binding()
+    check_upload_refusal_isolation()
 
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         sys.exit(1)
-    print("PASS: pipeline cockpit — port, K1 boundary, deposit round-trip, QUESTION writer guard")
+    print(
+        "PASS: pipeline cockpit — port, K1 boundary, deposit round-trip, "
+        "QUESTION writer guard, upload channel (parse/order/refusal)"
+    )
     sys.exit(0)
 
 
