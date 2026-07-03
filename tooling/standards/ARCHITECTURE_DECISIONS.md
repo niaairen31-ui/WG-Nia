@@ -3954,6 +3954,44 @@ Wiring it would silently encode a `template.model` vs `injected_context
 checks/prompt_registry.py`'s static wiring scan allowlists these five
 functions by name, with a comment naming the deferral.
 
+## PROMPTS TAB — read-only reader, API, dry-run previews (BRIEF-0008-b, no schema change)
+
+TICKET-0008, second half — the reader that justifies -a's registry structure.
+A read-only cockpit tab: `GET /api/prompts` (master list, grouped by usage,
+lazy — no template bodies in the list payload), `GET /api/prompts/{id}`
+(full detail on demand, D1), and two assembled dry-run preview endpoints
+(C3).
+
+**Effective-row resolution replicated, not idealized.** `crud.py`'s
+`_effective_prompt_row(rows, world_scoped, world_id)` mirrors the REAL
+loader bodies exactly per R1: the world-preferred-else-global chain for
+`world_scoped=True` usages, bare "first active row" for the 6
+`world_scoped=False` authoring usages — including their latent
+non-determinism with 2+ active rows, deliberately not fixed here (an
+accepted observation, not a bug this brief owns).
+
+**Fidelity rule, applied.** The two assembled previews
+(`GET /api/prompts/preview/npc_dialogue`, `GET /api/prompts/preview/
+player_narration`, both in `app.py` — same no-canon-write neighborhood as
+`POST /api/entities/generate`, deliberately not in `crud.py`) call the REAL
+`assemble_npc_context`/`assemble_mj_context` — never a reimplementation.
+The npc_dialogue system-prompt concatenation (`f"{behaviour.system_prompt}
+\n\n{context}"`) was inline and duplicated across 4 call sites
+(`start_conversation`, `_stream`'s two responder branches, the NPC
+initiative act) before this brief; extracted into
+`_npc_dialogue_system_prompt(behaviour, context)`, now the single
+construction all 4 live sites AND the preview call — behavior-preserving,
+byte-identical output, no reordering. Live verification surfaced a
+pre-existing, unrelated bug in `assemble_npc_context` (a location whose
+`subculture.values` is a list, not a string, crashes `" ".join(setting_
+lines)`) on several of Verkhaal's NPCs — left untouched: the preview's job
+is to show exactly what the live path would build, bugs included; fixing
+an assembler bug is a separate, unscoped concern.
+
+**`destination` omitted from the tab entirely**, per the ticket's locked
+decision — no reader in code, so displaying it would show a routing
+promise the code does not keep.
+
 ## Deferred decisions
 
 Recorded here so each is revisited deliberately rather than forgotten:

@@ -344,6 +344,10 @@ Read both before making any structural change.
   effective_model`** (BRIEF-0008-a, schema v1.67); new prompt usages must
   add a `PROMPT_REGISTRY` entry (verify-enforced by
   `verify/checks/prompt_registry.py`).
+- **`cockpit/app.py`'s `_npc_dialogue_system_prompt(behaviour, context)` is
+  the single npc_dialogue system-prompt construction** (BRIEF-0008-b): every
+  live call site and the read-only Prompts tab's assembled preview call it —
+  never a duplicated `f"{behaviour.system_prompt}\n\n{context}"` inline.
 
 ## Local model notes
 

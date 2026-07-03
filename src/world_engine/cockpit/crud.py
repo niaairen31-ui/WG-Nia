@@ -69,11 +69,13 @@ from ..models import (
     Knowledge,
     Ledger,
     Location,
+    PromptTemplate,
     Relation,
     Skill,
     SkillDefinition,
     World,
 )
+from ..prompt_registry import PROMPT_REGISTRY, effective_model
 from ..writes import (
     KNOWLEDGE_LEVELS,
     write_knowledge,
@@ -1554,6 +1556,112 @@ def get_ledger_journal(
         _ledger_dict(e)
         for e in list_entries(db, entity_id=entity_id, session_id=session_id, world_id=_world_id(db))
     ]
+
+
+# ── Prompts (Création → Prompts, read-only) — BRIEF-0008-a/-b ──────────────────
+
+def _effective_prompt_row(
+    rows: list[PromptTemplate], world_scoped: bool, world_id: str
+) -> Optional[PromptTemplate]:
+    """Replicate the REAL loader semantics (R1) over an already-fetched row
+    list for one usage — never idealized. `world_scoped=True` usages use the
+    world-preferred-else-global chain every cockpit/gathering loader shares
+    (app.py:1307-1311); `world_scoped=False` (the 6 authoring usages) take
+    the first active row in whatever order the DB returns them, mirroring
+    their loaders' bare `.first()` — the latent nondeterminism with 2+ active
+    rows is an accepted observation, not fixed here."""
+    active = [r for r in rows if r.is_active]
+    if not active:
+        return None
+    if world_scoped:
+        for prefer in (lambda t: t.world_id == world_id, lambda t: t.world_id is None):
+            match = next((t for t in active if prefer(t)), None)
+            if match is not None:
+                return match
+        return active[0]
+    return active[0]
+
+
+def _prompt_row_summary(r: PromptTemplate) -> dict:
+    return {
+        "id": r.id,
+        "name": r.name,
+        "world_id": r.world_id,
+        "version": r.version,
+        "is_active": r.is_active,
+        "model": r.model,
+    }
+
+
+@router.get("/prompts")
+def list_prompts(db: DbSession = Depends(get_session)) -> dict:
+    """Master list grouped by usage — registry facts + DB rows, no
+    system_prompt/user_template bodies (lazy: only the selected prompt is
+    ever rendered, per the creator's stated requirement)."""
+    world_id = _world_id(db)
+    usages = []
+    for usage, spec in PROMPT_REGISTRY.items():
+        rows = db.exec(
+            select(PromptTemplate).where(PromptTemplate.usage == usage)
+        ).all()
+        default_model = spec.default_model()
+        effective_row = _effective_prompt_row(rows, spec.world_scoped, world_id)
+        usages.append({
+            "usage": usage,
+            "surface": spec.surface,
+            "world_scoped": spec.world_scoped,
+            "dry_run_capable": spec.dry_run_capable,
+            "call_sites": list(spec.call_sites),
+            "default_model": default_model,
+            "rows": [_prompt_row_summary(r) for r in rows],
+            "effective_id": effective_row.id if effective_row else None,
+            "effective_model": (
+                effective_model(effective_row, default_model) if effective_row else None
+            ),
+        })
+    return {"usages": usages}
+
+
+@router.get("/prompts/{prompt_id}")
+def get_prompt_detail(prompt_id: str, db: DbSession = Depends(get_session)) -> dict:
+    """Full detail for one row, including body text — fetched on demand only
+    (D1: lazy master list + one detail at a time)."""
+    row = db.get(PromptTemplate, prompt_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Prompt template {prompt_id!r} not found")
+    spec = PROMPT_REGISTRY.get(row.usage)
+    if spec is None:
+        raise HTTPException(
+            status_code=500, detail=f"Usage {row.usage!r} has no PROMPT_REGISTRY entry"
+        )
+    world_id = _world_id(db)
+    sibling_rows = db.exec(
+        select(PromptTemplate).where(PromptTemplate.usage == row.usage)
+    ).all()
+    default_model = spec.default_model()
+    effective_row = _effective_prompt_row(sibling_rows, spec.world_scoped, world_id)
+    is_effective = effective_row is not None and effective_row.id == row.id
+    return {
+        "id": row.id,
+        "name": row.name,
+        "usage": row.usage,
+        "world_id": row.world_id,
+        "version": row.version,
+        "is_active": row.is_active,
+        "model": row.model,
+        "effective_model": effective_model(row, default_model),
+        "system_prompt": row.system_prompt,
+        "user_template": row.user_template,
+        "variables": row.variables,
+        "notes": row.notes,
+        "surface": spec.surface,
+        "world_scoped": spec.world_scoped,
+        "dry_run_capable": spec.dry_run_capable,
+        "call_sites": list(spec.call_sites),
+        "default_model": default_model,
+        "is_effective": is_effective,
+        "shadowed_by": (effective_row.id if not is_effective and effective_row else None),
+    }
 
 
 __all__ = ["router", "ENTITY_TYPE_REGISTRY"]
