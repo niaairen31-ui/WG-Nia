@@ -3542,6 +3542,55 @@ exactly, by the standard mechanism instead of a bespoke one — no second
 create affordance exists after this brief; the DB's
 `idx_character_one_pc_per_user_world` constraint is untouched.
 
+### BRIEF-0005-c — Standard shell for bespoke Création tabs (no schema change, D′2-shell closed)
+
+Realizes the last locked decision: every Création page — entity or bespoke
+— renders under one standard shell, closing the ticket end to end.
+
+**The shell is one shared band, not per-tab markup.** A single
+`#creation-shell-band` (`class="panel-head"`, reusing the existing
+panel-head look rather than new CSS) sits above every tab body. It shows
+`entry.label` as the title and, iff `entry.primaryAction`, exactly one
+`#creation-shell-action` button — the same DOM node, same position, for all
+ten tabs. `#creation-new-row`'s old markup (the entity archetype's
+`+ Nouveau`, previously top-of-sidebar) is retired; `renderCreationShell(
+entry)` is called from `_creationActivateTab()` (not `showCreationSubTab`
+directly) so the very first Création activation — which reaches
+`_creationActivateTab()` through `creationInit()`, bypassing
+`showCreationSubTab` entirely — renders the shell too. This was caught live
+during this brief: the shell rendered blank on first load until the call
+was moved into the shared activation helper.
+
+**`primaryAction` supersedes "`createPanel` presence implies a button."**
+`createPanel` still decides WHAT an entity's `+ Nouveau` renders;
+`primaryAction: {label, handler} | null` alone now decides WHETHER a button
+shows and what it does — decoupled, because a bespoke tab has no
+`createPanel` at all but still needs a primary action (Compétences,
+Régistre, Région). Every entity entry's `primaryAction.handler` is the
+existing `creationNewEntity` (which already gates on `authorRegistry`/
+`entry.createPanel`) — one shared reference, not five copies.
+
+**Registre's form is collapsed by default in static markup**, not by an
+inline style JS sets on load — `#registre-add-form` carries the native
+`hidden` attribute in the HTML, toggled by `registreToggleAddForm()`
+(the primaryAction handler) and re-set after a successful
+`authorAddLedgerEntry()` append. `POST /api/ledger` itself, and the
+append-only posture, are untouched.
+
+**Review Queue's filter bar and batch bar are the one deliberate
+non-generic exception**, exactly as scoped: both moved from inside
+`#creation-queue` into `#creation-shell-extra` (declared as a `slots` entry,
+`{ containerId: 'creation-shell-extra', loader: null }` — reusing the
+existing generic slot-container show/hide, not a new "shell API"). The
+static filter buttons never regenerate; `loadQueue()`'s only change is
+where it mounts `renderBatchBar()`'s output. No other entry uses this slot;
+none should without a deliberate decision, per Scope OUT.
+
+**Deferred: a `catalogue` archetype.** Compétences and Registre both render
+an inline-editable/read-only table body; a shared archetype for that shape
+is explicitly not built here (Scope OUT). Trigger to revisit: a third
+table-shaped Création page appears.
+
 ## Deferred decisions
 
 Recorded here so each is revisited deliberately rather than forgotten:

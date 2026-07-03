@@ -39,9 +39,10 @@ Read both before making any structural change.
   schema-touching) and keeps `tooling/standards/ARCHITECTURE_DECISIONS.md` and
   this file consistent with the code. Use the `/close-step` command.
 - **Every Création page is a `CREATION_TABS` registry entry** rendered by the
-  generic dispatcher (`showCreationSubTab`, `cockpit/index.html`); no page or
-  tab-specific branch may exist outside the registry
-  (`verify/checks/page_contract.py` enforces).
+  generic dispatcher (`showCreationSubTab`, `cockpit/index.html`) under the
+  standard shell; no page or tab-specific branch may exist outside the
+  registry, and a page's primary action exists only as its registry
+  `primaryAction` (`verify/checks/page_contract.py` enforces).
 
 ## Ticket pipeline (governance)
 

@@ -936,6 +936,8 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 .creation-sub-tab.active { background: var(--card); color: var(--text); border-color: var(--accent); }
 
 /* ── Création content areas ──────────────────────────────────────────────── */
+#creation-shell-band  { flex-shrink: 0; }
+#creation-shell-extra { display: flex; align-items: center; gap: 8px; }
 #creation-editor-area { flex: 1; min-height: 0; }
 #creation-pj-skill    { flex-shrink: 0; border-top: 2px solid var(--border);
   display: flex; flex-direction: column; max-height: 45%; overflow: hidden; }
@@ -1161,6 +1163,27 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <button class="creation-sub-tab"        id="ctab-queue"     onclick="showCreationSubTab('queue')">Review Queue</button>
   </div>
 
+  <!-- ── Standard shell band (BRIEF-0005-c) — one header band above every
+       Création page: the entry's label (title) plus, iff it declares a
+       primaryAction, exactly one button in this same fixed position on all
+       ten tabs. #creation-shell-extra is Review Queue's filter bar +
+       batch-bar mount point — a one-off relocation, not a generic shell
+       concept (hidden on every other tab via the ordinary slot mechanism). -->
+  <div class="panel-head" id="creation-shell-band">
+    <h2 id="creation-shell-title"></h2>
+    <div id="creation-shell-extra" style="display:none">
+      <div class="filter-bar" id="filter-bar">
+        <button class="f-btn active" data-s="proposed"  onclick="setFilter(this,'proposed')">Proposed</button>
+        <button class="f-btn"        data-s="approved"  onclick="setFilter(this,'approved')"
+                title="Proposals that were approved but could not be applied to canon (apply error, unhandled type, or duplicate block). Needs creator attention.">⚠ Needs attention</button>
+        <button class="f-btn"        data-s="applied"   onclick="setFilter(this,'applied')">Applied</button>
+        <button class="f-btn"        data-s="rejected"  onclick="setFilter(this,'rejected')">Rejected</button>
+      </div>
+      <div id="creation-shell-batch-bar"></div>
+    </div>
+    <button class="btn-send" id="creation-shell-action" style="display:none"></button>
+  </div>
+
   <!-- ── Lieux — Graph panel (BRIEF-15, schema v1.28) ── -->
   <div id="creation-lieux-graph" style="display:none">
     <div class="lieux-graph-head">
@@ -1178,9 +1201,6 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   <!-- ── Entity editor (NPC / PJ / Lieux / Factions / Objets) ── -->
   <div class="layout" id="creation-editor-area">
     <aside class="sidebar">
-      <div class="author-new-row" id="creation-new-row">
-        <button class="btn-send" id="creation-new-btn" onclick="creationNewEntity()" style="width:100%">+ Nouveau</button>
-      </div>
       <div class="sidebar-head">
         <span id="creation-list-label">NPC</span>
         <button class="btn-icon" onclick="authorLoadEntityList()" title="Rafraîchir">↻</button>
@@ -1253,9 +1273,6 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       <div class="queue-body" id="competences-body" style="border-top:1px solid var(--border)">
         <div class="empty"><span class="spin">⟳</span></div>
       </div>
-      <div class="field-section" style="border-top:1px solid var(--border); margin-top:8px; padding-top:8px;">
-        <button class="btn-send" onclick="competencesAddManualRow()">+ Ajouter une compétence</button>
-      </div>
     </div>
   </div><!-- #creation-competences -->
 
@@ -1280,7 +1297,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       <div class="queue-body" id="registre-body">
         <div class="empty"><span class="spin">⟳</span></div>
       </div>
-      <div class="field-section" id="registre-add-form" style="border-top:1px solid var(--border); margin-top:8px; padding-top:8px;">
+      <div class="field-section" id="registre-add-form" hidden style="border-top:1px solid var(--border); margin-top:8px; padding-top:8px;">
         <div class="field-section-title">Nouvelle ligne (crédit / débit)</div>
         <div class="field-grid">
           <div class="field-row">
@@ -1320,13 +1337,6 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <div class="queue-panel">
       <div class="panel-head">
         <h2>Review Queue</h2>
-        <div class="filter-bar" id="filter-bar">
-          <button class="f-btn active" data-s="proposed"  onclick="setFilter(this,'proposed')">Proposed</button>
-          <button class="f-btn"        data-s="approved"  onclick="setFilter(this,'approved')"
-                  title="Proposals that were approved but could not be applied to canon (apply error, unhandled type, or duplicate block). Needs creator attention.">⚠ Needs attention</button>
-          <button class="f-btn"        data-s="applied"   onclick="setFilter(this,'applied')">Applied</button>
-          <button class="f-btn"        data-s="rejected"  onclick="setFilter(this,'rejected')">Rejected</button>
-        </div>
         <button class="btn-icon" onclick="loadQueue()" title="Rafraîchir">↻</button>
       </div>
       <div class="batch-verdict" id="batch-verdict" style="display:none"></div>
@@ -2432,10 +2442,14 @@ function _mutationEntityName(id) {
 
 async function loadQueue() {
   const body = document.getElementById('queue-body');
+  // BRIEF-0005-c: the batch bar mounts in the shell band's #creation-shell-extra
+  // (moved out of #queue-body — markup relocation only, same renderBatchBar()).
+  const batchSlot = document.getElementById('creation-shell-batch-bar');
   try {
     await _loadMutationEntityNames();
     const mutations = await api('/api/mutations?status=' + currentFilter);
     if (!mutations.length) {
+      if (batchSlot) batchSlot.innerHTML = '';
       // "approved" (Needs attention) being empty is the healthy, expected state.
       if (currentFilter === 'approved') {
         body.innerHTML =
@@ -2446,9 +2460,10 @@ async function loadQueue() {
       }
       return;
     }
-    const batchBar = (currentFilter === 'proposed') ? renderBatchBar() : '';
-    body.innerHTML = batchBar + mutations.map(renderCard).join('');
-    if (batchBar) updateBatchBar();
+    const showBatchBar = currentFilter === 'proposed';
+    if (batchSlot) batchSlot.innerHTML = showBatchBar ? renderBatchBar() : '';
+    body.innerHTML = mutations.map(renderCard).join('');
+    if (showBatchBar) updateBatchBar();
   } catch (e) {
     body.innerHTML = `<div class="empty" style="color:var(--red)">Error: ${esc(e.message)}</div>`;
   }
@@ -3001,6 +3016,7 @@ const CREATION_TABS = {
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && !playerCharIds.has(e.id)),
     createPanel: () => authorRenderSheet({}, true, 'character'),
+    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
     slots: [],
   },
   pj: {
@@ -3012,6 +3028,7 @@ const CREATION_TABS = {
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && playerCharIds.has(e.id)),
     createPanel: pjRenderCreatePanel,
+    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
     slots: [{ id: 'fiche', containerId: 'creation-pj-skill', loader: skillInit, onSelect: pjFicheOnSelect }],
   },
   lieux: {
@@ -3023,6 +3040,7 @@ const CREATION_TABS = {
     type: 'location',
     listRenderer: renderLieuxBrowse,
     createPanel: () => authorRenderSheet({}, true, 'location'),
+    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
     slots: [{ id: 'graph', containerId: 'creation-lieux-graph', loader: graphLoad, onSelect: null }],
   },
   factions: {
@@ -3033,6 +3051,7 @@ const CREATION_TABS = {
     state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _factionsWorldReset },
     type: 'faction',
     createPanel: () => authorRenderSheet({}, true, 'faction'),
+    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
     slots: [],
   },
   objets: {
@@ -3043,6 +3062,7 @@ const CREATION_TABS = {
     state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _entityListWorldReset },
     type: 'item',
     createPanel: () => authorRenderSheet({}, true, 'item'),
+    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
     slots: [],
   },
   competences: {
@@ -3051,6 +3071,7 @@ const CREATION_TABS = {
     containers: ['creation-competences'],
     loader: competencesLoadList,
     state: { onTabEnter: null, onWorldSwitch: _competencesWorldReset },
+    primaryAction: { label: '+ Ajouter une compétence', handler: competencesAddManualRow },
   },
   region: {
     label: 'Région',
@@ -3058,6 +3079,7 @@ const CREATION_TABS = {
     containers: ['creation-region'],
     loader: regionRenderAll,
     state: { onTabEnter: null, onWorldSwitch: _regionWorldReset },
+    primaryAction: { label: 'Nouvelle région', handler: regionShellNewRegion },
   },
   artefacts: {
     label: 'Artefacts',
@@ -3066,6 +3088,7 @@ const CREATION_TABS = {
     loader: loadCreationArtefacts,
     state: { onTabEnter: null, onWorldSwitch: null },
     createPanel: null,
+    primaryAction: null, // enabling artifact creation later = filling this in
   },
   registre: {
     label: 'Registre',
@@ -3073,6 +3096,7 @@ const CREATION_TABS = {
     containers: ['creation-registre'],
     loader: loadRegistre,
     state: { onTabEnter: null, onWorldSwitch: _registreWorldReset },
+    primaryAction: { label: '+ Nouvelle entrée', handler: registreToggleAddForm },
   },
   queue: {
     label: 'Review Queue',
@@ -3080,16 +3104,26 @@ const CREATION_TABS = {
     containers: ['creation-queue'],
     loader: loadQueue,
     state: { onTabEnter: null, onWorldSwitch: null },
+    primaryAction: null, // append-only by design — rows never created here
+    slots: [{ id: 'filters', containerId: 'creation-shell-extra', loader: null, onSelect: null }],
   },
 };
 
-/** Runs a registry entry's activation work: entity-archetype entries load
- *  their list (via the shared shell) before the entry's own loader, then
- *  their declared slots; bespoke entries just run their own loader. */
+/** Runs a registry entry's activation work — the single path used by BOTH
+ *  showCreationSubTab and creationInit's first-ever activation, so the
+ *  shell/label render exactly once, however the tab was reached: renders the
+ *  standard shell + sidebar label, then (entity archetype) loads its list
+ *  via the shared shell before the entry's own loader, then its declared
+ *  slots; bespoke entries just run their own loader. */
 function _creationActivateTab() {
   const entry = CREATION_TABS[currentCreationSubTab];
   if (!entry) return;
   const usesEditorShell = entry.containers.includes('creation-editor-area');
+
+  const labelEl = document.getElementById('creation-list-label');
+  if (labelEl && usesEditorShell) labelEl.textContent = entry.label || '';
+  renderCreationShell(entry);
+
   if (usesEditorShell) {
     (entry.listLoader || authorLoadEntityList)();
   }
@@ -3130,16 +3164,31 @@ function showCreationSubTab(tab) {
   });
 
   const usesEditorShell = entry.containers.includes('creation-editor-area');
-  const newRow = document.getElementById('creation-new-row');
-  if (newRow) newRow.style.display = (usesEditorShell && entry.createPanel) ? '' : 'none';
-  const labelEl = document.getElementById('creation-list-label');
-  if (labelEl && usesEditorShell) labelEl.textContent = entry.label || '';
 
   if (prev !== tab && entry.state.onTabEnter) entry.state.onTabEnter();
 
   if (usesEditorShell && !authorRegistry) { creationInit(); return; }
 
   _creationActivateTab();
+}
+
+/** Standard shell band (BRIEF-0005-c) — the entry's title, plus its
+ *  primaryAction button in the same fixed position on every one of the ten
+ *  tabs. `createPanel` still decides WHAT + Nouveau renders; `primaryAction`
+ *  alone decides WHETHER a button shows and where its click goes. */
+function renderCreationShell(entry) {
+  const titleEl = document.getElementById('creation-shell-title');
+  if (titleEl) titleEl.textContent = entry.label || '';
+  const actionEl = document.getElementById('creation-shell-action');
+  if (!actionEl) return;
+  if (entry.primaryAction) {
+    actionEl.textContent = entry.primaryAction.label;
+    actionEl.onclick = entry.primaryAction.handler;
+    actionEl.style.display = '';
+  } else {
+    actionEl.onclick = null;
+    actionEl.style.display = 'none';
+  }
 }
 
 /** Runs every registry entry's world-switch reset (BRIEF-0005-a item 3, G1) —
@@ -3390,10 +3439,19 @@ async function authorAddLedgerEntry() {
     document.getElementById('registre-f-amount').value = '';
     document.getElementById('registre-f-reason').value = '';
     statusEl.textContent = 'Ligne ajoutée.';
+    document.getElementById('registre-add-form').hidden = true;
     loadRegistre();
   } catch (e) {
     statusEl.textContent = e.message;
   }
+}
+
+/** Registre's primaryAction handler (BRIEF-0005-c) — toggles the add-form,
+ *  collapsed by default (static `hidden` attribute); authorAddLedgerEntry
+ *  re-collapses it on a successful append. */
+function registreToggleAddForm() {
+  const form = document.getElementById('registre-add-form');
+  if (form) form.hidden = !form.hidden;
 }
 
 async function loadRegistre() {
@@ -3678,6 +3736,14 @@ function regionRestart() {
   regionConfirmedLinks  = {};
   regionCommitResult    = null;
   regionRenderBriefForm();
+}
+
+/** Région's primaryAction handler (BRIEF-0005-c) — discards any in-progress
+ *  manifest/draft via regionRestart(), then focuses the fresh brief input. */
+function regionShellNewRegion() {
+  regionRestart();
+  const briefEl = document.getElementById('region-brief');
+  if (briefEl) briefEl.focus();
 }
 
 function regionEntityNotes(entry, kind) {

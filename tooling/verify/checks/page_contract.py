@@ -35,6 +35,11 @@ def _braced_block(html: str, start_pattern: str) -> str:
     return ""
 
 
+def _entry_block(registry_src: str, key: str) -> str:
+    """Return one CREATION_TABS entry's own `{ ... }` block by its tab key."""
+    return _braced_block(registry_src, rf"(?:^|[{{,\s]){key}\s*:\s*\{{")
+
+
 def main() -> int:
     html = INDEX_HTML.read_text(encoding="utf-8")
     failures = []
@@ -46,6 +51,13 @@ def main() -> int:
         for key in TAB_KEYS:
             if not re.search(rf"(?:^|[{{,\s]){key}\s*:\s*\{{", registry_src):
                 failures.append(f"CREATION_TABS is missing an entry for '{key}'")
+                continue
+            entry_src = _entry_block(registry_src, key)
+            if not re.search(r"\bprimaryAction\s*:", entry_src):
+                failures.append(
+                    f"CREATION_TABS.{key} has no 'primaryAction' key "
+                    "(required — value may be null, BRIEF-0005-c)"
+                )
 
     dispatcher_src = _braced_block(html, r"function showCreationSubTab\(tab\)\s*")
     if not dispatcher_src:
@@ -77,6 +89,21 @@ def main() -> int:
                 "must be fully removed (BRIEF-0005-b)"
             )
 
+    occurrences = html.count("Ajouter une compétence")
+    if occurrences == 0:
+        failures.append("'Ajouter une compétence' not found anywhere — expected once, in the registry's primaryAction label")
+    elif occurrences > 1:
+        failures.append(
+            f"'Ajouter une compétence' appears {occurrences} times — expected exactly once "
+            "(the registry's primaryAction label); an in-body control must not exist (BRIEF-0005-c)"
+        )
+
+    if 'id="registre-add-form" hidden' not in html:
+        failures.append(
+            "#registre-add-form is not collapsed by default in static markup "
+            "(expected the 'hidden' attribute — BRIEF-0005-c)"
+        )
+
     if failures:
         for f in failures:
             print(f"FAIL: {f}")
@@ -84,7 +111,8 @@ def main() -> int:
 
     print(
         "PASS: page_contract — CREATION_TABS registry, generic dispatcher, "
-        "no duplicate Lieux create button, PJ fully on the entity archetype"
+        "no duplicate Lieux create button, PJ on the entity archetype, "
+        "standard shell + primaryAction on every entry"
     )
     return 0
 
