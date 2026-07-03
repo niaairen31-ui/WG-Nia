@@ -1,0 +1,12 @@
+{
+  "ticket": "TICKET-0007-cockpit-file-upload",
+  "when": "2026-07-03T17:29:50.674048+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "pipeline_cockpit.py",
+      "status": "PASS",
+      "msg": "PASS: pipeline cockpit \u2014 port, K1 boundary, deposit round-trip, QUESTION writer guard, upload channel (parse/order/refusal)"
+    }
+  ]
+}
