@@ -340,6 +340,10 @@ Read both before making any structural change.
   matches `physical`/`agility`/`perception`/`composure`, so the arbiter's
   `world_skill_defs_by_name.get(domain)` lookup can never be shadowed by a
   custom row claiming a base-domain name.
+- **All templated model calls resolve through `prompt_registry.
+  effective_model`** (BRIEF-0008-a, schema v1.67); new prompt usages must
+  add a `PROMPT_REGISTRY` entry (verify-enforced by
+  `verify/checks/prompt_registry.py`).
 
 ## Local model notes
 

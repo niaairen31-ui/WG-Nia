@@ -43,6 +43,7 @@ from .models import (
     ProposedMutation,
     PromptTemplate,
 )
+from .prompt_registry import effective_model
 from .writes import knowledge_level_rank
 
 # Canonical mutation_type values (schema).
@@ -469,7 +470,9 @@ def analyze_overhearing(
         {"role": "system", "content": template.system_prompt},
         {"role": "user", "content": user_message},
     ]
-    raw = ollama_client.chat(llm_messages, model=model, host=host, format="json")
+    raw = ollama_client.chat(
+        llm_messages, model=effective_model(template, model), host=host, format="json"
+    )
     json_str = _extract_json_array(raw)
     try:
         items = json.loads(json_str)
@@ -746,7 +749,9 @@ def analyze_window(
     print("Analyse en cours…", end="\r", flush=True)
     # format="json" constrains Ollama to valid JSON syntax (≥ 0.1.x).
     # The normalizer below then maps the model's field names to our schema.
-    raw = ollama_client.chat(llm_messages, model=model, host=host, format="json")
+    raw = ollama_client.chat(
+        llm_messages, model=effective_model(template, model), host=host, format="json"
+    )
     print(" " * 40, end="\r")
 
     json_str = _extract_json_array(raw)

@@ -29,6 +29,7 @@ from sqlmodel import Session, select
 from . import ollama_client
 from .analyzer import analyze_window
 from .models import Character, Conversation, Entity, Gathering, GatheringMember, PromptTemplate
+from .prompt_registry import effective_model
 
 _log = logging.getLogger(__name__)
 
@@ -97,7 +98,7 @@ def _request_partition(
                 {"role": "system", "content": template.system_prompt},
                 {"role": "user", "content": user_msg},
             ],
-            model=model,
+            model=effective_model(template, model),
             host=host,
             format="json",
             options=GATHERING_OPTIONS,

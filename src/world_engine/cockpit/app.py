@@ -47,6 +47,7 @@ from ..gathering import enter_location as _enter_location
 from ..gathering import migrate_npc as _migrate_npc
 from ..analyzer import analyze_overhearing as _analyze_overhearing
 from ..analyzer import analyze_window as _analyze_window
+from ..prompt_registry import effective_model
 from ..context import (
     _SAFE_SUBCULTURE_KEYS,
     active_signposts,
@@ -1744,7 +1745,7 @@ def _build_establishment_narration(
                 {"role": "system", "content": template.system_prompt},
                 {"role": "user",   "content": user_msg},
             ],
-            model=ollama_client.DEFAULT_MODEL,
+            model=effective_model(template, ollama_client.DEFAULT_MODEL),
         )
         narration = raw.strip()
         return narration or None
@@ -2460,7 +2461,11 @@ def start_conversation(
     mj_context = assemble_mj_context(db, player_id, location_id)
     mj_snapshot = {k: v for k, v in mj_context.items() if k != "co_presents"}
 
-    model = ollama_client.DEFAULT_MODEL
+    # npc_dialogue's resolved model (BRIEF-0008-a): captured once here, into
+    # injected_context["model"], and read back unwired at the say-turn
+    # boundary in `say()` (`model = injected.get("model", ...)`, exempted by
+    # construction — see the comment there).
+    model = effective_model(behaviour, ollama_client.DEFAULT_MODEL)
     conv = Conversation(
         world_id=world_id,
         session_id=sess.id,
@@ -2603,6 +2608,16 @@ def say(
     # 'mj' rows are presentation-only and must not be fed back to the NPC model.
     injected = conv.injected_context or {}
     system_prompt = injected.get("system_prompt", "")
+    # Exemption, by construction (BRIEF-0008-a): NOT wired through
+    # effective_model. This value was already resolved once, at conversation
+    # start (see the `model = effective_model(behaviour, ...)` sites above);
+    # re-wiring it here would silently encode a `template.model` vs
+    # `injected_context["model"]` precedence for every downstream call in
+    # this function and `_stream()` — a decision deferred to the write-path
+    # chantier (verify/checks/prompt_registry.py allowlists this function and
+    # `_stream`, plus the pass-through helpers `_interpret_mode`, `_arbitrate`,
+    # `_npc_initiative_vote`, `_select_group_speaker`, which all consume this
+    # same already-resolved value via their own `model` parameter).
     model = injected.get("model", ollama_client.DEFAULT_MODEL)
 
     all_msgs = db.exec(
@@ -3899,7 +3914,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
         # closed, or the player re-loaded after the test). Create a fresh one
         # anchored to the same gathering — identical to the resolve path below.
         behaviour = _load_npc_dialogue_template(world_id, db)
-        model     = ollama_client.DEFAULT_MODEL
+        model     = effective_model(behaviour, ollama_client.DEFAULT_MODEL)
         mj_context = assemble_mj_context(db, player_id, location_id, gathering_id=player_g.id)
         new_conv  = Conversation(
             world_id    = world_id,
@@ -3935,7 +3950,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
     # ── Interpret the player's text via the full MJ pipeline (A2 reused) ──
     gathering_status  = _render_gathering_status(player_id, None, open_g, db)
     interpret_template = _load_mj_interpret_template(world_id, db)
-    model             = ollama_client.DEFAULT_MODEL
+    model             = effective_model(interpret_template, ollama_client.DEFAULT_MODEL)
 
     # Provide a plausible NPC name for the template context (any member present).
     any_npc_name = "?"

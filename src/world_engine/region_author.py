@@ -35,6 +35,7 @@ from sqlmodel import Session, select
 from .entity_author import AUTHOR_MODEL, generate_entity_draft
 from .models import PromptTemplate, World
 from .ollama_client import OllamaError, chat
+from .prompt_registry import effective_model
 
 # BRIEF-40: code-side targeted re-prompt clamp (A1). Must equal the prose
 # floor stated in REGION_MANIFEST_SYSTEM_PROMPT (seed_pilot.py) — keep in sync.
@@ -334,7 +335,7 @@ def _run_npc_topup(result: dict, db: Session) -> dict:
     ]
 
     try:
-        raw_topup = chat(messages, model=AUTHOR_MODEL, format="json")
+        raw_topup = chat(messages, model=effective_model(template, AUTHOR_MODEL), format="json")
         data = json.loads(raw_topup)
     except (OllamaError, json.JSONDecodeError) as exc:
         result["notes"].append(f"Plancher PNJ non atteint : complément échoué ({exc})")
@@ -410,7 +411,7 @@ def generate_region_manifest(brief: str, db: Session) -> dict:
     ]
 
     try:
-        raw = chat(messages, model=AUTHOR_MODEL, format="json")
+        raw = chat(messages, model=effective_model(template, AUTHOR_MODEL), format="json")
     except OllamaError as exc:
         return {"ok": False, "error": str(exc)}
 

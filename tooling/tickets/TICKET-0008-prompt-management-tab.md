@@ -1,9 +1,8 @@
-<!-- slug: prompt-management-tab -->
 ---
 id: TICKET-0008
 title: Prompt management tab — read-only, model column, prompt registry
 type: feature
-status: exec          # brief_ids reconciled from disk (Nia arbitrated: split a/b); ready for brief-exec
+status: exec
 created: 2026-07-03
 slug: prompt-management-tab
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
