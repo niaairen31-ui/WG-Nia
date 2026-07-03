@@ -61,15 +61,35 @@ Read both before making any structural change.
 - **Protocol gate:** RECON before every brief (report-only, never acts on a
   finding); briefs are English, `BRIEF-NN`, Nia assigns the number; every
   commit touching the engine runs `/review-step` then `/close-step`; a
-  ticket ends with `/verify`. Claude Code owns schema version numbers
-  (`vX.YY`), recorded in `tooling/standards/schema_changelog.md`.
+  ticket ends with `/verify`. Schema versions are computed, never chosen: on
+  any schema-touching step closure, new version = the `Current schema
+  version:` line in `world-engine-schema.md`, minor + 1 (v1.66 -> v1.67).
+  That header line is the single source for the current number; the
+  append-only log lives in `world-engine-schema-changelog.md` (repo root).
+  If the minor part reaches 99, stop and escalate (D1-c).
 - **Where things live:** `tooling/tickets`, `tooling/recon`, `tooling/briefs`,
-  `tooling/verify/checks`, `tooling/standards`
-  (`ARCHITECTURE_DECISIONS.md`, `schema_changelog.md`, `code_standards.md`),
+  `tooling/glue` (`next_id.py`, `gen_decisions_index.py`),
+  `tooling/verify/checks`, `tooling/verify/baselines`, `tooling/standards`
+  (`ARCHITECTURE_DECISIONS.md`, `DECISIONS_INDEX.md` (generated),
+  `world-engine-schema-changelog.md` (repo root), `code_standards.md`),
   `tooling/improvement/bug_log.jsonl`.
+- **Orchestration (BRIEF-0004):** `/pipeline TICKET-NNNN` is the entry point
+  that chains exec -> verify -> PR to the next human gate; `tooling/questions/`
+  is where it escalates (D1) for Nia's response.
 - This section governs the ticket pipeline itself (process, gating,
   escalation). It does not replace or relax any invariant below — those
   still apply to every change regardless of how it was ticketed.
+
+## Numbering & decisions governance
+- IDs are computed, never chosen: next ID = python tooling/glue/next_id.py
+  (max over tickets/recon/briefs, 4 digits). A ticket, its recon, and its
+  brief(s) share one number: TICKET-NNNN / RECON-NNNN / BRIEF-NNNN-a, -b.
+- Legacy two-digit BRIEF-NN identifiers are a closed, grandfathered
+  namespace: never reused, never renumbered.
+- New decision records in tooling/standards/ARCHITECTURE_DECISIONS.md use
+  the header form: ## TITLE (BRIEF-NNNN[-x][, BRIEF-NNNN[-x]...], schema vX.YY | no schema change)
+  — enforced by verify/checks/decisions_index.py against the baseline.
+- tooling/standards/DECISIONS_INDEX.md is generated; never edit by hand.
 
 ## Invariants (verified at every review)
 
@@ -261,6 +281,12 @@ Read both before making any structural change.
   `assemble_mj_context` co-presents) gate on `entity.status='active' AND
   vital_status='alive'` in addition to `gathering_member.left_at IS NULL`.
 - World block deletion (delete_world_cascade) is the broadest sanctioned hard-delete of canon and the original exception to "History is sacred" — it removes every row scoped to a world, the world row included. `skill_definition` deletion (BRIEF-56, see below) is a second, narrower named exception, scoped to one definition and its dependent `skill` rows only. No other delete-side helper exists; any new hard-delete path must be named here, not added silently.
+  Named creator-correction hard-deletes (closed list, BRIEF-0003-b):
+  `delete_relation` (crud.py) and `delete_knowledge` (crud.py) — each
+  discards the row's `change_history` with the row; `delete_discoverable_detail`
+  (crud.py). These exist so the creator can erase a mis-entered row; they
+  are creator-CRUD-only, never reachable from any AI or play path. The
+  closed list is enforced structurally by verify/checks/single_canon_write.py.
 - **Custom skill lookups filter `skill_definition_id`, by construction**
   (BRIEF-55, schema v1.63). A base-domain `skill` row lookup MUST include
   `AND skill_definition_id IS NULL` (e.g. `app.py`'s arbiter resolution) so

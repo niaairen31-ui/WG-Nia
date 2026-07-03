@@ -427,7 +427,7 @@ Five mutation types are implemented:
 | `new_knowledge`    | Insert a `knowledge` row; inherits `session_id` from the source conversation. |
 | `status_change`    | Update `entity.status` + `entity.updated_at`. |
 | `item_update`      | Set `item.equipped` (BRIEF-07, schema v1.19). Verifies the item exists and `owner_id IS NOT NULL` (the schema CHECK: no equipping without an owner) — on violation, left at `status='approved'` with a note, never wrongly applied. **Dormant since BRIEF-08/D2a.1** — no live code path produces this mutation type; the branch and the cockpit toggle remain functional for reactivation. |
-| `knowledge_change` | Find the `knowledge` row by `entity_id` + `subject` (never creates — that's `new_knowledge`'s job); append previous state via `_append_knowledge_history(row, "apply_mutation")`; update `level` to payload `to_level`, `source` to payload `source`, `updated_at`. Guards: row not found → "Needs attention" (`knowledge row not found`); current `level` >= `to_level` (monotone re-check at apply time) → "Needs attention" (`level already >= proposed`). |
+| `knowledge_change` | Find the `knowledge` row by `entity_id` + `subject` (never creates — that's `new_knowledge`'s job); call `write_knowledge(mode="level_change", knowledge_id=row.id, level=to_level, source=..., changed_by="apply_mutation")` (BRIEF-0003-a) — appends the previous state to `change_history`, updates `level`, `source`, `updated_at`, leaves `content`/`is_incorrect`/`is_secret`/`share_threshold`/`subject` untouched. Guards: row not found → "Needs attention" (`knowledge row not found`); current `level` >= `to_level` (monotone re-check at apply time) → "Needs attention" (`level already >= proposed`). |
 
 Any other type is left at `status = 'approved'` with a note — never wrongly
 applied. Better un-applied than wrongly applied.
@@ -3423,6 +3423,181 @@ empty rebuild):
 
 ---
 
+## DOCUMENTATION PARTITION — hot/cold split, generated index, mechanical numbering (BRIEF-0001-a, BRIEF-0001-b, no schema change)
+
+`world-engine-schema.md` mixed hot truth with a 1,200-line cold history, and
+`ARCHITECTURE_DECISIONS.md` had no cheap lookup surface — every reader paid
+for the whole document to use 5% of it. This record locks the split and the
+numbering scheme that came with it.
+
+- **A1** — extract the `CHANGELOG` section of `world-engine-schema.md` into
+  `world-engine-schema-changelog.md`, moved byte-for-byte: separates cold
+  history from the hot TABLES/INDEXES/RELATIONS/MIGRATION truth.
+- **A1-guard** — the current schema version stays a single header line
+  (`Current schema version: vX.YY`) in `world-engine-schema.md`; the
+  changelog file is the append-only log, never the source of "what version
+  are we at" — one place asserts the current number, not three.
+- **N1** — the new file is named `world-engine-schema-changelog.md` at repo
+  root, deliberately distinct from the pre-existing, unrelated
+  `CHANGELOG.md` (a French application-level changelog) so the two are
+  never confused or merged.
+- **B1** — `DECISIONS_INDEX.md` is a mechanically generated index (one row
+  per `## ` record: line, title, BRIEF refs, schema versions); the archive
+  stays byte-for-byte intact, and a verify check proves index ≡ headers so
+  the two can never silently drift apart.
+- **G1 / G3-b** — the index generator is tolerant of the archive's real
+  header shapes (RECON-0002 found 20/47 deviate from the nominal pattern in
+  three distinct ways) rather than dropping or mis-parsing them; a strict
+  header regex gates only headers added AFTER a frozen baseline snapshot,
+  so future drift is stopped without rewriting the past.
+- **U1** — ticket/recon/brief numbering becomes a computed 4-digit counter
+  (`tooling/glue/next_id.py`, max existing ID + 1) instead of a
+  human-chosen number.
+- **V1** — schema version numbers are likewise computed, never chosen: new
+  version = the header line's minor + 1.
+- **U-now** — the computed-numbering regime takes effect now, for new IDs
+  only: legacy two-digit `BRIEF-NN` filenames are a closed, grandfathered
+  namespace, never renumbered or reused.
+
+---
+
+## CANON-WRITE DOCTRINE — table classification, write normalization, structural gate (BRIEF-0003-a, BRIEF-0003-b, no schema change)
+
+RECON-0003 mapped every write site in `src/`; this record locks the
+classification and enforcement that followed.
+
+**K1 — three-strata table classification.** Every table in
+`world-engine-schema.md` falls into exactly one stratum:
+- **Canon** (15 tables, listed verbatim in
+  `tooling/verify/canon_write_policy.txt`'s `[CANON_TABLES]`): `world`,
+  `entity`, `character`, `location`, `faction`, `faction_membership`,
+  `relation`, `knowledge`, `ledger`, `item`, `skill`, `skill_definition`,
+  `discoverable_detail`, `event`, `artifact`. These are the tables the "two
+  sanctioned canon-write paths" doctrine actually governs.
+- **Ephemeral** (session/play machinery, never a `proposed_mutation`, never
+  creator-CRUD-reviewed): `gathering`, `gathering_member`, `conversation`,
+  `conversation_message`, `session`, `batch`, `pass_play`.
+- **Pipeline-internal** (the mutation/config plumbing itself, not narrative
+  canon): `proposed_mutation`, `user`, `prompt_template`.
+
+Ephemeral and pipeline tables carry no `canon_write_policy.txt` entries at
+all — a write to one is invisible to the check by construction, not by an
+allowlist exemption.
+
+**M1 — one table, one write shape (`knowledge`).** `_apply_mutation`'s
+`knowledge_change` branch (`cockpit/app.py`) no longer bypasses
+`write_knowledge` to call the private `_append_knowledge_history` directly;
+it calls `write_knowledge(mode="level_change", ...)` (writes.py), which
+reproduces the prior hand-rolled semantics byte-for-byte (same
+`change_history` entry shape). `_append_knowledge_history` now has exactly
+one caller: `write_knowledge` itself.
+
+**W1 — one table, one write shape (`skill`).** `cockpit/crud.py`'s
+`update_skill_tier` no longer hand-rolls the `skill.change_history` append;
+it calls the new `write_skill_tier` (writes.py), the sole write shape for
+`skill` tier changes.
+
+**L1 — the three unnamed hard-deletes become a named, closed list.**
+RECON-0003 C2 found three hard-delete routes in `cockpit/crud.py`
+(`delete_relation`, `delete_knowledge`, `delete_discoverable_detail`)
+existing outside `writes.py`, unnamed in CLAUDE.md's Invariants section
+despite that section's own sentence ("No other delete-side helper exists;
+any new hard-delete path must be named here, not added silently"). CLAUDE.md
+now names all three explicitly, immediately after that sentence — see
+"Named creator-correction hard-deletes (closed list, BRIEF-0003-b)" in
+Invariants. **Soft-archival of these three deletes (converting them to a
+status flag instead of a hard `DELETE`) was considered and explicitly
+deferred, not rejected** — see "Deferred decisions" below; L1 only names the
+existing behavior, it does not change it. The list is closed and enforced
+structurally: `verify/checks/single_canon_write.py` treats any hard-delete
+site on a canon table as a policy violation unless its `path::function` is
+in `canon_write_policy.txt`, so a fourth hard-delete added anywhere else
+fails `/verify` on sight, naming file, function, and table.
+
+**T1 — static AST scan, `src/`-scoped, function-grain allowlist.**
+`tooling/verify/checks/single_canon_write.py` (stdlib `ast` only, no DB)
+walks every `.py` under `src/`, attributes every `.add()`/`.delete()` call on
+a `Session`-typed receiver — and every raw-SQL `.execute()`/`.exec()` call —
+to the table it writes, and fails if a CANON-table write's `path::function`
+is not listed in `canon_write_policy.txt`'s `[ALLOWED_SITES]`. Attribution
+is function-grain (a call inside `write_relation` is legal because
+`write_relation` itself is allowlisted — the check never asks whether
+`write_relation`'s *caller* was also allowed to call it) and purely
+lexical: a call made by a function the scanned function calls is not
+attributed to the scanned function, matching how the two sanctioned paths
+actually compose (`_apply_mutation` and creator CRUD delegate to
+`writes.py`, they do not inline its writes). A canon-table site that cannot
+be attributed to any table at all is always a failure (`unattributable
+write site`) — RECON-0003 D1 confirmed zero dynamic-dispatch write sites
+exist in `src/` today, so an unattributable site is new and must be made
+legible before merging, not silently allowed through. `scripts/` and every
+`migrate_v1_*.py` are out of scope **by construction** (the scan never walks
+outside `src/`), not by an allowlist carve-out — none of them is a live
+request-serving path.
+
+---
+
+## PIPELINE GLUE — /pipeline orchestration, derived ticket status, structural permissions (BRIEF-0004, no schema change)
+
+TICKET-0004's intake clarifications, locked; BRIEF-0004 built `/pipeline`
+against them unchanged.
+
+- **P1** — `/pipeline` covers only the Claude Code segment: ticket + brief
+  present -> exec -> verify -> retry -> PR or escalate. Intake and brief
+  authoring stay in chat; the file contract (a brief deposited under
+  `tooling/briefs/`) is the boundary, so future automation of the deposit
+  gesture needs no glue change.
+- **Q1** — a single command, `/pipeline TICKET-NNNN`, idempotent and
+  resumable.
+- **SM1 (transition ownership)** — Nia owns `intake->recon`,
+  `recon->brief`, `brief->exec` (brief deposit is the green light), and
+  `live-gate->done` (merge). `/pipeline` owns `exec->verify`,
+  `verify->live-gate` (green), `->escalated` (D1), `->paused` (clean
+  interruption). `/pipeline` never performs a Nia-owned transition.
+- **V1** — first red `/verify`: one confined fix attempt (the executed
+  brief's Scope IN only), `retry_count` incremented, re-verify. Second
+  consecutive red -> `escalated` + a QUESTION file citing both verdicts
+  (D1-d, literal).
+- **QF1** — `tooling/questions/QUESTION-TICKET-NNNN.md`, fixed sections
+  (Trigger a/b/c/d, Context, exactly one Question, lettered Options,
+  empty `## Response` for Nia). A filled `## Response` on relaunch resumes
+  the chain; an empty one stops it again. The file persists after
+  resolution — an append-only trace, never deleted.
+- **PR1** — a green verify opens the PR (`gh pr create`, body: ticket id,
+  brief id(s), the verdict JSON inline), sets `status: live-gate`. Nia
+  plays and merges on GitHub; C1 stands untouched (`/pipeline` never
+  pushes or merges to `main`; `block-main-push` remains the net).
+- **SES1** — one invocation chains to the next human gate (exec then
+  verify in the same session, when context allows); a clean interruption
+  sets `status: paused`, resumable by a later invocation.
+- **CA1** — the commit-approval wait moves to the PR surface: `/pipeline`
+  states explicitly when it invokes `/review-step`/`/close-step`
+  unattended, and `close-step` skips its wait in that mode only — Nia's
+  approval gate becomes the PR review itself, not a per-commit prompt.
+- **NT2** — `status` is a derived fact, never hand-written: Step 0
+  reconciles it from observable facts (merge state, verdict JSON, PR
+  existence, QUESTION files, brief files on disk) on every invocation.
+  This amends SM1's literal wording — Nia owns the *acts* (deposits,
+  merges); `/pipeline` owns *recording their consequences* as `status`,
+  not the acts themselves.
+- **GT-A** — `tooling/tickets|recon|briefs/` were gitignored in the
+  working tree, hiding BRIEF-0003-a/-b and RECON-0003/-0004 from `git
+  status` and from any commit. Reverted: the exclusion is gone, all
+  pipeline artifacts are tracked. Provenance — a brief's citation of its
+  RECON must be checkable in history, not just present on disk today.
+- **GH1** — `.claude/settings.json` gains a narrow, nominative
+  `permissions.allow` list (exactly `gh pr create`, `git push origin
+  ticket/*`, `tooling/glue/*` scripts, `python -m tooling.verify.run`,
+  and the two read-only git families `git branch`/`git log`) — the
+  structural declaration of what the chain may do unattended. No generic
+  `Bash(*)` entry exists; `block-main-push`/`block-db-in-git` are
+  untouched.
+- **H1** — no backup hook is added (F2 stands: backup.py stays a manual,
+  deliberate step). Destructive/irreversible operations escalate through
+  D1-b instead — the QUESTION file is the net, not an automatic snapshot.
+
+---
+
 ## CRÉATION PAGE CONTRACT (BRIEF-0005-a, no schema change)
 
 RECON-0005 found ten Création sub-tabs (not the seven the ticket assumed),
@@ -3591,6 +3766,8 @@ an inline-editable/read-only table body; a shared archetype for that shape
 is explicitly not built here (Scope OUT). Trigger to revisit: a third
 table-shaped Création page appears.
 
+---
+
 ## Deferred decisions
 
 Recorded here so each is revisited deliberately rather than forgotten:
@@ -3702,6 +3879,14 @@ Recorded here so each is revisited deliberately rather than forgotten:
   third copy rather than rewiring the first two onto it, to keep a
   delete-only brief from also touching the activate/create routes. Revisit
   as a named, separate cleanup if a fourth caller ever needs the same logic.
+- **Soft-archival of the three named hard-deletes** (CANON-WRITE DOCTRINE,
+  BRIEF-0003-b, L1). `delete_relation`, `delete_knowledge`, and
+  `delete_discoverable_detail` were considered for conversion to a status
+  flag (soft delete, preserving `change_history`/the row instead of
+  discarding it) when they were named into CLAUDE.md's closed hard-delete
+  list. Considered and deferred, not rejected — L1 only named the existing
+  hard-delete behavior; changing it to a soft pattern is a separate,
+  not-yet-scoped ticket.
 
 ---
 

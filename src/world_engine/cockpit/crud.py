@@ -74,7 +74,14 @@ from ..models import (
     SkillDefinition,
     World,
 )
-from ..writes import KNOWLEDGE_LEVELS, write_knowledge, write_ledger_entry, write_membership, write_relation
+from ..writes import (
+    KNOWLEDGE_LEVELS,
+    write_knowledge,
+    write_ledger_entry,
+    write_membership,
+    write_relation,
+    write_skill_tier,
+)
 
 router = APIRouter(prefix="/api", tags=["author-crud"])
 
@@ -1073,16 +1080,7 @@ def update_skill_tier(skill_id: str, body: SkillTierBody, db: DbSession = Depend
         raise HTTPException(422, f"tier must be one of {SKILL_TIERS}")
 
     if body.tier != skill.tier:
-        history = list(skill.change_history or [])
-        history.append({
-            "tier": skill.tier,
-            "changed_at": datetime.now(UTC).isoformat(),
-            "by": "creator",
-        })
-        skill.change_history = history
-        skill.tier = body.tier
-        skill.updated_at = datetime.now(UTC)
-        db.add(skill)
+        write_skill_tier(db, skill_id=skill_id, tier=body.tier, changed_by="creator")
         db.commit()
         db.refresh(skill)
 

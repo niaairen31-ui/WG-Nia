@@ -1,0 +1,30 @@
+[CANON_TABLES]
+world entity character location faction faction_membership relation
+knowledge ledger item skill skill_definition discoverable_detail
+event artifact
+
+[ALLOWED_SITES]
+# path::function                                              tables
+src/world_engine/writes.py::write_relation                    relation
+src/world_engine/writes.py::write_knowledge                   knowledge
+src/world_engine/writes.py::write_ledger_entry                ledger
+src/world_engine/writes.py::write_membership                  faction_membership
+src/world_engine/writes.py::write_skill_tier                  skill
+src/world_engine/writes.py::delete_world_cascade               *
+src/world_engine/cockpit/app.py::_apply_mutation               entity item discoverable_detail
+src/world_engine/cockpit/app.py::activate_world                world
+src/world_engine/cockpit/app.py::create_world                  world
+src/world_engine/cockpit/app.py::_activate_world_core          world
+src/world_engine/cockpit/app.py::create_player_character       entity character skill
+src/world_engine/cockpit/app.py::_perform_travel               character
+src/world_engine/cockpit/crud.py::_create_entity_core           entity character location faction item
+src/world_engine/cockpit/crud.py::update_entity                 entity character location faction item
+src/world_engine/cockpit/crud.py::delete_entity                 entity
+src/world_engine/cockpit/crud.py::delete_relation                relation
+src/world_engine/cockpit/crud.py::delete_knowledge               knowledge
+src/world_engine/cockpit/crud.py::create_skill_definition        skill_definition skill
+src/world_engine/cockpit/crud.py::update_skill_definition        skill_definition skill
+src/world_engine/cockpit/crud.py::delete_skill_definition        skill_definition skill
+src/world_engine/cockpit/crud.py::create_discoverable_detail     discoverable_detail
+src/world_engine/cockpit/crud.py::update_discoverable_detail     discoverable_detail
+src/world_engine/cockpit/crud.py::delete_discoverable_detail     discoverable_detail
