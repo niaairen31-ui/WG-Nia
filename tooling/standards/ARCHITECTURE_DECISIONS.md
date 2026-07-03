@@ -3768,6 +3768,118 @@ table-shaped Création page appears.
 
 ---
 
+## PIPELINE COCKPIT — deposit surface, question writer, structural boundaries (BRIEF-0006-a, no schema change)
+
+TICKET-0006 second pipeline pass. RECON-0006 confirmed no naming/port/
+template/loader collision with the world cockpit (findings 1-4), that
+`next_id.py` was CLI-print-only (finding 6), and that no QUESTION file had
+ever existed, so nothing enforced its append-only contract (findings 13-15).
+
+**H1 (collision-audited separation).** `tooling/pipeline_cockpit/` is a
+separate FastAPI app — its own package, its own port (8100, distinct from
+the world cockpit's 8000), its own `index.html` served as a raw string
+(mirrors `src/world_engine/cockpit/app.py`'s `_INDEX_HTML` pattern — no
+Jinja, no `StaticFiles`, no new dependency). Launched on demand via
+`scripts/pipeline_cockpit.py`, structurally parallel to `scripts/cockpit.py`.
+
+**I1 (cockpit v1 scope, I2 deferred).** Exactly two surfaces: "Soumettre"
+(paste an artifact; type detected from body shape; number assigned at
+deposit; file written; confirmation displays the created name) and
+"Questions" (list open QUESTION files, answer inline). No git operation, no
+status board, no `/pipeline` launcher button. **I2, deferred**: a read-only
+ticket status board — add only when live usage shows the need.
+
+**J2 (cockpit assigns numbers).** Chat delivers artifacts with `NNNN`
+placeholders; `tooling/pipeline_cockpit/deposit.py`'s `assign_number`
+resolves the number at deposit time via `compute_next_id()` (tickets) or the
+page's `bound_ticket` state (recon/briefs carrying the placeholder) and
+substitutes it everywhere in the body. The disk at deposit time is the only
+authority — GitHub lags the working tree, so there is no race window.
+
+**K1 (import boundary, structural).** Nothing under `tooling/pipeline_cockpit/`
+imports from `src/world_engine/` — enforced by an `ast`-based scan in
+`tooling/verify/checks/pipeline_cockpit.py`, not by convention.
+
+**L1 (`next_id.py` extraction).** `compute_next_id() -> str` now holds the
+counting logic; `main()` is a thin `print(compute_next_id())` wrapper.
+CLI behavior is byte-identical; the cockpit imports the same function — one
+counter authority for both callers.
+
+**N1 (QUESTION writer, writer half).** `tooling/glue/question_response.py`
+is the single QUESTION writer: `is_open()` is the one machine definition of
+"empty `## Response`" (stripped section content `== ""`); `write_response()`
+raises `ResponseAlreadyFilled` on a non-empty section and `MalformedQuestion`
+on a missing header, and never touches anything above the `## Response`
+header. Both the cockpit's Questions route and the inline in-session
+escalation flow (BRIEF-0006-b) call this one writer — no second writer
+exists anywhere.
+
+**P1 (producer contract, documented).** See CLAUDE.md's "Artifact producer
+contract" bullet: every chat-produced artifact embeds a machine-readable
+slug; type is detected from body shape, never H1 prose (RECON-0006 finding
+20: the real population's H1 text is inconsistent across all three types).
+
+## PIPELINE SECOND PASS — recon absorption, CA1 relay, inline escalation, bounded conflict resolution (BRIEF-0006-b, no schema change)
+
+TICKET-0006, second half. RECON-0006 located every gap precisely: Step 1's
+`recon` branch stopped instead of executing (finding 9); the only push in
+the whole command surface was Step 3's end-of-ticket push, so nothing was
+raw-URL-readable before the full brief chain completed (findings 10, 22);
+the CA1 unattended clause was written at the `/pipeline`↔`/close-step`
+boundary but the real call path goes through `/brief-exec`, which carried
+zero wiring for it (finding 12); PR mergeability was never checked and
+0005's conflict was resolved 100% manually (finding 16); the two
+append-only files grow in opposite directions (finding 17).
+
+**C1 (recon absorbed by `/pipeline`, as amended).** `.claude/commands/
+pipeline.md` Step 1's `recon` branch now executes the recon protocol
+in-session (reusing `.claude/commands/recon.md` verbatim as the payload),
+creates `ticket/NNNN` from `main` if needed, commits and pushes the result
+on `ticket/NNNN` — the first-ever early push point, before any brief
+exists — then stops (the brief phase stays chat-side, P1 unchanged). A
+ticket with no recon spec on disk is not an error: the recon phase is
+inapplicable by construction and status derivation already proceeds past
+it (rule 7's `intake` fallback). Recon itself (`/recon.md`) is untouched
+and remains available standalone for ad-hoc use.
+
+**M1 (the CA1 relay).** RECON-0006 traced the actual deviation observed on
+TICKET-0005: `/pipeline` never invokes `/review-step`/`/close-step`
+directly — it invokes `/brief-exec` once per brief, and `brief-exec.md`
+carried zero CA1 wiring, so the unattended flag depended on the executing
+session remembering to restate it at that inner call site. `brief-exec.md`
+step 3 now carries its own explicit relay clause: if invoked from
+`/pipeline`, it invokes `/review-step`/`/close-step` in unattended mode
+and states so explicitly at each invocation — the chain a→b→...→verify now
+runs with zero manual `/close-step` gaps between briefs of the same
+ticket, mechanically, not by convention.
+
+**N1 (invoker half + no-early-push corollary).** The inline escalation
+flow and the pipeline cockpit's Questions surface (BRIEF-0006-a) are the
+only two writers of a QUESTION file's `## Response`, both going through
+`question_response.py:write_response` — no direct edit anywhere. "Empty
+`## Response`" is defined by `question_response.py:is_open`, not prose. A
+QUESTION file is committed on `ticket/NNNN` when written (append-only
+trace) but is deliberately never pushed early — chat never reads QUESTION
+files (the cockpit reads the local tree), so there is no raw-URL reason to
+push one ahead of the ticket's normal push points.
+
+**O1 (PR-conflict resolution is bounded, never semantic).** The new
+PR-conflict procedure (`pipeline.md`, "PR-conflict procedure (F1/O1)")
+only ever auto-resolves a CONFLICTING PR whose conflicted paths are
+entirely append-only docs (`ARCHITECTURE_DECISIONS.md`, keep-both,
+main's sections first) followed by a full re-verify and re-push. Any
+conflicted path under `src/`, or either schema-carrying file
+(`world-engine-schema.md`, `world-engine-schema-changelog.md`), aborts the
+merge and escalates via D1 with the conflicted paths cited — the machine
+never resolves a semantic or version-numbering conflict. This codifies
+exactly the manual resolution that succeeded on TICKET-0005.
+
+**Q1 (permission additions, flagged read-only extensions).**
+`.claude/settings.json`'s `permissions.allow` gained exactly seven entries
+needed by the above: `git fetch origin`, `git merge origin/main`,
+`git merge --abort`, `git diff`, `git status`, `gh pr view`, `gh pr list`.
+No generic `Bash(*)`; `block-main-push` and `block-db-in-git` untouched.
+
 ## Deferred decisions
 
 Recorded here so each is revisited deliberately rather than forgotten:

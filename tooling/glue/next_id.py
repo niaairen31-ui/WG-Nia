@@ -15,7 +15,7 @@ DIRS = (
 ID_RE = re.compile(r"(?:TICKET|RECON|BRIEF)-(\d{4})")
 
 
-def main():
+def compute_next_id() -> str:
     max_id = 0
     for d in DIRS:
         if not d.exists():
@@ -24,7 +24,11 @@ def main():
             m = ID_RE.search(path.name)
             if m:
                 max_id = max(max_id, int(m.group(1)))
-    print(f"{max_id + 1:04d}")
+    return f"{max_id + 1:04d}"
+
+
+def main():
+    print(compute_next_id())
 
 
 if __name__ == "__main__":
