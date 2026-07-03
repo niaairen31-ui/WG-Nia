@@ -2,7 +2,7 @@
 id: TICKET-0007
 title: Pipeline cockpit — file upload on the Soumettre surface
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-03
 slug: cockpit-file-upload
 model_lane: { intake: opus, recon: none, exec: sonnet, verify: sonnet }
