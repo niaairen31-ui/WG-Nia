@@ -936,9 +936,11 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 .creation-sub-tab.active { background: var(--card); color: var(--text); border-color: var(--accent); }
 
 /* ── Création content areas ──────────────────────────────────────────────── */
+#creation-shell-band  { flex-shrink: 0; }
+#creation-shell-extra { display: flex; align-items: center; gap: 8px; }
 #creation-editor-area { flex: 1; min-height: 0; }
 #creation-pj-skill    { flex-shrink: 0; border-top: 2px solid var(--border);
-  flex-direction: column; max-height: 45%; overflow: hidden; }
+  display: flex; flex-direction: column; max-height: 45%; overflow: hidden; }
 #creation-artefacts   { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; }
 #creation-region      { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; }
 #creation-queue       { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
@@ -1161,12 +1163,32 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <button class="creation-sub-tab"        id="ctab-queue"     onclick="showCreationSubTab('queue')">Review Queue</button>
   </div>
 
+  <!-- ── Standard shell band (BRIEF-0005-c) — one header band above every
+       Création page: the entry's label (title) plus, iff it declares a
+       primaryAction, exactly one button in this same fixed position on all
+       ten tabs. #creation-shell-extra is Review Queue's filter bar +
+       batch-bar mount point — a one-off relocation, not a generic shell
+       concept (hidden on every other tab via the ordinary slot mechanism). -->
+  <div class="panel-head" id="creation-shell-band">
+    <h2 id="creation-shell-title"></h2>
+    <div id="creation-shell-extra" style="display:none">
+      <div class="filter-bar" id="filter-bar">
+        <button class="f-btn active" data-s="proposed"  onclick="setFilter(this,'proposed')">Proposed</button>
+        <button class="f-btn"        data-s="approved"  onclick="setFilter(this,'approved')"
+                title="Proposals that were approved but could not be applied to canon (apply error, unhandled type, or duplicate block). Needs creator attention.">⚠ Needs attention</button>
+        <button class="f-btn"        data-s="applied"   onclick="setFilter(this,'applied')">Applied</button>
+        <button class="f-btn"        data-s="rejected"  onclick="setFilter(this,'rejected')">Rejected</button>
+      </div>
+      <div id="creation-shell-batch-bar"></div>
+    </div>
+    <button class="btn-send" id="creation-shell-action" style="display:none"></button>
+  </div>
+
   <!-- ── Lieux — Graph panel (BRIEF-15, schema v1.28) ── -->
   <div id="creation-lieux-graph" style="display:none">
     <div class="lieux-graph-head">
       <span>Carte des lieux</span>
       <button class="btn-icon" onclick="graphLoad()" title="Rafraîchir">↻</button>
-      <button class="btn-send" onclick="creationNewEntity()">+ Ajouter un lieu</button>
     </div>
     <svg id="lieux-graph-svg" viewBox="0 0 960 480" width="100%" height="300"
          style="display:block; background:var(--bg)"
@@ -1179,9 +1201,6 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   <!-- ── Entity editor (NPC / PJ / Lieux / Factions / Objets) ── -->
   <div class="layout" id="creation-editor-area">
     <aside class="sidebar">
-      <div class="author-new-row" id="creation-new-row">
-        <button class="btn-send" id="creation-new-btn" onclick="creationNewEntity()" style="width:100%">+ Nouveau</button>
-      </div>
       <div class="sidebar-head">
         <span id="creation-list-label">NPC</span>
         <button class="btn-icon" onclick="authorLoadEntityList()" title="Rafraîchir">↻</button>
@@ -1204,63 +1223,11 @@ button:not(:disabled):hover { filter: brightness(1.15); }
         </div>
       </div>
 
-      <!-- PJ Fiche — shown only when Personnage joueur sub-tab is active -->
+      <!-- PJ Fiche — a declared slot on the pj registry entry (BRIEF-0005-b),
+           rendered by default on tab activation, outside the create gate.
+           The create form itself lives in #author-main via pjRenderCreatePanel,
+           the same detail region every other entity type's + Nouveau uses. -->
       <div id="creation-pj-skill" style="display:none">
-        <!-- Create-PC path (BRIEF-46): minimal form — name + starting location. -->
-        <!-- PC creation assistant (BRIEF-52): concept -> AI draft -> inline-edited
-             prose -> accept. Knowledge stays read-only in the draft (I1). -->
-        <!-- BRIEF-60: generate panel + create form gated behind pjCreateOpen;
-             #skill-main Fiche stays outside the gate and renders by default. -->
-        <div class="author-new-row">
-          <button class="btn-send" id="pj-create-new-btn" onclick="pjCreateNew()" style="width:100%">+ Nouveau</button>
-        </div>
-        <div id="pj-create-block" style="display:none">
-          <div class="panel-head" style="flex-shrink:0">
-            <h2 style="font-size:12px">Créer un personnage joueur</h2>
-          </div>
-          <div class="field-section" style="flex-shrink:0; margin:0; padding:10px 14px">
-            <div class="field-row" style="margin:0">
-              <label>Concept (pour l'assistant)</label>
-              <textarea id="pc-generate-brief" rows="2" placeholder="Ex. une ancienne contrebandière qui a tout quitté pour..."></textarea>
-            </div>
-            <div style="display:flex; gap:10px; align-items:center; margin-top:6px">
-              <button class="btn-send" onclick="pcGenerateDraft()">Générer le brouillon</button>
-              <span class="author-status" id="pc-generate-status"></span>
-            </div>
-            <div id="pc-generate-notes"></div>
-          </div>
-          <div class="field-section" style="flex-shrink:0; margin:0; padding:10px 14px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">
-            <div class="field-row" style="margin:0; min-width:180px">
-              <label>Nom</label>
-              <input type="text" id="pc-create-name" placeholder="Nom du personnage">
-            </div>
-            <div class="field-row" style="margin:0; min-width:200px">
-              <label>Lieu de départ</label>
-              <select id="pc-create-location"><option value="">— choisir —</option></select>
-            </div>
-            <button class="btn-send" onclick="pcCreateSubmit()">Créer</button>
-            <span class="author-status" id="pc-create-status"></span>
-          </div>
-          <div class="field-section" style="flex-shrink:0; margin:0; padding:0 14px 10px">
-            <div class="field-row" style="margin:0 0 6px 0">
-              <label>Description (publique)</label>
-              <textarea id="pc-create-description" rows="2" placeholder="Ce qu'autrui perçoit au premier regard"></textarea>
-            </div>
-            <div class="field-row" style="margin:0 0 6px 0">
-              <label>Apparence</label>
-              <textarea id="pc-create-appearance" rows="2" placeholder="Référence du joueur"></textarea>
-            </div>
-            <div class="field-row" style="margin:0 0 6px 0">
-              <label>Histoire personnelle</label>
-              <textarea id="pc-create-backstory" rows="3" placeholder="Référence du joueur"></textarea>
-            </div>
-            <div class="field-row" style="margin:0">
-              <label>Savoirs proposés (lecture seule — éditables après création via la Fiche)</label>
-              <div id="pc-draft-knowledge" style="font-size:12px; color:var(--muted)"></div>
-            </div>
-          </div>
-        </div><!-- #pj-create-block -->
-
         <div class="panel-head" style="flex-shrink:0; border-top:2px solid var(--border)">
           <h2 style="font-size:12px">Fiche de compétences</h2>
           <select id="skill-character-select" onchange="skillSelectCharacter(this.value)"></select>
@@ -1279,9 +1246,6 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 
   <!-- ── Artefacts sub-tab ── -->
   <div id="creation-artefacts" style="display:none">
-    <p style="font-style:italic; color:var(--muted); margin-bottom:16px">
-      La création et l'édition d'artefacts arriveront dans une étape ultérieure (support backend requis).
-    </p>
     <div id="creation-artefacts-list">
       <div class="empty"><span class="spin">⟳</span></div>
     </div>
@@ -1309,9 +1273,6 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       <div class="queue-body" id="competences-body" style="border-top:1px solid var(--border)">
         <div class="empty"><span class="spin">⟳</span></div>
       </div>
-      <div class="field-section" style="border-top:1px solid var(--border); margin-top:8px; padding-top:8px;">
-        <button class="btn-send" onclick="competencesAddManualRow()">+ Ajouter une compétence</button>
-      </div>
     </div>
   </div><!-- #creation-competences -->
 
@@ -1336,7 +1297,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       <div class="queue-body" id="registre-body">
         <div class="empty"><span class="spin">⟳</span></div>
       </div>
-      <div class="field-section" id="registre-add-form" style="border-top:1px solid var(--border); margin-top:8px; padding-top:8px;">
+      <div class="field-section" id="registre-add-form" hidden style="border-top:1px solid var(--border); margin-top:8px; padding-top:8px;">
         <div class="field-section-title">Nouvelle ligne (crédit / débit)</div>
         <div class="field-grid">
           <div class="field-row">
@@ -1376,13 +1337,6 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <div class="queue-panel">
       <div class="panel-head">
         <h2>Review Queue</h2>
-        <div class="filter-bar" id="filter-bar">
-          <button class="f-btn active" data-s="proposed"  onclick="setFilter(this,'proposed')">Proposed</button>
-          <button class="f-btn"        data-s="approved"  onclick="setFilter(this,'approved')"
-                  title="Proposals that were approved but could not be applied to canon (apply error, unhandled type, or duplicate block). Needs creator attention.">⚠ Needs attention</button>
-          <button class="f-btn"        data-s="applied"   onclick="setFilter(this,'applied')">Applied</button>
-          <button class="f-btn"        data-s="rejected"  onclick="setFilter(this,'rejected')">Rejected</button>
-        </div>
         <button class="btn-icon" onclick="loadQueue()" title="Rafraîchir">↻</button>
       </div>
       <div class="batch-verdict" id="batch-verdict" style="display:none"></div>
@@ -2488,10 +2442,14 @@ function _mutationEntityName(id) {
 
 async function loadQueue() {
   const body = document.getElementById('queue-body');
+  // BRIEF-0005-c: the batch bar mounts in the shell band's #creation-shell-extra
+  // (moved out of #queue-body — markup relocation only, same renderBatchBar()).
+  const batchSlot = document.getElementById('creation-shell-batch-bar');
   try {
     await _loadMutationEntityNames();
     const mutations = await api('/api/mutations?status=' + currentFilter);
     if (!mutations.length) {
+      if (batchSlot) batchSlot.innerHTML = '';
       // "approved" (Needs attention) being empty is the healthy, expected state.
       if (currentFilter === 'approved') {
         body.innerHTML =
@@ -2502,9 +2460,10 @@ async function loadQueue() {
       }
       return;
     }
-    const batchBar = (currentFilter === 'proposed') ? renderBatchBar() : '';
-    body.innerHTML = batchBar + mutations.map(renderCard).join('');
-    if (batchBar) updateBatchBar();
+    const showBatchBar = currentFilter === 'proposed';
+    if (batchSlot) batchSlot.innerHTML = showBatchBar ? renderBatchBar() : '';
+    body.innerHTML = mutations.map(renderCard).join('');
+    if (showBatchBar) updateBatchBar();
   } catch (e) {
     body.innerHTML = `<div class="empty" style="color:var(--red)">Error: ${esc(e.message)}</div>`;
   }
@@ -2958,71 +2917,286 @@ async function loadPlayerKnowledge() {
 
 /* ── Création sub-tabs ───────────────────────────────────────────────────── */
 
+// CREATION_TABS entry contract (TICKET-0005):
+// { label:        string, tab title shown in the shell header
+//   archetype:    'entity' | 'bespoke'
+//   containers:   [element ids to show when active; all others hidden]
+//   loader:       function called on activation
+//   state:        { onTabEnter: fn|null, onWorldSwitch: fn|null }
+//                 each fn resets ALL state this tab owns for that event
+//   // entity archetype only:
+//   listLoader:   fn (default authorLoadEntityList)
+//   listRenderer: fn|null (null = flat list; lieux = renderLieuxBrowse)
+//   createPanel:  fn|null (null = no + Nouveau rendered; default =
+//                 () => authorRenderSheet({}, true, <type>))
+//   slots:        [{ id, containerId, loader, onSelect: fn|null }]
+// }
+// Every Création page is a registry entry. No page renders outside it.
+//
+// Implementation notes (not part of the contract above):
+// - An entity entry only receives the shared list+detail shell (the
+//   "+ Nouveau" row, the list label, #author-entity-list/#author-main) when
+//   its `containers` includes 'creation-editor-area' — a shape check on the
+//   entry's own data, never a tab-id check. Artefacts is registered as
+//   `archetype: 'entity'` (BRIEF-0005-a item 7) but keeps its own container
+//   and its own `loader`, so it opts out of that shell.
+// - `type`/`entityFilter` on an entity entry drive the default flat-list
+//   renderer's row selection from `authorAllEntities` (ignored when
+//   `listRenderer` is set, e.g. lieux's `renderLieuxBrowse`).
+function _entityTabEnterReset() {
+  authorEntityId   = null;
+  authorEntityType = null;
+  const titleEl = document.getElementById('author-sheet-title');
+  const mainEl  = document.getElementById('author-main');
+  if (titleEl) titleEl.textContent = 'Sélectionner une entité';
+  if (mainEl)  mainEl.innerHTML = '<div class="empty">Sélectionnez une entité depuis la liste, ou créez-en une nouvelle.</div>';
+  document.getElementById('author-save-btn').style.display   = 'none';
+  document.getElementById('author-delete-btn').style.display = 'none';
+  document.getElementById('author-status').textContent       = '';
+}
+
+function _lieuxTabEnterReset() {
+  _entityTabEnterReset();
+  lieuxBrowseParentId = null;
+  lieuxBreadcrumb = [];
+}
+
+/* Shared authorAllEntities/playerCharIds cache — used by every entity tab
+   that filters the same fetched list (BRIEF-0005-a item 3, G1). */
+function _entityListWorldReset() {
+  authorAllEntities = [];
+  playerCharIds = new Set();
+}
+
+function _npcWorldReset() {
+  _entityListWorldReset();
+  pendingDraftKnowledge = [];
+  pendingDraftNotes     = [];
+}
+
+function _pjWorldReset() {
+  _entityListWorldReset();
+  skillCharacters  = null;
+  pcDraftKnowledge = [];
+}
+
+function _lieuxWorldReset() {
+  _entityListWorldReset();
+  lieuxBrowseParentId = null;
+  lieuxBreadcrumb     = [];
+  lieuxActiveOnly     = false;
+  graphData           = null;
+}
+
+function _factionsWorldReset() {
+  _entityListWorldReset();
+  authorFactionRolesDraft = [];
+}
+
+function _competencesWorldReset() { competencesDraft = []; }
+
+function _regionWorldReset() {
+  regionDraft             = null;
+  regionManifest          = null;
+  regionManifestNotes     = [];
+  regionManifestSkipped   = [];
+  regionAccepted          = {};
+  regionConfirmedLinks    = {};
+}
+
+function _registreWorldReset() { _registreEntitiesLoaded = false; }
+
+const CREATION_TABS = {
+  npc: {
+    label: 'NPC',
+    archetype: 'entity',
+    containers: ['creation-editor-area'],
+    loader: null,
+    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _npcWorldReset },
+    type: 'character',
+    entityFilter: (entities) => entities.filter(e => e.type === 'character' && !playerCharIds.has(e.id)),
+    createPanel: () => authorRenderSheet({}, true, 'character'),
+    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
+    slots: [],
+  },
+  pj: {
+    label: 'Personnages joueurs',
+    archetype: 'entity',
+    containers: ['creation-editor-area'],
+    loader: null,
+    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _pjWorldReset },
+    type: 'character',
+    entityFilter: (entities) => entities.filter(e => e.type === 'character' && playerCharIds.has(e.id)),
+    createPanel: pjRenderCreatePanel,
+    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
+    slots: [{ id: 'fiche', containerId: 'creation-pj-skill', loader: skillInit, onSelect: pjFicheOnSelect }],
+  },
+  lieux: {
+    label: 'Lieux',
+    archetype: 'entity',
+    containers: ['creation-editor-area'],
+    loader: null,
+    state: { onTabEnter: _lieuxTabEnterReset, onWorldSwitch: _lieuxWorldReset },
+    type: 'location',
+    listRenderer: renderLieuxBrowse,
+    createPanel: () => authorRenderSheet({}, true, 'location'),
+    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
+    slots: [{ id: 'graph', containerId: 'creation-lieux-graph', loader: graphLoad, onSelect: null }],
+  },
+  factions: {
+    label: 'Factions',
+    archetype: 'entity',
+    containers: ['creation-editor-area'],
+    loader: null,
+    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _factionsWorldReset },
+    type: 'faction',
+    createPanel: () => authorRenderSheet({}, true, 'faction'),
+    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
+    slots: [],
+  },
+  objets: {
+    label: 'Objets',
+    archetype: 'entity',
+    containers: ['creation-editor-area'],
+    loader: null,
+    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _entityListWorldReset },
+    type: 'item',
+    createPanel: () => authorRenderSheet({}, true, 'item'),
+    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
+    slots: [],
+  },
+  competences: {
+    label: 'Compétences',
+    archetype: 'bespoke',
+    containers: ['creation-competences'],
+    loader: competencesLoadList,
+    state: { onTabEnter: null, onWorldSwitch: _competencesWorldReset },
+    primaryAction: { label: '+ Ajouter une compétence', handler: competencesAddManualRow },
+  },
+  region: {
+    label: 'Région',
+    archetype: 'bespoke',
+    containers: ['creation-region'],
+    loader: regionRenderAll,
+    state: { onTabEnter: null, onWorldSwitch: _regionWorldReset },
+    primaryAction: { label: 'Nouvelle région', handler: regionShellNewRegion },
+  },
+  artefacts: {
+    label: 'Artefacts',
+    archetype: 'entity', // degenerate: no create control, own container/loader (BRIEF-0005-a item 7)
+    containers: ['creation-artefacts'],
+    loader: loadCreationArtefacts,
+    state: { onTabEnter: null, onWorldSwitch: null },
+    createPanel: null,
+    primaryAction: null, // enabling artifact creation later = filling this in
+  },
+  registre: {
+    label: 'Registre',
+    archetype: 'bespoke',
+    containers: ['creation-registre'],
+    loader: loadRegistre,
+    state: { onTabEnter: null, onWorldSwitch: _registreWorldReset },
+    primaryAction: { label: '+ Nouvelle entrée', handler: registreToggleAddForm },
+  },
+  queue: {
+    label: 'Review Queue',
+    archetype: 'bespoke',
+    containers: ['creation-queue'],
+    loader: loadQueue,
+    state: { onTabEnter: null, onWorldSwitch: null },
+    primaryAction: null, // append-only by design — rows never created here
+    slots: [{ id: 'filters', containerId: 'creation-shell-extra', loader: null, onSelect: null }],
+  },
+};
+
+/** Runs a registry entry's activation work — the single path used by BOTH
+ *  showCreationSubTab and creationInit's first-ever activation, so the
+ *  shell/label render exactly once, however the tab was reached: renders the
+ *  standard shell + sidebar label, then (entity archetype) loads its list
+ *  via the shared shell before the entry's own loader, then its declared
+ *  slots; bespoke entries just run their own loader. */
+function _creationActivateTab() {
+  const entry = CREATION_TABS[currentCreationSubTab];
+  if (!entry) return;
+  const usesEditorShell = entry.containers.includes('creation-editor-area');
+
+  const labelEl = document.getElementById('creation-list-label');
+  if (labelEl && usesEditorShell) labelEl.textContent = entry.label || '';
+  renderCreationShell(entry);
+
+  if (usesEditorShell) {
+    (entry.listLoader || authorLoadEntityList)();
+  }
+  if (entry.loader) entry.loader();
+  if (usesEditorShell) {
+    (entry.slots || []).forEach(s => { if (s.loader) s.loader(); });
+  }
+}
+
+/** Generic dispatcher (TICKET-0005): every tab's visibility, reset, and load
+ *  behavior comes from its CREATION_TABS entry — no tab-id literals here. */
 function showCreationSubTab(tab) {
   const prev = currentCreationSubTab;
+  const entry = CREATION_TABS[tab];
+  if (!entry) return;
   currentCreationSubTab = tab;
 
   document.querySelectorAll('.creation-sub-tab').forEach(b => b.classList.remove('active'));
   const btn = document.getElementById('ctab-' + tab);
   if (btn) btn.classList.add('active');
 
-  const isEditorTab = !['artefacts', 'registre', 'queue', 'region', 'competences'].includes(tab);
-  document.getElementById('creation-editor-area').style.display = isEditorTab ? '' : 'none';
-  document.getElementById('creation-artefacts').style.display   = (tab === 'artefacts') ? '' : 'none';
-  document.getElementById('creation-registre').style.display    = (tab === 'registre')  ? '' : 'none';
-  document.getElementById('creation-queue').style.display       = (tab === 'queue')     ? '' : 'none';
-  document.getElementById('creation-region').style.display      = (tab === 'region')    ? '' : 'none';
-  document.getElementById('creation-competences').style.display = (tab === 'competences') ? '' : 'none';
-  document.getElementById('creation-lieux-graph').style.display = (tab === 'lieux')     ? '' : 'none';
+  const allContainerIds = new Set();
+  Object.values(CREATION_TABS).forEach(e => {
+    e.containers.forEach(id => allContainerIds.add(id));
+    (e.slots || []).forEach(s => allContainerIds.add(s.containerId));
+  });
+  allContainerIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  entry.containers.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = '';
+  });
+  (entry.slots || []).forEach(s => {
+    const el = document.getElementById(s.containerId);
+    if (el) el.style.display = '';
+  });
 
-  const pjSkill = document.getElementById('creation-pj-skill');
-  pjSkill.style.display = (tab === 'pj') ? 'flex' : 'none';
+  const usesEditorShell = entry.containers.includes('creation-editor-area');
 
-  const newRow = document.getElementById('creation-new-row');
-  if (newRow) newRow.style.display = ['pj', 'artefacts', 'registre', 'queue', 'region', 'competences'].includes(tab) ? 'none' : '';
+  if (prev !== tab && entry.state.onTabEnter) entry.state.onTabEnter();
 
-  const labels = { npc: 'NPC', pj: 'Personnages joueurs', lieux: 'Lieux', factions: 'Factions', objets: 'Objets' };
-  const labelEl = document.getElementById('creation-list-label');
-  if (labelEl && isEditorTab) labelEl.textContent = labels[tab] || '';
+  if (usesEditorShell && !authorRegistry) { creationInit(); return; }
 
-  if (isEditorTab && prev !== tab) {
-    authorEntityId   = null;
-    authorEntityType = null;
-    if (tab === 'lieux') {
-      lieuxBrowseParentId = null;
-      lieuxBreadcrumb = [];
-    }
-    const titleEl = document.getElementById('author-sheet-title');
-    const mainEl  = document.getElementById('author-main');
-    if (titleEl) titleEl.textContent = 'Sélectionner une entité';
-    if (mainEl)  mainEl.innerHTML = '<div class="empty">Sélectionnez une entité depuis la liste, ou créez-en une nouvelle.</div>';
-    document.getElementById('author-save-btn').style.display   = 'none';
-    document.getElementById('author-delete-btn').style.display = 'none';
-    document.getElementById('author-status').textContent       = '';
+  _creationActivateTab();
+}
+
+/** Standard shell band (BRIEF-0005-c) — the entry's title, plus its
+ *  primaryAction button in the same fixed position on every one of the ten
+ *  tabs. `createPanel` still decides WHAT + Nouveau renders; `primaryAction`
+ *  alone decides WHETHER a button shows and where its click goes. */
+function renderCreationShell(entry) {
+  const titleEl = document.getElementById('creation-shell-title');
+  if (titleEl) titleEl.textContent = entry.label || '';
+  const actionEl = document.getElementById('creation-shell-action');
+  if (!actionEl) return;
+  if (entry.primaryAction) {
+    actionEl.textContent = entry.primaryAction.label;
+    actionEl.onclick = entry.primaryAction.handler;
+    actionEl.style.display = '';
+  } else {
+    actionEl.onclick = null;
+    actionEl.style.display = 'none';
   }
+}
 
-  if (isEditorTab) {
-    if (!authorRegistry) { creationInit(); return; }
-    authorLoadEntityList();
-    if (tab === 'pj') {
-      pjCreateOpen = false;
-      document.getElementById('pj-create-block').style.display = 'none';
-      document.getElementById('pj-create-new-btn').textContent = '+ Nouveau';
-      pcCreateLoadLocations();
-      if (!skillCharacters) skillInit();
-    }
-    if (tab === 'lieux') graphLoad();
-  } else if (tab === 'artefacts') {
-    loadCreationArtefacts();
-  } else if (tab === 'registre') {
-    loadRegistre();
-  } else if (tab === 'queue') {
-    loadQueue();
-  } else if (tab === 'region') {
-    regionRenderAll();
-  } else if (tab === 'competences') {
-    competencesLoadList();
-  }
+/** Runs every registry entry's world-switch reset (BRIEF-0005-a item 3, G1) —
+ *  called by activateWorld() and worldDeleteConfirm(), never per-tab. */
+function _creationRunWorldSwitchResets() {
+  Object.values(CREATION_TABS).forEach(entry => {
+    if (entry.state && entry.state.onWorldSwitch) entry.state.onWorldSwitch();
+  });
 }
 
 /* ── Compétences — world-scoped custom skill catalogue (BRIEF-56) ───────── */
@@ -3265,10 +3439,19 @@ async function authorAddLedgerEntry() {
     document.getElementById('registre-f-amount').value = '';
     document.getElementById('registre-f-reason').value = '';
     statusEl.textContent = 'Ligne ajoutée.';
+    document.getElementById('registre-add-form').hidden = true;
     loadRegistre();
   } catch (e) {
     statusEl.textContent = e.message;
   }
+}
+
+/** Registre's primaryAction handler (BRIEF-0005-c) — toggles the add-form,
+ *  collapsed by default (static `hidden` attribute); authorAddLedgerEntry
+ *  re-collapses it on a successful append. */
+function registreToggleAddForm() {
+  const form = document.getElementById('registre-add-form');
+  if (form) form.hidden = !form.hidden;
 }
 
 async function loadRegistre() {
@@ -3309,23 +3492,28 @@ function _registreRenderTable(rows) {
   `).join('') + '</div>';
 }
 
+const CREATION_ARTEFACTS_NOTICE =
+  '<p style="font-style:italic; color:var(--muted); margin-bottom:16px">' +
+  "La création et l'édition d'artefacts arriveront dans une étape ultérieure (support backend requis)." +
+  '</p>';
+
 async function loadCreationArtefacts() {
   const listEl = document.getElementById('creation-artefacts-list');
   listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
   try {
     const rows = await api('/api/entities?type=artifact');
     if (!rows || !rows.length) {
-      listEl.innerHTML = '<div class="empty">Aucun artefact dans la base.</div>';
+      listEl.innerHTML = CREATION_ARTEFACTS_NOTICE + '<div class="empty">Aucun artefact dans la base.</div>';
       return;
     }
-    listEl.innerHTML = '<div class="row-table">' + rows.map(a => `
+    listEl.innerHTML = CREATION_ARTEFACTS_NOTICE + '<div class="row-table">' + rows.map(a => `
       <div class="row-card">
         <div style="font-weight:600">${esc(a.name)}</div>
         ${a.description ? `<div style="font-size:12px; color:var(--muted); white-space:pre-wrap">${esc(a.description)}</div>` : ''}
         <div style="font-size:11px; color:var(--muted)">${esc(a.status || '')}</div>
       </div>`).join('') + '</div>';
   } catch (_) {
-    listEl.innerHTML = '<div class="empty">Aucun artefact disponible.</div>';
+    listEl.innerHTML = CREATION_ARTEFACTS_NOTICE + '<div class="empty">Aucun artefact disponible.</div>';
   }
 }
 
@@ -3550,6 +3738,14 @@ function regionRestart() {
   regionRenderBriefForm();
 }
 
+/** Région's primaryAction handler (BRIEF-0005-c) — discards any in-progress
+ *  manifest/draft via regionRestart(), then focuses the fresh brief input. */
+function regionShellNewRegion() {
+  regionRestart();
+  const briefEl = document.getElementById('region-brief');
+  if (briefEl) briefEl.focus();
+}
+
 function regionEntityNotes(entry, kind) {
   const draft = entry.result.draft;
   const notes = [...(entry.result.notes || [])];
@@ -3752,11 +3948,11 @@ async function regionCommit() {
 
 function creationNewEntity() {
   if (!authorRegistry) return;
-  const typeMap = { npc: 'character', lieux: 'location', factions: 'faction', objets: 'item' };
-  const type = typeMap[currentCreationSubTab] || 'character';
+  const entry = CREATION_TABS[currentCreationSubTab];
+  if (!entry || !entry.createPanel) return;
   pendingDraftKnowledge = [];
   pendingDraftNotes     = [];
-  authorRenderSheet({}, true, type);
+  entry.createPanel();
 }
 
 /* ── Création bootstrap ──────────────────────────────────────────────────── */
@@ -3768,12 +3964,7 @@ async function creationInit() {
     document.getElementById('author-entity-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
     return;
   }
-  await authorLoadEntityList();
-  if (currentCreationSubTab === 'lieux') graphLoad();
-  if (currentCreationSubTab === 'pj') {
-    pcCreateLoadLocations();
-    if (!skillCharacters) skillInit();
-  }
+  _creationActivateTab();
 }
 
 /* ── Entity list (sidebar) ───────────────────────────────────────────────── */
@@ -3781,27 +3972,13 @@ async function creationInit() {
 function creationRenderEntityList() {
   const listEl = document.getElementById('author-entity-list');
   if (!listEl) return;
-  if (currentCreationSubTab === 'lieux') {
-    renderLieuxBrowse();
-    return;
-  }
-  let entities = [];
-  switch (currentCreationSubTab) {
-    case 'npc':
-      entities = authorAllEntities.filter(e => e.type === 'character' && !playerCharIds.has(e.id));
-      break;
-    case 'pj':
-      entities = authorAllEntities.filter(e => e.type === 'character' && playerCharIds.has(e.id));
-      break;
-    case 'factions':
-      entities = authorAllEntities.filter(e => e.type === 'faction');
-      break;
-    case 'objets':
-      entities = authorAllEntities.filter(e => e.type === 'item');
-      break;
-    default:
-      return;
-  }
+  const entry = CREATION_TABS[currentCreationSubTab];
+  if (!entry || !entry.containers.includes('creation-editor-area')) return;
+  if (entry.listRenderer) { entry.listRenderer(); return; }
+
+  const entities = entry.entityFilter
+    ? entry.entityFilter(authorAllEntities)
+    : authorAllEntities.filter(e => e.type === entry.type);
   if (!entities.length) {
     listEl.innerHTML = '<div class="empty">Aucune entité.</div>';
     return;
@@ -4942,11 +5119,8 @@ async function authorSelectEntity(id) {
     const detail = await api(`/api/entities/${encodeURIComponent(id)}`);
     authorRenderSheet(detail, false, detail.type);
     authorRenderEntityList();
-    if (currentCreationSubTab === 'pj') {
-      const sel = document.getElementById('skill-character-select');
-      if (sel) sel.value = id;
-      skillSelectCharacter(id);
-    }
+    const entry = CREATION_TABS[currentCreationSubTab];
+    (entry ? entry.slots || [] : []).forEach(s => { if (s.onSelect) s.onSelect(id); });
   } catch (e) {
     document.getElementById('author-main').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
@@ -5373,12 +5547,77 @@ async function pcCreateSubmit() {
  * separate discard step (mirrors the world-bible generator). */
 
 let pcDraftKnowledge = [];
-let pjCreateOpen = false;
 
-function pjCreateNew() {
-  pjCreateOpen = !pjCreateOpen;
-  document.getElementById('pj-create-block').style.display = pjCreateOpen ? '' : 'none';
-  document.getElementById('pj-create-new-btn').textContent = pjCreateOpen ? '× Fermer' : '+ Nouveau';
+/** PJ's createPanel (BRIEF-0005-b): renders the create form — unchanged
+ *  fields/AI-draft control/submit path — into #author-main, the SAME detail
+ *  region every other entity type's + Nouveau uses. Replaces the former
+ *  #pj-create-block collapsed panel; a fresh click always starts blank,
+ *  matching every other entity type's new-entity form. */
+function pjRenderCreatePanel() {
+  authorEntityId   = null;
+  authorEntityType = 'character';
+  pcDraftKnowledge = [];
+
+  const titleEl = document.getElementById('author-sheet-title');
+  if (titleEl) titleEl.textContent = 'Créer un personnage joueur';
+  document.getElementById('author-save-btn').style.display   = 'none';
+  document.getElementById('author-delete-btn').style.display = 'none';
+  document.getElementById('author-status').textContent       = '';
+
+  document.getElementById('author-main').innerHTML = `
+    <div class="field-section" style="margin:0; padding:10px 14px">
+      <div class="field-row" style="margin:0">
+        <label>Concept (pour l'assistant)</label>
+        <textarea id="pc-generate-brief" rows="2" placeholder="Ex. une ancienne contrebandière qui a tout quitté pour..."></textarea>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center; margin-top:6px">
+        <button class="btn-send" onclick="pcGenerateDraft()">Générer le brouillon</button>
+        <span class="author-status" id="pc-generate-status"></span>
+      </div>
+      <div id="pc-generate-notes"></div>
+    </div>
+    <div class="field-section" style="margin:0; padding:10px 14px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">
+      <div class="field-row" style="margin:0; min-width:180px">
+        <label>Nom</label>
+        <input type="text" id="pc-create-name" placeholder="Nom du personnage">
+      </div>
+      <div class="field-row" style="margin:0; min-width:200px">
+        <label>Lieu de départ</label>
+        <select id="pc-create-location"><option value="">— choisir —</option></select>
+      </div>
+      <button class="btn-send" onclick="pcCreateSubmit()">Créer</button>
+      <span class="author-status" id="pc-create-status"></span>
+    </div>
+    <div class="field-section" style="margin:0; padding:0 14px 10px">
+      <div class="field-row" style="margin:0 0 6px 0">
+        <label>Description (publique)</label>
+        <textarea id="pc-create-description" rows="2" placeholder="Ce qu'autrui perçoit au premier regard"></textarea>
+      </div>
+      <div class="field-row" style="margin:0 0 6px 0">
+        <label>Apparence</label>
+        <textarea id="pc-create-appearance" rows="2" placeholder="Référence du joueur"></textarea>
+      </div>
+      <div class="field-row" style="margin:0 0 6px 0">
+        <label>Histoire personnelle</label>
+        <textarea id="pc-create-backstory" rows="3" placeholder="Référence du joueur"></textarea>
+      </div>
+      <div class="field-row" style="margin:0">
+        <label>Savoirs proposés (lecture seule — éditables après création via la Fiche)</label>
+        <div id="pc-draft-knowledge" style="font-size:12px; color:var(--muted)"></div>
+      </div>
+    </div>
+  `;
+  pcCreateLoadLocations();
+  pcRenderDraftKnowledge();
+}
+
+/** The pj entry's Fiche slot onSelect (BRIEF-0005-b) — replaces the former
+ *  hardcoded pj-only branch inside authorSelectEntity: syncs the Fiche
+ *  dropdown to the clicked character and loads its sheet. */
+function pjFicheOnSelect(id) {
+  const sel = document.getElementById('skill-character-select');
+  if (sel) sel.value = id;
+  skillSelectCharacter(id);
 }
 
 function pcRenderDraftKnowledge() {
@@ -5836,13 +6075,10 @@ async function activateWorld(worldId) {
   await loadWorldSelector();
   if (!activated) return;
 
-  // Invalidate cached Création list state so no stale other-world row
-  // survives the switch (BRIEF-47 creation-world-scoping): authorAllEntities,
-  // playerCharIds, skillCharacters, and the Registre entity-filter cache.
-  authorAllEntities = [];
-  playerCharIds = new Set();
-  skillCharacters = null;
-  _registreEntitiesLoaded = false;
+  // Invalidate every tab's world-scoped state so no stale other-world row
+  // survives the switch (BRIEF-47 creation-world-scoping, widened to every
+  // registry entry's declared reset by BRIEF-0005-a G1).
+  _creationRunWorldSwitchResets();
 
   const creationView = document.getElementById('creation-view');
   if (creationView && creationView.style.display !== 'none') {
@@ -5983,10 +6219,7 @@ async function worldDeleteConfirm(worldId) {
     }
     await loadWorldSelector();
     await loadBootstrap();
-    authorAllEntities = [];
-    playerCharIds = new Set();
-    skillCharacters = null;
-    _registreEntitiesLoaded = false;
+    _creationRunWorldSwitchResets();
     const creationView = document.getElementById('creation-view');
     if (creationView && creationView.style.display !== 'none') {
       if (authorRegistry) {

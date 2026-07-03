@@ -3598,6 +3598,176 @@ against them unchanged.
 
 ---
 
+## CRÉATION PAGE CONTRACT (BRIEF-0005-a, no schema change)
+
+RECON-0005 found ten Création sub-tabs (not the seven the ticket assumed),
+switched by one hand-maintained dispatcher (`showCreationSubTab`) with
+per-tab conditionals, three divergent layout idioms, and a world-switch
+reset (`activateWorld`) covering only 4 of ~17 tab-scoped state variables.
+Locked pre-brief: **D′2-shell** — a two-level registry (all ten tabs, an
+entity archetype now, a bespoke-shell archetype in BRIEF-0005-c), not mere
+surface harmonization; **F1** — stay in `index.html`, vanilla JS, no new
+dependency; **G1** — a declared per-tab state contract, both
+`onTabEnter`/`onWorldSwitch`, closing the reset gap structurally; **H1** —
+remove Lieux's duplicate "Ajouter un lieu" button.
+
+**The registry.** `CREATION_TABS` (`index.html`) is the single source of
+truth — one entry per tab, ten entries, keyed by the existing tab ids. The
+entry contract (verbatim comment above the const):
+```
+// CREATION_TABS entry contract (TICKET-0005):
+// { label:        string, tab title shown in the shell header
+//   archetype:    'entity' | 'bespoke'
+//   containers:   [element ids to show when active; all others hidden]
+//   loader:       function called on activation
+//   state:        { onTabEnter: fn|null, onWorldSwitch: fn|null }
+//                 each fn resets ALL state this tab owns for that event
+//   // entity archetype only:
+//   listLoader:   fn (default authorLoadEntityList)
+//   listRenderer: fn|null (null = flat list; lieux = renderLieuxBrowse)
+//   createPanel:  fn|null (null = no + Nouveau rendered; default =
+//                 () => authorRenderSheet({}, true, <type>))
+//   slots:        [{ id, containerId, loader, onSelect: fn|null }]
+// }
+// Every Création page is a registry entry. No page renders outside it.
+```
+`showCreationSubTab(tab)` is now a pure lookup + generic render over this
+data — no tab-id string literal and no per-tab conditional in its body
+(enforced structurally by `verify/checks/page_contract.py`, not by
+convention). `creationInit()` (the pre-`authorRegistry` bootstrap path) and
+`creationNewEntity()` (the `+ Nouveau` handler) were folded onto the same
+registry-driven helpers (`_creationActivateTab`, `entry.createPanel`) rather
+than left as a second hand-written copy of the same per-tab logic.
+
+**Graph-as-slot posture.** The Lieux graph panel is declared as a `slots`
+entry (`{ id: 'graph', containerId: 'creation-lieux-graph', loader:
+graphLoad, onSelect: null }`) — the component itself (`graphLoad`/render)
+is untouched. This is declarable-now, generalized-only-on-a-second-reader:
+no other entity type gets a graph slot in this brief, and none should be
+added speculatively — the slot mechanism is the extension point, nothing
+more.
+
+**Artefacts is a deliberately degenerate entity entry.** It is tagged
+`archetype: 'entity'` for taxonomy (matching BRIEF-0005-c's later note that
+"enabling creation = filling `primaryAction`"), but it keeps its own
+container (`#creation-artefacts`) and its own `loader`
+(`loadCreationArtefacts`) rather than folding into the shared
+`creation-editor-area` list+detail shell — `archetype` alone does not imply
+shell membership; only `containers.includes('creation-editor-area')` does,
+a shape check the dispatcher makes generically for every entry, present or
+future. This keeps today's single-column, no-selection Artefacts layout
+byte-identical (avoiding a visual regression a full fold would have
+introduced — an empty, misleading "select an entity" detail pane with
+nothing selectable) while still being a registry citizen with no code
+special-casing its tab id anywhere.
+
+**World-switch reset widened, never narrowed (G1).** `activateWorld()` and
+`worldDeleteConfirm()` both now call one `_creationRunWorldSwitchResets()`
+loop over every entry's `state.onWorldSwitch` in place of the four
+hardcoded resets. Coverage was verified live: switching the active world
+now also clears `lieuxBrowseParentId`/`lieuxBreadcrumb`/`lieuxActiveOnly`/
+`graphData` (lieux), `competencesDraft` (compétences), `regionDraft` and
+its siblings (région), `authorFactionRolesDraft` (factions),
+`pendingDraftKnowledge`/`pendingDraftNotes` (npc), and
+`pcDraftKnowledge`/`skillCharacters` (pj) — RECON's named gap is closed.
+
+**Scope OUT of this brief, carried forward:** PJ's parallel create
+machinery (`#pj-create-new-btn`/`#pj-create-block`/`pjCreateOpen`, the
+hardcoded `pj` branch in `authorSelectEntity`) — BRIEF-0005-b; the bespoke
+tabs' in-body primary action (Compétences' add-row button, Registre's
+always-open form, Région's wizard entry, Review Queue's filter/batch band)
+— BRIEF-0005-c; any backend change (none — endpoint heterogeneity across
+NPC/Lieux/Factions/Objets vs PJ/skill-definition/ledger stays legitimate).
+
+### BRIEF-0005-b — PJ migrates onto the entity archetype (no schema change)
+
+Closes the ticket's motivating divergence and realizes the two decisions
+BRIEF-0005-a deferred:
+
+**C1 realized — Fiche as a declared slot.** The pj entry's `slots` now
+carries `{ id: 'fiche', containerId: 'creation-pj-skill', loader: skillInit,
+onSelect: pjFicheOnSelect }`. `#creation-pj-skill` is no longer a top-level
+`containers` entry — it is shown/hidden purely by the generic dispatcher's
+slot-container logic, the same mechanism Lieux's graph slot already
+exercised in -a. `skillInit()` now runs unconditionally on every pj
+activation (dropping the old `if (!skillCharacters) skillInit()` guard) —
+one extra background re-fetch of `/api/skills/player-characters` per tab
+re-entry, the same unconditional-refresh precedent the graph slot already
+set; not a user-visible behavior change.
+
+**E′1 realized — generic `onSelect` hook, not a rewire.** RECON-0005 had
+already found that list-click → Fiche wiring was correctly implemented
+(`authorSelectEntity`'s hardcoded `pj` branch), just not expressed
+generically. `authorSelectEntity(id)` now iterates the active entry's
+`slots` and calls each non-null `onSelect(id)` after the detail fetch —
+`pjFicheOnSelect(id)` does exactly what the deleted branch did (sync
+`#skill-character-select`, call `skillSelectCharacter(id)`). This is a
+one-loop generalization, not a new mechanism (event bus, pub/sub — Scope
+OUT, unchanged).
+
+**BRIEF-60's gate is superseded, not removed.** The collapsed
+`#pj-create-block` + `#pj-create-new-btn` + `pjCreateOpen` toggle is deleted
+entirely. `pj.createPanel = pjRenderCreatePanel` renders the identical form
+(unchanged fields, unchanged `POST /api/characters/player` submit path)
+into `#author-main` — the same detail region every other entity type's
+`+ Nouveau` already used, wired through the shared `#creation-new-btn`.
+BRIEF-60's visible guarantee (the create form is hidden until the creator
+deliberately asks for it; the Fiche renders by default) is preserved
+exactly, by the standard mechanism instead of a bespoke one — no second
+create affordance exists after this brief; the DB's
+`idx_character_one_pc_per_user_world` constraint is untouched.
+
+### BRIEF-0005-c — Standard shell for bespoke Création tabs (no schema change, D′2-shell closed)
+
+Realizes the last locked decision: every Création page — entity or bespoke
+— renders under one standard shell, closing the ticket end to end.
+
+**The shell is one shared band, not per-tab markup.** A single
+`#creation-shell-band` (`class="panel-head"`, reusing the existing
+panel-head look rather than new CSS) sits above every tab body. It shows
+`entry.label` as the title and, iff `entry.primaryAction`, exactly one
+`#creation-shell-action` button — the same DOM node, same position, for all
+ten tabs. `#creation-new-row`'s old markup (the entity archetype's
+`+ Nouveau`, previously top-of-sidebar) is retired; `renderCreationShell(
+entry)` is called from `_creationActivateTab()` (not `showCreationSubTab`
+directly) so the very first Création activation — which reaches
+`_creationActivateTab()` through `creationInit()`, bypassing
+`showCreationSubTab` entirely — renders the shell too. This was caught live
+during this brief: the shell rendered blank on first load until the call
+was moved into the shared activation helper.
+
+**`primaryAction` supersedes "`createPanel` presence implies a button."**
+`createPanel` still decides WHAT an entity's `+ Nouveau` renders;
+`primaryAction: {label, handler} | null` alone now decides WHETHER a button
+shows and what it does — decoupled, because a bespoke tab has no
+`createPanel` at all but still needs a primary action (Compétences,
+Régistre, Région). Every entity entry's `primaryAction.handler` is the
+existing `creationNewEntity` (which already gates on `authorRegistry`/
+`entry.createPanel`) — one shared reference, not five copies.
+
+**Registre's form is collapsed by default in static markup**, not by an
+inline style JS sets on load — `#registre-add-form` carries the native
+`hidden` attribute in the HTML, toggled by `registreToggleAddForm()`
+(the primaryAction handler) and re-set after a successful
+`authorAddLedgerEntry()` append. `POST /api/ledger` itself, and the
+append-only posture, are untouched.
+
+**Review Queue's filter bar and batch bar are the one deliberate
+non-generic exception**, exactly as scoped: both moved from inside
+`#creation-queue` into `#creation-shell-extra` (declared as a `slots` entry,
+`{ containerId: 'creation-shell-extra', loader: null }` — reusing the
+existing generic slot-container show/hide, not a new "shell API"). The
+static filter buttons never regenerate; `loadQueue()`'s only change is
+where it mounts `renderBatchBar()`'s output. No other entry uses this slot;
+none should without a deliberate decision, per Scope OUT.
+
+**Deferred: a `catalogue` archetype.** Compétences and Registre both render
+an inline-editable/read-only table body; a shared archetype for that shape
+is explicitly not built here (Scope OUT). Trigger to revisit: a third
+table-shaped Création page appears.
+
+---
+
 ## Deferred decisions
 
 Recorded here so each is revisited deliberately rather than forgotten:
