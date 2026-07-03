@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Pipeline Cockpit</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2.5rem; border-bottom: 1px solid #ccc; padding-bottom: .25rem; }
+  textarea { width: 100%; box-sizing: border-box; font-family: monospace; font-size: .85rem; }
+  input[type=text] { font-family: monospace; font-size: .85rem; padding: .25rem; }
+  button { padding: .4rem .9rem; margin-top: .5rem; cursor: pointer; }
+  .result { margin-top: .75rem; padding: .5rem .75rem; border-radius: 4px; white-space: pre-wrap; }
+  .result.ok { background: #e6f7e6; border: 1px solid #8cc98c; }
+  .result.err { background: #fbe6e6; border: 1px solid #e08c8c; }
+  .question-card { border: 1px solid #ccc; border-radius: 4px; padding: .75rem; margin-bottom: 1rem; }
+  .question-card pre { white-space: pre-wrap; font-size: .85rem; background: #f7f7f7; padding: .5rem; }
+  label { display: block; margin-top: .75rem; font-size: .85rem; color: #555; }
+</style>
+</head>
+<body>
+
+<h1>Pipeline Cockpit</h1>
+
+<h2>Soumettre</h2>
+<label for="submit-body">Coller le contenu de l'artefact (ticket / recon / brief)</label>
+<textarea id="submit-body" rows="14" placeholder="Coller ici le corps complet du fichier..."></textarea>
+
+<label for="bound-ticket">Ticket lié (numéro à 4 chiffres, pré-rempli après le dépôt d'un ticket)</label>
+<input type="text" id="bound-ticket" placeholder="ex: 0006">
+
+<button id="submit-btn" onclick="submitArtifact()">Déposer</button>
+<div id="submit-result"></div>
+
+<h2>Questions</h2>
+<button onclick="loadQuestions()">Rafraîchir</button>
+<div id="questions-list"></div>
+
+<script>
+async function submitArtifact() {
+  const bodyEl = document.getElementById('submit-body');
+  const boundEl = document.getElementById('bound-ticket');
+  const resultEl = document.getElementById('submit-result');
+  resultEl.textContent = '';
+  resultEl.className = 'result';
+
+  const payload = { body: bodyEl.value, bound_ticket: boundEl.value.trim() || null };
+  const res = await fetch('/api/submit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+
+  if (data.ok) {
+    resultEl.classList.add('ok');
+    resultEl.textContent = `Créé : ${data.path}\nType : ${data.type}\nNuméro : ${data.number}`;
+    if (data.type === 'ticket') {
+      boundEl.value = data.number;
+    }
+    bodyEl.value = '';
+  } else {
+    resultEl.classList.add('err');
+    resultEl.textContent = `Erreur : ${data.error}`;
+  }
+}
+
+async function loadQuestions() {
+  const listEl = document.getElementById('questions-list');
+  listEl.textContent = 'Chargement...';
+  const res = await fetch('/api/questions');
+  const data = await res.json();
+
+  if (data.questions.length === 0) {
+    listEl.textContent = 'Aucune question ouverte.';
+    return;
+  }
+
+  listEl.innerHTML = '';
+  for (const q of data.questions) {
+    const card = document.createElement('div');
+    card.className = 'question-card';
+    const safePath = q.path.replace(/"/g, '&quot;');
+    card.innerHTML = `
+      <strong>${q.path}</strong>
+      <pre>${q.question.replace(/</g, '&lt;')}</pre>
+      <label>Réponse</label>
+      <textarea rows="4" class="answer-box"></textarea>
+      <button>Répondre</button>
+      <div class="answer-result"></div>
+    `;
+    const textarea = card.querySelector('.answer-box');
+    const button = card.querySelector('button');
+    const answerResult = card.querySelector('.answer-result');
+    button.onclick = async () => {
+      const res2 = await fetch('/api/questions/answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: q.path, text: textarea.value }),
+      });
+      const data2 = await res2.json();
+      if (data2.ok) {
+        answerResult.textContent = 'Réponse enregistrée.';
+        loadQuestions();
+      } else {
+        answerResult.textContent = `Erreur : ${data2.error}`;
+      }
+    };
+    listEl.appendChild(card);
+  }
+}
+
+loadQuestions();
+</script>
+
+</body>
+</html>

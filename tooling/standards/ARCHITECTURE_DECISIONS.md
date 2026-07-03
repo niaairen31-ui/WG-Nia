@@ -3768,6 +3768,57 @@ table-shaped Création page appears.
 
 ---
 
+## PIPELINE COCKPIT — deposit surface, question writer, structural boundaries (BRIEF-0006-a, no schema change)
+
+TICKET-0006 second pipeline pass. RECON-0006 confirmed no naming/port/
+template/loader collision with the world cockpit (findings 1-4), that
+`next_id.py` was CLI-print-only (finding 6), and that no QUESTION file had
+ever existed, so nothing enforced its append-only contract (findings 13-15).
+
+**H1 (collision-audited separation).** `tooling/pipeline_cockpit/` is a
+separate FastAPI app — its own package, its own port (8100, distinct from
+the world cockpit's 8000), its own `index.html` served as a raw string
+(mirrors `src/world_engine/cockpit/app.py`'s `_INDEX_HTML` pattern — no
+Jinja, no `StaticFiles`, no new dependency). Launched on demand via
+`scripts/pipeline_cockpit.py`, structurally parallel to `scripts/cockpit.py`.
+
+**I1 (cockpit v1 scope, I2 deferred).** Exactly two surfaces: "Soumettre"
+(paste an artifact; type detected from body shape; number assigned at
+deposit; file written; confirmation displays the created name) and
+"Questions" (list open QUESTION files, answer inline). No git operation, no
+status board, no `/pipeline` launcher button. **I2, deferred**: a read-only
+ticket status board — add only when live usage shows the need.
+
+**J2 (cockpit assigns numbers).** Chat delivers artifacts with `NNNN`
+placeholders; `tooling/pipeline_cockpit/deposit.py`'s `assign_number`
+resolves the number at deposit time via `compute_next_id()` (tickets) or the
+page's `bound_ticket` state (recon/briefs carrying the placeholder) and
+substitutes it everywhere in the body. The disk at deposit time is the only
+authority — GitHub lags the working tree, so there is no race window.
+
+**K1 (import boundary, structural).** Nothing under `tooling/pipeline_cockpit/`
+imports from `src/world_engine/` — enforced by an `ast`-based scan in
+`tooling/verify/checks/pipeline_cockpit.py`, not by convention.
+
+**L1 (`next_id.py` extraction).** `compute_next_id() -> str` now holds the
+counting logic; `main()` is a thin `print(compute_next_id())` wrapper.
+CLI behavior is byte-identical; the cockpit imports the same function — one
+counter authority for both callers.
+
+**N1 (QUESTION writer, writer half).** `tooling/glue/question_response.py`
+is the single QUESTION writer: `is_open()` is the one machine definition of
+"empty `## Response`" (stripped section content `== ""`); `write_response()`
+raises `ResponseAlreadyFilled` on a non-empty section and `MalformedQuestion`
+on a missing header, and never touches anything above the `## Response`
+header. Both the cockpit's Questions route and the inline in-session
+escalation flow (BRIEF-0006-b) call this one writer — no second writer
+exists anywhere.
+
+**P1 (producer contract, documented).** See CLAUDE.md's "Artifact producer
+contract" bullet: every chat-produced artifact embeds a machine-readable
+slug; type is detected from body shape, never H1 prose (RECON-0006 finding
+20: the real population's H1 text is inconsistent across all three types).
+
 ## Deferred decisions
 
 Recorded here so each is revisited deliberately rather than forgotten:

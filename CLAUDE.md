@@ -68,14 +68,29 @@ Read both before making any structural change.
   append-only log lives in `world-engine-schema-changelog.md` (repo root).
   If the minor part reaches 99, stop and escalate (D1-c).
 - **Where things live:** `tooling/tickets`, `tooling/recon`, `tooling/briefs`,
-  `tooling/glue` (`next_id.py`, `gen_decisions_index.py`),
+  `tooling/glue` (`next_id.py`, `gen_decisions_index.py`, `question_response.py`),
   `tooling/verify/checks`, `tooling/verify/baselines`, `tooling/standards`
   (`ARCHITECTURE_DECISIONS.md`, `DECISIONS_INDEX.md` (generated),
   `world-engine-schema-changelog.md` (repo root), `code_standards.md`),
-  `tooling/improvement/bug_log.jsonl`.
+  `tooling/improvement/bug_log.jsonl`, `tooling/pipeline_cockpit/` (the
+  Soumettre/Questions deposit UI, BRIEF-0006-a — a separate app from the
+  world cockpit, distinct port 8100, never imports `src/world_engine/`).
 - **Orchestration (BRIEF-0004):** `/pipeline TICKET-NNNN` is the entry point
   that chains exec -> verify -> PR to the next human gate; `tooling/questions/`
-  is where it escalates (D1) for Nia's response.
+  is where it escalates (D1) for Nia's response. Recon results are pushed at
+  recon time (the first early-push point, BRIEF-0006-b, C1); everything else
+  still publishes at Step 3.
+- **Artifact producer contract (P1, BRIEF-0006-a).** Every chat-produced
+  ticket/recon/brief embeds a machine-readable slug so the pipeline cockpit's
+  Soumettre surface can number and place it without guessing: tickets carry a
+  `slug:` YAML front-matter field; recon specs and briefs carry a line-1
+  `<!-- slug: ... -->` HTML comment. Artifact type is detected from body shape
+  (front-matter `id: TICKET-...` / first-H1 `# RECON` / first-H1 `# BRIEF`),
+  never from H1 prose — the real population has inconsistent H1 text (see
+  RECON-0006 finding 20). `NNNN` placeholders in ticket/recon/brief bodies are
+  resolved by the cockpit at deposit time (J2): the cockpit is the one
+  authority for "next number" (the disk at deposit time, never GitHub, which
+  lags the working tree).
 - This section governs the ticket pipeline itself (process, gating,
   escalation). It does not replace or relax any invariant below — those
   still apply to every change regardless of how it was ticketed.

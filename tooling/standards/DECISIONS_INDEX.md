@@ -54,4 +54,5 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 3464 | CANON-WRITE DOCTRINE — table classification, write normalization, structural gate (BRIEF-0003-a, BRIEF-0003-b, no schema change) | BRIEF-0003-a, BRIEF-0003-b |  |
 | 3540 | PIPELINE GLUE — /pipeline orchestration, derived ticket status, structural permissions (BRIEF-0004, no schema change) | BRIEF-0004 |  |
 | 3601 | CRÉATION PAGE CONTRACT (BRIEF-0005-a, no schema change) | BRIEF-0005-a |  |
-| 3771 | Deferred decisions |  |  |
+| 3771 | PIPELINE COCKPIT — deposit surface, question writer, structural boundaries (BRIEF-0006-a, no schema change) | BRIEF-0006-a |  |
+| 3822 | Deferred decisions |  |  |
