@@ -2,7 +2,7 @@
 id: TICKET-0005
 title: Uniform config-driven page contract for Création sub-tabs
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-02
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []          # frontend-only; no canon-write path, no schema change expected

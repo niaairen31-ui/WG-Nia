@@ -1,0 +1,12 @@
+{
+  "ticket": "TICKET-0005-creation-page-contract",
+  "when": "2026-07-03T00:41:31.438349+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u2014 CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry"
+    }
+  ]
+}
