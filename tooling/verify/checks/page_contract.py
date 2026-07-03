@@ -64,12 +64,28 @@ def main() -> int:
             "through the standard + Nouveau control (H1)"
         )
 
+    if "currentCreationSubTab === 'pj'" in html:
+        failures.append(
+            "\"currentCreationSubTab === 'pj'\" still present — PJ must have no "
+            "hardcoded tab-name branch outside the registry (BRIEF-0005-b)"
+        )
+
+    for identifier in ("pjCreateOpen", "pjCreateNew"):
+        if re.search(rf"\b{identifier}\b", html):
+            failures.append(
+                f"'{identifier}' still present — PJ's parallel create machinery "
+                "must be fully removed (BRIEF-0005-b)"
+            )
+
     if failures:
         for f in failures:
             print(f"FAIL: {f}")
         return 1
 
-    print("PASS: page_contract — CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button")
+    print(
+        "PASS: page_contract — CREATION_TABS registry, generic dispatcher, "
+        "no duplicate Lieux create button, PJ fully on the entity archetype"
+    )
     return 0
 
 

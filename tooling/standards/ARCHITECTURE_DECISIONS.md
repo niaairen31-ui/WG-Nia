@@ -3504,6 +3504,44 @@ always-open form, Région's wizard entry, Review Queue's filter/batch band)
 — BRIEF-0005-c; any backend change (none — endpoint heterogeneity across
 NPC/Lieux/Factions/Objets vs PJ/skill-definition/ledger stays legitimate).
 
+### BRIEF-0005-b — PJ migrates onto the entity archetype (no schema change)
+
+Closes the ticket's motivating divergence and realizes the two decisions
+BRIEF-0005-a deferred:
+
+**C1 realized — Fiche as a declared slot.** The pj entry's `slots` now
+carries `{ id: 'fiche', containerId: 'creation-pj-skill', loader: skillInit,
+onSelect: pjFicheOnSelect }`. `#creation-pj-skill` is no longer a top-level
+`containers` entry — it is shown/hidden purely by the generic dispatcher's
+slot-container logic, the same mechanism Lieux's graph slot already
+exercised in -a. `skillInit()` now runs unconditionally on every pj
+activation (dropping the old `if (!skillCharacters) skillInit()` guard) —
+one extra background re-fetch of `/api/skills/player-characters` per tab
+re-entry, the same unconditional-refresh precedent the graph slot already
+set; not a user-visible behavior change.
+
+**E′1 realized — generic `onSelect` hook, not a rewire.** RECON-0005 had
+already found that list-click → Fiche wiring was correctly implemented
+(`authorSelectEntity`'s hardcoded `pj` branch), just not expressed
+generically. `authorSelectEntity(id)` now iterates the active entry's
+`slots` and calls each non-null `onSelect(id)` after the detail fetch —
+`pjFicheOnSelect(id)` does exactly what the deleted branch did (sync
+`#skill-character-select`, call `skillSelectCharacter(id)`). This is a
+one-loop generalization, not a new mechanism (event bus, pub/sub — Scope
+OUT, unchanged).
+
+**BRIEF-60's gate is superseded, not removed.** The collapsed
+`#pj-create-block` + `#pj-create-new-btn` + `pjCreateOpen` toggle is deleted
+entirely. `pj.createPanel = pjRenderCreatePanel` renders the identical form
+(unchanged fields, unchanged `POST /api/characters/player` submit path)
+into `#author-main` — the same detail region every other entity type's
+`+ Nouveau` already used, wired through the shared `#creation-new-btn`.
+BRIEF-60's visible guarantee (the create form is hidden until the creator
+deliberately asks for it; the Fiche renders by default) is preserved
+exactly, by the standard mechanism instead of a bespoke one — no second
+create affordance exists after this brief; the DB's
+`idx_character_one_pc_per_user_world` constraint is untouched.
+
 ## Deferred decisions
 
 Recorded here so each is revisited deliberately rather than forgotten:

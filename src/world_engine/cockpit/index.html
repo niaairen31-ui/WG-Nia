@@ -1203,63 +1203,11 @@ button:not(:disabled):hover { filter: brightness(1.15); }
         </div>
       </div>
 
-      <!-- PJ Fiche — shown only when Personnage joueur sub-tab is active -->
+      <!-- PJ Fiche — a declared slot on the pj registry entry (BRIEF-0005-b),
+           rendered by default on tab activation, outside the create gate.
+           The create form itself lives in #author-main via pjRenderCreatePanel,
+           the same detail region every other entity type's + Nouveau uses. -->
       <div id="creation-pj-skill" style="display:none">
-        <!-- Create-PC path (BRIEF-46): minimal form — name + starting location. -->
-        <!-- PC creation assistant (BRIEF-52): concept -> AI draft -> inline-edited
-             prose -> accept. Knowledge stays read-only in the draft (I1). -->
-        <!-- BRIEF-60: generate panel + create form gated behind pjCreateOpen;
-             #skill-main Fiche stays outside the gate and renders by default. -->
-        <div class="author-new-row">
-          <button class="btn-send" id="pj-create-new-btn" onclick="pjCreateNew()" style="width:100%">+ Nouveau</button>
-        </div>
-        <div id="pj-create-block" style="display:none">
-          <div class="panel-head" style="flex-shrink:0">
-            <h2 style="font-size:12px">Créer un personnage joueur</h2>
-          </div>
-          <div class="field-section" style="flex-shrink:0; margin:0; padding:10px 14px">
-            <div class="field-row" style="margin:0">
-              <label>Concept (pour l'assistant)</label>
-              <textarea id="pc-generate-brief" rows="2" placeholder="Ex. une ancienne contrebandière qui a tout quitté pour..."></textarea>
-            </div>
-            <div style="display:flex; gap:10px; align-items:center; margin-top:6px">
-              <button class="btn-send" onclick="pcGenerateDraft()">Générer le brouillon</button>
-              <span class="author-status" id="pc-generate-status"></span>
-            </div>
-            <div id="pc-generate-notes"></div>
-          </div>
-          <div class="field-section" style="flex-shrink:0; margin:0; padding:10px 14px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">
-            <div class="field-row" style="margin:0; min-width:180px">
-              <label>Nom</label>
-              <input type="text" id="pc-create-name" placeholder="Nom du personnage">
-            </div>
-            <div class="field-row" style="margin:0; min-width:200px">
-              <label>Lieu de départ</label>
-              <select id="pc-create-location"><option value="">— choisir —</option></select>
-            </div>
-            <button class="btn-send" onclick="pcCreateSubmit()">Créer</button>
-            <span class="author-status" id="pc-create-status"></span>
-          </div>
-          <div class="field-section" style="flex-shrink:0; margin:0; padding:0 14px 10px">
-            <div class="field-row" style="margin:0 0 6px 0">
-              <label>Description (publique)</label>
-              <textarea id="pc-create-description" rows="2" placeholder="Ce qu'autrui perçoit au premier regard"></textarea>
-            </div>
-            <div class="field-row" style="margin:0 0 6px 0">
-              <label>Apparence</label>
-              <textarea id="pc-create-appearance" rows="2" placeholder="Référence du joueur"></textarea>
-            </div>
-            <div class="field-row" style="margin:0 0 6px 0">
-              <label>Histoire personnelle</label>
-              <textarea id="pc-create-backstory" rows="3" placeholder="Référence du joueur"></textarea>
-            </div>
-            <div class="field-row" style="margin:0">
-              <label>Savoirs proposés (lecture seule — éditables après création via la Fiche)</label>
-              <div id="pc-draft-knowledge" style="font-size:12px; color:var(--muted)"></div>
-            </div>
-          </div>
-        </div><!-- #pj-create-block -->
-
         <div class="panel-head" style="flex-shrink:0; border-top:2px solid var(--border)">
           <h2 style="font-size:12px">Fiche de compétences</h2>
           <select id="skill-character-select" onchange="skillSelectCharacter(this.value)"></select>
@@ -2998,14 +2946,6 @@ function _lieuxTabEnterReset() {
   lieuxBreadcrumb = [];
 }
 
-function _pjTabLoader() {
-  pjCreateOpen = false;
-  document.getElementById('pj-create-block').style.display = 'none';
-  document.getElementById('pj-create-new-btn').textContent = '+ Nouveau';
-  pcCreateLoadLocations();
-  if (!skillCharacters) skillInit();
-}
-
 /* Shared authorAllEntities/playerCharIds cache — used by every entity tab
    that filters the same fetched list (BRIEF-0005-a item 3, G1). */
 function _entityListWorldReset() {
@@ -3066,13 +3006,13 @@ const CREATION_TABS = {
   pj: {
     label: 'Personnages joueurs',
     archetype: 'entity',
-    containers: ['creation-editor-area', 'creation-pj-skill'],
-    loader: _pjTabLoader,
+    containers: ['creation-editor-area'],
+    loader: null,
     state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _pjWorldReset },
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && playerCharIds.has(e.id)),
-    createPanel: null, // BRIEF-0005-b migrates PJ onto the standard + Nouveau
-    slots: [],
+    createPanel: pjRenderCreatePanel,
+    slots: [{ id: 'fiche', containerId: 'creation-pj-skill', loader: skillInit, onSelect: pjFicheOnSelect }],
   },
   lieux: {
     label: 'Lieux',
@@ -5113,11 +5053,8 @@ async function authorSelectEntity(id) {
     const detail = await api(`/api/entities/${encodeURIComponent(id)}`);
     authorRenderSheet(detail, false, detail.type);
     authorRenderEntityList();
-    if (currentCreationSubTab === 'pj') {
-      const sel = document.getElementById('skill-character-select');
-      if (sel) sel.value = id;
-      skillSelectCharacter(id);
-    }
+    const entry = CREATION_TABS[currentCreationSubTab];
+    (entry ? entry.slots || [] : []).forEach(s => { if (s.onSelect) s.onSelect(id); });
   } catch (e) {
     document.getElementById('author-main').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
@@ -5544,12 +5481,77 @@ async function pcCreateSubmit() {
  * separate discard step (mirrors the world-bible generator). */
 
 let pcDraftKnowledge = [];
-let pjCreateOpen = false;
 
-function pjCreateNew() {
-  pjCreateOpen = !pjCreateOpen;
-  document.getElementById('pj-create-block').style.display = pjCreateOpen ? '' : 'none';
-  document.getElementById('pj-create-new-btn').textContent = pjCreateOpen ? '× Fermer' : '+ Nouveau';
+/** PJ's createPanel (BRIEF-0005-b): renders the create form — unchanged
+ *  fields/AI-draft control/submit path — into #author-main, the SAME detail
+ *  region every other entity type's + Nouveau uses. Replaces the former
+ *  #pj-create-block collapsed panel; a fresh click always starts blank,
+ *  matching every other entity type's new-entity form. */
+function pjRenderCreatePanel() {
+  authorEntityId   = null;
+  authorEntityType = 'character';
+  pcDraftKnowledge = [];
+
+  const titleEl = document.getElementById('author-sheet-title');
+  if (titleEl) titleEl.textContent = 'Créer un personnage joueur';
+  document.getElementById('author-save-btn').style.display   = 'none';
+  document.getElementById('author-delete-btn').style.display = 'none';
+  document.getElementById('author-status').textContent       = '';
+
+  document.getElementById('author-main').innerHTML = `
+    <div class="field-section" style="margin:0; padding:10px 14px">
+      <div class="field-row" style="margin:0">
+        <label>Concept (pour l'assistant)</label>
+        <textarea id="pc-generate-brief" rows="2" placeholder="Ex. une ancienne contrebandière qui a tout quitté pour..."></textarea>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center; margin-top:6px">
+        <button class="btn-send" onclick="pcGenerateDraft()">Générer le brouillon</button>
+        <span class="author-status" id="pc-generate-status"></span>
+      </div>
+      <div id="pc-generate-notes"></div>
+    </div>
+    <div class="field-section" style="margin:0; padding:10px 14px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">
+      <div class="field-row" style="margin:0; min-width:180px">
+        <label>Nom</label>
+        <input type="text" id="pc-create-name" placeholder="Nom du personnage">
+      </div>
+      <div class="field-row" style="margin:0; min-width:200px">
+        <label>Lieu de départ</label>
+        <select id="pc-create-location"><option value="">— choisir —</option></select>
+      </div>
+      <button class="btn-send" onclick="pcCreateSubmit()">Créer</button>
+      <span class="author-status" id="pc-create-status"></span>
+    </div>
+    <div class="field-section" style="margin:0; padding:0 14px 10px">
+      <div class="field-row" style="margin:0 0 6px 0">
+        <label>Description (publique)</label>
+        <textarea id="pc-create-description" rows="2" placeholder="Ce qu'autrui perçoit au premier regard"></textarea>
+      </div>
+      <div class="field-row" style="margin:0 0 6px 0">
+        <label>Apparence</label>
+        <textarea id="pc-create-appearance" rows="2" placeholder="Référence du joueur"></textarea>
+      </div>
+      <div class="field-row" style="margin:0 0 6px 0">
+        <label>Histoire personnelle</label>
+        <textarea id="pc-create-backstory" rows="3" placeholder="Référence du joueur"></textarea>
+      </div>
+      <div class="field-row" style="margin:0">
+        <label>Savoirs proposés (lecture seule — éditables après création via la Fiche)</label>
+        <div id="pc-draft-knowledge" style="font-size:12px; color:var(--muted)"></div>
+      </div>
+    </div>
+  `;
+  pcCreateLoadLocations();
+  pcRenderDraftKnowledge();
+}
+
+/** The pj entry's Fiche slot onSelect (BRIEF-0005-b) — replaces the former
+ *  hardcoded pj-only branch inside authorSelectEntity: syncs the Fiche
+ *  dropdown to the clicked character and loads its sheet. */
+function pjFicheOnSelect(id) {
+  const sel = document.getElementById('skill-character-select');
+  if (sel) sel.value = id;
+  skillSelectCharacter(id);
 }
 
 function pcRenderDraftKnowledge() {
