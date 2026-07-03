@@ -2,7 +2,7 @@
 id: TICKET-0008
 title: Prompt management tab — read-only, model column, prompt registry
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-03
 slug: prompt-management-tab
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
