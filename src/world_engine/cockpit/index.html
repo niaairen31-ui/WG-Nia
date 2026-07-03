@@ -944,6 +944,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 #creation-artefacts   { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; }
 #creation-region      { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; }
 #creation-queue       { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+#creation-prompts     { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 /* ── Région review tree (BRIEF-36) ───────────────────────────────────────── */
 .region-loc-node   { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
@@ -3625,6 +3626,7 @@ async function promptsSelectDetail(promptId) {
     const d = await api(`/api/prompts/${promptId}`);
     detailEl.innerHTML = _promptsRenderDetail(d);
     if (d.dry_run_capable) _promptsPopulateEntitySelectors();
+    detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {
     detailEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
