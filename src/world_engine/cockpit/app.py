@@ -47,6 +47,7 @@ from ..gathering import enter_location as _enter_location
 from ..gathering import migrate_npc as _migrate_npc
 from ..analyzer import analyze_overhearing as _analyze_overhearing
 from ..analyzer import analyze_window as _analyze_window
+from ..prompt_registry import PROMPT_REGISTRY, effective_model
 from ..context import (
     _SAFE_SUBCULTURE_KEYS,
     active_signposts,
@@ -117,6 +118,87 @@ def generate_entity(
     failure — see entity_author.generate_entity_draft.
     """
     return _generate_entity_draft(body.entity_type, body.brief, db)
+
+
+@app.get("/api/prompts/preview/npc_dialogue")
+def preview_prompt_npc_dialogue(
+    npc_id: str = Query(...),
+    pc_id: str = Query(...),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Assembled dry-run preview (BRIEF-0008-b, C3) — the exact system prompt
+    the real conversation-start path would build. Zero model calls, zero
+    writes: no `conversation` row, no `injected_context` snapshot, no
+    `change_history`. Reuses the real `assemble_npc_context` (never a
+    reimplementation) and the extracted `_npc_dialogue_system_prompt`
+    construction, so structural secret exclusion traverses the preview
+    intact. Deliberately NOT in crud.py — same no-canon-write reasoning as
+    `POST /api/entities/generate`.
+    """
+    npc_entity = db.get(Entity, npc_id)
+    if npc_entity is None:
+        raise HTTPException(status_code=404, detail=f"NPC {npc_id!r} not found")
+    pc_entity = db.get(Entity, pc_id)
+    if pc_entity is None:
+        raise HTTPException(status_code=404, detail=f"Interlocutor {pc_id!r} not found")
+    npc_char = db.get(Character, npc_id)
+    location_id = npc_char.current_location_id if npc_char else None
+    if not location_id:
+        raise HTTPException(status_code=400, detail=f"NPC {npc_id!r} has no current location")
+
+    world_id = _crud._world_id(db)
+    spec = PROMPT_REGISTRY["npc_dialogue"]
+    rows = db.exec(select(PromptTemplate).where(PromptTemplate.usage == "npc_dialogue")).all()
+    behaviour = _crud._effective_prompt_row(rows, spec.world_scoped, world_id)
+    if behaviour is None:
+        raise HTTPException(status_code=503, detail="No active 'npc_dialogue' prompt template found.")
+
+    assembled_context = assemble_npc_context(npc_id, pc_id, location_id, db)
+    system_prompt = _npc_dialogue_system_prompt(behaviour, assembled_context)
+    return {
+        "prompt_template_id": behaviour.id,
+        "npc_id": npc_id,
+        "pc_id": pc_id,
+        "location_id": location_id,
+        "system_prompt": system_prompt,
+    }
+
+
+@app.get("/api/prompts/preview/player_narration")
+def preview_prompt_player_narration(
+    pc_id: str = Query(...),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Assembled dry-run preview (BRIEF-0008-b, C3) — the MJ context a
+    `player_narration` turn actually renders. Zero model calls, zero writes.
+    Reuses the real `assemble_mj_context` + `format_mj_context` (never a
+    reimplementation) — the player's own knowledge (including `is_secret`
+    rows) is present (MJ perception boundary, not the NPC secret boundary);
+    other entities' secrets are excluded by the same query construction as
+    live play.
+    """
+    pc_char = db.get(Character, pc_id)
+    if pc_char is None or pc_char.character_type != "player":
+        raise HTTPException(status_code=400, detail=f"{pc_id!r} is not a player character")
+    location_id = pc_char.current_location_id
+    if not location_id:
+        raise HTTPException(status_code=400, detail="Player has no current location")
+
+    world_id = _crud._world_id(db)
+    spec = PROMPT_REGISTRY["player_narration"]
+    rows = db.exec(select(PromptTemplate).where(PromptTemplate.usage == "player_narration")).all()
+    mj_template = _crud._effective_prompt_row(rows, spec.world_scoped, world_id)
+    if mj_template is None:
+        raise HTTPException(status_code=503, detail="No active 'player_narration' prompt template found.")
+
+    mj_context = assemble_mj_context(db, pc_id, location_id)
+    return {
+        "prompt_template_id": mj_template.id,
+        "pc_id": pc_id,
+        "location_id": location_id,
+        "system_prompt": mj_template.system_prompt,
+        "mj_context_rendered": format_mj_context(mj_context),
+    }
 
 
 class WorldGenerateBody(BaseModel):
@@ -1311,6 +1393,13 @@ def _load_npc_dialogue_template(world_id: str, db: Session) -> PromptTemplate:
     return templates[0]
 
 
+def _npc_dialogue_system_prompt(behaviour: PromptTemplate, context: str) -> str:
+    """The exact system-prompt concatenation every live npc_dialogue path
+    uses (BRIEF-0008-b, fidelity rule) — extracted so the read-only preview
+    endpoint reuses this construction verbatim instead of duplicating it."""
+    return f"{behaviour.system_prompt}\n\n{context}"
+
+
 # ── Multi-NPC scenes — gatherings (schema v1.8, Tier 1, step 3) ───────────────
 # Helpers consumed by the /say flow's join handling (contract A2) and speaker
 # selection (contract A3 hybrid). Generation itself lives in gathering.py;
@@ -1744,7 +1833,7 @@ def _build_establishment_narration(
                 {"role": "system", "content": template.system_prompt},
                 {"role": "user",   "content": user_msg},
             ],
-            model=ollama_client.DEFAULT_MODEL,
+            model=effective_model(template, ollama_client.DEFAULT_MODEL),
         )
         narration = raw.strip()
         return narration or None
@@ -2451,7 +2540,7 @@ def start_conversation(
 
     behaviour = _load_npc_dialogue_template(world_id, db)
     assembled_context = assemble_npc_context(body.npc_id, player_id, location_id, db)
-    system_prompt = f"{behaviour.system_prompt}\n\n{assembled_context}"
+    system_prompt = _npc_dialogue_system_prompt(behaviour, assembled_context)
 
     # MJ context snapshot (schema v1.12, scope D-b3): static parts only
     # (location, player_knowledge, public_events) — co_presents is dynamic
@@ -2460,7 +2549,11 @@ def start_conversation(
     mj_context = assemble_mj_context(db, player_id, location_id)
     mj_snapshot = {k: v for k, v in mj_context.items() if k != "co_presents"}
 
-    model = ollama_client.DEFAULT_MODEL
+    # npc_dialogue's resolved model (BRIEF-0008-a): captured once here, into
+    # injected_context["model"], and read back unwired at the say-turn
+    # boundary in `say()` (`model = injected.get("model", ...)`, exempted by
+    # construction — see the comment there).
+    model = effective_model(behaviour, ollama_client.DEFAULT_MODEL)
     conv = Conversation(
         world_id=world_id,
         session_id=sess.id,
@@ -2603,6 +2696,16 @@ def say(
     # 'mj' rows are presentation-only and must not be fed back to the NPC model.
     injected = conv.injected_context or {}
     system_prompt = injected.get("system_prompt", "")
+    # Exemption, by construction (BRIEF-0008-a): NOT wired through
+    # effective_model. This value was already resolved once, at conversation
+    # start (see the `model = effective_model(behaviour, ...)` sites above);
+    # re-wiring it here would silently encode a `template.model` vs
+    # `injected_context["model"]` precedence for every downstream call in
+    # this function and `_stream()` — a decision deferred to the write-path
+    # chantier (verify/checks/prompt_registry.py allowlists this function and
+    # `_stream`, plus the pass-through helpers `_interpret_mode`, `_arbitrate`,
+    # `_npc_initiative_vote`, `_select_group_speaker`, which all consume this
+    # same already-resolved value via their own `model` parameter).
     model = injected.get("model", ollama_client.DEFAULT_MODEL)
 
     all_msgs = db.exec(
@@ -2987,7 +3090,7 @@ def say(
                     gathering_id=conv.gathering_id,
                     player_condition=ss_condition,
                 )
-                responder_system_prompt = f"{responder_behaviour.system_prompt}\n\n{responder_context}"
+                responder_system_prompt = _npc_dialogue_system_prompt(responder_behaviour, responder_context)
 
                 band_outcome = {
                     "failure": (
@@ -3253,7 +3356,7 @@ def say(
                         gathering_id=conv.gathering_id,
                         player_condition=ss_condition,
                     )
-                    responder_system_prompt = f"{responder_behaviour.system_prompt}\n\n{responder_context}"
+                    responder_system_prompt = _npc_dialogue_system_prompt(responder_behaviour, responder_context)
 
                 npc_msg_list = [{"role": "system", "content": responder_system_prompt}, *npc_history]
                 if mode == ResponseMode.npc_reaction:
@@ -3438,7 +3541,7 @@ def say(
                             else _NPC_INITIATIVE_ACT_FALLBACK
                         )
                         init_system = (
-                            f"{init_behaviour.system_prompt}\n\n{init_ctx}"
+                            f"{_npc_dialogue_system_prompt(init_behaviour, init_ctx)}"
                             f"\n\n{init_act_instruction}"
                         )
 
@@ -3899,7 +4002,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
         # closed, or the player re-loaded after the test). Create a fresh one
         # anchored to the same gathering — identical to the resolve path below.
         behaviour = _load_npc_dialogue_template(world_id, db)
-        model     = ollama_client.DEFAULT_MODEL
+        model     = effective_model(behaviour, ollama_client.DEFAULT_MODEL)
         mj_context = assemble_mj_context(db, player_id, location_id, gathering_id=player_g.id)
         new_conv  = Conversation(
             world_id    = world_id,
@@ -3935,7 +4038,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
     # ── Interpret the player's text via the full MJ pipeline (A2 reused) ──
     gathering_status  = _render_gathering_status(player_id, None, open_g, db)
     interpret_template = _load_mj_interpret_template(world_id, db)
-    model             = ollama_client.DEFAULT_MODEL
+    model             = effective_model(interpret_template, ollama_client.DEFAULT_MODEL)
 
     # Provide a plausible NPC name for the template context (any member present).
     any_npc_name = "?"

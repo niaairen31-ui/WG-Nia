@@ -791,6 +791,9 @@ class PromptTemplate(SQLModel, table=True):
         default="local",
         sa_column_kwargs={"server_default": text("'local'")},
     )
+    model: Optional[str] = Field(default=None)
+    # NULL = code decides (default_model); non-NULL = creator override,
+    # consumed by prompt_registry.effective_model (BRIEF-0008-a, schema v1.67).
     version: int = Field(
         default=1, sa_column_kwargs={"server_default": text("1")}
     )

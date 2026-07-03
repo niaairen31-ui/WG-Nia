@@ -8,6 +8,22 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.67** — Additive column: `prompt_template.model TEXT NULL` (BRIEF-0008-a).
+  NULL = code decides (the existing per-usage default); non-NULL = creator
+  override, consumed by the new `prompt_registry.effective_model(template,
+  default)` resolver, now wired at every templated `chat`/`chat_stream` call
+  site (`entity_author.py`, `region_author.py`, `analyzer.py`, `gathering.py`,
+  `cockpit/app.py`'s conversation-start/join model bindings and the
+  establishment-narration call), with one named exemption: the `/say` turn's
+  `model = injected.get("model", DEFAULT_MODEL)` call path (`app.py`'s `say`/
+  `_stream` and the pass-through helpers they call) — wiring it would encode
+  a `template.model` vs `injected_context["model"]` precedence, deferred to
+  the write-path chantier. Fixed the stale `usage` enum comment (8 values
+  were missing, including `region_manifest_topup`). No write path for `model`
+  exists yet; the column is born NULL everywhere and runtime model selection
+  is bit-identical to pre-v1.67 behavior. New verify check:
+  `verify/checks/prompt_registry.py`.
+
 - **v1.66** — No new tables or columns. Application-layer: Personnage joueur
   create form + BRIEF-52 generate panel gated behind a dedicated `pjCreateOpen`
   toggle and a PJ-specific `+ Nouveau` button (`#pj-create-block`), matching

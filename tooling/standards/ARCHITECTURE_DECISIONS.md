@@ -3931,6 +3931,118 @@ type="file">`; only the wire format differs. Server-side, the payload is
 base64-decoded then UTF-8-decoded explicitly, so an invalid encoding
 still refuses the same way a direct multipart read would have.
 
+## PROMPT MODEL COLUMN + REGISTRY (BRIEF-0008-a, schema v1.67)
+
+TICKET-0008, first half — the plumbing the read-only Prompts tab
+(BRIEF-0008-b) will display. RECON-0008 corrected the spec on two points
+material to this brief: the "world-preferred-else-global" resolution chain
+is NOT uniform across all 16 template loaders (6 authoring loaders —
+`entity_author.py` ×4, `region_author.py` ×2 — take no `world_id` at all
+and filter only `is_active`); and the seeded usage count is 17, with
+`region_manifest_topup` a ninth omission from the schema-doc enum comment
+(now fixed alongside the other 8).
+
+**A2-a2 (nullable authoritative `model` column).** `prompt_template.model
+TEXT NULL`. NULL = code decides (the caller's existing default); non-NULL =
+creator override. `prompt_registry.effective_model(template, default)` is
+the resolver every templated model call routes through — a day-one reader,
+not just future display. With `model` NULL everywhere (guaranteed: no write
+path exists, seed untouched), every call site resolves to exactly the model
+it used before this brief.
+
+**A2-b (full creator model authority, no structural locks).** Any Ollama
+model is selectable for any prompt, play or authoring, once a write path
+ships. Consequence, explicitly accepted: `region_manifest_topup`'s
+documented "hard requirement — never the game model" (BRIEF-40) downgrades
+to a *default* — `AUTHOR_MODEL` remains what the topup call uses absent an
+override, but nothing in the code prevents a creator from overriding it to
+the game model. This downgrade is recorded now, becomes ACTIVE only when a
+write path ships (Scope OUT of this brief).
+
+**A2-c (code registry for code facts).** `prompt_registry.py` declares, per
+usage: `surface` (play|authoring), `world_scoped` (R1, below),
+`dry_run_capable` (C3, consumed by BRIEF-0008-b), `default_model` (a
+zero-argument callable resolved at read time from `ollama_client.
+DEFAULT_MODEL` / `entity_author.AUTHOR_MODEL` — never a copied string
+literal, so a `WORLD_ENGINE_OLLAMA_MODEL` env override shows through), and
+`call_sites` (`"path:function"`, B1 — the static loader function per
+usage). The DB owns prompt text + the `model` override; code owns wiring.
+`prompt_registry.py` imports `entity_author.AUTHOR_MODEL` lazily (inside
+`_author_model()`, not at module load) because `entity_author.py` imports
+`effective_model` from `prompt_registry` — a top-level import the other
+way would cycle.
+
+**R1 (`world_scoped` encodes each usage's REAL resolution semantics).**
+Per RECON result F1's correction: `world_scoped=True` for the 9 cockpit/
+gathering usages (`npc_dialogue`, `player_narration`, `mj_interpretation`,
+`mj_arbitration`, `mj_establishment`, `mj_gathering`, `mj_speaker_
+selection`, `mj_initiative`, `npc_initiative_act`) plus `conversation_
+analysis`/`overhearing_classification` (the analyzer's generic loader is
+world-preferred-else-global); `world_scoped=False` for the 6 authoring
+usages (`entity_generation`, `world_generation`, `player_generation`,
+`skill_catalogue`, `region_manifest`, `region_manifest_topup`), which take
+no `world_id` and resolve `.first()` over active rows only. The registry
+matches the actual loader bodies, not an idealized uniform chain.
+
+**Wiring scope + the injected-context exemption.** All 4 `entity_author.py`
+chat calls, both `region_author.py` calls, both `analyzer.py` calls, and
+`gathering.py`'s one call now read `model=effective_model(template,
+<existing default>)`. In `cockpit/app.py`, the resolver is wired at the
+three points where a fresh `model = ollama_client.DEFAULT_MODEL` binding
+sits next to its driving `PromptTemplate` — conversation start
+(`start_conversation`), and `scene_join`'s two branches (existing-gathering
+resume, and the interpret-then-resolve path) — plus the standalone
+`_build_establishment_narration` inline call. Deliberately NOT wired:
+`app.py:2607`'s `model = injected.get("model", ollama_client.DEFAULT_
+MODEL)` (the `/say` turn's model, already resolved once at conversation
+start) and everything downstream of it in the same call path — `say`'s
+nested `_stream()` closure and the pass-through helpers it calls
+(`_interpret_mode`, `_arbitrate`, `_npc_initiative_vote`, `_select_group_
+speaker`), all of which consume that single already-resolved value via
+their own `model: str` parameter rather than a `PromptTemplate` object.
+Wiring it would silently encode a `template.model` vs `injected_context
+["model"]` precedence — deferred to the write-path chantier. `verify/
+checks/prompt_registry.py`'s static wiring scan allowlists these five
+functions by name, with a comment naming the deferral.
+
+## PROMPTS TAB — read-only reader, API, dry-run previews (BRIEF-0008-b, no schema change)
+
+TICKET-0008, second half — the reader that justifies -a's registry structure.
+A read-only cockpit tab: `GET /api/prompts` (master list, grouped by usage,
+lazy — no template bodies in the list payload), `GET /api/prompts/{id}`
+(full detail on demand, D1), and two assembled dry-run preview endpoints
+(C3).
+
+**Effective-row resolution replicated, not idealized.** `crud.py`'s
+`_effective_prompt_row(rows, world_scoped, world_id)` mirrors the REAL
+loader bodies exactly per R1: the world-preferred-else-global chain for
+`world_scoped=True` usages, bare "first active row" for the 6
+`world_scoped=False` authoring usages — including their latent
+non-determinism with 2+ active rows, deliberately not fixed here (an
+accepted observation, not a bug this brief owns).
+
+**Fidelity rule, applied.** The two assembled previews
+(`GET /api/prompts/preview/npc_dialogue`, `GET /api/prompts/preview/
+player_narration`, both in `app.py` — same no-canon-write neighborhood as
+`POST /api/entities/generate`, deliberately not in `crud.py`) call the REAL
+`assemble_npc_context`/`assemble_mj_context` — never a reimplementation.
+The npc_dialogue system-prompt concatenation (`f"{behaviour.system_prompt}
+\n\n{context}"`) was inline and duplicated across 4 call sites
+(`start_conversation`, `_stream`'s two responder branches, the NPC
+initiative act) before this brief; extracted into
+`_npc_dialogue_system_prompt(behaviour, context)`, now the single
+construction all 4 live sites AND the preview call — behavior-preserving,
+byte-identical output, no reordering. Live verification surfaced a
+pre-existing, unrelated bug in `assemble_npc_context` (a location whose
+`subculture.values` is a list, not a string, crashes `" ".join(setting_
+lines)`) on several of Verkhaal's NPCs — left untouched: the preview's job
+is to show exactly what the live path would build, bugs included; fixing
+an assembler bug is a separate, unscoped concern.
+
+**`destination` omitted from the tab entirely**, per the ticket's locked
+decision — no reader in code, so displaying it would show a routing
+promise the code does not keep.
+
 ## Deferred decisions
 
 Recorded here so each is revisited deliberately rather than forgotten:

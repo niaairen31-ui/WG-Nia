@@ -24,6 +24,7 @@ from sqlmodel import Session, select
 from .context import _SAFE_SUBCULTURE_KEYS
 from .models import BASE_SKILL_DOMAINS, Entity, PromptTemplate, World
 from .ollama_client import OllamaError, chat
+from .prompt_registry import effective_model
 from .writes import KNOWLEDGE_LEVELS
 
 _LOCATION_TYPES = ("city", "district", "building", "natural", "underground", "other")
@@ -408,7 +409,7 @@ def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
     ]
 
     try:
-        raw = chat(messages, model=AUTHOR_MODEL, format="json")
+        raw = chat(messages, model=effective_model(template, AUTHOR_MODEL), format="json")
     except OllamaError as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -533,7 +534,7 @@ def generate_world_draft(brief: str, db: Session) -> dict:
     ]
 
     try:
-        raw = chat(messages, model=AUTHOR_MODEL, format="json")
+        raw = chat(messages, model=effective_model(template, AUTHOR_MODEL), format="json")
     except OllamaError as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -622,7 +623,7 @@ def generate_player_draft(brief: str, db: Session) -> dict:
     ]
 
     try:
-        raw = chat(messages, model=AUTHOR_MODEL, format="json")
+        raw = chat(messages, model=effective_model(template, AUTHOR_MODEL), format="json")
     except OllamaError as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -710,7 +711,7 @@ def generate_skill_catalogue_draft(brief: str, db: Session) -> dict:
     ]
 
     try:
-        raw = chat(messages, model=AUTHOR_MODEL, format="json")
+        raw = chat(messages, model=effective_model(template, AUTHOR_MODEL), format="json")
     except OllamaError as exc:
         return {"ok": False, "error": str(exc)}
 

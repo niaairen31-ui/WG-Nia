@@ -944,6 +944,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 #creation-artefacts   { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; }
 #creation-region      { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; }
 #creation-queue       { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+#creation-prompts     { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 /* ── Région review tree (BRIEF-36) ───────────────────────────────────────── */
 .region-loc-node   { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
@@ -1161,6 +1162,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <button class="creation-sub-tab"        id="ctab-artefacts" onclick="showCreationSubTab('artefacts')">Artefacts</button>
     <button class="creation-sub-tab"        id="ctab-registre"  onclick="showCreationSubTab('registre')">Registre</button>
     <button class="creation-sub-tab"        id="ctab-queue"     onclick="showCreationSubTab('queue')">Review Queue</button>
+    <button class="creation-sub-tab"        id="ctab-prompts"   onclick="showCreationSubTab('prompts')">Prompts</button>
   </div>
 
   <!-- ── Standard shell band (BRIEF-0005-c) — one header band above every
@@ -1345,6 +1347,22 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       </div>
     </div>
   </div><!-- #creation-queue -->
+
+  <!-- ── Prompts sub-tab (BRIEF-0008-b) — read-only, one detail at a time ── -->
+  <div id="creation-prompts" style="display:none">
+    <div class="queue-panel">
+      <div class="panel-head">
+        <h2>Prompts</h2>
+        <button class="btn-icon" onclick="promptsLoadList()" title="Rafraîchir">↻</button>
+      </div>
+      <div class="queue-body">
+        <div id="prompts-list-body"><div class="empty"><span class="spin">⟳</span></div></div>
+        <div id="prompts-detail-body" style="border-top:1px solid var(--border); padding-top:12px;">
+          <div class="empty">Sélectionnez un prompt dans la liste ci-dessus.</div>
+        </div>
+      </div>
+    </div>
+  </div><!-- #creation-prompts -->
 
 </div><!-- #creation-view -->
 
@@ -3107,6 +3125,14 @@ const CREATION_TABS = {
     primaryAction: null, // append-only by design — rows never created here
     slots: [{ id: 'filters', containerId: 'creation-shell-extra', loader: null, onSelect: null }],
   },
+  prompts: {
+    label: 'Prompts',
+    archetype: 'bespoke',
+    containers: ['creation-prompts'],
+    loader: promptsLoadList,
+    state: { onTabEnter: null, onWorldSwitch: _promptsWorldReset },
+    primaryAction: null, // read-only, creator management surface (BRIEF-0008-b)
+  },
 };
 
 /** Runs a registry entry's activation work — the single path used by BOTH
@@ -3514,6 +3540,210 @@ async function loadCreationArtefacts() {
       </div>`).join('') + '</div>';
   } catch (_) {
     listEl.innerHTML = CREATION_ARTEFACTS_NOTICE + '<div class="empty">Aucun artefact disponible.</div>';
+  }
+}
+
+/* ── Prompts (BRIEF-0008-b) — read-only master list + one detail at a time ──
+ * promptsUsages holds GET /api/prompts's raw response (no template bodies —
+ * lazy, D1). promptsSelectedId is client-side highlight state only; nothing
+ * here persists across a reload or world switch (no-draft-persistence
+ * doctrine, same as the rest of the cockpit). */
+let promptsUsages = [];
+let promptsSelectedId = null;
+
+function _promptsWorldReset() {
+  promptsUsages = [];
+  promptsSelectedId = null;
+}
+
+async function promptsLoadList() {
+  const listEl = document.getElementById('prompts-list-body');
+  listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  document.getElementById('prompts-detail-body').innerHTML =
+    '<div class="empty">Sélectionnez un prompt dans la liste ci-dessus.</div>';
+  promptsSelectedId = null;
+  try {
+    const data = await api('/api/prompts');
+    promptsUsages = data.usages || [];
+    listEl.innerHTML = _promptsRenderList(promptsUsages);
+  } catch (e) {
+    listEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function _promptsRenderList(usages) {
+  if (!usages.length) return '<div class="empty">Aucun prompt enregistré.</div>';
+  const bySurface = { play: [], authoring: [] };
+  usages.forEach(u => (bySurface[u.surface] || bySurface.authoring).push(u));
+  const section = (title, group) => {
+    if (!group.length) return '';
+    return `<div class="field-section-title" style="margin-top:10px">${esc(title)}</div>`
+      + '<div class="row-table">' + group.map(u => _promptsRenderUsageCard(u)).join('') + '</div>';
+  };
+  return section('Play', bySurface.play) + section('Création', bySurface.authoring);
+}
+
+function _promptsRenderUsageCard(u) {
+  const rows = (u.rows || []).map(r => `
+    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between;
+                                  flex-wrap:wrap; gap:6px; cursor:pointer; ${r.id === promptsSelectedId ? 'border-color:var(--accent)' : ''}"
+         onclick="promptsSelectDetail('${r.id}')">
+      <span style="font-weight:600; min-width:140px;">${esc(r.name)}</span>
+      <span class="badge b-other">v${r.version}</span>
+      <span class="badge ${r.is_active ? 'b-other' : ''}" style="${r.is_active ? '' : 'opacity:.5'}">${r.is_active ? 'actif' : 'inactif'}</span>
+      <span class="badge b-other">${r.world_id ? 'monde' : 'global'}</span>
+      ${r.id === u.effective_id ? '<span class="badge b-other" style="border-color:var(--accent); color:var(--accent)">effectif</span>' : ''}
+      ${r.model ? `<span class="badge b-other" title="override">${esc(r.model)}</span>` : ''}
+    </div>`).join('');
+  return `
+    <div class="row-card" style="gap:6px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;">
+        <span style="font-weight:700;">${esc(u.usage)}</span>
+        <span class="badge b-other" title="Modèle effectif pour le monde actif">${esc(u.effective_model || '—')}</span>
+      </div>
+      <div class="row-table">${rows}</div>
+    </div>`;
+}
+
+/** {token} scan — regex-only, no eval; used both for highlighting and for
+ * declared/actual variable drift detection (display-only, per Scope IN 4). */
+function _promptsExtractTokens(text) {
+  const found = new Set();
+  (text || '').replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (_m, name) => { found.add(name); return _m; });
+  return found;
+}
+
+function _promptsHighlightTokens(text) {
+  return esc(text || '').replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, '<mark>{$1}</mark>');
+}
+
+async function promptsSelectDetail(promptId) {
+  promptsSelectedId = promptId;
+  document.getElementById('prompts-list-body').innerHTML = _promptsRenderList(promptsUsages);
+  const detailEl = document.getElementById('prompts-detail-body');
+  detailEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  try {
+    const d = await api(`/api/prompts/${promptId}`);
+    detailEl.innerHTML = _promptsRenderDetail(d);
+    if (d.dry_run_capable) _promptsPopulateEntitySelectors();
+    detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {
+    detailEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function _promptsRenderDetail(d) {
+  const declared = new Set(Array.isArray(d.variables) ? d.variables : []);
+  const actual = new Set([..._promptsExtractTokens(d.system_prompt), ..._promptsExtractTokens(d.user_template)]);
+  const missingFromDeclared = [...actual].filter(t => !declared.has(t));
+  const missingFromText = [...declared].filter(t => !actual.has(t));
+  const driftHtml = (missingFromDeclared.length || missingFromText.length) ? `
+    <div class="empty" style="text-align:left; border:1px solid var(--border); border-radius:var(--radius); padding:8px;">
+      ${missingFromDeclared.length ? `<div>Présents dans le texte, absents de <code>variables</code> : ${missingFromDeclared.map(esc).join(', ')}</div>` : ''}
+      ${missingFromText.length ? `<div>Déclarés dans <code>variables</code>, absents du texte : ${missingFromText.map(esc).join(', ')}</div>` : ''}
+    </div>` : '';
+
+  const callSites = (d.call_sites || []).map(s => `<li><code>${esc(s)}</code></li>`).join('');
+
+  const previewPanel = d.dry_run_capable ? _promptsRenderPreviewPanel(d.usage) : '';
+
+  return `
+    <div class="field-section-title">${esc(d.name)} <span style="font-weight:400; color:var(--muted)">(${esc(d.usage)})</span></div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
+      v${d.version} · ${d.is_active ? 'actif' : 'inactif'} · ${d.world_id ? 'monde' : 'global'} ·
+      ${d.is_effective ? '<b style="color:var(--accent)">effectif</b>' : `masqué par ${shortId(d.shadowed_by)}`} ·
+      modèle effectif : <b>${esc(d.effective_model)}</b>${d.model ? ` (override : ${esc(d.model)})` : ''}
+    </div>
+    <div class="field-section-title">Call sites</div>
+    <ul style="margin:0 0 10px 18px; font-size:12px;">${callSites}</ul>
+    <div class="field-section-title">System prompt</div>
+    <pre style="white-space:pre-wrap; font-size:12px; background:var(--card); border:1px solid var(--border);
+                border-radius:var(--radius); padding:8px; max-height:220px; overflow-y:auto;">${_promptsHighlightTokens(d.system_prompt)}</pre>
+    <div class="field-section-title">User template</div>
+    <pre style="white-space:pre-wrap; font-size:12px; background:var(--card); border:1px solid var(--border);
+                border-radius:var(--radius); padding:8px; max-height:220px; overflow-y:auto;">${_promptsHighlightTokens(d.user_template)}</pre>
+    ${driftHtml}
+    ${previewPanel}
+  `;
+}
+
+function _promptsRenderPreviewPanel(usage) {
+  if (usage === 'npc_dialogue') {
+    return `
+      <div class="field-section-title" style="margin-top:10px">Preview assemblée</div>
+      <div class="field-grid">
+        <div class="field-row">
+          <label for="prompts-preview-npc">NPC</label>
+          <select id="prompts-preview-npc"><option value="">—</option></select>
+        </div>
+        <div class="field-row">
+          <label for="prompts-preview-pc">Interlocuteur (PJ)</label>
+          <select id="prompts-preview-pc"><option value="">—</option></select>
+        </div>
+      </div>
+      <div style="margin:8px 0;">
+        <button class="btn-send" onclick="promptsRunAssembledPreview('npc_dialogue')">Preview assemblée</button>
+      </div>
+      <div id="prompts-preview-output"></div>
+    `;
+  }
+  if (usage === 'player_narration') {
+    return `
+      <div class="field-section-title" style="margin-top:10px">Preview assemblée</div>
+      <div class="field-grid">
+        <div class="field-row">
+          <label for="prompts-preview-pc">Personnage joueur</label>
+          <select id="prompts-preview-pc"><option value="">—</option></select>
+        </div>
+      </div>
+      <div style="margin:8px 0;">
+        <button class="btn-send" onclick="promptsRunAssembledPreview('player_narration')">Preview assemblée</button>
+      </div>
+      <div id="prompts-preview-output"></div>
+    `;
+  }
+  return '';
+}
+
+async function _promptsPopulateEntitySelectors() {
+  try {
+    const entities = await api('/api/entities?type=character');
+    const npcSel = document.getElementById('prompts-preview-npc');
+    const pcSel  = document.getElementById('prompts-preview-pc');
+    if (npcSel) {
+      entities.filter(e => !playerCharIds.has(e.id)).forEach(e => {
+        npcSel.insertAdjacentHTML('beforeend', `<option value="${e.id}">${esc(e.name)}</option>`);
+      });
+    }
+    if (pcSel) {
+      entities.filter(e => playerCharIds.has(e.id)).forEach(e => {
+        pcSel.insertAdjacentHTML('beforeend', `<option value="${e.id}">${esc(e.name)}</option>`);
+      });
+    }
+  } catch (_) { /* selectors stay empty on failure — preview button will just 400 */ }
+}
+
+async function promptsRunAssembledPreview(usage) {
+  const outEl = document.getElementById('prompts-preview-output');
+  const pcId = document.getElementById('prompts-preview-pc').value;
+  if (!pcId) { outEl.innerHTML = '<div class="empty">Choisissez un personnage joueur.</div>'; return; }
+  const params = new URLSearchParams({ pc_id: pcId });
+  if (usage === 'npc_dialogue') {
+    const npcId = document.getElementById('prompts-preview-npc').value;
+    if (!npcId) { outEl.innerHTML = '<div class="empty">Choisissez un NPC.</div>'; return; }
+    params.set('npc_id', npcId);
+  }
+  outEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  try {
+    const data = await api(`/api/prompts/preview/${usage}?${params.toString()}`);
+    const body = usage === 'npc_dialogue'
+      ? data.system_prompt
+      : `${data.system_prompt}\n\n=== CONTEXTE MJ ASSEMBLÉ ===\n${data.mj_context_rendered}`;
+    outEl.innerHTML = `<pre style="white-space:pre-wrap; font-size:12px; background:var(--card);
+      border:1px solid var(--border); border-radius:var(--radius); padding:8px;
+      max-height:340px; overflow-y:auto;">${esc(body)}</pre>`;
+  } catch (e) {
+    outEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
 }
 

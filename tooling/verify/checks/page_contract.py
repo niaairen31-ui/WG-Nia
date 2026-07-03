@@ -10,7 +10,7 @@ INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
 
 TAB_KEYS = [
     "npc", "pj", "lieux", "factions", "objets",
-    "competences", "region", "artefacts", "registre", "queue",
+    "competences", "region", "artefacts", "registre", "queue", "prompts",
 ]
 
 

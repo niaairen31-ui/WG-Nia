@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0008-prompt-management-tab",
+  "when": "2026-07-03T19:52:38.486686+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "prompt_registry.py",
+      "status": "PASS",
+      "msg": "PASS: prompt_registry \u2014 usage bijection, registry entry shape, static resolver wiring, effective_model pure-function behavior"
+    },
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u2014 CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.66
+Current schema version: v1.67
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -856,12 +856,17 @@ CREATE TABLE prompt_template (
                    -- conversation_analysis | mj_interpretation |
                    -- overhearing_classification | mj_arbitration |
                    -- mj_establishment | entity_generation | region_manifest |
-                   -- other
+                   -- mj_gathering | mj_speaker_selection | mj_initiative |
+                   -- npc_initiative_act | world_generation | player_generation |
+                   -- skill_catalogue | region_manifest_topup | other
   system_prompt    TEXT NOT NULL,
   user_template    TEXT NOT NULL,   -- user message template (with variables)
   variables        JSON,            -- expected variable list
   destination      TEXT DEFAULT 'local',
                    -- local | claude_api | both
+  model            TEXT,            -- NULL = code decides (default_model);
+                   -- non-NULL = creator override, consumed by
+                   -- prompt_registry.effective_model (BRIEF-0008-a, v1.67)
   version          INTEGER DEFAULT 1,
   is_active        BOOLEAN DEFAULT TRUE,
   notes            TEXT,
