@@ -3,7 +3,7 @@ id: TICKET-0010
 slug: claude-md-contract
 title: CLAUDE.md optimization + structural freshness contract
 type: maintenance
-status: exec
+status: live-gate
 created: 2026-07-04
 model_lane: { intake: opus, recon: opus-chat, exec: sonnet, verify: sonnet }
 danger_class: []
