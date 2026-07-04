@@ -59,4 +59,5 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 3885 | SOUMETTRE FILE UPLOAD — per-channel detection authority (BRIEF-0007, no schema change) | BRIEF-0007 |  |
 | 3934 | PROMPT MODEL COLUMN + REGISTRY (BRIEF-0008-a, schema v1.67) | BRIEF-0008-a | v1.67 |
 | 4008 | PROMPTS TAB — read-only reader, API, dry-run previews (BRIEF-0008-b, no schema change) | BRIEF-0008-b |  |
-| 4046 | Deferred decisions |  |  |
+| 4046 | PROMPT MODEL SELECTION — write path (BRIEF-0009-a, no schema change) | BRIEF-0009-a |  |
+| 4104 | Deferred decisions |  |  |

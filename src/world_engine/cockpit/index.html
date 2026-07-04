@@ -3551,9 +3551,29 @@ async function loadCreationArtefacts() {
 let promptsUsages = [];
 let promptsSelectedId = null;
 
+// Live Ollama model list (BRIEF-0009-a) — client view-state only, never
+// persisted server-side; refetched on every sub-tab entry and detail open.
+let promptsOllamaModels = null;  // null = unknown/unreachable; [] = reachable, empty
+let promptsOllamaError = null;
+let promptsCurrentDetail = null;
+
 function _promptsWorldReset() {
   promptsUsages = [];
   promptsSelectedId = null;
+  promptsOllamaModels = null;
+  promptsOllamaError = null;
+  promptsCurrentDetail = null;
+}
+
+async function _promptsFetchOllamaModels() {
+  try {
+    const data = await api('/api/ollama/models');
+    promptsOllamaModels = data.models || [];
+    promptsOllamaError = null;
+  } catch (e) {
+    promptsOllamaModels = null;
+    promptsOllamaError = e.message;
+  }
 }
 
 async function promptsLoadList() {
@@ -3562,6 +3582,7 @@ async function promptsLoadList() {
   document.getElementById('prompts-detail-body').innerHTML =
     '<div class="empty">Sélectionnez un prompt dans la liste ci-dessus.</div>';
   promptsSelectedId = null;
+  await _promptsFetchOllamaModels();
   try {
     const data = await api('/api/prompts');
     promptsUsages = data.usages || [];
@@ -3594,6 +3615,9 @@ function _promptsRenderUsageCard(u) {
       <span class="badge b-other">${r.world_id ? 'monde' : 'global'}</span>
       ${r.id === u.effective_id ? '<span class="badge b-other" style="border-color:var(--accent); color:var(--accent)">effectif</span>' : ''}
       ${r.model ? `<span class="badge b-other" title="override">${esc(r.model)}</span>` : ''}
+      ${r.model && promptsOllamaModels && !promptsOllamaModels.includes(r.model)
+        ? '<span class="badge b-other" style="border-color:#c33; color:#c33;" title="Ce modèle n\'est plus installé dans Ollama">⚠ modèle absent</span>'
+        : ''}
     </div>`).join('');
   return `
     <div class="row-card" style="gap:6px;">
@@ -3622,13 +3646,79 @@ async function promptsSelectDetail(promptId) {
   document.getElementById('prompts-list-body').innerHTML = _promptsRenderList(promptsUsages);
   const detailEl = document.getElementById('prompts-detail-body');
   detailEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  await _promptsFetchOllamaModels();
   try {
     const d = await api(`/api/prompts/${promptId}`);
+    promptsCurrentDetail = d;
     detailEl.innerHTML = _promptsRenderDetail(d);
     if (d.dry_run_capable) _promptsPopulateEntitySelectors();
     detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {
     detailEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+/** Model selector for the detail panel (BRIEF-0009-a). Falls back to a
+ * read-only display when the live list is unreachable (503) — no empty
+ * dropdown, no silent degradation. */
+function _promptsRenderModelSelector(d) {
+  if (promptsOllamaError) {
+    return `
+      <div class="empty" style="text-align:left; border:1px solid var(--border); border-radius:var(--radius); padding:8px; margin-bottom:8px; color:#c33;">
+        ⚠ ${esc(promptsOllamaError)}
+      </div>
+      <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
+        modèle effectif : <b>${esc(d.effective_model)}</b>${d.model ? ` (override : ${esc(d.model)})` : ''}
+      </div>`;
+  }
+  const models = promptsOllamaModels || [];
+  const absent = !!d.model && !models.includes(d.model);
+  const options = [
+    `<option value="" ${d.model ? '' : 'selected'}>Défaut (${esc(d.default_model || '—')})</option>`,
+    ...models.map(m => `<option value="${esc(m)}" ${d.model === m ? 'selected' : ''}>${esc(m)}</option>`),
+  ];
+  if (absent) {
+    options.push(`<option value="${esc(d.model)}" selected disabled>⚠ ${esc(d.model)} (absent)</option>`);
+  }
+  return `
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+      <select id="prompts-model-select" onchange="promptsChangeModel('${d.id}', this.value)">
+        ${options.join('')}
+      </select>
+      ${absent ? '<span class="badge b-other" style="border-color:#c33; color:#c33;">⚠ modèle absent</span>' : ''}
+      <span id="prompts-model-error" style="color:#c33; font-size:12px;"></span>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
+      modèle effectif : <b>${esc(d.effective_model)}</b>
+    </div>`;
+}
+
+/** PATCH model override for the currently-shown detail row, then re-render
+ * from the response alone (no refetch of the full detail — C3). */
+async function promptsChangeModel(promptId, value) {
+  const errEl = document.getElementById('prompts-model-error');
+  const selectEl = document.getElementById('prompts-model-select');
+  const prevValue = promptsCurrentDetail && promptsCurrentDetail.model ? promptsCurrentDetail.model : '';
+  try {
+    const updated = await api(`/api/prompts/${promptId}/model`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: value === '' ? null : value }),
+    });
+    if (promptsCurrentDetail && promptsCurrentDetail.id === promptId) {
+      promptsCurrentDetail.model = updated.model;
+      promptsCurrentDetail.effective_model = updated.effective_model;
+      document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
+      if (promptsCurrentDetail.dry_run_capable) _promptsPopulateEntitySelectors();
+    }
+    for (const u of promptsUsages) {
+      const row = (u.rows || []).find(r => r.id === promptId);
+      if (row) row.model = updated.model;
+    }
+    document.getElementById('prompts-list-body').innerHTML = _promptsRenderList(promptsUsages);
+  } catch (e) {
+    if (errEl) errEl.textContent = e.message;
+    if (selectEl) selectEl.value = prevValue;
   }
 }
 
@@ -3651,9 +3741,10 @@ function _promptsRenderDetail(d) {
     <div class="field-section-title">${esc(d.name)} <span style="font-weight:400; color:var(--muted)">(${esc(d.usage)})</span></div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
       v${d.version} · ${d.is_active ? 'actif' : 'inactif'} · ${d.world_id ? 'monde' : 'global'} ·
-      ${d.is_effective ? '<b style="color:var(--accent)">effectif</b>' : `masqué par ${shortId(d.shadowed_by)}`} ·
-      modèle effectif : <b>${esc(d.effective_model)}</b>${d.model ? ` (override : ${esc(d.model)})` : ''}
+      ${d.is_effective ? '<b style="color:var(--accent)">effectif</b>' : `masqué par ${shortId(d.shadowed_by)}`}
     </div>
+    <div class="field-section-title">Modèle</div>
+    ${_promptsRenderModelSelector(d)}
     <div class="field-section-title">Call sites</div>
     <ul style="margin:0 0 10px 18px; font-size:12px;">${callSites}</ul>
     <div class="field-section-title">System prompt</div>
