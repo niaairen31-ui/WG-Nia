@@ -4101,6 +4101,70 @@ sole resolver every templated call site routes through.
 allowlist grep guard, alongside the PATCH/list behavioral assertions
 (stubbed `ping`, no live Ollama dependency).
 
+## CLAUDE.MD CONTRACT + ARTIFACT CONVENTION (BRIEF-0010-a, no schema change)
+
+TICKET-0010. CLAUDE.md had grown to 1366 lines / 107 KB — a ~25K-token tax
+on every Claude Code session — with `### File structure` alone at 916
+lines (67%): a brief-by-brief annotated tree duplicating this registry and
+the schema changelog, going stale on every chantier, and simultaneously
+incomplete (it omitted `tooling/`, `.claude/`, `prompt_registry.py`,
+`writes.py`, `backup.py`, the second cockpit, and pointed at
+`verify/checks/` instead of the real `tooling/verify/checks/`). The
+existing freshness rule — "step closure keeps this file consistent" — was
+disciplinary and demonstrably failed; this brief makes it structural.
+
+**A1 (bare file-structure tree).** `### File structure` is now one line
+per file, role only, rebuilt from the real repo tree. History references
+(`BRIEF-NNNN`, `schema vX.YY`) are banned from the section by construction
+— `tooling/verify/checks/claude_md_contract.py`'s archaeology-ban
+assertion enforces zero matches for `BRIEF-` / `schema v` / `v\d+\.\d+`
+within it. Every file's brief-by-brief history stays exactly where it
+already lived: this registry and the schema changelog.
+
+**B1 (invariants kept, rewritten as law only).** All 33 pre-existing
+invariants survive (title-level, verified by diff during execution), plus
+two integrated from shipped reality: TICKET-0009's prompt-model write-path
+invariant, and corrected verify-check paths (`verify/checks/` ->
+`tooling/verify/checks/` throughout — the tree's actual location).
+Rationale, chantier narrative, and deferred alternatives for every
+invariant live here, in `ARCHITECTURE_DECISIONS.md`, never in CLAUDE.md
+itself.
+
+**C1 (structural freshness contract).** New deterministic check
+`tooling/verify/checks/claude_md_contract.py` — no live dependency, same
+harness conventions as its siblings — asserts, every `/verify` run wired
+to it: (1) the H2 section whitelist is exact and ordered (`What this is`
+through `Conventions`), with the H3 whitelist under `Conventions` (`File
+structure`, `Naming`, `Schema fidelity rules`, `How to run / test`)
+checked the same way; (2) total file <= 500 lines, `### File structure`
+<= 80 lines; (3) the archaeology ban, scoped to `### File structure`
+only — governance sections legitimately reference `BRIEF-NNNN` forms, so
+the ban does not apply file-wide; (4) pointer freshness — every
+`tooling/...` path token mentioned anywhere in CLAUDE.md is tested against
+the real filesystem (`Path.exists()`), turning a moved/deleted reference
+into a red verify instead of a silent discovery. This is the file's actual
+"stays up to date" lever now, replacing the disciplinary sentence with a
+mechanical one.
+
+**D1 (chat-side authored, Claude Code replaces).** The replacement file
+was authored chat-side at content-constant law and delivered as a
+finished artifact; Claude Code's execution step was a byte-for-byte
+replace plus a required content-constancy review (diff old vs new,
+confirm every one of the 33+2 laws survives at title level) before
+committing — no editorial changes to the delivered wording; anything found
+missing would have escalated (D1-a) rather than being silently re-added.
+
+**T2 — artifact convention + pipeline-cockpit dormancy, folded in.**
+Tickets, RECONs, and briefs now arrive as `.md` files carrying their final
+real IDs in both filename and content (`TICKET-NNNN.md`, `RECON-NNNN.md`,
+`BRIEF-NNNN-a.md`) — no placeholder resolution step. Nia deposits
+artifacts into `tooling/tickets|recon|briefs` manually. The pipeline
+cockpit's deposit flow (BRIEF-0006-a) is dormant: its filename format
+proved too strict and its docs were not visible at deposit time in
+practice. The app stays in-tree, unmaintained, never routed to; reopening
+it is a future ticket with these two friction facts as its intake — not
+acted on here.
+
 ## Deferred decisions
 
 Recorded here so each is revisited deliberately rather than forgotten:
