@@ -58,6 +58,7 @@ from sqlmodel import Session as DbSession, select
 from ..db import get_session
 from ..gathering import close_open_memberships
 from ..ledger import get_balance, list_entries
+from ..ollama_client import OllamaError, ping
 from ..models import (
     BASE_SKILL_DOMAINS,
     Character,
@@ -1662,6 +1663,58 @@ def get_prompt_detail(prompt_id: str, db: DbSession = Depends(get_session)) -> d
         "is_effective": is_effective,
         "shadowed_by": (effective_row.id if not is_effective and effective_row else None),
     }
+
+
+@router.get("/ollama/models")
+def list_ollama_models() -> dict:
+    """Live installed-model list (Création → Prompts selector) — thin wrapper
+    over `ollama_client.ping()`. No cache, no table, no sync."""
+    try:
+        models = ping()
+    except OllamaError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"models": models}
+
+
+class PromptModelBody(BaseModel):
+    model: Optional[str] = None
+
+
+@router.patch("/prompts/{prompt_id}/model")
+def update_prompt_model(
+    prompt_id: str, body: PromptModelBody, db: DbSession = Depends(get_session)
+) -> dict:
+    """Write path for `prompt_template.model` (W1) — writes `model` and
+    `updated_at` only; full template editing is Scope OUT. Fail-closed
+    validation (V1): a non-null value must be in the live Ollama tag list;
+    clearing the override (null) is always accepted, no `ping()` call."""
+    row = db.get(PromptTemplate, prompt_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Prompt template {prompt_id!r} not found")
+
+    value = (body.model or "").strip() or None
+    if value is not None:
+        try:
+            models = ping()
+        except OllamaError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        if value not in models:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Model {value!r} is not installed in Ollama.",
+            )
+
+    row.model = value
+    row.updated_at = datetime.now(UTC)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    spec = PROMPT_REGISTRY.get(row.usage)
+    default_model = spec.default_model() if spec else None
+    summary = _prompt_row_summary(row)
+    summary["effective_model"] = effective_model(row, default_model)
+    return summary
 
 
 __all__ = ["router", "ENTITY_TYPE_REGISTRY"]

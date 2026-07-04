@@ -1,0 +1,12 @@
+{
+  "ticket": "TICKET-0009",
+  "when": "2026-07-04T05:14:43.485978+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "prompt_model_write.py",
+      "status": "PASS",
+      "msg": "PASS: prompt model write path \u2014 PATCH null/valid/invalid/unknown, V1 fail-closed, GET /api/ollama/models, no second resolver, seed S-null"
+    }
+  ]
+}

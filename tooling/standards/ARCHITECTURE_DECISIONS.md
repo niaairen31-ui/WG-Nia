@@ -4043,6 +4043,64 @@ an assembler bug is a separate, unscoped concern.
 decision — no reader in code, so displaying it would show a routing
 promise the code does not keep.
 
+## PROMPT MODEL SELECTION — write path (BRIEF-0009-a, no schema change)
+
+TICKET-0009 — the write path `prompt_registry.py:9-11` said stayed
+unbuilt until "a write path ships". Schema: none — the nullable
+`prompt_template.model` column shipped in v1.67 (BRIEF-0008-a); this brief
+adds no column, no migration, no version bump.
+
+**S-null (seed stays NULL, reversing the intake's Q1-seed lock).**
+RECON-0009 flagged the intake's "seed explicit defaults" lock as refuted by
+BRIEF-0008-a's own design: `default_model` is a callable resolved at read
+time specifically so `WORLD_ENGINE_OLLAMA_MODEL` shows through for every
+NULL-model row. Materializing explicit names into seeded rows would sever
+that channel. `scripts/seed_pilot.py` is untouched; the dropdown's NULL
+option renders `Défaut (⟨resolved name⟩)` so visibility survives without
+materializing anything.
+
+**W1 (model-only write, no template editing).** `PATCH
+/api/prompts/{prompt_id}/model`, body `{"model": string | null}`
+(`cockpit/crud.py`, beside the existing read-only prompt routes). Writes
+`model` and `updated_at` only — full template text editing
+(`system_prompt`/`user_template`/`notes`/`is_active`/`version`) stays a
+separate, unscoped chantier. No `change_history` row: `prompt_template` is
+creator-CRUD state-setting territory, the same posture as every other
+creator-direct write (restated, not a new exception).
+
+**V1 (fail-closed validation).** A non-NULL value calls
+`ollama_client.ping()` first: `OllamaError` -> `503`, row untouched
+(setting an override requires Ollama running, deliberately — a model
+override is only meaningful if the model can be checked); a value absent
+from the live tag list -> `422` naming the value, row untouched. NULL is
+always accepted with **no** `ping()` call — clearing an override must work
+with Ollama down. `GET /api/ollama/models` (thin wrapper over `ping()`,
+same file) mirrors the same rule: `200 {"models": [...]}` on success,
+`503` with the error's own message on failure — never an empty-list
+masquerade that would look like "Ollama has zero models installed".
+
+**Badge semantics (C3) — visible truth, never silent fallback.** A stored
+`model` absent from the live list renders a `⚠ modèle absent` badge, both
+on the detail selector and on every master-list row — comparison is
+client-side against the one `GET /api/ollama/models` fetch held in cockpit
+view-state (`promptsOllamaModels`/`promptsOllamaError`, `index.html`),
+reset on every sub-tab entry and world switch, never persisted server-side.
+The stored-but-absent value renders as a marked, non-selectable `<option>`
+(re-saving it is refused server-side by V1 regardless). When the list
+endpoint itself is unreachable, the selector area shows the error and falls
+back to the prior read-only display — badges are simply not computed (no
+list to compare against), absence of signal rather than a wrong one.
+
+**No second resolver.** The write path adds no new model-dispatch reader:
+every `.model` reference in `crud.py` is either of the two pre-existing
+display reads (`_prompt_row_summary`, `get_prompt_detail`), the new write
+(`row.model = value`), or the new PATCH body field
+(`PromptModelBody.model`) — `prompt_registry.effective_model` remains the
+sole resolver every templated call site routes through.
+`verify/checks/prompt_model_write.py` enforces this with a line-level
+allowlist grep guard, alongside the PATCH/list behavioral assertions
+(stubbed `ping`, no live Ollama dependency).
+
 ## Deferred decisions
 
 Recorded here so each is revisited deliberately rather than forgotten:

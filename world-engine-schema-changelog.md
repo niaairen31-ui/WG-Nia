@@ -8,6 +8,12 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **BRIEF-0009-a** — No schema change. Write path for the `prompt_template.
+  model` column that shipped at v1.67 (BRIEF-0008-a): `PATCH
+  /api/prompts/{prompt_id}/model` (fail-closed validation against the live
+  Ollama tag list) and `GET /api/ollama/models`. Seeded rows stay `model =
+  NULL` (S-null).
+
 - **v1.67** — Additive column: `prompt_template.model TEXT NULL` (BRIEF-0008-a).
   NULL = code decides (the existing per-usage default); non-NULL = creator
   override, consumed by the new `prompt_registry.effective_model(template,

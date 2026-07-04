@@ -981,6 +981,21 @@ World-genrator/
 │           │                #   ledger.list_entries' new optional world_id param —
 │           │                #   the per-entity ledger route stays unchanged
 │           │                #   (transitively scoped via entity_id already)
+│           │                # Prompts (Création → Prompts): GET /api/prompts
+│           │                #   (master list) + GET /api/prompts/{id} (detail),
+│           │                #   read-only (BRIEF-0008-b); write path added
+│           │                #   BRIEF-0009-a, no schema change — GET
+│           │                #   /api/ollama/models (thin wrapper over
+│           │                #   ollama_client.ping(), 503 on OllamaError, never
+│           │                #   an empty-list masquerade) and PATCH
+│           │                #   /api/prompts/{prompt_id}/model (model-only
+│           │                #   write; NULL always accepted, no ping() call;
+│           │                #   non-NULL validated against the live tag list,
+│           │                #   fail-closed — ping() raising -> 503, value not
+│           │                #   installed -> 422; row untouched on either
+│           │                #   rejection); no change_history row (creator-CRUD
+│           │                #   state-setting posture, same as every other
+│           │                #   crud.py write)
 │           └── index.html   # single-page UI; MJ narration rendering;
 │                            # loadBootstrap (BRIEF-45, no schema change):
 │                            #   awaited FIRST in DOMContentLoaded, calls GET
@@ -1252,6 +1267,26 @@ World-genrator/
 │                            #   already does, and re-renders Play (loadScene,
 │                            #   loadPlayerName) for the now-active world; ok===false
 │                            #   leaves the modal open with the error shown
+│                            # Création → Prompts model selector (BRIEF-0009-a,
+│                            #   no schema change): the detail panel's static
+│                            #   "override" text is replaced by a `<select>`
+│                            #   (_promptsRenderModelSelector) fed by
+│                            #   GET /api/ollama/models, fetched into client
+│                            #   view-state (promptsOllamaModels/
+│                            #   promptsOllamaError — no persistence, reset on
+│                            #   world switch and on every sub-tab/detail entry,
+│                            #   same posture as promptsSelectedId); on change,
+│                            #   promptsChangeModel PATCHes
+│                            #   /api/prompts/{id}/model and re-renders from the
+│                            #   response alone; a stored override absent from
+│                            #   the live list renders a "⚠ modèle absent"
+│                            #   badge, both on the detail selector (as a
+│                            #   marked, non-selectable `<option>`) and on every
+│                            #   master-list row (_promptsRenderUsageCard); if
+│                            #   the list endpoint itself is unreachable, the
+│                            #   selector area shows the error and falls back
+│                            #   to the prior read-only display — no empty
+│                            #   dropdown, badges simply not computed
 ├── scripts/
 │   ├── init_db.py           # creates the SQLite file with every table + index
 │   ├── seed_pilot.py        # seeds Verkhaal world data + prompt templates (idempotent)
