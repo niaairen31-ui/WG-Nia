@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## TICKET-0010 — 2026-07-04 (no schema change)
+
+CLAUDE.md rewritten to a law-only, budgeted file (1366 -> 467 lines) with a structural freshness contract (`tooling/verify/checks/claude_md_contract.py`); see `tooling/standards/ARCHITECTURE_DECISIONS.md`.
+
 ## Addendum applicatif — 2026-06-09 (pas de bump de schéma)
 
 ### Initiative PNJ — Phase d'initiative dans /say (Palier 3, étape 1 — C1)

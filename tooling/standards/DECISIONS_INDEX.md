@@ -60,4 +60,5 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 3934 | PROMPT MODEL COLUMN + REGISTRY (BRIEF-0008-a, schema v1.67) | BRIEF-0008-a | v1.67 |
 | 4008 | PROMPTS TAB — read-only reader, API, dry-run previews (BRIEF-0008-b, no schema change) | BRIEF-0008-b |  |
 | 4046 | PROMPT MODEL SELECTION — write path (BRIEF-0009-a, no schema change) | BRIEF-0009-a |  |
-| 4104 | Deferred decisions |  |  |
+| 4104 | CLAUDE.MD CONTRACT + ARTIFACT CONVENTION (BRIEF-0010-a, no schema change) | BRIEF-0010-a |  |
+| 4168 | Deferred decisions |  |  |
