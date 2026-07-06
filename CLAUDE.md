@@ -312,6 +312,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   superseded by a re-seed. One substitution mechanic repo-wide: every
   call site uses chained `.replace()`, never `.format()` (H1).
   (`tooling/verify/checks/prompt_version.py` enforces.)
+- Affinity tiers are resolved in code (`context.py::_affinity_tier`); prompt templates never carry the tier table.
 
 ## Local model notes
 
