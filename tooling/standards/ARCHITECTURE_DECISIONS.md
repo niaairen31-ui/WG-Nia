@@ -4407,7 +4407,7 @@ tier resolver wired into `assemble_npc_context`, pricing text in exactly
 one place, the conversation-analysis example count/rubrics, and the
 region-manifest sync-note removal.
 
-## NPC GOALS — in-scene volition (BRIEF-0013-a, schema v1.69)
+## NPC GOALS — in-scene volition (BRIEF-0013-a, BRIEF-0013-b, schema v1.69)
 
 Nia's frustration: NPCs feel like they wait on the player's orders rather
 than pursuing their own agenda in-scene. TICKET-0013 covers only the
@@ -4472,12 +4472,62 @@ goals are not scoped. The character sheet gains an "Objectifs" block
 existing "Tarifs" block is (`currentCreationSubTab === 'npc'`) — no edit or
 reopen control exists, by design.
 
-**Scope OUT this brief** (BRIEF-0013-b/c): the `pt-npc-goals` generator and
-its three gates (region generation, existing-world backfill, single-NPC
-pre-fill); the initiative-vote signal; the `goal_change` mutation type
-(emit and apply sides); the dialogue-template directive. `_CANONICAL_TYPES`,
-`_apply_mutation`, `_signal_line`, and every prompt template are untouched
-this step.
+**Scope OUT BRIEF-0013-a** (shipped in BRIEF-0013-b, below, and BRIEF-0013-c):
+the `pt-npc-goals` generator and its three gates (region generation,
+existing-world backfill, single-NPC pre-fill); the initiative-vote signal;
+the `goal_change` mutation type (emit and apply sides); the dialogue-template
+directive. `_CANONICAL_TYPES`, `_apply_mutation`, `_signal_line`, and every
+prompt template stayed untouched in that step.
+
+**T1 (one generator, three gates) / M2 (cardinality).** `generate_npc_goals`
+(`entity_author.py`) — one function, one prompt template (`pt-npc-goals`,
+authoring model, `format="json"`) — is the sole path to model-authored
+goals, requesting exactly 1 long + 2 short goals per call. Pure
+generate-and-return, like every other `entity_author.py` generator: it
+writes no canon; every canon write happens at the caller via
+`writes.write_npc_goal`. Three callers share it: region generation (G1,
+per-NPC after the character draft succeeds, attached to
+`draft["public"]["goals"]` for the region review UI and written by
+`commit_region` Stage 3 in the SAME transaction as the NPC — an NPC and its
+goals are never separately observable), single-NPC creation pre-fill (L1,
+`/api/entities/generate` merges the block into the editable draft; the
+creator form holds it in `pendingDraftGoals` the same way BRIEF-24 holds
+`pendingDraftKnowledge`, POSTing each non-empty goal through the 0013-a
+endpoint right after the entity is created), and backfill (G2/P2, below). A
+goal-generation failure at any of the three gates degrades gracefully
+(a note, or a batch failure entry) — it never drops the NPC and never
+raises into the caller.
+
+**P2 (per-horizon backfill, no-overwrite).** `POST /api/npc-goals/backfill`
+(`cockpit/crud.py`), scoped to one NPC or unscoped (every `character_type
+== 'npc'`, `vital_status == 'alive'` NPC of the active world). Per NPC, the
+deficit is computed structurally — needs a long iff zero ACTIVE long goals,
+needs `2 - n` shorts iff `n < 2` ACTIVE shorts — and only the missing
+horizon(s) are requested and written; a fully-satisfied NPC triggers no
+model call at all. Idempotent by construction: a second run on an unchanged
+world writes zero rows (live-verified: an 11-NPC region commit followed by
+an unscoped backfill wrote 16 longs/32 shorts across the remaining deficits
+in one pass, then a second run reported zero). Surplus generator output for
+an already-satisfied horizon is discarded, never queued for a future run.
+
+**`faction.goals` gains its first reader (generator input only).** Dormant
+since schema v1.44 (BRIEF-33), `Faction.goals` is now read at three call
+sites — `region_author.py`'s Stage-3 NPC loop (via the local faction
+draft's `secret.goals`), `cockpit/app.py`'s `/api/entities/generate` (via a
+direct `db.get(Faction, faction_id)` on the draft's resolved faction), and
+`cockpit/crud.py`'s backfill (via the NPC's first public active
+membership) — feeding `generate_npc_goals`' `faction_goals` parameter only.
+This is deliberately NOT a prompt-injection path: no assembler reads
+`faction.goals` into any model-facing context. Injecting faction posture
+into NPC dialogue prompts remains its own, separately queued chantier.
+
+New verify wiring: `npc_goal_generation` registered in `PROMPT_REGISTRY`
+(authoring surface, `_author_model` default, `entity_author.py:
+_load_npc_goals_template` call site); `npc_goal_read.py`'s module allowlist
+extended with `cockpit/app.py` (the Stage-3 commit-side `write_npc_goal`
+calls) — `entity_author.py` and `region_author.py` deliberately need no
+entry, since both handle the goals block as a plain dict, never importing
+`NpcGoal`.
 
 ## Deferred decisions
 

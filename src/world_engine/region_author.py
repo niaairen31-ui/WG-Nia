@@ -32,7 +32,7 @@ from typing import Any
 
 from sqlmodel import Session, select
 
-from .entity_author import AUTHOR_MODEL, generate_entity_draft
+from .entity_author import AUTHOR_MODEL, generate_entity_draft, generate_npc_goals
 from .models import PromptTemplate, World
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
@@ -490,6 +490,15 @@ def generate_region_draft(manifest: dict, db: Session) -> dict:
     locations_by_name = {l["name"].strip().lower(): l for l in locations_in}
     factions_by_name = {f["name"].strip().lower(): f for f in factions_in}
 
+    # BRIEF-0013-b (G1): faction.goals per local_id, for generate_npc_goals'
+    # faction_goals input only — None when a faction draft's secret.goals is
+    # empty. `faction.goals` gains its first reader here, as generator INPUT
+    # only; prompt injection of faction posture remains a separate chantier.
+    faction_goals_by_local = {
+        f["local_id"]: (f["result"]["draft"]["secret"].get("goals") or None)
+        for f in factions_out
+    }
+
     # Stage 3 — NPCs.
     npcs_out: list[dict] = []
     for i, npc in enumerate(npcs_in):
@@ -528,6 +537,25 @@ def generate_region_draft(manifest: dict, db: Session) -> dict:
                 {"stage": "npc", "name": npc.get("name"), "reason": result.get("error")}
             )
             continue
+
+        # BRIEF-0013-b (G1): goals generated after the character draft
+        # succeeds, attached read-only to the draft for the region review UI.
+        # A goal-generation failure never drops the NPC — it ships without
+        # goals, noted.
+        pub = result["draft"]["public"]
+        goals_result = generate_npc_goals(
+            pub.get("name", ""),
+            pub.get("description", ""),
+            pub.get("backstory", ""),
+            faction_goals_by_local.get(fac_local) if fac_local else None,
+            db,
+        )
+        if goals_result.get("ok"):
+            pub["goals"] = {"long": goals_result.get("long", ""), "shorts": goals_result.get("shorts", [])}
+        else:
+            notes.append(
+                f"PNJ '{npc['name']}' — génération des objectifs échouée : {goals_result.get('error')}"
+            )
 
         local_id = f"npc-{i}"
         npcs_out.append(

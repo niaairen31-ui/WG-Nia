@@ -30,6 +30,7 @@ ALLOWED_MODULES = {
     "src/world_engine/writes.py",
     "src/world_engine/context.py",
     "src/world_engine/cockpit/crud.py",
+    "src/world_engine/cockpit/app.py",
     "scripts/migrate_v1_69_npc_goal.py",
     "tooling/verify/checks/npc_goal_read.py",
 }

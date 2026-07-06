@@ -38,6 +38,7 @@ from sqlmodel import Session, select
 
 from .. import ollama_client
 from ..entity_author import generate_entity_draft as _generate_entity_draft
+from ..entity_author import generate_npc_goals as _generate_npc_goals
 from ..entity_author import generate_player_draft as _generate_player_draft
 from ..entity_author import generate_skill_catalogue_draft as _generate_skill_catalogue_draft
 from ..entity_author import generate_world_draft as _generate_world_draft
@@ -67,6 +68,7 @@ from ..models import (
     ConversationMessage,
     DiscoverableDetail,
     Entity,
+    Faction,
     FactionMembership,
     Gathering,
     GatheringMember,
@@ -89,6 +91,7 @@ from ..writes import (
     knowledge_level_rank,
     write_knowledge,
     write_ledger_entry,
+    write_npc_goal,
     write_relation,
 )
 from . import crud as _crud
@@ -110,15 +113,40 @@ def generate_entity(
     body: EntityGenerateBody,
     db: Session = Depends(get_session),
 ) -> dict:
-    """Creator-side AI draft generator (BRIEF-24).
+    """Creator-side AI draft generator (BRIEF-24; L1 goals, BRIEF-0013-b).
 
     Deliberately NOT in crud.py: crud.py is a sanctioned canon-write path
     and this route writes nothing — keeping it in a separate router makes
-    that property legible. Calls only generate_entity_draft; performs no
-    write itself. Returns {"ok": false, "error": ...} (never a 500) on any
-    failure — see entity_author.generate_entity_draft.
+    that property legible. Calls only generate_entity_draft (+, for a
+    character draft, generate_npc_goals); performs no write itself. Returns
+    {"ok": false, "error": ...} (never a 500) on any failure — see
+    entity_author.generate_entity_draft.
+
+    L1 (BRIEF-0013-b): on a successful character draft, also calls
+    generate_npc_goals with the draft's public fields and the resolved
+    faction's `goals` (read-only query, None when unaffiliated) and merges
+    the result as `draft["public"]["goals"]`. A goal-generation failure never
+    fails the draft — it's appended to `notes` and the character draft ships
+    without goals.
     """
-    return _generate_entity_draft(body.entity_type, body.brief, db)
+    result = _generate_entity_draft(body.entity_type, body.brief, db)
+    if body.entity_type == "character" and result.get("ok"):
+        pub = result["draft"]["public"]
+        faction_goals = None
+        faction_id = pub.get("faction_id")
+        if faction_id:
+            faction = db.get(Faction, faction_id)
+            faction_goals = faction.goals if faction else None
+        goals_result = _generate_npc_goals(
+            pub.get("name", ""), pub.get("description", ""), pub.get("backstory", ""), faction_goals, db
+        )
+        if goals_result.get("ok"):
+            pub["goals"] = {"long": goals_result.get("long", ""), "shorts": goals_result.get("shorts", [])}
+        else:
+            result.setdefault("notes", []).append(
+                f"Génération des objectifs échouée : {goals_result.get('error')}"
+            )
+    return result
 
 
 @app.get("/api/prompts/preview/npc_dialogue")
@@ -419,6 +447,7 @@ def commit_region(
     loc_id_map: dict[str, str] = {}
     npc_id_map: dict[str, str] = {}
     committed = {"factions": [], "locations": [], "npcs": []}
+    world_id = _crud._world_id(db)
 
     try:
         # ── Stage 1 — factions ───────────────────────────────────────────
@@ -535,8 +564,29 @@ def commit_region(
                 )
                 _crud._create_knowledge_core(npc_entity.id, k_body, db)
 
+            # BRIEF-0013-b (G1): the goal block attached at draft time
+            # (region_author.generate_region_draft) writes here, in the SAME
+            # transaction as the NPC — malformed or absent writes nothing for
+            # that NPC, never blocks the rest of the commit.
+            goals = pub.get("goals")
+            if isinstance(goals, dict):
+                long_desc = (goals.get("long") or "").strip()
+                if long_desc:
+                    write_npc_goal(
+                        db, world_id=world_id, npc_id=npc_entity.id,
+                        description=long_desc, horizon="long", changed_by="creator",
+                    )
+                for short_desc in (goals.get("shorts") or []):
+                    short_desc = (short_desc or "").strip()
+                    if short_desc:
+                        write_npc_goal(
+                            db, world_id=world_id, npc_id=npc_entity.id,
+                            description=short_desc, horizon="short", changed_by="creator",
+                        )
+
         # ── Stage 4 — confirmed judgment links (BRIEF-37, chantier 3) ────
-        world_id = _crud._world_id(db)
+        # world_id computed once, above, before Stage 3 (BRIEF-0013-b needs
+        # it there too — same source, no re-derivation).
         committed_locations_by_name = {
             c["name"].strip().lower(): c["id"] for c in committed["locations"] if c.get("name")
         }

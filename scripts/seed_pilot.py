@@ -776,6 +776,38 @@ Intention du créateur : {brief}
 Brouillon JSON :\
 """
 
+# TICKET-0013/BRIEF-0013-b: NPC goal generator (T1). usage =
+# "npc_goal_generation". world_id = NULL. Calls go through
+# entity_author.generate_npc_goals, which writes no canon — pure
+# generate-and-return, one long + two short goals per call (M2).
+NPC_GOALS_SYSTEM_PROMPT = """\
+Tu es un assistant d'écriture pour un jeu de rôle. On te donne l'identité \
+d'un personnage non-joueur (PNJ). Tu produis ses objectifs personnels : \
+exactement 1 objectif à long terme et 2 objectifs à court terme.
+
+Règles :
+- L'objectif long terme est une ambition ou un désir profond, cohérent avec \
+l'identité et le passé du personnage.
+- Les objectifs court terme sont des intentions concrètes, actionnables dans \
+les jours qui viennent, au service de l'objectif long terme ou d'une \
+préoccupation immédiate.
+- Chaque objectif tient en UNE seule phrase, commençant par un verbe à \
+l'infinitif.
+- N'invente aucun nom propre absent des informations fournies.
+- Si des objectifs de faction sont fournis, le personnage peut y adhérer, \
+s'en écarter ou les subvertir — selon son caractère.
+
+Tu réponds UNIQUEMENT avec un objet JSON, sans texte autour :
+{"long": "…", "shorts": ["…", "…"]}\
+"""
+
+NPC_GOALS_USER_TEMPLATE = """\
+PNJ : {npc_name}
+Description : {npc_description}
+Passé : {npc_backstory}
+Objectifs de sa faction : {faction_goals}\
+"""
+
 # BRIEF-47: World-bible generator. usage = "world_generation". Creator-side
 # draft generator for a NEW world's premise — entity_author.generate_world_draft
 # formats this user_template with only {brief} (no {type_fields}: a world
@@ -1372,6 +1404,23 @@ def seed(session: Session) -> None:
         system_prompt=ENTITY_GENERATION_SYSTEM_PROMPT,
         user_template=ENTITY_GENERATION_USER_TEMPLATE,
         variables=["entity_type", "type_fields", "brief"],
+        destination="local",
+    )
+
+    # ----- prompt template: NPC goal generator (TICKET-0013/BRIEF-0013-b) ----
+    # usage = "npc_goal_generation". world_id = NULL. Calls go through
+    # entity_author.generate_npc_goals — pure generate-and-return, one long +
+    # two short goals (M2). Uses upsert so re-seeding converges non-text head
+    # fields; S2 discipline means text is written only on a virgin head.
+    upsert_prompt_template(
+        session,
+        "pt-npc-goals",
+        world_id=None,
+        name="NPC goals — génération 1 long + 2 courts (JSON)",
+        usage="npc_goal_generation",
+        system_prompt=NPC_GOALS_SYSTEM_PROMPT,
+        user_template=NPC_GOALS_USER_TEMPLATE,
+        variables=["npc_name", "npc_description", "npc_backstory", "faction_goals"],
         destination="local",
     )
 
