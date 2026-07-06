@@ -296,10 +296,22 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   NULL-model templates. `GET /api/ollama/models` is a thin `ping()`
   wrapper: explicit 503 on failure, never an empty-list masquerade.
   (`tooling/verify/checks/prompt_model_write.py` enforces.)
-- **`_npc_dialogue_system_prompt(behaviour, context)` in `cockpit/app.py`
+- **`_npc_dialogue_system_prompt(system_prompt, context)` in `cockpit/app.py`
   is the single npc_dialogue system-prompt construction:** every live call
   site and the Prompts tab's assembled preview call it — never a duplicated
   inline concatenation.
+- **Prompt text lives ONLY in the append-only `prompt_version` table**
+  (`prompt_template` is a head/identity row); "current" = `MAX(version_number)`
+  per head, no pointer column, no UPDATE/DELETE ever on `prompt_version`.
+  **`prompt_store.current_prompt`/`get_version`/`list_versions` is the sole
+  read path; `writes.write_prompt_version` is the sole write path**
+  (`PATCH /api/prompts/{id}/text`, the restore route, and the seed's
+  virgin-head path all route through it) — C1 fail-closed placeholder
+  validation on every write, restore included. The seed never touches text
+  once a head has any version (S2) — creator edits are never silently
+  superseded by a re-seed. One substitution mechanic repo-wide: every
+  call site uses chained `.replace()`, never `.format()` (H1).
+  (`tooling/verify/checks/prompt_version.py` enforces.)
 
 ## Local model notes
 
@@ -366,6 +378,7 @@ WG-Nia/
 │   ├── ledger.py            # ledger read helpers
 │   ├── writes.py            # shared canon-write helpers (both sanctioned paths)
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
+│   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)
 │   ├── entity_author.py     # AI authoring assistant (entities, PC, skill catalogue)
 │   ├── region_author.py     # region generation orchestrator (proposes names, no canon)
 │   └── cockpit/             # creator web UI (FastAPI + HTMX, port 8000, loopback)
@@ -430,8 +443,11 @@ WG-Nia/
   Switching to PostgreSQL/Supabase changes only this variable, never code.
 - **Initialize:** `python scripts/init_db.py` — idempotent.
 - **Seed:** `python scripts/seed_pilot.py` — Verkhaal world, NPCs,
-  relations, knowledge, prompt templates; idempotent; re-running converges
-  prompt wording via `upsert_prompt_template` without losing other data.
+  relations, knowledge, prompt templates; idempotent; `upsert_prompt_template`
+  writes prompt text (`prompt_version` v1) only on a virgin head — re-running
+  never touches text once a version exists (S2), and still converges
+  non-text head fields (name, variables, destination, notes, is_active)
+  without losing other data.
 - **Backup:** `python scripts/backup.py` — manual, SQLite online backup
   API, 2-file rotation to `~/.world_engine/backups/`.
 - **CLI conversation:** `python scripts/talk.py` (requires `ollama serve`).

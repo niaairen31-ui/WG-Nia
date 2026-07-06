@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.67
+Current schema version: v1.68
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -843,7 +843,9 @@ CREATE TABLE user (
 
 ### `prompt_template`
 
-The master prompts — accessible and editable by the creator.
+Head/identity row — accessible and editable by the creator. Text lives
+exclusively in `prompt_version` (schema v1.68, TICKET-0011); "current" =
+`MAX(version_number)` for the head, no pointer column.
 
 ```sql
 CREATE TABLE prompt_template (
@@ -859,19 +861,40 @@ CREATE TABLE prompt_template (
                    -- mj_gathering | mj_speaker_selection | mj_initiative |
                    -- npc_initiative_act | world_generation | player_generation |
                    -- skill_catalogue | region_manifest_topup | other
-  system_prompt    TEXT NOT NULL,
-  user_template    TEXT NOT NULL,   -- user message template (with variables)
   variables        JSON,            -- expected variable list
   destination      TEXT DEFAULT 'local',
                    -- local | claude_api | both
   model            TEXT,            -- NULL = code decides (default_model);
                    -- non-NULL = creator override, consumed by
                    -- prompt_registry.effective_model (BRIEF-0008-a, v1.67)
-  version          INTEGER DEFAULT 1,
   is_active        BOOLEAN DEFAULT TRUE,
   notes            TEXT,
   updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+```
+
+-----
+
+### `prompt_version`
+
+Append-only prompt text history (schema v1.68, TICKET-0011). No UPDATE, no
+DELETE, ever. The sole read path is `prompt_store.current_prompt`/
+`get_version`/`list_versions`; the sole write path is
+`writes.write_prompt_version`.
+
+```sql
+CREATE TABLE prompt_version (
+  id                  TEXT PRIMARY KEY,
+  prompt_template_id  TEXT NOT NULL REFERENCES prompt_template(id),
+  version_number      INTEGER NOT NULL,
+  system_prompt       TEXT NOT NULL,
+  user_template       TEXT NOT NULL,   -- user message template (with variables)
+  note                TEXT,            -- optional creator note; restore autofills
+  created_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_prompt_version_head_number
+  ON prompt_version(prompt_template_id, version_number);
+CREATE INDEX idx_prompt_version_head ON prompt_version(prompt_template_id);
 ```
 
 -----

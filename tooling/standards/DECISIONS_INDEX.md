@@ -61,4 +61,5 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 4008 | PROMPTS TAB — read-only reader, API, dry-run previews (BRIEF-0008-b, no schema change) | BRIEF-0008-b |  |
 | 4046 | PROMPT MODEL SELECTION — write path (BRIEF-0009-a, no schema change) | BRIEF-0009-a |  |
 | 4104 | CLAUDE.MD CONTRACT + ARTIFACT CONVENTION (BRIEF-0010-a, no schema change) | BRIEF-0010-a |  |
-| 4168 | Deferred decisions |  |  |
+| 4168 | PROMPT VERSIONING — append-only history, single accessor/write shape (BRIEF-0011-a, schema v1.68) | BRIEF-0011-a | v1.68 |
+| 4272 | Deferred decisions |  |  |

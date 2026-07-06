@@ -33,6 +33,7 @@ from world_engine import models as m  # noqa: E402
 from world_engine import ollama_client  # noqa: E402
 from world_engine.context import assemble_npc_context  # noqa: E402
 from world_engine.db import engine  # noqa: E402
+from world_engine.prompt_store import current_prompt  # noqa: E402
 
 WORLD_ID = "verkhaal"
 NPC_ID = "npc-maelis"
@@ -127,8 +128,9 @@ def main() -> None:
         # context. The model can only reveal what the context contains, and the
         # template hard-bans inventing anything beyond it.
         behaviour = load_npc_dialogue_prompt(db)
+        behaviour_version = current_prompt(db, behaviour)
         assembled_context = assemble_npc_context(NPC_ID, player_id, LOCATION_ID, db)
-        system_prompt = f"{behaviour.system_prompt}\n\n{assembled_context}"
+        system_prompt = f"{behaviour_version.system_prompt}\n\n{assembled_context}"
         conversation = m.Conversation(
             world_id=WORLD_ID,
             session_id=session_row.id,
@@ -142,7 +144,7 @@ def main() -> None:
                 "interlocutor_id": player_id,
                 "location_id": LOCATION_ID,
                 "prompt_template_id": behaviour.id,
-                "behaviour_prompt": behaviour.system_prompt,
+                "behaviour_prompt": behaviour_version.system_prompt,
                 "assembled_context": assembled_context,
                 "system_prompt": system_prompt,
             },

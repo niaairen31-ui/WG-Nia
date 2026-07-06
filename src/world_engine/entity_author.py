@@ -25,6 +25,7 @@ from .context import _SAFE_SUBCULTURE_KEYS
 from .models import BASE_SKILL_DOMAINS, Entity, PromptTemplate, World
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
+from .prompt_store import current_prompt
 from .writes import KNOWLEDGE_LEVELS
 
 _LOCATION_TYPES = ("city", "district", "building", "natural", "underground", "other")
@@ -394,17 +395,16 @@ def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
     if template is None:
         return {"ok": False, "error": "No active pt-entity-generation template found"}
 
-    try:
-        user_message = template.user_template.format(
-            entity_type=entity_type,
-            type_fields=_TYPE_FIELDS[entity_type],
-            brief=brief,
-        )
-    except (KeyError, IndexError) as exc:
-        return {"ok": False, "error": f"Template formatting failed: {exc}"}
+    version = current_prompt(db, template)
+    user_message = (
+        version.user_template
+        .replace("{entity_type}", entity_type)
+        .replace("{type_fields}", _TYPE_FIELDS[entity_type])
+        .replace("{brief}", brief)
+    )
 
     messages = [
-        {"role": "system", "content": template.system_prompt},
+        {"role": "system", "content": version.system_prompt},
         {"role": "user", "content": user_message},
     ]
 
@@ -523,13 +523,11 @@ def generate_world_draft(brief: str, db: Session) -> dict:
     if template is None:
         return {"ok": False, "error": "No active pt-world-generation template found"}
 
-    try:
-        user_message = template.user_template.format(brief=brief)
-    except (KeyError, IndexError) as exc:
-        return {"ok": False, "error": f"Template formatting failed: {exc}"}
+    version = current_prompt(db, template)
+    user_message = version.user_template.replace("{brief}", brief)
 
     messages = [
-        {"role": "system", "content": template.system_prompt},
+        {"role": "system", "content": version.system_prompt},
         {"role": "user", "content": user_message},
     ]
 
@@ -612,13 +610,11 @@ def generate_player_draft(brief: str, db: Session) -> dict:
     if template is None:
         return {"ok": False, "error": "No active pt-player-generation template found"}
 
-    try:
-        user_message = template.user_template.format(brief=brief)
-    except (KeyError, IndexError) as exc:
-        return {"ok": False, "error": f"Template formatting failed: {exc}"}
+    version = current_prompt(db, template)
+    user_message = version.user_template.replace("{brief}", brief)
 
     messages = [
-        {"role": "system", "content": template.system_prompt},
+        {"role": "system", "content": version.system_prompt},
         {"role": "user", "content": user_message},
     ]
 
@@ -700,13 +696,11 @@ def generate_skill_catalogue_draft(brief: str, db: Session) -> dict:
     if template is None:
         return {"ok": False, "error": "No active pt-skill-catalogue template found"}
 
-    try:
-        user_message = template.user_template.format(brief=brief)
-    except (KeyError, IndexError) as exc:
-        return {"ok": False, "error": f"Template formatting failed: {exc}"}
+    version = current_prompt(db, template)
+    user_message = version.user_template.replace("{brief}", brief)
 
     messages = [
-        {"role": "system", "content": template.system_prompt},
+        {"role": "system", "content": version.system_prompt},
         {"role": "user", "content": user_message},
     ]
 

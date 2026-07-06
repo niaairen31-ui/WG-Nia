@@ -1,0 +1,12 @@
+{
+  "ticket": "TICKET-0011",
+  "when": "2026-07-06T12:37:00.512319+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "prompt_version.py",
+      "status": "PASS",
+      "msg": "PASS: prompt_version schema, single accessor/write-shape allowlists, append-only, H1, and the versioned edit API (PATCH/versions/restore, C1 fail-closed)"
+    }
+  ]
+}

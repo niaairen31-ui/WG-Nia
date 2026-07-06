@@ -44,6 +44,7 @@ from .models import (
     PromptTemplate,
 )
 from .prompt_registry import effective_model
+from .prompt_store import current_prompt
 from .writes import knowledge_level_rank
 
 # Canonical mutation_type values (schema).
@@ -460,14 +461,15 @@ def analyze_overhearing(
     template = load_analysis_prompt(
         db, world_id=conv.world_id, usage="overhearing_classification"
     )
+    version = current_prompt(db, template)
     user_message = (
-        template.user_template
+        version.user_template
         .replace("{subject_list}", "\n".join(sorted(subject_set)))
         .replace("{player_line}", player_line)
         .replace("{npc_line}", npc_line)
     )
     llm_messages = [
-        {"role": "system", "content": template.system_prompt},
+        {"role": "system", "content": version.system_prompt},
         {"role": "user", "content": user_message},
     ]
     raw = ollama_client.chat(
@@ -732,17 +734,18 @@ def analyze_window(
         injected_ctx_str = "(aucun contexte enregistré)"
 
     template = load_analysis_prompt(db, world_id=conv.world_id)
+    version = current_prompt(db, template)
 
     # str.replace instead of .format() so transcript/context JSON (which
     # contain { and }) are inserted verbatim without escaping issues.
     user_message = (
-        template.user_template
+        version.user_template
         .replace("{transcript}", transcript)
         .replace("{injected_context}", injected_ctx_str)
     )
 
     llm_messages = [
-        {"role": "system", "content": template.system_prompt},
+        {"role": "system", "content": version.system_prompt},
         {"role": "user", "content": user_message},
     ]
 

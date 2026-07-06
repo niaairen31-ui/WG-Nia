@@ -775,7 +775,8 @@ class User(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
-# prompt_template  (creator-editable master prompts)
+# prompt_template  (creator-editable master prompts — head/identity row only;
+# text lives exclusively in `prompt_version`, schema vX.YY / TICKET-0011)
 # -----------------------------------------------------------------------------
 class PromptTemplate(SQLModel, table=True):
     __tablename__ = "prompt_template"
@@ -784,8 +785,6 @@ class PromptTemplate(SQLModel, table=True):
     world_id: Optional[str] = Field(default=None, foreign_key="world.id")
     name: str
     usage: str
-    system_prompt: str
-    user_template: str
     variables: Optional[Any] = Field(default=None, sa_column=Column(JSON))
     destination: str = Field(
         default="local",
@@ -794,14 +793,38 @@ class PromptTemplate(SQLModel, table=True):
     model: Optional[str] = Field(default=None)
     # NULL = code decides (default_model); non-NULL = creator override,
     # consumed by prompt_registry.effective_model (BRIEF-0008-a, schema v1.67).
-    version: int = Field(
-        default=1, sa_column_kwargs={"server_default": text("1")}
-    )
     is_active: bool = Field(
         default=True, sa_column_kwargs={"server_default": text("1")}
     )
     notes: Optional[str] = None
     updated_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
+# prompt_version  (append-only prompt text history, schema vX.YY / TICKET-0011)
+#
+# "Current" = MAX(version_number) per prompt_template_id — no pointer column
+# anywhere (A2). No UPDATE, no DELETE, ever (append-only by construction). The
+# ONLY read path is `prompt_store.current_prompt`/`get_version`/`list_versions`;
+# the ONLY write path is `writes.write_prompt_version`.
+# -----------------------------------------------------------------------------
+class PromptVersion(SQLModel, table=True):
+    __tablename__ = "prompt_version"
+    __table_args__ = (
+        Index(
+            "idx_prompt_version_head_number", "prompt_template_id", "version_number",
+            unique=True,
+        ),
+        Index("idx_prompt_version_head", "prompt_template_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    prompt_template_id: str = Field(foreign_key="prompt_template.id", nullable=False)
+    version_number: int
+    system_prompt: str
+    user_template: str
+    note: Optional[str] = None
+    created_at: datetime = _created_ts()
 
 
 __all__ = [
@@ -827,4 +850,5 @@ __all__ = [
     "DiscoverableDetail",
     "User",
     "PromptTemplate",
+    "PromptVersion",
 ]

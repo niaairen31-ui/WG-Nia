@@ -25,7 +25,8 @@ from sqlmodel import Session, select  # noqa: E402
 
 from world_engine import models as m  # noqa: E402
 from world_engine.db import engine  # noqa: E402
-from world_engine.writes import write_membership  # noqa: E402
+from world_engine.prompt_store import list_versions  # noqa: E402
+from world_engine.writes import write_membership, write_prompt_version  # noqa: E402
 
 WORLD_ID = "verkhaal"
 
@@ -122,21 +123,43 @@ def upsert_knowledge(session: Session, id: str, **fields):
     return obj
 
 
-def upsert_prompt_template(session: Session, id: str, **fields):
-    """Create or update a prompt template row.
+def upsert_prompt_template(
+    session: Session, id: str, *, system_prompt: str, user_template: str, **head_fields
+):
+    """Create or update a prompt template HEAD row; text lives in `prompt_version`.
 
-    Prompt wording is revised over time; re-seeding must converge the DB to
-    the latest text — same as upsert_knowledge does for knowledge rows.
-    Idempotent: a second run with unchanged content records nothing changed.
+    S2 (TICKET-0011, locked): a head absent -> create the head, then write v1
+    via `write_prompt_version`. A head already present with >= 1 version ->
+    NEVER touch text again (creator sovereignty is absolute — seed wording
+    improvements no longer propagate to an already-seeded DB). A head
+    present with ZERO versions is only reachable mid-bootstrap on a
+    pre-migration DB — abort with a clear message rather than guessing.
+
+    Non-text head fields (name, variables, destination, notes, is_active)
+    keep the pre-existing converge-on-diff behavior, unchanged.
     """
     obj = session.get(m.PromptTemplate, id)
     if obj is None:
-        obj = m.PromptTemplate(id=id, **fields)
+        obj = m.PromptTemplate(id=id, **head_fields)
         session.add(obj)
+        write_prompt_version(
+            session,
+            template_id=obj.id,
+            system_prompt=system_prompt,
+            user_template=user_template,
+            note="seed v1",
+        )
         _created.append((m.PromptTemplate.__tablename__, id))
         return obj
+
+    if not list_versions(session, obj.id):
+        raise SystemExit(
+            f"prompt_template {id!r} exists with zero prompt_version rows — "
+            "run scripts/migrate_v1_68_prompt_version.py before re-seeding."
+        )
+
     changed = False
-    for key, value in fields.items():
+    for key, value in head_fields.items():
         if getattr(obj, key) != value:
             setattr(obj, key, value)
             changed = True
@@ -1187,7 +1210,6 @@ def seed(session: Session) -> None:
         user_template="{player_line}",
         variables=["player_line", "relation_intensity"],
         destination="local",
-        version=2,
     )
 
     # ----- prompt template: NPC initiative act (Tier 3, C2) ------------------
@@ -1229,7 +1251,6 @@ def seed(session: Session) -> None:
             "inventory_line",
         ],
         destination="local",
-        version=4,
     )
 
     # ----- prompt template: MJ scene interpretation -------------------------
@@ -1253,7 +1274,6 @@ def seed(session: Session) -> None:
         user_template=MJ_INTERPRETATION_USER_TEMPLATE,
         variables=["npc_name", "location_name", "gathering_status", "item_list", "recent_transcript", "player_line"],
         destination="local",
-        version=6,
     )
 
     # ----- prompt template: MJ arbiter (physical resolution classification) --
@@ -1276,7 +1296,6 @@ def seed(session: Session) -> None:
         user_template=MJ_ARBITER_USER_TEMPLATE,
         variables=["player_line", "npc_list", "custom_skill_names"],
         destination="local",
-        version=3,
         notes=(
             "v3 (BRIEF-55, schema v1.63): domain selection widened to the "
             "world's custom skill catalogue — {custom_skill_names} filled at "
@@ -1303,7 +1322,6 @@ def seed(session: Session) -> None:
         user_template=MJ_ESTABLISHMENT_USER_TEMPLATE,
         variables=["location_name", "description", "subculture", "signposts"],
         destination="local",
-        version=1,
     )
 
     # ----- prompt template: MJ gathering (initial NPC clustering) ------------
@@ -1376,7 +1394,6 @@ def seed(session: Session) -> None:
         user_template=CONVERSATION_ANALYSIS_USER_TEMPLATE,
         variables=["transcript", "injected_context"],
         destination="local",
-        version=4,
     )
 
     # ----- prompt template: overhearing classification (Tier 4, step 2) -----
@@ -1410,7 +1427,6 @@ def seed(session: Session) -> None:
         user_template=ENTITY_GENERATION_USER_TEMPLATE,
         variables=["entity_type", "type_fields", "brief"],
         destination="local",
-        version=1,
     )
 
     # ----- prompt template: world-bible generator (BRIEF-47) -----------------
@@ -1428,7 +1444,6 @@ def seed(session: Session) -> None:
         user_template=WORLD_GENERATION_USER_TEMPLATE,
         variables=["brief"],
         destination="local",
-        version=1,
     )
 
     # ----- prompt template: PC creation assistant (BRIEF-52) -----------------
@@ -1446,7 +1461,6 @@ def seed(session: Session) -> None:
         user_template=PLAYER_GENERATION_USER_TEMPLATE,
         variables=["brief"],
         destination="local",
-        version=1,
     )
 
     # ----- prompt template: skill catalogue authoring (BRIEF-56) -------------
@@ -1464,7 +1478,6 @@ def seed(session: Session) -> None:
         user_template=SKILL_CATALOGUE_USER_TEMPLATE,
         variables=["brief"],
         destination="local",
-        version=1,
     )
 
     # ----- prompt template: region orchestrator manifest (BRIEF-34) ----------
@@ -1490,7 +1503,6 @@ def seed(session: Session) -> None:
         user_template=REGION_MANIFEST_USER_TEMPLATE,
         variables=["world_description", "world_fundamental_laws", "brief"],
         destination="local",
-        version=2,
     )
 
     # ----- prompt template: region manifest NPC top-up (BRIEF-40) ------------
@@ -1510,7 +1522,6 @@ def seed(session: Session) -> None:
         user_template=REGION_MANIFEST_TOPUP_USER_TEMPLATE,
         variables=["concept", "factions_block", "locations_block", "existing_npcs_block", "requests_block"],
         destination="local",
-        version=1,
     )
 
     # ----- factions (entity + faction) --------------------------------------
