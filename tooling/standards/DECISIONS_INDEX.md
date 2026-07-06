@@ -63,4 +63,5 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 4104 | CLAUDE.MD CONTRACT + ARTIFACT CONVENTION (BRIEF-0010-a, no schema change) | BRIEF-0010-a |  |
 | 4168 | PROMPT VERSIONING — append-only history, single accessor/write shape (BRIEF-0011-a, schema v1.68) | BRIEF-0011-a | v1.68 |
 | 4272 | COCKPIT PROMPT EDITING UI — edit mode, history, restore (BRIEF-0011-b, no schema change) | BRIEF-0011-b |  |
-| 4317 | Deferred decisions |  |  |
+| 4317 | PROMPT LEAN REWRITE — resolved facts over conditional instructions (BRIEF-0012-a, no schema change) | BRIEF-0012-a |  |
+| 4410 | Deferred decisions |  |  |

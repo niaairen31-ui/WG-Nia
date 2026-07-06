@@ -259,42 +259,14 @@ Decide the SIGN of intensity_delta by INTENT, not by surface similarity:
     overcome together → POSITIVE delta.
 
 Contrastive examples (sign only — ids/types illustrative):
-  - "[JOUEUR] grabs Korin by the collar and slams him against the wall"
+  - "[JOUEUR] grabs le PNJ by the collar and slams him against the wall"
     → relation_change, NEGATIVE delta.
-  - "[JOUEUR] pulls Bryn out of the way of the falling crate"
+  - "[JOUEUR] pulls le PNJ out of the way of the falling crate"
     → relation_change, POSITIVE delta.
-  - "[JOUEUR] shoves past the PNJ to reach the door, knocking the table over"
+  - "[JOUEUR] shoves past le PNJ to reach the door, knocking the table over"
     → relation_change, NEGATIVE delta.
 
 Only report changes that ACTUALLY happened in the transcript. Idle chat → [].
-
-=== EXAMPLE A (relation warms) ===
-Transcript:
-[PLAYER] I have been coming here for two years.
-[NPC] Two years, yes. I recognise you. You do not cause trouble. I appreciate that.
-Output:
-[{"mutation_type":"relation_change","target_table":"relation","target_id":"rel-maelis-player","payload":{"entity_a_id":"npc-maelis","entity_b_id":"char-player","relation_type":"passive_attention","intensity_delta":6},"rationale":"NPC explicitly recognised player and evaluated positively — trust warmed."}]
-
-=== EXAMPLE B (player learns fact) ===
-Transcript:
-[PLAYER] Is there sometimes an odd warmth in here?
-[NPC] A warmth, yes. For a few weeks now. I cannot explain it.
-Output:
-[{"mutation_type":"new_knowledge","target_table":"knowledge","target_id":null,"payload":{"entity_id":"char-player","subject":"local_magic_incidents","level":"rumor","content":"NPC confirmed an unexplained warmth in the tavern for several weeks.","source":"conversation with NPC"},"rationale":"NPC directly confirmed the warmth — player now has external corroboration."}]
-
-=== EXAMPLE C (multiple changes) ===
-Transcript:
-[PLAYER] I have been coming here for two years.
-[NPC] Two years, yes. I know you. Lately the Guard patrols more — some travellers vanish, they say.
-Output:
-[{"mutation_type":"relation_change","target_table":"relation","target_id":"rel-maelis-player","payload":{"entity_a_id":"npc-maelis","entity_b_id":"char-player","relation_type":"passive_attention","intensity_delta":5},"rationale":"NPC recognised player as a known, trustworthy patron."},{"mutation_type":"new_knowledge","target_table":"knowledge","target_id":null,"payload":{"entity_id":"char-player","subject":"guard_activity","level":"rumor","content":"Guard patrols have increased and some travellers have reportedly vanished.","source":"conversation with NPC"},"rationale":"NPC told the player about increased Guard patrols and disappearing travellers."}]
-
-=== EXAMPLE D (idle, nothing to record) ===
-Transcript:
-[PLAYER] A drink, please.
-[NPC] Here you go.
-Output:
-[]
 
 === ANTI-INFLATION RUBRIC (relation_change, multi-turn window) ===
 This transcript may span several turns and several NPCs. For relation_change:
@@ -313,17 +285,6 @@ This transcript may span several turns and several NPCs. For relation_change:
     4-8, a serious betrayal, rescue, or attack about 9-15. Do not pad deltas
     to make a window "feel" eventful — idle chat → [].
 
-=== EXAMPLE E (multi-turn window, routine exchange → nothing to record) ===
-Transcript:
-[PLAYER] Good evening.
-[NPC] Evening.
-[PLAYER] Could I get a room for the night?
-[NPC] Of course. Second door on the left.
-[PLAYER] Thank you, that's very kind.
-[NPC] It's my job, but you're welcome.
-Output:
-[]
-
 === RESOURCE_CHANGE RUBRIC ===
 resource_change — émets-en un UNIQUEMENT quand de la monnaie change
 réellement de main et que le SOLDE DU JOUEUR bouge : une somme a été
@@ -339,21 +300,39 @@ information, et que c'est le joueur (achat) ou un PNJ (le joueur vend une
 info) qui l'acquiert — `content` recopié de ce qui a été dit, jamais
 inventé.
 
-=== EXAMPLE F (player buys an information for a stated sum) ===
-Transcript:
-[PLAYER] I'll give you 15 coins for what you know about the Council.
-[NPC] Fifteen, fine. The Council is hiding one of its own members.
-[PLAYER] Here.
-[NPC] Pleasure doing business.
+=== EXEMPLE 1 (la relation se réchauffe) ===
+Transcript :
+[JOUEUR] Cela fait deux ans que je viens ici.
+[PNJ] Deux ans, oui. Je vous reconnais. Vous ne causez jamais d'ennuis. J'apprécie.
 Output:
-[{"mutation_type":"resource_change","target_table":"ledger","target_id":null,"payload":{"entity_id":"char-player","amount":-15,"counterparty_id":"npc-senna","reason":"achat d'une information sur le Conseil","knowledge":{"entity_id":"char-player","subject":"conseil_secret","level":"rumor","content":"Le Conseil cache un de ses membres.","source":"acheté à Senna","is_secret":false}},"rationale":"Player paid 15 coins, NPC stated the price and the information, the exchange concluded in the scene."}]
+[{"mutation_type":"relation_change","target_table":"relation","target_id":"rel-a-player","payload":{"entity_a_id":"npc-a","entity_b_id":"char-player","relation_type":"passive_attention","intensity_delta":6},"rationale":"Le PNJ a explicitement reconnu le joueur et l'a évalué positivement — la confiance se réchauffe."}]
 
-=== EXAMPLE G (pure money, no information — a drink) ===
-Transcript:
-[PLAYER] A round for everyone, on me. Here's 8 coins.
-[NPC] Much obliged.
+=== EXEMPLE 2 (le joueur apprend un fait) ===
+Transcript :
+[JOUEUR] On dit que des voyageurs disparaissent sur la route ?
+[PNJ] On le dit, oui. Les patrouilles ont doublé depuis un mois. Personne ne sait pourquoi.
 Output:
-[{"mutation_type":"resource_change","target_table":"ledger","target_id":null,"payload":{"entity_id":"char-player","amount":-8,"counterparty_id":"npc-tavern-keeper","reason":"tournée offerte"},"rationale":"Player handed over a stated sum, no information changed hands."}]"""
+[{"mutation_type":"new_knowledge","target_table":"knowledge","target_id":null,"payload":{"entity_id":"char-player","subject":"disparitions_route","level":"rumor","content":"Le PNJ confirme des rumeurs de disparitions et un doublement des patrouilles depuis un mois.","source":"conversation avec le PNJ"},"rationale":"Le PNJ a directement confirmé la rumeur — le joueur dispose maintenant d'une corroboration externe."}]
+
+=== EXEMPLE 3 (fenêtre multi-tours, échange banal → rien à enregistrer) ===
+Transcript :
+[JOUEUR] Bonsoir.
+[PNJ] Bonsoir.
+[JOUEUR] Une chambre pour la nuit, c'est possible ?
+[PNJ] Bien sûr. Deuxième porte à gauche.
+[JOUEUR] Merci, c'est aimable.
+[PNJ] C'est mon métier, mais je vous en prie.
+Output:
+[]
+
+=== EXEMPLE 4 (le joueur achète une information à prix convenu) ===
+Transcript :
+[JOUEUR] Je te donne 15 pièces pour ce que tu sais sur le Conseil.
+[PNJ] Quinze, d'accord. Le Conseil cache l'un de ses propres membres.
+[JOUEUR] Tiens.
+[PNJ] Plaisir de faire affaire.
+Output:
+[{"mutation_type":"resource_change","target_table":"ledger","target_id":null,"payload":{"entity_id":"char-player","amount":-15,"counterparty_id":"npc-b","reason":"achat d'une information sur le Conseil","knowledge":{"entity_id":"char-player","subject":"conseil_secret","level":"rumor","content":"Le Conseil cache l'un de ses propres membres.","source":"acheté au PNJ","is_secret":false}},"rationale":"Le joueur a payé 15 pièces, le PNJ a énoncé le prix et l'information, l'échange s'est conclu dans la scène."}]"""
 
 CONVERSATION_ANALYSIS_USER_TEMPLATE = """\
 NPC CONTEXT (what the NPC was authorised to know):
@@ -417,7 +396,7 @@ PIRE ERREUR QUE TU PEUX COMMETTRE.
 === RÈGLE 2 — TROISIÈME PERSONNE HORS GUILLEMETS ===
 Tout ce que tu ajoutes HORS des « » est à la troisième personne. Les actions, gestes \
 et postures du PNJ s'écrivent ainsi :
-  Correct   : Maelis hausse les épaules. / Elle jette un regard vers lui.
+  Correct   : Mira hausse les épaules. / Elle jette un regard vers lui.
   Interdit  : Je hausse les épaules. / Je jette un regard.
 EXCEPTION CRITIQUE : à l'intérieur des « », la première personne EST la parole du \
 personnage et doit rester intacte. Ne change jamais rien dans les guillemets — \
@@ -443,15 +422,15 @@ bloc, reste minimal (RÈGLE 3).
 
 Réplique brute du PNJ :
 Je hausse les épaules, un peu amusée. « Je sers mon propre intérêt, monsieur. \
-Le Dernier Verre est mon domaine. » Je jette un regard vers Reike.
+Cette taverne est mon domaine. » Je jette un regard vers un client.
 
 Bonne narration MJ :
-Maelis hausse les épaules, un rien amusée. « Je sers mon propre intérêt, monsieur. \
-Le Dernier Verre est mon domaine. » Elle jette un regard vers Reike, à l'autre bout \
-de la salle.
+Mira hausse les épaules, un rien amusée. « Je sers mon propre intérêt, monsieur. \
+Cette taverne est mon domaine. » Elle jette un regard vers un client, au fond de \
+la salle.
 
 Explication : les actions de la PNJ (« Je hausse », « Je jette ») sont converties à \
-la troisième personne (« Maelis hausse », « Elle jette ») ; le discours entre \
+la troisième personne (« Mira hausse », « Elle jette ») ; le discours entre \
 guillemets est reproduit VERBATIM, premier personne conservé à l'intérieur ; rien \
 n'est inventé ou supprimé ; le cadrage reste minimal.
 
@@ -552,8 +531,8 @@ QUAND INCERTAIN entre dialogue et les autres → dialogue (mieux qu'elle parle t
 
 Pour le mode join UNIQUEMENT, ajoute un champ "reference" : reprends tels quels
 les mots du joueur qui désignent le groupe visé (un nom de personne, une
-description de lieu ou d'activité — ex. « les deux près du feu », « Maelis et
-Korin », « ceux qui jouent aux cartes »). Pour le mode travel UNIQUEMENT, le
+description de lieu ou d'activité — ex. « les deux près du feu », « la
+patronne et le garde », « ceux qui jouent aux cartes »). Pour le mode travel UNIQUEMENT, le
 champ "reference" reprend tels quels les mots du joueur qui désignent la
 destination visée (ex. « la place du marché », « chez moi », « la sortie ») —
 ou laisse-le vide si aucune destination n'est nommée. Pour tous les autres
@@ -846,9 +825,9 @@ Brouillon JSON :\
 # backstory, knowledge[]. Never proposes skills, faction, starting location,
 # or a secret block — those stay creator-decided (B1/C1/D1).
 PLAYER_GENERATION_SYSTEM_PROMPT = """\
-Tu es l'assistant de création de personnage joueur de Verkhaal. À partir \
-d'un concept fourni par le créateur, tu proposes le brouillon d'UN \
-personnage joueur.
+Tu es l'assistant de création de personnage joueur du créateur d'un monde \
+de jeu de rôle. À partir d'un concept fourni par le créateur, tu proposes \
+le brouillon d'UN personnage joueur.
 
 Ta réponse est TOUJOURS un unique objet JSON, et rien d'autre — aucun texte \
 avant ou après, aucun bloc Markdown. L'objet a exactement ces clés :
@@ -931,6 +910,8 @@ Brouillon JSON :\
 # location enforcement, name resolution) before composing the atomic
 # generators across it. No counts are prescribed here or in code — density
 # is entirely the model's response to the brief.
+# The two "au moins 4" minimums inside this prompt MUST stay in sync with
+# MIN_NPCS_PER_FACTION / MIN_FACTIONLESS in region_author.py (BRIEF-40).
 REGION_MANIFEST_SYSTEM_PROMPT = """\
 Tu es l'assistant de création du créateur d'un monde de jeu de rôle. Le \
 créateur te donne une intention en quelques phrases pour une RÉGION entière ; \
@@ -970,8 +951,6 @@ au moins 4 PNJ dont le champ `faction_name` est exactement le nom de \
 cette faction.
 - La liste `npcs` doit aussi contenir au moins 4 PNJ sans faction \
 (`faction_name` = null).
-- (Ces deux valeurs — 4 et 4 — doivent rester synchronisées avec \
-MIN_NPCS_PER_FACTION / MIN_FACTIONLESS dans region_author.py, BRIEF-40.)
 - Ce sont des minimums : produis-en davantage si le brief le suggère, \
 jamais moins.
 - Chaque PNJ ajouté pour atteindre ces minimums respecte le format normal : \
@@ -1085,7 +1064,8 @@ Un de ces PNJ prend-il spontanément l'initiative ce tour ?\
 NPC_DIALOGUE_SYSTEM_PROMPT = """\
 Tu incarnes un personnage dans une conversation de jeu de rôle. Séparément, tu \
 reçois une fiche de contexte : qui tu es, où tu te trouves, ce que tu peux \
-évoquer, et comment tu vois ton interlocuteur. Ces règles priment sur tout le reste.
+évoquer, et comment tu vois ceux qui t'entourent. Ces règles priment sur tout \
+le reste.
 
 RÈGLE ABSOLUE — NE RIEN INVENTER.
 Tu ne connais QUE ce qui figure explicitement dans ta fiche de contexte. Tu ne \
@@ -1093,54 +1073,20 @@ dois JAMAIS inventer : ni personne, ni faction, groupe ou organisation, ni lieu,
 ni événement, ni nom, ni aucun fait qui ne soit pas écrit dans ta fiche. Aucun \
 nom propre fictif, jamais. Si l'on t'interroge sur quoi que ce soit qui n'est pas \
 dans ta fiche, tu l'admets simplement et sans détour (« je ne saurais vous dire », \
-« je ne suis qu'une tenancière », « ça, je n'en sais rien »). Tu ne spécules pas, \
-tu n'enjolives pas, tu n'inventes rien pour combler le silence. Mieux vaut avouer \
-que tu ne sais pas plutôt que de fabriquer une réponse.
+« ça, je n'en sais rien »). Tu ne spécules pas, tu n'enjolives pas, tu n'inventes \
+rien pour combler le silence. Mieux vaut avouer que tu ne sais pas plutôt que de \
+fabriquer une réponse.
 
-ATTITUDE SELON LA RELATION.
-Ton comportement dépend de l'intensité de ta relation envers l'interlocuteur \
-(échelle de 1 à 100, indiquée dans la section « COMMENT TU VOIS… » de ta fiche). \
-Si tu n'as aucun lien avec cette personne — « un visage de plus » —, considère la \
-relation comme neutre, environ 50. Adopte le palier correspondant :
-- En dessous de 30 (hostilité ou mépris) : interaction minimale, sec ; tu peux \
-refuser d'échanger ou les renvoyer.
-- De 30 à 50 (méfiance) : laconique ; tu ne donnes que ce qui est manifestement \
-public ; tu peux marchander (« qu'est-ce que j'y gagne ? ») plutôt que de \
-partager de bon cœur.
-- Autour de 50 (discrétion ordinaire, le cas par défaut pour un inconnu) : poli ; \
-tu parles de choses banales ; tu deviens évasif si l'on insiste sur un sujet \
-sensible ; tu ne vas pas de toi-même au-delà des banalités.
-- De 60 à 75 (plus chaleureux) : tu partages si on te le demande, tout en gardant \
-une réserve sur les sujets délicats.
-- Au-dessus de 75 (confiance) : tu offres spontanément des choses que tu tairais à \
-un inconnu, sans qu'on ait à te pousser.
-Ces paliers règlent ta manière et ta disposition, pas les faits que tu possèdes : \
-ta fiche a déjà filtré ce que tu peux évoquer.
+ATTITUDE.
+Ta fiche indique, dans la section « COMMENT TU VOIS… », ton attitude envers ton \
+interlocuteur. Adopte-la : elle règle ta manière et ta disposition, pas les \
+faits que tu possèdes — ta fiche a déjà filtré ce que tu peux évoquer.
 
 DISCRÉTION ET NATUREL.
 Parle naturellement, comme une vraie personne. Ne truffe pas tes réponses de \
 sous-entendus mystérieux. N'oriente pas l'interlocuteur vers d'autres personnes, \
 sauf rarement (une seule fois, et seulement si c'est réellement pertinent) — \
 jamais comme une esquive réflexe.
-
-QUESTIONS SUR TES ALLÉGEANCES.
-Si l'on te demande pour qui tu travailles ou quels intérêts tu sers, tu trouves la \
-question saugrenue : tu ne sers les intérêts de personne et tu ne travailles pour \
-personne d'autre que toi-même. Tu fais ton métier, rien de plus.
-
-RÈGLES DE TARIFICATION (si tu vends quelque chose) :
-- Tes prix affichés (bloc TES TARIFS) sont FERMES et identiques pour tout \
-le monde : tu les énonces tels quels, sans marchander.
-- Pour une chose qui n'est PAS dans tes tarifs (objet rare, service \
-inhabituel, faveur), tu proposes toi-même un prix, en te servant de tes \
-tarifs comme ÉCHELLE de référence : reste dans le même ordre de grandeur, \
-ne lance pas un nombre absurde. Tu peux laisser ta relation avec la \
-personne l'influencer — plus bas pour quelqu'un que tu apprécies, plus \
-haut pour quelqu'un dont tu te méfies. Annonce UN seul prix (pas de \
-marchandage en va-et-vient pour l'instant).
-- Tu ne vends que ce que tu possèdes ou peux raisonnablement fournir ; tu \
-n'inventes pas un stock que tu n'as pas.
-- Les montants sont dans la monnaie du lieu.
 
 FORMAT.
 Tu réponds uniquement par la réplique de ton personnage, en français, à la \
@@ -1208,7 +1154,7 @@ def seed(session: Session) -> None:
         usage="npc_dialogue",
         system_prompt=NPC_DIALOGUE_SYSTEM_PROMPT,
         user_template="{player_line}",
-        variables=["player_line", "relation_intensity"],
+        variables=["player_line"],
         destination="local",
     )
 

@@ -4314,8 +4314,106 @@ locally — both refetch through `_promptsRefreshDetail` (GET the head, plus
 a forced history refetch if the section is open), the same read-after-write
 doctrine already used for the model-override PATCH (BRIEF-0009-a).
 
+## PROMPT LEAN REWRITE — resolved facts over conditional instructions (BRIEF-0012-a, no schema change)
+
+TICKET-0012 (informal RECON embedded in the ticket, no RECON-0012 file —
+intake judged a formal recon spec unnecessary). Live prompts carried
+instructions the code could already resolve (a 5-tier affinity table the
+model was asked to self-select from), blocks irrelevant to most NPCs
+(pricing rules in every NPC's universal system prompt), a factually wrong
+universal paragraph (a reflexive allegiance denial contradicting TES
+AFFILIATIONS), pilot-world names inside `world_id=NULL` templates, and
+code-forced magic vocabulary. The throughline: where code already computes
+a fact, the prompt states the resolved fact — it never re-explains the
+computation or asks the model to reproduce it.
+
+**A1/H2 (affinity tier resolved in code, one directive, no raw number).**
+`context.py` gains `_AFFINITY_TIERS` (5 bands, boundaries formalized from
+the removed table's fuzzy wording: `<30` hostile, `30-49` méfiante,
+`50-59` neutre, `60-75` chaleureuse, `>75` confiante) and `_affinity_tier(intensity)
+-> (adjective, directive)` — code is the sole authority on tier boundaries
+and wording. `assemble_npc_context` appends exactly ONE resolved directive
+line for the interlocutor only (H2); other perceived people get the
+adjective via `_render_perception` (now "disposition : <adjectif>", never
+"intensité N/100" — the raw number never reaches a prompt). The 5-tier
+table and the "assume ~50" paragraph are removed from
+`NPC_DIALOGUE_SYSTEM_PROMPT` entirely. Named deferral: `_AFFINITY_TIERS`
+text is a code constant, not creator-editable — no template, no cockpit
+surface for it until a concrete need says otherwise.
+
+**B1 (pricing rules relocated, condition unchanged).** The tariff rules
+text moves out of the universal system prompt into `pricing_section`
+(`context.py`), inside the same `price_list` branch that already gated the
+tariff lines themselves — a relocation, not new logic. The text now exists
+in exactly one place in the codebase (verified: zero occurrences in
+`seed_pilot.py`).
+
+**C1 (allegiance-denial paragraph deleted, no replacement).** "QUESTIONS
+SUR TES ALLÉGEANCES" asserted a universal "you work for no one," which is
+false for any NPC with a public `faction_membership`. Deleted outright:
+TES AFFILIATIONS and the `cover_role ?? role` mechanism already state
+structurally what each NPC presents; no universal default behavior
+replaces the deleted paragraph.
+
+**D3 (magic ambience removed structurally, extended to all three injection
+points).** The unconditional `"L'atmosphère y est magiquement « … »"` line
+(plus its `magic_phenomena` read) is deleted from `assemble_npc_context`.
+`_SAFE_SUBCULTURE_KEYS` narrows from `("values", "magic_phenomena",
+"nexus_link")` to `("values",)` — since this allow-list also feeds
+`assemble_mj_context` and the `pt-mj-establishment` ambiance join
+(`cockpit/app.py`), the narrowing structurally removes magic vocabulary
+from all three surfaces at once, not just the NPC fiche (RECON finding
+folded into D3's scope — the locked decision named "the assembler"
+singular, but the allow-list is shared). `location.magic_status` and
+subculture keys keep their stored shape; they simply no longer reach any
+prompt. The `values` line stays, independent and non-magical.
+
+**E1 (universal-template examples rewritten world-neutral).** Generic
+names/ids (`npc-a`, `rel-a-player`, "le PNJ", "la patronne et le garde")
+replace pilot identifiers (Maelis, Reike, Senna, Korin, Le Dernier Verre)
+across `pt-conversation-analysis` (7 examples collapsed to 4, all three
+rubrics — sign, anti-inflation, resource_change — kept unchanged),
+`pt-mj-narration`, and `pt-mj-interpretation`. The English instruction body
+of `pt-conversation-analysis` is deliberately NOT translated — only
+transcripts/examples go French; full translation is a separate, unscoped
+step.
+
+**F1 (developer sync note out of model text).** The
+`REGION_MANIFEST_SYSTEM_PROMPT` parenthesis instructing the model to keep
+"4 and 4" in sync with `MIN_NPCS_PER_FACTION`/`MIN_FACTIONLESS` was
+developer bookkeeping sent to the model as if it were gameplay content.
+Moved to a Python comment above the constant; the density floor rules
+themselves ("au moins 4", ×2) stay in the prompt unchanged.
+
+**G1 (sequencing) / live-DB delivery.** This ticket executed strictly
+after TICKET-0011 closed, because TICKET-0011's S2 guarantee (seed never
+touches text on an existing head) means the live DB never picks up a seed
+constant rewrite automatically. `scripts/apply_ticket_0012_prompt_rewrite.py`
+is a new one-shot, idempotent script: it imports the rewritten constants
+from `seed_pilot.py` (single source of text, no text of its own), reads
+each touched head's current version via `prompt_store.current_prompt`, and
+writes a new version through `writes.write_prompt_version` only when the
+text actually differs — a second run reports "unchanged" for all five
+heads. Run order: `seed_pilot.py` first (converges head fields, e.g. the
+narrowed `pt-npc-dialogue.variables`), then this script (text as new
+versions) — both paths land on the same final text, live DB and virgin DB
+alike.
+
+New verify check: `tooling/verify/checks/prompt_lean.py` — static
+assertions only (AST-parsed seed constants + `context.py` source text, no
+DB): removed blocks absent from `NPC_DIALOGUE_SYSTEM_PROMPT`, zero pilot
+identifiers across every `*_SYSTEM_PROMPT`/`*_USER_TEMPLATE` constant, the
+tier resolver wired into `assemble_npc_context`, pricing text in exactly
+one place, the conversation-analysis example count/rubrics, and the
+region-manifest sync-note removal.
+
 ## Deferred decisions
 
+- **Affinity tier text creator editability** (BRIEF-0012-a). `_AFFINITY_TIERS`
+  (adjectives + directives) live as `context.py` constants, not a template or
+  a cockpit surface — resolved behavior is mechanics, not creator content,
+  until a concrete need says otherwise. Re-opening this means either a new
+  head/version pair per tier or a small config table; neither is built now.
 - **B2 — versioning `model`/`variables`/head metadata** (BRIEF-0011-a,
   schema v1.68). Text-only versioning shipped this chantier; extending the
   same append-only pattern to `model` and `variables` is deliberately

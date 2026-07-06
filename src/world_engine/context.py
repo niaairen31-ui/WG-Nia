@@ -56,9 +56,42 @@ H_MJ_CUSTOM_SKILLS = "COMPÉTENCES PROPRES À CE MONDE"
 # Neutral relation intensity assumed when the NPC has no read on the interlocutor.
 NEUTRAL_INTENSITY = 50
 
+# Affinity tiers (TICKET-0012, A1/H2): resolved in code, never by the model.
+# The prompt-side 5-tier table was removed from NPC_DIALOGUE_SYSTEM_PROMPT;
+# these boundaries and texts are the sole authority.
+_AFFINITY_TIERS = (
+    # (upper_bound_exclusive, adjective, directive)
+    (30, "hostile",
+     "Ton attitude envers cette personne : hostile ou méprisante. "
+     "Interaction minimale, ton sec ; tu peux refuser d'échanger ou la renvoyer."),
+    (50, "méfiante",
+     "Ton attitude envers cette personne : méfiante. Laconique ; tu ne donnes "
+     "que ce qui est manifestement public ; tu peux marchander "
+     "(« qu'est-ce que j'y gagne ? ») plutôt que de partager de bon cœur."),
+    (60, "neutre",
+     "Ton attitude envers cette personne : discrétion ordinaire. Poli ; tu "
+     "parles de choses banales ; tu deviens évasif si l'on insiste sur un "
+     "sujet sensible ; tu ne vas pas de toi-même au-delà des banalités."),
+    (76, "chaleureuse",
+     "Ton attitude envers cette personne : chaleureuse. Tu partages si l'on "
+     "te le demande, tout en gardant une réserve sur les sujets délicats."),
+    (101, "confiante",
+     "Ton attitude envers cette personne : confiante. Tu offres spontanément "
+     "des choses que tu tairais à un inconnu, sans qu'on ait à te pousser."),
+)
+
+
+def _affinity_tier(intensity: int) -> tuple[str, str]:
+    """(adjective, directive) for an intensity 1-100. Code-side authority."""
+    for upper, adjective, directive in _AFFINITY_TIERS:
+        if intensity < upper:
+            return adjective, directive
+    return _AFFINITY_TIERS[-1][1], _AFFINITY_TIERS[-1][2]
+
+
 # Subculture keys safe to surface as ambient atmosphere. Anything else
 # (e.g. "hidden", "secret") is deliberately withheld from the Setting section.
-_SAFE_SUBCULTURE_KEYS = ("values", "magic_phenomena", "nexus_link")
+_SAFE_SUBCULTURE_KEYS = ("values",)
 
 # Directions under which `entity_a` / `entity_b` is the perceiving side.
 _A_PERCEIVES = ("a_to_b", "mutual")
@@ -86,9 +119,10 @@ def _perceived_target(rel: Relation, npc_id: str) -> str | None:
 
 
 def _render_perception(name: str, rel: Relation) -> str:
+    adjective, _ = _affinity_tier(rel.intensity)
     return (
         f"- {name} : {rel.notes} "
-        f"(perception : {rel.type}, intensité {rel.intensity}/100)"
+        f"(perception : {rel.type}, disposition : {adjective})"
     )
 
 
@@ -201,20 +235,10 @@ def assemble_npc_context(
             f"[ÉTAT DU JOUEUR] Le joueur est actuellement : "
             f"{_condition_labels.get(player_condition, player_condition)}."
         )
-    if location:
-        atmo = f"L'atmosphère y est magiquement « {location.magic_status} »"
-        phenomena = None
-        if isinstance(location.subculture, dict):
-            # Only surface allow-listed, non-sensitive subculture fields.
-            phenomena = location.subculture.get("magic_phenomena")
-        if phenomena:
-            atmo += f" : {phenomena.rstrip(' .')}"
-        atmo += "."
-        setting_lines.append(atmo)
-        if isinstance(location.subculture, dict):
-            values = location.subculture.get("values")
-            if values:
-                setting_lines.append(values)
+    if location and isinstance(location.subculture, dict):
+        values = location.subculture.get("values")
+        if values:
+            setting_lines.append(values)
     setting = " ".join(setting_lines)
 
     # ----- Relations: who this NPC perceives, and how warmly toward whom ----
@@ -265,6 +289,8 @@ def assemble_npc_context(
             "  Cette personne n'est qu'un visage de plus pour toi ; tu n'as ni "
             "lien ni opinion particulière à son sujet."
         )
+    _, directive = _affinity_tier(intensity)
+    perception_lines.append("  " + directive)
 
     others = [cid for cid in present_ids if cid not in (npc_id, interlocutor_id)]
     perceived_others = [cid for cid in others if cid in perceived]
@@ -338,6 +364,26 @@ def assemble_npc_context(
         tariff_lines = ["TES TARIFS (prix fermes) :"]
         for tag, amount in price_list.items():
             tariff_lines.append(f"- {tag} : {amount}")
+        tariff_lines.append("")
+        tariff_lines.append("RÈGLES DE TARIFICATION :")
+        tariff_lines.append(
+            "- Tes prix affichés ci-dessus sont FERMES et identiques pour tout le monde : "
+            "tu les énonces tels quels, sans marchander."
+        )
+        tariff_lines.append(
+            "- Pour une chose qui n'est PAS dans tes tarifs (objet rare, service "
+            "inhabituel, faveur), tu proposes toi-même un prix, en te servant de tes "
+            "tarifs comme ÉCHELLE de référence : reste dans le même ordre de grandeur, ne "
+            "lance pas un nombre absurde. Tu peux laisser ta relation avec la personne "
+            "l'influencer — plus bas pour quelqu'un que tu apprécies, plus haut pour "
+            "quelqu'un dont tu te méfies. Annonce UN seul prix (pas de marchandage en "
+            "va-et-vient pour l'instant)."
+        )
+        tariff_lines.append(
+            "- Tu ne vends que ce que tu possèdes ou peux raisonnablement fournir ; tu "
+            "n'inventes pas un stock que tu n'as pas."
+        )
+        tariff_lines.append("- Les montants sont dans la monnaie du lieu.")
         pricing_section = "\n".join(tariff_lines) + "\n\n"
 
     return (
