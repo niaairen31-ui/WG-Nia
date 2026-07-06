@@ -51,14 +51,31 @@ own the commit); none of these functions commits.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any, Optional
 
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from .models import FactionMembership, Knowledge, Ledger, Relation, Skill
+from .models import FactionMembership, Knowledge, Ledger, PromptTemplate, PromptVersion, Relation, Skill
+
+# Simple-identifier placeholder, e.g. `{player_line}` — deliberately does not
+# match JSON-example braces like `{"key": ...}` (TICKET-0011, C1).
+_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+class PromptValidationError(ValueError):
+    """C1 fail-closed placeholder validation failed (TICKET-0011).
+
+    `offending` carries the placeholder names not in the head's declared
+    `variables` list, for the caller to surface as a 422.
+    """
+
+    def __init__(self, offending: list[str]):
+        self.offending = offending
+        super().__init__(f"undeclared placeholder(s): {', '.join(offending)}")
 
 # knowledge.level enum (world-engine-schema.md): unaware | rumor | suspicious |
 # partial | knows | fully_understands.
@@ -502,6 +519,62 @@ def write_membership(
     return membership
 
 
+def write_prompt_version(
+    db: Session,
+    *,
+    template_id: str,
+    system_prompt: str,
+    user_template: str,
+    note: Optional[str] = None,
+) -> PromptVersion:
+    """Append a new `prompt_version` row for `template_id`. Caller adds nothing
+    else — this function itself calls `db.add`.
+
+    The ONLY function that writes a `prompt_version` row (TICKET-0011, single
+    write shape): the PATCH text route, the restore route, and the seed's
+    v1-on-virgin-head path all call this so they cannot diverge.
+
+    C1 fail-closed validation: every `{identifier}` placeholder found in
+    EITHER field must be in the head's declared `variables` list
+    (`variables` NULL/empty -> any identifier placeholder is rejected). On
+    failure raises `PromptValidationError` carrying the offending names;
+    nothing is written. JSON-example braces (`{"key": ...}`) don't match the
+    identifier pattern and pass freely.
+
+    `version_number` = MAX(existing) + 1 for this head (1 if none exist —
+    the migration's own v1 backfill and the seed's virgin-head path both
+    reach this branch). Bumps `head.updated_at`.
+    """
+    head = db.get(PromptTemplate, template_id)
+    if head is None:
+        raise ValueError(f"write_prompt_version: prompt_template {template_id!r} not found")
+
+    declared = set(head.variables) if head.variables else set()
+    found = set(_PLACEHOLDER_RE.findall(system_prompt)) | set(_PLACEHOLDER_RE.findall(user_template))
+    offending = sorted(found - declared)
+    if offending:
+        raise PromptValidationError(offending)
+
+    current_max = db.exec(
+        select(func.max(PromptVersion.version_number)).where(
+            PromptVersion.prompt_template_id == template_id
+        )
+    ).one()
+    next_number = (current_max or 0) + 1
+
+    version = PromptVersion(
+        prompt_template_id=template_id,
+        version_number=next_number,
+        system_prompt=system_prompt,
+        user_template=user_template,
+        note=note,
+    )
+    db.add(version)
+    head.updated_at = datetime.now(UTC)
+    db.add(head)
+    return version
+
+
 # DOCUMENTED EXCEPTION to "History is sacred": delete_world_cascade is the only
 # helper in the codebase that hard-deletes canon. It exists solely for whole-
 # world block deletion (creator authority, irreversible). No other delete-side
@@ -608,10 +681,12 @@ __all__ = [
     "write_skill_tier",
     "write_ledger_entry",
     "write_membership",
+    "write_prompt_version",
     "delete_world_cascade",
     "KNOWLEDGE_LEVELS",
     "KNOWLEDGE_LEVEL_LADDER",
     "knowledge_level_rank",
     "cap_knowledge_level",
+    "PromptValidationError",
     "_append_knowledge_history",
 ]

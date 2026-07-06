@@ -8,6 +8,25 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.68** — New table `prompt_version` (append-only prompt text history,
+  TICKET-0011/BRIEF-0011-a): `id`, `prompt_template_id` (FK), `version_number`,
+  `system_prompt`, `user_template`, `note`, `created_at`; UNIQUE index on
+  `(prompt_template_id, version_number)`. "Current" = `MAX(version_number)`
+  per head — no pointer column. `prompt_template` drops `system_prompt`,
+  `user_template`, `version` (F1) — those columns' text was backfilled into a
+  `prompt_version` v1 row per head first
+  (`scripts/migrate_v1_68_prompt_version.py`). New sole read accessor
+  (`prompt_store.current_prompt`/`get_version`/`list_versions`) and sole
+  write shape (`writes.write_prompt_version`, C1 fail-closed placeholder
+  validation), wired at every prompt-text consumer. New API:
+  `PATCH /api/prompts/{id}/text`, `GET /api/prompts/{id}/versions[/{n}]`,
+  `POST /api/prompts/{id}/versions/{n}/restore`. Seed (`upsert_prompt_template`)
+  writes v1 only on a virgin head — never touches text again once a version
+  exists (S2). The 6 `.format()` call sites (`region_author.py`,
+  `entity_author.py`) normalized to the same chained `.replace()` mechanic as
+  every other call site (H1) — one substitution mechanism repo-wide. New
+  verify check: `verify/checks/prompt_version.py`.
+
 - **BRIEF-0009-a** — No schema change. Write path for the `prompt_template.
   model` column that shipped at v1.67 (BRIEF-0008-a): `PATCH
   /api/prompts/{prompt_id}/model` (fail-closed validation against the live

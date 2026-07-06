@@ -36,6 +36,7 @@ from .entity_author import AUTHOR_MODEL, generate_entity_draft
 from .models import PromptTemplate, World
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
+from .prompt_store import current_prompt
 
 # BRIEF-40: code-side targeted re-prompt clamp (A1). Must equal the prose
 # floor stated in REGION_MANIFEST_SYSTEM_PROMPT (seed_pilot.py) — keep in sync.
@@ -317,20 +318,18 @@ def _run_npc_topup(result: dict, db: Session) -> dict:
     factions_block, locations_block, existing_npcs_block, requests_block = _topup_blocks(
         manifest, deficits
     )
-    try:
-        user_message = template.user_template.format(
-            concept=manifest["concept"],
-            factions_block=factions_block,
-            locations_block=locations_block,
-            existing_npcs_block=existing_npcs_block,
-            requests_block=requests_block,
-        )
-    except (KeyError, IndexError) as exc:
-        result["notes"].append(f"Plancher PNJ non atteint : erreur de gabarit ({exc})")
-        return result
+    version = current_prompt(db, template)
+    user_message = (
+        version.user_template
+        .replace("{concept}", manifest["concept"])
+        .replace("{factions_block}", factions_block)
+        .replace("{locations_block}", locations_block)
+        .replace("{existing_npcs_block}", existing_npcs_block)
+        .replace("{requests_block}", requests_block)
+    )
 
     messages = [
-        {"role": "system", "content": template.system_prompt},
+        {"role": "system", "content": version.system_prompt},
         {"role": "user", "content": user_message},
     ]
 
@@ -396,17 +395,16 @@ def generate_region_manifest(brief: str, db: Session) -> dict:
         if fundamental_laws else ""
     )
 
-    try:
-        user_message = template.user_template.format(
-            brief=brief,
-            world_description=world_description,
-            world_fundamental_laws=world_fundamental_laws,
-        )
-    except (KeyError, IndexError) as exc:
-        return {"ok": False, "error": f"Template formatting failed: {exc}"}
+    version = current_prompt(db, template)
+    user_message = (
+        version.user_template
+        .replace("{brief}", brief)
+        .replace("{world_description}", world_description)
+        .replace("{world_fundamental_laws}", world_fundamental_laws)
+    )
 
     messages = [
-        {"role": "system", "content": template.system_prompt},
+        {"role": "system", "content": version.system_prompt},
         {"role": "user", "content": user_message},
     ]
 

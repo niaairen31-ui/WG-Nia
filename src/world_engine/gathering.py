@@ -30,6 +30,7 @@ from . import ollama_client
 from .analyzer import analyze_window
 from .models import Character, Conversation, Entity, Gathering, GatheringMember, PromptTemplate
 from .prompt_registry import effective_model
+from .prompt_store import current_prompt
 
 _log = logging.getLogger(__name__)
 
@@ -80,14 +81,16 @@ def _request_partition(
     present: list[tuple[Character, Entity]],
     model: str,
     host: str,
+    db: Session,
 ) -> list[Any] | None:
     """Ask the MJ to partition the present NPCs. Returns raw groups, or None on failure."""
+    version = current_prompt(db, template)
     present_lines = "\n".join(
         f"- {entity.name} : {char.appearance or entity.description or '(pas de description)'}"
         for char, entity in present
     )
     user_msg = (
-        template.user_template
+        version.user_template
         .replace("{location_name}", location_name)
         .replace("{present_list}", present_lines)
         + "\n/no_think"
@@ -95,7 +98,7 @@ def _request_partition(
     try:
         raw = ollama_client.chat(
             [
-                {"role": "system", "content": template.system_prompt},
+                {"role": "system", "content": version.system_prompt},
                 {"role": "user", "content": user_msg},
             ],
             model=effective_model(template, model),
@@ -218,6 +221,7 @@ def generate_gatherings(
             present=present,
             model=model,
             host=host,
+            db=db,
         )
         if raw_groups is not None:
             groups = _resolve_and_complete(raw_groups, present)

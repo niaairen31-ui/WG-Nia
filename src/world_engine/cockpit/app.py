@@ -48,6 +48,7 @@ from ..gathering import migrate_npc as _migrate_npc
 from ..analyzer import analyze_overhearing as _analyze_overhearing
 from ..analyzer import analyze_window as _analyze_window
 from ..prompt_registry import PROMPT_REGISTRY, effective_model
+from ..prompt_store import current_prompt
 from ..context import (
     _SAFE_SUBCULTURE_KEYS,
     active_signposts,
@@ -154,7 +155,8 @@ def preview_prompt_npc_dialogue(
         raise HTTPException(status_code=503, detail="No active 'npc_dialogue' prompt template found.")
 
     assembled_context = assemble_npc_context(npc_id, pc_id, location_id, db)
-    system_prompt = _npc_dialogue_system_prompt(behaviour, assembled_context)
+    behaviour_version = current_prompt(db, behaviour)
+    system_prompt = _npc_dialogue_system_prompt(behaviour_version.system_prompt, assembled_context)
     return {
         "prompt_template_id": behaviour.id,
         "npc_id": npc_id,
@@ -192,11 +194,12 @@ def preview_prompt_player_narration(
         raise HTTPException(status_code=503, detail="No active 'player_narration' prompt template found.")
 
     mj_context = assemble_mj_context(db, pc_id, location_id)
+    mj_version = current_prompt(db, mj_template)
     return {
         "prompt_template_id": mj_template.id,
         "pc_id": pc_id,
         "location_id": location_id,
-        "system_prompt": mj_template.system_prompt,
+        "system_prompt": mj_version.system_prompt,
         "mj_context_rendered": format_mj_context(mj_context),
     }
 
@@ -1393,11 +1396,15 @@ def _load_npc_dialogue_template(world_id: str, db: Session) -> PromptTemplate:
     return templates[0]
 
 
-def _npc_dialogue_system_prompt(behaviour: PromptTemplate, context: str) -> str:
+def _npc_dialogue_system_prompt(system_prompt: str, context: str) -> str:
     """The exact system-prompt concatenation every live npc_dialogue path
     uses (BRIEF-0008-b, fidelity rule) — extracted so the read-only preview
-    endpoint reuses this construction verbatim instead of duplicating it."""
-    return f"{behaviour.system_prompt}\n\n{context}"
+    endpoint reuses this construction verbatim instead of duplicating it.
+
+    Takes the already-resolved version text (TICKET-0011, G1) — every call
+    site fetches its version via `current_prompt` next to the head load,
+    never inside this helper."""
+    return f"{system_prompt}\n\n{context}"
 
 
 # ── Multi-NPC scenes — gatherings (schema v1.8, Tier 1, step 3) ───────────────
@@ -1623,6 +1630,7 @@ def _select_group_speaker(
     members: list[tuple[GatheringMember, Entity]],
     player_line: str,
     model: str,
+    db: Session,
 ) -> str:
     """Pick exactly one active gathering member to respond (contract A3 hybrid).
 
@@ -1633,9 +1641,10 @@ def _select_group_speaker(
     scene must stay playable.
     """
     if template is not None:
+        version = current_prompt(db, template)
         member_lines = "\n".join(f"- {e.name}" for _gm, e in members)
         user_msg = (
-            template.user_template
+            version.user_template
             .replace("{location_name}", location_name)
             .replace("{group_label}", gathering.label or "Groupe")
             .replace("{member_list}", member_lines)
@@ -1645,7 +1654,7 @@ def _select_group_speaker(
         try:
             raw = ollama_client.chat(
                 [
-                    {"role": "system", "content": template.system_prompt},
+                    {"role": "system", "content": version.system_prompt},
                     {"role": "user",   "content": user_msg},
                 ],
                 model=model,
@@ -1821,8 +1830,9 @@ def _build_establishment_narration(
                 if key in _SAFE_SUBCULTURE_KEYS and value
             }
         signposts = active_signposts(db, location_id, player_character_id)
+        version = current_prompt(db, template)
         user_msg = _build_establishment_user(
-            template.user_template,
+            version.user_template,
             loc_entity.name if loc_entity else location_id,
             description,
             subculture,
@@ -1830,7 +1840,7 @@ def _build_establishment_narration(
         )
         raw = ollama_client.chat(
             [
-                {"role": "system", "content": template.system_prompt},
+                {"role": "system", "content": version.system_prompt},
                 {"role": "user",   "content": user_msg},
             ],
             model=effective_model(template, ollama_client.DEFAULT_MODEL),
@@ -1922,8 +1932,9 @@ def _npc_initiative_vote(
             + "\n".join(distant_lines)
         )
 
+    version = current_prompt(db, template)
     user_msg = (
-        template.user_template
+        version.user_template
         .replace("{location_name}", location_name)
         .replace("{interpreted_mode}", interpreted_mode.value)
         .replace("{player_line}", player_line)
@@ -1933,7 +1944,7 @@ def _npc_initiative_vote(
     try:
         raw = ollama_client.chat(
             [
-                {"role": "system", "content": template.system_prompt},
+                {"role": "system", "content": version.system_prompt},
                 {"role": "user",   "content": user_msg},
             ],
             model=model,
@@ -2539,8 +2550,9 @@ def start_conversation(
     sess = _get_or_open_session(world_id, db)
 
     behaviour = _load_npc_dialogue_template(world_id, db)
+    behaviour_version = current_prompt(db, behaviour)
     assembled_context = assemble_npc_context(body.npc_id, player_id, location_id, db)
-    system_prompt = _npc_dialogue_system_prompt(behaviour, assembled_context)
+    system_prompt = _npc_dialogue_system_prompt(behaviour_version.system_prompt, assembled_context)
 
     # MJ context snapshot (schema v1.12, scope D-b3): static parts only
     # (location, player_knowledge, public_events) — co_presents is dynamic
@@ -2567,7 +2579,7 @@ def start_conversation(
             "interlocutor_id": player_id,
             "location_id": location_id,
             "prompt_template_id": behaviour.id,
-            "behaviour_prompt": behaviour.system_prompt,
+            "behaviour_prompt": behaviour_version.system_prompt,
             "assembled_context": assembled_context,
             "system_prompt": system_prompt,
             "mj": mj_snapshot,
@@ -2759,10 +2771,12 @@ def say(
     )
 
     # Capture for closure.
-    mj_user_template   = mj_template.user_template
-    mj_system_prompt   = mj_template.system_prompt
-    interpret_system   = interpret_template.system_prompt
-    interpret_user_tpl = interpret_template.user_template
+    mj_version         = current_prompt(db, mj_template)
+    interpret_version  = current_prompt(db, interpret_template)
+    mj_user_template   = mj_version.user_template
+    mj_system_prompt   = mj_version.system_prompt
+    interpret_system   = interpret_version.system_prompt
+    interpret_user_tpl = interpret_version.user_template
 
     def _stream() -> Iterator[str]:
         # ── BRIEF-12: read scene_state — drives frozen check + constraint gating ──
@@ -3012,12 +3026,13 @@ def say(
             else:
                 arbiter_template = _load_mj_arbiter_template(world_id, db)
                 if arbiter_template is not None:
+                    arbiter_version = current_prompt(db, arbiter_template)
                     domain, opposed_npc_id, applies_constraint, violent = _arbitrate(
                         player_line=content,
                         npc_list=physical_npc_list,
                         name_to_id=physical_name_to_id,
-                        arbiter_system=arbiter_template.system_prompt,
-                        arbiter_user_tpl=arbiter_template.user_template,
+                        arbiter_system=arbiter_version.system_prompt,
+                        arbiter_user_tpl=arbiter_version.user_template,
                         model=model,
                         custom_skill_names=world_custom_skill_names,
                     )
@@ -3085,12 +3100,15 @@ def say(
                 responder_name = opposed_entity.name
 
                 responder_behaviour = _load_npc_dialogue_template(world_id, db)
+                responder_behaviour_version = current_prompt(db, responder_behaviour)
                 responder_context = assemble_npc_context(
                     responder_id, conv.player_id, conv.location_id, db,
                     gathering_id=conv.gathering_id,
                     player_condition=ss_condition,
                 )
-                responder_system_prompt = _npc_dialogue_system_prompt(responder_behaviour, responder_context)
+                responder_system_prompt = _npc_dialogue_system_prompt(
+                    responder_behaviour_version.system_prompt, responder_context
+                )
 
                 band_outcome = {
                     "failure": (
@@ -3310,6 +3328,7 @@ def say(
                             members=co_members,
                             player_line=content,
                             model=model,
+                            db=db,
                         )
                 elif not body.target:
                     if npc_id is None and conv.gathering_id:
@@ -3327,6 +3346,7 @@ def say(
                             ] if player_gathering else [],
                             player_line=content,
                             model=model,
+                            db=db,
                         ) if player_gathering and _active_members(player_gathering.id, db) else None
                     else:
                         responder_id = npc_id  # backward-compatible default (1:1)
@@ -3351,12 +3371,15 @@ def say(
                     responder_system_prompt = system_prompt
                 else:
                     responder_behaviour = _load_npc_dialogue_template(world_id, db)
+                    responder_behaviour_version = current_prompt(db, responder_behaviour)
                     responder_context = assemble_npc_context(
                         responder_id, conv.player_id, conv.location_id, db,
                         gathering_id=conv.gathering_id,
                         player_condition=ss_condition,
                     )
-                    responder_system_prompt = _npc_dialogue_system_prompt(responder_behaviour, responder_context)
+                    responder_system_prompt = _npc_dialogue_system_prompt(
+                        responder_behaviour_version.system_prompt, responder_context
+                    )
 
                 npc_msg_list = [{"role": "system", "content": responder_system_prompt}, *npc_history]
                 if mode == ResponseMode.npc_reaction:
@@ -3526,6 +3549,7 @@ def say(
                         # v1 conscious choice: distant NPCs are at-a-glance distance
                         # (same room). Revisit if out-of-sight gatherings are added.
                         init_behaviour = _load_npc_dialogue_template(world_id, db)
+                        init_behaviour_version = current_prompt(db, init_behaviour)
                         init_ctx = assemble_npc_context(
                             initiator_id, conv.player_id, conv.location_id, db,
                             gathering_id=conv.gathering_id,
@@ -3536,12 +3560,12 @@ def say(
                         # /say turns which use the shared npc_dialogue template.
                         init_act_tmpl = _load_npc_initiative_act_template(world_id, db)
                         init_act_instruction = (
-                            init_act_tmpl.system_prompt
+                            current_prompt(db, init_act_tmpl).system_prompt
                             if init_act_tmpl is not None
                             else _NPC_INITIATIVE_ACT_FALLBACK
                         )
                         init_system = (
-                            f"{_npc_dialogue_system_prompt(init_behaviour, init_ctx)}"
+                            f"{_npc_dialogue_system_prompt(init_behaviour_version.system_prompt, init_ctx)}"
                             f"\n\n{init_act_instruction}"
                         )
 
@@ -4002,6 +4026,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
         # closed, or the player re-loaded after the test). Create a fresh one
         # anchored to the same gathering — identical to the resolve path below.
         behaviour = _load_npc_dialogue_template(world_id, db)
+        behaviour_version = current_prompt(db, behaviour)
         model     = effective_model(behaviour, ollama_client.DEFAULT_MODEL)
         mj_context = assemble_mj_context(db, player_id, location_id, gathering_id=player_g.id)
         new_conv  = Conversation(
@@ -4016,7 +4041,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
                 "interlocutor_id":    player_id,
                 "location_id":        location_id,
                 "prompt_template_id": behaviour.id,
-                "behaviour_prompt":   behaviour.system_prompt,
+                "behaviour_prompt":   behaviour_version.system_prompt,
                 "system_prompt":      "",
                 "mj": {k: v for k, v in mj_context.items() if k != "co_presents"},
             },
@@ -4038,6 +4063,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
     # ── Interpret the player's text via the full MJ pipeline (A2 reused) ──
     gathering_status  = _render_gathering_status(player_id, None, open_g, db)
     interpret_template = _load_mj_interpret_template(world_id, db)
+    interpret_version = current_prompt(db, interpret_template)
     model             = effective_model(interpret_template, ollama_client.DEFAULT_MODEL)
 
     # Provide a plausible NPC name for the template context (any member present).
@@ -4056,8 +4082,8 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
         gathering_status  = gathering_status,
         recent_transcript = "",
         item_list         = format_item_list_for_interpretation(db, player_id),
-        interpret_system  = interpret_template.system_prompt,
-        interpret_user_tpl = interpret_template.user_template,
+        interpret_system  = interpret_version.system_prompt,
+        interpret_user_tpl = interpret_version.user_template,
         model             = model,
     )
 
@@ -4073,6 +4099,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
 
     # ── Create the conversation anchored to the resolved gathering ─────────
     behaviour   = _load_npc_dialogue_template(world_id, db)
+    behaviour_version = current_prompt(db, behaviour)
     mj_context = assemble_mj_context(db, player_id, location_id, gathering_id=resolved_id)
     conv = Conversation(
         world_id    = world_id,
@@ -4086,7 +4113,7 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
             "interlocutor_id":    player_id,
             "location_id":        location_id,
             "prompt_template_id": behaviour.id,
-            "behaviour_prompt":   behaviour.system_prompt,
+            "behaviour_prompt":   behaviour_version.system_prompt,
             # system_prompt left empty — assembled fresh per responder in _stream (D1)
             "system_prompt":      "",
             "mj": {k: v for k, v in mj_context.items() if k != "co_presents"},

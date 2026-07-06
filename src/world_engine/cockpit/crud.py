@@ -77,11 +77,14 @@ from ..models import (
     World,
 )
 from ..prompt_registry import PROMPT_REGISTRY, effective_model
+from ..prompt_store import current_prompt, get_version, list_versions
 from ..writes import (
     KNOWLEDGE_LEVELS,
+    PromptValidationError,
     write_knowledge,
     write_ledger_entry,
     write_membership,
+    write_prompt_version,
     write_relation,
     write_skill_tier,
 )
@@ -1583,12 +1586,12 @@ def _effective_prompt_row(
     return active[0]
 
 
-def _prompt_row_summary(r: PromptTemplate) -> dict:
+def _prompt_row_summary(r: PromptTemplate, db: DbSession) -> dict:
     return {
         "id": r.id,
         "name": r.name,
         "world_id": r.world_id,
-        "version": r.version,
+        "version": current_prompt(db, r).version_number,
         "is_active": r.is_active,
         "model": r.model,
     }
@@ -1614,7 +1617,7 @@ def list_prompts(db: DbSession = Depends(get_session)) -> dict:
             "dry_run_capable": spec.dry_run_capable,
             "call_sites": list(spec.call_sites),
             "default_model": default_model,
-            "rows": [_prompt_row_summary(r) for r in rows],
+            "rows": [_prompt_row_summary(r, db) for r in rows],
             "effective_id": effective_row.id if effective_row else None,
             "effective_model": (
                 effective_model(effective_row, default_model) if effective_row else None
@@ -1642,17 +1645,18 @@ def get_prompt_detail(prompt_id: str, db: DbSession = Depends(get_session)) -> d
     default_model = spec.default_model()
     effective_row = _effective_prompt_row(sibling_rows, spec.world_scoped, world_id)
     is_effective = effective_row is not None and effective_row.id == row.id
+    version = current_prompt(db, row)
     return {
         "id": row.id,
         "name": row.name,
         "usage": row.usage,
         "world_id": row.world_id,
-        "version": row.version,
+        "version": version.version_number,
         "is_active": row.is_active,
         "model": row.model,
         "effective_model": effective_model(row, default_model),
-        "system_prompt": row.system_prompt,
-        "user_template": row.user_template,
+        "system_prompt": version.system_prompt,
+        "user_template": version.user_template,
         "variables": row.variables,
         "notes": row.notes,
         "surface": spec.surface,
@@ -1663,6 +1667,120 @@ def get_prompt_detail(prompt_id: str, db: DbSession = Depends(get_session)) -> d
         "is_effective": is_effective,
         "shadowed_by": (effective_row.id if not is_effective and effective_row else None),
     }
+
+
+def _version_summary(v) -> dict:
+    return {
+        "version_number": v.version_number,
+        "created_at": v.created_at,
+        "note": v.note,
+    }
+
+
+@router.get("/prompts/{prompt_id}/versions")
+def list_prompt_versions(prompt_id: str, db: DbSession = Depends(get_session)) -> dict:
+    """History list, newest first — no bodies (D1, same rationale as the
+    lazy master list: only the selected version is ever rendered)."""
+    row = db.get(PromptTemplate, prompt_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Prompt template {prompt_id!r} not found")
+    versions = list_versions(db, prompt_id)
+    current_number = versions[0].version_number if versions else None
+    return {
+        "versions": [
+            {**_version_summary(v), "is_current": v.version_number == current_number}
+            for v in versions
+        ]
+    }
+
+
+@router.get("/prompts/{prompt_id}/versions/{version_number}")
+def get_prompt_version(
+    prompt_id: str, version_number: int, db: DbSession = Depends(get_session)
+) -> dict:
+    """One specific version, with bodies."""
+    row = db.get(PromptTemplate, prompt_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Prompt template {prompt_id!r} not found")
+    version = get_version(db, prompt_id, version_number)
+    if version is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Version {version_number} of prompt template {prompt_id!r} not found",
+        )
+    return {
+        **_version_summary(version),
+        "system_prompt": version.system_prompt,
+        "user_template": version.user_template,
+    }
+
+
+class PromptTextBody(BaseModel):
+    system_prompt: str
+    user_template: str
+    note: Optional[str] = None
+
+
+@router.patch("/prompts/{prompt_id}/text")
+def update_prompt_text(
+    prompt_id: str, body: PromptTextBody, db: DbSession = Depends(get_session)
+) -> dict:
+    """Write path for prompt text (TICKET-0011) — appends a new `prompt_version`
+    row via the single write shape (`write_prompt_version`). 404 unknown head;
+    422 with the offending placeholder names on a C1 validation failure
+    (nothing written); 200 -> the new version's summary."""
+    row = db.get(PromptTemplate, prompt_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Prompt template {prompt_id!r} not found")
+    try:
+        version = write_prompt_version(
+            db,
+            template_id=prompt_id,
+            system_prompt=body.system_prompt,
+            user_template=body.user_template,
+            note=body.note,
+        )
+    except PromptValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Undeclared placeholder(s): {', '.join(exc.offending)}",
+        ) from exc
+    db.commit()
+    return _version_summary(version)
+
+
+@router.post("/prompts/{prompt_id}/versions/{version_number}/restore")
+def restore_prompt_version(
+    prompt_id: str, version_number: int, db: DbSession = Depends(get_session)
+) -> dict:
+    """D1: restore = append a NEW version copying the restored one's text —
+    history stays strictly monotone. C1 re-validates (fail-closed even on
+    restore: if the head's `variables` changed since, the restore is refused,
+    not silently admitted)."""
+    row = db.get(PromptTemplate, prompt_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Prompt template {prompt_id!r} not found")
+    source = get_version(db, prompt_id, version_number)
+    if source is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Version {version_number} of prompt template {prompt_id!r} not found",
+        )
+    try:
+        version = write_prompt_version(
+            db,
+            template_id=prompt_id,
+            system_prompt=source.system_prompt,
+            user_template=source.user_template,
+            note=f"restored from v{version_number}",
+        )
+    except PromptValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Undeclared placeholder(s): {', '.join(exc.offending)}",
+        ) from exc
+    db.commit()
+    return _version_summary(version)
 
 
 @router.get("/ollama/models")
@@ -1712,7 +1830,7 @@ def update_prompt_model(
 
     spec = PROMPT_REGISTRY.get(row.usage)
     default_model = spec.default_model() if spec else None
-    summary = _prompt_row_summary(row)
+    summary = _prompt_row_summary(row, db)
     summary["effective_model"] = effective_model(row, default_model)
     return summary
 

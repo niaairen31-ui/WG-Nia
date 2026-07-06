@@ -4165,7 +4165,119 @@ practice. The app stays in-tree, unmaintained, never routed to; reopening
 it is a future ticket with these two friction facts as its intake — not
 acted on here.
 
+## PROMPT VERSIONING — append-only history, single accessor/write shape (BRIEF-0011-a, schema v1.68)
+
+TICKET-0011 (RECON-0011). `prompt_template` carried text directly, with a
+decorative `version` column nothing ever incremented — no history existed.
+This chantier moves text into an append-only `prompt_version` table, makes
+the head a pure identity/wiring row, and threads every read through one
+accessor, so a creator can edit a prompt and see the change take effect
+immediately with a recoverable history.
+
+**A2 (head pointer, text in version rows).** `prompt_template` keeps only
+identity/wiring fields (`name`, `usage`, `variables`, `destination`,
+`model`, `is_active`, `notes`, `updated_at`); `system_prompt`/
+`user_template` live exclusively in `prompt_version`. "Current" =
+`MAX(version_number)` per head — no pointer column anywhere, so there is no
+second write to keep in sync with the append.
+
+**B1 (version scope: text only, `model`/`variables` stay head-resident).**
+A version row carries `system_prompt` + `user_template` and nothing else.
+Versioning `model` or `variables` too (**B2**) is explicitly deferred —
+below.
+
+**C1 (fail-closed placeholder validation).** Every write extracts each
+`{identifier}` placeholder (regex `\{([A-Za-z_][A-Za-z0-9_]*)\}` — chosen
+so JSON-example braces like `{"key": ...}` never match) from BOTH
+`system_prompt` and `user_template`; every name must already be in the
+head's `variables` list or the write is refused entirely (nothing written)
+with the offending names surfaced to the caller. Applies identically to a
+first-time edit and a restore — a restore is not exempt just because the
+text previously existed.
+
+**D1 (restore = new version).** `POST .../versions/{n}/restore` appends a
+new version copying `n`'s text verbatim (auto-note `"restored from v{n}"`);
+it never rewinds a pointer or touches history. If the head's `variables`
+changed since `n` was written, C1 can refuse the restore — a deliberate
+consequence of "no exemptions," not a bug.
+
+**F1 (drop the head's text columns after backfill).** The migration
+(`scripts/migrate_v1_68_prompt_version.py`) backfills a v1 `prompt_version`
+row for every existing head from its current `system_prompt`/
+`user_template`, asserts every head now has >= 1 version, THEN drops
+`prompt_template.system_prompt`/`user_template`/`version` — no denormalized
+cache, no second source of truth to drift.
+
+**G1 (single read accessor).** `prompt_store.current_prompt(db, template)`
+(plus `get_version`/`list_versions`) is the ONLY code allowed to read
+`prompt_version` rows — mirrors the `prompt_registry.effective_model`
+precedent. `current_prompt` raises `RuntimeError` on a versionless head
+rather than falling back to blank text: post-migration that state is
+structurally impossible (migration post-check + S2 + append-only), so a
+silent fallback would hide a real bug. Every one of the ~25 call sites
+across `region_author.py`, `analyzer.py`, `entity_author.py`, `gathering.py`,
+`cockpit/app.py`, and `cockpit/crud.py` now fetches its version once, next
+to the existing template load, and reads text off the version instead of
+the head.
+
+**S2 (seed never touches text once a head has a version).** Arbitrated
+against S1 (converge-on-diff forever, which would silently supersede a
+creator's edit on the next re-seed) and S3 (a `source` column
+distinguishing seed-authored from creator-authored versions, gating
+reconvergence on it). S2 won: the ticket's entire point is that the
+creator's edit is what runs, and S3's extra column/reader bought
+provenance display that has no consumer yet (minimal-first). Concretely:
+`upsert_prompt_template` creates a virgin head's v1 from seed text, then
+NEVER touches text again once >= 1 version exists — a re-seed only
+converges non-text head fields (name, variables, destination, notes,
+is_active), same as before. A head found with zero versions mid-bootstrap
+(a pre-migration DB that skipped the migration) aborts loudly rather than
+guessing.
+
+**H1 (one substitution mechanic repo-wide).** Arbitrated against H2
+(teach C1 a mechanism-aware branch that additionally rejects any
+undeclared brace content for the 6 `.format()`-consuming call sites, no
+call-site diff). H1 won: normalizing the 6 `str.format()` sites
+(`region_author.py:321/400`, `entity_author.py:398/527/616/704`) to the
+same chained `.replace()` mechanic as every other call site is a small,
+bounded diff, and it makes literal `{`/`}` in an edited template safe by
+construction everywhere — C1 stays a clean identifier-membership check
+with no mechanism-aware branch. The pre-existing risk this closes: seeded
+play templates already contain literal JSON braces (safe today only
+because those are `.replace()`-consumed); once ANY template is creator-
+editable, pasting a JSON example into a `.format()`-consumed authoring
+template would have raised `KeyError`/`ValueError` at call time.
+
+**API surface.** `PATCH /api/prompts/{id}/text` (write, C1-gated),
+`GET /api/prompts/{id}/versions` (history list, no bodies — same lazy
+rationale as BRIEF-0008-b), `GET /api/prompts/{id}/versions/{n}` (one
+version, with bodies), `POST /api/prompts/{id}/versions/{n}/restore`.
+Preview endpoints (`app.py`'s `npc_dialogue`/`player_narration` dry-runs)
+needed no route change — they inherit the accessor through the shared
+helpers they already called, so the fidelity invariant (preview == live)
+holds by construction rather than by a second implementation.
+
+New verify check: `tooling/verify/checks/prompt_version.py` — schema shape
+(table + UNIQUE index, head columns dropped), static allowlists for both
+the `PromptVersion` class and raw SQL naming the table, single-write-shape
+scan, universal (no-allowlist) append-only scan, the H1 `.format()` scan,
+and a live exercise of the write/PATCH/restore paths including the C1
+422 case.
+
+Cockpit edit form, history list, and restore button are **BRIEF-0011-b** —
+this brief ends at a working, verified API + bit-identical runtime (the
+first behavioral change happens only when a creator saves an edit through
+the new API).
+
 ## Deferred decisions
+
+- **B2 — versioning `model`/`variables`/head metadata** (BRIEF-0011-a,
+  schema v1.68). Text-only versioning shipped this chantier; extending the
+  same append-only pattern to `model` and `variables` is deliberately
+  deferred, to be re-opened "just after" per Nia's own framing at intake.
+- **`_effective_prompt_row`'s multi-active-row nondeterminism** (BRIEF-0011-a).
+  Unchanged, pre-existing observation (world-scoped usages fall back to
+  `active[0]` when 2+ rows tie) — accepted, not this chantier's scope.
 
 Recorded here so each is revisited deliberately rather than forgotten:
 
