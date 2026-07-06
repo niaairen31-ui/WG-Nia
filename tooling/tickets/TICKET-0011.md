@@ -2,7 +2,7 @@
 id: TICKET-0011
 title: Manual prompt editing with append-only version history
 type: feature
-status: live-gate     # BRIEF-0011-a merged (main, PR #11); BRIEF-0011-b executed + verified, awaiting PR #12 live gate
+status: done
 created: 2026-07-04
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
