@@ -4269,6 +4269,51 @@ this brief ends at a working, verified API + bit-identical runtime (the
 first behavioral change happens only when a creator saves an edit through
 the new API).
 
+## COCKPIT PROMPT EDITING UI — edit mode, history, restore (BRIEF-0011-b, no schema change)
+
+TICKET-0011, second brief. Consumes the API BRIEF-0011-a shipped
+(`PATCH .../text`, `GET .../versions[/{n}]`, `POST .../versions/{n}/restore`)
+as-is — `src/world_engine/cockpit/index.html` only, no Python change.
+
+**U1 (explicit edit mode, one renderer).** `_promptsRenderDetail` gains a
+second branch gated on `promptsEditMode`
+(`_promptsRenderReadBodies`/`_promptsRenderEditBodies`) rather than a second
+renderer — the same fidelity lesson as BRIEF-0008-b: a duplicate render path
+is where drift breeds. Draft text lives in client state
+(`promptsEditDraftSystem`/`...User`/`...Note`), never read back off the DOM
+or off `promptsCurrentDetail`, so an incidental full-pane re-render (e.g. a
+model-selector change mid-edit) never clobbers in-progress text.
+
+**V1 (collapsible lazy history + per-version read-only view).** `GET
+.../versions` fires only on first expansion (`promptsHistoryVersions` starts
+`null`); a save or restore nulls the cache so the next render (if still
+expanded) refetches. Opening a version fetches its body on demand. The
+restore control is gated on the server's own `is_current`, never inferred
+client-side, so it can never appear on the current version.
+
+**W1 (one-click restore, no modal).** Append-only makes restore
+non-destructive by construction — it appends a version, it never overwrites
+one — so the consequence is made visible instead via a computed label
+(`Restore v{n} as new v{next}`) rather than a confirmation dialog.
+
+**X1 (dirty guard).** `promptsEditDirty` is set on any edit-mode keystroke;
+`_promptsConfirmDiscard` (a plain `confirm()`) gates both switching the
+selected prompt and a world-switch reset — declining leaves the edit
+untouched. No draft persistence beyond that: a reload still loses an
+in-progress edit, matching the rest of the cockpit's no-draft-persistence
+doctrine.
+
+**Server stays sole authority.** The live placeholder hint
+(`_promptsUpdateEditHint`, reusing `_promptsExtractTokens` against the
+head's declared `variables`) is advisory only — it never blocks Save. The
+422 from BRIEF-0011-a's C1 is the only real refusal, rendered inline under
+the form with the offending names, drafts intact, never an `alert()`.
+
+**Fidelity on write.** Save and restore never patch `promptsCurrentDetail`
+locally — both refetch through `_promptsRefreshDetail` (GET the head, plus
+a forced history refetch if the section is open), the same read-after-write
+doctrine already used for the model-override PATCH (BRIEF-0009-a).
+
 ## Deferred decisions
 
 - **B2 — versioning `model`/`variables`/head metadata** (BRIEF-0011-a,
@@ -4278,6 +4323,18 @@ the new API).
 - **`_effective_prompt_row`'s multi-active-row nondeterminism** (BRIEF-0011-a).
   Unchanged, pre-existing observation (world-scoped usages fall back to
   `active[0]` when 2+ rows tie) — accepted, not this chantier's scope.
+- **X1 dirty guard is best-effort across a world switch** (BRIEF-0011-b).
+  `_promptsWorldReset`'s `confirm()` can only gate whether the *client
+  state* (`promptsEditMode` et al.) gets cleared — by the time it runs,
+  `activateWorld`/`worldDeleteConfirm` have already switched the world
+  server-side, and if the Prompts tab is the active one, the subsequent
+  `showCreationSubTab` → `promptsLoadList()` call unconditionally wipes the
+  visible detail pane regardless of the guard's answer. Declining the
+  confirm therefore preserves the JS draft variables but not necessarily
+  the on-screen textareas. Accepted as-is: the scenario (mid-edit + a world
+  switch in the same moment) is narrow, and a full fix would mean teaching
+  `promptsLoadList`/`showCreationSubTab` about a foreign tab's dirty state
+  — out of this brief's single-file, minimal-surface intent.
 
 Recorded here so each is revisited deliberately rather than forgotten:
 

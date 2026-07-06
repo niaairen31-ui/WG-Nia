@@ -2,12 +2,12 @@
 id: TICKET-0011
 title: Manual prompt editing with append-only version history
 type: feature
-status: recon
+status: live-gate     # BRIEF-0011-a merged (main, PR #11); BRIEF-0011-b executed + verified, awaiting PR #12 live gate
 created: 2026-07-04
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
 blast_radius: large        # every prompt-text read site in src/ is rewired
-brief_ids: []
+brief_ids: [BRIEF-0011-a, BRIEF-0011-b]
 schema_version_touched: vX.YY (placeholder — Claude Code owns numbering)
 retry_count: 0
 ---

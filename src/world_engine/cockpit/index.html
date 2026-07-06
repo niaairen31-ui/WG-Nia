@@ -3557,12 +3557,54 @@ let promptsOllamaModels = null;  // null = unknown/unreachable; [] = reachable, 
 let promptsOllamaError = null;
 let promptsCurrentDetail = null;
 
+// Edit mode (BRIEF-0011-b) — client-side draft state only; nothing survives
+// a reload or a prompt/world switch (no-draft-persistence doctrine).
+let promptsEditMode = false;
+let promptsEditDirty = false;
+let promptsEditDraftSystem = '';
+let promptsEditDraftUser = '';
+let promptsEditDraftNote = '';
+let promptsSaveError = null;
+
+// History section (V1) — collapsed + unfetched by default; lazy on first
+// expansion, cached until a save/restore invalidates it.
+let promptsHistoryExpanded = false;
+let promptsHistoryVersions = null;   // null = not fetched yet
+let promptsHistoryError = null;
+let promptsHistorySelectedVersion = null;
+let promptsHistoryVersionDetail = null;
+let promptsRestoreError = null;
+
+/** Shared X1 dirty guard — true if it's safe to discard the current edit. */
+function _promptsConfirmDiscard() {
+  return !promptsEditDirty || confirm('Unsaved prompt edit will be lost — continue?');
+}
+
+/** Resets all edit/history client state (BRIEF-0011-b) — called on every
+ *  prompt selection and on world-switch reset, after the X1 dirty guard. */
+function _promptsResetEditState() {
+  promptsEditMode = false;
+  promptsEditDirty = false;
+  promptsEditDraftSystem = '';
+  promptsEditDraftUser = '';
+  promptsEditDraftNote = '';
+  promptsSaveError = null;
+  promptsHistoryExpanded = false;
+  promptsHistoryVersions = null;
+  promptsHistoryError = null;
+  promptsHistorySelectedVersion = null;
+  promptsHistoryVersionDetail = null;
+  promptsRestoreError = null;
+}
+
 function _promptsWorldReset() {
+  if (!_promptsConfirmDiscard()) return;
   promptsUsages = [];
   promptsSelectedId = null;
   promptsOllamaModels = null;
   promptsOllamaError = null;
   promptsCurrentDetail = null;
+  _promptsResetEditState();
 }
 
 async function _promptsFetchOllamaModels() {
@@ -3642,6 +3684,8 @@ function _promptsHighlightTokens(text) {
 }
 
 async function promptsSelectDetail(promptId) {
+  if (!_promptsConfirmDiscard()) return;
+  _promptsResetEditState();
   promptsSelectedId = promptId;
   document.getElementById('prompts-list-body').innerHTML = _promptsRenderList(promptsUsages);
   const detailEl = document.getElementById('prompts-detail-body');
@@ -3723,19 +3767,21 @@ async function promptsChangeModel(promptId, value) {
 }
 
 function _promptsRenderDetail(d) {
-  const declared = new Set(Array.isArray(d.variables) ? d.variables : []);
-  const actual = new Set([..._promptsExtractTokens(d.system_prompt), ..._promptsExtractTokens(d.user_template)]);
-  const missingFromDeclared = [...actual].filter(t => !declared.has(t));
-  const missingFromText = [...declared].filter(t => !actual.has(t));
-  const driftHtml = (missingFromDeclared.length || missingFromText.length) ? `
-    <div class="empty" style="text-align:left; border:1px solid var(--border); border-radius:var(--radius); padding:8px;">
-      ${missingFromDeclared.length ? `<div>Présents dans le texte, absents de <code>variables</code> : ${missingFromDeclared.map(esc).join(', ')}</div>` : ''}
-      ${missingFromText.length ? `<div>Déclarés dans <code>variables</code>, absents du texte : ${missingFromText.map(esc).join(', ')}</div>` : ''}
-    </div>` : '';
-
   const callSites = (d.call_sites || []).map(s => `<li><code>${esc(s)}</code></li>`).join('');
-
   const previewPanel = d.dry_run_capable ? _promptsRenderPreviewPanel(d.usage) : '';
+
+  let driftHtml = '';
+  if (!promptsEditMode) {
+    const declared = new Set(Array.isArray(d.variables) ? d.variables : []);
+    const actual = new Set([..._promptsExtractTokens(d.system_prompt), ..._promptsExtractTokens(d.user_template)]);
+    const missingFromDeclared = [...actual].filter(t => !declared.has(t));
+    const missingFromText = [...declared].filter(t => !actual.has(t));
+    driftHtml = (missingFromDeclared.length || missingFromText.length) ? `
+      <div class="empty" style="text-align:left; border:1px solid var(--border); border-radius:var(--radius); padding:8px;">
+        ${missingFromDeclared.length ? `<div>Présents dans le texte, absents de <code>variables</code> : ${missingFromDeclared.map(esc).join(', ')}</div>` : ''}
+        ${missingFromText.length ? `<div>Déclarés dans <code>variables</code>, absents du texte : ${missingFromText.map(esc).join(', ')}</div>` : ''}
+      </div>` : '';
+  }
 
   return `
     <div class="field-section-title">${esc(d.name)} <span style="font-weight:400; color:var(--muted)">(${esc(d.usage)})</span></div>
@@ -3747,15 +3793,267 @@ function _promptsRenderDetail(d) {
     ${_promptsRenderModelSelector(d)}
     <div class="field-section-title">Call sites</div>
     <ul style="margin:0 0 10px 18px; font-size:12px;">${callSites}</ul>
-    <div class="field-section-title">System prompt</div>
+    ${promptsEditMode ? _promptsRenderEditBodies(d) : _promptsRenderReadBodies(d)}
+    ${driftHtml}
+    ${_promptsRenderHistorySection(d)}
+    ${previewPanel}
+  `;
+}
+
+/** Read-state bodies (U1) — unchanged visual output from BRIEF-0008-b, plus
+ *  the Edit entry point next to the System prompt heading. */
+function _promptsRenderReadBodies(d) {
+  return `
+    <div style="display:flex; align-items:center; justify-content:space-between;">
+      <div class="field-section-title" style="margin:0">System prompt</div>
+      <button class="btn-send" onclick="promptsEnterEditMode()">Éditer</button>
+    </div>
     <pre style="white-space:pre-wrap; font-size:12px; background:var(--card); border:1px solid var(--border);
                 border-radius:var(--radius); padding:8px; max-height:220px; overflow-y:auto;">${_promptsHighlightTokens(d.system_prompt)}</pre>
     <div class="field-section-title">User template</div>
     <pre style="white-space:pre-wrap; font-size:12px; background:var(--card); border:1px solid var(--border);
                 border-radius:var(--radius); padding:8px; max-height:220px; overflow-y:auto;">${_promptsHighlightTokens(d.user_template)}</pre>
-    ${driftHtml}
-    ${previewPanel}
   `;
+}
+
+/** Edit-state bodies (U1) — same pane, two textareas over the client-held
+ *  drafts (never the server's `d.system_prompt`/`d.user_template` directly,
+ *  so a mid-edit re-render — e.g. a model-selector change — never clobbers
+ *  in-progress text). The placeholder hint is advisory only (C1 stays the
+ *  sole authority); Save/Cancel sit under the note field. */
+function _promptsRenderEditBodies(d) {
+  return `
+    <div style="display:flex; align-items:center; justify-content:space-between;">
+      <div class="field-section-title" style="margin:0">System prompt</div>
+    </div>
+    <textarea id="prompts-edit-system" rows="8" style="width:100%; font-size:12px; font-family:monospace;"
+      oninput="promptsEditInput('system', this.value)">${esc(promptsEditDraftSystem)}</textarea>
+    <div class="field-section-title">User template</div>
+    <textarea id="prompts-edit-user" rows="8" style="width:100%; font-size:12px; font-family:monospace;"
+      oninput="promptsEditInput('user', this.value)">${esc(promptsEditDraftUser)}</textarea>
+    <div class="field-row" style="margin-top:8px;">
+      <label for="prompts-edit-note">Note (optionnel)</label>
+      <input type="text" id="prompts-edit-note" value="${esc(promptsEditDraftNote)}"
+        oninput="promptsEditInput('note', this.value)">
+    </div>
+    <div id="prompts-edit-hint" style="color:#c33; font-size:12px; margin-top:4px; display:none;"></div>
+    ${promptsSaveError ? `<div style="color:#c33; font-size:12px; margin-top:6px;">${esc(promptsSaveError)}</div>` : ''}
+    <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+      <button class="btn-send" onclick="promptsSaveEdit('${d.id}')">Enregistrer</button>
+      <button class="btn-end" onclick="promptsCancelEdit()">Annuler</button>
+    </div>
+  `;
+}
+
+function promptsEnterEditMode() {
+  if (!promptsCurrentDetail) return;
+  promptsEditMode = true;
+  promptsEditDirty = false;
+  promptsEditDraftSystem = promptsCurrentDetail.system_prompt;
+  promptsEditDraftUser = promptsCurrentDetail.user_template;
+  promptsEditDraftNote = '';
+  promptsSaveError = null;
+  document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
+}
+
+function promptsCancelEdit() {
+  if (!_promptsConfirmDiscard()) return;
+  promptsEditMode = false;
+  promptsEditDirty = false;
+  promptsSaveError = null;
+  document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
+}
+
+/** Draft input handler — updates client state (never left to the DOM alone,
+ *  so drafts survive an incidental full-pane re-render) and refreshes the
+ *  advisory placeholder hint (Scope IN 2 — never blocks Save). */
+function promptsEditInput(field, value) {
+  if (field === 'system') promptsEditDraftSystem = value;
+  else if (field === 'user') promptsEditDraftUser = value;
+  else if (field === 'note') promptsEditDraftNote = value;
+  promptsEditDirty = true;
+  _promptsUpdateEditHint();
+}
+
+function _promptsUpdateEditHint() {
+  const hintEl = document.getElementById('prompts-edit-hint');
+  if (!hintEl || !promptsCurrentDetail) return;
+  const declared = new Set(Array.isArray(promptsCurrentDetail.variables) ? promptsCurrentDetail.variables : []);
+  const tokens = new Set([..._promptsExtractTokens(promptsEditDraftSystem), ..._promptsExtractTokens(promptsEditDraftUser)]);
+  const undeclared = [...tokens].filter(t => !declared.has(t));
+  hintEl.style.display = undeclared.length ? '' : 'none';
+  hintEl.textContent = undeclared.length ? `Sera rejeté : ${undeclared.map(t => '{' + t + '}').join(', ')}` : '';
+}
+
+/** Save (C1 is the sole authoritative gate; this call may 422). On success,
+ *  never patch `promptsCurrentDetail` locally — refetch through the server
+ *  (fidelity doctrine, same as the model PATCH handler), which also picks
+ *  up the new version number for free. On failure, stay in edit mode with
+ *  drafts intact and the server's message rendered inline. */
+async function promptsSaveEdit(promptId) {
+  try {
+    await api(`/api/prompts/${promptId}/text`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_prompt: promptsEditDraftSystem,
+        user_template: promptsEditDraftUser,
+        note: promptsEditDraftNote.trim() || undefined,
+      }),
+    });
+    promptsEditMode = false;
+    promptsEditDirty = false;
+    promptsSaveError = null;
+    promptsHistorySelectedVersion = null;
+    promptsHistoryVersionDetail = null;
+    promptsHistoryVersions = null;
+    await _promptsRefreshDetail(promptId);
+  } catch (e) {
+    promptsSaveError = e.message;
+    document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
+  }
+}
+
+/** Post-write refresh (save or restore) — refetches the head, and the
+ *  version list too if History is open, then re-renders once. Never a
+ *  locally-patched draft standing in for the server's canonical read. */
+async function _promptsRefreshDetail(promptId) {
+  try {
+    promptsCurrentDetail = await api(`/api/prompts/${promptId}`);
+  } catch (e) {
+    document.getElementById('prompts-detail-body').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    return;
+  }
+  if (promptsHistoryExpanded) {
+    await _promptsLoadHistory(promptId);
+  } else {
+    document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
+  }
+  for (const u of promptsUsages) {
+    const row = (u.rows || []).find(r => r.id === promptId);
+    if (row) row.version = promptsCurrentDetail.version;
+  }
+  document.getElementById('prompts-list-body').innerHTML = _promptsRenderList(promptsUsages);
+}
+
+/* ── History section (V1) ────────────────────────────────────────────────
+ * Lazy: GET .../versions fires only on first expansion, never for a prompt
+ * whose history stays collapsed. Cached until a save/restore invalidates
+ * it (both null out `promptsHistoryVersions` before refreshing). */
+
+function _promptsRenderHistorySection(d) {
+  let body = '';
+  if (promptsHistoryExpanded) {
+    if (promptsHistoryError) {
+      body = `<div class="empty" style="color:#c33;">${esc(promptsHistoryError)}</div>`;
+    } else if (!promptsHistoryVersions) {
+      body = '<div class="empty"><span class="spin">⟳</span></div>';
+    } else {
+      body = _promptsRenderHistoryList(d);
+    }
+  }
+  return `
+    <div class="field-section-title" style="margin-top:14px; display:flex; align-items:center; justify-content:space-between; cursor:pointer;"
+         onclick="promptsToggleHistory('${d.id}')">
+      <span>Historique</span>
+      <span style="font-weight:400; color:var(--muted); font-size:12px;">${promptsHistoryExpanded ? 'Masquer' : 'Afficher'}</span>
+    </div>
+    ${body}
+  `;
+}
+
+async function promptsToggleHistory(promptId) {
+  promptsHistoryExpanded = !promptsHistoryExpanded;
+  if (!promptsHistoryExpanded) {
+    promptsHistorySelectedVersion = null;
+    promptsHistoryVersionDetail = null;
+    document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
+    return;
+  }
+  if (!promptsHistoryVersions) {
+    await _promptsLoadHistory(promptId);
+    return;
+  }
+  document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
+}
+
+async function _promptsLoadHistory(promptId) {
+  promptsHistoryError = null;
+  try {
+    const data = await api(`/api/prompts/${promptId}/versions`);
+    promptsHistoryVersions = data.versions || [];
+  } catch (e) {
+    promptsHistoryVersions = null;
+    promptsHistoryError = e.message;
+  }
+  document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
+}
+
+function _promptsRenderHistoryList(d) {
+  if (!promptsHistoryVersions.length) return '<div class="empty">Aucune version.</div>';
+  const rows = promptsHistoryVersions.map(v => `
+    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px; cursor:pointer;
+                                  ${v.version_number === promptsHistorySelectedVersion ? 'border-color:var(--accent)' : ''}"
+         onclick="promptsSelectHistoryVersion('${d.id}', ${v.version_number})">
+      <span class="badge b-other">v${v.version_number}</span>
+      <span style="color:var(--muted); font-size:12px;">${esc(fmtDate(v.created_at))}</span>
+      <span style="font-size:12px; flex:1;">${esc(v.note || '')}</span>
+      ${v.is_current ? '<span class="badge b-other" style="border-color:var(--accent); color:var(--accent)">current</span>' : ''}
+    </div>`).join('');
+  return '<div class="row-table" style="margin-top:6px;">' + rows + '</div>' + _promptsRenderHistoryVersionDetail(d);
+}
+
+async function promptsSelectHistoryVersion(promptId, versionNumber) {
+  promptsHistorySelectedVersion = versionNumber;
+  promptsHistoryVersionDetail = null;
+  promptsRestoreError = null;
+  document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
+  try {
+    promptsHistoryVersionDetail = await api(`/api/prompts/${promptId}/versions/${versionNumber}`);
+  } catch (e) {
+    promptsHistoryVersionDetail = null;
+    promptsRestoreError = e.message;
+  }
+  document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
+}
+
+/** Read-only body view for the selected history version, plus the restore
+ *  control (W1) — never offered on the current version (server `is_current`,
+ *  never inferred client-side). */
+function _promptsRenderHistoryVersionDetail(d) {
+  if (promptsHistorySelectedVersion == null) return '';
+  if (!promptsHistoryVersionDetail) {
+    return promptsRestoreError
+      ? `<div class="empty" style="color:#c33;">${esc(promptsRestoreError)}</div>`
+      : '<div class="empty"><span class="spin">⟳</span></div>';
+  }
+  const v = promptsHistoryVersionDetail;
+  const nextVersion = d.version + 1;
+  return `
+    <div style="border-top:1px solid var(--border); margin-top:8px; padding-top:8px;">
+      <div class="field-section-title">v${v.version_number} · ${esc(fmtDate(v.created_at))}${v.note ? ` · ${esc(v.note)}` : ''}</div>
+      <pre style="white-space:pre-wrap; font-size:12px; background:var(--card); border:1px solid var(--border);
+                  border-radius:var(--radius); padding:8px; max-height:180px; overflow-y:auto;">${_promptsHighlightTokens(v.system_prompt)}</pre>
+      <pre style="white-space:pre-wrap; font-size:12px; background:var(--card); border:1px solid var(--border);
+                  border-radius:var(--radius); padding:8px; max-height:180px; overflow-y:auto;">${_promptsHighlightTokens(v.user_template)}</pre>
+      ${v.is_current ? '' : `<button class="btn-send" onclick="promptsRestoreVersion('${d.id}', ${v.version_number})">Restore v${v.version_number} as new v${nextVersion}</button>`}
+      ${promptsRestoreError ? `<div style="color:#c33; font-size:12px; margin-top:6px;">${esc(promptsRestoreError)}</div>` : ''}
+    </div>
+  `;
+}
+
+async function promptsRestoreVersion(promptId, versionNumber) {
+  promptsRestoreError = null;
+  try {
+    await api(`/api/prompts/${promptId}/versions/${versionNumber}/restore`, { method: 'POST' });
+    promptsHistorySelectedVersion = null;
+    promptsHistoryVersionDetail = null;
+    promptsHistoryVersions = null;
+    await _promptsRefreshDetail(promptId);
+  } catch (e) {
+    promptsRestoreError = e.message;
+    document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
+  }
 }
 
 function _promptsRenderPreviewPanel(usage) {
