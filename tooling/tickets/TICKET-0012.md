@@ -2,7 +2,7 @@
 id: TICKET-0012
 title: Prompt lean rewrite — resolved facts over conditional instructions, pilot purge
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-05
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write]
