@@ -1,7 +1,7 @@
 [CANON_TABLES]
 world entity character location faction faction_membership relation
 knowledge ledger item skill skill_definition discoverable_detail
-event artifact
+event artifact npc_goal
 
 [ALLOWED_SITES]
 # path::function                                              tables
@@ -10,6 +10,8 @@ src/world_engine/writes.py::write_knowledge                   knowledge
 src/world_engine/writes.py::write_ledger_entry                ledger
 src/world_engine/writes.py::write_membership                  faction_membership
 src/world_engine/writes.py::write_skill_tier                  skill
+src/world_engine/writes.py::write_npc_goal                    npc_goal
+src/world_engine/writes.py::write_npc_goal_status             npc_goal
 src/world_engine/writes.py::delete_world_cascade               *
 src/world_engine/cockpit/app.py::_apply_mutation               entity item discoverable_detail
 src/world_engine/cockpit/app.py::activate_world                world

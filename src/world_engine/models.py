@@ -326,6 +326,40 @@ class Knowledge(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
+# npc_goal  (NPC interiority — in-scene volition, schema v1.69, BRIEF-0013-a)
+#
+# Flat table (F1, no parent_goal_id — see ARCHITECTURE_DECISIONS "Deferred
+# decisions" for the F2 reactivation trigger). description is immutable after
+# insert: a "changed" goal is a closed goal plus a new row. status transitions
+# are one-way (active -> completed|abandoned), never reopened. Read ONLY by
+# assemble_npc_context and the initiative vote (N1) — assemble_mj_context must
+# never gain a query against this table.
+# -----------------------------------------------------------------------------
+class NpcGoal(SQLModel, table=True):
+    __tablename__ = "npc_goal"
+    __table_args__ = (
+        CheckConstraint("horizon IN ('short','long')", name="ck_npc_goal_horizon"),
+        CheckConstraint(
+            "status IN ('active','completed','abandoned')", name="ck_npc_goal_status"
+        ),
+        Index("idx_npc_goal_npc_status", "npc_id", "status"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    npc_id: str = Field(foreign_key="entity.id", nullable=False)
+    description: str
+    horizon: str
+    status: str = Field(default="active", sa_column_kwargs={"server_default": text("'active'")})
+    created_at: datetime = _created_ts()
+    updated_at: datetime = _created_ts()
+    change_history: list = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
+    )
+
+
+# -----------------------------------------------------------------------------
 # ledger  (conserved currency, append-only — schema v1.31, BRIEF-18)
 #
 # NOTE: this table is INSERT-only. No code path may UPDATE or DELETE an

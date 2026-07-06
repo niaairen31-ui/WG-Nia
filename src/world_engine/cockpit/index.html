@@ -4931,6 +4931,13 @@ function authorRenderSheet(detail, isNew, type) {
     html += '</div>';
   }
 
+  if (!isNew && type === 'character' && currentCreationSubTab === 'npc') {
+    html += '<div class="field-section"><div class="field-section-title">Objectifs</div>';
+    html += '<div id="author-goals"><div class="empty"><span class="spin">⟳</span></div></div>';
+    html += authorRenderGoalForm();
+    html += '</div>';
+  }
+
   if (!isNew && type === 'location') {
     html += '<div class="field-section"><div class="field-section-title">Discoverable Details</div>';
     html += '<div id="author-disc-list"><div class="empty"><span class="spin">⟳</span></div></div>';
@@ -4945,6 +4952,9 @@ function authorRenderSheet(detail, isNew, type) {
     authorLoadLedger(detail.id);
     authorLoadMemberships(detail.id);
     authorMembershipFactionChanged();
+  }
+  if (!isNew && type === 'character' && currentCreationSubTab === 'npc') {
+    authorLoadGoals(detail.id);
   }
   if (!isNew && type === 'faction') {
     authorLoadLedger(detail.id);
@@ -6047,6 +6057,86 @@ async function authorKnowledgeRequest(path, method, body) {
     await api(path, opts);
     const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}`);
     document.getElementById('author-knowledge').innerHTML = authorRenderKnowledge(detail.knowledge);
+    statusEl.className = 'author-status ok';
+    statusEl.textContent = 'Saved.';
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = e.message;
+  }
+}
+
+/* ── NPC goals (schema v1.69, BRIEF-0013-a) — NPC sheets only ─────────────
+ * No edit/reopen: description is immutable after insert, a closed goal is
+ * never reopened (a revived goal is a new row). */
+
+async function authorLoadGoals(entityId) {
+  const el = document.getElementById('author-goals');
+  if (!el) return;
+  try {
+    const goals = await api(`/api/entities/${encodeURIComponent(entityId)}/goals`);
+    el.innerHTML = authorRenderGoals(goals);
+  } catch (e) {
+    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function authorRenderGoals(goals) {
+  if (!goals || goals.length === 0) return '<div class="empty">Aucun objectif.</div>';
+  const horizonLabel = { long: 'LONG TERME', short: 'COURT TERME' };
+  return '<div class="row-table">' + goals.map(g => {
+    const closed = g.status !== 'active';
+    return `
+    <div class="row-card" style="${closed ? 'opacity:0.6;' : ''}">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+        <span><span class="badge b-other">${esc(horizonLabel[g.horizon] || g.horizon)}</span> ${esc(g.description)}</span>
+        <span style="display:flex; align-items:center; gap:8px;">
+          <span class="badge ${closed ? 'b-rejected' : 'b-equipped'}">${esc(g.status)}</span>
+          ${!closed ? `
+            <button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick="authorSetGoalStatus('${esc(g.id)}', 'completed')">Accompli</button>
+            <button class="btn-end" style="font-size:12px; padding:3px 8px" onclick="authorSetGoalStatus('${esc(g.id)}', 'abandoned')">Abandonné</button>
+          ` : ''}
+        </span>
+      </div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+function authorRenderGoalForm() {
+  return `
+    <div class="row-card">
+      <div class="field-grid">
+        <div class="field-row"><label>Horizon *</label>
+          <select id="goal-new-horizon">
+            <option value="short">short</option>
+            <option value="long">long</option>
+          </select></div>
+        <div class="field-row span-2"><label>Description *</label><textarea id="goal-new-description"></textarea></div>
+      </div>
+      <div class="row-card-actions">
+        <button class="btn-send" onclick="authorAddGoal()">Add goal</button>
+      </div>
+    </div>
+  `;
+}
+
+async function authorAddGoal() {
+  const body = JSON.stringify({
+    horizon:     document.getElementById('goal-new-horizon').value,
+    description: document.getElementById('goal-new-description').value,
+  });
+  await authorGoalRequest(`/api/entities/${encodeURIComponent(authorEntityId)}/goals`, 'POST', body);
+}
+
+async function authorSetGoalStatus(id, status) {
+  await authorGoalRequest(`/api/goals/${encodeURIComponent(id)}/status`, 'POST', JSON.stringify({ status }));
+}
+
+async function authorGoalRequest(path, method, body) {
+  const statusEl = document.getElementById('author-status');
+  try {
+    const opts = { method, headers: { 'Content-Type': 'application/json' }, body };
+    await api(path, opts);
+    await authorLoadGoals(authorEntityId);
     statusEl.className = 'author-status ok';
     statusEl.textContent = 'Saved.';
   } catch (e) {

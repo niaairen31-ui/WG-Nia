@@ -40,12 +40,14 @@ from .models import (
     Item,
     Knowledge,
     Location,
+    NpcGoal,
     Relation,
     SkillDefinition,
 )
 
 # Section headers (kept stable so a harness can split the output reliably).
 H_IDENTITY = "QUI TU ES"
+H_GOALS = "TES OBJECTIFS"
 H_SETTING = "OÙ TU TE TROUVES"
 H_SPEAK = "CE QUE TU PEUX ÉVOQUER"
 H_PERCEPTION = "COMMENT TU VOIS CEUX QUI T'ENTOURENT"
@@ -216,6 +218,28 @@ def assemble_npc_context(
     if npc_entity.description:
         identity_lines.append(npc_entity.description)
     identity = " ".join(identity_lines)
+
+    # ----- 1b. Goals (BRIEF-0013-a, Q1/S1/N1) — the long goal + the 2 most
+    # recent active shorts, newest first within each horizon. Read-side LIMIT
+    # is the S1 bound; no write-side cap exists anywhere on active shorts.
+    long_goal = session.exec(
+        select(NpcGoal)
+        .where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active", NpcGoal.horizon == "long")
+        .order_by(NpcGoal.created_at.desc())
+        .limit(1)
+    ).first()
+    short_goals = session.exec(
+        select(NpcGoal)
+        .where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active", NpcGoal.horizon == "short")
+        .order_by(NpcGoal.created_at.desc())
+        .limit(2)
+    ).all()
+    goal_lines = []
+    if long_goal:
+        goal_lines.append(f"[LONG TERME] {long_goal.description}")
+    for g in short_goals:
+        goal_lines.append(f"[COURT TERME] {g.description}")
+    goals_section = (_section(H_GOALS, "\n".join(goal_lines)) + "\n") if goal_lines else ""
 
     # ----- 2. Setting -------------------------------------------------------
     loc_entity = session.get(Entity, location_id)
@@ -389,6 +413,7 @@ def assemble_npc_context(
     return (
         _section(H_IDENTITY, identity)
         + "\n"
+        + goals_section
         + _section(H_SETTING, setting)
         + "\n"
         + _section(H_SPEAK, speak_body)

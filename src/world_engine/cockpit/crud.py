@@ -70,6 +70,7 @@ from ..models import (
     Knowledge,
     Ledger,
     Location,
+    NpcGoal,
     PromptTemplate,
     Relation,
     Skill,
@@ -80,10 +81,13 @@ from ..prompt_registry import PROMPT_REGISTRY, effective_model
 from ..prompt_store import current_prompt, get_version, list_versions
 from ..writes import (
     KNOWLEDGE_LEVELS,
+    NPC_GOAL_HORIZONS,
     PromptValidationError,
     write_knowledge,
     write_ledger_entry,
     write_membership,
+    write_npc_goal,
+    write_npc_goal_status,
     write_prompt_version,
     write_relation,
     write_skill_tier,
@@ -451,6 +455,27 @@ def _list_knowledge(entity_id: str, db: DbSession) -> list[dict]:
     return [_knowledge_dict(k) for k in rows]
 
 
+def _goal_dict(g: NpcGoal) -> dict:
+    return {
+        "id": g.id,
+        "npc_id": g.npc_id,
+        "description": g.description,
+        "horizon": g.horizon,
+        "status": g.status,
+        "created_at": _iso(g.created_at),
+        "updated_at": _iso(g.updated_at),
+    }
+
+
+def _list_goals(entity_id: str, db: DbSession) -> list[dict]:
+    """Active first, then newest first within each status group (BRIEF-0013-a)."""
+    rows = db.exec(
+        select(NpcGoal).where(NpcGoal.npc_id == entity_id)
+    ).all()
+    ordered = sorted(rows, key=lambda g: (g.status != "active", -g.created_at.timestamp()))
+    return [_goal_dict(g) for g in ordered]
+
+
 # ── Field application ──────────────────────────────────────────────────────────
 
 def _apply_base_fields(db: DbSession, entity: Entity, data: dict) -> None:
@@ -493,6 +518,15 @@ class KnowledgeWriteBody(BaseModel):
     is_incorrect: bool = False
     is_secret: bool = False
     share_threshold: Optional[int] = None
+
+
+class GoalWriteBody(BaseModel):
+    description: Optional[str] = None
+    horizon: Optional[str] = None
+
+
+class GoalStatusBody(BaseModel):
+    status: Optional[str] = None
 
 
 # ── Registry / metadata ───────────────────────────────────────────────────────
@@ -860,6 +894,62 @@ def delete_knowledge(knowledge_id: str, db: DbSession = Depends(get_session)) ->
     db.delete(k)
     db.commit()
     return {"deleted": True, "id": knowledge_id}
+
+
+# ── NPC goals — in-scene volition (schema v1.69, BRIEF-0013-a) ───────────────
+# Creator CRUD only this step (writes.write_npc_goal / write_npc_goal_status).
+# No edit/reopen endpoints — description immutability and the closed-is-closed
+# rule are design, not omissions (see CLAUDE.md invariants).
+
+@router.get("/entities/{entity_id}/goals")
+def list_entity_goals(entity_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
+    entity = _get_entity(db, entity_id)
+    if entity.world_id != _world_id(db):
+        raise HTTPException(404, f"Entity {entity_id!r} not found")
+    return _list_goals(entity_id, db)
+
+
+@router.post("/entities/{entity_id}/goals", status_code=201)
+def create_goal(entity_id: str, body: GoalWriteBody, db: DbSession = Depends(get_session)) -> dict:
+    entity = _get_entity(db, entity_id)
+    if entity.world_id != _world_id(db):
+        raise HTTPException(404, f"Entity {entity_id!r} not found")
+    if body.horizon not in NPC_GOAL_HORIZONS:
+        raise HTTPException(422, f"horizon must be one of {sorted(NPC_GOAL_HORIZONS)}")
+    if not body.description or not body.description.strip():
+        raise HTTPException(422, "description is required")
+    char = db.get(Character, entity_id)
+    if char is None or char.character_type != "npc":
+        raise HTTPException(422, "goals may only be created on an NPC character")
+
+    goal = write_npc_goal(
+        db,
+        world_id=entity.world_id,
+        npc_id=entity_id,
+        description=body.description.strip(),
+        horizon=body.horizon,
+        changed_by="creator",
+    )
+    db.commit()
+    db.refresh(goal)
+    return _goal_dict(goal)
+
+
+@router.post("/goals/{goal_id}/status")
+def set_goal_status(goal_id: str, body: GoalStatusBody, db: DbSession = Depends(get_session)) -> dict:
+    goal = db.get(NpcGoal, goal_id)
+    if goal is None or goal.world_id != _world_id(db):
+        raise HTTPException(404, f"NpcGoal {goal_id!r} not found")
+    if body.status not in ("completed", "abandoned"):
+        raise HTTPException(422, "status must be 'completed' or 'abandoned'")
+
+    try:
+        goal = write_npc_goal_status(db, goal=goal, new_status=body.status, changed_by="creator")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    db.commit()
+    db.refresh(goal)
+    return _goal_dict(goal)
 
 
 # ── Faction membership (schema v1.39, BRIEF-27) ───────────────────────────────

@@ -8,6 +8,32 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.69** — New table `npc_goal` (NPC interiority — in-scene volition,
+  TICKET-0013/BRIEF-0013-a): `id`, `world_id` (FK), `npc_id` (FK entity),
+  `description` (NOT NULL, immutable after insert), `horizon` CHECK IN
+  ('short','long'), `status` CHECK IN ('active','completed','abandoned')
+  DEFAULT 'active', `created_at`, `updated_at`, `change_history` JSON
+  DEFAULT '[]'; index `idx_npc_goal_npc_status` on `(npc_id, status)`. A
+  changed goal is a closed goal plus a new row — status transitions are
+  one-way (`active` -> `completed`|`abandoned`), never reopened. Two new
+  `writes.py` helpers are the sole write chokepoints: `write_npc_goal`
+  (insert, active) and `write_npc_goal_status` (history-append then
+  transition; raises on any transition other than the two allowed ones).
+  New creator CRUD: `GET/POST /api/entities/{id}/goals`,
+  `POST /api/goals/{id}/status` — NPC characters only (422 on a player
+  character or an invalid transition). Character-sheet "Objectifs" block
+  (NPC sheets only). New `assemble_npc_context` section `TES OBJECTIFS`
+  (`H_GOALS`), placed right after `QUI TU ES`: the most recent active long
+  goal + the 2 most recent active shorts (read-side LIMIT, no write-side
+  cap), omitted entirely when the NPC has no active goals. N1 structural
+  boundary: `assemble_mj_context` never reads `npc_goal` — enforced by a new
+  static check, `verify/checks/npc_goal_read.py` (module allowlist + a scan
+  asserting zero `NpcGoal`/`"npc_goal"` references inside the MJ block).
+  `canon_write_policy.txt` gains `npc_goal` as a canon table with the two new
+  helper sites. Migration: `scripts/migrate_v1_69_npc_goal.py` (purely
+  additive). Scope OUT this step: the goal generator, the vote signal, the
+  `goal_change` mutation type, and the dialogue directive — all BRIEF-0013-b/c.
+
 - **v1.68** — New table `prompt_version` (append-only prompt text history,
   TICKET-0011/BRIEF-0011-a): `id`, `prompt_template_id` (FK), `version_number`,
   `system_prompt`, `user_template`, `note`, `created_at`; UNIQUE index on
