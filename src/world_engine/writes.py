@@ -37,6 +37,14 @@ functions so that clamping and field validation live in exactly one place.
   `is_primary` of an existing row. A role or primary change is close + open
   a fresh row — the closed-row sequence IS the history, by construction
   (no `change_history` column on `faction_membership`).
+- `write_npc_goal(...)`                 : insert an `active` `npc_goal` row
+  (BRIEF-0013-a). `description` is immutable after insert — a "changed" goal
+  is a closed goal plus a new row, never an edit.
+- `write_npc_goal_status(...)`          : the only chokepoint for `npc_goal`
+  status transitions (BRIEF-0013-a). Allowed transitions are exactly
+  `active -> completed` and `active -> abandoned` — anything else (including
+  reopening a closed goal) raises `ValueError`. Appends the previous state to
+  `change_history` first (history is sacred).
 - `delete_world_cascade(world_id, db)`  : the sole delete-side helper in
   this module, and the sole sanctioned exception to "History is sacred"
   (BRIEF-54). Hard-deletes every row scoped to a world, including the
@@ -59,7 +67,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from .models import FactionMembership, Knowledge, Ledger, PromptTemplate, PromptVersion, Relation, Skill
+from .models import FactionMembership, Knowledge, Ledger, NpcGoal, PromptTemplate, PromptVersion, Relation, Skill
 
 # Simple-identifier placeholder, e.g. `{player_line}` — deliberately does not
 # match JSON-example braces like `{"key": ...}` (TICKET-0011, C1).
@@ -517,6 +525,79 @@ def write_membership(
         membership.left_at = datetime.now(UTC)
         db.add(membership)
     return membership
+
+
+# npc_goal.horizon enum (world-engine-schema.md v1.69): short | long.
+NPC_GOAL_HORIZONS = frozenset({"short", "long"})
+
+
+def write_npc_goal(
+    db: Session,
+    *,
+    world_id: str,
+    npc_id: str,
+    description: str,
+    horizon: str,
+    changed_by: str = "creator",
+) -> NpcGoal:
+    """Insert an `active` `npc_goal` row. Caller adds the row to the session.
+
+    `description` is immutable after insert — a "changed" goal is a closed
+    goal (`write_npc_goal_status`) plus a new row via this function, never an
+    in-place edit. `change_history` starts empty on insert, matching
+    `write_knowledge`'s idiom; `changed_by` is accepted for call-site
+    symmetry with `write_npc_goal_status` but has nothing to attribute on a
+    fresh row.
+    """
+    if horizon not in NPC_GOAL_HORIZONS:
+        raise ValueError(f"write_npc_goal: invalid horizon {horizon!r}")
+
+    goal = NpcGoal(
+        world_id=world_id,
+        npc_id=npc_id,
+        description=description,
+        horizon=horizon,
+        status="active",
+        change_history=[],
+    )
+    db.add(goal)
+    return goal
+
+
+def write_npc_goal_status(
+    db: Session,
+    *,
+    goal: NpcGoal,
+    new_status: str,
+    changed_by: str,
+) -> NpcGoal:
+    """Transition `goal.status`. Caller adds the row to the session.
+
+    The ONLY chokepoint for `npc_goal` status transitions. Allowed
+    transitions are exactly `active -> completed` and `active -> abandoned` —
+    any other transition (including reopening a closed goal) raises
+    `ValueError`: a revived goal is a NEW row via `write_npc_goal`, never a
+    reopened one. Appends the previous state to `change_history` first
+    (history is sacred), then sets `status` and bumps `updated_at`.
+    """
+    if goal.status != "active" or new_status not in ("completed", "abandoned"):
+        raise ValueError(
+            f"write_npc_goal_status: invalid transition {goal.status!r} -> {new_status!r}"
+        )
+
+    history = list(goal.change_history or [])
+    history.append({
+        "status": goal.status,
+        "updated_at": goal.updated_at.isoformat() if goal.updated_at else None,
+        "changed_by": changed_by,
+    })
+    goal.change_history = history
+    sa_attrs.flag_modified(goal, "change_history")
+    goal.status = new_status
+    goal.updated_at = datetime.now(UTC)
+
+    db.add(goal)
+    return goal
 
 
 def write_prompt_version(

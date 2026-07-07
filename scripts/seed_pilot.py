@@ -235,8 +235,8 @@ Output: a JSON array only. No prose. No markdown fences. Start with [, end with 
 Nothing changed → output exactly: []
 
 Every element must have these EXACT 5 keys — no other keys allowed:
-  "mutation_type"  (string) — relation_change | new_knowledge | knowledge_change | event_creation | status_change | entity_creation | resource_change | other
-  "target_table"   (string) — relation | knowledge | event | entity | character | location | faction | artifact | ledger | other
+  "mutation_type"  (string) — relation_change | new_knowledge | knowledge_change | event_creation | status_change | entity_creation | resource_change | goal_change | other
+  "target_table"   (string) — relation | knowledge | event | entity | character | location | faction | artifact | ledger | npc_goal | other
   "target_id"      (string or null) — id of the row to update; null for a new row
   "payload"        (object) — fields matching the target table (see below)
   "rationale"      (string) — one line quoting or summarising the evidence
@@ -247,6 +247,7 @@ Payload shapes:
   knowledge_change → {"entity_id":"…","subject":"…","field":"…","new_value":"…"}
   event_creation   → {"title":"…","description":"…","type":"social|political|other","involved_entities":[…]}
   resource_change  → {"entity_id":"char-player","amount":<signed int>,"counterparty_id":"…","reason":"…","knowledge":{"entity_id":"…","subject":"…","level":"…","content":"…","source":"…","is_secret":false} (knowledge is OPTIONAL — only when information changed hands)}
+  goal_change      → {"action":"complete|abandon|create_short","goal":"…"}
 
 === RELATION_CHANGE SIGN RUBRIC ===
 Decide the SIGN of intensity_delta by INTENT, not by surface similarity:
@@ -300,6 +301,20 @@ information, et que c'est le joueur (achat) ou un PNJ (le joueur vend une
 info) qui l'acquiert — `content` recopié de ce qui a été dit, jamais
 inventé.
 
+=== GOAL_CHANGE RUBRIC ===
+goal_change — le bloc NPC CONTEXT peut contenir une section
+« TES OBJECTIFS » listant les objectifs actifs du PNJ. Émets un
+goal_change UNIQUEMENT quand la fenêtre contient une preuve claire
+qu'un de CES objectifs listés est accompli ("action":"complete") ou
+définitivement abandonné ("action":"abandon"), ou que le PNJ forme une
+NOUVELLE intention concrète à court terme ("action":"create_short").
+Recopie le texte de l'objectif EXACTEMENT tel qu'il figure dans
+« TES OBJECTIFS » — jamais de paraphrase. Pour create_short, écris le
+nouvel objectif en UNE phrase commençant par un verbe à l'infinitif.
+Parler d'un objectif, ou progresser sans conclure, ne justifie PAS de
+goal_change. Émets AU PLUS UN goal_change par objectif pour toute la
+fenêtre. N'invente jamais d'objectif absent de la section.
+
 === EXEMPLE 1 (la relation se réchauffe) ===
 Transcript :
 [JOUEUR] Cela fait deux ans que je viens ici.
@@ -332,7 +347,18 @@ Transcript :
 [JOUEUR] Tiens.
 [PNJ] Plaisir de faire affaire.
 Output:
-[{"mutation_type":"resource_change","target_table":"ledger","target_id":null,"payload":{"entity_id":"char-player","amount":-15,"counterparty_id":"npc-b","reason":"achat d'une information sur le Conseil","knowledge":{"entity_id":"char-player","subject":"conseil_secret","level":"rumor","content":"Le Conseil cache l'un de ses propres membres.","source":"acheté au PNJ","is_secret":false}},"rationale":"Le joueur a payé 15 pièces, le PNJ a énoncé le prix et l'information, l'échange s'est conclu dans la scène."}]"""
+[{"mutation_type":"resource_change","target_table":"ledger","target_id":null,"payload":{"entity_id":"char-player","amount":-15,"counterparty_id":"npc-b","reason":"achat d'une information sur le Conseil","knowledge":{"entity_id":"char-player","subject":"conseil_secret","level":"rumor","content":"Le Conseil cache l'un de ses propres membres.","source":"acheté au PNJ","is_secret":false}},"rationale":"Le joueur a payé 15 pièces, le PNJ a énoncé le prix et l'information, l'échange s'est conclu dans la scène."}]
+
+=== EXEMPLE 5 (un objectif listé est accompli) ===
+NPC CONTEXT (extrait) :
+TES OBJECTIFS
+[COURT TERME] Convaincre le forgeron de réparer la herse avant la foire
+Transcript :
+[PNJ] Alors, c'est entendu ? Elle sera réparée avant la foire ?
+[JOUEUR] Le forgeron a accepté ce matin. C'est réglé.
+[PNJ] Enfin ! Voilà un poids en moins.
+Output:
+[{"mutation_type":"goal_change","target_table":"npc_goal","target_id":null,"payload":{"action":"complete","goal":"Convaincre le forgeron de réparer la herse avant la foire"},"rationale":"Le PNJ apprend que la réparation est acquise — l'objectif listé est accompli."}]"""
 
 CONVERSATION_ANALYSIS_USER_TEMPLATE = """\
 NPC CONTEXT (what the NPC was authorised to know):
@@ -776,6 +802,38 @@ Intention du créateur : {brief}
 Brouillon JSON :\
 """
 
+# TICKET-0013/BRIEF-0013-b: NPC goal generator (T1). usage =
+# "npc_goal_generation". world_id = NULL. Calls go through
+# entity_author.generate_npc_goals, which writes no canon — pure
+# generate-and-return, one long + two short goals per call (M2).
+NPC_GOALS_SYSTEM_PROMPT = """\
+Tu es un assistant d'écriture pour un jeu de rôle. On te donne l'identité \
+d'un personnage non-joueur (PNJ). Tu produis ses objectifs personnels : \
+exactement 1 objectif à long terme et 2 objectifs à court terme.
+
+Règles :
+- L'objectif long terme est une ambition ou un désir profond, cohérent avec \
+l'identité et le passé du personnage.
+- Les objectifs court terme sont des intentions concrètes, actionnables dans \
+les jours qui viennent, au service de l'objectif long terme ou d'une \
+préoccupation immédiate.
+- Chaque objectif tient en UNE seule phrase, commençant par un verbe à \
+l'infinitif.
+- N'invente aucun nom propre absent des informations fournies.
+- Si des objectifs de faction sont fournis, le personnage peut y adhérer, \
+s'en écarter ou les subvertir — selon son caractère.
+
+Tu réponds UNIQUEMENT avec un objet JSON, sans texte autour :
+{"long": "…", "shorts": ["…", "…"]}\
+"""
+
+NPC_GOALS_USER_TEMPLATE = """\
+PNJ : {npc_name}
+Description : {npc_description}
+Passé : {npc_backstory}
+Objectifs de sa faction : {faction_goals}\
+"""
+
 # BRIEF-47: World-bible generator. usage = "world_generation". Creator-side
 # draft generator for a NEW world's premise — entity_author.generate_world_draft
 # formats this user_template with only {brief} (no {type_fields}: a world
@@ -1082,6 +1140,11 @@ Ta fiche indique, dans la section « COMMENT TU VOIS… », ton attitude envers 
 interlocuteur. Adopte-la : elle règle ta manière et ta disposition, pas les \
 faits que tu possèdes — ta fiche a déjà filtré ce que tu peux évoquer.
 
+OBJECTIFS.
+Ta fiche liste tes objectifs (« TES OBJECTIFS »). Poursuis-les quand la \
+scène s'y prête — tu peux solliciter, refuser, marchander ou mettre fin à \
+l'échange si cela les sert — sans jamais en réciter la liste.
+
 DISCRÉTION ET NATUREL.
 Parle naturellement, comme une vraie personne. Ne truffe pas tes réponses de \
 sous-entendus mystérieux. N'oriente pas l'interlocuteur vers d'autres personnes, \
@@ -1372,6 +1435,23 @@ def seed(session: Session) -> None:
         system_prompt=ENTITY_GENERATION_SYSTEM_PROMPT,
         user_template=ENTITY_GENERATION_USER_TEMPLATE,
         variables=["entity_type", "type_fields", "brief"],
+        destination="local",
+    )
+
+    # ----- prompt template: NPC goal generator (TICKET-0013/BRIEF-0013-b) ----
+    # usage = "npc_goal_generation". world_id = NULL. Calls go through
+    # entity_author.generate_npc_goals — pure generate-and-return, one long +
+    # two short goals (M2). Uses upsert so re-seeding converges non-text head
+    # fields; S2 discipline means text is written only on a virgin head.
+    upsert_prompt_template(
+        session,
+        "pt-npc-goals",
+        world_id=None,
+        name="NPC goals — génération 1 long + 2 courts (JSON)",
+        usage="npc_goal_generation",
+        system_prompt=NPC_GOALS_SYSTEM_PROMPT,
+        user_template=NPC_GOALS_USER_TEMPLATE,
+        variables=["npc_name", "npc_description", "npc_backstory", "faction_goals"],
         destination="local",
     )
 

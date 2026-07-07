@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.68
+Current schema version: v1.69
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -311,6 +311,36 @@ CREATE TABLE knowledge (
 
 -----
 
+### `npc_goal`
+
+NPC interiority — in-scene volition (schema v1.69, TICKET-0013/BRIEF-0013-a).
+Read ONLY by `assemble_npc_context` (the `TES OBJECTIFS` section) and, later,
+the initiative vote — `assemble_mj_context` never reads this table
+(structural exclusion, N1).
+
+```sql
+CREATE TABLE npc_goal (
+  id              TEXT PRIMARY KEY,
+  world_id        TEXT NOT NULL REFERENCES world(id),
+  npc_id          TEXT NOT NULL REFERENCES entity(id),
+  description     TEXT NOT NULL,   -- immutable after insert (see NOTE below)
+  horizon         TEXT NOT NULL CHECK (horizon IN ('short','long')),
+  status          TEXT NOT NULL DEFAULT 'active'
+                    CHECK (status IN ('active','completed','abandoned')),
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  change_history  JSON DEFAULT '[]'  -- archived previous states, mirror of
+                    --                 knowledge.change_history
+);
+CREATE INDEX idx_npc_goal_npc_status ON npc_goal(npc_id, status);
+```
+-- NOTE: description is immutable after insert; a changed goal is a closed
+--       goal plus a new row. Status transitions are one-way, active ->
+--       closed only (completed | abandoned) — a closed goal is never
+--       reopened; a revived goal is a new row.
+
+-----
+
 ### `ledger`
 
 Conserved currency, append-only (schema v1.31, BRIEF-18). Balance is `SUM(amount)` per `entity_id`, computed at read time — no stored balance, no `CHECK`.
@@ -546,7 +576,8 @@ CREATE TABLE proposed_mutation (
   mutation_type   TEXT NOT NULL,
                   -- relation_change | new_knowledge | knowledge_change |
                   -- event_creation | status_change | entity_creation |
-                  -- item_update | resource_change | other
+                  -- item_update | resource_change | goal_change | other
+                  -- (goal_change targets npc_goal — TICKET-0013/BRIEF-0013-c)
   target_table    TEXT,                    -- table the change applies to
   target_id       TEXT,                    -- row affected (NULL if creation)
   payload         JSON NOT NULL,           -- the proposed change, structured
@@ -911,6 +942,9 @@ CREATE INDEX idx_entity_type         ON entity(type);
 
 -- "everything entity X knows"
 CREATE INDEX idx_knowledge_entity    ON knowledge(entity_id);
+
+-- "this NPC's active goals" (schema v1.69, BRIEF-0013-a)
+CREATE INDEX idx_npc_goal_npc_status ON npc_goal(npc_id, status);
 
 -- "every relation touching entity X" (both directions)
 CREATE INDEX idx_relation_a          ON relation(entity_a_id);

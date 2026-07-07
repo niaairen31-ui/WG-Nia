@@ -38,6 +38,7 @@ from sqlmodel import Session, select
 
 from .. import ollama_client
 from ..entity_author import generate_entity_draft as _generate_entity_draft
+from ..entity_author import generate_npc_goals as _generate_npc_goals
 from ..entity_author import generate_player_draft as _generate_player_draft
 from ..entity_author import generate_skill_catalogue_draft as _generate_skill_catalogue_draft
 from ..entity_author import generate_world_draft as _generate_world_draft
@@ -67,12 +68,14 @@ from ..models import (
     ConversationMessage,
     DiscoverableDetail,
     Entity,
+    Faction,
     FactionMembership,
     Gathering,
     GatheringMember,
     Item,
     Knowledge,
     Location,
+    NpcGoal,
     PromptTemplate,
     ProposedMutation,
     Relation,
@@ -89,6 +92,8 @@ from ..writes import (
     knowledge_level_rank,
     write_knowledge,
     write_ledger_entry,
+    write_npc_goal,
+    write_npc_goal_status,
     write_relation,
 )
 from . import crud as _crud
@@ -110,15 +115,40 @@ def generate_entity(
     body: EntityGenerateBody,
     db: Session = Depends(get_session),
 ) -> dict:
-    """Creator-side AI draft generator (BRIEF-24).
+    """Creator-side AI draft generator (BRIEF-24; L1 goals, BRIEF-0013-b).
 
     Deliberately NOT in crud.py: crud.py is a sanctioned canon-write path
     and this route writes nothing — keeping it in a separate router makes
-    that property legible. Calls only generate_entity_draft; performs no
-    write itself. Returns {"ok": false, "error": ...} (never a 500) on any
-    failure — see entity_author.generate_entity_draft.
+    that property legible. Calls only generate_entity_draft (+, for a
+    character draft, generate_npc_goals); performs no write itself. Returns
+    {"ok": false, "error": ...} (never a 500) on any failure — see
+    entity_author.generate_entity_draft.
+
+    L1 (BRIEF-0013-b): on a successful character draft, also calls
+    generate_npc_goals with the draft's public fields and the resolved
+    faction's `goals` (read-only query, None when unaffiliated) and merges
+    the result as `draft["public"]["goals"]`. A goal-generation failure never
+    fails the draft — it's appended to `notes` and the character draft ships
+    without goals.
     """
-    return _generate_entity_draft(body.entity_type, body.brief, db)
+    result = _generate_entity_draft(body.entity_type, body.brief, db)
+    if body.entity_type == "character" and result.get("ok"):
+        pub = result["draft"]["public"]
+        faction_goals = None
+        faction_id = pub.get("faction_id")
+        if faction_id:
+            faction = db.get(Faction, faction_id)
+            faction_goals = faction.goals if faction else None
+        goals_result = _generate_npc_goals(
+            pub.get("name", ""), pub.get("description", ""), pub.get("backstory", ""), faction_goals, db
+        )
+        if goals_result.get("ok"):
+            pub["goals"] = {"long": goals_result.get("long", ""), "shorts": goals_result.get("shorts", [])}
+        else:
+            result.setdefault("notes", []).append(
+                f"Génération des objectifs échouée : {goals_result.get('error')}"
+            )
+    return result
 
 
 @app.get("/api/prompts/preview/npc_dialogue")
@@ -419,6 +449,7 @@ def commit_region(
     loc_id_map: dict[str, str] = {}
     npc_id_map: dict[str, str] = {}
     committed = {"factions": [], "locations": [], "npcs": []}
+    world_id = _crud._world_id(db)
 
     try:
         # ── Stage 1 — factions ───────────────────────────────────────────
@@ -535,8 +566,29 @@ def commit_region(
                 )
                 _crud._create_knowledge_core(npc_entity.id, k_body, db)
 
+            # BRIEF-0013-b (G1): the goal block attached at draft time
+            # (region_author.generate_region_draft) writes here, in the SAME
+            # transaction as the NPC — malformed or absent writes nothing for
+            # that NPC, never blocks the rest of the commit.
+            goals = pub.get("goals")
+            if isinstance(goals, dict):
+                long_desc = (goals.get("long") or "").strip()
+                if long_desc:
+                    write_npc_goal(
+                        db, world_id=world_id, npc_id=npc_entity.id,
+                        description=long_desc, horizon="long", changed_by="creator",
+                    )
+                for short_desc in (goals.get("shorts") or []):
+                    short_desc = (short_desc or "").strip()
+                    if short_desc:
+                        write_npc_goal(
+                            db, world_id=world_id, npc_id=npc_entity.id,
+                            description=short_desc, horizon="short", changed_by="creator",
+                        )
+
         # ── Stage 4 — confirmed judgment links (BRIEF-37, chantier 3) ────
-        world_id = _crud._world_id(db)
+        # world_id computed once, above, before Stage 3 (BRIEF-0013-b needs
+        # it there too — same source, no re-derivation).
         committed_locations_by_name = {
             c["name"].strip().lower(): c["id"] for c in committed["locations"] if c.get("name")
         }
@@ -690,6 +742,14 @@ def _find_applied_duplicate(
     guard lives inside the resource_change branch itself
     (_knowledge_leg_already_applied, guard 4c), not here — this generic
     guard must never be extended to pattern-match the whole mutation.
+
+    goal_change IS included (TICKET-0013, BRIEF-0013-c) — the opposite
+    asymmetry from knowledge_change, deliberately: a repeated identical
+    knowledge upgrade across successive windows is legitimate (rumor ->
+    partial -> knows), but a repeated identical goal event (the same goal,
+    same action) within ONE conversation is not — a goal is completed,
+    abandoned, or created once, not twice in the same scene. Match key:
+    same conversation_id + action + normalized goal text.
     """
     if not mut.conversation_id:
         return None
@@ -729,7 +789,23 @@ def _find_applied_duplicate(
                     f"applied by mutation {prev.id[:8]}…"
                 )
 
+        elif mut.mutation_type == "goal_change":
+            if (prev_p.get("action") == payload.get("action")
+                    and _normalize_goal_text(prev_p.get("goal")) == _normalize_goal_text(payload.get("goal"))):
+                return (
+                    f"goal_change ({payload.get('action')}) for goal "
+                    f"{payload.get('goal')!r} was already applied by mutation "
+                    f"{prev.id[:8]}…"
+                )
+
     return None
+
+
+def _normalize_goal_text(text: Optional[str]) -> str:
+    """Casefold + whitespace-collapse a goal description for equality matching
+    (TICKET-0013, BRIEF-0013-c) — goals are matched by exact description text,
+    never by id (the model never receives structural ids)."""
+    return " ".join(str(text or "").split()).casefold()
 
 
 def _knowledge_leg_already_applied(
@@ -804,6 +880,14 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                          block-whole (existing row, or an equivalent
                          knowledge already applied this conversation) →
                          Needs attention, nothing written.
+    - goal_change      : (TICKET-0013, BRIEF-0013-c) npc_id is FORCED to
+                         conv.npc_id at emit time (analyzer.py) — never
+                         trusted from the model beyond that. complete/abandon
+                         match an ACTIVE goal (either horizon) by exact
+                         normalized description text via write_npc_goal_status;
+                         no match → Needs attention, nothing written.
+                         create_short always inserts a SHORT goal via
+                         write_npc_goal — horizon is hard-coded, O1 structural.
 
     Unimplemented types (event_creation, entity_creation, other) are left as
     'approved' with a note — better un-applied than wrongly applied.
@@ -955,6 +1039,49 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
             changed_by="apply_mutation",
         )
         return None
+
+    # ── goal_change (TICKET-0013, BRIEF-0013-c, H1/O1) ────────────────────────
+    elif mut.mutation_type == "goal_change":
+        npc_id = payload.get("npc_id")
+        action = payload.get("action")
+        goal_text = payload.get("goal")
+        if not npc_id or not action or not goal_text:
+            return "goal_change: payload must contain npc_id, action and goal"
+
+        if action in ("complete", "abandon"):
+            # O1: the model may close any active goal, either horizon —
+            # matched by exact (normalized) description text, never by id.
+            normalized = _normalize_goal_text(goal_text)
+            candidates = db.exec(
+                select(NpcGoal).where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active")
+            ).all()
+            matches = [g for g in candidates if _normalize_goal_text(g.description) == normalized]
+            if len(matches) != 1:
+                return f"goal_change: no active goal matching {goal_text!r}"
+            write_npc_goal_status(
+                db,
+                goal=matches[0],
+                new_status="completed" if action == "complete" else "abandoned",
+                changed_by=f"mutation:{mut.id}",
+            )
+            return None
+
+        if action == "create_short":
+            # O1 structural: horizon is hard-coded "short" — the payload
+            # carries no horizon field and none is read, so the model cannot
+            # create a long-term goal by any input. S1: no active-count
+            # check — the injection's read-side LIMIT is the bound.
+            write_npc_goal(
+                db,
+                world_id=mut.world_id,
+                npc_id=npc_id,
+                description=goal_text,
+                horizon="short",
+                changed_by=f"mutation:{mut.id}",
+            )
+            return None
+
+        return f"goal_change: unrecognised action {action!r}"
 
     # ── resource_change (BRIEF-19) ────────────────────────────────────────────
     elif mut.mutation_type == "resource_change":
@@ -1911,10 +2038,26 @@ def _npc_initiative_vote(
                 return rel
         return None
 
+    # BRIEF-0013-c (R1): one batched query for every candidate's most recent
+    # ACTIVE short-term goal — long-term goals never enter the vote.
+    all_short_goals = db.exec(
+        select(NpcGoal)
+        .where(NpcGoal.npc_id.in_(npc_ids), NpcGoal.horizon == "short", NpcGoal.status == "active")
+        .order_by(NpcGoal.created_at.desc())
+    ).all()
+    goal_by_npc: dict[str, str] = {}
+    for g in all_short_goals:
+        goal_by_npc.setdefault(g.npc_id, g.description)
+
     def _signal_line(e: Entity) -> str:
         rel = _npc_rel(e.id)
         signal = f"relation={rel.type} ({rel.intensity}/100)" if rel else "relation=neutre (50/100)"
-        return f"- {e.name} : {signal}, statut={e.status}"
+        goal_text = goal_by_npc.get(e.id)
+        goal_frag = ""
+        if goal_text:
+            text = goal_text if len(goal_text) <= 80 else goal_text[:80] + "…"
+            goal_frag = f", objectif=« {text} »"
+        return f"- {e.name} : {signal}, statut={e.status}{goal_frag}"
 
     # Two-section signal list: in-group members react in place; non-members can
     # only intervene by approaching the player's gathering (structural move=True).

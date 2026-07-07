@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0013-npc-goals-in-scene",
+  "when": "2026-07-07T16:40:49.078224+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "npc_goal_read.py",
+      "status": "PASS",
+      "msg": "PASS: npc_goal read boundary intact (N1)"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    }
+  ]
+}

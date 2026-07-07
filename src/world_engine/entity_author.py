@@ -129,6 +129,15 @@ def _load_skill_catalogue_template(db: Session) -> PromptTemplate | None:
     return db.exec(stmt).first()
 
 
+def _load_npc_goals_template(db: Session) -> PromptTemplate | None:
+    stmt = (
+        select(PromptTemplate)
+        .where(PromptTemplate.usage == "npc_goal_generation")
+        .where(PromptTemplate.is_active == True)  # noqa: E712
+    )
+    return db.exec(stmt).first()
+
+
 def _world_id(db: Session) -> str | None:
     world = db.exec(select(World)).first()
     return world.id if world is not None else None
@@ -722,3 +731,83 @@ def generate_skill_catalogue_draft(brief: str, db: Session) -> dict:
 
     draft = {"skills": skills}
     return {"ok": True, "draft": draft, "notes": notes}
+
+
+def generate_npc_goals(
+    name: str,
+    description: str,
+    backstory: str,
+    faction_goals: str | None,
+    db: Session,
+) -> dict:
+    """Generate 1 long-term + 2 short-term goals for an NPC (TICKET-0013,
+    BRIEF-0013-b, T1/M2).
+
+    Standalone sibling to `generate_world_draft`/`generate_player_draft`/
+    `generate_skill_catalogue_draft` — NOT a `_TYPE_FIELDS` entry, not routed
+    through `generate_entity_draft`. Pure generate-and-return: writes no
+    canon anywhere in this function or its call path; every canon write
+    (region commit, creation accept, backfill) happens through the caller via
+    `writes.write_npc_goal`. `faction_goals=None` substitutes the literal
+    "(aucune faction)" in the user message.
+
+    Never raises into the caller — every failure mode (missing template,
+    unreachable model, malformed JSON, empty parse, both fields empty)
+    returns {"ok": False, "error": "<reason>"}. On success returns
+    {"ok": True, "long": str, "shorts": [str, ...], "notes": [...]} — `long`
+    is `""` when absent/malformed (noted); `shorts` is truncated to 2,
+    trimmed non-empty strings only (fewer than 2 is a partial accept, noted).
+    """
+    template = _load_npc_goals_template(db)
+    if template is None:
+        return {"ok": False, "error": "No active pt-npc-goals template found"}
+
+    version = current_prompt(db, template)
+    user_message = (
+        version.user_template
+        .replace("{npc_name}", name or "")
+        .replace("{npc_description}", description or "")
+        .replace("{npc_backstory}", backstory or "")
+        .replace("{faction_goals}", faction_goals or "(aucune faction)")
+    )
+
+    messages = [
+        {"role": "system", "content": version.system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+    try:
+        raw = chat(messages, model=effective_model(template, AUTHOR_MODEL), format="json")
+    except OllamaError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {"ok": False, "error": "Model returned non-JSON output"}
+
+    if not isinstance(parsed, dict) or not parsed:
+        return {"ok": False, "error": "Model returned an empty or malformed draft"}
+
+    notes: list[str] = []
+
+    long_goal = parsed.get("long")
+    long_goal = long_goal.strip() if isinstance(long_goal, str) else ""
+    if not long_goal:
+        notes.append("Aucun objectif long terme valide reçu")
+
+    shorts_raw = parsed.get("shorts")
+    shorts: list[str] = []
+    if isinstance(shorts_raw, list):
+        for item in shorts_raw:
+            if isinstance(item, str) and item.strip():
+                shorts.append(item.strip())
+    if len(shorts) > 2:
+        shorts = shorts[:2]
+    elif len(shorts) < 2:
+        notes.append(f"Seulement {len(shorts)} objectif(s) court terme reçu(s) sur 2")
+
+    if not long_goal and not shorts:
+        return {"ok": False, "error": "Model returned no usable goal"}
+
+    return {"ok": True, "long": long_goal, "shorts": shorts, "notes": notes}

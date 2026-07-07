@@ -2856,6 +2856,12 @@ let lieuxActiveOnly     = false; // "Actifs seulement" toggle (F2 default off)
 let pendingDraftKnowledge = [];
 let pendingDraftNotes     = [];
 
+/* AI goal generator (BRIEF-0013-b) — same in-creation-form idiom as
+ * pendingDraftKnowledge above: the entity doesn't exist yet, so the drafted
+ * goals are held here and only POSTed to /api/entities/{id}/goals (0013-a
+ * endpoint) after authorSave creates the entity. */
+let pendingDraftGoals = { long: '', shorts: ['', ''] };
+
 /* Faction roles editor draft (BRIEF-31, schema v1.42) — entity.metadata.roles,
  * a flat ordered list of {name, description}. Held in memory while the
  * faction sheet is open and merged into entityData.metadata on save (no raw-
@@ -2990,6 +2996,7 @@ function _npcWorldReset() {
   _entityListWorldReset();
   pendingDraftKnowledge = [];
   pendingDraftNotes     = [];
+  pendingDraftGoals     = { long: '', shorts: ['', ''] };
 }
 
 function _pjWorldReset() {
@@ -4441,6 +4448,14 @@ function regionRenderNpc(n, cascade) {
   const badge = rawFac
     ? `<span class="region-fac-badge" style="border-color:${regionFactionColor(rawFac.local_id)}; color:${regionFactionColor(rawFac.local_id)}; ${fac ? '' : 'opacity:0.4; text-decoration:line-through'}">${esc(rawFac.result.draft.public.name)}</span>`
     : '';
+  // BRIEF-0013-b (G1 review UI): read-only, horizon-tagged — no per-goal
+  // controls here (accept/reject stays per-NPC, unchanged).
+  const goals = draft.public.goals;
+  const goalsHtml = goals ? `
+    <div style="font-size:11px; color:var(--muted); margin-top:2px;">
+      ${goals.long ? `<div>[LONG TERME] ${esc(goals.long)}</div>` : ''}
+      ${(goals.shorts || []).map(s => `<div>[COURT TERME] ${esc(s)}</div>`).join('')}
+    </div>` : '';
   return `
     <div class="region-npc-row ${placeable ? '' : 'region-rejected'}">
       <span style="font-weight:600" class="region-name-link" onclick="regionRenderSheet('npc','${esc(n.local_id)}')">${esc(draft.public.name)}</span>
@@ -4448,6 +4463,7 @@ function regionRenderNpc(n, cascade) {
       ${autoRejected ? '<span class="badge b-rejected" style="font-size:10px">auto-rejeté (lieu rejeté)</span>' : ''}
       <button class="btn-icon" onclick="regionToggleAccept('${esc(n.local_id)}')" style="margin-left:auto" ${autoRejected ? 'disabled title="Lieu hôte rejeté"' : ''}>
         ${regionIsAccepted(n.local_id) ? 'Rejeter' : 'Accepter'}</button>
+      ${goalsHtml}
       ${regionRenderNotes(regionEntityNotes(n, 'npc'))}
     </div>`;
 }
@@ -4571,6 +4587,7 @@ function creationNewEntity() {
   if (!entry || !entry.createPanel) return;
   pendingDraftKnowledge = [];
   pendingDraftNotes     = [];
+  pendingDraftGoals     = { long: '', shorts: ['', ''] };
   entry.createPanel();
 }
 
@@ -4598,11 +4615,22 @@ function creationRenderEntityList() {
   const entities = entry.entityFilter
     ? entry.entityFilter(authorAllEntities)
     : authorAllEntities.filter(e => e.type === entry.type);
+
+  // BRIEF-0013-b (G2/P2): unscoped backfill, NPC list only. Not a competing
+  // primaryAction (still exactly one per the standard shell) — a secondary,
+  // in-body utility control, same footing as any other per-tab body content.
+  const backfillHtml = currentCreationSubTab === 'npc' ? `
+    <div class="row-card" style="margin-bottom:8px;">
+      <button class="btn-ghost" style="font-size:12px; width:100%;" onclick="npcGoalsBackfillAll()">Générer les buts manquants</button>
+      <div id="npc-goals-backfill-status" style="font-size:11px; color:var(--muted); margin-top:4px;"></div>
+    </div>
+  ` : '';
+
   if (!entities.length) {
-    listEl.innerHTML = '<div class="empty">Aucune entité.</div>';
+    listEl.innerHTML = backfillHtml + '<div class="empty">Aucune entité.</div>';
     return;
   }
-  listEl.innerHTML = entities.map(e => `
+  listEl.innerHTML = backfillHtml + entities.map(e => `
     <div class="author-list-item ${e.id === authorEntityId ? 'active' : ''} ${e.status === 'inactive' ? 'inactive' : ''}"
          onclick="authorSelectEntity('${esc(e.id)}')">
       <div class="ali-name">${esc(e.name)}</div>
@@ -4900,6 +4928,12 @@ function authorRenderSheet(detail, isNew, type) {
     html += '</div>';
   }
 
+  if (isNew && type === 'character' && currentCreationSubTab === 'npc') {
+    html += '<div class="field-section"><div class="field-section-title">Objectifs (créés à l\'acceptation)</div>';
+    html += `<div id="author-pending-goals">${authorRenderPendingGoals()}</div>`;
+    html += '</div>';
+  }
+
   if (!isNew && type === 'character') {
     html += '<div class="field-section"><div class="field-section-title">Items</div>';
     html += '<div id="author-items"><div class="empty"><span class="spin">⟳</span></div></div>';
@@ -4931,6 +4965,17 @@ function authorRenderSheet(detail, isNew, type) {
     html += '</div>';
   }
 
+  if (!isNew && type === 'character' && currentCreationSubTab === 'npc') {
+    html += '<div class="field-section">';
+    html += '<div class="field-section-title" style="display:flex; align-items:center; justify-content:space-between;">'
+      + 'Objectifs'
+      + `<button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick="authorBackfillGoals('${esc(detail.id)}')">Générer les buts</button>`
+      + '</div>';
+    html += '<div id="author-goals"><div class="empty"><span class="spin">⟳</span></div></div>';
+    html += authorRenderGoalForm();
+    html += '</div>';
+  }
+
   if (!isNew && type === 'location') {
     html += '<div class="field-section"><div class="field-section-title">Discoverable Details</div>';
     html += '<div id="author-disc-list"><div class="empty"><span class="spin">⟳</span></div></div>';
@@ -4945,6 +4990,9 @@ function authorRenderSheet(detail, isNew, type) {
     authorLoadLedger(detail.id);
     authorLoadMemberships(detail.id);
     authorMembershipFactionChanged();
+  }
+  if (!isNew && type === 'character' && currentCreationSubTab === 'npc') {
+    authorLoadGoals(detail.id);
   }
   if (!isNew && type === 'faction') {
     authorLoadLedger(detail.id);
@@ -5050,6 +5098,18 @@ function authorApplyCharacterDraft(result) {
 
   const pkEl = document.getElementById('author-pending-knowledge');
   if (pkEl) pkEl.innerHTML = authorRenderPendingKnowledge();
+
+  // BRIEF-0013-b (L1): goals drafted alongside the character, held the same
+  // way as pendingDraftKnowledge above, POSTed via the 0013-a goals endpoint
+  // right after the entity is created (authorSave).
+  const goals = draft.public.goals;
+  const shorts = (goals && Array.isArray(goals.shorts)) ? goals.shorts : [];
+  pendingDraftGoals = {
+    long: (goals && goals.long) || '',
+    shorts: [shorts[0] || '', shorts[1] || ''],
+  };
+  const pgEl = document.getElementById('author-pending-goals');
+  if (pgEl) pgEl.innerHTML = authorRenderPendingGoals();
 
   authorRenderGenNotes(pendingDraftNotes);
 }
@@ -5165,6 +5225,45 @@ function _syncPendingKnowledgeFromDom() {
     if (contentEl) k.content = contentEl.value;
   });
   return pendingDraftKnowledge.filter(k => k.subject && k.content);
+}
+
+/* ── Pending goals (BRIEF-0013-b, L1) — same in-creation-form idiom as
+ * pendingDraftKnowledge: 1 long + 2 short textareas, each clearable (an
+ * empty textarea is simply not created). No per-row remove control needed —
+ * the slots are fixed (M2 cardinality), not a dynamic list. */
+function authorRenderPendingGoals() {
+  const g = pendingDraftGoals;
+  return `
+    <div class="row-card">
+      <div class="field-grid">
+        <div class="field-row span-2"><label>Long terme</label><textarea id="pg-long">${esc(g.long)}</textarea></div>
+        <div class="field-row span-2"><label>Court terme 1</label><textarea id="pg-short-0">${esc(g.shorts[0] || '')}</textarea></div>
+        <div class="field-row span-2"><label>Court terme 2</label><textarea id="pg-short-1">${esc(g.shorts[1] || '')}</textarea></div>
+      </div>
+    </div>
+  `;
+}
+
+/** Reads the pending-goals textareas' current values back into
+ *  pendingDraftGoals, then returns the {description, horizon} entries whose
+ *  textarea isn't blank — the shape `authorSave` POSTs to the 0013-a goals
+ *  endpoint right after the entity is created. */
+function _syncPendingGoalsFromDom() {
+  const longEl = document.getElementById('pg-long');
+  const s0El = document.getElementById('pg-short-0');
+  const s1El = document.getElementById('pg-short-1');
+  if (longEl) pendingDraftGoals.long = longEl.value;
+  if (s0El) pendingDraftGoals.shorts[0] = s0El.value;
+  if (s1El) pendingDraftGoals.shorts[1] = s1El.value;
+
+  const entries = [];
+  if (pendingDraftGoals.long.trim()) {
+    entries.push({ description: pendingDraftGoals.long.trim(), horizon: 'long' });
+  }
+  for (const s of pendingDraftGoals.shorts) {
+    if (s && s.trim()) entries.push({ description: s.trim(), horizon: 'short' });
+  }
+  return entries;
 }
 
 /* ── Tarifs editor (BRIEF-20) — entity.metadata.price_list, NPC sheet only ──
@@ -5724,6 +5823,7 @@ function authorTypeChanged() {
   const type = document.getElementById('author-f-type').value;
   pendingDraftKnowledge = [];
   pendingDraftNotes     = [];
+  pendingDraftGoals     = { long: '', shorts: ['', ''] };
   authorRenderSheet({}, true, type);
 }
 
@@ -5789,6 +5889,11 @@ async function authorSave() {
   // knowledge CRUD endpoint right after, not written by this function.
   const knowledgeToCreate = (isNew && type === 'character') ? _syncPendingKnowledgeFromDom() : [];
 
+  // BRIEF-0013-b (L1): goals drafted alongside the character are held in
+  // memory the same way — read now, POSTed through the EXISTING 0013-a
+  // goals endpoint right after the entity is created.
+  const goalsToCreate = (isNew && type === 'character') ? _syncPendingGoalsFromDom() : [];
+
   try {
     const body = JSON.stringify({ entity: entityData, extension: extData });
     let detail = isNew
@@ -5814,6 +5919,17 @@ async function authorSave() {
       pendingDraftKnowledge = [];
       pendingDraftNotes = [];
       detail = await api(`/api/entities/${encodeURIComponent(detail.id)}`);
+    }
+
+    if (isNew && goalsToCreate.length) {
+      for (const goal of goalsToCreate) {
+        await api(`/api/entities/${encodeURIComponent(detail.id)}/goals`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(goal),
+        });
+      }
+      pendingDraftGoals = { long: '', shorts: ['', ''] };
     }
 
     await authorLoadEntityList();
@@ -6047,6 +6163,130 @@ async function authorKnowledgeRequest(path, method, body) {
     await api(path, opts);
     const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}`);
     document.getElementById('author-knowledge').innerHTML = authorRenderKnowledge(detail.knowledge);
+    statusEl.className = 'author-status ok';
+    statusEl.textContent = 'Saved.';
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = e.message;
+  }
+}
+
+/* ── NPC goals (schema v1.69, BRIEF-0013-a) — NPC sheets only ─────────────
+ * No edit/reopen: description is immutable after insert, a closed goal is
+ * never reopened (a revived goal is a new row). */
+
+async function authorLoadGoals(entityId) {
+  const el = document.getElementById('author-goals');
+  if (!el) return;
+  try {
+    const goals = await api(`/api/entities/${encodeURIComponent(entityId)}/goals`);
+    el.innerHTML = authorRenderGoals(goals);
+  } catch (e) {
+    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function authorRenderGoals(goals) {
+  if (!goals || goals.length === 0) return '<div class="empty">Aucun objectif.</div>';
+  const horizonLabel = { long: 'LONG TERME', short: 'COURT TERME' };
+  return '<div class="row-table">' + goals.map(g => {
+    const closed = g.status !== 'active';
+    return `
+    <div class="row-card" style="${closed ? 'opacity:0.6;' : ''}">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+        <span><span class="badge b-other">${esc(horizonLabel[g.horizon] || g.horizon)}</span> ${esc(g.description)}</span>
+        <span style="display:flex; align-items:center; gap:8px;">
+          <span class="badge ${closed ? 'b-rejected' : 'b-equipped'}">${esc(g.status)}</span>
+          ${!closed ? `
+            <button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick="authorSetGoalStatus('${esc(g.id)}', 'completed')">Accompli</button>
+            <button class="btn-end" style="font-size:12px; padding:3px 8px" onclick="authorSetGoalStatus('${esc(g.id)}', 'abandoned')">Abandonné</button>
+          ` : ''}
+        </span>
+      </div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+function authorRenderGoalForm() {
+  return `
+    <div class="row-card">
+      <div class="field-grid">
+        <div class="field-row"><label>Horizon *</label>
+          <select id="goal-new-horizon">
+            <option value="short">short</option>
+            <option value="long">long</option>
+          </select></div>
+        <div class="field-row span-2"><label>Description *</label><textarea id="goal-new-description"></textarea></div>
+      </div>
+      <div class="row-card-actions">
+        <button class="btn-send" onclick="authorAddGoal()">Add goal</button>
+      </div>
+    </div>
+  `;
+}
+
+async function authorAddGoal() {
+  const body = JSON.stringify({
+    horizon:     document.getElementById('goal-new-horizon').value,
+    description: document.getElementById('goal-new-description').value,
+  });
+  await authorGoalRequest(`/api/entities/${encodeURIComponent(authorEntityId)}/goals`, 'POST', body);
+}
+
+async function authorSetGoalStatus(id, status) {
+  await authorGoalRequest(`/api/goals/${encodeURIComponent(id)}/status`, 'POST', JSON.stringify({ status }));
+}
+
+/* ── Goal backfill (schema v1.69, BRIEF-0013-b, G2/P2) ────────────────────
+ * Fills per-horizon deficits only — never rewrites a satisfied NPC. Two
+ * entry points share the one endpoint: the per-NPC sheet button below, and
+ * the unscoped list-wide button in creationRenderEntityList(). */
+
+async function authorBackfillGoals(entityId) {
+  const statusEl = document.getElementById('author-status');
+  try {
+    await api('/api/npc-goals/backfill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entity_id: entityId }),
+    });
+    await authorLoadGoals(entityId);
+    statusEl.className = 'author-status ok';
+    statusEl.textContent = 'Saved.';
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = e.message;
+  }
+}
+
+async function npcGoalsBackfillAll() {
+  const statusEl = document.getElementById('npc-goals-backfill-status');
+  if (statusEl) statusEl.textContent = 'Génération…';
+  try {
+    const result = await api('/api/npc-goals/backfill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    if (statusEl) {
+      statusEl.textContent = `Traités : ${result.processed} · déjà complets : ${result.skipped_complete} · `
+        + `écrits (long/court) : ${result.written.long}/${result.written.short}`
+        + (result.failures.length ? ` · échecs : ${result.failures.length}` : '');
+    }
+    if (authorEntityId && authorEntityType === 'character' && currentCreationSubTab === 'npc') {
+      authorLoadGoals(authorEntityId);
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = e.message;
+  }
+}
+
+async function authorGoalRequest(path, method, body) {
+  const statusEl = document.getElementById('author-status');
+  try {
+    const opts = { method, headers: { 'Content-Type': 'application/json' }, body };
+    await api(path, opts);
+    await authorLoadGoals(authorEntityId);
     statusEl.className = 'author-status ok';
     statusEl.textContent = 'Saved.';
   } catch (e) {
@@ -6610,6 +6850,13 @@ function regionRenderSheet(type, localId) {
     }
     publicHtml += _sheetField('Faction', fac ? fac.result.draft.public.name : 'Sans faction');
     publicHtml += _sheetField('Lieu', loc ? loc.result.draft.public.name : null);
+    if (pub.goals) {
+      const goalRows = [
+        ...(pub.goals.long ? [{ label: 'LONG TERME', text: pub.goals.long }] : []),
+        ...((pub.goals.shorts || []).map(s => ({ label: 'COURT TERME', text: s }))),
+      ];
+      publicHtml += _sheetListSection('Objectifs', goalRows, (g) => `<div>[${esc(g.label)}] ${esc(g.text)}</div>`);
+    }
 
     secretHtml += _sheetListSection('Savoirs', sec.knowledge, (k) =>
       `<div>${esc(k.subject || '')} ${k.level ? '· ' + esc(k.level) : ''}${k.is_secret ? ' · secret' : ''}</div>` +

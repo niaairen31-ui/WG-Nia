@@ -8,6 +8,57 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **BRIEF-0013-c** — No schema change. `goal_change` added to
+  `proposed_mutation.mutation_type` (targets `npc_goal`) — closes the
+  TICKET-0013 behaviour loop. Emit side (`analyzer.py`): the model already
+  sees the NPC's active goals verbatim via the `TES OBJECTIFS` section
+  carried in `injected_context.assembled_context`; `_normalize_to_schema`
+  forces `payload.npc_id` to `conv.npc_id` in code (never model-chosen) and
+  coerces `action` (`complete`|`abandon`|`create_short`) through a small
+  alias map. Apply side (`_apply_mutation`, `cockpit/app.py`): `complete`/
+  `abandon` match an ACTIVE goal (either horizon) by exact normalized
+  description text via `write_npc_goal_status`; `create_short` always
+  inserts a SHORT goal via `write_npc_goal` — horizon is hard-coded, O1
+  structural, no payload field can override it. `_find_applied_duplicate`
+  gains a `goal_change` branch (same conversation + action + normalized
+  goal text) — the opposite asymmetry from `knowledge_change`, which stays
+  excluded. Initiative vote (R1, `cockpit/app.py`): `_signal_line` appends
+  `, objectif=« … »` (80-char truncation) from each candidate's most
+  recent ACTIVE short-term goal — long-term goals never enter the vote.
+  Prompt updates delivered via a new one-shot script,
+  `scripts/apply_ticket_0013_prompt_updates.py` (mirrors
+  `apply_ticket_0012_prompt_rewrite.py`): `pt-npc-dialogue` gains an
+  OBJECTIFS directive; `pt-conversation-analysis` gains the GOAL_CHANGE
+  rubric + a fifth worked example. `verify/checks/prompt_lean.py` updated
+  (5 EXEMPLE markers, 4 rubric headers). TICKET-0013 is now complete;
+  TICKET-0014 (world-tick) is the named successor.
+
+- **v1.69** — New table `npc_goal` (NPC interiority — in-scene volition,
+  TICKET-0013/BRIEF-0013-a): `id`, `world_id` (FK), `npc_id` (FK entity),
+  `description` (NOT NULL, immutable after insert), `horizon` CHECK IN
+  ('short','long'), `status` CHECK IN ('active','completed','abandoned')
+  DEFAULT 'active', `created_at`, `updated_at`, `change_history` JSON
+  DEFAULT '[]'; index `idx_npc_goal_npc_status` on `(npc_id, status)`. A
+  changed goal is a closed goal plus a new row — status transitions are
+  one-way (`active` -> `completed`|`abandoned`), never reopened. Two new
+  `writes.py` helpers are the sole write chokepoints: `write_npc_goal`
+  (insert, active) and `write_npc_goal_status` (history-append then
+  transition; raises on any transition other than the two allowed ones).
+  New creator CRUD: `GET/POST /api/entities/{id}/goals`,
+  `POST /api/goals/{id}/status` — NPC characters only (422 on a player
+  character or an invalid transition). Character-sheet "Objectifs" block
+  (NPC sheets only). New `assemble_npc_context` section `TES OBJECTIFS`
+  (`H_GOALS`), placed right after `QUI TU ES`: the most recent active long
+  goal + the 2 most recent active shorts (read-side LIMIT, no write-side
+  cap), omitted entirely when the NPC has no active goals. N1 structural
+  boundary: `assemble_mj_context` never reads `npc_goal` — enforced by a new
+  static check, `verify/checks/npc_goal_read.py` (module allowlist + a scan
+  asserting zero `NpcGoal`/`"npc_goal"` references inside the MJ block).
+  `canon_write_policy.txt` gains `npc_goal` as a canon table with the two new
+  helper sites. Migration: `scripts/migrate_v1_69_npc_goal.py` (purely
+  additive). Scope OUT this step: the goal generator, the vote signal, the
+  `goal_change` mutation type, and the dialogue directive — all BRIEF-0013-b/c.
+
 - **v1.68** — New table `prompt_version` (append-only prompt text history,
   TICKET-0011/BRIEF-0011-a): `id`, `prompt_template_id` (FK), `version_number`,
   `system_prompt`, `user_template`, `note`, `created_at`; UNIQUE index on

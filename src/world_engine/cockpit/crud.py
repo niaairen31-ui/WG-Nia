@@ -56,6 +56,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session as DbSession, select
 
 from ..db import get_session
+from ..entity_author import generate_npc_goals
 from ..gathering import close_open_memberships
 from ..ledger import get_balance, list_entries
 from ..ollama_client import OllamaError, ping
@@ -70,6 +71,7 @@ from ..models import (
     Knowledge,
     Ledger,
     Location,
+    NpcGoal,
     PromptTemplate,
     Relation,
     Skill,
@@ -80,10 +82,13 @@ from ..prompt_registry import PROMPT_REGISTRY, effective_model
 from ..prompt_store import current_prompt, get_version, list_versions
 from ..writes import (
     KNOWLEDGE_LEVELS,
+    NPC_GOAL_HORIZONS,
     PromptValidationError,
     write_knowledge,
     write_ledger_entry,
     write_membership,
+    write_npc_goal,
+    write_npc_goal_status,
     write_prompt_version,
     write_relation,
     write_skill_tier,
@@ -451,6 +456,27 @@ def _list_knowledge(entity_id: str, db: DbSession) -> list[dict]:
     return [_knowledge_dict(k) for k in rows]
 
 
+def _goal_dict(g: NpcGoal) -> dict:
+    return {
+        "id": g.id,
+        "npc_id": g.npc_id,
+        "description": g.description,
+        "horizon": g.horizon,
+        "status": g.status,
+        "created_at": _iso(g.created_at),
+        "updated_at": _iso(g.updated_at),
+    }
+
+
+def _list_goals(entity_id: str, db: DbSession) -> list[dict]:
+    """Active first, then newest first within each status group (BRIEF-0013-a)."""
+    rows = db.exec(
+        select(NpcGoal).where(NpcGoal.npc_id == entity_id)
+    ).all()
+    ordered = sorted(rows, key=lambda g: (g.status != "active", -g.created_at.timestamp()))
+    return [_goal_dict(g) for g in ordered]
+
+
 # ── Field application ──────────────────────────────────────────────────────────
 
 def _apply_base_fields(db: DbSession, entity: Entity, data: dict) -> None:
@@ -493,6 +519,15 @@ class KnowledgeWriteBody(BaseModel):
     is_incorrect: bool = False
     is_secret: bool = False
     share_threshold: Optional[int] = None
+
+
+class GoalWriteBody(BaseModel):
+    description: Optional[str] = None
+    horizon: Optional[str] = None
+
+
+class GoalStatusBody(BaseModel):
+    status: Optional[str] = None
 
 
 # ── Registry / metadata ───────────────────────────────────────────────────────
@@ -860,6 +895,170 @@ def delete_knowledge(knowledge_id: str, db: DbSession = Depends(get_session)) ->
     db.delete(k)
     db.commit()
     return {"deleted": True, "id": knowledge_id}
+
+
+# ── NPC goals — in-scene volition (schema v1.69, BRIEF-0013-a) ───────────────
+# Creator CRUD only this step (writes.write_npc_goal / write_npc_goal_status).
+# No edit/reopen endpoints — description immutability and the closed-is-closed
+# rule are design, not omissions (see CLAUDE.md invariants).
+
+@router.get("/entities/{entity_id}/goals")
+def list_entity_goals(entity_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
+    entity = _get_entity(db, entity_id)
+    if entity.world_id != _world_id(db):
+        raise HTTPException(404, f"Entity {entity_id!r} not found")
+    return _list_goals(entity_id, db)
+
+
+@router.post("/entities/{entity_id}/goals", status_code=201)
+def create_goal(entity_id: str, body: GoalWriteBody, db: DbSession = Depends(get_session)) -> dict:
+    entity = _get_entity(db, entity_id)
+    if entity.world_id != _world_id(db):
+        raise HTTPException(404, f"Entity {entity_id!r} not found")
+    if body.horizon not in NPC_GOAL_HORIZONS:
+        raise HTTPException(422, f"horizon must be one of {sorted(NPC_GOAL_HORIZONS)}")
+    if not body.description or not body.description.strip():
+        raise HTTPException(422, "description is required")
+    char = db.get(Character, entity_id)
+    if char is None or char.character_type != "npc":
+        raise HTTPException(422, "goals may only be created on an NPC character")
+
+    goal = write_npc_goal(
+        db,
+        world_id=entity.world_id,
+        npc_id=entity_id,
+        description=body.description.strip(),
+        horizon=body.horizon,
+        changed_by="creator",
+    )
+    db.commit()
+    db.refresh(goal)
+    return _goal_dict(goal)
+
+
+@router.post("/goals/{goal_id}/status")
+def set_goal_status(goal_id: str, body: GoalStatusBody, db: DbSession = Depends(get_session)) -> dict:
+    goal = db.get(NpcGoal, goal_id)
+    if goal is None or goal.world_id != _world_id(db):
+        raise HTTPException(404, f"NpcGoal {goal_id!r} not found")
+    if body.status not in ("completed", "abandoned"):
+        raise HTTPException(422, "status must be 'completed' or 'abandoned'")
+
+    try:
+        goal = write_npc_goal_status(db, goal=goal, new_status=body.status, changed_by="creator")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    db.commit()
+    db.refresh(goal)
+    return _goal_dict(goal)
+
+
+def _npc_faction_goals(entity_id: str, db: DbSession) -> Optional[str]:
+    """This NPC's first PUBLIC active faction membership's `Faction.goals`
+    (read-only, generator input only — BRIEF-0013-b)."""
+    membership = db.exec(
+        select(FactionMembership)
+        .where(
+            FactionMembership.entity_id == entity_id,
+            FactionMembership.left_at.is_(None),
+            FactionMembership.is_secret == False,  # noqa: E712
+        )
+    ).first()
+    if membership is None:
+        return None
+    faction = db.get(Faction, membership.faction_id)
+    return faction.goals if faction else None
+
+
+class GoalBackfillBody(BaseModel):
+    entity_id: Optional[str] = None
+
+
+@router.post("/npc-goals/backfill")
+def backfill_npc_goals(body: GoalBackfillBody, db: DbSession = Depends(get_session)) -> dict:
+    """Fill per-horizon goal deficits (G2/P2, BRIEF-0013-b) — never rewrites
+    a satisfied NPC. Scoped to `body.entity_id`, or every NPC of the active
+    world (`character_type == 'npc'`, `vital_status == 'alive'`) when absent.
+    Idempotent by construction: a second run on an unchanged world writes
+    zero rows. A per-NPC generator failure is recorded in `failures` and
+    never aborts the batch.
+    """
+    world_id = _world_id(db)
+
+    if body.entity_id:
+        entity = _get_entity(db, body.entity_id)
+        if entity.world_id != world_id:
+            raise HTTPException(404, f"Entity {body.entity_id!r} not found")
+        char = db.get(Character, body.entity_id)
+        if char is None or char.character_type != "npc":
+            raise HTTPException(422, "backfill targets NPC characters only")
+        targets = [char]
+    else:
+        targets = db.exec(
+            select(Character)
+            .join(Entity, Entity.id == Character.id)
+            .where(
+                Entity.world_id == world_id,
+                Character.character_type == "npc",
+                Character.vital_status == "alive",
+            )
+        ).all()
+
+    processed = 0
+    skipped_complete = 0
+    written = {"long": 0, "short": 0}
+    failures: list[dict] = []
+
+    for char in targets:
+        processed += 1
+        active_goals = db.exec(
+            select(NpcGoal).where(NpcGoal.npc_id == char.id, NpcGoal.status == "active")
+        ).all()
+        needs_long = not any(g.horizon == "long" for g in active_goals)
+        n_shorts = sum(1 for g in active_goals if g.horizon == "short")
+        needs_shorts = max(0, 2 - n_shorts)
+        if not needs_long and needs_shorts == 0:
+            skipped_complete += 1
+            continue
+
+        entity = db.get(Entity, char.id)
+        result = generate_npc_goals(
+            entity.name if entity else "",
+            entity.description if entity else "",
+            char.backstory,
+            _npc_faction_goals(char.id, db),
+            db,
+        )
+        if not result.get("ok"):
+            failures.append({"npc": entity.name if entity else char.id, "reason": result.get("error")})
+            continue
+
+        if needs_long:
+            long_desc = (result.get("long") or "").strip()
+            if long_desc:
+                write_npc_goal(
+                    db, world_id=world_id, npc_id=char.id,
+                    description=long_desc, horizon="long", changed_by="creator-backfill",
+                )
+                written["long"] += 1
+        if needs_shorts:
+            for short_desc in (result.get("shorts") or [])[:needs_shorts]:
+                short_desc = (short_desc or "").strip()
+                if short_desc:
+                    write_npc_goal(
+                        db, world_id=world_id, npc_id=char.id,
+                        description=short_desc, horizon="short", changed_by="creator-backfill",
+                    )
+                    written["short"] += 1
+
+    db.commit()
+    return {
+        "ok": True,
+        "processed": processed,
+        "skipped_complete": skipped_complete,
+        "written": written,
+        "failures": failures,
+    }
 
 
 # ── Faction membership (schema v1.39, BRIEF-27) ───────────────────────────────

@@ -4407,8 +4407,222 @@ tier resolver wired into `assemble_npc_context`, pricing text in exactly
 one place, the conversation-analysis example count/rubrics, and the
 region-manifest sync-note removal.
 
+## NPC GOALS — in-scene volition (BRIEF-0013-a, BRIEF-0013-b, BRIEF-0013-c, schema v1.69)
+
+Nia's frustration: NPCs feel like they wait on the player's orders rather
+than pursuing their own agenda in-scene. TICKET-0013 covers only the
+in-scene half (goal structure, injection, and — in later briefs — the
+initiative signal and `goal_change`); the "world advances off-screen" half
+is TICKET-0014, deliberately deferred until this ticket has been observed
+live.
+
+**F1 (flat table, no hierarchy).** `npc_goal` — `id`, `world_id`, `npc_id`,
+`description` (immutable after insert), `horizon ∈ {short, long}`,
+`status ∈ {active, completed, abandoned}` (default `active`),
+`change_history`. No `parent_goal_id`: goal hierarchy is a named deferral
+(F2, below), not an oversight. A "changed" goal is a closed goal
+(`write_npc_goal_status`) plus a new row (`write_npc_goal`) — descriptions
+are never edited in place, and a closed goal is never reopened (mirrors the
+knowledge-ladder doctrine of "correction is a new entry, not a rewrite").
+
+**Q1 (injection) + S1 (read-side bound).** `assemble_npc_context` gains a
+`TES OBJECTIFS` section (`H_GOALS`), placed immediately after `QUI TU ES`
+and before `OÙ TU TE TROUVES` — the model sees its goals before its
+surroundings. Content: the single most recent active long goal (if any) plus
+the 2 most recent active short goals, one line each
+(`[LONG TERME] …` / `[COURT TERME] …`), no intro sentence, no ids, no status
+text (0012 lean discipline). The bound lives entirely on the read side
+(`ORDER BY created_at DESC LIMIT` 1/2 at query construction) — there is no
+write-side cap anywhere on active shorts; older un-closed shorts simply go
+silent in the prompt until a slot opens up. The section is omitted entirely
+when the NPC has zero active goals (same pattern as the affiliations/pricing
+optional blocks). `assemble_mj_context` is untouched — no `NpcGoal` import
+is reachable from it.
+
+**N1 (structural exclusion, MJ boundary).** Goals are NPC interiority: read
+ONLY by `assemble_npc_context` this step (the initiative vote joins in
+BRIEF-0013-c). `assemble_mj_context` must never gain a `npc_goal` query —
+enforced by a new static check, `tooling/verify/checks/npc_goal_read.py`
+(same mechanical philosophy as `single_canon_write.py`): Rule 1 restricts the
+`NpcGoal` identifier to an explicit module allowlist (`models.py`,
+`writes.py`, `context.py`, `cockpit/crud.py`, the migration script, the
+check itself); Rule 2 asserts zero `NpcGoal`/`"npc_goal"` references anywhere
+from `assemble_mj_context`'s definition to the end of `context.py` (the
+file's entire MJ block).
+
+**Two sanctioned write chokepoints, day one.** `write_npc_goal` (insert,
+always `active`) and `write_npc_goal_status` (the ONLY path that transitions
+status — appends the previous state to `change_history` first, then allows
+exactly `active -> completed` and `active -> abandoned`; any other
+transition, including reopening a closed goal, raises `ValueError`).
+`canon_write_policy.txt` gains `npc_goal` as a canon table with these two
+sites as its only `ALLOWED_SITES` entries — the creator CRUD calls the
+helpers rather than writing rows itself, so `single_canon_write.py` needs no
+`cockpit/crud.py` entry for this table (same shape as `update_relation`
+calling `write_relation`).
+
+**Creator CRUD (E1 baseline authority).** `GET/POST /api/entities/{id}/goals`
++ `POST /api/goals/{id}/status`, scoped to the active world
+(`entity.world_id != _world_id(db)` -> 404, mirroring the
+`skill_definition` idiom). Creation is rejected (422) unless the target
+entity is an NPC character — goals are NPC interiority this ticket; player
+goals are not scoped. The character sheet gains an "Objectifs" block
+(horizon tag + description + status pill, dimmed when closed, per-active-goal
+"Accompli"/"Abandonné" buttons), gated to NPC sheets the same way the
+existing "Tarifs" block is (`currentCreationSubTab === 'npc'`) — no edit or
+reopen control exists, by design.
+
+**Scope OUT BRIEF-0013-a** (shipped in BRIEF-0013-b, below, and BRIEF-0013-c):
+the `pt-npc-goals` generator and its three gates (region generation,
+existing-world backfill, single-NPC pre-fill); the initiative-vote signal;
+the `goal_change` mutation type (emit and apply sides); the dialogue-template
+directive. `_CANONICAL_TYPES`, `_apply_mutation`, `_signal_line`, and every
+prompt template stayed untouched in that step.
+
+**T1 (one generator, three gates) / M2 (cardinality).** `generate_npc_goals`
+(`entity_author.py`) — one function, one prompt template (`pt-npc-goals`,
+authoring model, `format="json"`) — is the sole path to model-authored
+goals, requesting exactly 1 long + 2 short goals per call. Pure
+generate-and-return, like every other `entity_author.py` generator: it
+writes no canon; every canon write happens at the caller via
+`writes.write_npc_goal`. Three callers share it: region generation (G1,
+per-NPC after the character draft succeeds, attached to
+`draft["public"]["goals"]` for the region review UI and written by
+`commit_region` Stage 3 in the SAME transaction as the NPC — an NPC and its
+goals are never separately observable), single-NPC creation pre-fill (L1,
+`/api/entities/generate` merges the block into the editable draft; the
+creator form holds it in `pendingDraftGoals` the same way BRIEF-24 holds
+`pendingDraftKnowledge`, POSTing each non-empty goal through the 0013-a
+endpoint right after the entity is created), and backfill (G2/P2, below). A
+goal-generation failure at any of the three gates degrades gracefully
+(a note, or a batch failure entry) — it never drops the NPC and never
+raises into the caller.
+
+**P2 (per-horizon backfill, no-overwrite).** `POST /api/npc-goals/backfill`
+(`cockpit/crud.py`), scoped to one NPC or unscoped (every `character_type
+== 'npc'`, `vital_status == 'alive'` NPC of the active world). Per NPC, the
+deficit is computed structurally — needs a long iff zero ACTIVE long goals,
+needs `2 - n` shorts iff `n < 2` ACTIVE shorts — and only the missing
+horizon(s) are requested and written; a fully-satisfied NPC triggers no
+model call at all. Idempotent by construction: a second run on an unchanged
+world writes zero rows (live-verified: an 11-NPC region commit followed by
+an unscoped backfill wrote 16 longs/32 shorts across the remaining deficits
+in one pass, then a second run reported zero). Surplus generator output for
+an already-satisfied horizon is discarded, never queued for a future run.
+
+**`faction.goals` gains its first reader (generator input only).** Dormant
+since schema v1.44 (BRIEF-33), `Faction.goals` is now read at three call
+sites — `region_author.py`'s Stage-3 NPC loop (via the local faction
+draft's `secret.goals`), `cockpit/app.py`'s `/api/entities/generate` (via a
+direct `db.get(Faction, faction_id)` on the draft's resolved faction), and
+`cockpit/crud.py`'s backfill (via the NPC's first public active
+membership) — feeding `generate_npc_goals`' `faction_goals` parameter only.
+This is deliberately NOT a prompt-injection path: no assembler reads
+`faction.goals` into any model-facing context. Injecting faction posture
+into NPC dialogue prompts remains its own, separately queued chantier.
+
+New verify wiring: `npc_goal_generation` registered in `PROMPT_REGISTRY`
+(authoring surface, `_author_model` default, `entity_author.py:
+_load_npc_goals_template` call site); `npc_goal_read.py`'s module allowlist
+extended with `cockpit/app.py` (the Stage-3 commit-side `write_npc_goal`
+calls) — `entity_author.py` and `region_author.py` deliberately need no
+entry, since both handle the goals block as a plain dict, never importing
+`NpcGoal`.
+
+**BRIEF-0013-c closes the behaviour loop.** Goals now influence the
+initiative vote, evolve through creator-approved `goal_change` proposals,
+and the dialogue template tells the NPC to pursue them — TICKET-0013 is
+complete; TICKET-0014 (world-tick — off-screen agenda progression, scoped
+approval batches, H2/I1/J1 pre-locked at TICKET-0013 intake) is the named
+successor, to be designed only after this ticket is observed live.
+
+**R1 (vote signal, short-only, code-side).** `_npc_initiative_vote`
+(`cockpit/app.py`) gains one batched query — every candidate's most recent
+ACTIVE short-term `NpcGoal`, `npc_id IN (...)`, reduced in Python to first-
+per-npc — alongside the existing batched relation query (same one-round-
+trip discipline). `_signal_line` appends `, objectif=« … »` (80-char
+truncation, `…` when cut) when a candidate has one; omitted entirely
+otherwise. Long-term goals never enter the vote — R1 is short-only, by
+design, not a truncation of both horizons down to one. `pt-mj-initiative`
+itself is untouched: the fragment is built in code, the same way the
+relation/status signal fields already are.
+
+**H1 (emit) — enabled by a structural fact already true since BRIEF-09.**
+`analyze_window` feeds the analysis model the NPC's `injected_context.
+assembled_context` (preferred over the raw context blob) — which, since
+BRIEF-0013-a, already contains the `TES OBJECTIFS` section. No new
+plumbing was needed: the analysis model already sees the NPC's active
+goals verbatim, so the rubric only has to instruct exact-copy of the
+listed text. `analyzer.py` gains `goal_change` in `VALID_MUTATION_TYPES` +
+`VALID_TARGET_TABLES` (`npc_goal`), seven natural-language aliases in
+`_MUTATION_TYPE_MAP`, and a `_normalize_to_schema` branch that runs
+**unconditionally** whenever `mutation_type == "goal_change"` — even when
+the model's own `payload` already looks well-formed, never trusting a
+model-supplied `npc_id` or a stray `horizon` key. `action` is coerced
+through `_GOAL_ACTION_MAP` (an unrecognised value drops the item); `goal`
+text is the first non-empty of `goal`/`description`/`content`, trimmed.
+**`npc_id` is FORCED to `conv.npc_id` in code — structural, not
+instructional** — the model's input only ever contains ONE NPC's `TES
+OBJECTIFS`, so multi-NPC attribution is out of scope by construction (same
+posture as `relation_change`'s per-item roster resolution, deferred rather
+than guessed at).
+
+**O1 (model may close, never create/re-horizon a long) + S1 (read-side
+bound, restated at the apply site).** The `_apply_mutation` branch:
+`complete`/`abandon` match against the NPC's ACTIVE goals — **both
+horizons** — by exact `_normalize_goal_text` (casefold + whitespace-
+collapse) equality; anything other than exactly one match (zero, or an
+ambiguous multiple) is treated as "no match" → error string → Needs
+attention, nothing written (the `knowledge_change` posture: better
+un-applied than wrongly applied). `create_short` always inserts via
+`write_npc_goal` with **`horizon="short"` hard-coded in the branch** — the
+payload carries no horizon field and none is ever read, so a crafted
+`"horizon":"long"` in the payload is silently ignored (live-verified). No
+active-count check on insert: S1's bound is still the injection's
+read-side `LIMIT`, restated here rather than re-implemented — a third
+active short is written without complaint.
+
+**Duplicate-guard asymmetry vs `knowledge_change` (deliberate).**
+`_find_applied_duplicate` gains a `goal_change` branch — same
+`conversation_id` + same `action` + same normalized goal text is a
+duplicate. This is the OPPOSITE choice from `knowledge_change`, which
+stays excluded from this guard: successive legitimate knowledge upgrades
+across a conversation (rumor → partial → knows) must all apply, but a
+repeated identical goal event (the same goal, same action) within one
+conversation window is never legitimate — a goal is completed, abandoned,
+or newly formed once per scene, not twice. Live-verified: re-approving an
+identical `goal_change` in the same conversation is blocked.
+
+**D1 (dialogue directive, final wording).** One paragraph inserted into
+`NPC_DIALOGUE_SYSTEM_PROMPT` between ATTITUDE and DISCRÉTION ET NATUREL:
+"Ta fiche liste tes objectifs (« TES OBJECTIFS »). Poursuis-les quand la
+scène s'y prête — tu peux solliciter, refuser, marchander ou mettre fin à
+l'échange si cela les sert — sans jamais en réciter la liste." Delivered to
+the live DB, alongside the `pt-conversation-analysis` GOAL_CHANGE rubric +
+a fifth worked example, by a new one-shot idempotent script,
+`scripts/apply_ticket_0013_prompt_updates.py` (mirrors
+`apply_ticket_0012_prompt_rewrite.py` exactly — embeds no text of its own,
+compares against `current_prompt`, appends via `write_prompt_version` only
+on a real diff). `tooling/verify/checks/prompt_lean.py` Rule 5 updated: 5
+`=== EXEMPLE` markers (was 4), four rubric headers (adds `GOAL_CHANGE
+RUBRIC`).
+
+**No `npc_goal_read.py` change this step.** `analyzer.py` handles plain
+dicts and never imports `NpcGoal`; the apply branch lives in
+`cockpit/app.py`, already allowlisted since BRIEF-0013-b.
+
 ## Deferred decisions
 
+- **F2 — goal hierarchy (`parent_goal_id`)** (TICKET-0013). Deferred until a
+  reader exploits parentage — e.g. "short goal completed -> model proposes
+  the next step of the parent long goal." Nia is explicitly interested;
+  reactivate only when a concrete reader needs it, not speculatively.
+- **Goal-proposal pre-authorization** (TICKET-0013, J2). Nia anticipates
+  needing pre-authorized categories of `goal_change` "si le jeu devient
+  gros" (batch or auto-approval bypassing the creator checkpoint). This is a
+  conscious, deliberate doctrinal exception to *model proposes, code
+  judges* — never a drift — and must be its own future decision, not folded
+  into a later brief incidentally.
 - **Affinity tier text creator editability** (BRIEF-0012-a). `_AFFINITY_TIERS`
   (adjectives + directives) live as `context.py` constants, not a template or
   a cockpit surface — resolved behavior is mechanics, not creator content,
