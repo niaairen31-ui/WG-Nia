@@ -29,6 +29,25 @@ def main():
     tid = ap.parse_args().ticket
     md = (TICKETS / f"{tid}.md").read_text(encoding="utf-8")
     checks = machine_checks(md)
+
+    if not checks:
+        # Fail-closed (TICKET-0013 escalation): a Machine-checkable section
+        # that parses to zero criteria is a malformed ticket, not a green
+        # ticket. Never let an empty checks list report green — that masks
+        # a missing/mismatched arrow (or a genuinely empty section) as a
+        # passing gate.
+        verdict = {
+            "ticket": tid,
+            "when": datetime.now(timezone.utc).isoformat(),
+            "green": False,
+            "checks": [],
+            "error": "machine-checkable section parsed to zero criteria — malformed arrows or empty section",
+        }
+        RESULTS.mkdir(parents=True, exist_ok=True)
+        (RESULTS / f"{tid}.json").write_text(json.dumps(verdict, indent=2), encoding="utf-8")
+        print(json.dumps(verdict, indent=2))
+        sys.exit(1)
+
     results, ok = [], True
     for rel in checks:
         path = (CHECKS / pathlib.Path(rel).name)

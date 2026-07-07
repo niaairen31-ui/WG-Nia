@@ -239,11 +239,11 @@ no F2 hierarchy, no auto-approval, no MJ-side goal read, no manifest change).
 ## Acceptance criteria
 
 ### Machine-checkable → G1 deterministic gate
-- [ ] `npc_goal` table exists post-migration with both CHECK constraints and `(npc_id, status)` index → schema check
-- [ ] `NpcGoal` referenced only in allowlisted modules; zero references inside `assemble_mj_context` → verify/checks/npc_goal_read.py
-- [ ] All `npc_goal` inserts/updates flow through `writes.py` helpers → verify/checks/single_canon_write.py (allowlist extended)
-- [ ] `goal_change` apply branch rejects long-horizon creation (unit-level assertion) → verify
-- [ ] Backfill run twice on the same world writes zero rows the second time → verify or scripted check
+- [ ] `npc_goal` table exists post-migration with both CHECK constraints and `(npc_id, status)` index -> schema check
+- [ ] `NpcGoal` referenced only in allowlisted modules; zero references inside `assemble_mj_context` -> verify/checks/npc_goal_read.py
+- [ ] All `npc_goal` inserts/updates flow through `writes.py` helpers -> verify/checks/single_canon_write.py (allowlist extended)
+- [ ] `goal_change` apply branch rejects long-horizon creation (unit-level assertion) -> verify
+- [ ] Backfill run twice on the same world writes zero rows the second time -> verify or scripted check
 
 ### Live → human gate (Nia)
 - [ ] An NPC with an injected short-term goal visibly steers a conversation toward it

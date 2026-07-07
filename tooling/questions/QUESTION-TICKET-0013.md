@@ -65,4 +65,13 @@ B. Extend `tooling/verify/run.py`'s `LINK` regex to accept both `->` and
 C. Something else (specify).
 
 ## Response
+C = A + garde fail-closed.
 
+A tel quel : les cinq flèches "→" du ticket redeviennent "->", alignées
+sur la convention de tous les autres tickets.
+
+Ajout minimal dans run.py : si la section Machine-checkable produit zéro
+critère parsé, le run échoue avec un message explicite
+("machine-checkable section parsed to zero criteria — malformed arrows
+or empty section") au lieu de rendre "checks": [] vert. Une condition,
+pas de refonte — ça durcit l'infra partagée, ça ne l'élargit jamais.
