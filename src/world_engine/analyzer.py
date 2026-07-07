@@ -57,6 +57,7 @@ VALID_MUTATION_TYPES = frozenset(
         "status_change",
         "entity_creation",
         "resource_change",
+        "goal_change",
         "other",
     }
 )
@@ -73,6 +74,7 @@ VALID_TARGET_TABLES = frozenset(
         "faction",
         "artifact",
         "ledger",
+        "npc_goal",
         "other",
     }
 )
@@ -103,6 +105,13 @@ _MUTATION_TYPE_MAP: dict[str, str] = {
     "rumeur": "new_knowledge",
     "rumor": "new_knowledge",
     "location": "status_change",
+    "goal": "goal_change",
+    "goal_change": "goal_change",
+    "goal_update": "goal_change",
+    "objective": "goal_change",
+    "objective_change": "goal_change",
+    "goal_completed": "goal_change",
+    "new_goal": "goal_change",
 }
 
 # Maps mutation_type → likely target_table.
@@ -114,6 +123,25 @@ _TARGET_TABLE_MAP: dict[str, str] = {
     "status_change": "entity",
     "entity_creation": "entity",
     "resource_change": "ledger",
+    "goal_change": "npc_goal",
+}
+
+# Maps the model's natural goal-action wording (TICKET-0013, BRIEF-0013-c) ->
+# our canonical action enum. Anything else is unrecognised — the item is
+# dropped (better un-applied than wrongly applied).
+_GOAL_ACTION_MAP: dict[str, str] = {
+    "complete": "complete",
+    "completed": "complete",
+    "done": "complete",
+    "accompli": "complete",
+    "abandon": "abandon",
+    "abandoned": "abandon",
+    "given_up": "abandon",
+    "abandonné": "abandon",
+    "new": "create_short",
+    "create": "create_short",
+    "new_short": "create_short",
+    "create_short": "create_short",
 }
 
 # knowledge.level ladder (schema): unaware < rumor < suspicious < partial <
@@ -366,6 +394,30 @@ def _normalize_to_schema(
         payload = item["payload"]
         if not payload.get("entity_id") or not isinstance(payload.get("amount"), int):
             return None
+
+    # goal_change (TICKET-0013, BRIEF-0013-c, H1/O1): npc_id is FORCED to
+    # conv.npc_id here, in code — structural, not instructional. The model's
+    # input only ever contains ONE NPC's TES OBJECTIFS, so it never chooses
+    # the target NPC, and no horizon field is ever read (O1: the model
+    # cannot create or re-horizon a long-term goal by any input). Runs
+    # unconditionally so a fake npc_id/horizon in the model's own payload is
+    # always overwritten, never trusted. action is coerced through
+    # _GOAL_ACTION_MAP; an unrecognised action or empty goal text drops the
+    # item (better un-applied than wrongly applied).
+    if item["mutation_type"] == "goal_change":
+        payload_in = item["payload"] if isinstance(item["payload"], dict) else {}
+        raw_action = str(
+            _first_of(payload_in, "action", "kind", default="")
+            or _first_of(item, "action", "kind", default="")
+        ).strip().lower()
+        action = _GOAL_ACTION_MAP.get(raw_action)
+        goal_text = str(
+            _first_of(payload_in, "goal", "description", "content", default="")
+            or _first_of(item, "goal", "description", "content", default="")
+        ).strip()
+        if action is None or not goal_text:
+            return None
+        item["payload"] = {"npc_id": conv.npc_id, "action": action, "goal": goal_text}
 
     # ── rationale ────────────────────────────────────────────────────────────
     if not item.get("rationale"):

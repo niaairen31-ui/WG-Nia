@@ -9,8 +9,8 @@ Static assertions only (source text / AST, no DB):
    _affinity_tier is defined and referenced inside assemble_npc_context.
 4. "RÈGLES DE TARIFICATION" appears exactly once in context.py, zero times
    in seed_pilot.py.
-5. CONVERSATION_ANALYSIS_SYSTEM_PROMPT: exactly 4 "=== EXEMPLE" markers,
-   zero "=== EXAMPLE" markers, all three rubric headers present.
+5. CONVERSATION_ANALYSIS_SYSTEM_PROMPT: exactly 5 "=== EXEMPLE" markers,
+   zero "=== EXAMPLE" markers, all four rubric headers present.
 6. REGION_MANIFEST_SYSTEM_PROMPT: no "synchronis", no "BRIEF-", "au moins 4"
    appears twice.
 """
@@ -95,11 +95,11 @@ def main() -> int:
     if not conv:
         failures.append("CONVERSATION_ANALYSIS_SYSTEM_PROMPT not found as a module-level string constant")
     exemple_count = conv.count("=== EXEMPLE")
-    if exemple_count != 4:
-        failures.append(f"CONVERSATION_ANALYSIS_SYSTEM_PROMPT has {exemple_count} '=== EXEMPLE' markers, expected 4")
+    if exemple_count != 5:
+        failures.append(f"CONVERSATION_ANALYSIS_SYSTEM_PROMPT has {exemple_count} '=== EXEMPLE' markers, expected 5")
     if "=== EXAMPLE" in conv:
         failures.append("CONVERSATION_ANALYSIS_SYSTEM_PROMPT still contains an '=== EXAMPLE' marker")
-    for rubric in ("SIGN RUBRIC", "ANTI-INFLATION RUBRIC", "RESOURCE_CHANGE RUBRIC"):
+    for rubric in ("SIGN RUBRIC", "ANTI-INFLATION RUBRIC", "RESOURCE_CHANGE RUBRIC", "GOAL_CHANGE RUBRIC"):
         if rubric not in conv:
             failures.append(f"CONVERSATION_ANALYSIS_SYSTEM_PROMPT missing rubric header {rubric!r}")
 

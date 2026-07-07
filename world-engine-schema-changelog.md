@@ -8,6 +8,31 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **BRIEF-0013-c** — No schema change. `goal_change` added to
+  `proposed_mutation.mutation_type` (targets `npc_goal`) — closes the
+  TICKET-0013 behaviour loop. Emit side (`analyzer.py`): the model already
+  sees the NPC's active goals verbatim via the `TES OBJECTIFS` section
+  carried in `injected_context.assembled_context`; `_normalize_to_schema`
+  forces `payload.npc_id` to `conv.npc_id` in code (never model-chosen) and
+  coerces `action` (`complete`|`abandon`|`create_short`) through a small
+  alias map. Apply side (`_apply_mutation`, `cockpit/app.py`): `complete`/
+  `abandon` match an ACTIVE goal (either horizon) by exact normalized
+  description text via `write_npc_goal_status`; `create_short` always
+  inserts a SHORT goal via `write_npc_goal` — horizon is hard-coded, O1
+  structural, no payload field can override it. `_find_applied_duplicate`
+  gains a `goal_change` branch (same conversation + action + normalized
+  goal text) — the opposite asymmetry from `knowledge_change`, which stays
+  excluded. Initiative vote (R1, `cockpit/app.py`): `_signal_line` appends
+  `, objectif=« … »` (80-char truncation) from each candidate's most
+  recent ACTIVE short-term goal — long-term goals never enter the vote.
+  Prompt updates delivered via a new one-shot script,
+  `scripts/apply_ticket_0013_prompt_updates.py` (mirrors
+  `apply_ticket_0012_prompt_rewrite.py`): `pt-npc-dialogue` gains an
+  OBJECTIFS directive; `pt-conversation-analysis` gains the GOAL_CHANGE
+  rubric + a fifth worked example. `verify/checks/prompt_lean.py` updated
+  (5 EXEMPLE markers, 4 rubric headers). TICKET-0013 is now complete;
+  TICKET-0014 (world-tick) is the named successor.
+
 - **v1.69** — New table `npc_goal` (NPC interiority — in-scene volition,
   TICKET-0013/BRIEF-0013-a): `id`, `world_id` (FK), `npc_id` (FK entity),
   `description` (NOT NULL, immutable after insert), `horizon` CHECK IN

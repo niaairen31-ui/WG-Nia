@@ -235,8 +235,8 @@ Output: a JSON array only. No prose. No markdown fences. Start with [, end with 
 Nothing changed → output exactly: []
 
 Every element must have these EXACT 5 keys — no other keys allowed:
-  "mutation_type"  (string) — relation_change | new_knowledge | knowledge_change | event_creation | status_change | entity_creation | resource_change | other
-  "target_table"   (string) — relation | knowledge | event | entity | character | location | faction | artifact | ledger | other
+  "mutation_type"  (string) — relation_change | new_knowledge | knowledge_change | event_creation | status_change | entity_creation | resource_change | goal_change | other
+  "target_table"   (string) — relation | knowledge | event | entity | character | location | faction | artifact | ledger | npc_goal | other
   "target_id"      (string or null) — id of the row to update; null for a new row
   "payload"        (object) — fields matching the target table (see below)
   "rationale"      (string) — one line quoting or summarising the evidence
@@ -247,6 +247,7 @@ Payload shapes:
   knowledge_change → {"entity_id":"…","subject":"…","field":"…","new_value":"…"}
   event_creation   → {"title":"…","description":"…","type":"social|political|other","involved_entities":[…]}
   resource_change  → {"entity_id":"char-player","amount":<signed int>,"counterparty_id":"…","reason":"…","knowledge":{"entity_id":"…","subject":"…","level":"…","content":"…","source":"…","is_secret":false} (knowledge is OPTIONAL — only when information changed hands)}
+  goal_change      → {"action":"complete|abandon|create_short","goal":"…"}
 
 === RELATION_CHANGE SIGN RUBRIC ===
 Decide the SIGN of intensity_delta by INTENT, not by surface similarity:
@@ -300,6 +301,20 @@ information, et que c'est le joueur (achat) ou un PNJ (le joueur vend une
 info) qui l'acquiert — `content` recopié de ce qui a été dit, jamais
 inventé.
 
+=== GOAL_CHANGE RUBRIC ===
+goal_change — le bloc NPC CONTEXT peut contenir une section
+« TES OBJECTIFS » listant les objectifs actifs du PNJ. Émets un
+goal_change UNIQUEMENT quand la fenêtre contient une preuve claire
+qu'un de CES objectifs listés est accompli ("action":"complete") ou
+définitivement abandonné ("action":"abandon"), ou que le PNJ forme une
+NOUVELLE intention concrète à court terme ("action":"create_short").
+Recopie le texte de l'objectif EXACTEMENT tel qu'il figure dans
+« TES OBJECTIFS » — jamais de paraphrase. Pour create_short, écris le
+nouvel objectif en UNE phrase commençant par un verbe à l'infinitif.
+Parler d'un objectif, ou progresser sans conclure, ne justifie PAS de
+goal_change. Émets AU PLUS UN goal_change par objectif pour toute la
+fenêtre. N'invente jamais d'objectif absent de la section.
+
 === EXEMPLE 1 (la relation se réchauffe) ===
 Transcript :
 [JOUEUR] Cela fait deux ans que je viens ici.
@@ -332,7 +347,18 @@ Transcript :
 [JOUEUR] Tiens.
 [PNJ] Plaisir de faire affaire.
 Output:
-[{"mutation_type":"resource_change","target_table":"ledger","target_id":null,"payload":{"entity_id":"char-player","amount":-15,"counterparty_id":"npc-b","reason":"achat d'une information sur le Conseil","knowledge":{"entity_id":"char-player","subject":"conseil_secret","level":"rumor","content":"Le Conseil cache l'un de ses propres membres.","source":"acheté au PNJ","is_secret":false}},"rationale":"Le joueur a payé 15 pièces, le PNJ a énoncé le prix et l'information, l'échange s'est conclu dans la scène."}]"""
+[{"mutation_type":"resource_change","target_table":"ledger","target_id":null,"payload":{"entity_id":"char-player","amount":-15,"counterparty_id":"npc-b","reason":"achat d'une information sur le Conseil","knowledge":{"entity_id":"char-player","subject":"conseil_secret","level":"rumor","content":"Le Conseil cache l'un de ses propres membres.","source":"acheté au PNJ","is_secret":false}},"rationale":"Le joueur a payé 15 pièces, le PNJ a énoncé le prix et l'information, l'échange s'est conclu dans la scène."}]
+
+=== EXEMPLE 5 (un objectif listé est accompli) ===
+NPC CONTEXT (extrait) :
+TES OBJECTIFS
+[COURT TERME] Convaincre le forgeron de réparer la herse avant la foire
+Transcript :
+[PNJ] Alors, c'est entendu ? Elle sera réparée avant la foire ?
+[JOUEUR] Le forgeron a accepté ce matin. C'est réglé.
+[PNJ] Enfin ! Voilà un poids en moins.
+Output:
+[{"mutation_type":"goal_change","target_table":"npc_goal","target_id":null,"payload":{"action":"complete","goal":"Convaincre le forgeron de réparer la herse avant la foire"},"rationale":"Le PNJ apprend que la réparation est acquise — l'objectif listé est accompli."}]"""
 
 CONVERSATION_ANALYSIS_USER_TEMPLATE = """\
 NPC CONTEXT (what the NPC was authorised to know):
@@ -1113,6 +1139,11 @@ ATTITUDE.
 Ta fiche indique, dans la section « COMMENT TU VOIS… », ton attitude envers ton \
 interlocuteur. Adopte-la : elle règle ta manière et ta disposition, pas les \
 faits que tu possèdes — ta fiche a déjà filtré ce que tu peux évoquer.
+
+OBJECTIFS.
+Ta fiche liste tes objectifs (« TES OBJECTIFS »). Poursuis-les quand la \
+scène s'y prête — tu peux solliciter, refuser, marchander ou mettre fin à \
+l'échange si cela les sert — sans jamais en réciter la liste.
 
 DISCRÉTION ET NATUREL.
 Parle naturellement, comme une vraie personne. Ne truffe pas tes réponses de \

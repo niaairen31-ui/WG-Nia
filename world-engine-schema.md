@@ -576,7 +576,8 @@ CREATE TABLE proposed_mutation (
   mutation_type   TEXT NOT NULL,
                   -- relation_change | new_knowledge | knowledge_change |
                   -- event_creation | status_change | entity_creation |
-                  -- item_update | resource_change | other
+                  -- item_update | resource_change | goal_change | other
+                  -- (goal_change targets npc_goal — TICKET-0013/BRIEF-0013-c)
   target_table    TEXT,                    -- table the change applies to
   target_id       TEXT,                    -- row affected (NULL if creation)
   payload         JSON NOT NULL,           -- the proposed change, structured

@@ -75,6 +75,7 @@ from ..models import (
     Item,
     Knowledge,
     Location,
+    NpcGoal,
     PromptTemplate,
     ProposedMutation,
     Relation,
@@ -92,6 +93,7 @@ from ..writes import (
     write_knowledge,
     write_ledger_entry,
     write_npc_goal,
+    write_npc_goal_status,
     write_relation,
 )
 from . import crud as _crud
@@ -740,6 +742,14 @@ def _find_applied_duplicate(
     guard lives inside the resource_change branch itself
     (_knowledge_leg_already_applied, guard 4c), not here — this generic
     guard must never be extended to pattern-match the whole mutation.
+
+    goal_change IS included (TICKET-0013, BRIEF-0013-c) — the opposite
+    asymmetry from knowledge_change, deliberately: a repeated identical
+    knowledge upgrade across successive windows is legitimate (rumor ->
+    partial -> knows), but a repeated identical goal event (the same goal,
+    same action) within ONE conversation is not — a goal is completed,
+    abandoned, or created once, not twice in the same scene. Match key:
+    same conversation_id + action + normalized goal text.
     """
     if not mut.conversation_id:
         return None
@@ -779,7 +789,23 @@ def _find_applied_duplicate(
                     f"applied by mutation {prev.id[:8]}…"
                 )
 
+        elif mut.mutation_type == "goal_change":
+            if (prev_p.get("action") == payload.get("action")
+                    and _normalize_goal_text(prev_p.get("goal")) == _normalize_goal_text(payload.get("goal"))):
+                return (
+                    f"goal_change ({payload.get('action')}) for goal "
+                    f"{payload.get('goal')!r} was already applied by mutation "
+                    f"{prev.id[:8]}…"
+                )
+
     return None
+
+
+def _normalize_goal_text(text: Optional[str]) -> str:
+    """Casefold + whitespace-collapse a goal description for equality matching
+    (TICKET-0013, BRIEF-0013-c) — goals are matched by exact description text,
+    never by id (the model never receives structural ids)."""
+    return " ".join(str(text or "").split()).casefold()
 
 
 def _knowledge_leg_already_applied(
@@ -854,6 +880,14 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                          block-whole (existing row, or an equivalent
                          knowledge already applied this conversation) →
                          Needs attention, nothing written.
+    - goal_change      : (TICKET-0013, BRIEF-0013-c) npc_id is FORCED to
+                         conv.npc_id at emit time (analyzer.py) — never
+                         trusted from the model beyond that. complete/abandon
+                         match an ACTIVE goal (either horizon) by exact
+                         normalized description text via write_npc_goal_status;
+                         no match → Needs attention, nothing written.
+                         create_short always inserts a SHORT goal via
+                         write_npc_goal — horizon is hard-coded, O1 structural.
 
     Unimplemented types (event_creation, entity_creation, other) are left as
     'approved' with a note — better un-applied than wrongly applied.
@@ -1005,6 +1039,49 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
             changed_by="apply_mutation",
         )
         return None
+
+    # ── goal_change (TICKET-0013, BRIEF-0013-c, H1/O1) ────────────────────────
+    elif mut.mutation_type == "goal_change":
+        npc_id = payload.get("npc_id")
+        action = payload.get("action")
+        goal_text = payload.get("goal")
+        if not npc_id or not action or not goal_text:
+            return "goal_change: payload must contain npc_id, action and goal"
+
+        if action in ("complete", "abandon"):
+            # O1: the model may close any active goal, either horizon —
+            # matched by exact (normalized) description text, never by id.
+            normalized = _normalize_goal_text(goal_text)
+            candidates = db.exec(
+                select(NpcGoal).where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active")
+            ).all()
+            matches = [g for g in candidates if _normalize_goal_text(g.description) == normalized]
+            if len(matches) != 1:
+                return f"goal_change: no active goal matching {goal_text!r}"
+            write_npc_goal_status(
+                db,
+                goal=matches[0],
+                new_status="completed" if action == "complete" else "abandoned",
+                changed_by=f"mutation:{mut.id}",
+            )
+            return None
+
+        if action == "create_short":
+            # O1 structural: horizon is hard-coded "short" — the payload
+            # carries no horizon field and none is read, so the model cannot
+            # create a long-term goal by any input. S1: no active-count
+            # check — the injection's read-side LIMIT is the bound.
+            write_npc_goal(
+                db,
+                world_id=mut.world_id,
+                npc_id=npc_id,
+                description=goal_text,
+                horizon="short",
+                changed_by=f"mutation:{mut.id}",
+            )
+            return None
+
+        return f"goal_change: unrecognised action {action!r}"
 
     # ── resource_change (BRIEF-19) ────────────────────────────────────────────
     elif mut.mutation_type == "resource_change":
@@ -1961,10 +2038,26 @@ def _npc_initiative_vote(
                 return rel
         return None
 
+    # BRIEF-0013-c (R1): one batched query for every candidate's most recent
+    # ACTIVE short-term goal — long-term goals never enter the vote.
+    all_short_goals = db.exec(
+        select(NpcGoal)
+        .where(NpcGoal.npc_id.in_(npc_ids), NpcGoal.horizon == "short", NpcGoal.status == "active")
+        .order_by(NpcGoal.created_at.desc())
+    ).all()
+    goal_by_npc: dict[str, str] = {}
+    for g in all_short_goals:
+        goal_by_npc.setdefault(g.npc_id, g.description)
+
     def _signal_line(e: Entity) -> str:
         rel = _npc_rel(e.id)
         signal = f"relation={rel.type} ({rel.intensity}/100)" if rel else "relation=neutre (50/100)"
-        return f"- {e.name} : {signal}, statut={e.status}"
+        goal_text = goal_by_npc.get(e.id)
+        goal_frag = ""
+        if goal_text:
+            text = goal_text if len(goal_text) <= 80 else goal_text[:80] + "…"
+            goal_frag = f", objectif=« {text} »"
+        return f"- {e.name} : {signal}, statut={e.status}{goal_frag}"
 
     # Two-section signal list: in-group members react in place; non-members can
     # only intervene by approaching the player's gathering (structural move=True).

@@ -4407,7 +4407,7 @@ tier resolver wired into `assemble_npc_context`, pricing text in exactly
 one place, the conversation-analysis example count/rubrics, and the
 region-manifest sync-note removal.
 
-## NPC GOALS — in-scene volition (BRIEF-0013-a, BRIEF-0013-b, schema v1.69)
+## NPC GOALS — in-scene volition (BRIEF-0013-a, BRIEF-0013-b, BRIEF-0013-c, schema v1.69)
 
 Nia's frustration: NPCs feel like they wait on the player's orders rather
 than pursuing their own agenda in-scene. TICKET-0013 covers only the
@@ -4528,6 +4528,88 @@ extended with `cockpit/app.py` (the Stage-3 commit-side `write_npc_goal`
 calls) — `entity_author.py` and `region_author.py` deliberately need no
 entry, since both handle the goals block as a plain dict, never importing
 `NpcGoal`.
+
+**BRIEF-0013-c closes the behaviour loop.** Goals now influence the
+initiative vote, evolve through creator-approved `goal_change` proposals,
+and the dialogue template tells the NPC to pursue them — TICKET-0013 is
+complete; TICKET-0014 (world-tick — off-screen agenda progression, scoped
+approval batches, H2/I1/J1 pre-locked at TICKET-0013 intake) is the named
+successor, to be designed only after this ticket is observed live.
+
+**R1 (vote signal, short-only, code-side).** `_npc_initiative_vote`
+(`cockpit/app.py`) gains one batched query — every candidate's most recent
+ACTIVE short-term `NpcGoal`, `npc_id IN (...)`, reduced in Python to first-
+per-npc — alongside the existing batched relation query (same one-round-
+trip discipline). `_signal_line` appends `, objectif=« … »` (80-char
+truncation, `…` when cut) when a candidate has one; omitted entirely
+otherwise. Long-term goals never enter the vote — R1 is short-only, by
+design, not a truncation of both horizons down to one. `pt-mj-initiative`
+itself is untouched: the fragment is built in code, the same way the
+relation/status signal fields already are.
+
+**H1 (emit) — enabled by a structural fact already true since BRIEF-09.**
+`analyze_window` feeds the analysis model the NPC's `injected_context.
+assembled_context` (preferred over the raw context blob) — which, since
+BRIEF-0013-a, already contains the `TES OBJECTIFS` section. No new
+plumbing was needed: the analysis model already sees the NPC's active
+goals verbatim, so the rubric only has to instruct exact-copy of the
+listed text. `analyzer.py` gains `goal_change` in `VALID_MUTATION_TYPES` +
+`VALID_TARGET_TABLES` (`npc_goal`), seven natural-language aliases in
+`_MUTATION_TYPE_MAP`, and a `_normalize_to_schema` branch that runs
+**unconditionally** whenever `mutation_type == "goal_change"` — even when
+the model's own `payload` already looks well-formed, never trusting a
+model-supplied `npc_id` or a stray `horizon` key. `action` is coerced
+through `_GOAL_ACTION_MAP` (an unrecognised value drops the item); `goal`
+text is the first non-empty of `goal`/`description`/`content`, trimmed.
+**`npc_id` is FORCED to `conv.npc_id` in code — structural, not
+instructional** — the model's input only ever contains ONE NPC's `TES
+OBJECTIFS`, so multi-NPC attribution is out of scope by construction (same
+posture as `relation_change`'s per-item roster resolution, deferred rather
+than guessed at).
+
+**O1 (model may close, never create/re-horizon a long) + S1 (read-side
+bound, restated at the apply site).** The `_apply_mutation` branch:
+`complete`/`abandon` match against the NPC's ACTIVE goals — **both
+horizons** — by exact `_normalize_goal_text` (casefold + whitespace-
+collapse) equality; anything other than exactly one match (zero, or an
+ambiguous multiple) is treated as "no match" → error string → Needs
+attention, nothing written (the `knowledge_change` posture: better
+un-applied than wrongly applied). `create_short` always inserts via
+`write_npc_goal` with **`horizon="short"` hard-coded in the branch** — the
+payload carries no horizon field and none is ever read, so a crafted
+`"horizon":"long"` in the payload is silently ignored (live-verified). No
+active-count check on insert: S1's bound is still the injection's
+read-side `LIMIT`, restated here rather than re-implemented — a third
+active short is written without complaint.
+
+**Duplicate-guard asymmetry vs `knowledge_change` (deliberate).**
+`_find_applied_duplicate` gains a `goal_change` branch — same
+`conversation_id` + same `action` + same normalized goal text is a
+duplicate. This is the OPPOSITE choice from `knowledge_change`, which
+stays excluded from this guard: successive legitimate knowledge upgrades
+across a conversation (rumor → partial → knows) must all apply, but a
+repeated identical goal event (the same goal, same action) within one
+conversation window is never legitimate — a goal is completed, abandoned,
+or newly formed once per scene, not twice. Live-verified: re-approving an
+identical `goal_change` in the same conversation is blocked.
+
+**D1 (dialogue directive, final wording).** One paragraph inserted into
+`NPC_DIALOGUE_SYSTEM_PROMPT` between ATTITUDE and DISCRÉTION ET NATUREL:
+"Ta fiche liste tes objectifs (« TES OBJECTIFS »). Poursuis-les quand la
+scène s'y prête — tu peux solliciter, refuser, marchander ou mettre fin à
+l'échange si cela les sert — sans jamais en réciter la liste." Delivered to
+the live DB, alongside the `pt-conversation-analysis` GOAL_CHANGE rubric +
+a fifth worked example, by a new one-shot idempotent script,
+`scripts/apply_ticket_0013_prompt_updates.py` (mirrors
+`apply_ticket_0012_prompt_rewrite.py` exactly — embeds no text of its own,
+compares against `current_prompt`, appends via `write_prompt_version` only
+on a real diff). `tooling/verify/checks/prompt_lean.py` Rule 5 updated: 5
+`=== EXEMPLE` markers (was 4), four rubric headers (adds `GOAL_CHANGE
+RUBRIC`).
+
+**No `npc_goal_read.py` change this step.** `analyzer.py` handles plain
+dicts and never imports `NpcGoal`; the apply branch lives in
+`cockpit/app.py`, already allowlisted since BRIEF-0013-b.
 
 ## Deferred decisions
 
