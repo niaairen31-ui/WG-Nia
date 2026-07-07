@@ -372,6 +372,7 @@ WG-Nia/
 │   ├── db.py                # engine + session; URL from env var
 │   ├── models.py            # all SQLModel table classes (the schema)
 │   ├── context.py           # NPC + MJ context assembly; structural exclusions; signposts
+│   ├── tick.py              # world-tick briefing; sole surface, call sites allowlisted by verify/checks/world_tick.py
 │   ├── gathering.py         # initial NPC clustering into gatherings
 │   ├── ollama_client.py     # local Ollama HTTP client; think-stripping; ping()
 │   ├── analyzer.py          # window + overhearing analysis -> proposed_mutation rows

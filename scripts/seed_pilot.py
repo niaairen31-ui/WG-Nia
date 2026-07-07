@@ -834,6 +834,79 @@ Passé : {npc_backstory}
 Objectifs de sa faction : {faction_goals}\
 """
 
+# TICKET-0014/BRIEF-0014-a: world-tick briefing (K2/T1). usage = "world_tick".
+# world_id = NULL. The RUNNER (BRIEF-0014-b) formats user_template with
+# {tick_context} (from tick.assemble_tick_context) and {interval_label}
+# (creator-chosen at invocation) — this brief ships only the prompt contract
+# and the read-side builder; no call site exists yet. English-bodied (mirrors
+# pt-conversation-analysis); French only in quoted markers/labels and
+# {interval_label} values, since the briefing itself is French.
+WORLD_TICK_SYSTEM_PROMPT = """\
+You advance ONE NPC's life off-screen in an RPG world. You receive the
+NPC's private briefing (identity, goals, knowledge, relations,
+affiliations, location, who is around) and an elapsed interval. Decide
+what this NPC plausibly DID during that interval, acting on its goals
+and on what it knows — then report the world-state changes.
+
+Output: a JSON array only. No prose. No markdown fences. Start with [,
+end with ]. A quiet interval is a legitimate answer: output exactly []
+
+Every element must have these EXACT 5 keys — no other keys allowed:
+  "mutation_type"  (string) — goal_change | relation_change | new_knowledge
+  "target_table"   (string) — npc_goal | relation | knowledge
+  "target_id"      (null)   — always null
+  "payload"        (object) — see shapes below
+  "rationale"      (string) — one line: what the NPC did that caused this change
+
+Reference people by NAME exactly as written in the briefing. Never
+invent identifiers, ids, or people absent from the briefing.
+
+Payload shapes:
+  goal_change      -> {"action":"complete|abandon|create_short","goal":"…"}
+  relation_change  -> {"other":"<name from the briefing>","relation_type":"…","intensity_delta":<signed int>}
+  new_knowledge    -> {"recipient":"self" | "<name>","subject":"<short_slug>","level":"rumor|partial|knows","content":"…","source":"…","is_secret":true|false,"secret_derived":true|false}
+
+=== GOAL_CHANGE RULES ===
+For "complete"/"abandon": copy the goal text EXACTLY as it appears in
+TES OBJECTIFS — never paraphrase. Emit one ONLY when the interval
+plausibly finished or definitively killed that goal; progress without
+conclusion is NOT a goal_change. For "create_short": one sentence
+starting with an infinitive verb. AT MOST ONE goal_change per listed
+goal.
+
+=== RELATION_CHANGE RULES ===
+AT MOST ONE relation_change per counterpart for the ENTIRE interval —
+the NET effect, never per-event increments. Keep |intensity_delta|
+proportionate: minor courtesy 1-3, meaningful gesture or admission 4-8,
+serious betrayal, rescue, or attack 9-15. Routine coexistence, ordinary
+work, or mere proximity is NOT a relation_change.
+
+=== NEW_KNOWLEDGE RULES ===
+"recipient":"self" when the NPC LEARNED something during the interval;
+"<name>" when the NPC TOLD that person something. Set
+"secret_derived":true when the information comes from a [SECRET] item
+in your briefing. Whether the knowledge is secret FOR THE RECIPIENT is
+a separate judgment: set "is_secret" by intent — a confidence shared
+discreetly stays secret; information wielded openly against an enemy
+does not. Never copy [SECRET]/[AFFILIATION SECRÈTE] markers into
+"content".
+
+=== SCALE ===
+The elapsed interval is «{interval_label}». Scale ambition to it: a few
+hours move one small step; a few days allow a meeting, an errand, a
+discovery; a few weeks may close a short-term goal. Stay inside the
+briefing.\
+"""
+
+WORLD_TICK_USER_TEMPLATE = """\
+NPC BRIEFING:
+{tick_context}
+
+INTERVALLE ÉCOULÉ : {interval_label}
+
+Report what changed as a JSON array.\
+"""
+
 # BRIEF-47: World-bible generator. usage = "world_generation". Creator-side
 # draft generator for a NEW world's premise — entity_author.generate_world_draft
 # formats this user_template with only {brief} (no {type_fields}: a world
@@ -1547,6 +1620,26 @@ def seed(session: Session) -> None:
         system_prompt=REGION_MANIFEST_TOPUP_SYSTEM_PROMPT,
         user_template=REGION_MANIFEST_TOPUP_USER_TEMPLATE,
         variables=["concept", "factions_block", "locations_block", "existing_npcs_block", "requests_block"],
+        destination="local",
+    )
+
+    # ----- prompt template: world tick — off-screen NPC advancement ----------
+    # (TICKET-0014/BRIEF-0014-a). usage = "world_tick". world_id = NULL.
+    # model=NULL (Q1): the runner (BRIEF-0014-b) passes
+    # ollama_client.DEFAULT_MODEL through effective_model, keeping a
+    # per-template override available. No PROMPT_REGISTRY entry yet — that
+    # entry (and the loader call site it points to) lands with the runner in
+    # BRIEF-0014-b, mirroring the 0013 precedent (pt-npc-goals' registry
+    # entry arrived with its generator, not with the earlier goal-table brief).
+    upsert_prompt_template(
+        session,
+        "pt-world-tick",
+        world_id=None,
+        name="World tick — avancement PNJ hors-champ (JSON)",
+        usage="world_tick",
+        system_prompt=WORLD_TICK_SYSTEM_PROMPT,
+        user_template=WORLD_TICK_USER_TEMPLATE,
+        variables=["tick_context", "interval_label"],
         destination="local",
     )
 

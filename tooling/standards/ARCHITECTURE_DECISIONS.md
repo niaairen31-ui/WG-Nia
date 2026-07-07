@@ -4611,6 +4611,118 @@ RUBRIC`).
 dicts and never imports `NpcGoal`; the apply branch lives in
 `cockpit/app.py`, already allowlisted since BRIEF-0013-b.
 
+## WORLD TICK — off-screen NPC advancement (BRIEF-0014-a, no schema change)
+
+TICKET-0013's named successor (I1 pre-locked at that ticket's intake): a
+manual, scoped cockpit action asks the gameplay model what each NPC in scope
+did during a creator-chosen interval, and the answers land as
+`proposed_mutation` rows under creator approval (C2). This first chantier
+ships the READ side and the prompt contract only; the runner (endpoint,
+model call, normalization, emit-time dedup) is BRIEF-0014-b.
+
+**K2 (new module, not `context.py`).** `assemble_tick_context(npc_id,
+session)` lives in a NEW module, `src/world_engine/tick.py` — never the
+dialogue assembler. RECON-0014 F6: `tooling/verify/checks/npc_goal_read.py`
+rule 2 scans `context.py` positionally (from `assemble_mj_context` onward);
+a tick builder added below that line would be invisible to the scan. A new
+module sidesteps the fragility entirely and keeps the MJ boundary rule
+byte-identical. `tick.py` imports nothing from `context.py` (drafting
+decision, BRIEF-0014-a): the small shared helpers (`_section`,
+`_knowledge_line`, `_perceived_target`, `_render_perception`, an
+adjective-only slice of the affinity ladder) are replicated locally so the
+module's AST stays self-contained.
+
+**T1 (full-interiority briefing — conscious, logged exception).** Unlike
+`assemble_npc_context`, a tick has no interlocutor, so the two dialogue
+filters (secret exclusion, share-threshold gating) do not apply: the
+briefing includes ALL of the NPC's own knowledge — rows with `is_secret`
+prefixed exactly `[SECRET] ` rather than dropped — and ALL active
+memberships read DIRECTLY from `FactionMembership` (never
+`read_public_memberships`), carrying the TRUE `role` (never `cover_role`)
+and secret memberships prefixed exactly `[AFFILIATION SECRÈTE] `. The
+invariant ("secrets are structurally excluded from every assembled context")
+is re-anchored, not waived: the exception is (a) scoped to this one builder,
+(b) confined to its allowlisted call sites by static scan (below), and
+(c) every downstream effect crosses `proposed_mutation` under creator
+approval — the briefing itself is never rendered to a player or MJ surface,
+only consumed by the tick model call (BRIEF-0014-b) and the creator preview
+script (this brief).
+
+**Section order and composition.** `QUI TU ES` (identity, same composition
+as the dialogue assembler) → `TES OBJECTIFS` (ALL active goals, both
+horizons, newest first, long-terms first — no read-side cap, unlike the
+dialogue injection's `LIMIT` 1/2: the tick must see everything active to
+judge what advanced) → `CE QUE TU SAIS` → `TES RELATIONS` (every perceived
+edge, `_perceived_target` logic, type + intensity line followed by the
+rendered perception sentence) → `TES AFFILIATIONS` (with an indented Faction
+posture block per membership — `Philosophie`, `Buts` (`Faction.goals`'s
+second reader, after the 0013 generator input), `Tensions internes`,
+`Aversion`, one line per non-empty field) → `OÙ TU TE TROUVES` (location +
+subculture values, no player-condition injection — that's scene-specific,
+not a tick concern) → `QUI EST AUTOUR` (co-located characters by
+`current_location_id`, public description only — deliberately UNFILTERED by
+`character_type`, unlike the dialogue assembler's `H_COMPANY` query: a tick
+judging what an NPC did needs to know whether a player character was
+physically present, and the brief specifies no exclusion. The
+"PC excluded from NPC co-presence by construction" invariant names
+`H_COMPANY` specifically and calls a repoint-or-widen elsewhere a
+"deliberate decision" — this is a distinct query in a distinct module, and
+this paragraph is that decision, made explicit). Ends with a tick-specific
+anti-invention boundary line (distinct wording from the dialogue boundary).
+Empty sections render a French placeholder (e.g. `(aucun objectif actif)`)
+rather than being omitted — unlike the dialogue assembler's optional
+sections, the tick's "Done means" contract requires every section header to
+appear in every briefing.
+
+**N1 extension + new structural check.** `tick.py` joins
+`npc_goal_read.py`'s `ALLOWED_MODULES`; `assemble_mj_context` stays
+untouched. A new check, `tooling/verify/checks/world_tick.py` (stdlib `ast`,
+same shape as `npc_goal_read.py`), lands rules 1-2 this brief: rule 1
+restricts the identifier `assemble_tick_context` to `tick.py`,
+`cockpit/app.py`, and `scripts/preview_tick_context.py` (RECON-0014 F6: an
+indirect call from elsewhere would evade a scan keyed on `NpcGoal`/goal
+identifiers alone); rule 2 asserts `context.py` and `gathering.py` carry no
+reference to `assemble_tick_context` at all. BRIEF-0014-b extends this same
+check with rules 3-5 (forced attribution, the `tick_id` duplicate-guard
+branch, the `secret_derived` emit-time floor).
+
+**Prompt delivered, no runner yet.** `pt-world-tick` (usage `world_tick`,
+`world_id` NULL, `model` NULL — Q1: the eventual runner passes
+`ollama_client.DEFAULT_MODEL` through `effective_model`, keeping a
+per-template override available) is seeded in `scripts/seed_pilot.py` and
+delivered to the live DB by a new one-shot idempotent script,
+`scripts/apply_ticket_0014_prompt_updates.py` (0013 pattern, but this head
+is BRAND NEW — unlike 0013's script, which only appended versions onto
+already-seeded heads, this one also handles the head-absent branch: create
+the head + write v1 via `write_prompt_version`, no-op when the head already
+exists with identical text). English-bodied system prompt (mirrors
+`pt-conversation-analysis`); the payload shapes (`"other"` for a relation
+counterpart, `"recipient":"self"|name` for knowledge) are locked here —
+BRIEF-0014-b's normalizer must match them exactly. **No `PROMPT_REGISTRY`
+entry yet**: that entry (and the loader call site it points to) lands with
+the runner in BRIEF-0014-b, mirroring the 0013 precedent —
+`npc_goal_generation`'s registry entry arrived with `generate_npc_goals`
+(BRIEF-0013-b), not with the earlier goal-table brief. Until BRIEF-0014-b
+closes, `usage="world_tick"` is seeded but absent from `PROMPT_REGISTRY`; no
+check gated on TICKET-0014's own G1 exercises the registry bijection, and no
+`chat`/`chat_stream` call references this usage yet.
+
+**Preview reader.** `scripts/preview_tick_context.py --npc <id>` prints the
+assembled briefing to stdout; a player character or unknown id exits 1 with
+a clear error and prints nothing. This is `assemble_tick_context`'s only
+reader this brief, and the live-gate instrument for T1 review.
+
+**Scope OUT this brief** (BRIEF-0014-b): the tick RUNNER (endpoint, model
+call, JSON extraction, E1/O1 forced attribution, emit-time dedup,
+`secret_derived` code floor per Z3); the `tick_id` migration (Y2) and the
+duplicate-guard's tick branch; queue labels/badges, `_mutation_dict`
+changes; cockpit UI (scope selector, interval selector, the button); any
+movement/`status_change` emission (deferred at L3); any automatic trigger or
+in-game time system (I3 deferred, no `last_tick_at` storage per M); goal
+hierarchy `parent_goal_id` (F2 stays closed — `create_short` stays flat even
+here); pre-authorization/auto-apply of any proposal category (J3 stays
+rejected).
+
 ## Deferred decisions
 
 - **F2 — goal hierarchy (`parent_goal_id`)** (TICKET-0013). Deferred until a
