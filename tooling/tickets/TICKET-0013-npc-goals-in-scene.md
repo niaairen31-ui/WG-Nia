@@ -2,7 +2,7 @@
 id: TICKET-0013
 title: NPC goals — in-scene volition (structured goals, injection, initiative signal, goal_change)
 type: feature
-status: escalated
+status: live-gate
 created: 2026-07-06
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
