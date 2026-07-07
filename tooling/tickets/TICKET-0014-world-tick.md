@@ -2,13 +2,13 @@
 id: TICKET-0014
 title: world-tick — off-screen NPC advancement between visits
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-07
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
 blast_radius: medium
 brief_ids: [BRIEF-0014-a, BRIEF-0014-b]
-schema_version_touched: next (executor assigns; expected v1.70 — tick_id, lands in BRIEF-0014-b)
+schema_version_touched: v1.70 (tick_id, landed in BRIEF-0014-b)
 retry_count: 0
 ---
 
