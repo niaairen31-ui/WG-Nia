@@ -213,6 +213,13 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   sanctioned exception to one-branch-one-table. Money leg accumulates
   (never deduped) and targets the player only, until tracked NPC purses
   exist; knowledge leg is idempotent, guarded at apply time.
+- **Tick-sourced `proposed_mutation` rows have `source_type='world_tick'`,
+  `proposed_by='local_ai_tick'`, NULL `pass_play_id`/`conversation_id`, and
+  a mandatory `tick_id`** (one UUID per `run_world_tick` invocation).
+  `_find_applied_duplicate`'s tick branch (`cockpit/app.py`) is
+  canon-existence-based, never a `tick_id`-scoped history comparison, and
+  must never be extended to `relation_change` (accumulating deltas, never
+  guarded).
 - **`entity.metadata.price_list` is seller configuration,** injected ONLY
   into that seller's own dialogue context — never into `assemble_mj_context`
   or any other entity's context. A quoted price writes no canon; money

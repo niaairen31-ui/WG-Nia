@@ -4611,7 +4611,7 @@ RUBRIC`).
 dicts and never imports `NpcGoal`; the apply branch lives in
 `cockpit/app.py`, already allowlisted since BRIEF-0013-b.
 
-## WORLD TICK — off-screen NPC advancement (BRIEF-0014-a, no schema change)
+## WORLD TICK — off-screen NPC advancement (BRIEF-0014-a, BRIEF-0014-b, schema v1.70)
 
 TICKET-0013's named successor (I1 pre-locked at that ticket's intake): a
 manual, scoped cockpit action asks the gameplay model what each NPC in scope
@@ -4722,6 +4722,121 @@ in-game time system (I3 deferred, no `last_tick_at` storage per M); goal
 hierarchy `parent_goal_id` (F2 stays closed — `create_short` stays flat even
 here); pre-authorization/auto-apply of any proposal category (J3 stays
 rejected).
+
+**BRIEF-0014-b makes the tick RUN.** `run_world_tick(db, npc_ids,
+interval_label, model, host)` (`tick.py`) generates one `tick_id` per
+invocation and, per NPC (degrade-don't-abort, R3): assembles the briefing,
+loads `pt-world-tick`, calls the model with `format="json"`, and normalizes
+the result — any exception (briefing guard, model call, JSON parse) records
+a note for that NPC and moves on; nothing is written for it. Surviving
+proposals across ALL NPCs commit in ONE transaction at the end — a crashed
+invocation (before that point) writes nothing.
+
+**E1/O1-mirror (forced attribution).** `_normalize_tick_item` FORCES
+`npc_id` (goal_change) and `entity_a_id` (relation_change) from the
+function's own parameter — never read from the model's payload, structural
+not instructional (`world_tick.py` rule 3, AST-verified: no
+`.get("npc_id")`/`.get("entity_a_id")` anywhere in `tick.py`, and both
+identifiers appear as dict-literal keys only with a bare-`Name` value).
+
+**Closed type contract.** Unlike conversation analysis, the tick accepts
+ONLY `goal_change | relation_change | new_knowledge` (via the same alias
+map as `analyzer._MUTATION_TYPE_MAP`, imported not duplicated); anything
+else — including the fallback `other` — is dropped with a note, never
+proposed. `_content_to_subject_slug`, `_extract_json_array`,
+`_GOAL_ACTION_MAP`, and `load_analysis_prompt` are reused from `analyzer.py`
+verbatim (analyzer never imports tick — no cycle).
+
+**Roster (E1, name-based resolution).** `_build_roster` maps
+`name.casefold() -> id` from EXACTLY what the briefing names: the ticked
+NPC itself, co-located characters (QUI EST AUTOUR), and perceived relation
+targets (TES RELATIONS) — no faction-mate expansion. A casefolded name
+carried by two different ids is ambiguous and removed from the roster;
+resolution then fails for that name and the item is dropped, never guessed.
+`relation_change`'s `"other"` and `new_knowledge`'s `"recipient"` (when not
+`"self"`) resolve through it.
+
+**Z3 floor (mechanical, decoupled).** Before normalizing an NPC's items,
+`secret_subjects` is built as a set comprehension of that NPC's own
+`Knowledge.subject` (casefolded) where `is_secret` — then `secret_derived`
+is forced `True` when the proposal's subject or content matches. The floor
+NEVER reads or writes `is_secret`: confidentiality stays the model's
+(then the creator's) call, provenance is code's. `world_tick.py` rule 5
+AST-verifies both the set-comprehension shape and that no assignment or
+dict-literal key inside `_normalize_tick_item` sets `is_secret` from
+`secret_subjects`/`secret_derived`.
+
+**Emit-time dedup (item 6).** Within one NPC's item list — never across
+NPCs or across the whole invocation — subsequent duplicates are dropped,
+keeping the FIRST occurrence: `goal_change` keyed `(action, normalized goal
+text)`; `new_knowledge` keyed `(entity_id, subject)`; `relation_change`
+keyed `(entity_a_id, entity_b_id)` (the rubric already demands one NET
+delta per counterpart per interval — extras are rubric violations, not
+legitimate accumulation).
+
+**Y2 (implemented) — canon-existence guard, re-run-proof AND revival-safe.**
+`_find_applied_duplicate` (`cockpit/app.py`) now branches in two mutually
+exclusive scopes: conversation-sourced mutations keep the pre-existing
+branch byte-identical; tick-sourced mutations (`conversation_id IS NULL`,
+`tick_id` set) run CANON-EXISTENCE checks instead of a tick_id-scoped
+history comparison — a re-run gets a NEW `tick_id` every time, so comparing
+WITHIN one `tick_id` would miss exactly the cross-run duplicates F2 is
+about, while an unbounded history comparison would block legitimate goal
+revivals (a revived goal is a new row, 0013 doctrine). `create_short` is a
+duplicate iff an ACTIVE `NpcGoal` already matches by normalized text;
+`complete`/`abandon` get NO guard here (the apply branch's
+exactly-one-active-match requirement is already correct); `new_knowledge`
+is a duplicate iff a `Knowledge` row already exists for
+`(entity_id, subject)`; `relation_change` gets NO guard, same
+accumulating-deltas doctrine as the conversation-sourced branch — a double
+delta from a re-run tick is visible in the queue, the creator's to judge,
+never blocked. `world_tick.py` rule 4 AST-verifies the branch exists.
+
+**Endpoint.** `POST /api/world-tick` (`cockpit/app.py`, beside the
+analyzer-facing endpoints, per RECON-0014 F8 — not `crud.py`, since it
+writes `ProposedMutation` rows through the proposal pipeline, not creator
+CRUD). Resolves `scope_type` (`npcs` | `location` | `faction`) to NPC ids
+server-side (never trusts a client-supplied NPC list beyond per-id
+validation), rejects an unknown interval/scope_type/empty resolved scope
+with 422 before any model call, pings Ollama fail-fast (503), then calls
+`run_world_tick` and returns its R3 summary verbatim.
+
+**Queue surfacing (P1 + Z3 badge).** `_mutation_dict` gains `tick_id`.
+`renderCard` (`index.html`) shows a `TICK ·xxxx` badge (first 4 chars,
+grouping label — same invocation, same suffix) when `source_type ===
+"world_tick"`, and a distinct warning-styled badge
+`dérivé d'un secret` when `payload.secret_derived === true` — independent
+of `is_secret`, which stays the receiving NPC's own disposition.
+
+**Cockpit controls (I1/J1/M3).** A "Faire avancer le monde" button, a
+scope-type selector (PNJ(s) multi-select / Lieu / Faction, single-select),
+and an interval selector (the three verbatim French labels) live in the
+Review Queue tab's existing `creation-shell-extra` slot, alongside the
+filter bar — not a new registry entry or a new primaryAction (Queue's
+`primaryAction` stays `null`; this reuses the same one-off slot mechanism
+the filter bar already occupies). Scope selectors populate from the
+entity-list APIs the Création view already calls (`/api/entities`,
+`/api/skills/player-characters` for the NPC/PC split, `/api/locations`,
+`/api/entities?type=faction`) — no new listing endpoint.
+
+**`PROMPT_REGISTRY` entry lands here, closing the BRIEF-0014-a gap.**
+`"world_tick"` — `surface="play"`, `world_scoped=False` (the template loads
+via `world_id=None`, mirroring the authoring-surface entries' pattern, not
+a per-conversation world), `call_sites=("src/world_engine/tick.py:
+run_world_tick",)`, `default_model=_game_model`. `prompt_registry.py`'s
+bijection check now passes for `world_tick` — the seeded usage and its
+registry entry are no longer split across two commits. `tick.py` also
+joins `prompt_registry.py`'s `WIRED_FILES` (static wiring scan, rule 3) —
+found missing during this brief's review-step: the check had never
+actually scanned `tick.py`'s `chat()` call for `model=effective_model(`,
+so the correct wiring was unverified rather than unenforced. Fixed and
+red-tested (a bare `model=` in `run_world_tick` now fails the check).
+
+**Docs.** `world-engine-schema.md`/-changelog: `tick_id` column + index +
+third `source_type` value + `local_ai_tick` documented alongside the schema
+bump to v1.70. `CLAUDE.md`: one line noting tick-sourced rows'
+`source_type`/NULL-FK/`tick_id` shape and that the duplicate guard's tick
+branch must never be extended to `relation_change`.
 
 ## Deferred decisions
 

@@ -415,6 +415,9 @@ input.notes::placeholder { color: var(--muted); }
 .b-entity_creation   { background:#1e1130; color:#d2a8ff; border:1px solid #6e40c9; }
 .b-resource_change   { background:#271a00; color:#ffa657; border:1px solid #9e6a03; }
 .b-other             { background:#1c2128; color:var(--muted); border:1px solid var(--border); }
+/* world-tick badges (TICKET-0014/BRIEF-0014-b) */
+.b-tick            { background:#1c2128; color:var(--muted); border:1px solid var(--border); }
+.b-secret-derived  { background:#2b1d00; color:var(--yellow); border:1px solid #9e6a03; }
 /* status colours */
 .b-proposed { background:#2b1d00; color:var(--yellow); border:1px solid #9e6a03; }
 .b-applied  { background:#0d2c12; color:var(--green);  border:1px solid #238636; }
@@ -1180,6 +1183,30 @@ button:not(:disabled):hover { filter: brightness(1.15); }
                 title="Proposals that were approved but could not be applied to canon (apply error, unhandled type, or duplicate block). Needs creator attention.">⚠ Needs attention</button>
         <button class="f-btn"        data-s="applied"   onclick="setFilter(this,'applied')">Applied</button>
         <button class="f-btn"        data-s="rejected"  onclick="setFilter(this,'rejected')">Rejected</button>
+      </div>
+      <!-- ── World tick controls (TICKET-0014/BRIEF-0014-b, I1/J1/M3) ──
+           Manual, scoped off-screen NPC advancement. Lands in this same
+           slot as the filter bar — a second row via flex-basis:100%, not a
+           new registry entry (this tab's rows are still append-only via
+           /api/world-tick -> proposed_mutation, never created directly here). -->
+      <div class="tick-controls" id="tick-controls"
+           style="flex-basis:100%; display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; padding-top:8px; border-top:1px solid var(--border);">
+        <button class="btn-send" id="btn-world-tick" onclick="runWorldTick()">Faire avancer le monde</button>
+        <select id="tick-scope-type" onchange="tickScopeTypeChanged()" title="Portée du tick">
+          <option value="npcs">PNJ(s)</option>
+          <option value="location">Lieu</option>
+          <option value="faction">Faction</option>
+        </select>
+        <select id="tick-scope-npcs" multiple size="4" style="min-width:180px;"
+                title="Ctrl/Cmd+clic pour sélectionner plusieurs PNJ"></select>
+        <select id="tick-scope-location" style="display:none; min-width:180px;"></select>
+        <select id="tick-scope-faction" style="display:none; min-width:180px;"></select>
+        <select id="tick-interval" title="Intervalle écoulé">
+          <option value="quelques heures">quelques heures</option>
+          <option value="quelques jours">quelques jours</option>
+          <option value="quelques semaines">quelques semaines</option>
+        </select>
+        <span class="analyze-status" id="tick-status"></span>
       </div>
       <div id="creation-shell-batch-bar"></div>
     </div>
@@ -2418,6 +2445,97 @@ async function analyzeConv(force) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
+   World tick (TICKET-0014, BRIEF-0014-b) — manual, scoped off-screen NPC
+   advancement. Scope selectors populate from the entity-list APIs the
+   Création view already calls (BRIEF-0005-a precedent): /api/entities,
+   /api/skills/player-characters (NPC/PC split, same as CREATION_TABS.npc's
+   entityFilter), /api/locations, /api/entities?type=faction.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function loadTickControls() {
+  const status = document.getElementById('tick-status');
+  try {
+    const [entities, pcs, locations, factions] = await Promise.all([
+      api('/api/entities?type=character'),
+      api('/api/skills/player-characters').catch(() => []),
+      api('/api/locations').catch(() => []),
+      api('/api/entities?type=faction').catch(() => []),
+    ]);
+    const pcIds = new Set(pcs.map(p => p.id));
+    const npcs = entities.filter(e => e.type === 'character' && !pcIds.has(e.id));
+
+    const npcSel = document.getElementById('tick-scope-npcs');
+    if (npcSel) npcSel.innerHTML = npcs.map(n => `<option value="${esc(n.id)}">${esc(n.name)}</option>`).join('');
+
+    const locSel = document.getElementById('tick-scope-location');
+    if (locSel) locSel.innerHTML = locations.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('');
+
+    const facSel = document.getElementById('tick-scope-faction');
+    if (facSel) facSel.innerHTML = factions.map(f => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
+
+    tickScopeTypeChanged();
+  } catch (e) {
+    if (status) { status.style.color = 'var(--red)'; status.textContent = 'Erreur de chargement des cibles : ' + e.message; }
+  }
+}
+
+function tickScopeTypeChanged() {
+  const type = document.getElementById('tick-scope-type').value;
+  document.getElementById('tick-scope-npcs').style.display    = (type === 'npcs')     ? '' : 'none';
+  document.getElementById('tick-scope-location').style.display = (type === 'location') ? '' : 'none';
+  document.getElementById('tick-scope-faction').style.display  = (type === 'faction')  ? '' : 'none';
+}
+
+async function runWorldTick() {
+  const btn      = document.getElementById('btn-world-tick');
+  const status   = document.getElementById('tick-status');
+  const scopeType = document.getElementById('tick-scope-type').value;
+  const interval  = document.getElementById('tick-interval').value;
+
+  const body = { scope_type: scopeType, interval };
+  if (scopeType === 'npcs') {
+    const sel = document.getElementById('tick-scope-npcs');
+    body.npc_ids = Array.from(sel.selectedOptions).map(o => o.value);
+    if (!body.npc_ids.length) {
+      status.style.color = 'var(--red)'; status.textContent = 'Sélectionnez au moins un PNJ.';
+      return;
+    }
+  } else {
+    const sel = document.getElementById(scopeType === 'location' ? 'tick-scope-location' : 'tick-scope-faction');
+    body.scope_id = sel.value;
+    if (!body.scope_id) {
+      status.style.color = 'var(--red)'; status.textContent = 'Sélectionnez une cible.';
+      return;
+    }
+  }
+
+  btn.disabled = true;
+  status.style.color = 'var(--muted)';
+  status.textContent = '⟳ Le monde avance…';
+  try {
+    const data = await api('/api/world-tick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const npcNotes = (data.npcs || [])
+      .filter(n => (n.notes && n.notes.length) || n.dropped)
+      .map(n => `${n.name}: ${n.proposed} proposé(s), ${n.dropped} écarté(s)` +
+        (n.notes && n.notes.length ? ' — ' + n.notes.join('; ') : ''));
+    status.style.color = 'var(--text)';
+    status.textContent = `✓ ${data.total_proposed} propositions (tick ${String(data.tick_id).slice(0, 4)})` +
+      (npcNotes.length ? ' — ' + npcNotes.join(' | ') : '');
+    setFilterByName('proposed');
+    await loadQueue();
+  } catch (e) {
+    status.style.color = 'var(--red)';
+    status.textContent = '✗ ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
    Review queue
    ════════════════════════════════════════════════════════════════════════════ */
 
@@ -2572,6 +2690,17 @@ function renderCard(m) {
 
   const resourceLegsBlock = _renderResourceChangeLegs(m);
 
+  // World-tick badges (TICKET-0014/BRIEF-0014-b, P1 + Z3): a grouping label
+  // for every row of the same invocation, and a distinct warning badge when
+  // the proposal's content is derived from a [SECRET] briefing item —
+  // independent of is_secret, which is the receiving NPC's own disposition.
+  const tickBadge = (m.source_type === 'world_tick' && m.tick_id)
+    ? `<span class="badge b-tick" title="tick ${esc(m.tick_id)}">TICK ·${esc(m.tick_id.slice(0, 4))}</span>`
+    : '';
+  const secretDerivedBadge = (m.payload && m.payload.secret_derived === true)
+    ? `<span class="badge b-secret-derived">dérivé d'un secret</span>`
+    : '';
+
   return `
 <div class="card s-${esc(m.status)}" id="card-${esc(m.id)}">
   <div class="card-head">
@@ -2579,6 +2708,7 @@ function renderCard(m) {
     <span class="badge b-${esc(m.mutation_type)}">${esc(m.mutation_type)}</span>
     ${targetTxt ? `<span class="target-ref">${esc(targetTxt)}</span>` : ''}
     <span class="badge b-${esc(m.status)}">${esc(m.status)}</span>
+    ${tickBadge}${secretDerivedBadge}
     ${sourceRef ? `<span class="target-ref">${esc(sourceRef)}</span>` : ''}
     <span class="ts">${fmtDate(m.proposed_at)}</span>
   </div>
@@ -3130,7 +3260,7 @@ const CREATION_TABS = {
     loader: loadQueue,
     state: { onTabEnter: null, onWorldSwitch: null },
     primaryAction: null, // append-only by design — rows never created here
-    slots: [{ id: 'filters', containerId: 'creation-shell-extra', loader: null, onSelect: null }],
+    slots: [{ id: 'filters', containerId: 'creation-shell-extra', loader: loadTickControls, onSelect: null }],
   },
   prompts: {
     label: 'Prompts',
@@ -3146,8 +3276,11 @@ const CREATION_TABS = {
  *  showCreationSubTab and creationInit's first-ever activation, so the
  *  shell/label render exactly once, however the tab was reached: renders the
  *  standard shell + sidebar label, then (entity archetype) loads its list
- *  via the shared shell before the entry's own loader, then its declared
- *  slots; bespoke entries just run their own loader. */
+ *  via the shared shell before the entry's own loader; declared slots' own
+ *  loaders always run last, regardless of archetype (TICKET-0014/BRIEF-0014-b:
+ *  Review Queue's bespoke entry needed its 'filters' slot's loader to fire
+ *  too — this was previously entity-archetype-only because no bespoke slot
+ *  had ever declared a real loader before). */
 function _creationActivateTab() {
   const entry = CREATION_TABS[currentCreationSubTab];
   if (!entry) return;
@@ -3161,9 +3294,7 @@ function _creationActivateTab() {
     (entry.listLoader || authorLoadEntityList)();
   }
   if (entry.loader) entry.loader();
-  if (usesEditorShell) {
-    (entry.slots || []).forEach(s => { if (s.loader) s.loader(); });
-  }
+  (entry.slots || []).forEach(s => { if (s.loader) s.loader(); });
 }
 
 /** Generic dispatcher (TICKET-0005): every tab's visibility, reset, and load

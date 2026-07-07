@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.69
+Current schema version: v1.70
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -567,10 +567,12 @@ CREATE TABLE proposed_mutation (
   id              TEXT PRIMARY KEY,
   world_id        TEXT NOT NULL REFERENCES world(id),
 
-  -- source: exactly one of these is set
-  source_type     TEXT NOT NULL,           -- pass_play | conversation
+  -- source: exactly one of these is set (world_tick sets NEITHER FK below;
+  -- tick_id is its anchor — schema v1.70, TICKET-0014/BRIEF-0014-b)
+  source_type     TEXT NOT NULL,           -- pass_play | conversation | world_tick
   pass_play_id    TEXT REFERENCES pass_play(id),
   conversation_id TEXT REFERENCES conversation(id),
+  tick_id         TEXT,                    -- one UUID per run_world_tick invocation
 
   -- what kind of change
   mutation_type   TEXT NOT NULL,
@@ -606,6 +608,17 @@ CREATE TABLE proposed_mutation (
                                            --                      acquisitions and
                                            --                      knowledge_change
                                            --                      upgrades, v1.17)
+                                           -- local_ai_tick      : world tick
+                                           --                      (run_world_tick, v1.70).
+                                           --                      Manual, scoped, creator-
+                                           --                      triggered off-screen NPC
+                                           --                      advancement. Owns
+                                           --                      goal_change |
+                                           --                      relation_change |
+                                           --                      new_knowledge only
+                                           --                      (closed contract); rows
+                                           --                      share a tick_id, both FKs
+                                           --                      above NULL.
                                            -- interpretation     : /say interpretation
                                            --                      phase (item_update,
                                            --                      equip toggle) — dormant
@@ -981,6 +994,7 @@ CREATE INDEX idx_message_conversation ON conversation_message(conversation_id);
 CREATE INDEX idx_mutation_status     ON proposed_mutation(status);
 CREATE INDEX idx_mutation_passplay   ON proposed_mutation(pass_play_id);
 CREATE INDEX idx_mutation_conversation ON proposed_mutation(conversation_id);
+CREATE INDEX idx_mutation_tick       ON proposed_mutation(tick_id);
 
 -- pass-plays grouped into a batch
 CREATE INDEX idx_passplay_batch      ON pass_play(batch_id);

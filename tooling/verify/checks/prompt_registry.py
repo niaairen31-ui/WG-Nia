@@ -30,6 +30,7 @@ WIRED_FILES = [
     SRC / "analyzer.py",
     SRC / "gathering.py",
     SRC / "cockpit" / "app.py",
+    SRC / "tick.py",
 ]
 
 # Exemption allowlist (by enclosing function name), one file only: the call

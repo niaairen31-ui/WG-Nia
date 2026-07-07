@@ -12,6 +12,8 @@ POST /api/mutations/{id}/reject       mark rejected; no canon write
 POST /api/mutations/{id}/approve      apply to canon; on failure set 'approved'
 POST /api/mutations/batch-review      approve/reject several proposed rows,
                                        sequentially, through the same paths
+POST /api/world-tick                  scoped off-screen NPC advancement;
+                                       writes proposed_mutation rows only
 
 Security
 --------
@@ -48,6 +50,7 @@ from ..gathering import enter_location as _enter_location
 from ..gathering import migrate_npc as _migrate_npc
 from ..analyzer import analyze_overhearing as _analyze_overhearing
 from ..analyzer import analyze_window as _analyze_window
+from ..tick import run_world_tick as _run_world_tick
 from ..prompt_registry import PROMPT_REGISTRY, effective_model
 from ..prompt_store import current_prompt
 from ..context import (
@@ -689,6 +692,7 @@ def _mutation_dict(m: ProposedMutation) -> dict:
         "source_type": m.source_type,
         "conversation_id": m.conversation_id,
         "pass_play_id": m.pass_play_id,
+        "tick_id": m.tick_id,
         "proposed_at": _iso(m.proposed_at),
         "reviewed_at": _iso(m.reviewed_at),
         "applied_at": _iso(m.applied_at),
@@ -750,8 +754,57 @@ def _find_applied_duplicate(
     same action) within ONE conversation is not — a goal is completed,
     abandoned, or created once, not twice in the same scene. Match key:
     same conversation_id + action + normalized goal text.
+
+    TICK SCOPE (TICKET-0014, BRIEF-0014-b, Y2/F2): a tick-sourced mutation
+    (`conversation_id IS NULL`, `tick_id` set) never reaches the branches
+    above — a re-run tick gets a NEW tick_id every time, so comparing WITHIN
+    one tick_id would miss exactly the cross-run duplicates this guard
+    exists for. Instead it asks the CANON directly, re-run-proof AND
+    revival-safe (a closed goal reopened via creator CRUD is a NEW row, per
+    0013 doctrine, and must be allowed to re-apply):
+    - goal_change with action == "create_short": duplicate iff an ACTIVE
+      NpcGoal already exists for this NPC whose normalized description
+      equals the proposal's. complete/abandon get NO guard here — the apply
+      branch's exactly-one-active-match requirement is already the correct
+      gate for those.
+    - new_knowledge: duplicate iff a Knowledge row already exists for
+      (entity_id, subject).
+    - relation_change: NO guard, same accumulating-deltas doctrine as the
+      conversation-sourced branch above — a double delta from a re-run tick
+      is visible in the queue and the creator's to judge, never blocked.
     """
     if not mut.conversation_id:
+        if not mut.tick_id:
+            return None
+
+        payload = mut.payload if isinstance(mut.payload, dict) else {}
+
+        if mut.mutation_type == "goal_change" and payload.get("action") == "create_short":
+            normalized = _normalize_goal_text(payload.get("goal"))
+            candidates = db.exec(
+                select(NpcGoal).where(NpcGoal.npc_id == payload.get("npc_id"), NpcGoal.status == "active")
+            ).all()
+            if any(_normalize_goal_text(g.description) == normalized for g in candidates):
+                return (
+                    f"goal_change (create_short) for goal {payload.get('goal')!r} already exists "
+                    f"as an active goal for this NPC."
+                )
+            return None
+
+        if mut.mutation_type == "new_knowledge":
+            existing = db.exec(
+                select(Knowledge).where(
+                    Knowledge.entity_id == payload.get("entity_id"),
+                    Knowledge.subject == payload.get("subject"),
+                )
+            ).first()
+            if existing is not None:
+                return (
+                    f"new_knowledge for entity {str(payload.get('entity_id',''))[:8]}… "
+                    f"subject={payload.get('subject')!r} already exists as a knowledge row."
+                )
+            return None
+
         return None
 
     payload = mut.payload if isinstance(mut.payload, dict) else {}
@@ -4692,6 +4745,100 @@ def analyze_conversation_endpoint(
         "count": len(mutations),
         "proposals": proposals,
     }
+
+
+# Verbatim interval labels (BRIEF-0014-a M3 / BRIEF-0014-b item 8) — the
+# creator picks the elapsed interval at invocation; nothing is stored.
+_VALID_TICK_INTERVALS = frozenset({"quelques heures", "quelques jours", "quelques semaines"})
+
+
+class WorldTickBody(BaseModel):
+    scope_type: str  # npcs | location | faction
+    npc_ids: Optional[list[str]] = None  # scope_type == "npcs"
+    scope_id: Optional[str] = None       # scope_type == "location" | "faction"
+    interval: str
+
+
+@app.post("/api/world-tick")
+def world_tick_endpoint(
+    body: WorldTickBody,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Resolve a scope to NPC ids, then run one world tick over them
+    (TICKET-0014, BRIEF-0014-b). Writes `proposed_mutation` rows only (C2) —
+    every result still needs creator approval through the normal queue.
+
+    Unknown interval, unknown scope_type, or an empty resolved NPC list ->
+    422, no model call, nothing written.
+    """
+    if body.interval not in _VALID_TICK_INTERVALS:
+        raise HTTPException(422, f"interval must be one of {sorted(_VALID_TICK_INTERVALS)}")
+
+    world_id = _crud._world_id(db)
+    npc_ids: list[str]
+
+    if body.scope_type == "npcs":
+        npc_ids = []
+        for entity_id in (body.npc_ids or []):
+            char = db.get(Character, entity_id)
+            entity = db.get(Entity, entity_id)
+            if (
+                char is None or entity is None
+                or entity.world_id != world_id
+                or char.character_type != "npc"
+            ):
+                raise HTTPException(
+                    422, f"{entity_id!r} does not resolve to an NPC character of the active world"
+                )
+            npc_ids.append(entity_id)
+
+    elif body.scope_type == "location":
+        if not body.scope_id:
+            raise HTTPException(422, "scope_id is required for scope_type='location'")
+        rows = db.exec(
+            select(Character)
+            .join(Entity, Entity.id == Character.id)
+            .where(
+                Entity.world_id == world_id,
+                Character.current_location_id == body.scope_id,
+                Character.character_type == "npc",
+                Character.vital_status == "alive",
+                Entity.status == "active",
+            )
+        ).all()
+        npc_ids = [c.id for c in rows]
+
+    elif body.scope_type == "faction":
+        if not body.scope_id:
+            raise HTTPException(422, "scope_id is required for scope_type='faction'")
+        rows = db.exec(
+            select(Character)
+            .join(Entity, Entity.id == Character.id)
+            .join(FactionMembership, FactionMembership.entity_id == Character.id)
+            .where(
+                Entity.world_id == world_id,
+                FactionMembership.faction_id == body.scope_id,
+                FactionMembership.left_at.is_(None),
+                Character.character_type == "npc",
+                Character.vital_status == "alive",
+                Entity.status == "active",
+            )
+        ).all()
+        npc_ids = [c.id for c in rows]
+
+    else:
+        raise HTTPException(422, f"unknown scope_type {body.scope_type!r}")
+
+    if not npc_ids:
+        raise HTTPException(422, "resolved scope is empty — nothing to tick")
+
+    # Fail fast if Ollama is unreachable (same guard as /analyze).
+    try:
+        ollama_client.ping()
+    except ollama_client.OllamaError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    return _run_world_tick(db, npc_ids, body.interval)
 
 
 @app.get("/api/mutations")

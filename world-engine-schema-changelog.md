@@ -8,6 +8,17 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.70** — `proposed_mutation.tick_id` (TEXT, nullable) + index
+  `idx_mutation_tick` (TICKET-0014/BRIEF-0014-b). Third `source_type` value
+  `world_tick`: both `pass_play_id` and `conversation_id` stay NULL for it —
+  `tick_id` is that source's anchor, one UUID per `run_world_tick`
+  invocation, shared by every row it writes. New `proposed_by` value
+  `local_ai_tick`. Purely additive: `scripts/migrate_v1_70_tick_id.py`
+  (idempotent, no backfill — existing rows are born NULL). Read by the
+  duplicate-application guard's new tick branch (`_find_applied_duplicate`,
+  `cockpit/app.py`) and the review-queue `TICK ·xxxx` badge
+  (`_mutation_dict`, `renderCard`).
+
 - **BRIEF-0013-c** — No schema change. `goal_change` added to
   `proposed_mutation.mutation_type` (targets `npc_goal`) — closes the
   TICKET-0013 behaviour loop. Emit side (`analyzer.py`): the model already

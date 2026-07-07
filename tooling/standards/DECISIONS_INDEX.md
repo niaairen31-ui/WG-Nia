@@ -65,5 +65,5 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 4272 | COCKPIT PROMPT EDITING UI — edit mode, history, restore (BRIEF-0011-b, no schema change) | BRIEF-0011-b |  |
 | 4317 | PROMPT LEAN REWRITE — resolved facts over conditional instructions (BRIEF-0012-a, no schema change) | BRIEF-0012-a |  |
 | 4410 | NPC GOALS — in-scene volition (BRIEF-0013-a, BRIEF-0013-b, BRIEF-0013-c, schema v1.69) | BRIEF-0013-a, BRIEF-0013-b, BRIEF-0013-c | v1.69 |
-| 4614 | WORLD TICK — off-screen NPC advancement (BRIEF-0014-a, no schema change) | BRIEF-0014-a |  |
-| 4726 | Deferred decisions |  |  |
+| 4614 | WORLD TICK — off-screen NPC advancement (BRIEF-0014-a, BRIEF-0014-b, schema v1.70) | BRIEF-0014-a, BRIEF-0014-b | v1.70 |
+| 4841 | Deferred decisions |  |  |

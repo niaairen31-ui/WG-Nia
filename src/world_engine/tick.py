@@ -18,8 +18,21 @@ locally rather than imported, so this module's AST stays self-contained and
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
+from typing import Any
+from uuid import uuid4
+
 from sqlmodel import Session, select
 
+from . import ollama_client
+from .analyzer import (
+    _MUTATION_TYPE_MAP,
+    _content_to_subject_slug,
+    _extract_json_array,
+    _GOAL_ACTION_MAP,
+    load_analysis_prompt,
+)
 from .models import (
     Character,
     Entity,
@@ -28,8 +41,11 @@ from .models import (
     Knowledge,
     Location,
     NpcGoal,
+    ProposedMutation,
     Relation,
 )
+from .prompt_registry import effective_model
+from .prompt_store import current_prompt
 
 H_IDENTITY = "QUI TU ES"
 H_GOALS = "TES OBJECTIFS"
@@ -245,3 +261,334 @@ def assemble_tick_context(npc_id: str, session: Session) -> str:
         + _BOUNDARY
         + "\n"
     )
+
+
+# -----------------------------------------------------------------------------
+# Runner (TICKET-0014, BRIEF-0014-b) — makes the tick RUN. Reuses analyzer.py's
+# JSON-extraction and alias-mapping helpers (analyzer never imports tick, no
+# cycle); never imports cockpit/app.py.
+# -----------------------------------------------------------------------------
+
+# Closed contract (unlike conversation analysis): only these three types are
+# ever proposed by a tick. Anything else is dropped with a note (item 4).
+_TICK_MUTATION_TYPES = frozenset({"goal_change", "relation_change", "new_knowledge"})
+
+
+def _normalize_goal_text(text: str | None) -> str:
+    """Casefold + whitespace-collapse for goal-text equality (twin of
+    cockpit/app.py's `_normalize_goal_text`, replicated rather than imported
+    to keep tick.py free of a cockpit.app dependency — same discipline as
+    BRIEF-0014-a's local helper replication)."""
+    return " ".join(str(text or "").split()).casefold()
+
+
+def _build_roster(
+    db: Session, npc_id: str, npc_name: str, location_id: str | None
+) -> dict[str, str]:
+    """name.casefold() -> id, built from EXACTLY what the tick briefing names:
+    the ticked NPC itself, characters at its `current_location_id` (QUI EST
+    AUTOUR), and the targets of its perceived relations (TES RELATIONS). No
+    faction-mate expansion. A casefolded name carried by two different ids is
+    AMBIGUOUS and removed from the roster — resolution then fails for that
+    name, and the caller drops the item with a note rather than guess.
+    """
+    candidates: dict[str, list[str]] = {}
+
+    def _add(name: str, entity_id: str) -> None:
+        candidates.setdefault(name.casefold(), []).append(entity_id)
+
+    _add(npc_name, npc_id)
+
+    if location_id:
+        present = db.exec(
+            select(Character).where(Character.current_location_id == location_id)
+        ).all()
+        for other_char in present:
+            if other_char.id == npc_id:
+                continue
+            other_entity = db.get(Entity, other_char.id)
+            if other_entity is not None:
+                _add(other_entity.name, other_char.id)
+
+    relations = db.exec(
+        select(Relation).where(
+            (Relation.entity_a_id == npc_id) | (Relation.entity_b_id == npc_id)
+        )
+    ).all()
+    for rel in relations:
+        target_id = _perceived_target(rel, npc_id)
+        if target_id:
+            target_entity = db.get(Entity, target_id)
+            if target_entity is not None:
+                _add(target_entity.name, target_id)
+
+    return {name: ids[0] for name, ids in candidates.items() if len(ids) == 1}
+
+
+def _normalize_tick_item(
+    raw_item: Any,
+    *,
+    npc_id: str,
+    world_id: str,
+    roster: dict[str, str],
+    secret_subjects: set[str],
+) -> dict | None:
+    """Map one raw model item to the tick's CLOSED schema, or None to drop it.
+
+    Unlike `analyzer._normalize_to_schema`, the tick's contract accepts only
+    goal_change | relation_change | new_knowledge — anything else (including
+    the fallback `other`) is dropped, never proposed. `npc_id`/`entity_a_id`
+    are FORCED from the `npc_id` parameter (O1-mirror), never read from the
+    model's payload.
+    """
+    del world_id  # reserved: no payload shape carries it (entity-scoped, not world-keyed)
+
+    if not isinstance(raw_item, dict):
+        print(f"[tick] dropped: not a dict — {raw_item!r}")
+        return None
+
+    raw_mt = str(raw_item.get("mutation_type") or "").lower()
+    mutation_type = _MUTATION_TYPE_MAP.get(raw_mt)
+    if mutation_type not in _TICK_MUTATION_TYPES:
+        print(f"[tick] dropped: unrecognised or out-of-contract mutation_type {raw_item.get('mutation_type')!r}")
+        return None
+
+    payload_in = raw_item.get("payload") if isinstance(raw_item.get("payload"), dict) else {}
+
+    if mutation_type == "goal_change":
+        raw_action = str(payload_in.get("action") or "").strip().lower()
+        action = _GOAL_ACTION_MAP.get(raw_action)
+        goal_text = str(
+            payload_in.get("goal") or payload_in.get("description") or payload_in.get("content") or ""
+        ).strip()
+        if action is None or not goal_text:
+            print(f"[tick] dropped goal_change: unrecognised action or empty goal text — {payload_in!r}")
+            return None
+        payload = {"npc_id": npc_id, "action": action, "goal": goal_text}
+        target_table = "npc_goal"
+
+    elif mutation_type == "relation_change":
+        other_name = str(payload_in.get("other") or "").strip()
+        other_id = roster.get(other_name.casefold())
+        if not other_id:
+            print(f"[tick] dropped relation_change: unresolved counterpart {other_name!r}")
+            return None
+        try:
+            delta = int(payload_in.get("intensity_delta"))
+        except (TypeError, ValueError):
+            print(f"[tick] dropped relation_change: missing/invalid intensity_delta — {payload_in!r}")
+            return None
+        payload = {
+            "entity_a_id": npc_id,
+            "entity_b_id": other_id,
+            "relation_type": str(payload_in.get("relation_type") or "passive_attention"),
+            "intensity_delta": delta,
+        }
+        target_table = "relation"
+
+    else:  # new_knowledge
+        recipient = str(payload_in.get("recipient") or "self").strip()
+        if recipient.casefold() == "self":
+            entity_id = npc_id
+        else:
+            entity_id = roster.get(recipient.casefold())
+            if not entity_id:
+                print(f"[tick] dropped new_knowledge: unresolved recipient {recipient!r}")
+                return None
+        content = str(payload_in.get("content") or "").strip()
+        if not content:
+            print("[tick] dropped new_knowledge: empty content")
+            return None
+        subject = str(payload_in.get("subject") or "").strip() or _content_to_subject_slug(content)
+
+        # Z3 floor (verbatim mechanics) — mechanical provenance only, never
+        # touches is_secret: confidentiality is the receiving NPC's
+        # disposition (model proposes, creator judges).
+        secret_derived = bool(payload_in.get("secret_derived", False))
+        subject_cf = subject.casefold()
+        content_cf = content.casefold()
+        if subject_cf in secret_subjects or any(s in content_cf for s in secret_subjects):
+            secret_derived = True
+
+        payload = {
+            "entity_id": entity_id,
+            "subject": subject,
+            "level": str(payload_in.get("level") or "rumor"),
+            "content": content,
+            "source": str(payload_in.get("source") or "world_tick"),
+            "is_secret": bool(payload_in.get("is_secret", False)),
+            "secret_derived": secret_derived,
+        }
+        target_table = "knowledge"
+
+    rationale = raw_item.get("rationale")
+    if not rationale:
+        for key in ("reason", "details", "content", "value"):
+            if payload_in.get(key):
+                rationale = payload_in[key]
+                break
+    rationale = str(rationale or "")
+
+    return {
+        "mutation_type": mutation_type,
+        "target_table": target_table,
+        "target_id": None,
+        "payload": payload,
+        "rationale": rationale,
+    }
+
+
+def run_world_tick(
+    db: Session,
+    npc_ids: list[str],
+    interval_label: str,
+    model: str = ollama_client.DEFAULT_MODEL,
+    host: str = ollama_client.OLLAMA_HOST,
+) -> dict:
+    """Advance each NPC in `npc_ids` off-screen for `interval_label`.
+
+    One `tick_id` per invocation, shared by every row written. Per NPC,
+    degrade-don't-abort (R3): any exception assembling the briefing or
+    calling/parsing the model is recorded as a note for that NPC — nothing
+    is written for it, and the other NPCs still proceed. ONE transaction for
+    the whole invocation: every surviving proposal across every NPC commits
+    together at the end; a crashed invocation (before that point) writes
+    nothing.
+
+    Returns the R3 summary:
+    `{"tick_id", "interval", "npcs": [{"id","name","proposed","dropped","notes"}], "total_proposed"}`.
+    """
+    tick_id = str(uuid4())
+    template = load_analysis_prompt(db, world_id=None, usage="world_tick")
+    version = current_prompt(db, template)
+    now = datetime.now(UTC)
+
+    npc_summaries: list[dict] = []
+    rows_to_write: list[ProposedMutation] = []
+
+    for npc_id in npc_ids:
+        npc_entity = db.get(Entity, npc_id)
+        npc_name = npc_entity.name if npc_entity else npc_id
+        notes: list[str] = []
+        proposed = 0
+        dropped = 0
+
+        try:
+            briefing = assemble_tick_context(npc_id, db)
+        except ValueError as exc:
+            npc_summaries.append(
+                {"id": npc_id, "name": npc_name, "proposed": 0, "dropped": 0, "notes": [str(exc)]}
+            )
+            continue
+
+        user_message = (
+            version.user_template
+            .replace("{tick_context}", briefing)
+            .replace("{interval_label}", interval_label)
+        )
+        llm_messages = [
+            {"role": "system", "content": version.system_prompt},
+            {"role": "user", "content": user_message},
+        ]
+
+        try:
+            raw = ollama_client.chat(
+                llm_messages, model=effective_model(template, model), host=host, format="json"
+            )
+            items = json.loads(_extract_json_array(raw))
+            if not isinstance(items, list):
+                raise ValueError("model returned a non-list JSON value")
+        except Exception as exc:  # noqa: BLE001 — one NPC's failure must never abort the others (R3)
+            npc_summaries.append(
+                {"id": npc_id, "name": npc_name, "proposed": 0, "dropped": 0, "notes": [f"model call failed: {exc}"]}
+            )
+            continue
+
+        npc_char = db.get(Character, npc_id)
+        roster = _build_roster(
+            db, npc_id, npc_name, npc_char.current_location_id if npc_char else None
+        )
+        secret_subjects = {
+            k.subject.casefold()
+            for k in db.exec(
+                select(Knowledge).where(Knowledge.entity_id == npc_id, Knowledge.is_secret == True)  # noqa: E712
+            ).all()
+            if k.subject
+        }
+
+        seen_goal: set[tuple[str, str]] = set()
+        seen_knowledge: set[tuple[str, str]] = set()
+        seen_relation: set[tuple[str, str]] = set()
+
+        for raw_item in items:
+            normalized = _normalize_tick_item(
+                raw_item,
+                npc_id=npc_id,
+                world_id=npc_entity.world_id if npc_entity else "",
+                roster=roster,
+                secret_subjects=secret_subjects,
+            )
+            if normalized is None:
+                dropped += 1
+                continue
+
+            mutation_type = normalized["mutation_type"]
+            payload = normalized["payload"]
+
+            # Emit-time dedup (item 6) — one NET change per key within this
+            # NPC's item list; keeps the FIRST occurrence, drops the rest.
+            if mutation_type == "goal_change":
+                key = (payload["action"], _normalize_goal_text(payload["goal"]))
+                if key in seen_goal:
+                    dropped += 1
+                    notes.append(f"duplicate goal_change dropped: {payload['action']} {payload['goal']!r}")
+                    continue
+                seen_goal.add(key)
+            elif mutation_type == "new_knowledge":
+                key = (payload["entity_id"], payload["subject"])
+                if key in seen_knowledge:
+                    dropped += 1
+                    notes.append(f"duplicate new_knowledge dropped: subject={payload['subject']!r}")
+                    continue
+                seen_knowledge.add(key)
+            else:  # relation_change
+                key = (payload["entity_a_id"], payload["entity_b_id"])
+                if key in seen_relation:
+                    dropped += 1
+                    notes.append(f"duplicate relation_change dropped: other={payload['entity_b_id']}")
+                    continue
+                seen_relation.add(key)
+
+            rows_to_write.append(
+                ProposedMutation(
+                    world_id=npc_entity.world_id if npc_entity else "",
+                    source_type="world_tick",
+                    conversation_id=None,
+                    pass_play_id=None,
+                    tick_id=tick_id,
+                    mutation_type=mutation_type,
+                    target_table=normalized["target_table"],
+                    target_id=None,
+                    payload=payload,
+                    status="proposed",
+                    rationale=normalized["rationale"],
+                    proposed_by="local_ai_tick",
+                    proposed_at=now,
+                )
+            )
+            proposed += 1
+
+        npc_summaries.append(
+            {"id": npc_id, "name": npc_name, "proposed": proposed, "dropped": dropped, "notes": notes}
+        )
+
+    for row in rows_to_write:
+        db.add(row)
+    db.commit()
+
+    return {
+        "tick_id": tick_id,
+        "interval": interval_label,
+        "npcs": npc_summaries,
+        "total_proposed": sum(n["proposed"] for n in npc_summaries),
+    }
