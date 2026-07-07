@@ -1,0 +1,22 @@
+{
+  "ticket": "TICKET-0014-world-tick",
+  "when": "2026-07-07T20:33:48.800484+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "npc_goal_read.py",
+      "status": "PASS",
+      "msg": "PASS: npc_goal read boundary intact (N1)"
+    },
+    {
+      "check": "world_tick.py",
+      "status": "PASS",
+      "msg": "PASS: world-tick structural gate intact (rules 1-5)"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    }
+  ]
+}

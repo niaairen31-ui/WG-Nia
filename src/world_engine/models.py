@@ -559,19 +559,25 @@ class ProposedMutation(SQLModel, table=True):
         Index("idx_mutation_status", "status"),
         Index("idx_mutation_passplay", "pass_play_id"),
         Index("idx_mutation_conversation", "conversation_id"),
+        Index("idx_mutation_tick", "tick_id"),
     )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     world_id: str = Field(foreign_key="world.id", nullable=False)
 
     # source: exactly one of these is set
-    source_type: str  # pass_play | conversation
+    source_type: str  # pass_play | conversation | world_tick
     pass_play_id: Optional[str] = Field(
         default=None, foreign_key="pass_play.id"
     )
     conversation_id: Optional[str] = Field(
         default=None, foreign_key="conversation.id"
     )
+    # world_tick sets NEITHER FK above; tick_id is its anchor — one UUID per
+    # run_world_tick invocation, shared by every row it writes (schema v1.70,
+    # TICKET-0014/BRIEF-0014-b). Read by the duplicate-guard's tick branch
+    # and the queue's TICK badge.
+    tick_id: Optional[str] = Field(default=None)
 
     # what kind of change
     mutation_type: str
