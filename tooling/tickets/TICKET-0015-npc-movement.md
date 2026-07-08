@@ -2,7 +2,7 @@
 id: TICKET-0015
 title: npc-movement — interval-scaled off-screen movement in the world tick
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-08
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write]
