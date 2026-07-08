@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0015-npc-movement",
+  "when": "2026-07-08T19:12:05.513692+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "world_tick.py",
+      "status": "PASS",
+      "msg": "PASS: world-tick structural gate intact (rules 1-8)"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    }
+  ]
+}

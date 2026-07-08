@@ -67,7 +67,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from .models import FactionMembership, Knowledge, Ledger, NpcGoal, PromptTemplate, PromptVersion, Relation, Skill
+from .models import Character, FactionMembership, Knowledge, Ledger, NpcGoal, PromptTemplate, PromptVersion, Relation, Skill
 
 # Simple-identifier placeholder, e.g. `{player_line}` — deliberately does not
 # match JSON-example braces like `{"key": ...}` (TICKET-0011, C1).
@@ -285,6 +285,31 @@ def write_relation(
 
     db.add(rel)
     return rel
+
+
+def write_character_location(
+    db: Session,
+    *,
+    entity_id: str,
+    to_location_id: str,
+    mutation_id: Optional[str] = None,
+) -> Character:
+    """Write a character's `current_location_id` (TICKET-0015, BRIEF-0015-a).
+
+    Caller adds no row itself but owns the transaction/commit — same
+    convention as `write_relation`. `character` has no `change_history`
+    column and the creator-CRUD location edit snapshots nothing; the
+    `proposed_mutation` row (from/to payload, `tick_id`, `applied_at`) is the
+    durable audit trail for this write (RECON-0015 F7), so `mutation_id` is
+    accepted only for call-site symmetry and is not otherwise used here.
+    """
+    del mutation_id
+    character = db.get(Character, entity_id)
+    if character is None:
+        raise ValueError(f"write_character_location: character {entity_id!r} not found")
+    character.current_location_id = to_location_id
+    db.add(character)
+    return character
 
 
 def write_knowledge(

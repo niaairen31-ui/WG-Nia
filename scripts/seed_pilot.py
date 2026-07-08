@@ -852,19 +852,20 @@ Output: a JSON array only. No prose. No markdown fences. Start with [,
 end with ]. A quiet interval is a legitimate answer: output exactly []
 
 Every element must have these EXACT 5 keys — no other keys allowed:
-  "mutation_type"  (string) — goal_change | relation_change | new_knowledge
-  "target_table"   (string) — npc_goal | relation | knowledge
+  "mutation_type"  (string) — goal_change | relation_change | new_knowledge | npc_move
+  "target_table"   (string) — npc_goal | relation | knowledge | character
   "target_id"      (null)   — always null
   "payload"        (object) — see shapes below
   "rationale"      (string) — one line: what the NPC did that caused this change
 
-Reference people by NAME exactly as written in the briefing. Never
-invent identifiers, ids, or people absent from the briefing.
+Reference people and places by NAME exactly as written in the briefing.
+Never invent identifiers, ids, people, or places absent from the briefing.
 
 Payload shapes:
   goal_change      -> {"action":"complete|abandon|create_short","goal":"…"}
   relation_change  -> {"other":"<name from the briefing>","relation_type":"…","intensity_delta":<signed int>}
   new_knowledge    -> {"recipient":"self" | "<name>","subject":"<short_slug>","level":"rumor|partial|knows","content":"…","source":"…","is_secret":true|false,"secret_derived":true|false}
+  npc_move         -> {"destination":"<name from OÙ TU PEUX ALLER>"}
 
 === GOAL_CHANGE RULES ===
 For "complete"/"abandon": copy the goal text EXACTLY as it appears in
@@ -890,6 +891,13 @@ a separate judgment: set "is_secret" by intent — a confidence shared
 discreetly stays secret; information wielded openly against an enemy
 does not. Never copy [SECRET]/[AFFILIATION SECRÈTE] markers into
 "content".
+
+=== NPC_MOVE RULES ===
+AT MOST ONE npc_move for the entire interval. "destination" MUST be a
+name copied EXACTLY from OÙ TU PEUX ALLER — never a place from anywhere
+else in the briefing, never invented. Staying put is legitimate and is
+expressed by emitting NO npc_move. A move needs a motive rooted in the
+briefing (a goal, a relation, a known fact) stated in "rationale".
 
 === SCALE ===
 The elapsed interval is «{interval_label}». Scale ambition to it: a few

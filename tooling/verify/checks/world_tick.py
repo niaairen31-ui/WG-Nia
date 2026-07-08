@@ -29,6 +29,18 @@ Rule 5 (Z3 floor + decoupling, BRIEF-0014-b): `tick.py` builds
 assignment or dict-literal key whose value references `secret_subjects` or
 `secret_derived` — the floor forces provenance only, never confidentiality.
 
+Rule 6 (analyzer boundary, TICKET-0015/BRIEF-0015-a): `analyzer.py`'s
+`_MUTATION_TYPE_MAP` dict literal maps no key to `"npc_move"` — movement is a
+tick-only concept, never proposable from conversation analysis or
+overhearing.
+Rule 7 (interval-scaled radius, BRIEF-0015-a): `tick.py` defines
+`INTERVAL_HOP_RADIUS` with EXACTLY the three verbatim interval-label keys,
+and `_reachable_locations` references that identifier.
+Rule 8 (single canon-write for movement, BRIEF-0015-a): `_apply_mutation` in
+`cockpit/app.py` never assigns `current_location_id` directly — the write
+must route through `write_character_location` — and its function body
+references both `write_character_location` and `close_open_memberships`.
+
 No DB, stdlib `ast` only.
 """
 from __future__ import annotations
@@ -41,6 +53,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
 TICK_FILE = SRC / "world_engine" / "tick.py"
 APP_FILE = SRC / "world_engine" / "cockpit" / "app.py"
+ANALYZER_FILE = SRC / "world_engine" / "analyzer.py"
 
 ALLOWED_MODULES = {
     "src/world_engine/tick.py",
@@ -53,7 +66,9 @@ BOUNDARY_FILES = {
     SRC / "world_engine" / "gathering.py",
 }
 
-_FORCED_FIELDS = ("npc_id", "entity_a_id")
+_FORCED_FIELDS = ("npc_id", "entity_a_id", "from_location_id")
+
+_INTERVAL_LABELS = {"quelques heures", "quelques jours", "quelques semaines"}
 
 FAILURES: list[str] = []
 
@@ -239,17 +254,117 @@ def check_z3_floor() -> None:
                     fail(f"{rel}:{getattr(value, 'lineno', node.lineno)} — is_secret dict value references secret_subjects/secret_derived (floor must not set confidentiality)")
 
 
+def _dict_assign_target(node: ast.AST):
+    """Return (target_name, dict_node) for a module-level `NAME = {...}` or
+    `NAME: T = {...}` assignment, else (None, None)."""
+    if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+        return node.targets[0].id, node.value
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        return node.target.id, node.value
+    return None, None
+
+
+def check_analyzer_no_npc_move() -> None:
+    if not ANALYZER_FILE.exists():
+        fail(f"{ANALYZER_FILE} not found")
+        return
+    tree = _parse(ANALYZER_FILE)
+    if tree is None:
+        return
+    rel = ANALYZER_FILE.relative_to(ROOT).as_posix()
+
+    for node in ast.walk(tree):
+        name, value = _dict_assign_target(node)
+        if name != "_MUTATION_TYPE_MAP" or not isinstance(value, ast.Dict):
+            continue
+        for v in value.values:
+            if isinstance(v, ast.Constant) and v.value == "npc_move":
+                fail(
+                    f"{rel}:{node.lineno} — _MUTATION_TYPE_MAP maps a key to "
+                    "'npc_move'; movement is tick-only and must never enter the shared map"
+                )
+
+
+def check_interval_hop_radius() -> None:
+    if not TICK_FILE.exists():
+        fail(f"{TICK_FILE} not found")
+        return
+    tree = _parse(TICK_FILE)
+    if tree is None:
+        return
+    rel = TICK_FILE.relative_to(ROOT).as_posix()
+
+    found = False
+    for node in ast.walk(tree):
+        name, value = _dict_assign_target(node)
+        if name != "INTERVAL_HOP_RADIUS" or not isinstance(value, ast.Dict):
+            continue
+        found = True
+        keys = {k.value for k in value.keys if isinstance(k, ast.Constant)}
+        if keys != _INTERVAL_LABELS:
+            fail(
+                f"{rel}:{node.lineno} — INTERVAL_HOP_RADIUS keys {sorted(keys)} "
+                f"!= expected {sorted(_INTERVAL_LABELS)}"
+            )
+    if not found:
+        fail(f"{rel}: INTERVAL_HOP_RADIUS constant map not found")
+
+    func = _find_function(tree, "_reachable_locations")
+    if func is None:
+        fail(f"{rel}: _reachable_locations not found")
+        return
+    if not any(isinstance(n, ast.Name) and n.id == "INTERVAL_HOP_RADIUS" for n in ast.walk(func)):
+        fail(f"{rel}: _reachable_locations does not reference INTERVAL_HOP_RADIUS")
+
+
+def check_apply_mutation_location_write() -> None:
+    if not APP_FILE.exists():
+        fail(f"{APP_FILE} not found")
+        return
+    tree = _parse(APP_FILE)
+    if tree is None:
+        return
+    rel = APP_FILE.relative_to(ROOT).as_posix()
+
+    func = _find_function(tree, "_apply_mutation")
+    if func is None:
+        fail(f"{rel}: _apply_mutation not found")
+        return
+
+    for node in ast.walk(func):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Attribute) and t.attr == "current_location_id" for t in node.targets
+        ):
+            fail(
+                f"{rel}:{node.lineno} — direct current_location_id assignment in "
+                "_apply_mutation; must route through write_character_location"
+            )
+
+    calls = {
+        node.func.id
+        for node in ast.walk(func)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    if "write_character_location" not in calls:
+        fail(f"{rel}: _apply_mutation does not call write_character_location")
+    if "close_open_memberships" not in calls:
+        fail(f"{rel}: _apply_mutation does not call close_open_memberships")
+
+
 def main() -> None:
     check_call_site_allowlist()
     check_boundary_files()
     check_forced_attribution()
     check_guard_branch()
     check_z3_floor()
+    check_analyzer_no_npc_move()
+    check_interval_hop_radius()
+    check_apply_mutation_location_write()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         sys.exit(1)
-    print("PASS: world-tick structural gate intact (rules 1-5)")
+    print("PASS: world-tick structural gate intact (rules 1-8)")
     sys.exit(0)
 
 

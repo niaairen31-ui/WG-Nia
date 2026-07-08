@@ -578,8 +578,12 @@ CREATE TABLE proposed_mutation (
   mutation_type   TEXT NOT NULL,
                   -- relation_change | new_knowledge | knowledge_change |
                   -- event_creation | status_change | entity_creation |
-                  -- item_update | resource_change | goal_change | other
+                  -- item_update | resource_change | goal_change |
+                  -- npc_move | other
                   -- (goal_change targets npc_goal — TICKET-0013/BRIEF-0013-c)
+                  -- (npc_move targets character.current_location_id,
+                  -- tick-only producer, no schema bump — TICKET-0015/
+                  -- BRIEF-0015-a)
   target_table    TEXT,                    -- table the change applies to
   target_id       TEXT,                    -- row affected (NULL if creation)
   payload         JSON NOT NULL,           -- the proposed change, structured
@@ -615,8 +619,10 @@ CREATE TABLE proposed_mutation (
                                            --                      advancement. Owns
                                            --                      goal_change |
                                            --                      relation_change |
-                                           --                      new_knowledge only
-                                           --                      (closed contract); rows
+                                           --                      new_knowledge |
+                                           --                      npc_move only (closed
+                                           --                      contract, TICKET-0015/
+                                           --                      BRIEF-0015-a); rows
                                            --                      share a tick_id, both FKs
                                            --                      above NULL.
                                            -- interpretation     : /say interpretation
