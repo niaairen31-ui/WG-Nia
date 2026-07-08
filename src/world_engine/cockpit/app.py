@@ -72,6 +72,7 @@ from ..models import (
     ConversationMessage,
     DiscoverableDetail,
     Entity,
+    Event,
     Faction,
     FactionMembership,
     Gathering,
@@ -87,6 +88,7 @@ from ..models import (
     Skill,
     SkillDefinition,
     User,
+    Visit,
     World,
 )
 from ..resolution import resolve_physical
@@ -2017,15 +2019,19 @@ def _build_establishment_user(
     description: Optional[str],
     subculture: dict,
     signposts: list[str],
+    changes: Optional[list[str]] = None,
 ) -> str:
-    """Build the establishment user message (schema v1.30, BRIEF-17).
+    """Build the establishment user message (schema v1.30, BRIEF-17; `changes`
+    added schema v1.71, BRIEF-0016-a).
 
     Reads `entity.description` (passed in by the caller), NOT
     `location.description` (no such column). Subculture is the SAME
     `_SAFE_SUBCULTURE_KEYS` allow-listed slice `assemble_mj_context` uses —
     not widened, "hidden" never read. `signposts` are the ONLY
     perceptible-detail material (from `active_signposts`, never a raw
-    `subject`/`signpost_group`).
+    `subject`/`signpost_group`). `changes` is the code-computed return-visit
+    delta (`_compute_return_delta`) — None/empty renders the placeholder,
+    never an invented block.
     """
     ambiance = " ".join(str(v) for v in subculture.values() if v)
     sign_block = (
@@ -2033,13 +2039,97 @@ def _build_establishment_user(
         if signposts
         else "(rien de particulier ne saute aux yeux)"
     )
+    changes_block = (
+        "\n".join(changes)
+        if changes
+        else "(rien de notable depuis votre dernière venue — ou première visite)"
+    )
     return (
         template
         .replace("{location_name}", location_name)
         .replace("{description}", description or "")
         .replace("{subculture}", ambiance)
         .replace("{signposts}", sign_block)
+        .replace("{changes}", changes_block)
     )
+
+
+def _compute_return_delta(
+    db: Session, world_id: str, player_id: str, location_id: str
+) -> tuple[Optional[list[str]], list[str]]:
+    """Code-computed return-visit delta (schema v1.71, BRIEF-0016-a, G2).
+
+    Returns `(changes_lines_or_None, current_present_npc_ids)`. None means
+    "no changes block" — either a first visit, or a visit with nothing to
+    report; the model never sees an empty header to embroider on. Presence
+    uses the tick's location-scope predicate VERBATIM (public, alive, active
+    NPCs). Departed names resolve from `Entity` WITHOUT the alive/active
+    filter (RECON-0016 F5) — the player saw them, their absence is public.
+    The event leg applies the SAME structural exclusion as the only other
+    Event reader (context.py) — secret events can never surface here.
+    """
+    previous = db.exec(
+        select(Visit)
+        .where(Visit.player_id == player_id, Visit.location_id == location_id)
+        .order_by(Visit.entered_at.desc())
+    ).first()
+
+    current_rows = db.exec(
+        select(Character)
+        .join(Entity, Entity.id == Character.id)
+        .where(
+            Entity.world_id == world_id,
+            Character.current_location_id == location_id,
+            Character.character_type == "npc",
+            Character.vital_status == "alive",
+            Entity.status == "active",
+        )
+    ).all()
+    current_ids = [c.id for c in current_rows]
+
+    if previous is None:
+        return None, current_ids
+
+    def _names(ids: set) -> list[str]:
+        names = []
+        for eid in ids:
+            entity = db.get(Entity, eid)
+            if entity is not None:
+                names.append(entity.name)
+        return sorted(names)
+
+    previous_ids = set(previous.present_npc_ids or [])
+    current_set = set(current_ids)
+    departed_names = _names(previous_ids - current_set)
+    arrived_names = _names(current_set - previous_ids)
+
+    lines: list[str] = []
+    if departed_names:
+        lines.append(f"- Parti·e·s depuis votre dernière visite : {', '.join(departed_names)}")
+    if arrived_names:
+        lines.append(f"- Arrivé·e·s : {', '.join(arrived_names)}")
+
+    events = db.exec(
+        select(Event)
+        .where(
+            Event.world_id == world_id,
+            Event.location_id == location_id,
+            Event.knowledge_status.in_(("public", "confirmed")),
+            Event.recorded_at > previous.entered_at,
+        )
+        .order_by(Event.recorded_at)
+    ).all()
+    for e in events:
+        line = f"- Événement : {e.title}"
+        if e.description:
+            first_sentence = e.description.split(".")[0].strip()
+            if first_sentence:
+                line += f" — {first_sentence}."
+        lines.append(line)
+
+    if not lines:
+        return None, current_ids
+    return lines, current_ids
 
 
 def _build_establishment_narration(
@@ -2047,11 +2137,14 @@ def _build_establishment_narration(
     player_character_id: str,
     world_id: str,
     db: Session,
+    *,
+    changes: Optional[list[str]] = None,
 ) -> Optional[str]:
     """Entry narration (schema v1.30, BRIEF-17, F3/G1): a single non-streamed
     MJ call describing the scene the player perceives on entering. Fired on
     every entry; a failure must never block scene entry (resilience doctrine,
-    same as the analysis passes).
+    same as the analysis passes). `changes` (schema v1.71, BRIEF-0016-a) is
+    the code-computed return-visit delta, None on a re-render.
     """
     try:
         template = _load_mj_establishment_template(world_id, db)
@@ -2075,6 +2168,7 @@ def _build_establishment_narration(
             description,
             subculture,
             signposts,
+            changes,
         )
         raw = ollama_client.chat(
             [
@@ -4188,6 +4282,7 @@ def enter_scene(
 
     # ── Idempotent enter guard (protects C1 from F5 reshuffling) ──────────
     open_g = _open_gatherings(location_id, sess.id, db)
+    changes_lines: Optional[list[str]] = None
     if not open_g:
         # No open gatherings → genuine location transition (or first load).
         # Run window analysis on any conversation left open at the previous
@@ -4205,13 +4300,31 @@ def enter_scene(
             except (Exception, SystemExit):
                 _log.exception("analyze_window failed for conversation %s", oc.id)
 
+        # Return-visit delta (schema v1.71, BRIEF-0016-a, G2): compute from
+        # the PREVIOUS visit row before the new one is appended (RECON-0016
+        # F7 — compute-then-append; _enter_location touches only gatherings,
+        # never current_location_id, so the presence read is safe either
+        # side of it).
+        changes_lines, current_npc_ids = _compute_return_delta(db, world_id, player_id, location_id)
+
         # Generate the partition; never raises (falls back to all-solo on error).
         _enter_location(location_id, sess.id, db)
 
-    # Entry narration (schema v1.30, BRIEF-17, F3/G1): fired on EVERY entry,
-    # not just genuine transitions — no change-detection (G2 deferred).
-    # Resilience doctrine: a failed/skipped call must never block scene entry.
-    establishment = _build_establishment_narration(location_id, player_id, world_id, db)
+        db.add(Visit(
+            world_id=world_id,
+            player_id=player_id,
+            location_id=location_id,
+            present_npc_ids=current_npc_ids,
+        ))
+        db.commit()
+
+    # Entry narration (schema v1.30, BRIEF-17, F3/G1; changes v1.71,
+    # BRIEF-0016-a): fired on EVERY entry. A refresh passes changes=None (G2
+    # lifted — the delta rides in only on a genuine transition). Resilience
+    # doctrine: a failed/skipped call must never block scene entry.
+    establishment = _build_establishment_narration(
+        location_id, player_id, world_id, db, changes=changes_lines
+    )
 
     return _scene_response(location_id, player_id, world_id, db, establishment=establishment)
 

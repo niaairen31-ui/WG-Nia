@@ -73,9 +73,14 @@ play pattern the conversation-derived anchor would miss.
 ## Acceptance criteria
 
 ### Machine-checkable  ->  G1 deterministic gate
-- [ ] `visit` rows are created only inside enter_scene's genuine-transition path; no UPDATE/DELETE on Visit anywhere  ->  new verify check
-- [ ] The delta's Event query textually constrains `knowledge_status` (structural exclusion)  ->  new verify check
-- [ ] Existing check suites still pass (world_tick, single_canon_write, page_contract, prompt checks)  ->  tooling/verify/run.py
+- [ ] `visit` rows are created only inside enter_scene's genuine-transition path; no UPDATE/DELETE on Visit anywhere  ->  verify/checks/visit_delta.py
+- [ ] The delta's Event query textually constrains `knowledge_status` (structural exclusion)  ->  verify/checks/visit_delta.py
+- [ ] world_tick structural gate still intact  ->  verify/checks/world_tick.py
+- [ ] Single canon-write doctrine still intact  ->  verify/checks/single_canon_write.py
+- [ ] Creation-page registry contract still intact  ->  verify/checks/page_contract.py
+- [ ] Prompt registry / effective_model wiring still intact  ->  verify/checks/prompt_registry.py
+- [ ] Prompt append-only versioning doctrine still intact  ->  verify/checks/prompt_version.py
+- [ ] Prompt lean-rewrite gate still intact  ->  verify/checks/prompt_lean.py
 
 ### Live  ->  human gate (Nia)
 - [ ] Enter a location, tick an NPC away from it (0015), re-enter: the establishment narration mentions the departure by name; the `visit` table shows both rows

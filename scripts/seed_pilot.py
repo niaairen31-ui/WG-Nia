@@ -647,16 +647,19 @@ Action du joueur → {player_line}\
 """
 
 # Entry narration — scene-establishing description on location entry (schema
-# v1.30, BRIEF-17). usage = "mj_establishment". Single non-streamed chat()
-# call, thinking mode allowed, fired on EVERY entry (G1). Carries the SAME
+# v1.30, BRIEF-17; CHANGEMENTS block + scoped naming rule added schema v1.71,
+# BRIEF-0016-a). usage = "mj_establishment". Single non-streamed chat() call,
+# thinking mode allowed, fired on EVERY entry (G1). Carries the SAME
 # anti-invention rule as pt-mj-narration: describe ONLY from the provided
-# context. Names no NPCs (J1) — the scene UI's gathering list already shows
-# who is present. world_id = NULL.
+# context. Names NPCs ONLY via the CHANGEMENTS block (RECON-0016 F3) — a
+# presently-present NPC is still never named or described, the scene UI's
+# gathering list already shows who is present. world_id = NULL.
 MJ_ESTABLISHMENT_SYSTEM_PROMPT = """\
 Tu es le maître de jeu (MJ) d'un jeu de rôle. Le joueur vient d'entrer dans un \
 lieu. Ton travail : décrire en 3 à 4 lignes de prose française ce que le \
-joueur perçoit en y pénétrant — le lieu lui-même, son atmosphère, et tout \
-signe perceptible qui y est signalé.
+joueur perçoit en y pénétrant — le lieu lui-même, son atmosphère, tout \
+signe perceptible qui y est signalé, et ce qui a changé depuis sa dernière \
+visite.
 
 === RÈGLE — DÉCRIRE UNIQUEMENT À PARTIR DU CONTEXTE FOURNI ===
 N'invente aucun objet, lettre, passage, indice ou PNJ qui ne figure pas dans \
@@ -664,10 +667,16 @@ le contexte ci-dessous. Si la liste des signes perceptibles est vide ou \
 indique qu'il n'y a rien de particulier, établis la scène nue à partir du \
 lieu et de son ambiance seuls — ne comble jamais ce vide par une invention.
 
-=== RÈGLE — AUCUN PNJ NOMMÉ ===
-Ne nomme et ne décris aucun personnage présent. La scène se limite au lieu \
-et à ses signes perceptibles ; qui s'y trouve est montré ailleurs, pas dans \
-cette narration.
+=== RÈGLE — PNJ NOMMÉS UNIQUEMENT DANS LES CHANGEMENTS ===
+Les PNJ cités dans le bloc CHANGEMENTS DEPUIS LA DERNIÈRE VISITE (parti·e·s \
+ou arrivé·e·s) peuvent être nommés — leur départ ou leur arrivée est \
+précisément l'information à transmettre. Tout PNJ actuellement présent reste \
+interdit de nom ou de description : qui s'y trouve MAINTENANT est montré \
+ailleurs, pas dans cette narration.
+
+=== RÈGLE — CHANGEMENTS : NE RIEN INVENTER ===
+Si le bloc CHANGEMENTS DEPUIS LA DERNIÈRE VISITE indique qu'il n'y a rien de \
+notable, ne mentionne aucun changement et n'en invente aucun.
 
 === FORMAT ===
 Prose narrative en français, 3 à 4 lignes. Rien d'autre — pas de JSON, pas \
@@ -681,6 +690,9 @@ Ambiance : {subculture}
 
 Signes perceptibles à l'entrée :
 {signposts}
+
+CHANGEMENTS DEPUIS LA DERNIÈRE VISITE :
+{changes}
 
 Narration d'établissement :\
 """
@@ -1399,9 +1411,10 @@ def seed(session: Session) -> None:
     # every location entry (G1, schema v1.30, BRIEF-17): describes the scene
     # the player perceives — the room and any active signpost content — from
     # entity.description + the allow-listed subculture slice + the silence-
-    # predicate's surviving ambient content. Names no NPCs (J1). world_id =
-    # NULL. Uses upsert so re-seeding always converges the DB to the latest
-    # wording.
+    # predicate's surviving ambient content. Names NPCs ONLY via the
+    # CHANGEMENTS block (schema v1.71, BRIEF-0016-a); a presently-present NPC
+    # is never named (J1). world_id = NULL. Uses upsert so re-seeding always
+    # converges the DB to the latest wording.
     upsert_prompt_template(
         session,
         "pt-mj-establishment",
@@ -1410,7 +1423,7 @@ def seed(session: Session) -> None:
         usage="mj_establishment",
         system_prompt=MJ_ESTABLISHMENT_SYSTEM_PROMPT,
         user_template=MJ_ESTABLISHMENT_USER_TEMPLATE,
-        variables=["location_name", "description", "subculture", "signposts"],
+        variables=["location_name", "description", "subculture", "signposts", "changes"],
         destination="local",
     )
 

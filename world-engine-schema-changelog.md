@@ -8,6 +8,31 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.71** — New table `visit` (append-only, BRIEF-0016-a): `id, world_id,
+  player_id, location_id, entered_at, present_npc_ids (JSON)` + composite
+  index `idx_visit_player_location (player_id, location_id, entered_at)`.
+  Anchors the player's last entry per location. `enter_scene`
+  (`cockpit/app.py`) writes a row ONLY inside its existing genuine-transition
+  guard (`if not open_g:`); a code-computed diff against the previous row
+  (`_compute_return_delta`) — NPCs arrived/departed by set-diff of public
+  presence, plus public events since — rides into the existing
+  `mj_establishment` entry narration as a new `{changes}` block. Departed
+  NPC names resolve from `Entity` without the alive/active filter (their
+  absence is public information the player already witnessed); the event
+  leg applies the SAME `knowledge_status IN ('public','confirmed')`
+  structural filter as the only other Event reader (`context.py`) and is a
+  forward-reader (empty until an event producer ships). First visit, or a
+  visit with nothing to report, sends no `{changes}` block — the model
+  never sees an empty header to embroider on. No backfill: the table is
+  born empty, every location counts as a first visit once. Prompt
+  `pt-mj-establishment` gains an appended version: the "no NPC named" rule
+  is scoped so only NPCs cited in the CHANGEMENTS block may be named.
+  Delivered via `scripts/migrate_v1_71_visit.py` (new-table shape) and
+  `scripts/apply_ticket_0016_prompt_updates.py` (append-version). New
+  verify check `tooling/verify/checks/visit_delta.py`: `visit` is
+  append-only and constructed only from `cockpit/app.py`; the delta's Event
+  query textually references `knowledge_status`.
+
 - **BRIEF-0015-a** — No schema change. `npc_move` added to
   `proposed_mutation.mutation_type` (targets `character`, tick-only
   producer; `proposed_mutation.mutation_type` is unconstrained TEXT and
