@@ -8,6 +8,35 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **BRIEF-0015-a** — No schema change. `npc_move` added to
+  `proposed_mutation.mutation_type` (targets `character`, tick-only
+  producer; `proposed_mutation.mutation_type` is unconstrained TEXT and
+  `tick_id` already exists since v1.70 — no migration). Lifts TICKET-0014's
+  L3 movement deferral: a ticked NPC may relocate along the `connects_to`
+  graph, radius scaled STRUCTURALLY by the invocation's interval label
+  (`INTERVAL_HOP_RADIUS`, `tick.py` — 1 hop for "quelques heures", 3 for
+  "quelques jours", the origin's connected component for "quelques
+  semaines"). New briefing section `OÙ TU PEUX ALLER`
+  (`assemble_tick_context`) lists the reachable candidate set; destination
+  resolution reads ONLY that same set (`_normalize_tick_item`), never all
+  locations. `analyzer._MUTATION_TYPE_MAP` stays byte-identical — a
+  tick-local alias map (`_TICK_TYPE_ALIASES`) carries the extra vocabulary
+  so conversation analysis and overhearing can never propose movement.
+  `npc_id`/`from_location_id` are forced code-side at emit (rule-3
+  pattern); `to_location_id` is resolved against the candidate set.
+  Apply side (`_apply_mutation`, `cockpit/app.py`): a stale-from gate
+  (`character.current_location_id != payload.from_location_id`) covers
+  duplicate re-approval, cross-run tick duplicates, and a manual move since
+  the proposal in one canon check, while still allowing a later legitimate
+  A->B->A move; the write routes through the new `write_character_location`
+  helper (`writes.py`, no `change_history` — `character` has none, the
+  mutation row is the audit trail) and `close_open_memberships` closes the
+  NPC's open gathering regardless of player co-presence (Nia's locked
+  decision). `_find_applied_duplicate`'s tick branch gains a mirror
+  `npc_move` clause. Prompt updates delivered via
+  `scripts/apply_ticket_0015_prompt_updates.py` (append-version, the
+  `pt-world-tick` head already exists since 0014).
+
 - **v1.70** — `proposed_mutation.tick_id` (TEXT, nullable) + index
   `idx_mutation_tick` (TICKET-0014/BRIEF-0014-b). Third `source_type` value
   `world_tick`: both `pass_play_id` and `conversation_id` stay NULL for it —

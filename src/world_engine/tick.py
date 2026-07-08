@@ -53,6 +53,7 @@ H_KNOWLEDGE = "CE QUE TU SAIS"
 H_RELATIONS = "TES RELATIONS"
 H_AFFILIATIONS = "TES AFFILIATIONS"
 H_SETTING = "OÙ TU TE TROUVES"
+H_DESTINATIONS = "OÙ TU PEUX ALLER"
 H_COMPANY = "QUI EST AUTOUR"
 
 _BOUNDARY = (
@@ -106,13 +107,21 @@ def _knowledge_line(k: Knowledge) -> str:
     return f"- {prefix}{text}"
 
 
-def assemble_tick_context(npc_id: str, session: Session) -> str:
+def assemble_tick_context(
+    npc_id: str, session: Session, *, destinations: list[tuple[str, str]] | None = None
+) -> str:
     """Assemble the full-interiority briefing for one NPC's world tick.
 
     Raises `ValueError` when `npc_id` does not resolve to an NPC character
     (same guard shape as `assemble_npc_context`, extended with the
     character-type check needed here since this builder has no caller that
     already guarantees the id is an NPC).
+
+    `destinations` (TICKET-0015, BRIEF-0015-a) is the interval-scaled
+    reachable set computed ONCE per NPC by the caller (`run_world_tick`) —
+    (entity_id, name) pairs — rendered as `OÙ TU PEUX ALLER` so the model
+    proposes movement only from names it was shown (T1 contract: the header
+    always renders, even empty).
     """
     npc_entity = session.get(Entity, npc_id)
     npc_char = session.get(Character, npc_id)
@@ -224,6 +233,19 @@ def assemble_tick_context(npc_id: str, session: Session) -> str:
     else:
         setting = "Tu ne te trouves nulle part de particulier en ce moment."
 
+    # ----- OÙ TU PEUX ALLER — interval-scaled reachable set, computed by the
+    # caller (RECON-0015 F2: same set the destination resolver accepts). -----
+    destination_lines: list[str] = []
+    for dest_id, dest_name in destinations or []:
+        dest_entity = session.get(Entity, dest_id)
+        if dest_entity is not None and dest_entity.description:
+            destination_lines.append(f"- {dest_name} : {dest_entity.description}")
+        else:
+            destination_lines.append(f"- {dest_name}")
+    destinations_body = (
+        "\n".join(destination_lines) if destination_lines else "(nulle part — aucun lieu accessible)"
+    )
+
     # ----- QUI EST AUTOUR — co-located characters, public description only -
     company_lines: list[str] = []
     if location_id:
@@ -256,6 +278,8 @@ def assemble_tick_context(npc_id: str, session: Session) -> str:
         + "\n"
         + _section(H_SETTING, setting)
         + "\n"
+        + _section(H_DESTINATIONS, destinations_body)
+        + "\n"
         + _section(H_COMPANY, company_body)
         + "\n"
         + _BOUNDARY
@@ -269,9 +293,75 @@ def assemble_tick_context(npc_id: str, session: Session) -> str:
 # cycle); never imports cockpit/app.py.
 # -----------------------------------------------------------------------------
 
-# Closed contract (unlike conversation analysis): only these three types are
+# Closed contract (unlike conversation analysis): only these four types are
 # ever proposed by a tick. Anything else is dropped with a note (item 4).
-_TICK_MUTATION_TYPES = frozenset({"goal_change", "relation_change", "new_knowledge"})
+_TICK_MUTATION_TYPES = frozenset({"goal_change", "relation_change", "new_knowledge", "npc_move"})
+
+# Tick-local alias map (TICKET-0015, BRIEF-0015-a): extends the shared
+# analyzer map with npc_move aliases WITHOUT mutating it — conversation
+# analysis and overhearing must never propose movement (RECON-0015 F4).
+_TICK_TYPE_ALIASES: dict[str, str] = {
+    **_MUTATION_TYPE_MAP,
+    "npc_move": "npc_move",
+    "move": "npc_move",
+    "movement": "npc_move",
+}
+
+# Interval label (verbatim, cockpit/app.py's _VALID_TICK_INTERVALS) -> BFS hop
+# bound over connects_to (ACTIVE locations only). None = unbounded — exhaust
+# the origin's connected component (RECON-0015 F1/F3). Adjustable without
+# touching logic.
+INTERVAL_HOP_RADIUS: dict[str, int | None] = {
+    "quelques heures": 1,
+    "quelques jours": 3,
+    "quelques semaines": None,
+}
+
+
+def _reachable_locations(
+    db: Session, from_location_id: str, interval_label: str
+) -> list[tuple[str, str]]:
+    """BFS over `connects_to` relations among ACTIVE locations, starting at
+    `from_location_id`, bounded by `INTERVAL_HOP_RADIUS[interval_label]`
+    (`None` -> exhaust the connected component). Origin excluded from the
+    result. Returns `(entity_id, name)` pairs.
+
+    A NEW, tick-local `connects_to` reader — deliberately not shared with
+    `_location_neighbours` (cockpit/app.py, direct-neighbours-only): decision
+    D1 stands, this is now the third reader (RECON-0015 F3).
+
+    Raises `ValueError` on an unrecognised interval label — the endpoint's
+    422 gate (`_VALID_TICK_INTERVALS`) makes this unreachable in production;
+    fail loud if a future caller bypasses it.
+    """
+    if interval_label not in INTERVAL_HOP_RADIUS:
+        raise ValueError(f"unknown interval label {interval_label!r}")
+    max_hops = INTERVAL_HOP_RADIUS[interval_label]
+
+    visited: dict[str, str] = {}
+    frontier = [from_location_id]
+    hops = 0
+    while frontier and (max_hops is None or hops < max_hops):
+        next_frontier: list[str] = []
+        for loc_id in frontier:
+            rels = db.exec(
+                select(Relation).where(
+                    Relation.type == "connects_to",
+                    (Relation.entity_a_id == loc_id) | (Relation.entity_b_id == loc_id),
+                )
+            ).all()
+            for rel in rels:
+                neighbour_id = rel.entity_b_id if rel.entity_a_id == loc_id else rel.entity_a_id
+                if neighbour_id == from_location_id or neighbour_id in visited:
+                    continue
+                neighbour = db.get(Entity, neighbour_id)
+                if neighbour is not None and neighbour.status == "active":
+                    visited[neighbour_id] = neighbour.name
+                    next_frontier.append(neighbour_id)
+        frontier = next_frontier
+        hops += 1
+
+    return list(visited.items())
 
 
 def _normalize_goal_text(text: str | None) -> str:
@@ -332,14 +422,24 @@ def _normalize_tick_item(
     world_id: str,
     roster: dict[str, str],
     secret_subjects: set[str],
+    destinations: dict[str, str],
+    from_location_id: str | None,
+    from_name: str | None,
 ) -> dict | None:
     """Map one raw model item to the tick's CLOSED schema, or None to drop it.
 
     Unlike `analyzer._normalize_to_schema`, the tick's contract accepts only
-    goal_change | relation_change | new_knowledge — anything else (including
-    the fallback `other`) is dropped, never proposed. `npc_id`/`entity_a_id`
-    are FORCED from the `npc_id` parameter (O1-mirror), never read from the
-    model's payload.
+    goal_change | relation_change | new_knowledge | npc_move — anything else
+    (including the fallback `other`) is dropped, never proposed.
+    `npc_id`/`entity_a_id`/`from_location_id` are FORCED from parameters
+    (O1-mirror), never read from the model's payload.
+
+    `destinations` (TICKET-0015, BRIEF-0015-a) is name.casefold() -> id, built
+    by the caller from the SAME `_reachable_locations` pair list the briefing
+    showed — destination resolution reads ONLY this candidate set, never all
+    locations (RECON-0015 F2). `from_location_id`/`from_name` describe the
+    NPC's own current location, needed for the npc_move payload's forced
+    origin stamp and display field.
     """
     del world_id  # reserved: no payload shape carries it (entity-scoped, not world-keyed)
 
@@ -348,7 +448,7 @@ def _normalize_tick_item(
         return None
 
     raw_mt = str(raw_item.get("mutation_type") or "").lower()
-    mutation_type = _MUTATION_TYPE_MAP.get(raw_mt)
+    mutation_type = _TICK_TYPE_ALIASES.get(raw_mt)
     if mutation_type not in _TICK_MUTATION_TYPES:
         print(f"[tick] dropped: unrecognised or out-of-contract mutation_type {raw_item.get('mutation_type')!r}")
         return None
@@ -385,6 +485,24 @@ def _normalize_tick_item(
             "intensity_delta": delta,
         }
         target_table = "relation"
+
+    elif mutation_type == "npc_move":
+        if not from_location_id:
+            print("[tick] dropped npc_move: NPC has no current location")
+            return None
+        destination_name = str(payload_in.get("destination") or "").strip()
+        to_id = destinations.get(destination_name.casefold())
+        if not destination_name or not to_id:
+            print(f"[tick] dropped npc_move: unresolved or out-of-radius destination {destination_name!r}")
+            return None
+        payload = {
+            "npc_id": npc_id,
+            "from_location_id": from_location_id,
+            "to_location_id": to_id,
+            "from_name": from_name or "",
+            "to_name": destination_name,
+        }
+        target_table = "character"
 
     else:  # new_knowledge
         recipient = str(payload_in.get("recipient") or "self").strip()
@@ -473,8 +591,19 @@ def run_world_tick(
         proposed = 0
         dropped = 0
 
+        # Reachable set (TICKET-0015, BRIEF-0015-a) — computed ONCE per NPC,
+        # BEFORE the model call, so the briefing and the destination resolver
+        # share the exact same candidate set (RECON-0015 F2). Needs npc_char
+        # ahead of its other use below (roster building).
+        npc_char = db.get(Character, npc_id)
+        from_location_id = npc_char.current_location_id if npc_char else None
+        from_entity = db.get(Entity, from_location_id) if from_location_id else None
+        from_name = from_entity.name if from_entity else None
+        reachable = _reachable_locations(db, from_location_id, interval_label) if from_location_id else []
+        destinations = {name.casefold(): loc_id for loc_id, name in reachable}
+
         try:
-            briefing = assemble_tick_context(npc_id, db)
+            briefing = assemble_tick_context(npc_id, db, destinations=reachable)
         except ValueError as exc:
             npc_summaries.append(
                 {"id": npc_id, "name": npc_name, "proposed": 0, "dropped": 0, "notes": [str(exc)]}
@@ -504,10 +633,7 @@ def run_world_tick(
             )
             continue
 
-        npc_char = db.get(Character, npc_id)
-        roster = _build_roster(
-            db, npc_id, npc_name, npc_char.current_location_id if npc_char else None
-        )
+        roster = _build_roster(db, npc_id, npc_name, from_location_id)
         secret_subjects = {
             k.subject.casefold()
             for k in db.exec(
@@ -519,6 +645,7 @@ def run_world_tick(
         seen_goal: set[tuple[str, str]] = set()
         seen_knowledge: set[tuple[str, str]] = set()
         seen_relation: set[tuple[str, str]] = set()
+        seen_move = False
 
         for raw_item in items:
             normalized = _normalize_tick_item(
@@ -527,6 +654,9 @@ def run_world_tick(
                 world_id=npc_entity.world_id if npc_entity else "",
                 roster=roster,
                 secret_subjects=secret_subjects,
+                destinations=destinations,
+                from_location_id=from_location_id,
+                from_name=from_name,
             )
             if normalized is None:
                 dropped += 1
@@ -551,6 +681,12 @@ def run_world_tick(
                     notes.append(f"duplicate new_knowledge dropped: subject={payload['subject']!r}")
                     continue
                 seen_knowledge.add(key)
+            elif mutation_type == "npc_move":
+                if seen_move:
+                    dropped += 1
+                    notes.append(f"duplicate npc_move dropped: to={payload['to_name']!r}")
+                    continue
+                seen_move = True
             else:  # relation_change
                 key = (payload["entity_a_id"], payload["entity_b_id"])
                 if key in seen_relation:

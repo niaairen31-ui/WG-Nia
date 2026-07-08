@@ -6,6 +6,7 @@ event artifact npc_goal
 [ALLOWED_SITES]
 # path::function                                              tables
 src/world_engine/writes.py::write_relation                    relation
+src/world_engine/writes.py::write_character_location           character
 src/world_engine/writes.py::write_knowledge                   knowledge
 src/world_engine/writes.py::write_ledger_entry                ledger
 src/world_engine/writes.py::write_membership                  faction_membership

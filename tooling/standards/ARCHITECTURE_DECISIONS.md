@@ -4838,6 +4838,134 @@ bump to v1.70. `CLAUDE.md`: one line noting tick-sourced rows'
 `source_type`/NULL-FK/`tick_id` shape and that the duplicate guard's tick
 branch must never be extended to `relation_change`.
 
+## WORLD TICK — NPC movement (BRIEF-0015-a, no schema change)
+
+Lifts TICKET-0014's L3 movement deferral: a ticked NPC may relocate along the
+`connects_to` graph during off-screen advancement. `proposed_mutation.
+mutation_type` is unconstrained TEXT and `tick_id` already exists since
+v1.70 — no migration, confirmed at RECON.
+
+**E3 — interval-scaled radius, structural not instructional.** Nia's
+rationale on record: when ticks later become automatic (I3, still deferred),
+the radius is what guarantees a session-close tick cannot move an NPC across
+a continent — a code bound, never a prompt request. `INTERVAL_HOP_RADIUS`
+(`tick.py`, a plain module-level dict) maps the interval label to a hop
+count: `"quelques heures" -> 1`, `"quelques jours" -> 3`, `"quelques
+semaines" -> None` (unbounded). RECON-0015 F1 correction: the keys are the
+VERBATIM labels of `cockpit/app.py`'s `_VALID_TICK_INTERVALS`
+(`"quelques heures/jours/semaines"`), not the shorter forms drafted at
+intake.
+
+**"Unbounded" means the origin's connected component, not all locations**
+(RECON-0015 F3, drafting decision confirmed). `_reachable_locations`
+(`tick.py`) is a NEW, tick-local BFS over `Relation.type == "connects_to"`
+among ACTIVE locations, origin excluded — deliberately NOT sharing code with
+`_location_neighbours` (`cockpit/app.py`, direct-neighbours-only): decision
+D1 (BRIEF-19) stands, this is now the third `connects_to` reader. An island
+location with no `connects_to` path stays unreachable at any interval — the
+map is the world's traversability truth, not a proxy for physical distance.
+
+**Briefing section `OÙ TU PEUX ALLER`.** Rendered between `OÙ TU TE TROUVES`
+and `QUI EST AUTOUR` in `assemble_tick_context`, which gains a keyword-only
+`destinations: list[tuple[str, str]] | None` parameter — `- <name>` plus the
+location's `description` when non-empty, placeholder `(nulle part — aucun
+lieu accessible)` when empty. T1 contract unchanged: the header always
+renders. The candidate set is computed ONCE per NPC in `run_world_tick`
+(moved ahead of the model call, since the briefing needs it — RECON-0015 F2)
+and passed BOTH to the briefing and to `_normalize_tick_item`, so the model
+never sees a set different from the one resolution accepts.
+
+**Type acceptance without touching the shared map.** A tick-local alias
+dict, `_TICK_TYPE_ALIASES = {**_MUTATION_TYPE_MAP, "npc_move": "npc_move",
+"move": "npc_move", "movement": "npc_move"}`, replaces the direct
+`_MUTATION_TYPE_MAP.get` read in `_normalize_tick_item`.
+`analyzer._MUTATION_TYPE_MAP` itself stays byte-identical — conversation
+analysis and overhearing must never gain movement vocabulary
+(`world_tick.py` rule 6, AST-verified: no dict-literal key in
+`_MUTATION_TYPE_MAP` maps to `"npc_move"`). `_TICK_MUTATION_TYPES` gains
+`"npc_move"` as its fourth (and, for this chantier, final) member.
+
+**Forced attribution extended (rule-3 pattern).** `from_location_id` joins
+`_FORCED_FIELDS` in `world_tick.py` (alongside `npc_id`, `entity_a_id`):
+`_normalize_tick_item` stamps it from the `from_location_id` parameter
+(the NPC's own `current_location_id` at emit time), never reads it from the
+model's payload. `to_location_id` is deliberately NOT added — it is
+resolved from the model's `"destination"` name against the candidate set,
+not forced; the resolution vs. attribution distinction is semantic, not an
+AST-visible one (RECON-0015 F5). Display fields `from_name`/`to_name` ride
+in the payload itself (`_mutation_dict` already passes payloads verbatim —
+RECON-0015 F9, precedent: `resource_change`'s `reason` field). Out-of-radius
+and invented destinations fail identically (one dropped note) — the model
+only ever sees in-radius names, so distinguishing the two would only label
+model hallucination more precisely, not worth a second code path (drafting
+decision, confirmed).
+
+**Emit-time dedup.** A per-NPC `seen_move: bool` in `run_world_tick` allows
+AT MOST ONE `npc_move` per NPC per invocation — first occurrence wins, later
+ones dropped with a note (same idiom as `seen_goal`/`seen_knowledge`/
+`seen_relation`).
+
+**Apply-time: the stale-from gate replaces the tick_id-keyed guard drafted
+at intake** (RECON-0015 F6, strictly stronger, per the 0014 tick-guard
+doctrine of canon-existence over `tick_id` equality). `_apply_mutation`'s
+new `npc_move` branch loads the `Character` by `payload["npc_id"]`, then
+checks `character.current_location_id != payload["from_location_id"]` —
+one canon question that covers duplicate re-approval, cross-run re-run
+duplicates, AND a manual move since the proposal, while correctly ALLOWING a
+later legitimate A->B->A move. `_find_applied_duplicate`'s tick branch gains
+a mirror `npc_move` clause returning the same verdict, for pre-write/apply
+symmetry with the other tick types. On success: the write routes through a
+new `writes.py` helper, `write_character_location(db, *, entity_id,
+to_location_id, mutation_id=None) -> Character` (loads the row, sets
+`current_location_id`, caller commits — `write_relation` precedent). No
+`change_history`: `character` has no such column and the creator-CRUD
+location edit snapshots nothing; the `proposed_mutation` row (from/to
+payload, `tick_id`, `applied_at`) is the durable audit trail (RECON-0015
+F7). `close_open_memberships(npc_id, db)` runs unconditionally — **an
+approved move pulls the NPC out of its open gathering even when the player
+character shares it** (Nia's locked decision, verbatim: « je pense qu'il
+doit être possible de sortir un NPC de son gathering »); the Play roster
+reflects the departure live via the existing `gathering_member.left_at IS
+NULL` seam, no snapshot, no parallel presence state.
+
+**`world_tick.py` gains rules 6-8** (stdlib `ast`, same idiom as
+`check_forced_attribution`/`check_guard_branch`): rule 6 scans
+`analyzer.py`'s `_MUTATION_TYPE_MAP` literal for a `"npc_move"` value (must
+find none); rule 7 asserts `INTERVAL_HOP_RADIUS` carries EXACTLY the three
+verbatim label keys and that `_reachable_locations` references it; rule 8
+scans `_apply_mutation`'s function body for a direct `current_location_id`
+attribute assignment (must find none) and for calls to both
+`write_character_location` and `close_open_memberships` (must find both).
+`canon_write_policy.txt` gains one `ALLOWED_SITES` line —
+`writes.py::write_character_location -> character` — following the same
+convention as `write_relation`/`write_knowledge`: `_apply_mutation`'s own
+policy entry is untouched, since the actual `db.add` happens inside the
+helper's function scope, not the caller's.
+
+**Preview script.** `scripts/preview_tick_context.py` gains `--interval`
+(choices = the three verbatim labels, default `"quelques jours"`); computes
+the reachable set exactly as the runner does and passes it through, so the
+printed T1 briefing shows `OÙ TU PEUX ALLER` as the model will see it.
+
+**Prompt.** `pt-world-tick`'s existing head (since BRIEF-0014-a) gains an
+appended version: `npc_move` joins the mutation_type/target_table
+enumeration, a `npc_move -> {"destination":"…"}` payload shape, and a new
+`=== NPC_MOVE RULES ===` block (at most one move per interval; destination
+must be copied from `OÙ TU PEUX ALLER`; staying put = emit nothing; a move
+needs a stated motive). Delivered by
+`scripts/apply_ticket_0015_prompt_updates.py` — append-version branch only
+(unlike 0014's script, no head-absent branch is needed).
+
+**Scope OUT this brief** — carried or newly named deferrals: `status_change`
+emission from the tick (0014's L3, other half); automatic triggers/in-game
+time (I3); player movement via the tick, NPC schedules/routines,
+travel-time or multi-hop journey simulation (after apply the NPC simply IS
+at the destination); any analyzer/overhearing producer for `npc_move`
+(permanently out, not merely deferred — movement is a tick-only concept);
+return-visit delta narration/`visit` table (G2, next ticket); refactoring
+`_location_neighbours` or the locations graph endpoint to share the new BFS
+(D1 stands).
+
 ## Deferred decisions
 
 - **F2 — goal hierarchy (`parent_goal_id`)** (TICKET-0013). Deferred until a

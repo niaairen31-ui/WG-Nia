@@ -46,6 +46,7 @@ from ..entity_author import generate_skill_catalogue_draft as _generate_skill_ca
 from ..entity_author import generate_world_draft as _generate_world_draft
 from ..region_author import generate_region_draft as _generate_region_draft
 from ..region_author import generate_region_manifest as _generate_region_manifest
+from ..gathering import close_open_memberships
 from ..gathering import enter_location as _enter_location
 from ..gathering import migrate_npc as _migrate_npc
 from ..analyzer import analyze_overhearing as _analyze_overhearing
@@ -93,6 +94,7 @@ from ..writes import (
     KNOWLEDGE_LEVELS,
     delete_world_cascade as _delete_world_cascade,
     knowledge_level_rank,
+    write_character_location,
     write_knowledge,
     write_ledger_entry,
     write_npc_goal,
@@ -805,6 +807,19 @@ def _find_applied_duplicate(
                 )
             return None
 
+        if mut.mutation_type == "npc_move":
+            # Mirrors the apply branch's stale-from gate (RECON-0015 F6): one
+            # canon check covers duplicate re-approval, cross-run tick
+            # duplicates, AND the world having moved since the proposal — and
+            # correctly ALLOWS a later legitimate A->B->A move.
+            character = db.get(Character, payload.get("npc_id"))
+            if character is not None and character.current_location_id != payload.get("from_location_id"):
+                return (
+                    f"npc_move for NPC {str(payload.get('npc_id',''))[:8]}… — NPC no longer at "
+                    f"the proposal's origin (world moved since the tick)."
+                )
+            return None
+
         return None
 
     payload = mut.payload if isinstance(mut.payload, dict) else {}
@@ -941,6 +956,15 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                          no match → Needs attention, nothing written.
                          create_short always inserts a SHORT goal via
                          write_npc_goal — horizon is hard-coded, O1 structural.
+    - npc_move         : (TICKET-0015, BRIEF-0015-a) tick-only. Stale-from
+                         gate: character.current_location_id must still equal
+                         payload's from_location_id, else "Needs attention"
+                         (covers duplicate re-approval, cross-run duplicates,
+                         and a manual move since the proposal — RECON-0015
+                         F6). Location write routes through
+                         write_character_location; close_open_memberships is
+                         called on apply regardless of player co-presence
+                         (Nia's locked decision).
 
     Unimplemented types (event_creation, entity_creation, other) are left as
     'approved' with a note — better un-applied than wrongly applied.
@@ -1135,6 +1159,40 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
             return None
 
         return f"goal_change: unrecognised action {action!r}"
+
+    # ── npc_move (TICKET-0015, BRIEF-0015-a) ──────────────────────────────────
+    elif mut.mutation_type == "npc_move":
+        npc_id = payload.get("npc_id")
+        from_location_id = payload.get("from_location_id")
+        to_location_id = payload.get("to_location_id")
+        if not npc_id or not from_location_id or not to_location_id:
+            return "npc_move: payload must contain npc_id, from_location_id and to_location_id"
+
+        character = db.get(Character, npc_id)
+        if character is None:
+            return f"npc_move: character {npc_id!r} not found"
+
+        # Stale-from gate (RECON-0015 F6): the canon question "is the NPC
+        # still at from_location_id?" covers duplicate re-approval, cross-run
+        # tick duplicates, and a manual move since the proposal — while still
+        # allowing a later legitimate A->B->A move.
+        if character.current_location_id != from_location_id:
+            return "npc_move: NPC no longer at the proposal's origin — world moved since the tick"
+
+        destination = db.get(Entity, to_location_id)
+        if (
+            destination is None
+            or destination.type != "location"
+            or destination.status != "active"
+            or destination.world_id != mut.world_id
+        ):
+            return f"npc_move: destination {to_location_id!r} is not an active location in this world"
+
+        write_character_location(db, entity_id=npc_id, to_location_id=to_location_id, mutation_id=mut.id)
+        # BRIEF-53 seam: closes the NPC's open gathering_member rows,
+        # PLAYER PRESENT OR NOT — Nia's locked decision.
+        close_open_memberships(npc_id, db)
+        return None
 
     # ── resource_change (BRIEF-19) ────────────────────────────────────────────
     elif mut.mutation_type == "resource_change":
