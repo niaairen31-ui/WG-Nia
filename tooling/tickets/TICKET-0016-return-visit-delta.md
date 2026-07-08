@@ -2,7 +2,7 @@
 id: TICKET-0016
 title: return-visit-delta — visit table + "what changed here" narrated at enter_scene
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-08
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write]
