@@ -2,7 +2,7 @@
 id: TICKET-0017
 title: event-producer — scope-level event_creation in the world tick + apply branch
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-08
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write]
