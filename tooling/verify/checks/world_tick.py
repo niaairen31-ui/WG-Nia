@@ -41,6 +41,19 @@ Rule 8 (single canon-write for movement, BRIEF-0015-a): `_apply_mutation` in
 must route through `write_character_location` — and its function body
 references both `write_character_location` and `close_open_memberships`.
 
+Rule 9 (closed per-NPC contract stays closed, TICKET-0017/BRIEF-0017-a): the
+string `"event_creation"` is never a value in `_TICK_MUTATION_TYPES` or
+`_TICK_TYPE_ALIASES`, and never appears as a string constant anywhere inside
+`_normalize_tick_item` — the scope-level event producer has its OWN
+normalizer, `_normalize_tick_item` must never map to it.
+Rule 10 (scope-event quota, BRIEF-0017-a): `tick.py` defines a module-level
+`SCOPE_EVENT_QUOTA` constant, and `run_world_tick` references that
+identifier (the quota bounds the scope-level emit loop).
+Rule 11 (forced location_id, BRIEF-0017-a): `location_id` joins
+`_FORCED_FIELDS` — no `.get("location_id")` call on a raw model payload
+anywhere in `tick.py`, and every dict-literal key `"location_id"` maps to a
+bare `Name` value.
+
 No DB, stdlib `ast` only.
 """
 from __future__ import annotations
@@ -66,7 +79,7 @@ BOUNDARY_FILES = {
     SRC / "world_engine" / "gathering.py",
 }
 
-_FORCED_FIELDS = ("npc_id", "entity_a_id", "from_location_id")
+_FORCED_FIELDS = ("npc_id", "entity_a_id", "from_location_id", "location_id")
 
 _INTERVAL_LABELS = {"quelques heures", "quelques jours", "quelques semaines"}
 
@@ -351,6 +364,62 @@ def check_apply_mutation_location_write() -> None:
         fail(f"{rel}: _apply_mutation does not call close_open_memberships")
 
 
+def check_scope_event_producer_isolation() -> None:
+    if not TICK_FILE.exists():
+        fail(f"{TICK_FILE} not found")
+        return
+    tree = _parse(TICK_FILE)
+    if tree is None:
+        return
+    rel = TICK_FILE.relative_to(ROOT).as_posix()
+
+    for node in ast.walk(tree):
+        name, value = _dict_assign_target(node)
+        if name == "_TICK_MUTATION_TYPES" and isinstance(value, (ast.Set, ast.Call)):
+            for elt in ast.walk(value):
+                if isinstance(elt, ast.Constant) and elt.value == "event_creation":
+                    fail(f"{rel}:{node.lineno} — _TICK_MUTATION_TYPES contains 'event_creation'")
+        if name == "_TICK_TYPE_ALIASES" and isinstance(value, ast.Dict):
+            for v in value.values:
+                if isinstance(v, ast.Constant) and v.value == "event_creation":
+                    fail(f"{rel}:{node.lineno} — _TICK_TYPE_ALIASES maps a key to 'event_creation'")
+
+    func = _find_function(tree, "_normalize_tick_item")
+    if func is None:
+        fail(f"{rel}: _normalize_tick_item not found")
+        return
+    for node in ast.walk(func):
+        if isinstance(node, ast.Constant) and node.value == "event_creation":
+            fail(f"{rel}:{node.lineno} — 'event_creation' referenced inside _normalize_tick_item")
+
+
+def check_scope_event_quota() -> None:
+    if not TICK_FILE.exists():
+        fail(f"{TICK_FILE} not found")
+        return
+    tree = _parse(TICK_FILE)
+    if tree is None:
+        return
+    rel = TICK_FILE.relative_to(ROOT).as_posix()
+
+    found = False
+    for node in ast.walk(tree):
+        name, value = _dict_assign_target(node)
+        if name == "SCOPE_EVENT_QUOTA" and value is not None:
+            found = True
+            break
+    if not found:
+        fail(f"{rel}: SCOPE_EVENT_QUOTA module constant not found")
+        return
+
+    func = _find_function(tree, "run_world_tick")
+    if func is None:
+        fail(f"{rel}: run_world_tick not found")
+        return
+    if not any(isinstance(n, ast.Name) and n.id == "SCOPE_EVENT_QUOTA" for n in ast.walk(func)):
+        fail(f"{rel}: run_world_tick does not reference SCOPE_EVENT_QUOTA")
+
+
 def main() -> None:
     check_call_site_allowlist()
     check_boundary_files()
@@ -360,11 +429,13 @@ def main() -> None:
     check_analyzer_no_npc_move()
     check_interval_hop_radius()
     check_apply_mutation_location_write()
+    check_scope_event_producer_isolation()
+    check_scope_event_quota()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         sys.exit(1)
-    print("PASS: world-tick structural gate intact (rules 1-8)")
+    print("PASS: world-tick structural gate intact (rules 1-11)")
     sys.exit(0)
 
 

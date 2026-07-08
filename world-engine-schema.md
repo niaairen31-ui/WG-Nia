@@ -683,6 +683,24 @@ CREATE TABLE event (
 );
 ```
 
+Two producers write this table (TICKET-0017/BRIEF-0017-a, no schema
+change), both through `_apply_mutation`'s `event_creation` branch ->
+`write_event` (the single canon-write site): a scope-level `world_tick`
+call for location/faction-scoped invocations (closed payload shape
+`{title, description, type, knowledge_status, involved_entities,
+location_id}`, quota-bounded), and the analyzer's conversation-sourced
+channel (minimal shape `{title, description, type, involved_entities}` —
+no `knowledge_status`/`location_id`, so this column's `DEFAULT 'secret'`
+applies). The model may propose `secret`/`public` only; `confirmed` is
+creator-reserved, accepted only at apply time. Duplicate guard is
+canon-existence (normalized title + `location_id`, same world), never
+tick_id/conversation-id equality, and applies to both producers alike.
+`session_id`/`batch_id` stay NULL for tick-sourced rows — the sibling
+`proposed_mutation` row's `tick_id`/`conversation_id` is the provenance
+anchor. Read by `context.py`'s MJ context assembler and the return-visit
+delta (TICKET-0016), both filtering `knowledge_status IN
+('public','confirmed')` at query construction.
+
 -----
 
 ### `artifact`

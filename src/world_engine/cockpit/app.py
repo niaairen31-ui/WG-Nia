@@ -97,6 +97,7 @@ from ..writes import (
     delete_world_cascade as _delete_world_cascade,
     knowledge_level_rank,
     write_character_location,
+    write_event,
     write_knowledge,
     write_ledger_entry,
     write_npc_goal,
@@ -705,6 +706,29 @@ def _mutation_dict(m: ProposedMutation) -> dict:
 
 # ── Duplicate-application guard ───────────────────────────────────────────────
 
+def _find_event_duplicate(payload: dict, world_id: str, db: Session) -> Optional[str]:
+    """Canon-existence duplicate check for `event_creation` (TICKET-0017,
+    BRIEF-0017-a): duplicate iff an `Event` row already exists in this world
+    with the same normalized (casefold/strip) title AND the same
+    `location_id` (NULL matches NULL) — never tick_id/conversation equality
+    (0014 guard doctrine). Applies regardless of source (tick-sourced or
+    conversation-sourced): a re-run tick or a --force re-analysis must not
+    double an event either way.
+    """
+    title = _normalize_goal_text(payload.get("title"))
+    location_id = payload.get("location_id")
+    candidates = db.exec(
+        select(Event).where(Event.world_id == world_id, Event.location_id == location_id)
+    ).all()
+    for e in candidates:
+        if _normalize_goal_text(e.title) == title:
+            return (
+                f"event_creation for title {payload.get('title')!r} already exists "
+                "at this location."
+            )
+    return None
+
+
 def _find_applied_duplicate(
     mut: ProposedMutation,
     db: Session,
@@ -776,6 +800,12 @@ def _find_applied_duplicate(
     - relation_change: NO guard, same accumulating-deltas doctrine as the
       conversation-sourced branch above — a double delta from a re-run tick
       is visible in the queue and the creator's to judge, never blocked.
+
+    EVENT_CREATION (TICKET-0017, BRIEF-0017-a): both the tick-sourced branch
+    below AND the conversation-sourced branch further down route through
+    `_find_event_duplicate` — the SAME canon-existence check (title +
+    location_id, this world) regardless of source, so neither a re-run tick
+    nor a --force re-analysis can double an event.
     """
     if not mut.conversation_id:
         if not mut.tick_id:
@@ -822,9 +852,18 @@ def _find_applied_duplicate(
                 )
             return None
 
+        if mut.mutation_type == "event_creation":
+            return _find_event_duplicate(payload, mut.world_id, db)
+
         return None
 
     payload = mut.payload if isinstance(mut.payload, dict) else {}
+
+    if mut.mutation_type == "event_creation":
+        # Canon-existence, not conversation-scoped (the dormant analyzer
+        # channel awakens alongside the tick producer, TICKET-0017): a
+        # --force re-analysis must not double an event either.
+        return _find_event_duplicate(payload, mut.world_id, db)
 
     applied_same_type = db.exec(
         select(ProposedMutation).where(
@@ -967,9 +1006,22 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                          write_character_location; close_open_memberships is
                          called on apply regardless of player co-presence
                          (Nia's locked decision).
+    - event_creation   : (TICKET-0017, BRIEF-0017-a) tolerant of BOTH payload
+                         generations — the scope-level tick's closed shape
+                         (title, description, type, knowledge_status,
+                         involved_entities, location_id) and the analyzer's
+                         minimal conversation-sourced shape (title,
+                         description, type, involved_entities; no
+                         status/location — write_event's defaults apply).
+                         knowledge_status clamped to secret|public|confirmed
+                         (defense in depth; 'confirmed' accepted here — a
+                         creator may have edited the payload at review). A
+                         present location_id must resolve to an ACTIVE
+                         location entity of this world, else "Needs
+                         attention", nothing written. Write via write_event.
 
-    Unimplemented types (event_creation, entity_creation, other) are left as
-    'approved' with a note — better un-applied than wrongly applied.
+    Unimplemented types (entity_creation, other) are left as 'approved' with
+    a note — better un-applied than wrongly applied.
     """
     # ── Duplicate guard ───────────────────────────────────────────────────────
     # Must run before any write.  If an equivalent mutation was already applied
@@ -1194,6 +1246,40 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
         # BRIEF-53 seam: closes the NPC's open gathering_member rows,
         # PLAYER PRESENT OR NOT — Nia's locked decision.
         close_open_memberships(npc_id, db)
+        return None
+
+    # ── event_creation (TICKET-0017, BRIEF-0017-a) ────────────────────────────
+    elif mut.mutation_type == "event_creation":
+        title = payload.get("title")
+        if not title:
+            return "event_creation: payload must contain title"
+
+        knowledge_status = payload.get("knowledge_status")
+        if knowledge_status not in ("secret", "public", "confirmed"):
+            knowledge_status = "secret"
+
+        location_id = payload.get("location_id")
+        if location_id:
+            location_entity = db.get(Entity, location_id)
+            if (
+                location_entity is None
+                or location_entity.type != "location"
+                or location_entity.status != "active"
+                or location_entity.world_id != mut.world_id
+            ):
+                return f"event_creation: location {location_id!r} is not an active location in this world"
+
+        write_event(
+            db,
+            world_id=mut.world_id,
+            title=str(title),
+            description=payload.get("description"),
+            type=payload.get("type"),
+            knowledge_status=knowledge_status,
+            involved_entities=payload.get("involved_entities"),
+            location_id=location_id,
+            mutation_id=mut.id,
+        )
         return None
 
     # ── resource_change (BRIEF-19) ────────────────────────────────────────────
@@ -5009,7 +5095,9 @@ def world_tick_endpoint(
     except ollama_client.OllamaError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
-    return _run_world_tick(db, npc_ids, body.interval)
+    return _run_world_tick(
+        db, npc_ids, body.interval, scope_type=body.scope_type, scope_id=body.scope_id
+    )
 
 
 @app.get("/api/mutations")

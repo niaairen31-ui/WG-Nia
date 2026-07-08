@@ -33,9 +33,11 @@ from .analyzer import (
     _GOAL_ACTION_MAP,
     load_analysis_prompt,
 )
+from .ledger import get_balance
 from .models import (
     Character,
     Entity,
+    Event,
     Faction,
     FactionMembership,
     Knowledge,
@@ -317,6 +319,21 @@ INTERVAL_HOP_RADIUS: dict[str, int | None] = {
     "quelques semaines": None,
 }
 
+# Scope-level event producer (TICKET-0017, BRIEF-0017-a): location- and
+# faction-scoped tick invocations gain ONE additional model call proposing
+# event_creation mutations, on top of the per-NPC ticks above. Events are
+# decoupled from factions by design (Nia's correction, locked): the SCOPE of
+# the tick determines the briefing, not the nature of the event — an
+# "npcs"-scoped invocation never produces an event. Quota bounds the emit
+# loop (J1 volume by construction, machine-checked like INTERVAL_HOP_RADIUS).
+SCOPE_EVENT_QUOTA = 3
+
+# event.type vocabulary (world-engine-schema.md); anything else falls back to
+# "other" rather than being dropped.
+_EVENT_TYPES = frozenset(
+    {"political", "magical", "criminal", "military", "social", "mystery", "other"}
+)
+
 
 def _reachable_locations(
     db: Session, from_location_id: str, interval_label: str
@@ -362,6 +379,240 @@ def _reachable_locations(
         hops += 1
 
     return list(visited.items())
+
+
+def assemble_location_event_context(
+    location_id: str, session: Session, *, interval_label: str
+) -> str:
+    """Assemble the briefing for a location-scoped scope-event call
+    (TICKET-0017, BRIEF-0017-a). French, T1 section discipline (headers
+    always present, placeholders when empty): LE LIEU, QUI S'Y TROUVE, LES
+    ENVIRONS, ÉVÉNEMENTS RÉCENTS ICI.
+    """
+    loc_entity = session.get(Entity, location_id)
+    location = session.get(Location, location_id)
+
+    place_lines: list[str] = []
+    if loc_entity is not None:
+        place_lines.append(loc_entity.name)
+        if loc_entity.description:
+            place_lines.append(loc_entity.description)
+    if location is not None and isinstance(location.subculture, dict):
+        values = location.subculture.get("values")
+        if values:
+            place_lines.append(values)
+    place_body = " ".join(place_lines) if place_lines else "(lieu inconnu)"
+
+    present = session.exec(
+        select(Character).where(Character.current_location_id == location_id)
+    ).all()
+    who_lines: list[str] = []
+    for char in present:
+        entity = session.get(Entity, char.id)
+        if entity is not None:
+            who_lines.append(f"- {entity.name}")
+    who_body = "\n".join(who_lines) if who_lines else "(personne)"
+
+    neighbours = _reachable_locations(session, location_id, interval_label)
+    around_body = (
+        "\n".join(f"- {name}" for _, name in neighbours)
+        if neighbours
+        else "(aucun lieu connecté)"
+    )
+
+    recent = session.exec(
+        select(Event)
+        .where(
+            Event.location_id == location_id,
+            Event.knowledge_status.in_(("public", "confirmed")),
+        )
+        .order_by(Event.recorded_at.desc())
+        .limit(5)
+    ).all()
+    recent_body = (
+        "\n".join(f"- {e.title}" for e in recent)
+        if recent
+        else "(aucun événement public récent)"
+    )
+
+    return (
+        _section("LE LIEU", place_body)
+        + "\n"
+        + _section("QUI S'Y TROUVE", who_body)
+        + "\n"
+        + _section("LES ENVIRONS", around_body)
+        + "\n"
+        + _section("ÉVÉNEMENTS RÉCENTS ICI", recent_body)
+    )
+
+
+def assemble_faction_event_context(faction_id: str, session: Session) -> str:
+    """Assemble the briefing for a faction-scoped scope-event call
+    (TICKET-0017, BRIEF-0017-a). French, T1 section discipline: LA FACTION,
+    POSTURE, MEMBRES, TRÉSORERIE, ÉVÉNEMENTS RÉCENTS.
+
+    MEMBRES reads RAW `FactionMembership` (`left_at IS NULL`), never
+    `read_public_memberships` — the full-interiority tick exception (T1,
+    BRIEF-0014-a) EXTENDED to this surface: same creator-gated surface as
+    the per-NPC briefing's TES AFFILIATIONS, re-logged as a conscious
+    extension (ARCHITECTURE_DECISIONS.md).
+    """
+    faction_entity = session.get(Entity, faction_id)
+    faction = session.get(Faction, faction_id)
+
+    la_faction_lines: list[str] = []
+    if faction_entity is not None:
+        la_faction_lines.append(faction_entity.name)
+        if faction_entity.description:
+            la_faction_lines.append(faction_entity.description)
+    if faction is not None:
+        if faction.faction_type:
+            la_faction_lines.append(f"Type : {faction.faction_type}")
+        if faction.philosophy:
+            la_faction_lines.append(faction.philosophy)
+    la_faction_body = " ".join(la_faction_lines) if la_faction_lines else "(faction inconnue)"
+
+    posture_lines: list[str] = []
+    if faction is not None:
+        posture_fields = (
+            ("Buts : ", faction.goals),
+            ("Tensions internes : ", faction.internal_tensions),
+            ("Aversion : ", faction.aversion),
+            ("Connaissance de la magie : ", faction.magic_knowledge_level),
+        )
+        for label, value in posture_fields:
+            if value:
+                posture_lines.append(f"{label}{value}")
+    posture_body = "\n".join(posture_lines) if posture_lines else "(aucune posture connue)"
+
+    memberships = session.exec(
+        select(FactionMembership).where(
+            FactionMembership.faction_id == faction_id, FactionMembership.left_at.is_(None)
+        )
+    ).all()
+    member_lines: list[str] = []
+    for membership in memberships:
+        member_entity = session.get(Entity, membership.entity_id)
+        name = member_entity.name if member_entity is not None else membership.entity_id
+        if membership.role:
+            member_lines.append(f"- {name} ({membership.role})")
+        else:
+            member_lines.append(f"- {name}")
+    member_body = "\n".join(member_lines) if member_lines else "(aucun membre actif)"
+
+    treasury_body = str(get_balance(session, faction_id))
+
+    recent_candidates = session.exec(
+        select(Event).where(
+            Event.world_id == (faction_entity.world_id if faction_entity else None),
+            Event.knowledge_status.in_(("public", "confirmed")),
+        )
+        .order_by(Event.recorded_at.desc())
+    ).all()
+    recent = [
+        e for e in recent_candidates
+        if isinstance(e.involved_entities, list) and faction_id in e.involved_entities
+    ][:5]
+    recent_body = (
+        "\n".join(f"- {e.title}" for e in recent)
+        if recent
+        else "(aucun événement public récent)"
+    )
+
+    return (
+        _section("LA FACTION", la_faction_body)
+        + "\n"
+        + _section("POSTURE", posture_body)
+        + "\n"
+        + _section("MEMBRES", member_body)
+        + "\n"
+        + _section("TRÉSORERIE", treasury_body)
+        + "\n"
+        + _section("ÉVÉNEMENTS RÉCENTS", recent_body)
+    )
+
+
+def _normalize_scope_event(
+    raw_item: Any,
+    *,
+    scope_type: str,
+    scope_id: str,
+    roster: dict[str, str],
+    locations: dict[str, str],
+    notes: list[str],
+) -> dict | None:
+    """Map one raw model item to the scope-level `event_creation` schema, or
+    None to drop it (TICKET-0017, BRIEF-0017-a). Separate from
+    `_normalize_tick_item` — the per-NPC closed frozenset is UNTOUCHED
+    (`event_creation` never enters it).
+
+    `roster` is name.casefold() -> id for this scope (location: public
+    occupants; faction: members, with the faction id itself appended here
+    for faction scope). `locations` is name.casefold() -> id for ACTIVE
+    locations of the world (faction scope's optional payload location
+    resolution only). `notes` is the caller's shared notes list — parse-time
+    drops and clamps are appended to it (unlike the per-NPC path, which only
+    prints them).
+    """
+    if not isinstance(raw_item, dict):
+        notes.append(f"dropped event_creation: not a dict — {raw_item!r}")
+        return None
+
+    payload_in = raw_item.get("payload") if isinstance(raw_item.get("payload"), dict) else {}
+
+    title = str(payload_in.get("title") or "").strip()
+    if not title:
+        notes.append("dropped event_creation: empty title")
+        return None
+
+    description = payload_in.get("description")
+    description = str(description).strip() or None if description else None
+
+    raw_type = str(payload_in.get("type") or "").strip().casefold()
+    event_type = raw_type if raw_type in _EVENT_TYPES else "other"
+
+    raw_status = str(payload_in.get("knowledge_status") or "").strip().casefold()
+    if raw_status in ("secret", "public"):
+        knowledge_status = raw_status
+    else:
+        knowledge_status = "secret"
+        notes.append(
+            f"event {title!r}: knowledge_status {payload_in.get('knowledge_status')!r} "
+            "coerced to 'secret'"
+        )
+
+    involved_entities: list[str] = []
+    for name in payload_in.get("involved_entities") or []:
+        entity_id = roster.get(str(name).casefold())
+        if entity_id:
+            involved_entities.append(entity_id)
+        else:
+            notes.append(f"event {title!r}: unresolved involved_entities name {name!r} dropped")
+    if scope_type == "faction" and scope_id not in involved_entities:
+        involved_entities.append(scope_id)
+
+    if scope_type == "location":
+        location_id = scope_id
+    else:
+        location_name = str(payload_in.get("location") or "").strip()
+        location_id = locations.get(location_name.casefold()) if location_name else None
+
+    rationale = str(raw_item.get("rationale") or "")
+
+    return {
+        "mutation_type": "event_creation",
+        "target_table": "event",
+        "target_id": None,
+        "payload": {
+            "title": title,
+            "description": description,
+            "type": event_type,
+            "knowledge_status": knowledge_status,
+            "involved_entities": involved_entities,
+            "location_id": location_id,
+        },
+        "rationale": rationale,
+    }
 
 
 def _normalize_goal_text(text: str | None) -> str:
@@ -562,6 +813,8 @@ def run_world_tick(
     interval_label: str,
     model: str = ollama_client.DEFAULT_MODEL,
     host: str = ollama_client.OLLAMA_HOST,
+    scope_type: str = "npcs",
+    scope_id: str | None = None,
 ) -> dict:
     """Advance each NPC in `npc_ids` off-screen for `interval_label`.
 
@@ -573,8 +826,18 @@ def run_world_tick(
     together at the end; a crashed invocation (before that point) writes
     nothing.
 
+    `scope_type`/`scope_id` (TICKET-0017, BRIEF-0017-a): when `scope_type`
+    is `"location"` or `"faction"` (never `"npcs"`), ONE additional
+    scope-level model call proposes `event_creation` mutations for that
+    location/faction, on top of the per-NPC ticks above — sharing this
+    invocation's `tick_id` and single end-of-run transaction. Same
+    degrade-don't-abort envelope as the per-NPC loop: a failure is recorded
+    as a note, the per-NPC results still commit.
+
     Returns the R3 summary:
-    `{"tick_id", "interval", "npcs": [{"id","name","proposed","dropped","notes"}], "total_proposed"}`.
+    `{"tick_id", "interval", "npcs": [{"id","name","proposed","dropped","notes"}], "total_proposed"}`,
+    plus `"scope_events": {"proposed","dropped","notes"}` when `scope_type`
+    is `"location"` or `"faction"`.
     """
     tick_id = str(uuid4())
     template = load_analysis_prompt(db, world_id=None, usage="world_tick")
@@ -718,13 +981,139 @@ def run_world_tick(
             {"id": npc_id, "name": npc_name, "proposed": proposed, "dropped": dropped, "notes": notes}
         )
 
+    scope_events: dict | None = None
+    if scope_type in ("location", "faction"):
+        proposed_events = 0
+        dropped_events = 0
+        event_notes: list[str] = []
+        event_items: list = []
+        world_id = ""
+        roster: dict[str, str] = {}
+        locations_index: dict[str, str] = {}
+
+        try:
+            if scope_type == "location":
+                scope_entity = db.get(Entity, scope_id)
+                if scope_entity is None:
+                    raise ValueError(f"location {scope_id!r} not found")
+                world_id = scope_entity.world_id
+                briefing = assemble_location_event_context(scope_id, db, interval_label=interval_label)
+                for char in db.exec(
+                    select(Character).where(Character.current_location_id == scope_id)
+                ).all():
+                    member_entity = db.get(Entity, char.id)
+                    if member_entity is not None:
+                        roster[member_entity.name.casefold()] = char.id
+            else:  # faction
+                scope_entity = db.get(Entity, scope_id)
+                if scope_entity is None:
+                    raise ValueError(f"faction {scope_id!r} not found")
+                world_id = scope_entity.world_id
+                briefing = assemble_faction_event_context(scope_id, db)
+                for membership in db.exec(
+                    select(FactionMembership).where(
+                        FactionMembership.faction_id == scope_id,
+                        FactionMembership.left_at.is_(None),
+                    )
+                ).all():
+                    member_entity = db.get(Entity, membership.entity_id)
+                    if member_entity is not None:
+                        roster[member_entity.name.casefold()] = membership.entity_id
+                locations_index = {
+                    e.name.casefold(): e.id
+                    for e in db.exec(
+                        select(Entity).where(
+                            Entity.world_id == world_id,
+                            Entity.type == "location",
+                            Entity.status == "active",
+                        )
+                    ).all()
+                }
+
+            events_template = load_analysis_prompt(db, world_id=None, usage="world_tick_events")
+            events_version = current_prompt(db, events_template)
+            events_user_message = (
+                events_version.user_template
+                .replace("{event_context}", briefing)
+                .replace("{interval_label}", interval_label)
+            )
+            events_llm_messages = [
+                {"role": "system", "content": events_version.system_prompt},
+                {"role": "user", "content": events_user_message},
+            ]
+            raw_events = ollama_client.chat(
+                events_llm_messages,
+                model=effective_model(events_template, model),
+                host=host,
+                format="json",
+            )
+            event_items = json.loads(_extract_json_array(raw_events))
+            if not isinstance(event_items, list):
+                raise ValueError("model returned a non-list JSON value")
+        except Exception as exc:  # noqa: BLE001 — degrade-don't-abort (R3), same as the per-NPC loop
+            event_notes.append(f"scope event call failed: {exc}")
+            event_items = []
+
+        seen_titles: set[str] = set()
+        for raw_item in event_items:
+            normalized = _normalize_scope_event(
+                raw_item,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                roster=roster,
+                locations=locations_index,
+                notes=event_notes,
+            )
+            if normalized is None:
+                dropped_events += 1
+                continue
+
+            event_title = normalized["payload"]["title"]
+            title_key = _normalize_goal_text(event_title)
+            if title_key in seen_titles:
+                dropped_events += 1
+                event_notes.append(f"duplicate event_creation dropped: {event_title!r}")
+                continue
+            seen_titles.add(title_key)
+
+            if proposed_events >= SCOPE_EVENT_QUOTA:
+                dropped_events += 1
+                event_notes.append(
+                    f"event_creation dropped (quota {SCOPE_EVENT_QUOTA} reached): {event_title!r}"
+                )
+                continue
+
+            rows_to_write.append(
+                ProposedMutation(
+                    world_id=world_id,
+                    source_type="world_tick",
+                    conversation_id=None,
+                    pass_play_id=None,
+                    tick_id=tick_id,
+                    mutation_type=normalized["mutation_type"],
+                    target_table=normalized["target_table"],
+                    target_id=None,
+                    payload=normalized["payload"],
+                    status="proposed",
+                    rationale=normalized["rationale"],
+                    proposed_by="local_ai_tick",
+                    proposed_at=now,
+                )
+            )
+            proposed_events += 1
+
+        scope_events = {"proposed": proposed_events, "dropped": dropped_events, "notes": event_notes}
+
     for row in rows_to_write:
         db.add(row)
     db.commit()
 
-    return {
+    result = {
         "tick_id": tick_id,
         "interval": interval_label,
         "npcs": npc_summaries,
         "total_proposed": sum(n["proposed"] for n in npc_summaries),
     }
+    if scope_events is not None:
+        result["scope_events"] = scope_events
+    return result

@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0017-event-producer",
+  "when": "2026-07-08T23:02:13.524273+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "world_tick.py",
+      "status": "PASS",
+      "msg": "PASS: world-tick structural gate intact (rules 1-11)"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    }
+  ]
+}

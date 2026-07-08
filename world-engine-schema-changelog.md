@@ -33,6 +33,32 @@ source of "what version are we at".
   append-only and constructed only from `cockpit/app.py`; the delta's Event
   query textually references `knowledge_status`.
 
+- **BRIEF-0017-a** — No schema change. `event` gains its first two
+  producers (the table existed since the founding schema, unused). A
+  scope-level `world_tick` call (location/faction-scoped invocations only;
+  `"npcs"`-scoped never produces one) proposes `event_creation` mutations,
+  quota-bounded (`SCOPE_EVENT_QUOTA = 3`, `tick.py`) via a new prompt head
+  `pt-world-tick-events` (`usage='world_tick_events'`, world_id NULL).
+  `_apply_mutation` (`cockpit/app.py`) implements the `event_creation`
+  branch — awakening the analyzer's dormant conversation-sourced channel
+  (`analyzer.py:324-330`) at the same time, since both payload generations
+  (the tick's closed shape and the analyzer's minimal shape) route through
+  the same new `write_event` helper (`writes.py`, the sole `Event(`
+  construction site). The model may propose `knowledge_status`
+  secret|public only; `confirmed` is creator-reserved, accepted only at
+  apply time. Duplicate guard (`_find_applied_duplicate`) is
+  canon-existence — same normalized title + `location_id`, same world —
+  extended to the conversation-sourced branch too (not just the tick
+  branch), so a `--force` re-analysis can't double an event either. Faction
+  briefings extend the full-interiority tick exception (raw
+  `FactionMembership`, never `read_public_memberships`) to this surface,
+  re-logged. Delivered via `scripts/apply_ticket_0017_prompt_updates.py`
+  (HEAD-ABSENT branch, the 0014 shape). New verify rules in
+  `tooling/verify/checks/world_tick.py` (9-11): `event_creation` never
+  enters the per-NPC closed contract; `SCOPE_EVENT_QUOTA` exists and is
+  referenced by the emit loop; `location_id` joins the forced-attribution
+  field set.
+
 - **BRIEF-0015-a** — No schema change. `npc_move` added to
   `proposed_mutation.mutation_type` (targets `character`, tick-only
   producer; `proposed_mutation.mutation_type` is unconstrained TEXT and
