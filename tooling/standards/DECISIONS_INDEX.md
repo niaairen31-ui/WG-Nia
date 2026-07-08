@@ -68,3 +68,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 4614 | WORLD TICK — off-screen NPC advancement (BRIEF-0014-a, BRIEF-0014-b, schema v1.70) | BRIEF-0014-a, BRIEF-0014-b | v1.70 |
 | 4841 | WORLD TICK — NPC movement (BRIEF-0015-a, no schema change) | BRIEF-0015-a |  |
 | 4969 | Deferred decisions |  |  |
+| 5124 | RETURN-VISIT DELTA (BRIEF-0016-a, schema v1.71) | BRIEF-0016-a | v1.71 |

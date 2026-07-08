@@ -1,0 +1,42 @@
+{
+  "ticket": "TICKET-0016-return-visit-delta",
+  "when": "2026-07-08T22:11:57.537188+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "visit_delta.py",
+      "status": "PASS",
+      "msg": "PASS: visit_delta \u2014 append-only + single writer, event structural exclusion intact"
+    },
+    {
+      "check": "world_tick.py",
+      "status": "PASS",
+      "msg": "PASS: world-tick structural gate intact (rules 1-8)"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u2014 CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry"
+    },
+    {
+      "check": "prompt_registry.py",
+      "status": "PASS",
+      "msg": "PASS: prompt_registry \u2014 usage bijection, registry entry shape, static resolver wiring, effective_model pure-function behavior"
+    },
+    {
+      "check": "prompt_version.py",
+      "status": "PASS",
+      "msg": "PASS: prompt_version schema, single accessor/write-shape allowlists, append-only, H1, and the versioned edit API (PATCH/versions/restore, C1 fail-closed)"
+    },
+    {
+      "check": "prompt_lean.py",
+      "status": "PASS",
+      "msg": "PASS: prompt_lean \u2014 pilot purge, affinity tier resolver, pricing relocation, example trims"
+    }
+  ]
+}

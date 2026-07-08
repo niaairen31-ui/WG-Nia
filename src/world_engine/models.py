@@ -867,6 +867,28 @@ class PromptVersion(SQLModel, table=True):
     created_at: datetime = _created_ts()
 
 
+# -----------------------------------------------------------------------------
+# visit  (player location entries, append-only — schema v1.71, TICKET-0016/
+# BRIEF-0016-a). Anchors the player's last entry per location so enter_scene
+# can compute a return-visit delta. NOT in canon_write_policy.txt's
+# CANON_TABLES — written directly from enter_scene, same non-canon,
+# bookkeeping status as gathering/gathering_member. No UPDATE/DELETE path
+# exists (enforced by tooling/verify/checks/visit_delta.py rule 1).
+# -----------------------------------------------------------------------------
+class Visit(SQLModel, table=True):
+    __tablename__ = "visit"
+    __table_args__ = (
+        Index("idx_visit_player_location", "player_id", "location_id", "entered_at"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    player_id: str = Field(foreign_key="entity.id", nullable=False)
+    location_id: str = Field(foreign_key="entity.id", nullable=False)
+    entered_at: datetime = _created_ts()
+    present_npc_ids: Optional[Any] = Field(default=None, sa_column=Column(JSON))
+
+
 __all__ = [
     "World",
     "Entity",
@@ -891,4 +913,5 @@ __all__ = [
     "User",
     "PromptTemplate",
     "PromptVersion",
+    "Visit",
 ]

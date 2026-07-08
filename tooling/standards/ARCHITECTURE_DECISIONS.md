@@ -5121,6 +5121,82 @@ Recorded here so each is revisited deliberately rather than forgotten:
   hard-delete behavior; changing it to a soft pattern is a separate,
   not-yet-scoped ticket.
 
+## RETURN-VISIT DELTA (BRIEF-0016-a, schema v1.71)
+
+TICKET-0015 gave NPCs off-screen movement; nothing told the player the world
+moved. G2 lands: a new `visit` table anchors the player's last entry per
+location, and a code-computed diff (NPCs arrived/departed, public events
+since) rides into the EXISTING `mj_establishment` narration at
+`enter_scene`. The deferral was named in code at `cockpit/app.py` since
+BRIEF-17 ("no change-detection (G2 deferred)") — this brief lifts it.
+
+**G2 over G1 — a table, not a conversation-derived anchor.** Nia's locked
+rationale: "visited without conversing" is a normal play pattern a
+conversation-derived last-seen timestamp would miss entirely (a player can
+walk through a location, see nobody, leave, and still deserves a delta on
+return). `visit` is append-only, born empty at migration — no backfill, so
+every location the player has never re-entered since counts as a first
+visit exactly once, by design.
+
+**F3 — scoped naming exception to the establishment rule.** The existing
+`mj_establishment` system prompt forbade naming ANY present NPC (J1,
+BRIEF-17) — narrating a departure would violate it as written, and
+departures are shown NOWHERE else in the UI, which is this ticket's entire
+point. The new prompt version scopes the rule instead of removing it: NPCs
+cited in the CHANGEMENTS block (arrivals/departures) may be named; any
+presently-present NPC remains unnameable, exactly as before (the roster UI
+is still the sole surface for "who's here now"). A mirrored anti-invention
+clause (parallel to the signposts rule) forbids inventing a change when the
+block reports nothing.
+
+**F4 — `recorded_at`, not `occurred_at`, is the delta's axis.** `Event.
+occurred_at` is nullable and represents in-fiction time; `recorded_at` is
+always set (`_created_ts`) and represents "when the world learned of it" —
+the correct axis for "since you were last here". The delta's Event query
+applies the SAME structural exclusion as the only other Event reader
+(`context.py`): `knowledge_status IN ('public','confirmed')` at query
+construction, never by instruction. No producer writes Event rows yet — the
+event leg is a deliberate forward-reader, rendering empty today and giving
+the eventual event producer (TICKET-0017 territory) a perception channel on
+day one.
+
+**F5 — departed NPCs are named even if dead or deactivated since.** The
+snapshot and the "current" side of the diff reuse the tick's location-scope
+predicate VERBATIM (`cockpit/app.py` — NPC, alive, active, world-scoped).
+The DEPARTED side resolves names from `Entity` WITHOUT that filter: the
+player saw the NPC while it was still active; naming its absence now
+reveals nothing new, and filtering departures to still-active entities
+would silently drop real information the player already has. An id that no
+longer resolves at all (hard-deleted) is silently skipped.
+
+**Compute-then-append ordering (F7).** Inside `enter_scene`'s existing
+genuine-transition guard (`if not open_g:`), after the window-analysis loop
+and before `_enter_location`: the delta is computed from the PREVIOUS
+`visit` row, THEN `_enter_location` runs (dissolves/regenerates gatherings —
+touches only `gathering_member`, never `current_location_id`, so the
+presence read is safe on either side of it), THEN the new `visit` row is
+appended. A single request-scoped session, same commit discipline as the
+surrounding code. Outside the guard (an F5 browser refresh) nothing
+changes: `changes=None` reaches the narration unconditionally, so a refresh
+narrates the scene without a delta and writes no `visit` row.
+
+**Not canon.** `visit` is intentionally absent from `canon_write_policy.txt`'s
+`CANON_TABLES` — it is written directly from `enter_scene`, the same
+non-canon bookkeeping status as `gathering`/`gathering_member`. Its
+append-only doctrine is enforced by a dedicated structural check instead
+(`visit_delta.py` rule 1: `Visit(` constructed only in `cockpit/app.py`, no
+delete, no post-construction attribute assignment) — the same mechanical
+philosophy as `single_canon_write.py`, applied to a table that doctrine
+doesn't cover.
+
+**Scope OUT this brief** — carried or newly named deferrals: any Event
+PRODUCER (tick lane or creator CRUD for events — the delta ships only the
+reader); signpost/discoverable deltas (already re-narrated fresh via
+`active_signposts` on every entry); journal UI, cross-location "world news"
+digests; visit tracking for NPCs or anything but the player character;
+visit pruning/retention (append-only, small rows, revisit only if
+measured).
+
 ---
 
 *Co-built with Claude, June 2026.*

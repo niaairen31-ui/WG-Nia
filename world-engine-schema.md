@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.70
+Current schema version: v1.71
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -949,6 +949,31 @@ CREATE INDEX idx_prompt_version_head ON prompt_version(prompt_template_id);
 
 -----
 
+### `visit`
+
+Player location entries, append-only (schema v1.71, TICKET-0016/BRIEF-0016-a).
+Anchors the player's last entry per location so `enter_scene` can compute a
+return-visit delta (NPCs arrived/departed, public events since). No UPDATE,
+no DELETE, ever — a correction is impossible by construction (there is
+nothing to correct; a row is a snapshot in time). Born empty on migration —
+no backfill, every location counts as a first visit once. NOT a canon table
+(`canon_write_policy.txt`) — written directly from `enter_scene`, same
+bookkeeping status as `gathering`/`gathering_member`.
+
+```sql
+CREATE TABLE visit (
+  id                TEXT PRIMARY KEY,
+  world_id          TEXT NOT NULL REFERENCES world(id),
+  player_id         TEXT NOT NULL REFERENCES entity(id),
+  location_id       TEXT NOT NULL REFERENCES entity(id),
+  entered_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+  present_npc_ids   JSON   -- public NPC ids present at the moment of entry
+);
+CREATE INDEX idx_visit_player_location ON visit(player_id, location_id, entered_at);
+```
+
+-----
+
 ## INDEXES
 
 Created alongside the tables. They change nothing functionally — they keep the
@@ -1021,6 +1046,9 @@ CREATE INDEX idx_skill_character ON skill(character_id);
 CREATE INDEX idx_discoverable_location ON discoverable_detail(location_id);
 CREATE INDEX idx_discoverable_world    ON discoverable_detail(world_id);
 CREATE INDEX idx_discoverable_signpost_group ON discoverable_detail(signpost_group);
+
+-- "the player's latest visit to this location" (schema v1.71, BRIEF-0016-a)
+CREATE INDEX idx_visit_player_location ON visit(player_id, location_id, entered_at);
 ```
 
 -----
