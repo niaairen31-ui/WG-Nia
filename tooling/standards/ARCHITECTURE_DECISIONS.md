@@ -5197,6 +5197,58 @@ digests; visit tracking for NPCs or anything but the player character;
 visit pruning/retention (append-only, small rows, revisit only if
 measured).
 
+## WORLD TICK — scope-level event producer (BRIEF-0017-a, no schema change)
+
+The `event` table existed since the founding schema with no producer and no
+apply branch — TICKET-0016 gave it a reader (the return-visit delta); this
+brief gives it two producers at once. Location- and faction-scoped tick
+invocations gain ONE additional scope-level model call proposing
+`event_creation` mutations (new prompt head `pt-world-tick-events`), and
+`_apply_mutation` finally implements `event_creation` — awakening the
+analyzer's dormant conversation-sourced channel (`analyzer.py:324-330`,
+left "approved with a note" since the founding schema) alongside it.
+
+**Scope shapes the briefing, never the nature of the event.** Nia's locked
+correction on record: events are not creatures of factions — a storm or a
+festival has no factional author. What changes between a location-scoped
+and a faction-scoped tick is the BRIEFING (a place's setting and occupants,
+versus a faction's posture and members), not the payload contract. An
+`"npcs"`-scoped invocation produces no event call at all: an NPC does
+things, it does not author world events. One button, two granularities.
+
+**Quota = `SCOPE_EVENT_QUOTA = 3` (J1 volume by construction).** A module
+constant, machine-checked the same way as `INTERVAL_HOP_RADIUS`
+(TICKET-0015): items beyond the cap are dropped with a note in the R3
+`scope_events` summary, never silently truncated.
+
+**`knowledge_status`: the model proposes secret|public only; `confirmed` is
+creator-reserved.** Both the scope-level normalizer and `_apply_mutation`'s
+apply-time clamp (defense in depth) coerce anything else to `secret` —
+except `confirmed` at APPLY time, which is accepted there because a creator
+may have hand-edited the payload at review; the model itself may never emit
+it.
+
+**The canon-existence guard is extended to the conversation-sourced
+channel too, not just the tick.** The 0014 guard doctrine (canon-existence
+— same normalized title + same `location_id`, never tick_id/conversation
+equality) already covered a re-run tick; this brief adds the identical
+check to `_find_applied_duplicate`'s conversation branch for
+`event_creation` specifically, bypassing that branch's usual
+same-conversation scoping. Reason: awakening the dormant analyzer channel
+means a `--force` re-analysis could otherwise re-emit and double-apply an
+event exactly like a re-run tick could — the same failure mode needs the
+same fix, regardless of which producer it came from.
+
+**Full-interiority tick exception RE-LOGGED, extended to the faction
+briefing.** The per-NPC tick briefing already reads raw `FactionMembership`
+(`tick.py:189`, never `read_public_memberships`) — a conscious, logged
+exception (TICKET-0014) because its output passes creator review before
+anything is written. The faction-scoped event briefing sits on the SAME
+creator-gated surface (every `event_creation` proposal is reviewed like any
+other), so the exception extends to it: secret memberships and
+`internal_tensions` are visible to the model there too. Logged here as a
+conscious extension, not a silent widening.
+
 ---
 
 *Co-built with Claude, June 2026.*

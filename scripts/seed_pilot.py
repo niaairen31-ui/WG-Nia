@@ -927,6 +927,64 @@ INTERVALLE ÉCOULÉ : {interval_label}
 Report what changed as a JSON array.\
 """
 
+# BRIEF-0017-a: scope-level event producer. usage = "world_tick_events".
+# A NEW head, not a version of pt-world-tick — different briefing (a place or
+# a faction's posture, never one NPC's interiority), different contract.
+# world_id = NULL, no world-specific examples (universal-template rule).
+WORLD_TICK_EVENTS_SYSTEM_PROMPT = """\
+You author ONE world event during an off-screen interval, for a whole
+location or a whole faction — not for an NPC. You receive a briefing about
+the scope (a place, or a faction's posture and members) and an elapsed
+interval. Propose up to 3 events that plausibly occurred there during that
+interval: a storm, a festival, a raid, a discovery, a scandal — whatever
+fits the briefing. An event has no single NPC author; it belongs to the
+scope.
+
+Output: a JSON array only. No prose. No markdown fences. Start with [,
+end with ]. A quiet interval is a legitimate answer: output exactly []
+
+Every element must have these EXACT 5 keys — no other keys allowed:
+  "mutation_type"  (string) — always "event_creation"
+  "target_table"   (string) — always "event"
+  "target_id"      (null)   — always null
+  "payload"        (object) — see shape below
+  "rationale"      (string) — one line: why this event fits the briefing
+
+Reference people and places by NAME exactly as written in the briefing.
+Never invent identifiers, ids, people, or places absent from the briefing.
+
+Payload shape:
+  {"title":"…","description":"…",
+   "type":"political|magical|criminal|military|social|mystery|other",
+   "knowledge_status":"secret|public",
+   "involved_entities":["<name from the briefing>", …],
+   "location":"<name, faction scope only, optional>"}
+
+=== KNOWLEDGE_STATUS RULE ===
+"public" when the event is openly visible or known at the scope; "secret"
+when it is covert or known only to a few. Never propose "confirmed" — that
+status is reserved for the creator's own review.
+
+=== INVOLVED_ENTITIES RULE ===
+List only names that actually appear in the briefing (occupants or
+members). An event may involve none; naming no one is legitimate.
+
+=== SCALE ===
+The elapsed interval is «{interval_label}». Scale ambition to it: a few
+hours produce at most a minor happening; a few days allow a meaningful
+event; a few weeks may produce something with lasting consequences. AT
+MOST 3 events for the entire interval, fewer when nothing notable fits.\
+"""
+
+WORLD_TICK_EVENTS_USER_TEMPLATE = """\
+SCOPE BRIEFING:
+{event_context}
+
+INTERVALLE ÉCOULÉ : {interval_label}
+
+Report up to 3 events as a JSON array.\
+"""
+
 # BRIEF-47: World-bible generator. usage = "world_generation". Creator-side
 # draft generator for a NEW world's premise — entity_author.generate_world_draft
 # formats this user_template with only {brief} (no {type_fields}: a world
@@ -1661,6 +1719,23 @@ def seed(session: Session) -> None:
         system_prompt=WORLD_TICK_SYSTEM_PROMPT,
         user_template=WORLD_TICK_USER_TEMPLATE,
         variables=["tick_context", "interval_label"],
+        destination="local",
+    )
+
+    # ----- prompt template: world tick — scope-level event producer ---------
+    # (TICKET-0017/BRIEF-0017-a). usage = "world_tick_events". world_id =
+    # NULL. A NEW head (not an append to pt-world-tick — different briefing,
+    # different contract, different usage value). model=NULL (Q1): the
+    # runner passes ollama_client.DEFAULT_MODEL through effective_model.
+    upsert_prompt_template(
+        session,
+        "pt-world-tick-events",
+        world_id=None,
+        name="World tick — événements de portée lieu/faction (JSON)",
+        usage="world_tick_events",
+        system_prompt=WORLD_TICK_EVENTS_SYSTEM_PROMPT,
+        user_template=WORLD_TICK_EVENTS_USER_TEMPLATE,
+        variables=["event_context", "interval_label"],
         destination="local",
     )
 

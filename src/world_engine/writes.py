@@ -67,7 +67,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from .models import Character, FactionMembership, Knowledge, Ledger, NpcGoal, PromptTemplate, PromptVersion, Relation, Skill
+from .models import Character, Event, FactionMembership, Knowledge, Ledger, NpcGoal, PromptTemplate, PromptVersion, Relation, Skill
 
 # Simple-identifier placeholder, e.g. `{player_line}` — deliberately does not
 # match JSON-example braces like `{"key": ...}` (TICKET-0011, C1).
@@ -625,6 +625,49 @@ def write_npc_goal_status(
     return goal
 
 
+def write_event(
+    db: Session,
+    *,
+    world_id: str,
+    title: str,
+    description: Optional[str] = None,
+    type: Optional[str] = None,
+    knowledge_status: Optional[str] = None,
+    involved_entities: Optional[list] = None,
+    location_id: Optional[str] = None,
+    mutation_id: Optional[str] = None,
+) -> Event:
+    """Insert one `event` row. Caller adds nothing else — this function
+    calls `db.add`. The ONLY place `Event(` is constructed in gameplay code
+    (TICKET-0017, BRIEF-0017-a): both producers — the scope-level tick call
+    and the analyzer's dormant conversation-sourced channel — route through
+    `_apply_mutation`'s `event_creation` branch, which calls this.
+
+    `knowledge_status=None` lets the column's `server_default` 'secret'
+    apply — the analyzer's minimal payload shape carries no status.
+    `occurred_at` stays None (in-fiction time unknown); `recorded_at` is the
+    row's own `_created_ts` default. `session_id`/`batch_id` stay None:
+    neither a play-session artifact nor a pass-play batch — the mutation
+    row's `tick_id`/`conversation_id` is the provenance anchor.
+    `mutation_id` is accepted only for call-site symmetry with the other
+    `_apply_mutation` writers (no `change_history` column on this table) and
+    is not otherwise used here.
+    """
+    del mutation_id
+    event = Event(
+        world_id=world_id,
+        title=title,
+        description=description,
+        type=type,
+        involved_entities=involved_entities,
+        location_id=location_id,
+    )
+    if knowledge_status is not None:
+        event.knowledge_status = knowledge_status
+    db.add(event)
+    return event
+
+
 def write_prompt_version(
     db: Session,
     *,
@@ -787,6 +830,7 @@ __all__ = [
     "write_skill_tier",
     "write_ledger_entry",
     "write_membership",
+    "write_event",
     "write_prompt_version",
     "delete_world_cascade",
     "KNOWLEDGE_LEVELS",

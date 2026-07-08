@@ -69,3 +69,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 4841 | WORLD TICK — NPC movement (BRIEF-0015-a, no schema change) | BRIEF-0015-a |  |
 | 4969 | Deferred decisions |  |  |
 | 5124 | RETURN-VISIT DELTA (BRIEF-0016-a, schema v1.71) | BRIEF-0016-a | v1.71 |
+| 5200 | WORLD TICK — scope-level event producer (BRIEF-0017-a, no schema change) | BRIEF-0017-a |  |
