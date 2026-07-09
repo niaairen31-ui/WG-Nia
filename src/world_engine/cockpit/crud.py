@@ -69,6 +69,7 @@ from ..models import (
     Entity,
     Faction,
     FactionMembership,
+    GoalAgendaLink,
     Item,
     Knowledge,
     Ledger,
@@ -87,10 +88,12 @@ from ..writes import (
     KNOWLEDGE_LEVELS,
     NPC_GOAL_HORIZONS,
     PromptValidationError,
+    detach_goal_agenda_link,
     write_agenda,
     write_agenda_status,
     write_agenda_step,
     write_agenda_step_status,
+    write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
     write_membership,
@@ -463,7 +466,30 @@ def _list_knowledge(entity_id: str, db: DbSession) -> list[dict]:
     return [_knowledge_dict(k) for k in rows]
 
 
-def _goal_dict(g: NpcGoal) -> dict:
+def _goal_links(goal_id: str, db: DbSession) -> list[dict]:
+    """ACTIVE goal_agenda_link rows for one goal (TICKET-0020, BRIEF-0020-c) —
+    link id + agenda id/title, so the creator can render `(sert : « … »)`
+    and offer a detach control. Detached rows never surface here — a
+    detached link is not "less active", it is gone from every reader
+    (history is sacred: the row itself is preserved, just not shown as
+    current)."""
+    links = db.exec(
+        select(GoalAgendaLink).where(
+            GoalAgendaLink.goal_id == goal_id, GoalAgendaLink.detached_at.is_(None)
+        )
+    ).all()
+    out = []
+    for link in links:
+        agenda = db.get(Agenda, link.agenda_id)
+        out.append({
+            "link_id": link.id,
+            "agenda_id": link.agenda_id,
+            "agenda_title": agenda.title if agenda is not None else link.agenda_id,
+        })
+    return out
+
+
+def _goal_dict(g: NpcGoal, db: DbSession) -> dict:
     return {
         "id": g.id,
         "npc_id": g.npc_id,
@@ -472,6 +498,7 @@ def _goal_dict(g: NpcGoal) -> dict:
         "status": g.status,
         "created_at": _iso(g.created_at),
         "updated_at": _iso(g.updated_at),
+        "links": _goal_links(g.id, db),
     }
 
 
@@ -481,7 +508,7 @@ def _list_goals(entity_id: str, db: DbSession) -> list[dict]:
         select(NpcGoal).where(NpcGoal.npc_id == entity_id)
     ).all()
     ordered = sorted(rows, key=lambda g: (g.status != "active", -g.created_at.timestamp()))
-    return [_goal_dict(g) for g in ordered]
+    return [_goal_dict(g, db) for g in ordered]
 
 
 # ── Field application ──────────────────────────────────────────────────────────
@@ -994,7 +1021,7 @@ def create_goal(entity_id: str, body: GoalWriteBody, db: DbSession = Depends(get
     )
     db.commit()
     db.refresh(goal)
-    return _goal_dict(goal)
+    return _goal_dict(goal, db)
 
 
 @router.post("/goals/{goal_id}/status")
@@ -1011,7 +1038,7 @@ def set_goal_status(goal_id: str, body: GoalStatusBody, db: DbSession = Depends(
         raise HTTPException(422, str(exc))
     db.commit()
     db.refresh(goal)
-    return _goal_dict(goal)
+    return _goal_dict(goal, db)
 
 
 def _npc_faction_goals(entity_id: str, db: DbSession) -> Optional[str]:
@@ -1143,6 +1170,32 @@ def _agenda_step_dict(s: AgendaStep) -> dict:
     }
 
 
+def _agenda_linked_goals(agenda_id: str, db: DbSession) -> list[dict]:
+    """ACTIVE links into this agenda (TICKET-0020, BRIEF-0020-c) — link id +
+    the linked goal's id/description/status/owning NPC name, for the
+    Intrigues card's linked-goals list and its per-link detach control."""
+    links = db.exec(
+        select(GoalAgendaLink).where(
+            GoalAgendaLink.agenda_id == agenda_id, GoalAgendaLink.detached_at.is_(None)
+        )
+    ).all()
+    out = []
+    for link in links:
+        goal = db.get(NpcGoal, link.goal_id)
+        if goal is None:
+            continue
+        npc = db.get(Entity, goal.npc_id)
+        out.append({
+            "link_id": link.id,
+            "goal_id": goal.id,
+            "goal_description": goal.description,
+            "goal_status": goal.status,
+            "npc_id": goal.npc_id,
+            "npc_name": npc.name if npc is not None else goal.npc_id,
+        })
+    return out
+
+
 def _agenda_dict(a: Agenda, db: DbSession) -> dict:
     owner = db.get(Entity, a.owner_entity_id)
     steps = db.exec(
@@ -1153,11 +1206,13 @@ def _agenda_dict(a: Agenda, db: DbSession) -> dict:
         "world_id": a.world_id,
         "owner_entity_id": a.owner_entity_id,
         "owner_name": owner.name if owner is not None else a.owner_entity_id,
+        "owner_type": owner.type if owner is not None else None,
         "title": a.title,
         "status": a.status,
         "created_at": _iso(a.created_at),
         "updated_at": _iso(a.updated_at),
         "steps": [_agenda_step_dict(s) for s in steps],
+        "linked_goals": _agenda_linked_goals(a.id, db),
     }
 
 
@@ -1262,6 +1317,59 @@ def update_agenda_step(step_id: str, body: AgendaStepPatchBody, db: DbSession = 
     db.commit()
     db.refresh(step)
     return _agenda_step_dict(step)
+
+
+# ── Goal <-> agenda links (schema v1.73, TICKET-0020, BRIEF-0020-c) ──────────
+# Thin wrappers over the 0020-a helpers only — no business rule lives here;
+# a ValueError from either helper (inactive goal/agenda, duplicate active
+# pair, already detached) surfaces as a 422, never a 500. No delete route
+# exists: detach is the only exit (history is sacred).
+
+class GoalAgendaLinkCreateBody(BaseModel):
+    goal_id: Optional[str] = None
+    agenda_id: Optional[str] = None
+
+
+@router.post("/goal-agenda-links", status_code=201)
+def create_goal_agenda_link(body: GoalAgendaLinkCreateBody, db: DbSession = Depends(get_session)) -> dict:
+    world_id = _world_id(db)
+    if not body.goal_id or not body.agenda_id:
+        raise HTTPException(422, "goal_id and agenda_id are required")
+    try:
+        link = write_goal_agenda_link(
+            db, world_id=world_id, goal_id=body.goal_id, agenda_id=body.agenda_id, created_by="creator",
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    db.commit()
+    db.refresh(link)
+    return {
+        "id": link.id,
+        "goal_id": link.goal_id,
+        "agenda_id": link.agenda_id,
+        "created_at": _iso(link.created_at),
+        "created_by": link.created_by,
+    }
+
+
+@router.post("/goal-agenda-links/{link_id}/detach")
+def detach_goal_agenda_link_route(link_id: str, db: DbSession = Depends(get_session)) -> dict:
+    link = db.get(GoalAgendaLink, link_id)
+    if link is None or link.world_id != _world_id(db):
+        raise HTTPException(404, f"GoalAgendaLink {link_id!r} not found")
+    try:
+        link = detach_goal_agenda_link(db, link=link, detached_by="creator")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    db.commit()
+    db.refresh(link)
+    return {
+        "id": link.id,
+        "goal_id": link.goal_id,
+        "agenda_id": link.agenda_id,
+        "detached_at": _iso(link.detached_at),
+        "detached_by": link.detached_by,
+    }
 
 
 # ── Faction membership (schema v1.39, BRIEF-27) ───────────────────────────────
