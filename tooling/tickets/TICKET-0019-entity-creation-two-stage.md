@@ -2,7 +2,7 @@
 id: TICKET-0019
 title: entity-creation-two-stage — the tick proposes the need, the authoring chain produces the sheet
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-08
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write]
