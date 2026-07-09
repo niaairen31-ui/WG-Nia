@@ -14,6 +14,10 @@ POST /api/mutations/batch-review      approve/reject several proposed rows,
                                        sequentially, through the same paths
 POST /api/world-tick                  scoped off-screen NPC advancement;
                                        writes proposed_mutation rows only
+GET  /api/creations/pending           approved, unrealized entity_creation
+                                       germs (TICK or CONVERSATION source)
+POST /api/creations/{id}/generate     pure draft generation from a germ;
+                                       writes nothing (BRIEF-0019-a)
 
 Security
 --------
@@ -124,19 +128,12 @@ class EntityGenerateBody(BaseModel):
     brief: str
 
 
-@app.post("/api/entities/generate")
-def generate_entity(
-    body: EntityGenerateBody,
-    db: Session = Depends(get_session),
-) -> dict:
-    """Creator-side AI draft generator (BRIEF-24; L1 goals, BRIEF-0013-b).
-
-    Deliberately NOT in crud.py: crud.py is a sanctioned canon-write path
-    and this route writes nothing — keeping it in a separate router makes
-    that property legible. Calls only generate_entity_draft (+, for a
-    character draft, generate_npc_goals); performs no write itself. Returns
-    {"ok": false, "error": ...} (never a 500) on any failure — see
-    entity_author.generate_entity_draft.
+def _generate_draft_with_l1(entity_type: str, brief: str, db: Session) -> dict:
+    """Shared write-free generation core (BRIEF-0019-a item 4, RECON F2) —
+    both `/api/entities/generate` and `/api/creations/{mutation_id}/generate`
+    call this instead of `generate_entity_draft` directly, so there is ONE
+    generation path and L1 goals come for free on either route. Writes
+    nothing; never raises (see `entity_author.generate_entity_draft`).
 
     L1 (BRIEF-0013-b): on a successful character draft, also calls
     generate_npc_goals with the draft's public fields and the resolved
@@ -145,8 +142,8 @@ def generate_entity(
     fails the draft — it's appended to `notes` and the character draft ships
     without goals.
     """
-    result = _generate_entity_draft(body.entity_type, body.brief, db)
-    if body.entity_type == "character" and result.get("ok"):
+    result = _generate_entity_draft(entity_type, brief, db)
+    if entity_type == "character" and result.get("ok"):
         pub = result["draft"]["public"]
         faction_goals = None
         faction_id = pub.get("faction_id")
@@ -163,6 +160,132 @@ def generate_entity(
                 f"Génération des objectifs échouée : {goals_result.get('error')}"
             )
     return result
+
+
+@app.post("/api/entities/generate")
+def generate_entity(
+    body: EntityGenerateBody,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Creator-side AI draft generator (BRIEF-24; L1 goals, BRIEF-0013-b).
+
+    Deliberately NOT in crud.py: crud.py is a sanctioned canon-write path
+    and this route writes nothing — keeping it in a separate router makes
+    that property legible. Performs no write itself. Returns
+    {"ok": false, "error": ...} (never a 500) on any failure — see
+    entity_author.generate_entity_draft.
+    """
+    return _generate_draft_with_l1(body.entity_type, body.brief, db)
+
+
+# ── Two-stage entity creation realization (TICKET-0019, BRIEF-0019-a) ───────
+# The tick (or, dormantly, a conversation — RECON F6) proposes a THIN germ;
+# creator approval parks it (`approve_mutation`'s short-circuit above); these
+# two routes serve the Création tab's "Créations en attente" strip — one pure
+# read, one pure write-free generation. Realization itself (the actual canon
+# write) happens only in crud.py's create_entity, via its optional
+# `mutation_id` linkage.
+
+_ENTITY_CREATION_TYPES = frozenset({"character", "location", "faction"})
+
+_ENTITY_CREATION_INTROS: dict[str, str] = {
+    "character": "Nouveau personnage",
+    "location": "Nouveau lieu",
+    "faction": "Nouvelle faction",
+}
+
+
+def _compose_entity_creation_brief(payload: dict) -> str:
+    """French prose brief for the pure generation chain (item 4) — weaves
+    name + concept + anchor into 2-4 sentences. `anchor` already carries any
+    scope-situating prose the model proposed (near/within/serves — RECON F7),
+    so no extra lookup against the mutation's tick/scope is needed. Tolerant
+    of the dormant conversation channel's shapeless payload (RECON F6):
+    name/concept fall back across `name|title` and `concept|description|
+    content`.
+    """
+    entity_type = str(payload.get("entity_type") or "").strip().casefold()
+    intro = _ENTITY_CREATION_INTROS.get(entity_type, "Nouvelle entité")
+    name = str(payload.get("name") or payload.get("title") or "").strip()
+    concept = str(
+        payload.get("concept") or payload.get("description") or payload.get("content") or ""
+    ).strip()
+    anchor = str(payload.get("anchor") or "").strip()
+
+    sentences = [f"{intro} : {name}." if name else f"{intro}."]
+    if concept:
+        sentences.append(concept if concept.endswith((".", "!", "?")) else f"{concept}.")
+    if anchor:
+        sentences.append(anchor if anchor.endswith((".", "!", "?")) else f"{anchor}.")
+    return " ".join(sentences)
+
+
+@app.get("/api/creations/pending")
+def list_pending_creations(db: Session = Depends(get_session)) -> list[dict]:
+    """Approved-but-unrealized entity_creation germs, ALL sources — tick AND
+    the dormant conversation channel join the same list (0017-style
+    awakening, RECON F6). Query: mutation_type == entity_creation,
+    status == approved, payload lacks created_entity_id.
+    """
+    rows = db.exec(
+        select(ProposedMutation)
+        .where(
+            ProposedMutation.mutation_type == "entity_creation",
+            ProposedMutation.status == "approved",
+        )
+        .order_by(ProposedMutation.proposed_at.desc())
+    ).all()
+
+    items: list[dict] = []
+    for mut in rows:
+        payload = mut.payload if isinstance(mut.payload, dict) else {}
+        if "created_entity_id" in payload:
+            continue
+        entity_type = str(payload.get("entity_type") or "").strip().casefold()
+        items.append({
+            "mutation_id": mut.id,
+            "source": "tick" if mut.tick_id else "conversation",
+            "proposed_at": mut.proposed_at.isoformat() if mut.proposed_at else None,
+            "name": str(payload.get("name") or payload.get("title") or "").strip(),
+            "concept": str(
+                payload.get("concept") or payload.get("description") or payload.get("content") or ""
+            ).strip(),
+            "anchor": payload.get("anchor"),
+            "entity_type": entity_type if entity_type in _ENTITY_CREATION_TYPES else None,
+        })
+    return items
+
+
+@app.post("/api/creations/{mutation_id}/generate")
+def generate_creation_draft(mutation_id: str, db: Session = Depends(get_session)) -> dict:
+    """Realization generation (item 4) — pure, writes nothing; reuses the
+    same write-free chain as `/api/entities/generate` (+ L1 goals) via
+    `_generate_draft_with_l1`. Regenerating later is free: an abandoned
+    draft costs nothing because the mutation stays 'approved' until
+    create_entity's guarded linkage flips it.
+    """
+    mut = db.get(ProposedMutation, mutation_id)
+    if mut is None or mut.mutation_type != "entity_creation" or mut.status != "approved":
+        raise HTTPException(409, "Mutation is not an approved, unrealized entity_creation germ")
+
+    payload = mut.payload if isinstance(mut.payload, dict) else {}
+    if "created_entity_id" in payload:
+        raise HTTPException(409, "This germ has already been realized")
+
+    entity_type = str(payload.get("entity_type") or "").strip().casefold()
+    if entity_type not in _ENTITY_CREATION_TYPES:
+        raise HTTPException(409, "Germ has no valid entity_type — cannot generate")
+
+    brief = _compose_entity_creation_brief(payload)
+    result = _generate_draft_with_l1(entity_type, brief, db)
+    return {
+        "ok": result.get("ok", False),
+        "draft": result.get("draft"),
+        "notes": result.get("notes", []),
+        "error": result.get("error"),
+        "mutation_id": mutation_id,
+        "entity_type": entity_type,
+    }
 
 
 @app.get("/api/prompts/preview/npc_dialogue")
@@ -1075,8 +1198,10 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                          resource_change kind (an agenda_step has no
                          existence outside its agenda).
 
-    Unimplemented types (entity_creation, other) are left as 'approved' with
-    a note — better un-applied than wrongly applied.
+    Unimplemented types (other) are left as 'approved' with a note — better
+    un-applied than wrongly applied. `entity_creation` is realized through
+    the Création tab (BRIEF-0019-a), never applied here: the unit approve
+    endpoint short-circuits before this function ever sees that type.
     """
     # ── Duplicate guard ───────────────────────────────────────────────────────
     # Must run before any write.  If an equivalent mutation was already applied
@@ -5331,6 +5456,45 @@ def approve_mutation(
 
     now = datetime.now(UTC)
     mut.reviewed_at = now
+
+    # ── entity_creation short-circuit (TICKET-0019, BRIEF-0019-a) ───────────
+    # Approval PARKS the germ — it never reaches _apply_mutation, never a
+    # savepoint, never the "[apply error]" framing (RECON F3): I2 forbids any
+    # synchronous authoring call here. A fresh canon-existence recheck (F5)
+    # routes a genuine collision to "Needs attention" instead of parking it.
+    if mut.mutation_type == "entity_creation":
+        payload = mut.payload if isinstance(mut.payload, dict) else {}
+        name = str(payload.get("name") or "").strip()
+        collision = any(
+            e.name.casefold() == name.casefold()
+            for e in db.exec(
+                select(Entity).where(Entity.world_id == mut.world_id, Entity.status == "active")
+            ).all()
+        )
+        if collision:
+            mut.status = "approved"
+            mut.creator_notes = _append_note(
+                mut.creator_notes, f"une entité active porte déjà ce nom : {name!r}"
+            )
+            db.add(mut)
+            db.commit()
+            db.refresh(mut)
+            return {
+                "status": "approved",
+                "error": mut.creator_notes,
+                "mutation": _mutation_dict(mut),
+            }
+
+        mut.status = "approved"
+        mut.creator_notes = _append_note(mut.creator_notes, "en attente de réalisation — onglet Création")
+        db.add(mut)
+        db.commit()
+        db.refresh(mut)
+        return {
+            "status": "pending_realization",
+            "error": "en attente de réalisation — onglet Création",
+            "mutation": _mutation_dict(mut),
+        }
 
     try:
         # SAVEPOINT: canon writes are rolled back on failure; the outer

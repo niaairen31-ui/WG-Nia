@@ -330,6 +330,11 @@ INTERVAL_HOP_RADIUS: dict[str, int | None] = {
 # loop (J1 volume by construction, machine-checked like INTERVAL_HOP_RADIUS).
 SCOPE_EVENT_QUOTA = 3
 
+# entity_creation quota (TICKET-0019, BRIEF-0019-a): one germ per scope call,
+# own counter — the world grows one being at a time per tick scope, decoupled
+# from events' and agendas' own budgets.
+ENTITY_CREATION_QUOTA = 1
+
 # event.type vocabulary (world-engine-schema.md); anything else falls back to
 # "other" rather than being dropped.
 _EVENT_TYPES = frozenset(
@@ -571,13 +576,15 @@ def _normalize_scope_event(
     roster: dict[str, str],
     locations: dict[str, str],
     agendas_index: dict[str, str],
+    actives: dict[str, str],
     db: Session,
     notes: list[str],
 ) -> dict | None:
     """Map one raw model item to the scope-level schema, or None to drop it
-    (TICKET-0017, BRIEF-0017-a; grown to three types TICKET-0018,
-    BRIEF-0018-a). Separate from `_normalize_tick_item` — the per-NPC closed
-    frozenset is UNTOUCHED (none of these three types ever enter it).
+    (TICKET-0017, BRIEF-0017-a; grown to four types TICKET-0018/0019,
+    BRIEF-0018-a/BRIEF-0019-a). Separate from `_normalize_tick_item` — the
+    per-NPC closed frozenset is UNTOUCHED (none of these four types ever
+    enter it).
 
     `roster` is name.casefold() -> id for this scope (location: public
     occupants; faction: members, with the faction id itself appended here
@@ -585,14 +592,17 @@ def _normalize_scope_event(
     locations of the world (faction scope's optional payload location
     resolution only). `agendas_index` is name.casefold() -> id for ACTIVE
     agendas of the faction (empty for a location scope — A1 structural, RECON
-    F3). `notes` is the caller's shared notes list — parse-time drops and
-    clamps are appended to it (unlike the per-NPC path, which only prints
-    them).
+    F3). `actives` is name.casefold() -> id for EVERY active entity of the
+    world, any type — the entity_creation collision guard (RECON-0019 F5;
+    both scope types pass the same index, unlike `agendas_index`). `notes`
+    is the caller's shared notes list — parse-time drops and clamps are
+    appended to it (unlike the per-NPC path, which only prints them).
 
     `mutation_type` dispatch: "agenda_step_change"/"agenda_creation" are
     FACTION SCOPE ONLY (an explicit `scope_type` gate backs the empty
-    `agendas_index` a location scope always passes); anything else falls
-    through to the original event_creation shape.
+    `agendas_index` a location scope always passes); "entity_creation" is
+    BOTH SCOPE TYPES (RECON F7); anything else falls through to the original
+    event_creation shape.
     """
     if not isinstance(raw_item, dict):
         notes.append(f"dropped scope item: not a dict — {raw_item!r}")
@@ -679,6 +689,52 @@ def _normalize_scope_event(
                 "title": title,
                 "steps": steps,
             },
+            "rationale": rationale,
+        }
+
+    # ── entity_creation (TICKET-0019, BRIEF-0019-a) — BOTH SCOPE TYPES ───────
+    if raw_mutation_type == "entity_creation":
+        # Literal frozenset mirroring entity_author._TYPE_FIELDS' keys — never
+        # import entity_author into tick.py (RECON F1's generation-side
+        # purity stays there; tick.py only validates the germ's shape).
+        _ENTITY_CREATION_TYPES = frozenset({"character", "location", "faction"})
+
+        entity_type = str(payload_in.get("entity_type") or "").strip().casefold()
+        if entity_type not in _ENTITY_CREATION_TYPES:
+            notes.append(
+                f"dropped entity_creation: unrecognised entity_type {payload_in.get('entity_type')!r}"
+            )
+            return None
+
+        name = str(payload_in.get("name") or "").strip()
+        if not name:
+            notes.append("dropped entity_creation: empty name")
+            return None
+
+        concept = str(payload_in.get("concept") or "").strip()
+        if not concept:
+            notes.append(f"dropped entity_creation {name!r}: empty concept")
+            return None
+
+        # Collision guard, emit-time (RECON F5) — any active entity of the
+        # world, any type: a faction named like a location is confusion, not
+        # richness. Re-checked fresh at approval time (F3/F5's other half).
+        if name.casefold() in actives:
+            notes.append(f"dropped entity_creation: an active entity already named {name!r}")
+            return None
+
+        anchor = payload_in.get("anchor")
+        anchor = str(anchor).strip() or None if anchor else None
+
+        payload_out: dict[str, Any] = {"entity_type": entity_type, "name": name, "concept": concept}
+        if anchor:
+            payload_out["anchor"] = anchor
+
+        return {
+            "mutation_type": "entity_creation",
+            "target_table": "entity",
+            "target_id": None,
+            "payload": payload_out,
             "rationale": rationale,
         }
 
@@ -1112,6 +1168,7 @@ def run_world_tick(
         roster: dict[str, str] = {}
         locations_index: dict[str, str] = {}
         agendas_index: dict[str, str] = {}
+        actives_index: dict[str, str] = {}
 
         try:
             if scope_type == "location":
@@ -1167,6 +1224,16 @@ def run_world_tick(
                     title: ids[0] for title, ids in agenda_candidates.items() if len(ids) == 1
                 }
 
+            # entity_creation collision guard (TICKET-0019, BRIEF-0019-a,
+            # RECON F5/F7): every ACTIVE entity of the world, any type — built
+            # once per scope call for BOTH scope types (unlike agendas_index).
+            actives_index = {
+                e.name.casefold(): e.id
+                for e in db.exec(
+                    select(Entity).where(Entity.world_id == world_id, Entity.status == "active")
+                ).all()
+            }
+
             events_template = load_analysis_prompt(db, world_id=None, usage="world_tick_events")
             events_version = current_prompt(db, events_template)
             events_user_message = (
@@ -1194,6 +1261,7 @@ def run_world_tick(
         seen_titles: set[str] = set()
         seen_step_change_agendas: set[str] = set()
         agenda_creation_emitted = False
+        entity_creation_emitted = False
         for raw_item in event_items:
             normalized = _normalize_scope_event(
                 raw_item,
@@ -1202,6 +1270,7 @@ def run_world_tick(
                 roster=roster,
                 locations=locations_index,
                 agendas_index=agendas_index,
+                actives=actives_index,
                 db=db,
                 notes=event_notes,
             )
@@ -1227,6 +1296,18 @@ def run_world_tick(
                     event_notes.append("agenda_creation dropped: cap of one per scope call reached")
                     continue
                 agenda_creation_emitted = True
+
+            elif mutation_type == "entity_creation":
+                # ENTITY_CREATION_QUOTA=1 — own seen-counter, outside
+                # SCOPE_EVENT_QUOTA and the agenda caps (TICKET-0019).
+                if entity_creation_emitted:
+                    dropped_events += 1
+                    event_notes.append(
+                        f"entity_creation dropped (quota {ENTITY_CREATION_QUOTA} reached): "
+                        f"{normalized['payload']['name']!r}"
+                    )
+                    continue
+                entity_creation_emitted = True
 
             else:  # event_creation
                 event_title = normalized["payload"]["title"]

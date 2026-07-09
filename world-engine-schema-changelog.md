@@ -8,6 +8,39 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **BRIEF-0019-a** — No schema change. `entity_creation` added to
+  `proposed_mutation.mutation_type` (targets `entity`, `target_id` always
+  null — the germ carries no id at all). Two-stage lifecycle: the tick (or,
+  dormantly, a conversation — `analyzer.py` accepted the type before this
+  step but had no payload branch) proposes a thin germ
+  (`entity_type`/`name`/`concept`/optional `anchor`); approval PARKS it
+  (`status` stays `approved`, response `pending_realization`) rather than
+  writing canon — `_apply_mutation` gains NO branch for this type, the
+  approve endpoint (`cockpit/app.py`) short-circuits before its savepoint.
+  Realization is on-demand: the Création tab's "Créations en attente" strip
+  triggers `POST /api/creations/{id}/generate` (pure — composes a French
+  brief in code, reuses the existing write-free `generate_entity_draft` + L1
+  goals chain, now factored into a shared `_generate_draft_with_l1` helper
+  used by both this route and `/api/entities/generate`); the creator's own
+  `create_entity` (`cockpit/crud.py`) commit realizes the entity, then a
+  separately-committed guarded linkage (`_link_entity_creation`) stamps
+  `payload.created_entity_id` and flips `status` to `applied` — a linkage
+  guard failure never rolls back the entity commit. Collision guard (any
+  active entity, any type) runs twice: emit-time in `tick.py` (an
+  actives-name index built once per scope call, both scope types) and fresh
+  again at approval (canon-existence, never `tick_id` — the 0014 doctrine).
+  `ENTITY_CREATION_QUOTA = 1`, its own seen-counter outside
+  `SCOPE_EVENT_QUOTA`/the agenda caps. No `connects_to` auto-wiring, no auto
+  faction-membership — `anchor` is prose, never resolved to an id. New
+  VERSION of `pt-world-tick-events` (the germ shape + rules), delivered via
+  `scripts/apply_ticket_0019_prompt_updates.py` (append-version, the head
+  exists since 0017). New verify rules 15-18 in
+  `tooling/verify/checks/world_tick.py`: the per-NPC contract stays closed
+  to this type; `ENTITY_CREATION_QUOTA` bounds the emit loop; `_apply_mutation`
+  never constructs an `Entity(...)` row; `_link_entity_creation` visibly
+  guards `mutation_type`/`status`/created_entity_id-absence before flipping
+  to applied.
+
 - **v1.72** — Two new tables, `agenda` and `agenda_step` (TICKET-0018,
   BRIEF-0018-a): structured faction intrigues the world tick advances and
   proposes. `agenda`: `id, world_id, owner_entity_id (FK entity.id, A2-ready

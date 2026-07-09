@@ -71,3 +71,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 5124 | RETURN-VISIT DELTA (BRIEF-0016-a, schema v1.71) | BRIEF-0016-a | v1.71 |
 | 5200 | WORLD TICK — scope-level event producer (BRIEF-0017-a, no schema change) | BRIEF-0017-a |  |
 | 5252 | FACTION AGENDAS (BRIEF-0018-a, schema v1.72) | BRIEF-0018-a | v1.72 |
+| 5332 | TWO-STAGE ENTITY CREATION (BRIEF-0019-a, no schema change) | BRIEF-0019-a |  |

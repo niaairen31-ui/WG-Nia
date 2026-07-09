@@ -5329,4 +5329,83 @@ yet.
 
 ---
 
+## TWO-STAGE ENTITY CREATION (BRIEF-0019-a, no schema change)
+
+The world can now GROW: the tick proposes the NEED for a new NPC, location,
+or faction — a thin `entity_creation` germ, `entity_type`/`name`/`concept`/
+optional `anchor` — through the same review queue as every other tick
+mutation; the sheet itself is authored later, by the EXISTING pure chain
+(`generate_entity_draft` + L1 goals), on the creator's own time.
+
+**H1/I2 (locked): two stages, two checkpoints, no synchronous authoring
+call.** Stage one — the model proposes the NEED; creator approval does NOT
+write the entity, it PARKS the germ (`status` stays `approved`,
+`creator_notes` gets "en attente de réalisation — onglet Création",
+response `pending_realization`). Stage two — the Création tab's "Créations
+en attente" strip lets the creator trigger sheet generation whenever she
+chooses; nothing during batch/unit review ever blocks on an Ollama call for
+this type. `_apply_mutation` gains no `entity_creation` branch at all — the
+germ never reaches it; the approve endpoint short-circuits before the
+savepoint.
+
+**H2 (permanently rejected, not deferred): the tick never authors a full
+sheet.** The 8b gameplay model proposes a one-line concept; the authoring
+model (`AUTHOR_MODEL`) writes the sheet, exactly as it already does for a
+creator-typed brief — entity_author.py's purity (writes nothing, ever) is
+untouched, the germ just composes into the same `brief: str` shape in code.
+
+**Realization lifecycle: `approved` (parked) -> `applied` (realized),
+`created_entity_id` is the provenance stamp.** `create_entity`
+(`cockpit/crud.py`) gains an optional `mutation_id`; after its OWN entity
+commit succeeds, a separate guarded step (`_link_entity_creation`) loads
+the mutation fresh, checks THREE guards — is `entity_creation`, is
+`approved`, payload LACKS `created_entity_id` (double-commit protection) —
+then reassigns `payload = {**payload, "created_entity_id": new_id}` (a JSON
+column needs reassignment, not in-place mutation) and flips to `applied`.
+**A guard failure NEVER rolls back the entity commit** — the entity is the
+creator's hand, made through the sanctioned creator-CRUD path; a broken
+linkage is a visible note, never a reason to undo her save. This is why the
+pair is two separate commits, not one SAVEPOINT (the opposite shape from
+`resource_change`'s two-leg exception, deliberately — here the two writes
+must be allowed to diverge).
+
+**Collision scope: ANY active entity type, asked twice.** A faction named
+like an existing location is confusion, not richness, so the guard is never
+same-type-only. Emit-time (`tick.py`, an actives-name index built once per
+scope call, both scope types) drops a colliding name before it ever reaches
+the queue; approval-time (`cockpit/app.py`, the short-circuit) re-asks the
+same question fresh — canon-existence, never `tick_id` — because the world
+may have moved between proposal and review (0014 doctrine, unchanged). The
+creator can still rename in the pre-filled form at realization; the guard
+protects the QUEUE from noise, not the creator from her own choices.
+
+**Both scope types may propose a germ; per-NPC ticks never do.** A location
+can need an occupant, a faction can need an agent — `_normalize_scope_event`
+gains the branch for both `scope_type`s (unlike the 0018 agenda types,
+faction-only); `_normalize_tick_item` and the per-NPC closed frozenset stay
+untouched (verify rule 15). `ENTITY_CREATION_QUOTA = 1` is its own
+seen-counter, outside `SCOPE_EVENT_QUOTA` and the agenda caps — the world
+grows one being at a time per tick scope.
+
+**The dormant conversation channel awakens, shapelessness tolerated, not
+reformed.** `analyzer.py` has accepted `entity_creation` since before this
+step but had no dedicated payload branch — its free-form germs join the
+SAME pending list (`GET /api/creations/pending`, no source-type filter
+beyond the type/status/unrealized query) rather than getting their own
+surface. An invalid or missing `entity_type` renders visibly ("type
+inconnu", no Generate action) instead of being silently dropped — the
+creator sees everything the world proposed and rejects unwanted ones
+through the existing queue path. `analyzer.py` itself is untouched this
+step (a deliberate deferral, not an oversight).
+
+**No `connects_to` auto-wiring, no auto faction-membership.** A realized
+location germ commits with zero edges; a realized character germ commits
+unaffiliated unless the creator fills the form's normal faction field — the
+germ's `anchor` is prose situating the need (near/within/serves), never an
+id, and never auto-resolved into a `relation` or `faction_membership` row
+(region chantier 2 precedent: links are creator-confirmed, never
+auto-created).
+
+---
+
 *Co-built with Claude, June 2026.*
