@@ -655,6 +655,23 @@ CREATE TABLE proposed_mutation (
 -- written to the real table. Until then, world state is untouched.
 ```
 
+`entity_creation` (TICKET-0019/BRIEF-0019-a, no schema change) has a
+two-stage lifecycle distinct from every other type: approval does NOT apply
+it. `status` stays `approved` (response `pending_realization`) —
+`_apply_mutation` has no branch for this type at all; `target_id` is always
+NULL and `target_table` is always `"entity"` (the germ,
+`{entity_type, name, concept, anchor?}`, carries no id whatsoever).
+Realization happens later, on the creator's own time, via the Création
+tab's "Créations en attente" strip: the pure authoring chain drafts a sheet
+from the germ, and the creator's own `create_entity` commit (the OTHER
+sanctioned canon-write path) creates the entity — a separate, guarded
+follow-up commit then stamps this row's `payload.created_entity_id` and
+flips `status` to `applied`; a linkage guard failure never rolls back the
+entity. Produced by the scope-level `world_tick` call (both location and
+faction scopes, `ENTITY_CREATION_QUOTA = 1`, own budget) and, dormantly, by
+conversation analysis (a shapeless payload tolerated at the pending-list
+read side rather than normalized).
+
 -----
 
 ### `event`

@@ -72,6 +72,26 @@ call with a `sqlite_where` keyword argument whose text mentions
 `status = 'active'` — at most one active step per agenda, enforced by
 SQLite itself (RECON-0018 F2), never by discipline alone.
 
+Rule 15 (closed per-NPC contract stays closed, TICKET-0019/BRIEF-0019-a):
+the string `"entity_creation"` appears inside `_normalize_scope_event` but
+NEVER in `_normalize_tick_item` / `_TICK_MUTATION_TYPES` /
+`_TICK_TYPE_ALIASES` — the scope-level entity-creation germ is a
+`tick.py`-only extension of the SCOPE contract, active for both scope
+types, never the per-NPC one (twin of rule 12).
+Rule 16 (entity-creation quota, BRIEF-0019-a): `tick.py` defines a
+module-level `ENTITY_CREATION_QUOTA` constant, and `run_world_tick`
+references that identifier (twin of rule 10's SCOPE_EVENT_QUOTA).
+Rule 17 (no canon write for entity_creation, BRIEF-0019-a): `_apply_mutation`
+in `cockpit/app.py` never constructs an `Entity(...)` row. The generic
+table-attribution scan (single_canon_write.py) cannot distinguish "update
+an existing entity's status" from "construct a new Entity row" — both
+resolve to the already-allowed `entity` table for this function — so this
+is a purpose-built, stricter check (RECON-0019 F3).
+Rule 18 (guarded realization linkage, BRIEF-0019-a): `cockpit/crud.py`'s
+`_link_entity_creation` (the helper `create_entity` calls after its own
+commit) visibly checks all three guards — `mutation_type`, `status`, and
+created_entity_id-absence — before flipping status to 'applied'.
+
 No DB, stdlib `ast` only.
 """
 from __future__ import annotations
@@ -86,6 +106,7 @@ TICK_FILE = SRC / "world_engine" / "tick.py"
 APP_FILE = SRC / "world_engine" / "cockpit" / "app.py"
 ANALYZER_FILE = SRC / "world_engine" / "analyzer.py"
 MODELS_FILE = SRC / "world_engine" / "models.py"
+CRUD_FILE = SRC / "world_engine" / "cockpit" / "crud.py"
 
 ALLOWED_MODULES = {
     "src/world_engine/tick.py",
@@ -535,6 +556,148 @@ def check_agenda_step_one_active_index() -> None:
     fail(f"{rel}: AgendaStep class not found")
 
 
+def check_entity_creation_isolation() -> None:
+    """Rule 15 (TICKET-0019, BRIEF-0019-a): entity_creation lives ONLY in the
+    scope-level normalizer, never in the per-NPC closed contract."""
+    if not TICK_FILE.exists():
+        fail(f"{TICK_FILE} not found")
+        return
+    tree = _parse(TICK_FILE)
+    if tree is None:
+        return
+    rel = TICK_FILE.relative_to(ROOT).as_posix()
+
+    scope_func = _find_function(tree, "_normalize_scope_event")
+    if scope_func is None:
+        fail(f"{rel}: _normalize_scope_event not found")
+        return
+    present = any(
+        isinstance(n, ast.Constant) and n.value == "entity_creation"
+        for n in ast.walk(scope_func)
+    )
+    if not present:
+        fail(f"{rel}: _normalize_scope_event never references 'entity_creation'")
+
+    for node in ast.walk(tree):
+        name, value = _dict_assign_target(node)
+        if name == "_TICK_MUTATION_TYPES" and isinstance(value, (ast.Set, ast.Call)):
+            for elt in ast.walk(value):
+                if isinstance(elt, ast.Constant) and elt.value == "entity_creation":
+                    fail(f"{rel}:{node.lineno} — _TICK_MUTATION_TYPES contains 'entity_creation'")
+        if name == "_TICK_TYPE_ALIASES" and isinstance(value, ast.Dict):
+            for v in value.values:
+                if isinstance(v, ast.Constant) and v.value == "entity_creation":
+                    fail(f"{rel}:{node.lineno} — _TICK_TYPE_ALIASES maps a key to 'entity_creation'")
+
+    tick_func = _find_function(tree, "_normalize_tick_item")
+    if tick_func is None:
+        fail(f"{rel}: _normalize_tick_item not found")
+        return
+    for node in ast.walk(tick_func):
+        if isinstance(node, ast.Constant) and node.value == "entity_creation":
+            fail(f"{rel}:{node.lineno} — 'entity_creation' referenced inside _normalize_tick_item")
+
+
+def check_entity_creation_quota() -> None:
+    """Rule 16 (TICKET-0019, BRIEF-0019-a): ENTITY_CREATION_QUOTA exists and
+    bounds the scope-level emit loop (twin of rule 10)."""
+    if not TICK_FILE.exists():
+        fail(f"{TICK_FILE} not found")
+        return
+    tree = _parse(TICK_FILE)
+    if tree is None:
+        return
+    rel = TICK_FILE.relative_to(ROOT).as_posix()
+
+    found = False
+    for node in ast.walk(tree):
+        name, value = _dict_assign_target(node)
+        if name == "ENTITY_CREATION_QUOTA" and value is not None:
+            found = True
+            break
+    if not found:
+        fail(f"{rel}: ENTITY_CREATION_QUOTA module constant not found")
+        return
+
+    func = _find_function(tree, "run_world_tick")
+    if func is None:
+        fail(f"{rel}: run_world_tick not found")
+        return
+    if not any(isinstance(n, ast.Name) and n.id == "ENTITY_CREATION_QUOTA" for n in ast.walk(func)):
+        fail(f"{rel}: run_world_tick does not reference ENTITY_CREATION_QUOTA")
+
+
+def check_apply_mutation_no_entity_construction() -> None:
+    """Rule 17 (TICKET-0019, BRIEF-0019-a): _apply_mutation never constructs
+    an Entity(...) row — entity_creation is realized ONLY through
+    create_entity's guarded linkage, never applied here."""
+    if not APP_FILE.exists():
+        fail(f"{APP_FILE} not found")
+        return
+    tree = _parse(APP_FILE)
+    if tree is None:
+        return
+    rel = APP_FILE.relative_to(ROOT).as_posix()
+
+    func = _find_function(tree, "_apply_mutation")
+    if func is None:
+        fail(f"{rel}: _apply_mutation not found")
+        return
+    for node in ast.walk(func):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "Entity":
+            fail(
+                f"{rel}:{node.lineno} — Entity(...) constructed inside _apply_mutation; "
+                "entity_creation must never write canon here"
+            )
+
+
+def check_create_entity_linkage_guards() -> None:
+    """Rule 18 (TICKET-0019, BRIEF-0019-a): the create_entity realization
+    linkage (`_link_entity_creation`) checks all three guards —
+    mutation_type, status, and unrealized (no created_entity_id yet) —
+    before any status flip to 'applied'."""
+    if not CRUD_FILE.exists():
+        fail(f"{CRUD_FILE} not found")
+        return
+    tree = _parse(CRUD_FILE)
+    if tree is None:
+        return
+    rel = CRUD_FILE.relative_to(ROOT).as_posix()
+
+    func = _find_function(tree, "_link_entity_creation")
+    if func is None:
+        fail(f"{rel}: _link_entity_creation not found")
+        return
+
+    def _compare_targets(node: ast.Compare) -> list[ast.AST]:
+        return [node.left, *node.comparators]
+
+    checks_type = any(
+        isinstance(n, ast.Compare)
+        and any(isinstance(o, ast.Attribute) and o.attr == "mutation_type" for o in _compare_targets(n))
+        for n in ast.walk(func)
+    )
+    checks_status = any(
+        isinstance(n, ast.Compare)
+        and any(isinstance(o, ast.Attribute) and o.attr == "status" for o in _compare_targets(n))
+        for n in ast.walk(func)
+    )
+    checks_unrealized = any(
+        isinstance(n, ast.Compare)
+        and any(isinstance(op, (ast.In, ast.NotIn)) for op in n.ops)
+        and any(
+            isinstance(o, ast.Constant) and o.value == "created_entity_id"
+            for o in _compare_targets(n)
+        )
+        for n in ast.walk(func)
+    )
+    if not (checks_type and checks_status and checks_unrealized):
+        fail(
+            f"{rel}: _link_entity_creation does not visibly guard all three of "
+            "mutation_type/status/created_entity_id-absence before flipping status"
+        )
+
+
 def main() -> None:
     check_call_site_allowlist()
     check_boundary_files()
@@ -548,11 +711,15 @@ def main() -> None:
     check_scope_event_quota()
     check_agenda_type_isolation()
     check_agenda_step_one_active_index()
+    check_entity_creation_isolation()
+    check_entity_creation_quota()
+    check_apply_mutation_no_entity_construction()
+    check_create_entity_linkage_guards()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         sys.exit(1)
-    print("PASS: world-tick structural gate intact (rules 1-14)")
+    print("PASS: world-tick structural gate intact (rules 1-18)")
     sys.exit(0)
 
 

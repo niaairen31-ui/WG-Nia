@@ -75,6 +75,7 @@ from ..models import (
     Location,
     NpcGoal,
     PromptTemplate,
+    ProposedMutation,
     Relation,
     Skill,
     SkillDefinition,
@@ -506,6 +507,10 @@ def _build_extension_kwargs(db: DbSession, entity_type: str, data: dict) -> dict
 class EntityWriteBody(BaseModel):
     entity: dict[str, Any]
     extension: dict[str, Any] = {}
+    # Two-stage entity creation (TICKET-0019, BRIEF-0019-a): set only when
+    # this create realizes an approved entity_creation germ from the
+    # Création tab's pending-creations strip.
+    mutation_id: Optional[str] = None
 
 
 class RelationWriteBody(BaseModel):
@@ -686,6 +691,33 @@ def _create_entity_core(body: EntityWriteBody, db: DbSession) -> Entity:
     return entity
 
 
+def _link_entity_creation(mutation_id: str, entity_id: str, db: DbSession) -> dict:
+    """Guarded flip: entity_creation germ -> applied + created_entity_id
+    (BRIEF-0019-a item 5, RECON F4). Guards — must exist, be
+    entity_creation, be approved, and its payload must LACK
+    created_entity_id (double-commit protection). REASSIGNMENT (not
+    in-place update — SQLModel JSON columns don't detect in-place mutation).
+    A guard failure NEVER rolls back the entity commit already made by the
+    caller; it is returned as a visibility note only."""
+    mut = db.get(ProposedMutation, mutation_id)
+    if mut is None:
+        return {"ok": False, "error": "mutation not found"}
+    if mut.mutation_type != "entity_creation":
+        return {"ok": False, "error": "mutation is not an entity_creation germ"}
+    if mut.status != "approved":
+        return {"ok": False, "error": f"mutation status is {mut.status!r}, not 'approved'"}
+    payload = mut.payload if isinstance(mut.payload, dict) else {}
+    if "created_entity_id" in payload:
+        return {"ok": False, "error": "mutation already carries a created_entity_id"}
+
+    mut.payload = {**payload, "created_entity_id": entity_id}
+    mut.status = "applied"
+    mut.applied_at = datetime.now(UTC)
+    db.add(mut)
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("/entities", status_code=201)
 def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -> dict:
     """Composite create — entity + extension row (+ optional primary
@@ -710,6 +742,8 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
     result["extension"] = _extension_dict(entity.type, ext_row)
     result["relations"] = []
     result["knowledge"] = []
+    if body.mutation_id:
+        result["creation_linkage"] = _link_entity_creation(body.mutation_id, entity.id, db)
     return result
 
 

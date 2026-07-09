@@ -1241,6 +1241,18 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     </aside>
 
     <div class="right-col">
+      <!-- Créations en attente (BRIEF-0019-a) — approved entity_creation
+           germs (tick- or conversation-sourced) awaiting on-demand sheet
+           generation; shown only for entity tabs whose registry entry sets
+           showPendingCreations (npc/lieux/factions — the three germ types). -->
+      <div id="creation-pending-strip" style="display:none; border-bottom:2px solid var(--border)">
+        <div class="panel-head" style="flex-shrink:0">
+          <h2 style="font-size:12px">Créations en attente</h2>
+          <button class="btn-icon" onclick="loadPendingCreations()" title="Rafraîchir">↻</button>
+        </div>
+        <div id="creation-pending-list" class="conv-list" style="max-height:180px; overflow-y:auto"></div>
+      </div>
+
       <div class="transcript-panel" style="border-bottom:none">
         <div class="panel-head">
           <h2 id="author-sheet-title">Sélectionner une entité</h2>
@@ -3031,6 +3043,14 @@ let pendingDraftNotes     = [];
  * endpoint) after authorSave creates the entity. */
 let pendingDraftGoals = { long: '', shorts: ['', ''] };
 
+/* Two-stage entity creation (TICKET-0019, BRIEF-0019-a) — set when the
+   create form was pre-filled from a "Générer la fiche" click on a pending
+   germ; carried as EntityWriteBody.mutation_id on the next authorSave so
+   crud.py's create_entity can flip the germ to applied. Reset on any tab
+   switch or manual "+ Nouveau" so a stray create never links to a stale
+   germ. */
+let pendingCreationMutationId = null;
+
 /* Faction roles editor draft (BRIEF-31, schema v1.42) — entity.metadata.roles,
  * a flat ordered list of {name, description}. Held in memory while the
  * faction sheet is open and merged into entityData.metadata on save (no raw-
@@ -3139,6 +3159,7 @@ async function loadPlayerKnowledge() {
 function _entityTabEnterReset() {
   authorEntityId   = null;
   authorEntityType = null;
+  pendingCreationMutationId = null;
   const titleEl = document.getElementById('author-sheet-title');
   const mainEl  = document.getElementById('author-main');
   if (titleEl) titleEl.textContent = 'Sélectionner une entité';
@@ -3216,6 +3237,7 @@ const CREATION_TABS = {
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && !playerCharIds.has(e.id)),
     createPanel: () => authorRenderSheet({}, true, 'character'),
     primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
+    showPendingCreations: true,
     slots: [],
   },
   pj: {
@@ -3240,6 +3262,7 @@ const CREATION_TABS = {
     listRenderer: renderLieuxBrowse,
     createPanel: () => authorRenderSheet({}, true, 'location'),
     primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
+    showPendingCreations: true,
     slots: [{ id: 'graph', containerId: 'creation-lieux-graph', loader: graphLoad, onSelect: null }],
   },
   factions: {
@@ -3251,6 +3274,7 @@ const CREATION_TABS = {
     type: 'faction',
     createPanel: () => authorRenderSheet({}, true, 'faction'),
     primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
+    showPendingCreations: true,
     slots: [],
   },
   objets: {
@@ -3347,6 +3371,18 @@ function _creationActivateTab() {
   }
   if (entry.loader) entry.loader();
   (entry.slots || []).forEach(s => { if (s.loader) s.loader(); });
+
+  // Créations en attente strip (BRIEF-0019-a) — a registry field, not a
+  // tab-id branch: any entry may opt in by declaring showPendingCreations.
+  const pendingStripEl = document.getElementById('creation-pending-strip');
+  if (pendingStripEl) {
+    if (entry.showPendingCreations) {
+      pendingStripEl.style.display = '';
+      loadPendingCreations();
+    } else {
+      pendingStripEl.style.display = 'none';
+    }
+  }
 }
 
 /** Generic dispatcher (TICKET-0005): every tab's visibility, reset, and load
@@ -4907,6 +4943,7 @@ function creationNewEntity() {
   pendingDraftKnowledge = [];
   pendingDraftNotes     = [];
   pendingDraftGoals     = { long: '', shorts: ['', ''] };
+  pendingCreationMutationId = null;
   entry.createPanel();
 }
 
@@ -5489,6 +5526,77 @@ function authorApplyFactionDraft(result) {
 
   pendingDraftNotes = [...(result.notes || [])];
   authorRenderGenNotes(pendingDraftNotes);
+}
+
+/* ── Créations en attente (TICKET-0019, BRIEF-0019-a) ───────────────────────
+ * Strip above the create form on the npc/lieux/factions tabs (registry field
+ * showPendingCreations). "Générer la fiche" reuses the EXISTING draft
+ * pre-fill functions above (authorApply*Draft) — no new form, no new commit
+ * path; authorSave posts the carried mutation_id so crud.py's create_entity
+ * performs the realization flip. */
+
+async function loadPendingCreations() {
+  const listEl = document.getElementById('creation-pending-list');
+  if (!listEl) return;
+  const entry = CREATION_TABS[currentCreationSubTab];
+  if (!entry || !entry.type) { listEl.innerHTML = ''; return; }
+
+  listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  let items;
+  try {
+    items = await api('/api/creations/pending');
+  } catch (e) {
+    listEl.innerHTML = `<div class="empty" style="color:var(--red)">Erreur : ${esc(e.message)}</div>`;
+    return;
+  }
+
+  // A germ with no valid entity_type has no home tab — shown everywhere,
+  // visible-not-realizable (RECON F6), rather than silently dropped.
+  const filtered = items.filter(it => it.entity_type === entry.type || !it.entity_type);
+  listEl.innerHTML = filtered.length
+    ? filtered.map(renderPendingCreationCard).join('')
+    : '<div class="empty">Aucune création en attente.</div>';
+}
+
+function renderPendingCreationCard(item) {
+  const sourceLabel = item.source === 'tick' ? 'TICK' : 'CONVERSATION';
+  const typeOk = !!item.entity_type;
+  return `
+    <div class="row-card">
+      <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px">
+        <strong>${esc(item.name || '(sans nom)')}</strong>
+        <span class="badge b-other" style="font-size:10px">${sourceLabel}</span>
+      </div>
+      ${item.concept ? `<div style="font-size:12px; color:var(--muted)">${esc(item.concept)}</div>` : ''}
+      ${!typeOk ? '<span class="badge b-other" style="font-size:10px; border-color:var(--red); color:var(--red)">type inconnu</span>' : ''}
+      <div class="row-card-actions">
+        ${typeOk ? `<button class="btn-send" onclick="generatePendingCreation('${esc(item.mutation_id)}')">Générer la fiche</button>` : ''}
+      </div>
+    </div>`;
+}
+
+async function generatePendingCreation(mutationId) {
+  let result;
+  try {
+    result = await api(`/api/creations/${encodeURIComponent(mutationId)}/generate`, { method: 'POST' });
+  } catch (e) {
+    alert(e.message);
+    return;
+  }
+  if (!result || result.ok === false) {
+    alert((result && result.error) || 'Échec de la génération.');
+    return;
+  }
+
+  pendingCreationMutationId = mutationId;
+  authorRenderSheet({}, true, result.entity_type);
+  if (result.entity_type === 'location') {
+    authorApplyLocationDraft(result);
+  } else if (result.entity_type === 'faction') {
+    authorApplyFactionDraft(result);
+  } else {
+    authorApplyCharacterDraft(result);
+  }
 }
 
 function authorRenderGenNotes(notes) {
@@ -6214,7 +6322,13 @@ async function authorSave() {
   const goalsToCreate = (isNew && type === 'character') ? _syncPendingGoalsFromDom() : [];
 
   try {
-    const body = JSON.stringify({ entity: entityData, extension: extData });
+    const body = JSON.stringify({
+      entity: entityData,
+      extension: extData,
+      // Two-stage entity creation (BRIEF-0019-a): carried only on a NEW
+      // create, only when the form was pre-filled from a pending germ.
+      ...(isNew && pendingCreationMutationId ? { mutation_id: pendingCreationMutationId } : {}),
+    });
     let detail = isNew
       ? await api('/api/entities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
       : await api(`/api/entities/${encodeURIComponent(authorEntityId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
@@ -6249,6 +6363,11 @@ async function authorSave() {
         });
       }
       pendingDraftGoals = { long: '', shorts: ['', ''] };
+    }
+
+    if (isNew && pendingCreationMutationId) {
+      pendingCreationMutationId = null;
+      loadPendingCreations();
     }
 
     await authorLoadEntityList();

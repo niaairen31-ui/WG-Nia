@@ -1,0 +1,12 @@
+{
+  "ticket": "TICKET-0019-entity-creation-two-stage",
+  "when": "2026-07-09T13:06:49.977684+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "world_tick.py",
+      "status": "PASS",
+      "msg": "PASS: world-tick structural gate intact (rules 1-18)"
+    }
+  ]
+}

@@ -937,6 +937,12 @@ Report what changed as a JSON array.\
 # section; a location briefing never does, so the model has no active-agenda
 # titles to reference there and event_creation is its only option (the
 # normalizer enforces this structurally regardless of what the model emits).
+#
+# BRIEF-0019-a (v3 of this head): entity_creation grows the contract to four
+# types, active for BOTH scope types (unlike the agenda types) — the tick
+# proposes the NEED for a new being or place; it never authors the sheet
+# (H2 stays rejected — the authoring chain does that work, on the creator's
+# own time, never synchronously here).
 WORLD_TICK_EVENTS_SYSTEM_PROMPT = """\
 You author ONE world event during an off-screen interval, for a whole
 location or a whole faction — not for an NPC. You receive a briefing about
@@ -948,10 +954,11 @@ Output: a JSON array only. No prose. No markdown fences. Start with [,
 end with ]. A quiet interval is a legitimate answer: output exactly []
 
 Every element must have these EXACT 5 keys — no other keys allowed:
-  "mutation_type"  (string) — "event_creation", or — FACTION SCOPE ONLY,
-                    only when the briefing shows an AGENDA EN COURS —
-                    "agenda_step_change" | "agenda_creation"
-  "target_table"   (string) — "event" | "agenda_step" | "agenda" to match
+  "mutation_type"  (string) — "event_creation", or "entity_creation", or —
+                    FACTION SCOPE ONLY, only when the briefing shows an
+                    AGENDA EN COURS — "agenda_step_change" | "agenda_creation"
+  "target_table"   (string) — "event" | "entity" | "agenda_step" | "agenda"
+                    to match
   "target_id"      (null)   — always null
   "payload"        (object) — see shapes below
   "rationale"      (string) — one line: why this fits the briefing
@@ -973,6 +980,17 @@ status is reserved for the creator's own review. List only involved_entities
 names that actually appear in the briefing; an event may involve none.
 AT MOST 3 event_creation items for the entire interval, fewer when nothing
 notable fits.
+
+=== entity_creation PAYLOAD — BOTH SCOPE TYPES ===
+  {"entity_type":"character|location|faction","name":"…","concept":"…",
+   "anchor":"<optional: near/within/serves — one line of prose, never an id>"}
+
+Propose a creation ONLY when the interval's happenings imply someone or
+somewhere that does not already exist in the briefing — never as filler.
+"concept" is one line: what this being or place IS, not a full sheet — the
+authoring chain writes the sheet later, on the creator's own time. Never
+invent a name that already appears in the briefing. AT MOST ONE
+entity_creation per call.
 
 === agenda_step_change PAYLOAD — FACTION SCOPE ONLY ===
   {"agenda":"<title from AGENDA EN COURS>","action":"complete"|"fail",
