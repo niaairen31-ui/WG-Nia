@@ -5408,4 +5408,76 @@ auto-created).
 
 ---
 
+## GOAL<->AGENDA LINKS — B3 many-to-many, last-parent cascade (BRIEF-0020-a, schema v1.73)
+
+Goals and agendas stopped ignoring each other. `goal_agenda_link` is a
+many-to-many join at B3 grain — the link targets the AGENDA, never a step,
+and a goal may serve several intrigues concurrently. The cascade is
+sanctioned as a MECHANICAL, not a discretionary, act: every link on the
+table passed through a `proposed_mutation` (or the creator's own CRUD)
+before it existed, so code closing a goal because its last active parent
+closed is judging a structure the creator already reviewed, not inventing
+new canon unsupervised. `write_agenda_status` — the existing sole
+status-transition helper for `agenda` — is extended in place rather than
+forking a parallel cascade path; the goal-side transition still runs
+through `write_npc_goal_status` (the sole `npc_goal` status chokepoint),
+so the cascade adds no second way to move a goal, only a new caller of the
+one that exists. The cascade fires on ANY exit from `active` — tick
+approval AND creator override alike — a deliberate consistency: if the
+creator's manual close cascades, the model's approved close must too, or
+"why did closing it my way work differently" becomes a support question.
+
+**E2+M1 mapping is a vocabulary compromise, not a new state.** `npc_goal`
+has no `failed` (M3 was rejected at intake) — `agenda.status='failed'` and
+`'abandoned'` both map to `npc_goal.status='abandoned'`; only `'completed'`
+maps to `'completed'`. The distinction between "the intrigue failed" and
+"the intrigue was abandoned" survives on the AGENDA row (still readable via
+its own `change_history`); the goal's own history only needed to know it
+stopped being pursued, and gets exactly that, tagged
+`cascade:agenda:<id>:<status>` so the full agenda outcome is one join away,
+never lost.
+
+**Last-parent rule is a survival check, not a priority order.** A goal with
+two active links (two intrigues it serves) is not "primarily" owned by
+either — closing ONE of its parents only ends the goal if that was the
+LAST one still active. The check queries the goal's OTHER active links at
+cascade time (not a cached count), so it is correct regardless of how many
+agendas were closed earlier in the same transaction or session.
+
+**No cascade on detach.** Soft-detaching a link (creator-only, BRIEF-0020-c)
+never touches the goal — detach is a correction to the graph, not an
+agenda-status event; only a genuine `active -> {completed,failed,abandoned}`
+transition on the AGENDA fires the cascade.
+
+## ONE-ACTIVE-PERSONAL-AGENDA — character owners, guard placement (BRIEF-0020-a, schema v1.73)
+
+`write_agenda`'s owner check unlocks `character`-type entities alongside
+`faction` — an NPC may now OWN an intrigue, not just serve one. The
+one-active-personal-agenda invariant (at most one active agenda per
+character owner) is enforced with an explicit existence query inside
+`write_agenda` itself, the same tier as the pre-existing
+faction-vs-location type check in that helper — a code guard in the sole
+canon-write path, never a database CHECK/UNIQUE constraint. This mirrors
+the 0018 faction-type guard's placement rather than reaching for a new
+mechanism: `agenda.owner_entity_id` has no type discriminator column to
+build a partial index against (owner ROLE is not owner TYPE), so the
+structural options available to `faction_membership`/`agenda_step`
+(a `sqlite_where` partial unique) don't apply here without denormalizing
+the owner's type onto the row — deliberately not done, since the helper
+already sees the owner's `Entity.type` on every call. Faction owners are
+explicitly UNCHANGED: their multi-agenda freedom is a regression the
+Done-means checklist tests for, not an oversight.
+
+## FORWARD NOTE — per-NPC agenda contract extension (BRIEF-0020-a, no schema change)
+
+This step (BRIEF-0020-a) ships schema and writes only: no reader, no tick
+mutation type, no prompt change. The per-NPC tick contract's extension
+(`_TICK_MUTATION_TYPES` gaining `agenda_step_change`/`agenda_creation`,
+scoped to agendas the NPC owns) and the faction-scope `agenda_delegation`
+type are logged as their own decision entries by BRIEF-0020-b when they
+land — this note exists so a reader of this entry knows where to look
+next, not to duplicate that record here.
+
+---
+
 *Co-built with Claude, June 2026.*

@@ -72,3 +72,6 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 5200 | WORLD TICK — scope-level event producer (BRIEF-0017-a, no schema change) | BRIEF-0017-a |  |
 | 5252 | FACTION AGENDAS (BRIEF-0018-a, schema v1.72) | BRIEF-0018-a | v1.72 |
 | 5332 | TWO-STAGE ENTITY CREATION (BRIEF-0019-a, no schema change) | BRIEF-0019-a |  |
+| 5411 | GOAL<->AGENDA LINKS — B3 many-to-many, last-parent cascade (BRIEF-0020-a, schema v1.73) | BRIEF-0020-a | v1.73 |
+| 5452 | ONE-ACTIVE-PERSONAL-AGENDA — character owners, guard placement (BRIEF-0020-a, schema v1.73) | BRIEF-0020-a | v1.73 |
+| 5471 | FORWARD NOTE — per-NPC agenda contract extension (BRIEF-0020-a, no schema change) | BRIEF-0020-a |  |

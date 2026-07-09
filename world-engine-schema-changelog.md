@@ -8,6 +8,45 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.73** — New table `goal_agenda_link` (TICKET-0020, BRIEF-0020-a): a
+  many-to-many tie between `npc_goal` and the `agenda` intrigue(s) it
+  serves (B3 grain: the AGENDA, never the step). `id, world_id, goal_id
+  (FK npc_goal.id), agenda_id (FK agenda.id), created_at, created_by
+  ('creator' or 'mutation:<id>'), detached_at (nullable), detached_by
+  (nullable)` — no `change_history` column; the link's only transition is
+  the soft detach, fully audited by the two detach columns (the
+  `faction_membership.left_at` precedent). Indexes
+  `idx_goal_agenda_link_goal (goal_id)`,
+  `idx_goal_agenda_link_agenda (agenda_id)`, and a STRUCTURAL partial
+  unique `idx_goal_agenda_link_active (goal_id, agenda_id) WHERE
+  detached_at IS NULL` — at most one ACTIVE link per pair, a detached pair
+  may be re-attached (`idx_membership_unique_active` precedent).
+  `write_goal_agenda_link`/`detach_goal_agenda_link` (`writes.py`) are the
+  ONLY constructors/mutators — the former validates both endpoints are
+  `active` and belong to the same world and rejects a duplicate active
+  pair; there is no delete helper. `write_agenda`'s owner check unlocks:
+  an ACTIVE `character`-type entity is now a valid `agenda.owner_entity_id`
+  alongside `faction` (location owners stay rejected); a `character` owner
+  is capped at ONE active agenda at a time (one-active-personal-agenda
+  invariant, enforced in the same helper) — factions keep unlimited
+  concurrent agendas, unchanged. `write_agenda_status` gains the E2+M1
+  cascade: when an agenda's PREVIOUS status was `active` and it transitions
+  to `completed`/`failed`/`abandoned`, every linked goal (`detached_at IS
+  NULL`) whose link to THIS agenda is its LAST still-active parent link
+  (last-parent rule) transitions via `write_npc_goal_status`
+  (`completed` -> goal `completed`; `failed`/`abandoned` -> goal
+  `abandoned`), snapshotted with `changed_by='cascade:agenda:<id>:<status>'`;
+  a goal with another active link to a still-active agenda survives; links
+  are never detached by the cascade. The cascade fires identically for
+  tick-approved transitions and creator CRUD overrides (both route through
+  `write_agenda_status`). Delivered via
+  `scripts/migrate_v1_73_goal_agenda_link.py` (new-table shape, no
+  backfill). `canon_write_policy.txt` gains `goal_agenda_link` plus
+  ALLOWED_SITES entries for the two new write helpers. Readers (tick
+  briefings, dialogue provenance, per-NPC agenda types, `agenda_delegation`)
+  and the cockpit surface are BRIEF-0020-b/c — this step is schema + writes
+  only.
+
 - **BRIEF-0019-a** — No schema change. `entity_creation` added to
   `proposed_mutation.mutation_type` (targets `entity`, `target_id` always
   null — the germ carries no id at all). Two-stage lifecycle: the tick (or,
