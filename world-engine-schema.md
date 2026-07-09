@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.72
+Current schema version: v1.73
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1011,14 +1011,19 @@ CREATE INDEX idx_visit_player_location ON visit(player_id, location_id, entered_
 
 ### `agenda`
 
-Structured faction intrigue (schema v1.72, TICKET-0018/BRIEF-0018-a).
-Owners are FACTIONS ONLY this step (`owner_entity_id` is FK-shaped for A2 —
-location/NPC owners — but `write_agenda` enforces an ACTIVE faction-type
-owner; the write helper, not the column, carries the constraint). The tick's
-faction-scoped scope-event call reads active agendas via `AGENDA EN COURS`
-and proposes `agenda_step_change`/`agenda_creation`, reviewed like any other
-`proposed_mutation`; the creator authors/edits agendas directly (first
-dedicated non-entity CRUD surface, `/api/agendas`).
+Structured intrigue (schema v1.72, TICKET-0018/BRIEF-0018-a; owner unlock
+schema v1.73, TICKET-0020/BRIEF-0020-a). `owner_entity_id` is FK-shaped for
+A2 (location owners stay rejected) but `write_agenda` enforces an ACTIVE
+owner of type `faction` OR `character` — the write helper, not the column,
+carries the constraint. Factions keep unlimited concurrent agendas; a
+`character` owner may hold AT MOST ONE active agenda at a time (the
+one-active-personal-agenda invariant, enforced in the same helper). The
+tick's faction-scoped scope-event call reads active agendas via
+`AGENDA EN COURS` and proposes `agenda_step_change`/`agenda_creation`,
+reviewed like any other `proposed_mutation`; the creator authors/edits
+agendas directly (first dedicated non-entity CRUD surface,
+`/api/agendas`). Per-NPC tick readers for character-owned agendas are
+BRIEF-0020-b.
 
 ```sql
 CREATE TABLE agenda (
@@ -1065,6 +1070,43 @@ CREATE INDEX idx_agenda_step_agenda ON agenda_step(agenda_id, step_order);
 -- enforced by SQLite itself — never by discipline.
 CREATE UNIQUE INDEX idx_agenda_step_one_active
   ON agenda_step(agenda_id) WHERE status = 'active';
+```
+
+-----
+
+### `goal_agenda_link`
+
+Many-to-many tie between an `npc_goal` and the `agenda` intrigue(s) it
+serves (B3 grain: the AGENDA, never the step — a goal may serve several
+intrigues at once), schema v1.73, TICKET-0020/BRIEF-0020-a. No
+`change_history`: link rows are immutable facts whose only transition is
+the soft detach, fully audited by `detached_at`/`detached_by` (the
+`faction_membership.left_at` precedent) — there is no DELETE path.
+`write_agenda_status` cascades onto linked goals when an agenda exits
+`active` (E2+M1 mapping: `completed` -> goal `completed`; `failed`/
+`abandoned` -> goal `abandoned`), but ONLY for a goal whose link to the
+closing agenda is its LAST still-active parent link (last-parent rule) —
+a goal with another active link survives. Cascaded transitions go through
+`write_npc_goal_status` with `changed_by='cascade:agenda:<id>:<status>'`.
+
+```sql
+CREATE TABLE goal_agenda_link (
+  id            TEXT PRIMARY KEY,
+  world_id      TEXT NOT NULL REFERENCES world(id),
+  goal_id       TEXT NOT NULL REFERENCES npc_goal(id),
+  agenda_id     TEXT NOT NULL REFERENCES agenda(id),
+  created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+  created_by    TEXT NOT NULL,   -- 'creator' or 'mutation:<id>'
+  detached_at   DATETIME,        -- NULL = active, never erased
+  detached_by   TEXT
+);
+CREATE INDEX idx_goal_agenda_link_goal ON goal_agenda_link(goal_id);
+CREATE INDEX idx_goal_agenda_link_agenda ON goal_agenda_link(agenda_id);
+-- STRUCTURAL invariant: at most one ACTIVE link per goal/agenda pair,
+-- enforced by SQLite itself (idx_membership_unique_active precedent) — a
+-- detached pair may be re-attached.
+CREATE UNIQUE INDEX idx_goal_agenda_link_active
+  ON goal_agenda_link(goal_id, agenda_id) WHERE detached_at IS NULL;
 ```
 
 -----

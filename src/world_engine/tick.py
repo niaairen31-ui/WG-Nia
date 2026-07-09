@@ -42,6 +42,7 @@ from .models import (
     Event,
     Faction,
     FactionMembership,
+    GoalAgendaLink,
     Knowledge,
     Location,
     NpcGoal,
@@ -59,6 +60,7 @@ H_AFFILIATIONS = "TES AFFILIATIONS"
 H_SETTING = "OÙ TU TE TROUVES"
 H_DESTINATIONS = "OÙ TU PEUX ALLER"
 H_COMPANY = "QUI EST AUTOUR"
+H_INTRIGUE = "TON INTRIGUE"
 
 _BOUNDARY = (
     "Tu ne sais que ce qui est écrit ci-dessus. N'invente aucune personne, "
@@ -111,6 +113,27 @@ def _knowledge_line(k: Knowledge) -> str:
     return f"- {prefix}{text}"
 
 
+def _goal_provenance_suffix(goal_id: str, session: Session) -> str:
+    """` (sert : « <title> »[, « <title> »...])` for every ACTIVE link
+    (`detached_at IS NULL`) to a still-ACTIVE agenda (TICKET-0020,
+    BRIEF-0020-b). FULL interiority — same T1 tier as the affiliation block
+    above it: secret-faction agendas are included, no gating. Empty string
+    when the goal serves no active agenda."""
+    links = session.exec(
+        select(GoalAgendaLink).where(
+            GoalAgendaLink.goal_id == goal_id, GoalAgendaLink.detached_at.is_(None)
+        )
+    ).all()
+    titles = []
+    for link in links:
+        agenda = session.get(Agenda, link.agenda_id)
+        if agenda is not None and agenda.status == "active":
+            titles.append(agenda.title)
+    if not titles:
+        return ""
+    return " (sert : " + ", ".join(f"« {t} »" for t in titles) + ")"
+
+
 def assemble_tick_context(
     npc_id: str, session: Session, *, destinations: list[tuple[str, str]] | None = None
 ) -> str:
@@ -156,9 +179,33 @@ def assemble_tick_context(
         .where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active", NpcGoal.horizon == "short")
         .order_by(NpcGoal.created_at.desc())
     ).all()
-    goal_lines = [f"[LONG TERME] {g.description}" for g in long_goals]
-    goal_lines += [f"[COURT TERME] {g.description}" for g in short_goals]
+    goal_lines = [f"[LONG TERME] {g.description}{_goal_provenance_suffix(g.id, session)}" for g in long_goals]
+    goal_lines += [f"[COURT TERME] {g.description}{_goal_provenance_suffix(g.id, session)}" for g in short_goals]
     goals_body = "\n".join(goal_lines) if goal_lines else "(aucun objectif actif)"
+
+    # ----- TON INTRIGUE — the NPC's own personal agenda, if it owns one
+    # (TICKET-0020, BRIEF-0020-b). Singular mirror of AGENDA EN COURS
+    # (faction scope, assemble_faction_event_context): title, active step
+    # objective + visibility_trace, last 2 completed outcomes. Omitted
+    # ENTIRELY when the NPC owns no active agenda — unlike the faction
+    # section, no placeholder (item 1 of the brief).
+    own_agenda = session.exec(
+        select(Agenda).where(Agenda.owner_entity_id == npc_id, Agenda.status == "active")
+    ).first()
+    intrigue_section = ""
+    if own_agenda is not None:
+        own_steps = session.exec(
+            select(AgendaStep).where(AgendaStep.agenda_id == own_agenda.id).order_by(AgendaStep.step_order)
+        ).all()
+        intrigue_lines = [own_agenda.title]
+        own_active_step = next((s for s in own_steps if s.status == "active"), None)
+        if own_active_step is not None:
+            trace = f" ({own_active_step.visibility_trace})" if own_active_step.visibility_trace else ""
+            intrigue_lines.append(f"Étape en cours : {own_active_step.objective}{trace}")
+        for step in [s for s in own_steps if s.status == "completed"][-2:]:
+            if step.outcome:
+                intrigue_lines.append(f"Résultat précédent : {step.outcome}")
+        intrigue_section = _section(H_INTRIGUE, "\n".join(intrigue_lines)) + "\n"
 
     # ----- CE QUE TU SAIS — ALL knowledge, no share_threshold gating, no
     # is_secret exclusion (T1 conscious exception): there is no interlocutor.-
@@ -274,6 +321,7 @@ def assemble_tick_context(
         + "\n"
         + _section(H_GOALS, goals_body)
         + "\n"
+        + intrigue_section
         + _section(H_KNOWLEDGE, knowledge_body)
         + "\n"
         + _section(H_RELATIONS, relations_body)
@@ -297,9 +345,21 @@ def assemble_tick_context(
 # cycle); never imports cockpit/app.py.
 # -----------------------------------------------------------------------------
 
-# Closed contract (unlike conversation analysis): only these four types are
-# ever proposed by a tick. Anything else is dropped with a note (item 4).
-_TICK_MUTATION_TYPES = frozenset({"goal_change", "relation_change", "new_knowledge", "npc_move"})
+# Closed contract (unlike conversation analysis): only these types are ever
+# proposed by a tick. Anything else is dropped with a note (item 4).
+# DELIBERATELY EXTENDED (TICKET-0020, BRIEF-0020-b): `agenda_step_change`/
+# `agenda_creation` join the per-NPC contract, restricted to agendas the NPC
+# itself OWNS (its own owner-restricted `agendas_index`; `owner_entity_id`
+# FORCED to `npc_id` on creation, never read from the payload — the H1/O1
+# forcing precedent). This supersedes the 0018/0017 doctrine that these two
+# types were "FACTION SCOPE ONLY" among SCOPE events — they remain exactly
+# that among SCOPE events (`_normalize_scope_event`'s explicit
+# `scope_type == "faction"` gate, unchanged); the per-NPC path is a SEPARATE,
+# newly-opened door, not a widening of the scope gate.
+_TICK_MUTATION_TYPES = frozenset({
+    "goal_change", "relation_change", "new_knowledge", "npc_move",
+    "agenda_step_change", "agenda_creation",
+})
 
 # Tick-local alias map (TICKET-0015, BRIEF-0015-a): extends the shared
 # analyzer map with npc_move aliases WITHOUT mutating it — conversation
@@ -309,6 +369,12 @@ _TICK_TYPE_ALIASES: dict[str, str] = {
     "npc_move": "npc_move",
     "move": "npc_move",
     "movement": "npc_move",
+    # Per-NPC agenda extension (TICKET-0020, BRIEF-0020-b) — absent from the
+    # shared analyzer map by design (the conversation/analyzer path must
+    # never propose these), so they need their own local entries here, same
+    # idiom as npc_move above.
+    "agenda_step_change": "agenda_step_change",
+    "agenda_creation": "agenda_creation",
 }
 
 # Interval label (verbatim, cockpit/app.py's _VALID_TICK_INTERVALS) -> BFS hop
@@ -582,9 +648,13 @@ def _normalize_scope_event(
 ) -> dict | None:
     """Map one raw model item to the scope-level schema, or None to drop it
     (TICKET-0017, BRIEF-0017-a; grown to four types TICKET-0018/0019,
-    BRIEF-0018-a/BRIEF-0019-a). Separate from `_normalize_tick_item` — the
-    per-NPC closed frozenset is UNTOUCHED (none of these four types ever
-    enter it).
+    BRIEF-0018-a/BRIEF-0019-a; `agenda_delegation` added TICKET-0020,
+    BRIEF-0020-b). Separate from `_normalize_tick_item` — `event_creation`,
+    `entity_creation`, and `agenda_delegation` never enter the per-NPC
+    frozenset; `agenda_step_change`/`agenda_creation` DO now also enter it,
+    but via a wholly separate branch in `_normalize_tick_item`, restricted to
+    agendas the NPC owns (BRIEF-0020-b) — this function's own dispatch for
+    those two types stays faction-scope-only, unchanged.
 
     `roster` is name.casefold() -> id for this scope (location: public
     occupants; faction: members, with the faction id itself appended here
@@ -598,11 +668,12 @@ def _normalize_scope_event(
     is the caller's shared notes list — parse-time drops and clamps are
     appended to it (unlike the per-NPC path, which only prints them).
 
-    `mutation_type` dispatch: "agenda_step_change"/"agenda_creation" are
-    FACTION SCOPE ONLY (an explicit `scope_type` gate backs the empty
-    `agendas_index` a location scope always passes); "entity_creation" is
-    BOTH SCOPE TYPES (RECON F7); anything else falls through to the original
-    event_creation shape.
+    `mutation_type` dispatch: among SCOPE events, "agenda_step_change"/
+    "agenda_creation" are faction scope, and the per-NPC path restricted to
+    owner==npc (TICKET-0020, BRIEF-0020-b) — an explicit `scope_type` gate
+    backs the empty `agendas_index` a location scope always passes here;
+    "entity_creation" is BOTH SCOPE TYPES (RECON F7); anything else falls
+    through to the original event_creation shape.
     """
     if not isinstance(raw_item, dict):
         notes.append(f"dropped scope item: not a dict — {raw_item!r}")
@@ -688,6 +759,61 @@ def _normalize_scope_event(
                 "owner_entity_id": scope_id,
                 "title": title,
                 "steps": steps,
+            },
+            "rationale": rationale,
+        }
+
+    # ── agenda_delegation (TICKET-0020, BRIEF-0020-b) — FACTION SCOPE ONLY ───
+    if raw_mutation_type == "agenda_delegation":
+        if scope_type != "faction":
+            notes.append("dropped agenda_delegation: not a faction scope")
+            return None
+
+        npc_name = str(payload_in.get("npc") or "").strip()
+        npc_id = roster.get(npc_name.casefold()) if npc_name else None
+        # The faction id itself is appended to this scope's roster (see
+        # this function's own docstring) — a delegation targets a MEMBER,
+        # never the faction tasking itself.
+        if npc_id == scope_id:
+            npc_id = None
+        if not npc_id:
+            notes.append(f"dropped agenda_delegation: unresolved npc {npc_name!r}")
+            return None
+
+        goal_text = str(payload_in.get("goal") or "").strip()
+        if not goal_text:
+            notes.append("dropped agenda_delegation: empty goal text")
+            return None
+
+        agenda_title = str(payload_in.get("agenda") or "").strip()
+        agenda_id = agendas_index.get(agenda_title.casefold()) if agenda_title else None
+        if not agenda_id:
+            notes.append(f"dropped agenda_delegation: unresolved agenda {agenda_title!r}")
+            return None
+
+        # O1 relaxation, SCOPED to this branch only: horizon is the sole
+        # field anywhere in tick.py read from a raw payload rather than
+        # hard-coded — clamped to 'short' on anything unrecognised
+        # (missing included), never dropped for a bad horizon alone.
+        raw_horizon = str(payload_in.get("horizon") or "").strip().casefold()
+        if raw_horizon in ("short", "long"):
+            horizon = raw_horizon
+        else:
+            horizon = "short"
+            notes.append(
+                f"agenda_delegation {agenda_title!r}: horizon "
+                f"{payload_in.get('horizon')!r} clamped to 'short'"
+            )
+
+        return {
+            "mutation_type": "agenda_delegation",
+            "target_table": "npc_goal",
+            "target_id": None,
+            "payload": {
+                "npc_id": npc_id,
+                "goal": goal_text,
+                "horizon": horizon,
+                "agenda_id": agenda_id,
             },
             "rationale": rationale,
         }
@@ -853,14 +979,20 @@ def _normalize_tick_item(
     destinations: dict[str, str],
     from_location_id: str | None,
     from_name: str | None,
+    agendas_index: dict[str, str],
+    db: Session,
 ) -> dict | None:
     """Map one raw model item to the tick's CLOSED schema, or None to drop it.
 
     Unlike `analyzer._normalize_to_schema`, the tick's contract accepts only
-    goal_change | relation_change | new_knowledge | npc_move — anything else
-    (including the fallback `other`) is dropped, never proposed.
-    `npc_id`/`entity_a_id`/`from_location_id` are FORCED from parameters
-    (O1-mirror), never read from the model's payload.
+    goal_change | relation_change | new_knowledge | npc_move |
+    agenda_step_change | agenda_creation — anything else (including the
+    fallback `other`) is dropped, never proposed. The last two are the
+    DELIBERATE per-NPC extension (TICKET-0020, BRIEF-0020-b): resolved
+    exclusively against `agendas_index`, which the caller builds
+    OWNER-RESTRICTED to agendas this NPC itself owns (never the faction/scope
+    indexes). `npc_id`/`entity_a_id`/`from_location_id`/`owner_entity_id` are
+    FORCED from parameters (O1-mirror), never read from the model's payload.
 
     `destinations` (TICKET-0015, BRIEF-0015-a) is name.casefold() -> id, built
     by the caller from the SAME `_reachable_locations` pair list the briefing
@@ -893,7 +1025,89 @@ def _normalize_tick_item(
             print(f"[tick] dropped goal_change: unrecognised action or empty goal text — {payload_in!r}")
             return None
         payload = {"npc_id": npc_id, "action": action, "goal": goal_text}
+
+        # Own-agenda reference (TICKET-0020, BRIEF-0020-b), create_short only:
+        # an optional agenda TITLE, resolved against the SAME owner-only
+        # agendas_index as agenda_step_change/agenda_creation. Unknown title
+        # -> the key is dropped with a note; the goal_change itself survives
+        # (the reference is an enrichment, not a requirement).
+        if action == "create_short":
+            agenda_title = payload_in.get("agenda")
+            if agenda_title:
+                agenda_id = agendas_index.get(str(agenda_title).strip().casefold())
+                if agenda_id:
+                    payload["agenda_id"] = agenda_id
+                else:
+                    print(f"[tick] goal_change: unresolved agenda reference {agenda_title!r} dropped")
         target_table = "npc_goal"
+
+    elif mutation_type == "agenda_step_change":
+        # Per-NPC extension (TICKET-0020, BRIEF-0020-b) — mirrors the
+        # scope-level branch in `_normalize_scope_event`, but resolved
+        # against the OWNER-RESTRICTED per-NPC agendas_index (at most one
+        # entry, the 0020-a invariant) rather than a faction's.
+        agenda_title = str(payload_in.get("agenda") or "").strip()
+        agenda_id = agendas_index.get(agenda_title.casefold()) if agenda_title else None
+        if not agenda_id:
+            print(f"[tick] dropped agenda_step_change: unresolved agenda {agenda_title!r}")
+            return None
+
+        raw_step_action = str(payload_in.get("action") or "").strip().casefold()
+        if raw_step_action not in ("complete", "fail"):
+            print(f"[tick] dropped agenda_step_change: unrecognised action {payload_in.get('action')!r}")
+            return None
+
+        # The step is NEVER addressed by the model — derived here as the
+        # agenda's unique active step (F2's partial unique index guarantees
+        # at most one), loaded fresh so a since-closed agenda drops with a
+        # note rather than acting on stale state.
+        active_step = db.exec(
+            select(AgendaStep).where(AgendaStep.agenda_id == agenda_id, AgendaStep.status == "active")
+        ).first()
+        if active_step is None:
+            print(f"[tick] dropped agenda_step_change: agenda {agenda_title!r} has no active step (closed since)")
+            return None
+
+        step_outcome = payload_in.get("outcome")
+        step_outcome = str(step_outcome).strip() or None if step_outcome else None
+        step_id = active_step.id
+        payload = {
+            "agenda_id": agenda_id,
+            "step_id": step_id,
+            "action": raw_step_action,
+            "outcome": step_outcome,
+        }
+        target_table = "agenda_step"
+
+    elif mutation_type == "agenda_creation":
+        # Per-NPC extension (TICKET-0020, BRIEF-0020-b): owner_entity_id is
+        # FORCED to npc_id — never read from the payload (H1/O1 forcing
+        # precedent). CANON-EXISTENCE dedup (0014 tick-guard doctrine): the
+        # NPC may own at most one active agenda (0020-a invariant) — a
+        # second creation is dropped here, never proposed.
+        agenda_title = str(payload_in.get("title") or "").strip()
+        if not agenda_title:
+            print("[tick] dropped agenda_creation: empty title")
+            return None
+
+        raw_agenda_steps = payload_in.get("steps")
+        if not isinstance(raw_agenda_steps, list):
+            print(f"[tick] dropped agenda_creation {agenda_title!r}: steps not a list")
+            return None
+        agenda_steps = [str(s).strip() for s in raw_agenda_steps if str(s).strip()]
+        if not (2 <= len(agenda_steps) <= 5):
+            print(f"[tick] dropped agenda_creation {agenda_title!r}: steps count {len(agenda_steps)} out of range 2-5")
+            return None
+
+        existing_own_agenda = db.exec(
+            select(Agenda).where(Agenda.owner_entity_id == npc_id, Agenda.status == "active")
+        ).first()
+        if existing_own_agenda is not None:
+            print(f"[tick] dropped agenda_creation {agenda_title!r}: NPC already owns an active agenda")
+            return None
+
+        payload = {"owner_entity_id": npc_id, "title": agenda_title, "steps": agenda_steps}
+        target_table = "agenda"
 
     elif mutation_type == "relation_change":
         other_name = str(payload_in.get("other") or "").strip()
@@ -1082,10 +1296,25 @@ def run_world_tick(
             if k.subject
         }
 
+        # Owner-restricted agendas_index (TICKET-0020, BRIEF-0020-b): name ->
+        # id over ACTIVE agendas OWNED BY THIS NPC ONLY (zero or one, by the
+        # one-active-personal-agenda invariant, BRIEF-0020-a) — never the
+        # faction/scope indexes, and never widened to agendas the NPC merely
+        # serves via a goal_agenda_link.
+        npc_agenda_candidates: dict[str, list[str]] = {}
+        for agenda in db.exec(
+            select(Agenda).where(Agenda.owner_entity_id == npc_id, Agenda.status == "active")
+        ).all():
+            npc_agenda_candidates.setdefault(agenda.title.casefold(), []).append(agenda.id)
+        npc_agendas_index = {
+            title: ids[0] for title, ids in npc_agenda_candidates.items() if len(ids) == 1
+        }
+
         seen_goal: set[tuple[str, str]] = set()
         seen_knowledge: set[tuple[str, str]] = set()
         seen_relation: set[tuple[str, str]] = set()
         seen_move = False
+        agenda_creation_emitted_npc = False
 
         for raw_item in items:
             normalized = _normalize_tick_item(
@@ -1097,6 +1326,8 @@ def run_world_tick(
                 destinations=destinations,
                 from_location_id=from_location_id,
                 from_name=from_name,
+                agendas_index=npc_agendas_index,
+                db=db,
             )
             if normalized is None:
                 dropped += 1
@@ -1127,6 +1358,20 @@ def run_world_tick(
                     notes.append(f"duplicate npc_move dropped: to={payload['to_name']!r}")
                     continue
                 seen_move = True
+            elif mutation_type == "agenda_creation":
+                # At most ONE agenda_creation per per-NPC call (mirrors the
+                # scope-level agenda_creation_emitted flag) — the NPC's own
+                # canon-existence guard (inside _normalize_tick_item) already
+                # blocks a SECOND creation once one is canon; this additional
+                # per-call cap blocks two creations proposed in the SAME call,
+                # before either is canon.
+                if agenda_creation_emitted_npc:
+                    dropped += 1
+                    notes.append(f"duplicate agenda_creation dropped: {payload['title']!r}")
+                    continue
+                agenda_creation_emitted_npc = True
+            elif mutation_type == "agenda_step_change":
+                pass  # at most one active agenda/step exists per NPC — no additional dedup needed
             else:  # relation_change
                 key = (payload["entity_a_id"], payload["entity_b_id"])
                 if key in seen_relation:
@@ -1260,6 +1505,7 @@ def run_world_tick(
 
         seen_titles: set[str] = set()
         seen_step_change_agendas: set[str] = set()
+        seen_delegations: set[tuple[str, str]] = set()
         agenda_creation_emitted = False
         entity_creation_emitted = False
         for raw_item in event_items:
@@ -1308,6 +1554,18 @@ def run_world_tick(
                     )
                     continue
                 entity_creation_emitted = True
+
+            elif mutation_type == "agenda_delegation":
+                # Emit-time dedup (same idiom as the per-NPC loop's seen_goal):
+                # one net delegation per (npc, normalized goal text) per call.
+                key = (normalized["payload"]["npc_id"], _normalize_goal_text(normalized["payload"]["goal"]))
+                if key in seen_delegations:
+                    dropped_events += 1
+                    event_notes.append(
+                        f"duplicate agenda_delegation dropped for npc {normalized['payload']['npc_id']!r}"
+                    )
+                    continue
+                seen_delegations.add(key)
 
             else:  # event_creation
                 event_title = normalized["payload"]["title"]

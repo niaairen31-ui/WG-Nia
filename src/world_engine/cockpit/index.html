@@ -1388,7 +1388,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
         <div class="field-section-title">Nouvelle intrigue</div>
         <div class="field-grid">
           <div class="field-row">
-            <label for="intrigues-f-owner">Faction *</label>
+            <label for="intrigues-f-owner">Propriétaire (faction ou personnage) *</label>
             <select id="intrigues-f-owner"><option value="">—</option></select>
           </div>
           <div class="field-row" style="grid-column:1/-1">
@@ -2627,13 +2627,33 @@ function _mutationEntityName(id) {
   return shortId(id);
 }
 
+/* Lazy agenda id -> title cache (TICKET-0020, BRIEF-0020-c) — mirrors
+   _mutationEntityNames, for resolving agenda_delegation's agenda_id. */
+let _mutationAgendaNames = null;
+
+async function _loadMutationAgendaNames() {
+  if (_mutationAgendaNames) return;
+  try {
+    const rows = await api('/api/agendas');
+    _mutationAgendaNames = new Map(rows.map(a => [a.id, a.title]));
+  } catch (_) {
+    _mutationAgendaNames = new Map();
+  }
+}
+
+function _mutationAgendaName(id) {
+  if (!id) return '';
+  if (_mutationAgendaNames && _mutationAgendaNames.has(id)) return _mutationAgendaNames.get(id);
+  return shortId(id);
+}
+
 async function loadQueue() {
   const body = document.getElementById('queue-body');
   // BRIEF-0005-c: the batch bar mounts in the shell band's #creation-shell-extra
   // (moved out of #queue-body — markup relocation only, same renderBatchBar()).
   const batchSlot = document.getElementById('creation-shell-batch-bar');
   try {
-    await _loadMutationEntityNames();
+    await Promise.all([_loadMutationEntityNames(), _loadMutationAgendaNames()]);
     const mutations = await api('/api/mutations?status=' + currentFilter);
     if (!mutations.length) {
       if (batchSlot) batchSlot.innerHTML = '';
@@ -2708,6 +2728,39 @@ function _renderResourceChangeLegs(m) {
   </div>`;
 }
 
+/** Human-readable summary for agenda_delegation (ids resolved to names) and
+ *  agenda_creation (owner name resolved — per-NPC or faction alike),
+ *  TICKET-0020/BRIEF-0020-c. Same treatment level as resource_change's legs
+ *  above: a small resolved-names block ABOVE the raw JSON payload, which
+ *  stays visible/editable underneath as it does for every mutation_type.
+ *  Returns '' for every other mutation_type. */
+function _renderAgendaProvenanceSummary(m) {
+  const p = m.payload || {};
+  if (m.mutation_type === 'agenda_delegation') {
+    return `
+    <div class="card-fields" style="margin-bottom:8px;">
+      <div class="field-label">Délégation</div>
+      <div class="row-card" style="flex-direction:row; align-items:center; gap:10px; flex-wrap:wrap;">
+        <span style="font-weight:600;">${esc(_mutationEntityName(p.npc_id))}</span>
+        <span style="font-size:12px; color:var(--muted);">${esc(p.horizon || '')}</span>
+        <span>${esc(p.goal || '')}</span>
+        <span style="font-size:12px; color:var(--muted);">sert : « ${esc(_mutationAgendaName(p.agenda_id))} »</span>
+      </div>
+    </div>`;
+  }
+  if (m.mutation_type === 'agenda_creation') {
+    return `
+    <div class="card-fields" style="margin-bottom:8px;">
+      <div class="field-label">Propriétaire</div>
+      <div class="row-card" style="flex-direction:row; align-items:center; gap:10px; flex-wrap:wrap;">
+        <span style="font-weight:600;">${esc(_mutationEntityName(p.owner_entity_id))}</span>
+        <span>${esc(p.title || '')}</span>
+      </div>
+    </div>`;
+  }
+  return '';
+}
+
 function renderCard(m) {
   const editable   = (m.status === 'proposed');
   const payloadStr = JSON.stringify(m.payload, null, 2);
@@ -2740,6 +2793,7 @@ function renderCard(m) {
     : '';
 
   const resourceLegsBlock = _renderResourceChangeLegs(m);
+  const agendaSummaryBlock = _renderAgendaProvenanceSummary(m);
 
   // World-tick badges (TICKET-0014/BRIEF-0014-b, P1 + Z3): a grouping label
   // for every row of the same invocation, and a distinct warning badge when
@@ -2768,7 +2822,7 @@ function renderCard(m) {
 
   <div class="card-rationale">${esc(m.rationale || '(no rationale provided)')}</div>
 
-  ${resourceLegsBlock}
+  ${resourceLegsBlock}${agendaSummaryBlock}
 
   <div class="card-fields">
     <div>
@@ -3763,10 +3817,17 @@ async function _intriguesPopulateOwnerSelect() {
   const sel = document.getElementById('intrigues-f-owner');
   if (!sel || sel.dataset.loaded === '1') return;
   try {
-    const rows = await api('/api/entities?type=faction');
-    sel.innerHTML = '<option value="">—</option>' + rows
-      .filter(e => e.status === 'active')
+    const [factions, characters] = await Promise.all([
+      api('/api/entities?type=faction'),
+      api('/api/entities?type=character'),
+    ]);
+    const factionOpts = factions.filter(e => e.status === 'active')
       .map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
+    const characterOpts = characters.filter(e => e.status === 'active')
+      .map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
+    sel.innerHTML = '<option value="">—</option>'
+      + (factionOpts ? `<optgroup label="Factions">${factionOpts}</optgroup>` : '')
+      + (characterOpts ? `<optgroup label="Personnages (intrigue personnelle)">${characterOpts}</optgroup>` : '');
     sel.dataset.loaded = '1';
   } catch (_) { /* left with just the placeholder option */ }
 }
@@ -3805,32 +3866,72 @@ function _intriguesRenderStep(s) {
     </div>`;
 }
 
+function _intriguesRenderLinkedGoal(l) {
+  return `
+    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between; gap:6px; margin:4px 0;">
+      <span style="flex:1; min-width:160px;">
+        ${esc(l.goal_description)}
+        <span style="font-size:11px; color:var(--muted);"> — ${esc(l.npc_name)}</span>
+        <span class="badge ${l.goal_status !== 'active' ? 'b-rejected' : 'b-equipped'}">${esc(l.goal_status)}</span>
+      </span>
+      <button class="btn-icon" title="Détacher (réversible — le lien peut être rattaché plus tard)" onclick="intriguesDetachLink('${esc(l.link_id)}')">✕</button>
+    </div>`;
+}
+
 function _intriguesRenderList(agendas) {
   if (!agendas || agendas.length === 0) return '<div class="empty">Aucune intrigue.</div>';
-  return '<div class="row-table">' + agendas.map(a => `
+  return '<div class="row-table">' + agendas.map(a => {
+    const ownerBadge = a.owner_type === 'character'
+      ? `<span class="badge b-other" title="Intrigue personnelle">personnelle</span>`
+      : `<span class="badge b-other" title="Intrigue de faction">faction</span>`;
+    const linkedGoals = a.linked_goals || [];
+    return `
     <div class="row-card">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
-        <div><strong>${esc(a.title)}</strong> <span style="color:var(--muted); font-size:12px;">(${esc(a.owner_name)})</span></div>
+        <div><strong>${esc(a.title)}</strong> ${ownerBadge} <span style="color:var(--muted); font-size:12px;">(${esc(a.owner_name)})</span></div>
         <div style="display:flex; gap:6px; align-items:center;">
           <span class="badge b-${esc(a.status)}">${esc(a.status)}</span>
-          ${a.status === 'active' ? `<button class="btn-icon" title="Abandonner l'intrigue" onclick="intriguesSetAgendaStatus('${a.id}','abandoned')">⏸</button>` : ''}
-          ${(a.status === 'abandoned' || a.status === 'failed') ? `<button class="btn-icon" title="Réactiver l'intrigue" onclick="intriguesSetAgendaStatus('${a.id}','active')">▶</button>` : ''}
+          ${a.status === 'active' ? `<button class="btn-icon" title="Abandonner l'intrigue" onclick="intriguesSetAgendaStatus('${a.id}','abandoned',${linkedGoals.length})">⏸</button>` : ''}
+          ${(a.status === 'abandoned' || a.status === 'failed') ? `<button class="btn-icon" title="Réactiver l'intrigue" onclick="intriguesSetAgendaStatus('${a.id}','active',0)">▶</button>` : ''}
         </div>
       </div>
       <div style="margin-top:6px;">
         ${a.steps.map(s => _intriguesRenderStep(s)).join('')}
       </div>
-    </div>
-  `).join('') + '</div>';
+      ${linkedGoals.length > 0 ? `
+      <div style="margin-top:8px; border-top:1px solid var(--border); padding-top:6px;">
+        <div class="field-section-title">Objectifs liés (${linkedGoals.length})</div>
+        ${linkedGoals.map(l => _intriguesRenderLinkedGoal(l)).join('')}
+      </div>` : ''}
+    </div>`;
+  }).join('') + '</div>';
 }
 
-async function intriguesSetAgendaStatus(agendaId, status) {
+async function intriguesSetAgendaStatus(agendaId, status, linkedGoalCount) {
+  if (status !== 'active' && linkedGoalCount > 0) {
+    const ok = confirm(
+      `Cette intrigue a ${linkedGoalCount} objectif(s) lié(s). La fermer transitionnera ` +
+      `(complété/abandonné) chaque objectif dont c'est le DERNIER lien actif — un objectif ` +
+      `qui sert aussi une autre intrigue encore active survit. Continuer ?`
+    );
+    if (!ok) return;
+  }
   try {
     await api(`/api/agendas/${agendaId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     });
+    loadIntrigues();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function intriguesDetachLink(linkId) {
+  if (!confirm("Détacher ce lien ? Réversible : vous pourrez le rattacher plus tard.")) return;
+  try {
+    await api(`/api/goal-agenda-links/${encodeURIComponent(linkId)}/detach`, { method: 'POST' });
     loadIntrigues();
   } catch (e) {
     alert(e.message);
@@ -3859,7 +3960,7 @@ async function intriguesSubmitCreate() {
     .filter(v => v)
     .map(objective => ({ objective }));
 
-  if (!ownerId) { statusEl.textContent = 'Faction requise.'; return; }
+  if (!ownerId) { statusEl.textContent = 'Propriétaire requis.'; return; }
   if (!title)   { statusEl.textContent = 'Titre requis.'; return; }
   if (steps.length < 2 || steps.length > 5) { statusEl.textContent = 'Entre 2 et 5 étapes requises.'; return; }
 
@@ -6617,32 +6718,76 @@ async function authorLoadGoals(entityId) {
   const el = document.getElementById('author-goals');
   if (!el) return;
   try {
-    const goals = await api(`/api/entities/${encodeURIComponent(entityId)}/goals`);
-    el.innerHTML = authorRenderGoals(goals);
+    const [goals, agendas] = await Promise.all([
+      api(`/api/entities/${encodeURIComponent(entityId)}/goals`),
+      api('/api/agendas'),
+    ]);
+    const activeAgendas = (agendas || []).filter(a => a.status === 'active');
+    el.innerHTML = authorRenderGoals(goals, activeAgendas);
   } catch (e) {
     el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
 }
 
-function authorRenderGoals(goals) {
+function authorRenderGoals(goals, activeAgendas) {
   if (!goals || goals.length === 0) return '<div class="empty">Aucun objectif.</div>';
   const horizonLabel = { long: 'LONG TERME', short: 'COURT TERME' };
+  const agendaOptions = (activeAgendas || [])
+    .map(a => `<option value="${a.id}">${esc(a.title)}</option>`).join('');
   return '<div class="row-table">' + goals.map(g => {
     const closed = g.status !== 'active';
+    const links = g.links || [];
+    const linksHtml = links.map(l => `
+      <span class="badge b-other" style="margin-left:4px;">
+        sert : « ${esc(l.agenda_title)} »
+        <button class="btn-icon" style="padding:0 4px" title="Détacher (réversible)" onclick="authorDetachGoalLink('${esc(l.link_id)}')">✕</button>
+      </span>`).join('');
+    const attachHtml = (!closed && activeAgendas && activeAgendas.length > 0) ? `
+      <span style="display:inline-flex; gap:4px; align-items:center; margin-left:6px;">
+        <select id="goal-attach-${esc(g.id)}" style="font-size:11px;"><option value="">rattacher à…</option>${agendaOptions}</select>
+        <button class="btn-icon" title="Rattacher à l'intrigue choisie" onclick="authorAttachGoalLink('${esc(g.id)}')">+</button>
+      </span>` : '';
     return `
     <div class="row-card" style="${closed ? 'opacity:0.6;' : ''}">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-        <span><span class="badge b-other">${esc(horizonLabel[g.horizon] || g.horizon)}</span> ${esc(g.description)}</span>
-        <span style="display:flex; align-items:center; gap:8px;">
+        <span><span class="badge b-other">${esc(horizonLabel[g.horizon] || g.horizon)}</span> ${esc(g.description)}${linksHtml}</span>
+        <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <span class="badge ${closed ? 'b-rejected' : 'b-equipped'}">${esc(g.status)}</span>
           ${!closed ? `
             <button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick="authorSetGoalStatus('${esc(g.id)}', 'completed')">Accompli</button>
             <button class="btn-end" style="font-size:12px; padding:3px 8px" onclick="authorSetGoalStatus('${esc(g.id)}', 'abandoned')">Abandonné</button>
           ` : ''}
+          ${attachHtml}
         </span>
       </div>
     </div>`;
   }).join('') + '</div>';
+}
+
+async function authorAttachGoalLink(goalId) {
+  const sel = document.getElementById(`goal-attach-${goalId}`);
+  const agendaId = sel ? sel.value : '';
+  if (!agendaId) return;
+  try {
+    await api('/api/goal-agenda-links', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ goal_id: goalId, agenda_id: agendaId }),
+    });
+    await authorLoadGoals(authorEntityId);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function authorDetachGoalLink(linkId) {
+  if (!confirm("Détacher ce lien ? Réversible : vous pourrez le rattacher plus tard.")) return;
+  try {
+    await api(`/api/goal-agenda-links/${encodeURIComponent(linkId)}/detach`, { method: 'POST' });
+    await authorLoadGoals(authorEntityId);
+  } catch (e) {
+    alert(e.message);
+  }
 }
 
 function authorRenderGoalForm() {

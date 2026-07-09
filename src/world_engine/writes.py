@@ -77,7 +77,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from .models import Agenda, AgendaStep, Character, Entity, Event, FactionMembership, Knowledge, Ledger, NpcGoal, PromptTemplate, PromptVersion, Relation, Skill
+from .models import Agenda, AgendaStep, Character, Entity, Event, FactionMembership, GoalAgendaLink, Knowledge, Ledger, NpcGoal, PromptTemplate, PromptVersion, Relation, Skill
 
 # Simple-identifier placeholder, e.g. `{player_line}` — deliberately does not
 # match JSON-example braces like `{"key": ...}` (TICKET-0011, C1).
@@ -643,14 +643,18 @@ def write_agenda(
     title: str,
     mutation_id: Optional[str] = None,
 ) -> Agenda:
-    """Insert an `active` `agenda` row (TICKET-0018, BRIEF-0018-a).
+    """Insert an `active` `agenda` row (TICKET-0018, BRIEF-0018-a; owner
+    unlock TICKET-0020, BRIEF-0020-a).
 
     The ONLY constructor of `Agenda` in gameplay code — both sanctioned
     canon-write paths (`_apply_mutation`'s `agenda_creation` branch and the
-    creator CRUD) call this. A1 (this step): `owner_entity_id` must resolve
-    to an ACTIVE `entity` of `type == "faction"` in `world_id` — non-faction
-    or missing owners raise `ValueError`, the structural half of A1 (the
-    other half is the location scope's empty `agendas_index`).
+    creator CRUD) call this. `owner_entity_id` must resolve to an ACTIVE
+    `entity` of `type` in `{"faction", "character"}` in `world_id` —
+    anything else (including a missing owner) raises `ValueError`. Faction
+    owners keep their multi-agenda freedom, unchanged. A `character` owner
+    may hold AT MOST ONE active agenda — the one-active-personal-agenda
+    invariant, enforced here (the sole canon-write path) by an explicit
+    existence check. Location owners stay rejected (A2/A3 deferred).
     `mutation_id` is accepted only for call-site symmetry with the other
     `_apply_mutation` writers and is not otherwise used here.
     """
@@ -658,8 +662,17 @@ def write_agenda(
     owner = db.get(Entity, owner_entity_id)
     if owner is None or owner.world_id != world_id:
         raise ValueError(f"write_agenda: owner {owner_entity_id!r} not found in world {world_id!r}")
-    if owner.type != "faction" or owner.status != "active":
-        raise ValueError(f"write_agenda: owner {owner_entity_id!r} is not an active faction")
+    if owner.type not in ("faction", "character") or owner.status != "active":
+        raise ValueError(f"write_agenda: owner {owner_entity_id!r} is not an active faction or character")
+    if owner.type == "character":
+        existing = db.exec(
+            select(Agenda).where(
+                Agenda.owner_entity_id == owner_entity_id,
+                Agenda.status == "active",
+            )
+        ).first()
+        if existing is not None:
+            raise ValueError("write_agenda: character owner already holds an active agenda")
 
     agenda = Agenda(
         world_id=world_id,
@@ -735,6 +748,91 @@ def write_agenda_step_status(
     return step
 
 
+def write_goal_agenda_link(
+    db: Session,
+    *,
+    world_id: str,
+    goal_id: str,
+    agenda_id: str,
+    created_by: str,
+    mutation_id: Optional[str] = None,
+) -> GoalAgendaLink:
+    """Insert an ACTIVE `goal_agenda_link` row (TICKET-0020, BRIEF-0020-a).
+
+    The ONLY constructor of `GoalAgendaLink` in gameplay code. Validates:
+    the goal exists, belongs to `world_id`, and is `active`; the agenda
+    exists, belongs to `world_id`, and is `active`; no ACTIVE link already
+    exists for this exact pair (explicit query — a clearer error than the
+    partial-unique-index violation). `mutation_id` is accepted only for
+    call-site symmetry with the other `_apply_mutation` writers and is not
+    otherwise used here.
+    """
+    del mutation_id
+    goal = db.get(NpcGoal, goal_id)
+    if goal is None or goal.world_id != world_id:
+        raise ValueError(f"write_goal_agenda_link: goal {goal_id!r} not found in world {world_id!r}")
+    if goal.status != "active":
+        raise ValueError(f"write_goal_agenda_link: goal {goal_id!r} is not active")
+
+    agenda = db.get(Agenda, agenda_id)
+    if agenda is None or agenda.world_id != world_id:
+        raise ValueError(f"write_goal_agenda_link: agenda {agenda_id!r} not found in world {world_id!r}")
+    if agenda.status != "active":
+        raise ValueError(f"write_goal_agenda_link: agenda {agenda_id!r} is not active")
+
+    existing = db.exec(
+        select(GoalAgendaLink).where(
+            GoalAgendaLink.goal_id == goal_id,
+            GoalAgendaLink.agenda_id == agenda_id,
+            GoalAgendaLink.detached_at.is_(None),
+        )
+    ).first()
+    if existing is not None:
+        raise ValueError("write_goal_agenda_link: an active link already exists for this goal/agenda pair")
+
+    link = GoalAgendaLink(
+        world_id=world_id,
+        goal_id=goal_id,
+        agenda_id=agenda_id,
+        created_by=created_by,
+    )
+    db.add(link)
+    return link
+
+
+def detach_goal_agenda_link(
+    db: Session,
+    *,
+    link: GoalAgendaLink,
+    detached_by: str,
+) -> GoalAgendaLink:
+    """Soft-detach a `goal_agenda_link` row (TICKET-0020, BRIEF-0020-a).
+
+    Sets `detached_at`/`detached_by`. Raises `ValueError` if already
+    detached. There is NO delete helper — soft detach is the only exit; a
+    detached pair may be re-attached via `write_goal_agenda_link` (the
+    partial unique index allows it).
+    """
+    if link.detached_at is not None:
+        raise ValueError("detach_goal_agenda_link: link is already detached")
+
+    link.detached_at = datetime.now(UTC)
+    link.detached_by = detached_by
+
+    db.add(link)
+    return link
+
+
+# agenda status -> npc_goal status, cascade mapping (E2+M1, TICKET-0020,
+# BRIEF-0020-a). The goal vocabulary has no 'failed' — both non-completed
+# exits collapse to 'abandoned'.
+_AGENDA_GOAL_CASCADE_MAP = {
+    "completed": "completed",
+    "failed": "abandoned",
+    "abandoned": "abandoned",
+}
+
+
 def write_agenda_status(
     db: Session,
     *,
@@ -742,14 +840,26 @@ def write_agenda_status(
     status: str,
     mutation_id: Optional[str] = None,
 ) -> Agenda:
-    """Transition `agenda.status` (TICKET-0018, BRIEF-0018-a).
+    """Transition `agenda.status` (TICKET-0018, BRIEF-0018-a; cascade
+    TICKET-0020, BRIEF-0020-a).
 
     Same snapshot discipline as `write_agenda_step_status`: appends the
     previous `{status, updated_at}` to `change_history` before overwriting.
     `mutation_id` is accepted only for call-site symmetry and is not
     otherwise used here.
+
+    When the PREVIOUS status was `active` and `status` is one of
+    `completed`/`failed`/`abandoned`, cascades onto every goal linked to
+    this agenda (ACTIVE link, i.e. `detached_at IS NULL`): an `active` goal
+    whose link to THIS agenda is its last still-active parent transitions
+    via `write_npc_goal_status` (E2+M1 mapping); a goal with another active
+    link to a still-active agenda survives (last-parent rule). Links are
+    never detached by the cascade — the historical tie stays readable. Runs
+    identically for tick-approved transitions and creator CRUD overrides
+    (both route through this helper).
     """
     del mutation_id
+    was_active = agenda.status == "active"
     history = list(agenda.change_history or [])
     history.append({
         "status": agenda.status,
@@ -761,6 +871,40 @@ def write_agenda_status(
     agenda.updated_at = datetime.now(UTC)
 
     db.add(agenda)
+
+    goal_status = _AGENDA_GOAL_CASCADE_MAP.get(status)
+    if was_active and goal_status is not None:
+        active_links = db.exec(
+            select(GoalAgendaLink).where(
+                GoalAgendaLink.agenda_id == agenda.id,
+                GoalAgendaLink.detached_at.is_(None),
+            )
+        ).all()
+        for link in active_links:
+            goal = db.get(NpcGoal, link.goal_id)
+            if goal is None or goal.status != "active":
+                continue
+            other_active_links = db.exec(
+                select(GoalAgendaLink).where(
+                    GoalAgendaLink.goal_id == goal.id,
+                    GoalAgendaLink.agenda_id != agenda.id,
+                    GoalAgendaLink.detached_at.is_(None),
+                )
+            ).all()
+            has_other_active_parent = any(
+                (other_agenda := db.get(Agenda, other.agenda_id)) is not None
+                and other_agenda.status == "active"
+                for other in other_active_links
+            )
+            if has_other_active_parent:
+                continue
+            write_npc_goal_status(
+                db,
+                goal=goal,
+                new_status=goal_status,
+                changed_by=f"cascade:agenda:{agenda.id}:{status}",
+            )
+
     return agenda
 
 

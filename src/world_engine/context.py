@@ -30,6 +30,7 @@ from __future__ import annotations
 from sqlmodel import Session, select
 
 from .models import (
+    Agenda,
     Character,
     DiscoverableDetail,
     Entity,
@@ -37,6 +38,7 @@ from .models import (
     FactionMembership,
     Gathering,
     GatheringMember,
+    GoalAgendaLink,
     Item,
     Knowledge,
     Location,
@@ -167,6 +169,53 @@ def read_public_memberships(
     return memberships
 
 
+def read_public_membership_faction_ids(entity_id: str, session: Session) -> set[str]:
+    """Return the faction ids this entity holds a public, active membership
+    in (TICKET-0020, BRIEF-0020-b) — the SECOND sanctioned reader of
+    `faction_membership` for prompts, existing solely as the D1 dialogue
+    goal-provenance gate. Same structural WHERE triplet as
+    `read_public_memberships` (`entity_id` match, `left_at IS NULL`,
+    `is_secret == False`) — no caller can opt into secret rows; there is no
+    parameter for it."""
+    rows = session.exec(
+        select(FactionMembership).where(
+            FactionMembership.entity_id == entity_id,
+            FactionMembership.left_at.is_(None),
+            FactionMembership.is_secret == False,  # noqa: E712
+        )
+    ).all()
+    return {row.faction_id for row in rows}
+
+
+def _goal_provenance_suffix(goal: NpcGoal, npc_id: str, session: Session) -> str:
+    """` (sert : « <title> »[, « <title> »...])` for each ACTIVE link
+    (`detached_at IS NULL`) to a still-ACTIVE agenda the goal serves, D1
+    GATED (TICKET-0020, BRIEF-0020-b): a title renders only when the
+    agenda's owner IS this NPC (its own intrigue) OR the owner faction is
+    among `read_public_membership_faction_ids(npc_id, session)` — the
+    query-mechanical D1 choke-point, never a model instruction. A link
+    failing the gate contributes NOTHING; the goal then appears bare,
+    exactly as it did before this brief."""
+    links = session.exec(
+        select(GoalAgendaLink).where(
+            GoalAgendaLink.goal_id == goal.id, GoalAgendaLink.detached_at.is_(None)
+        )
+    ).all()
+    if not links:
+        return ""
+    public_faction_ids = read_public_membership_faction_ids(npc_id, session)
+    titles = []
+    for link in links:
+        agenda = session.get(Agenda, link.agenda_id)
+        if agenda is None or agenda.status != "active":
+            continue
+        if agenda.owner_entity_id == npc_id or agenda.owner_entity_id in public_faction_ids:
+            titles.append(agenda.title)
+    if not titles:
+        return ""
+    return " (sert : " + ", ".join(f"« {t} »" for t in titles) + ")"
+
+
 def assemble_npc_context(
     npc_id: str,
     interlocutor_id: str,
@@ -236,9 +285,9 @@ def assemble_npc_context(
     ).all()
     goal_lines = []
     if long_goal:
-        goal_lines.append(f"[LONG TERME] {long_goal.description}")
+        goal_lines.append(f"[LONG TERME] {long_goal.description}{_goal_provenance_suffix(long_goal, npc_id, session)}")
     for g in short_goals:
-        goal_lines.append(f"[COURT TERME] {g.description}")
+        goal_lines.append(f"[COURT TERME] {g.description}{_goal_provenance_suffix(g, npc_id, session)}")
     goals_section = (_section(H_GOALS, "\n".join(goal_lines)) + "\n") if goal_lines else ""
 
     # ----- 2. Setting -------------------------------------------------------

@@ -54,12 +54,14 @@ Rule 11 (forced location_id, BRIEF-0017-a): `location_id` joins
 anywhere in `tick.py`, and every dict-literal key `"location_id"` maps to a
 bare `Name` value.
 
-Rule 12 (closed per-NPC contract stays closed, TICKET-0018/BRIEF-0018-a):
-the strings `"agenda_step_change"`/`"agenda_creation"` appear inside
-`_normalize_scope_event` but NEVER in `_normalize_tick_item` /
-`_TICK_MUTATION_TYPES` / `_TICK_TYPE_ALIASES` — the scope-level agenda types
-are a `tick.py`-only, faction-scope-only extension of the SCOPE contract,
-never the per-NPC one.
+Rule 12 (per-NPC contract's DELIBERATE agenda extension, superseded from
+BRIEF-0018-a's "stays closed" by TICKET-0020/BRIEF-0020-b): the strings
+`"agenda_step_change"`/`"agenda_creation"` appear inside BOTH
+`_normalize_scope_event` (faction-scope-only, unchanged) AND
+`_TICK_MUTATION_TYPES`/`_normalize_tick_item` (the per-NPC path, now
+deliberately open, owner-restricted). The original BRIEF-0018-a claim these
+two types could never enter the per-NPC contract is superseded here, on the
+record — this rule now asserts the OPPOSITE presence, not their absence.
 Rule 13 (forced agenda identity, BRIEF-0018-a): `step_id`/`agenda_id`/
 `owner_entity_id` join `_FORCED_FIELDS` — no `.get("step_id")`/
 `.get("agenda_id")`/`.get("owner_entity_id")` call on a raw model payload
@@ -91,6 +93,20 @@ Rule 18 (guarded realization linkage, BRIEF-0019-a): `cockpit/crud.py`'s
 `_link_entity_creation` (the helper `create_entity` calls after its own
 commit) visibly checks all three guards — `mutation_type`, `status`, and
 created_entity_id-absence — before flipping status to 'applied'.
+
+Rule 19 (agenda_delegation isolation, TICKET-0020/BRIEF-0020-b): the string
+`"agenda_delegation"` appears inside `_normalize_scope_event`, gated by an
+explicit `scope_type != "faction"` drop (same shape as the two 0018 agenda
+types' gates), but NEVER in `_normalize_tick_item` / `_TICK_MUTATION_TYPES` /
+`_TICK_TYPE_ALIASES` — delegation is FACTION SCOPE ONLY, never proposable
+from the per-NPC path (twin of rules 9/15, but for this type).
+Rule 20 (owner-restricted per-NPC agendas_index, TICKET-0020/BRIEF-0020-b):
+`run_world_tick` builds a per-NPC `agendas_index` from a query comparing
+`Agenda.owner_entity_id` against a bare `npc_id` Name (never `scope_id`,
+never unfiltered) before calling `_normalize_tick_item` — the per-NPC
+agenda types resolve exclusively against agendas the ticked NPC itself
+owns, structurally distinct from the faction-scoped `agendas_index` rule 13
+already forces `owner_entity_id` against for the SCOPE branch.
 
 No DB, stdlib `ast` only.
 """
@@ -464,8 +480,11 @@ def check_scope_event_quota() -> None:
 
 
 def check_agenda_type_isolation() -> None:
-    """Rule 12 (TICKET-0018, BRIEF-0018-a): agenda types live ONLY in the
-    scope-level normalizer, never in the per-NPC closed contract."""
+    """Rule 12 (TICKET-0018/BRIEF-0018-a, superseded by TICKET-0020/
+    BRIEF-0020-b): agenda types live in the scope-level normalizer AND, now
+    deliberately, the per-NPC closed contract — this asserts PRESENCE in
+    both, the flip of the original 0018-only "never in the per-NPC one"
+    claim."""
     if not TICK_FILE.exists():
         fail(f"{TICK_FILE} not found")
         return
@@ -487,24 +506,109 @@ def check_agenda_type_isolation() -> None:
         if t not in present:
             fail(f"{rel}: _normalize_scope_event never references {t!r}")
 
+    found_in_types = set()
     for node in ast.walk(tree):
         name, value = _dict_assign_target(node)
         if name == "_TICK_MUTATION_TYPES" and isinstance(value, (ast.Set, ast.Call)):
             for elt in ast.walk(value):
                 if isinstance(elt, ast.Constant) and elt.value in agenda_types:
-                    fail(f"{rel}:{node.lineno} — _TICK_MUTATION_TYPES contains {elt.value!r}")
+                    found_in_types.add(elt.value)
+    for t in agenda_types:
+        if t not in found_in_types:
+            fail(f"{rel}: _TICK_MUTATION_TYPES no longer contains {t!r} (BRIEF-0020-b deliberate extension)")
+
+    tick_func = _find_function(tree, "_normalize_tick_item")
+    if tick_func is None:
+        fail(f"{rel}: _normalize_tick_item not found")
+        return
+    found_in_tick_func = {
+        n.value for n in ast.walk(tick_func)
+        if isinstance(n, ast.Constant) and n.value in agenda_types
+    }
+    for t in agenda_types:
+        if t not in found_in_tick_func:
+            fail(f"{rel}: _normalize_tick_item never references {t!r} (BRIEF-0020-b deliberate extension)")
+
+
+def check_agenda_delegation_isolation() -> None:
+    """Rule 19 (TICKET-0020, BRIEF-0020-b): agenda_delegation lives ONLY in
+    the scope-level (faction-only) normalizer, never the per-NPC contract —
+    the same isolation shape as rules 9/15, for this new type."""
+    if not TICK_FILE.exists():
+        fail(f"{TICK_FILE} not found")
+        return
+    tree = _parse(TICK_FILE)
+    if tree is None:
+        return
+    rel = TICK_FILE.relative_to(ROOT).as_posix()
+
+    scope_func = _find_function(tree, "_normalize_scope_event")
+    if scope_func is None:
+        fail(f"{rel}: _normalize_scope_event not found")
+        return
+    present = any(
+        isinstance(n, ast.Constant) and n.value == "agenda_delegation"
+        for n in ast.walk(scope_func)
+    )
+    if not present:
+        fail(f"{rel}: _normalize_scope_event never references 'agenda_delegation'")
+
+    for node in ast.walk(tree):
+        name, value = _dict_assign_target(node)
+        if name == "_TICK_MUTATION_TYPES" and isinstance(value, (ast.Set, ast.Call)):
+            for elt in ast.walk(value):
+                if isinstance(elt, ast.Constant) and elt.value == "agenda_delegation":
+                    fail(f"{rel}:{node.lineno} — _TICK_MUTATION_TYPES contains 'agenda_delegation'")
         if name == "_TICK_TYPE_ALIASES" and isinstance(value, ast.Dict):
             for v in value.values:
-                if isinstance(v, ast.Constant) and v.value in agenda_types:
-                    fail(f"{rel}:{node.lineno} — _TICK_TYPE_ALIASES maps a key to {v.value!r}")
+                if isinstance(v, ast.Constant) and v.value == "agenda_delegation":
+                    fail(f"{rel}:{node.lineno} — _TICK_TYPE_ALIASES maps a key to 'agenda_delegation'")
 
     tick_func = _find_function(tree, "_normalize_tick_item")
     if tick_func is None:
         fail(f"{rel}: _normalize_tick_item not found")
         return
     for node in ast.walk(tick_func):
-        if isinstance(node, ast.Constant) and node.value in agenda_types:
-            fail(f"{rel}:{node.lineno} — {node.value!r} referenced inside _normalize_tick_item")
+        if isinstance(node, ast.Constant) and node.value == "agenda_delegation":
+            fail(f"{rel}:{node.lineno} — 'agenda_delegation' referenced inside _normalize_tick_item")
+
+
+def check_per_npc_agendas_index_owner_restricted() -> None:
+    """Rule 20 (TICKET-0020, BRIEF-0020-b): the per-NPC agendas_index passed
+    into _normalize_tick_item is built from a query comparing
+    Agenda.owner_entity_id against a bare npc_id Name — owner-restricted,
+    never the faction/scope index."""
+    if not TICK_FILE.exists():
+        fail(f"{TICK_FILE} not found")
+        return
+    tree = _parse(TICK_FILE)
+    if tree is None:
+        return
+    rel = TICK_FILE.relative_to(ROOT).as_posix()
+
+    func = _find_function(tree, "run_world_tick")
+    if func is None:
+        fail(f"{rel}: run_world_tick not found")
+        return
+
+    def _is_owner_entity_id_attr(node) -> bool:
+        return isinstance(node, ast.Attribute) and node.attr == "owner_entity_id"
+
+    found = False
+    for node in ast.walk(func):
+        if isinstance(node, ast.Compare):
+            operands = [node.left, *node.comparators]
+            has_owner_attr = any(_is_owner_entity_id_attr(o) for o in operands)
+            has_npc_id_name = any(
+                isinstance(o, ast.Name) and o.id == "npc_id" for o in operands
+            )
+            if has_owner_attr and has_npc_id_name:
+                found = True
+    if not found:
+        fail(
+            f"{rel}: run_world_tick has no Agenda.owner_entity_id == npc_id comparison — "
+            "the per-NPC agendas_index must be owner-restricted"
+        )
 
 
 def check_agenda_step_one_active_index() -> None:
@@ -715,11 +819,13 @@ def main() -> None:
     check_entity_creation_quota()
     check_apply_mutation_no_entity_construction()
     check_create_entity_linkage_guards()
+    check_agenda_delegation_isolation()
+    check_per_npc_agendas_index_owner_restricted()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         sys.exit(1)
-    print("PASS: world-tick structural gate intact (rules 1-18)")
+    print("PASS: world-tick structural gate intact (rules 1-20)")
     sys.exit(0)
 
 

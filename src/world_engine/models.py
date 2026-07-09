@@ -952,6 +952,39 @@ class AgendaStep(SQLModel, table=True):
     )
 
 
+# -----------------------------------------------------------------------------
+# goal_agenda_link  (npc_goal <-> agenda many-to-many, schema v1.73,
+# TICKET-0020/BRIEF-0020-a). Ties a goal to the intrigue(s) it serves — B3
+# grain is the AGENDA, never the step. No `change_history`: link rows are
+# immutable facts whose only transition is the soft detach (the two detach
+# columns ARE the audit trail, `faction_membership.left_at` precedent);
+# goal-side status transitions live in `npc_goal.change_history` as always.
+# `idx_goal_agenda_link_active` (partial unique on `goal_id, agenda_id` WHERE
+# `detached_at IS NULL`) forbids a duplicate ACTIVE link for the same pair
+# while allowing re-attach after detach (`idx_membership_unique_active`
+# precedent, models.py:222-226).
+# -----------------------------------------------------------------------------
+class GoalAgendaLink(SQLModel, table=True):
+    __tablename__ = "goal_agenda_link"
+    __table_args__ = (
+        Index("idx_goal_agenda_link_goal", "goal_id"),
+        Index("idx_goal_agenda_link_agenda", "agenda_id"),
+        Index(
+            "idx_goal_agenda_link_active", "goal_id", "agenda_id",
+            unique=True, sqlite_where=text("detached_at IS NULL"),
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    goal_id: str = Field(foreign_key="npc_goal.id", nullable=False)
+    agenda_id: str = Field(foreign_key="agenda.id", nullable=False)
+    created_at: datetime = _created_ts()
+    created_by: str
+    detached_at: Optional[datetime] = None
+    detached_by: Optional[str] = None
+
+
 __all__ = [
     "World",
     "Entity",
@@ -979,4 +1012,5 @@ __all__ = [
     "Visit",
     "Agenda",
     "AgendaStep",
+    "GoalAgendaLink",
 ]
