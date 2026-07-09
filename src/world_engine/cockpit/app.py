@@ -108,6 +108,7 @@ from ..writes import (
     write_agenda_step_status,
     write_character_location,
     write_event,
+    write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
     write_npc_goal,
@@ -940,9 +941,18 @@ def _find_applied_duplicate(
     creator's own CRUD create route needs no such guard — a human choosing
     to author two similarly-titled agendas is not a bug). Duplicate iff an
     ACTIVE agenda already exists for the proposal's owner with the same
-    normalized title. AGENDA_STEP_CHANGE gets NO clause here by design — the
-    apply branch's active-status stale guard (canon-existence, 0014
-    doctrine) is strictly stronger (0015 F6 argument).
+    normalized title — EXCEPT for a `character` owner (TICKET-0020,
+    BRIEF-0020-b), where ANY active agenda is a duplicate (the
+    one-active-personal-agenda invariant makes title irrelevant). AGENDA_
+    STEP_CHANGE gets NO clause here by design — the apply branch's
+    active-status stale guard (canon-existence, 0014 doctrine) is strictly
+    stronger (0015 F6 argument).
+
+    AGENDA_DELEGATION (TICKET-0020, BRIEF-0020-b) is tick-sourced only
+    (faction scope). Duplicate iff an ACTIVE goal with the same normalized
+    text already exists for the target NPC — the same rule as goal_change's
+    create_short guard below, applied here because delegation writes a goal
+    too.
     """
     if not mut.conversation_id:
         if not mut.tick_id:
@@ -999,10 +1009,32 @@ def _find_applied_duplicate(
             # apply branch's active-status stale guard is strictly stronger
             # (0015 F6 argument: it also catches duplicate approval and
             # creator-moved-since, which a title/owner key alone would not).
+            #
+            # Character owner (TICKET-0020, BRIEF-0020-b): the guard widens
+            # to ANY active agenda, not just a same-title one — the
+            # one-active-personal-agenda invariant means a second creation
+            # for the same NPC is always a duplicate, regardless of title.
+            # Faction owners keep the same-title-only guard, unchanged.
+            owner_id = payload.get("owner_entity_id")
+            owner = db.get(Entity, owner_id)
+            if owner is not None and owner.type == "character":
+                existing_personal = db.exec(
+                    select(Agenda).where(
+                        Agenda.owner_entity_id == owner_id,
+                        Agenda.status == "active",
+                    )
+                ).first()
+                if existing_personal is not None:
+                    return (
+                        f"agenda_creation for NPC {str(owner_id)[:8]}… already holds an active "
+                        f"agenda ({existing_personal.title!r})."
+                    )
+                return None
+
             normalized = _normalize_goal_text(payload.get("title"))
             candidates = db.exec(
                 select(Agenda).where(
-                    Agenda.owner_entity_id == payload.get("owner_entity_id"),
+                    Agenda.owner_entity_id == owner_id,
                     Agenda.status == "active",
                 )
             ).all()
@@ -1010,6 +1042,23 @@ def _find_applied_duplicate(
                 return (
                     f"agenda_creation for title {payload.get('title')!r} already exists "
                     "as an active agenda for this owner."
+                )
+            return None
+
+        if mut.mutation_type == "agenda_delegation":
+            # Reuse the create_short duplicate rule (item 4 of the brief):
+            # an ACTIVE goal with the same normalized text on that NPC is a
+            # duplicate — mirrors goal_change's own create_short guard
+            # further down, applied here since agenda_delegation is
+            # tick-sourced only (no conversation_id branch exists for it).
+            normalized = _normalize_goal_text(payload.get("goal"))
+            candidates = db.exec(
+                select(NpcGoal).where(NpcGoal.npc_id == payload.get("npc_id"), NpcGoal.status == "active")
+            ).all()
+            if any(_normalize_goal_text(g.description) == normalized for g in candidates):
+                return (
+                    f"agenda_delegation for goal {payload.get('goal')!r} already exists "
+                    "as an active goal for this NPC."
                 )
             return None
 
@@ -1155,6 +1204,13 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                          no match → Needs attention, nothing written.
                          create_short always inserts a SHORT goal via
                          write_npc_goal — horizon is hard-coded, O1 structural.
+                         Own-agenda reference (TICKET-0020, BRIEF-0020-b,
+                         per-NPC tick path only): an optional agenda_id
+                         (already owner-index-resolved at normalize time)
+                         links the new goal via write_goal_agenda_link; a
+                         ValueError there → Needs attention, and the goal
+                         insert is undone by the caller's SAVEPOINT rollback
+                         (no separate pre-validation).
     - npc_move         : (TICKET-0015, BRIEF-0015-a) tick-only. Stale-from
                          gate: character.current_location_id must still equal
                          payload's from_location_id, else "Needs attention"
@@ -1197,6 +1253,15 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                          one-branch-one-table exception of the
                          resource_change kind (an agenda_step has no
                          existence outside its agenda).
+    - agenda_delegation : (TICKET-0020, BRIEF-0020-b) tick-only, faction
+                         scope. Re-validates at apply (canon-existence): the
+                         agenda is still ACTIVE; the NPC holds an ACTIVE
+                         FactionMembership (secret OR public) in the agenda's
+                         owner faction — either failing → Needs attention,
+                         nothing written. Writes one NpcGoal + one
+                         GoalAgendaLink in this one SAVEPOINT (same
+                         parent-child-aggregate shape as agenda_creation,
+                         not a resource_change-style exception).
 
     Unimplemented types (other) are left as 'approved' with a note — better
     un-applied than wrongly applied. `entity_creation` is realized through
@@ -1382,7 +1447,7 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
             # carries no horizon field and none is read, so the model cannot
             # create a long-term goal by any input. S1: no active-count
             # check — the injection's read-side LIMIT is the bound.
-            write_npc_goal(
+            goal = write_npc_goal(
                 db,
                 world_id=mut.world_id,
                 npc_id=npc_id,
@@ -1390,6 +1455,28 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                 horizon="short",
                 changed_by=f"mutation:{mut.id}",
             )
+            # Own-agenda reference (TICKET-0020, BRIEF-0020-b): normalize-time
+            # resolved an optional agenda title into agenda_id (owner-only
+            # index) — link preconditions (agenda still active, etc.) are
+            # re-validated here (the agenda may have closed since the tick).
+            # A ValueError is caught and returned as a string (this
+            # function's "never raises" contract, kept consistent with every
+            # other write_* call above) — the caller's outer SAVEPOINT then
+            # rolls back the goal insert too, so a failed link means NO goal
+            # either, exactly as if the whole mutation had been rejected.
+            agenda_id = payload.get("agenda_id")
+            if agenda_id:
+                try:
+                    write_goal_agenda_link(
+                        db,
+                        world_id=mut.world_id,
+                        goal_id=goal.id,
+                        agenda_id=agenda_id,
+                        created_by=f"mutation:{mut.id}",
+                        mutation_id=mut.id,
+                    )
+                except ValueError as exc:
+                    return f"goal_change: {exc}"
             return None
 
         return f"goal_change: unrecognised action {action!r}"
@@ -1617,6 +1704,56 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                 # activation (symmetric with the creator-CRUD create route).
                 status="active" if order == 1 else "pending",
             )
+        return None
+
+    # ── agenda_delegation (TICKET-0020, BRIEF-0020-b) ─────────────────────────
+    elif mut.mutation_type == "agenda_delegation":
+        npc_id = payload.get("npc_id")
+        goal_text = payload.get("goal")
+        horizon = payload.get("horizon")
+        agenda_id = payload.get("agenda_id")
+        if not npc_id or not goal_text or horizon not in ("short", "long") or not agenda_id:
+            return "agenda_delegation: payload must contain npc_id, goal, horizon in {short, long}, and agenda_id"
+
+        agenda = db.get(Agenda, agenda_id)
+        if agenda is None or agenda.status != "active":
+            return f"agenda_delegation: agenda {agenda_id!r} is not active — world moved since the tick"
+
+        # Re-validate at apply (stale-proof, canon-existence): the NPC must
+        # hold an ACTIVE FactionMembership in the agenda's owner faction —
+        # secret OR public, a faction may task a secret member.
+        membership = db.exec(
+            select(FactionMembership).where(
+                FactionMembership.entity_id == npc_id,
+                FactionMembership.faction_id == agenda.owner_entity_id,
+                FactionMembership.left_at.is_(None),
+            )
+        ).first()
+        if membership is None:
+            return f"agenda_delegation: NPC {npc_id!r} is not an active member of the agenda's owner faction"
+
+        # Same-domain parent-child aggregate, one SAVEPOINT — the 0018
+        # agenda_creation precedent, not a one-branch-one-table exception of
+        # the resource_change kind.
+        goal = write_npc_goal(
+            db,
+            world_id=mut.world_id,
+            npc_id=npc_id,
+            description=str(goal_text),
+            horizon=horizon,
+            changed_by=f"mutation:{mut.id}",
+        )
+        try:
+            write_goal_agenda_link(
+                db,
+                world_id=mut.world_id,
+                goal_id=goal.id,
+                agenda_id=agenda_id,
+                created_by=f"mutation:{mut.id}",
+                mutation_id=mut.id,
+            )
+        except ValueError as exc:
+            return f"agenda_delegation: {exc}"
         return None
 
     # ── unimplemented ─────────────────────────────────────────────────────────

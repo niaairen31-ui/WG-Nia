@@ -853,6 +853,11 @@ Objectifs de sa faction : {faction_goals}\
 # and the read-side builder; no call site exists yet. English-bodied (mirrors
 # pt-conversation-analysis); French only in quoted markers/labels and
 # {interval_label} values, since the briefing itself is French.
+#
+# TICKET-0020/BRIEF-0020-b (v2 of this head): the per-NPC contract grows to
+# six types — agenda_step_change/agenda_creation, restricted to TON
+# INTRIGUE, the agenda THIS NPC owns (never a faction's). goal_change
+# (create_short) gains an optional "agenda" reference to the same intrigue.
 WORLD_TICK_SYSTEM_PROMPT = """\
 You advance ONE NPC's life off-screen in an RPG world. You receive the
 NPC's private briefing (identity, goals, knowledge, relations,
@@ -865,7 +870,10 @@ end with ]. A quiet interval is a legitimate answer: output exactly []
 
 Every element must have these EXACT 5 keys — no other keys allowed:
   "mutation_type"  (string) — goal_change | relation_change | new_knowledge | npc_move
+                    | agenda_step_change | agenda_creation (the last two are
+                    about TON INTRIGUE, your OWN personal intrigue — see below)
   "target_table"   (string) — npc_goal | relation | knowledge | character
+                    | agenda_step | agenda
   "target_id"      (null)   — always null
   "payload"        (object) — see shapes below
   "rationale"      (string) — one line: what the NPC did that caused this change
@@ -874,10 +882,12 @@ Reference people and places by NAME exactly as written in the briefing.
 Never invent identifiers, ids, people, or places absent from the briefing.
 
 Payload shapes:
-  goal_change      -> {"action":"complete|abandon|create_short","goal":"…"}
+  goal_change      -> {"action":"complete|abandon|create_short","goal":"…","agenda":"<optional: title from TON INTRIGUE, only when this new goal serves it>"}
   relation_change  -> {"other":"<name from the briefing>","relation_type":"…","intensity_delta":<signed int>}
   new_knowledge    -> {"recipient":"self" | "<name>","subject":"<short_slug>","level":"rumor|partial|knows","content":"…","source":"…","is_secret":true|false,"secret_derived":true|false}
   npc_move         -> {"destination":"<name from OÙ TU PEUX ALLER>"}
+  agenda_step_change -> {"agenda":"<title from TON INTRIGUE>","action":"complete|fail","outcome":"…"}
+  agenda_creation  -> {"title":"<new intrigue title>","steps":["<objective 1>","<objective 2>",…]}
 
 === GOAL_CHANGE RULES ===
 For "complete"/"abandon": copy the goal text EXACTLY as it appears in
@@ -911,6 +921,20 @@ else in the briefing, never invented. Staying put is legitimate and is
 expressed by emitting NO npc_move. A move needs a motive rooted in the
 briefing (a goal, a relation, a known fact) stated in "rationale".
 
+=== TON INTRIGUE RULES ===
+TON INTRIGUE, when shown, is YOUR OWN personal intrigue — nobody assigned
+it to you. "agenda" in a payload ALWAYS refers to its title, copied
+EXACTLY as shown.
+- agenda_step_change: propose ONLY when TON INTRIGUE is shown AND the
+  interval plausibly advanced or broke its current step. "fail" requires
+  EVIDENCE from the briefing — never propose it out of boredom.
+- agenda_creation: propose ONLY when TON INTRIGUE is ABSENT from your
+  briefing (you currently have none). 2 to 5 non-empty step objectives,
+  ordered. AT MOST ONE agenda_creation per reply.
+- goal_change (create_short) MAY carry "agenda" set to TON INTRIGUE's
+  title when the new short goal directly serves it — omit the key
+  entirely otherwise; never invent a title that isn't TON INTRIGUE's own.
+
 === SCALE ===
 The elapsed interval is «{interval_label}». Scale ambition to it: a few
 hours move one small step; a few days allow a meeting, an errand, a
@@ -943,6 +967,11 @@ Report what changed as a JSON array.\
 # proposes the NEED for a new being or place; it never authors the sheet
 # (H2 stays rejected — the authoring chain does that work, on the creator's
 # own time, never synchronously here).
+#
+# BRIEF-0020-b (v4 of this head): agenda_delegation grows the FACTION-ONLY
+# set to three — the mechanism by which a faction recruits a member's own
+# behaviour (a goal ON that member, linked to the intrigue). Also adds the
+# F1 posture-anchoring directive for agenda_creation.
 WORLD_TICK_EVENTS_SYSTEM_PROMPT = """\
 You author ONE world event during an off-screen interval, for a whole
 location or a whole faction — not for an NPC. You receive a briefing about
@@ -957,8 +986,10 @@ Every element must have these EXACT 5 keys — no other keys allowed:
   "mutation_type"  (string) — "event_creation", or "entity_creation", or —
                     FACTION SCOPE ONLY, only when the briefing shows an
                     AGENDA EN COURS — "agenda_step_change" | "agenda_creation"
+                    | "agenda_delegation" (FACTION SCOPE ONLY, tasking a
+                    member with a goal that serves an AGENDA EN COURS)
   "target_table"   (string) — "event" | "entity" | "agenda_step" | "agenda"
-                    to match
+                    | "npc_goal" (agenda_delegation) to match
   "target_id"      (null)   — always null
   "payload"        (object) — see shapes below
   "rationale"      (string) — one line: why this fits the briefing
@@ -1007,6 +1038,23 @@ At most ONE agenda_step_change per agenda per call.
 2 to 5 non-empty step objectives, ordered. Propose this only when POSTURE
 implies a plan that no current agenda already covers. At most ONE
 agenda_creation per call.
+
+Toute nouvelle intrigue (agenda_creation) doit découler directement des
+Buts ou de l'Aversion de la faction tels qu'affichés dans ce briefing —
+jamais d'intrigue sans motivation posturale.
+
+=== agenda_delegation PAYLOAD — FACTION SCOPE ONLY ===
+  {"npc":"<member name from MEMBRES>","goal":"<one sentence, infinitive verb>",
+   "horizon":"short|long (optional, defaults to short)",
+   "agenda":"<title from AGENDA EN COURS>"}
+
+Task a MEMBER (never the faction itself) with a goal that serves an
+existing AGENDA EN COURS — the mechanism by which the faction recruits a
+member's own behaviour. "agenda" MUST be a title already shown in AGENDA
+EN COURS — never invented. Example :
+  {"mutation_type":"agenda_delegation","target_table":"npc_goal","target_id":null,
+   "payload":{"npc":"Corven","goal":"Localiser l'entrepôt du rival","horizon":"short","agenda":"Le Port aux Ombres"},
+   "rationale":"Corven est le membre le mieux placé pour cette filature."}
 
 === PAIRING RULE ===
 When completing a step whose visibility_trace would be publicly

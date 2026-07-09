@@ -13,6 +13,13 @@ the string literal `"npc_goal"`, may appear anywhere in `context.py` from
 it in this module is the MJ assembler block — see the file's own
 "MJ context assembler" section header).
 
+Rule 3 (D1 dialogue provenance gate, TICKET-0020/BRIEF-0020-b):
+`context.py`'s `_goal_provenance_suffix` both calls
+`read_public_membership_faction_ids` AND contains a comparison of
+`owner_entity_id` against a bare `npc_id` Name — the two-part D1 gate (own
+intrigue OR public membership) is structurally present, never an
+unconditional render of dialogue goal provenance.
+
 No DB, stdlib `ast` only.
 """
 from __future__ import annotations
@@ -106,14 +113,55 @@ def check_mj_boundary() -> None:
             )
 
 
+def check_dialogue_provenance_gate() -> None:
+    if not CONTEXT_FILE.exists():
+        fail(f"{CONTEXT_FILE} not found")
+        return
+    tree = _parse(CONTEXT_FILE)
+    if tree is None:
+        return
+    rel = CONTEXT_FILE.relative_to(ROOT).as_posix()
+
+    func = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_goal_provenance_suffix":
+            func = node
+            break
+    if func is None:
+        fail(f"{rel}: _goal_provenance_suffix not found")
+        return
+
+    calls_accessor = any(
+        isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "read_public_membership_faction_ids"
+        for n in ast.walk(func)
+    )
+    if not calls_accessor:
+        fail(f"{rel}: _goal_provenance_suffix never calls read_public_membership_faction_ids")
+
+    def _compare_targets(node: ast.Compare) -> list[ast.AST]:
+        return [node.left, *node.comparators]
+
+    has_owner_npc_compare = any(
+        isinstance(n, ast.Compare)
+        and any(isinstance(o, ast.Attribute) and o.attr == "owner_entity_id" for o in _compare_targets(n))
+        and any(isinstance(o, ast.Name) and o.id == "npc_id" for o in _compare_targets(n))
+        for n in ast.walk(func)
+    )
+    if not has_owner_npc_compare:
+        fail(f"{rel}: _goal_provenance_suffix has no owner_entity_id == npc_id comparison")
+
+
 def main() -> None:
     check_module_allowlist()
     check_mj_boundary()
+    check_dialogue_provenance_gate()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         sys.exit(1)
-    print("PASS: npc_goal read boundary intact (N1)")
+    print("PASS: npc_goal read boundary intact (N1), D1 provenance gate intact")
     sys.exit(0)
 
 

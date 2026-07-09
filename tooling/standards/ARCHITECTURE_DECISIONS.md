@@ -5478,6 +5478,109 @@ type are logged as their own decision entries by BRIEF-0020-b when they
 land — this note exists so a reader of this entry knows where to look
 next, not to duplicate that record here.
 
+## PER-NPC AGENDA CONTRACT — evolution of the 0017 closed contract (BRIEF-0020-b, no schema change)
+
+The per-NPC tick contract's "closed, faction-scope-only" doctrine for
+`agenda_step_change`/`agenda_creation`, stated at BRIEF-0018-a and
+mechanically enforced since, is SUPERSEDED here — on the record, not by
+drift. The exact claim this entry supersedes, verbatim from
+`tooling/verify/checks/world_tick.py`'s prior Rule 12:
+
+> Rule 12 (closed per-NPC contract stays closed, TICKET-0018/BRIEF-0018-a):
+> the strings `"agenda_step_change"`/`"agenda_creation"` appear inside
+> `_normalize_scope_event` but NEVER in `_normalize_tick_item` /
+> `_TICK_MUTATION_TYPES` / `_TICK_TYPE_ALIASES` — the scope-level agenda
+> types are a `tick.py`-only, faction-scope-only extension of the SCOPE
+> contract, never the per-NPC one.
+
+That claim was true and correct for BRIEF-0018-a's scope — it simply
+predates BRIEF-0020-a's NPC-owned agendas (an NPC couldn't own an agenda
+yet, so there was nothing per-NPC to advance). Now that a `character` can
+own an ACTIVE agenda (0020-a), the closed contract widens: `_TICK_
+MUTATION_TYPES` gains both types, but through a STRUCTURALLY SEPARATE door
+from the scope one. `_normalize_tick_item`'s two new branches resolve an
+agenda title ONLY against a per-NPC `agendas_index` the caller
+(`run_world_tick`) builds by querying `Agenda.owner_entity_id == npc_id` —
+never the faction/scope index, never widened to agendas the NPC merely
+SERVES via a `goal_agenda_link` (owning and serving stay structurally
+distinct query paths). `agenda_creation`'s `owner_entity_id` is FORCED to
+`npc_id`, joining the same forced-attribution family as `npc_id`/
+`entity_a_id`/`owner_entity_id` (scope) — never read from the model's
+payload, verified by the SAME rule 13 that already covered the scope
+branch (the check is file-wide, not per-function). A second layer of the
+0014 tick-guard doctrine applies twice over: `_normalize_tick_item` itself
+drops a second `agenda_creation` at normalize time (canon-existence: the
+NPC already owns an active agenda), and `run_world_tick`'s per-item loop
+caps it at one per call (mirroring the scope loop's `agenda_creation_
+emitted` flag) — catching, respectively, a re-run tick and two creations
+proposed in the SAME call before either is canon. `world_tick.py`'s Rule
+12 is rewritten to assert the OPPOSITE of its original claim (presence,
+not absence) in `_TICK_MUTATION_TYPES`/`_normalize_tick_item`; a NEW Rule
+20 asserts the owner-restriction structurally (an `Agenda.owner_entity_id
+== npc_id` comparison inside `run_world_tick`).
+
+`agenda_delegation` (faction scope only — the mechanism by which a faction
+tasks a MEMBER, never itself, with a goal serving one of its own active
+intrigues) stays on the ORIGINAL side of the 0017/0018 doctrine: never
+enters the per-NPC contract, isolated by a new Rule 19 (twin of rules 9/15,
+same isolation shape as `event_creation`/`entity_creation`). Delegation
+writes a `NpcGoal` + `GoalAgendaLink` in one SAVEPOINT — the 0018
+`agenda_creation` parent-child-aggregate precedent, not a
+`resource_change`-style two-domain exception — after re-validating at
+apply (canon-existence, 0014 doctrine) that the agenda is still active and
+the NPC holds an ACTIVE `FactionMembership` (secret OR public — a faction
+may task a secret member) in the agenda's owner faction.
+
+`goal_change` (create_short, per-NPC path only) gains an optional
+own-agenda reference: an `"agenda"` title, resolved against the SAME
+owner-restricted index and written as `agenda_id` in the normalized
+payload. Unlike the two new mutation types, an unresolved title never
+drops the goal_change itself — the reference is an enrichment (the NPC
+started a short goal that happens to serve its own intrigue), not a
+requirement; only the key is dropped, with a note. At apply
+(`cockpit/app.py`), a `write_goal_agenda_link` failure (e.g. the agenda
+closed since the tick) is NOT pre-validated separately — it raises
+`ValueError`, caught and returned as a string (keeping `_apply_mutation`'s
+"never raises" contract intact), and the caller's outer `db.begin_nested()`
+SAVEPOINT rolls back the just-inserted goal along with it: a rejected link
+means no goal either, achieved by relying on the existing rollback
+mechanism rather than adding a second validation pass (the brief's O1 note
+explicitly sanctioned either approach; this is the mechanically simpler
+one).
+
+## D1 DIALOGUE PROVENANCE — second sanctioned faction_membership reader (BRIEF-0020-b, no schema change)
+
+Dialogue goals may now show WHY they matter — but only when the NPC is
+allowed to reveal it. `read_public_membership_faction_ids` joins
+`read_public_memberships` as the second, and ONLY other, code path through
+which `faction_membership` may ever reach a model prompt: identical
+structural WHERE triplet (`entity_id` match, `left_at IS NULL`,
+`is_secret == False`), no parameter exists to opt into secret rows on
+either accessor. `_goal_provenance_suffix` (`context.py`) renders a goal's
+` (sert : « <title> »)` suffix IFF the serving agenda's owner is the NPC
+itself (its own intrigue — always visible, no gate needed, since it can't
+leak anything the NPC doesn't already know about itself) OR the owner
+faction id is in that set — a link failing the gate contributes nothing,
+and the goal renders exactly as it did before this brief, bare. This is
+query-mechanical, never an instruction: the model is never shown a
+provenance it must be told to withhold, because the excluded titles are
+never assembled into the prompt in the first place (the same
+exclusion-not-restraint doctrine `context.py`'s module docstring states
+for secrets). `tooling/verify/checks/npc_goal_read.py` gains a Rule 3
+asserting `_goal_provenance_suffix` both calls the new accessor AND
+contains an `owner_entity_id == npc_id` comparison — the two-part gate is
+structurally present, never collapsed to an unconditional render.
+
+This is deliberately narrower than the TICK briefing's equivalent
+suffix (`tick.py`'s `_goal_provenance_suffix`, BRIEF-0020-a's cascade
+made this readable, BRIEF-0020-b added the render): the tick briefing is
+FULL interiority (T1, BRIEF-0014-a) — secret-faction agendas ARE shown
+there, same tier as the affiliation block's `[AFFILIATION SECRÈTE]` rows
+— because the NPC is judging its own situation, not talking to someone
+who might not be owed the truth. Dialogue has an interlocutor; the tick
+does not. Two functions, same name, deliberately different gates —
+documented here so the asymmetry reads as intentional.
+
 ---
 
 *Co-built with Claude, June 2026.*
