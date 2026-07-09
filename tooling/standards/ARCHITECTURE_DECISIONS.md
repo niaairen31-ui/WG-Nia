@@ -5249,6 +5249,84 @@ other), so the exception extends to it: secret memberships and
 `internal_tensions` are visible to the model there too. Logged here as a
 conscious extension, not a silent widening.
 
+## FACTION AGENDAS (BRIEF-0018-a, schema v1.72)
+
+The tick stopped inventing isolated one-shots: factions now carry AGENDAS —
+ordered `agenda_step` rows with states — so the faction-scoped scope-event
+call (TICKET-0017) reads a plan in progress and proposes its advancement or
+a brand-new intrigue, both through the same review queue.
+
+**A1 (locked, this step): owners are FACTIONS ONLY.** `agenda.owner_entity_id`
+is an FK to `entity.id` (A2-ready — a future step widens it to locations and
+NPCs) but `write_agenda` validates the owner resolves to an ACTIVE
+faction-type entity, raising otherwise — the write helper carries the
+constraint, not the column. Doubly enforced on the read side: the
+faction-scoped scope call builds an `agendas_index` (title -> id) that the
+location-scoped call always leaves empty, so agenda types are structurally
+unresolvable there even before the explicit `scope_type == "faction"` gate
+in the normalizer fires — belt and braces, both machine-checked (rule 12,
+`world_tick.py`).
+
+**B2 (locked): the tick may propose a brand-new agenda, creator-reviewed
+like everything else.** `agenda_creation` is capped at one per scope call
+(first wins, later dropped with a note) and guarded by canon-existence at
+apply time: duplicate iff an ACTIVE agenda already exists for the same
+owner with the same normalized title. Creator CRUD (`POST /api/agendas`) is
+the other authoring path, unguarded — a human choosing two similarly-titled
+intrigues is not a bug.
+
+**Title-resolution / step-derivation doctrine: the model proposes, code
+judges.** The model never addresses an agenda or a step by id — it names
+the agenda by TITLE, resolved against the briefing's own `agendas_index`
+(unresolved -> drop with a note). The step is never in the model's payload
+at all: `agenda_step_change`'s target step is always the agenda's unique
+ACTIVE step, loaded fresh at normalize time (F2's partial unique index
+guarantees at most one exists) — a since-closed agenda drops with a note
+rather than acting on stale state. `step_id`/`agenda_id`/`owner_entity_id`
+join the tick's forced-attribution field set (rule 13): no `.get(...)` read
+of any of the three from a raw model payload, ever.
+
+**Advancement is entirely code, at apply — never the model's call.**
+`complete` activates the next `pending` step by `step_order`, or completes
+the agenda when none remain. **`fail` fails the WHOLE agenda, no per-step
+branching** (drafting decision, kept): a failed step is read as the plan
+having failed, not as a detour — the creator can always reactivate a failed
+step via `PATCH /api/agenda-steps/{id}` if the intrigue survives
+differently in play. The apply-side guard is canon-existence (`step.status
+!= "active"` -> "Needs attention", nothing written) — strictly stronger
+than any tick_id key (the 0015 F6 argument, verbatim): it catches duplicate
+approval, cross-run re-proposal, AND a creator having moved the world since
+the tick, all in one check. `agenda_step_change` therefore needs no
+`_find_applied_duplicate` clause at all.
+
+**`agenda_creation`'s parent-child write is NOT a `resource_change`-style
+exception.** One agenda plus its N ordered steps write in a single
+SAVEPOINT, but this is not a second sanctioned "one-branch-two-tables"
+carve-out alongside `resource_change` (`cockpit/app.py:930-936`) — a
+`resource_change` genuinely touches two independent canon DOMAINS (ledger
++ knowledge); an `agenda_step` has no existence outside its parent agenda,
+so writing both is one domain, two tables of the same aggregate. Step 1 is
+born `active` on both authoring paths (tick-approved and creator-authored)
+— the approval/authoring act itself IS the activation, kept symmetric on
+purpose.
+
+**First dedicated non-entity creator-CRUD surface.** Every prior
+creator-CRUD route either composes an `entity` + its extension row or
+edits an in-context child table reached from an entity's sheet
+(`relation`, `knowledge`, `npc_goal`, `faction_membership`). `/api/agendas`
++ `/api/agenda-steps` is the first surface with no entity composite at all
+— a bare aggregate root. Manual step reactivation
+(`PATCH /api/agenda-steps/{id}`, `status: "active"`) must still respect the
+partial unique index (deactivating the current active step is not a
+thing — the creator completes or fails it first); the resulting
+`IntegrityError` surfaces as a 409, not a 500.
+
+**Deferred: `npc_goal` <-> `agenda_step` parentage.** A member NPC's short
+goal serving its faction's active step (the F2 hierarchy engagement RECON
+flagged) is the natural next chantier — no `parent_step_id` column ships
+this step, by design, to avoid pre-building for a shape that isn't locked
+yet.
+
 ---
 
 *Co-built with Claude, June 2026.*

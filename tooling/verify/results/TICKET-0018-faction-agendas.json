@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0018-faction-agendas",
+  "when": "2026-07-09T12:22:25.815773+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "world_tick.py",
+      "status": "PASS",
+      "msg": "PASS: world-tick structural gate intact (rules 1-14)"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    }
+  ]
+}

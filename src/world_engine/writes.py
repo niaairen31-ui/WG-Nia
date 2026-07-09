@@ -45,6 +45,16 @@ functions so that clamping and field validation live in exactly one place.
   `active -> completed` and `active -> abandoned` — anything else (including
   reopening a closed goal) raises `ValueError`. Appends the previous state to
   `change_history` first (history is sacred).
+- `write_agenda(...)`                   : insert an `active` `agenda` row
+  (BRIEF-0018-a). A1 structural: `owner_entity_id` must resolve to an ACTIVE
+  faction entity, else `ValueError`. The only constructor of `Agenda`.
+- `write_agenda_step(...)`              : insert one `agenda_step` row
+  (BRIEF-0018-a). The only constructor of `AgendaStep`.
+- `write_agenda_step_status(...)`       : transition an `agenda_step`'s
+  status (BRIEF-0018-a), appending the previous `{status, outcome,
+  updated_at}` to `change_history` first — history is sacred.
+- `write_agenda_status(...)`            : transition an `agenda`'s status
+  (BRIEF-0018-a), same snapshot discipline.
 - `delete_world_cascade(world_id, db)`  : the sole delete-side helper in
   this module, and the sole sanctioned exception to "History is sacred"
   (BRIEF-54). Hard-deletes every row scoped to a world, including the
@@ -67,7 +77,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from .models import Character, Event, FactionMembership, Knowledge, Ledger, NpcGoal, PromptTemplate, PromptVersion, Relation, Skill
+from .models import Agenda, AgendaStep, Character, Entity, Event, FactionMembership, Knowledge, Ledger, NpcGoal, PromptTemplate, PromptVersion, Relation, Skill
 
 # Simple-identifier placeholder, e.g. `{player_line}` — deliberately does not
 # match JSON-example braces like `{"key": ...}` (TICKET-0011, C1).
@@ -623,6 +633,135 @@ def write_npc_goal_status(
 
     db.add(goal)
     return goal
+
+
+def write_agenda(
+    db: Session,
+    *,
+    world_id: str,
+    owner_entity_id: str,
+    title: str,
+    mutation_id: Optional[str] = None,
+) -> Agenda:
+    """Insert an `active` `agenda` row (TICKET-0018, BRIEF-0018-a).
+
+    The ONLY constructor of `Agenda` in gameplay code — both sanctioned
+    canon-write paths (`_apply_mutation`'s `agenda_creation` branch and the
+    creator CRUD) call this. A1 (this step): `owner_entity_id` must resolve
+    to an ACTIVE `entity` of `type == "faction"` in `world_id` — non-faction
+    or missing owners raise `ValueError`, the structural half of A1 (the
+    other half is the location scope's empty `agendas_index`).
+    `mutation_id` is accepted only for call-site symmetry with the other
+    `_apply_mutation` writers and is not otherwise used here.
+    """
+    del mutation_id
+    owner = db.get(Entity, owner_entity_id)
+    if owner is None or owner.world_id != world_id:
+        raise ValueError(f"write_agenda: owner {owner_entity_id!r} not found in world {world_id!r}")
+    if owner.type != "faction" or owner.status != "active":
+        raise ValueError(f"write_agenda: owner {owner_entity_id!r} is not an active faction")
+
+    agenda = Agenda(
+        world_id=world_id,
+        owner_entity_id=owner_entity_id,
+        title=title,
+        status="active",
+        change_history=[],
+    )
+    db.add(agenda)
+    return agenda
+
+
+def write_agenda_step(
+    db: Session,
+    *,
+    agenda_id: str,
+    step_order: int,
+    objective: str,
+    visibility_trace: Optional[str] = None,
+    status: str = "pending",
+) -> AgendaStep:
+    """Insert one `agenda_step` row (TICKET-0018, BRIEF-0018-a).
+
+    The ONLY constructor of `AgendaStep` in gameplay code. `status="active"`
+    is passed by the caller for exactly one step per agenda (the first, at
+    creation time — the partial unique index enforces this structurally);
+    every other step is created `pending`.
+    """
+    step = AgendaStep(
+        agenda_id=agenda_id,
+        step_order=step_order,
+        objective=objective,
+        visibility_trace=visibility_trace,
+        status=status,
+        change_history=[],
+    )
+    db.add(step)
+    return step
+
+
+def write_agenda_step_status(
+    db: Session,
+    *,
+    step: AgendaStep,
+    status: str,
+    outcome: Optional[str] = None,
+    mutation_id: Optional[str] = None,
+) -> AgendaStep:
+    """Transition `step.status` (TICKET-0018, BRIEF-0018-a).
+
+    Appends the previous `{status, outcome, updated_at}` to `change_history`
+    BEFORE overwriting (`write_npc_goal_status` discipline) — history is
+    sacred. Sets `outcome` only when provided, leaving any existing outcome
+    untouched otherwise. `mutation_id` is accepted only for call-site
+    symmetry with the other `_apply_mutation` writers and is not otherwise
+    used here.
+    """
+    del mutation_id
+    history = list(step.change_history or [])
+    history.append({
+        "status": step.status,
+        "outcome": step.outcome,
+        "updated_at": step.updated_at.isoformat() if step.updated_at else None,
+    })
+    step.change_history = history
+    sa_attrs.flag_modified(step, "change_history")
+    step.status = status
+    if outcome is not None:
+        step.outcome = outcome
+    step.updated_at = datetime.now(UTC)
+
+    db.add(step)
+    return step
+
+
+def write_agenda_status(
+    db: Session,
+    *,
+    agenda: Agenda,
+    status: str,
+    mutation_id: Optional[str] = None,
+) -> Agenda:
+    """Transition `agenda.status` (TICKET-0018, BRIEF-0018-a).
+
+    Same snapshot discipline as `write_agenda_step_status`: appends the
+    previous `{status, updated_at}` to `change_history` before overwriting.
+    `mutation_id` is accepted only for call-site symmetry and is not
+    otherwise used here.
+    """
+    del mutation_id
+    history = list(agenda.change_history or [])
+    history.append({
+        "status": agenda.status,
+        "updated_at": agenda.updated_at.isoformat() if agenda.updated_at else None,
+    })
+    agenda.change_history = history
+    sa_attrs.flag_modified(agenda, "change_history")
+    agenda.status = status
+    agenda.updated_at = datetime.now(UTC)
+
+    db.add(agenda)
+    return agenda
 
 
 def write_event(

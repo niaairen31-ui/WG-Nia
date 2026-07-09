@@ -54,6 +54,24 @@ Rule 11 (forced location_id, BRIEF-0017-a): `location_id` joins
 anywhere in `tick.py`, and every dict-literal key `"location_id"` maps to a
 bare `Name` value.
 
+Rule 12 (closed per-NPC contract stays closed, TICKET-0018/BRIEF-0018-a):
+the strings `"agenda_step_change"`/`"agenda_creation"` appear inside
+`_normalize_scope_event` but NEVER in `_normalize_tick_item` /
+`_TICK_MUTATION_TYPES` / `_TICK_TYPE_ALIASES` — the scope-level agenda types
+are a `tick.py`-only, faction-scope-only extension of the SCOPE contract,
+never the per-NPC one.
+Rule 13 (forced agenda identity, BRIEF-0018-a): `step_id`/`agenda_id`/
+`owner_entity_id` join `_FORCED_FIELDS` — no `.get("step_id")`/
+`.get("agenda_id")`/`.get("owner_entity_id")` call on a raw model payload
+anywhere in `tick.py`, and every dict-literal key among those three maps to
+a bare `Name` value (the step/agenda are code-derived; the owner is forced
+from `scope_id`).
+Rule 14 (structural one-active-step invariant, BRIEF-0018-a): the
+`AgendaStep` model's `__table_args__` carries an `Index`/`UniqueConstraint`
+call with a `sqlite_where` keyword argument whose text mentions
+`status = 'active'` — at most one active step per agenda, enforced by
+SQLite itself (RECON-0018 F2), never by discipline alone.
+
 No DB, stdlib `ast` only.
 """
 from __future__ import annotations
@@ -67,6 +85,7 @@ SRC = ROOT / "src"
 TICK_FILE = SRC / "world_engine" / "tick.py"
 APP_FILE = SRC / "world_engine" / "cockpit" / "app.py"
 ANALYZER_FILE = SRC / "world_engine" / "analyzer.py"
+MODELS_FILE = SRC / "world_engine" / "models.py"
 
 ALLOWED_MODULES = {
     "src/world_engine/tick.py",
@@ -79,7 +98,10 @@ BOUNDARY_FILES = {
     SRC / "world_engine" / "gathering.py",
 }
 
-_FORCED_FIELDS = ("npc_id", "entity_a_id", "from_location_id", "location_id")
+_FORCED_FIELDS = (
+    "npc_id", "entity_a_id", "from_location_id", "location_id",
+    "step_id", "agenda_id", "owner_entity_id",
+)
 
 _INTERVAL_LABELS = {"quelques heures", "quelques jours", "quelques semaines"}
 
@@ -420,6 +442,99 @@ def check_scope_event_quota() -> None:
         fail(f"{rel}: run_world_tick does not reference SCOPE_EVENT_QUOTA")
 
 
+def check_agenda_type_isolation() -> None:
+    """Rule 12 (TICKET-0018, BRIEF-0018-a): agenda types live ONLY in the
+    scope-level normalizer, never in the per-NPC closed contract."""
+    if not TICK_FILE.exists():
+        fail(f"{TICK_FILE} not found")
+        return
+    tree = _parse(TICK_FILE)
+    if tree is None:
+        return
+    rel = TICK_FILE.relative_to(ROOT).as_posix()
+    agenda_types = ("agenda_step_change", "agenda_creation")
+
+    scope_func = _find_function(tree, "_normalize_scope_event")
+    if scope_func is None:
+        fail(f"{rel}: _normalize_scope_event not found")
+        return
+    present = {
+        n.value for n in ast.walk(scope_func)
+        if isinstance(n, ast.Constant) and n.value in agenda_types
+    }
+    for t in agenda_types:
+        if t not in present:
+            fail(f"{rel}: _normalize_scope_event never references {t!r}")
+
+    for node in ast.walk(tree):
+        name, value = _dict_assign_target(node)
+        if name == "_TICK_MUTATION_TYPES" and isinstance(value, (ast.Set, ast.Call)):
+            for elt in ast.walk(value):
+                if isinstance(elt, ast.Constant) and elt.value in agenda_types:
+                    fail(f"{rel}:{node.lineno} — _TICK_MUTATION_TYPES contains {elt.value!r}")
+        if name == "_TICK_TYPE_ALIASES" and isinstance(value, ast.Dict):
+            for v in value.values:
+                if isinstance(v, ast.Constant) and v.value in agenda_types:
+                    fail(f"{rel}:{node.lineno} — _TICK_TYPE_ALIASES maps a key to {v.value!r}")
+
+    tick_func = _find_function(tree, "_normalize_tick_item")
+    if tick_func is None:
+        fail(f"{rel}: _normalize_tick_item not found")
+        return
+    for node in ast.walk(tick_func):
+        if isinstance(node, ast.Constant) and node.value in agenda_types:
+            fail(f"{rel}:{node.lineno} — {node.value!r} referenced inside _normalize_tick_item")
+
+
+def check_agenda_step_one_active_index() -> None:
+    """Rule 14 (TICKET-0018, BRIEF-0018-a): the structural one-active-step
+    invariant is a partial unique index/constraint on AgendaStep, not
+    discipline (RECON-0018 F2)."""
+    if not MODELS_FILE.exists():
+        fail(f"{MODELS_FILE} not found")
+        return
+    tree = _parse(MODELS_FILE)
+    if tree is None:
+        return
+    rel = MODELS_FILE.relative_to(ROOT).as_posix()
+
+    def _sqlite_where_text(kw_value) -> str | None:
+        if isinstance(kw_value, ast.Call):
+            for arg in kw_value.args:
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    return arg.value
+            return None
+        if isinstance(kw_value, ast.Constant) and isinstance(kw_value.value, str):
+            return kw_value.value
+        return None
+
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.ClassDef) and node.name == "AgendaStep"):
+            continue
+        found = False
+        for sub in ast.walk(node):
+            if not (
+                isinstance(sub, ast.Call)
+                and isinstance(sub.func, ast.Name)
+                and sub.func.id in ("Index", "UniqueConstraint")
+            ):
+                continue
+            for kw in sub.keywords:
+                if kw.arg != "sqlite_where":
+                    continue
+                text_val = _sqlite_where_text(kw.value)
+                if text_val and "status" in text_val and "active" in text_val:
+                    found = True
+        if not found:
+            fail(
+                f"{rel}: AgendaStep has no partial-unique Index/UniqueConstraint with "
+                "sqlite_where mentioning status='active'"
+            )
+        return
+
+    fail(f"{rel}: AgendaStep class not found")
+
+
 def main() -> None:
     check_call_site_allowlist()
     check_boundary_files()
@@ -431,11 +546,13 @@ def main() -> None:
     check_apply_mutation_location_write()
     check_scope_event_producer_isolation()
     check_scope_event_quota()
+    check_agenda_type_isolation()
+    check_agenda_step_one_active_index()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         sys.exit(1)
-    print("PASS: world-tick structural gate intact (rules 1-11)")
+    print("PASS: world-tick structural gate intact (rules 1-14)")
     sys.exit(0)
 
 

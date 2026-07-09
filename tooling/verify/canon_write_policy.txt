@@ -1,7 +1,7 @@
 [CANON_TABLES]
 world entity character location faction faction_membership relation
 knowledge ledger item skill skill_definition discoverable_detail
-event artifact npc_goal
+event artifact npc_goal agenda agenda_step
 
 [ALLOWED_SITES]
 # path::function                                              tables
@@ -14,6 +14,10 @@ src/world_engine/writes.py::write_skill_tier                  skill
 src/world_engine/writes.py::write_npc_goal                    npc_goal
 src/world_engine/writes.py::write_npc_goal_status             npc_goal
 src/world_engine/writes.py::write_event                       event
+src/world_engine/writes.py::write_agenda                      agenda
+src/world_engine/writes.py::write_agenda_step                 agenda_step
+src/world_engine/writes.py::write_agenda_step_status           agenda_step
+src/world_engine/writes.py::write_agenda_status                agenda
 src/world_engine/writes.py::delete_world_cascade               *
 src/world_engine/cockpit/app.py::_apply_mutation               entity item discoverable_detail
 src/world_engine/cockpit/app.py::activate_world                world
@@ -32,3 +36,4 @@ src/world_engine/cockpit/crud.py::delete_skill_definition        skill_definitio
 src/world_engine/cockpit/crud.py::create_discoverable_detail     discoverable_detail
 src/world_engine/cockpit/crud.py::update_discoverable_detail     discoverable_detail
 src/world_engine/cockpit/crud.py::delete_discoverable_detail     discoverable_detail
+src/world_engine/cockpit/crud.py::update_agenda_step             agenda_step

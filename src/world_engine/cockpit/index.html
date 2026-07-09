@@ -1164,6 +1164,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <button class="creation-sub-tab"        id="ctab-region"    onclick="showCreationSubTab('region')">Région</button>
     <button class="creation-sub-tab"        id="ctab-artefacts" onclick="showCreationSubTab('artefacts')">Artefacts</button>
     <button class="creation-sub-tab"        id="ctab-registre"  onclick="showCreationSubTab('registre')">Registre</button>
+    <button class="creation-sub-tab"        id="ctab-intrigues" onclick="showCreationSubTab('intrigues')">Intrigues</button>
     <button class="creation-sub-tab"        id="ctab-queue"     onclick="showCreationSubTab('queue')">Review Queue</button>
     <button class="creation-sub-tab"        id="ctab-prompts"   onclick="showCreationSubTab('prompts')">Prompts</button>
   </div>
@@ -1360,6 +1361,44 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       </div>
     </div>
   </div><!-- #creation-registre -->
+
+  <!-- ── Intrigues sub-tab (TICKET-0018, BRIEF-0018-a) ── -->
+  <div id="creation-intrigues" style="display:none">
+    <div class="queue-panel">
+      <div class="panel-head">
+        <h2>Intrigues</h2>
+        <button class="btn-icon" onclick="loadIntrigues()" title="Rafraîchir">↻</button>
+      </div>
+      <div class="queue-body" id="intrigues-body">
+        <div class="empty"><span class="spin">⟳</span></div>
+      </div>
+      <div class="field-section" id="intrigues-add-form" hidden style="border-top:1px solid var(--border); margin-top:8px; padding-top:8px;">
+        <div class="field-section-title">Nouvelle intrigue</div>
+        <div class="field-grid">
+          <div class="field-row">
+            <label for="intrigues-f-owner">Faction *</label>
+            <select id="intrigues-f-owner"><option value="">—</option></select>
+          </div>
+          <div class="field-row" style="grid-column:1/-1">
+            <label for="intrigues-f-title">Titre *</label>
+            <input type="text" id="intrigues-f-title" placeholder="ex : Le complot du sel">
+          </div>
+        </div>
+        <div class="field-section-title" style="margin-top:8px">Étapes (2 à 5, dans l'ordre)</div>
+        <div class="field-grid">
+          <div class="field-row" style="grid-column:1/-1"><label>Étape 1 * (objectif)</label><input type="text" id="intrigues-f-step-0"></div>
+          <div class="field-row" style="grid-column:1/-1"><label>Étape 2 * (objectif)</label><input type="text" id="intrigues-f-step-1"></div>
+          <div class="field-row" style="grid-column:1/-1"><label>Étape 3 (optionnel)</label><input type="text" id="intrigues-f-step-2"></div>
+          <div class="field-row" style="grid-column:1/-1"><label>Étape 4 (optionnel)</label><input type="text" id="intrigues-f-step-3"></div>
+          <div class="field-row" style="grid-column:1/-1"><label>Étape 5 (optionnel)</label><input type="text" id="intrigues-f-step-4"></div>
+        </div>
+        <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+          <button class="btn-send" onclick="intriguesSubmitCreate()">+ Créer l'intrigue</button>
+          <span id="intrigues-add-status" style="font-size:12px; color:var(--muted)"></span>
+        </div>
+      </div>
+    </div>
+  </div><!-- #creation-intrigues -->
 
   <!-- ── Review Queue sub-tab ── -->
   <div id="creation-queue" style="display:none">
@@ -3161,6 +3200,11 @@ function _regionWorldReset() {
 
 function _registreWorldReset() { _registreEntitiesLoaded = false; }
 
+function _intriguesWorldReset() {
+  const form = document.getElementById('intrigues-add-form');
+  if (form) form.hidden = true;
+}
+
 const CREATION_TABS = {
   npc: {
     label: 'NPC',
@@ -3252,6 +3296,14 @@ const CREATION_TABS = {
     loader: loadRegistre,
     state: { onTabEnter: null, onWorldSwitch: _registreWorldReset },
     primaryAction: { label: '+ Nouvelle entrée', handler: registreToggleAddForm },
+  },
+  intrigues: {
+    label: 'Intrigues',
+    archetype: 'bespoke',
+    containers: ['creation-intrigues'],
+    loader: loadIntrigues,
+    state: { onTabEnter: null, onWorldSwitch: _intriguesWorldReset },
+    primaryAction: { label: '+ Nouvelle intrigue', handler: intriguesToggleAddForm },
   },
   queue: {
     label: 'Review Queue',
@@ -3654,6 +3706,142 @@ function _registreRenderTable(rows) {
       <span style="color:var(--muted); font-size:11px;">${r.session_id ? shortId(r.session_id) : ''}</span>
     </div>
   `).join('') + '</div>';
+}
+
+/* ── Intrigues (TICKET-0018, BRIEF-0018-a) ──────────────────────────────────
+ * Bespoke list + create-form panel, "registre" shape: no drag-reorder, no
+ * inline editing beyond what the API exposes. All writes go through
+ * /api/agendas + /api/agenda-steps (writes.py helpers server-side) — the
+ * SAME canon-write paths the tick's proposals use via _apply_mutation. */
+
+/** Registers as intrigues' primaryAction (toggles the add-form, collapsed by
+ *  default) — same idiom as registreToggleAddForm. */
+function intriguesToggleAddForm() {
+  const form = document.getElementById('intrigues-add-form');
+  if (!form) return;
+  form.hidden = !form.hidden;
+  if (!form.hidden) _intriguesPopulateOwnerSelect();
+}
+
+async function _intriguesPopulateOwnerSelect() {
+  const sel = document.getElementById('intrigues-f-owner');
+  if (!sel || sel.dataset.loaded === '1') return;
+  try {
+    const rows = await api('/api/entities?type=faction');
+    sel.innerHTML = '<option value="">—</option>' + rows
+      .filter(e => e.status === 'active')
+      .map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
+    sel.dataset.loaded = '1';
+  } catch (_) { /* left with just the placeholder option */ }
+}
+
+async function loadIntrigues() {
+  const bodyEl = document.getElementById('intrigues-body');
+  bodyEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  try {
+    const agendas = await api('/api/agendas');
+    bodyEl.innerHTML = _intriguesRenderList(agendas);
+  } catch (e) {
+    bodyEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function _intriguesRenderStep(s) {
+  const traceHtml   = s.visibility_trace ? `<div style="font-size:11px; color:var(--muted);">trace : ${esc(s.visibility_trace)}</div>` : '';
+  const outcomeHtml = s.outcome ? `<div style="font-size:11px; color:var(--muted);">résultat : ${esc(s.outcome)}</div>` : '';
+  let actions = '';
+  if (s.status === 'active') {
+    actions = `
+      <button class="btn-icon" title="Terminer l'étape" onclick="intriguesStepStatus('${s.id}','completed')">✓</button>
+      <button class="btn-icon" title="Échouer l'étape" onclick="intriguesStepStatus('${s.id}','failed')">✗</button>`;
+  } else if (s.status === 'pending') {
+    actions = `<button class="btn-icon" title="Activer l'étape" onclick="intriguesStepStatus('${s.id}','active')">▶</button>`;
+  }
+  return `
+    <div class="row-card" style="flex-direction:row; align-items:flex-start; justify-content:space-between; gap:6px; margin:4px 0;">
+      <div style="flex:1; min-width:160px;">
+        <span style="font-size:12px; color:var(--muted);">#${s.step_order}</span>
+        <span>${esc(s.objective)}</span>
+        ${traceHtml}${outcomeHtml}
+      </div>
+      <span class="badge b-${esc(s.status)}">${esc(s.status)}</span>
+      <div>${actions}</div>
+    </div>`;
+}
+
+function _intriguesRenderList(agendas) {
+  if (!agendas || agendas.length === 0) return '<div class="empty">Aucune intrigue.</div>';
+  return '<div class="row-table">' + agendas.map(a => `
+    <div class="row-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+        <div><strong>${esc(a.title)}</strong> <span style="color:var(--muted); font-size:12px;">(${esc(a.owner_name)})</span></div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <span class="badge b-${esc(a.status)}">${esc(a.status)}</span>
+          ${a.status === 'active' ? `<button class="btn-icon" title="Abandonner l'intrigue" onclick="intriguesSetAgendaStatus('${a.id}','abandoned')">⏸</button>` : ''}
+          ${(a.status === 'abandoned' || a.status === 'failed') ? `<button class="btn-icon" title="Réactiver l'intrigue" onclick="intriguesSetAgendaStatus('${a.id}','active')">▶</button>` : ''}
+        </div>
+      </div>
+      <div style="margin-top:6px;">
+        ${a.steps.map(s => _intriguesRenderStep(s)).join('')}
+      </div>
+    </div>
+  `).join('') + '</div>';
+}
+
+async function intriguesSetAgendaStatus(agendaId, status) {
+  try {
+    await api(`/api/agendas/${agendaId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    loadIntrigues();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function intriguesStepStatus(stepId, status) {
+  try {
+    await api(`/api/agenda-steps/${stepId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    loadIntrigues();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function intriguesSubmitCreate() {
+  const statusEl = document.getElementById('intrigues-add-status');
+  const ownerId  = document.getElementById('intrigues-f-owner').value;
+  const title    = document.getElementById('intrigues-f-title').value.trim();
+  const steps    = [0, 1, 2, 3, 4]
+    .map(i => document.getElementById(`intrigues-f-step-${i}`).value.trim())
+    .filter(v => v)
+    .map(objective => ({ objective }));
+
+  if (!ownerId) { statusEl.textContent = 'Faction requise.'; return; }
+  if (!title)   { statusEl.textContent = 'Titre requis.'; return; }
+  if (steps.length < 2 || steps.length > 5) { statusEl.textContent = 'Entre 2 et 5 étapes requises.'; return; }
+
+  statusEl.textContent = '…';
+  try {
+    await api('/api/agendas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ owner_entity_id: ownerId, title, steps }),
+    });
+    document.getElementById('intrigues-f-title').value = '';
+    [0, 1, 2, 3, 4].forEach(i => { document.getElementById(`intrigues-f-step-${i}`).value = ''; });
+    statusEl.textContent = 'Intrigue créée.';
+    document.getElementById('intrigues-add-form').hidden = true;
+    loadIntrigues();
+  } catch (e) {
+    statusEl.textContent = e.message;
+  }
 }
 
 const CREATION_ARTEFACTS_NOTICE =

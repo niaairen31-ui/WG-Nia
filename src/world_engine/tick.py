@@ -35,6 +35,8 @@ from .analyzer import (
 )
 from .ledger import get_balance
 from .models import (
+    Agenda,
+    AgendaStep,
     Character,
     Entity,
     Event,
@@ -448,8 +450,14 @@ def assemble_location_event_context(
 
 def assemble_faction_event_context(faction_id: str, session: Session) -> str:
     """Assemble the briefing for a faction-scoped scope-event call
-    (TICKET-0017, BRIEF-0017-a). French, T1 section discipline: LA FACTION,
-    POSTURE, MEMBRES, TRÉSORERIE, ÉVÉNEMENTS RÉCENTS.
+    (TICKET-0017, BRIEF-0017-a; AGENDA EN COURS added TICKET-0018,
+    BRIEF-0018-a). French, T1 section discipline: LA FACTION, POSTURE,
+    AGENDA EN COURS, MEMBRES, TRÉSORERIE, ÉVÉNEMENTS RÉCENTS.
+
+    AGENDA EN COURS lists each ACTIVE agenda of this faction: its title, the
+    active step's objective + visibility_trace, and the last 2 completed
+    steps' outcomes (continuity, lean context — RECON-0018 note 2). Header
+    always present; `(aucune intrigue en cours)` placeholder when none (T1).
 
     MEMBRES reads RAW `FactionMembership` (`left_at IS NULL`), never
     `read_public_memberships` — the full-interiority tick exception (T1,
@@ -484,6 +492,27 @@ def assemble_faction_event_context(faction_id: str, session: Session) -> str:
             if value:
                 posture_lines.append(f"{label}{value}")
     posture_body = "\n".join(posture_lines) if posture_lines else "(aucune posture connue)"
+
+    agendas = session.exec(
+        select(Agenda).where(Agenda.owner_entity_id == faction_id, Agenda.status == "active")
+    ).all()
+    agenda_lines: list[str] = []
+    for agenda in agendas:
+        steps = session.exec(
+            select(AgendaStep)
+            .where(AgendaStep.agenda_id == agenda.id)
+            .order_by(AgendaStep.step_order)
+        ).all()
+        agenda_lines.append(f"- {agenda.title}")
+        active_step = next((s for s in steps if s.status == "active"), None)
+        if active_step is not None:
+            trace = f" ({active_step.visibility_trace})" if active_step.visibility_trace else ""
+            agenda_lines.append(f"  Étape en cours : {active_step.objective}{trace}")
+        completed_steps = [s for s in steps if s.status == "completed"][-2:]
+        for step in completed_steps:
+            if step.outcome:
+                agenda_lines.append(f"  Résultat précédent : {step.outcome}")
+    agenda_body = "\n".join(agenda_lines) if agenda_lines else "(aucune intrigue en cours)"
 
     memberships = session.exec(
         select(FactionMembership).where(
@@ -524,6 +553,8 @@ def assemble_faction_event_context(faction_id: str, session: Session) -> str:
         + "\n"
         + _section("POSTURE", posture_body)
         + "\n"
+        + _section("AGENDA EN COURS", agenda_body)
+        + "\n"
         + _section("MEMBRES", member_body)
         + "\n"
         + _section("TRÉSORERIE", treasury_body)
@@ -539,27 +570,119 @@ def _normalize_scope_event(
     scope_id: str,
     roster: dict[str, str],
     locations: dict[str, str],
+    agendas_index: dict[str, str],
+    db: Session,
     notes: list[str],
 ) -> dict | None:
-    """Map one raw model item to the scope-level `event_creation` schema, or
-    None to drop it (TICKET-0017, BRIEF-0017-a). Separate from
-    `_normalize_tick_item` — the per-NPC closed frozenset is UNTOUCHED
-    (`event_creation` never enters it).
+    """Map one raw model item to the scope-level schema, or None to drop it
+    (TICKET-0017, BRIEF-0017-a; grown to three types TICKET-0018,
+    BRIEF-0018-a). Separate from `_normalize_tick_item` — the per-NPC closed
+    frozenset is UNTOUCHED (none of these three types ever enter it).
 
     `roster` is name.casefold() -> id for this scope (location: public
     occupants; faction: members, with the faction id itself appended here
     for faction scope). `locations` is name.casefold() -> id for ACTIVE
     locations of the world (faction scope's optional payload location
-    resolution only). `notes` is the caller's shared notes list — parse-time
-    drops and clamps are appended to it (unlike the per-NPC path, which only
-    prints them).
+    resolution only). `agendas_index` is name.casefold() -> id for ACTIVE
+    agendas of the faction (empty for a location scope — A1 structural, RECON
+    F3). `notes` is the caller's shared notes list — parse-time drops and
+    clamps are appended to it (unlike the per-NPC path, which only prints
+    them).
+
+    `mutation_type` dispatch: "agenda_step_change"/"agenda_creation" are
+    FACTION SCOPE ONLY (an explicit `scope_type` gate backs the empty
+    `agendas_index` a location scope always passes); anything else falls
+    through to the original event_creation shape.
     """
     if not isinstance(raw_item, dict):
-        notes.append(f"dropped event_creation: not a dict — {raw_item!r}")
+        notes.append(f"dropped scope item: not a dict — {raw_item!r}")
         return None
 
+    raw_mutation_type = str(raw_item.get("mutation_type") or "").strip().casefold()
     payload_in = raw_item.get("payload") if isinstance(raw_item.get("payload"), dict) else {}
+    rationale = str(raw_item.get("rationale") or "")
 
+    # ── agenda_step_change (TICKET-0018, BRIEF-0018-a) — FACTION SCOPE ONLY ──
+    if raw_mutation_type == "agenda_step_change":
+        if scope_type != "faction":
+            notes.append("dropped agenda_step_change: not a faction scope")
+            return None
+
+        agenda_title = str(payload_in.get("agenda") or "").strip()
+        agenda_id = agendas_index.get(agenda_title.casefold()) if agenda_title else None
+        if not agenda_id:
+            notes.append(f"dropped agenda_step_change: unresolved agenda {agenda_title!r}")
+            return None
+
+        action = str(payload_in.get("action") or "").strip().casefold()
+        if action not in ("complete", "fail"):
+            notes.append(f"dropped agenda_step_change: unrecognised action {payload_in.get('action')!r}")
+            return None
+
+        # The step is NEVER addressed by the model — it is derived here as
+        # the agenda's unique active step (F2 guarantees at most one),
+        # loaded fresh so a since-closed agenda drops with a note rather
+        # than acting on stale state.
+        active_step = db.exec(
+            select(AgendaStep).where(AgendaStep.agenda_id == agenda_id, AgendaStep.status == "active")
+        ).first()
+        if active_step is None:
+            notes.append(f"dropped agenda_step_change: agenda {agenda_title!r} has no active step (closed since)")
+            return None
+
+        outcome = payload_in.get("outcome")
+        outcome = str(outcome).strip() or None if outcome else None
+        step_id = active_step.id
+
+        return {
+            "mutation_type": "agenda_step_change",
+            "target_table": "agenda_step",
+            "target_id": None,
+            "payload": {
+                "agenda_id": agenda_id,
+                "step_id": step_id,
+                "action": action,
+                "outcome": outcome,
+            },
+            "rationale": rationale,
+            "agenda_id": agenda_id,
+        }
+
+    # ── agenda_creation (TICKET-0018, BRIEF-0018-a) — FACTION SCOPE ONLY ─────
+    if raw_mutation_type == "agenda_creation":
+        if scope_type != "faction":
+            notes.append("dropped agenda_creation: not a faction scope")
+            return None
+
+        title = str(payload_in.get("title") or "").strip()
+        if not title:
+            notes.append("dropped agenda_creation: empty title")
+            return None
+
+        raw_steps = payload_in.get("steps")
+        if not isinstance(raw_steps, list):
+            notes.append(f"dropped agenda_creation {title!r}: steps not a list")
+            return None
+        steps = [str(s).strip() for s in raw_steps if str(s).strip()]
+        if not (2 <= len(steps) <= 5):
+            notes.append(f"dropped agenda_creation {title!r}: steps count {len(steps)} out of range 2-5")
+            return None
+
+        return {
+            "mutation_type": "agenda_creation",
+            "target_table": "agenda",
+            "target_id": None,
+            # owner_entity_id is FORCED from scope_id — never read from the
+            # model's payload.
+            "payload": {
+                "owner_entity_id": scope_id,
+                "title": title,
+                "steps": steps,
+            },
+            "rationale": rationale,
+        }
+
+    # ── event_creation (TICKET-0017, BRIEF-0017-a) — the default shape ───────
     title = str(payload_in.get("title") or "").strip()
     if not title:
         notes.append("dropped event_creation: empty title")
@@ -596,8 +719,6 @@ def _normalize_scope_event(
     else:
         location_name = str(payload_in.get("location") or "").strip()
         location_id = locations.get(location_name.casefold()) if location_name else None
-
-    rationale = str(raw_item.get("rationale") or "")
 
     return {
         "mutation_type": "event_creation",
@@ -990,6 +1111,7 @@ def run_world_tick(
         world_id = ""
         roster: dict[str, str] = {}
         locations_index: dict[str, str] = {}
+        agendas_index: dict[str, str] = {}
 
         try:
             if scope_type == "location":
@@ -1029,6 +1151,21 @@ def run_world_tick(
                         )
                     ).all()
                 }
+                # A1 structural: agenda types are resolvable ONLY for faction
+                # scopes — the location branch above leaves agendas_index
+                # empty, making them structurally unresolvable there
+                # (RECON-0018 F3; the explicit scope_type gate below is the
+                # belt to this index's braces).
+                agenda_candidates: dict[str, list[str]] = {}
+                for agenda in db.exec(
+                    select(Agenda).where(
+                        Agenda.owner_entity_id == scope_id, Agenda.status == "active"
+                    )
+                ).all():
+                    agenda_candidates.setdefault(agenda.title.casefold(), []).append(agenda.id)
+                agendas_index = {
+                    title: ids[0] for title, ids in agenda_candidates.items() if len(ids) == 1
+                }
 
             events_template = load_analysis_prompt(db, world_id=None, usage="world_tick_events")
             events_version = current_prompt(db, events_template)
@@ -1055,6 +1192,8 @@ def run_world_tick(
             event_items = []
 
         seen_titles: set[str] = set()
+        seen_step_change_agendas: set[str] = set()
+        agenda_creation_emitted = False
         for raw_item in event_items:
             normalized = _normalize_scope_event(
                 raw_item,
@@ -1062,26 +1201,48 @@ def run_world_tick(
                 scope_id=scope_id,
                 roster=roster,
                 locations=locations_index,
+                agendas_index=agendas_index,
+                db=db,
                 notes=event_notes,
             )
             if normalized is None:
                 dropped_events += 1
                 continue
 
-            event_title = normalized["payload"]["title"]
-            title_key = _normalize_goal_text(event_title)
-            if title_key in seen_titles:
-                dropped_events += 1
-                event_notes.append(f"duplicate event_creation dropped: {event_title!r}")
-                continue
-            seen_titles.add(title_key)
+            mutation_type = normalized["mutation_type"]
 
-            if proposed_events >= SCOPE_EVENT_QUOTA:
-                dropped_events += 1
-                event_notes.append(
-                    f"event_creation dropped (quota {SCOPE_EVENT_QUOTA} reached): {event_title!r}"
-                )
-                continue
+            # Both agenda types sit OUTSIDE SCOPE_EVENT_QUOTA — events keep
+            # their own quota (RECON-0018, brief item 5).
+            if mutation_type == "agenda_step_change":
+                agenda_id = normalized.pop("agenda_id")
+                if agenda_id in seen_step_change_agendas:
+                    dropped_events += 1
+                    event_notes.append(f"duplicate agenda_step_change dropped for agenda {agenda_id!r}")
+                    continue
+                seen_step_change_agendas.add(agenda_id)
+
+            elif mutation_type == "agenda_creation":
+                if agenda_creation_emitted:
+                    dropped_events += 1
+                    event_notes.append("agenda_creation dropped: cap of one per scope call reached")
+                    continue
+                agenda_creation_emitted = True
+
+            else:  # event_creation
+                event_title = normalized["payload"]["title"]
+                title_key = _normalize_goal_text(event_title)
+                if title_key in seen_titles:
+                    dropped_events += 1
+                    event_notes.append(f"duplicate event_creation dropped: {event_title!r}")
+                    continue
+                seen_titles.add(title_key)
+
+                if proposed_events >= SCOPE_EVENT_QUOTA:
+                    dropped_events += 1
+                    event_notes.append(
+                        f"event_creation dropped (quota {SCOPE_EVENT_QUOTA} reached): {event_title!r}"
+                    )
+                    continue
 
             rows_to_write.append(
                 ProposedMutation(
