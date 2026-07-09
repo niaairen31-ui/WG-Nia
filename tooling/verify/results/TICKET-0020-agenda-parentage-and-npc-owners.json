@@ -1,0 +1,22 @@
+{
+  "ticket": "TICKET-0020-agenda-parentage-and-npc-owners",
+  "when": "2026-07-09T20:56:45.754578+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "world_tick.py",
+      "status": "PASS",
+      "msg": "PASS: world-tick structural gate intact (rules 1-20)"
+    },
+    {
+      "check": "npc_goal_read.py",
+      "status": "PASS",
+      "msg": "PASS: npc_goal read boundary intact (N1), D1 provenance gate intact"
+    }
+  ]
+}
