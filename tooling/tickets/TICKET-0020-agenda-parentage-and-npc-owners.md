@@ -2,7 +2,7 @@
 id: TICKET-0020
 title: agenda-parentage-and-npc-owners — goal<->agenda links, NPC-owned intrigues, delegation
 type: feature
-status: brief
+status: live-gate
 created: 2026-07-09
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write]
