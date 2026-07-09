@@ -10,7 +10,7 @@ INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
 
 TAB_KEYS = [
     "npc", "pj", "lieux", "factions", "objets",
-    "competences", "region", "artefacts", "registre", "queue", "prompts",
+    "competences", "region", "artefacts", "registre", "intrigues", "queue", "prompts",
 ]
 
 
@@ -102,6 +102,28 @@ def main() -> int:
         failures.append(
             "#registre-add-form is not collapsed by default in static markup "
             "(expected the 'hidden' attribute — BRIEF-0005-c)"
+        )
+
+    # TICKET-0021/BRIEF-0021-a: Intrigues migrated onto the entity archetype's
+    # shared list+detail shell via the sheetRenderer seam — no bespoke
+    # container of its own anymore.
+    if registry_src:
+        intrigues_src = _entry_block(registry_src, "intrigues")
+        if intrigues_src:
+            if not re.search(r"""archetype\s*:\s*['"]entity['"]""", intrigues_src):
+                failures.append(
+                    "CREATION_TABS.intrigues is not archetype: 'entity' (BRIEF-0021-a)"
+                )
+            if not re.search(r"""containers\s*:\s*\[\s*['"]creation-editor-area['"]\s*\]""", intrigues_src):
+                failures.append(
+                    "CREATION_TABS.intrigues does not have "
+                    "containers: ['creation-editor-area'] (BRIEF-0021-a)"
+                )
+
+    if "creation-intrigues" in html:
+        failures.append(
+            "element id 'creation-intrigues' still present — Intrigues must render "
+            "only through the shared creation-editor-area shell (BRIEF-0021-a)"
         )
 
     if failures:

@@ -3766,6 +3766,52 @@ an inline-editable/read-only table body; a shared archetype for that shape
 is explicitly not built here (Scope OUT). Trigger to revisit: a third
 table-shaped Création page appears.
 
+### sheetRenderer seam (TICKET-0021, A1, no schema change)
+
+Intrigues (agendas — `agenda`/`agenda_step`/`goal_agenda_link`, not `entity`
+rows) is the SECOND concrete non-entity reader of the shared list+detail
+shell (Lieux's `renderLieuxBrowse` being the first, for the list pane only).
+By minimal-first this finally justifies generalizing the one hardcoded
+piece of the shell: the detail-pane renderer.
+
+**The seam.** The entity-archetype-only section of the `CREATION_TABS`
+entry contract gains `sheetRenderer: fn|null` (null = `authorRenderSheet`).
+`authorSelectEntity(id)` — the entity fetch/shape path — and the new
+`creationSelectRecord(tabId, record)` — for tabs whose rows already carry
+full data, no per-row fetch — both resolve `(entry.sheetRenderer ||
+authorRenderSheet)` before rendering: one renderer seam, two data shapes,
+no second dispatcher. Every existing entity tab leaves `sheetRenderer`
+absent, so `authorRenderSheet` still runs unchanged for all of them — zero
+behavior change.
+
+**Intrigues becomes a registry entity entry.** `archetype: 'entity'`,
+`containers: ['creation-editor-area']`, `listLoader: loadAgendasList`,
+`listRenderer: renderIntriguesListRows`, `sheetRenderer: renderAgendaSheet`,
+`createPanel: intriguesRenderCreatePanel`. It deliberately has no `type` —
+`listLoader` fully replaces the default `authorLoadEntityList`, and the two
+existing `entry.type` dereferences (`creationRenderEntityList`,
+`loadPendingCreations`) were already presence-guarded before this brief
+(short-circuited by `listRenderer`, and `!entry.type`, respectively) — no
+new guard needed. The bespoke `#creation-intrigues` container, its
+collapsible add-form, and `loadIntrigues`/`intriguesToggleAddForm`/
+`_intriguesRenderList` are retired; the create form moves into the shared
+detail pane (the PJ/NPC idiom) via `intriguesRenderCreatePanel`, keeping
+its element ids unchanged so `intriguesSubmitCreate` needed no rewrite
+beyond its post-success tail.
+
+**Selection state, not just render.** `creationSelectedRecordId` is the
+`authorEntityId` counterpart for `sheetRenderer` tabs — one shared variable
+is sufficient since only one such tab is ever visible at a time. Every
+agenda-mutating action (status transition, step transition, link detach)
+re-fetches the list and re-renders the sheet for the same agenda id via
+`creationSelectRecord`, keeping selection through fresh data — the same
+guarantee `authorSave`'s post-save re-render already gave entity tabs.
+
+**A3 stays deferred.** Full data-source abstraction of the shell (folding
+Compétences/Registre/Région/Review Queue/Artefacts onto it) is not
+attempted here — `sheetRenderer` is the whole generalization this ticket
+makes. Reactivate A3 only on a third concrete case needing it.
+
 ---
 
 ## PIPELINE COCKPIT — deposit surface, question writer, structural boundaries (BRIEF-0006-a, no schema change)

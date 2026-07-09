@@ -1374,44 +1374,6 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     </div>
   </div><!-- #creation-registre -->
 
-  <!-- ── Intrigues sub-tab (TICKET-0018, BRIEF-0018-a) ── -->
-  <div id="creation-intrigues" style="display:none">
-    <div class="queue-panel">
-      <div class="panel-head">
-        <h2>Intrigues</h2>
-        <button class="btn-icon" onclick="loadIntrigues()" title="Rafraîchir">↻</button>
-      </div>
-      <div class="queue-body" id="intrigues-body">
-        <div class="empty"><span class="spin">⟳</span></div>
-      </div>
-      <div class="field-section" id="intrigues-add-form" hidden style="border-top:1px solid var(--border); margin-top:8px; padding-top:8px;">
-        <div class="field-section-title">Nouvelle intrigue</div>
-        <div class="field-grid">
-          <div class="field-row">
-            <label for="intrigues-f-owner">Propriétaire (faction ou personnage) *</label>
-            <select id="intrigues-f-owner"><option value="">—</option></select>
-          </div>
-          <div class="field-row" style="grid-column:1/-1">
-            <label for="intrigues-f-title">Titre *</label>
-            <input type="text" id="intrigues-f-title" placeholder="ex : Le complot du sel">
-          </div>
-        </div>
-        <div class="field-section-title" style="margin-top:8px">Étapes (2 à 5, dans l'ordre)</div>
-        <div class="field-grid">
-          <div class="field-row" style="grid-column:1/-1"><label>Étape 1 * (objectif)</label><input type="text" id="intrigues-f-step-0"></div>
-          <div class="field-row" style="grid-column:1/-1"><label>Étape 2 * (objectif)</label><input type="text" id="intrigues-f-step-1"></div>
-          <div class="field-row" style="grid-column:1/-1"><label>Étape 3 (optionnel)</label><input type="text" id="intrigues-f-step-2"></div>
-          <div class="field-row" style="grid-column:1/-1"><label>Étape 4 (optionnel)</label><input type="text" id="intrigues-f-step-3"></div>
-          <div class="field-row" style="grid-column:1/-1"><label>Étape 5 (optionnel)</label><input type="text" id="intrigues-f-step-4"></div>
-        </div>
-        <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
-          <button class="btn-send" onclick="intriguesSubmitCreate()">+ Créer l'intrigue</button>
-          <span id="intrigues-add-status" style="font-size:12px; color:var(--muted)"></span>
-        </div>
-      </div>
-    </div>
-  </div><!-- #creation-intrigues -->
-
   <!-- ── Review Queue sub-tab ── -->
   <div id="creation-queue" style="display:none">
     <div class="queue-panel">
@@ -3070,6 +3032,12 @@ let authorTypeFilter  = '';    // '' = all types
 let authorEntityId    = null;  // currently displayed entity id, or null when creating
 let authorEntityType  = null;  // type of the entity currently displayed
 
+// Generic selected-record id (BRIEF-0021-a) — the sheetRenderer-seam
+// counterpart of authorEntityId, for non-entity list+detail tabs (Intrigues)
+// whose rows carry full data already, no per-row fetch. Only one such tab
+// is ever visible at a time, so one shared id is enough (no second dispatcher).
+let creationSelectedRecordId = null;
+
 /* Lieux hierarchy browse (BRIEF-51, no schema change) — read-only
  * GET /api/locations tree + client view-state only (no server persistence). */
 let authorLocationTree = [];     // [{id, name, parent_location_id, location_type, status}, ...]
@@ -3194,6 +3162,8 @@ async function loadPlayerKnowledge() {
 //   // entity archetype only:
 //   listLoader:   fn (default authorLoadEntityList)
 //   listRenderer: fn|null (null = flat list; lieux = renderLieuxBrowse)
+//   sheetRenderer: fn|null (null = authorRenderSheet; renders the
+//                 detail pane for a selected record of this tab)
 //   createPanel:  fn|null (null = no + Nouveau rendered; default =
 //                 () => authorRenderSheet({}, true, <type>))
 //   slots:        [{ id, containerId, loader, onSelect: fn|null }]
@@ -3275,9 +3245,20 @@ function _regionWorldReset() {
 
 function _registreWorldReset() { _registreEntitiesLoaded = false; }
 
+function _intriguesTabEnterReset() {
+  creationSelectedRecordId = null;
+  const titleEl = document.getElementById('author-sheet-title');
+  const mainEl  = document.getElementById('author-main');
+  if (titleEl) titleEl.textContent = 'Sélectionner une intrigue';
+  if (mainEl)  mainEl.innerHTML = '<div class="empty">Sélectionnez une intrigue depuis la liste, ou créez-en une nouvelle.</div>';
+  document.getElementById('author-save-btn').style.display   = 'none';
+  document.getElementById('author-delete-btn').style.display = 'none';
+  document.getElementById('author-status').textContent       = '';
+}
+
 function _intriguesWorldReset() {
-  const form = document.getElementById('intrigues-add-form');
-  if (form) form.hidden = true;
+  intriguesAgendas = [];
+  creationSelectedRecordId = null;
 }
 
 const CREATION_TABS = {
@@ -3377,11 +3358,15 @@ const CREATION_TABS = {
   },
   intrigues: {
     label: 'Intrigues',
-    archetype: 'bespoke',
-    containers: ['creation-intrigues'],
-    loader: loadIntrigues,
-    state: { onTabEnter: null, onWorldSwitch: _intriguesWorldReset },
-    primaryAction: { label: '+ Nouvelle intrigue', handler: intriguesToggleAddForm },
+    archetype: 'entity',
+    containers: ['creation-editor-area'],
+    loader: null,
+    state: { onTabEnter: _intriguesTabEnterReset, onWorldSwitch: _intriguesWorldReset },
+    listLoader: loadAgendasList,
+    listRenderer: renderIntriguesListRows,
+    sheetRenderer: renderAgendaSheet,
+    createPanel: intriguesRenderCreatePanel,
+    primaryAction: { label: '+ Nouvelle intrigue', handler: creationNewEntity },
   },
   queue: {
     label: 'Review Queue',
@@ -3798,24 +3783,19 @@ function _registreRenderTable(rows) {
   `).join('') + '</div>';
 }
 
-/* ── Intrigues (TICKET-0018, BRIEF-0018-a) ──────────────────────────────────
- * Bespoke list + create-form panel, "registre" shape: no drag-reorder, no
- * inline editing beyond what the API exposes. All writes go through
- * /api/agendas + /api/agenda-steps (writes.py helpers server-side) — the
- * SAME canon-write paths the tick's proposals use via _apply_mutation. */
+/* ── Intrigues (TICKET-0018/BRIEF-0018-a; entity-sheet shell TICKET-0021/
+ * BRIEF-0021-a) ─────────────────────────────────────────────────────────────
+ * Agendas are not `entity` rows, so this tab rides the entity archetype's
+ * shared list+detail shell via the sheetRenderer seam rather than the
+ * `_TYPE_FIELDS` path. All writes still go through /api/agendas +
+ * /api/agenda-steps (writes.py helpers server-side) — the SAME canon-write
+ * paths the tick's proposals use via _apply_mutation. */
 
-/** Registers as intrigues' primaryAction (toggles the add-form, collapsed by
- *  default) — same idiom as registreToggleAddForm. */
-function intriguesToggleAddForm() {
-  const form = document.getElementById('intrigues-add-form');
-  if (!form) return;
-  form.hidden = !form.hidden;
-  if (!form.hidden) _intriguesPopulateOwnerSelect();
-}
+let intriguesAgendas = [];  // cached /api/agendas response, list-pane + lookup source
 
 async function _intriguesPopulateOwnerSelect() {
   const sel = document.getElementById('intrigues-f-owner');
-  if (!sel || sel.dataset.loaded === '1') return;
+  if (!sel) return;
   try {
     const [factions, characters] = await Promise.all([
       api('/api/entities?type=faction'),
@@ -3828,19 +3808,45 @@ async function _intriguesPopulateOwnerSelect() {
     sel.innerHTML = '<option value="">—</option>'
       + (factionOpts ? `<optgroup label="Factions">${factionOpts}</optgroup>` : '')
       + (characterOpts ? `<optgroup label="Personnages (intrigue personnelle)">${characterOpts}</optgroup>` : '');
-    sel.dataset.loaded = '1';
   } catch (_) { /* left with just the placeholder option */ }
 }
 
-async function loadIntrigues() {
-  const bodyEl = document.getElementById('intrigues-body');
-  bodyEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+/** intrigues' listLoader (BRIEF-0021-a item 4) — fetches the unchanged
+ *  /api/agendas endpoint, caches rows, hands them to the shared list
+ *  container via the shape-checked entry.listRenderer path. */
+async function loadAgendasList() {
+  const listEl = document.getElementById('author-entity-list');
+  if (listEl) listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
   try {
-    const agendas = await api('/api/agendas');
-    bodyEl.innerHTML = _intriguesRenderList(agendas);
+    intriguesAgendas = await api('/api/agendas');
   } catch (e) {
-    bodyEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    if (listEl) listEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    return;
   }
+  creationRenderEntityList();
+}
+
+/** intrigues' listRenderer — ordering is the API's (active first, newest
+ *  first); never re-sorted client-side. */
+function renderIntriguesListRows(agendas) {
+  agendas = agendas || intriguesAgendas;
+  const listEl = document.getElementById('author-entity-list');
+  if (!listEl) return;
+  if (!agendas.length) { listEl.innerHTML = '<div class="empty">Aucune intrigue.</div>'; return; }
+  listEl.innerHTML = agendas.map((a, i) => {
+    const ownerBadge = a.owner_type === 'character'
+      ? `<span class="badge b-other" title="Intrigue personnelle">personnelle</span>`
+      : `<span class="badge b-other" title="Intrigue de faction">faction</span>`;
+    return `
+    <div class="author-list-item ${a.id === creationSelectedRecordId ? 'active' : ''}"
+         onclick="creationSelectRecord('intrigues', intriguesAgendas[${i}])">
+      <div class="ali-name">${esc(a.title)}</div>
+      <div class="ali-meta">
+        <span style="color:var(--muted)">${esc(a.owner_name)}</span> ${ownerBadge}
+        <span class="badge b-${esc(a.status)}">${esc(a.status)}</span>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function _intriguesRenderStep(s) {
@@ -3878,33 +3884,55 @@ function _intriguesRenderLinkedGoal(l) {
     </div>`;
 }
 
-function _intriguesRenderList(agendas) {
-  if (!agendas || agendas.length === 0) return '<div class="empty">Aucune intrigue.</div>';
-  return '<div class="row-table">' + agendas.map(a => {
-    const ownerBadge = a.owner_type === 'character'
-      ? `<span class="badge b-other" title="Intrigue personnelle">personnelle</span>`
-      : `<span class="badge b-other" title="Intrigue de faction">faction</span>`;
-    const linkedGoals = a.linked_goals || [];
-    return `
-    <div class="row-card">
+/** intrigues' sheetRenderer (BRIEF-0021-a item 6) — detail pane carrying
+ *  today's full capability set: header (title, owner, status + actions),
+ *  steps, linked goals. No save/delete — the API surface is frozen to
+ *  status transitions and link detach. */
+function renderAgendaSheet(agenda) {
+  creationSelectedRecordId = agenda.id;
+
+  document.getElementById('author-sheet-title').textContent = agenda.title;
+  document.getElementById('author-status').textContent = '';
+  document.getElementById('author-save-btn').style.display = 'none';
+  document.getElementById('author-delete-btn').style.display = 'none';
+
+  const ownerBadge = agenda.owner_type === 'character'
+    ? `<span class="badge b-other" title="Intrigue personnelle">personnelle</span>`
+    : `<span class="badge b-other" title="Intrigue de faction">faction</span>`;
+  const linkedGoals = agenda.linked_goals || [];
+
+  let html = `
+    <div class="field-section">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
-        <div><strong>${esc(a.title)}</strong> ${ownerBadge} <span style="color:var(--muted); font-size:12px;">(${esc(a.owner_name)})</span></div>
+        <div><strong>${esc(agenda.title)}</strong> ${ownerBadge} <span style="color:var(--muted); font-size:12px;">(${esc(agenda.owner_name)})</span></div>
         <div style="display:flex; gap:6px; align-items:center;">
-          <span class="badge b-${esc(a.status)}">${esc(a.status)}</span>
-          ${a.status === 'active' ? `<button class="btn-icon" title="Abandonner l'intrigue" onclick="intriguesSetAgendaStatus('${a.id}','abandoned',${linkedGoals.length})">⏸</button>` : ''}
-          ${(a.status === 'abandoned' || a.status === 'failed') ? `<button class="btn-icon" title="Réactiver l'intrigue" onclick="intriguesSetAgendaStatus('${a.id}','active',0)">▶</button>` : ''}
+          <span class="badge b-${esc(agenda.status)}">${esc(agenda.status)}</span>
+          ${agenda.status === 'active' ? `<button class="btn-icon" title="Abandonner l'intrigue" onclick="intriguesSetAgendaStatus('${agenda.id}','abandoned',${linkedGoals.length})">⏸</button>` : ''}
+          ${(agenda.status === 'abandoned' || agenda.status === 'failed') ? `<button class="btn-icon" title="Réactiver l'intrigue" onclick="intriguesSetAgendaStatus('${agenda.id}','active',0)">▶</button>` : ''}
         </div>
       </div>
-      <div style="margin-top:6px;">
-        ${a.steps.map(s => _intriguesRenderStep(s)).join('')}
-      </div>
-      ${linkedGoals.length > 0 ? `
-      <div style="margin-top:8px; border-top:1px solid var(--border); padding-top:6px;">
-        <div class="field-section-title">Objectifs liés (${linkedGoals.length})</div>
-        ${linkedGoals.map(l => _intriguesRenderLinkedGoal(l)).join('')}
-      </div>` : ''}
+    </div>
+    <div class="field-section">
+      <div class="field-section-title">Étapes</div>
+      ${agenda.steps.map(s => _intriguesRenderStep(s)).join('')}
     </div>`;
-  }).join('') + '</div>';
+  if (linkedGoals.length > 0) {
+    html += `
+    <div class="field-section">
+      <div class="field-section-title">Objectifs liés (${linkedGoals.length})</div>
+      ${linkedGoals.map(l => _intriguesRenderLinkedGoal(l)).join('')}
+    </div>`;
+  }
+  document.getElementById('author-main').innerHTML = html;
+}
+
+/** Re-fetches the agenda list then re-renders the sheet for the same agenda
+ *  id with fresh data, keeping selection — the common tail of every status/
+ *  step/link mutation below. */
+async function _intriguesRefreshSelection(agendaId) {
+  await loadAgendasList();
+  const agenda = intriguesAgendas.find(a => a.id === agendaId);
+  if (agenda) creationSelectRecord('intrigues', agenda);
 }
 
 async function intriguesSetAgendaStatus(agendaId, status, linkedGoalCount) {
@@ -3922,7 +3950,7 @@ async function intriguesSetAgendaStatus(agendaId, status, linkedGoalCount) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     });
-    loadIntrigues();
+    await _intriguesRefreshSelection(agendaId);
   } catch (e) {
     alert(e.message);
   }
@@ -3932,7 +3960,7 @@ async function intriguesDetachLink(linkId) {
   if (!confirm("Détacher ce lien ? Réversible : vous pourrez le rattacher plus tard.")) return;
   try {
     await api(`/api/goal-agenda-links/${encodeURIComponent(linkId)}/detach`, { method: 'POST' });
-    loadIntrigues();
+    await _intriguesRefreshSelection(creationSelectedRecordId);
   } catch (e) {
     alert(e.message);
   }
@@ -3945,10 +3973,51 @@ async function intriguesStepStatus(stepId, status) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     });
-    loadIntrigues();
+    await _intriguesRefreshSelection(creationSelectedRecordId);
   } catch (e) {
     alert(e.message);
   }
+}
+
+/** intrigues' createPanel (BRIEF-0021-a item 7) — the PJ/NPC create-form
+ *  idiom: rendered into the shared detail pane. #agenda-gen-panel ships
+ *  empty here; BRIEF-0021-b fills it. Element ids are kept identical to the
+ *  pre-migration form so intriguesSubmitCreate needs no id changes. */
+function intriguesRenderCreatePanel() {
+  creationSelectedRecordId = null;
+  document.getElementById('author-sheet-title').textContent = 'Nouvelle intrigue';
+  document.getElementById('author-status').textContent = '';
+  document.getElementById('author-save-btn').style.display = 'none';
+  document.getElementById('author-delete-btn').style.display = 'none';
+
+  document.getElementById('author-main').innerHTML = `
+    <div id="agenda-gen-panel"></div>
+    <div class="field-section">
+      <div class="field-section-title">Nouvelle intrigue</div>
+      <div class="field-grid">
+        <div class="field-row">
+          <label for="intrigues-f-owner">Propriétaire (faction ou personnage) *</label>
+          <select id="intrigues-f-owner"><option value="">—</option></select>
+        </div>
+        <div class="field-row" style="grid-column:1/-1">
+          <label for="intrigues-f-title">Titre *</label>
+          <input type="text" id="intrigues-f-title" placeholder="ex : Le complot du sel">
+        </div>
+      </div>
+      <div class="field-section-title" style="margin-top:8px">Étapes (2 à 5, dans l'ordre)</div>
+      <div class="field-grid">
+        <div class="field-row" style="grid-column:1/-1"><label>Étape 1 * (objectif)</label><input type="text" id="intrigues-f-step-0"></div>
+        <div class="field-row" style="grid-column:1/-1"><label>Étape 2 * (objectif)</label><input type="text" id="intrigues-f-step-1"></div>
+        <div class="field-row" style="grid-column:1/-1"><label>Étape 3 (optionnel)</label><input type="text" id="intrigues-f-step-2"></div>
+        <div class="field-row" style="grid-column:1/-1"><label>Étape 4 (optionnel)</label><input type="text" id="intrigues-f-step-3"></div>
+        <div class="field-row" style="grid-column:1/-1"><label>Étape 5 (optionnel)</label><input type="text" id="intrigues-f-step-4"></div>
+      </div>
+      <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+        <button class="btn-send" onclick="intriguesSubmitCreate()">+ Créer l'intrigue</button>
+        <span id="intrigues-add-status" style="font-size:12px; color:var(--muted)"></span>
+      </div>
+    </div>`;
+  _intriguesPopulateOwnerSelect();
 }
 
 async function intriguesSubmitCreate() {
@@ -3966,16 +4035,13 @@ async function intriguesSubmitCreate() {
 
   statusEl.textContent = '…';
   try {
-    await api('/api/agendas', {
+    const agenda = await api('/api/agendas', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ owner_entity_id: ownerId, title, steps }),
     });
-    document.getElementById('intrigues-f-title').value = '';
-    [0, 1, 2, 3, 4].forEach(i => { document.getElementById(`intrigues-f-step-${i}`).value = ''; });
-    statusEl.textContent = 'Intrigue créée.';
-    document.getElementById('intrigues-add-form').hidden = true;
-    loadIntrigues();
+    await loadAgendasList();
+    creationSelectRecord('intrigues', agenda);
   } catch (e) {
     statusEl.textContent = e.message;
   }
@@ -6364,13 +6430,27 @@ async function authorSelectEntity(id) {
   document.getElementById('author-main').innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
   try {
     const detail = await api(`/api/entities/${encodeURIComponent(id)}`);
-    authorRenderSheet(detail, false, detail.type);
-    authorRenderEntityList();
     const entry = CREATION_TABS[currentCreationSubTab];
+    (entry && entry.sheetRenderer || authorRenderSheet)(detail, false, detail.type);
+    authorRenderEntityList();
     (entry ? entry.slots || [] : []).forEach(s => { if (s.onSelect) s.onSelect(id); });
   } catch (e) {
     document.getElementById('author-main').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
+}
+
+/** Generic record selection (BRIEF-0021-a): the sheetRenderer-seam
+ *  counterpart of authorSelectEntity for non-entity list+detail tabs whose
+ *  rows already carry full data — no per-row fetch. Resolves the same
+ *  renderer seam, then re-renders the tab's list so the clicked row shows
+ *  selected (creationSelectedRecordId is the authorEntityId equivalent for
+ *  these tabs). One renderer seam, two data shapes, no second dispatcher. */
+function creationSelectRecord(tabId, record) {
+  const entry = CREATION_TABS[tabId];
+  if (!entry) return;
+  creationSelectedRecordId = record.id;
+  (entry.sheetRenderer || authorRenderSheet)(record);
+  if (entry.listRenderer) entry.listRenderer();
 }
 
 async function authorSave() {
