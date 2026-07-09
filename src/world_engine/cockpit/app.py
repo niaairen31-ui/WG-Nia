@@ -66,6 +66,8 @@ from ..context import (
 from ..db import engine, get_session
 from ..ledger import get_balance as _get_balance
 from ..models import (
+    Agenda,
+    AgendaStep,
     BASE_SKILL_DOMAINS,
     Character,
     Conversation,
@@ -96,6 +98,10 @@ from ..writes import (
     KNOWLEDGE_LEVELS,
     delete_world_cascade as _delete_world_cascade,
     knowledge_level_rank,
+    write_agenda,
+    write_agenda_status,
+    write_agenda_step,
+    write_agenda_step_status,
     write_character_location,
     write_event,
     write_knowledge,
@@ -806,6 +812,14 @@ def _find_applied_duplicate(
     `_find_event_duplicate` — the SAME canon-existence check (title +
     location_id, this world) regardless of source, so neither a re-run tick
     nor a --force re-analysis can double an event.
+
+    AGENDA_CREATION (TICKET-0018, BRIEF-0018-a) is tick-sourced only (the
+    creator's own CRUD create route needs no such guard — a human choosing
+    to author two similarly-titled agendas is not a bug). Duplicate iff an
+    ACTIVE agenda already exists for the proposal's owner with the same
+    normalized title. AGENDA_STEP_CHANGE gets NO clause here by design — the
+    apply branch's active-status stale guard (canon-existence, 0014
+    doctrine) is strictly stronger (0015 F6 argument).
     """
     if not mut.conversation_id:
         if not mut.tick_id:
@@ -854,6 +868,27 @@ def _find_applied_duplicate(
 
         if mut.mutation_type == "event_creation":
             return _find_event_duplicate(payload, mut.world_id, db)
+
+        if mut.mutation_type == "agenda_creation":
+            # Canon-existence (TICKET-0018, BRIEF-0018-a): duplicate iff an
+            # ACTIVE agenda already exists for this owner with the same
+            # normalized title. agenda_step_change gets NO guard here — the
+            # apply branch's active-status stale guard is strictly stronger
+            # (0015 F6 argument: it also catches duplicate approval and
+            # creator-moved-since, which a title/owner key alone would not).
+            normalized = _normalize_goal_text(payload.get("title"))
+            candidates = db.exec(
+                select(Agenda).where(
+                    Agenda.owner_entity_id == payload.get("owner_entity_id"),
+                    Agenda.status == "active",
+                )
+            ).all()
+            if any(_normalize_goal_text(a.title) == normalized for a in candidates):
+                return (
+                    f"agenda_creation for title {payload.get('title')!r} already exists "
+                    "as an active agenda for this owner."
+                )
+            return None
 
         return None
 
@@ -1019,6 +1054,26 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                          present location_id must resolve to an ACTIVE
                          location entity of this world, else "Needs
                          attention", nothing written. Write via write_event.
+    - agenda_step_change : (TICKET-0018, BRIEF-0018-a) tick-only, faction
+                         scope. Stale guard: step.status must still be
+                         'active', else "Needs attention", nothing written
+                         (covers duplicate approval, cross-run re-proposal,
+                         creator-moved-since — strictly stronger than any
+                         tick_id key, so no _find_applied_duplicate clause
+                         exists for this type). Advancement is CODE:
+                         complete -> next pending step (by step_order)
+                         becomes active, none left -> agenda completed;
+                         fail -> the WHOLE agenda fails (no branching;
+                         creator can reactivate via PATCH).
+    - agenda_creation  : (TICKET-0018, BRIEF-0018-a) tick-only, faction
+                         scope. write_agenda validates the owner resolves
+                         to an ACTIVE faction entity (A1) — ValueError ->
+                         "Needs attention". Writes one Agenda + N
+                         AgendaStep rows (step 1 born active) in this one
+                         SAVEPOINT — a parent-child aggregate, not a
+                         one-branch-one-table exception of the
+                         resource_change kind (an agenda_step has no
+                         existence outside its agenda).
 
     Unimplemented types (entity_creation, other) are left as 'approved' with
     a note — better un-applied than wrongly applied.
@@ -1356,6 +1411,86 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                 is_incorrect=bool(knowledge_leg.get("is_incorrect", False)),
                 is_secret=bool(knowledge_leg.get("is_secret", False)),
                 session_id=session_id,
+            )
+        return None
+
+    # ── agenda_step_change (TICKET-0018, BRIEF-0018-a) ────────────────────────
+    elif mut.mutation_type == "agenda_step_change":
+        step_id = payload.get("step_id")
+        action = payload.get("action")
+        if not step_id or action not in ("complete", "fail"):
+            return "agenda_step_change: payload must contain step_id and action in {complete, fail}"
+
+        step = db.get(AgendaStep, step_id)
+        if step is None:
+            return f"agenda_step_change: step {step_id!r} not found"
+
+        # Stale guard (0014 doctrine, canon-existence): the step must still
+        # be the ACTIVE one — covers duplicate approval, cross-run
+        # re-proposal, and a creator-moved-since (RECON-0018 F5). Strictly
+        # stronger than any tick_id key (0015 F6 argument) — no
+        # _find_applied_duplicate clause is needed for this type.
+        if step.status != "active":
+            return "agenda_step_change: step no longer active — world moved since the tick"
+
+        agenda = db.get(Agenda, step.agenda_id)
+        if agenda is None:
+            return f"agenda_step_change: agenda {step.agenda_id!r} not found"
+
+        new_status = "completed" if action == "complete" else "failed"
+        write_agenda_step_status(
+            db, step=step, status=new_status, outcome=payload.get("outcome"), mutation_id=mut.id
+        )
+
+        if action == "complete":
+            next_step = db.exec(
+                select(AgendaStep)
+                .where(AgendaStep.agenda_id == agenda.id, AgendaStep.status == "pending")
+                .order_by(AgendaStep.step_order)
+            ).first()
+            if next_step is not None:
+                write_agenda_step_status(db, step=next_step, status="active", mutation_id=mut.id)
+            else:
+                write_agenda_status(db, agenda=agenda, status="completed", mutation_id=mut.id)
+        else:  # fail — the WHOLE agenda fails, no branching (creator can reactivate via PATCH)
+            write_agenda_status(db, agenda=agenda, status="failed", mutation_id=mut.id)
+        return None
+
+    # ── agenda_creation (TICKET-0018, BRIEF-0018-a) ───────────────────────────
+    elif mut.mutation_type == "agenda_creation":
+        owner_entity_id = payload.get("owner_entity_id")
+        title = payload.get("title")
+        steps = payload.get("steps")
+        if (
+            not owner_entity_id
+            or not title
+            or not isinstance(steps, list)
+            or not (2 <= len(steps) <= 5)
+            or not all(isinstance(s, str) and s.strip() for s in steps)
+        ):
+            return "agenda_creation: payload must contain owner_entity_id, title, and 2-5 non-empty steps"
+
+        try:
+            agenda = write_agenda(
+                db, world_id=mut.world_id, owner_entity_id=owner_entity_id, title=str(title),
+                mutation_id=mut.id,
+            )
+        except ValueError as exc:
+            return f"agenda_creation: {exc}"
+
+        # Parent-child aggregate, one SAVEPOINT (RECON-0018 F5) — NOT a
+        # one-branch-one-table exception of the resource_change kind: an
+        # agenda_step has no existence outside its agenda, so this is two
+        # tables of the SAME canon domain, not two domains.
+        for order, objective in enumerate(steps, start=1):
+            write_agenda_step(
+                db,
+                agenda_id=agenda.id,
+                step_order=order,
+                objective=str(objective),
+                # Step 1 is born active — the creator's approval IS the
+                # activation (symmetric with the creator-CRUD create route).
+                status="active" if order == 1 else "pending",
             )
         return None
 

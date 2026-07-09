@@ -8,6 +8,48 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.72** — Two new tables, `agenda` and `agenda_step` (TICKET-0018,
+  BRIEF-0018-a): structured faction intrigues the world tick advances and
+  proposes. `agenda`: `id, world_id, owner_entity_id (FK entity.id, A2-ready
+  — location/NPC owners deferred), title, status
+  (active|completed|failed|abandoned), created_at, updated_at, change_history
+  (JSON)` + index `idx_agenda_owner_status (owner_entity_id, status)`.
+  `agenda_step`: `id, agenda_id (FK agenda.id), step_order, objective, status
+  (pending|active|completed|failed), outcome, visibility_trace, created_at,
+  updated_at, change_history (JSON)` + index `idx_agenda_step_agenda
+  (agenda_id, step_order)` + a STRUCTURAL partial unique index
+  `idx_agenda_step_one_active (agenda_id) WHERE status = 'active'` — at most
+  one active step per agenda, enforced by SQLite (the
+  `idx_membership_one_primary` precedent), never by discipline. The model
+  never addresses a step or agenda by id: it names the agenda by TITLE
+  (resolved against a per-call `agendas_index`, FACTION SCOPE ONLY — a
+  location scope's index is always empty, A1 doctrine); the active step is
+  derived in code. `write_agenda`/`write_agenda_step`/
+  `write_agenda_step_status`/`write_agenda_status` (`writes.py`) are the
+  ONLY constructors of either table, shared by `_apply_mutation`'s two new
+  branches (`agenda_step_change`, `agenda_creation`) and the first dedicated
+  non-entity creator-CRUD surface (`GET/POST /api/agendas`,
+  `PATCH /api/agendas/{id}`, `PATCH /api/agenda-steps/{id}` — an "Intrigues"
+  cockpit panel). Advancement is CODE at apply: `complete` activates the
+  next pending step by `step_order`, or completes the agenda when none
+  remain; `fail` fails the WHOLE agenda (no per-step branching; creator can
+  reactivate via PATCH). `agenda_creation` writes one agenda + its ordered
+  steps in a single SAVEPOINT (step 1 born active — the approval/authoring
+  act IS the activation); duplicate-guarded by canon-existence (an ACTIVE
+  agenda for the same owner + normalized title); `agenda_step_change` needs
+  no such guard — its apply-side active-status stale check is strictly
+  stronger. The faction-scoped tick briefing gains an `AGENDA EN COURS`
+  section (title, active step's objective + visibility_trace, last 2
+  completed outcomes). Prompt `pt-world-tick-events` gains an appended
+  version enumerating the two agenda types as FACTION-SCOPE ONLY. Delivered
+  via `scripts/migrate_v1_72_agenda.py` (new-tables shape) and
+  `scripts/apply_ticket_0018_prompt_updates.py` (append-version). Verify
+  gains rules 12-14 in `tooling/verify/checks/world_tick.py` (agenda types
+  isolated to the scope normalizer; step/agenda/owner ids forced, never
+  read from a payload; the partial unique index is structurally present)
+  and new `canon_write_policy.txt` entries for the four write helpers plus
+  the creator-CRUD `update_agenda_step` route.
+
 - **v1.71** — New table `visit` (append-only, BRIEF-0016-a): `id, world_id,
   player_id, location_id, entered_at, present_npc_ids (JSON)` + composite
   index `idx_visit_player_location (player_id, location_id, entered_at)`.

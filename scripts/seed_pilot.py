@@ -931,49 +931,76 @@ Report what changed as a JSON array.\
 # A NEW head, not a version of pt-world-tick — different briefing (a place or
 # a faction's posture, never one NPC's interiority), different contract.
 # world_id = NULL, no world-specific examples (universal-template rule).
+#
+# BRIEF-0018-a (v2 of this head): the contract grows from one type to three
+# for FACTION scopes only — a faction briefing carries an AGENDA EN COURS
+# section; a location briefing never does, so the model has no active-agenda
+# titles to reference there and event_creation is its only option (the
+# normalizer enforces this structurally regardless of what the model emits).
 WORLD_TICK_EVENTS_SYSTEM_PROMPT = """\
 You author ONE world event during an off-screen interval, for a whole
 location or a whole faction — not for an NPC. You receive a briefing about
-the scope (a place, or a faction's posture and members) and an elapsed
-interval. Propose up to 3 events that plausibly occurred there during that
-interval: a storm, a festival, a raid, a discovery, a scandal — whatever
-fits the briefing. An event has no single NPC author; it belongs to the
-scope.
+the scope (a place, or a faction's posture, members, and AGENDA EN COURS)
+and an elapsed interval. An event has no single NPC author; it belongs to
+the scope.
 
 Output: a JSON array only. No prose. No markdown fences. Start with [,
 end with ]. A quiet interval is a legitimate answer: output exactly []
 
 Every element must have these EXACT 5 keys — no other keys allowed:
-  "mutation_type"  (string) — always "event_creation"
-  "target_table"   (string) — always "event"
+  "mutation_type"  (string) — "event_creation", or — FACTION SCOPE ONLY,
+                    only when the briefing shows an AGENDA EN COURS —
+                    "agenda_step_change" | "agenda_creation"
+  "target_table"   (string) — "event" | "agenda_step" | "agenda" to match
   "target_id"      (null)   — always null
-  "payload"        (object) — see shape below
-  "rationale"      (string) — one line: why this event fits the briefing
+  "payload"        (object) — see shapes below
+  "rationale"      (string) — one line: why this fits the briefing
 
-Reference people and places by NAME exactly as written in the briefing.
-Never invent identifiers, ids, people, or places absent from the briefing.
+Reference people, places, and agendas by NAME exactly as written in the
+briefing. Never invent identifiers, ids, people, places, or agenda titles
+absent from the briefing.
 
-Payload shape:
+=== event_creation PAYLOAD ===
   {"title":"…","description":"…",
    "type":"political|magical|criminal|military|social|mystery|other",
    "knowledge_status":"secret|public",
    "involved_entities":["<name from the briefing>", …],
    "location":"<name, faction scope only, optional>"}
 
-=== KNOWLEDGE_STATUS RULE ===
 "public" when the event is openly visible or known at the scope; "secret"
 when it is covert or known only to a few. Never propose "confirmed" — that
-status is reserved for the creator's own review.
+status is reserved for the creator's own review. List only involved_entities
+names that actually appear in the briefing; an event may involve none.
+AT MOST 3 event_creation items for the entire interval, fewer when nothing
+notable fits.
 
-=== INVOLVED_ENTITIES RULE ===
-List only names that actually appear in the briefing (occupants or
-members). An event may involve none; naming no one is legitimate.
+=== agenda_step_change PAYLOAD — FACTION SCOPE ONLY ===
+  {"agenda":"<title from AGENDA EN COURS>","action":"complete"|"fail",
+   "outcome":"<one line: what happened>"}
+
+Advance ONLY an agenda whose title is shown in AGENDA EN COURS — never one
+you invent. "fail" requires EVIDENCE from the briefing (a bad event, a lost
+member, a leak) — never propose "fail" out of boredom or without cause.
+At most ONE agenda_step_change per agenda per call.
+
+=== agenda_creation PAYLOAD — FACTION SCOPE ONLY ===
+  {"title":"<new intrigue title>","steps":["<objective 1>","<objective 2>",…]}
+
+2 to 5 non-empty step objectives, ordered. Propose this only when POSTURE
+implies a plan that no current agenda already covers. At most ONE
+agenda_creation per call.
+
+=== PAIRING RULE ===
+When completing a step whose visibility_trace would be publicly
+perceivable, pair the agenda_step_change with an event_creation
+materializing that consequence in the SAME reply — the player should be
+able to feel the machination, not just read a private log line.
 
 === SCALE ===
 The elapsed interval is «{interval_label}». Scale ambition to it: a few
 hours produce at most a minor happening; a few days allow a meaningful
-event; a few weeks may produce something with lasting consequences. AT
-MOST 3 events for the entire interval, fewer when nothing notable fits.\
+event or step advancement; a few weeks may produce something with lasting
+consequences.\
 """
 
 WORLD_TICK_EVENTS_USER_TEMPLATE = """\
@@ -982,7 +1009,7 @@ SCOPE BRIEFING:
 
 INTERVALLE ÉCOULÉ : {interval_label}
 
-Report up to 3 events as a JSON array.\
+Report what changed as a JSON array.\
 """
 
 # BRIEF-47: World-bible generator. usage = "world_generation". Creator-side

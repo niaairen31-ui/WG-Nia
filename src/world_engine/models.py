@@ -889,6 +889,69 @@ class Visit(SQLModel, table=True):
     present_npc_ids: Optional[Any] = Field(default=None, sa_column=Column(JSON))
 
 
+# -----------------------------------------------------------------------------
+# agenda / agenda_step  (structured faction intrigues — schema v1.72,
+# TICKET-0018/BRIEF-0018-a). NpcGoal shape precedent (change_history on both).
+# A1 (this step): owner_entity_id is FK entity.id (A2-ready — location/NPC
+# owners deferred) but write_agenda enforces a faction-type, active owner.
+# F2: at most one ACTIVE step per agenda is a structural partial unique index,
+# not discipline. The model references an agenda by TITLE and never a
+# step/agenda id directly; the active step is always code-derived.
+# -----------------------------------------------------------------------------
+class Agenda(SQLModel, table=True):
+    __tablename__ = "agenda"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active','completed','failed','abandoned')",
+            name="ck_agenda_status",
+        ),
+        Index("idx_agenda_owner_status", "owner_entity_id", "status"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    owner_entity_id: str = Field(foreign_key="entity.id", nullable=False)
+    title: str
+    status: str = Field(default="active", sa_column_kwargs={"server_default": text("'active'")})
+    created_at: datetime = _created_ts()
+    updated_at: datetime = _created_ts()
+    change_history: list = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
+    )
+
+
+class AgendaStep(SQLModel, table=True):
+    __tablename__ = "agenda_step"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','active','completed','failed')",
+            name="ck_agenda_step_status",
+        ),
+        Index("idx_agenda_step_agenda", "agenda_id", "step_order"),
+        # At most one ACTIVE step per agenda (RECON-0018 F2 — the
+        # idx_membership_one_primary precedent).
+        Index(
+            "idx_agenda_step_one_active", "agenda_id",
+            unique=True, sqlite_where=text("status = 'active'"),
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    agenda_id: str = Field(foreign_key="agenda.id", nullable=False)
+    step_order: int
+    objective: str
+    status: str = Field(default="pending", sa_column_kwargs={"server_default": text("'pending'")})
+    outcome: Optional[str] = None
+    visibility_trace: Optional[str] = None
+    created_at: datetime = _created_ts()
+    updated_at: datetime = _created_ts()
+    change_history: list = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
+    )
+
+
 __all__ = [
     "World",
     "Entity",
@@ -914,4 +977,6 @@ __all__ = [
     "PromptTemplate",
     "PromptVersion",
     "Visit",
+    "Agenda",
+    "AgendaStep",
 ]

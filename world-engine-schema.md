@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.71
+Current schema version: v1.72
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -992,6 +992,66 @@ CREATE INDEX idx_visit_player_location ON visit(player_id, location_id, entered_
 
 -----
 
+### `agenda`
+
+Structured faction intrigue (schema v1.72, TICKET-0018/BRIEF-0018-a).
+Owners are FACTIONS ONLY this step (`owner_entity_id` is FK-shaped for A2 —
+location/NPC owners — but `write_agenda` enforces an ACTIVE faction-type
+owner; the write helper, not the column, carries the constraint). The tick's
+faction-scoped scope-event call reads active agendas via `AGENDA EN COURS`
+and proposes `agenda_step_change`/`agenda_creation`, reviewed like any other
+`proposed_mutation`; the creator authors/edits agendas directly (first
+dedicated non-entity CRUD surface, `/api/agendas`).
+
+```sql
+CREATE TABLE agenda (
+  id                TEXT PRIMARY KEY,
+  world_id          TEXT NOT NULL REFERENCES world(id),
+  owner_entity_id   TEXT NOT NULL REFERENCES entity(id),
+  title             TEXT NOT NULL,
+  status            TEXT NOT NULL DEFAULT 'active'
+                      CHECK (status IN ('active','completed','failed','abandoned')),
+  created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+  change_history    JSON DEFAULT '[]'  -- archived previous states, mirror of
+                      --                 npc_goal.change_history
+);
+CREATE INDEX idx_agenda_owner_status ON agenda(owner_entity_id, status);
+```
+
+-----
+
+### `agenda_step`
+
+Ordered step of an `agenda`, schema v1.72, TICKET-0018/BRIEF-0018-a. The
+model never addresses a step directly — it names the agenda by TITLE; the
+active step is always derived in code (this table's partial unique index
+guarantees at most one). Advancement (`complete` -> next step active / agenda
+completed; `fail` -> whole agenda failed) is CODE, at apply.
+
+```sql
+CREATE TABLE agenda_step (
+  id                TEXT PRIMARY KEY,
+  agenda_id         TEXT NOT NULL REFERENCES agenda(id),
+  step_order        INTEGER NOT NULL,
+  objective         TEXT NOT NULL,
+  status            TEXT NOT NULL DEFAULT 'pending'
+                      CHECK (status IN ('pending','active','completed','failed')),
+  outcome           TEXT,
+  visibility_trace  TEXT,
+  created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+  change_history    JSON DEFAULT '[]'
+);
+CREATE INDEX idx_agenda_step_agenda ON agenda_step(agenda_id, step_order);
+-- STRUCTURAL invariant (RECON-0018 F2): at most ONE active step per agenda,
+-- enforced by SQLite itself — never by discipline.
+CREATE UNIQUE INDEX idx_agenda_step_one_active
+  ON agenda_step(agenda_id) WHERE status = 'active';
+```
+
+-----
+
 ## INDEXES
 
 Created alongside the tables. They change nothing functionally — they keep the
@@ -1067,6 +1127,14 @@ CREATE INDEX idx_discoverable_signpost_group ON discoverable_detail(signpost_gro
 
 -- "the player's latest visit to this location" (schema v1.71, BRIEF-0016-a)
 CREATE INDEX idx_visit_player_location ON visit(player_id, location_id, entered_at);
+
+-- agendas: by owner + status (schema v1.72, BRIEF-0018-a)
+CREATE INDEX idx_agenda_owner_status ON agenda(owner_entity_id, status);
+
+-- agenda steps: ordered within an agenda, and the one-active-step invariant
+CREATE INDEX idx_agenda_step_agenda ON agenda_step(agenda_id, step_order);
+CREATE UNIQUE INDEX idx_agenda_step_one_active
+  ON agenda_step(agenda_id) WHERE status = 'active';
 ```
 
 -----
