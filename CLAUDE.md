@@ -388,7 +388,7 @@ WG-Nia/
 │   ├── writes.py            # shared canon-write helpers (both sanctioned paths)
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
 │   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)
-│   ├── entity_author.py     # AI authoring assistant (entities, PC, skill catalogue)
+│   ├── entity_author.py     # AI authoring assistant (entities, PC, skill catalogue, agendas)
 │   ├── region_author.py     # region generation orchestrator (proposes names, no canon)
 │   └── cockpit/             # creator web UI (FastAPI + HTMX, port 8000, loopback)
 │       ├── app.py           # play endpoints; _apply_mutation; _stream; region commit

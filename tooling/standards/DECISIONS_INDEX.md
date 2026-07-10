@@ -54,26 +54,27 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 3464 | CANON-WRITE DOCTRINE — table classification, write normalization, structural gate (BRIEF-0003-a, BRIEF-0003-b, no schema change) | BRIEF-0003-a, BRIEF-0003-b |  |
 | 3540 | PIPELINE GLUE — /pipeline orchestration, derived ticket status, structural permissions (BRIEF-0004, no schema change) | BRIEF-0004 |  |
 | 3601 | CRÉATION PAGE CONTRACT (BRIEF-0005-a, no schema change) | BRIEF-0005-a |  |
-| 3771 | PIPELINE COCKPIT — deposit surface, question writer, structural boundaries (BRIEF-0006-a, no schema change) | BRIEF-0006-a |  |
-| 3824 | PIPELINE SECOND PASS — recon absorption, CA1 relay, inline escalation, bounded conflict resolution (BRIEF-0006-b, no schema change) | BRIEF-0006-b |  |
-| 3885 | SOUMETTRE FILE UPLOAD — per-channel detection authority (BRIEF-0007, no schema change) | BRIEF-0007 |  |
-| 3934 | PROMPT MODEL COLUMN + REGISTRY (BRIEF-0008-a, schema v1.67) | BRIEF-0008-a | v1.67 |
-| 4008 | PROMPTS TAB — read-only reader, API, dry-run previews (BRIEF-0008-b, no schema change) | BRIEF-0008-b |  |
-| 4046 | PROMPT MODEL SELECTION — write path (BRIEF-0009-a, no schema change) | BRIEF-0009-a |  |
-| 4104 | CLAUDE.MD CONTRACT + ARTIFACT CONVENTION (BRIEF-0010-a, no schema change) | BRIEF-0010-a |  |
-| 4168 | PROMPT VERSIONING — append-only history, single accessor/write shape (BRIEF-0011-a, schema v1.68) | BRIEF-0011-a | v1.68 |
-| 4272 | COCKPIT PROMPT EDITING UI — edit mode, history, restore (BRIEF-0011-b, no schema change) | BRIEF-0011-b |  |
-| 4317 | PROMPT LEAN REWRITE — resolved facts over conditional instructions (BRIEF-0012-a, no schema change) | BRIEF-0012-a |  |
-| 4410 | NPC GOALS — in-scene volition (BRIEF-0013-a, BRIEF-0013-b, BRIEF-0013-c, schema v1.69) | BRIEF-0013-a, BRIEF-0013-b, BRIEF-0013-c | v1.69 |
-| 4614 | WORLD TICK — off-screen NPC advancement (BRIEF-0014-a, BRIEF-0014-b, schema v1.70) | BRIEF-0014-a, BRIEF-0014-b | v1.70 |
-| 4841 | WORLD TICK — NPC movement (BRIEF-0015-a, no schema change) | BRIEF-0015-a |  |
-| 4969 | Deferred decisions |  |  |
-| 5124 | RETURN-VISIT DELTA (BRIEF-0016-a, schema v1.71) | BRIEF-0016-a | v1.71 |
-| 5200 | WORLD TICK — scope-level event producer (BRIEF-0017-a, no schema change) | BRIEF-0017-a |  |
-| 5252 | FACTION AGENDAS (BRIEF-0018-a, schema v1.72) | BRIEF-0018-a | v1.72 |
-| 5332 | TWO-STAGE ENTITY CREATION (BRIEF-0019-a, no schema change) | BRIEF-0019-a |  |
-| 5411 | GOAL<->AGENDA LINKS — B3 many-to-many, last-parent cascade (BRIEF-0020-a, schema v1.73) | BRIEF-0020-a | v1.73 |
-| 5452 | ONE-ACTIVE-PERSONAL-AGENDA — character owners, guard placement (BRIEF-0020-a, schema v1.73) | BRIEF-0020-a | v1.73 |
-| 5471 | FORWARD NOTE — per-NPC agenda contract extension (BRIEF-0020-a, no schema change) | BRIEF-0020-a |  |
-| 5481 | PER-NPC AGENDA CONTRACT — evolution of the 0017 closed contract (BRIEF-0020-b, no schema change) | BRIEF-0020-b |  |
-| 5551 | D1 DIALOGUE PROVENANCE — second sanctioned faction_membership reader (BRIEF-0020-b, no schema change) | BRIEF-0020-b |  |
+| 3817 | PIPELINE COCKPIT — deposit surface, question writer, structural boundaries (BRIEF-0006-a, no schema change) | BRIEF-0006-a |  |
+| 3870 | PIPELINE SECOND PASS — recon absorption, CA1 relay, inline escalation, bounded conflict resolution (BRIEF-0006-b, no schema change) | BRIEF-0006-b |  |
+| 3931 | SOUMETTRE FILE UPLOAD — per-channel detection authority (BRIEF-0007, no schema change) | BRIEF-0007 |  |
+| 3980 | PROMPT MODEL COLUMN + REGISTRY (BRIEF-0008-a, schema v1.67) | BRIEF-0008-a | v1.67 |
+| 4054 | PROMPTS TAB — read-only reader, API, dry-run previews (BRIEF-0008-b, no schema change) | BRIEF-0008-b |  |
+| 4092 | PROMPT MODEL SELECTION — write path (BRIEF-0009-a, no schema change) | BRIEF-0009-a |  |
+| 4150 | CLAUDE.MD CONTRACT + ARTIFACT CONVENTION (BRIEF-0010-a, no schema change) | BRIEF-0010-a |  |
+| 4214 | PROMPT VERSIONING — append-only history, single accessor/write shape (BRIEF-0011-a, schema v1.68) | BRIEF-0011-a | v1.68 |
+| 4318 | COCKPIT PROMPT EDITING UI — edit mode, history, restore (BRIEF-0011-b, no schema change) | BRIEF-0011-b |  |
+| 4363 | PROMPT LEAN REWRITE — resolved facts over conditional instructions (BRIEF-0012-a, no schema change) | BRIEF-0012-a |  |
+| 4456 | NPC GOALS — in-scene volition (BRIEF-0013-a, BRIEF-0013-b, BRIEF-0013-c, schema v1.69) | BRIEF-0013-a, BRIEF-0013-b, BRIEF-0013-c | v1.69 |
+| 4660 | WORLD TICK — off-screen NPC advancement (BRIEF-0014-a, BRIEF-0014-b, schema v1.70) | BRIEF-0014-a, BRIEF-0014-b | v1.70 |
+| 4887 | WORLD TICK — NPC movement (BRIEF-0015-a, no schema change) | BRIEF-0015-a |  |
+| 5015 | Deferred decisions |  |  |
+| 5170 | RETURN-VISIT DELTA (BRIEF-0016-a, schema v1.71) | BRIEF-0016-a | v1.71 |
+| 5246 | WORLD TICK — scope-level event producer (BRIEF-0017-a, no schema change) | BRIEF-0017-a |  |
+| 5298 | FACTION AGENDAS (BRIEF-0018-a, schema v1.72) | BRIEF-0018-a | v1.72 |
+| 5378 | TWO-STAGE ENTITY CREATION (BRIEF-0019-a, no schema change) | BRIEF-0019-a |  |
+| 5457 | GOAL<->AGENDA LINKS — B3 many-to-many, last-parent cascade (BRIEF-0020-a, schema v1.73) | BRIEF-0020-a | v1.73 |
+| 5498 | ONE-ACTIVE-PERSONAL-AGENDA — character owners, guard placement (BRIEF-0020-a, schema v1.73) | BRIEF-0020-a | v1.73 |
+| 5517 | FORWARD NOTE — per-NPC agenda contract extension (BRIEF-0020-a, no schema change) | BRIEF-0020-a |  |
+| 5527 | PER-NPC AGENDA CONTRACT — evolution of the 0017 closed contract (BRIEF-0020-b, no schema change) | BRIEF-0020-b |  |
+| 5597 | D1 DIALOGUE PROVENANCE — second sanctioned faction_membership reader (BRIEF-0020-b, no schema change) | BRIEF-0020-b |  |
+| 5630 | AI AGENDA-DRAFT ASSISTANT (BRIEF-0021-b, no schema change) | BRIEF-0021-b |  |

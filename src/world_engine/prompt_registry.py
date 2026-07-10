@@ -173,6 +173,13 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         call_sites=("src/world_engine/entity_author.py:_load_npc_goals_template",),
         default_model=_author_model,
     ),
+    "agenda_generation": PromptSpec(
+        surface="authoring",
+        world_scoped=False,
+        dry_run_capable=False,
+        call_sites=("src/world_engine/entity_author.py:_load_agenda_draft_template",),
+        default_model=_author_model,
+    ),
     "region_manifest": PromptSpec(
         surface="authoring",
         world_scoped=False,

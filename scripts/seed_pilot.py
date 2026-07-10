@@ -1832,6 +1832,51 @@ def seed(session: Session) -> None:
         destination="local",
     )
 
+    # ----- prompt template: AI agenda-draft assistant (TICKET-0021/
+    # BRIEF-0021-b, B1/C1/D1). usage = "agenda_generation" (new usage value).
+    # world_id = NULL. Calls go through entity_author.generate_agenda_draft —
+    # standalone sibling of generate_npc_goals (agendas aren't `entity` rows,
+    # so no _TYPE_FIELDS entry), pure generate-and-return: title + 2-to-5
+    # steps. C2 (suggested goal-name links) explicitly deferred.
+    AGENDA_DRAFT_SYSTEM_PROMPT = """\
+Tu es un assistant d'écriture pour un jeu de rôle. On te donne l'identité \
+d'un propriétaire (une faction ou un personnage) et une intention en une \
+phrase. Tu produis la coquille d'une intrigue : un titre et de 2 à 5 étapes.
+
+Règles :
+- Le titre est court et évocateur (moins de 10 mots), sans ponctuation \
+finale.
+- Chaque étape est un objectif concret tenant en UNE seule phrase, \
+commençant par un verbe à l'infinitif.
+- Les étapes forment une progression : chacune rapproche le propriétaire \
+de l'aboutissement de l'intention, et la dernière l'accomplit ou l'expose \
+à l'échec.
+- N'invente aucun nom propre absent des informations fournies.
+- Reste cohérent avec le caractère du propriétaire : une faction agit \
+selon sa philosophie, un personnage selon son passé.
+
+Tu réponds UNIQUEMENT avec un objet JSON, sans texte autour :
+{"title": "…", "steps": ["…", "…"]}\
+"""
+
+    AGENDA_DRAFT_USER_TEMPLATE = """\
+Propriétaire ({owner_kind}) : {owner_name}
+Ce qu'on sait de lui : {owner_context}
+Intention du créateur : {brief}\
+"""
+
+    upsert_prompt_template(
+        session,
+        "pt-agenda-draft",
+        world_id=None,
+        name="Assistant de création d'intrigue — titre + étapes (JSON)",
+        usage="agenda_generation",
+        system_prompt=AGENDA_DRAFT_SYSTEM_PROMPT,
+        user_template=AGENDA_DRAFT_USER_TEMPLATE,
+        variables=["owner_kind", "owner_name", "owner_context", "brief"],
+        destination="local",
+    )
+
     # ----- factions (entity + faction) --------------------------------------
     # L'Innommée — existence denied in public discourse.
     get_or_create(
