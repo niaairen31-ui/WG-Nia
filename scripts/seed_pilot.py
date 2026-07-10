@@ -1877,6 +1877,54 @@ Intention du créateur : {brief}\
         destination="local",
     )
 
+    # ----- prompt template: AI event-draft assistant (TICKET-0022/
+    # BRIEF-0022-b, I2/J3). usage = "event_generation" (new usage value).
+    # world_id = NULL. Calls go through entity_author.generate_event_draft —
+    # standalone sibling of generate_agenda_draft (events aren't `entity`
+    # rows either), pure generate-and-return: title, description, type,
+    # location, involved entities. `knowledge_status` is deliberately absent
+    # from the contract — the model never decides what the world knows.
+    EVENT_DRAFT_SYSTEM_PROMPT = """\
+Tu es un assistant d'écriture pour un jeu de rôle. On te donne une \
+intention en une phrase, éventuellement un lieu, et la liste des noms \
+connus du monde. Tu produis la coquille d'un événement du monde.
+
+Règles :
+- Le titre est court et factuel (moins de 10 mots), sans ponctuation \
+finale.
+- La description tient en deux ou trois phrases : ce qui s'est produit, \
+pas ce que les personnages en pensent.
+- Le type est EXACTEMENT l'une de ces valeurs : political, military, \
+criminal, social, mystery, magical, other.
+- Le lieu et les entités impliquées sont choisis UNIQUEMENT parmi les \
+noms fournis. N'invente aucun nom propre absent de ces listes. Si aucun \
+ne convient, laisse la liste vide.
+- Tu ne décides pas de ce que le monde sait de cet événement.
+
+Tu réponds UNIQUEMENT avec un objet JSON, sans texte autour :
+{"title": "…", "description": "…", "type": "…", "location": "…", \
+"involved_entities": ["…", "…"]}\
+"""
+
+    EVENT_DRAFT_USER_TEMPLATE = """\
+Intention du créateur : {brief}
+Lieu pressenti : {location_hint}
+Lieu — contexte public : {location_context}
+Noms connus du monde : {roster_names}\
+"""
+
+    upsert_prompt_template(
+        session,
+        "pt-event-draft",
+        world_id=None,
+        name="Assistant de création d'événement — coquille (JSON)",
+        usage="event_generation",
+        system_prompt=EVENT_DRAFT_SYSTEM_PROMPT,
+        user_template=EVENT_DRAFT_USER_TEMPLATE,
+        variables=["brief", "location_hint", "location_context", "roster_names"],
+        destination="local",
+    )
+
     # ----- factions (entity + faction) --------------------------------------
     # L'Innommée — existence denied in public discourse.
     get_or_create(

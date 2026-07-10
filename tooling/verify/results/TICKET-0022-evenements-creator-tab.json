@@ -1,0 +1,27 @@
+{
+  "ticket": "TICKET-0022-evenements-creator-tab",
+  "when": "2026-07-10T01:27:07.954585+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u2014 CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "event_tab.py",
+      "status": "PASS",
+      "msg": "PASS: event_tab \u2014 no event-delete surface exists, Event.occurred_at governs no order_by"
+    },
+    {
+      "check": "event_assist.py",
+      "status": "PASS",
+      "msg": "PASS: event_assist \u2014 generate_event_draft writes no canon and never surfaces knowledge_status, build_world_roster filters is_public in SQL, pt-event-draft seeded, /api/events/generate registered"
+    }
+  ]
+}

@@ -951,6 +951,39 @@ def write_event(
     return event
 
 
+def write_event_update(
+    db: Session,
+    *,
+    event: Event,
+    title: str,
+    description: Optional[str] = None,
+    type: Optional[str] = None,
+    knowledge_status: str,
+    involved_entities: Optional[list] = None,
+    location_id: Optional[str] = None,
+) -> Event:
+    """Creator-CRUD-only writer for an existing `event` row (TICKET-0022,
+    BRIEF-0022-a). `_apply_mutation` never calls this: AI proposals create
+    events (`write_event`), never edit them. Together `write_event` and
+    `write_event_update` are the complete set of `event` writers.
+
+    Sets exactly the six fields listed above and calls `db.add`. Does NOT
+    touch `recorded_at`, `occurred_at`, `has_magic_impact`, `consequences`,
+    `session_id`, `batch_id` — those keep whatever they had. No
+    `change_history` append: the table has no such column (see
+    `write_event`'s docstring above) — a known, accepted gap, not an
+    oversight.
+    """
+    event.title = title
+    event.description = description
+    event.type = type
+    event.knowledge_status = knowledge_status
+    event.involved_entities = involved_entities
+    event.location_id = location_id
+    db.add(event)
+    return event
+
+
 def write_prompt_version(
     db: Session,
     *,

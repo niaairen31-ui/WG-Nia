@@ -28,6 +28,11 @@ Deletion policy:
   two sanctioned canon-write paths into `ledger` (the other is
   `_apply_mutation`'s `resource_change` branch, BRIEF-19, which reuses the
   same helper).
+- `event` rows: **no delete, ever** (TICKET-0022, C3) — an event either
+  happened or did not; `event` is history. Retraction is
+  `knowledge_status = 'secret'`, which structurally excludes the row from
+  all four readers (`context.py`, `tick.py` x2, `app.py`'s return-visit
+  delta). Mirrors `ledger`'s append-only policy above.
 
 Author edits to `relation` are state-setting, not delta accumulation —
 but still append the previous state to `change_history` first (history is
@@ -67,6 +72,7 @@ from ..models import (
     Character,
     DiscoverableDetail,
     Entity,
+    Event,
     Faction,
     FactionMembership,
     GoalAgendaLink,
@@ -84,6 +90,7 @@ from ..models import (
 )
 from ..prompt_registry import PROMPT_REGISTRY, effective_model
 from ..prompt_store import current_prompt, get_version, list_versions
+from ..tick import _EVENT_TYPES
 from ..writes import (
     KNOWLEDGE_LEVELS,
     NPC_GOAL_HORIZONS,
@@ -93,6 +100,8 @@ from ..writes import (
     write_agenda_status,
     write_agenda_step,
     write_agenda_step_status,
+    write_event,
+    write_event_update,
     write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
@@ -275,6 +284,45 @@ KNOWLEDGE_FIELDS: list[dict[str, Any]] = [
     {"name": "is_incorrect", "label": "Incorrect", "kind": "bool", "default": False},
     {"name": "is_secret", "label": "Secret", "kind": "bool", "default": False},
     {"name": "share_threshold", "label": "Share threshold (1-100)", "kind": "number", "min": 1, "max": 100, "default": 50},
+]
+
+
+# ── Event field specs (TICKET-0022, BRIEF-0022-a) ─────────────────────────────
+# Single source of the event-type vocabulary is tick.py:_EVENT_TYPES — the
+# tick CLAMPS model proposals onto it (tick.py:877). The creator must write
+# into the SAME vocabulary or the column carries two disjoint namespaces.
+# Imported, never re-typed (drafting decision 1). The assert below fails
+# loudly at import if the two vocabularies ever diverge.
+EVENT_TYPE_LABELS_FR: dict[str, str] = {
+    "political": "politique",
+    "military":  "militaire",
+    "criminal":  "criminel",
+    "social":    "social",
+    "mystery":   "mystère",
+    "magical":   "magique",
+    "other":     "autre",
+}
+assert set(EVENT_TYPE_LABELS_FR) == set(_EVENT_TYPES), (
+    "EVENT_TYPE_LABELS_FR's key set has diverged from tick._EVENT_TYPES"
+)
+
+# Mirrors app.py:1572's clamp exactly. Note: tick.py:880 accepts only
+# ("secret", "public") — a narrower, pre-existing clamp on the
+# model-proposal path, deliberately left alone by this brief.
+EVENT_KNOWLEDGE_STATUSES = ("secret", "public", "confirmed")
+
+# `involved_entities` is deliberately ABSENT — not a scalar field, handled by
+# the chip editor. `occurred_at` is absent (E3, dormant column).
+EVENT_FIELDS: list[dict[str, Any]] = [
+    {"name": "title", "label": "Titre", "kind": "text", "required": True},
+    {"name": "description", "label": "Description", "kind": "textarea"},
+    {"name": "type", "label": "Type", "kind": "datalist",
+     "options": list(EVENT_TYPE_LABELS_FR.keys())},
+    {"name": "knowledge_status", "label": "Statut de connaissance",
+     "kind": "select", "options": list(EVENT_KNOWLEDGE_STATUSES),
+     "default": "secret", "required": True},
+    {"name": "location_id", "label": "Lieu", "kind": "entity_ref",
+     "ref_type": "location"},
 ]
 
 
@@ -608,6 +656,7 @@ def get_entity_types() -> dict:
         },
         "relation_fields": RELATION_FIELDS,
         "knowledge_fields": KNOWLEDGE_FIELDS,
+        "event_fields": EVENT_FIELDS,
     }
 
 
@@ -1370,6 +1419,154 @@ def detach_goal_agenda_link_route(link_id: str, db: DbSession = Depends(get_sess
         "detached_at": _iso(link.detached_at),
         "detached_by": link.detached_by,
     }
+
+
+# ── Events (TICKET-0022, BRIEF-0022-a) ────────────────────────────────────────
+# Second concrete non-entity reader of the sheetRenderer seam after `agenda`
+# (TICKET-0021). Two writers, both in `writes.py`: `write_event` (creation —
+# shared with `_apply_mutation`'s `event_creation` branch) and
+# `write_event_update` (creator edit only, this module). No DELETE route: an
+# event either happened or did not (C3) — see the "Deletion policy" docstring
+# block above. The creator-authored duplicate-title guard used by
+# `_apply_mutation` (app.py:886-906) is deliberately NOT applied here: the
+# creator may author two same-titled events at one location on purpose.
+
+def _event_dict(event: Event, db: DbSession) -> dict:
+    location = db.get(Entity, event.location_id) if event.location_id else None
+    involved = []
+    for entity_id in (event.involved_entities or []):
+        target = db.get(Entity, entity_id)
+        involved.append({"id": entity_id, "name": target.name if target is not None else None})
+    return {
+        "id": event.id,
+        "title": event.title,
+        "description": event.description,
+        "type": event.type,
+        "type_label": EVENT_TYPE_LABELS_FR.get(event.type, event.type),
+        "knowledge_status": event.knowledge_status,
+        "location_id": event.location_id,
+        "location_name": location.name if location is not None else None,
+        "involved_entities": involved,
+        "recorded_at": _iso(event.recorded_at),
+    }
+
+
+def _validate_event_location(db: DbSession, world_id: str, location_id: Optional[str]) -> Optional[str]:
+    """Reuses the exact predicate at app.py:1575-1583 (event_creation branch)
+    — active `location` entity in the active world. 422 on anything else:
+    the creator's picker cannot produce a bad id, so a bad id is a bug, not
+    a typo."""
+    if not location_id:
+        return None
+    target = db.get(Entity, location_id)
+    if (
+        target is None
+        or target.type != "location"
+        or target.status != "active"
+        or target.world_id != world_id
+    ):
+        raise HTTPException(422, f"location_id {location_id!r} is not an active location in this world")
+    return location_id
+
+
+def _validate_event_involved(db: DbSession, world_id: str, ids: Optional[list]) -> Optional[list]:
+    if not ids:
+        return None
+    out = []
+    for entity_id in ids:
+        target = db.get(Entity, entity_id)
+        if target is None or target.world_id != world_id:
+            raise HTTPException(422, f"involved_entities: {entity_id!r} is not a valid entity id in this world")
+        out.append(entity_id)
+    return out
+
+
+class EventCreateBody(BaseModel):
+    title: str
+    description: Optional[str] = None
+    type: Optional[str] = None
+    knowledge_status: str = "secret"
+    location_id: Optional[str] = None
+    involved_entities: Optional[list[str]] = None
+
+
+class EventUpdateBody(BaseModel):
+    title: str
+    description: Optional[str] = None
+    type: Optional[str] = None
+    knowledge_status: str
+    location_id: Optional[str] = None
+    involved_entities: Optional[list[str]] = None
+
+
+@router.get("/events")
+def list_events(db: DbSession = Depends(get_session)) -> list[dict]:
+    world_id = _world_id(db)
+    events = db.exec(
+        select(Event).where(Event.world_id == world_id).order_by(Event.recorded_at.desc())
+    ).all()
+    return [_event_dict(e, db) for e in events]
+
+
+@router.get("/events/{event_id}")
+def get_event(event_id: str, db: DbSession = Depends(get_session)) -> dict:
+    event = db.get(Event, event_id)
+    if event is None or event.world_id != _world_id(db):
+        raise HTTPException(404, f"Event {event_id!r} not found")
+    return _event_dict(event, db)
+
+
+@router.post("/events", status_code=201)
+def create_event(body: EventCreateBody, db: DbSession = Depends(get_session)) -> dict:
+    world_id = _world_id(db)
+    if not body.title or not body.title.strip():
+        raise HTTPException(422, "title is required")
+    if body.knowledge_status not in EVENT_KNOWLEDGE_STATUSES:
+        raise HTTPException(422, f"knowledge_status must be one of {EVENT_KNOWLEDGE_STATUSES}")
+    location_id = _validate_event_location(db, world_id, body.location_id)
+    involved = _validate_event_involved(db, world_id, body.involved_entities)
+
+    event = write_event(
+        db,
+        world_id=world_id,
+        title=body.title.strip(),
+        description=body.description,
+        type=body.type,
+        knowledge_status=body.knowledge_status,
+        involved_entities=involved,
+        location_id=location_id,
+    )
+    db.commit()
+    db.refresh(event)
+    return _event_dict(event, db)
+
+
+@router.put("/events/{event_id}")
+def update_event(event_id: str, body: EventUpdateBody, db: DbSession = Depends(get_session)) -> dict:
+    event = db.get(Event, event_id)
+    if event is None or event.world_id != _world_id(db):
+        raise HTTPException(404, f"Event {event_id!r} not found")
+    world_id = _world_id(db)
+    if not body.title or not body.title.strip():
+        raise HTTPException(422, "title is required")
+    if body.knowledge_status not in EVENT_KNOWLEDGE_STATUSES:
+        raise HTTPException(422, f"knowledge_status must be one of {EVENT_KNOWLEDGE_STATUSES}")
+    location_id = _validate_event_location(db, world_id, body.location_id)
+    involved = _validate_event_involved(db, world_id, body.involved_entities)
+
+    event = write_event_update(
+        db,
+        event=event,
+        title=body.title.strip(),
+        description=body.description,
+        type=body.type,
+        knowledge_status=body.knowledge_status,
+        involved_entities=involved,
+        location_id=location_id,
+    )
+    db.commit()
+    db.refresh(event)
+    return _event_dict(event, db)
 
 
 # ── Faction membership (schema v1.39, BRIEF-27) ───────────────────────────────

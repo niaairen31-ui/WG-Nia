@@ -429,6 +429,10 @@ input.notes::placeholder { color: var(--muted); }
 /* item equip status */
 .b-equipped { background:#0d2c12; color:var(--green); border:1px solid #238636; }
 .b-stowed   { background:#1c2128; color:var(--muted); border:1px solid var(--border); }
+/* event.knowledge_status (TICKET-0022) */
+.b-secret    { background:#2b1d00; color:var(--yellow); border:1px solid #9e6a03; }
+.b-public    { background:#0d2c12; color:var(--green);  border:1px solid #238636; }
+.b-confirmed { background:#0d1f38; color:var(--accent);  border:1px solid #1f6feb; }
 
 .target-ref { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 
@@ -1165,6 +1169,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <button class="creation-sub-tab"        id="ctab-artefacts" onclick="showCreationSubTab('artefacts')">Artefacts</button>
     <button class="creation-sub-tab"        id="ctab-registre"  onclick="showCreationSubTab('registre')">Registre</button>
     <button class="creation-sub-tab"        id="ctab-intrigues" onclick="showCreationSubTab('intrigues')">Intrigues</button>
+    <button class="creation-sub-tab"        id="ctab-evenements" onclick="showCreationSubTab('evenements')">Événements</button>
     <button class="creation-sub-tab"        id="ctab-queue"     onclick="showCreationSubTab('queue')">Review Queue</button>
     <button class="creation-sub-tab"        id="ctab-prompts"   onclick="showCreationSubTab('prompts')">Prompts</button>
   </div>
@@ -1257,7 +1262,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
         <div class="panel-head">
           <h2 id="author-sheet-title">Sélectionner une entité</h2>
           <span class="author-status" id="author-status"></span>
-          <button class="btn-send" id="author-save-btn" onclick="authorSave()" style="display:none">Save</button>
+          <button class="btn-send" id="author-save-btn" onclick="creationSaveDispatch()" style="display:none">Save</button>
           <button class="btn-end" id="author-delete-btn" onclick="authorDelete()" style="display:none">Delete</button>
         </div>
         <div class="author-main" id="author-main">
@@ -3261,6 +3266,28 @@ function _intriguesWorldReset() {
   creationSelectedRecordId = null;
 }
 
+/** evenements' onTabEnter/onWorldSwitch (BRIEF-0022-a item 6, G1 state
+ *  contract) — resets ALL state this tab owns: selection, chip draft, and
+ *  (world switch) the cached event list. Mirrors _intriguesTabEnterReset /
+ *  _intriguesWorldReset verbatim. */
+function _evenementsTabEnterReset() {
+  creationSelectedRecordId = null;
+  evenementsInvolvedDraft = [];
+  const titleEl = document.getElementById('author-sheet-title');
+  const mainEl  = document.getElementById('author-main');
+  if (titleEl) titleEl.textContent = 'Sélectionner un événement';
+  if (mainEl)  mainEl.innerHTML = '<div class="empty">Sélectionnez un événement depuis la liste, ou créez-en un nouveau.</div>';
+  document.getElementById('author-save-btn').style.display   = 'none';
+  document.getElementById('author-delete-btn').style.display = 'none';
+  document.getElementById('author-status').textContent       = '';
+}
+
+function _evenementsWorldReset() {
+  evenementsEvents = [];
+  evenementsInvolvedDraft = [];
+  creationSelectedRecordId = null;
+}
+
 const CREATION_TABS = {
   npc: {
     label: 'NPC',
@@ -3367,6 +3394,19 @@ const CREATION_TABS = {
     sheetRenderer: renderAgendaSheet,
     createPanel: intriguesRenderCreatePanel,
     primaryAction: { label: '+ Nouvelle intrigue', handler: creationNewEntity },
+  },
+  evenements: {
+    label: 'Événements',
+    archetype: 'entity',
+    containers: ['creation-editor-area'],
+    loader: null,
+    state: { onTabEnter: _evenementsTabEnterReset, onWorldSwitch: _evenementsWorldReset },
+    listLoader: loadEventsList,
+    listRenderer: renderEvenementsListRows,
+    sheetRenderer: renderEventSheet,
+    createPanel: evenementsRenderCreatePanel,
+    saveHandler: evenementsSave,
+    primaryAction: { label: '+ Nouvel événement', handler: creationNewEntity },
   },
   queue: {
     label: 'Review Queue',
@@ -4097,6 +4137,278 @@ async function intriguesSubmitCreate() {
     });
     await loadAgendasList();
     creationSelectRecord('intrigues', agenda);
+  } catch (e) {
+    statusEl.textContent = e.message;
+  }
+}
+
+/* ── Événements (TICKET-0022, BRIEF-0022-a) ──────────────────────────────────
+ * Third non-entity reader of the sheetRenderer seam (after `agenda` and, in
+ * the same ticket, its own create-panel AI assistant — BRIEF-0022-b). `event`
+ * is not an `entity` row, so it is NOT a `_TYPE_FIELDS`/ENTITY_TYPE_REGISTRY
+ * entry: `authorRegistry.event_fields` (server EVENT_FIELDS, mirrored) feeds
+ * the same authorRenderField/authorReadField machinery used for
+ * entity/relation/knowledge fields. Both writes route through
+ * /api/events (POST create, PUT update) — writes.write_event /
+ * write_event_update server-side, the two sanctioned `event` canon-write
+ * paths. No delete anywhere on this tab (C3): retraction is
+ * knowledge_status = 'secret'. #event-gen-panel ships empty here;
+ * BRIEF-0022-b fills it. */
+
+let evenementsEvents = [];          // cached /api/events response, list-pane + lookup source
+let evenementsInvolvedDraft = [];   // [{id, name}] — H2 chip editor draft
+
+/** evenements' listLoader (BRIEF-0022-a item 5) — fetches /api/events,
+ *  caches rows, hands them to the shared list container. */
+async function loadEventsList() {
+  const listEl = document.getElementById('author-entity-list');
+  if (listEl) listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  try {
+    evenementsEvents = await api('/api/events');
+  } catch (e) {
+    if (listEl) listEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    return;
+  }
+  creationRenderEntityList();
+}
+
+/** evenements' listRenderer (F1) — flat, API order (recorded_at DESC)
+ *  preserved, never re-sorted client-side. */
+function renderEvenementsListRows(events) {
+  events = events || evenementsEvents;
+  const listEl = document.getElementById('author-entity-list');
+  if (!listEl) return;
+  if (!events.length) { listEl.innerHTML = '<div class="empty">Aucun événement.</div>'; return; }
+  listEl.innerHTML = events.map((e, i) => {
+    const locHtml = e.location_name
+      ? esc(e.location_name)
+      : '<span style="color:var(--muted)">&laquo; sans lieu &raquo;</span>';
+    return `
+    <div class="author-list-item ${e.id === creationSelectedRecordId ? 'active' : ''}"
+         onclick="creationSelectRecord('evenements', evenementsEvents[${i}])">
+      <div class="ali-name">${esc(e.title)}</div>
+      <div class="ali-meta">
+        ${locHtml}
+        <span class="badge b-other">${esc(e.type_label || '')}</span>
+        <span class="badge b-${esc(e.knowledge_status)}">${esc(e.knowledge_status)}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/** Chip editor for involved_entities (H2 — Nia does not author JSON): one
+ *  chip per {id, name} in evenementsInvolvedDraft, a ✕ to remove, and an
+ *  entity_ref-style <select> over authorAllEntities to add. Renders directly
+ *  from the draft — there is no per-chip editable text to sync from the DOM
+ *  (unlike authorFactionRolesDraft's name/description rows), so add/remove
+ *  mutate the draft and re-render in one step. Serialized to the API as the
+ *  flat id list (evenementsInvolvedDraft.map(c => c.id)), never the
+ *  {id,name} objects — the stored column shape stays a flat list of ids
+ *  (tick.py:614, analyzer.py:329 already produce/consume that shape). */
+function _evenementsRenderChips() {
+  const chips = evenementsInvolvedDraft.map((c, i) => `
+    <span class="badge b-other" style="display:inline-flex; align-items:center; gap:5px; margin:2px">
+      ${c.name ? esc(c.name) : `&laquo; entité inconnue &raquo; (${esc((c.id || '').slice(0, 8))})`}
+      <button class="btn-icon" style="padding:0 2px" title="Retirer" onclick="evenementsRemoveChip(${i})">✕</button>
+    </span>`).join('');
+  const candidates = authorAllEntities.filter(e => !evenementsInvolvedDraft.some(c => c.id === e.id));
+  const opts = ['<option value="">— ajouter une entité —</option>'].concat(
+    candidates.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`)
+  ).join('');
+  return `
+    <div id="evenements-chips">${chips || '<div class="empty">Aucune entité impliquée.</div>'}</div>
+    <select id="evenements-chip-add" onchange="evenementsAddChip()">${opts}</select>`;
+}
+
+function evenementsAddChip() {
+  const sel = document.getElementById('evenements-chip-add');
+  if (!sel || !sel.value) return;
+  const entity = authorAllEntities.find(e => e.id === sel.value);
+  if (!entity) return;
+  evenementsInvolvedDraft.push({ id: entity.id, name: entity.name });
+  document.getElementById('evenements-chip-block').innerHTML = _evenementsRenderChips();
+}
+
+function evenementsRemoveChip(i) {
+  evenementsInvolvedDraft.splice(i, 1);
+  document.getElementById('evenements-chip-block').innerHTML = _evenementsRenderChips();
+}
+
+/** evenements' sheetRenderer (BRIEF-0022-a item 8) — detail pane: EVENT_FIELDS
+ *  scalars through the shared field machinery, then the chip block, then
+ *  recorded_at read-only. Shows save, hides delete unconditionally (C3 — no
+ *  event is ever deleted). Saving dispatches to evenementsSave ->
+ *  PUT /api/events/{id}, never authorSave (entity-only). */
+function renderEventSheet(event) {
+  creationSelectedRecordId = event.id;
+  evenementsInvolvedDraft = (event.involved_entities || []).map(c => ({ id: c.id, name: c.name }));
+
+  document.getElementById('author-sheet-title').textContent = event.title;
+  document.getElementById('author-status').textContent = '';
+  document.getElementById('author-save-btn').style.display = '';
+  document.getElementById('author-delete-btn').style.display = 'none';
+
+  let html = '<div class="field-section"><div class="field-section-title">Événement</div><div class="field-grid">';
+  for (const field of authorRegistry.event_fields) {
+    html += authorRenderField(field, event[field.name], 'event-f');
+  }
+  html += '</div></div>';
+  html += `<div class="field-section"><div class="field-section-title">Entités impliquées</div>
+    <div id="evenements-chip-block">${_evenementsRenderChips()}</div></div>`;
+  html += `<div class="field-section"><span style="color:var(--muted); font-size:12px;">Enregistré : ${esc(event.recorded_at || '')}</span></div>`;
+
+  document.getElementById('author-main').innerHTML = html;
+}
+
+/** evenements' saveHandler (registered as CREATION_TABS.evenements.saveHandler,
+ *  dispatched by creationSaveDispatch — never authorSave). Reads EVENT_FIELDS
+ *  back via authorReadField, appends the synced chip draft as a flat id list,
+ *  and PUTs to the selected event. Creation goes through
+ *  evenementsSubmitCreate instead (the create panel has no selected id yet). */
+async function evenementsSave() {
+  const statusEl = document.getElementById('author-status');
+  if (!creationSelectedRecordId) return; // creation uses evenementsSubmitCreate
+  statusEl.className = 'author-status';
+  statusEl.textContent = 'Saving…';
+
+  const body = {};
+  for (const field of authorRegistry.event_fields) {
+    body[field.name] = authorReadField(field, 'event-f');
+  }
+  body.involved_entities = evenementsInvolvedDraft.map(c => c.id);
+
+  try {
+    await api(`/api/events/${encodeURIComponent(creationSelectedRecordId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    await loadEventsList();
+    const event = evenementsEvents.find(e => e.id === creationSelectedRecordId);
+    if (event) renderEventSheet(event);
+    statusEl.className = 'author-status ok';
+    statusEl.textContent = 'Saved.';
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = e.message;
+  }
+}
+
+/** evenements' createPanel (BRIEF-0022-a item 9) — same fields, empty, with
+ *  knowledge_status pre-set to 'secret' and an empty chip list.
+ *  #event-gen-panel ships empty; BRIEF-0022-b fills it. */
+function evenementsRenderCreatePanel() {
+  creationSelectedRecordId = null;
+  evenementsInvolvedDraft = [];
+  document.getElementById('author-sheet-title').textContent = 'Nouvel événement';
+  document.getElementById('author-status').textContent = '';
+  document.getElementById('author-save-btn').style.display = 'none';
+  document.getElementById('author-delete-btn').style.display = 'none';
+
+  let html = `
+    <div class="field-section" id="event-gen-panel" style="border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:12px;">
+      <div class="field-section-title">Générer avec l'IA</div>
+      <textarea id="event-gen-brief" rows="2" style="width:100%; resize:vertical"
+        placeholder="Une phrase, ex. : « Une crue emporte le pont du quartier bas pendant la nuit »"></textarea>
+      <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
+        <button class="btn-send" onclick="evenementsGenerateDraft()">Générer</button>
+        <span id="event-gen-status" style="font-size:12px; color:var(--muted)"></span>
+      </div>
+      <div id="event-gen-notes"></div>
+    </div>`;
+  html += '<div class="field-section"><div class="field-section-title">Nouvel événement</div><div class="field-grid">';
+  for (const field of authorRegistry.event_fields) {
+    html += authorRenderField(field, undefined, 'event-f');
+  }
+  html += '</div></div>';
+  html += `<div class="field-section"><div class="field-section-title">Entités impliquées</div>
+    <div id="evenements-chip-block">${_evenementsRenderChips()}</div></div>`;
+  html += `<div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+    <button class="btn-send" onclick="evenementsSubmitCreate()">+ Créer l'événement</button>
+    <span id="evenements-add-status" style="font-size:12px; color:var(--muted)"></span>
+  </div>`;
+
+  document.getElementById('author-main').innerHTML = html;
+}
+
+/** evenements' AI assistant (TICKET-0022, BRIEF-0022-b item 7) — pre-fills
+ *  the create shell (title, description, type, location, involved-entity
+ *  chips) via POST /api/events/generate; writes no canon, one-shot (F2
+ *  precedent — mirrors intriguesGenerateDraft): a second click overwrites
+ *  the fields with the new draft. Never touches the knowledge_status
+ *  select, which stays at its 'secret' default. The currently selected
+ *  location_id (if the creator already chose one) is sent as an
+ *  authoritative pre-selection — it wins outright over the model's own
+ *  location proposal server-side. */
+async function evenementsGenerateDraft() {
+  const statusEl = document.getElementById('event-gen-status');
+  const brief = document.getElementById('event-gen-brief').value.trim();
+  if (!brief) { statusEl.textContent = 'Intention requise.'; return; }
+
+  const locationId = document.getElementById('event-f-location_id').value || null;
+
+  statusEl.textContent = 'Génération…';
+  let result;
+  try {
+    result = await api('/api/events/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ brief, location_id: locationId }),
+    });
+  } catch (e) {
+    statusEl.textContent = e.message;
+    return;
+  }
+
+  if (!result || result.ok === false) {
+    statusEl.textContent = (result && result.error) || 'Échec de la génération.';
+    return; // form untouched
+  }
+
+  document.getElementById('event-f-title').value = result.title || '';
+  document.getElementById('event-f-description').value = result.description || '';
+  document.getElementById('event-f-type').value = result.type || '';
+  if (result.location_id) document.getElementById('event-f-location_id').value = result.location_id;
+
+  evenementsInvolvedDraft = (result.involved_entities || []).map(id => {
+    const entity = authorAllEntities.find(e => e.id === id);
+    return { id, name: entity ? entity.name : null };
+  });
+  document.getElementById('evenements-chip-block').innerHTML = _evenementsRenderChips();
+
+  const notesEl = document.getElementById('event-gen-notes');
+  notesEl.innerHTML = (result.notes && result.notes.length)
+    ? '<div class="field-section-title" style="margin-top:8px">Notes de l&#39;assistant</div><div class="row-table">'
+      + result.notes.map(n => `<div class="row-card" style="font-size:12px; color:var(--muted)">${esc(n)}</div>`).join('')
+      + '</div>'
+    : '';
+
+  statusEl.textContent = "Brouillon généré — relisez et éditez avant d'accepter.";
+}
+
+async function evenementsSubmitCreate() {
+  const statusEl = document.getElementById('evenements-add-status');
+  const body = {};
+  try {
+    for (const field of authorRegistry.event_fields) {
+      body[field.name] = authorReadField(field, 'event-f');
+    }
+  } catch (e) {
+    statusEl.textContent = e.message;
+    return;
+  }
+  if (!body.title || !body.title.trim()) { statusEl.textContent = 'Titre requis.'; return; }
+  body.involved_entities = evenementsInvolvedDraft.map(c => c.id);
+
+  statusEl.textContent = '…';
+  try {
+    const event = await api('/api/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    await loadEventsList();
+    creationSelectRecord('evenements', event);
   } catch (e) {
     statusEl.textContent = e.message;
   }
@@ -6506,6 +6818,19 @@ function creationSelectRecord(tabId, record) {
   creationSelectedRecordId = record.id;
   (entry.sheetRenderer || authorRenderSheet)(record);
   if (entry.listRenderer) entry.listRenderer();
+}
+
+/** Generic save-button dispatch (TICKET-0022, BRIEF-0022-a item 8): the
+ *  static #author-save-btn is shared by every archetype:'entity' tab, but
+ *  `authorSave` is entity-only (writes through ENTITY_TYPE_REGISTRY) and
+ *  must not learn about non-entity rows. A registry entry may declare its
+ *  own `saveHandler` (the sheetRenderer/listLoader/createPanel seam,
+ *  extended) — falls back to `authorSave` when absent, so every
+ *  entity-archetype tab keeps working unchanged. */
+function creationSaveDispatch() {
+  const entry = CREATION_TABS[currentCreationSubTab];
+  const handler = (entry && entry.saveHandler) || authorSave;
+  handler();
 }
 
 async function authorSave() {

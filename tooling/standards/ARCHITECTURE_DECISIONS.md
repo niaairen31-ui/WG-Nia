@@ -5668,6 +5668,144 @@ only write remains the creator's existing `POST /api/agendas` accept.
 « Générer » overwrites title and all five step fields with the new draft —
 no incremental refine, matching BRIEF-24's established assistant idiom.
 
+## ÉVÉNEMENTS — CREATOR SURFACE (BRIEF-0022-a, no schema change)
+
+`event` had been written since TICKET-0017 with no creator surface at all —
+no `/api/events` route, no occurrence of "événement" in `index.html`. This
+brief gives it a Création page on the standard entity page contract and
+opens the second sanctioned `event` canon-write path.
+
+**Third non-entity reader of the `sheetRenderer` seam** (after `agenda` —
+TICKET-0021, and the shell's own registry generalization), reusing it
+verbatim: `archetype: 'entity'`, `containers: ['creation-editor-area']`,
+`listLoader: loadEventsList`, `listRenderer: renderEvenementsListRows`,
+`sheetRenderer: renderEventSheet`, `createPanel: evenementsRenderCreatePanel`.
+No shell change was needed — the seam TICKET-0021 built already covers this.
+**A3** (full data-source abstraction of the shell) stays deferred.
+
+**`saveHandler` — the registry seam extended.** Unlike Intrigues (no save
+control at all — status transitions only), Événements needs an edit save,
+but `authorSave` is entity-only (writes through `ENTITY_TYPE_REGISTRY`) and
+must not learn about non-entity rows. The static `#author-save-btn`'s
+`onclick` moved from `authorSave()` to a new `creationSaveDispatch()`, which
+resolves `(entry.saveHandler || authorSave)()` off the registry — the same
+`sheetRenderer`-style default-to-existing-behavior seam, so every other
+entity-archetype tab (which declares no `saveHandler`) is unaffected.
+`CREATION_TABS.evenements.saveHandler = evenementsSave`, which `PUT`s
+`/api/events/{id}`.
+
+**Second sanctioned `event` writer: `write_event_update`** (`writes.py`).
+`write_event` (creation) is shared between `_apply_mutation`'s
+`event_creation` branch and the new `POST /api/events`; `write_event_update`
+is creator-CRUD-only — `_apply_mutation` never calls it, since AI proposals
+create events, never edit them. Together they are the complete, closed set
+of `event` writers, mirroring the `write_relation`/`write_knowledge`
+two-path doctrine already established for other tables.
+
+**C3 — no deletion, ever.** An event either happened or did not; `event` is
+history. Retraction is `knowledge_status = 'secret'`, which structurally
+excludes the row from all four readers (`context.py`'s MJ world context,
+`tick.py`'s location and faction briefings, `app.py`'s return-visit delta) —
+mirroring `ledger`'s append-only policy. No `DELETE /api/events` route, no
+soft-delete column, no UI control; `tooling/verify/checks/event_tab.py`
+gates this structurally.
+
+**Accepted gap: no `change_history` on `event`.** `write_event_update`
+overwrites `title`/`description`/`type`/`knowledge_status`/
+`involved_entities`/`location_id` in place with no prior-state append — the
+table has no `change_history` column to append to. Documented here so the
+omission reads as deliberate (consistent with "history is sacred" applying
+to `relation`/`knowledge`, which do carry that column), not forgotten.
+
+**One vocabulary per column.** `EVENT_TYPE_LABELS_FR` (`crud.py`) is keyed
+verbatim off `tick._EVENT_TYPES` — imported, never re-typed — with a
+module-load `assert` so the two vocabularies cannot silently diverge; the
+tick already clamps model proposals onto the same set (`tick.py:877`).
+`type` stays a free-text `datalist` column: the seven are suggestions, not
+a constraint.
+
+**`rumor` rejected on `event` (R1).** `context.py`'s docstring wrongly
+named a `rumor` `knowledge_status` that exists in no code path (`app.py`
+clamps to `secret|public|confirmed`); corrected to name `secret` only. An
+event's occurrence is binary; uncertainty about it belongs on
+`knowledge.level = 'rumor'`, never on `event.knowledge_status` — putting
+`rumor` here would blend canon with belief.
+
+**Defect fix: `context.py`'s public-events ordering.** `occurred_at` is
+written by nobody (`write_event` leaves it `None`), so ordering by it
+(RECON finding 7) was the database's arbitrary return order. Now orders by
+`recorded_at DESC`, aligning with `tick.py` and `app.py`'s return-visit
+delta. The `"occurred_at"` key stays in the emitted prompt dict — reserved
+for the deferred in-fiction-time chantier below — it just stops governing
+sort order.
+
+**Deferred: "Temporalité des événements."** `occurred_at` and any
+`passé | en_cours | à_venir` status are ONE future chantier, not two — a
+"future" event is simply one whose `occurred_at` lies ahead of world time —
+so splitting them now would cost two migrations where one later suffices.
+Nothing in this brief anticipates it.
+
+## AI EVENT-DRAFT ASSISTANT (BRIEF-0022-b, no schema change)
+
+Fills the empty `#event-gen-panel` placeholder BRIEF-0022-a shipped: the
+creator types a one-sentence intent, optionally pre-selects a location, and
+`generate_event_draft` pre-fills the create shell — title, description,
+type, location, involved-entity chips. Third instance of the
+standalone-sibling-generator shape (`generate_npc_goals`,
+`generate_agenda_draft`, `generate_event_draft`) — a shared abstraction is
+now *one* case away and is deliberately NOT built yet.
+
+**`knowledge_status` is structurally absent from the model contract.** No
+key in the prompt, none read from the parsed response, none in the
+returned dict — even if the model volunteers one, it is silently discarded
+(not noted; noting it would invite the creator to honour it). This is the
+single most counter-intuitive point of the brief: the model may invent an
+entire event, but never decides whether the world knows about it. It is
+also what makes C3 (BRIEF-0022-a's no-deletion doctrine) livable —
+`knowledge_status` is the creator's only lever, so it can never be
+model-authored. `tooling/verify/checks/event_assist.py` gates this
+structurally (scans the function body, docstring excluded, for the
+substring).
+
+**`build_world_roster` (`entity_author.py`) — the J3 assembler.** Filters
+`is_public IS TRUE` and `status = 'active'` in the `where(...)` clause
+(query construction, never a Python post-filter) — the pattern
+`context.py:615` does NOT follow (it post-filters `is_public` in Python
+after the query); that divergence is logged here as one to correct
+opportunistically, not fixed in this brief (play-path code, out of scope).
+Only `name`/`type` leave the function; `internal_name` is never selected.
+Ambiguity discipline is reused from `tick.py:_build_roster` verbatim: two
+active public entities sharing a casefolded name are both dropped from the
+roster rather than guessed at.
+
+**Name→id resolution is reused, not extracted.** The `involved_entities`
+loop is `tick.py:889-897`'s shape, copied rather than shared — a third
+near-identical usage (`tick.py:889`, `tick.py:1114`, this one) with three
+different roster scopes (location, faction, world). Minimal-first:
+generalize on a fourth.
+
+**The pre-selected location wins outright over the model's own proposal.**
+When the creator has already chosen a location before generating,
+`location_hint` overrides `parsed["location"]` entirely; a disagreement is
+noted, never silently swallowed. Known narrow gap: `location_hint`
+resolves back to an id through the same public-only `roster`, so a
+pre-selected location that is itself `is_public = FALSE` would fail to
+resolve and silently drop the creator's own selection. Not fixed here
+(would need a second, non-roster resolution path for the hint case) —
+flagged for whoever next touches this function.
+
+**Server-side context assembly, not client-side.** `POST /api/events/generate`
+(app.py) builds `location_context` from the location entity's `name` +
+`description` only (public fields — never `internal_name`, never
+`metadata`) and calls `build_world_roster` before delegating to
+`generate_event_draft`. The route itself writes no canon; the only write
+remains the creator's existing `POST /api/events` accept (BRIEF-0022-a).
+
+**One-shot, not conversational (F2 precedent).** A second click on
+« Générer » overwrites the whole shell — title, description, type,
+location, and chips — with the new draft, matching the established
+assistant idiom (BRIEF-24, BRIEF-0021-b).
+
 ---
 
 *Co-built with Claude, June 2026.*

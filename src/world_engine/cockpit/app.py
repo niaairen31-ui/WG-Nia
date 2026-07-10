@@ -43,8 +43,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from .. import ollama_client
+from ..entity_author import build_world_roster as _build_world_roster
 from ..entity_author import generate_agenda_draft as _generate_agenda_draft
 from ..entity_author import generate_entity_draft as _generate_entity_draft
+from ..entity_author import generate_event_draft as _generate_event_draft
 from ..entity_author import generate_npc_goals as _generate_npc_goals
 from ..entity_author import generate_player_draft as _generate_player_draft
 from ..entity_author import generate_skill_catalogue_draft as _generate_skill_catalogue_draft
@@ -475,6 +477,56 @@ def generate_agenda(
     owner_context = "\n".join(parts) if parts else "(aucune description)"
 
     return _generate_agenda_draft(owner_kind, owner.name, owner_context, body.brief, db)
+
+
+class EventGenerateBody(BaseModel):
+    brief: str
+    location_id: Optional[str] = None
+
+
+@app.post("/api/events/generate")
+def generate_event(
+    body: EventGenerateBody,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Creator-side AI event-draft assistant (TICKET-0022, BRIEF-0022-b,
+    I2/J3).
+
+    Deliberately NOT in crud.py: crud.py is a sanctioned canon-write path
+    and this route writes nothing — delegates only to
+    entity_author.generate_event_draft. `location_id`, when supplied, must
+    resolve to an active `location` entity in the active world (the same
+    predicate as `_apply_mutation`'s `event_creation` branch); it then wins
+    outright over the model's own location proposal. `location_context` is
+    the location's `name` + `description` only — public fields, never
+    `internal_name`, never `metadata`. The J3 roster
+    (`entity_author.build_world_roster`) is public-only, filtered in SQL.
+    Returns {"ok": false, "error": ...} (never a 500) on any failure.
+    """
+    brief = (body.brief or "").strip()
+    if not brief:
+        raise HTTPException(422, "Intention requise.")
+
+    world_id = _crud._world_id(db)
+
+    location_hint = ""
+    location_context = ""
+    if body.location_id:
+        location = db.get(Entity, body.location_id)
+        if (
+            location is None
+            or location.type != "location"
+            or location.status != "active"
+            or location.world_id != world_id
+        ):
+            raise HTTPException(422, f"location_id {body.location_id!r} is not an active location in this world")
+        location_hint = location.name
+        parts = [p for p in (location.name, location.description) if p]
+        location_context = "\n".join(parts)
+
+    roster = _build_world_roster(db, world_id)
+
+    return _generate_event_draft(brief, location_hint, location_context, roster, db)
 
 
 class RegionGenerateBody(BaseModel):
