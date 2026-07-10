@@ -138,6 +138,15 @@ def _load_npc_goals_template(db: Session) -> PromptTemplate | None:
     return db.exec(stmt).first()
 
 
+def _load_agenda_draft_template(db: Session) -> PromptTemplate | None:
+    stmt = (
+        select(PromptTemplate)
+        .where(PromptTemplate.usage == "agenda_generation")
+        .where(PromptTemplate.is_active == True)  # noqa: E712
+    )
+    return db.exec(stmt).first()
+
+
 def _world_id(db: Session) -> str | None:
     world = db.exec(select(World)).first()
     return world.id if world is not None else None
@@ -811,3 +820,83 @@ def generate_npc_goals(
         return {"ok": False, "error": "Model returned no usable goal"}
 
     return {"ok": True, "long": long_goal, "shorts": shorts, "notes": notes}
+
+
+def generate_agenda_draft(
+    owner_kind: str,        # "faction" | "personnage" (French, injected verbatim)
+    owner_name: str,
+    owner_context: str,     # pre-assembled public context (see the /generate route)
+    brief: str,
+    db: Session,
+) -> dict:
+    """Generate an agenda draft — title + 2-to-5 steps (TICKET-0021, BRIEF-0021-b,
+    B1/C1/D1).
+
+    Standalone sibling of `generate_npc_goals` — agendas aren't `entity` rows,
+    so this is NOT a `_TYPE_FIELDS` entry. Pure generate-and-return: writes no
+    canon anywhere in this function; the only write is the creator's accept
+    through the EXISTING `POST /api/agendas`. C2 (suggested goal-name links)
+    is explicitly deferred — the JSON contract carries no `linked_goals` key.
+
+    Never raises into the caller — every failure mode (missing template,
+    unreachable model, malformed JSON, empty parse) returns
+    {"ok": False, "error": "<reason>"}. On success returns {"ok": True,
+    "title": str, "steps": [str, ...], "notes": [...]}: `title` is `""` when
+    absent/malformed (noted); `steps` keeps trimmed non-empty strings only,
+    truncated to 5 (noted on truncation); fewer than 2 is a PARTIAL accept
+    (noted), never an error — the creator finishes the shell by hand.
+    """
+    template = _load_agenda_draft_template(db)
+    if template is None:
+        return {"ok": False, "error": "No active pt-agenda-draft template found"}
+
+    version = current_prompt(db, template)
+    user_message = (
+        version.user_template
+        .replace("{owner_kind}", owner_kind or "")
+        .replace("{owner_name}", owner_name or "")
+        .replace("{owner_context}", owner_context or "")
+        .replace("{brief}", brief or "")
+    )
+
+    messages = [
+        {"role": "system", "content": version.system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+    try:
+        raw = chat(messages, model=effective_model(template, AUTHOR_MODEL), format="json")
+    except OllamaError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {"ok": False, "error": "Model returned non-JSON output"}
+
+    if not isinstance(parsed, dict) or not parsed:
+        return {"ok": False, "error": "Model returned an empty or malformed draft"}
+
+    notes: list[str] = []
+
+    title = parsed.get("title")
+    title = title.strip() if isinstance(title, str) else ""
+    if not title:
+        notes.append("Titre absent du brouillon — à saisir manuellement.")
+
+    steps_raw = parsed.get("steps")
+    steps: list[str] = []
+    if isinstance(steps_raw, list):
+        for item in steps_raw:
+            if isinstance(item, str) and item.strip():
+                steps.append(item.strip())
+    if len(steps) > 5:
+        steps = steps[:5]
+        notes.append("Plus de 5 étapes reçues — tronqué à 5.")
+    elif len(steps) < 2:
+        notes.append("Moins de 2 étapes générées — compléter manuellement.")
+
+    if not title and not steps:
+        return {"ok": False, "error": "Model returned no usable draft"}
+
+    return {"ok": True, "title": title, "steps": steps, "notes": notes}

@@ -43,6 +43,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from .. import ollama_client
+from ..entity_author import generate_agenda_draft as _generate_agenda_draft
 from ..entity_author import generate_entity_draft as _generate_entity_draft
 from ..entity_author import generate_npc_goals as _generate_npc_goals
 from ..entity_author import generate_player_draft as _generate_player_draft
@@ -428,6 +429,52 @@ def generate_skill_catalogue(
     `POST /api/skill-definitions` (crud.py) — never written here.
     """
     return _generate_skill_catalogue_draft(body.brief, db)
+
+
+class AgendaGenerateBody(BaseModel):
+    owner_entity_id: str
+    brief: str
+
+
+@app.post("/api/agendas/generate")
+def generate_agenda(
+    body: AgendaGenerateBody,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Creator-side AI agenda-draft assistant (TICKET-0021, BRIEF-0021-b,
+    B1/C1/D1).
+
+    Deliberately NOT in crud.py: crud.py is a sanctioned canon-write path
+    and this route writes nothing — delegates only to
+    entity_author.generate_agenda_draft. Server-side D1 resolution mirrors
+    write_agenda's owner rule so the assistant can never draft for an owner
+    the create would reject: 404/422 if the entity is missing, inactive, or
+    not `faction`/`character`. owner_context is built from PUBLIC fields
+    only (faction: description + Faction.philosophy; character: description
+    + Character.backstory) — secrets stay structurally excluded: no
+    `knowledge` row, no `character.secrets`, no `internal_tensions` is ever
+    read here. Returns {"ok": false, "error": ...} (never a 500) on any
+    failure.
+    """
+    owner = db.get(Entity, body.owner_entity_id)
+    if owner is None:
+        raise HTTPException(404, f"Entity {body.owner_entity_id!r} not found")
+    if owner.status != "active" or owner.type not in ("faction", "character"):
+        raise HTTPException(422, "owner_entity_id must be an active faction or character")
+
+    if owner.type == "faction":
+        owner_kind = "faction"
+        faction = db.get(Faction, owner.id)
+        philosophy = f"Philosophie : {faction.philosophy}" if faction and faction.philosophy else None
+        parts = [p for p in (owner.description, philosophy) if p]
+    else:
+        owner_kind = "personnage"
+        character = db.get(Character, owner.id)
+        backstory = f"Passé : {character.backstory}" if character and character.backstory else None
+        parts = [p for p in (owner.description, backstory) if p]
+    owner_context = "\n".join(parts) if parts else "(aucune description)"
+
+    return _generate_agenda_draft(owner_kind, owner.name, owner_context, body.brief, db)
 
 
 class RegionGenerateBody(BaseModel):

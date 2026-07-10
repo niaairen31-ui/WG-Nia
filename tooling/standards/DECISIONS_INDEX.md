@@ -77,3 +77,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 5517 | FORWARD NOTE — per-NPC agenda contract extension (BRIEF-0020-a, no schema change) | BRIEF-0020-a |  |
 | 5527 | PER-NPC AGENDA CONTRACT — evolution of the 0017 closed contract (BRIEF-0020-b, no schema change) | BRIEF-0020-b |  |
 | 5597 | D1 DIALOGUE PROVENANCE — second sanctioned faction_membership reader (BRIEF-0020-b, no schema change) | BRIEF-0020-b |  |
+| 5630 | AI AGENDA-DRAFT ASSISTANT (BRIEF-0021-b, no schema change) | BRIEF-0021-b |  |

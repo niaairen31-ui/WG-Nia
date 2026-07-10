@@ -5627,6 +5627,47 @@ who might not be owed the truth. Dialogue has an interlocutor; the tick
 does not. Two functions, same name, deliberately different gates —
 documented here so the asymmetry reads as intentional.
 
+## AI AGENDA-DRAFT ASSISTANT (BRIEF-0021-b, no schema change)
+
+Fills the empty `#agenda-gen-panel` placeholder BRIEF-0021-a shipped: the
+creator selects an owner, types a one-sentence intent, and the assistant
+pre-fills the create shell — title + 2-to-5 steps. Locked pre-brief: **B1**
+— standalone sibling generator (`generate_agenda_draft`, the
+`generate_npc_goals` precedent), NOT a `_TYPE_FIELDS` entry, since agendas
+are not `entity` rows; **C1** — draft content is exactly title + steps,
+mirroring the manual form (**C2**, suggested goal-name links, stays
+deferred — no design for goal-name resolution yet); **D1** — the creator
+selects the owner FIRST, the model never proposes or names it (**D2**
+rejected).
+
+**Server-side D1 resolution mirrors `write_agenda`'s own gate.**
+`POST /api/agendas/generate` 404s a missing owner and 422s one that is
+inactive or not `faction`/`character` — the exact rule `write_agenda`
+enforces — so the assistant can never draft toward an owner the create
+would then reject. `owner_context` is assembled from PUBLIC columns only
+(`Entity.description` + `Faction.philosophy` for a faction;
+`Entity.description` + `Character.backstory` for a character, each part
+dropped when empty, `"(aucune description)"` when both are) — secrets stay
+structurally excluded: no `knowledge` row, no `character.secrets`, no
+`internal_tensions` is ever read by this route.
+
+**`generate_agenda_draft` writes nothing** — mechanically gated by the new
+`tooling/verify/checks/agenda_assist.py`, which AST-scans the function
+body for `writes.`/`session.add`/`db.add`/`.commit(` (none present) and
+asserts the `pt-agenda-draft` seed shape and the route's registration. The
+only write remains the creator's existing `POST /api/agendas` accept.
+
+**Prompt wiring closes a gap this brief's own review pass caught:** the new
+`usage="agenda_generation"` seeded in `seed_pilot.py` needs a
+`PROMPT_REGISTRY` entry (BRIEF-0008-a's bijection gate,
+`tooling/verify/checks/prompt_registry.py`) — added mirroring
+`npc_goal_generation`'s exact shape (`surface="authoring"`,
+`world_scoped=False`, `default_model=_author_model`).
+
+**One-shot, not conversational (F2 precedent).** A second click on
+« Générer » overwrites title and all five step fields with the new draft —
+no incremental refine, matching BRIEF-24's established assistant idiom.
+
 ---
 
 *Co-built with Claude, June 2026.*

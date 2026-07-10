@@ -3991,7 +3991,16 @@ function intriguesRenderCreatePanel() {
   document.getElementById('author-delete-btn').style.display = 'none';
 
   document.getElementById('author-main').innerHTML = `
-    <div id="agenda-gen-panel"></div>
+    <div class="field-section" id="agenda-gen-panel" style="border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:12px;">
+      <div class="field-section-title">Générer avec l'IA</div>
+      <textarea id="agenda-gen-brief" rows="2" style="width:100%; resize:vertical"
+        placeholder="Intention en une phrase, ex. : « La Guilde du Sel veut prendre le contrôle du port sans que le Magistrat ne s'en aperçoive »"></textarea>
+      <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
+        <button class="btn-send" onclick="intriguesGenerateDraft()">Générer</button>
+        <span id="agenda-gen-status" style="font-size:12px; color:var(--muted)"></span>
+      </div>
+      <div id="agenda-gen-notes"></div>
+    </div>
     <div class="field-section">
       <div class="field-section-title">Nouvelle intrigue</div>
       <div class="field-grid">
@@ -4018,6 +4027,52 @@ function intriguesRenderCreatePanel() {
       </div>
     </div>`;
   _intriguesPopulateOwnerSelect();
+}
+
+/** intrigues' AI assistant (BRIEF-0021-b item 5) — pre-fills the shell
+ *  (title + up to 5 steps) via POST /api/agendas/generate; writes no
+ *  canon, one-shot (F2 precedent): a second click overwrites the fields
+ *  with the new draft. */
+async function intriguesGenerateDraft() {
+  const statusEl = document.getElementById('agenda-gen-status');
+  const ownerId  = document.getElementById('intrigues-f-owner').value;
+  const brief    = document.getElementById('agenda-gen-brief').value.trim();
+
+  if (!ownerId) { statusEl.textContent = 'Propriétaire requis.'; return; }
+  if (!brief)   { statusEl.textContent = 'Intention requise.'; return; }
+
+  statusEl.textContent = 'Génération…';
+  let result;
+  try {
+    result = await api('/api/agendas/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ owner_entity_id: ownerId, brief }),
+    });
+  } catch (e) {
+    statusEl.textContent = e.message;
+    return;
+  }
+
+  if (!result || result.ok === false) {
+    statusEl.textContent = (result && result.error) || 'Échec de la génération.';
+    return; // form untouched
+  }
+
+  document.getElementById('intrigues-f-title').value = result.title || '';
+  const steps = result.steps || [];
+  [0, 1, 2, 3, 4].forEach(i => {
+    document.getElementById(`intrigues-f-step-${i}`).value = steps[i] || '';
+  });
+
+  const notesEl = document.getElementById('agenda-gen-notes');
+  notesEl.innerHTML = (result.notes && result.notes.length)
+    ? '<div class="field-section-title" style="margin-top:8px">Notes de l&#39;assistant</div><div class="row-table">'
+      + result.notes.map(n => `<div class="row-card" style="font-size:12px; color:var(--muted)">${esc(n)}</div>`).join('')
+      + '</div>'
+    : '';
+
+  statusEl.textContent = "Brouillon généré — relisez et éditez avant d'accepter.";
 }
 
 async function intriguesSubmitCreate() {
