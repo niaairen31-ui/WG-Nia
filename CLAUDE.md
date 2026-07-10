@@ -54,7 +54,9 @@ and `world-engine-schema-changelog.md` — never here.
   generic dispatcher (`showCreationSubTab`, `cockpit/index.html`) under the
   standard shell; no page or tab-specific branch may exist outside the
   registry, and a page's primary action exists only as its registry
-  `primaryAction` (`tooling/verify/checks/page_contract.py` enforces).
+  `primaryAction` (`tooling/verify/checks/page_contract.py` enforces). A
+  slot may declare `display: 'on_demand'` to stay hidden and unloaded until
+  its shell toggle is clicked (default `'always'`, today's behavior).
 
 ## Ticket pipeline (governance)
 

@@ -5806,6 +5806,47 @@ remains the creator's existing `POST /api/events` accept (BRIEF-0022-a).
 location, and chips — with the new draft, matching the established
 assistant idiom (BRIEF-24, BRIEF-0021-b).
 
+## ON-DEMAND GRAPH SLOTS + CYTOSCAPE VENDORING (BRIEF-0023-a, no schema change)
+
+Two pieces of groundwork for TICKET-0023's NPC relation ego-graph, which is
+the slot mechanism's second concrete reader (TICKET-0005, "Graph-as-slot
+posture" — generalization was deferred exactly until this point).
+
+**Slot contract gains `display: 'always' | 'on_demand'`, default `'always'`.**
+Today's behavior (every slot's container visible and its `loader` firing on
+tab activation) is the unchanged default for undeclared slots — `pj`'s
+`fiche` slot and `queue`'s `filters` slot are zero-diff. `'on_demand'`
+means: container hidden and `loader` skipped on tab activation; the
+standard shell (`renderCreationShell`) renders one toggle button per
+`on_demand` slot in the same fixed band position on every tab, mirroring
+`primaryAction`'s posture; first click shows the container and fires
+`loader` once; later clicks only hide/show (no unload, no refetch); state
+is tracked in `onDemandSlotState` (keyed by `containerId`) and reset by the
+owning tab's `onTabEnter`/`onWorldSwitch` — never persisting across a tab
+re-entry or world switch. `_creationActivateTab` and `showCreationSubTab`
+branch on this slot DATA, never on a tab id — the 0005 doctrine extends
+unchanged to the new field.
+
+**Lieux's graph slot is the first to declare `on_demand`.** Nia does not
+want any graph permanently displayed (Lieux or NPC). The Lieux graph
+component itself (`graphLoad`, `graphRender`, drag, edge click/delete, its
+markup and CSS) is byte-untouched — `relation_graph.py` (BRIEF-0023-b)
+enforces this. Only its registry declaration changed.
+
+**Cytoscape.js is vendored, not CDN'd.** The cockpit is a loopback-only,
+offline creator tool (CLAUDE.md); a CDN `<script>` tag would silently break
+without internet access. `cytoscape-3.34.0.min.js` (exact upstream minified
+UMD build, MIT-licensed, version pinned in the filename per H1) is
+committed under `src/world_engine/cockpit/vendor/` and served by one
+whitelisted route (`GET /vendor/{filename}`, 404 on any other name) — no
+`StaticFiles` mount, which stays deferred until a second vendored asset
+justifies the generalization (minimal-first, same posture as every other
+"wait for a second reader" call in this codebase). The hand-rolled SVG
+idiom the Lieux graph uses today was deliberately not extended: Nia's own
+words are that graphs "will complexify" going forward, and cytoscape gives
+pan/zoom/click/recenter for free — the Lieux graph's own migration to
+cytoscape is an explicit future ticket, not part of this one.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -1216,6 +1216,10 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       </div>
       <div id="creation-shell-batch-bar"></div>
     </div>
+    <!-- On-demand slot toggles (BRIEF-0023-a, F1) — one button per slot the
+         active entry declares display:'on_demand'; same fixed shell
+         position on every tab, mirroring primaryAction. -->
+    <div id="creation-shell-toggles" style="display:flex; gap:8px;"></div>
     <button class="btn-send" id="creation-shell-action" style="display:none"></button>
   </div>
 
@@ -1411,6 +1415,9 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 
 </div><!-- #creation-view -->
 
+<!-- Vendored cytoscape.js (BRIEF-0023-a, H1) — locally-hosted, no CDN, no
+     build step; served by the one whitelisted /vendor route. -->
+<script src="/vendor/cytoscape-3.34.0.min.js"></script>
 <script>
 'use strict';
 
@@ -3171,7 +3178,16 @@ async function loadPlayerKnowledge() {
 //                 detail pane for a selected record of this tab)
 //   createPanel:  fn|null (null = no + Nouveau rendered; default =
 //                 () => authorRenderSheet({}, true, <type>))
-//   slots:        [{ id, containerId, loader, onSelect: fn|null }]
+//   slots:        [{ id, containerId, loader, onSelect: fn|null,
+//                    display: 'always'|'on_demand' (default 'always'),
+//                    toggleLabel: string (on_demand only; default
+//                    'Voir le graphe') }]
+//                 'on_demand' (BRIEF-0023-a, F1): container stays hidden and
+//                 loader does not fire on tab activation; the standard shell
+//                 renders one toggle button per on_demand slot; first click
+//                 shows the container and fires loader, later clicks only
+//                 hide/show (no unload); state resets via onTabEnter/
+//                 onWorldSwitch.
 // }
 // Every Création page is a registry entry. No page renders outside it.
 //
@@ -3185,6 +3201,54 @@ async function loadPlayerKnowledge() {
 // - `type`/`entityFilter` on an entity entry drive the default flat-list
 //   renderer's row selection from `authorAllEntities` (ignored when
 //   `listRenderer` is set, e.g. lieux's `renderLieuxBrowse`).
+/** On-demand slot state (BRIEF-0023-a, F1) — tracks open/loaded per
+ *  on_demand slot container, keyed by containerId. Reset exclusively by the
+ *  owning tab's onTabEnter/onWorldSwitch (never by re-activation alone). */
+let onDemandSlotState = {};
+
+function _onDemandSlotReset(entry) {
+  (entry.slots || []).forEach(s => {
+    if (s.display !== 'on_demand') return;
+    onDemandSlotState[s.containerId] = { open: false, loaded: false };
+    const el = document.getElementById(s.containerId);
+    if (el) el.style.display = 'none';
+  });
+}
+
+function _onDemandSlotToggle(slot) {
+  const st = onDemandSlotState[slot.containerId]
+    || (onDemandSlotState[slot.containerId] = { open: false, loaded: false });
+  st.open = !st.open;
+  const el = document.getElementById(slot.containerId);
+  if (el) el.style.display = st.open ? '' : 'none';
+  if (st.open && !st.loaded) {
+    st.loaded = true;
+    if (slot.loader) slot.loader();
+  }
+  const entry = CREATION_TABS[currentCreationSubTab];
+  if (entry) _renderOnDemandToggles(entry);
+}
+
+function _onDemandSlotToggleById(containerId) {
+  const entry = CREATION_TABS[currentCreationSubTab];
+  if (!entry) return;
+  const slot = (entry.slots || []).find(s => s.containerId === containerId);
+  if (slot) _onDemandSlotToggle(slot);
+}
+
+/** Renders one toggle button per on_demand slot in the standard shell band,
+ *  same fixed position on every tab (mirrors the primaryAction posture). */
+function _renderOnDemandToggles(entry) {
+  const wrapEl = document.getElementById('creation-shell-toggles');
+  if (!wrapEl) return;
+  const onDemandSlots = (entry.slots || []).filter(s => s.display === 'on_demand');
+  wrapEl.innerHTML = onDemandSlots.map(s => {
+    const st = onDemandSlotState[s.containerId] || { open: false };
+    const label = st.open ? 'Masquer le graphe' : (s.toggleLabel || 'Voir le graphe');
+    return `<button class="btn-icon" onclick="_onDemandSlotToggleById('${esc(s.containerId)}')">${esc(label)}</button>`;
+  }).join('');
+}
+
 function _entityTabEnterReset() {
   authorEntityId   = null;
   authorEntityType = null;
@@ -3202,6 +3266,7 @@ function _lieuxTabEnterReset() {
   _entityTabEnterReset();
   lieuxBrowseParentId = null;
   lieuxBreadcrumb = [];
+  _onDemandSlotReset(CREATION_TABS.lieux);
 }
 
 /* Shared authorAllEntities/playerCharIds cache — used by every entity tab
@@ -3230,6 +3295,7 @@ function _lieuxWorldReset() {
   lieuxBreadcrumb     = [];
   lieuxActiveOnly     = false;
   graphData           = null;
+  _onDemandSlotReset(CREATION_TABS.lieux);
 }
 
 function _factionsWorldReset() {
@@ -3325,7 +3391,8 @@ const CREATION_TABS = {
     createPanel: () => authorRenderSheet({}, true, 'location'),
     primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
     showPendingCreations: true,
-    slots: [{ id: 'graph', containerId: 'creation-lieux-graph', loader: graphLoad, onSelect: null }],
+    slots: [{ id: 'graph', containerId: 'creation-lieux-graph', loader: graphLoad, onSelect: null,
+              display: 'on_demand', toggleLabel: 'Voir le graphe' }],
   },
   factions: {
     label: 'Factions',
@@ -3449,7 +3516,7 @@ function _creationActivateTab() {
     (entry.listLoader || authorLoadEntityList)();
   }
   if (entry.loader) entry.loader();
-  (entry.slots || []).forEach(s => { if (s.loader) s.loader(); });
+  (entry.slots || []).forEach(s => { if (s.display !== 'on_demand' && s.loader) s.loader(); });
 
   // Créations en attente strip (BRIEF-0019-a) — a registry field, not a
   // tab-id branch: any entry may opt in by declaring showPendingCreations.
@@ -3490,6 +3557,7 @@ function showCreationSubTab(tab) {
     if (el) el.style.display = '';
   });
   (entry.slots || []).forEach(s => {
+    if (s.display === 'on_demand') return; // stays hidden until its toggle is clicked (F1)
     const el = document.getElementById(s.containerId);
     if (el) el.style.display = '';
   });
@@ -3510,6 +3578,7 @@ function showCreationSubTab(tab) {
 function renderCreationShell(entry) {
   const titleEl = document.getElementById('creation-shell-title');
   if (titleEl) titleEl.textContent = entry.label || '';
+  _renderOnDemandToggles(entry);
   const actionEl = document.getElementById('creation-shell-action');
   if (!actionEl) return;
   if (entry.primaryAction) {
