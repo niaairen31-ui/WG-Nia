@@ -2,7 +2,7 @@
 id: TICKET-0022
 title: Événements — creator tab on the entity page contract + AI creation assistant
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-09
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write]      # -b seeds a new prompt template head; no migration
