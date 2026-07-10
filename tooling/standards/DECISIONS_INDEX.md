@@ -79,3 +79,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 5597 | D1 DIALOGUE PROVENANCE — second sanctioned faction_membership reader (BRIEF-0020-b, no schema change) | BRIEF-0020-b |  |
 | 5630 | AI AGENDA-DRAFT ASSISTANT (BRIEF-0021-b, no schema change) | BRIEF-0021-b |  |
 | 5671 | ÉVÉNEMENTS — CREATOR SURFACE (BRIEF-0022-a, no schema change) | BRIEF-0022-a |  |
+| 5748 | AI EVENT-DRAFT ASSISTANT (BRIEF-0022-b, no schema change) | BRIEF-0022-b |  |

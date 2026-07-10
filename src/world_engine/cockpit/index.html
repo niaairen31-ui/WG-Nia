@@ -4305,7 +4305,17 @@ function evenementsRenderCreatePanel() {
   document.getElementById('author-save-btn').style.display = 'none';
   document.getElementById('author-delete-btn').style.display = 'none';
 
-  let html = '<div class="field-section" id="event-gen-panel"></div>';
+  let html = `
+    <div class="field-section" id="event-gen-panel" style="border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:12px;">
+      <div class="field-section-title">Générer avec l'IA</div>
+      <textarea id="event-gen-brief" rows="2" style="width:100%; resize:vertical"
+        placeholder="Une phrase, ex. : « Une crue emporte le pont du quartier bas pendant la nuit »"></textarea>
+      <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
+        <button class="btn-send" onclick="evenementsGenerateDraft()">Générer</button>
+        <span id="event-gen-status" style="font-size:12px; color:var(--muted)"></span>
+      </div>
+      <div id="event-gen-notes"></div>
+    </div>`;
   html += '<div class="field-section"><div class="field-section-title">Nouvel événement</div><div class="field-grid">';
   for (const field of authorRegistry.event_fields) {
     html += authorRenderField(field, undefined, 'event-f');
@@ -4319,6 +4329,61 @@ function evenementsRenderCreatePanel() {
   </div>`;
 
   document.getElementById('author-main').innerHTML = html;
+}
+
+/** evenements' AI assistant (TICKET-0022, BRIEF-0022-b item 7) — pre-fills
+ *  the create shell (title, description, type, location, involved-entity
+ *  chips) via POST /api/events/generate; writes no canon, one-shot (F2
+ *  precedent — mirrors intriguesGenerateDraft): a second click overwrites
+ *  the fields with the new draft. Never touches the knowledge_status
+ *  select, which stays at its 'secret' default. The currently selected
+ *  location_id (if the creator already chose one) is sent as an
+ *  authoritative pre-selection — it wins outright over the model's own
+ *  location proposal server-side. */
+async function evenementsGenerateDraft() {
+  const statusEl = document.getElementById('event-gen-status');
+  const brief = document.getElementById('event-gen-brief').value.trim();
+  if (!brief) { statusEl.textContent = 'Intention requise.'; return; }
+
+  const locationId = document.getElementById('event-f-location_id').value || null;
+
+  statusEl.textContent = 'Génération…';
+  let result;
+  try {
+    result = await api('/api/events/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ brief, location_id: locationId }),
+    });
+  } catch (e) {
+    statusEl.textContent = e.message;
+    return;
+  }
+
+  if (!result || result.ok === false) {
+    statusEl.textContent = (result && result.error) || 'Échec de la génération.';
+    return; // form untouched
+  }
+
+  document.getElementById('event-f-title').value = result.title || '';
+  document.getElementById('event-f-description').value = result.description || '';
+  document.getElementById('event-f-type').value = result.type || '';
+  if (result.location_id) document.getElementById('event-f-location_id').value = result.location_id;
+
+  evenementsInvolvedDraft = (result.involved_entities || []).map(id => {
+    const entity = authorAllEntities.find(e => e.id === id);
+    return { id, name: entity ? entity.name : null };
+  });
+  document.getElementById('evenements-chip-block').innerHTML = _evenementsRenderChips();
+
+  const notesEl = document.getElementById('event-gen-notes');
+  notesEl.innerHTML = (result.notes && result.notes.length)
+    ? '<div class="field-section-title" style="margin-top:8px">Notes de l&#39;assistant</div><div class="row-table">'
+      + result.notes.map(n => `<div class="row-card" style="font-size:12px; color:var(--muted)">${esc(n)}</div>`).join('')
+      + '</div>'
+    : '';
+
+  statusEl.textContent = "Brouillon généré — relisez et éditez avant d'accepter.";
 }
 
 async function evenementsSubmitCreate() {

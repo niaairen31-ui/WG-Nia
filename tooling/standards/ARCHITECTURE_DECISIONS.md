@@ -5745,6 +5745,67 @@ sort order.
 so splitting them now would cost two migrations where one later suffices.
 Nothing in this brief anticipates it.
 
+## AI EVENT-DRAFT ASSISTANT (BRIEF-0022-b, no schema change)
+
+Fills the empty `#event-gen-panel` placeholder BRIEF-0022-a shipped: the
+creator types a one-sentence intent, optionally pre-selects a location, and
+`generate_event_draft` pre-fills the create shell — title, description,
+type, location, involved-entity chips. Third instance of the
+standalone-sibling-generator shape (`generate_npc_goals`,
+`generate_agenda_draft`, `generate_event_draft`) — a shared abstraction is
+now *one* case away and is deliberately NOT built yet.
+
+**`knowledge_status` is structurally absent from the model contract.** No
+key in the prompt, none read from the parsed response, none in the
+returned dict — even if the model volunteers one, it is silently discarded
+(not noted; noting it would invite the creator to honour it). This is the
+single most counter-intuitive point of the brief: the model may invent an
+entire event, but never decides whether the world knows about it. It is
+also what makes C3 (BRIEF-0022-a's no-deletion doctrine) livable —
+`knowledge_status` is the creator's only lever, so it can never be
+model-authored. `tooling/verify/checks/event_assist.py` gates this
+structurally (scans the function body, docstring excluded, for the
+substring).
+
+**`build_world_roster` (`entity_author.py`) — the J3 assembler.** Filters
+`is_public IS TRUE` and `status = 'active'` in the `where(...)` clause
+(query construction, never a Python post-filter) — the pattern
+`context.py:615` does NOT follow (it post-filters `is_public` in Python
+after the query); that divergence is logged here as one to correct
+opportunistically, not fixed in this brief (play-path code, out of scope).
+Only `name`/`type` leave the function; `internal_name` is never selected.
+Ambiguity discipline is reused from `tick.py:_build_roster` verbatim: two
+active public entities sharing a casefolded name are both dropped from the
+roster rather than guessed at.
+
+**Name→id resolution is reused, not extracted.** The `involved_entities`
+loop is `tick.py:889-897`'s shape, copied rather than shared — a third
+near-identical usage (`tick.py:889`, `tick.py:1114`, this one) with three
+different roster scopes (location, faction, world). Minimal-first:
+generalize on a fourth.
+
+**The pre-selected location wins outright over the model's own proposal.**
+When the creator has already chosen a location before generating,
+`location_hint` overrides `parsed["location"]` entirely; a disagreement is
+noted, never silently swallowed. Known narrow gap: `location_hint`
+resolves back to an id through the same public-only `roster`, so a
+pre-selected location that is itself `is_public = FALSE` would fail to
+resolve and silently drop the creator's own selection. Not fixed here
+(would need a second, non-roster resolution path for the hint case) —
+flagged for whoever next touches this function.
+
+**Server-side context assembly, not client-side.** `POST /api/events/generate`
+(app.py) builds `location_context` from the location entity's `name` +
+`description` only (public fields — never `internal_name`, never
+`metadata`) and calls `build_world_roster` before delegating to
+`generate_event_draft`. The route itself writes no canon; the only write
+remains the creator's existing `POST /api/events` accept (BRIEF-0022-a).
+
+**One-shot, not conversational (F2 precedent).** A second click on
+« Générer » overwrites the whole shell — title, description, type,
+location, and chips — with the new draft, matching the established
+assistant idiom (BRIEF-24, BRIEF-0021-b).
+
 ---
 
 *Co-built with Claude, June 2026.*
