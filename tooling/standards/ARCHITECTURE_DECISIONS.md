@@ -5668,6 +5668,83 @@ only write remains the creator's existing `POST /api/agendas` accept.
 « Générer » overwrites title and all five step fields with the new draft —
 no incremental refine, matching BRIEF-24's established assistant idiom.
 
+## ÉVÉNEMENTS — CREATOR SURFACE (BRIEF-0022-a, no schema change)
+
+`event` had been written since TICKET-0017 with no creator surface at all —
+no `/api/events` route, no occurrence of "événement" in `index.html`. This
+brief gives it a Création page on the standard entity page contract and
+opens the second sanctioned `event` canon-write path.
+
+**Third non-entity reader of the `sheetRenderer` seam** (after `agenda` —
+TICKET-0021, and the shell's own registry generalization), reusing it
+verbatim: `archetype: 'entity'`, `containers: ['creation-editor-area']`,
+`listLoader: loadEventsList`, `listRenderer: renderEvenementsListRows`,
+`sheetRenderer: renderEventSheet`, `createPanel: evenementsRenderCreatePanel`.
+No shell change was needed — the seam TICKET-0021 built already covers this.
+**A3** (full data-source abstraction of the shell) stays deferred.
+
+**`saveHandler` — the registry seam extended.** Unlike Intrigues (no save
+control at all — status transitions only), Événements needs an edit save,
+but `authorSave` is entity-only (writes through `ENTITY_TYPE_REGISTRY`) and
+must not learn about non-entity rows. The static `#author-save-btn`'s
+`onclick` moved from `authorSave()` to a new `creationSaveDispatch()`, which
+resolves `(entry.saveHandler || authorSave)()` off the registry — the same
+`sheetRenderer`-style default-to-existing-behavior seam, so every other
+entity-archetype tab (which declares no `saveHandler`) is unaffected.
+`CREATION_TABS.evenements.saveHandler = evenementsSave`, which `PUT`s
+`/api/events/{id}`.
+
+**Second sanctioned `event` writer: `write_event_update`** (`writes.py`).
+`write_event` (creation) is shared between `_apply_mutation`'s
+`event_creation` branch and the new `POST /api/events`; `write_event_update`
+is creator-CRUD-only — `_apply_mutation` never calls it, since AI proposals
+create events, never edit them. Together they are the complete, closed set
+of `event` writers, mirroring the `write_relation`/`write_knowledge`
+two-path doctrine already established for other tables.
+
+**C3 — no deletion, ever.** An event either happened or did not; `event` is
+history. Retraction is `knowledge_status = 'secret'`, which structurally
+excludes the row from all four readers (`context.py`'s MJ world context,
+`tick.py`'s location and faction briefings, `app.py`'s return-visit delta) —
+mirroring `ledger`'s append-only policy. No `DELETE /api/events` route, no
+soft-delete column, no UI control; `tooling/verify/checks/event_tab.py`
+gates this structurally.
+
+**Accepted gap: no `change_history` on `event`.** `write_event_update`
+overwrites `title`/`description`/`type`/`knowledge_status`/
+`involved_entities`/`location_id` in place with no prior-state append — the
+table has no `change_history` column to append to. Documented here so the
+omission reads as deliberate (consistent with "history is sacred" applying
+to `relation`/`knowledge`, which do carry that column), not forgotten.
+
+**One vocabulary per column.** `EVENT_TYPE_LABELS_FR` (`crud.py`) is keyed
+verbatim off `tick._EVENT_TYPES` — imported, never re-typed — with a
+module-load `assert` so the two vocabularies cannot silently diverge; the
+tick already clamps model proposals onto the same set (`tick.py:877`).
+`type` stays a free-text `datalist` column: the seven are suggestions, not
+a constraint.
+
+**`rumor` rejected on `event` (R1).** `context.py`'s docstring wrongly
+named a `rumor` `knowledge_status` that exists in no code path (`app.py`
+clamps to `secret|public|confirmed`); corrected to name `secret` only. An
+event's occurrence is binary; uncertainty about it belongs on
+`knowledge.level = 'rumor'`, never on `event.knowledge_status` — putting
+`rumor` here would blend canon with belief.
+
+**Defect fix: `context.py`'s public-events ordering.** `occurred_at` is
+written by nobody (`write_event` leaves it `None`), so ordering by it
+(RECON finding 7) was the database's arbitrary return order. Now orders by
+`recorded_at DESC`, aligning with `tick.py` and `app.py`'s return-visit
+delta. The `"occurred_at"` key stays in the emitted prompt dict — reserved
+for the deferred in-fiction-time chantier below — it just stops governing
+sort order.
+
+**Deferred: "Temporalité des événements."** `occurred_at` and any
+`passé | en_cours | à_venir` status are ONE future chantier, not two — a
+"future" event is simply one whose `occurred_at` lies ahead of world time —
+so splitting them now would cost two migrations where one later suffices.
+Nothing in this brief anticipates it.
+
 ---
 
 *Co-built with Claude, June 2026.*

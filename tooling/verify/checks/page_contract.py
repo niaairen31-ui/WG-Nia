@@ -10,7 +10,7 @@ INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
 
 TAB_KEYS = [
     "npc", "pj", "lieux", "factions", "objets",
-    "competences", "region", "artefacts", "registre", "intrigues", "queue", "prompts",
+    "competences", "region", "artefacts", "registre", "intrigues", "evenements", "queue", "prompts",
 ]
 
 
@@ -125,6 +125,21 @@ def main() -> int:
             "element id 'creation-intrigues' still present — Intrigues must render "
             "only through the shared creation-editor-area shell (BRIEF-0021-a)"
         )
+
+    # TICKET-0022/BRIEF-0022-a: Événements — third non-entity reader of the
+    # entity archetype's shared list+detail shell via the sheetRenderer seam.
+    if registry_src:
+        evenements_src = _entry_block(registry_src, "evenements")
+        if evenements_src:
+            if not re.search(r"""archetype\s*:\s*['"]entity['"]""", evenements_src):
+                failures.append(
+                    "CREATION_TABS.evenements is not archetype: 'entity' (BRIEF-0022-a)"
+                )
+            if not re.search(r"""containers\s*:\s*\[\s*['"]creation-editor-area['"]\s*\]""", evenements_src):
+                failures.append(
+                    "CREATION_TABS.evenements does not have "
+                    "containers: ['creation-editor-area'] (BRIEF-0022-a)"
+                )
 
     if failures:
         for f in failures:

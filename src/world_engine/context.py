@@ -528,7 +528,9 @@ def assemble_mj_context(
     Structural exclusions (by query construction, never by instruction): no
     NPC `knowledge` row (only the player's own are read), no
     `character.secrets`, no `entity.internal_name`, no non-public entities,
-    no `event` rows with `knowledge_status IN ('secret', 'rumor')`.
+    no `event` rows with `knowledge_status = 'secret'`. (An event either
+    happened or did not; uncertainty about it lives on `knowledge.level =
+    'rumor'`, never on `event.knowledge_status` — TICKET-0022, R1.)
 
     `blindfolded` (BRIEF-12): when True, visual information is structurally
     excluded — `location.description` is set to None and `co_presents` entries
@@ -584,7 +586,10 @@ def assemble_mj_context(
                 Event.world_id == world_id,
                 Event.knowledge_status.in_(("public", "confirmed")),
             )
-            .order_by(Event.occurred_at.desc())
+            # `occurred_at` is written by nobody (in-fiction time, dormant
+            # column) — order by `recorded_at`, aligning with tick.py and
+            # app.py's return-visit delta (TICKET-0022, RECON finding 7).
+            .order_by(Event.recorded_at.desc())
         ).all()
         local = [e for e in events if e.location_id == location_id]
         other = [e for e in events if e.location_id != location_id]

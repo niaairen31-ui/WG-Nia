@@ -14,6 +14,7 @@ src/world_engine/writes.py::write_skill_tier                  skill
 src/world_engine/writes.py::write_npc_goal                    npc_goal
 src/world_engine/writes.py::write_npc_goal_status             npc_goal
 src/world_engine/writes.py::write_event                       event
+src/world_engine/writes.py::write_event_update                 event
 src/world_engine/writes.py::write_agenda                      agenda
 src/world_engine/writes.py::write_agenda_step                 agenda_step
 src/world_engine/writes.py::write_agenda_step_status           agenda_step
