@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.73
+Current schema version: v1.74
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -157,13 +157,25 @@ CREATE TABLE faction (
   goals                 TEXT,
                         -- DORMANT: prose, what the faction is trying to do.
                         -- No mechanic, no structured consumer.
-  aversion              TEXT
+  aversion              TEXT,
                         -- DORMANT (schema v1.44, BRIEF-33): prose dual of
                         -- philosophy — what the faction rejects/combats, a
                         -- concept or category, never a named entity. Public-
                         -- tagged, authored + proposed, but read by no
                         -- assembler yet; the future reader MUST route
                         -- through read_public_memberships.
+  role_capacities       JSON
+                        -- DORMANT until BRIEF-0024-c (schema v1.74,
+                        -- TICKET-0024): per-role membership caps, shape
+                        -- {"<role name>": <int limit | null>} — a key
+                        -- present with a null limit is declared-but-
+                        -- unlimited; an absent key is unconstrained until
+                        -- BRIEF-0024-c's role_change effect ships (K1).
+                        -- Written ONLY via
+                        -- writes.write_faction_role_capacities (creator
+                        -- editor, BRIEF-0024-a); read by _apply_mutation's
+                        -- role_change effect (BRIEF-0024-c). Capacity
+                        -- counts the true 'role', never 'cover_role'.
 );
 CREATE INDEX idx_faction_parent ON faction(parent_faction_id);
 ```
@@ -329,8 +341,17 @@ CREATE TABLE npc_goal (
                     CHECK (status IN ('active','completed','abandoned')),
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-  change_history  JSON DEFAULT '[]'  -- archived previous states, mirror of
-                    --                 knowledge.change_history
+  change_history  JSON DEFAULT '[]',  -- archived previous states, mirror of
+                    --                  knowledge.change_history
+  prerequisites   JSON  -- DORMANT until BRIEF-0024-b (schema v1.74,
+                    -- TICKET-0024): optional completion gate, shape
+                    -- [{"type": "relation_gte", "target_entity_id":
+                    -- "<entity id>", "threshold": <int 1-100>}] — v1
+                    -- accepts ONLY relation_gte. Creator-CRUD authored
+                    -- only (writes.write_npc_goal_prerequisites,
+                    -- BRIEF-0024-a's editor). Read by _apply_mutation's
+                    -- goal_change complete judge and the per-NPC tick
+                    -- briefing (BRIEF-0024-b).
 );
 CREATE INDEX idx_npc_goal_npc_status ON npc_goal(npc_id, status);
 ```

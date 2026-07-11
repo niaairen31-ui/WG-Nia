@@ -55,6 +55,13 @@ functions so that clamping and field validation live in exactly one place.
   updated_at}` to `change_history` first — history is sacred.
 - `write_agenda_status(...)`            : transition an `agenda`'s status
   (BRIEF-0018-a), same snapshot discipline.
+- `write_faction_role_capacities(...)`  : the only chokepoint for
+  `faction.role_capacities` writes (TICKET-0024, BRIEF-0024-a). Validates
+  and reassigns the map; no `change_history` (metadata-config category).
+- `write_npc_goal_prerequisites(...)`   : the only chokepoint for
+  `npc_goal.prerequisites` writes (TICKET-0024, BRIEF-0024-a). Validates
+  the v1 `relation_gte` shape, appends the previous state to
+  `change_history` first.
 - `delete_world_cascade(world_id, db)`  : the sole delete-side helper in
   this module, and the sole sanctioned exception to "History is sacred"
   (BRIEF-54). Hard-deletes every row scoped to a world, including the
@@ -77,7 +84,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from .models import Agenda, AgendaStep, Character, Entity, Event, FactionMembership, GoalAgendaLink, Knowledge, Ledger, NpcGoal, PromptTemplate, PromptVersion, Relation, Skill
+from .models import Agenda, AgendaStep, Character, Entity, Event, Faction, FactionMembership, GoalAgendaLink, Knowledge, Ledger, NpcGoal, PromptTemplate, PromptVersion, Relation, Skill
 
 # Simple-identifier placeholder, e.g. `{player_line}` — deliberately does not
 # match JSON-example braces like `{"key": ...}` (TICKET-0011, C1).
@@ -564,6 +571,118 @@ def write_membership(
 
 # npc_goal.horizon enum (world-engine-schema.md v1.69): short | long.
 NPC_GOAL_HORIZONS = frozenset({"short", "long"})
+
+# npc_goal.prerequisites[].type enum (schema v1.74, TICKET-0024, G1). v1 is a
+# single type; expand only at a second concrete case.
+NPC_GOAL_PREREQUISITE_TYPES = frozenset({"relation_gte"})
+
+
+def write_faction_role_capacities(
+    db: Session,
+    *,
+    faction: Faction,
+    capacities: dict,
+    changed_by: str = "creator",
+) -> Faction:
+    """Set `faction.role_capacities` (BRIEF-0024-a). Caller adds the row.
+
+    Validates keys are non-empty strings and values are `None` (declared,
+    unlimited) or `int >= 1`; rejects duplicate keys differing only by case
+    (`casefold` collision). Reassigns the dict — never mutates the existing
+    one in place (SQLAlchemy JSON change-detection rule). `role_capacities`
+    is metadata-config category, same family as `faction_type` /
+    `philosophy` — no `change_history` snapshot, consistent with those
+    fields.
+    """
+    if not isinstance(capacities, dict):
+        raise ValueError("write_faction_role_capacities: capacities must be a dict")
+
+    seen_casefold: dict[str, str] = {}
+    clean: dict[str, Optional[int]] = {}
+    for key, value in capacities.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError(
+                "write_faction_role_capacities: role names must be non-empty strings"
+            )
+        folded = key.strip().casefold()
+        if folded in seen_casefold:
+            raise ValueError(
+                f"write_faction_role_capacities: duplicate role {key!r} and "
+                f"{seen_casefold[folded]!r} differ only by case"
+            )
+        seen_casefold[folded] = key
+        if value is not None and (
+            not isinstance(value, int) or isinstance(value, bool) or value < 1
+        ):
+            raise ValueError(
+                f"write_faction_role_capacities: limit for {key!r} must be null or an int >= 1"
+            )
+        clean[key] = value
+
+    faction.role_capacities = clean
+    db.add(faction)
+    return faction
+
+
+def write_npc_goal_prerequisites(
+    db: Session,
+    *,
+    goal: NpcGoal,
+    prerequisites: Optional[list],
+    changed_by: str,
+) -> NpcGoal:
+    """Set `npc_goal.prerequisites` (BRIEF-0024-a). Caller adds the row.
+
+    v1 accepts ONLY `relation_gte` items: `{"type": "relation_gte",
+    "target_entity_id": <entity id in the goal's own world>, "threshold":
+    int 1-100}`. `None` or `[]` clears the gate — a completion with zero
+    prerequisites is legitimate (A1). History is sacred: the previous state
+    snapshots to `change_history` first. Reassigns the list — never mutates
+    the existing one in place.
+    """
+    clean: Optional[list[dict]] = None
+    if prerequisites:
+        clean = []
+        for item in prerequisites:
+            item_type = item.get("type") if isinstance(item, dict) else None
+            if item_type not in NPC_GOAL_PREREQUISITE_TYPES:
+                raise ValueError(
+                    f"write_npc_goal_prerequisites: unknown prerequisite type {item_type!r}"
+                )
+            target_entity_id = item.get("target_entity_id")
+            target = db.get(Entity, target_entity_id) if target_entity_id else None
+            if target is None or target.world_id != goal.world_id:
+                raise ValueError(
+                    f"write_npc_goal_prerequisites: unknown target entity {target_entity_id!r}"
+                )
+            threshold = item.get("threshold")
+            if (
+                not isinstance(threshold, int)
+                or isinstance(threshold, bool)
+                or not (1 <= threshold <= 100)
+            ):
+                raise ValueError(
+                    f"write_npc_goal_prerequisites: threshold must be an int 1-100, got {threshold!r}"
+                )
+            clean.append({
+                "type": "relation_gte",
+                "target_entity_id": target_entity_id,
+                "threshold": threshold,
+            })
+
+    history = list(goal.change_history or [])
+    history.append({
+        "prerequisites": goal.prerequisites,
+        "updated_at": goal.updated_at.isoformat() if goal.updated_at else None,
+        "changed_by": changed_by,
+    })
+    goal.change_history = history
+    sa_attrs.flag_modified(goal, "change_history")
+    goal.prerequisites = clean
+    goal.updated_at = datetime.now(UTC)
+
+    db.add(goal)
+    return goal
 
 
 def write_npc_goal(

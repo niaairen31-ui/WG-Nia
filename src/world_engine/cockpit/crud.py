@@ -94,6 +94,7 @@ from ..tick import _EVENT_TYPES
 from ..writes import (
     KNOWLEDGE_LEVELS,
     NPC_GOAL_HORIZONS,
+    NPC_GOAL_PREREQUISITE_TYPES,
     PromptValidationError,
     detach_goal_agenda_link,
     write_agenda,
@@ -102,11 +103,13 @@ from ..writes import (
     write_agenda_step_status,
     write_event,
     write_event_update,
+    write_faction_role_capacities,
     write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
     write_membership,
     write_npc_goal,
+    write_npc_goal_prerequisites,
     write_npc_goal_status,
     write_prompt_version,
     write_relation,
@@ -537,6 +540,23 @@ def _goal_links(goal_id: str, db: DbSession) -> list[dict]:
     return out
 
 
+def _goal_prerequisites_dict(g: NpcGoal, db: DbSession) -> list[dict]:
+    """Resolved prerequisites for display — entity NAME, id kept underneath
+    (TICKET-0024, BRIEF-0024-a: "display shows the resolved entity NAME,
+    stores the id")."""
+    items = g.prerequisites or []
+    out = []
+    for item in items:
+        target = db.get(Entity, item.get("target_entity_id"))
+        out.append({
+            "type": item.get("type"),
+            "target_entity_id": item.get("target_entity_id"),
+            "target_entity_name": target.name if target else item.get("target_entity_id"),
+            "threshold": item.get("threshold"),
+        })
+    return out
+
+
 def _goal_dict(g: NpcGoal, db: DbSession) -> dict:
     return {
         "id": g.id,
@@ -547,6 +567,7 @@ def _goal_dict(g: NpcGoal, db: DbSession) -> dict:
         "created_at": _iso(g.created_at),
         "updated_at": _iso(g.updated_at),
         "links": _goal_links(g.id, db),
+        "prerequisites": _goal_prerequisites_dict(g, db),
     }
 
 
@@ -614,6 +635,14 @@ class GoalWriteBody(BaseModel):
 
 class GoalStatusBody(BaseModel):
     status: Optional[str] = None
+
+
+class GoalPrerequisitesBody(BaseModel):
+    prerequisites: Optional[list[dict[str, Any]]] = None
+
+
+class FactionCapacitiesBody(BaseModel):
+    capacities: dict[str, Any] = {}
 
 
 class AgendaStepCreateBody(BaseModel):
@@ -1083,6 +1112,27 @@ def set_goal_status(goal_id: str, body: GoalStatusBody, db: DbSession = Depends(
 
     try:
         goal = write_npc_goal_status(db, goal=goal, new_status=body.status, changed_by="creator")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    db.commit()
+    db.refresh(goal)
+    return _goal_dict(goal, db)
+
+
+@router.patch("/goals/{goal_id}/prerequisites")
+def set_goal_prerequisites(
+    goal_id: str, body: GoalPrerequisitesBody, db: DbSession = Depends(get_session)
+) -> dict:
+    """Creator-CRUD-only write of `npc_goal.prerequisites` (TICKET-0024,
+    BRIEF-0024-a). v1 vocabulary: `relation_gte` only."""
+    goal = db.get(NpcGoal, goal_id)
+    if goal is None or goal.world_id != _world_id(db):
+        raise HTTPException(404, f"NpcGoal {goal_id!r} not found")
+
+    try:
+        goal = write_npc_goal_prerequisites(
+            db, goal=goal, prerequisites=body.prerequisites, changed_by="creator"
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc))
     db.commit()
@@ -1614,6 +1664,48 @@ def list_faction_roles(faction_id: str, db: DbSession = Depends(get_session)) ->
     metadata = faction.metadata_ if isinstance(faction.metadata_, dict) else {}
     roles = metadata.get("roles")
     return roles if isinstance(roles, list) else []
+
+
+@router.get("/factions/{faction_id}/role-capacities")
+def get_faction_role_capacities(faction_id: str, db: DbSession = Depends(get_session)) -> dict:
+    """`faction.role_capacities`, plus the DISTINCT true `role` values on
+    ACTIVE memberships — the editor pre-fill source when the map is NULL
+    (TICKET-0024, BRIEF-0024-a)."""
+    entity = _get_entity(db, faction_id)
+    if entity.type != "faction":
+        raise HTTPException(422, f"{faction_id!r} is not a faction entity")
+    faction = db.get(Faction, faction_id)
+    active_roles = db.exec(
+        select(FactionMembership.role)
+        .where(FactionMembership.faction_id == faction_id, FactionMembership.left_at.is_(None))
+        .distinct()
+    ).all()
+    return {
+        "role_capacities": faction.role_capacities,
+        "active_roles": sorted(r for r in active_roles if r),
+    }
+
+
+@router.patch("/factions/{faction_id}/role-capacities")
+def set_faction_role_capacities(
+    faction_id: str, body: FactionCapacitiesBody, db: DbSession = Depends(get_session)
+) -> dict:
+    """Creator-CRUD-only write of `faction.role_capacities` (TICKET-0024,
+    BRIEF-0024-a). Empty limit (`null`) behaves as unlimited."""
+    entity = _get_entity(db, faction_id)
+    if entity.type != "faction":
+        raise HTTPException(422, f"{faction_id!r} is not a faction entity")
+    faction = db.get(Faction, faction_id)
+
+    try:
+        faction = write_faction_role_capacities(
+            db, faction=faction, capacities=body.capacities, changed_by="creator"
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    db.commit()
+    db.refresh(faction)
+    return {"role_capacities": faction.role_capacities}
 
 
 @router.get("/entities/{entity_id}/memberships")

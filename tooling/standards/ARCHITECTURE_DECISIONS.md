@@ -5849,4 +5849,63 @@ cytoscape is an explicit future ticket, not part of this one.
 
 ---
 
+## TICKET-0024 INTAKE DECISIONS — completion mechanics (BRIEF-0024-a, -b, -c, schema v1.74)
+
+Goal/agenda completion stopped being purely declarative. Nia's own
+taxonomy split the problem in three: (1) **prerequisite mechanics** — a
+claimed state change ("gained X's trust") must be grounded in canon before
+the model may complete the goal; (2) **consequence mechanics** — a
+completion may move relation, money, or a role; (3) some
+events/objectives legitimately live in prose only, with zero mechanical
+footprint. The three briefs of this ticket ship, in order: schema +
+creator surface (-a), the prerequisite judge + tick briefing (-b), and the
+completion effects (-c). One-line record per intake decision, full detail
+on the two named doctrine events (H1, K1/L2) lands in BRIEF-0024-c where
+the code does:
+
+- **A1** — Effects are optional-but-solicited on completion; zero
+  prerequisites and zero effects is legitimate (Nia's type 3), tagged
+  `no_footprint` in `change_history`.
+- **B1** — Effect vocabulary v1 is closed: `relation_delta`,
+  `ledger_transfer`, `role_change`. One type per concrete named case;
+  expand only at a second concrete case.
+- **G1** — Prerequisites: optional `prerequisites` JSON on `npc_goal`, v1
+  type `relation_gte` (target entity + 1-100 threshold), creator-CRUD
+  authored only, judged in code at `goal_change complete` — unmet is a
+  whole-mutation reject with the measured gap; the per-NPC tick briefing
+  shows resolved prerequisite state so the model does not loop on doomed
+  completions.
+- **H1** — Anti-double-count is *strip*, not reject: a `relation_delta`
+  effect on the same entity pair as a satisfied `relation_gte`
+  prerequisite is silently removed, the rest of the mutation applies, a
+  note is recorded — the project's first sanctioned partial application of
+  a mutation (0020 all-or-nothing precedent), strictly bounded to this one
+  case.
+- **I1** — `role_change` requires an ACTIVE membership in the named
+  faction; joining/leaving a faction is NOT an effect in v1
+  (`membership_change` deferred).
+- **C2/J1** — Role capacities live on `faction.role_capacities` (JSON),
+  edited via a line editor (number limit + role name) in the Faction tab;
+  empty limit = unlimited; capacity counts ACTIVE memberships bearing the
+  true `role`, never `cover_role`; full is a reject, never an eviction.
+- **K1** — The declared role list is a CLOSED vocabulary for the AI path
+  only: an undeclared role in a `role_change` is rejected (exact
+  case-insensitive resolution, gathering-role precedent); creator CRUD
+  stays free-form.
+- **L2** — The model may declare-and-occupy a NEW role in one completion
+  via `declare: true`; a role is never created without a holder —
+  declaration and occupation are atomic in the same SAVEPOINT; a newly
+  declared role's capacity is always empty (unlimited), only the creator
+  sets limits thereafter.
+- **M1** — Ledger rows written by completion effects carry
+  `source_type='tick'` (new documented enum value).
+- **N1** — Max 3 effects per completion; more is a whole-mutation reject.
+- **E1** — Nothing is declared at goal creation; effects are decided at
+  completion time (structured stakes-at-creation deferred).
+- **F** — Both surfaces carry effects: `goal_change complete` AND
+  `agenda_step_change complete`. Effects apply on `complete` only — never
+  on `fail` or `abandon`.
+
+---
+
 *Co-built with Claude, June 2026.*

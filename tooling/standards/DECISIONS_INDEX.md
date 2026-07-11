@@ -81,3 +81,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 5671 | ÉVÉNEMENTS — CREATOR SURFACE (BRIEF-0022-a, no schema change) | BRIEF-0022-a |  |
 | 5748 | AI EVENT-DRAFT ASSISTANT (BRIEF-0022-b, no schema change) | BRIEF-0022-b |  |
 | 5809 | ON-DEMAND GRAPH SLOTS + CYTOSCAPE VENDORING (BRIEF-0023-a, no schema change) | BRIEF-0023-a |  |
+| 5852 | TICKET-0024 INTAKE DECISIONS — completion mechanics (BRIEF-0024-a, -b, -c, schema v1.74) | BRIEF-0024-a | v1.74 |

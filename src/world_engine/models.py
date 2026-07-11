@@ -195,6 +195,16 @@ class Faction(SQLModel, table=True):
     # by no assembler yet. Future reader MUST route through
     # `read_public_memberships` (see ARCHITECTURE_DECISIONS.md).
     aversion: Optional[str] = None
+    # DORMANT until BRIEF-0024-c (schema v1.74, TICKET-0024): per-role
+    # membership caps. Shape: {"<role name>": <int limit | None>} — a key
+    # present with a null limit is declared-but-unlimited; an absent key is
+    # unconstrained until BRIEF-0024-c's `role_change` effect ships (K1).
+    # Written ONLY via `writes.write_faction_role_capacities` (creator
+    # editor, this brief); read by `_apply_mutation`'s `role_change` effect
+    # in BRIEF-0024-c. Capacity counts the true 'role', never 'cover_role'.
+    role_capacities: Optional[dict] = Field(
+        default=None, sa_column=Column(JSON, nullable=True)
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -356,6 +366,16 @@ class NpcGoal(SQLModel, table=True):
     change_history: list = Field(
         default_factory=list,
         sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
+    )
+    # DORMANT until BRIEF-0024-b (schema v1.74, TICKET-0024): optional
+    # completion gate. Shape: [{"type": "relation_gte", "target_entity_id":
+    # "<entity id>", "threshold": <int 1-100>}] — v1 accepts ONLY
+    # `relation_gte`. Creator-CRUD authored only (`writes.write_npc_goal_
+    # prerequisites`, this brief's editor). Read by `_apply_mutation`'s
+    # `goal_change complete` judge and the per-NPC tick briefing in
+    # BRIEF-0024-b.
+    prerequisites: Optional[list] = Field(
+        default=None, sa_column=Column(JSON, nullable=True)
     )
 
 
