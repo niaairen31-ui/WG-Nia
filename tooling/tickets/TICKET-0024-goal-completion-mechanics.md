@@ -2,13 +2,13 @@
 id: TICKET-0024
 title: Goal/agenda completion mechanics — prerequisites, effects, role capacities
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-10
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
 blast_radius: medium
 brief_ids: [BRIEF-0024-a, BRIEF-0024-b, BRIEF-0024-c]
-schema_version_touched: vX.YY
+schema_version_touched: v1.75
 retry_count: 0
 ---
 
