@@ -343,15 +343,15 @@ CREATE TABLE npc_goal (
   updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   change_history  JSON DEFAULT '[]',  -- archived previous states, mirror of
                     --                  knowledge.change_history
-  prerequisites   JSON  -- DORMANT until BRIEF-0024-b (schema v1.74,
-                    -- TICKET-0024): optional completion gate, shape
-                    -- [{"type": "relation_gte", "target_entity_id":
-                    -- "<entity id>", "threshold": <int 1-100>}] — v1
-                    -- accepts ONLY relation_gte. Creator-CRUD authored
-                    -- only (writes.write_npc_goal_prerequisites,
-                    -- BRIEF-0024-a's editor). Read by _apply_mutation's
-                    -- goal_change complete judge and the per-NPC tick
-                    -- briefing (BRIEF-0024-b).
+  prerequisites   JSON  -- (schema v1.74, TICKET-0024): optional completion
+                    -- gate, shape [{"type": "relation_gte",
+                    -- "target_entity_id": "<entity id>", "threshold":
+                    -- <int 1-100>}] — v1 accepts ONLY relation_gte.
+                    -- Creator-CRUD authored only
+                    -- (writes.write_npc_goal_prerequisites, BRIEF-0024-a's
+                    -- editor). Read by _apply_mutation's goal_change
+                    -- complete judge and the per-NPC tick briefing
+                    -- (BRIEF-0024-b) — LIVE, no longer dormant.
 );
 CREATE INDEX idx_npc_goal_npc_status ON npc_goal(npc_id, status);
 ```

@@ -5908,4 +5908,24 @@ the code does:
 
 ---
 
+## PREREQUISITE JUDGE (BRIEF-0024-b, no schema change)
+
+"Model proposes, code judges." The judge lives inside `_apply_mutation`'s
+existing `goal_change` branch — a gate on `complete` only, never a new
+write path — and is fail-closed: an unrecognised prerequisite type
+rejects the whole mutation rather than skipping the check, because the
+column is creator-authored and a hand-written row could still be
+malformed. The per-NPC tick briefing resolves the SAME prerequisites to
+live state and injects one line per prerequisite so the model does not
+propose doomed completions in a loop; resolution never triggers anything
+by itself — satisfaction is not auto-completion, the model still
+proposes and Nia still approves. Both the judge and the briefing resolve
+a goal's `relation_gte` pair through the SAME extracted helper,
+`writes._find_relation_pair` (previously inlined in
+`write_relation(mode="delta")`) — one source of pair semantics so the
+judge and the briefing can never disagree about "the" relation for a
+pair.
+
+---
+
 *Co-built with Claude, June 2026.*

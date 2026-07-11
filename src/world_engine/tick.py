@@ -51,6 +51,7 @@ from .models import (
 )
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
+from .writes import _find_relation_pair
 
 H_IDENTITY = "QUI TU ES"
 H_GOALS = "TES OBJECTIFS"
@@ -134,6 +135,29 @@ def _goal_provenance_suffix(goal_id: str, session: Session) -> str:
     return " (sert : " + ", ".join(f"« {t} »" for t in titles) + ")"
 
 
+def _goal_prerequisite_lines(goal: NpcGoal, session: Session) -> list[str]:
+    """One line per `relation_gte` prerequisite, resolved to live state
+    (TICKET-0024, BRIEF-0024-b) — code resolves, injects; the model never
+    sees or evaluates a threshold itself (G1). Reuses `_find_relation_pair`
+    (the same pair-search helper `_apply_mutation`'s judge uses) so the
+    briefing and the judge can never disagree. Empty for a goal with no
+    prerequisites (prose-only goals stay clean)."""
+    if not goal.prerequisites:
+        return []
+    lines = []
+    for item in goal.prerequisites:
+        if item.get("type") != "relation_gte":
+            continue
+        target_id = item.get("target_entity_id")
+        threshold = item.get("threshold")
+        target = session.get(Entity, target_id)
+        target_name = target.name if target else target_id
+        rel = _find_relation_pair(session, goal.npc_id, target_id)
+        current = rel.intensity if rel else 0
+        lines.append(f"  (prérequis : relation >= {threshold} avec {target_name} — actuel : {current})")
+    return lines
+
+
 def assemble_tick_context(
     npc_id: str, session: Session, *, destinations: list[tuple[str, str]] | None = None
 ) -> str:
@@ -179,8 +203,13 @@ def assemble_tick_context(
         .where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active", NpcGoal.horizon == "short")
         .order_by(NpcGoal.created_at.desc())
     ).all()
-    goal_lines = [f"[LONG TERME] {g.description}{_goal_provenance_suffix(g.id, session)}" for g in long_goals]
-    goal_lines += [f"[COURT TERME] {g.description}{_goal_provenance_suffix(g.id, session)}" for g in short_goals]
+    goal_lines = []
+    for g in long_goals:
+        goal_lines.append(f"[LONG TERME] {g.description}{_goal_provenance_suffix(g.id, session)}")
+        goal_lines.extend(_goal_prerequisite_lines(g, session))
+    for g in short_goals:
+        goal_lines.append(f"[COURT TERME] {g.description}{_goal_provenance_suffix(g.id, session)}")
+        goal_lines.extend(_goal_prerequisite_lines(g, session))
     goals_body = "\n".join(goal_lines) if goal_lines else "(aucun objectif actif)"
 
     # ----- TON INTRIGUE — the NPC's own personal agenda, if it owns one

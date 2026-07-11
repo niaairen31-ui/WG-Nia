@@ -82,3 +82,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 5748 | AI EVENT-DRAFT ASSISTANT (BRIEF-0022-b, no schema change) | BRIEF-0022-b |  |
 | 5809 | ON-DEMAND GRAPH SLOTS + CYTOSCAPE VENDORING (BRIEF-0023-a, no schema change) | BRIEF-0023-a |  |
 | 5852 | TICKET-0024 INTAKE DECISIONS — completion mechanics (BRIEF-0024-a, -b, -c, schema v1.74) | BRIEF-0024-a | v1.74 |
+| 5911 | PREREQUISITE JUDGE (BRIEF-0024-b, no schema change) | BRIEF-0024-b |  |

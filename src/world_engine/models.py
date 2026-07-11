@@ -367,13 +367,12 @@ class NpcGoal(SQLModel, table=True):
         default_factory=list,
         sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
     )
-    # DORMANT until BRIEF-0024-b (schema v1.74, TICKET-0024): optional
-    # completion gate. Shape: [{"type": "relation_gte", "target_entity_id":
-    # "<entity id>", "threshold": <int 1-100>}] — v1 accepts ONLY
-    # `relation_gte`. Creator-CRUD authored only (`writes.write_npc_goal_
-    # prerequisites`, this brief's editor). Read by `_apply_mutation`'s
-    # `goal_change complete` judge and the per-NPC tick briefing in
-    # BRIEF-0024-b.
+    # Schema v1.74, TICKET-0024: optional completion gate. Shape:
+    # [{"type": "relation_gte", "target_entity_id": "<entity id>",
+    # "threshold": <int 1-100>}] — v1 accepts ONLY `relation_gte`.
+    # Creator-CRUD authored only (`writes.write_npc_goal_prerequisites`,
+    # BRIEF-0024-a's editor). Read by `_apply_mutation`'s `goal_change
+    # complete` judge and the per-NPC tick briefing (BRIEF-0024-b).
     prerequisites: Optional[list] = Field(
         default=None, sa_column=Column(JSON, nullable=True)
     )

@@ -4,6 +4,11 @@ Both canon-write paths — the approval pipeline (`_apply_mutation` in
 `cockpit/app.py`) and the author CRUD (`cockpit/crud.py`) — call these
 functions so that clamping and field validation live in exactly one place.
 
+- `_find_relation_pair(db, a, b)`      : both-directions first-match search
+  for a `relation` row (TICKET-0024, BRIEF-0024-b) — the single source of
+  pair semantics, shared by `write_relation(mode="delta")` and, outside
+  this module, `_apply_mutation`'s `goal_change complete` prerequisite
+  judge and the per-NPC tick briefing's prerequisite resolution.
 - `write_relation(mode="delta", ...)`  : gameplay consequence. Find/create the
   relation by (a, b) pair, apply a clamped intensity delta, append the
   previous state to `change_history`. Used by `_apply_mutation`.
@@ -186,6 +191,24 @@ def _append_knowledge_history(row: Knowledge, changed_by: str) -> None:
     sa_attrs.flag_modified(row, "change_history")
 
 
+def _find_relation_pair(db: Session, entity_a_id: str, entity_b_id: str) -> Optional[Relation]:
+    """Both-directions first-match search for a `relation` row between two
+    entities — the single source of pair semantics (TICKET-0024,
+    BRIEF-0024-b). Shared by `write_relation(mode="delta")` and
+    `_apply_mutation`'s `goal_change complete` prerequisite judge / the
+    per-NPC tick briefing, so the judge and the briefing can never
+    disagree with the write path about which row is "the" relation for a
+    pair. No UNIQUE constraint enforces a single row per pair in schema,
+    so this takes the first match if several exist (same design choice as
+    the write path)."""
+    return db.exec(
+        select(Relation).where(
+            ((Relation.entity_a_id == entity_a_id) & (Relation.entity_b_id == entity_b_id))
+            | ((Relation.entity_a_id == entity_b_id) & (Relation.entity_b_id == entity_a_id))
+        )
+    ).first()
+
+
 def write_relation(
     db: Session,
     *,
@@ -238,12 +261,7 @@ def write_relation(
         # Search in both directions; take first match if several types exist.
         # Design choice: no UNIQUE constraint in schema on (a, b) pair, so we
         # take the first match. A future version could match by type too.
-        rel = db.exec(
-            select(Relation).where(
-                ((Relation.entity_a_id == entity_a_id) & (Relation.entity_b_id == entity_b_id))
-                | ((Relation.entity_a_id == entity_b_id) & (Relation.entity_b_id == entity_a_id))
-            )
-        ).first()
+        rel = _find_relation_pair(db, entity_a_id, entity_b_id)
 
         if rel is None:
             rel = Relation(

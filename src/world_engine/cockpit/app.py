@@ -103,6 +103,7 @@ from ..models import (
 from ..resolution import resolve_physical
 from ..writes import (
     KNOWLEDGE_LEVELS,
+    _find_relation_pair,
     delete_world_cascade as _delete_world_cascade,
     knowledge_level_rank,
     write_agenda,
@@ -1539,9 +1540,33 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
             matches = [g for g in candidates if _normalize_goal_text(g.description) == normalized]
             if len(matches) != 1:
                 return f"goal_change: no active goal matching {goal_text!r}"
+            goal = matches[0]
+
+            # Prerequisite judge (TICKET-0024, BRIEF-0024-b, G1): "model
+            # proposes, code judges" — gates `complete` only, never
+            # `abandon`. Fail-closed on an unrecognised type (the column is
+            # creator-authored, but a hand-written row could still be
+            # malformed).
+            if action == "complete" and goal.prerequisites:
+                for item in goal.prerequisites:
+                    item_type = item.get("type")
+                    if item_type != "relation_gte":
+                        return f"goal_change: unknown prerequisite type {item_type!r}"
+                    target_id = item.get("target_entity_id")
+                    threshold = item.get("threshold")
+                    rel = _find_relation_pair(db, npc_id, target_id)
+                    current = rel.intensity if rel else 0
+                    if current < threshold:
+                        target = db.get(Entity, target_id)
+                        target_name = target.name if target else target_id
+                        return (
+                            f"goal_change: prerequisite not met — relation "
+                            f"with {target_name} is {current}, requires >= {threshold}"
+                        )
+
             write_npc_goal_status(
                 db,
-                goal=matches[0],
+                goal=goal,
                 new_status="completed" if action == "complete" else "abandoned",
                 changed_by=f"mutation:{mut.id}",
             )
