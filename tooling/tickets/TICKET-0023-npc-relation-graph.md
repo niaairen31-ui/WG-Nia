@@ -2,7 +2,7 @@
 id: TICKET-0023
 title: NPC relation ego-graph (on-demand) + on-demand graph-slot contract + cytoscape vendoring
 type: feature
-status: brief
+status: live-gate
 created: 2026-07-10
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []              # read-only feature; no migration, no canon write
