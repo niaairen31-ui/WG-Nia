@@ -80,3 +80,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 5630 | AI AGENDA-DRAFT ASSISTANT (BRIEF-0021-b, no schema change) | BRIEF-0021-b |  |
 | 5671 | ÉVÉNEMENTS — CREATOR SURFACE (BRIEF-0022-a, no schema change) | BRIEF-0022-a |  |
 | 5748 | AI EVENT-DRAFT ASSISTANT (BRIEF-0022-b, no schema change) | BRIEF-0022-b |  |
+| 5809 | ON-DEMAND GRAPH SLOTS + CYTOSCAPE VENDORING (BRIEF-0023-a, no schema change) | BRIEF-0023-a |  |

@@ -54,7 +54,9 @@ and `world-engine-schema-changelog.md` — never here.
   generic dispatcher (`showCreationSubTab`, `cockpit/index.html`) under the
   standard shell; no page or tab-specific branch may exist outside the
   registry, and a page's primary action exists only as its registry
-  `primaryAction` (`tooling/verify/checks/page_contract.py` enforces).
+  `primaryAction` (`tooling/verify/checks/page_contract.py` enforces). A
+  slot may declare `display: 'on_demand'` to stay hidden and unloaded until
+  its shell toggle is clicked (default `'always'`, today's behavior).
 
 ## Ticket pipeline (governance)
 
@@ -393,7 +395,8 @@ WG-Nia/
 │   └── cockpit/             # creator web UI (FastAPI + HTMX, port 8000, loopback)
 │       ├── app.py           # play endpoints; _apply_mutation; _stream; region commit
 │       ├── crud.py          # creator CRUD routes; prompts read + model write
-│       └── index.html       # single-page UI; CREATION_TABS registry + dispatcher
+│       ├── index.html       # single-page UI; CREATION_TABS registry + dispatcher
+│       └── vendor/          # vendored JS deps (cytoscape-*.min.js); one whitelisted GET route
 ├── scripts/
 │   ├── init_db.py           # create tables + indexes (idempotent)
 │   ├── seed_pilot.py        # seed Verkhaal world + prompt templates (idempotent)

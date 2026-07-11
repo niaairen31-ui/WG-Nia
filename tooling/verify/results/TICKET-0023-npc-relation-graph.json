@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0023-npc-relation-graph",
+  "when": "2026-07-11T02:30:28.535885+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u2014 CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry"
+    },
+    {
+      "check": "relation_graph.py",
+      "status": "PASS",
+      "msg": "PASS: relation_graph \u2014 vendor route present, relation-graph endpoint read-only with structural connects_to/controls exclusion, no write fetch in relGraph* JS, Lieux graph component untouched"
+    }
+  ]
+}

@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any, Iterator, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -122,6 +122,12 @@ from . import crud as _crud
 
 _INDEX_HTML = Path(__file__).parent / "index.html"
 _log = logging.getLogger(__name__)
+
+# Vendored JS dependencies (BRIEF-0023-a, H1): one whitelisted file per
+# entry, no StaticFiles mount — that generalization waits for a second
+# vendored asset.
+_VENDOR_DIR = Path(__file__).parent / "vendor"
+_VENDOR_WHITELIST = {"cytoscape-3.34.0.min.js"}
 
 app = FastAPI(title="World Engine Cockpit", docs_url=None, redoc_url=None)
 app.include_router(_crud.router)
@@ -1868,6 +1874,13 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
 @app.get("/", response_class=HTMLResponse)
 def serve_ui() -> str:
     return _INDEX_HTML.read_text(encoding="utf-8")
+
+
+@app.get("/vendor/{filename}")
+def serve_vendor_file(filename: str) -> FileResponse:
+    if filename not in _VENDOR_WHITELIST:
+        raise HTTPException(status_code=404, detail=f"{filename!r} is not a vendored asset")
+    return FileResponse(_VENDOR_DIR / filename, media_type="application/javascript")
 
 
 # ── World selection ────────────────────────────────────────────────────────────

@@ -963,6 +963,9 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 
 /* ── Lieux graph panel (BRIEF-15) ────────────────────────────────────────── */
 #creation-lieux-graph { flex-shrink: 0; border-bottom: 1px solid var(--border); }
+/* ── NPC relation ego-graph panel (BRIEF-0023-b) ─────────────────────────── */
+#creation-npc-relgraph { flex-shrink: 0; border-bottom: 1px solid var(--border); }
+.relgraph-buckets label { font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: normal; color: var(--text); display: flex; align-items: center; gap: 4px; }
 .lieux-graph-head {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 14px; border-bottom: 1px solid var(--border);
@@ -1216,6 +1219,10 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       </div>
       <div id="creation-shell-batch-bar"></div>
     </div>
+    <!-- On-demand slot toggles (BRIEF-0023-a, F1) — one button per slot the
+         active entry declares display:'on_demand'; same fixed shell
+         position on every tab, mirroring primaryAction. -->
+    <div id="creation-shell-toggles" style="display:flex; gap:8px;"></div>
     <button class="btn-send" id="creation-shell-action" style="display:none"></button>
   </div>
 
@@ -1230,6 +1237,28 @@ button:not(:disabled):hover { filter: brightness(1.15); }
          onclick="graphCanvasClick(event)"></svg>
     <p style="padding:4px 14px 6px; font-size:11px; color:var(--muted)">
       Cliquez un nœud pour le sélectionner, puis un second pour le connecter. Glissez pour repositionner. Cliquez un lien pour le supprimer.
+    </p>
+  </div>
+
+  <!-- ── NPC — Relation ego-graph panel (BRIEF-0023-b, no schema change) ── -->
+  <div id="creation-npc-relgraph" style="display:none">
+    <div class="lieux-graph-head">
+      <span>Graphe de relations</span>
+      <div class="relgraph-buckets" style="display:flex; gap:10px; margin-left:auto">
+        <label><input type="checkbox" class="relgraph-bucket" checked onchange="relGraphBucketToggle(1, this.checked)"> Rouge (1-25)</label>
+        <label><input type="checkbox" class="relgraph-bucket" checked onchange="relGraphBucketToggle(2, this.checked)"> Orange (26-50)</label>
+        <label><input type="checkbox" class="relgraph-bucket" checked onchange="relGraphBucketToggle(3, this.checked)"> Bleu (51-75)</label>
+        <label><input type="checkbox" class="relgraph-bucket" checked onchange="relGraphBucketToggle(4, this.checked)"> Vert (76-100)</label>
+      </div>
+    </div>
+    <div style="display:flex; gap:0">
+      <div id="relgraph-canvas" style="flex:1; height:340px; background:var(--bg)"></div>
+      <div id="relgraph-info-card" style="width:220px; flex-shrink:0; padding:10px; font-size:12px; border-left:1px solid var(--border)">
+        <div class="empty">Cliquez un nœud pour voir ses informations.</div>
+      </div>
+    </div>
+    <p style="padding:4px 14px 6px; font-size:11px; color:var(--muted)">
+      Molette pour zoomer, glisser pour déplacer. Cliquez un nœud pour ses informations, double-cliquez pour le recentrer. Lecture seule — aucune modification de relation depuis ce graphe.
     </p>
   </div>
 
@@ -1411,6 +1440,9 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 
 </div><!-- #creation-view -->
 
+<!-- Vendored cytoscape.js (BRIEF-0023-a, H1) — locally-hosted, no CDN, no
+     build step; served by the one whitelisted /vendor route. -->
+<script src="/vendor/cytoscape-3.34.0.min.js"></script>
 <script>
 'use strict';
 
@@ -3171,7 +3203,16 @@ async function loadPlayerKnowledge() {
 //                 detail pane for a selected record of this tab)
 //   createPanel:  fn|null (null = no + Nouveau rendered; default =
 //                 () => authorRenderSheet({}, true, <type>))
-//   slots:        [{ id, containerId, loader, onSelect: fn|null }]
+//   slots:        [{ id, containerId, loader, onSelect: fn|null,
+//                    display: 'always'|'on_demand' (default 'always'),
+//                    toggleLabel: string (on_demand only; default
+//                    'Voir le graphe') }]
+//                 'on_demand' (BRIEF-0023-a, F1): container stays hidden and
+//                 loader does not fire on tab activation; the standard shell
+//                 renders one toggle button per on_demand slot; first click
+//                 shows the container and fires loader, later clicks only
+//                 hide/show (no unload); state resets via onTabEnter/
+//                 onWorldSwitch.
 // }
 // Every Création page is a registry entry. No page renders outside it.
 //
@@ -3185,6 +3226,54 @@ async function loadPlayerKnowledge() {
 // - `type`/`entityFilter` on an entity entry drive the default flat-list
 //   renderer's row selection from `authorAllEntities` (ignored when
 //   `listRenderer` is set, e.g. lieux's `renderLieuxBrowse`).
+/** On-demand slot state (BRIEF-0023-a, F1) — tracks open/loaded per
+ *  on_demand slot container, keyed by containerId. Reset exclusively by the
+ *  owning tab's onTabEnter/onWorldSwitch (never by re-activation alone). */
+let onDemandSlotState = {};
+
+function _onDemandSlotReset(entry) {
+  (entry.slots || []).forEach(s => {
+    if (s.display !== 'on_demand') return;
+    onDemandSlotState[s.containerId] = { open: false, loaded: false };
+    const el = document.getElementById(s.containerId);
+    if (el) el.style.display = 'none';
+  });
+}
+
+function _onDemandSlotToggle(slot) {
+  const st = onDemandSlotState[slot.containerId]
+    || (onDemandSlotState[slot.containerId] = { open: false, loaded: false });
+  st.open = !st.open;
+  const el = document.getElementById(slot.containerId);
+  if (el) el.style.display = st.open ? '' : 'none';
+  if (st.open && !st.loaded) {
+    st.loaded = true;
+    if (slot.loader) slot.loader();
+  }
+  const entry = CREATION_TABS[currentCreationSubTab];
+  if (entry) _renderOnDemandToggles(entry);
+}
+
+function _onDemandSlotToggleById(containerId) {
+  const entry = CREATION_TABS[currentCreationSubTab];
+  if (!entry) return;
+  const slot = (entry.slots || []).find(s => s.containerId === containerId);
+  if (slot) _onDemandSlotToggle(slot);
+}
+
+/** Renders one toggle button per on_demand slot in the standard shell band,
+ *  same fixed position on every tab (mirrors the primaryAction posture). */
+function _renderOnDemandToggles(entry) {
+  const wrapEl = document.getElementById('creation-shell-toggles');
+  if (!wrapEl) return;
+  const onDemandSlots = (entry.slots || []).filter(s => s.display === 'on_demand');
+  wrapEl.innerHTML = onDemandSlots.map(s => {
+    const st = onDemandSlotState[s.containerId] || { open: false };
+    const label = st.open ? 'Masquer le graphe' : (s.toggleLabel || 'Voir le graphe');
+    return `<button class="btn-icon" onclick="_onDemandSlotToggleById('${esc(s.containerId)}')">${esc(label)}</button>`;
+  }).join('');
+}
+
 function _entityTabEnterReset() {
   authorEntityId   = null;
   authorEntityType = null;
@@ -3202,6 +3291,7 @@ function _lieuxTabEnterReset() {
   _entityTabEnterReset();
   lieuxBrowseParentId = null;
   lieuxBreadcrumb = [];
+  _onDemandSlotReset(CREATION_TABS.lieux);
 }
 
 /* Shared authorAllEntities/playerCharIds cache — used by every entity tab
@@ -3211,11 +3301,19 @@ function _entityListWorldReset() {
   playerCharIds = new Set();
 }
 
+function _npcTabEnterReset() {
+  _entityTabEnterReset();
+  _onDemandSlotReset(CREATION_TABS.npc);
+  _relGraphReset();
+}
+
 function _npcWorldReset() {
   _entityListWorldReset();
   pendingDraftKnowledge = [];
   pendingDraftNotes     = [];
   pendingDraftGoals     = { long: '', shorts: ['', ''] };
+  _onDemandSlotReset(CREATION_TABS.npc);
+  _relGraphReset();
 }
 
 function _pjWorldReset() {
@@ -3230,6 +3328,7 @@ function _lieuxWorldReset() {
   lieuxBreadcrumb     = [];
   lieuxActiveOnly     = false;
   graphData           = null;
+  _onDemandSlotReset(CREATION_TABS.lieux);
 }
 
 function _factionsWorldReset() {
@@ -3294,13 +3393,14 @@ const CREATION_TABS = {
     archetype: 'entity',
     containers: ['creation-editor-area'],
     loader: null,
-    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _npcWorldReset },
+    state: { onTabEnter: _npcTabEnterReset, onWorldSwitch: _npcWorldReset },
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && !playerCharIds.has(e.id)),
     createPanel: () => authorRenderSheet({}, true, 'character'),
     primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
     showPendingCreations: true,
-    slots: [],
+    slots: [{ id: 'relgraph', containerId: 'creation-npc-relgraph', loader: relGraphLoad, onSelect: relGraphOnSelect,
+              display: 'on_demand', toggleLabel: 'Voir le graphe' }],
   },
   pj: {
     label: 'Personnages joueurs',
@@ -3325,7 +3425,8 @@ const CREATION_TABS = {
     createPanel: () => authorRenderSheet({}, true, 'location'),
     primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
     showPendingCreations: true,
-    slots: [{ id: 'graph', containerId: 'creation-lieux-graph', loader: graphLoad, onSelect: null }],
+    slots: [{ id: 'graph', containerId: 'creation-lieux-graph', loader: graphLoad, onSelect: null,
+              display: 'on_demand', toggleLabel: 'Voir le graphe' }],
   },
   factions: {
     label: 'Factions',
@@ -3449,7 +3550,7 @@ function _creationActivateTab() {
     (entry.listLoader || authorLoadEntityList)();
   }
   if (entry.loader) entry.loader();
-  (entry.slots || []).forEach(s => { if (s.loader) s.loader(); });
+  (entry.slots || []).forEach(s => { if (s.display !== 'on_demand' && s.loader) s.loader(); });
 
   // Créations en attente strip (BRIEF-0019-a) — a registry field, not a
   // tab-id branch: any entry may opt in by declaring showPendingCreations.
@@ -3490,6 +3591,7 @@ function showCreationSubTab(tab) {
     if (el) el.style.display = '';
   });
   (entry.slots || []).forEach(s => {
+    if (s.display === 'on_demand') return; // stays hidden until its toggle is clicked (F1)
     const el = document.getElementById(s.containerId);
     if (el) el.style.display = '';
   });
@@ -3510,6 +3612,7 @@ function showCreationSubTab(tab) {
 function renderCreationShell(entry) {
   const titleEl = document.getElementById('creation-shell-title');
   if (titleEl) titleEl.textContent = entry.label || '';
+  _renderOnDemandToggles(entry);
   const actionEl = document.getElementById('creation-shell-action');
   if (!actionEl) return;
   if (entry.primaryAction) {
@@ -7827,6 +7930,167 @@ async function graphLoad() {
   } catch (err) {
     if (svg) svg.innerHTML = `<text x="480" y="240" text-anchor="middle" fill="var(--red)" font-size="12">${esc(err.message)}</text>`;
   }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   NPC relation ego-graph — cytoscape, display-only, on-demand (BRIEF-0023-b)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+let relGraphData         = null;  // { center, nodes, edges } from the last fetch
+let relGraphCy           = null;  // the live cytoscape instance, or null
+let relGraphBucketState  = { 1: true, 2: true, 3: true, 4: true };
+
+const RELGRAPH_BUCKET_COLORS = { 1: '#e5534b', 2: '#d29922', 3: '#58a6ff', 4: '#3fb950' };
+
+function _relGraphBucket(intensity) {
+  if (intensity <= 25) return 1;
+  if (intensity <= 50) return 2;
+  if (intensity <= 75) return 3;
+  return 4;
+}
+
+function _relGraphRenderEmptyState(msg) {
+  if (relGraphCy) { relGraphCy.destroy(); relGraphCy = null; }
+  const canvasEl = document.getElementById('relgraph-canvas');
+  if (canvasEl) canvasEl.innerHTML = `<div class="empty">${esc(msg)}</div>`;
+  relGraphRenderInfoCard(null);
+}
+
+/** The npc entry's relgraph slot loader (BRIEF-0023-a on_demand contract) —
+ *  fires once when the panel is first opened. No character selected yet ->
+ *  empty state, fetches nothing (I2). */
+function relGraphLoad() {
+  if (!authorEntityId) {
+    _relGraphRenderEmptyState('Sélectionnez un personnage pour voir son graphe de relations.');
+    return;
+  }
+  relGraphFetch(authorEntityId);
+}
+
+/** The npc entry's relgraph slot onSelect (mirrors pjFicheOnSelect's seam) —
+ *  only refetches while the panel is open; closed panels load nothing. */
+function relGraphOnSelect(id) {
+  const st = onDemandSlotState['creation-npc-relgraph'];
+  if (!st || !st.open) return;
+  relGraphFetch(id);
+}
+
+async function relGraphFetch(centerId) {
+  _relGraphRenderEmptyState('Chargement…');
+  try {
+    relGraphData = await api(`/api/characters/${encodeURIComponent(centerId)}/relation-graph`);
+    relGraphRenderCanvas();
+  } catch (err) {
+    relGraphData = null;
+    _relGraphRenderEmptyState(err.message);
+  }
+}
+
+function relGraphRenderCanvas() {
+  const canvasEl = document.getElementById('relgraph-canvas');
+  if (!canvasEl || !relGraphData) return;
+  if (relGraphCy) { relGraphCy.destroy(); relGraphCy = null; }
+  canvasEl.innerHTML = '';
+
+  const elements = [
+    ...relGraphData.nodes.map(n => ({
+      data: { id: n.id, label: n.name, isCenter: n.id === relGraphData.center },
+    })),
+    ...relGraphData.edges.map(e => ({
+      data: {
+        id: e.id, source: e.source, target: e.target,
+        type: e.type, intensity: e.intensity, direction: e.direction,
+        bucket: _relGraphBucket(e.intensity),
+      },
+    })),
+  ];
+
+  relGraphCy = cytoscape({
+    container: canvasEl,
+    elements,
+    layout: { name: 'concentric', concentric: n => (n.data('isCenter') ? 2 : 1) },
+    style: [
+      { selector: 'node', style: {
+          'label': 'data(label)', 'background-color': 'var(--card)',
+          'border-color': 'var(--border)', 'border-width': 1.5,
+          'font-size': 10, 'color': 'var(--text)', 'text-valign': 'bottom', 'text-margin-y': 4,
+      } },
+      { selector: 'node[?isCenter]', style: {
+          'background-color': 'var(--accent)', 'border-width': 3, 'width': 44, 'height': 44,
+      } },
+      { selector: 'edge', style: {
+          'width': 2, 'curve-style': 'bezier', 'target-arrow-shape': 'none', 'source-arrow-shape': 'none',
+      } },
+      { selector: 'edge[direction = "a_to_b"]', style: { 'target-arrow-shape': 'triangle' } },
+      { selector: 'edge[direction = "b_to_a"]', style: { 'source-arrow-shape': 'triangle' } },
+      ...[1, 2, 3, 4].map(b => ({
+        selector: `edge[bucket = ${b}]`,
+        style: { 'line-color': RELGRAPH_BUCKET_COLORS[b], 'target-arrow-color': RELGRAPH_BUCKET_COLORS[b], 'source-arrow-color': RELGRAPH_BUCKET_COLORS[b] },
+      })),
+    ],
+  });
+
+  relGraphCy.on('tap', 'node', evt => relGraphRenderInfoCard(evt.target.id()));
+  relGraphCy.on('dbltap', 'node', evt => relGraphFetch(evt.target.id()));
+
+  _relGraphApplyBucketVisibility();
+  relGraphRenderInfoCard(null);
+}
+
+function _relGraphApplyBucketVisibility() {
+  if (!relGraphCy) return;
+  [1, 2, 3, 4].forEach(b => {
+    relGraphCy.edges(`[bucket = ${b}]`).style('display', relGraphBucketState[b] ? 'element' : 'none');
+  });
+}
+
+function relGraphBucketToggle(bucket, checked) {
+  relGraphBucketState[bucket] = checked;
+  _relGraphApplyBucketVisibility();
+}
+
+function relGraphRenderInfoCard(nodeId) {
+  const cardEl = document.getElementById('relgraph-info-card');
+  if (!cardEl) return;
+  if (!nodeId || !relGraphData) {
+    cardEl.innerHTML = '<div class="empty">Cliquez un nœud pour voir ses informations.</div>';
+    return;
+  }
+  const node = relGraphData.nodes.find(n => n.id === nodeId);
+  if (!node) { cardEl.innerHTML = '<div class="empty">Nœud introuvable.</div>'; return; }
+  const centerId = relGraphData.center;
+  const relsToCenter = relGraphData.edges.filter(e =>
+    (e.source === nodeId && e.target === centerId) || (e.source === centerId && e.target === nodeId)
+  );
+  const relsHTML = relsToCenter.length
+    ? relsToCenter.map(e => `
+        <div style="margin-top:6px">
+          <span class="badge b-other" style="font-size:10px">${esc(e.type)}</span>
+          <div style="font-size:11px; color:var(--muted)">intensité ${e.intensity} · ${esc(e.direction)}</div>
+        </div>`).join('')
+    : '<div class="empty" style="font-size:11px">Aucune relation directe avec le centre.</div>';
+  cardEl.innerHTML = `
+    <div style="font-weight:600">${esc(node.name)}</div>
+    <div style="color:var(--muted); font-size:11px">${esc(node.character_type)}</div>
+    ${node.description ? `<div style="margin-top:6px; font-size:12px">${esc(node.description)}</div>` : ''}
+    <div style="margin-top:10px; font-weight:600; font-size:11px">Relations avec le centre</div>
+    ${relsHTML}
+  `;
+}
+
+/** Resets ALL relgraph state (G1/J1 state contract) — destroys the live
+ *  cytoscape instance, clears fetched data and bucket toggles back to
+ *  all-on, resets the info card. Called by the npc tab's onTabEnter and
+ *  onWorldSwitch resets; never persists across a tab re-entry or world
+ *  switch. */
+function _relGraphReset() {
+  if (relGraphCy) { relGraphCy.destroy(); relGraphCy = null; }
+  relGraphData = null;
+  relGraphBucketState = { 1: true, 2: true, 3: true, 4: true };
+  const canvasEl = document.getElementById('relgraph-canvas');
+  if (canvasEl) canvasEl.innerHTML = '';
+  relGraphRenderInfoCard(null);
+  document.querySelectorAll('#creation-npc-relgraph input.relgraph-bucket').forEach(c => { c.checked = true; });
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
