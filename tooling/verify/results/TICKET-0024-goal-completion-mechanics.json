@@ -1,0 +1,37 @@
+{
+  "ticket": "TICKET-0024-goal-completion-mechanics",
+  "when": "2026-07-11T12:34:17.141332+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "schema_0024.py",
+      "status": "PASS",
+      "msg": "PASS: faction.role_capacities and npc_goal.prerequisites present, nullable JSON"
+    },
+    {
+      "check": "prereq_judge.py",
+      "status": "PASS",
+      "msg": "PASS: goal_change complete rejects an unmet relation_gte prerequisite with current/required values"
+    },
+    {
+      "check": "effects_vocab.py",
+      "status": "PASS",
+      "msg": "PASS: effects vocabulary closed to relation_delta/ledger_transfer/role_change"
+    },
+    {
+      "check": "role_closed_vocab.py",
+      "status": "PASS",
+      "msg": "PASS: role_change resolves case-insensitively; undeclared without declare rejects (K1); declare is L2"
+    },
+    {
+      "check": "effects_ledger_source.py",
+      "status": "PASS",
+      "msg": "PASS: both ledger_transfer legs carry source_type='tick' (M1)"
+    },
+    {
+      "check": "h1_strip_bounded.py",
+      "status": "PASS",
+      "msg": "PASS: H1 strip is defined once and called exactly once, inside the goal_change branch"
+    }
+  ]
+}

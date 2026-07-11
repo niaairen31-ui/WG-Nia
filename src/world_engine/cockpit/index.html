@@ -3117,6 +3117,20 @@ let pendingCreationMutationId = null;
  * call from the faction's own metadata — no separate reset needed. */
 let authorFactionRolesDraft = [];
 
+/* Faction role-capacities editor draft (TICKET-0024, BRIEF-0024-a) —
+ * faction.role_capacities, a map of {role name: limit|null}. Held as an
+ * ordered array of {role, limit} rows while the faction sheet is open;
+ * loaded fresh by authorLoadFactionCapacities on every sheet open (NOT
+ * merged into authorSave — this column has its own dedicated
+ * PATCH /api/factions/{id}/role-capacities route through
+ * writes.write_faction_role_capacities, never the generic entity PUT). */
+let authorFactionCapacitiesDraft = [];
+
+/* Last-loaded goals for the open NPC sheet (TICKET-0024, BRIEF-0024-a) —
+ * lets the prerequisite add/remove controls read a goal's current
+ * `prerequisites` without a round-trip, set by authorLoadGoals. */
+let authorGoalsCache = [];
+
 /* ── Top-level mode switching ────────────────────────────────────────────── */
 
 function showPlayView() {
@@ -5903,6 +5917,12 @@ function authorRenderSheet(detail, isNew, type) {
     html += '</div>';
   }
 
+  if (type === 'faction' && !isNew) {
+    html += '<div class="field-section"><div class="field-section-title">Rôles & capacités</div>';
+    html += '<div id="author-role-capacities"><div class="empty"><span class="spin">⟳</span></div></div>';
+    html += '</div>';
+  }
+
   if (!isNew) {
     html += '<div class="field-section"><div class="field-section-title">Relations</div>';
     html += `<div id="author-relations">${authorRenderRelations(detail.relations)}</div>`;
@@ -5990,6 +6010,7 @@ function authorRenderSheet(detail, isNew, type) {
   if (!isNew && type === 'faction') {
     authorLoadLedger(detail.id);
     authorLoadFactionRoster(detail.id);
+    authorLoadFactionCapacities(detail.id);
   }
   if (!isNew && type === 'location') {
     authorLoadDiscDetails(detail.id);
@@ -6546,6 +6567,89 @@ function authorMoveRoleRow(i, dir) {
   if (j < 0 || j >= authorFactionRolesDraft.length) return;
   [authorFactionRolesDraft[i], authorFactionRolesDraft[j]] = [authorFactionRolesDraft[j], authorFactionRolesDraft[i]];
   document.getElementById('author-roles').innerHTML = authorRenderRolesEditor();
+}
+
+/* ── Faction role-capacities editor (TICKET-0024, BRIEF-0024-a) ───────────
+ * faction.role_capacities — {role name: limit|null}. Own dedicated
+ * GET/PATCH /api/factions/{id}/role-capacities route, never the generic
+ * entity PUT (only writes.write_faction_role_capacities may touch this
+ * column). On first open with the map NULL, pre-fills from the DISTINCT
+ * true `role` values on this faction's ACTIVE memberships, limits empty —
+ * zero canon writes until Save. */
+
+async function authorLoadFactionCapacities(factionId) {
+  const el = document.getElementById('author-role-capacities');
+  if (!el) return;
+  try {
+    const data = await api(`/api/factions/${encodeURIComponent(factionId)}/role-capacities`);
+    authorFactionCapacitiesDraft = (data.role_capacities && typeof data.role_capacities === 'object')
+      ? Object.entries(data.role_capacities).map(([role, limit]) => ({ role, limit }))
+      : (data.active_roles || []).map(role => ({ role, limit: null }));
+    el.innerHTML = authorRenderCapacitiesEditor();
+  } catch (e) {
+    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function authorRenderCapacitiesEditor() {
+  const rows = authorFactionCapacitiesDraft.map((r, i) => `
+    <div class="row-card" style="flex-direction:row; gap:8px; align-items:center;">
+      <input type="number" min="1" step="1" id="cap-limit-${i}" placeholder="Limite" style="width:110px"
+        value="${r.limit === null || r.limit === undefined ? '' : esc(String(r.limit))}">
+      <input type="text" id="cap-role-${i}" placeholder="Rôle" value="${esc(r.role || '')}" style="flex:1">
+      <button class="btn-icon" onclick="authorRemoveCapacityRow(${i})" title="Supprimer">✕</button>
+    </div>`).join('');
+  return `<div id="author-role-capacities-rows">${rows || '<div class="empty">Aucune capacité déclarée.</div>'}</div>
+    <div style="font-size:11px; color:var(--muted); margin:4px 0;">Limite / Rôle — vide = illimité</div>
+    <div class="row-card-actions" style="display:flex; gap:8px; align-items:center;">
+      <button class="btn-send" onclick="authorAddCapacityRow()">+ Add role</button>
+      <button class="btn-send" onclick="authorSaveFactionCapacities('${esc(authorEntityId)}')">Enregistrer les capacités</button>
+      <span id="author-role-capacities-status" class="author-status"></span>
+    </div>`;
+}
+
+function _syncCapacitiesFromDom() {
+  authorFactionCapacitiesDraft.forEach((r, i) => {
+    const limitEl = document.getElementById(`cap-limit-${i}`);
+    const roleEl = document.getElementById(`cap-role-${i}`);
+    if (roleEl) r.role = roleEl.value;
+    if (limitEl) r.limit = limitEl.value.trim() === '' ? null : Number(limitEl.value);
+  });
+}
+
+function authorAddCapacityRow() {
+  _syncCapacitiesFromDom();
+  authorFactionCapacitiesDraft.push({ role: '', limit: null });
+  document.getElementById('author-role-capacities').innerHTML = authorRenderCapacitiesEditor();
+}
+
+function authorRemoveCapacityRow(i) {
+  _syncCapacitiesFromDom();
+  authorFactionCapacitiesDraft.splice(i, 1);
+  document.getElementById('author-role-capacities').innerHTML = authorRenderCapacitiesEditor();
+}
+
+async function authorSaveFactionCapacities(factionId) {
+  _syncCapacitiesFromDom();
+  const capacities = {};
+  for (const row of authorFactionCapacitiesDraft) {
+    const role = (row.role || '').trim();
+    if (!role) continue;
+    capacities[role] = (row.limit === null || row.limit === undefined || Number.isNaN(row.limit)) ? null : row.limit;
+  }
+  try {
+    await api(`/api/factions/${encodeURIComponent(factionId)}/role-capacities`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ capacities }),
+    });
+    await authorLoadFactionCapacities(factionId);
+    const s = document.getElementById('author-role-capacities-status');
+    if (s) { s.className = 'author-status ok'; s.textContent = 'Saved.'; }
+  } catch (e) {
+    const s = document.getElementById('author-role-capacities-status');
+    if (s) { s.className = 'author-status err'; s.textContent = e.message; }
+  }
 }
 
 function authorRenderMembershipForm() {
@@ -7286,6 +7390,7 @@ async function authorLoadGoals(entityId) {
       api('/api/agendas'),
     ]);
     const activeAgendas = (agendas || []).filter(a => a.status === 'active');
+    authorGoalsCache = goals || [];
     el.innerHTML = authorRenderGoals(goals, activeAgendas);
   } catch (e) {
     el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
@@ -7323,8 +7428,79 @@ function authorRenderGoals(goals, activeAgendas) {
           ${attachHtml}
         </span>
       </div>
+      ${authorRenderGoalPrerequisites(g, closed)}
     </div>`;
   }).join('') + '</div>';
+}
+
+/* ── Goal prerequisites (schema v1.74, TICKET-0024, BRIEF-0024-a) ─────────
+ * npc_goal.prerequisites — v1: relation_gte only. Each add/remove PATCHes
+ * the FULL list via writes.write_npc_goal_prerequisites (there is no
+ * partial-update route) — authorGoalsCache supplies the current list so a
+ * single click never needs a round-trip first. Display shows the resolved
+ * entity NAME (server-side _goal_prerequisites_dict); the id travels
+ * underneath for the write. */
+
+function authorRenderGoalPrerequisites(g, closed) {
+  const prereqs = g.prerequisites || [];
+  const badges = prereqs.map((p, i) => `
+    <span class="badge b-other" style="display:inline-flex; align-items:center; gap:5px; margin:2px 4px 0 0;">
+      relation ≥ ${esc(String(p.threshold))} avec ${esc(p.target_entity_name)}
+      <button class="btn-icon" style="padding:0 2px" title="Retirer" onclick="authorRemoveGoalPrerequisite('${esc(g.id)}', ${i})">✕</button>
+    </span>`).join('');
+  const addForm = !closed ? (() => {
+    const candidates = authorAllEntities.filter(e => e.type === 'character' || e.type === 'faction');
+    const opts = ['<option value="">— prérequis : relation ≥ seuil avec —</option>'].concat(
+      candidates.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`)
+    ).join('');
+    return `
+      <span style="display:inline-flex; gap:4px; align-items:center; margin-top:2px;">
+        <select id="goal-prereq-target-${esc(g.id)}" style="font-size:11px;">${opts}</select>
+        <input type="number" id="goal-prereq-threshold-${esc(g.id)}" min="1" max="100" placeholder="seuil" style="width:60px; font-size:11px;">
+        <button class="btn-icon" title="Ajouter ce prérequis" onclick="authorAddGoalPrerequisite('${esc(g.id)}')">+</button>
+      </span>`;
+  })() : '';
+  if (!badges && !addForm) return '';
+  return `<div style="margin-top:4px; font-size:11px;">${badges}${addForm}</div>`;
+}
+
+function _goalPrereqRawList(goalId) {
+  const goal = authorGoalsCache.find(g => g.id === goalId);
+  return (goal && goal.prerequisites || []).map(p => ({
+    type: p.type, target_entity_id: p.target_entity_id, threshold: p.threshold,
+  }));
+}
+
+function authorAddGoalPrerequisite(goalId) {
+  const targetEl = document.getElementById(`goal-prereq-target-${goalId}`);
+  const thresholdEl = document.getElementById(`goal-prereq-threshold-${goalId}`);
+  const targetId = targetEl ? targetEl.value : '';
+  const threshold = thresholdEl ? Number(thresholdEl.value) : NaN;
+  if (!targetId || !threshold) return;
+  const prerequisites = _goalPrereqRawList(goalId);
+  prerequisites.push({ type: 'relation_gte', target_entity_id: targetId, threshold });
+  authorSetGoalPrerequisites(goalId, prerequisites);
+}
+
+function authorRemoveGoalPrerequisite(goalId, index) {
+  const prerequisites = _goalPrereqRawList(goalId);
+  prerequisites.splice(index, 1);
+  authorSetGoalPrerequisites(goalId, prerequisites);
+}
+
+async function authorSetGoalPrerequisites(goalId, prerequisites) {
+  const statusEl = document.getElementById('author-status');
+  try {
+    await api(`/api/goals/${encodeURIComponent(goalId)}/prerequisites`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prerequisites }),
+    });
+    await authorLoadGoals(authorEntityId);
+    if (statusEl) { statusEl.className = 'author-status ok'; statusEl.textContent = 'Saved.'; }
+  } catch (e) {
+    if (statusEl) { statusEl.className = 'author-status err'; statusEl.textContent = e.message; }
+  }
 }
 
 async function authorAttachGoalLink(goalId) {

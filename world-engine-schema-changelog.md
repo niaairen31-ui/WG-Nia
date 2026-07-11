@@ -8,6 +8,22 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.75** — TICKET-0024, BRIEF-0024-c: `ledger.source_type` enum gains
+  `tick` (M1) — written by completion-effect `ledger_transfer` legs inside
+  `_apply_mutation`. `faction.role_capacities`'s DORMANT note flips to
+  LIVE: read by `_apply_mutation`'s `role_change` effect. No column shape
+  change — documentation-only schema touch (enum value + dormancy status).
+- **v1.74** — TICKET-0024, BRIEF-0024-a: `faction.role_capacities`
+  (nullable JSON, per-role membership caps — `{"<role>": <int limit |
+  null>}`) and `npc_goal.prerequisites` (nullable JSON, completion gate —
+  `[{"type": "relation_gte", "target_entity_id", "threshold": 1-100}]`, v1
+  accepts ONLY `relation_gte`). Both columns are DORMANT this step: stored
+  and creator-editable via this brief's editors
+  (`writes.write_faction_role_capacities`,
+  `writes.write_npc_goal_prerequisites`), read by no AI-path code yet —
+  `role_capacities`'s AI-path reader is BRIEF-0024-c's `role_change`
+  effect; `prerequisites`'s reader is BRIEF-0024-b's completion judge and
+  tick briefing.
 - **v1.73** — New table `goal_agenda_link` (TICKET-0020, BRIEF-0020-a): a
   many-to-many tie between `npc_goal` and the `agenda` intrigue(s) it
   serves (B3 grain: the AGENDA, never the step). `id, world_id, goal_id
