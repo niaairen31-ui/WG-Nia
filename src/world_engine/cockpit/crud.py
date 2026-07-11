@@ -2146,6 +2146,89 @@ def get_locations_graph(db: DbSession = Depends(get_session)) -> dict:
     return {"nodes": nodes, "edges": edges}
 
 
+# ── NPC relation ego-graph (BRIEF-0023-b, no schema change) ─────────────────
+
+_RELATION_GRAPH_EXCLUDED_TYPES = ("connects_to", "controls")
+
+
+@router.get("/characters/{entity_id}/relation-graph")
+def get_character_relation_graph(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
+    """Depth-1 ego-graph of a character's relations — display-only, read-only.
+
+    Neighbors: every ACTIVE character entity linked to `entity_id` by at
+    least one qualifying relation row (either endpoint). Edges: every
+    qualifying relation row whose both endpoints are in {center} ∪
+    neighbors (inter-neighbor edges included) — one edge object per row,
+    no aggregation (B1). Qualifying = world_id match AND type NOT IN
+    ('connects_to', 'controls') in the WHERE clause (structural exclusion,
+    never post-filtered, G1) AND both endpoints resolve to active
+    type='character' entities.
+    """
+    world_id = _world_id(db)
+
+    center = db.get(Entity, entity_id)
+    if (
+        center is None
+        or center.world_id != world_id
+        or center.type != "character"
+        or center.status != "active"
+    ):
+        raise HTTPException(status_code=404, detail=f"Character {entity_id!r} not found in the active world")
+
+    neighbor_rels = db.exec(
+        select(Relation)
+        .where(Relation.world_id == world_id)
+        .where(Relation.type.not_in(_RELATION_GRAPH_EXCLUDED_TYPES))
+        .where((Relation.entity_a_id == entity_id) | (Relation.entity_b_id == entity_id))
+    ).all()
+    neighbor_ids = {
+        (r.entity_b_id if r.entity_a_id == entity_id else r.entity_a_id)
+        for r in neighbor_rels
+    }
+
+    active_char_rows = db.exec(
+        select(Entity, Character)
+        .join(Character, Character.id == Entity.id)
+        .where(Entity.world_id == world_id)
+        .where(Entity.type == "character")
+        .where(Entity.status == "active")
+        .where(Entity.id.in_(neighbor_ids | {entity_id}))
+    ).all()
+    active_chars = {e.id: (e, c) for e, c in active_char_rows}
+    node_ids = set(active_chars.keys())
+
+    nodes = [
+        {
+            "id": e.id,
+            "name": e.name,
+            "character_type": c.character_type,
+            "description": (e.description or "")[:200],
+        }
+        for e, c in active_chars.values()
+    ]
+
+    edge_rels = db.exec(
+        select(Relation)
+        .where(Relation.world_id == world_id)
+        .where(Relation.type.not_in(_RELATION_GRAPH_EXCLUDED_TYPES))
+        .where(Relation.entity_a_id.in_(node_ids))
+        .where(Relation.entity_b_id.in_(node_ids))
+    ).all()
+    edges = [
+        {
+            "id": r.id,
+            "source": r.entity_a_id,
+            "target": r.entity_b_id,
+            "type": r.type,
+            "intensity": r.intensity,
+            "direction": r.direction,
+        }
+        for r in edge_rels
+    ]
+
+    return {"center": entity_id, "nodes": nodes, "edges": edges}
+
+
 # ── Location hierarchy browse (BRIEF-51, no schema change) ──────────────────
 
 @router.get("/locations")

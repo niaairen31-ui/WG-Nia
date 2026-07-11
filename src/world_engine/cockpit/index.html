@@ -963,6 +963,9 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 
 /* ── Lieux graph panel (BRIEF-15) ────────────────────────────────────────── */
 #creation-lieux-graph { flex-shrink: 0; border-bottom: 1px solid var(--border); }
+/* ── NPC relation ego-graph panel (BRIEF-0023-b) ─────────────────────────── */
+#creation-npc-relgraph { flex-shrink: 0; border-bottom: 1px solid var(--border); }
+.relgraph-buckets label { font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: normal; color: var(--text); display: flex; align-items: center; gap: 4px; }
 .lieux-graph-head {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 14px; border-bottom: 1px solid var(--border);
@@ -1234,6 +1237,28 @@ button:not(:disabled):hover { filter: brightness(1.15); }
          onclick="graphCanvasClick(event)"></svg>
     <p style="padding:4px 14px 6px; font-size:11px; color:var(--muted)">
       Cliquez un nœud pour le sélectionner, puis un second pour le connecter. Glissez pour repositionner. Cliquez un lien pour le supprimer.
+    </p>
+  </div>
+
+  <!-- ── NPC — Relation ego-graph panel (BRIEF-0023-b, no schema change) ── -->
+  <div id="creation-npc-relgraph" style="display:none">
+    <div class="lieux-graph-head">
+      <span>Graphe de relations</span>
+      <div class="relgraph-buckets" style="display:flex; gap:10px; margin-left:auto">
+        <label><input type="checkbox" class="relgraph-bucket" checked onchange="relGraphBucketToggle(1, this.checked)"> Rouge (1-25)</label>
+        <label><input type="checkbox" class="relgraph-bucket" checked onchange="relGraphBucketToggle(2, this.checked)"> Orange (26-50)</label>
+        <label><input type="checkbox" class="relgraph-bucket" checked onchange="relGraphBucketToggle(3, this.checked)"> Bleu (51-75)</label>
+        <label><input type="checkbox" class="relgraph-bucket" checked onchange="relGraphBucketToggle(4, this.checked)"> Vert (76-100)</label>
+      </div>
+    </div>
+    <div style="display:flex; gap:0">
+      <div id="relgraph-canvas" style="flex:1; height:340px; background:var(--bg)"></div>
+      <div id="relgraph-info-card" style="width:220px; flex-shrink:0; padding:10px; font-size:12px; border-left:1px solid var(--border)">
+        <div class="empty">Cliquez un nœud pour voir ses informations.</div>
+      </div>
+    </div>
+    <p style="padding:4px 14px 6px; font-size:11px; color:var(--muted)">
+      Molette pour zoomer, glisser pour déplacer. Cliquez un nœud pour ses informations, double-cliquez pour le recentrer. Lecture seule — aucune modification de relation depuis ce graphe.
     </p>
   </div>
 
@@ -3276,11 +3301,19 @@ function _entityListWorldReset() {
   playerCharIds = new Set();
 }
 
+function _npcTabEnterReset() {
+  _entityTabEnterReset();
+  _onDemandSlotReset(CREATION_TABS.npc);
+  _relGraphReset();
+}
+
 function _npcWorldReset() {
   _entityListWorldReset();
   pendingDraftKnowledge = [];
   pendingDraftNotes     = [];
   pendingDraftGoals     = { long: '', shorts: ['', ''] };
+  _onDemandSlotReset(CREATION_TABS.npc);
+  _relGraphReset();
 }
 
 function _pjWorldReset() {
@@ -3360,13 +3393,14 @@ const CREATION_TABS = {
     archetype: 'entity',
     containers: ['creation-editor-area'],
     loader: null,
-    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _npcWorldReset },
+    state: { onTabEnter: _npcTabEnterReset, onWorldSwitch: _npcWorldReset },
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && !playerCharIds.has(e.id)),
     createPanel: () => authorRenderSheet({}, true, 'character'),
     primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
     showPendingCreations: true,
-    slots: [],
+    slots: [{ id: 'relgraph', containerId: 'creation-npc-relgraph', loader: relGraphLoad, onSelect: relGraphOnSelect,
+              display: 'on_demand', toggleLabel: 'Voir le graphe' }],
   },
   pj: {
     label: 'Personnages joueurs',
@@ -7896,6 +7930,167 @@ async function graphLoad() {
   } catch (err) {
     if (svg) svg.innerHTML = `<text x="480" y="240" text-anchor="middle" fill="var(--red)" font-size="12">${esc(err.message)}</text>`;
   }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   NPC relation ego-graph — cytoscape, display-only, on-demand (BRIEF-0023-b)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+let relGraphData         = null;  // { center, nodes, edges } from the last fetch
+let relGraphCy           = null;  // the live cytoscape instance, or null
+let relGraphBucketState  = { 1: true, 2: true, 3: true, 4: true };
+
+const RELGRAPH_BUCKET_COLORS = { 1: '#e5534b', 2: '#d29922', 3: '#58a6ff', 4: '#3fb950' };
+
+function _relGraphBucket(intensity) {
+  if (intensity <= 25) return 1;
+  if (intensity <= 50) return 2;
+  if (intensity <= 75) return 3;
+  return 4;
+}
+
+function _relGraphRenderEmptyState(msg) {
+  if (relGraphCy) { relGraphCy.destroy(); relGraphCy = null; }
+  const canvasEl = document.getElementById('relgraph-canvas');
+  if (canvasEl) canvasEl.innerHTML = `<div class="empty">${esc(msg)}</div>`;
+  relGraphRenderInfoCard(null);
+}
+
+/** The npc entry's relgraph slot loader (BRIEF-0023-a on_demand contract) —
+ *  fires once when the panel is first opened. No character selected yet ->
+ *  empty state, fetches nothing (I2). */
+function relGraphLoad() {
+  if (!authorEntityId) {
+    _relGraphRenderEmptyState('Sélectionnez un personnage pour voir son graphe de relations.');
+    return;
+  }
+  relGraphFetch(authorEntityId);
+}
+
+/** The npc entry's relgraph slot onSelect (mirrors pjFicheOnSelect's seam) —
+ *  only refetches while the panel is open; closed panels load nothing. */
+function relGraphOnSelect(id) {
+  const st = onDemandSlotState['creation-npc-relgraph'];
+  if (!st || !st.open) return;
+  relGraphFetch(id);
+}
+
+async function relGraphFetch(centerId) {
+  _relGraphRenderEmptyState('Chargement…');
+  try {
+    relGraphData = await api(`/api/characters/${encodeURIComponent(centerId)}/relation-graph`);
+    relGraphRenderCanvas();
+  } catch (err) {
+    relGraphData = null;
+    _relGraphRenderEmptyState(err.message);
+  }
+}
+
+function relGraphRenderCanvas() {
+  const canvasEl = document.getElementById('relgraph-canvas');
+  if (!canvasEl || !relGraphData) return;
+  if (relGraphCy) { relGraphCy.destroy(); relGraphCy = null; }
+  canvasEl.innerHTML = '';
+
+  const elements = [
+    ...relGraphData.nodes.map(n => ({
+      data: { id: n.id, label: n.name, isCenter: n.id === relGraphData.center },
+    })),
+    ...relGraphData.edges.map(e => ({
+      data: {
+        id: e.id, source: e.source, target: e.target,
+        type: e.type, intensity: e.intensity, direction: e.direction,
+        bucket: _relGraphBucket(e.intensity),
+      },
+    })),
+  ];
+
+  relGraphCy = cytoscape({
+    container: canvasEl,
+    elements,
+    layout: { name: 'concentric', concentric: n => (n.data('isCenter') ? 2 : 1) },
+    style: [
+      { selector: 'node', style: {
+          'label': 'data(label)', 'background-color': 'var(--card)',
+          'border-color': 'var(--border)', 'border-width': 1.5,
+          'font-size': 10, 'color': 'var(--text)', 'text-valign': 'bottom', 'text-margin-y': 4,
+      } },
+      { selector: 'node[?isCenter]', style: {
+          'background-color': 'var(--accent)', 'border-width': 3, 'width': 44, 'height': 44,
+      } },
+      { selector: 'edge', style: {
+          'width': 2, 'curve-style': 'bezier', 'target-arrow-shape': 'none', 'source-arrow-shape': 'none',
+      } },
+      { selector: 'edge[direction = "a_to_b"]', style: { 'target-arrow-shape': 'triangle' } },
+      { selector: 'edge[direction = "b_to_a"]', style: { 'source-arrow-shape': 'triangle' } },
+      ...[1, 2, 3, 4].map(b => ({
+        selector: `edge[bucket = ${b}]`,
+        style: { 'line-color': RELGRAPH_BUCKET_COLORS[b], 'target-arrow-color': RELGRAPH_BUCKET_COLORS[b], 'source-arrow-color': RELGRAPH_BUCKET_COLORS[b] },
+      })),
+    ],
+  });
+
+  relGraphCy.on('tap', 'node', evt => relGraphRenderInfoCard(evt.target.id()));
+  relGraphCy.on('dbltap', 'node', evt => relGraphFetch(evt.target.id()));
+
+  _relGraphApplyBucketVisibility();
+  relGraphRenderInfoCard(null);
+}
+
+function _relGraphApplyBucketVisibility() {
+  if (!relGraphCy) return;
+  [1, 2, 3, 4].forEach(b => {
+    relGraphCy.edges(`[bucket = ${b}]`).style('display', relGraphBucketState[b] ? 'element' : 'none');
+  });
+}
+
+function relGraphBucketToggle(bucket, checked) {
+  relGraphBucketState[bucket] = checked;
+  _relGraphApplyBucketVisibility();
+}
+
+function relGraphRenderInfoCard(nodeId) {
+  const cardEl = document.getElementById('relgraph-info-card');
+  if (!cardEl) return;
+  if (!nodeId || !relGraphData) {
+    cardEl.innerHTML = '<div class="empty">Cliquez un nœud pour voir ses informations.</div>';
+    return;
+  }
+  const node = relGraphData.nodes.find(n => n.id === nodeId);
+  if (!node) { cardEl.innerHTML = '<div class="empty">Nœud introuvable.</div>'; return; }
+  const centerId = relGraphData.center;
+  const relsToCenter = relGraphData.edges.filter(e =>
+    (e.source === nodeId && e.target === centerId) || (e.source === centerId && e.target === nodeId)
+  );
+  const relsHTML = relsToCenter.length
+    ? relsToCenter.map(e => `
+        <div style="margin-top:6px">
+          <span class="badge b-other" style="font-size:10px">${esc(e.type)}</span>
+          <div style="font-size:11px; color:var(--muted)">intensité ${e.intensity} · ${esc(e.direction)}</div>
+        </div>`).join('')
+    : '<div class="empty" style="font-size:11px">Aucune relation directe avec le centre.</div>';
+  cardEl.innerHTML = `
+    <div style="font-weight:600">${esc(node.name)}</div>
+    <div style="color:var(--muted); font-size:11px">${esc(node.character_type)}</div>
+    ${node.description ? `<div style="margin-top:6px; font-size:12px">${esc(node.description)}</div>` : ''}
+    <div style="margin-top:10px; font-weight:600; font-size:11px">Relations avec le centre</div>
+    ${relsHTML}
+  `;
+}
+
+/** Resets ALL relgraph state (G1/J1 state contract) — destroys the live
+ *  cytoscape instance, clears fetched data and bucket toggles back to
+ *  all-on, resets the info card. Called by the npc tab's onTabEnter and
+ *  onWorldSwitch resets; never persists across a tab re-entry or world
+ *  switch. */
+function _relGraphReset() {
+  if (relGraphCy) { relGraphCy.destroy(); relGraphCy = null; }
+  relGraphData = null;
+  relGraphBucketState = { 1: true, 2: true, 3: true, 4: true };
+  const canvasEl = document.getElementById('relgraph-canvas');
+  if (canvasEl) canvasEl.innerHTML = '';
+  relGraphRenderInfoCard(null);
+  document.querySelectorAll('#creation-npc-relgraph input.relgraph-bucket').forEach(c => { c.checked = true; });
 }
 
 /* ════════════════════════════════════════════════════════════════════════════

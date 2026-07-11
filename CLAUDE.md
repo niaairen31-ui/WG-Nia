@@ -395,7 +395,8 @@ WG-Nia/
 │   └── cockpit/             # creator web UI (FastAPI + HTMX, port 8000, loopback)
 │       ├── app.py           # play endpoints; _apply_mutation; _stream; region commit
 │       ├── crud.py          # creator CRUD routes; prompts read + model write
-│       └── index.html       # single-page UI; CREATION_TABS registry + dispatcher
+│       ├── index.html       # single-page UI; CREATION_TABS registry + dispatcher
+│       └── vendor/          # vendored JS deps (cytoscape-*.min.js); one whitelisted GET route
 ├── scripts/
 │   ├── init_db.py           # create tables + indexes (idempotent)
 │   ├── seed_pilot.py        # seed Verkhaal world + prompt templates (idempotent)
