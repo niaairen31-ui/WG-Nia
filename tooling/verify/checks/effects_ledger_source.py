@@ -1,0 +1,55 @@
+"""G1 gate: ledger rows written by completion effects carry
+`source_type='tick'` (M1, TICKET-0024, BRIEF-0024-c) — both legs of a
+`ledger_transfer` effect, inside `_apply_completion_effects`.
+
+No DB, stdlib `ast` only.
+"""
+import ast
+import pathlib
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parents[3]
+APP = ROOT / "src" / "world_engine" / "cockpit" / "app.py"
+
+
+def fail(msg):
+    print(f"FAIL: {msg}")
+    sys.exit(1)
+
+
+def main():
+    if not APP.exists():
+        fail(f"{APP} not found")
+    tree = ast.parse(APP.read_text(encoding="utf-8"), filename=str(APP))
+
+    func = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_apply_completion_effects":
+            func = node
+            break
+    if func is None:
+        fail("_apply_completion_effects not found in app.py")
+
+    ledger_calls = [
+        n for n in ast.walk(func)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "write_ledger_entry"
+    ]
+    if len(ledger_calls) != 2:
+        fail(f"expected exactly 2 write_ledger_entry calls in _apply_completion_effects, found {len(ledger_calls)}")
+
+    for call in ledger_calls:
+        source_kw = next((kw for kw in call.keywords if kw.arg == "source_type"), None)
+        if source_kw is None or not (
+            isinstance(source_kw.value, ast.Constant) and source_kw.value.value == "tick"
+        ):
+            fail(f"write_ledger_entry call at line {call.lineno} does not pass source_type='tick'")
+
+    if "insufficient balance" not in APP.read_text(encoding="utf-8"):
+        fail("no balance guard reject message found")
+
+    print("PASS: both ledger_transfer legs carry source_type='tick' (M1)")
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

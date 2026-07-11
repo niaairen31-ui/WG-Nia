@@ -195,13 +195,13 @@ class Faction(SQLModel, table=True):
     # by no assembler yet. Future reader MUST route through
     # `read_public_memberships` (see ARCHITECTURE_DECISIONS.md).
     aversion: Optional[str] = None
-    # DORMANT until BRIEF-0024-c (schema v1.74, TICKET-0024): per-role
-    # membership caps. Shape: {"<role name>": <int limit | None>} — a key
-    # present with a null limit is declared-but-unlimited; an absent key is
-    # unconstrained until BRIEF-0024-c's `role_change` effect ships (K1).
+    # Schema v1.74, TICKET-0024: per-role membership caps. Shape:
+    # {"<role name>": <int limit | None>} — a key present with a null
+    # limit is declared-but-unlimited; an absent key means undeclared (K1).
     # Written ONLY via `writes.write_faction_role_capacities` (creator
-    # editor, this brief); read by `_apply_mutation`'s `role_change` effect
-    # in BRIEF-0024-c. Capacity counts the true 'role', never 'cover_role'.
+    # editor, BRIEF-0024-a); read by `_apply_mutation`'s `role_change`
+    # effect (BRIEF-0024-c). Capacity counts the true 'role', never
+    # 'cover_role'.
     role_capacities: Optional[dict] = Field(
         default=None, sa_column=Column(JSON, nullable=True)
     )

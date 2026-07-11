@@ -536,7 +536,13 @@ def write_membership(
     (history is sacred; the closed-row sequence IS the history, by
     construction — no `change_history` column on this table).
 
-    mode="open" (creator CRUD only):
+    Modes are no longer "creator CRUD only" (schema v1.74, TICKET-0024):
+    `_apply_mutation`'s `role_change` completion effect (BRIEF-0024-c) is
+    the second sanctioned caller — it closes the subject's current
+    membership and opens a fresh one with the new role, same close+reopen
+    discipline, no third path.
+
+    mode="open":
         Inserts a new row (`world_id`, `entity_id`, `faction_id` required).
         Setting `is_primary=True` while another active primary exists for
         this `entity_id`, or opening a second active membership in the same
@@ -545,7 +551,7 @@ def write_membership(
         the resulting `IntegrityError` propagates to the caller, which must
         surface it as an error, never silently demote the existing row.
 
-    mode="close" (creator CRUD only):
+    mode="close":
         Sets `left_at` on `membership_id`. Never touches `role` /
         `cover_role` / `is_secret` / `faction_id` / `is_primary`. Closing an
         already-closed row is a no-op (idempotent), not an error.
@@ -742,6 +748,7 @@ def write_npc_goal_status(
     goal: NpcGoal,
     new_status: str,
     changed_by: str,
+    extra: Optional[dict] = None,
 ) -> NpcGoal:
     """Transition `goal.status`. Caller adds the row to the session.
 
@@ -751,18 +758,26 @@ def write_npc_goal_status(
     `ValueError`: a revived goal is a NEW row via `write_npc_goal`, never a
     reopened one. Appends the previous state to `change_history` first
     (history is sacred), then sets `status` and bumps `updated_at`.
+
+    `extra` (TICKET-0024, BRIEF-0024-c) merges additional keys into that
+    SAME snapshot entry — e.g. `no_footprint: True` or `stripped: [...]`
+    on a `complete` — rather than opening a second write path for
+    completion-event metadata.
     """
     if goal.status != "active" or new_status not in ("completed", "abandoned"):
         raise ValueError(
             f"write_npc_goal_status: invalid transition {goal.status!r} -> {new_status!r}"
         )
 
-    history = list(goal.change_history or [])
-    history.append({
+    entry = {
         "status": goal.status,
         "updated_at": goal.updated_at.isoformat() if goal.updated_at else None,
         "changed_by": changed_by,
-    })
+    }
+    if extra:
+        entry.update(extra)
+    history = list(goal.change_history or [])
+    history.append(entry)
     goal.change_history = history
     sa_attrs.flag_modified(goal, "change_history")
     goal.status = new_status
@@ -857,6 +872,7 @@ def write_agenda_step_status(
     status: str,
     outcome: Optional[str] = None,
     mutation_id: Optional[str] = None,
+    extra: Optional[dict] = None,
 ) -> AgendaStep:
     """Transition `step.status` (TICKET-0018, BRIEF-0018-a).
 
@@ -866,14 +882,21 @@ def write_agenda_step_status(
     untouched otherwise. `mutation_id` is accepted only for call-site
     symmetry with the other `_apply_mutation` writers and is not otherwise
     used here.
+
+    `extra` (TICKET-0024, BRIEF-0024-c) merges additional keys into that
+    SAME snapshot entry — e.g. `no_footprint: True` on a `complete` — same
+    idiom as `write_npc_goal_status`.
     """
     del mutation_id
-    history = list(step.change_history or [])
-    history.append({
+    entry = {
         "status": step.status,
         "outcome": step.outcome,
         "updated_at": step.updated_at.isoformat() if step.updated_at else None,
-    })
+    }
+    if extra:
+        entry.update(extra)
+    history = list(step.change_history or [])
+    history.append(entry)
     step.change_history = history
     sa_attrs.flag_modified(step, "change_history")
     step.status = status

@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.74
+Current schema version: v1.75
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -165,17 +165,17 @@ CREATE TABLE faction (
                         -- assembler yet; the future reader MUST route
                         -- through read_public_memberships.
   role_capacities       JSON
-                        -- DORMANT until BRIEF-0024-c (schema v1.74,
-                        -- TICKET-0024): per-role membership caps, shape
-                        -- {"<role name>": <int limit | null>} — a key
-                        -- present with a null limit is declared-but-
-                        -- unlimited; an absent key is unconstrained until
-                        -- BRIEF-0024-c's role_change effect ships (K1).
-                        -- Written ONLY via
+                        -- (schema v1.74, TICKET-0024): per-role membership
+                        -- caps, shape {"<role name>": <int limit | null>}
+                        -- — a key present with a null limit is declared-
+                        -- but-unlimited; an absent key means undeclared
+                        -- (K1: rejected on the AI path unless declare:true,
+                        -- L2). Written ONLY via
                         -- writes.write_faction_role_capacities (creator
                         -- editor, BRIEF-0024-a); read by _apply_mutation's
-                        -- role_change effect (BRIEF-0024-c). Capacity
-                        -- counts the true 'role', never 'cover_role'.
+                        -- role_change effect (BRIEF-0024-c) — LIVE, no
+                        -- longer dormant. Capacity counts the true 'role',
+                        -- never 'cover_role'.
 );
 CREATE INDEX idx_faction_parent ON faction(parent_faction_id);
 ```
@@ -374,11 +374,14 @@ CREATE TABLE ledger (
   amount          INTEGER NOT NULL,        -- signed: + credit, − debit; world base unit
   counterparty_id TEXT REFERENCES entity(id),           -- the other party (filled, not double-written)
   reason          TEXT,                    -- "pécule de départ", "correction prix"
-  source_type     TEXT,                    -- creator | correction | conversation | pass_play
+  source_type     TEXT,                    -- creator | correction | conversation | pass_play | tick
                                             -- ('conversation' written by
                                             -- _apply_mutation's resource_change
                                             -- branch, BRIEF-19/v1.32; 'pass_play'
-                                            -- still unused)
+                                            -- still unused; 'tick' written by
+                                            -- _apply_mutation's ledger_transfer
+                                            -- completion effect, schema v1.75,
+                                            -- TICKET-0024/BRIEF-0024-c, M1)
   conversation_id TEXT REFERENCES conversation(id),
   pass_play_id    TEXT REFERENCES pass_play(id),
   session_id      TEXT REFERENCES session(id),

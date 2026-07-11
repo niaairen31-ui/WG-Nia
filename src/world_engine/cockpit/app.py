@@ -112,9 +112,11 @@ from ..writes import (
     write_agenda_step_status,
     write_character_location,
     write_event,
+    write_faction_role_capacities,
     write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
+    write_membership,
     write_npc_goal,
     write_npc_goal_status,
     write_relation,
@@ -1268,6 +1270,195 @@ def _knowledge_leg_already_applied(
     return False
 
 
+# ── Completion effects (TICKET-0024, BRIEF-0024-c) ─────────────────────────
+# Closed vocabulary shared by `goal_change complete` and
+# `agenda_step_change complete` — B1: one effect type per concrete named
+# case, expand only at a second concrete case.
+
+_EFFECT_TYPES = frozenset({"relation_delta", "ledger_transfer", "role_change"})
+_MAX_EFFECTS = 3
+
+
+def _h1_strip_satisfied_prerequisite_deltas(
+    goal: NpcGoal, effects: list, db: Session
+) -> tuple[list, list[str]]:
+    # H1 (TICKET-0024): the ONLY sanctioned partial application of a
+    # mutation. Scope: relation_delta on a satisfied relation_gte pair,
+    # nothing else. Any other invalid element remains a whole reject.
+    """`goal_change complete` only, called AFTER the BRIEF-0024-b
+    prerequisite judge has passed — every `relation_gte` prerequisite on
+    this goal is therefore satisfied at this point. Strips any
+    `relation_delta` effect whose {subject, target_entity_id} pair (either
+    direction) equals a prerequisite pair (anti-double-count, H1). Returns
+    the kept effects and one note per stripped effect."""
+    if not effects or not goal.prerequisites:
+        return effects, []
+    satisfied_pairs = {
+        frozenset((goal.npc_id, item.get("target_entity_id")))
+        for item in goal.prerequisites
+        if item.get("type") == "relation_gte"
+    }
+    kept: list = []
+    notes: list[str] = []
+    for eff in effects:
+        pair = (
+            frozenset((goal.npc_id, eff.get("target_entity_id")))
+            if isinstance(eff, dict) else None
+        )
+        if isinstance(eff, dict) and eff.get("type") == "relation_delta" and pair in satisfied_pairs:
+            target = db.get(Entity, eff.get("target_entity_id"))
+            notes.append(f"stripped: relation_delta on prerequisite pair {target.name if target else eff.get('target_entity_id')}")
+        else:
+            kept.append(eff)
+    return kept, notes
+
+
+def _apply_completion_effects(
+    db: Session,
+    *,
+    world_id: str,
+    subject_id: str,
+    subject_is_character: bool,
+    effects: Optional[list],
+    mutation_id: str,
+) -> Optional[str]:
+    """Validate and apply up to `_MAX_EFFECTS` completion effects — shared
+    by `goal_change complete` and `agenda_step_change complete`. Returns an
+    error string on any invalid effect (whole-mutation reject; the
+    caller's SAVEPOINT rolls back everything this call already wrote) or
+    `None` on success. `effects` is expected already H1-stripped by the
+    caller when applicable (goal_change only). The subject is FORCED by
+    the caller (O1/H1 forcing precedent) — never read from the payload
+    here.
+    """
+    if not effects:
+        return None
+    if len(effects) > _MAX_EFFECTS:
+        return f"too many effects ({len(effects)} > {_MAX_EFFECTS})"
+
+    for item in effects:
+        eff_type = item.get("type") if isinstance(item, dict) else None
+        if eff_type not in _EFFECT_TYPES:
+            return f"unknown effect type {eff_type!r}"
+
+        if eff_type == "relation_delta":
+            target_id = item.get("target_entity_id")
+            relation_type = item.get("relation_type")
+            try:
+                value = int(item.get("value"))
+            except (TypeError, ValueError):
+                return "relation_delta: value must be a nonzero int in [-10, 10]"
+            if value == 0 or not (-10 <= value <= 10):
+                return "relation_delta: value must be a nonzero int in [-10, 10]"
+            if not target_id or db.get(Entity, target_id) is None:
+                return f"relation_delta: target entity {target_id!r} not found"
+            if not isinstance(relation_type, str) or not relation_type.strip():
+                return "relation_delta: relation_type is required"
+            write_relation(
+                db, mode="delta", world_id=world_id, entity_a_id=subject_id,
+                entity_b_id=target_id, type=relation_type, value=value,
+                mutation_id=mutation_id,
+            )
+
+        elif eff_type == "ledger_transfer":
+            from_id = item.get("from_entity_id")
+            to_id = item.get("to_entity_id")
+            reason = item.get("reason")
+            try:
+                amount = int(item.get("amount"))
+            except (TypeError, ValueError):
+                return "ledger_transfer: amount must be a positive int"
+            if amount <= 0:
+                return "ledger_transfer: amount must be a positive int"
+            if not from_id or db.get(Entity, from_id) is None:
+                return f"ledger_transfer: from entity {from_id!r} not found"
+            if not to_id or db.get(Entity, to_id) is None:
+                return f"ledger_transfer: to entity {to_id!r} not found"
+            if _get_balance(db, from_id) - amount < 0:
+                return "insufficient balance"
+            # BRIEF-19 idiom: two INSERT-only legs, mutual counterparty,
+            # both source_type="tick" (M1 — new documented enum value).
+            write_ledger_entry(
+                db, world_id=world_id, entity_id=from_id, amount=-amount,
+                counterparty_id=to_id, reason=reason, source_type="tick",
+            )
+            write_ledger_entry(
+                db, world_id=world_id, entity_id=to_id, amount=amount,
+                counterparty_id=from_id, reason=reason, source_type="tick",
+            )
+
+        elif eff_type == "role_change":
+            if not subject_is_character:
+                return "role_change: subject of a faction-owned agenda is not a character"
+            faction_id = item.get("faction_id")
+            role = item.get("role")
+            declare = bool(item.get("declare", False))
+            if not faction_id or not isinstance(role, str) or not role.strip():
+                return "role_change: faction_id and role are required"
+            faction_entity = db.get(Entity, faction_id)
+            faction = db.get(Faction, faction_id)
+            if faction_entity is None or faction_entity.world_id != world_id or faction is None:
+                return f"role_change: faction {faction_id!r} not found"
+            role_key = role.strip()
+
+            # (i) subject must hold an ACTIVE membership in this faction.
+            membership = db.exec(
+                select(FactionMembership).where(
+                    FactionMembership.entity_id == subject_id,
+                    FactionMembership.faction_id == faction_id,
+                    FactionMembership.left_at.is_(None),
+                )
+            ).first()
+            if membership is None:
+                return f"role_change: NPC is not an active member of {faction_entity.name}"
+
+            # (ii) resolve role against role_capacities, exact case-insensitive.
+            capacities = faction.role_capacities or {}
+            resolved_key = next(
+                (k for k in capacities if k.casefold() == role_key.casefold()), None
+            )
+            if resolved_key is not None:
+                limit = capacities[resolved_key]
+                if limit is not None:
+                    holders = db.exec(
+                        select(FactionMembership).where(
+                            FactionMembership.faction_id == faction_id,
+                            FactionMembership.left_at.is_(None),
+                        )
+                    ).all()
+                    count = sum(
+                        1 for m in holders if (m.role or "").casefold() == resolved_key.casefold()
+                    )
+                    if count >= limit:
+                        return f"role_change: role {resolved_key} is full ({count}/{limit})"
+                final_role = resolved_key
+            elif declare:
+                # L2 declare-and-occupy: a role is never created without a
+                # holder — declaration (dict reassignment) and occupation
+                # (close+reopen below) commit in the same SAVEPOINT as the
+                # rest of this mutation. Newly declared capacity is always
+                # unlimited; only the creator sets limits thereafter.
+                new_capacities = dict(capacities)
+                new_capacities[role_key] = None
+                write_faction_role_capacities(
+                    db, faction=faction, capacities=new_capacities,
+                    changed_by=f"mutation:{mutation_id}",
+                )
+                final_role = role_key
+            else:
+                return f"role_change: role {role_key} is not declared for {faction_entity.name}"
+
+            write_membership(db, mode="close", membership_id=membership.id)
+            write_membership(
+                db, mode="open", world_id=world_id, entity_id=subject_id,
+                faction_id=faction_id, role=final_role,
+                cover_role=membership.cover_role, is_primary=membership.is_primary,
+                is_secret=membership.is_secret,
+            )
+
+    return None
+
+
 # ── Canon writer ──────────────────────────────────────────────────────────────
 
 def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
@@ -1564,11 +1755,44 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                             f"with {target_name} is {current}, requires >= {threshold}"
                         )
 
+            # Completion effects (TICKET-0024, BRIEF-0024-c) — `complete`
+            # only, never `abandon`. Runs AFTER the prerequisite judge
+            # above, so goal.prerequisites (if any) are all satisfied here.
+            extra_history: dict[str, Any] = {}
+            if action == "complete":
+                effects = payload.get("effects")
+                stripped_notes: list[str] = []
+                if isinstance(effects, list):
+                    effects, stripped_notes = _h1_strip_satisfied_prerequisite_deltas(
+                        goal, effects, db
+                    )
+
+                effect_error = _apply_completion_effects(
+                    db,
+                    world_id=mut.world_id,
+                    subject_id=npc_id,
+                    subject_is_character=True,
+                    effects=effects,
+                    mutation_id=mut.id,
+                )
+                if effect_error:
+                    return effect_error
+
+                if stripped_notes:
+                    mut.creator_notes = _append_note(mut.creator_notes, "; ".join(stripped_notes))
+                    extra_history["stripped"] = stripped_notes
+
+                # A1: zero prerequisites and zero effects applied (absent,
+                # empty, or fully H1-stripped) is legitimate (Nia's type 3).
+                if not goal.prerequisites and not effects:
+                    extra_history["no_footprint"] = True
+
             write_npc_goal_status(
                 db,
                 goal=goal,
                 new_status="completed" if action == "complete" else "abandoned",
                 changed_by=f"mutation:{mut.id}",
+                extra=extra_history or None,
             )
             return None
 
@@ -1779,9 +2003,36 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
         if agenda is None:
             return f"agenda_step_change: agenda {step.agenda_id!r} not found"
 
+        # Completion effects (TICKET-0024, BRIEF-0024-c) — `complete` only,
+        # never `fail`. Subject is FORCED to the agenda's owner (character
+        # or faction); a role_change effect on a faction-owned agenda is a
+        # whole reject (role_change is character-only).
+        extra_history: dict[str, Any] = {}
+        if action == "complete":
+            owner = db.get(Entity, agenda.owner_entity_id)
+            subject_is_character = owner is not None and owner.type == "character"
+            effects = payload.get("effects")
+
+            effect_error = _apply_completion_effects(
+                db,
+                world_id=mut.world_id,
+                subject_id=agenda.owner_entity_id,
+                subject_is_character=subject_is_character,
+                effects=effects,
+                mutation_id=mut.id,
+            )
+            if effect_error:
+                return effect_error
+
+            # agenda_step has no prerequisites column (G3 deferred) — A1's
+            # "zero prerequisites" side is always true here.
+            if not effects:
+                extra_history["no_footprint"] = True
+
         new_status = "completed" if action == "complete" else "failed"
         write_agenda_step_status(
-            db, step=step, status=new_status, outcome=payload.get("outcome"), mutation_id=mut.id
+            db, step=step, status=new_status, outcome=payload.get("outcome"), mutation_id=mut.id,
+            extra=extra_history or None,
         )
 
         if action == "complete":

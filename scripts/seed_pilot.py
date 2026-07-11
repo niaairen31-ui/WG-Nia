@@ -882,11 +882,11 @@ Reference people and places by NAME exactly as written in the briefing.
 Never invent identifiers, ids, people, or places absent from the briefing.
 
 Payload shapes:
-  goal_change      -> {"action":"complete|abandon|create_short","goal":"…","agenda":"<optional: title from TON INTRIGUE, only when this new goal serves it>"}
+  goal_change      -> {"action":"complete|abandon|create_short","goal":"…","agenda":"<optional: title from TON INTRIGUE, only when this new goal serves it>","effects":[<optional, "complete" only, see EFFECTS below>]}
   relation_change  -> {"other":"<name from the briefing>","relation_type":"…","intensity_delta":<signed int>}
   new_knowledge    -> {"recipient":"self" | "<name>","subject":"<short_slug>","level":"rumor|partial|knows","content":"…","source":"…","is_secret":true|false,"secret_derived":true|false}
   npc_move         -> {"destination":"<name from OÙ TU PEUX ALLER>"}
-  agenda_step_change -> {"agenda":"<title from TON INTRIGUE>","action":"complete|fail","outcome":"…"}
+  agenda_step_change -> {"agenda":"<title from TON INTRIGUE>","action":"complete|fail","outcome":"…","effects":[<optional, "complete" only, see EFFECTS below>]}
   agenda_creation  -> {"title":"<new intrigue title>","steps":["<objective 1>","<objective 2>",…]}
 
 === GOAL_CHANGE RULES ===
@@ -920,6 +920,23 @@ name copied EXACTLY from OÙ TU PEUX ALLER — never a place from anywhere
 else in the briefing, never invented. Staying put is legitimate and is
 expressed by emitting NO npc_move. A move needs a motive rooted in the
 briefing (a goal, a relation, a known fact) stated in "rationale".
+
+=== EFFECTS RULES (goal_change / agenda_step_change "complete" ONLY) ===
+A completion MAY carry an optional "effects" array — up to 3 items; purely
+narrative completions need none. Each effect is one of three closed types,
+referencing people/factions by NAME, never an id:
+  relation_delta   -> {"type":"relation_delta","target":"<name>","relation_type":"…","value":<signed int, -10..10>}
+  ledger_transfer  -> {"type":"ledger_transfer","from":"<name>","to":"<name>","amount":<positive int>,"reason":"…"}
+  role_change      -> {"type":"role_change","faction":"<name>","role":"…","declare":true|false}
+
+One example per type:
+  relation_delta:  {"type":"relation_delta","target":"Elira","relation_type":"ally","value":6}
+  ledger_transfer: {"type":"ledger_transfer","from":"Marek","to":"Elira","amount":15,"reason":"paiement de l'accord commercial"}
+  role_change:     {"type":"role_change","faction":"Guilde des Marchands","role":"Conseiller","declare":false}
+
+Attach an effect only when it concretely follows from THIS completion —
+most completions need none. "declare":true only when claiming a role that
+does not already exist for that faction.
 
 === TON INTRIGUE RULES ===
 TON INTRIGUE, when shown, is YOUR OWN personal intrigue — nobody assigned

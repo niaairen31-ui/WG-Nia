@@ -744,16 +744,26 @@ def _normalize_scope_event(
         outcome = str(outcome).strip() or None if outcome else None
         step_id = active_step.id
 
+        step_payload = {
+            "agenda_id": agenda_id,
+            "step_id": step_id,
+            "action": action,
+            "outcome": outcome,
+        }
+        # Completion effects (TICKET-0024, BRIEF-0024-c) — `complete` only.
+        # `actives` (every active entity of the world, any type) is this
+        # function's existing name-resolution index — reused here rather
+        # than building a third roster variant for one branch.
+        if action == "complete" and isinstance(payload_in.get("effects"), list):
+            step_payload["effects"] = _normalize_effects_list(
+                payload_in["effects"], effects_roster=actives
+            )
+
         return {
             "mutation_type": "agenda_step_change",
             "target_table": "agenda_step",
             "target_id": None,
-            "payload": {
-                "agenda_id": agenda_id,
-                "step_id": step_id,
-                "action": action,
-                "outcome": outcome,
-            },
+            "payload": step_payload,
             "rationale": rationale,
             "agenda_id": agenda_id,
         }
@@ -998,6 +1008,121 @@ def _build_roster(
     return {name: ids[0] for name, ids in candidates.items() if len(ids) == 1}
 
 
+def _build_effects_roster(db: Session, world_id: str) -> dict[str, str]:
+    """name.casefold() -> entity_id for every ACTIVE character (`vital_status
+    == 'alive'`) and ACTIVE faction in the world (TICKET-0024, BRIEF-0024-c)
+    — feeds completion-effect name resolution (`relation_delta`/
+    `ledger_transfer` target/from/to, `role_change` faction) at
+    tick-normalize time. Same ambiguity discipline as `_build_roster`/
+    `entity_author.build_world_roster`: a casefolded name shared by two ids
+    is removed from the roster, resolution then fails cleanly for that
+    name rather than guessing."""
+    candidates: dict[str, list[str]] = {}
+
+    char_rows = db.exec(
+        select(Entity.id, Entity.name)
+        .join(Character, Character.id == Entity.id)
+        .where(
+            Entity.world_id == world_id,
+            Entity.status == "active",
+            Character.vital_status == "alive",
+        )
+    ).all()
+    for entity_id, name in char_rows:
+        candidates.setdefault(name.casefold(), []).append(entity_id)
+
+    faction_rows = db.exec(
+        select(Entity.id, Entity.name)
+        .join(Faction, Faction.id == Entity.id)
+        .where(Entity.world_id == world_id, Entity.status == "active")
+    ).all()
+    for entity_id, name in faction_rows:
+        candidates.setdefault(name.casefold(), []).append(entity_id)
+
+    return {name: ids[0] for name, ids in candidates.items() if len(ids) == 1}
+
+
+def _normalize_effect_item(raw_eff: Any, *, effects_roster: dict[str, str]) -> dict | None:
+    """One raw completion effect -> the closed effect shape, or `None` to
+    drop it (TICKET-0024, BRIEF-0024-c) — names resolve to ids here, the
+    model never emits ids. Malformed or an unresolved name DROPS the
+    single effect with a note; the completion itself survives (apply-time,
+    `_apply_completion_effects`, stays whole-reject because canon is at
+    stake there — this is pre-canon and cheap)."""
+    if not isinstance(raw_eff, dict):
+        print(f"[tick] dropped effect: not a dict — {raw_eff!r}")
+        return None
+    eff_type = str(raw_eff.get("type") or "").strip().casefold()
+
+    if eff_type == "relation_delta":
+        target_name = str(raw_eff.get("target") or "").strip()
+        target_id = effects_roster.get(target_name.casefold())
+        relation_type = str(raw_eff.get("relation_type") or "").strip()
+        try:
+            value = int(raw_eff.get("value"))
+        except (TypeError, ValueError):
+            print(f"[tick] dropped effect relation_delta: invalid value {raw_eff.get('value')!r}")
+            return None
+        if not target_id:
+            print(f"[tick] dropped effect relation_delta: unresolved target {target_name!r}")
+            return None
+        if not relation_type:
+            print("[tick] dropped effect relation_delta: missing relation_type")
+            return None
+        return {
+            "type": "relation_delta", "target_entity_id": target_id,
+            "value": value, "relation_type": relation_type,
+        }
+
+    if eff_type == "ledger_transfer":
+        from_name = str(raw_eff.get("from") or "").strip()
+        to_name = str(raw_eff.get("to") or "").strip()
+        from_id = effects_roster.get(from_name.casefold())
+        to_id = effects_roster.get(to_name.casefold())
+        try:
+            amount = int(raw_eff.get("amount"))
+        except (TypeError, ValueError):
+            print(f"[tick] dropped effect ledger_transfer: invalid amount {raw_eff.get('amount')!r}")
+            return None
+        if not from_id or not to_id:
+            print(f"[tick] dropped effect ledger_transfer: unresolved from/to — {from_name!r}/{to_name!r}")
+            return None
+        return {
+            "type": "ledger_transfer", "from_entity_id": from_id, "to_entity_id": to_id,
+            "amount": amount, "reason": str(raw_eff.get("reason") or "") or None,
+        }
+
+    if eff_type == "role_change":
+        faction_name = str(raw_eff.get("faction") or "").strip()
+        faction_id = effects_roster.get(faction_name.casefold())
+        role = str(raw_eff.get("role") or "").strip()
+        if not faction_id or not role:
+            print(f"[tick] dropped effect role_change: unresolved faction {faction_name!r} or empty role")
+            return None
+        return {
+            "type": "role_change", "faction_id": faction_id, "role": role,
+            "declare": bool(raw_eff.get("declare", False)),
+        }
+
+    print(f"[tick] dropped effect: unknown type {raw_eff.get('type')!r}")
+    return None
+
+
+def _normalize_effects_list(raw_effects: Any, *, effects_roster: dict[str, str]) -> list[dict]:
+    """Normalize a raw `effects` list: drop malformed/unresolved items,
+    then cap at 3 keeping the first 3 (N1), noting the excess."""
+    if not isinstance(raw_effects, list):
+        return []
+    normalized = [
+        item for raw_eff in raw_effects
+        if (item := _normalize_effect_item(raw_eff, effects_roster=effects_roster)) is not None
+    ]
+    if len(normalized) > 3:
+        print(f"[tick] effects: {len(normalized) - 3} excess effect(s) dropped (cap 3)")
+        normalized = normalized[:3]
+    return normalized
+
+
 def _normalize_tick_item(
     raw_item: Any,
     *,
@@ -1009,6 +1134,7 @@ def _normalize_tick_item(
     from_location_id: str | None,
     from_name: str | None,
     agendas_index: dict[str, str],
+    effects_roster: dict[str, str],
     db: Session,
 ) -> dict | None:
     """Map one raw model item to the tick's CLOSED schema, or None to drop it.
@@ -1068,6 +1194,12 @@ def _normalize_tick_item(
                     payload["agenda_id"] = agenda_id
                 else:
                     print(f"[tick] goal_change: unresolved agenda reference {agenda_title!r} dropped")
+
+        # Completion effects (TICKET-0024, BRIEF-0024-c) — `complete` only.
+        if action == "complete" and isinstance(payload_in.get("effects"), list):
+            payload["effects"] = _normalize_effects_list(
+                payload_in["effects"], effects_roster=effects_roster
+            )
         target_table = "npc_goal"
 
     elif mutation_type == "agenda_step_change":
@@ -1106,6 +1238,11 @@ def _normalize_tick_item(
             "action": raw_step_action,
             "outcome": step_outcome,
         }
+        # Completion effects (TICKET-0024, BRIEF-0024-c) — `complete` only.
+        if raw_step_action == "complete" and isinstance(payload_in.get("effects"), list):
+            payload["effects"] = _normalize_effects_list(
+                payload_in["effects"], effects_roster=effects_roster
+            )
         target_table = "agenda_step"
 
     elif mutation_type == "agenda_creation":
@@ -1317,6 +1454,7 @@ def run_world_tick(
             continue
 
         roster = _build_roster(db, npc_id, npc_name, from_location_id)
+        effects_roster = _build_effects_roster(db, npc_entity.world_id if npc_entity else "")
         secret_subjects = {
             k.subject.casefold()
             for k in db.exec(
@@ -1356,6 +1494,7 @@ def run_world_tick(
                 from_location_id=from_location_id,
                 from_name=from_name,
                 agendas_index=npc_agendas_index,
+                effects_roster=effects_roster,
                 db=db,
             )
             if normalized is None:

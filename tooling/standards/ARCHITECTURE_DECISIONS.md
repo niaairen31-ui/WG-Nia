@@ -5849,7 +5849,7 @@ cytoscape is an explicit future ticket, not part of this one.
 
 ---
 
-## TICKET-0024 INTAKE DECISIONS — completion mechanics (BRIEF-0024-a, -b, -c, schema v1.74)
+## TICKET-0024 INTAKE DECISIONS — completion mechanics (BRIEF-0024-a, BRIEF-0024-b, BRIEF-0024-c, schema v1.74)
 
 Goal/agenda completion stopped being purely declarative. Nia's own
 taxonomy split the problem in three: (1) **prerequisite mechanics** — a

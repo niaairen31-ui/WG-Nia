@@ -8,6 +8,11 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.75** — TICKET-0024, BRIEF-0024-c: `ledger.source_type` enum gains
+  `tick` (M1) — written by completion-effect `ledger_transfer` legs inside
+  `_apply_mutation`. `faction.role_capacities`'s DORMANT note flips to
+  LIVE: read by `_apply_mutation`'s `role_change` effect. No column shape
+  change — documentation-only schema touch (enum value + dormancy status).
 - **v1.74** — TICKET-0024, BRIEF-0024-a: `faction.role_capacities`
   (nullable JSON, per-role membership caps — `{"<role>": <int limit |
   null>}`) and `npc_goal.prerequisites` (nullable JSON, completion gate —
