@@ -195,16 +195,39 @@ class Faction(SQLModel, table=True):
     # by no assembler yet. Future reader MUST route through
     # `read_public_memberships` (see ARCHITECTURE_DECISIONS.md).
     aversion: Optional[str] = None
-    # Schema v1.74, TICKET-0024: per-role membership caps. Shape:
-    # {"<role name>": <int limit | None>} — a key present with a null
-    # limit is declared-but-unlimited; an absent key means undeclared (K1).
-    # Written ONLY via `writes.write_faction_role_capacities` (creator
-    # editor, BRIEF-0024-a); read by `_apply_mutation`'s `role_change`
-    # effect (BRIEF-0024-c). Capacity counts the true 'role', never
-    # 'cover_role'.
-    role_capacities: Optional[dict] = Field(
-        default=None, sa_column=Column(JSON, nullable=True)
+
+
+# -----------------------------------------------------------------------------
+# faction_role  (declared role vocabulary of a faction, schema v1.76,
+# TICKET-0024, BRIEF-0024-d — corrective: replaces the disconnected
+# `faction.role_capacities` JSON map and `entity.metadata['roles']` list with
+# one relational table)
+#
+# Declared role vocabulary of a faction. Public by construction (BRIEF-31
+# lineage) — safe to expose to prompts and player-facing reads. Closed
+# vocabulary for the AI path (K1). Case-duplicate names are schema-impossible
+# via the unique index below (structural, not a code-side casefold check).
+# Curated config, same family as `faction_type` / `philosophy` — no
+# `change_history` column.
+# -----------------------------------------------------------------------------
+class FactionRole(SQLModel, table=True):
+    __tablename__ = "faction_role"
+    __table_args__ = (
+        Index(
+            "idx_faction_role_name", "faction_id", text("name COLLATE NOCASE"),
+            unique=True,
+        ),
     )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    faction_id: str = Field(foreign_key="faction.id", nullable=False)
+    name: str
+    description: Optional[str] = None
+    max_holders: Optional[int] = None  # NULL = unlimited
+    position: int = Field(default=0, sa_column_kwargs={"server_default": text("0")})
+    created_at: datetime = _created_ts()
+    created_by: str
 
 
 # -----------------------------------------------------------------------------

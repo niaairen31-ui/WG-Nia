@@ -60,9 +60,15 @@ functions so that clamping and field validation live in exactly one place.
   updated_at}` to `change_history` first — history is sacred.
 - `write_agenda_status(...)`            : transition an `agenda`'s status
   (BRIEF-0018-a), same snapshot discipline.
-- `write_faction_role_capacities(...)`  : the only chokepoint for
-  `faction.role_capacities` writes (TICKET-0024, BRIEF-0024-a). Validates
-  and reassigns the map; no `change_history` (metadata-config category).
+- `write_faction_role(...)`             : the only chokepoint for
+  `faction_role` writes (TICKET-0024, BRIEF-0024-d — corrective, replaces
+  `write_faction_role_capacities`). `mode="create"` / `"update"` / `"rename"`
+  / `"delete"`; case-duplicate names are the unique index's job (caught as
+  `IntegrityError`, re-raised as `ValueError`); `mode="rename"` realigns
+  every ACTIVE membership whose true `role` casefold-matches the old name
+  (close + reopen, T1); `mode="delete"` (S1) is a hard delete, blocked while
+  any active membership still holds the role. No `change_history` (curated
+  config, same family as `faction_type` / `philosophy`).
 - `write_npc_goal_prerequisites(...)`   : the only chokepoint for
   `npc_goal.prerequisites` writes (TICKET-0024, BRIEF-0024-a). Validates
   the v1 `relation_gte` shape, appends the previous state to
@@ -86,10 +92,11 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 from sqlalchemy import func, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from .models import Agenda, AgendaStep, Character, Entity, Event, Faction, FactionMembership, GoalAgendaLink, Knowledge, Ledger, NpcGoal, PromptTemplate, PromptVersion, Relation, Skill
+from .models import Agenda, AgendaStep, Character, Entity, Event, FactionMembership, FactionRole, GoalAgendaLink, Knowledge, Ledger, NpcGoal, PromptTemplate, PromptVersion, Relation, Skill
 
 # Simple-identifier placeholder, e.g. `{player_line}` — deliberately does not
 # match JSON-example braces like `{"key": ...}` (TICKET-0011, C1).
@@ -601,51 +608,157 @@ NPC_GOAL_HORIZONS = frozenset({"short", "long"})
 NPC_GOAL_PREREQUISITE_TYPES = frozenset({"relation_gte"})
 
 
-def write_faction_role_capacities(
+def _validate_max_holders(max_holders: Optional[int]) -> None:
+    if max_holders is not None and (
+        not isinstance(max_holders, int) or isinstance(max_holders, bool) or max_holders < 1
+    ):
+        raise ValueError("write_faction_role: max_holders must be null or an int >= 1")
+
+
+def write_faction_role(
     db: Session,
     *,
-    faction: Faction,
-    capacities: dict,
+    mode: str,
+    role_id: Optional[str] = None,
+    world_id: Optional[str] = None,
+    faction_id: Optional[str] = None,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    max_holders: Optional[int] = None,
+    position: Optional[int] = None,
     changed_by: str = "creator",
-) -> Faction:
-    """Set `faction.role_capacities` (BRIEF-0024-a). Caller adds the row.
+) -> Optional[FactionRole]:
+    """Write a `faction_role` row (TICKET-0024, BRIEF-0024-d). Caller adds
+    the row (or, for `mode="delete"`, owns the commit of the deletion).
 
-    Validates keys are non-empty strings and values are `None` (declared,
-    unlimited) or `int >= 1`; rejects duplicate keys differing only by case
-    (`casefold` collision). Reassigns the dict — never mutates the existing
-    one in place (SQLAlchemy JSON change-detection rule). `role_capacities`
-    is metadata-config category, same family as `faction_type` /
-    `philosophy` — no `change_history` snapshot, consistent with those
-    fields.
+    The sole chokepoint for `faction_role` writes — the CRUD routes and the
+    `role_change` completion effect's L2 declare branch are the only
+    callers. Case-duplicate names are the unique index's job
+    (`idx_faction_role_name`, `faction_id` + `name COLLATE NOCASE`), never a
+    code-side casefold check: a violating `db.flush()` raises
+    `IntegrityError`, caught here and re-raised as a readable `ValueError`.
+
+    mode="create":
+        Inserts a new row (`world_id`, `faction_id`, non-empty `name`
+        required). `max_holders` must be null or an int >= 1. `position`
+        defaults to `max(position) + 1` for the faction when not given.
+
+    mode="update":
+        Updates `description` / `max_holders` / `position` on `role_id`.
+        Never touches `name` — renames go through `mode="rename"` only.
+
+    mode="rename" (T1):
+        Updates `name` on `role_id`, then closes + reopens every ACTIVE
+        membership of this faction whose true `role` casefold-equals the
+        OLD name, preserving `cover_role`, `is_primary`, `is_secret`.
+        Closed membership rows keep the old string untouched — history is
+        never rewritten. `cover_role` strings are narrative masks and are
+        NEVER realigned.
+
+    mode="delete" (S1):
+        Hard delete, blocked with `ValueError` if any active membership
+        (casefold) still bears the role. No `change_history` snapshot: this
+        table is curated config, not event canon — role-tenure history
+        already lives in closed `faction_membership` rows.
     """
-    if not isinstance(capacities, dict):
-        raise ValueError("write_faction_role_capacities: capacities must be a dict")
+    if mode not in ("create", "update", "rename", "delete"):
+        raise ValueError(f"write_faction_role: invalid mode {mode!r}")
 
-    seen_casefold: dict[str, str] = {}
-    clean: dict[str, Optional[int]] = {}
-    for key, value in capacities.items():
-        if not isinstance(key, str) or not key.strip():
+    if mode == "create":
+        if not world_id or not faction_id:
             raise ValueError(
-                "write_faction_role_capacities: role names must be non-empty strings"
+                "write_faction_role(mode='create'): world_id and faction_id are required"
             )
-        folded = key.strip().casefold()
-        if folded in seen_casefold:
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("write_faction_role(mode='create'): name must be a non-empty string")
+        _validate_max_holders(max_holders)
+        if position is None:
+            current_max = db.exec(
+                select(func.max(FactionRole.position)).where(FactionRole.faction_id == faction_id)
+            ).first()
+            position = (current_max or 0) + 1
+        role = FactionRole(
+            world_id=world_id, faction_id=faction_id, name=name.strip(),
+            description=description, max_holders=max_holders, position=position,
+            created_by=changed_by,
+        )
+        db.add(role)
+        try:
+            db.flush()
+        except IntegrityError as exc:
+            db.rollback()
             raise ValueError(
-                f"write_faction_role_capacities: duplicate role {key!r} and "
-                f"{seen_casefold[folded]!r} differ only by case"
-            )
-        seen_casefold[folded] = key
-        if value is not None and (
-            not isinstance(value, int) or isinstance(value, bool) or value < 1
-        ):
-            raise ValueError(
-                f"write_faction_role_capacities: limit for {key!r} must be null or an int >= 1"
-            )
-        clean[key] = value
+                f"faction_role: a role named {name.strip()!r} already exists for this faction"
+            ) from exc
+        return role
 
-    faction.role_capacities = clean
-    db.add(faction)
-    return faction
+    # mode in ("update", "rename", "delete") — role_id is required, row must exist.
+    if not role_id:
+        raise ValueError(f"write_faction_role(mode={mode!r}): role_id is required")
+    role = db.get(FactionRole, role_id)
+    if role is None:
+        raise ValueError(f"write_faction_role(mode={mode!r}): role {role_id!r} not found")
+
+    if mode == "update":
+        # Always sets description/max_holders to whatever the caller sends
+        # (the editor row carries full state, so None is meaningful:
+        # description=None clears it, max_holders=None means unlimited).
+        # position is set only when given — the dedicated reorder route is
+        # the only caller that passes it.
+        _validate_max_holders(max_holders)
+        role.description = description
+        role.max_holders = max_holders
+        if position is not None:
+            role.position = position
+        db.add(role)
+        return role
+
+    if mode == "rename":
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("write_faction_role(mode='rename'): name must be a non-empty string")
+        old_name = role.name
+        role.name = name.strip()
+        db.add(role)
+        try:
+            db.flush()
+        except IntegrityError as exc:
+            db.rollback()
+            raise ValueError(
+                f"faction_role: a role named {name.strip()!r} already exists for this faction"
+            ) from exc
+
+        # T1 realignment: close + reopen every ACTIVE membership whose true
+        # `role` casefold-matches the OLD name — triggered by this rename
+        # (creator:rename), never touching closed rows or `cover_role`.
+        holders = db.exec(
+            select(FactionMembership).where(
+                FactionMembership.faction_id == role.faction_id,
+                FactionMembership.left_at.is_(None),
+            )
+        ).all()
+        for m in holders:
+            if (m.role or "").casefold() != old_name.casefold():
+                continue
+            write_membership(db, mode="close", membership_id=m.id)
+            write_membership(
+                db, mode="open", world_id=m.world_id, entity_id=m.entity_id,
+                faction_id=m.faction_id, role=role.name, cover_role=m.cover_role,
+                is_primary=m.is_primary, is_secret=m.is_secret,
+            )
+        return role
+
+    # mode == "delete"
+    holders = db.exec(
+        select(FactionMembership).where(
+            FactionMembership.faction_id == role.faction_id,
+            FactionMembership.left_at.is_(None),
+        )
+    ).all()
+    count = sum(1 for m in holders if (m.role or "").casefold() == role.name.casefold())
+    if count > 0:
+        raise ValueError(f"faction_role: {count} active member(s) still hold {role.name!r}")
+    db.delete(role)
+    return None
 
 
 def write_npc_goal_prerequisites(

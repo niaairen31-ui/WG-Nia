@@ -3110,21 +3110,25 @@ let pendingDraftGoals = { long: '', shorts: ['', ''] };
    germ. */
 let pendingCreationMutationId = null;
 
-/* Faction roles editor draft (BRIEF-31, schema v1.42) — entity.metadata.roles,
- * a flat ordered list of {name, description}. Held in memory while the
- * faction sheet is open and merged into entityData.metadata on save (no raw-
- * JSON textarea, per decision G1). Recomputed fresh every authorRenderSheet
- * call from the faction's own metadata — no separate reset needed. */
+/* Faction roles editor draft, NEW-faction case only (TICKET-0024,
+ * BRIEF-0024-d — corrective, replaces the disconnected metadata.roles list
+ * + role_capacities map with one `faction_role` table). While creating a
+ * faction the entity doesn't exist yet, so drafted rows {name, description,
+ * limit} are held here and POSTed to the faction_role create route right
+ * after authorSave creates the entity — same in-creation-form idiom as
+ * pendingDraftKnowledge/pendingDraftGoals above. An EXISTING faction's
+ * roles editor is live/API-backed instead (authorFactionRolesLive,
+ * authorLoadFactionRoles) and never touches this array. */
 let authorFactionRolesDraft = [];
 
-/* Faction role-capacities editor draft (TICKET-0024, BRIEF-0024-a) —
- * faction.role_capacities, a map of {role name: limit|null}. Held as an
- * ordered array of {role, limit} rows while the faction sheet is open;
- * loaded fresh by authorLoadFactionCapacities on every sheet open (NOT
- * merged into authorSave — this column has its own dedicated
- * PATCH /api/factions/{id}/role-capacities route through
- * writes.write_faction_role_capacities, never the generic entity PUT). */
-let authorFactionCapacitiesDraft = [];
+/* Faction roles editor state, EXISTING-faction case (TICKET-0024,
+ * BRIEF-0024-d) — the `faction_role` rows for the open faction sheet, plus
+ * the undeclared-active-roles hint list. Loaded fresh by
+ * authorLoadFactionRoles on every sheet open; each row edit/rename/delete/
+ * reorder hits its own route immediately (no batching, no generic entity
+ * PUT involvement). */
+let authorFactionRolesLive = [];
+let authorFactionRolesUndeclared = [];
 
 /* Last-loaded goals for the open NPC sheet (TICKET-0024, BRIEF-0024-a) —
  * lets the prerequisite add/remove controls read a goal's current
@@ -3348,6 +3352,8 @@ function _lieuxWorldReset() {
 function _factionsWorldReset() {
   _entityListWorldReset();
   authorFactionRolesDraft = [];
+  authorFactionRolesLive = [];
+  authorFactionRolesUndeclared = [];
 }
 
 function _competencesWorldReset() { competencesDraft = []; }
@@ -5909,17 +5915,13 @@ function authorRenderSheet(detail, isNew, type) {
   html += '</div></div>';
 
   if (type === 'faction') {
-    authorFactionRolesDraft = (!isNew && detail.metadata && Array.isArray(detail.metadata.roles))
-      ? detail.metadata.roles.map(r => ({ name: r.name || '', description: r.description || '' }))
-      : [];
     html += '<div class="field-section"><div class="field-section-title">Roles</div>';
-    html += `<div id="author-roles">${authorRenderRolesEditor()}</div>`;
-    html += '</div>';
-  }
-
-  if (type === 'faction' && !isNew) {
-    html += '<div class="field-section"><div class="field-section-title">Rôles & capacités</div>';
-    html += '<div id="author-role-capacities"><div class="empty"><span class="spin">⟳</span></div></div>';
+    if (isNew) {
+      authorFactionRolesDraft = [];
+      html += `<div id="author-roles">${authorRenderRolesEditor()}</div>`;
+    } else {
+      html += '<div id="author-roles"><div class="empty"><span class="spin">⟳</span></div></div>';
+    }
     html += '</div>';
   }
 
@@ -6010,7 +6012,7 @@ function authorRenderSheet(detail, isNew, type) {
   if (!isNew && type === 'faction') {
     authorLoadLedger(detail.id);
     authorLoadFactionRoster(detail.id);
-    authorLoadFactionCapacities(detail.id);
+    authorLoadFactionRoles(detail.id);
   }
   if (!isNew && type === 'location') {
     authorLoadDiscDetails(detail.id);
@@ -6162,9 +6164,10 @@ function authorApplyLocationDraft(result) {
 
 /* ── Faction draft pre-fill (BRIEF-32) ──────────────────────────────────────
  * roles flow into authorFactionRolesDraft (the same in-memory array the
- * BRIEF-31 roles editor reads/writes) and are flushed to entity.metadata.roles
- * by authorSave on accept — no new write code. magic_knowledge_level, scope,
- * and parent_faction_id are never set (stay at form defaults). */
+ * NEW-faction roles editor reads/writes, TICKET-0024/BRIEF-0024-d) and are
+ * POSTed to the faction_role create route by authorSave right after the
+ * entity is created — no new write code. magic_knowledge_level, scope, and
+ * parent_faction_id are never set (stay at form defaults). */
 function authorApplyFactionDraft(result) {
   const draft = result.draft;
   const setVal = (id, value) => { const el = document.getElementById(id); if (el) el.value = value ?? ''; };
@@ -6178,7 +6181,7 @@ function authorApplyFactionDraft(result) {
   setVal('author-x-internal_tensions', draft.secret.internal_tensions);
   setVal('author-x-goals', draft.secret.goals);
 
-  authorFactionRolesDraft = (draft.public.roles || []).map(r => ({ ...r }));
+  authorFactionRolesDraft = (draft.public.roles || []).map(r => ({ name: r.name || '', description: r.description || '', limit: null }));
   const rolesEl = document.getElementById('author-roles');
   if (rolesEl) rolesEl.innerHTML = authorRenderRolesEditor();
 
@@ -6519,22 +6522,28 @@ function authorRenderMemberships(rows) {
   `).join('') + '</div>';
 }
 
-/* ── Faction roles editor (BRIEF-31, schema v1.42) ────────────────────────
- * entity.metadata.roles — flat ordered list of {name, description}, array
- * order = rank. Structured rows only (decision G1, no raw-JSON textarea).
- * Held in authorFactionRolesDraft, synced from the DOM before any mutation,
- * merged into entityData.metadata.roles by authorSave on create/update. */
+/* ── Faction roles editor, NEW-faction draft (TICKET-0024, BRIEF-0024-d —
+ * corrective, replaces the BRIEF-31 metadata.roles editor + the
+ * BRIEF-0024-a role_capacities editor with one `faction_role`-backed UI).
+ * While creating a faction the entity doesn't exist yet, so drafted rows
+ * {name, description, limit} live in authorFactionRolesDraft, synced from
+ * the DOM before any mutation, and are POSTed to the faction_role create
+ * route by authorSave right after the entity is created (no merge into the
+ * generic entity PUT payload — faction_role is never part of it). */
 
 function authorRenderRolesEditor() {
   const rows = authorFactionRolesDraft.map((r, i) => `
     <div class="row-card" style="flex-direction:row; gap:8px; align-items:center;">
-      <input type="text" id="role-name-${i}" placeholder="Nom" value="${esc(r.name || '')}" style="flex:1">
+      <input type="number" min="1" step="1" id="role-limit-${i}" placeholder="Limite" style="width:90px"
+        value="${r.limit === null || r.limit === undefined ? '' : esc(String(r.limit))}">
+      <input type="text" id="role-name-${i}" placeholder="Rôle" value="${esc(r.name || '')}" style="flex:1">
       <input type="text" id="role-desc-${i}" placeholder="Description" value="${esc(r.description || '')}" style="flex:2">
       <button class="btn-icon" onclick="authorMoveRoleRow(${i}, -1)" title="Monter" ${i === 0 ? 'disabled' : ''}>↑</button>
       <button class="btn-icon" onclick="authorMoveRoleRow(${i}, 1)" title="Descendre" ${i === authorFactionRolesDraft.length - 1 ? 'disabled' : ''}>↓</button>
       <button class="btn-icon" onclick="authorRemoveRoleRow(${i})" title="Supprimer">✕</button>
     </div>`).join('');
   return `<div id="author-roles-rows">${rows || '<div class="empty">Aucun rôle.</div>'}</div>
+    <div style="font-size:11px; color:var(--muted); margin:4px 0;">Limite | Rôle | Description — vide = illimité</div>
     <div class="row-card-actions" style="margin-top:6px">
       <button class="btn-send" onclick="authorAddRoleRow()">+ Add role</button>
     </div>`;
@@ -6542,8 +6551,10 @@ function authorRenderRolesEditor() {
 
 function _syncFactionRolesFromDom() {
   authorFactionRolesDraft.forEach((r, i) => {
+    const limitEl = document.getElementById(`role-limit-${i}`);
     const nameEl = document.getElementById(`role-name-${i}`);
     const descEl = document.getElementById(`role-desc-${i}`);
+    if (limitEl) r.limit = limitEl.value.trim() === '' ? null : Number(limitEl.value);
     if (nameEl) r.name = nameEl.value;
     if (descEl) r.description = descEl.value;
   });
@@ -6551,7 +6562,7 @@ function _syncFactionRolesFromDom() {
 
 function authorAddRoleRow() {
   _syncFactionRolesFromDom();
-  authorFactionRolesDraft.push({ name: '', description: '' });
+  authorFactionRolesDraft.push({ name: '', description: '', limit: null });
   document.getElementById('author-roles').innerHTML = authorRenderRolesEditor();
 }
 
@@ -6569,86 +6580,177 @@ function authorMoveRoleRow(i, dir) {
   document.getElementById('author-roles').innerHTML = authorRenderRolesEditor();
 }
 
-/* ── Faction role-capacities editor (TICKET-0024, BRIEF-0024-a) ───────────
- * faction.role_capacities — {role name: limit|null}. Own dedicated
- * GET/PATCH /api/factions/{id}/role-capacities route, never the generic
- * entity PUT (only writes.write_faction_role_capacities may touch this
- * column). On first open with the map NULL, pre-fills from the DISTINCT
- * true `role` values on this faction's ACTIVE memberships, limits empty —
- * zero canon writes until Save. */
+/* ── Faction roles editor, EXISTING faction (TICKET-0024, BRIEF-0024-d) ───
+ * `faction_role` rows, one dedicated route per action — GET list, POST
+ * create, PATCH update/rename, DELETE, PATCH reorder — never the generic
+ * entity PUT (only writes.write_faction_role may touch this table). Each
+ * row edit/rename/delete/reorder commits immediately; there is no batched
+ * Save. Renaming a role held by active members shows a confirm naming the
+ * count before the write (T1 realignment). Undeclared-borne roles — a true
+ * `role` on an ACTIVE membership matching no declared row — render as a
+ * dim hint with a one-click "+ déclarer" (zero writes until clicked). */
 
-async function authorLoadFactionCapacities(factionId) {
-  const el = document.getElementById('author-role-capacities');
+async function authorLoadFactionRoles(factionId) {
+  const el = document.getElementById('author-roles');
   if (!el) return;
   try {
-    const data = await api(`/api/factions/${encodeURIComponent(factionId)}/role-capacities`);
-    authorFactionCapacitiesDraft = (data.role_capacities && typeof data.role_capacities === 'object')
-      ? Object.entries(data.role_capacities).map(([role, limit]) => ({ role, limit }))
-      : (data.active_roles || []).map(role => ({ role, limit: null }));
-    el.innerHTML = authorRenderCapacitiesEditor();
+    const data = await api(`/api/factions/${encodeURIComponent(factionId)}/roles`);
+    authorFactionRolesLive = data.roles || [];
+    authorFactionRolesUndeclared = data.undeclared_active_roles || [];
+    el.innerHTML = authorRenderExistingRolesEditor();
   } catch (e) {
     el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
 }
 
-function authorRenderCapacitiesEditor() {
-  const rows = authorFactionCapacitiesDraft.map((r, i) => `
+function authorRenderExistingRolesEditor() {
+  const rows = authorFactionRolesLive.map((r, i) => `
     <div class="row-card" style="flex-direction:row; gap:8px; align-items:center;">
-      <input type="number" min="1" step="1" id="cap-limit-${i}" placeholder="Limite" style="width:110px"
-        value="${r.limit === null || r.limit === undefined ? '' : esc(String(r.limit))}">
-      <input type="text" id="cap-role-${i}" placeholder="Rôle" value="${esc(r.role || '')}" style="flex:1">
-      <button class="btn-icon" onclick="authorRemoveCapacityRow(${i})" title="Supprimer">✕</button>
+      <input type="number" min="1" step="1" id="role-limit-${i}" placeholder="Limite" style="width:90px"
+        value="${r.max_holders === null || r.max_holders === undefined ? '' : esc(String(r.max_holders))}"
+        onchange="authorUpdateFactionRole('${esc(authorEntityId)}', ${i})">
+      <input type="text" id="role-name-${i}" placeholder="Rôle" value="${esc(r.name || '')}" style="flex:1"
+        onchange="authorRenameFactionRole('${esc(authorEntityId)}', ${i})">
+      <input type="text" id="role-desc-${i}" placeholder="Description" value="${esc(r.description || '')}" style="flex:2"
+        onchange="authorUpdateFactionRole('${esc(authorEntityId)}', ${i})">
+      <button class="btn-icon" onclick="authorMoveFactionRole('${esc(authorEntityId)}', ${i}, -1)" title="Monter" ${i === 0 ? 'disabled' : ''}>↑</button>
+      <button class="btn-icon" onclick="authorMoveFactionRole('${esc(authorEntityId)}', ${i}, 1)" title="Descendre" ${i === authorFactionRolesLive.length - 1 ? 'disabled' : ''}>↓</button>
+      <button class="btn-icon" onclick="authorDeleteFactionRole('${esc(authorEntityId)}', '${esc(r.id)}')" title="Supprimer">✕</button>
     </div>`).join('');
-  return `<div id="author-role-capacities-rows">${rows || '<div class="empty">Aucune capacité déclarée.</div>'}</div>
-    <div style="font-size:11px; color:var(--muted); margin:4px 0;">Limite / Rôle — vide = illimité</div>
-    <div class="row-card-actions" style="display:flex; gap:8px; align-items:center;">
-      <button class="btn-send" onclick="authorAddCapacityRow()">+ Add role</button>
-      <button class="btn-send" onclick="authorSaveFactionCapacities('${esc(authorEntityId)}')">Enregistrer les capacités</button>
-      <span id="author-role-capacities-status" class="author-status"></span>
-    </div>`;
+
+  const undeclared = authorFactionRolesUndeclared.map(name => `
+    <div class="row-card" style="flex-direction:row; gap:8px; align-items:center; opacity:0.6;">
+      <span style="flex:1">${esc(name)}</span>
+      <span style="font-size:11px;">non déclaré</span>
+      <button class="btn-send" onclick="authorDeclareFactionRole('${esc(authorEntityId)}', '${esc(name)}')">+ déclarer</button>
+    </div>`).join('');
+
+  return `<div id="author-roles-rows">${rows || '<div class="empty">Aucun rôle.</div>'}</div>
+    ${undeclared ? `<div id="author-roles-undeclared" style="margin-top:6px">${undeclared}</div>` : ''}
+    <div style="font-size:11px; color:var(--muted); margin:6px 0;">Limite | Rôle | Description — vide = illimité</div>
+    <div class="row-card" style="flex-direction:row; gap:8px; align-items:center;">
+      <input type="number" min="1" step="1" id="role-new-limit" placeholder="Limite" style="width:90px">
+      <input type="text" id="role-new-name" placeholder="Nom" style="flex:1">
+      <input type="text" id="role-new-desc" placeholder="Description" style="flex:2">
+      <button class="btn-send" onclick="authorCreateFactionRole('${esc(authorEntityId)}')">+ Add role</button>
+    </div>
+    <span id="author-roles-status" class="author-status"></span>`;
 }
 
-function _syncCapacitiesFromDom() {
-  authorFactionCapacitiesDraft.forEach((r, i) => {
-    const limitEl = document.getElementById(`cap-limit-${i}`);
-    const roleEl = document.getElementById(`cap-role-${i}`);
-    if (roleEl) r.role = roleEl.value;
-    if (limitEl) r.limit = limitEl.value.trim() === '' ? null : Number(limitEl.value);
-  });
+function _factionRoleLimitValue(elId) {
+  const el = document.getElementById(elId);
+  if (!el) return null;
+  return el.value.trim() === '' ? null : Number(el.value);
 }
 
-function authorAddCapacityRow() {
-  _syncCapacitiesFromDom();
-  authorFactionCapacitiesDraft.push({ role: '', limit: null });
-  document.getElementById('author-role-capacities').innerHTML = authorRenderCapacitiesEditor();
+function _factionRoleStatusError(message) {
+  const s = document.getElementById('author-roles-status');
+  if (s) { s.className = 'author-status err'; s.textContent = message; }
 }
 
-function authorRemoveCapacityRow(i) {
-  _syncCapacitiesFromDom();
-  authorFactionCapacitiesDraft.splice(i, 1);
-  document.getElementById('author-role-capacities').innerHTML = authorRenderCapacitiesEditor();
-}
-
-async function authorSaveFactionCapacities(factionId) {
-  _syncCapacitiesFromDom();
-  const capacities = {};
-  for (const row of authorFactionCapacitiesDraft) {
-    const role = (row.role || '').trim();
-    if (!role) continue;
-    capacities[role] = (row.limit === null || row.limit === undefined || Number.isNaN(row.limit)) ? null : row.limit;
-  }
+async function authorCreateFactionRole(factionId) {
+  const name = (document.getElementById('role-new-name').value || '').trim();
+  if (!name) return;
+  const description = document.getElementById('role-new-desc').value || null;
+  const max_holders = _factionRoleLimitValue('role-new-limit');
   try {
-    await api(`/api/factions/${encodeURIComponent(factionId)}/role-capacities`, {
+    await api(`/api/factions/${encodeURIComponent(factionId)}/roles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description, max_holders }),
+    });
+    await authorLoadFactionRoles(factionId);
+  } catch (e) {
+    _factionRoleStatusError(e.message);
+  }
+}
+
+async function authorUpdateFactionRole(factionId, i) {
+  const row = authorFactionRolesLive[i];
+  if (!row) return;
+  const description = document.getElementById(`role-desc-${i}`).value || null;
+  const max_holders = _factionRoleLimitValue(`role-limit-${i}`);
+  try {
+    await api(`/api/factions/${encodeURIComponent(factionId)}/roles/${encodeURIComponent(row.id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ capacities }),
+      body: JSON.stringify({ description, max_holders }),
     });
-    await authorLoadFactionCapacities(factionId);
-    const s = document.getElementById('author-role-capacities-status');
-    if (s) { s.className = 'author-status ok'; s.textContent = 'Saved.'; }
+    await authorLoadFactionRoles(factionId);
   } catch (e) {
-    const s = document.getElementById('author-role-capacities-status');
-    if (s) { s.className = 'author-status err'; s.textContent = e.message; }
+    _factionRoleStatusError(e.message);
+  }
+}
+
+async function authorRenameFactionRole(factionId, i) {
+  const row = authorFactionRolesLive[i];
+  if (!row) return;
+  const nameEl = document.getElementById(`role-name-${i}`);
+  const newName = (nameEl.value || '').trim();
+  if (!newName || newName === row.name) { nameEl.value = row.name; return; }
+  const count = row.active_holder_count || 0;
+  if (count > 0) {
+    const ok = confirm(
+      `Renommer "${row.name}" en "${newName}" ? ${count} membre(s) actif(s) tenant ce rôle seront ` +
+      `réalignés (fermeture + réouverture de leur adhésion ; l'historique est conservé). Continuer ?`
+    );
+    if (!ok) { nameEl.value = row.name; return; }
+  }
+  // The PATCH route always applies description/max_holders alongside a
+  // rename (one row, one full-state write) — send the current DOM values,
+  // not just the new name, or the rename would blank them out.
+  const description = document.getElementById(`role-desc-${i}`).value || null;
+  const max_holders = _factionRoleLimitValue(`role-limit-${i}`);
+  try {
+    await api(`/api/factions/${encodeURIComponent(factionId)}/roles/${encodeURIComponent(row.id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName, description, max_holders }),
+    });
+    await authorLoadFactionRoles(factionId);
+  } catch (e) {
+    nameEl.value = row.name;
+    _factionRoleStatusError(e.message);
+  }
+}
+
+async function authorMoveFactionRole(factionId, i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= authorFactionRolesLive.length) return;
+  const ids = authorFactionRolesLive.map(r => r.id);
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  try {
+    await api(`/api/factions/${encodeURIComponent(factionId)}/roles/reorder`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role_ids: ids }),
+    });
+    await authorLoadFactionRoles(factionId);
+  } catch (e) {
+    _factionRoleStatusError(e.message);
+  }
+}
+
+async function authorDeleteFactionRole(factionId, roleId) {
+  if (!confirm('Delete this role?')) return;
+  try {
+    await api(`/api/factions/${encodeURIComponent(factionId)}/roles/${encodeURIComponent(roleId)}`, { method: 'DELETE' });
+    await authorLoadFactionRoles(factionId);
+  } catch (e) {
+    _factionRoleStatusError(e.message);
+  }
+}
+
+async function authorDeclareFactionRole(factionId, name) {
+  try {
+    await api(`/api/factions/${encodeURIComponent(factionId)}/roles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description: null, max_holders: null }),
+    });
+    await authorLoadFactionRoles(factionId);
+  } catch (e) {
+    _factionRoleStatusError(e.message);
   }
 }
 
@@ -7064,19 +7166,18 @@ async function authorSave() {
   }
   if (isNew) entityData.type = type;
 
-  // BRIEF-31: faction roles are edited via the structured editor, never the
-  // raw metadata textarea (decision G1) — merge the (synced, name-filtered)
-  // draft into entityData.metadata right before save. A name-less row is
-  // dropped; an empty description is kept.
-  if (type === 'faction') {
+  // TICKET-0024, BRIEF-0024-d: for a NEW faction, roles drafted before the
+  // entity exists are held in authorFactionRolesDraft and POSTed to the
+  // faction_role create route right after creation (below) — never merged
+  // into entityData.metadata (faction_role has its own dedicated routes,
+  // never the generic entity PUT). An EXISTING faction's roles editor is
+  // already live/API-backed (authorLoadFactionRoles) and untouched here.
+  const rolesToCreate = (isNew && type === 'faction') ? (() => {
     _syncFactionRolesFromDom();
-    const cleanRoles = authorFactionRolesDraft
-      .map(r => ({ name: (r.name || '').trim(), description: r.description || '' }))
+    return authorFactionRolesDraft
+      .map(r => ({ name: (r.name || '').trim(), description: r.description || null, max_holders: r.limit ?? null }))
       .filter(r => r.name);
-    entityData.metadata = { ...(entityData.metadata || {}) };
-    if (cleanRoles.length) entityData.metadata.roles = cleanRoles;
-    else delete entityData.metadata.roles;
-  }
+  })() : [];
 
   // BRIEF-24: knowledge rows proposed by the AI draft generator are held in
   // memory until now — read their current (possibly edited) values before
@@ -7131,6 +7232,17 @@ async function authorSave() {
         });
       }
       pendingDraftGoals = { long: '', shorts: ['', ''] };
+    }
+
+    if (isNew && rolesToCreate.length) {
+      for (const row of rolesToCreate) {
+        await api(`/api/factions/${encodeURIComponent(detail.id)}/roles`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(row),
+        });
+      }
+      authorFactionRolesDraft = [];
     }
 
     if (isNew && pendingCreationMutationId) {

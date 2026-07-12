@@ -5928,4 +5928,37 @@ pair.
 
 ---
 
+## FACTION ROLE TABLE — corrective, JSON to relational (BRIEF-0024-d, schema v1.76)
+
+0024-d corrective — roles promoted from JSON (`metadata.roles` +
+`role_capacities`) to relational `faction_role`: creator doctrine
+"UI-visible data lives in columns and tables, not JSON blobs" (global
+blob-extraction hunt = future ticket); case-uniqueness moved from code
+check to unique index; S1 guarded hard delete; T1 rename realigns active
+memberships only.
+
+A RECON-after-the-fact found BRIEF-0024-a built `faction.role_capacities`
+unaware of the pre-existing declared-role structure,
+`entity.metadata['roles']` (BRIEF-31, schema v1.42) — the faction sheet
+carried two disconnected role vocabularies. The fix merges both into one
+table rather than picking a survivor: metadata-role entries keep their
+array order and description; `role_capacities` limits merge in by
+casefold name match; a capacity-only key becomes a new row. The migration
+validates every faction in a read-only pass before writing anything — a
+casefold collision inside one faction's own sources aborts the WHOLE
+migration with a readable list, never a partial write.
+
+**Lesson, recorded verbatim in CLAUDE.md's RECON section:** "RECON: trace
+every UI-visible field to its storage, including `entity.metadata` JSON
+keys — grepping columns is not sufficient."
+
+**This entry SUPERSEDES C2/J1 of "TICKET-0024 INTAKE DECISIONS"** — on the
+record, not by drift. The exact claim it supersedes, verbatim: "Role
+capacities live on `faction.role_capacities` (JSON), edited via a line
+editor (number limit + role name) in the Faction tab." Capacity counting
+against the true `role` (never `cover_role`) and "full is a reject, never
+an eviction" both carry forward unchanged onto `faction_role.max_holders`.
+
+---
+
 *Co-built with Claude, June 2026.*

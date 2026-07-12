@@ -83,3 +83,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 5809 | ON-DEMAND GRAPH SLOTS + CYTOSCAPE VENDORING (BRIEF-0023-a, no schema change) | BRIEF-0023-a |  |
 | 5852 | TICKET-0024 INTAKE DECISIONS — completion mechanics (BRIEF-0024-a, BRIEF-0024-b, BRIEF-0024-c, schema v1.74) | BRIEF-0024-a, BRIEF-0024-b, BRIEF-0024-c | v1.74 |
 | 5911 | PREREQUISITE JUDGE (BRIEF-0024-b, no schema change) | BRIEF-0024-b |  |
+| 5931 | FACTION ROLE TABLE — corrective, JSON to relational (BRIEF-0024-d, schema v1.76) | BRIEF-0024-d | v1.76 |

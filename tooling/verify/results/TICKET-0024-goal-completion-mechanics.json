@@ -1,12 +1,12 @@
 {
   "ticket": "TICKET-0024-goal-completion-mechanics",
-  "when": "2026-07-11T12:34:17.141332+00:00",
+  "when": "2026-07-12T19:35:18.362310+00:00",
   "green": true,
   "checks": [
     {
       "check": "schema_0024.py",
       "status": "PASS",
-      "msg": "PASS: faction.role_capacities and npc_goal.prerequisites present, nullable JSON"
+      "msg": "PASS: npc_goal.prerequisites present; faction_role table + idx_faction_role_name (COLLATE NOCASE) present; faction.role_capacities and entity.metadata.roles usage gone"
     },
     {
       "check": "prereq_judge.py",
@@ -21,7 +21,7 @@
     {
       "check": "role_closed_vocab.py",
       "status": "PASS",
-      "msg": "PASS: role_change resolves case-insensitively; undeclared without declare rejects (K1); declare is L2"
+      "msg": "PASS: role_change resolves case-insensitively against faction_role; undeclared without declare rejects (K1); declare is L2"
     },
     {
       "check": "effects_ledger_source.py",
