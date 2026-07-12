@@ -96,7 +96,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from .models import Agenda, AgendaStep, Character, Entity, Event, FactionMembership, FactionRole, GoalAgendaLink, Knowledge, Ledger, NpcGoal, PromptTemplate, PromptVersion, Relation, Skill
+from .models import Agenda, AgendaStep, Character, Entity, Event, FactionMembership, FactionRole, GoalAgendaLink, Knowledge, Ledger, NpcGoal, NpcPrice, PromptTemplate, PromptVersion, Relation, Skill
 
 # Simple-identifier placeholder, e.g. `{player_line}` — deliberately does not
 # match JSON-example braces like `{"key": ...}` (TICKET-0011, C1).
@@ -759,6 +759,43 @@ def write_faction_role(
         raise ValueError(f"faction_role: {count} active member(s) still hold {role.name!r}")
     db.delete(role)
     return None
+
+
+def write_npc_prices(
+    db: Session,
+    *,
+    entity: Character,
+    prices: dict[str, int],
+    changed_by: str,
+) -> list[NpcPrice]:
+    """Full-replace `npc_price` rows for one NPC (TICKET-0025, BRIEF-0025-a
+    — replaces `entity.metadata['price_list']`, BRIEF-20). Caller adds the
+    returned rows to the session and commits.
+
+    Deletes every existing `npc_price` row for `entity`, then inserts one
+    row per `(tag, amount)` pair — the same read-merge-write CONTRACT the
+    Tarifs editor already had, now backed by a relational full-replace
+    instead of a JSON blob reassignment. Curated config (faction_role
+    family): no `change_history`, hard delete of the prior rows is the
+    sanctioned edit.
+    """
+    clean: list[tuple[str, int]] = []
+    for tag, amount in prices.items():
+        tag = str(tag).strip()
+        if not tag:
+            raise ValueError("write_npc_prices: tag must be a non-empty string")
+        if not isinstance(amount, int) or isinstance(amount, bool) or amount < 0:
+            raise ValueError(f"write_npc_prices: amount for {tag!r} must be an int >= 0")
+        clean.append((tag, amount))
+
+    db.execute(text("DELETE FROM npc_price WHERE entity_id = :entity_id"), {"entity_id": entity.id})
+    rows = [
+        NpcPrice(world_id=entity.world_id, entity_id=entity.id, tag=tag, amount=amount)
+        for tag, amount in clean
+    ]
+    for row in rows:
+        db.add(row)
+    return rows
 
 
 def write_npc_goal_prerequisites(

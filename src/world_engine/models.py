@@ -95,11 +95,6 @@ class Entity(SQLModel, table=True):
     status: str = Field(
         default="active", sa_column_kwargs={"server_default": text("'active'")}
     )
-    # ``metadata`` is reserved by SQLAlchemy's declarative base, so the Python
-    # attribute is ``metadata_`` while the DB column stays ``metadata``.
-    metadata_: Optional[Any] = Field(
-        default=None, sa_column=Column("metadata", JSON)
-    )
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
 
@@ -139,6 +134,37 @@ class Character(SQLModel, table=True):
     backstory: Optional[str] = None
     aversion: Optional[str] = None
     secrets: Optional[Any] = Field(default=None, sa_column=Column(JSON))
+    # Schema v1.77, TICKET-0025, BRIEF-0025-a: physical resistance tier for
+    # opposed rolls (resolution.py). Migrated from entity.metadata
+    # ['physical_tier'] — UI-visible data is never stored in JSON
+    # (json_ui_boundary). 0 = untrained default.
+    physical_tier: int = Field(default=0, sa_column_kwargs={"server_default": text("0")})
+
+
+# -----------------------------------------------------------------------------
+# npc_price  (seller tariff lines, schema v1.77, TICKET-0025,
+# BRIEF-0025-a — replaces entity.metadata['price_list'], BRIEF-20)
+#
+# Curated config, same family as faction_role: no change_history column,
+# full-replace writes, hard delete of a line is the sanctioned edit
+# (named doctrine exception — logged in ARCHITECTURE_DECISIONS). Read by
+# the seller-tariff block of assemble_npc_context; written ONLY via
+# writes.write_npc_prices (creator Tarifs editor).
+# -----------------------------------------------------------------------------
+class NpcPrice(SQLModel, table=True):
+    __tablename__ = "npc_price"
+    __table_args__ = (
+        Index(
+            "idx_npc_price_tag", "entity_id", text("tag COLLATE NOCASE"),
+            unique=True,
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    entity_id: str = Field(foreign_key="entity.id", nullable=False)
+    tag: str
+    amount: int
 
 
 # -----------------------------------------------------------------------------

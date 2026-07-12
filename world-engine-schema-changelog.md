@@ -8,6 +8,24 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.77** — TICKET-0025, BRIEF-0025-a: `character.physical_tier`
+  (INTEGER NOT NULL DEFAULT 0) added; new table `npc_price` (`id, world_id,
+  entity_id (FK entity.id), tag, amount`) with structural unique index
+  `idx_npc_price_tag (entity_id, tag COLLATE NOCASE)`. `entity.metadata`
+  column DROPPED. Standing directive (TICKET-0025, motivated by the
+  TICKET-0024 duplication bug): no UI-visible data lives in JSON — the two
+  keys still read from `entity.metadata` (`physical_tier`, the NPC sheet
+  "Carrure" and the opposed-roll reader; `price_list`, the Tarifs editor
+  and seller-tariff prompt injection) move to relational storage; the raw
+  "Metadata (JSON)" form field is removed. Migration
+  `scripts/migrate_v1_77_metadata_extraction.py`: read-only validation
+  pass first (any entity metadata key other than `physical_tier` /
+  `price_list`, or either key on a non-character entity, aborts the whole
+  migration, nothing written), then copies `physical_tier` into the
+  `character` row and `price_list` entries into `npc_price` rows, then
+  drops the column — one transaction. `writes.write_npc_prices`
+  (full-replace, curated config, same family as `faction_role`) is the
+  sole `npc_price` write path.
 - **v1.76** — TICKET-0024, BRIEF-0024-d (corrective): new table
   `faction_role` (`id, world_id, faction_id (FK faction.id), name,
   description, max_holders, position, created_at, created_by`) with

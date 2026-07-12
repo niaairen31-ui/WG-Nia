@@ -26,7 +26,7 @@ from sqlmodel import Session, select  # noqa: E402
 from world_engine import models as m  # noqa: E402
 from world_engine.db import engine  # noqa: E402
 from world_engine.prompt_store import list_versions  # noqa: E402
-from world_engine.writes import write_membership, write_prompt_version  # noqa: E402
+from world_engine.writes import write_membership, write_npc_prices, write_prompt_version  # noqa: E402
 
 WORLD_ID = "verkhaal"
 
@@ -203,25 +203,22 @@ def align_relation_intensity(session: Session, id: str, target: int) -> None:
         )
 
 
-def merge_entity_metadata(session: Session, entity_id: str, updates: dict) -> None:
-    """Read-merge-write into entity.metadata_ without clobbering other keys.
-
-    Same discipline as the cockpit's Tarifs editor (BRIEF-20): existing keys
-    (e.g. physical_tier) survive untouched. Idempotent — a second run with
-    unchanged values records nothing changed.
+def ensure_npc_prices(session: Session, entity_id: str, prices: dict[str, int]) -> None:
+    """Full-replace `npc_price` rows for an NPC, idempotently (TICKET-0025,
+    BRIEF-0025-a — replaces the metadata.price_list read-merge-write,
+    BRIEF-20). A second run with unchanged values records nothing changed.
     """
-    entity = session.get(m.Entity, entity_id)
-    if entity is None:
+    character = session.get(m.Character, entity_id)
+    if character is None:
         return
-    merged = dict(entity.metadata_ or {})
-    changed = False
-    for key, value in updates.items():
-        if merged.get(key) != value:
-            merged[key] = value
-            changed = True
-    if changed:
-        entity.metadata_ = merged
-        _updated.append((m.Entity.__tablename__, entity_id))
+    existing_rows = session.exec(
+        select(m.NpcPrice).where(m.NpcPrice.entity_id == entity_id)
+    ).all()
+    if {row.tag: row.amount for row in existing_rows} == prices:
+        _existing.append((m.NpcPrice.__tablename__, entity_id))
+        return
+    write_npc_prices(session, entity=character, prices=prices, changed_by="seed")
+    _updated.append((m.NpcPrice.__tablename__, entity_id))
 
 
 # Analysis prompt for post-conversation mutation extraction. Usage value is
@@ -2089,12 +2086,8 @@ Noms connus du monde : {roster_names}\
         },
     )
     ensure_primary_membership(session, WORLD_ID, "npc-maelis", "fac-unnamed")
-    # Starter catalogue (BRIEF-20) — read-merge so no other metadata key is clobbered.
-    merge_entity_metadata(
-        session,
-        "npc-maelis",
-        {"price_list": {"biere": 5, "chambre": 40, "repas": 12}},
-    )
+    # Starter catalogue (BRIEF-20, relationalized TICKET-0025, BRIEF-0025-a).
+    ensure_npc_prices(session, "npc-maelis", {"biere": 5, "chambre": 40, "repas": 12})
 
     # Reike — La Garde, officier en civil.
     get_or_create(

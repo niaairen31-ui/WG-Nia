@@ -224,11 +224,11 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   canon-existence-based, never a `tick_id`-scoped history comparison, and
   must never be extended to `relation_change` (accumulating deltas, never
   guarded).
-- **`entity.metadata.price_list` is seller configuration,** injected ONLY
-  into that seller's own dialogue context — never into `assemble_mj_context`
-  or any other entity's context. A quoted price writes no canon; money
-  moves via `resource_change` through the checkpoint. Catalogue prices are
-  firm and universal; only uncatalogued quotes are relation-modulated.
+- **`npc_price` rows are seller configuration,** injected ONLY into that
+  seller's own dialogue context — never into `assemble_mj_context` or any
+  other entity's context. A quoted price writes no canon; money moves via
+  `resource_change` through the checkpoint. Catalogue prices are firm and
+  universal; only uncatalogued quotes are relation-modulated.
 - **Membership reaches a model prompt only via `read_public_memberships`;**
   `is_secret` rows never enter any prompt, including the holder's own —
   structural filter, no override parameter. The true `role` behind a
@@ -436,8 +436,6 @@ WG-Nia/
   `_uuid()` `default_factory`; entity-extension tables (`character`,
   `location`, `faction`, `artifact`) take their PK as the `entity.id`
   foreign key.
-- **Reserved name:** `entity.metadata` maps to the Python attribute
-  `metadata_` (SQLAlchemy reserves `metadata`).
 
 ### Schema fidelity rules
 

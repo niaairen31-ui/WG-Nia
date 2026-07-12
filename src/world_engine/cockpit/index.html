@@ -6087,14 +6087,7 @@ function authorApplyCharacterDraft(result) {
   setVal('author-f-name', draft.public.name);
   setVal('author-f-description', draft.public.description);
 
-  const metaEl = document.getElementById('author-f-metadata');
-  if (metaEl) {
-    let meta = {};
-    const raw = metaEl.value.trim();
-    if (raw) { try { meta = JSON.parse(raw) || {}; } catch (_) { meta = {}; } }
-    meta.physical_tier = draft.public.physical_tier;
-    metaEl.value = JSON.stringify(meta, null, 2);
-  }
+  setVal('author-x-physical_tier', draft.public.physical_tier);
 
   setVal('author-x-appearance', draft.public.appearance);
   setVal('author-x-backstory', draft.public.backstory);
@@ -6354,14 +6347,13 @@ function _syncPendingGoalsFromDom() {
   return entries;
 }
 
-/* ── Tarifs editor (BRIEF-20) — entity.metadata.price_list, NPC sheet only ──
- * Creator-direct read-merge-write on metadata, no proposed_mutation, no
- * change_history (same treatment as physical_tier / coordinates). Every
- * mutation re-fetches the entity fresh right before writing, so no other
- * metadata key is ever clobbered. */
+/* ── Tarifs editor (BRIEF-20, relationalized TICKET-0025, BRIEF-0025-a) ──
+ * `npc_price` rows, full-replace via PUT /api/entities/{id}/prices — no
+ * proposed_mutation, no change_history (curated config, faction_role
+ * family). */
 
 function authorRenderPricing(detail) {
-  const priceList = (detail.metadata && detail.metadata.price_list) || {};
+  const priceList = detail.prices || {};
   const tags = Object.keys(priceList);
   const rows = tags.length
     ? tags.map(tag => `
@@ -6404,27 +6396,16 @@ function authorAddPriceEntry() {
   authorPriceListMutate(pl => { pl[tag] = amount; });
 }
 
-/** Read-merge-write on entity.metadata: GET fresh, set only metadata.price_list,
- *  PUT the complete body back — same discipline as the v1.28 coordinates write. */
+/** Full-replace `npc_price` rows: GET fresh, mutate the {tag: amount} dict,
+ *  PUT the complete dict to /api/entities/{id}/prices. */
 async function authorPriceListMutate(mutateFn) {
   const statusEl = document.getElementById('author-status');
   try {
     const fresh = await api(`/api/entities/${encodeURIComponent(authorEntityId)}`);
-    const entityData = {};
-    for (const field of authorRegistry.entity_base_fields) {
-      entityData[field.name] = field.name === 'metadata' ? { ...(fresh.metadata || {}) } : fresh[field.name];
-    }
-    const priceList = { ...(entityData.metadata.price_list || {}) };
+    const priceList = { ...(fresh.prices || {}) };
     mutateFn(priceList);
-    if (Object.keys(priceList).length) entityData.metadata.price_list = priceList;
-    else delete entityData.metadata.price_list;
-
-    const extData = {};
-    for (const field of authorRegistry.types[fresh.type].fields) {
-      extData[field.name] = fresh.extension ? fresh.extension[field.name] : undefined;
-    }
-    const body = JSON.stringify({ entity: entityData, extension: extData });
-    const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
+    const body = JSON.stringify({ prices: priceList });
+    const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}/prices`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
     authorRenderSheet(detail, false, detail.type);
     document.getElementById('author-status').className = 'author-status ok';
     document.getElementById('author-status').textContent = 'Tarifs mis à jour.';

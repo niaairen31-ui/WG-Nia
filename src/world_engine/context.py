@@ -43,6 +43,7 @@ from .models import (
     Knowledge,
     Location,
     NpcGoal,
+    NpcPrice,
     Relation,
     SkillDefinition,
 )
@@ -430,13 +431,16 @@ def assemble_npc_context(
                 affiliation_lines.append(f"- {faction_name}")
         affiliations_section = "\n".join(affiliation_lines) + "\n\n"
 
-    # ----- 4c. Seller tariffs (BRIEF-20) — this NPC's own price_list only ---
-    price_list = npc_entity.metadata_.get("price_list") if isinstance(npc_entity.metadata_, dict) else None
+    # ----- 4c. Seller tariffs (BRIEF-20, relationalized TICKET-0025,
+    # BRIEF-0025-a) — this NPC's own npc_price rows only -------------------
+    price_rows = session.exec(
+        select(NpcPrice).where(NpcPrice.entity_id == npc_id)
+    ).all()
     pricing_section = ""
-    if isinstance(price_list, dict) and price_list:
+    if price_rows:
         tariff_lines = ["TES TARIFS (prix fermes) :"]
-        for tag, amount in price_list.items():
-            tariff_lines.append(f"- {tag} : {amount}")
+        for row in price_rows:
+            tariff_lines.append(f"- {row.tag} : {row.amount}")
         tariff_lines.append("")
         tariff_lines.append("RÈGLES DE TARIFICATION :")
         tariff_lines.append(

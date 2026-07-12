@@ -782,8 +782,6 @@ def commit_region(
                 "name": pub.get("name"),
                 "description": pub.get("description"),
             }
-            if pub.get("physical_tier") is not None:
-                entity_data["metadata"] = {"physical_tier": pub["physical_tier"]}
             ext_data: dict[str, Any] = {
                 "character_type": "npc",
                 "appearance": pub.get("appearance"),
@@ -792,6 +790,8 @@ def commit_region(
                 "current_location_id": loc_id_map[host_local],
                 "secrets": json.dumps(sec["creator_meta"]) if sec.get("creator_meta") is not None else None,
             }
+            if pub.get("physical_tier") is not None:
+                ext_data["physical_tier"] = pub["physical_tier"]
             faction_local = entry.get("faction_local_id")
             if faction_local and faction_local in fac_id_map:
                 ext_data["faction_id"] = fac_id_map[faction_local]
@@ -4299,7 +4299,7 @@ def say(
 
             # Player-roll rule (resolution.py): the roll always belongs to the
             # player — player_tier from the skill sheet, npc_tier (if opposed)
-            # from entity.metadata.physical_tier, default 0 either way.
+            # from character.physical_tier, default 0 either way.
             player_tier = skill_row.tier if skill_row else 0
 
             opposed_entity: Optional[Entity] = None
@@ -4309,7 +4309,8 @@ def say(
             if opposed_npc_id:
                 opposed_entity = db.get(Entity, opposed_npc_id)
                 if opposed_entity is not None:
-                    npc_tier = (opposed_entity.metadata_ or {}).get("physical_tier", 0)
+                    opposed_character = db.get(Character, opposed_npc_id)
+                    npc_tier = opposed_character.physical_tier if opposed_character is not None else 0
 
             verdict = resolve_physical(resolved_base_domain, player_tier, npc_tier)
             _log.info(

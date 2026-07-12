@@ -82,6 +82,7 @@ from ..models import (
     Ledger,
     Location,
     NpcGoal,
+    NpcPrice,
     PromptTemplate,
     ProposedMutation,
     Relation,
@@ -112,6 +113,7 @@ from ..writes import (
     write_npc_goal,
     write_npc_goal_prerequisites,
     write_npc_goal_status,
+    write_npc_prices,
     write_prompt_version,
     write_relation,
     write_skill_tier,
@@ -177,7 +179,6 @@ ENTITY_BASE_FIELDS: list[dict[str, Any]] = [
     {"name": "description", "label": "Description", "kind": "textarea"},
     {"name": "is_public", "label": "Public", "kind": "bool", "default": True},
     {"name": "status", "label": "Status", "kind": "select", "options": list(ENTITY_STATUSES), "default": "active"},
-    {"name": "metadata", "label": "Metadata (JSON)", "kind": "json"},
 ]
 
 
@@ -201,6 +202,7 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
             {"name": "backstory", "label": "Backstory", "kind": "textarea"},
             {"name": "aversion", "label": "Aversion", "kind": "textarea"},
             {"name": "secrets", "label": "Secrets (JSON, creator-only)", "kind": "json"},
+            {"name": "physical_tier", "label": "Physical tier (Carrure)", "kind": "number", "min": -1, "max": 2, "default": 0},
         ],
     },
     "location": {
@@ -454,7 +456,6 @@ def _entity_dict(e: Entity) -> dict:
         "description": e.description,
         "is_public": e.is_public,
         "status": e.status,
-        "metadata": e.metadata_,
         "created_at": _iso(e.created_at),
         "updated_at": _iso(e.updated_at),
     }
@@ -463,6 +464,13 @@ def _entity_dict(e: Entity) -> dict:
 def _extension_dict(entity_type: str, ext: Any) -> dict:
     spec = ENTITY_TYPE_REGISTRY[entity_type]
     return {f["name"]: getattr(ext, f["name"]) for f in spec["fields"]}
+
+
+def _npc_prices_dict(entity_id: str, db: DbSession) -> dict[str, int]:
+    """`npc_price` rows for one character, as `{tag: amount}` — the client
+    shape the Tarifs editor expects (TICKET-0025, BRIEF-0025-a)."""
+    rows = db.exec(select(NpcPrice).where(NpcPrice.entity_id == entity_id)).all()
+    return {row.tag: row.amount for row in rows}
 
 
 def _relation_dict(rel: Relation, perspective_id: str, db: DbSession) -> dict:
@@ -586,9 +594,8 @@ def _list_goals(entity_id: str, db: DbSession) -> list[dict]:
 def _apply_base_fields(db: DbSession, entity: Entity, data: dict) -> None:
     for field in ENTITY_BASE_FIELDS:
         name = field["name"]
-        attr = "metadata_" if name == "metadata" else name
         value = _coerce_field(db, field, data.get(name))
-        setattr(entity, attr, value)
+        setattr(entity, name, value)
 
 
 def _build_extension_kwargs(db: DbSession, entity_type: str, data: dict) -> dict:
@@ -640,6 +647,10 @@ class GoalStatusBody(BaseModel):
 
 class GoalPrerequisitesBody(BaseModel):
     prerequisites: Optional[list[dict[str, Any]]] = None
+
+
+class NpcPricesBody(BaseModel):
+    prices: dict[str, int] = {}
 
 
 class FactionRoleCreateBody(BaseModel):
@@ -725,6 +736,8 @@ def get_entity(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
         result["extension"] = _extension_dict(entity.type, ext) if ext is not None else {}
         result["relations"] = _list_relations(entity_id, db)
         result["knowledge"] = _list_knowledge(entity_id, db)
+        if entity.type == "character":
+            result["prices"] = _npc_prices_dict(entity_id, db)
     else:
         result["extension"] = {}
         result["relations"] = []
@@ -860,6 +873,8 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
     result["extension"] = _extension_dict(entity.type, ext_row)
     result["relations"] = []
     result["knowledge"] = []
+    if entity.type == "character":
+        result["prices"] = {}
     if body.mutation_id:
         result["creation_linkage"] = _link_entity_creation(body.mutation_id, entity.id, db)
     return result
@@ -911,6 +926,8 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
         result["extension"] = _extension_dict(entity.type, ext)
         result["relations"] = _list_relations(entity_id, db)
         result["knowledge"] = _list_knowledge(entity_id, db)
+        if entity.type == "character":
+            result["prices"] = _npc_prices_dict(entity_id, db)
     else:
         result["extension"] = {}
         result["relations"] = []
@@ -929,6 +946,29 @@ def delete_entity(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
     db.commit()
     db.refresh(entity)
     return _entity_dict(entity)
+
+
+@router.put("/entities/{entity_id}/prices")
+def set_npc_prices(entity_id: str, body: NpcPricesBody, db: DbSession = Depends(get_session)) -> dict:
+    """Full-replace an NPC's `npc_price` rows (Tarifs editor, TICKET-0025,
+    BRIEF-0025-a — replaces the metadata.price_list read-merge-write)."""
+    entity = _get_entity(db, entity_id)
+    if entity.type != "character":
+        raise HTTPException(422, "Prices are a character-only field")
+    character = db.get(Character, entity_id)
+    try:
+        write_npc_prices(db, entity=character, prices=body.prices, changed_by="creator")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    db.commit()
+
+    result = _entity_dict(entity)
+    ext = db.get(Character, entity_id)
+    result["extension"] = _extension_dict("character", ext)
+    result["relations"] = _list_relations(entity_id, db)
+    result["knowledge"] = _list_knowledge(entity_id, db)
+    result["prices"] = _npc_prices_dict(entity_id, db)
+    return result
 
 
 # ── In-context relation editor ────────────────────────────────────────────────

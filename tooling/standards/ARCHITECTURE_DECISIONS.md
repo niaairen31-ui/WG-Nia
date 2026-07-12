@@ -5961,4 +5961,21 @@ an eviction" both carry forward unchanged onto `faction_role.max_holders`.
 
 ---
 
+## NPC_PRICE HARD-DELETE NAMED EXCEPTION (BRIEF-0025-a, schema v1.77)
+
+`npc_price` follows the `faction_role` curated-config doctrine: no
+`change_history` column, full-replace writes (`writes.write_npc_prices`
+deletes every existing row for the entity, then inserts one row per
+`{tag: amount}` pair). The prior rows' hard delete is a NAMED exception to
+"history is sacred" — tariff lines are seller configuration, not event
+canon, and carry no narrative audit requirement. `character.physical_tier`
+and `npc_price` replace `entity.metadata['physical_tier']` and
+`entity.metadata['price_list']` (BRIEF-20); this is the first corrective
+step of TICKET-0025 (motivated by the TICKET-0024 duplication bug — see
+"FACTION ROLE TABLE" above). The full TICKET-0025 decision record —
+locked options, the `json_ui_boundary` verify check, and the exception
+registry — lands with BRIEF-0025-c.
+
+---
+
 *Co-built with Claude, June 2026.*
