@@ -80,7 +80,9 @@ and `world-engine-schema-changelog.md` — never here.
   `Current schema version:` line in `world-engine-schema.md`, minor + 1.
   That header line is the single source for the current number; the
   append-only log lives in `world-engine-schema-changelog.md` (repo root).
-  If the minor part reaches 99, stop and escalate (D1-c).
+  If the minor part reaches 99, stop and escalate (D1-c). RECON lesson:
+  "RECON: trace every UI-visible field to its storage, including
+  `entity.metadata` JSON keys — grepping columns is not sufficient."
 - **Artifact convention — the filename is law.** Tickets, RECONs, and briefs
   arrive as `.md` files carrying their final real IDs in both filename and
   content (`TICKET-0010.md`, `RECON-0010.md`, `BRIEF-0010-a.md`); no
@@ -232,7 +234,8 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   structural filter, no override parameter. The true `role` behind a
   `cover_role` never enters any prompt: the accessor resolves
   `cover_role ?? role`. Espionage rides on `goals` prose, never a
-  confessable affiliation label.
+  confessable affiliation label. Declared faction roles live in
+  `faction_role` (relational, never JSON; case-uniqueness is the index's job).
 - **Creator-direct create helpers never commit in their core; the commit
   boundary belongs to the caller.** `create_entity`, `create_knowledge`,
   `open_entity_membership` each split into a commit-free core plus a thin
@@ -271,8 +274,9 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   included); `skill_definition` delete (one definition + its dependent
   `skill` rows); creator-correction deletes `delete_relation`,
   `delete_knowledge` (each discards the row's `change_history` with the
-  row) and `delete_discoverable_detail` — creator-CRUD-only, never
-  reachable from any AI or play path.
+  row), `delete_discoverable_detail`, and `write_faction_role(mode=
+  "delete")` (S1, blocked while an active membership holds the role) —
+  creator-CRUD-only, never reachable from any AI or play path.
 - **Custom skill lookups filter `skill_definition_id`, by construction:** a
   base-domain `skill` lookup MUST include `AND skill_definition_id IS NULL`.
   A custom skill resolves via its `skill_definition.base_domain` — never

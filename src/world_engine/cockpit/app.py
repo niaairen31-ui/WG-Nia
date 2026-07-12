@@ -84,6 +84,7 @@ from ..models import (
     Event,
     Faction,
     FactionMembership,
+    FactionRole,
     Gathering,
     GatheringMember,
     Item,
@@ -112,7 +113,7 @@ from ..writes import (
     write_agenda_step_status,
     write_character_location,
     write_event,
-    write_faction_role_capacities,
+    write_faction_role,
     write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
@@ -1412,13 +1413,20 @@ def _apply_completion_effects(
             if membership is None:
                 return f"role_change: NPC is not an active member of {faction_entity.name}"
 
-            # (ii) resolve role against role_capacities, exact case-insensitive.
-            capacities = faction.role_capacities or {}
-            resolved_key = next(
-                (k for k in capacities if k.casefold() == role_key.casefold()), None
+            # (ii) resolve role against faction_role, exact case-insensitive
+            # (TICKET-0024, BRIEF-0024-d — corrective, replaces
+            # faction.role_capacities). Matched in Python (`.casefold()`),
+            # not SQL `lower()` — SQLite's NOCASE/lower() is ASCII-only and
+            # would mishandle accented French role names.
+            declared_roles = db.exec(
+                select(FactionRole).where(FactionRole.faction_id == faction_id)
+            ).all()
+            declared = next(
+                (r for r in declared_roles if r.name.casefold() == role_key.casefold()), None
             )
-            if resolved_key is not None:
-                limit = capacities[resolved_key]
+            if declared is not None:
+                resolved_key = declared.name
+                limit = declared.max_holders
                 if limit is not None:
                     holders = db.exec(
                         select(FactionMembership).where(
@@ -1434,17 +1442,16 @@ def _apply_completion_effects(
                 final_role = resolved_key
             elif declare:
                 # L2 declare-and-occupy: a role is never created without a
-                # holder — declaration (dict reassignment) and occupation
-                # (close+reopen below) commit in the same SAVEPOINT as the
-                # rest of this mutation. Newly declared capacity is always
-                # unlimited; only the creator sets limits thereafter.
-                new_capacities = dict(capacities)
-                new_capacities[role_key] = None
-                write_faction_role_capacities(
-                    db, faction=faction, capacities=new_capacities,
+                # holder — declaration (INSERT) and occupation (close+reopen
+                # below) commit in the same SAVEPOINT as the rest of this
+                # mutation. Newly declared role is always unlimited; only
+                # the creator sets a limit thereafter.
+                new_role = write_faction_role(
+                    db, mode="create", world_id=world_id, faction_id=faction_id,
+                    name=role_key, description=None, max_holders=None,
                     changed_by=f"mutation:{mutation_id}",
                 )
-                final_role = role_key
+                final_role = new_role.name
             else:
                 return f"role_change: role {role_key} is not declared for {faction_entity.name}"
 

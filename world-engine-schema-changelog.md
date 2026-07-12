@@ -8,6 +8,30 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.76** — TICKET-0024, BRIEF-0024-d (corrective): new table
+  `faction_role` (`id, world_id, faction_id (FK faction.id), name,
+  description, max_holders, position, created_at, created_by`) with
+  structural unique index `idx_faction_role_name (faction_id, name COLLATE
+  NOCASE)`. Replaces the disconnected `faction.role_capacities` (JSON,
+  v1.74/BRIEF-0024-a) — column DROPPED — and `entity.metadata['roles']`
+  (JSON, BRIEF-31) — key stripped from every faction's metadata by the
+  migration. A RECON-after-the-fact found BRIEF-0024-a built
+  `role_capacities` unaware of the pre-existing `metadata['roles']`
+  structure; this corrective merges both sources into one relational
+  table (creator doctrine: informations in columns and tables, not JSON
+  blobs). Migration `scripts/migrate_v1_76_faction_role_table.py`: copies
+  `metadata['roles']` entries in array order, merges `role_capacities`
+  limits by casefold name match, aborts the whole migration on any
+  casefold collision inside a single faction's sources (nothing written),
+  strips the metadata key, drops the column — one transaction.
+  `writes.write_faction_role` (`mode="create"/"update"/"rename"/"delete"`)
+  replaces `write_faction_role_capacities`; `mode="rename"` (T1)
+  closes+reopens every ACTIVE `faction_membership` row whose true `role`
+  casefold-matches the old name; `mode="delete"` (S1) is a guarded hard
+  delete, blocked while any active membership still holds the role.
+  `_apply_mutation`'s `role_change` effect now resolves against
+  `faction_role` rows (Python `.casefold()` match — SQLite's `NOCASE`/
+  `lower()` is ASCII-only and would mishandle accented French role names).
 - **v1.75** — TICKET-0024, BRIEF-0024-c: `ledger.source_type` enum gains
   `tick` (M1) — written by completion-effect `ledger_transfer` legs inside
   `_apply_mutation`. `faction.role_capacities`'s DORMANT note flips to

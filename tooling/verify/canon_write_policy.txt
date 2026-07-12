@@ -1,5 +1,5 @@
 [CANON_TABLES]
-world entity character location faction faction_membership relation
+world entity character location faction faction_membership faction_role relation
 knowledge ledger item skill skill_definition discoverable_detail
 event artifact npc_goal agenda agenda_step goal_agenda_link
 
@@ -14,7 +14,7 @@ src/world_engine/writes.py::write_skill_tier                  skill
 src/world_engine/writes.py::write_npc_goal                    npc_goal
 src/world_engine/writes.py::write_npc_goal_status             npc_goal
 src/world_engine/writes.py::write_npc_goal_prerequisites      npc_goal
-src/world_engine/writes.py::write_faction_role_capacities     faction
+src/world_engine/writes.py::write_faction_role                faction_role
 src/world_engine/writes.py::write_event                       event
 src/world_engine/writes.py::write_event_update                 event
 src/world_engine/writes.py::write_agenda                      agenda

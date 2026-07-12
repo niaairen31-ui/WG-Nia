@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.75
+Current schema version: v1.76
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -157,27 +157,52 @@ CREATE TABLE faction (
   goals                 TEXT,
                         -- DORMANT: prose, what the faction is trying to do.
                         -- No mechanic, no structured consumer.
-  aversion              TEXT,
+  aversion              TEXT
                         -- DORMANT (schema v1.44, BRIEF-33): prose dual of
                         -- philosophy — what the faction rejects/combats, a
                         -- concept or category, never a named entity. Public-
                         -- tagged, authored + proposed, but read by no
                         -- assembler yet; the future reader MUST route
                         -- through read_public_memberships.
-  role_capacities       JSON
-                        -- (schema v1.74, TICKET-0024): per-role membership
-                        -- caps, shape {"<role name>": <int limit | null>}
-                        -- — a key present with a null limit is declared-
-                        -- but-unlimited; an absent key means undeclared
-                        -- (K1: rejected on the AI path unless declare:true,
-                        -- L2). Written ONLY via
-                        -- writes.write_faction_role_capacities (creator
-                        -- editor, BRIEF-0024-a); read by _apply_mutation's
-                        -- role_change effect (BRIEF-0024-c) — LIVE, no
-                        -- longer dormant. Capacity counts the true 'role',
-                        -- never 'cover_role'.
 );
 CREATE INDEX idx_faction_parent ON faction(parent_faction_id);
+```
+
+-----
+
+### `faction_role`
+
+Declared role vocabulary of a faction (schema v1.76, TICKET-0024,
+BRIEF-0024-d — corrective). Replaces the disconnected pair
+`faction.role_capacities` (JSON, BRIEF-0024-a) + `entity.metadata['roles']`
+(JSON, BRIEF-31) with one relational table: informations in columns and
+tables, not JSON blobs. Public by construction (BRIEF-31 lineage) — safe to
+expose to prompts and player-facing reads. Closed vocabulary for the AI
+path (K1: `role_change` rejects an undeclared role unless `declare:true`,
+L2). Curated config, same family as `faction_type` / `philosophy` — no
+`change_history` column; case-uniqueness is the unique index's job, not a
+code-side casefold check.
+
+```sql
+CREATE TABLE faction_role (
+  id           TEXT PRIMARY KEY,
+  world_id     TEXT NOT NULL REFERENCES world(id),
+  faction_id   TEXT NOT NULL REFERENCES faction(id),
+  name         TEXT NOT NULL,
+  description  TEXT,
+  max_holders  INTEGER,        -- NULL = unlimited
+  position     INTEGER NOT NULL DEFAULT 0,   -- display order
+  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  created_by   TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_faction_role_name
+  ON faction_role(faction_id, name COLLATE NOCASE);
+  -- Structural: case-duplicate role names are schema-impossible for the
+  -- same faction. writes.write_faction_role is the sole chokepoint;
+  -- mode="rename" (T1) closes+reopens every ACTIVE faction_membership row
+  -- whose true `role` casefold-matches the old name, preserving
+  -- cover_role/is_primary/is_secret; mode="delete" (S1) is a guarded hard
+  -- delete, blocked while any active membership still holds the role.
 ```
 
 -----

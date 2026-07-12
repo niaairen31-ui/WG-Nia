@@ -75,6 +75,7 @@ from ..models import (
     Event,
     Faction,
     FactionMembership,
+    FactionRole,
     GoalAgendaLink,
     Item,
     Knowledge,
@@ -103,7 +104,7 @@ from ..writes import (
     write_agenda_step_status,
     write_event,
     write_event_update,
-    write_faction_role_capacities,
+    write_faction_role,
     write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
@@ -641,8 +642,20 @@ class GoalPrerequisitesBody(BaseModel):
     prerequisites: Optional[list[dict[str, Any]]] = None
 
 
-class FactionCapacitiesBody(BaseModel):
-    capacities: dict[str, Any] = {}
+class FactionRoleCreateBody(BaseModel):
+    name: str
+    description: Optional[str] = None
+    max_holders: Optional[int] = None
+
+
+class FactionRoleUpdateBody(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    max_holders: Optional[int] = None
+
+
+class FactionRoleReorderBody(BaseModel):
+    role_ids: list[str] = []
 
 
 class AgendaStepCreateBody(BaseModel):
@@ -1653,59 +1666,163 @@ def _membership_dict(m: FactionMembership, db: DbSession) -> dict:
 
 @router.get("/entities/{faction_id}/roles")
 def list_faction_roles(faction_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
-    """Curated, ordered role vocabulary for a faction (BRIEF-31, schema v1.42).
-
-    Public org vocabulary — no secret filtering applies. Reads
-    `entity.metadata['roles']` and nothing else (array order = rank).
+    """Curated, ordered role vocabulary for a faction — membership role
+    select contract (names-only, order = rank). Reads the `faction_role`
+    table (TICKET-0024, BRIEF-0024-d — corrective, replaces
+    `entity.metadata['roles']`). Public org vocabulary — no secret
+    filtering applies.
     """
     faction = _get_entity(db, faction_id)
     if faction.type != "faction":
         raise HTTPException(422, f"{faction_id!r} is not a faction entity")
-    metadata = faction.metadata_ if isinstance(faction.metadata_, dict) else {}
-    roles = metadata.get("roles")
-    return roles if isinstance(roles, list) else []
+    roles = db.exec(
+        select(FactionRole)
+        .where(FactionRole.faction_id == faction_id)
+        .order_by(FactionRole.position)
+    ).all()
+    return [{"name": r.name, "description": r.description} for r in roles]
 
 
-@router.get("/factions/{faction_id}/role-capacities")
-def get_faction_role_capacities(faction_id: str, db: DbSession = Depends(get_session)) -> dict:
-    """`faction.role_capacities`, plus the DISTINCT true `role` values on
-    ACTIVE memberships — the editor pre-fill source when the map is NULL
-    (TICKET-0024, BRIEF-0024-a)."""
+def _active_role_counts(db: DbSession, faction_id: str) -> dict[str, int]:
+    """Casefold -> count of ACTIVE memberships bearing that true `role`."""
+    holder_roles = db.exec(
+        select(FactionMembership.role)
+        .where(FactionMembership.faction_id == faction_id, FactionMembership.left_at.is_(None))
+    ).all()
+    counts: dict[str, int] = {}
+    for role_name in holder_roles:
+        if role_name:
+            folded = role_name.casefold()
+            counts[folded] = counts.get(folded, 0) + 1
+    return counts
+
+
+def _faction_role_dict(role: FactionRole, active_holder_count: int) -> dict:
+    return {
+        "id": role.id,
+        "faction_id": role.faction_id,
+        "name": role.name,
+        "description": role.description,
+        "max_holders": role.max_holders,
+        "position": role.position,
+        "active_holder_count": active_holder_count,
+    }
+
+
+@router.get("/factions/{faction_id}/roles")
+def list_faction_role_rows(faction_id: str, db: DbSession = Depends(get_session)) -> dict:
+    """Faction sheet's ROLES editor: full `faction_role` rows ordered by
+    `position`, plus the DISTINCT true `role` values on ACTIVE memberships
+    that match NO declared row (casefold) — the undeclared-borne-roles
+    adoption hint source (TICKET-0024, BRIEF-0024-d)."""
     entity = _get_entity(db, faction_id)
     if entity.type != "faction":
         raise HTTPException(422, f"{faction_id!r} is not a faction entity")
-    faction = db.get(Faction, faction_id)
-    active_roles = db.exec(
+    roles = db.exec(
+        select(FactionRole)
+        .where(FactionRole.faction_id == faction_id)
+        .order_by(FactionRole.position)
+    ).all()
+    counts = _active_role_counts(db, faction_id)
+    declared_casefold = {r.name.casefold() for r in roles}
+    active_role_names = db.exec(
         select(FactionMembership.role)
         .where(FactionMembership.faction_id == faction_id, FactionMembership.left_at.is_(None))
         .distinct()
     ).all()
+    undeclared = sorted({
+        name for name in active_role_names
+        if name and name.casefold() not in declared_casefold
+    })
     return {
-        "role_capacities": faction.role_capacities,
-        "active_roles": sorted(r for r in active_roles if r),
+        "roles": [_faction_role_dict(r, counts.get(r.name.casefold(), 0)) for r in roles],
+        "undeclared_active_roles": undeclared,
     }
 
 
-@router.patch("/factions/{faction_id}/role-capacities")
-def set_faction_role_capacities(
-    faction_id: str, body: FactionCapacitiesBody, db: DbSession = Depends(get_session)
+@router.post("/factions/{faction_id}/roles", status_code=201)
+def create_faction_role(
+    faction_id: str, body: FactionRoleCreateBody, db: DbSession = Depends(get_session)
 ) -> dict:
-    """Creator-CRUD-only write of `faction.role_capacities` (TICKET-0024,
-    BRIEF-0024-a). Empty limit (`null`) behaves as unlimited."""
     entity = _get_entity(db, faction_id)
     if entity.type != "faction":
         raise HTTPException(422, f"{faction_id!r} is not a faction entity")
-    faction = db.get(Faction, faction_id)
-
     try:
-        faction = write_faction_role_capacities(
-            db, faction=faction, capacities=body.capacities, changed_by="creator"
+        role = write_faction_role(
+            db, mode="create", world_id=entity.world_id, faction_id=faction_id,
+            name=body.name, description=body.description, max_holders=body.max_holders,
+            changed_by="creator",
         )
+        db.commit()
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(422, str(exc))
+    db.refresh(role)
+    return _faction_role_dict(role, _active_role_counts(db, faction_id).get(role.name.casefold(), 0))
+
+
+@router.patch("/factions/{faction_id}/roles/reorder")
+def reorder_faction_roles(
+    faction_id: str, body: FactionRoleReorderBody, db: DbSession = Depends(get_session)
+) -> dict:
+    """Full ordered id list — `position` is rewritten 0..n-1 to match."""
+    entity = _get_entity(db, faction_id)
+    if entity.type != "faction":
+        raise HTTPException(422, f"{faction_id!r} is not a faction entity")
+    roles = {
+        r.id: r for r in db.exec(
+            select(FactionRole).where(FactionRole.faction_id == faction_id)
+        ).all()
+    }
+    if set(body.role_ids) != set(roles.keys()):
+        raise HTTPException(422, "reorder: role_ids must be exactly this faction's role ids, no more, no less")
+    for position, role_id in enumerate(body.role_ids):
+        write_faction_role(
+            db, mode="update", role_id=role_id,
+            description=roles[role_id].description, max_holders=roles[role_id].max_holders,
+            position=position,
+        )
     db.commit()
-    db.refresh(faction)
-    return {"role_capacities": faction.role_capacities}
+    return list_faction_role_rows(faction_id, db)
+
+
+@router.patch("/factions/{faction_id}/roles/{role_id}")
+def update_faction_role(
+    faction_id: str, role_id: str, body: FactionRoleUpdateBody, db: DbSession = Depends(get_session)
+) -> dict:
+    """Field edit and/or rename in one call — a `name` differing from the
+    stored value triggers `mode="rename"` (T1: realigns active memberships
+    holding the old name) before `description`/`max_holders` are applied."""
+    role = db.get(FactionRole, role_id)
+    if role is None or role.faction_id != faction_id:
+        raise HTTPException(404, f"faction_role {role_id!r} not found")
+    try:
+        if body.name is not None and body.name.strip() and body.name.strip() != role.name:
+            role = write_faction_role(db, mode="rename", role_id=role_id, name=body.name)
+        role = write_faction_role(
+            db, mode="update", role_id=role_id,
+            description=body.description, max_holders=body.max_holders,
+        )
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc))
+    db.refresh(role)
+    return _faction_role_dict(role, _active_role_counts(db, faction_id).get(role.name.casefold(), 0))
+
+
+@router.delete("/factions/{faction_id}/roles/{role_id}")
+def delete_faction_role(faction_id: str, role_id: str, db: DbSession = Depends(get_session)) -> dict:
+    role = db.get(FactionRole, role_id)
+    if role is None or role.faction_id != faction_id:
+        raise HTTPException(404, f"faction_role {role_id!r} not found")
+    try:
+        write_faction_role(db, mode="delete", role_id=role_id)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc))
+    return {"deleted": True}
 
 
 @router.get("/entities/{entity_id}/memberships")
