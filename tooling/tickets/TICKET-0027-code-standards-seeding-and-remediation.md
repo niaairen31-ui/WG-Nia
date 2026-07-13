@@ -2,9 +2,10 @@
 id: TICKET-0027
 title: Code standards v1 seeding — enforcement checks and legacy remediation
 type: feature
-status: exec
-# BRIEF-0027-a committed on ticket/0027 (not yet merged); brief_ids
-# reconciled from disk; BRIEF-0027-b executed and verified.
+status: live-gate
+# BRIEF-0027-a and BRIEF-0027-b executed and verified (green); PR #32 open,
+# awaiting Nia's live play-test and merge. Remaining briefs (c-g) not yet
+# deposited.
 created: 2026-07-13
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []          # no schema change; no migration; no destructive data op
