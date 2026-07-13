@@ -2,13 +2,13 @@
 id: TICKET-0025
 title: Extract all UI-visible fields from JSON storage into relational tables
 type: feature
-status: brief
+status: live-gate
 created: 2026-07-12
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration, destructive_data]
 blast_radius: large
 brief_ids: [BRIEF-0025-a, BRIEF-0025-b, BRIEF-0025-c]
-schema_version_touched: TBD (executor assigns; one bump per migration brief)
+schema_version_touched: v1.77, v1.78, v1.79
 retry_count: 0
 ---
 
