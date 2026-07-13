@@ -8,8 +8,9 @@ Four assertions:
 3. Static wiring scan: every ollama_client.chat(/chat(/chat_stream( call
    carrying a `model=` argument uses `model=effective_model(` — except
    functions on the explicit exemption allowlist (the injected-context call
-   path in cockpit/app.py's `say`/`_stream`, deferred to the write-path
-   chantier; see CLAUDE.md "Exemption, by construction").
+   path in the `say` play path — app.py plus its BRIEF-0027-b decomposition
+   into cockpit/play*.py — deferred to the write-path chantier; see
+   CLAUDE.md "Exemption, by construction").
 4. effective_model's pure resolver behavior: NULL template.model -> default.
 """
 import ast
@@ -30,23 +31,37 @@ WIRED_FILES = [
     SRC / "analyzer.py",
     SRC / "gathering.py",
     SRC / "cockpit" / "app.py",
+    SRC / "cockpit" / "play.py",
+    SRC / "cockpit" / "play_physical.py",
+    SRC / "cockpit" / "play_stream.py",
     SRC / "tick.py",
 ]
 
-# Exemption allowlist (by enclosing function name), one file only: the call
-# path whose model comes from `injected.get("model", DEFAULT_MODEL)`
-# (app.py — `say`/`_stream` and the pass-through helpers they call, all of
-# which consume that single already-resolved value via their own `model`
-# parameter rather than a PromptTemplate object). Wiring effective_model
-# there would silently encode a template.model vs injected_context["model"]
-# precedence — deferred to the write-path chantier (BRIEF-0008-a Scope OUT).
+# Exemption allowlist (by enclosing function name): the call path whose
+# model comes from `injected.get("model", DEFAULT_MODEL)` (originally
+# `say`/`_stream` in app.py; decomposed by BRIEF-0027-b into cockpit/play*.py
+# — every one of these still consumes that single already-resolved value via
+# its own `model` parameter rather than a PromptTemplate object). Wiring
+# effective_model there would silently encode a template.model vs
+# injected_context["model"] precedence — deferred to the write-path
+# chantier (BRIEF-0008-a Scope OUT).
 EXEMPT_FUNCTIONS = {
     SRC / "cockpit" / "app.py": {
-        "_stream",
         "_interpret_mode",
         "_arbitrate",
         "_npc_initiative_vote",
         "_select_group_speaker",
+    },
+    SRC / "cockpit" / "play.py": {
+        "_say_npc_generation",
+    },
+    SRC / "cockpit" / "play_physical.py": {
+        "_say_physical_npc_reaction",
+    },
+    SRC / "cockpit" / "play_stream.py": {
+        "_say_stream_mj_narration",
+        "_say_initiative_generate",
+        "_say_initiative_narrate",
     },
 }
 

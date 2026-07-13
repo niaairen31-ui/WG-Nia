@@ -4,7 +4,7 @@
 // TICKET-0027 stage g (code_standards.md section 4), after which
 // module_budget.py runs with no exemptions.
 [
-  {"file": "src/world_engine/cockpit/app.py", "functions": 97, "lines": 6188},
+  {"file": "src/world_engine/cockpit/app.py", "functions": 97, "lines": 5147},
   {"file": "src/world_engine/cockpit/crud.py", "functions": 109, "lines": 2932},
   {"file": "src/world_engine/entity_author.py", "functions": 28, "lines": 1062},
   {"file": "src/world_engine/models.py", "functions": 2, "lines": 1188},

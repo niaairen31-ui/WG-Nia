@@ -6190,4 +6190,102 @@ brief-exec time, per BRIEF-0027-a's Done criteria.
 
 ---
 
+## SAY/_STREAM DECOMPOSITION — record/replay proof + module split (BRIEF-0027-b, no schema change)
+
+**The trigger.** `app.py:3843` `say` (1130 lines) with a nested 958-line
+`_stream` generator was RECON-0027's flagged monolith and the riskiest
+behavior-preserving refactor of the project to date: the live play path,
+zero behavior tests, tightly interleaved SSE streaming, canon writes, and
+every invariant the play system defends (frozen-scene gating, constraint
+gating, monotone condition ladder, discoverable-detail exclusion, the
+model= exemption).
+
+**Harness before refactor, not after.** `scripts/harness_say_replay.py`
+(disposable, deleted at stage g) copies the live DB to a throwaway path,
+never opens the real one for writing, and proves equivalence by recording
+real `/say` round-trips (Ollama request/response pairs, SSE text, and
+normalized before/after DB dumps of every table the play path touches)
+against pre-refactor code, then replaying the SAME model responses against
+post-refactor code and diffing. Volatile fields (UUIDs, timestamps) are
+normalized via a stable first-seen-order placeholder mapping so the diff
+compares structure, not literal values. Self-validated PASS on
+pre-refactor code before any decomposition began; PASS again post-refactor
+proved SSE + DB write equivalence for the exercised paths (scene mode,
+direct-target dialogue in a gathering with bystanders, the overhearing
+model call). The physical/join/travel/initiative-generate branches were
+NOT exercised by those 3 turns (the model didn't route into them) — those
+were verified by manual line-by-line diff against the original source
+instead, which caught and fixed two real bugs (two `player_condition`
+sites hardcoded to `"unharmed"` instead of threading `ss_condition`)
+before they ever reached the harness. Live replay of the untouched
+branches remains a debt — see below.
+
+**Extraction shape.** `say` stays in `app.py` as a ~20-line orchestrator
+(persist-turn-setup call, build-stream call, return `StreamingResponse`);
+its exhaustive mode-routing/SSE-protocol/turn_order documentation moved to
+a comment block directly above the function (kept adjacent, not deleted)
+because the docstring alone was 63 lines — inside the function's AST span
+it would have blown the 80-line cap on its own. Every `_say_*` helper
+threads a `_TurnCtx` dataclass (turn-setup facts, built once) plus
+explicit stream-time locals (`ss_condition`, `ss_constraints`, `mode`,
+etc.) as plain parameters — mechanical, not a new abstraction. A
+`_SayAbort` exception replaces the original's scattered
+`yield error; yield [DONE]; return` idiom (frozen scene, an Ollama error
+mid-turn) with one raise site per case and one catch site at the top.
+
+**R5 forced a 3-way split, not 2.** `play.py` alone measured 1476 lines —
+over the 1000-line cap even after the R1 line-length trims. Split along
+sub-domain, not arbitrarily: `play_physical.py` (arbiter, dice verdict,
+opposed NPC reaction, scene_state writes, discovery gating — a
+self-contained resolution domain) and `play_stream.py` (MJ narration
+token streaming, NPC initiative vote/act/migrate/narrate, the shared
+per-turn finish) each ended up close to 400 lines; `play.py` (setup, mode
+routing, join/travel/dialogue resolution, the top dispatcher) settled at
+~700. No baseline entry was requested for any of the three, per BRIEF's
+Scope IN.
+
+**Circular import, resolved by direction + laziness.** `play.py` needs
+~30 pre-existing helpers from `app.py` (R7: reuse, never duplicate);
+`app.py` needs `play.py`'s two entry points. `app.py`'s `say()` imports
+`play` lazily (inside the function body) — by the time a request actually
+calls `say()`, `app.py` has fully finished loading, so `play.py`'s
+`from . import app as _app` at module top succeeds unconditionally. The
+same pattern repeats one level down: `play.py`'s `_say_run_turn` lazily
+imports `play_physical`/`play_stream`, which import `_TurnCtx`/`_SayAbort`
+from `.play` at their own module top. No file imports "up" the dependency
+chain at its own top level — only ever lazily, from a function body that
+only runs once the target is guaranteed loaded.
+
+**Two verify checks had gone silently blind, not merely red.**
+`prompt_registry.py`'s static wiring scan and `llm_parse_chokepoint.py`'s
+transition allowance are both keyed by `path::qualname` /
+`path::max_sites`. Neither named the new files, so neither *failed* when
+the code moved — the scan simply stopped looking, a false PASS. Caught by
+independently re-deriving the expected site count from the moved code
+(5 `model=model` call sites, 1 `json.loads` site) and cross-checking the
+scanner's own findings before trusting the green result. Both allowlists
+now name `play.py`/`play_physical.py`/`play_stream.py` explicitly.
+
+**`_analyze_overhearing` via `_app._analyze_overhearing(...)` broke
+`single_canon_write.py`'s attribution**, which resolves a `.add()`
+argument's table through import-alias tracking — an attribute access
+through a module reference (`_app.foo(...)`) isn't a traceable import
+alias the way `from ..analyzer import analyze_overhearing as
+_analyze_overhearing` is. Fixed by importing it directly from `analyzer.py`
+in `play_stream.py` (analyzer.py has no dependency on cockpit, so this
+isn't a new coupling) rather than routing through `app.py`'s re-export —
+a real second sanctioned-write-path check regression, not a false
+positive; every other `.add()` site in the three new files resolves fine
+because its argument is a direct model-class constructor call.
+
+**Debt.** Physical-mode, join, travel, and the initiative act-generation
+branch were validated by static line-by-line diff, not harness replay —
+the 3 reference turns never routed into them. A follow-up brief or manual
+play-test exercising a physical roll, a join, a travel attempt, and a
+gathering where the vote actually fires would close this gap; nothing in
+BRIEF-0027-b's scope required it (Scope OUT: "harness coverage beyond the
+play path" and no behavior-improvement side quests).
+
+---
+
 *Co-built with Claude, June 2026.*

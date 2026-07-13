@@ -49,7 +49,8 @@ PERMANENT_ALLOW: dict[str, str] = {
 # Counts may only shrink; entries are deleted as each site migrates.
 TRANSITION_ALLOW: dict[str, int] = {
     "src/world_engine/analyzer.py": 2,
-    "src/world_engine/cockpit/app.py": 5,
+    "src/world_engine/cockpit/app.py": 4,
+    "src/world_engine/cockpit/play_stream.py": 1,
     "src/world_engine/entity_author.py": 7,
     "src/world_engine/gathering.py": 1,
     "src/world_engine/region_author.py": 2,
