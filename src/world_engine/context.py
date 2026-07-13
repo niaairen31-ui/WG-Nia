@@ -42,7 +42,9 @@ from .models import (
     Item,
     Knowledge,
     Location,
+    LocationSubculture,
     NpcGoal,
+    NpcPrice,
     Relation,
     SkillDefinition,
 )
@@ -308,10 +310,16 @@ def assemble_npc_context(
             f"[ÉTAT DU JOUEUR] Le joueur est actuellement : "
             f"{_condition_labels.get(player_condition, player_condition)}."
         )
-    if location and isinstance(location.subculture, dict):
-        values = location.subculture.get("values")
-        if values:
-            setting_lines.append(values)
+    if location:
+        values_row = session.exec(
+            select(LocationSubculture).where(
+                LocationSubculture.location_id == location_id,
+                LocationSubculture.key == "values",
+                LocationSubculture.is_hidden == False,  # noqa: E712
+            )
+        ).first()
+        if values_row and values_row.value:
+            setting_lines.append(values_row.value)
     setting = " ".join(setting_lines)
 
     # ----- Relations: who this NPC perceives, and how warmly toward whom ----
@@ -430,13 +438,16 @@ def assemble_npc_context(
                 affiliation_lines.append(f"- {faction_name}")
         affiliations_section = "\n".join(affiliation_lines) + "\n\n"
 
-    # ----- 4c. Seller tariffs (BRIEF-20) — this NPC's own price_list only ---
-    price_list = npc_entity.metadata_.get("price_list") if isinstance(npc_entity.metadata_, dict) else None
+    # ----- 4c. Seller tariffs (BRIEF-20, relationalized TICKET-0025,
+    # BRIEF-0025-a) — this NPC's own npc_price rows only -------------------
+    price_rows = session.exec(
+        select(NpcPrice).where(NpcPrice.entity_id == npc_id)
+    ).all()
     pricing_section = ""
-    if isinstance(price_list, dict) and price_list:
+    if price_rows:
         tariff_lines = ["TES TARIFS (prix fermes) :"]
-        for tag, amount in price_list.items():
-            tariff_lines.append(f"- {tag} : {amount}")
+        for row in price_rows:
+            tariff_lines.append(f"- {row.tag} : {row.amount}")
         tariff_lines.append("")
         tariff_lines.append("RÈGLES DE TARIFICATION :")
         tariff_lines.append(
@@ -508,7 +519,7 @@ def assemble_mj_context(
 
     - `location` (static): the current location's `entity.name` +
       `entity.description`, plus the allow-listed (`_SAFE_SUBCULTURE_KEYS`)
-      slice of `location.subculture` — ambiance is perceptible.
+      non-hidden `location_subculture` rows — ambiance is perceptible.
       `location.magic_status` is deliberately excluded (not directly
       perceivable).
     - `player_knowledge` (static): all `knowledge` rows belonging to the
@@ -551,12 +562,15 @@ def assemble_mj_context(
     location = db.get(Location, location_id)
 
     subculture: dict = {}
-    if location and isinstance(location.subculture, dict):
-        subculture = {
-            key: value
-            for key, value in location.subculture.items()
-            if key in _SAFE_SUBCULTURE_KEYS and value
-        }
+    if location:
+        subculture_rows = db.exec(
+            select(LocationSubculture).where(
+                LocationSubculture.location_id == location_id,
+                LocationSubculture.key.in_(_SAFE_SUBCULTURE_KEYS),
+                LocationSubculture.is_hidden == False,  # noqa: E712
+            )
+        ).all()
+        subculture = {row.key: row.value for row in subculture_rows if row.value}
 
     location_block = {
         "name": loc_entity.name if loc_entity else location_id,

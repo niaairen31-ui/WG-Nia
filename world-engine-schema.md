@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.76
+Current schema version: v1.79
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -28,7 +28,6 @@ CREATE TABLE world (
   id                    TEXT PRIMARY KEY,
   name                  TEXT NOT NULL,
   description           TEXT,
-  fundamental_laws      JSON,          -- world rules (magic, physics, etc.)
   magic_status          TEXT DEFAULT 'dormant',
                                        -- dormant | awakening | active | suppressed
   is_active             BOOLEAN NOT NULL DEFAULT FALSE,
@@ -39,6 +38,27 @@ CREATE TABLE world (
 
 -- At most one ACTIVE world across the whole database.
 CREATE UNIQUE INDEX idx_world_one_active ON world(is_active) WHERE is_active = TRUE;
+```
+
+-----
+
+### `world_law`
+
+Position-ordered fundamental laws (schema v1.78, TICKET-0025, BRIEF-0025-b
+— replaces `world.fundamental_laws` JSON). One row per law, in
+creation-form order. Curated config, same family as `faction_role`: no
+`change_history`. Written ONLY via `writes.write_world_laws`. No editing
+UI beyond the create form this phase — editing an existing world's laws
+is a future ticket.
+
+```sql
+CREATE TABLE world_law (
+  id       TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL REFERENCES world(id),
+  position INTEGER NOT NULL DEFAULT 0,
+  text     TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_world_law_position ON world_law(world_id, position);
 ```
 
 -----
@@ -58,7 +78,6 @@ CREATE TABLE entity (
   description   TEXT,
   is_public     BOOLEAN DEFAULT TRUE,  -- FALSE = existence denied or secret
   status        TEXT DEFAULT 'active', -- active | inactive | destroyed | missing
-  metadata      JSON,                  -- type-specific data
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -97,16 +116,49 @@ CREATE TABLE character (
                                                   -- named entity. Read into
                                                   -- the NPC dialogue prompt
                                                   -- (H_IDENTITY block).
-  secrets         JSON                          -- creator-only
+  secrets         TEXT,                         -- creator-only, plain text
+                                                  -- since schema v1.78
+                                                  -- (TICKET-0025, B1): no
+                                                  -- reader ever consumed
+                                                  -- structure.
+  physical_tier   INTEGER NOT NULL DEFAULT 0     -- opposed-roll resistance
+                                                  -- tier, -1..2 (schema
+                                                  -- v1.77, TICKET-0025,
+                                                  -- BRIEF-0025-a). Migrated
+                                                  -- from entity.metadata
+                                                  -- ['physical_tier'].
+                                                  -- 0 = ordinaire default.
 );
 ```
 -- NOTE on `secrets` vs `knowledge.is_secret`: `character.secrets` holds
 -- creator meta-narrative ABOUT the character (true nature, planned reveal
--- arcs, creator intentions). It is NEVER read by any context assembler.
--- What a character knows-but-conceals is modeled as `knowledge` rows with
--- `is_secret = TRUE`, structurally excluded by the assembler. Suggested
--- shape: {"secrets": [{"id", "content", "category", "narrative_role",
--- "creator_notes"}]} — free-form, engine-invisible.
+-- arcs, creator intentions), free-form prose. It is NEVER read by any
+-- context assembler. What a character knows-but-conceals is modeled as
+-- `knowledge` rows with `is_secret = TRUE`, structurally excluded by the
+-- assembler.
+
+-----
+
+### `npc_price`
+
+Seller tariff lines (schema v1.77, TICKET-0025, BRIEF-0025-a — replaces
+`entity.metadata['price_list']`, BRIEF-20). Curated config, same family as
+`faction_role`: no `change_history` column, full-replace writes, hard
+delete of a line is the sanctioned edit. Read by the seller-tariff block of
+`assemble_npc_context`; written ONLY via `writes.write_npc_prices` (creator
+Tarifs editor).
+
+```sql
+CREATE TABLE npc_price (
+  id         TEXT PRIMARY KEY,
+  world_id   TEXT NOT NULL REFERENCES world(id),
+  entity_id  TEXT NOT NULL REFERENCES entity(id),
+  tag        TEXT NOT NULL,
+  amount     INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX idx_npc_price_tag
+  ON npc_price(entity_id, tag COLLATE NOCASE);
+```
 
 -----
 
@@ -120,12 +172,36 @@ CREATE TABLE location (
   parent_location_id TEXT REFERENCES entity(id), -- NULL = root location
   location_type     TEXT,
                     -- city | district | building | natural | underground | other
-  subculture        JSON,     -- values, habits, collective memory, rumors
   magic_status      TEXT DEFAULT 'inert',
                     -- inert | sensitive | active | nexus
-  coordinates       JSON,     -- for future mapping
+  coord_x           REAL,      -- map position (schema v1.78, TICKET-0025)
+  coord_y           REAL,      -- was coordinates JSON {x,y}; NULL = unplaced
   access_level      TEXT      -- public | restricted | secret
 );
+```
+
+-----
+
+### `location_subculture`
+
+Ambient culture lines (schema v1.78, TICKET-0025, BRIEF-0025-b — replaces
+`location.subculture` JSON). One row per key. `is_hidden = TRUE` rows are
+creator-only: every non-creator read path filters `is_hidden = FALSE` AT
+QUERY CONSTRUCTION — exclusion is structural, never instructional. Curated
+config, same family as `faction_role`: no `change_history`, full-replace
+writes via `writes.write_location_subculture` only.
+
+```sql
+CREATE TABLE location_subculture (
+  id          TEXT PRIMARY KEY,
+  world_id    TEXT NOT NULL REFERENCES world(id),
+  location_id TEXT NOT NULL REFERENCES entity(id),
+  key         TEXT NOT NULL,
+  value       TEXT NOT NULL,
+  is_hidden   BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE UNIQUE INDEX idx_location_subculture_key
+  ON location_subculture(location_id, key COLLATE NOCASE);
 ```
 
 -----
@@ -149,7 +225,7 @@ CREATE TABLE faction (
                         -- NULL = root faction. DORMANT (BRIEF-26, schema v1.38):
                         -- no assembler or guard traverses it yet — creator-CRUD
                         -- only, metadata-config category, no change_history (same
-                        -- as location_type / coordinates).
+                        -- as location_type / coord_x / coord_y).
   scope                 TEXT,
                         -- global | national | regional | local | other.
                         -- DORMANT: descriptive scale label, NOT derived from
@@ -366,17 +442,8 @@ CREATE TABLE npc_goal (
                     CHECK (status IN ('active','completed','abandoned')),
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-  change_history  JSON DEFAULT '[]',  -- archived previous states, mirror of
+  change_history  JSON DEFAULT '[]'  -- archived previous states, mirror of
                     --                  knowledge.change_history
-  prerequisites   JSON  -- (schema v1.74, TICKET-0024): optional completion
-                    -- gate, shape [{"type": "relation_gte",
-                    -- "target_entity_id": "<entity id>", "threshold":
-                    -- <int 1-100>}] — v1 accepts ONLY relation_gte.
-                    -- Creator-CRUD authored only
-                    -- (writes.write_npc_goal_prerequisites, BRIEF-0024-a's
-                    -- editor). Read by _apply_mutation's goal_change
-                    -- complete judge and the per-NPC tick briefing
-                    -- (BRIEF-0024-b) — LIVE, no longer dormant.
 );
 CREATE INDEX idx_npc_goal_npc_status ON npc_goal(npc_id, status);
 ```
@@ -384,6 +451,30 @@ CREATE INDEX idx_npc_goal_npc_status ON npc_goal(npc_id, status);
 --       goal plus a new row. Status transitions are one-way, active ->
 --       closed only (completed | abandoned) — a closed goal is never
 --       reopened; a revived goal is a new row.
+
+-----
+
+### `goal_prerequisite`
+
+`npc_goal` completion gate (schema v1.79, TICKET-0025, BRIEF-0025-c —
+replaces `npc_goal.prerequisites` JSON). Closed vocabulary (K1) enforced
+by CHECK: v1 accepts ONLY `relation_gte`. Creator-CRUD authored only
+(`writes.write_npc_goal_prerequisites`, BRIEF-0024-a's editor). Read by
+`_apply_mutation`'s `goal_change complete` judge and the per-NPC tick
+briefing (BRIEF-0024-b).
+
+```sql
+CREATE TABLE goal_prerequisite (
+  id               TEXT PRIMARY KEY,
+  world_id         TEXT NOT NULL REFERENCES world(id),
+  goal_id          TEXT NOT NULL REFERENCES npc_goal(id),
+  type             TEXT NOT NULL CHECK (type IN ('relation_gte')),
+  target_entity_id TEXT NOT NULL REFERENCES entity(id),
+  threshold        INTEGER NOT NULL CHECK (threshold BETWEEN 1 AND 100)
+);
+CREATE UNIQUE INDEX idx_goal_prerequisite_unique
+  ON goal_prerequisite(goal_id, type, target_entity_id);
+```
 
 -----
 
@@ -740,7 +831,6 @@ CREATE TABLE event (
                         -- social | mystery | other
   knowledge_status      TEXT DEFAULT 'secret',
                         -- secret | rumor | confirmed | public
-  involved_entities     JSON,     -- list of entity_id with their role
   location_id           TEXT REFERENCES entity(id),
   has_magic_impact      BOOLEAN DEFAULT FALSE,
   consequences          JSON,     -- changes applied to the world
@@ -765,7 +855,27 @@ tick_id/conversation-id equality, and applies to both producers alike.
 `proposed_mutation` row's `tick_id`/`conversation_id` is the provenance
 anchor. Read by `context.py`'s MJ context assembler and the return-visit
 delta (TICKET-0016), both filtering `knowledge_status IN
-('public','confirmed')` at query construction.
+('public','confirmed')` at query construction. `involved_entities` (the
+payload key both producers still emit) is relationalized on write into
+`event_entity` — see below.
+
+-----
+
+### `event_entity`
+
+`event` <-> entity link (schema v1.79, TICKET-0025, BRIEF-0025-c —
+replaces the FK-less `event.involved_entities` JSON id array). Real FK
+integrity for the first time; membership queries are joins/EXISTS instead
+of a Python `in` over a JSON list.
+
+```sql
+CREATE TABLE event_entity (
+  id        TEXT PRIMARY KEY,
+  event_id  TEXT NOT NULL REFERENCES event(id),
+  entity_id TEXT NOT NULL REFERENCES entity(id)
+);
+CREATE UNIQUE INDEX idx_event_entity_unique ON event_entity(event_id, entity_id);
+```
 
 -----
 
@@ -880,11 +990,12 @@ CREATE INDEX idx_skill_character ON skill(character_id);
 ```
 
 -- NOTE: skill rows exist ONLY for player characters in this phase. NPC
--- physical capability is a single tier in entity.metadata (key
--- "physical_tier", -1..2, default 0 when absent). Domains are strictly
--- physical/sensory: social abilities (persuasion, deception, charm) are
--- NEVER skill domains — they belong to the free-dialogue layer and the
--- relation graph. This is a standing design guard, not a deferral.
+-- physical capability is a single tier in character.physical_tier
+-- (-1..2, default 0; schema v1.77, TICKET-0025 — moved off
+-- entity.metadata). Domains are strictly physical/sensory: social
+-- abilities (persuasion, deception, charm) are NEVER skill domains — they
+-- belong to the free-dialogue layer and the relation graph. This is a
+-- standing design guard, not a deferral.
 
 -----
 
@@ -995,7 +1106,6 @@ CREATE TABLE prompt_template (
                    -- mj_gathering | mj_speaker_selection | mj_initiative |
                    -- npc_initiative_act | world_generation | player_generation |
                    -- skill_catalogue | region_manifest_topup | other
-  variables        JSON,            -- expected variable list
   destination      TEXT DEFAULT 'local',
                    -- local | claude_api | both
   model            TEXT,            -- NULL = code decides (default_model);
@@ -1005,6 +1115,26 @@ CREATE TABLE prompt_template (
   notes            TEXT,
   updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+```
+
+-----
+
+### `prompt_variable`
+
+Declared template variables (schema v1.79, TICKET-0025, BRIEF-0025-c —
+replaces `prompt_template.variables` JSON). One row per declared name.
+Read by `writes.write_prompt_version`'s C1 fail-closed placeholder
+validation (every `{identifier}` in the template text must be declared
+here). Curated config: no `change_history`.
+
+```sql
+CREATE TABLE prompt_variable (
+  id                 TEXT PRIMARY KEY,
+  prompt_template_id TEXT NOT NULL REFERENCES prompt_template(id),
+  name               TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_prompt_variable_unique
+  ON prompt_variable(prompt_template_id, name);
 ```
 
 -----

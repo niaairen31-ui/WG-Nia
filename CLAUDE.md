@@ -201,9 +201,10 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   partial/success perception search (`domain="perception"`,
   `opposed_npc_id=None`). `ambient` content is read only via the pure code
   predicate `active_signposts` (context.py), passed directly into the MJ
-  establishment call. `subculture["hidden"]` is a TRAP — never add it to
-  `_SAFE_SUBCULTURE_KEYS`; discoverable content lives ONLY in
-  `discoverable_detail`.
+  establishment call. A `location_subculture` row with `key = "hidden"`
+  is a TRAP — never add `"hidden"` to `_SAFE_SUBCULTURE_KEYS`, and every
+  reader filters `is_hidden = FALSE` at query construction; discoverable
+  content lives ONLY in `discoverable_detail`.
 - **`connects_to` is location map topology, never a social signal.** Its
   `intensity=50` is meaningless. Every gameplay reader of `relation` keyed
   on a character/player id is structurally blind to `connects_to` rows; the
@@ -224,11 +225,11 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   canon-existence-based, never a `tick_id`-scoped history comparison, and
   must never be extended to `relation_change` (accumulating deltas, never
   guarded).
-- **`entity.metadata.price_list` is seller configuration,** injected ONLY
-  into that seller's own dialogue context — never into `assemble_mj_context`
-  or any other entity's context. A quoted price writes no canon; money
-  moves via `resource_change` through the checkpoint. Catalogue prices are
-  firm and universal; only uncatalogued quotes are relation-modulated.
+- **`npc_price` rows are seller configuration,** injected ONLY into that
+  seller's own dialogue context — never into `assemble_mj_context` or any
+  other entity's context. A quoted price writes no canon; money moves via
+  `resource_change` through the checkpoint. Catalogue prices are firm and
+  universal; only uncatalogued quotes are relation-modulated.
 - **Membership reaches a model prompt only via `read_public_memberships`;**
   `is_secret` rows never enter any prompt, including the holder's own —
   structural filter, no override parameter. The true `role` behind a
@@ -326,6 +327,8 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   call site uses chained `.replace()`, never `.format()` (H1).
   (`tooling/verify/checks/prompt_version.py` enforces.)
 - Affinity tiers are resolved in code (`context.py::_affinity_tier`); prompt templates never carry the tier table.
+- **UI-visible data never lives in JSON** — relational only; enforced
+  fail-closed by `json_ui_boundary` (exceptions justified in that file).
 
 ## Local model notes
 
@@ -436,8 +439,6 @@ WG-Nia/
   `_uuid()` `default_factory`; entity-extension tables (`character`,
   `location`, `faction`, `artifact`) take their PK as the `entity.id`
   foreign key.
-- **Reserved name:** `entity.metadata` maps to the Python attribute
-  `metadata_` (SQLAlchemy reserves `metadata`).
 
 ### Schema fidelity rules
 

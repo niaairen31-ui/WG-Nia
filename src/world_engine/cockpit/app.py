@@ -82,14 +82,17 @@ from ..models import (
     DiscoverableDetail,
     Entity,
     Event,
+    EventEntity,
     Faction,
     FactionMembership,
     FactionRole,
     Gathering,
     GatheringMember,
+    GoalPrerequisite,
     Item,
     Knowledge,
     Location,
+    LocationSubculture,
     NpcGoal,
     PromptTemplate,
     ProposedMutation,
@@ -100,6 +103,7 @@ from ..models import (
     User,
     Visit,
     World,
+    WorldLaw,
 )
 from ..resolution import resolve_physical
 from ..writes import (
@@ -117,10 +121,12 @@ from ..writes import (
     write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
+    write_location_subculture,
     write_membership,
     write_npc_goal,
     write_npc_goal_status,
     write_relation,
+    write_world_laws,
 )
 from . import crud as _crud
 
@@ -782,8 +788,6 @@ def commit_region(
                 "name": pub.get("name"),
                 "description": pub.get("description"),
             }
-            if pub.get("physical_tier") is not None:
-                entity_data["metadata"] = {"physical_tier": pub["physical_tier"]}
             ext_data: dict[str, Any] = {
                 "character_type": "npc",
                 "appearance": pub.get("appearance"),
@@ -792,6 +796,8 @@ def commit_region(
                 "current_location_id": loc_id_map[host_local],
                 "secrets": json.dumps(sec["creator_meta"]) if sec.get("creator_meta") is not None else None,
             }
+            if pub.get("physical_tier") is not None:
+                ext_data["physical_tier"] = pub["physical_tier"]
             faction_local = entry.get("faction_local_id")
             if faction_local and faction_local in fac_id_map:
                 ext_data["faction_id"] = fac_id_map[faction_local]
@@ -1292,12 +1298,13 @@ def _h1_strip_satisfied_prerequisite_deltas(
     `relation_delta` effect whose {subject, target_entity_id} pair (either
     direction) equals a prerequisite pair (anti-double-count, H1). Returns
     the kept effects and one note per stripped effect."""
-    if not effects or not goal.prerequisites:
+    prereq_rows = db.exec(select(GoalPrerequisite).where(GoalPrerequisite.goal_id == goal.id)).all()
+    if not effects or not prereq_rows:
         return effects, []
     satisfied_pairs = {
-        frozenset((goal.npc_id, item.get("target_entity_id")))
-        for item in goal.prerequisites
-        if item.get("type") == "relation_gte"
+        frozenset((goal.npc_id, row.target_entity_id))
+        for row in prereq_rows
+        if row.type == "relation_gte"
     }
     kept: list = []
     notes: list[str] = []
@@ -1740,31 +1747,31 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                 return f"goal_change: no active goal matching {goal_text!r}"
             goal = matches[0]
 
-            # Prerequisite judge (TICKET-0024, BRIEF-0024-b, G1): "model
-            # proposes, code judges" — gates `complete` only, never
-            # `abandon`. Fail-closed on an unrecognised type (the column is
-            # creator-authored, but a hand-written row could still be
-            # malformed).
-            if action == "complete" and goal.prerequisites:
-                for item in goal.prerequisites:
-                    item_type = item.get("type")
-                    if item_type != "relation_gte":
-                        return f"goal_change: unknown prerequisite type {item_type!r}"
-                    target_id = item.get("target_entity_id")
-                    threshold = item.get("threshold")
-                    rel = _find_relation_pair(db, npc_id, target_id)
+            # Prerequisite judge (TICKET-0024, BRIEF-0024-b, G1;
+            # relationalized TICKET-0025, BRIEF-0025-c): "model proposes,
+            # code judges" — gates `complete` only, never `abandon`.
+            # Fail-closed on an unrecognised type (the row is creator-
+            # authored, but a hand-written row could still be malformed).
+            goal_prerequisites = db.exec(
+                select(GoalPrerequisite).where(GoalPrerequisite.goal_id == goal.id)
+            ).all()
+            if action == "complete" and goal_prerequisites:
+                for row in goal_prerequisites:
+                    if row.type != "relation_gte":
+                        return f"goal_change: unknown prerequisite type {row.type!r}"
+                    rel = _find_relation_pair(db, npc_id, row.target_entity_id)
                     current = rel.intensity if rel else 0
-                    if current < threshold:
-                        target = db.get(Entity, target_id)
-                        target_name = target.name if target else target_id
+                    if current < row.threshold:
+                        target = db.get(Entity, row.target_entity_id)
+                        target_name = target.name if target else row.target_entity_id
                         return (
                             f"goal_change: prerequisite not met — relation "
-                            f"with {target_name} is {current}, requires >= {threshold}"
+                            f"with {target_name} is {current}, requires >= {row.threshold}"
                         )
 
             # Completion effects (TICKET-0024, BRIEF-0024-c) — `complete`
             # only, never `abandon`. Runs AFTER the prerequisite judge
-            # above, so goal.prerequisites (if any) are all satisfied here.
+            # above, so goal_prerequisites (if any) are all satisfied here.
             extra_history: dict[str, Any] = {}
             if action == "complete":
                 effects = payload.get("effects")
@@ -1791,7 +1798,7 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
 
                 # A1: zero prerequisites and zero effects applied (absent,
                 # empty, or fully H1-stripped) is legitimate (Nia's type 3).
-                if not goal.prerequisites and not effects:
+                if not goal_prerequisites and not effects:
                     extra_history["no_footprint"] = True
 
             write_npc_goal_status(
@@ -2212,10 +2219,14 @@ def create_world(body: WorldCreateBody, db: Session = Depends(get_session)) -> d
         new_world = World(
             name=body.name,
             description=body.description,
-            fundamental_laws=body.fundamental_laws,
         )
         db.add(new_world)
         db.flush()
+        write_world_laws(
+            db, world=new_world,
+            laws=body.fundamental_laws.splitlines(),
+            changed_by="creator",
+        )
         for w in db.exec(select(World).where(World.is_active == True)).all():  # noqa: E712
             w.is_active = False
             db.add(w)
@@ -3032,12 +3043,15 @@ def _build_establishment_narration(
         location = db.get(Location, location_id)
         description = loc_entity.description if loc_entity else None
         subculture: dict = {}
-        if location and isinstance(location.subculture, dict):
-            subculture = {
-                key: value
-                for key, value in location.subculture.items()
-                if key in _SAFE_SUBCULTURE_KEYS and value
-            }
+        if location:
+            subculture_rows = db.exec(
+                select(LocationSubculture).where(
+                    LocationSubculture.location_id == location_id,
+                    LocationSubculture.key.in_(_SAFE_SUBCULTURE_KEYS),
+                    LocationSubculture.is_hidden == False,  # noqa: E712
+                )
+            ).all()
+            subculture = {row.key: row.value for row in subculture_rows if row.value}
         signposts = active_signposts(db, location_id, player_character_id)
         version = current_prompt(db, template)
         user_msg = _build_establishment_user(
@@ -4299,7 +4313,7 @@ def say(
 
             # Player-roll rule (resolution.py): the roll always belongs to the
             # player — player_tier from the skill sheet, npc_tier (if opposed)
-            # from entity.metadata.physical_tier, default 0 either way.
+            # from character.physical_tier, default 0 either way.
             player_tier = skill_row.tier if skill_row else 0
 
             opposed_entity: Optional[Entity] = None
@@ -4309,7 +4323,8 @@ def say(
             if opposed_npc_id:
                 opposed_entity = db.get(Entity, opposed_npc_id)
                 if opposed_entity is not None:
-                    npc_tier = (opposed_entity.metadata_ or {}).get("physical_tier", 0)
+                    opposed_character = db.get(Character, opposed_npc_id)
+                    npc_tier = opposed_character.physical_tier if opposed_character is not None else 0
 
             verdict = resolve_physical(resolved_base_domain, player_tier, npc_tier)
             _log.info(

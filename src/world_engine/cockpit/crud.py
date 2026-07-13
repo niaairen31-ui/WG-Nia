@@ -73,16 +73,21 @@ from ..models import (
     DiscoverableDetail,
     Entity,
     Event,
+    EventEntity,
     Faction,
     FactionMembership,
     FactionRole,
     GoalAgendaLink,
+    GoalPrerequisite,
     Item,
     Knowledge,
     Ledger,
     Location,
+    LocationSubculture,
     NpcGoal,
+    NpcPrice,
     PromptTemplate,
+    PromptVariable,
     ProposedMutation,
     Relation,
     Skill,
@@ -108,10 +113,12 @@ from ..writes import (
     write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
+    write_location_subculture,
     write_membership,
     write_npc_goal,
     write_npc_goal_prerequisites,
     write_npc_goal_status,
+    write_npc_prices,
     write_prompt_version,
     write_relation,
     write_skill_tier,
@@ -177,7 +184,6 @@ ENTITY_BASE_FIELDS: list[dict[str, Any]] = [
     {"name": "description", "label": "Description", "kind": "textarea"},
     {"name": "is_public", "label": "Public", "kind": "bool", "default": True},
     {"name": "status", "label": "Status", "kind": "select", "options": list(ENTITY_STATUSES), "default": "active"},
-    {"name": "metadata", "label": "Metadata (JSON)", "kind": "json"},
 ]
 
 
@@ -200,7 +206,8 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
             {"name": "appearance", "label": "Appearance", "kind": "textarea"},
             {"name": "backstory", "label": "Backstory", "kind": "textarea"},
             {"name": "aversion", "label": "Aversion", "kind": "textarea"},
-            {"name": "secrets", "label": "Secrets (JSON, creator-only)", "kind": "json"},
+            {"name": "secrets", "label": "Secrets (creator-only)", "kind": "textarea"},
+            {"name": "physical_tier", "label": "Physical tier (Carrure)", "kind": "number", "min": -1, "max": 2, "default": 0},
         ],
     },
     "location": {
@@ -212,12 +219,12 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
                 "name": "location_type", "label": "Location type", "kind": "datalist",
                 "options": ["city", "district", "building", "room", "natural", "underground", "other"],
             },
-            {"name": "subculture", "label": "Subculture (JSON)", "kind": "json"},
             {
                 "name": "magic_status", "label": "Magic status", "kind": "select",
                 "options": ["inert", "sensitive", "active", "nexus"], "default": "inert",
             },
-            {"name": "coordinates", "label": "Coordinates (JSON)", "kind": "json"},
+            {"name": "coord_x", "label": "Map X", "kind": "number", "float": True},
+            {"name": "coord_y", "label": "Map Y", "kind": "number", "float": True},
             {
                 "name": "access_level", "label": "Access level", "kind": "select",
                 "options": ["", "public", "restricted", "secret"],
@@ -364,7 +371,7 @@ def _coerce_field(db: DbSession, field: dict, raw: Any) -> Any:
                 raise HTTPException(422, f"{label} is required")
             return field.get("default")
         try:
-            n = int(raw)
+            n = float(raw) if field.get("float") else int(raw)
         except (TypeError, ValueError):
             raise HTTPException(422, f"{label} must be a number")
         lo, hi = field.get("min"), field.get("max")
@@ -454,7 +461,6 @@ def _entity_dict(e: Entity) -> dict:
         "description": e.description,
         "is_public": e.is_public,
         "status": e.status,
-        "metadata": e.metadata_,
         "created_at": _iso(e.created_at),
         "updated_at": _iso(e.updated_at),
     }
@@ -463,6 +469,23 @@ def _entity_dict(e: Entity) -> dict:
 def _extension_dict(entity_type: str, ext: Any) -> dict:
     spec = ENTITY_TYPE_REGISTRY[entity_type]
     return {f["name"]: getattr(ext, f["name"]) for f in spec["fields"]}
+
+
+def _npc_prices_dict(entity_id: str, db: DbSession) -> dict[str, int]:
+    """`npc_price` rows for one character, as `{tag: amount}` — the client
+    shape the Tarifs editor expects (TICKET-0025, BRIEF-0025-a)."""
+    rows = db.exec(select(NpcPrice).where(NpcPrice.entity_id == entity_id)).all()
+    return {row.tag: row.amount for row in rows}
+
+
+def _location_subculture_rows(location_id: str, db: DbSession) -> list[dict]:
+    """`location_subculture` rows for one location, as
+    `[{key, value, is_hidden}, ...]` (TICKET-0025, BRIEF-0025-b). Includes
+    `is_hidden` rows — this is the creator-facing editor; structural
+    exclusion for non-creator reads lives in context.py's query
+    construction, not here."""
+    rows = db.exec(select(LocationSubculture).where(LocationSubculture.location_id == location_id)).all()
+    return [{"key": row.key, "value": row.value, "is_hidden": row.is_hidden} for row in rows]
 
 
 def _relation_dict(rel: Relation, perspective_id: str, db: DbSession) -> dict:
@@ -544,16 +567,16 @@ def _goal_links(goal_id: str, db: DbSession) -> list[dict]:
 def _goal_prerequisites_dict(g: NpcGoal, db: DbSession) -> list[dict]:
     """Resolved prerequisites for display — entity NAME, id kept underneath
     (TICKET-0024, BRIEF-0024-a: "display shows the resolved entity NAME,
-    stores the id")."""
-    items = g.prerequisites or []
+    stores the id"; relationalized TICKET-0025, BRIEF-0025-c)."""
+    rows = db.exec(select(GoalPrerequisite).where(GoalPrerequisite.goal_id == g.id)).all()
     out = []
-    for item in items:
-        target = db.get(Entity, item.get("target_entity_id"))
+    for row in rows:
+        target = db.get(Entity, row.target_entity_id)
         out.append({
-            "type": item.get("type"),
-            "target_entity_id": item.get("target_entity_id"),
-            "target_entity_name": target.name if target else item.get("target_entity_id"),
-            "threshold": item.get("threshold"),
+            "type": row.type,
+            "target_entity_id": row.target_entity_id,
+            "target_entity_name": target.name if target else row.target_entity_id,
+            "threshold": row.threshold,
         })
     return out
 
@@ -586,9 +609,8 @@ def _list_goals(entity_id: str, db: DbSession) -> list[dict]:
 def _apply_base_fields(db: DbSession, entity: Entity, data: dict) -> None:
     for field in ENTITY_BASE_FIELDS:
         name = field["name"]
-        attr = "metadata_" if name == "metadata" else name
         value = _coerce_field(db, field, data.get(name))
-        setattr(entity, attr, value)
+        setattr(entity, name, value)
 
 
 def _build_extension_kwargs(db: DbSession, entity_type: str, data: dict) -> dict:
@@ -640,6 +662,14 @@ class GoalStatusBody(BaseModel):
 
 class GoalPrerequisitesBody(BaseModel):
     prerequisites: Optional[list[dict[str, Any]]] = None
+
+
+class NpcPricesBody(BaseModel):
+    prices: dict[str, int] = {}
+
+
+class LocationSubcultureBody(BaseModel):
+    rows: list[dict[str, Any]] = []
 
 
 class FactionRoleCreateBody(BaseModel):
@@ -725,6 +755,10 @@ def get_entity(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
         result["extension"] = _extension_dict(entity.type, ext) if ext is not None else {}
         result["relations"] = _list_relations(entity_id, db)
         result["knowledge"] = _list_knowledge(entity_id, db)
+        if entity.type == "character":
+            result["prices"] = _npc_prices_dict(entity_id, db)
+        elif entity.type == "location":
+            result["subculture_rows"] = _location_subculture_rows(entity_id, db)
     else:
         result["extension"] = {}
         result["relations"] = []
@@ -860,6 +894,10 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
     result["extension"] = _extension_dict(entity.type, ext_row)
     result["relations"] = []
     result["knowledge"] = []
+    if entity.type == "character":
+        result["prices"] = {}
+    elif entity.type == "location":
+        result["subculture_rows"] = []
     if body.mutation_id:
         result["creation_linkage"] = _link_entity_creation(body.mutation_id, entity.id, db)
     return result
@@ -911,6 +949,10 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
         result["extension"] = _extension_dict(entity.type, ext)
         result["relations"] = _list_relations(entity_id, db)
         result["knowledge"] = _list_knowledge(entity_id, db)
+        if entity.type == "character":
+            result["prices"] = _npc_prices_dict(entity_id, db)
+        elif entity.type == "location":
+            result["subculture_rows"] = _location_subculture_rows(entity_id, db)
     else:
         result["extension"] = {}
         result["relations"] = []
@@ -929,6 +971,54 @@ def delete_entity(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
     db.commit()
     db.refresh(entity)
     return _entity_dict(entity)
+
+
+@router.put("/entities/{entity_id}/prices")
+def set_npc_prices(entity_id: str, body: NpcPricesBody, db: DbSession = Depends(get_session)) -> dict:
+    """Full-replace an NPC's `npc_price` rows (Tarifs editor, TICKET-0025,
+    BRIEF-0025-a — replaces the metadata.price_list read-merge-write)."""
+    entity = _get_entity(db, entity_id)
+    if entity.type != "character":
+        raise HTTPException(422, "Prices are a character-only field")
+    character = db.get(Character, entity_id)
+    try:
+        write_npc_prices(db, entity=character, prices=body.prices, changed_by="creator")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    db.commit()
+
+    result = _entity_dict(entity)
+    ext = db.get(Character, entity_id)
+    result["extension"] = _extension_dict("character", ext)
+    result["relations"] = _list_relations(entity_id, db)
+    result["knowledge"] = _list_knowledge(entity_id, db)
+    result["prices"] = _npc_prices_dict(entity_id, db)
+    return result
+
+
+@router.put("/entities/{entity_id}/subculture")
+def set_location_subculture(entity_id: str, body: LocationSubcultureBody, db: DbSession = Depends(get_session)) -> dict:
+    """Full-replace a location's `location_subculture` rows (TICKET-0025,
+    BRIEF-0025-b — replaces the `location.subculture` JSON textarea)."""
+    entity = _get_entity(db, entity_id)
+    if entity.type != "location":
+        raise HTTPException(422, "Subculture is a location-only field")
+    try:
+        write_location_subculture(
+            db, world_id=entity.world_id, location_id=entity_id,
+            rows=body.rows, changed_by="creator",
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    db.commit()
+
+    result = _entity_dict(entity)
+    ext = db.get(Location, entity_id)
+    result["extension"] = _extension_dict("location", ext)
+    result["relations"] = _list_relations(entity_id, db)
+    result["knowledge"] = _list_knowledge(entity_id, db)
+    result["subculture_rows"] = _location_subculture_rows(entity_id, db)
+    return result
 
 
 # ── In-context relation editor ────────────────────────────────────────────────
@@ -1497,9 +1587,10 @@ def detach_goal_agenda_link_route(link_id: str, db: DbSession = Depends(get_sess
 def _event_dict(event: Event, db: DbSession) -> dict:
     location = db.get(Entity, event.location_id) if event.location_id else None
     involved = []
-    for entity_id in (event.involved_entities or []):
-        target = db.get(Entity, entity_id)
-        involved.append({"id": entity_id, "name": target.name if target is not None else None})
+    links = db.exec(select(EventEntity).where(EventEntity.event_id == event.id)).all()
+    for link in links:
+        target = db.get(Entity, link.entity_id)
+        involved.append({"id": link.entity_id, "name": target.name if target is not None else None})
     return {
         "id": event.id,
         "title": event.title,
@@ -2315,9 +2406,10 @@ def delete_discoverable_detail(
 def get_locations_graph(db: DbSession = Depends(get_session)) -> dict:
     """Active location nodes + connects_to edges — read-only, creator surface.
 
-    nodes: all active location entities joined to their extension (for coordinates).
-    edges: connects_to relations whose both endpoints are in nodes (dangling
-           edges from soft-deleted locations are filtered out server-side).
+    nodes: all active location entities joined to their extension (for
+    coord_x/coord_y). edges: connects_to relations whose both endpoints are
+    in nodes (dangling edges from soft-deleted locations are filtered out
+    server-side).
     """
     world_id = _world_id(db)
 
@@ -2332,7 +2424,7 @@ def get_locations_graph(db: DbSession = Depends(get_session)) -> dict:
 
     active_ids = {e.id for e, _ in rows}
     nodes = [
-        {"id": e.id, "name": e.name, "coordinates": loc.coordinates}
+        {"id": e.id, "name": e.name, "coord_x": loc.coord_x, "coord_y": loc.coord_y}
         for e, loc in rows
     ]
 
@@ -2645,6 +2737,9 @@ def get_prompt_detail(prompt_id: str, db: DbSession = Depends(get_session)) -> d
     effective_row = _effective_prompt_row(sibling_rows, spec.world_scoped, world_id)
     is_effective = effective_row is not None and effective_row.id == row.id
     version = current_prompt(db, row)
+    variable_rows = db.exec(
+        select(PromptVariable).where(PromptVariable.prompt_template_id == row.id)
+    ).all()
     return {
         "id": row.id,
         "name": row.name,
@@ -2656,7 +2751,7 @@ def get_prompt_detail(prompt_id: str, db: DbSession = Depends(get_session)) -> d
         "effective_model": effective_model(row, default_model),
         "system_prompt": version.system_prompt,
         "user_template": version.user_template,
-        "variables": row.variables,
+        "variables": [v.name for v in variable_rows],
         "notes": row.notes,
         "surface": spec.surface,
         "world_scoped": spec.world_scoped,

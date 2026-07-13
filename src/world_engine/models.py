@@ -25,6 +25,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    String,
     func,
     text,
 )
@@ -61,7 +62,6 @@ class World(SQLModel, table=True):
     id: str = Field(default_factory=_uuid, primary_key=True)
     name: str
     description: Optional[str] = None
-    fundamental_laws: Optional[Any] = Field(default=None, sa_column=Column(JSON))
     magic_status: str = Field(
         default="dormant",
         sa_column_kwargs={"server_default": text("'dormant'")},
@@ -71,6 +71,28 @@ class World(SQLModel, table=True):
     )
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
+# world_law  (position-ordered fundamental laws, schema v1.78,
+# TICKET-0025, BRIEF-0025-b — replaces world.fundamental_laws JSON)
+#
+# One row per law, in creation-form order. Curated config (faction_role
+# family): no change_history, written via writes.write_world_laws only.
+# Python attribute `text_` maps to DB column `text` (`text` is reserved by
+# the sqlalchemy.text import used throughout this module — same pattern as
+# entity.metadata_/`metadata`).
+# -----------------------------------------------------------------------------
+class WorldLaw(SQLModel, table=True):
+    __tablename__ = "world_law"
+    __table_args__ = (
+        Index("idx_world_law_position", "world_id", "position", unique=True),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    position: int = Field(default=0, sa_column_kwargs={"server_default": text("0")})
+    text_: str = Field(sa_column=Column("text", String, nullable=False))
 
 
 # -----------------------------------------------------------------------------
@@ -94,11 +116,6 @@ class Entity(SQLModel, table=True):
     )
     status: str = Field(
         default="active", sa_column_kwargs={"server_default": text("'active'")}
-    )
-    # ``metadata`` is reserved by SQLAlchemy's declarative base, so the Python
-    # attribute is ``metadata_`` while the DB column stays ``metadata``.
-    metadata_: Optional[Any] = Field(
-        default=None, sa_column=Column("metadata", JSON)
     )
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
@@ -138,7 +155,39 @@ class Character(SQLModel, table=True):
     appearance: Optional[str] = None
     backstory: Optional[str] = None
     aversion: Optional[str] = None
-    secrets: Optional[Any] = Field(default=None, sa_column=Column(JSON))
+    # Plain text since TICKET-0025 (B1): no reader ever consumed structure.
+    secrets: Optional[str] = None
+    # Schema v1.77, TICKET-0025, BRIEF-0025-a: physical resistance tier for
+    # opposed rolls (resolution.py). Migrated from entity.metadata
+    # ['physical_tier'] — UI-visible data is never stored in JSON
+    # (json_ui_boundary). 0 = untrained default.
+    physical_tier: int = Field(default=0, sa_column_kwargs={"server_default": text("0")})
+
+
+# -----------------------------------------------------------------------------
+# npc_price  (seller tariff lines, schema v1.77, TICKET-0025,
+# BRIEF-0025-a — replaces entity.metadata['price_list'], BRIEF-20)
+#
+# Curated config, same family as faction_role: no change_history column,
+# full-replace writes, hard delete of a line is the sanctioned edit
+# (named doctrine exception — logged in ARCHITECTURE_DECISIONS). Read by
+# the seller-tariff block of assemble_npc_context; written ONLY via
+# writes.write_npc_prices (creator Tarifs editor).
+# -----------------------------------------------------------------------------
+class NpcPrice(SQLModel, table=True):
+    __tablename__ = "npc_price"
+    __table_args__ = (
+        Index(
+            "idx_npc_price_tag", "entity_id", text("tag COLLATE NOCASE"),
+            unique=True,
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    entity_id: str = Field(foreign_key="entity.id", nullable=False)
+    tag: str
+    amount: int
 
 
 # -----------------------------------------------------------------------------
@@ -153,12 +202,41 @@ class Location(SQLModel, table=True):
         default=None, foreign_key="entity.id"
     )
     location_type: Optional[str] = None
-    subculture: Optional[Any] = Field(default=None, sa_column=Column(JSON))
     magic_status: str = Field(
         default="inert", sa_column_kwargs={"server_default": text("'inert'")}
     )
-    coordinates: Optional[Any] = Field(default=None, sa_column=Column(JSON))
+    # Map position (schema v1.78, TICKET-0025) — was coordinates JSON {x,y}.
+    # NULL = unplaced.
+    coord_x: Optional[float] = None
+    coord_y: Optional[float] = None
     access_level: Optional[str] = None
+
+
+# -----------------------------------------------------------------------------
+# location_subculture  (ambient culture lines, schema v1.78,
+# TICKET-0025, BRIEF-0025-b — replaces location.subculture JSON)
+#
+# One row per key. is_hidden = 1 rows are creator-only: every
+# non-creator read path filters is_hidden = 0 AT QUERY CONSTRUCTION —
+# exclusion is structural, never instructional. Curated config
+# (faction_role family): no change_history, full-replace writes via
+# writes.write_location_subculture only.
+# -----------------------------------------------------------------------------
+class LocationSubculture(SQLModel, table=True):
+    __tablename__ = "location_subculture"
+    __table_args__ = (
+        Index(
+            "idx_location_subculture_key", "location_id", text("key COLLATE NOCASE"),
+            unique=True,
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    location_id: str = Field(foreign_key="entity.id", nullable=False)
+    key: str
+    value: str
+    is_hidden: bool = Field(default=False, sa_column_kwargs={"server_default": text("0")})
 
 
 # -----------------------------------------------------------------------------
@@ -390,15 +468,35 @@ class NpcGoal(SQLModel, table=True):
         default_factory=list,
         sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
     )
-    # Schema v1.74, TICKET-0024: optional completion gate. Shape:
-    # [{"type": "relation_gte", "target_entity_id": "<entity id>",
-    # "threshold": <int 1-100>}] — v1 accepts ONLY `relation_gte`.
-    # Creator-CRUD authored only (`writes.write_npc_goal_prerequisites`,
-    # BRIEF-0024-a's editor). Read by `_apply_mutation`'s `goal_change
-    # complete` judge and the per-NPC tick briefing (BRIEF-0024-b).
-    prerequisites: Optional[list] = Field(
-        default=None, sa_column=Column(JSON, nullable=True)
+
+
+# -----------------------------------------------------------------------------
+# goal_prerequisite  (npc_goal completion gate, schema v1.79, TICKET-0025,
+# BRIEF-0025-c — replaces npc_goal.prerequisites JSON)
+#
+# Closed vocabulary (K1) enforced by CHECK: v1 accepts ONLY `relation_gte`.
+# Extension = a new enum value in a migration, never a free string.
+# Creator-CRUD authored only (`writes.write_npc_goal_prerequisites`,
+# BRIEF-0024-a's editor). Read by `_apply_mutation`'s `goal_change complete`
+# judge and the per-NPC tick briefing (BRIEF-0024-b).
+# -----------------------------------------------------------------------------
+class GoalPrerequisite(SQLModel, table=True):
+    __tablename__ = "goal_prerequisite"
+    __table_args__ = (
+        CheckConstraint("type IN ('relation_gte')", name="ck_goal_prerequisite_type"),
+        CheckConstraint("threshold BETWEEN 1 AND 100", name="ck_goal_prerequisite_threshold"),
+        Index(
+            "idx_goal_prerequisite_unique", "goal_id", "type", "target_entity_id",
+            unique=True,
+        ),
     )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    goal_id: str = Field(foreign_key="npc_goal.id", nullable=False)
+    type: str
+    target_entity_id: str = Field(foreign_key="entity.id", nullable=False)
+    threshold: int
 
 
 # -----------------------------------------------------------------------------
@@ -661,9 +759,6 @@ class Event(SQLModel, table=True):
         default="secret",
         sa_column_kwargs={"server_default": text("'secret'")},
     )
-    involved_entities: Optional[Any] = Field(
-        default=None, sa_column=Column(JSON)
-    )
     location_id: Optional[str] = Field(default=None, foreign_key="entity.id")
     has_magic_impact: bool = Field(
         default=False, sa_column_kwargs={"server_default": text("0")}
@@ -671,6 +766,24 @@ class Event(SQLModel, table=True):
     consequences: Optional[Any] = Field(default=None, sa_column=Column(JSON))
     occurred_at: Optional[datetime] = None
     recorded_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
+# event_entity  (event <-> entity link, schema v1.79, TICKET-0025,
+# BRIEF-0025-c — replaces the FK-less event.involved_entities JSON id array)
+#
+# Membership queries become joins/EXISTS instead of a Python `in` over a
+# JSON list of ids. No change_history (link table, not a fact-bearing row).
+# -----------------------------------------------------------------------------
+class EventEntity(SQLModel, table=True):
+    __tablename__ = "event_entity"
+    __table_args__ = (
+        Index("idx_event_entity_unique", "event_id", "entity_id", unique=True),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    event_id: str = Field(foreign_key="event.id", nullable=False)
+    entity_id: str = Field(foreign_key="entity.id", nullable=False)
 
 
 # -----------------------------------------------------------------------------
@@ -867,7 +980,6 @@ class PromptTemplate(SQLModel, table=True):
     world_id: Optional[str] = Field(default=None, foreign_key="world.id")
     name: str
     usage: str
-    variables: Optional[Any] = Field(default=None, sa_column=Column(JSON))
     destination: str = Field(
         default="local",
         sa_column_kwargs={"server_default": text("'local'")},
@@ -880,6 +992,24 @@ class PromptTemplate(SQLModel, table=True):
     )
     notes: Optional[str] = None
     updated_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
+# prompt_variable  (declared template variables, schema v1.79, TICKET-0025,
+# BRIEF-0025-c — replaces prompt_template.variables JSON)
+#
+# One row per declared variable name. No change_history (curated config,
+# not event canon).
+# -----------------------------------------------------------------------------
+class PromptVariable(SQLModel, table=True):
+    __tablename__ = "prompt_variable"
+    __table_args__ = (
+        Index("idx_prompt_variable_unique", "prompt_template_id", "name", unique=True),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    prompt_template_id: str = Field(foreign_key="prompt_template.id", nullable=False)
+    name: str
 
 
 # -----------------------------------------------------------------------------

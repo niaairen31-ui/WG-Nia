@@ -26,7 +26,7 @@ from sqlmodel import Session, select  # noqa: E402
 from world_engine import models as m  # noqa: E402
 from world_engine.db import engine  # noqa: E402
 from world_engine.prompt_store import list_versions  # noqa: E402
-from world_engine.writes import write_membership, write_prompt_version  # noqa: E402
+from world_engine.writes import write_location_subculture, write_membership, write_npc_prices, write_prompt_variables, write_prompt_version  # noqa: E402
 
 WORLD_ID = "verkhaal"
 
@@ -135,13 +135,20 @@ def upsert_prompt_template(
     present with ZERO versions is only reachable mid-bootstrap on a
     pre-migration DB — abort with a clear message rather than guessing.
 
-    Non-text head fields (name, variables, destination, notes, is_active)
-    keep the pre-existing converge-on-diff behavior, unchanged.
+    Non-text head fields (name, destination, notes, is_active) keep the
+    pre-existing converge-on-diff behavior, unchanged. `variables`
+    (TICKET-0025, BRIEF-0025-c: relationalized) is synced to
+    `prompt_variable` rows via `write_prompt_variables`, always full-replace
+    (idempotent — a second run with unchanged variables writes the same
+    rows again, not reflected in the changed-tracking below since that
+    tracks the head row only).
     """
+    variables = head_fields.pop("variables", None)
     obj = session.get(m.PromptTemplate, id)
     if obj is None:
         obj = m.PromptTemplate(id=id, **head_fields)
         session.add(obj)
+        write_prompt_variables(session, template_id=obj.id, variables=variables)
         write_prompt_version(
             session,
             template_id=obj.id,
@@ -157,6 +164,8 @@ def upsert_prompt_template(
             f"prompt_template {id!r} exists with zero prompt_version rows — "
             "run scripts/migrate_v1_68_prompt_version.py before re-seeding."
         )
+
+    write_prompt_variables(session, template_id=obj.id, variables=variables)
 
     changed = False
     for key, value in head_fields.items():
@@ -203,25 +212,48 @@ def align_relation_intensity(session: Session, id: str, target: int) -> None:
         )
 
 
-def merge_entity_metadata(session: Session, entity_id: str, updates: dict) -> None:
-    """Read-merge-write into entity.metadata_ without clobbering other keys.
-
-    Same discipline as the cockpit's Tarifs editor (BRIEF-20): existing keys
-    (e.g. physical_tier) survive untouched. Idempotent — a second run with
-    unchanged values records nothing changed.
+def ensure_npc_prices(session: Session, entity_id: str, prices: dict[str, int]) -> None:
+    """Full-replace `npc_price` rows for an NPC, idempotently (TICKET-0025,
+    BRIEF-0025-a — replaces the metadata.price_list read-merge-write,
+    BRIEF-20). A second run with unchanged values records nothing changed.
     """
-    entity = session.get(m.Entity, entity_id)
+    character = session.get(m.Character, entity_id)
+    if character is None:
+        return
+    existing_rows = session.exec(
+        select(m.NpcPrice).where(m.NpcPrice.entity_id == entity_id)
+    ).all()
+    if {row.tag: row.amount for row in existing_rows} == prices:
+        _existing.append((m.NpcPrice.__tablename__, entity_id))
+        return
+    write_npc_prices(session, entity=character, prices=prices, changed_by="seed")
+    _updated.append((m.NpcPrice.__tablename__, entity_id))
+
+
+def ensure_location_subculture(
+    session: Session, location_id: str, entries: dict[str, tuple[str, bool]]
+) -> None:
+    """Full-replace `location_subculture` rows for a location, idempotently
+    (TICKET-0025, BRIEF-0025-b — replaces the `location.subculture` JSON
+    column). `entries` maps key -> (value, is_hidden). A second run with
+    unchanged values records nothing changed."""
+    entity = session.get(m.Entity, location_id)
     if entity is None:
         return
-    merged = dict(entity.metadata_ or {})
-    changed = False
-    for key, value in updates.items():
-        if merged.get(key) != value:
-            merged[key] = value
-            changed = True
-    if changed:
-        entity.metadata_ = merged
-        _updated.append((m.Entity.__tablename__, entity_id))
+    existing_rows = session.exec(
+        select(m.LocationSubculture).where(m.LocationSubculture.location_id == location_id)
+    ).all()
+    existing = {row.key: (row.value, row.is_hidden) for row in existing_rows}
+    target = {key: (value, is_hidden) for key, (value, is_hidden) in entries.items()}
+    if existing == target:
+        _existing.append((m.LocationSubculture.__tablename__, location_id))
+        return
+    write_location_subculture(
+        session, world_id=entity.world_id, location_id=location_id,
+        rows=[{"key": key, "value": value, "is_hidden": is_hidden} for key, (value, is_hidden) in entries.items()],
+        changed_by="seed",
+    )
+    _updated.append((m.LocationSubculture.__tablename__, location_id))
 
 
 # Analysis prompt for post-conversation mutation extraction. Usage value is
@@ -2044,16 +2076,17 @@ Noms connus du monde : {roster_names}\
         location_type="building",
         magic_status="sensitive",
         access_level="public",
-        subculture={
-            "values": "Lieu neutre où l'on ne pose pas de questions.",
-            "hidden": "En sous-main, point d'appui de L'Innommée.",
-            "magic_phenomena": (
-                "Micro-phénomènes magiques discrets et non menaçants (une "
-                "chaleur, une coïncidence de trop, un calme anormal)."
-            ),
-            "nexus_link": "Lien au nœud non confirmé.",
-        },
     )
+    ensure_location_subculture(session, "loc-dernier-verre", {
+        "values": ("Lieu neutre où l'on ne pose pas de questions.", False),
+        "hidden": ("En sous-main, point d'appui de L'Innommée.", True),
+        "magic_phenomena": (
+            "Micro-phénomènes magiques discrets et non menaçants (une "
+            "chaleur, une coïncidence de trop, un calme anormal).",
+            False,
+        ),
+        "nexus_link": ("Lien au nœud non confirmé.", False),
+    })
 
     # ----- NPCs (entity + character) ----------------------------------------
     # Maelis — L'Innommée, patronne du Dernier Verre.
@@ -2081,20 +2114,14 @@ Noms connus du monde : {roster_names}\
             "Tient le lieu, rend des « services », fait circuler l'information. "
             "Sait pertinemment pour qui elle travaille."
         ),
-        secrets={
-            "affiliation": (
-                "Point d'appui de L'Innommée — ne l'avouera jamais ; son "
-                "discours public nie tout lien."
-            )
-        },
+        secrets=(
+            "Point d'appui de L'Innommée — ne l'avouera jamais ; son discours "
+            "public nie tout lien."
+        ),
     )
     ensure_primary_membership(session, WORLD_ID, "npc-maelis", "fac-unnamed")
-    # Starter catalogue (BRIEF-20) — read-merge so no other metadata key is clobbered.
-    merge_entity_metadata(
-        session,
-        "npc-maelis",
-        {"price_list": {"biere": 5, "chambre": 40, "repas": 12}},
-    )
+    # Starter catalogue (BRIEF-20, relationalized TICKET-0025, BRIEF-0025-a).
+    ensure_npc_prices(session, "npc-maelis", {"biere": 5, "chambre": 40, "repas": 12})
 
     # Reike — La Garde, officier en civil.
     get_or_create(
@@ -2115,12 +2142,7 @@ Noms connus du monde : {roster_names}\
         current_location_id="loc-dernier-verre",
         appearance="Officier en civil, boit seul après son service.",
         backstory="A vu trop de scènes d'incident classées « techniques ».",
-        secrets={
-            "notebook": (
-                "Garde un carnet de rapports d'incidents qu'il ne devrait pas "
-                "conserver."
-            )
-        },
+        secrets="Garde un carnet de rapports d'incidents qu'il ne devrait pas conserver.",
     )
     ensure_primary_membership(session, WORLD_ID, "npc-reike", "fac-guard")
 
@@ -2143,7 +2165,7 @@ Noms connus du monde : {roster_names}\
         current_location_id="loc-dernier-verre",
         appearance="Figure âgée, voyageuse, « passe par là » régulièrement.",
         backstory="Détient un savoir oral transmis ; observe le réveil avec inquiétude.",
-        secrets={"knows_more": "En sait plus qu'elle n'en dit sur le nœud et le réveil."},
+        secrets="En sait plus qu'elle n'en dit sur le nœud et le réveil.",
     )
     ensure_primary_membership(session, WORLD_ID, "npc-senna", "fac-walkers")
 
@@ -2220,9 +2242,7 @@ Noms connus du monde : {roster_names}\
             "habitudes, pas assez pour avoir des attaches. Habitué silencieux du "
             "Dernier Verre."
         ),
-        secrets={
-            "incident": "A vécu un micro-incident magique qu'il n'a dit à personne."
-        },
+        secrets="A vécu un micro-incident magique qu'il n'a dit à personne.",
     )
 
     # ----- player items (entity + item) --------------------------------------

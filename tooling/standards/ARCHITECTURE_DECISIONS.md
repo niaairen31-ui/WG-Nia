@@ -5961,4 +5961,122 @@ an eviction" both carry forward unchanged onto `faction_role.max_holders`.
 
 ---
 
+## NPC_PRICE HARD-DELETE NAMED EXCEPTION (BRIEF-0025-a, schema v1.77)
+
+`npc_price` follows the `faction_role` curated-config doctrine: no
+`change_history` column, full-replace writes (`writes.write_npc_prices`
+deletes every existing row for the entity, then inserts one row per
+`{tag: amount}` pair). The prior rows' hard delete is a NAMED exception to
+"history is sacred" — tariff lines are seller configuration, not event
+canon, and carry no narrative audit requirement. `character.physical_tier`
+and `npc_price` replace `entity.metadata['physical_tier']` and
+`entity.metadata['price_list']` (BRIEF-20); this is the first corrective
+step of TICKET-0025 (motivated by the TICKET-0024 duplication bug — see
+"FACTION ROLE TABLE" above). The full TICKET-0025 decision record —
+locked options, the `json_ui_boundary` verify check, and the exception
+registry — lands with BRIEF-0025-c.
+
+---
+
+## SUBCULTURE HIDDEN SLICE — structural exclusion (BRIEF-0025-b, schema v1.78)
+
+`location.subculture`'s `hidden` key moves from a JSON blob key
+cohabiting with public keys to a `location_subculture` row carrying its
+own `is_hidden` flag. The hidden slice is now structurally excluded: every
+non-creator reader (`context.py`'s NPC setting line and MJ perception
+slice, `tick.py`'s two location-briefing readers) filters `is_hidden =
+FALSE` at query construction, never as a post-filter on a fully-fetched
+dict and never as a prompt instruction — the same doctrinal payoff C1
+(TICKET-0025 intake) named for this table. `character.secrets` (B1) and
+`location.coordinates` -> `coord_x`/`coord_y` (A1) land in the same brief
+as plain-type/column moves with no structural-exclusion story of their
+own (secrets has no reader at all; coordinates was never secret).
+`world.fundamental_laws` -> `world_law` (D1) resolves the pre-existing
+string-vs-array shape split between the manual create form and the AI
+draft into one relational, position-ordered shape.
+
+---
+
+## TICKET-0025 — UI-VISIBLE DATA IS NEVER STORED IN JSON (BRIEF-0025-a, BRIEF-0025-b, BRIEF-0025-c, schema v1.79)
+
+**The rule.** No UI-visible field is ever backed by a JSON column. Every
+field a creator can see or edit lives in a plain typed column or a
+relational table. The rule is enforced structurally, fail-closed, by
+`tooling/verify/checks/json_ui_boundary.py` — not by convention, not by a
+CLAUDE.md note that a future ticket can miss.
+
+**The incident that motivated it.** TICKET-0024's RECON pass built
+`faction.role_capacities` unaware of the pre-existing
+`entity.metadata['roles']` structure (BRIEF-31) — RECON traced columns,
+not JSON keys inside `entity.metadata`, and missed that a second,
+disconnected role vocabulary already existed on the same sheet.
+BRIEF-0024-d corrected the immediate duplication and added a RECON lesson
+line to CLAUDE.md ("trace every UI-visible field to its storage, including
+`entity.metadata` JSON keys"). Nia judged a prose lesson insufficient — a
+future RECON could miss it exactly the same way. TICKET-0025 is the
+structural fix: a verify gate that fails the build the moment a new
+`"kind": "json"` field or an unlisted `Column(JSON` appears, independent
+of whether anyone remembers the lesson.
+
+**Locked options (intake).**
+- **A1** — `entity.metadata['physical_tier']` -> `character.physical_tier`
+  column; `entity.metadata['price_list']` -> `npc_price` table;
+  `location.coordinates` -> `coord_x`/`coord_y` columns.
+- **B1** — `character.secrets` -> plain TEXT column; no reader ever
+  consumed structure, so no relational shape is needed, just a type
+  change.
+- **C1** — `location.subculture` -> `location_subculture` table with an
+  `is_hidden` flag; the secret slice becomes structurally excluded (query
+  construction) instead of cohabiting with public keys in one JSON blob.
+- **D1** — `world.fundamental_laws` -> `world_law` table, position-ordered
+  rows; resolves the pre-existing string-vs-array shape split between the
+  manual create form and the AI draft.
+- **E1** — `npc_goal.prerequisites` -> `goal_prerequisite` table (closed
+  vocabulary, CHECK-constrained); `event.involved_entities` ->
+  `event_entity` link table (real FK integrity for the first time —
+  the JSON array had none); `prompt_template.variables` ->
+  `prompt_variable` table.
+- **F1** — the raw "Metadata (JSON)" form field is removed and
+  `entity.metadata` itself is dropped once emptied (BRIEF-0025-a).
+- **G1** — the fail-closed verify check `json_ui_boundary.py`: CRUD
+  registry volet (zero `"kind": "json"` fields), source-access volet (zero
+  `metadata_`/`Column("metadata"` outside comments), JSON-column volet
+  (every `Column(JSON` in `models.py` is a named, justified allow-list
+  entry). A volet that parses to zero findings is itself a FAIL — a
+  parser that finds nothing is broken, not a clean repo (run.py doctrine,
+  reused here).
+- **H1** — three briefs: -a (metadata keys + `entity.metadata` column
+  drop), -b (dedicated JSON columns on entity extensions + world), -c
+  (structured editors + boundary check + this decision record).
+
+**The exception registry.** `JSON_COLUMN_ALLOWLIST` in
+`json_ui_boundary.py` is the single source of truth — this table mirrors
+it for narrative context only; the check file is authoritative.
+
+| Column | Why it's exempt |
+|---|---|
+| `ProposedMutation.payload` | Polymorphic model-proposal envelope, rendered readonly in the review queue; shape is the mutation type's contract, not a UI field. First structured UI consumer must relationalize. |
+| `Relation.change_history`, `Knowledge.change_history`, `NpcGoal.change_history`, `Skill.change_history`, `Agenda.change_history`, `AgendaStep.change_history` | Append-only audit snapshots — never rendered in any UI surface. |
+| `PassPlay.injected_context`, `PassPlay.history`, `Conversation.injected_context`, `Conversation.scene_state`, `Visit.present_npc_ids` | Internal engine snapshots — never rendered in any UI surface. |
+| `Event.consequences`, `Artifact.known_properties`, `Artifact.actual_behavior` | No UI consumer today. The FIRST UI consumer of any of these MUST migrate it to relational storage in the same brief that adds the consumer. |
+
+**The standing consequence.** Adding a new JSON column to `models.py` now
+requires editing `JSON_COLUMN_ALLOWLIST` in the same commit — a visible,
+reviewable diff in code, never a silent convention. `json_ui_boundary.py`
+fails closed on both directions: an unlisted `Column(JSON` fails, and a
+stale allow-list entry whose column no longer exists also fails —
+exceptions rot loudly, not silently. Verified with three negative-test
+fixtures at brief-exec time: a scratch `"kind": "json"` CRUD field, a
+scratch unlisted `Column(JSON)`, and a stale allow-list entry each
+independently make the check fail, naming the offending field/column.
+
+**Deliberately out of scope.** No extension of `single_canon_write.py` or
+`canon_write_policy.txt` to cover the new curated-config tables
+(`npc_price`, `location_subculture`, `world_law`) — a separate,
+already-flagged policy question, not this ticket's job. No new
+prerequisite types beyond `relation_gte`. No relationalization of the
+Group 4 allow-list columns — that is the allow-list's entire point.
+
+---
+
 *Co-built with Claude, June 2026.*

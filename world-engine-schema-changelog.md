@@ -8,6 +8,83 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.79** — TICKET-0025, BRIEF-0025-c (final corrective step): new table
+  `goal_prerequisite` (`id, world_id, goal_id (FK npc_goal.id), type CHECK
+  IN ('relation_gte'), target_entity_id (FK entity.id), threshold CHECK
+  BETWEEN 1 AND 100`) with structural unique index
+  `idx_goal_prerequisite_unique (goal_id, type, target_entity_id)`,
+  `npc_goal.prerequisites` DROPPED (E1, K1 closed vocabulary now a schema
+  CHECK, not just code validation). New link table `event_entity` (`id,
+  event_id (FK event.id), entity_id (FK entity.id)`) with unique index
+  `idx_event_entity_unique (event_id, entity_id)`, `event.involved_entities`
+  DROPPED (E1 — real FK integrity for the first time; the JSON array had
+  none). New table `prompt_variable` (`id, prompt_template_id (FK
+  prompt_template.id), name`) with unique index
+  `idx_prompt_variable_unique (prompt_template_id, name)`,
+  `prompt_template.variables` DROPPED (E1). Migration
+  `scripts/migrate_v1_79_structured_editor_tables.py`: read-only
+  validation pass first (malformed prerequisite items, non-list
+  `involved_entities`, or non-string-list `variables` abort the whole
+  migration), then copies prerequisites/involved_entities/variables into
+  the new tables — unresolvable `involved_entities` ids are SKIPPED and
+  counted in the migration log, not fatal (historical events may
+  reference deleted-world debris) — then drops the three columns, one
+  transaction. New fail-closed verify check
+  `tooling/verify/checks/json_ui_boundary.py` (G1): CRUD registry volet
+  (zero `"kind": "json"` fields), source-access volet (zero
+  `metadata_`/`Column("metadata"` outside comments), JSON-column volet
+  (every `Column(JSON` in `models.py` is a named, justified entry in
+  `JSON_COLUMN_ALLOWLIST`). This closes TICKET-0025: no UI-visible field
+  is backed by a JSON column anywhere in the schema, enforced structurally
+  going forward rather than by a CLAUDE.md note (the TICKET-0024
+  duplication-bug lesson this ticket was built to prevent from recurring).
+- **v1.78** — TICKET-0025, BRIEF-0025-b: `character.secrets` changed
+  JSON -> TEXT (plain prose, B1 — no reader ever consumed structure);
+  `location.coord_x` / `coord_y` (REAL) added, `location.coordinates`
+  DROPPED (A1); new table `location_subculture` (`id, world_id,
+  location_id (FK entity.id), key, value, is_hidden`) with structural
+  unique index `idx_location_subculture_key (location_id, key COLLATE
+  NOCASE)`, `location.subculture` DROPPED (C1 — `is_hidden` makes the
+  secret slice structurally excluded instead of cohabiting with public
+  keys in one blob); new table `world_law` (`id, world_id, position,
+  text`) with structural unique index `idx_world_law_position (world_id,
+  position)`, `world.fundamental_laws` DROPPED (D1 — resolves the
+  string-vs-array shape inconsistency between the manual create form and
+  the AI draft). Migration
+  `scripts/migrate_v1_78_dedicated_json_columns.py`: read-only validation
+  pass first (non-flat `subculture`, malformed `coordinates`, or
+  non-string/non-list `fundamental_laws` abort the whole migration,
+  nothing written), then rewrites `character.secrets` (dicts/lists ->
+  indented JSON text, JSON strings -> unquoted text, NULL stays NULL),
+  copies `subculture` entries into `location_subculture` rows (`hidden`
+  key -> `is_hidden = 1`), `coordinates.x`/`.y` into `coord_x`/`coord_y`,
+  and `fundamental_laws` (newline-split string or list) into
+  position-ordered `world_law` rows — then drops the three columns, one
+  transaction. `writes.write_location_subculture` /
+  `writes.write_world_laws` (full-replace, curated config, same family as
+  `faction_role`) are the sole write paths. `context.py`'s two subculture
+  readers (NPC setting line, MJ perception slice) and `tick.py`'s two
+  location-briefing readers now query `location_subculture` with
+  `is_hidden = FALSE` at query construction — exclusion is structural,
+  never instructional.
+- **v1.77** — TICKET-0025, BRIEF-0025-a: `character.physical_tier`
+  (INTEGER NOT NULL DEFAULT 0) added; new table `npc_price` (`id, world_id,
+  entity_id (FK entity.id), tag, amount`) with structural unique index
+  `idx_npc_price_tag (entity_id, tag COLLATE NOCASE)`. `entity.metadata`
+  column DROPPED. Standing directive (TICKET-0025, motivated by the
+  TICKET-0024 duplication bug): no UI-visible data lives in JSON — the two
+  keys still read from `entity.metadata` (`physical_tier`, the NPC sheet
+  "Carrure" and the opposed-roll reader; `price_list`, the Tarifs editor
+  and seller-tariff prompt injection) move to relational storage; the raw
+  "Metadata (JSON)" form field is removed. Migration
+  `scripts/migrate_v1_77_metadata_extraction.py`: read-only validation
+  pass first (any entity metadata key other than `physical_tier` /
+  `price_list`, or either key on a non-character entity, aborts the whole
+  migration, nothing written), then copies `physical_tier` into the
+  `character` row and `price_list` entries into `npc_price` rows, then
+  drops the column — one transaction. `writes.write_npc_prices`
+  (full-replace, curated config, same family as `faction_role`) is the
+  sole `npc_price` write path.
 - **v1.76** — TICKET-0024, BRIEF-0024-d (corrective): new table
   `faction_role` (`id, world_id, faction_id (FK faction.id), name,
   description, max_holders, position, created_at, created_by`) with
