@@ -45,6 +45,7 @@ from .models import (
     GoalAgendaLink,
     Knowledge,
     Location,
+    LocationSubculture,
     NpcGoal,
     ProposedMutation,
     Relation,
@@ -305,10 +306,16 @@ def assemble_tick_context(
         setting_lines = [f"Tu te trouves dans un lieu nommé « {loc_entity.name} »."]
         if loc_entity.description:
             setting_lines.append(loc_entity.description)
-        if location is not None and isinstance(location.subculture, dict):
-            values = location.subculture.get("values")
-            if values:
-                setting_lines.append(values)
+        if location is not None:
+            values_row = session.exec(
+                select(LocationSubculture).where(
+                    LocationSubculture.location_id == location_id,
+                    LocationSubculture.key == "values",
+                    LocationSubculture.is_hidden == False,  # noqa: E712
+                )
+            ).first()
+            if values_row and values_row.value:
+                setting_lines.append(values_row.value)
         setting = " ".join(setting_lines)
     else:
         setting = "Tu ne te trouves nulle part de particulier en ce moment."
@@ -499,10 +506,16 @@ def assemble_location_event_context(
         place_lines.append(loc_entity.name)
         if loc_entity.description:
             place_lines.append(loc_entity.description)
-    if location is not None and isinstance(location.subculture, dict):
-        values = location.subculture.get("values")
-        if values:
-            place_lines.append(values)
+    if location is not None:
+        values_row = session.exec(
+            select(LocationSubculture).where(
+                LocationSubculture.location_id == location_id,
+                LocationSubculture.key == "values",
+                LocationSubculture.is_hidden == False,  # noqa: E712
+            )
+        ).first()
+        if values_row and values_row.value:
+            place_lines.append(values_row.value)
     place_body = " ".join(place_lines) if place_lines else "(lieu inconnu)"
 
     present = session.exec(

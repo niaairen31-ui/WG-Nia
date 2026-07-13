@@ -5978,4 +5978,23 @@ registry — lands with BRIEF-0025-c.
 
 ---
 
+## SUBCULTURE HIDDEN SLICE — structural exclusion (BRIEF-0025-b, schema v1.78)
+
+`location.subculture`'s `hidden` key moves from a JSON blob key
+cohabiting with public keys to a `location_subculture` row carrying its
+own `is_hidden` flag. The hidden slice is now structurally excluded: every
+non-creator reader (`context.py`'s NPC setting line and MJ perception
+slice, `tick.py`'s two location-briefing readers) filters `is_hidden =
+FALSE` at query construction, never as a post-filter on a fully-fetched
+dict and never as a prompt instruction — the same doctrinal payoff C1
+(TICKET-0025 intake) named for this table. `character.secrets` (B1) and
+`location.coordinates` -> `coord_x`/`coord_y` (A1) land in the same brief
+as plain-type/column moves with no structural-exclusion story of their
+own (secrets has no reader at all; coordinates was never secret).
+`world.fundamental_laws` -> `world_law` (D1) resolves the pre-existing
+string-vs-array shape split between the manual create form and the AI
+draft into one relational, position-ordered shape.
+
+---
+
 *Co-built with Claude, June 2026.*

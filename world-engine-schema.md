@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.77
+Current schema version: v1.78
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -28,7 +28,6 @@ CREATE TABLE world (
   id                    TEXT PRIMARY KEY,
   name                  TEXT NOT NULL,
   description           TEXT,
-  fundamental_laws      JSON,          -- world rules (magic, physics, etc.)
   magic_status          TEXT DEFAULT 'dormant',
                                        -- dormant | awakening | active | suppressed
   is_active             BOOLEAN NOT NULL DEFAULT FALSE,
@@ -39,6 +38,27 @@ CREATE TABLE world (
 
 -- At most one ACTIVE world across the whole database.
 CREATE UNIQUE INDEX idx_world_one_active ON world(is_active) WHERE is_active = TRUE;
+```
+
+-----
+
+### `world_law`
+
+Position-ordered fundamental laws (schema v1.78, TICKET-0025, BRIEF-0025-b
+— replaces `world.fundamental_laws` JSON). One row per law, in
+creation-form order. Curated config, same family as `faction_role`: no
+`change_history`. Written ONLY via `writes.write_world_laws`. No editing
+UI beyond the create form this phase — editing an existing world's laws
+is a future ticket.
+
+```sql
+CREATE TABLE world_law (
+  id       TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL REFERENCES world(id),
+  position INTEGER NOT NULL DEFAULT 0,
+  text     TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_world_law_position ON world_law(world_id, position);
 ```
 
 -----
@@ -96,7 +116,11 @@ CREATE TABLE character (
                                                   -- named entity. Read into
                                                   -- the NPC dialogue prompt
                                                   -- (H_IDENTITY block).
-  secrets         JSON,                         -- creator-only
+  secrets         TEXT,                         -- creator-only, plain text
+                                                  -- since schema v1.78
+                                                  -- (TICKET-0025, B1): no
+                                                  -- reader ever consumed
+                                                  -- structure.
   physical_tier   INTEGER NOT NULL DEFAULT 0     -- opposed-roll resistance
                                                   -- tier, -1..2 (schema
                                                   -- v1.77, TICKET-0025,
@@ -108,11 +132,10 @@ CREATE TABLE character (
 ```
 -- NOTE on `secrets` vs `knowledge.is_secret`: `character.secrets` holds
 -- creator meta-narrative ABOUT the character (true nature, planned reveal
--- arcs, creator intentions). It is NEVER read by any context assembler.
--- What a character knows-but-conceals is modeled as `knowledge` rows with
--- `is_secret = TRUE`, structurally excluded by the assembler. Suggested
--- shape: {"secrets": [{"id", "content", "category", "narrative_role",
--- "creator_notes"}]} — free-form, engine-invisible.
+-- arcs, creator intentions), free-form prose. It is NEVER read by any
+-- context assembler. What a character knows-but-conceals is modeled as
+-- `knowledge` rows with `is_secret = TRUE`, structurally excluded by the
+-- assembler.
 
 -----
 
@@ -149,12 +172,36 @@ CREATE TABLE location (
   parent_location_id TEXT REFERENCES entity(id), -- NULL = root location
   location_type     TEXT,
                     -- city | district | building | natural | underground | other
-  subculture        JSON,     -- values, habits, collective memory, rumors
   magic_status      TEXT DEFAULT 'inert',
                     -- inert | sensitive | active | nexus
-  coordinates       JSON,     -- for future mapping
+  coord_x           REAL,      -- map position (schema v1.78, TICKET-0025)
+  coord_y           REAL,      -- was coordinates JSON {x,y}; NULL = unplaced
   access_level      TEXT      -- public | restricted | secret
 );
+```
+
+-----
+
+### `location_subculture`
+
+Ambient culture lines (schema v1.78, TICKET-0025, BRIEF-0025-b — replaces
+`location.subculture` JSON). One row per key. `is_hidden = TRUE` rows are
+creator-only: every non-creator read path filters `is_hidden = FALSE` AT
+QUERY CONSTRUCTION — exclusion is structural, never instructional. Curated
+config, same family as `faction_role`: no `change_history`, full-replace
+writes via `writes.write_location_subculture` only.
+
+```sql
+CREATE TABLE location_subculture (
+  id          TEXT PRIMARY KEY,
+  world_id    TEXT NOT NULL REFERENCES world(id),
+  location_id TEXT NOT NULL REFERENCES entity(id),
+  key         TEXT NOT NULL,
+  value       TEXT NOT NULL,
+  is_hidden   BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE UNIQUE INDEX idx_location_subculture_key
+  ON location_subculture(location_id, key COLLATE NOCASE);
 ```
 
 -----
@@ -178,7 +225,7 @@ CREATE TABLE faction (
                         -- NULL = root faction. DORMANT (BRIEF-26, schema v1.38):
                         -- no assembler or guard traverses it yet — creator-CRUD
                         -- only, metadata-config category, no change_history (same
-                        -- as location_type / coordinates).
+                        -- as location_type / coord_x / coord_y).
   scope                 TEXT,
                         -- global | national | regional | local | other.
                         -- DORMANT: descriptive scale label, NOT derived from

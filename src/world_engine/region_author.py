@@ -33,7 +33,7 @@ from typing import Any
 from sqlmodel import Session, select
 
 from .entity_author import AUTHOR_MODEL, generate_entity_draft, generate_npc_goals
-from .models import PromptTemplate, World
+from .models import PromptTemplate, World, WorldLaw
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
@@ -388,7 +388,10 @@ def generate_region_manifest(brief: str, db: Session) -> dict:
 
     world = _active_world(db)
     description = (world.description if world else None) or ""
-    fundamental_laws = (world.fundamental_laws if world else None) or ""
+    laws = db.exec(
+        select(WorldLaw).where(WorldLaw.world_id == world.id).order_by(WorldLaw.position)
+    ).all() if world else []
+    fundamental_laws = "\n".join(law.text_ for law in laws)
     world_description = f"Contexte du monde : {description}\n\n" if description else ""
     world_fundamental_laws = (
         f"Lois fondamentales du monde (contraintes absolues) : {fundamental_laws}\n\n"

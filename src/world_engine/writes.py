@@ -73,6 +73,17 @@ functions so that clamping and field validation live in exactly one place.
   `npc_goal.prerequisites` writes (TICKET-0024, BRIEF-0024-a). Validates
   the v1 `relation_gte` shape, appends the previous state to
   `change_history` first.
+- `write_npc_prices(...)`               : full-replace `npc_price` rows
+  (TICKET-0025, BRIEF-0025-a — replaces `entity.metadata['price_list']`).
+  Curated config (faction_role family): no `change_history`, hard delete
+  of the prior rows is the sanctioned edit.
+- `write_location_subculture(...)`      : full-replace `location_subculture`
+  rows (TICKET-0025, BRIEF-0025-b — replaces `location.subculture` JSON).
+  Same curated-config discipline as `write_npc_prices`; casefold-duplicate
+  keys are rejected before write.
+- `write_world_laws(...)`               : full-replace `world_law` rows
+  (TICKET-0025, BRIEF-0025-b — replaces `world.fundamental_laws` JSON).
+  `position` is list order; same curated-config discipline.
 - `delete_world_cascade(world_id, db)`  : the sole delete-side helper in
   this module, and the sole sanctioned exception to "History is sacred"
   (BRIEF-54). Hard-deletes every row scoped to a world, including the
@@ -96,7 +107,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from .models import Agenda, AgendaStep, Character, Entity, Event, FactionMembership, FactionRole, GoalAgendaLink, Knowledge, Ledger, NpcGoal, NpcPrice, PromptTemplate, PromptVersion, Relation, Skill
+from .models import Agenda, AgendaStep, Character, Entity, Event, FactionMembership, FactionRole, GoalAgendaLink, Knowledge, Ledger, LocationSubculture, NpcGoal, NpcPrice, PromptTemplate, PromptVersion, Relation, Skill, World, WorldLaw
 
 # Simple-identifier placeholder, e.g. `{player_line}` — deliberately does not
 # match JSON-example braces like `{"key": ...}` (TICKET-0011, C1).
@@ -789,13 +800,86 @@ def write_npc_prices(
         clean.append((tag, amount))
 
     db.execute(text("DELETE FROM npc_price WHERE entity_id = :entity_id"), {"entity_id": entity.id})
-    rows = [
-        NpcPrice(world_id=entity.world_id, entity_id=entity.id, tag=tag, amount=amount)
-        for tag, amount in clean
-    ]
-    for row in rows:
+    rows: list[NpcPrice] = []
+    for tag, amount in clean:
+        row = NpcPrice(world_id=entity.world_id, entity_id=entity.id, tag=tag, amount=amount)
         db.add(row)
+        rows.append(row)
     return rows
+
+
+def write_location_subculture(
+    db: Session,
+    *,
+    world_id: str,
+    location_id: str,
+    rows: list[dict],
+    changed_by: str,
+) -> list[LocationSubculture]:
+    """Full-replace `location_subculture` rows for one location (TICKET-0025,
+    BRIEF-0025-b — replaces `location.subculture` JSON). Caller adds the
+    returned rows to the session and commits.
+
+    Each item is `{"key": str, "value": str, "is_hidden": bool}` — key and
+    value must be non-empty after strip; casefold-duplicate keys are
+    rejected before write (defense in depth — the unique index is the
+    structural guard). Curated config (faction_role family): no
+    `change_history`, hard delete of the prior rows is the sanctioned edit.
+    `is_hidden` rows are creator-only — every non-creator reader excludes
+    them at query construction (context.py), never here.
+    """
+    clean: list[tuple[str, str, bool]] = []
+    seen_casefold: set[str] = set()
+    for item in rows:
+        key = str(item.get("key") or "").strip()
+        value = str(item.get("value") or "").strip()
+        is_hidden = bool(item.get("is_hidden", False))
+        if not key:
+            raise ValueError("write_location_subculture: key must be a non-empty string")
+        if not value:
+            raise ValueError(f"write_location_subculture: value for {key!r} must be non-empty")
+        folded = key.casefold()
+        if folded in seen_casefold:
+            raise ValueError(f"write_location_subculture: duplicate key {key!r} (casefold)")
+        seen_casefold.add(folded)
+        clean.append((key, value, is_hidden))
+
+    db.execute(
+        text("DELETE FROM location_subculture WHERE location_id = :location_id"),
+        {"location_id": location_id},
+    )
+    new_rows: list[LocationSubculture] = []
+    for key, value, is_hidden in clean:
+        row = LocationSubculture(world_id=world_id, location_id=location_id, key=key, value=value, is_hidden=is_hidden)
+        db.add(row)
+        new_rows.append(row)
+    return new_rows
+
+
+def write_world_laws(
+    db: Session,
+    *,
+    world: World,
+    laws: list[str],
+    changed_by: str,
+) -> list[WorldLaw]:
+    """Full-replace `world_law` rows for one world (TICKET-0025, BRIEF-0025-b
+    — replaces `world.fundamental_laws` JSON). Caller adds the returned rows
+    to the session and commits.
+
+    Strips empties; `position` is list order (no reordering UI exists
+    today). Curated config (faction_role family): no `change_history`, hard
+    delete of the prior rows is the sanctioned edit.
+    """
+    clean = [law.strip() for law in laws if law and law.strip()]
+
+    db.execute(text("DELETE FROM world_law WHERE world_id = :world_id"), {"world_id": world.id})
+    new_rows: list[WorldLaw] = []
+    for position, law in enumerate(clean):
+        row = WorldLaw(world_id=world.id, position=position, text_=law)
+        db.add(row)
+        new_rows.append(row)
+    return new_rows
 
 
 def write_npc_goal_prerequisites(

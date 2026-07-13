@@ -81,6 +81,7 @@ from ..models import (
     Knowledge,
     Ledger,
     Location,
+    LocationSubculture,
     NpcGoal,
     NpcPrice,
     PromptTemplate,
@@ -109,6 +110,7 @@ from ..writes import (
     write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
+    write_location_subculture,
     write_membership,
     write_npc_goal,
     write_npc_goal_prerequisites,
@@ -201,7 +203,7 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
             {"name": "appearance", "label": "Appearance", "kind": "textarea"},
             {"name": "backstory", "label": "Backstory", "kind": "textarea"},
             {"name": "aversion", "label": "Aversion", "kind": "textarea"},
-            {"name": "secrets", "label": "Secrets (JSON, creator-only)", "kind": "json"},
+            {"name": "secrets", "label": "Secrets (creator-only)", "kind": "textarea"},
             {"name": "physical_tier", "label": "Physical tier (Carrure)", "kind": "number", "min": -1, "max": 2, "default": 0},
         ],
     },
@@ -214,12 +216,12 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
                 "name": "location_type", "label": "Location type", "kind": "datalist",
                 "options": ["city", "district", "building", "room", "natural", "underground", "other"],
             },
-            {"name": "subculture", "label": "Subculture (JSON)", "kind": "json"},
             {
                 "name": "magic_status", "label": "Magic status", "kind": "select",
                 "options": ["inert", "sensitive", "active", "nexus"], "default": "inert",
             },
-            {"name": "coordinates", "label": "Coordinates (JSON)", "kind": "json"},
+            {"name": "coord_x", "label": "Map X", "kind": "number", "float": True},
+            {"name": "coord_y", "label": "Map Y", "kind": "number", "float": True},
             {
                 "name": "access_level", "label": "Access level", "kind": "select",
                 "options": ["", "public", "restricted", "secret"],
@@ -366,7 +368,7 @@ def _coerce_field(db: DbSession, field: dict, raw: Any) -> Any:
                 raise HTTPException(422, f"{label} is required")
             return field.get("default")
         try:
-            n = int(raw)
+            n = float(raw) if field.get("float") else int(raw)
         except (TypeError, ValueError):
             raise HTTPException(422, f"{label} must be a number")
         lo, hi = field.get("min"), field.get("max")
@@ -471,6 +473,16 @@ def _npc_prices_dict(entity_id: str, db: DbSession) -> dict[str, int]:
     shape the Tarifs editor expects (TICKET-0025, BRIEF-0025-a)."""
     rows = db.exec(select(NpcPrice).where(NpcPrice.entity_id == entity_id)).all()
     return {row.tag: row.amount for row in rows}
+
+
+def _location_subculture_rows(location_id: str, db: DbSession) -> list[dict]:
+    """`location_subculture` rows for one location, as
+    `[{key, value, is_hidden}, ...]` (TICKET-0025, BRIEF-0025-b). Includes
+    `is_hidden` rows — this is the creator-facing editor; structural
+    exclusion for non-creator reads lives in context.py's query
+    construction, not here."""
+    rows = db.exec(select(LocationSubculture).where(LocationSubculture.location_id == location_id)).all()
+    return [{"key": row.key, "value": row.value, "is_hidden": row.is_hidden} for row in rows]
 
 
 def _relation_dict(rel: Relation, perspective_id: str, db: DbSession) -> dict:
@@ -653,6 +665,10 @@ class NpcPricesBody(BaseModel):
     prices: dict[str, int] = {}
 
 
+class LocationSubcultureBody(BaseModel):
+    rows: list[dict[str, Any]] = []
+
+
 class FactionRoleCreateBody(BaseModel):
     name: str
     description: Optional[str] = None
@@ -738,6 +754,8 @@ def get_entity(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
         result["knowledge"] = _list_knowledge(entity_id, db)
         if entity.type == "character":
             result["prices"] = _npc_prices_dict(entity_id, db)
+        elif entity.type == "location":
+            result["subculture_rows"] = _location_subculture_rows(entity_id, db)
     else:
         result["extension"] = {}
         result["relations"] = []
@@ -875,6 +893,8 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
     result["knowledge"] = []
     if entity.type == "character":
         result["prices"] = {}
+    elif entity.type == "location":
+        result["subculture_rows"] = []
     if body.mutation_id:
         result["creation_linkage"] = _link_entity_creation(body.mutation_id, entity.id, db)
     return result
@@ -928,6 +948,8 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
         result["knowledge"] = _list_knowledge(entity_id, db)
         if entity.type == "character":
             result["prices"] = _npc_prices_dict(entity_id, db)
+        elif entity.type == "location":
+            result["subculture_rows"] = _location_subculture_rows(entity_id, db)
     else:
         result["extension"] = {}
         result["relations"] = []
@@ -968,6 +990,31 @@ def set_npc_prices(entity_id: str, body: NpcPricesBody, db: DbSession = Depends(
     result["relations"] = _list_relations(entity_id, db)
     result["knowledge"] = _list_knowledge(entity_id, db)
     result["prices"] = _npc_prices_dict(entity_id, db)
+    return result
+
+
+@router.put("/entities/{entity_id}/subculture")
+def set_location_subculture(entity_id: str, body: LocationSubcultureBody, db: DbSession = Depends(get_session)) -> dict:
+    """Full-replace a location's `location_subculture` rows (TICKET-0025,
+    BRIEF-0025-b — replaces the `location.subculture` JSON textarea)."""
+    entity = _get_entity(db, entity_id)
+    if entity.type != "location":
+        raise HTTPException(422, "Subculture is a location-only field")
+    try:
+        write_location_subculture(
+            db, world_id=entity.world_id, location_id=entity_id,
+            rows=body.rows, changed_by="creator",
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    db.commit()
+
+    result = _entity_dict(entity)
+    ext = db.get(Location, entity_id)
+    result["extension"] = _extension_dict("location", ext)
+    result["relations"] = _list_relations(entity_id, db)
+    result["knowledge"] = _list_knowledge(entity_id, db)
+    result["subculture_rows"] = _location_subculture_rows(entity_id, db)
     return result
 
 
@@ -2355,9 +2402,10 @@ def delete_discoverable_detail(
 def get_locations_graph(db: DbSession = Depends(get_session)) -> dict:
     """Active location nodes + connects_to edges — read-only, creator surface.
 
-    nodes: all active location entities joined to their extension (for coordinates).
-    edges: connects_to relations whose both endpoints are in nodes (dangling
-           edges from soft-deleted locations are filtered out server-side).
+    nodes: all active location entities joined to their extension (for
+    coord_x/coord_y). edges: connects_to relations whose both endpoints are
+    in nodes (dangling edges from soft-deleted locations are filtered out
+    server-side).
     """
     world_id = _world_id(db)
 
@@ -2372,7 +2420,7 @@ def get_locations_graph(db: DbSession = Depends(get_session)) -> dict:
 
     active_ids = {e.id for e, _ in rows}
     nodes = [
-        {"id": e.id, "name": e.name, "coordinates": loc.coordinates}
+        {"id": e.id, "name": e.name, "coord_x": loc.coord_x, "coord_y": loc.coord_y}
         for e, loc in rows
     ]
 

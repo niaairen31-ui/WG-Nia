@@ -25,6 +25,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    String,
     func,
     text,
 )
@@ -61,7 +62,6 @@ class World(SQLModel, table=True):
     id: str = Field(default_factory=_uuid, primary_key=True)
     name: str
     description: Optional[str] = None
-    fundamental_laws: Optional[Any] = Field(default=None, sa_column=Column(JSON))
     magic_status: str = Field(
         default="dormant",
         sa_column_kwargs={"server_default": text("'dormant'")},
@@ -71,6 +71,28 @@ class World(SQLModel, table=True):
     )
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
+# world_law  (position-ordered fundamental laws, schema v1.78,
+# TICKET-0025, BRIEF-0025-b — replaces world.fundamental_laws JSON)
+#
+# One row per law, in creation-form order. Curated config (faction_role
+# family): no change_history, written via writes.write_world_laws only.
+# Python attribute `text_` maps to DB column `text` (`text` is reserved by
+# the sqlalchemy.text import used throughout this module — same pattern as
+# entity.metadata_/`metadata`).
+# -----------------------------------------------------------------------------
+class WorldLaw(SQLModel, table=True):
+    __tablename__ = "world_law"
+    __table_args__ = (
+        Index("idx_world_law_position", "world_id", "position", unique=True),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    position: int = Field(default=0, sa_column_kwargs={"server_default": text("0")})
+    text_: str = Field(sa_column=Column("text", String, nullable=False))
 
 
 # -----------------------------------------------------------------------------
@@ -133,7 +155,8 @@ class Character(SQLModel, table=True):
     appearance: Optional[str] = None
     backstory: Optional[str] = None
     aversion: Optional[str] = None
-    secrets: Optional[Any] = Field(default=None, sa_column=Column(JSON))
+    # Plain text since TICKET-0025 (B1): no reader ever consumed structure.
+    secrets: Optional[str] = None
     # Schema v1.77, TICKET-0025, BRIEF-0025-a: physical resistance tier for
     # opposed rolls (resolution.py). Migrated from entity.metadata
     # ['physical_tier'] — UI-visible data is never stored in JSON
@@ -179,12 +202,41 @@ class Location(SQLModel, table=True):
         default=None, foreign_key="entity.id"
     )
     location_type: Optional[str] = None
-    subculture: Optional[Any] = Field(default=None, sa_column=Column(JSON))
     magic_status: str = Field(
         default="inert", sa_column_kwargs={"server_default": text("'inert'")}
     )
-    coordinates: Optional[Any] = Field(default=None, sa_column=Column(JSON))
+    # Map position (schema v1.78, TICKET-0025) — was coordinates JSON {x,y}.
+    # NULL = unplaced.
+    coord_x: Optional[float] = None
+    coord_y: Optional[float] = None
     access_level: Optional[str] = None
+
+
+# -----------------------------------------------------------------------------
+# location_subculture  (ambient culture lines, schema v1.78,
+# TICKET-0025, BRIEF-0025-b — replaces location.subculture JSON)
+#
+# One row per key. is_hidden = 1 rows are creator-only: every
+# non-creator read path filters is_hidden = 0 AT QUERY CONSTRUCTION —
+# exclusion is structural, never instructional. Curated config
+# (faction_role family): no change_history, full-replace writes via
+# writes.write_location_subculture only.
+# -----------------------------------------------------------------------------
+class LocationSubculture(SQLModel, table=True):
+    __tablename__ = "location_subculture"
+    __table_args__ = (
+        Index(
+            "idx_location_subculture_key", "location_id", text("key COLLATE NOCASE"),
+            unique=True,
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    location_id: str = Field(foreign_key="entity.id", nullable=False)
+    key: str
+    value: str
+    is_hidden: bool = Field(default=False, sa_column_kwargs={"server_default": text("0")})
 
 
 # -----------------------------------------------------------------------------

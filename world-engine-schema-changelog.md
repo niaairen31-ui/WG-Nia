@@ -8,6 +8,35 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.78** — TICKET-0025, BRIEF-0025-b: `character.secrets` changed
+  JSON -> TEXT (plain prose, B1 — no reader ever consumed structure);
+  `location.coord_x` / `coord_y` (REAL) added, `location.coordinates`
+  DROPPED (A1); new table `location_subculture` (`id, world_id,
+  location_id (FK entity.id), key, value, is_hidden`) with structural
+  unique index `idx_location_subculture_key (location_id, key COLLATE
+  NOCASE)`, `location.subculture` DROPPED (C1 — `is_hidden` makes the
+  secret slice structurally excluded instead of cohabiting with public
+  keys in one blob); new table `world_law` (`id, world_id, position,
+  text`) with structural unique index `idx_world_law_position (world_id,
+  position)`, `world.fundamental_laws` DROPPED (D1 — resolves the
+  string-vs-array shape inconsistency between the manual create form and
+  the AI draft). Migration
+  `scripts/migrate_v1_78_dedicated_json_columns.py`: read-only validation
+  pass first (non-flat `subculture`, malformed `coordinates`, or
+  non-string/non-list `fundamental_laws` abort the whole migration,
+  nothing written), then rewrites `character.secrets` (dicts/lists ->
+  indented JSON text, JSON strings -> unquoted text, NULL stays NULL),
+  copies `subculture` entries into `location_subculture` rows (`hidden`
+  key -> `is_hidden = 1`), `coordinates.x`/`.y` into `coord_x`/`coord_y`,
+  and `fundamental_laws` (newline-split string or list) into
+  position-ordered `world_law` rows — then drops the three columns, one
+  transaction. `writes.write_location_subculture` /
+  `writes.write_world_laws` (full-replace, curated config, same family as
+  `faction_role`) are the sole write paths. `context.py`'s two subculture
+  readers (NPC setting line, MJ perception slice) and `tick.py`'s two
+  location-briefing readers now query `location_subculture` with
+  `is_hidden = FALSE` at query construction — exclusion is structural,
+  never instructional.
 - **v1.77** — TICKET-0025, BRIEF-0025-a: `character.physical_tier`
   (INTEGER NOT NULL DEFAULT 0) added; new table `npc_price` (`id, world_id,
   entity_id (FK entity.id), tag, amount`) with structural unique index

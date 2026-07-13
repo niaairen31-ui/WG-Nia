@@ -5925,6 +5925,17 @@ function authorRenderSheet(detail, isNew, type) {
     html += '</div>';
   }
 
+  if (type === 'location') {
+    html += '<div class="field-section"><div class="field-section-title">Subculture</div>';
+    if (isNew) {
+      authorLocationSubcultureDraft = [];
+      html += `<div id="author-subculture">${authorRenderSubcultureEditor(true)}</div>`;
+    } else {
+      html += `<div id="author-subculture">${authorRenderSubcultureEditor(false, detail.subculture_rows)}</div>`;
+    }
+    html += '</div>';
+  }
+
   if (!isNew) {
     html += '<div class="field-section"><div class="field-section-title">Relations</div>';
     html += `<div id="author-relations">${authorRenderRelations(detail.relations)}</div>`;
@@ -6140,9 +6151,13 @@ function authorApplyLocationDraft(result) {
   setVal('author-x-location_type', draft.public.location_type);
   setVal('author-x-access_level', draft.public.access_level || '');
 
-  const subcultureFull = { ...(draft.public.subculture || {}) };
-  if (draft.secret.subculture_hidden) subcultureFull.hidden = draft.secret.subculture_hidden;
-  setVal('author-x-subculture', Object.keys(subcultureFull).length ? JSON.stringify(subcultureFull, null, 2) : '');
+  authorLocationSubcultureDraft = Object.entries(draft.public.subculture || {})
+    .map(([key, value]) => ({ key, value: String(value), is_hidden: false }));
+  if (draft.secret.subculture_hidden) {
+    authorLocationSubcultureDraft.push({ key: 'hidden', value: draft.secret.subculture_hidden, is_hidden: true });
+  }
+  const subcultureEl = document.getElementById('author-subculture');
+  if (subcultureEl) subcultureEl.innerHTML = authorRenderSubcultureEditor(true);
 
   const notes = [...(result.notes || [])];
   for (const link of (draft.secret.sensed_links || [])) {
@@ -6409,6 +6424,107 @@ async function authorPriceListMutate(mutateFn) {
     authorRenderSheet(detail, false, detail.type);
     document.getElementById('author-status').className = 'author-status ok';
     document.getElementById('author-status').textContent = 'Tarifs mis à jour.';
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = e.message;
+  }
+}
+
+/* ── Location subculture editor (TICKET-0025, BRIEF-0025-b) —
+ * `location_subculture` rows, full-replace via PUT /api/entities/{id}/subculture.
+ * For a NEW location (not yet created), rows are held in
+ * authorLocationSubcultureDraft and batch-written by authorSaveEntity right
+ * after creation (same discipline as authorFactionRolesDraft). For an
+ * EXISTING location, "Enregistrer" syncs the visible rows from the DOM and
+ * PUTs the complete array immediately (same discipline as the Tarifs
+ * editor); removing a row saves right away. */
+
+let authorLocationSubcultureDraft = [];
+
+function authorRenderSubcultureEditor(isNew, rows) {
+  const source = isNew ? authorLocationSubcultureDraft : (rows || []);
+  const rowsHtml = source.map((r, i) => `
+    <div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-bottom:6px">
+      <input type="text" id="subculture-key-${i}" value="${esc(r.key || '')}" placeholder="clé (ex : values)" style="flex:1">
+      <input type="text" id="subculture-value-${i}" value="${esc(r.value || '')}" placeholder="valeur" style="flex:2">
+      <label style="display:flex; align-items:center; gap:4px; font-size:12px">
+        <input type="checkbox" id="subculture-hidden-${i}" ${r.is_hidden ? 'checked' : ''}> caché
+      </label>
+      <button class="btn-icon" onclick="authorRemoveSubcultureRow(${isNew}, ${i})" title="Supprimer">✕</button>
+    </div>`).join('');
+  return `<div id="author-subculture-rows">${rowsHtml || '<div class="empty">Aucune entrée.</div>'}</div>
+    <div class="row-card-actions" style="margin-top:6px; gap:8px">
+      <button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick="authorAddSubcultureRow(${isNew})">+ Ajouter</button>
+      <button class="btn-send" onclick="authorSaveSubcultureRows(${isNew})">💾 Enregistrer</button>
+    </div>`;
+}
+
+function _syncSubcultureDraftFromDom() {
+  authorLocationSubcultureDraft.forEach((r, i) => {
+    const keyEl = document.getElementById(`subculture-key-${i}`);
+    const valueEl = document.getElementById(`subculture-value-${i}`);
+    const hiddenEl = document.getElementById(`subculture-hidden-${i}`);
+    if (keyEl) r.key = keyEl.value;
+    if (valueEl) r.value = valueEl.value;
+    if (hiddenEl) r.is_hidden = hiddenEl.checked;
+  });
+}
+
+function _readSubcultureRowsFromDom() {
+  const rows = [];
+  document.querySelectorAll('#author-subculture-rows [id^="subculture-key-"]').forEach((keyEl) => {
+    const i = keyEl.id.replace('subculture-key-', '');
+    rows.push({
+      key: keyEl.value,
+      value: (document.getElementById(`subculture-value-${i}`) || {}).value || '',
+      is_hidden: (document.getElementById(`subculture-hidden-${i}`) || {}).checked || false,
+    });
+  });
+  return rows;
+}
+
+function authorAddSubcultureRow(isNew) {
+  if (isNew) {
+    _syncSubcultureDraftFromDom();
+    authorLocationSubcultureDraft.push({ key: '', value: '', is_hidden: false });
+    document.getElementById('author-subculture').innerHTML = authorRenderSubcultureEditor(true);
+  } else {
+    const rows = _readSubcultureRowsFromDom();
+    rows.push({ key: '', value: '', is_hidden: false });
+    document.getElementById('author-subculture').innerHTML = authorRenderSubcultureEditor(false, rows);
+  }
+}
+
+function authorRemoveSubcultureRow(isNew, i) {
+  if (isNew) {
+    _syncSubcultureDraftFromDom();
+    authorLocationSubcultureDraft.splice(i, 1);
+    document.getElementById('author-subculture').innerHTML = authorRenderSubcultureEditor(true);
+  } else {
+    const rows = _readSubcultureRowsFromDom();
+    rows.splice(i, 1);
+    authorSaveSubcultureRowsData(rows);
+  }
+}
+
+function authorSaveSubcultureRows(isNew) {
+  if (isNew) {
+    _syncSubcultureDraftFromDom();
+    document.getElementById('author-subculture').innerHTML = authorRenderSubcultureEditor(true);
+    return;
+  }
+  authorSaveSubcultureRowsData(_readSubcultureRowsFromDom());
+}
+
+async function authorSaveSubcultureRowsData(rows) {
+  const statusEl = document.getElementById('author-status');
+  const clean = rows.filter(r => (r.key || '').trim());
+  try {
+    const body = JSON.stringify({ rows: clean });
+    const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}/subculture`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
+    authorRenderSheet(detail, false, detail.type);
+    document.getElementById('author-status').className = 'author-status ok';
+    document.getElementById('author-status').textContent = 'Subculture mise à jour.';
   } catch (e) {
     statusEl.className = 'author-status err';
     statusEl.textContent = e.message;
@@ -7160,6 +7276,15 @@ async function authorSave() {
       .filter(r => r.name);
   })() : [];
 
+  // TICKET-0025, BRIEF-0025-b: for a NEW location, subculture rows drafted
+  // before the entity exists are held in authorLocationSubcultureDraft and
+  // PUT to the subculture route right after creation — never merged into
+  // entityData (location_subculture has its own dedicated route).
+  const subcultureRowsToCreate = (isNew && type === 'location') ? (() => {
+    _syncSubcultureDraftFromDom();
+    return authorLocationSubcultureDraft.filter(r => (r.key || '').trim());
+  })() : [];
+
   // BRIEF-24: knowledge rows proposed by the AI draft generator are held in
   // memory until now — read their current (possibly edited) values before
   // the entity is created, since they're posted through the EXISTING
@@ -7224,6 +7349,16 @@ async function authorSave() {
         });
       }
       authorFactionRolesDraft = [];
+    }
+
+    if (isNew && subcultureRowsToCreate.length) {
+      await api(`/api/entities/${encodeURIComponent(detail.id)}/subculture`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: subcultureRowsToCreate }),
+      });
+      authorLocationSubcultureDraft = [];
+      detail = await api(`/api/entities/${encodeURIComponent(detail.id)}`);
     }
 
     if (isNew && pendingCreationMutationId) {
@@ -8026,12 +8161,12 @@ let _graphPlaced        = null;  // placed nodes with resolved x, y
 
 function graphAutoPlace(nodes) {
   // Null-coordinate nodes get a deterministic position on a circle (ordered by id).
-  const nullIds = nodes.filter(n => !n.coordinates).map(n => n.id).sort();
+  const nullIds = nodes.filter(n => n.coord_x == null).map(n => n.id).sort();
   const cx = GRAPH_W / 2, cy = GRAPH_H / 2;
   const r  = Math.min(cx, cy) * 0.72;
   const count = nullIds.length;
   return nodes.map(n => {
-    if (n.coordinates) return { ...n, x: n.coordinates.x, y: n.coordinates.y };
+    if (n.coord_x != null) return { ...n, x: n.coord_x, y: n.coord_y };
     const idx = nullIds.indexOf(n.id);
     if (count === 1) return { ...n, x: cx, y: cy };
     const angle = (2 * Math.PI * idx / count) - Math.PI / 2;
@@ -8172,11 +8307,11 @@ async function graphCreateEdge(A, B) {
 }
 
 async function graphPersistPos(nodeId, x, y) {
-  // Read-merge-write: fetch the full entity, update only coordinates, PUT back.
-  // This guarantees no other location field (subculture, location_type, etc.) is clobbered.
+  // coord_x/coord_y are two scalar columns — no merge discipline needed
+  // (TICKET-0025, BRIEF-0025-b; was a JSON read-merge-write).
   try {
     const full = await api(`/api/entities/${encodeURIComponent(nodeId)}`);
-    const ext  = Object.assign({}, full.extension, { coordinates: { x: Math.round(x), y: Math.round(y) } });
+    const ext  = Object.assign({}, full.extension, { coord_x: Math.round(x), coord_y: Math.round(y) });
     await api(`/api/entities/${encodeURIComponent(nodeId)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -8184,7 +8319,7 @@ async function graphPersistPos(nodeId, x, y) {
     });
     // Update local caches so subsequent drags use the persisted position.
     const node = graphData && graphData.nodes.find(n => n.id === nodeId);
-    if (node) node.coordinates = { x: Math.round(x), y: Math.round(y) };
+    if (node) { node.coord_x = Math.round(x); node.coord_y = Math.round(y); }
     const placed = _graphPlaced && _graphPlaced.find(n => n.id === nodeId);
     if (placed) { placed.x = Math.round(x); placed.y = Math.round(y); }
   } catch (err) { console.error('graphPersistPos:', err.message); }

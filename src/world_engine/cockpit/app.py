@@ -90,6 +90,7 @@ from ..models import (
     Item,
     Knowledge,
     Location,
+    LocationSubculture,
     NpcGoal,
     PromptTemplate,
     ProposedMutation,
@@ -100,6 +101,7 @@ from ..models import (
     User,
     Visit,
     World,
+    WorldLaw,
 )
 from ..resolution import resolve_physical
 from ..writes import (
@@ -117,10 +119,12 @@ from ..writes import (
     write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
+    write_location_subculture,
     write_membership,
     write_npc_goal,
     write_npc_goal_status,
     write_relation,
+    write_world_laws,
 )
 from . import crud as _crud
 
@@ -2212,10 +2216,14 @@ def create_world(body: WorldCreateBody, db: Session = Depends(get_session)) -> d
         new_world = World(
             name=body.name,
             description=body.description,
-            fundamental_laws=body.fundamental_laws,
         )
         db.add(new_world)
         db.flush()
+        write_world_laws(
+            db, world=new_world,
+            laws=body.fundamental_laws.splitlines(),
+            changed_by="creator",
+        )
         for w in db.exec(select(World).where(World.is_active == True)).all():  # noqa: E712
             w.is_active = False
             db.add(w)
@@ -3032,12 +3040,15 @@ def _build_establishment_narration(
         location = db.get(Location, location_id)
         description = loc_entity.description if loc_entity else None
         subculture: dict = {}
-        if location and isinstance(location.subculture, dict):
-            subculture = {
-                key: value
-                for key, value in location.subculture.items()
-                if key in _SAFE_SUBCULTURE_KEYS and value
-            }
+        if location:
+            subculture_rows = db.exec(
+                select(LocationSubculture).where(
+                    LocationSubculture.location_id == location_id,
+                    LocationSubculture.key.in_(_SAFE_SUBCULTURE_KEYS),
+                    LocationSubculture.is_hidden == False,  # noqa: E712
+                )
+            ).all()
+            subculture = {row.key: row.value for row in subculture_rows if row.value}
         signposts = active_signposts(db, location_id, player_character_id)
         version = current_prompt(db, template)
         user_msg = _build_establishment_user(

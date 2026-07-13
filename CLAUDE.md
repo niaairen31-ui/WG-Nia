@@ -201,9 +201,10 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   partial/success perception search (`domain="perception"`,
   `opposed_npc_id=None`). `ambient` content is read only via the pure code
   predicate `active_signposts` (context.py), passed directly into the MJ
-  establishment call. `subculture["hidden"]` is a TRAP — never add it to
-  `_SAFE_SUBCULTURE_KEYS`; discoverable content lives ONLY in
-  `discoverable_detail`.
+  establishment call. A `location_subculture` row with `key = "hidden"`
+  is a TRAP — never add `"hidden"` to `_SAFE_SUBCULTURE_KEYS`, and every
+  reader filters `is_hidden = FALSE` at query construction; discoverable
+  content lives ONLY in `discoverable_detail`.
 - **`connects_to` is location map topology, never a social signal.** Its
   `intensity=50` is meaningless. Every gameplay reader of `relation` keyed
   on a character/player id is structurally blind to `connects_to` rows; the

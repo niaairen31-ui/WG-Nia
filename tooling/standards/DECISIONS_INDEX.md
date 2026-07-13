@@ -85,3 +85,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 5911 | PREREQUISITE JUDGE (BRIEF-0024-b, no schema change) | BRIEF-0024-b |  |
 | 5931 | FACTION ROLE TABLE — corrective, JSON to relational (BRIEF-0024-d, schema v1.76) | BRIEF-0024-d | v1.76 |
 | 5964 | NPC_PRICE HARD-DELETE NAMED EXCEPTION (BRIEF-0025-a, schema v1.77) | BRIEF-0025-a | v1.77 |
+| 5981 | SUBCULTURE HIDDEN SLICE — structural exclusion (BRIEF-0025-b, schema v1.78) | BRIEF-0025-b | v1.78 |
