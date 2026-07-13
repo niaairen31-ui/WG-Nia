@@ -3535,6 +3535,16 @@ legible before merging, not silently allowed through. `scripts/` and every
 outside `src/`), not by an allowlist carve-out — none of them is a live
 request-serving path.
 
+### CANON STRATUM EXTENSION (TICKET-0026)
+
+`npc_price`, `location_subculture`, `world_law` join the canon stratum,
+allowlisted at their `writes.py` chokepoints. The authoritative canon
+enumeration is `canon_write_policy.txt`'s `[CANON_TABLES]`, not the frozen
+"15 tables" figure in the K1 record above — that figure predates
+`faction_role`, `npc_goal`, `agenda`, `agenda_step`, `goal_agenda_link`, and
+now these three. Read K1's count as illustrative-at-time-of-writing; the
+policy file is the single source of truth.
+
 ---
 
 ## PIPELINE GLUE — /pipeline orchestration, derived ticket status, structural permissions (BRIEF-0004, no schema change)
