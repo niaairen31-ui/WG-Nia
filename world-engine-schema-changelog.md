@@ -67,6 +67,17 @@ source of "what version are we at".
   location-briefing readers now query `location_subculture` with
   `is_hidden = FALSE` at query construction — exclusion is structural,
   never instructional.
+
+  **Annotation (BRIEF-0025-d):** the migration above never applied on the
+  live DB — its "flat string/number dict" validation rejected 37 of 42
+  locations. A read-only census of live data (2026-07-13, all 52
+  locations, 11 distinct shapes) established the real `subculture` shape:
+  a flat dict over a fixed 4-key vocabulary (`hidden` / `values` /
+  `magic_phenomena` / `nexus_link`), each value `str | bool | list[str]`.
+  BRIEF-0025-d widened the validator to accept `str | bool | int | float |
+  list[str]` and added representational coercion (bool -> `"true"`/
+  `"false"`; list[str] -> `", ".join(items)`, empty list -> no row); no
+  data was edited. The migration then applied cleanly.
 - **v1.77** — TICKET-0025, BRIEF-0025-a: `character.physical_tier`
   (INTEGER NOT NULL DEFAULT 0) added; new table `npc_price` (`id, world_id,
   entity_id (FK entity.id), tag, amount`) with structural unique index

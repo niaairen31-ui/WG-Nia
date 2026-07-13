@@ -17,9 +17,13 @@ In ONE transaction:
   b. `character.secrets`: JSON dicts/lists rewritten as
      `json.dumps(value, ensure_ascii=False, indent=2)` text; JSON strings
      unquoted to their inner text; NULL stays NULL.
-  c. `location_subculture` rows from each subculture dict: key `hidden` ->
-     `is_hidden = 1`; every other key -> `is_hidden = 0`; values coerced to
-     str. Then drop `location.subculture`.
+  c. `location_subculture` rows from each subculture dict (censused 4-key
+     vocabulary: `hidden` / `values` / `magic_phenomena` / `nexus_link`):
+     key `hidden` -> `is_hidden = 1`; every other key -> `is_hidden = 0`;
+     values coerced representationally, never editorially — str unchanged;
+     bool -> `"true"` / `"false"`; int/float -> `str(value)`; list[str] ->
+     `", ".join(items)` (an empty list produces no row). Then drop
+     `location.subculture`.
   d. `coord_x` / `coord_y` from `coordinates.x` / `.y`; drop
      `location.coordinates`.
   e. `world_law` rows: existing `fundamental_laws` string split on
@@ -28,8 +32,9 @@ In ONE transaction:
   f. SQLite >= 3.35 guard for the three DROP COLUMNs.
 
 Read-only validation pass BEFORE any write, fail-closed:
-  - any `location.subculture` that is non-NULL and not a flat dict of
-    string/number values aborts, listing location ids.
+  - any `location.subculture` that is non-NULL and not a flat dict whose
+    every value is str | bool | int | float | list[str] aborts, listing
+    location ids.
   - any `location.coordinates` that is not NULL and not `{"x": num, "y":
     num}` aborts, listing location ids.
   - any `world.fundamental_laws` that is not NULL, not a string, and not a
@@ -97,16 +102,41 @@ def _load_worlds(conn) -> list[dict]:
     return out
 
 
+def _is_valid_subculture_value(value: object) -> bool:
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, (str, int, float)):
+        return True
+    if isinstance(value, list):
+        return all(isinstance(item, str) for item in value)
+    return False
+
+
+def _coerce_subculture_value(value: object) -> str | None:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, list):
+        return ", ".join(value) if value else None
+    raise TypeError(f"unexpected subculture value type: {type(value)!r}")
+
+
 def _validate(locations: list[dict], worlds: list[dict]) -> list[str]:
     problems: list[str] = []
     for loc in locations:
         subculture = loc["subculture"]
         if subculture is not None:
             if not isinstance(subculture, dict) or not all(
-                isinstance(k, str) and isinstance(v, (str, Real)) and not isinstance(v, bool)
+                isinstance(k, str) and _is_valid_subculture_value(v)
                 for k, v in subculture.items()
             ):
-                problems.append(f"{loc['id']} ({loc['name']!r}): subculture is not a flat string/number dict")
+                problems.append(
+                    f"{loc['id']} ({loc['name']!r}): subculture is not a flat dict of "
+                    "str/bool/int/float/list[str] values"
+                )
         coordinates = loc["coordinates"]
         if coordinates is not None:
             if (
@@ -186,6 +216,9 @@ def _insert_subculture_and_coords(conn, locations: list[dict]) -> tuple[int, int
         ), {"id": loc["id"]}).scalar_one()
         if loc["subculture"]:
             for key, value in loc["subculture"].items():
+                coerced = _coerce_subculture_value(value)
+                if coerced is None:
+                    continue
                 conn.execute(text(
                     "INSERT INTO location_subculture (id, world_id, location_id, key, value, is_hidden) "
                     "VALUES (:id, :world_id, :location_id, :key, :value, :is_hidden)"
@@ -194,7 +227,7 @@ def _insert_subculture_and_coords(conn, locations: list[dict]) -> tuple[int, int
                     "world_id": world_id,
                     "location_id": loc["id"],
                     "key": key,
-                    "value": str(value),
+                    "value": coerced,
                     "is_hidden": 1 if key == "hidden" else 0,
                 })
                 subculture_rows += 1
@@ -261,7 +294,7 @@ def main() -> None:
         raise SystemExit(
             "Migration aborted — unexpected content found, nothing written:\n"
             + "\n".join(f"  - {p}" for p in problems)
-            + "\nResolve in the live UI, then re-run."
+            + "\nFix the listed rows directly in the database or correct this migration, then re-run."
         )
 
     with engine.begin() as conn:

@@ -6079,4 +6079,38 @@ Group 4 allow-list columns — that is the allow-list's entire point.
 
 ---
 
+## MIGRATION VALIDATOR CORRECTION — subculture shape (BRIEF-0025-d, no schema change)
+
+**The incident.** `migrate_v1_78_dedicated_json_columns.py` (BRIEF-0025-b)
+never applied on the live DB: its fail-closed validation rejected 37 of 42
+locations with a non-NULL `subculture` blob, because BRIEF-0025-b's RECON
+mischaracterized the real shape as "flat dict of string/number values." A
+read-only census of the live DB (2026-07-13, all 52 locations, 11 distinct
+shapes) established the actual shape: a flat dict over a fixed 4-key
+vocabulary (`hidden` / `values` / `magic_phenomena` / `nexus_link`), each
+value `str | bool | list[str]`. No nested dicts exist anywhere. The data
+was sound; the migration's validation and coercion were wrong.
+
+**The fix (A1).** The validator now accepts any flat dict whose values are
+`str | bool | int | float | list[str]`; coercion to `location_subculture
+.value` (TEXT) is purely representational: str unchanged, bool ->
+`"true"`/`"false"`, int/float -> `str(value)`, list[str] ->
+`", ".join(items)` (empty list -> no row). Zero data edits (A2 rejected —
+the data is the source of truth, the validator was wrong).
+
+**Migration coercion is representational, never editorial (B1).**
+Migrations may change representation (bool -> text, list -> joined text)
+but must never drop or rewrite values on semantic grounds (B2 rejected:
+`false` migrates as `"false"`, `["none"]` migrates as `"none"` — no
+silent cleanup). Content judgment belongs to the creator, post-migration,
+in the UI.
+
+**Standing lesson.** Migration validators must be grounded in a census of
+live data, not an assumed shape — a RECON that infers a JSON shape from
+schema/code alone (rather than querying the live rows) can pass review and
+still be wrong; the fail-closed validator caught the mismatch before any
+data was touched, exactly as designed.
+
+---
+
 *Co-built with Claude, June 2026.*
