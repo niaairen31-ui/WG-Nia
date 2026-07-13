@@ -3,14 +3,15 @@ id: TICKET-0027
 title: Code standards v1 seeding — enforcement checks and legacy remediation
 type: feature
 status: live-gate
-# BRIEF-0027-a and BRIEF-0027-b executed and verified (green); PR #32 open,
-# awaiting Nia's live play-test and merge. Remaining briefs (c-g) not yet
-# deposited.
+# BRIEF-0027-a/-b/-h executed and verified (green); PR #32 merge conflict
+# (DECISIONS_INDEX.md, generated file) resolved and pushed -- CLEAN/
+# MERGEABLE. Awaiting Nia's live play-test and merge. Remaining briefs
+# (c-g) not yet deposited.
 created: 2026-07-13
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []          # no schema change; no migration; no destructive data op
 blast_radius: large       # touches say (live play path) and _apply_mutation (canon-write path)
-brief_ids: [BRIEF-0027-a, BRIEF-0027-b]
+brief_ids: [BRIEF-0027-a, BRIEF-0027-b, BRIEF-0027-h]
 schema_version_touched:   # none
 retry_count: 0
 ---
