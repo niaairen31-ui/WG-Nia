@@ -1,0 +1,13 @@
+// Transition baseline (TICKET-0027 stage a, R5). Generated from `main` at
+// schema v1.79 by an AST pass over src/ (see RECON-0027 section 1). Entries
+// may only shrink or disappear; this file is deleted entirely at
+// TICKET-0027 stage g (code_standards.md section 4), after which
+// module_budget.py runs with no exemptions.
+[
+  {"file": "src/world_engine/cockpit/app.py", "functions": 97, "lines": 6188},
+  {"file": "src/world_engine/cockpit/crud.py", "functions": 109, "lines": 2932},
+  {"file": "src/world_engine/entity_author.py", "functions": 28, "lines": 1062},
+  {"file": "src/world_engine/models.py", "functions": 2, "lines": 1188},
+  {"file": "src/world_engine/tick.py", "functions": 19, "lines": 1803},
+  {"file": "src/world_engine/writes.py", "functions": 32, "lines": 1607}
+]

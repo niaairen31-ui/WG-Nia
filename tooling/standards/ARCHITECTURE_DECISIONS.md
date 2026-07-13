@@ -6113,4 +6113,81 @@ data was touched, exactly as designed.
 
 ---
 
+## CODE STANDARDS v1 SEEDING (BRIEF-0027-a, no schema change)
+
+**The trigger.** 26 tickets closed; Nia asked for a one-time architecture
+SEEDING review of the codebase against `tooling/improvement/bug_log.jsonl`
+and ticket history (RECON-0027), to see whether a first `code_standards.md`
+was warranted, plus a follow-up: cap not just function length but the
+number of functions in a single file (`cockpit/app.py` at 103 functions).
+RECON-0027 confirmed four risk zones: monolith concentration (`say` 1130
+lines / nested `_stream` 958, `_apply_mutation` 682, `run_world_tick` 421),
+duplicated LLM-output parsing (24 `json.loads` sites across 8 modules, the
+exact failure class behind the 2026-07-03 subculture bug), logging
+inconsistency (38 `print()` sites invisible to log capture), and an
+ungoverned frontend. `code_standards.md` v1 is deposited from that review;
+this brief ships its enforcement.
+
+**A2 — document scope.** Ratify the emergent norms already held
+unwritten (return-type annotations, no bare `except`, `select()` over raw
+`text()`, SAVEPOINT atomicity, English-only strings) alongside corrective
+rules targeting the four risk zones — not a green-field style guide.
+
+**B2 — two-tier enforcement.** Every rule is tagged `enforced` (a
+dedicated fail-closed `tooling/verify/checks/` script) or `advisory`
+(reviewed at `/review-step`, no automated check); an advisory rule
+violated twice across distinct tickets becomes a promotion candidate.
+
+**C2 — legacy violations are remediated, not grandfathered.** TICKET-0027
+refactors the flagged code itself (staged briefs b–g); the R1/R5 transition
+baselines shipped in this brief exist only so the four checks can go live
+*before* that refactor lands. Baseline entries may only shrink or
+disappear, and the files are deleted outright at stage g — a permanent
+exemption was never on the table.
+
+**D2 — frontend stays lightly governed.** `cockpit/index.html` (8.8k
+lines, ~350 JS functions) gets an advisory-only section (F1–F3);
+`page_contract.py` remains the sole frontend check — no new machine gate
+on the frontend from this seeding.
+
+**E3 — module budget is two-dimensional, one check.** A module fails at
+>40 top-level functions/methods OR >1000 physical lines, both assessed in
+the same AST pass; no permanent exemption exists for either dimension —
+a doctrinal registry module (e.g. `writes.py`) outgrowing the cap is the
+intended tripwire forcing a deliberate package split at that moment, not
+before.
+
+**F2 — function ceiling at 80 lines.** AST span
+(`end_lineno - lineno + 1`), decorators excluded, applied to every
+function/method including nested ones — chosen over a looser ceiling
+because `say`/`_stream`/`_apply_mutation` already show that a permissive
+cap doesn't create a tripwire before four-digit accretion.
+
+**G1 — the LLM-parse chokepoint is a new dedicated module.** All
+model-output JSON parsing converges on `src/world_engine/llm_parse.py`
+(stage e), not `analyzer.py` (already a duplication source, not a neutral
+host for a shared helper) and not `ollama_client.py` (stays transport-only
+— its own `json.loads` sites decode the Ollama wire protocol, never a
+model's substantive output, and are named `PERMANENT_ALLOW` entries in
+`llm_parse_chokepoint.py`, not migration candidates).
+
+**H1 — single ticket, staged briefs a→g, checks-first.** One ticket
+carries the whole seeding-to-remediation arc so the R1/R5 baseline
+lifecycle is atomic and verifiable at ticket close: born in stage a
+(this brief, checks ship with fresh baselines generated from `main`),
+shrunk stage by stage as b–f decompose the flagged functions/modules and
+migrate the flagged parse/print sites, deleted outright in stage g.
+
+**This brief (a).** Ships `function_length.py` (R1), `module_budget.py`
+(R5), `llm_parse_chokepoint.py` (R2), and `no_print_in_src.py` (R3),
+zero `src/` change. Baselines/allow-lists were regenerated from `main` at
+this brief's execution time, not copied from RECON-0027's figures (which
+undercounted `cockpit/app.py`'s top-level function count at 103 vs. the
+measured 97 — RECON is report-only, never authoritative for exact
+figures). Fail-closed proof for all four checks and regression proof for
+`function_length.py`/`module_budget.py` were run and restored at
+brief-exec time, per BRIEF-0027-a's Done criteria.
+
+---
+
 *Co-built with Claude, June 2026.*
