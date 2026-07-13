@@ -119,11 +119,13 @@ and `world-engine-schema-changelog.md` — never here.
 - Legacy two-digit BRIEF-NN identifiers are a closed, grandfathered
   namespace: never reused, never renumbered.
 - New decision records in `tooling/standards/ARCHITECTURE_DECISIONS.md` use
-  the header form:
+  the header form
   `## TITLE (BRIEF-NNNN[-x][, ...], schema vX.YY | no schema change)` —
-  enforced by `tooling/verify/checks/decisions_index.py` against the
-  baseline.
+  enforced by `tooling/verify/checks/decisions_index.py` against baseline.
 - `tooling/standards/DECISIONS_INDEX.md` is generated; never edit by hand.
+  Generated files are never hand-resolved in a merge conflict: regenerate
+  (`python tooling/glue/gen_decisions_index.py`) and stage the result. A
+  conflict outside a branch's diagnosed set is an escalation, not an improvisation.
 
 ## Invariants (verified at every review)
 
@@ -490,10 +492,8 @@ WG-Nia/
   **Voyager** (`POST /api/travel`) moves the player cleanly: window
   analysis on, then close of, the open conversation and gathering
   membership, then `current_location_id` update.
-- **Pipeline cockpit:** `python scripts/pipeline_cockpit.py` -> port 8100.
-  Deposit flow dormant; artifacts are deposited manually.
-- **Verify:** `python tooling/verify/run.py` (or `/verify`) runs every
-  check under `tooling/verify/checks/`.
+- **Pipeline cockpit:** `python scripts/pipeline_cockpit.py` -> port 8100. Deposit flow dormant; artifacts are deposited manually.
+- **Verify:** `python tooling/verify/run.py` (or `/verify`) runs every check under `tooling/verify/checks/`.
 
 ---
 
