@@ -121,7 +121,6 @@ from ..writes import (
     write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
-    write_location_subculture,
     write_membership,
     write_npc_goal,
     write_npc_goal_status,
@@ -717,13 +716,6 @@ def commit_region(
                 "name": pub.get("name"),
                 "description": pub.get("description"),
             }
-            roles = [
-                {"name": r["name"].strip(), "description": r.get("description") or ""}
-                for r in (pub.get("roles") or [])
-                if isinstance(r, dict) and (r.get("name") or "").strip()
-            ]
-            if roles:
-                entity_data["metadata"] = {"roles": roles}
             ext_data = {
                 "faction_type": pub.get("faction_type"),
                 "philosophy": pub.get("philosophy"),
