@@ -277,15 +277,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   `delete_knowledge` (each discards the row's `change_history` with the
   row), `delete_discoverable_detail`, and `write_faction_role(mode=
   "delete")` (S1, blocked while an active membership holds the role) —
-  creator-CRUD-only, never reachable from any AI or play path. Full-replace
-  config deletes (whole-set replace, not single-row correction):
-  `write_npc_prices`, `write_location_subculture`, and `write_world_laws`
-  each `DELETE FROM` their table scoped to one parent (NPC / location /
-  world) then re-insert the submitted set, in one transaction —
-  creator-CRUD and world-bootstrap only (`set_npc_prices`,
-  `set_location_subculture`, `create_world`), never reachable from any AI or
-  play path. These tables carry no `change_history` by design
-  (metadata-config category); the full-replace IS their write shape.
+  creator-CRUD-only, never reachable from any AI or play path. Full-replace config deletes (whole-set replace, not single-row correction): `write_npc_prices`, `write_location_subculture`, and `write_world_laws` each `DELETE FROM` their table scoped to one parent (NPC / location / world) then re-insert the submitted set, in one transaction — creator-CRUD and world-bootstrap only (`set_npc_prices`, `set_location_subculture`, `create_world`), never reachable from any AI or play path. These tables carry no `change_history` by design (metadata-config category); the full-replace IS their write shape.
 - **Custom skill lookups filter `skill_definition_id`, by construction:** a
   base-domain `skill` lookup MUST include `AND skill_definition_id IS NULL`.
   A custom skill resolves via its `skill_definition.base_domain` — never

@@ -9,7 +9,7 @@ danger_class: []          # no schema change; no migration; no destructive data 
 blast_radius: small
 brief_ids: [BRIEF-0026-a, BRIEF-0026-b]
 schema_version_touched:   # none
-retry_count: 0
+retry_count: 1
 ---
 
 ## Request (verbatim, as Nia stated it)
@@ -64,8 +64,7 @@ code:
       `location_subculture`, `world_law` in `[CANON_TABLES]` and their three
       `writes.py` chokepoints in `[ALLOWED_SITES]`  ->  verify/run
 - [ ] Negative proof: a temporary stray `DELETE FROM npc_price` outside the
-      allowlisted helper turns `single_canon_write.py` RED (reverted after)  ->
-      verify/checks/single_canon_write.py
+      allowlisted helper turns `single_canon_write.py` RED (reverted after)  -> verify/checks/single_canon_write.py
 - [ ] `grep -n 'metadata' src/world_engine/cockpit/app.py` shows no
       `entity_data["metadata"]` assignment in `commit_region`  ->  grep
 
