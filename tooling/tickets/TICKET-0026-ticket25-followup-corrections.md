@@ -2,7 +2,7 @@
 id: TICKET-0026
 title: TICKET-0025 follow-up corrections — classify config tables into canon, remove dead region-roles block
 type: bug
-status: exec
+status: live-gate
 created: 2026-07-13
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []          # no schema change; no migration; no destructive data op
