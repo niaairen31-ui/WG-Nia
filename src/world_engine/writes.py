@@ -70,9 +70,15 @@ functions so that clamping and field validation live in exactly one place.
   any active membership still holds the role. No `change_history` (curated
   config, same family as `faction_type` / `philosophy`).
 - `write_npc_goal_prerequisites(...)`   : the only chokepoint for
-  `npc_goal.prerequisites` writes (TICKET-0024, BRIEF-0024-a). Validates
-  the v1 `relation_gte` shape, appends the previous state to
-  `change_history` first.
+  `goal_prerequisite` writes (TICKET-0024, BRIEF-0024-a; relationalized
+  TICKET-0025, BRIEF-0025-c — replaces `npc_goal.prerequisites` JSON).
+  Full-replace; validates the v1 `relation_gte` shape; snapshots the
+  previous `goal_prerequisite` rows into `npc_goal.change_history` first —
+  the audit trail location does not move.
+- `write_prompt_variables(...)`         : full-replace `prompt_variable`
+  rows for one `prompt_template` head (TICKET-0025, BRIEF-0025-c —
+  replaces `prompt_template.variables` JSON). Curated config, no
+  `change_history`.
 - `write_npc_prices(...)`               : full-replace `npc_price` rows
   (TICKET-0025, BRIEF-0025-a — replaces `entity.metadata['price_list']`).
   Curated config (faction_role family): no `change_history`, hard delete
@@ -107,7 +113,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from .models import Agenda, AgendaStep, Character, Entity, Event, FactionMembership, FactionRole, GoalAgendaLink, Knowledge, Ledger, LocationSubculture, NpcGoal, NpcPrice, PromptTemplate, PromptVersion, Relation, Skill, World, WorldLaw
+from .models import Agenda, AgendaStep, Character, Entity, Event, EventEntity, FactionMembership, FactionRole, GoalAgendaLink, GoalPrerequisite, Knowledge, Ledger, LocationSubculture, NpcGoal, NpcPrice, PromptTemplate, PromptVariable, PromptVersion, Relation, Skill, World, WorldLaw
 
 # Simple-identifier placeholder, e.g. `{player_line}` — deliberately does not
 # match JSON-example braces like `{"key": ...}` (TICKET-0011, C1).
@@ -889,18 +895,20 @@ def write_npc_goal_prerequisites(
     prerequisites: Optional[list],
     changed_by: str,
 ) -> NpcGoal:
-    """Set `npc_goal.prerequisites` (BRIEF-0024-a). Caller adds the row.
+    """Full-replace `goal_prerequisite` rows for one goal (BRIEF-0024-a;
+    relationalized TICKET-0025, BRIEF-0025-c — replaces
+    `npc_goal.prerequisites` JSON). Caller adds the goal row.
 
     v1 accepts ONLY `relation_gte` items: `{"type": "relation_gte",
     "target_entity_id": <entity id in the goal's own world>, "threshold":
     int 1-100}`. `None` or `[]` clears the gate — a completion with zero
-    prerequisites is legitimate (A1). History is sacred: the previous state
-    snapshots to `change_history` first. Reassigns the list — never mutates
-    the existing one in place.
+    prerequisites is legitimate (A1). History is sacred: the previous
+    `goal_prerequisite` rows are snapshotted into `npc_goal.change_history`
+    first — the audit trail location does not move even though the live
+    data does.
     """
-    clean: Optional[list[dict]] = None
+    clean: list[dict] = []
     if prerequisites:
-        clean = []
         for item in prerequisites:
             item_type = item.get("type") if isinstance(item, dict) else None
             if item_type not in NPC_GOAL_PREREQUISITE_TYPES:
@@ -928,18 +936,31 @@ def write_npc_goal_prerequisites(
                 "threshold": threshold,
             })
 
+    existing_rows = db.exec(
+        select(GoalPrerequisite).where(GoalPrerequisite.goal_id == goal.id)
+    ).all()
     history = list(goal.change_history or [])
     history.append({
-        "prerequisites": goal.prerequisites,
+        "prerequisites": [
+            {"type": row.type, "target_entity_id": row.target_entity_id, "threshold": row.threshold}
+            for row in existing_rows
+        ] or None,
         "updated_at": goal.updated_at.isoformat() if goal.updated_at else None,
         "changed_by": changed_by,
     })
     goal.change_history = history
     sa_attrs.flag_modified(goal, "change_history")
-    goal.prerequisites = clean
     goal.updated_at = datetime.now(UTC)
-
     db.add(goal)
+
+    db.execute(text("DELETE FROM goal_prerequisite WHERE goal_id = :goal_id"), {"goal_id": goal.id})
+    for item in clean:
+        row = GoalPrerequisite(
+            world_id=goal.world_id, goal_id=goal.id, type=item["type"],
+            target_entity_id=item["target_entity_id"], threshold=item["threshold"],
+        )
+        db.add(row)
+
     return goal
 
 
@@ -1328,7 +1349,9 @@ def write_event(
     row's `tick_id`/`conversation_id` is the provenance anchor.
     `mutation_id` is accepted only for call-site symmetry with the other
     `_apply_mutation` writers (no `change_history` column on this table) and
-    is not otherwise used here.
+    is not otherwise used here. `involved_entities` (TICKET-0025,
+    BRIEF-0025-c: relationalized) inserts `event_entity` rows after the
+    event row — a fresh event has no prior rows to replace.
     """
     del mutation_id
     event = Event(
@@ -1336,12 +1359,13 @@ def write_event(
         title=title,
         description=description,
         type=type,
-        involved_entities=involved_entities,
         location_id=location_id,
     )
     if knowledge_status is not None:
         event.knowledge_status = knowledge_status
     db.add(event)
+    for entity_id in (involved_entities or []):
+        db.add(EventEntity(event_id=event.id, entity_id=entity_id))
     return event
 
 
@@ -1366,15 +1390,19 @@ def write_event_update(
     `session_id`, `batch_id` — those keep whatever they had. No
     `change_history` append: the table has no such column (see
     `write_event`'s docstring above) — a known, accepted gap, not an
-    oversight.
+    oversight. `involved_entities` (TICKET-0025, BRIEF-0025-c:
+    relationalized) full-replaces this event's `event_entity` rows — the
+    chips editor's replace contract.
     """
     event.title = title
     event.description = description
     event.type = type
     event.knowledge_status = knowledge_status
-    event.involved_entities = involved_entities
     event.location_id = location_id
     db.add(event)
+    db.execute(text("DELETE FROM event_entity WHERE event_id = :event_id"), {"event_id": event.id})
+    for entity_id in (involved_entities or []):
+        db.add(EventEntity(event_id=event.id, entity_id=entity_id))
     return event
 
 
@@ -1408,7 +1436,9 @@ def write_prompt_version(
     if head is None:
         raise ValueError(f"write_prompt_version: prompt_template {template_id!r} not found")
 
-    declared = set(head.variables) if head.variables else set()
+    declared = set(db.exec(
+        select(PromptVariable.name).where(PromptVariable.prompt_template_id == template_id)
+    ).all())
     found = set(_PLACEHOLDER_RE.findall(system_prompt)) | set(_PLACEHOLDER_RE.findall(user_template))
     offending = sorted(found - declared)
     if offending:
@@ -1432,6 +1462,31 @@ def write_prompt_version(
     head.updated_at = datetime.now(UTC)
     db.add(head)
     return version
+
+
+def write_prompt_variables(
+    db: Session,
+    *,
+    template_id: str,
+    variables: Optional[list[str]],
+) -> list[PromptVariable]:
+    """Full-replace `prompt_variable` rows for one `prompt_template` head
+    (TICKET-0025, BRIEF-0025-c — replaces `prompt_template.variables`
+    JSON). Caller commits. Curated config (faction_role family): no
+    `change_history`, hard delete of the prior rows is the sanctioned
+    edit.
+    """
+    clean = sorted({v.strip() for v in (variables or []) if v and v.strip()})
+    db.execute(
+        text("DELETE FROM prompt_variable WHERE prompt_template_id = :template_id"),
+        {"template_id": template_id},
+    )
+    rows: list[PromptVariable] = []
+    for name in clean:
+        row = PromptVariable(prompt_template_id=template_id, name=name)
+        db.add(row)
+        rows.append(row)
+    return rows
 
 
 # DOCUMENTED EXCEPTION to "History is sacred": delete_world_cascade is the only

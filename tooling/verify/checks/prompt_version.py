@@ -222,15 +222,14 @@ def check_live_behavior(engine) -> None:
     from world_engine.cockpit import crud
     from world_engine.models import PromptTemplate
     from world_engine.prompt_store import current_prompt, list_versions
-    from world_engine.writes import PromptValidationError, write_prompt_version
+    from world_engine.writes import PromptValidationError, write_prompt_variables, write_prompt_version
     from fastapi import HTTPException
 
     with Session(engine) as db:
-        head = PromptTemplate(
-            name="check-fixture", usage="npc_dialogue", variables=["player_line"],
-        )
+        head = PromptTemplate(name="check-fixture", usage="npc_dialogue")
         db.add(head)
         db.flush()
+        write_prompt_variables(db, template_id=head.id, variables=["player_line"])
         v1 = write_prompt_version(
             db, template_id=head.id, system_prompt="Hello {player_line}",
             user_template="{player_line}", note="v1",

@@ -468,15 +468,35 @@ class NpcGoal(SQLModel, table=True):
         default_factory=list,
         sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
     )
-    # Schema v1.74, TICKET-0024: optional completion gate. Shape:
-    # [{"type": "relation_gte", "target_entity_id": "<entity id>",
-    # "threshold": <int 1-100>}] — v1 accepts ONLY `relation_gte`.
-    # Creator-CRUD authored only (`writes.write_npc_goal_prerequisites`,
-    # BRIEF-0024-a's editor). Read by `_apply_mutation`'s `goal_change
-    # complete` judge and the per-NPC tick briefing (BRIEF-0024-b).
-    prerequisites: Optional[list] = Field(
-        default=None, sa_column=Column(JSON, nullable=True)
+
+
+# -----------------------------------------------------------------------------
+# goal_prerequisite  (npc_goal completion gate, schema v1.79, TICKET-0025,
+# BRIEF-0025-c — replaces npc_goal.prerequisites JSON)
+#
+# Closed vocabulary (K1) enforced by CHECK: v1 accepts ONLY `relation_gte`.
+# Extension = a new enum value in a migration, never a free string.
+# Creator-CRUD authored only (`writes.write_npc_goal_prerequisites`,
+# BRIEF-0024-a's editor). Read by `_apply_mutation`'s `goal_change complete`
+# judge and the per-NPC tick briefing (BRIEF-0024-b).
+# -----------------------------------------------------------------------------
+class GoalPrerequisite(SQLModel, table=True):
+    __tablename__ = "goal_prerequisite"
+    __table_args__ = (
+        CheckConstraint("type IN ('relation_gte')", name="ck_goal_prerequisite_type"),
+        CheckConstraint("threshold BETWEEN 1 AND 100", name="ck_goal_prerequisite_threshold"),
+        Index(
+            "idx_goal_prerequisite_unique", "goal_id", "type", "target_entity_id",
+            unique=True,
+        ),
     )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    goal_id: str = Field(foreign_key="npc_goal.id", nullable=False)
+    type: str
+    target_entity_id: str = Field(foreign_key="entity.id", nullable=False)
+    threshold: int
 
 
 # -----------------------------------------------------------------------------
@@ -739,9 +759,6 @@ class Event(SQLModel, table=True):
         default="secret",
         sa_column_kwargs={"server_default": text("'secret'")},
     )
-    involved_entities: Optional[Any] = Field(
-        default=None, sa_column=Column(JSON)
-    )
     location_id: Optional[str] = Field(default=None, foreign_key="entity.id")
     has_magic_impact: bool = Field(
         default=False, sa_column_kwargs={"server_default": text("0")}
@@ -749,6 +766,24 @@ class Event(SQLModel, table=True):
     consequences: Optional[Any] = Field(default=None, sa_column=Column(JSON))
     occurred_at: Optional[datetime] = None
     recorded_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
+# event_entity  (event <-> entity link, schema v1.79, TICKET-0025,
+# BRIEF-0025-c — replaces the FK-less event.involved_entities JSON id array)
+#
+# Membership queries become joins/EXISTS instead of a Python `in` over a
+# JSON list of ids. No change_history (link table, not a fact-bearing row).
+# -----------------------------------------------------------------------------
+class EventEntity(SQLModel, table=True):
+    __tablename__ = "event_entity"
+    __table_args__ = (
+        Index("idx_event_entity_unique", "event_id", "entity_id", unique=True),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    event_id: str = Field(foreign_key="event.id", nullable=False)
+    entity_id: str = Field(foreign_key="entity.id", nullable=False)
 
 
 # -----------------------------------------------------------------------------
@@ -945,7 +980,6 @@ class PromptTemplate(SQLModel, table=True):
     world_id: Optional[str] = Field(default=None, foreign_key="world.id")
     name: str
     usage: str
-    variables: Optional[Any] = Field(default=None, sa_column=Column(JSON))
     destination: str = Field(
         default="local",
         sa_column_kwargs={"server_default": text("'local'")},
@@ -958,6 +992,24 @@ class PromptTemplate(SQLModel, table=True):
     )
     notes: Optional[str] = None
     updated_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
+# prompt_variable  (declared template variables, schema v1.79, TICKET-0025,
+# BRIEF-0025-c — replaces prompt_template.variables JSON)
+#
+# One row per declared variable name. No change_history (curated config,
+# not event canon).
+# -----------------------------------------------------------------------------
+class PromptVariable(SQLModel, table=True):
+    __tablename__ = "prompt_variable"
+    __table_args__ = (
+        Index("idx_prompt_variable_unique", "prompt_template_id", "name", unique=True),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    prompt_template_id: str = Field(foreign_key="prompt_template.id", nullable=False)
+    name: str
 
 
 # -----------------------------------------------------------------------------

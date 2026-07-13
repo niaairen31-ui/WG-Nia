@@ -40,9 +40,11 @@ from .models import (
     Character,
     Entity,
     Event,
+    EventEntity,
     Faction,
     FactionMembership,
     GoalAgendaLink,
+    GoalPrerequisite,
     Knowledge,
     Location,
     LocationSubculture,
@@ -138,24 +140,24 @@ def _goal_provenance_suffix(goal_id: str, session: Session) -> str:
 
 def _goal_prerequisite_lines(goal: NpcGoal, session: Session) -> list[str]:
     """One line per `relation_gte` prerequisite, resolved to live state
-    (TICKET-0024, BRIEF-0024-b) — code resolves, injects; the model never
-    sees or evaluates a threshold itself (G1). Reuses `_find_relation_pair`
-    (the same pair-search helper `_apply_mutation`'s judge uses) so the
-    briefing and the judge can never disagree. Empty for a goal with no
-    prerequisites (prose-only goals stay clean)."""
-    if not goal.prerequisites:
-        return []
+    (TICKET-0024, BRIEF-0024-b; relationalized TICKET-0025, BRIEF-0025-c) —
+    code resolves, injects; the model never sees or evaluates a threshold
+    itself (G1). Reuses `_find_relation_pair` (the same pair-search helper
+    `_apply_mutation`'s judge uses) so the briefing and the judge can never
+    disagree. Empty for a goal with no prerequisites (prose-only goals stay
+    clean)."""
+    rows = session.exec(
+        select(GoalPrerequisite).where(GoalPrerequisite.goal_id == goal.id)
+    ).all()
     lines = []
-    for item in goal.prerequisites:
-        if item.get("type") != "relation_gte":
+    for row in rows:
+        if row.type != "relation_gte":
             continue
-        target_id = item.get("target_entity_id")
-        threshold = item.get("threshold")
-        target = session.get(Entity, target_id)
-        target_name = target.name if target else target_id
-        rel = _find_relation_pair(session, goal.npc_id, target_id)
+        target = session.get(Entity, row.target_entity_id)
+        target_name = target.name if target else row.target_entity_id
+        rel = _find_relation_pair(session, goal.npc_id, row.target_entity_id)
         current = rel.intensity if rel else 0
-        lines.append(f"  (prérequis : relation >= {threshold} avec {target_name} — actuel : {current})")
+        lines.append(f"  (prérequis : relation >= {row.threshold} avec {target_name} — actuel : {current})")
     return lines
 
 
@@ -644,17 +646,18 @@ def assemble_faction_event_context(faction_id: str, session: Session) -> str:
 
     treasury_body = str(get_balance(session, faction_id))
 
-    recent_candidates = session.exec(
-        select(Event).where(
+    # Faction event filter is a join/EXISTS on event_entity (TICKET-0025,
+    # BRIEF-0025-c) — was a Python `in` over event.involved_entities JSON.
+    recent = session.exec(
+        select(Event)
+        .join(EventEntity, EventEntity.event_id == Event.id)
+        .where(
             Event.world_id == (faction_entity.world_id if faction_entity else None),
             Event.knowledge_status.in_(("public", "confirmed")),
+            EventEntity.entity_id == faction_id,
         )
         .order_by(Event.recorded_at.desc())
-    ).all()
-    recent = [
-        e for e in recent_candidates
-        if isinstance(e.involved_entities, list) and faction_id in e.involved_entities
-    ][:5]
+    ).all()[:5]
     recent_body = (
         "\n".join(f"- {e.title}" for e in recent)
         if recent

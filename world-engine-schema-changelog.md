@@ -8,6 +8,36 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.79** — TICKET-0025, BRIEF-0025-c (final corrective step): new table
+  `goal_prerequisite` (`id, world_id, goal_id (FK npc_goal.id), type CHECK
+  IN ('relation_gte'), target_entity_id (FK entity.id), threshold CHECK
+  BETWEEN 1 AND 100`) with structural unique index
+  `idx_goal_prerequisite_unique (goal_id, type, target_entity_id)`,
+  `npc_goal.prerequisites` DROPPED (E1, K1 closed vocabulary now a schema
+  CHECK, not just code validation). New link table `event_entity` (`id,
+  event_id (FK event.id), entity_id (FK entity.id)`) with unique index
+  `idx_event_entity_unique (event_id, entity_id)`, `event.involved_entities`
+  DROPPED (E1 — real FK integrity for the first time; the JSON array had
+  none). New table `prompt_variable` (`id, prompt_template_id (FK
+  prompt_template.id), name`) with unique index
+  `idx_prompt_variable_unique (prompt_template_id, name)`,
+  `prompt_template.variables` DROPPED (E1). Migration
+  `scripts/migrate_v1_79_structured_editor_tables.py`: read-only
+  validation pass first (malformed prerequisite items, non-list
+  `involved_entities`, or non-string-list `variables` abort the whole
+  migration), then copies prerequisites/involved_entities/variables into
+  the new tables — unresolvable `involved_entities` ids are SKIPPED and
+  counted in the migration log, not fatal (historical events may
+  reference deleted-world debris) — then drops the three columns, one
+  transaction. New fail-closed verify check
+  `tooling/verify/checks/json_ui_boundary.py` (G1): CRUD registry volet
+  (zero `"kind": "json"` fields), source-access volet (zero
+  `metadata_`/`Column("metadata"` outside comments), JSON-column volet
+  (every `Column(JSON` in `models.py` is a named, justified entry in
+  `JSON_COLUMN_ALLOWLIST`). This closes TICKET-0025: no UI-visible field
+  is backed by a JSON column anywhere in the schema, enforced structurally
+  going forward rather than by a CLAUDE.md note (the TICKET-0024
+  duplication-bug lesson this ticket was built to prevent from recurring).
 - **v1.78** — TICKET-0025, BRIEF-0025-b: `character.secrets` changed
   JSON -> TEXT (plain prose, B1 — no reader ever consumed structure);
   `location.coord_x` / `coord_y` (REAL) added, `location.coordinates`

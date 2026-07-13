@@ -1,0 +1,12 @@
+{
+  "ticket": "TICKET-0025-json-ui-extraction",
+  "when": "2026-07-13T12:19:44.101362+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "json_ui_boundary.py",
+      "status": "PASS",
+      "msg": "PASS: json_ui_boundary \u2014 zero \"kind\": \"json\" CRUD fields, zero metadata_/Column(\"metadata\" references outside comments, every Column(JSON in models.py is a named allow-list entry"
+    }
+  ]
+}

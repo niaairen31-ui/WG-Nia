@@ -73,10 +73,12 @@ from ..models import (
     DiscoverableDetail,
     Entity,
     Event,
+    EventEntity,
     Faction,
     FactionMembership,
     FactionRole,
     GoalAgendaLink,
+    GoalPrerequisite,
     Item,
     Knowledge,
     Ledger,
@@ -85,6 +87,7 @@ from ..models import (
     NpcGoal,
     NpcPrice,
     PromptTemplate,
+    PromptVariable,
     ProposedMutation,
     Relation,
     Skill,
@@ -564,16 +567,16 @@ def _goal_links(goal_id: str, db: DbSession) -> list[dict]:
 def _goal_prerequisites_dict(g: NpcGoal, db: DbSession) -> list[dict]:
     """Resolved prerequisites for display — entity NAME, id kept underneath
     (TICKET-0024, BRIEF-0024-a: "display shows the resolved entity NAME,
-    stores the id")."""
-    items = g.prerequisites or []
+    stores the id"; relationalized TICKET-0025, BRIEF-0025-c)."""
+    rows = db.exec(select(GoalPrerequisite).where(GoalPrerequisite.goal_id == g.id)).all()
     out = []
-    for item in items:
-        target = db.get(Entity, item.get("target_entity_id"))
+    for row in rows:
+        target = db.get(Entity, row.target_entity_id)
         out.append({
-            "type": item.get("type"),
-            "target_entity_id": item.get("target_entity_id"),
-            "target_entity_name": target.name if target else item.get("target_entity_id"),
-            "threshold": item.get("threshold"),
+            "type": row.type,
+            "target_entity_id": row.target_entity_id,
+            "target_entity_name": target.name if target else row.target_entity_id,
+            "threshold": row.threshold,
         })
     return out
 
@@ -1584,9 +1587,10 @@ def detach_goal_agenda_link_route(link_id: str, db: DbSession = Depends(get_sess
 def _event_dict(event: Event, db: DbSession) -> dict:
     location = db.get(Entity, event.location_id) if event.location_id else None
     involved = []
-    for entity_id in (event.involved_entities or []):
-        target = db.get(Entity, entity_id)
-        involved.append({"id": entity_id, "name": target.name if target is not None else None})
+    links = db.exec(select(EventEntity).where(EventEntity.event_id == event.id)).all()
+    for link in links:
+        target = db.get(Entity, link.entity_id)
+        involved.append({"id": link.entity_id, "name": target.name if target is not None else None})
     return {
         "id": event.id,
         "title": event.title,
@@ -2733,6 +2737,9 @@ def get_prompt_detail(prompt_id: str, db: DbSession = Depends(get_session)) -> d
     effective_row = _effective_prompt_row(sibling_rows, spec.world_scoped, world_id)
     is_effective = effective_row is not None and effective_row.id == row.id
     version = current_prompt(db, row)
+    variable_rows = db.exec(
+        select(PromptVariable).where(PromptVariable.prompt_template_id == row.id)
+    ).all()
     return {
         "id": row.id,
         "name": row.name,
@@ -2744,7 +2751,7 @@ def get_prompt_detail(prompt_id: str, db: DbSession = Depends(get_session)) -> d
         "effective_model": effective_model(row, default_model),
         "system_prompt": version.system_prompt,
         "user_template": version.user_template,
-        "variables": row.variables,
+        "variables": [v.name for v in variable_rows],
         "notes": row.notes,
         "surface": spec.surface,
         "world_scoped": spec.world_scoped,

@@ -42,7 +42,7 @@ def main():
     src = APP.read_text(encoding="utf-8")
     branch = _goal_change_branch(src)
 
-    if 'action == "complete" and goal.prerequisites' not in branch:
+    if 'action == "complete" and goal_prerequisites' not in branch:
         fail("no complete-only prerequisite gate found in the goal_change branch")
     if "relation_gte" not in branch:
         fail("goal_change branch does not reference relation_gte")

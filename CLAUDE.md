@@ -327,6 +327,8 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   call site uses chained `.replace()`, never `.format()` (H1).
   (`tooling/verify/checks/prompt_version.py` enforces.)
 - Affinity tiers are resolved in code (`context.py::_affinity_tier`); prompt templates never carry the tier table.
+- **UI-visible data never lives in JSON** — relational only; enforced
+  fail-closed by `json_ui_boundary` (exceptions justified in that file).
 
 ## Local model notes
 

@@ -82,11 +82,13 @@ from ..models import (
     DiscoverableDetail,
     Entity,
     Event,
+    EventEntity,
     Faction,
     FactionMembership,
     FactionRole,
     Gathering,
     GatheringMember,
+    GoalPrerequisite,
     Item,
     Knowledge,
     Location,
@@ -1296,12 +1298,13 @@ def _h1_strip_satisfied_prerequisite_deltas(
     `relation_delta` effect whose {subject, target_entity_id} pair (either
     direction) equals a prerequisite pair (anti-double-count, H1). Returns
     the kept effects and one note per stripped effect."""
-    if not effects or not goal.prerequisites:
+    prereq_rows = db.exec(select(GoalPrerequisite).where(GoalPrerequisite.goal_id == goal.id)).all()
+    if not effects or not prereq_rows:
         return effects, []
     satisfied_pairs = {
-        frozenset((goal.npc_id, item.get("target_entity_id")))
-        for item in goal.prerequisites
-        if item.get("type") == "relation_gte"
+        frozenset((goal.npc_id, row.target_entity_id))
+        for row in prereq_rows
+        if row.type == "relation_gte"
     }
     kept: list = []
     notes: list[str] = []
@@ -1744,31 +1747,31 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
                 return f"goal_change: no active goal matching {goal_text!r}"
             goal = matches[0]
 
-            # Prerequisite judge (TICKET-0024, BRIEF-0024-b, G1): "model
-            # proposes, code judges" — gates `complete` only, never
-            # `abandon`. Fail-closed on an unrecognised type (the column is
-            # creator-authored, but a hand-written row could still be
-            # malformed).
-            if action == "complete" and goal.prerequisites:
-                for item in goal.prerequisites:
-                    item_type = item.get("type")
-                    if item_type != "relation_gte":
-                        return f"goal_change: unknown prerequisite type {item_type!r}"
-                    target_id = item.get("target_entity_id")
-                    threshold = item.get("threshold")
-                    rel = _find_relation_pair(db, npc_id, target_id)
+            # Prerequisite judge (TICKET-0024, BRIEF-0024-b, G1;
+            # relationalized TICKET-0025, BRIEF-0025-c): "model proposes,
+            # code judges" — gates `complete` only, never `abandon`.
+            # Fail-closed on an unrecognised type (the row is creator-
+            # authored, but a hand-written row could still be malformed).
+            goal_prerequisites = db.exec(
+                select(GoalPrerequisite).where(GoalPrerequisite.goal_id == goal.id)
+            ).all()
+            if action == "complete" and goal_prerequisites:
+                for row in goal_prerequisites:
+                    if row.type != "relation_gte":
+                        return f"goal_change: unknown prerequisite type {row.type!r}"
+                    rel = _find_relation_pair(db, npc_id, row.target_entity_id)
                     current = rel.intensity if rel else 0
-                    if current < threshold:
-                        target = db.get(Entity, target_id)
-                        target_name = target.name if target else target_id
+                    if current < row.threshold:
+                        target = db.get(Entity, row.target_entity_id)
+                        target_name = target.name if target else row.target_entity_id
                         return (
                             f"goal_change: prerequisite not met — relation "
-                            f"with {target_name} is {current}, requires >= {threshold}"
+                            f"with {target_name} is {current}, requires >= {row.threshold}"
                         )
 
             # Completion effects (TICKET-0024, BRIEF-0024-c) — `complete`
             # only, never `abandon`. Runs AFTER the prerequisite judge
-            # above, so goal.prerequisites (if any) are all satisfied here.
+            # above, so goal_prerequisites (if any) are all satisfied here.
             extra_history: dict[str, Any] = {}
             if action == "complete":
                 effects = payload.get("effects")
@@ -1795,7 +1798,7 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
 
                 # A1: zero prerequisites and zero effects applied (absent,
                 # empty, or fully H1-stripped) is legitimate (Nia's type 3).
-                if not goal.prerequisites and not effects:
+                if not goal_prerequisites and not effects:
                     extra_history["no_footprint"] = True
 
             write_npc_goal_status(

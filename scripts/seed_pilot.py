@@ -26,7 +26,7 @@ from sqlmodel import Session, select  # noqa: E402
 from world_engine import models as m  # noqa: E402
 from world_engine.db import engine  # noqa: E402
 from world_engine.prompt_store import list_versions  # noqa: E402
-from world_engine.writes import write_location_subculture, write_membership, write_npc_prices, write_prompt_version  # noqa: E402
+from world_engine.writes import write_location_subculture, write_membership, write_npc_prices, write_prompt_variables, write_prompt_version  # noqa: E402
 
 WORLD_ID = "verkhaal"
 
@@ -135,13 +135,20 @@ def upsert_prompt_template(
     present with ZERO versions is only reachable mid-bootstrap on a
     pre-migration DB — abort with a clear message rather than guessing.
 
-    Non-text head fields (name, variables, destination, notes, is_active)
-    keep the pre-existing converge-on-diff behavior, unchanged.
+    Non-text head fields (name, destination, notes, is_active) keep the
+    pre-existing converge-on-diff behavior, unchanged. `variables`
+    (TICKET-0025, BRIEF-0025-c: relationalized) is synced to
+    `prompt_variable` rows via `write_prompt_variables`, always full-replace
+    (idempotent — a second run with unchanged variables writes the same
+    rows again, not reflected in the changed-tracking below since that
+    tracks the head row only).
     """
+    variables = head_fields.pop("variables", None)
     obj = session.get(m.PromptTemplate, id)
     if obj is None:
         obj = m.PromptTemplate(id=id, **head_fields)
         session.add(obj)
+        write_prompt_variables(session, template_id=obj.id, variables=variables)
         write_prompt_version(
             session,
             template_id=obj.id,
@@ -157,6 +164,8 @@ def upsert_prompt_template(
             f"prompt_template {id!r} exists with zero prompt_version rows — "
             "run scripts/migrate_v1_68_prompt_version.py before re-seeding."
         )
+
+    write_prompt_variables(session, template_id=obj.id, variables=variables)
 
     changed = False
     for key, value in head_fields.items():
