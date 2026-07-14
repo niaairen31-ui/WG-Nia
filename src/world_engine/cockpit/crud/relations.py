@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -79,52 +79,16 @@ from ...writes import (
 )
 
 from ._router import router
-
-
-RELATION_TYPES = (
-    "ally", "enemy", "debt", "fear", "fascination", "shared_secret",
-    "instrumentalizes", "interest", "indifference", "rejection",
-    "passive_attention", "other", "connects_to", "controls",
+from ._shared import (
+    RELATION_DIRECTIONS,
+    RELATION_FIELDS,
+    RELATION_TYPES,
+    _get_entity,
+    _iso,
+    _list_relations,
+    _relation_dict,
+    _world_id,
 )
-
-
-RELATION_DIRECTIONS = ("mutual", "a_to_b", "b_to_a")
-
-
-RELATION_FIELDS: list[dict[str, Any]] = [
-    {"name": "type", "label": "Type", "kind": "datalist", "options": list(RELATION_TYPES), "required": True},
-    {"name": "intensity", "label": "Intensity (1-100)", "kind": "number", "min": 1, "max": 100, "default": 50},
-    {"name": "direction", "label": "Direction", "kind": "select", "options": list(RELATION_DIRECTIONS), "default": "mutual"},
-    {"name": "visible_to_b", "label": "Visible to B", "kind": "bool", "default": True},
-    {"name": "notes", "label": "Notes", "kind": "textarea"},
-]
-
-
-def _relation_dict(rel: Relation, perspective_id: str, db: DbSession) -> dict:
-    other_id = rel.entity_b_id if rel.entity_a_id == perspective_id else rel.entity_a_id
-    other = db.get(Entity, other_id)
-    return {
-        "id": rel.id,
-        "role": "a" if rel.entity_a_id == perspective_id else "b",
-        "other_entity_id": other_id,
-        "other_entity_name": other.name if other else other_id,
-        "other_entity_type": other.type if other else None,
-        "type": rel.type,
-        "direction": rel.direction,
-        "intensity": rel.intensity,
-        "visible_to_b": rel.visible_to_b,
-        "notes": rel.notes,
-        "last_evolved_at": _iso(rel.last_evolved_at),
-    }
-
-
-def _list_relations(entity_id: str, db: DbSession) -> list[dict]:
-    rels = db.exec(
-        select(Relation).where(
-            (Relation.entity_a_id == entity_id) | (Relation.entity_b_id == entity_id)
-        )
-    ).all()
-    return [_relation_dict(r, entity_id, db) for r in rels]
 
 
 class RelationWriteBody(BaseModel):

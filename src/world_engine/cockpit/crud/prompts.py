@@ -80,6 +80,7 @@ from ...writes import (
 )
 
 from ._router import router
+from ._shared import _world_id
 
 
 def _effective_prompt_row(

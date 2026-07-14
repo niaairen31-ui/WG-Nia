@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0027-code-standards-seeding-and-remediation",
-  "when": "2026-07-14T19:00:43.279086+00:00",
+  "when": "2026-07-14T20:02:56.534389+00:00",
   "green": true,
   "checks": [
     {
@@ -27,6 +27,11 @@
       "check": "single_canon_write.py",
       "status": "PASS",
       "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "undefined_names.py",
+      "status": "PASS",
+      "msg": "PASS: undefined_names \u2014 pyflakes reports zero undefined names under src/"
     }
   ]
 }

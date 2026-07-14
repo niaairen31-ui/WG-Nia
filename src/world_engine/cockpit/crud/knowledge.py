@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -80,51 +80,14 @@ from ...writes import (
 )
 
 from ._router import router
-
-
-KNOWLEDGE_LEVELS_ORDERED = (
-    "unaware", "rumor", "suspicious", "partial", "knows", "fully_understands",
+from ._shared import (
+    KNOWLEDGE_FIELDS,
+    KNOWLEDGE_LEVELS_ORDERED,
+    _get_entity,
+    _iso,
+    _knowledge_dict,
+    _list_knowledge,
 )
-
-
-KNOWLEDGE_FIELDS: list[dict[str, Any]] = [
-    {"name": "subject", "label": "Subject", "kind": "text", "required": True},
-    {
-        "name": "level", "label": "Level", "kind": "select",
-        "options": list(KNOWLEDGE_LEVELS_ORDERED), "default": "rumor", "required": True,
-    },
-    {"name": "content", "label": "Content", "kind": "textarea"},
-    {"name": "source", "label": "Source", "kind": "text"},
-    {"name": "is_incorrect", "label": "Incorrect", "kind": "bool", "default": False},
-    {"name": "is_secret", "label": "Secret", "kind": "bool", "default": False},
-    {"name": "share_threshold", "label": "Share threshold (1-100)", "kind": "number", "min": 1, "max": 100, "default": 50},
-]
-
-
-def _knowledge_dict(k: Knowledge) -> dict:
-    return {
-        "id": k.id,
-        "entity_id": k.entity_id,
-        "subject": k.subject,
-        "level": k.level,
-        "content": k.content,
-        "source": k.source,
-        "is_incorrect": k.is_incorrect,
-        "is_secret": k.is_secret,
-        "share_threshold": k.share_threshold,
-        "session_id": k.session_id,
-        "acquired_at": _iso(k.acquired_at),
-        "updated_at": _iso(k.updated_at),
-    }
-
-
-def _list_knowledge(entity_id: str, db: DbSession) -> list[dict]:
-    rows = db.exec(
-        select(Knowledge)
-        .where(Knowledge.entity_id == entity_id)
-        .order_by(Knowledge.acquired_at)
-    ).all()
-    return [_knowledge_dict(k) for k in rows]
 
 
 class KnowledgeWriteBody(BaseModel):
