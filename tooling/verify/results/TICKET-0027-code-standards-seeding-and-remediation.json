@@ -1,0 +1,32 @@
+{
+  "ticket": "TICKET-0027-code-standards-seeding-and-remediation",
+  "when": "2026-07-13T23:55:29.028302+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u2014 every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values"
+    },
+    {
+      "check": "llm_parse_chokepoint.py",
+      "status": "PASS",
+      "msg": "PASS: llm_parse_chokepoint \u2014 every json.loads site is the chokepoint, a named permanent site, or within its transition allowance"
+    },
+    {
+      "check": "no_print_in_src.py",
+      "status": "PASS",
+      "msg": "PASS: no_print_in_src \u2014 every print() site under src/world_engine/ is within its transition allowance"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    }
+  ]
+}

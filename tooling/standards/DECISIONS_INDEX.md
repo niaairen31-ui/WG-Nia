@@ -88,3 +88,5 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 5991 | SUBCULTURE HIDDEN SLICE — structural exclusion (BRIEF-0025-b, schema v1.78) | BRIEF-0025-b | v1.78 |
 | 6010 | TICKET-0025 — UI-VISIBLE DATA IS NEVER STORED IN JSON (BRIEF-0025-a, BRIEF-0025-b, BRIEF-0025-c, schema v1.79) | BRIEF-0025-a, BRIEF-0025-b, BRIEF-0025-c | v1.79 |
 | 6092 | MIGRATION VALIDATOR CORRECTION — subculture shape (BRIEF-0025-d, no schema change) | BRIEF-0025-d |  |
+| 6126 | CODE STANDARDS v1 SEEDING (BRIEF-0027-a, no schema change) | BRIEF-0027-a |  |
+| 6203 | SAY/_STREAM DECOMPOSITION — record/replay proof + module split (BRIEF-0027-b, no schema change) | BRIEF-0027-b |  |

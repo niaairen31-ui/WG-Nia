@@ -119,11 +119,13 @@ and `world-engine-schema-changelog.md` — never here.
 - Legacy two-digit BRIEF-NN identifiers are a closed, grandfathered
   namespace: never reused, never renumbered.
 - New decision records in `tooling/standards/ARCHITECTURE_DECISIONS.md` use
-  the header form:
+  the header form
   `## TITLE (BRIEF-NNNN[-x][, ...], schema vX.YY | no schema change)` —
-  enforced by `tooling/verify/checks/decisions_index.py` against the
-  baseline.
+  enforced by `tooling/verify/checks/decisions_index.py` against baseline.
 - `tooling/standards/DECISIONS_INDEX.md` is generated; never edit by hand.
+  Generated files are never hand-resolved in a merge conflict: regenerate
+  (`python tooling/glue/gen_decisions_index.py`) and stage the result. A
+  conflict outside a branch's diagnosed set is an escalation, not an improvisation.
 
 ## Invariants (verified at every review)
 
@@ -400,7 +402,8 @@ WG-Nia/
 │   ├── entity_author.py     # AI authoring assistant (entities, PC, skill catalogue, agendas, events)
 │   ├── region_author.py     # region generation orchestrator (proposes names, no canon)
 │   └── cockpit/             # creator web UI (FastAPI + HTMX, port 8000, loopback)
-│       ├── app.py           # play endpoints; _apply_mutation; _stream; region commit
+│       ├── app.py           # play endpoints; _apply_mutation; region commit; say() orchestrator
+│       ├── play*.py         # say() decomposition: routing, physical branch, narration/initiative
 │       ├── crud.py          # creator CRUD routes; prompts read + model write
 │       ├── index.html       # single-page UI; CREATION_TABS registry + dispatcher
 │       └── vendor/          # vendored JS deps (cytoscape-*.min.js); one whitelisted GET route
@@ -453,8 +456,7 @@ WG-Nia/
 
 ### How to run / test
 
-- **Install:** `python -m venv .venv`, activate,
-  `pip install -r requirements.txt`.
+- **Install:** `python -m venv .venv`, activate, `pip install -r requirements.txt`.
 - **Database URL:** from `WORLD_ENGINE_DATABASE_URL` (defaults to
   `~/.world_engine/world_engine.db`, outside the git working tree).
   Switching to PostgreSQL/Supabase changes only this variable, never code.
@@ -490,10 +492,8 @@ WG-Nia/
   **Voyager** (`POST /api/travel`) moves the player cleanly: window
   analysis on, then close of, the open conversation and gathering
   membership, then `current_location_id` update.
-- **Pipeline cockpit:** `python scripts/pipeline_cockpit.py` -> port 8100.
-  Deposit flow dormant; artifacts are deposited manually.
-- **Verify:** `python tooling/verify/run.py` (or `/verify`) runs every
-  check under `tooling/verify/checks/`.
+- **Pipeline cockpit:** `python scripts/pipeline_cockpit.py` -> port 8100. Deposit flow dormant; artifacts are deposited manually.
+- **Verify:** `python tooling/verify/run.py` (or `/verify`) runs every check under `tooling/verify/checks/`.
 
 ---
 
