@@ -2,6 +2,11 @@
 `source_type='tick'` (M1, TICKET-0024, BRIEF-0024-c) — both legs of a
 `ledger_transfer` effect, inside `_apply_completion_effects`.
 
+Retargeted (TICKET-0027, BRIEF-0027-c amendment, "check-anchor
+relocation"): `_apply_completion_effects` moved as-is (same name) from
+`app.py` to `cockpit/mutations.py`. Assertions unchanged. Only the file
+anchor moved.
+
 No DB, stdlib `ast` only.
 """
 import ast
@@ -9,7 +14,7 @@ import pathlib
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-APP = ROOT / "src" / "world_engine" / "cockpit" / "app.py"
+TARGET = ROOT / "src" / "world_engine" / "cockpit" / "mutations.py"
 
 
 def fail(msg):
@@ -18,9 +23,9 @@ def fail(msg):
 
 
 def main():
-    if not APP.exists():
-        fail(f"{APP} not found")
-    tree = ast.parse(APP.read_text(encoding="utf-8"), filename=str(APP))
+    if not TARGET.exists():
+        fail(f"{TARGET} not found")
+    tree = ast.parse(TARGET.read_text(encoding="utf-8"), filename=str(TARGET))
 
     func = None
     for node in ast.walk(tree):
@@ -28,7 +33,7 @@ def main():
             func = node
             break
     if func is None:
-        fail("_apply_completion_effects not found in app.py")
+        fail("_apply_completion_effects not found in mutations.py")
 
     ledger_calls = [
         n for n in ast.walk(func)
@@ -44,7 +49,7 @@ def main():
         ):
             fail(f"write_ledger_entry call at line {call.lineno} does not pass source_type='tick'")
 
-    if "insufficient balance" not in APP.read_text(encoding="utf-8"):
+    if "insufficient balance" not in TARGET.read_text(encoding="utf-8"):
         fail("no balance guard reject message found")
 
     print("PASS: both ledger_transfer legs carry source_type='tick' (M1)")

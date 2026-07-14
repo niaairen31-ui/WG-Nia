@@ -4,7 +4,6 @@
 // TICKET-0027 stage g (code_standards.md section 4), after which
 // function_length.py runs with no exemptions.
 [
-  {"file": "src/world_engine/cockpit/app.py", "qualname": "_apply_mutation", "lines": 682},
   {"file": "src/world_engine/tick.py", "qualname": "run_world_tick", "lines": 421},
   {"file": "src/world_engine/tick.py", "qualname": "_normalize_scope_event", "lines": 292},
   {"file": "src/world_engine/cockpit/app.py", "qualname": "commit_region", "lines": 271},
@@ -18,7 +17,7 @@
   {"file": "src/world_engine/context.py", "qualname": "assemble_mj_context", "lines": 161},
   {"file": "src/world_engine/region_author.py", "qualname": "generate_region_draft", "lines": 157},
   {"file": "src/world_engine/analyzer.py", "qualname": "analyze_window", "lines": 154},
-  {"file": "src/world_engine/cockpit/app.py", "qualname": "_apply_completion_effects", "lines": 150},
+  {"file": "src/world_engine/cockpit/mutations.py", "qualname": "_apply_completion_effects", "lines": 150},
   {"file": "src/world_engine/writes.py", "qualname": "write_faction_role", "lines": 144},
   {"file": "src/world_engine/entity_author.py", "qualname": "generate_entity_draft", "lines": 120},
   {"file": "src/world_engine/entity_author.py", "qualname": "generate_event_draft", "lines": 119},

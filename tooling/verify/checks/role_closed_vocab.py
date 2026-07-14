@@ -5,13 +5,21 @@ L2 declare-and-occupy path, never a direct write (TICKET-0024,
 BRIEF-0024-d — corrective, resolution moved from `faction.role_capacities`
 to the relational `faction_role` table).
 
-No DB, plain text scan of `app.py`.
+Retargeted (TICKET-0027, BRIEF-0027-c amendment, "check-anchor
+relocation"): `_apply_completion_effects` (which holds the `role_change`
+effect logic this check scans) moved as-is from `app.py` to
+`cockpit/mutations.py`. Same class of anchor as the four checks the
+amendment named explicitly — this one tests the same relocated function's
+role_change branch, so the amendment's rules apply here too: assertions
+preserved verbatim, only the file anchor moves.
+
+No DB, plain text scan of `mutations.py`.
 """
 import pathlib
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-APP = ROOT / "src" / "world_engine" / "cockpit" / "app.py"
+TARGET = ROOT / "src" / "world_engine" / "cockpit" / "mutations.py"
 
 
 def fail(msg):
@@ -20,9 +28,9 @@ def fail(msg):
 
 
 def main():
-    if not APP.exists():
-        fail(f"{APP} not found")
-    src = APP.read_text(encoding="utf-8")
+    if not TARGET.exists():
+        fail(f"{TARGET} not found")
+    src = TARGET.read_text(encoding="utf-8")
 
     if "r.name.casefold() == role_key.casefold()" not in src:
         fail("role resolution is not case-insensitive against faction_role rows")

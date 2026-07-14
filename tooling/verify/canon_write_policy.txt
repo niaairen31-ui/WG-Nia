@@ -28,7 +28,14 @@ src/world_engine/writes.py::write_agenda_status                agenda
 src/world_engine/writes.py::write_goal_agenda_link             goal_agenda_link
 src/world_engine/writes.py::detach_goal_agenda_link            goal_agenda_link
 src/world_engine/writes.py::delete_world_cascade               *
-src/world_engine/cockpit/app.py::_apply_mutation               entity item discoverable_detail
+# _apply_mutation relocated (TICKET-0027, BRIEF-0027-c): the dispatcher in
+# app.py now only dispatches; its direct (non-writes.py) canon writes moved
+# to per-type appliers in mutations.py. Three sites replace the one former
+# _apply_mutation entry — same relocated path, still the same count of
+# sanctioned canon-write paths, not a broadening.
+src/world_engine/cockpit/mutations.py::_mutation_apply_status_change    entity
+src/world_engine/cockpit/mutations.py::_mutation_apply_item_update      item
+src/world_engine/cockpit/mutations.py::_mutation_apply_new_knowledge    discoverable_detail
 src/world_engine/cockpit/app.py::activate_world                world
 src/world_engine/cockpit/app.py::create_world                  world
 src/world_engine/cockpit/app.py::_activate_world_core          world

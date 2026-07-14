@@ -36,10 +36,13 @@ overhearing.
 Rule 7 (interval-scaled radius, BRIEF-0015-a): `tick.py` defines
 `INTERVAL_HOP_RADIUS` with EXACTLY the three verbatim interval-label keys,
 and `_reachable_locations` references that identifier.
-Rule 8 (single canon-write for movement, BRIEF-0015-a): `_apply_mutation` in
-`cockpit/app.py` never assigns `current_location_id` directly — the write
-must route through `write_character_location` — and its function body
-references both `write_character_location` and `close_open_memberships`.
+Rule 8 (single canon-write for movement, BRIEF-0015-a; retargeted
+TICKET-0027/BRIEF-0027-c amendment): `_mutation_apply_npc_move` in
+`cockpit/mutations.py` (formerly the `npc_move` branch of `_apply_mutation`
+in `cockpit/app.py`) never assigns `current_location_id` directly — the
+write must route through `write_character_location` — and its function
+body references both `write_character_location` and
+`close_open_memberships`.
 
 Rule 9 (closed per-NPC contract stays closed, TICKET-0017/BRIEF-0017-a): the
 string `"event_creation"` is never a value in `_TICK_MUTATION_TYPES` or
@@ -120,6 +123,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
 TICK_FILE = SRC / "world_engine" / "tick.py"
 APP_FILE = SRC / "world_engine" / "cockpit" / "app.py"
+MUTATIONS_FILE = SRC / "world_engine" / "cockpit" / "mutations.py"
 ANALYZER_FILE = SRC / "world_engine" / "analyzer.py"
 MODELS_FILE = SRC / "world_engine" / "models.py"
 CRUD_FILE = SRC / "world_engine" / "cockpit" / "crud.py"
@@ -390,17 +394,22 @@ def check_interval_hop_radius() -> None:
 
 
 def check_apply_mutation_location_write() -> None:
-    if not APP_FILE.exists():
-        fail(f"{APP_FILE} not found")
+    """Retargeted (TICKET-0027, BRIEF-0027-c amendment, "check-anchor
+    relocation"): the npc_move write logic now lives in
+    `_mutation_apply_npc_move` in `cockpit/mutations.py` (formerly the
+    `npc_move` branch of `_apply_mutation` in `app.py`). Assertions
+    unchanged. Only the location anchors moved."""
+    if not MUTATIONS_FILE.exists():
+        fail(f"{MUTATIONS_FILE} not found")
         return
-    tree = _parse(APP_FILE)
+    tree = _parse(MUTATIONS_FILE)
     if tree is None:
         return
-    rel = APP_FILE.relative_to(ROOT).as_posix()
+    rel = MUTATIONS_FILE.relative_to(ROOT).as_posix()
 
-    func = _find_function(tree, "_apply_mutation")
+    func = _find_function(tree, "_mutation_apply_npc_move")
     if func is None:
-        fail(f"{rel}: _apply_mutation not found")
+        fail(f"{rel}: _mutation_apply_npc_move not found")
         return
 
     for node in ast.walk(func):
@@ -409,7 +418,7 @@ def check_apply_mutation_location_write() -> None:
         ):
             fail(
                 f"{rel}:{node.lineno} — direct current_location_id assignment in "
-                "_apply_mutation; must route through write_character_location"
+                "_mutation_apply_npc_move; must route through write_character_location"
             )
 
     calls = {
@@ -418,9 +427,9 @@ def check_apply_mutation_location_write() -> None:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
     if "write_character_location" not in calls:
-        fail(f"{rel}: _apply_mutation does not call write_character_location")
+        fail(f"{rel}: _mutation_apply_npc_move does not call write_character_location")
     if "close_open_memberships" not in calls:
-        fail(f"{rel}: _apply_mutation does not call close_open_memberships")
+        fail(f"{rel}: _mutation_apply_npc_move does not call close_open_memberships")
 
 
 def check_scope_event_producer_isolation() -> None:
