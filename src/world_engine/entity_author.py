@@ -16,11 +16,11 @@ are not — adding one of those later is a config entry here, not new code.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from sqlmodel import Session, select
 
+from . import llm_parse
 from .context import _SAFE_SUBCULTURE_KEYS
 from .models import BASE_SKILL_DOMAINS, Entity, PromptTemplate, World
 from .ollama_client import OllamaError, chat
@@ -442,11 +442,10 @@ def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
         return {"ok": False, "error": str(exc)}
 
     try:
-        parsed = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
+        parsed = llm_parse.extract_object(raw)
+    except llm_parse.LlmParseError:
         return {"ok": False, "error": "Model returned non-JSON output"}
-
-    if not isinstance(parsed, dict) or not parsed:
+    if not parsed:
         return {"ok": False, "error": "Model returned an empty or malformed draft"}
 
     public_in = parsed.get("public")
@@ -565,11 +564,10 @@ def generate_world_draft(brief: str, db: Session) -> dict:
         return {"ok": False, "error": str(exc)}
 
     try:
-        parsed = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
+        parsed = llm_parse.extract_object(raw)
+    except llm_parse.LlmParseError:
         return {"ok": False, "error": "Model returned non-JSON output"}
-
-    if not isinstance(parsed, dict) or not parsed:
+    if not parsed:
         return {"ok": False, "error": "Model returned an empty or malformed draft"}
 
     public_in = parsed.get("public")
@@ -652,11 +650,10 @@ def generate_player_draft(brief: str, db: Session) -> dict:
         return {"ok": False, "error": str(exc)}
 
     try:
-        parsed = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
+        parsed = llm_parse.extract_object(raw)
+    except llm_parse.LlmParseError:
         return {"ok": False, "error": "Model returned non-JSON output"}
-
-    if not isinstance(parsed, dict) or not parsed:
+    if not parsed:
         return {"ok": False, "error": "Model returned an empty or malformed draft"}
 
     notes: list[str] = []
@@ -738,11 +735,10 @@ def generate_skill_catalogue_draft(brief: str, db: Session) -> dict:
         return {"ok": False, "error": str(exc)}
 
     try:
-        parsed = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
+        parsed = llm_parse.extract_object(raw)
+    except llm_parse.LlmParseError:
         return {"ok": False, "error": "Model returned non-JSON output"}
-
-    if not isinstance(parsed, dict) or not parsed:
+    if not parsed:
         return {"ok": False, "error": "Model returned an empty or malformed draft"}
 
     notes: list[str] = []
@@ -801,11 +797,10 @@ def generate_npc_goals(
         return {"ok": False, "error": str(exc)}
 
     try:
-        parsed = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
+        parsed = llm_parse.extract_object(raw)
+    except llm_parse.LlmParseError:
         return {"ok": False, "error": "Model returned non-JSON output"}
-
-    if not isinstance(parsed, dict) or not parsed:
+    if not parsed:
         return {"ok": False, "error": "Model returned an empty or malformed draft"}
 
     notes: list[str] = []
@@ -880,11 +875,10 @@ def generate_agenda_draft(
         return {"ok": False, "error": str(exc)}
 
     try:
-        parsed = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
+        parsed = llm_parse.extract_object(raw)
+    except llm_parse.LlmParseError:
         return {"ok": False, "error": "Model returned non-JSON output"}
-
-    if not isinstance(parsed, dict) or not parsed:
+    if not parsed:
         return {"ok": False, "error": "Model returned an empty or malformed draft"}
 
     notes: list[str] = []
@@ -992,11 +986,10 @@ def generate_event_draft(
         return {"ok": False, "error": str(exc)}
 
     try:
-        parsed = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
+        parsed = llm_parse.extract_object(raw)
+    except llm_parse.LlmParseError:
         return {"ok": False, "error": "Model returned non-JSON output"}
-
-    if not isinstance(parsed, dict) or not parsed:
+    if not parsed:
         return {"ok": False, "error": "Model returned an empty or malformed draft"}
 
     notes: list[str] = []

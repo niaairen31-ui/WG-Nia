@@ -19,14 +19,13 @@ shifting, a secret slipping — produces `proposed_mutation` rows.
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlmodel import Session, select
 
-from . import ollama_client
+from . import llm_parse, ollama_client
 from .analyzer import analyze_window
 from .models import Character, Conversation, Entity, Gathering, GatheringMember, PromptTemplate
 from .prompt_registry import effective_model
@@ -106,7 +105,7 @@ def _request_partition(
             format="json",
             options=GATHERING_OPTIONS,
         )
-        obj = json.loads(raw)
+        obj = llm_parse.extract_object(raw)
         groups = obj.get("groups")
         if not isinstance(groups, list) or not groups:
             return None

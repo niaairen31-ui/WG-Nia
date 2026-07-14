@@ -45,17 +45,11 @@ PERMANENT_ALLOW: dict[str, str] = {
         "Ollama streaming NDJSON transport envelope — transport-only per CLAUDE.md",
 }
 
-# Model-output parse sites TICKET-0027 stage e migrates onto llm_parse.py.
-# Counts may only shrink; entries are deleted as each site migrates.
-TRANSITION_ALLOW: dict[str, int] = {
-    "src/world_engine/analyzer.py": 2,
-    "src/world_engine/cockpit/play_physical.py": 2,
-    "src/world_engine/cockpit/play_stream.py": 3,
-    "src/world_engine/entity_author.py": 7,
-    "src/world_engine/gathering.py": 1,
-    "src/world_engine/region_author.py": 2,
-    "src/world_engine/tick.py": 2,
-}
+# Model-output parse sites TICKET-0027 stage e migrated onto llm_parse.py.
+# Emptied at stage e (BRIEF-0027-e): every site now goes through the
+# chokepoint. Left in place, empty, as the enforcement anchor described
+# in the module docstring above — a future transition reuses this shape.
+TRANSITION_ALLOW: dict[str, int] = {}
 
 FAILURES: list[str] = []
 

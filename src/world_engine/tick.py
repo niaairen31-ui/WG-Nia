@@ -18,18 +18,16 @@ locally rather than imported, so this module's AST stays self-contained and
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
 from sqlmodel import Session, select
 
-from . import ollama_client
+from . import llm_parse, ollama_client
 from .analyzer import (
     _MUTATION_TYPE_MAP,
     _content_to_subject_slug,
-    _extract_json_array,
     _GOAL_ACTION_MAP,
     load_analysis_prompt,
 )
@@ -1460,9 +1458,7 @@ def run_world_tick(
             raw = ollama_client.chat(
                 llm_messages, model=effective_model(template, model), host=host, format="json"
             )
-            items = json.loads(_extract_json_array(raw))
-            if not isinstance(items, list):
-                raise ValueError("model returned a non-list JSON value")
+            items = llm_parse.extract_array(raw)
         except Exception as exc:  # noqa: BLE001 — one NPC's failure must never abort the others (R3)
             npc_summaries.append(
                 {"id": npc_id, "name": npc_name, "proposed": 0, "dropped": 0, "notes": [f"model call failed: {exc}"]}
@@ -1680,9 +1676,7 @@ def run_world_tick(
                 host=host,
                 format="json",
             )
-            event_items = json.loads(_extract_json_array(raw_events))
-            if not isinstance(event_items, list):
-                raise ValueError("model returned a non-list JSON value")
+            event_items = llm_parse.extract_array(raw_events)
         except Exception as exc:  # noqa: BLE001 — degrade-don't-abort (R3), same as the per-NPC loop
             event_notes.append(f"scope event call failed: {exc}")
             event_items = []

@@ -12,7 +12,7 @@ from typing import Any, Iterator, Optional
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from .. import ollama_client
+from .. import llm_parse, ollama_client
 from ..analyzer import analyze_overhearing as _analyze_overhearing
 from ..analyzer import analyze_window as _analyze_window
 from ..context import assemble_npc_context, format_mj_context
@@ -189,11 +189,11 @@ def _say_initiative_generate(
             options=ollama_client.NPC_DIALOGUE_OPTIONS,
         )
         raw_act = ollama_client.strip_think(raw_act)
-        try:
-            act_obj = json.loads(raw_act)
+        act_obj = llm_parse.extract_object_or_none(raw_act)
+        if act_obj is not None:
             initiative_act_text = str(act_obj.get("act_text") or "").strip()
             initiative_move = bool(act_obj.get("move", False))
-        except (json.JSONDecodeError, ValueError):
+        else:
             # Salvage: model emitted prose instead of JSON.
             # Use raw text as act; migration must not fire on
             # degraded output — move stays False.
@@ -430,7 +430,7 @@ def _select_group_speaker(
                 model=model,
                 format="json",
             )
-            obj = json.loads(raw)
+            obj = llm_parse.extract_object(raw)
             name = str(obj.get("speaker", "")).strip().lower()
             for _gm, e in members:
                 if e.name.strip().lower() == name:
@@ -621,7 +621,7 @@ def _npc_initiative_vote(
             model=model,
             format="json",
         )
-        obj = json.loads(raw)
+        obj = llm_parse.extract_object(raw)
         if not obj.get("act"):
             return False, None
         npc_name = str(obj.get("npc", "")).strip().lower()

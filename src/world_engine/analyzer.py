@@ -32,7 +32,7 @@ from typing import Any
 
 from sqlmodel import Session, select
 
-from . import ollama_client
+from . import llm_parse, ollama_client
 from .models import (
     Character,
     Conversation,
@@ -156,9 +156,6 @@ _KNOWLEDGE_LEVEL_DOWNGRADE: dict[str, str] = {
     "unaware": "rumor",
 }
 
-# Strips markdown fences the model might emit despite instructions.
-_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
-
 # Strips non-word chars for subject slugs.
 _SLUG_NON_WORD = re.compile(r"[^\w]")
 
@@ -190,36 +187,6 @@ def load_analysis_prompt(
         if match is not None:
             return match
     return templates[0]
-
-
-def _extract_json_array(text: str) -> str:
-    """Pull a JSON value out of raw model output; always return a JSON array string.
-
-    Handles three shapes:
-    - An array [...] (returned as-is after stripping fences/prose).
-    - A single object {...} (wrapped into [...]).
-    - Anything else (returns "[]").
-    """
-    fence = _FENCE_RE.search(text)
-    if fence:
-        text = fence.group(1)
-
-    bracket_start = text.find("[")
-    brace_start = text.find("{")
-
-    # Prefer array when both are present.
-    if bracket_start != -1 and (brace_start == -1 or bracket_start <= brace_start):
-        end = text.rfind("]")
-        if end != -1 and end >= bracket_start:
-            return text[bracket_start : end + 1]
-
-    # Fall back to single object, wrap it.
-    if brace_start != -1:
-        end = text.rfind("}")
-        if end != -1 and end >= brace_start:
-            return "[" + text[brace_start : end + 1] + "]"
-
-    return "[]"
 
 
 def _content_to_subject_slug(content: str) -> str:
@@ -527,12 +494,8 @@ def analyze_overhearing(
     raw = ollama_client.chat(
         llm_messages, model=effective_model(template, model), host=host, format="json"
     )
-    json_str = _extract_json_array(raw)
-    try:
-        items = json.loads(json_str)
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(items, list):
+    items = llm_parse.extract_array_or_none(raw)
+    if items is None:
         return []
 
     # e. Normalization — exact closed-list match only, no fuzzy matching.
@@ -809,16 +772,11 @@ def analyze_window(
     )
     print(" " * 40, end="\r")
 
-    json_str = _extract_json_array(raw)
     try:
-        items = json.loads(json_str)
-    except json.JSONDecodeError as exc:
+        items = llm_parse.extract_array(raw)
+    except llm_parse.LlmParseError as exc:
         print(f"[warn] Model output is not valid JSON ({exc}).")
         print(f"       Raw snippet: {raw[:400]!r}")
-        return []
-
-    if not isinstance(items, list):
-        print("[warn] Model returned a non-list JSON value — treating as empty.")
         return []
 
     # Existing 'proposed' rows for this conversation — write-time dedup so a
