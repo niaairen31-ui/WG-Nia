@@ -1,25 +1,25 @@
-"""The `say`/`_stream` play path (BRIEF-0027-b): mode interpretation, NPC
-selection/run, mutation-proposal assembly, narration streaming.
+"""The `say`/`_stream` play path (BRIEF-0027-b/-d): mode interpretation, NPC
+selection/run, mutation-proposal assembly, narration streaming. `say` is a
+thin orchestrator in `cockpit/routes/play.py`, calling into this module's
+two entry points.
 
-Extracted from `cockpit/app.py` verbatim (pure moves, mechanical parameter
-passing only — no logic change, no altered SSE event names/shapes, no
-prompt change). `say` itself stays in app.py as a thin orchestrator; every
-helper it calls beyond turn setup and stream construction lives here,
-prefixed `_say_*` along the original code's existing phase seams.
-
-Every non-`_say_*` name used below (`_get_scene_state`, `_interpret_mode`,
-`ResponseMode`, etc.) is a pre-existing helper that stays in app.py per R7
-(reuse, never duplicate) — reached through the `_app` module reference to
-avoid a circular import (app.py imports this module's two entry points
-lazily, inside `say()`, once app.py itself has finished loading).
+Helpers formerly concentrated in `cockpit/app.py` were redistributed at
+BRIEF-0027-d by which module already depended on them: some stayed here,
+some moved to `play_physical.py`/`play_stream.py`. Cross-file references
+use lazy (function-body) imports — `play_physical`/`play_stream` import
+`from .play import ...` at THEIR module top, so this module must never
+import them at its own module top (circular-import discipline).
 """
 
 from __future__ import annotations
 
+import enum
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Iterator, Optional
 
+from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from .. import ollama_client
@@ -31,18 +31,18 @@ from ..context import (
 )
 from ..db import engine
 from ..models import (
+    Character,
     Conversation,
     ConversationMessage,
-    DiscoverableDetail,
     Entity,
     Gathering,
     GatheringMember,
-    Skill,
-    SkillDefinition,
+    PromptTemplate,
+    ProposedMutation,
+    Relation,
+    Session as GameSession,
 )
 from ..prompt_store import current_prompt
-from ..resolution import resolve_physical
-from . import app as _app
 
 
 @dataclass
@@ -196,8 +196,11 @@ def _say_load_prompts(world_id: str, db: Session) -> tuple[str, str, str, str]:
     """Load MJ narration + interpret templates (both raise HTTP 503 if
     missing — before the stream opens). Returns (mj_user_template,
     mj_system_prompt, interpret_system, interpret_user_tpl)."""
-    mj_template = _app._load_mj_narration_template(world_id, db)
-    interpret_template = _app._load_mj_interpret_template(world_id, db)
+    from . import play_physical as _play_physical
+    from . import play_stream as _play_stream
+
+    mj_template = _play_stream._load_mj_narration_template(world_id, db)
+    interpret_template = _play_physical._load_mj_interpret_template(world_id, db)
     mj_version = current_prompt(db, mj_template)
     interpret_version = current_prompt(db, interpret_template)
     return (
@@ -214,7 +217,7 @@ def _say_prepare_turn(conv: Conversation, conv_id: str, body: Any, content: str,
     # Exemption, by construction (BRIEF-0008-a): NOT wired through
     # effective_model. This value was already resolved once, at conversation
     # start (see the `model = effective_model(behaviour, ...)` sites in
-    # app.py). Re-wiring it here would silently encode a `template.model` vs
+    # routes/play.py). Re-wiring it here would silently encode a `template.model` vs
     # `injected_context["model"]` precedence for every downstream call in
     # this module and the pass-through helpers it calls
     # (`_interpret_mode`, `_arbitrate`, `_npc_initiative_vote`,
@@ -253,7 +256,7 @@ def _say_frozen_check(ctx: _TurnCtx, scene_state: dict) -> None:
     if not scene_state.get("frozen"):
         return
     lines = [
-        f"data: {json.dumps(_app._FROZEN_MJ_MESSAGE)}\n\n",
+        f"data: {json.dumps(_FROZEN_MJ_MESSAGE)}\n\n",
         f"data: {json.dumps({'mode': 'frozen'})}\n\n",
         f"data: {json.dumps({'npc_raw': ''})}\n\n",
         "data: [DONE]\n\n",
@@ -264,7 +267,7 @@ def _say_frozen_check(ctx: _TurnCtx, scene_state: dict) -> None:
             turn_order=ctx.mj_turn,
             speaker="mj",
             speaker_id=None,
-            content=_app._FROZEN_MJ_MESSAGE,
+            content=_FROZEN_MJ_MESSAGE,
         ))
         persist_db.commit()
     raise _SayAbort(lines)
@@ -276,12 +279,14 @@ def _say_gathering_phase(conv: Conversation, db: Session) -> tuple[Optional[Gath
     Drives both join-priority and speaker selection below. A conversation
     with no location (shouldn't happen in the pilot) simply has no gatherings.
     """
+    from . import play_physical as _play_physical
+
     player_gathering: Optional[Gathering] = None
     open_gatherings: list[Gathering] = []
     if conv.location_id:
-        player_gathering = _app._player_gathering(conv.player_id, conv.location_id, conv.session_id, db)
-        open_gatherings = _app._open_gatherings(conv.location_id, conv.session_id, db)
-    gathering_status = _app._render_gathering_status(conv.player_id, player_gathering, open_gatherings, db)
+        player_gathering = _player_gathering(conv.player_id, conv.location_id, conv.session_id, db)
+        open_gatherings = _open_gatherings(conv.location_id, conv.session_id, db)
+    gathering_status = _play_physical._render_gathering_status(conv.player_id, player_gathering, open_gatherings, db)
     return player_gathering, open_gatherings, gathering_status
 
 
@@ -294,8 +299,10 @@ def _say_interpret_phase(
     NPC. Falls back to 'dialogue' on any failure — a misclassification
     must never break a turn.
     """
+    from . import play_physical as _play_physical
+
     item_list = format_item_list_for_interpretation(ctx.db, ctx.conv.player_id)
-    mode, reference, used_object = _app._interpret_mode(
+    mode, reference, used_object = _play_physical._interpret_mode(
         player_line=ctx.content,
         npc_name=ctx.npc_name,
         location_name=ctx.location_name,
@@ -308,8 +315,8 @@ def _say_interpret_phase(
     )
     # 'join' is only meaningful while ungrouped — a misclassification while
     # already in a gathering degrades to dialogue (never breaks a turn).
-    if mode == _app.ResponseMode.join and player_gathering is not None:
-        mode = _app.ResponseMode.dialogue
+    if mode == ResponseMode.join and player_gathering is not None:
+        mode = ResponseMode.dialogue
     return mode, reference, used_object
 
 
@@ -324,14 +331,14 @@ def _say_constraint_gating(mode: Any, ss_constraints: set) -> tuple[Any, bool, b
     """
     is_gagged_attempt = False   # True: re-routed dialogue via gagged
     is_escape_attempt = False   # True: re-routed movement via restrained
-    if "gagged" in ss_constraints and mode == _app.ResponseMode.dialogue:
-        mode = _app.ResponseMode.physical
+    if "gagged" in ss_constraints and mode == ResponseMode.dialogue:
+        mode = ResponseMode.physical
         is_gagged_attempt = True
     elif "restrained" in ss_constraints and mode in (
-        _app.ResponseMode.physical, _app.ResponseMode.scene, _app.ResponseMode.npc_reaction,
-        _app.ResponseMode.travel,
+        ResponseMode.physical, ResponseMode.scene, ResponseMode.npc_reaction,
+        ResponseMode.travel,
     ):
-        mode = _app.ResponseMode.physical
+        mode = ResponseMode.physical
         is_escape_attempt = True
     return mode, is_gagged_attempt, is_escape_attempt
 
@@ -350,15 +357,17 @@ def _say_possession_check(
     visible, so the turn proceeds as a normal dialogue turn with a
     one-shot [GESTE RATÉ] instruction telling the NPC what it just saw.
     """
+    from . import play_stream as _play_stream
+
     refusal_instruction: Optional[str] = None
-    if mode != _app.ResponseMode.join and not (is_gagged_attempt or is_escape_attempt) and used_object is not None:
+    if mode != ResponseMode.join and not (is_gagged_attempt or is_escape_attempt) and used_object is not None:
         if used_object == "unknown_object":
-            refusal_instruction = _app._build_refusal_instruction(None)
-        elif _app._find_player_item(ctx.db, ctx.conv.player_id, used_object) is None:
-            refusal_instruction = _app._build_refusal_instruction(used_object)
+            refusal_instruction = _play_stream._build_refusal_instruction(None)
+        elif _play_stream._find_player_item(ctx.db, ctx.conv.player_id, used_object) is None:
+            refusal_instruction = _play_stream._build_refusal_instruction(used_object)
 
     if refusal_instruction is not None:
-        mode = _app.ResponseMode.dialogue
+        mode = ResponseMode.dialogue
     return mode, refusal_instruction
 
 
@@ -371,19 +380,22 @@ def _say_join_branch(
     action, not dialogue — narrated in third person, no NPC call, and
     forms/anchors no canon mutation (see ARCHITECTURE_DECISIONS.md).
     """
-    resolved_id = _app._resolve_join_target(reference, open_gatherings, ctx.db)
+    from . import play_physical as _play_physical
+    from . import play_stream as _play_stream
+
+    resolved_id = _play_physical._resolve_join_target(reference, open_gatherings, ctx.db)
     if resolved_id is not None:
-        gathering = _app._join_gathering(ctx.conv, resolved_id, ctx.db)
+        gathering = _join_gathering(ctx.conv, resolved_id, ctx.db)
         extra_event = {"joined": {"gathering_id": gathering.id, "label": gathering.label}}
-        mj_user = _app._build_join_narration_user(
+        mj_user = _play_stream._build_join_narration_user(
             location_name=ctx.location_name, player_line=ctx.content,
             joined=True, gathering_label=gathering.label,
         )
     else:
         extra_event = {
-            "join_candidates": [_app._gathering_brief(g.id, ctx.db) for g in open_gatherings]
+            "join_candidates": [_gathering_brief(g.id, ctx.db) for g in open_gatherings]
         }
-        mj_user = _app._build_join_narration_user(
+        mj_user = _play_stream._build_join_narration_user(
             location_name=ctx.location_name, player_line=ctx.content,
             joined=False, gathering_label=None,
         )
@@ -395,8 +407,10 @@ def _say_travel_mj_user(
 ) -> str:
     """Shared `_build_mj_user` call for the three travel outcomes (no exit /
     resolved / ambiguous) — only `travel_instruction` differs between them."""
-    return _app._build_mj_user(
-        mode=_app.ResponseMode.travel,
+    from . import play_stream as _play_stream
+
+    return _play_stream._build_mj_user(
+        mode=ResponseMode.travel,
         mj_user_template=ctx.mj_user_template,
         npc_name=ctx.npc_name,
         location_name=ctx.location_name,
@@ -415,8 +429,8 @@ def _say_travel_branch(
     """Travel: intent -> direct-neighbour resolution -> picker fallback.
     (BRIEF-16) No NPC phase; restrained turns are intercepted before
     reaching here. Returns (mode, mj_user, extra_event, travel_dest_id)."""
-    mode = _app.ResponseMode.travel
-    neighbours = _app._location_neighbours(ctx.conv.location_id, ctx.db)
+    mode = ResponseMode.travel
+    neighbours = _location_neighbours(ctx.conv.location_id, ctx.db)
     mj_context_travel = (
         assemble_mj_context(
             ctx.db, ctx.conv.player_id, ctx.conv.location_id,
@@ -434,7 +448,7 @@ def _say_travel_branch(
         # No exits — downgrade to scene so the SSE mode reflects it;
         # the [SORTIE INTROUVABLE] instruction prevents the MJ from
         # inventing exits or moving the player.
-        mode = _app.ResponseMode.scene
+        mode = ResponseMode.scene
         mj_user = _say_travel_mj_user(ctx, mj_context_travel, inventory_line_travel, (
             "[SORTIE INTROUVABLE] Le joueur cherche à quitter le lieu "
             "mais aucune sortie évidente ne se présente. Narre sa "
@@ -442,7 +456,7 @@ def _say_travel_branch(
         ))
         return mode, mj_user, extra_event, travel_dest_id
 
-    dest_id = _app._resolve_travel_target(reference, neighbours)
+    dest_id = _resolve_travel_target(reference, neighbours)
     if dest_id is not None:
         dest_name = next(name for eid, name in neighbours if eid == dest_id)
         extra_event = {"traveled": {"location_id": dest_id, "name": dest_name}}
@@ -471,9 +485,12 @@ def _say_resolve_speaker(
 ) -> tuple[Any, Optional[str]]:
     """Speaker / target resolution (contract A3 hybrid). Returns (mode,
     responder_id) — mode may downgrade to 'scene' if nobody can answer."""
+    from . import play_physical as _play_physical
+    from . import play_stream as _play_stream
+
     db = ctx.db
     responder_id: Optional[str] = None
-    if mode not in (_app.ResponseMode.dialogue, _app.ResponseMode.npc_reaction):
+    if mode not in (ResponseMode.dialogue, ResponseMode.npc_reaction):
         return mode, responder_id
 
     target = ctx.body.target
@@ -481,12 +498,12 @@ def _say_resolve_speaker(
         responder_id = target
     elif target == "group" and player_gathering is not None:
         co_members = [
-            (gm, e) for gm, e in _app._active_members(player_gathering.id, db)
+            (gm, e) for gm, e in _active_members(player_gathering.id, db)
             if e.id != ctx.conv.player_id
         ]
         if co_members:
-            responder_id = _app._select_group_speaker(
-                template=_app._load_mj_speaker_template(ctx.world_id, db),
+            responder_id = _play_stream._select_group_speaker(
+                template=_play_physical._load_mj_speaker_template(ctx.world_id, db),
                 location_name=ctx.location_name,
                 gathering=player_gathering,
                 members=co_members,
@@ -500,18 +517,18 @@ def _say_resolve_speaker(
             # join, no seed NPC). Treat omitted target as "group"
             # so the MJ always picks a responder — the player joined
             # a gathering, not a 1:1.
-            responder_id = _app._select_group_speaker(
-                template=_app._load_mj_speaker_template(ctx.world_id, db),
+            responder_id = _play_stream._select_group_speaker(
+                template=_play_physical._load_mj_speaker_template(ctx.world_id, db),
                 location_name=ctx.location_name,
                 gathering=player_gathering,
                 members=[
-                    (gm, e) for gm, e in _app._active_members(player_gathering.id, db)
+                    (gm, e) for gm, e in _active_members(player_gathering.id, db)
                     if e.id != ctx.conv.player_id
                 ] if player_gathering else [],
                 player_line=ctx.content,
                 model=ctx.model,
                 db=db,
-            ) if player_gathering and _app._active_members(player_gathering.id, db) else None
+            ) if player_gathering and _active_members(player_gathering.id, db) else None
         else:
             responder_id = ctx.npc_id  # backward-compatible default (1:1)
 
@@ -519,7 +536,7 @@ def _say_resolve_speaker(
         # Addressed the group with nobody able to answer — narrate
         # the silence rather than inventing a respondent. Cadence
         # B1 still holds: zero is a valid responder count here.
-        mode = _app.ResponseMode.scene
+        mode = ResponseMode.scene
 
     return mode, responder_id
 
@@ -533,7 +550,7 @@ def _say_npc_generation(
     skip entirely; npc_reply stays "". Returns (npc_reply, responder_id,
     responder_name). Raises _SayAbort on an Ollama error."""
     db = ctx.db
-    if not (mode in (_app.ResponseMode.dialogue, _app.ResponseMode.npc_reaction) and responder_id):
+    if not (mode in (ResponseMode.dialogue, ResponseMode.npc_reaction) and responder_id):
         return "", responder_id, ctx.npc_name
 
     responder_entity = db.get(Entity, responder_id)
@@ -545,19 +562,19 @@ def _say_npc_generation(
     if responder_id == ctx.npc_id and ctx.conv.gathering_id is None:
         responder_system_prompt = ctx.system_prompt
     else:
-        responder_behaviour = _app._load_npc_dialogue_template(ctx.world_id, db)
+        responder_behaviour = _load_npc_dialogue_template(ctx.world_id, db)
         responder_behaviour_version = current_prompt(db, responder_behaviour)
         responder_context = assemble_npc_context(
             responder_id, ctx.conv.player_id, ctx.conv.location_id, db,
             gathering_id=ctx.conv.gathering_id,
             player_condition=ss_condition,
         )
-        responder_system_prompt = _app._npc_dialogue_system_prompt(
+        responder_system_prompt = _npc_dialogue_system_prompt(
             responder_behaviour_version.system_prompt, responder_context
         )
 
     npc_msg_list = [{"role": "system", "content": responder_system_prompt}, *ctx.npc_history]
-    if mode == _app.ResponseMode.npc_reaction:
+    if mode == ResponseMode.npc_reaction:
         # Append a one-shot instruction so the NPC produces a brief
         # wordless gesture rather than spoken dialogue.
         npc_msg_list[0] = {
@@ -569,7 +586,7 @@ def _say_npc_generation(
         # the NPC reacts to what it witnessed (BRIEF-08 / D2a.1).
         npc_msg_list[0] = {
             "role": "system",
-            "content": npc_msg_list[0]["content"] + "\n\n" + _app._GESTE_RATE_INSTRUCTION,
+            "content": npc_msg_list[0]["content"] + "\n\n" + _GESTE_RATE_INSTRUCTION,
         }
 
     npc_chunks: list[str] = []
@@ -629,7 +646,9 @@ def _say_dialogue_mj_user(
     # Inventory line (schema v1.18, BRIEF-06): read fresh every turn,
     # never cached or snapshotted alongside mj_context.
     inventory_line = format_inventory_line(ctx.db, ctx.conv.player_id)
-    return _app._build_mj_user(
+    from . import play_stream as _play_stream
+
+    return _play_stream._build_mj_user(
         mode=mode,
         mj_user_template=ctx.mj_user_template,
         npc_name=responder_name,
@@ -653,7 +672,7 @@ def _say_run_turn(ctx: _TurnCtx) -> Iterator[str]:
     from . import play_physical as _play_physical
     from . import play_stream as _play_stream
 
-    scene_state = _app._get_scene_state(ctx.conv)
+    scene_state = _play_physical._get_scene_state(ctx.conv)
     ss_constraints = set(scene_state.get("constraints", []))
     ss_condition = scene_state.get("condition", "unharmed")
     _say_frozen_check(ctx, scene_state)
@@ -666,13 +685,13 @@ def _say_run_turn(ctx: _TurnCtx) -> Iterator[str]:
     npc_reply, responder_id, responder_name = "", None, ctx.npc_name
     extra_event, travel_dest_id = None, None
 
-    if mode == _app.ResponseMode.join:
+    if mode == ResponseMode.join:
         mj_user, extra_event = _say_join_branch(ctx, reference, open_gatherings)
-    elif mode == _app.ResponseMode.travel:
+    elif mode == ResponseMode.travel:
         mode, mj_user, extra_event, travel_dest_id = _say_travel_branch(
             ctx, reference, player_gathering, ss_constraints, ss_condition,
         )
-    elif mode == _app.ResponseMode.physical:
+    elif mode == ResponseMode.physical:
         (mode, mj_user, npc_reply, responder_id, responder_name, ss_condition, ss_constraints
          ) = yield from _play_physical._say_physical_branch(
             ctx, is_gagged, is_escape, player_gathering, scene_state, ss_condition, ss_constraints,
@@ -701,3 +720,270 @@ def _say_build_stream(ctx: _TurnCtx) -> Iterator[str]:
         yield from _say_run_turn(ctx)
     except _SayAbort as abort:
         yield from abort.sse_lines
+
+
+def _get_or_open_session(world_id: str, db: Session) -> GameSession:
+    """Return the world's open session, creating one if none exists."""
+    existing = db.exec(
+        select(GameSession)
+        .where(GameSession.world_id == world_id, GameSession.status == "open")
+        .order_by(GameSession.number.desc())
+    ).first()
+    if existing is not None:
+        return existing
+    numbers = db.exec(
+        select(GameSession.number).where(GameSession.world_id == world_id)
+    ).all()
+    number = (max(numbers) if numbers else 0) + 1
+    sess = GameSession(
+        world_id=world_id,
+        number=number,
+        title="Live play session",
+        status="open",
+        started_at=datetime.now(UTC),
+    )
+    db.add(sess)
+    db.commit()
+    db.refresh(sess)
+    return sess
+
+
+def _load_npc_dialogue_template(world_id: str, db: Session) -> PromptTemplate:
+    """Return the active npc_dialogue prompt template (world-specific preferred)."""
+    templates = db.exec(
+        select(PromptTemplate).where(
+            PromptTemplate.usage == "npc_dialogue",
+            PromptTemplate.is_active == True,  # noqa: E712
+        )
+    ).all()
+    if not templates:
+        raise HTTPException(
+            status_code=503,
+            detail="No active 'npc_dialogue' prompt template found. Run seed_pilot.py.",
+        )
+    for prefer in (lambda t: t.world_id == world_id, lambda t: t.world_id is None):
+        match = next((t for t in templates if prefer(t)), None)
+        if match is not None:
+            return match
+    return templates[0]
+
+
+def _npc_dialogue_system_prompt(system_prompt: str, context: str) -> str:
+    """The exact system-prompt concatenation every live npc_dialogue path
+    uses (BRIEF-0008-b, fidelity rule) — extracted so the read-only preview
+    endpoint reuses this construction verbatim instead of duplicating it.
+
+    Takes the already-resolved version text (TICKET-0011, G1) — every call
+    site fetches its version via `current_prompt` next to the head load,
+    never inside this helper."""
+    return f"{system_prompt}\n\n{context}"
+
+
+def _open_gatherings(location_id: str, session_id: str, db: Session) -> list[Gathering]:
+    return list(db.exec(
+        select(Gathering).where(
+            Gathering.location_id == location_id,
+            Gathering.session_id == session_id,
+            Gathering.status == "open",
+        )
+    ).all())
+
+
+def _active_members(gathering_id: str, db: Session) -> list[tuple[GatheringMember, Entity]]:
+    """Return the active (left_at IS NULL) members of a gathering.
+
+    Single source of truth for gathering rosters (C2 preparation rule a).
+    All roster reads — initiative vote, speaker selection, context assembly —
+    must go through this function so that when C2 updates membership, every
+    consumer automatically sees the correct composition.
+
+    Unicité invariant (C2 preparation rule b): an entity must be an active
+    member of at most one open gathering at a time. Not yet enforced
+    mechanically (nothing migrates members before C2), but the invariant is
+    designated here for when C2 lifts the restriction.
+    """
+    return list(db.exec(
+        select(GatheringMember, Entity)
+        .join(Entity, Entity.id == GatheringMember.entity_id)
+        .join(Character, Character.id == Entity.id)
+        .where(
+            GatheringMember.gathering_id == gathering_id,
+            GatheringMember.left_at.is_(None),
+            Entity.status == "active",
+            Character.vital_status == "alive",
+        )
+    ).all())
+
+
+def _gathering_brief(gathering_id: str, db: Session) -> Optional[dict]:
+    """{id, label, members:[{id, name}]} for an open gathering, or None."""
+    gathering = db.get(Gathering, gathering_id)
+    if gathering is None:
+        return None
+    return {
+        "id": gathering.id,
+        "label": gathering.label,
+        "members": [{"id": e.id, "name": e.name} for _gm, e in _active_members(gathering_id, db)],
+    }
+
+
+def _player_gathering(player_id: str, location_id: str, session_id: str, db: Session) -> Optional[Gathering]:
+    """The open gathering at this location+session the player currently belongs to, if any."""
+    row = db.exec(
+        select(Gathering)
+        .join(GatheringMember, GatheringMember.gathering_id == Gathering.id)
+        .where(
+            Gathering.location_id == location_id,
+            Gathering.session_id == session_id,
+            Gathering.status == "open",
+            GatheringMember.entity_id == player_id,
+            GatheringMember.left_at.is_(None),
+        )
+    ).first()
+    return row
+
+
+def _location_neighbours(location_id: str, db: Session) -> list[tuple[str, str]]:
+    """Direct connects_to neighbours of a location: (entity_id, name) for each
+    ACTIVE location linked by a connects_to relation touching location_id.
+    A distinct job from GET /api/locations/graph (whole-world graph) — they
+    both read connects_to but are not refactored to share code (decision D1)."""
+    rels_a = db.exec(
+        select(Relation).where(
+            Relation.type == "connects_to",
+            Relation.entity_a_id == location_id,
+        )
+    ).all()
+    rels_b = db.exec(
+        select(Relation).where(
+            Relation.type == "connects_to",
+            Relation.entity_b_id == location_id,
+        )
+    ).all()
+    seen: set[str] = set()
+    result: list[tuple[str, str]] = []
+    for rel in [*rels_a, *rels_b]:
+        neighbour_id = rel.entity_b_id if rel.entity_a_id == location_id else rel.entity_a_id
+        if neighbour_id in seen:
+            continue
+        seen.add(neighbour_id)
+        neighbour = db.get(Entity, neighbour_id)
+        if neighbour is not None and neighbour.status == "active":
+            result.append((neighbour.id, neighbour.name))
+    return result
+
+
+def _resolve_travel_target(reference: str, neighbours: list[tuple[str, str]]) -> Optional[str]:
+    """Case-insensitive exact-ish match of the player's destination words
+    against neighbour names. Returns one entity_id or None. NEVER guesses,
+    NEVER nearest-match (contract A2) — an ambiguous or absent reference
+    returns None and the caller shows the picker."""
+    ref = (reference or "").strip().lower()
+    if not ref:
+        return None
+    candidates: set[str] = set()
+    for entity_id, name in neighbours:
+        if name.strip().lower() in ref or ref in name.strip().lower():
+            candidates.add(entity_id)
+    if len(candidates) == 1:
+        return next(iter(candidates))
+    return None
+
+
+def _join_gathering(conv: Conversation, gathering_id: str, db: Session) -> Gathering:
+    """Insert the player as an active member of `gathering_id` and anchor the
+    conversation to it. Idempotent — rejoining the same gathering is a no-op
+    on membership (the row already exists and stays open)."""
+    gathering = db.get(Gathering, gathering_id)
+    if gathering is None:
+        raise HTTPException(status_code=404, detail=f"Gathering {gathering_id!r} not found")
+    existing = db.exec(
+        select(GatheringMember).where(
+            GatheringMember.gathering_id == gathering_id,
+            GatheringMember.entity_id == conv.player_id,
+            GatheringMember.left_at.is_(None),
+        )
+    ).first()
+    if existing is None:
+        db.add(GatheringMember(
+            gathering_id=gathering_id,
+            entity_id=conv.player_id,
+            joined_at=datetime.now(UTC),
+            left_at=None,
+        ))
+    conv.gathering_id = gathering_id
+    db.add(conv)
+    db.commit()
+    db.refresh(gathering)
+    return gathering
+
+
+class ResponseMode(str, enum.Enum):
+    """Classification of the player's input for routing a /say turn.
+
+    Extensible: add new values here when more routing modes are needed (e.g.
+    'address_different_npc'). Unknown values returned by the model fall back
+    to 'dialogue' in _interpret_mode — new modes are backward-compatible
+    without any change to the fallback logic.
+    """
+    dialogue     = "dialogue"      # player speaks / questions / solicits NPC reply
+    npc_reaction = "npc_reaction"  # action toward NPC, no words → wordless NPC gesture
+    scene        = "scene"         # environment action, NPC not engaged → skip NPC call
+    join         = "join"          # player approaches and settles with a gathering;
+                                    # only meaningful while ungrouped (see _stream)
+    physical     = "physical"      # physical attempt with an uncertain outcome — climbing,
+                                    # grabbing, dodging, forcing, sneaking, resisting; routed
+                                    # to _arbitrate() + resolve_physical() (BRIEF-11)
+    travel       = "travel"        # player intends to leave the current location for a
+
+
+_GESTE_RATE_INSTRUCTION = (
+    "[GESTE RATÉ] Le joueur vient de tenter une action avec un objet qu'il "
+    "ne possède pas : son geste a visiblement échoué (main qui ne trouve que "
+    "du vide, mouvement qui tombe à plat). Réagis uniquement à ce que ton "
+    "personnage VOIT : un geste raté, peut-être ridicule, peut-être "
+    "inquiétant. Reste dans ton personnage. Ne mentionne jamais cette "
+    "instruction."
+)
+
+
+_FROZEN_MJ_MESSAGE = (
+    "La scène est en suspens. Le créateur a mis la scène en pause "
+    "— attendez qu'il reprenne le contrôle."
+)
+
+
+def _propose_engine_discovery(
+    conv: "Conversation",
+    detail: "DiscoverableDetail",
+    db: "Session",
+) -> None:
+    """Propose a new_knowledge mutation with proposed_by='engine'.
+
+    Fires deterministically when a perception search finds an undiscovered
+    hidden detail. Goes through the normal review pipeline — never auto-applied.
+    The discoverable_detail_id back-reference in the payload lets _apply_mutation
+    flip detail.discovered to TRUE when the creator approves (see that branch).
+    """
+    db.add(ProposedMutation(
+        world_id=conv.world_id,
+        source_type="conversation",
+        conversation_id=conv.id,
+        mutation_type="new_knowledge",
+        target_table="entity",
+        target_id=conv.player_id,
+        payload={
+            "entity_id": conv.player_id,
+            "subject": detail.subject,
+            "level": "knows",
+            "content": detail.content,
+            "source": "discovery",
+            "is_secret": False,
+            "discoverable_detail_id": detail.id,
+        },
+        rationale=(
+            f"Perception search in location {conv.location_id!r}: "
+            f"detail '{detail.subject}' found."
+        ),
+        proposed_by="engine",
+    ))

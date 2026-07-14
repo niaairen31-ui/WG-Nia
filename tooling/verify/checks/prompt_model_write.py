@@ -1,8 +1,9 @@
 """G1 check for TICKET-0009 (BRIEF-0009-a) — prompt_template.model write path.
 
-No live Ollama required: `ping` is monkeypatched at the `cockpit.crud` module
-level (crud.py does `from ..ollama_client import ping`, so the module-level
-name in crud.py — not ollama_client.py's — is the one call sites resolve).
+No live Ollama required: `ping` is monkeypatched at the `cockpit.crud.prompts`
+module level (`crud/prompts.py` does `from ...ollama_client import ping`, so
+the module-level name there — not ollama_client.py's — is the one call
+sites resolve).
 
 Uses a fresh temp-file SQLite DB (WORLD_ENGINE_DATABASE_URL set before any
 world_engine import) so this check never touches Nia's real DB.
@@ -14,7 +15,7 @@ world_engine import) so this check never touches Nia's real DB.
    (row unchanged); null save still 200 (no ping() call at all).
 3. GET /api/ollama/models: stub list -> 200 with exactly that list; stub
    raise -> 503, body is never an empty-list masquerade.
-4. Grep guard: every `.model` attribute reference in crud.py is one of the
+4. Grep guard: every `.model` attribute reference in crud/prompts.py is one of the
    two pre-existing display reads, the new write, or the new body-field
    read — no second dispatch resolver.
 5. scripts/seed_pilot.py sets no `model=` on any prompt_template row
@@ -31,7 +32,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
 SEED = ROOT / "scripts" / "seed_pilot.py"
-CRUD_FILE = SRC / "world_engine" / "cockpit" / "crud.py"
+CRUD_FILE = SRC / "world_engine" / "cockpit" / "crud" / "prompts.py"
 
 FAILURES: list[str] = []
 
@@ -52,11 +53,11 @@ ALLOWED_MODEL_ATTR_LINES = {
 def check_no_second_resolver() -> None:
     crud_text = CRUD_FILE.read_text(encoding="utf-8")
     if "def effective_model(" in crud_text:
-        fail("crud.py defines its own effective_model — a second resolver, forbidden")
+        fail("crud/prompts.py defines its own effective_model — a second resolver, forbidden")
     for lineno, line in enumerate(crud_text.splitlines(), start=1):
         stripped = line.strip()
         if re.search(r"\.model\b", stripped) and stripped not in ALLOWED_MODEL_ATTR_LINES:
-            fail(f"crud.py:{lineno} unexpected `.model` reference outside the allowlist: {stripped!r}")
+            fail(f"crud/prompts.py:{lineno} unexpected `.model` reference outside the allowlist: {stripped!r}")
 
 
 def check_seed_model_free() -> None:
@@ -116,7 +117,7 @@ def check_write_path_and_list_route() -> None:
         fail("ping() was called for a null model save — V1 forbids this")
         raise OllamaError("should not be reached")
 
-    _crud.ping = _ping_forbidden
+    _crud.prompts.ping = _ping_forbidden
     resp = client.patch(f"/api/prompts/{row_id}/model", json={"model": None})
     if resp.status_code != 200:
         fail(f"PATCH null model: expected 200, got {resp.status_code}: {resp.text}")
@@ -131,7 +132,7 @@ def check_write_path_and_list_route() -> None:
         last_updated_at = refreshed.updated_at
 
     # valid model accepted (stubbed ping -> ["m1", "m2"])
-    _crud.ping = lambda *_a, **_k: ["m1", "m2"]
+    _crud.prompts.ping = lambda *_a, **_k: ["m1", "m2"]
     resp = client.patch(f"/api/prompts/{row_id}/model", json={"model": "m1"})
     if resp.status_code != 200:
         fail(f"PATCH valid model: expected 200, got {resp.status_code}: {resp.text}")
@@ -164,7 +165,7 @@ def check_write_path_and_list_route() -> None:
     def _ping_raises(*_a, **_k):
         raise OllamaError("Ollama is not reachable at http://fixture.")
 
-    _crud.ping = _ping_raises
+    _crud.prompts.ping = _ping_raises
     resp = client.patch(f"/api/prompts/{row_id}/model", json={"model": "m2"})
     if resp.status_code != 503:
         fail(f"PATCH with ping raising, non-null save: expected 503, got {resp.status_code}")
@@ -183,7 +184,7 @@ def check_write_path_and_list_route() -> None:
             fail("PATCH with ping raising, null save: row.model not cleared")
 
     # GET /api/ollama/models: stub list -> 200 with exactly that list
-    _crud.ping = lambda *_a, **_k: ["alpha", "beta"]
+    _crud.prompts.ping = lambda *_a, **_k: ["alpha", "beta"]
     resp = client.get("/api/ollama/models")
     if resp.status_code != 200:
         fail(f"GET /api/ollama/models: expected 200, got {resp.status_code}")
@@ -191,7 +192,7 @@ def check_write_path_and_list_route() -> None:
         fail(f"GET /api/ollama/models: expected exact stub list, got {resp.json()}")
 
     # GET /api/ollama/models: stub raise -> 503, never an empty-list masquerade
-    _crud.ping = _ping_raises
+    _crud.prompts.ping = _ping_raises
     resp = client.get("/api/ollama/models")
     if resp.status_code != 503:
         fail(f"GET /api/ollama/models with ping raising: expected 503, got {resp.status_code}")

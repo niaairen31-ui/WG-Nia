@@ -33,9 +33,9 @@ LLM_PARSE_FILE = SRC / "world_engine" / "llm_parse.py"
 # Non-model JSON. Site key is "relative/path.py::enclosing_qualname"
 # (module scope if the call isn't inside any function). One reason each.
 PERMANENT_ALLOW: dict[str, str] = {
-    "src/world_engine/cockpit/app.py::approve_mutation":
+    "src/world_engine/cockpit/routes/mutations.py::approve_mutation":
         "creator-edited proposed_mutation.payload from the review form, not model output",
-    "src/world_engine/cockpit/crud.py::_coerce_field":
+    "src/world_engine/cockpit/crud/entities.py::_coerce_field":
         "creator CRUD request-body field decode, fail-closed 422 on bad input",
     "src/world_engine/ollama_client.py::ping":
         "Ollama /api/tags transport envelope — transport-only per CLAUDE.md",
@@ -49,8 +49,8 @@ PERMANENT_ALLOW: dict[str, str] = {
 # Counts may only shrink; entries are deleted as each site migrates.
 TRANSITION_ALLOW: dict[str, int] = {
     "src/world_engine/analyzer.py": 2,
-    "src/world_engine/cockpit/app.py": 4,
-    "src/world_engine/cockpit/play_stream.py": 1,
+    "src/world_engine/cockpit/play_physical.py": 2,
+    "src/world_engine/cockpit/play_stream.py": 3,
     "src/world_engine/entity_author.py": 7,
     "src/world_engine/gathering.py": 1,
     "src/world_engine/region_author.py": 2,

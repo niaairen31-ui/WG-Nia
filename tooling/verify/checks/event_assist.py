@@ -26,7 +26,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 ENTITY_AUTHOR = ROOT / "src" / "world_engine" / "entity_author.py"
 SEED_PILOT = ROOT / "scripts" / "seed_pilot.py"
-APP_PY = ROOT / "src" / "world_engine" / "cockpit" / "app.py"
+APP_PY = ROOT / "src" / "world_engine" / "cockpit" / "routes" / "creator.py"
 
 FORBIDDEN_SUBSTRINGS = ("writes.", "session.add", "db.add", ".commit(")
 
@@ -96,7 +96,7 @@ def main() -> int:
             failures.append("pt-event-draft upsert does not set usage=\"event_generation\"")
 
     app_src = APP_PY.read_text(encoding="utf-8")
-    if '@app.post("/api/events/generate")' not in app_src:
+    if '@router.post("/api/events/generate")' not in app_src:
         failures.append("POST /api/events/generate route not registered in app.py")
 
     if failures:

@@ -223,7 +223,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
 - **Tick-sourced `proposed_mutation` rows have `source_type='world_tick'`,
   `proposed_by='local_ai_tick'`, NULL `pass_play_id`/`conversation_id`, and
   a mandatory `tick_id`** (one UUID per `run_world_tick` invocation).
-  `_find_applied_duplicate`'s tick branch (`cockpit/app.py`) is
+  `_find_applied_duplicate`'s tick branch (`cockpit/routes/mutations.py`) is
   canon-existence-based, never a `tick_id`-scoped history comparison, and
   must never be extended to `relation_change` (accumulating deltas, never
   guarded).
@@ -312,7 +312,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   NULL-model templates. `GET /api/ollama/models` is a thin `ping()`
   wrapper: explicit 503 on failure, never an empty-list masquerade.
   (`tooling/verify/checks/prompt_model_write.py` enforces.)
-- **`_npc_dialogue_system_prompt(system_prompt, context)` in `cockpit/app.py`
+- **`_npc_dialogue_system_prompt(system_prompt, context)` in `cockpit/play.py`
   is the single npc_dialogue system-prompt construction:** every live call
   site and the Prompts tab's assembled preview call it — never a duplicated
   inline concatenation.
@@ -402,9 +402,9 @@ WG-Nia/
 │   ├── entity_author.py     # AI authoring assistant (entities, PC, skill catalogue, agendas, events)
 │   ├── region_author.py     # region generation orchestrator (proposes names, no canon)
 │   └── cockpit/             # creator web UI (FastAPI + HTMX, port 8000, loopback)
-│       ├── app.py           # play endpoints; _apply_mutation; region commit; say() orchestrator
+│       ├── app.py           # app factory + router mounting; routes/ holds the routers
 │       ├── play*.py         # say() decomposition: routing, physical branch, narration/initiative
-│       ├── crud.py          # creator CRUD routes; prompts read + model write
+│       ├── crud/            # creator CRUD routes, split by domain (entities, relations, ...)
 │       ├── index.html       # single-page UI; CREATION_TABS registry + dispatcher
 │       └── vendor/          # vendored JS deps (cytoscape-*.min.js); one whitelisted GET route
 ├── scripts/

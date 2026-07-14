@@ -36,20 +36,24 @@ src/world_engine/writes.py::delete_world_cascade               *
 src/world_engine/cockpit/mutations.py::_mutation_apply_status_change    entity
 src/world_engine/cockpit/mutations.py::_mutation_apply_item_update      item
 src/world_engine/cockpit/mutations.py::_mutation_apply_new_knowledge    discoverable_detail
-src/world_engine/cockpit/app.py::activate_world                world
-src/world_engine/cockpit/app.py::create_world                  world
-src/world_engine/cockpit/app.py::_activate_world_core          world
-src/world_engine/cockpit/app.py::create_player_character       entity character skill
-src/world_engine/cockpit/app.py::_perform_travel               character
-src/world_engine/cockpit/crud.py::_create_entity_core           entity character location faction item
-src/world_engine/cockpit/crud.py::update_entity                 entity character location faction item
-src/world_engine/cockpit/crud.py::delete_entity                 entity
-src/world_engine/cockpit/crud.py::delete_relation                relation
-src/world_engine/cockpit/crud.py::delete_knowledge               knowledge
-src/world_engine/cockpit/crud.py::create_skill_definition        skill_definition skill
-src/world_engine/cockpit/crud.py::update_skill_definition        skill_definition skill
-src/world_engine/cockpit/crud.py::delete_skill_definition        skill_definition skill
-src/world_engine/cockpit/crud.py::create_discoverable_detail     discoverable_detail
-src/world_engine/cockpit/crud.py::update_discoverable_detail     discoverable_detail
-src/world_engine/cockpit/crud.py::delete_discoverable_detail     discoverable_detail
-src/world_engine/cockpit/crud.py::update_agenda_step             agenda_step
+# Router + crud split (TICKET-0027, BRIEF-0027-d): every site below re-keyed
+# to its new file — same relocation-not-broadening rule as the stage-c
+# comment above. `crud.py` -> `crud/<domain>.py`; `app.py`'s creator routes
+# -> `routes/creator.py`; `_perform_travel` -> `play_stream.py`.
+src/world_engine/cockpit/routes/creator.py::activate_world                world
+src/world_engine/cockpit/routes/creator.py::create_world                  world
+src/world_engine/cockpit/routes/creator.py::_activate_world_core          world
+src/world_engine/cockpit/routes/creator.py::create_player_character       entity character skill
+src/world_engine/cockpit/play_stream.py::_perform_travel               character
+src/world_engine/cockpit/crud/entities.py::_create_entity_core           entity character location faction item
+src/world_engine/cockpit/crud/entities.py::update_entity                 entity character location faction item
+src/world_engine/cockpit/crud/entities.py::delete_entity                 entity
+src/world_engine/cockpit/crud/relations.py::delete_relation                relation
+src/world_engine/cockpit/crud/knowledge.py::delete_knowledge               knowledge
+src/world_engine/cockpit/crud/skills.py::create_skill_definition        skill_definition skill
+src/world_engine/cockpit/crud/skills.py::update_skill_definition        skill_definition skill
+src/world_engine/cockpit/crud/skills.py::delete_skill_definition        skill_definition skill
+src/world_engine/cockpit/crud/locations.py::create_discoverable_detail     discoverable_detail
+src/world_engine/cockpit/crud/locations.py::update_discoverable_detail     discoverable_detail
+src/world_engine/cockpit/crud/locations.py::delete_discoverable_detail     discoverable_detail
+src/world_engine/cockpit/crud/agendas.py::update_agenda_step             agenda_step

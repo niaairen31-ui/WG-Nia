@@ -1,18 +1,19 @@
 """Per-mutation-type canon appliers (TICKET-0027, BRIEF-0027-c).
 
 Decomposition of `_apply_mutation` (formerly 682 lines, one `elif` branch
-per type, `cockpit/app.py`). `_apply_mutation` itself stays in `app.py` as a
-thin dispatcher: duplicate guard, payload extraction, then one call into a
-`_mutation_apply_<type>()` function here per `mutation_type`. Pure move — no
-write reordering, no validation change, every DB write still flows through
-the same `writes.py` helpers as before.
+per type, `cockpit/app.py`). `_apply_mutation` itself is a thin dispatcher
+in `cockpit/routes/mutations.py` (BRIEF-0027-d): duplicate guard, payload
+extraction, then one call into a `_mutation_apply_<type>()` function here
+per `mutation_type`. Pure move — no write reordering, no validation change,
+every DB write still flows through the same `writes.py` helpers as before.
 
-Imported lazily by `app.py` (inside `_apply_mutation`'s body) to avoid a
-circular import — this module imports `from . import app as _app` at
-module level to reach helpers that stay in `app.py` because they are used
-elsewhere too (`_normalize_goal_text` by `_find_applied_duplicate`,
-`_append_note` by `approve_mutation`/`batch_review_mutations`), same
-pattern as `cockpit/play.py`.
+Imported lazily by `routes/mutations.py` (inside `_apply_mutation`'s body)
+to avoid a circular import — this module imports
+`from .routes import mutations as _routes_mutations` at module level to
+reach helpers that live there because they are used elsewhere too
+(`_normalize_goal_text` by `_find_applied_duplicate`, `_append_note` by
+`approve_mutation`/`batch_review_mutations`), same pattern as
+`cockpit/play.py`.
 
 Sanctioned canon-write site (relocated from the single `_apply_mutation`
 entry in `canon_write_policy.txt`, TICKET-0027 stage c — see that file's
@@ -65,7 +66,7 @@ from ..writes import (
     write_npc_goal_status,
     write_relation,
 )
-from . import app as _app
+from .routes import mutations as _routes_mutations
 
 
 def _knowledge_leg_already_applied(
@@ -83,7 +84,7 @@ def _knowledge_leg_already_applied(
     KNOWN ACCEPTED GAP, one-directional by design: this guard protects a
     resource_change knowledge leg from colliding with a prior new_knowledge
     or resource_change row, but the new_knowledge branch's own
-    `_find_applied_duplicate` (app.py) is deliberately NOT extended to scan
+    `_find_applied_duplicate` (routes/mutations.py) is deliberately NOT extended to scan
     resource_change knowledge legs. Do not touch that guard to close this —
     see ARCHITECTURE_DECISIONS.md "Deferred decisions".
     """
@@ -360,7 +361,7 @@ def _mutation_apply_new_knowledge(mut: ProposedMutation, payload: dict, db: Sess
         is_secret=bool(payload.get("is_secret", False)),
         session_id=session_id,
     )
-    # Both the in-conversation _find_applied_duplicate guard (app.py) and the
+    # Both the in-conversation _find_applied_duplicate guard (routes/mutations.py) and the
     # discovered=FALSE query in _stream() prevent double-proposing the same
     # detail (in-conversation guard) and re-proposing in future conversations
     # (discovered flag guard), respectively.
@@ -488,11 +489,11 @@ def _mutation_goal_change_close(
     written. `complete` additionally runs the relation_gte prerequisite
     judge (TICKET-0024, BRIEF-0024-b, G1) and completion effects
     (TICKET-0024, BRIEF-0024-c) before closing the goal."""
-    normalized = _app._normalize_goal_text(goal_text)
+    normalized = _routes_mutations._normalize_goal_text(goal_text)
     candidates = db.exec(
         select(NpcGoal).where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active")
     ).all()
-    matches = [g for g in candidates if _app._normalize_goal_text(g.description) == normalized]
+    matches = [g for g in candidates if _routes_mutations._normalize_goal_text(g.description) == normalized]
     if len(matches) != 1:
         return f"goal_change: no active goal matching {goal_text!r}"
     goal = matches[0]
@@ -534,7 +535,7 @@ def _mutation_goal_change_close(
             return effect_error
 
         if stripped_notes:
-            mut.creator_notes = _app._append_note(mut.creator_notes, "; ".join(stripped_notes))
+            mut.creator_notes = _routes_mutations._append_note(mut.creator_notes, "; ".join(stripped_notes))
             extra_history["stripped"] = stripped_notes
 
         # A1: zero prerequisites and zero effects applied (absent, empty, or

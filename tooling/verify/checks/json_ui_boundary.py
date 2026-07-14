@@ -30,7 +30,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
-CRUD_PY = SRC / "world_engine" / "cockpit" / "crud.py"
+CRUD_PY = SRC / "world_engine" / "cockpit" / "crud" / "entities.py"
 MODELS_PY = SRC / "world_engine" / "models.py"
 
 # Volet c — every `Column(JSON` occurrence in models.py must appear here,

@@ -21,7 +21,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
-CRUD = ROOT / "src" / "world_engine" / "cockpit" / "crud.py"
+CRUD = ROOT / "src" / "world_engine" / "cockpit" / "crud" / "factions.py"
 INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
 sys.path.insert(0, str(SRC))
 

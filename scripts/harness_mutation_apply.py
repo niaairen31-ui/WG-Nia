@@ -149,7 +149,7 @@ def _apply_one(db, world_id: str, mutation_type: str, payload: dict, label: str)
     returning the error string (None on success). Mirrors `approve_mutation`
     rather than calling `_apply_mutation` bare, so the harness proves the
     same rollback semantics real approvals get."""
-    from world_engine.cockpit.app import _apply_mutation
+    from world_engine.cockpit.routes.mutations import _apply_mutation
     from world_engine.models import ProposedMutation
 
     mut = ProposedMutation(
