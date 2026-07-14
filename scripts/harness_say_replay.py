@@ -228,7 +228,7 @@ def _install_replay_wrappers(ollama_client, queue: list[dict], mismatches: list[
 def _run_record() -> None:
     from sqlmodel import Session
     from world_engine import ollama_client
-    from world_engine.cockpit.app import SayBody, say
+    from world_engine.cockpit.routes.play import SayBody, say
     from world_engine.db import engine
 
     calls: list[dict] = []
@@ -254,7 +254,7 @@ def _run_record() -> None:
 def _run_replay() -> bool:
     from sqlmodel import Session
     from world_engine import ollama_client
-    from world_engine.cockpit.app import SayBody, say
+    from world_engine.cockpit.routes.play import SayBody, say
     from world_engine.db import engine
 
     calls = json.loads(CALLS_PATH.read_text(encoding="utf-8"))

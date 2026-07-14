@@ -22,10 +22,10 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
-APP_FILE = SRC / "world_engine" / "cockpit" / "app.py"
+APP_FILE = SRC / "world_engine" / "cockpit" / "play_physical.py"
 
 ALLOWED_CONSTRUCTOR_MODULES = {
-    "src/world_engine/cockpit/app.py",
+    "src/world_engine/cockpit/routes/play.py",
 }
 
 FAILURES: list[str] = []

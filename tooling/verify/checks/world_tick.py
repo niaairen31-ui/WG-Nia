@@ -122,15 +122,15 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
 TICK_FILE = SRC / "world_engine" / "tick.py"
-APP_FILE = SRC / "world_engine" / "cockpit" / "app.py"
+APP_FILE = SRC / "world_engine" / "cockpit" / "routes" / "mutations.py"
 MUTATIONS_FILE = SRC / "world_engine" / "cockpit" / "mutations.py"
 ANALYZER_FILE = SRC / "world_engine" / "analyzer.py"
 MODELS_FILE = SRC / "world_engine" / "models.py"
-CRUD_FILE = SRC / "world_engine" / "cockpit" / "crud.py"
+CRUD_FILE = SRC / "world_engine" / "cockpit" / "crud" / "entities.py"
 
 ALLOWED_MODULES = {
     "src/world_engine/tick.py",
-    "src/world_engine/cockpit/app.py",
+    "src/world_engine/cockpit/routes/play.py",
     "scripts/preview_tick_context.py",
 }
 

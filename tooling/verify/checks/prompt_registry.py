@@ -30,7 +30,6 @@ WIRED_FILES = [
     SRC / "region_author.py",
     SRC / "analyzer.py",
     SRC / "gathering.py",
-    SRC / "cockpit" / "app.py",
     SRC / "cockpit" / "play.py",
     SRC / "cockpit" / "play_physical.py",
     SRC / "cockpit" / "play_stream.py",
@@ -39,29 +38,28 @@ WIRED_FILES = [
 
 # Exemption allowlist (by enclosing function name): the call path whose
 # model comes from `injected.get("model", DEFAULT_MODEL)` (originally
-# `say`/`_stream` in app.py; decomposed by BRIEF-0027-b into cockpit/play*.py
-# — every one of these still consumes that single already-resolved value via
+# `say`/`_stream` in app.py; decomposed by BRIEF-0027-b into cockpit/play*.py,
+# then those helpers redistributed again by BRIEF-0027-d's router split —
+# every one of these still consumes that single already-resolved value via
 # its own `model` parameter rather than a PromptTemplate object). Wiring
 # effective_model there would silently encode a template.model vs
 # injected_context["model"] precedence — deferred to the write-path
 # chantier (BRIEF-0008-a Scope OUT).
 EXEMPT_FUNCTIONS = {
-    SRC / "cockpit" / "app.py": {
+    SRC / "cockpit" / "play_physical.py": {
         "_interpret_mode",
         "_arbitrate",
-        "_npc_initiative_vote",
-        "_select_group_speaker",
-    },
-    SRC / "cockpit" / "play.py": {
-        "_say_npc_generation",
-    },
-    SRC / "cockpit" / "play_physical.py": {
         "_say_physical_npc_reaction",
     },
     SRC / "cockpit" / "play_stream.py": {
+        "_npc_initiative_vote",
+        "_select_group_speaker",
         "_say_stream_mj_narration",
         "_say_initiative_generate",
         "_say_initiative_narrate",
+    },
+    SRC / "cockpit" / "play.py": {
+        "_say_npc_generation",
     },
 }
 

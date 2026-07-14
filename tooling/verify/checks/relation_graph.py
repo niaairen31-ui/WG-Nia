@@ -29,7 +29,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 COCKPIT = ROOT / "src" / "world_engine" / "cockpit"
 APP_PY = COCKPIT / "app.py"
-CRUD_PY = COCKPIT / "crud.py"
+CRUD_PY = COCKPIT / "crud" / "relations.py"
 INDEX_HTML = COCKPIT / "index.html"
 VENDOR_DIR = COCKPIT / "vendor"
 

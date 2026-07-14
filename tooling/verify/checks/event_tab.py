@@ -19,9 +19,8 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
-CRUD_PY = SRC / "world_engine" / "cockpit" / "crud.py"
-APP_PY = SRC / "world_engine" / "cockpit" / "app.py"
-INDEX_HTML = SRC / "world_engine" / "cockpit" / "index.html"
+COCKPIT_DIR = SRC / "world_engine" / "cockpit"
+INDEX_HTML = COCKPIT_DIR / "index.html"
 
 DELETE_ROUTE_RE = re.compile(r"""@(?:router|app)\.delete\(\s*["']/api/events""")
 JS_DELETE_RE = re.compile(r"""method:\s*['"]DELETE['"]\s*,?\s*\}\)?[^`]{0,80}""")
@@ -31,10 +30,12 @@ ORDER_BY_OCCURRED_AT_RE = re.compile(r"order_by\(\s*Event\.occurred_at")
 def main() -> int:
     failures: list[str] = []
 
-    crud_src = CRUD_PY.read_text(encoding="utf-8")
-    app_src = APP_PY.read_text(encoding="utf-8")
-    if DELETE_ROUTE_RE.search(crud_src) or DELETE_ROUTE_RE.search(app_src):
-        failures.append("a DELETE /api/events route is registered — event deletion is Scope OUT (C3)")
+    for path in sorted(COCKPIT_DIR.rglob("*.py")):
+        if DELETE_ROUTE_RE.search(path.read_text(encoding="utf-8")):
+            failures.append(
+                f"{path.relative_to(ROOT).as_posix()}: a DELETE /api/events route is "
+                "registered — event deletion is Scope OUT (C3)"
+            )
 
     html_src = INDEX_HTML.read_text(encoding="utf-8")
     for m in re.finditer(r"api\(`?/api/events[^)]*\)", html_src):
