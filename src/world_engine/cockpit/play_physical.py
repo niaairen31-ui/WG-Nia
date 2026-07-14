@@ -15,7 +15,7 @@ from typing import Any, Iterator, Optional
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from .. import ollama_client
+from .. import llm_parse, ollama_client
 from ..context import (
     _SAFE_SUBCULTURE_KEYS,
     active_signposts,
@@ -808,7 +808,7 @@ def _interpret_mode(
             model=model,
             format="json",
         )
-        obj = json.loads(raw)
+        obj = llm_parse.extract_object(raw)
         mode_str = str(obj.get("mode", "")).strip()
         mode = ResponseMode(mode_str)
         reference = str(obj.get("reference", "") or "").strip()
@@ -889,7 +889,7 @@ def _arbitrate(
             model=model,
             format="json",
         )
-        obj = json.loads(raw)
+        obj = llm_parse.extract_object(raw)
 
         domain = str(obj.get("domain", "")).strip()
         if domain not in allowed_domains:

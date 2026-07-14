@@ -26,12 +26,12 @@ drops and continues).
 
 from __future__ import annotations
 
-import json
 import unicodedata
 from typing import Any
 
 from sqlmodel import Session, select
 
+from . import llm_parse
 from .entity_author import AUTHOR_MODEL, generate_entity_draft, generate_npc_goals
 from .models import PromptTemplate, World, WorldLaw
 from .ollama_client import OllamaError, chat
@@ -198,10 +198,10 @@ def _parse_manifest_response(raw: str) -> dict:
     """Returns {"ok": True, "manifest": ..., "notes": [...], "skipped": [...]}
     or {"ok": False, "error": ...}. Never raises."""
     try:
-        parsed = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
+        parsed = llm_parse.extract_object(raw)
+    except llm_parse.LlmParseError:
         return {"ok": False, "error": "Model returned non-JSON manifest"}
-    if not isinstance(parsed, dict) or not parsed:
+    if not parsed:
         return {"ok": False, "error": "Model returned an empty or malformed manifest"}
 
     notes: list[str] = []
@@ -335,12 +335,12 @@ def _run_npc_topup(result: dict, db: Session) -> dict:
 
     try:
         raw_topup = chat(messages, model=effective_model(template, AUTHOR_MODEL), format="json")
-        data = json.loads(raw_topup)
-    except (OllamaError, json.JSONDecodeError) as exc:
+        data = llm_parse.extract_object(raw_topup)
+    except (OllamaError, llm_parse.LlmParseError) as exc:
         result["notes"].append(f"Plancher PNJ non atteint : complément échoué ({exc})")
         return result
 
-    new_npcs = data.get("npcs") if isinstance(data, dict) else None
+    new_npcs = data.get("npcs")
     if not isinstance(new_npcs, list) or not new_npcs:
         result["notes"].append("Plancher PNJ non atteint : le complément n'a renvoyé aucun PNJ")
         return result
