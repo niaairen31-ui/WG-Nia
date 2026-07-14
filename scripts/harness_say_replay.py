@@ -20,6 +20,16 @@ played back instead of calling Ollama, so everything around the model is
 deterministic. Diffs the SSE stream and DB writes against the recorded
 fixtures. Empty diff = PASS.
 
+`replay` mode also replays a fourth, independent reference turn against
+`POST /api/scene/join` (`scene_join` / `_interpret_mode` /
+`_load_mj_interpret_template`) — BRIEF-0027-i's mandatory gap-closure. The
+3 TURNS above never traverse that route, so BRIEF-0027-d's undefined-name
+defect on those two helpers went undetected by this harness. That fixture
+(`scene_join_*.json`) was recorded once against commit 5b5f237 (pre-d,
+when `scene_join` still lived in `cockpit.app`) via a throwaway script, not
+by this file's `record` mode — `record` mode here only ever (re)captures
+the 3 `say` TURNS against whatever code is currently checked out.
+
 Usage:
     python scripts/harness_say_replay.py record
     python scripts/harness_say_replay.py replay
@@ -33,6 +43,7 @@ import os
 import re
 import sqlite3
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +81,20 @@ DUMP_TABLES = [
     "gathering", "gathering_member", "knowledge", "relation",
     "ledger", "item",
 ]
+
+# BRIEF-0027-i gap-closure fixture: recorded once against pre-d commit
+# 5b5f237, replayed here against the fixed branch. Independent workdb (its
+# own copy of pre_state.sqlite) so it never interacts with the 3 TURNS'
+# accumulated state above.
+SCENE_JOIN_WORKDB_PATH = FIXTURE_DIR / "scene_join_workdb.sqlite"
+SCENE_JOIN_CALL_PATH = FIXTURE_DIR / "scene_join_call.json"
+SCENE_JOIN_RESULT_PATH = FIXTURE_DIR / "scene_join_result.json"
+SCENE_JOIN_DUMP_PATH = FIXTURE_DIR / "scene_join_dump.json"
+SCENE_JOIN_PLAYER_ID = "char-player"
+SCENE_JOIN_TEXT = (
+    "Je m'approche du groupe rassemblé au comptoir et je m'installe avec eux, "
+    "en saluant Maelis d'un signe de tête."
+)
 
 _UUID_RE = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
@@ -300,6 +325,77 @@ def _run_replay() -> bool:
     return ok
 
 
+def _run_scene_join_replay() -> bool:
+    """Replay the `scene_join`/`_interpret_mode` reference turn recorded
+    pre-BRIEF-0027-d (commit 5b5f237) against the fixed branch's
+    `cockpit.routes.play.scene_join` (BRIEF-0027-i). Uses its own engine on
+    its own workdb copy — never touches `world_engine.db.engine`, which is
+    already bound to the 3-TURN workdb by the time this runs.
+    """
+    from sqlmodel import Session, create_engine, select
+    from world_engine import ollama_client
+    from world_engine.cockpit.routes.play import SceneJoinBody, scene_join
+    from world_engine.models import Conversation, GatheringMember
+
+    if not (SCENE_JOIN_CALL_PATH.exists() and SCENE_JOIN_RESULT_PATH.exists() and SCENE_JOIN_DUMP_PATH.exists()):
+        print(f"FAIL: scene_join fixtures missing under {FIXTURE_DIR} — run the pre-d recording first")
+        return False
+
+    _sqlite_copy(PRESTATE_PATH, SCENE_JOIN_WORKDB_PATH)
+    scene_join_engine = create_engine(f"sqlite:///{SCENE_JOIN_WORKDB_PATH}")
+
+    recorded_calls = json.loads(SCENE_JOIN_CALL_PATH.read_text(encoding="utf-8"))
+    recorded_result = json.loads(SCENE_JOIN_RESULT_PATH.read_text(encoding="utf-8"))
+    recorded_dump = json.loads(SCENE_JOIN_DUMP_PATH.read_text(encoding="utf-8"))
+
+    mismatches: list[dict] = []
+    _install_replay_wrappers(ollama_client, recorded_calls, mismatches)
+
+    dump_before = _dump_db(SCENE_JOIN_WORKDB_PATH)
+
+    with Session(scene_join_engine) as db:
+        conv = db.get(Conversation, REFERENCE_CONVERSATION_ID)
+        member = db.exec(
+            select(GatheringMember).where(
+                GatheringMember.gathering_id == conv.gathering_id,
+                GatheringMember.entity_id == SCENE_JOIN_PLAYER_ID,
+                GatheringMember.left_at.is_(None),
+            )
+        ).first()
+        member.left_at = datetime.now(UTC)
+        db.add(member)
+        db.commit()
+
+        result = scene_join(
+            body=SceneJoinBody(player_text=SCENE_JOIN_TEXT, player_id=SCENE_JOIN_PLAYER_ID),
+            db=db,
+        )
+
+    dump_after = _dump_db(SCENE_JOIN_WORKDB_PATH)
+    scene_join_engine.dispose()
+    SCENE_JOIN_WORKDB_PATH.unlink(missing_ok=True)
+
+    ok = True
+    if mismatches:
+        print(f"WARN: scene_join: {len(mismatches)} Ollama request(s) drifted from the recording")
+
+    if result != recorded_result:
+        ok = False
+        print("FAIL: scene_join result diverged")
+        print(f"  recorded: {recorded_result!r}")
+        print(f"  replayed: {result!r}")
+
+    if dump_before != recorded_dump["before"] or dump_after != recorded_dump["after"]:
+        ok = False
+        print("FAIL: scene_join DB dump diverged from the pre-d recording")
+
+    print(
+        "SCENE_JOIN REPLAY: PASS — _interpret_mode reference turn matches the pre-BRIEF-0027-d recording"
+        if ok else "SCENE_JOIN REPLAY: FAIL — see diffs above"
+    )
+    return ok
+
+
 def main() -> None:
     if len(sys.argv) != 2 or sys.argv[1] not in ("record", "replay"):
         raise SystemExit(__doc__)
@@ -313,6 +409,7 @@ def main() -> None:
         _run_record()
     else:
         ok = _run_replay()
+        ok = _run_scene_join_replay() and ok
         if not ok:
             raise SystemExit(1)
 

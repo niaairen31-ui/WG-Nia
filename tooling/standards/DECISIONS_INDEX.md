@@ -90,3 +90,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 6092 | MIGRATION VALIDATOR CORRECTION — subculture shape (BRIEF-0025-d, no schema change) | BRIEF-0025-d |  |
 | 6126 | CODE STANDARDS v1 SEEDING (BRIEF-0027-a, no schema change) | BRIEF-0027-a |  |
 | 6203 | SAY/_STREAM DECOMPOSITION — record/replay proof + module split (BRIEF-0027-b, no schema change) | BRIEF-0027-b |  |
+| 6309 | UNDEFINED-NAME REMEDIATION + R8 PROMOTION (BRIEF-0027-i, no schema change) | BRIEF-0027-i |  |

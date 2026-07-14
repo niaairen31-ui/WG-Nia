@@ -6296,6 +6296,111 @@ gathering where the vote actually fires would close this gap; nothing in
 BRIEF-0027-b's scope required it (Scope OUT: "harness coverage beyond the
 play path" and no behavior-improvement side quests).
 
+*Partially closed at BRIEF-0027-i*: that brief's mandatory gap-closure
+turn (recorded against pre-d commit `5b5f237`, replayed against the fixed
+branch — see that entry below) routes through `POST /api/scene/join` and
+so now gives the join branch harness coverage, for the unrelated reason
+that it's also the only route touching `_interpret_mode`/
+`_load_mj_interpret_template`. Physical-mode, travel, and initiative
+act-generation remain undercovered by harness replay.
+
+---
+
+## UNDEFINED-NAME REMEDIATION + R8 PROMOTION (BRIEF-0027-i, no schema change)
+
+**The defect.** BRIEF-0027-d's split (app.py -> routers, crud.py -> a
+domain package) left 80 pyflakes `UndefinedName` (F821) sites: a shared
+private helper stayed resident in one domain module while the sibling
+modules whose route handlers called it moved out from under it without
+gaining an import. Python resolves names at call time, so every module
+still imported cleanly and the route table stayed set-identical (109/110
+routes verified before and after this fix, zero shadow pairs) — every
+existing check, including a manual route-table census, saw a green result.
+The defect was invisible until a handler actually touching one of the
+missing names ran, 500ing at request time. This is why BRIEF-0027-d's live
+gate broke on both play and creation despite every machine check passing.
+
+**Fix shape — a closed `crud/_shared.py`, not a re-import shuffle.**
+`_iso`, `_world_id`, `_get_entity` were re-homed from `crud/entities.py`
+into a new `crud/_shared.py`, and every crud domain module now imports
+explicitly what it uses. The brief's stated closed set also named
+`_list_relations`/`_list_knowledge` and the `RELATION_FIELDS`/
+`KNOWLEDGE_FIELDS`/`EVENT_FIELDS` constants; execution inventory (as the
+brief anticipated: "exact closed set = execution inventory") had to widen
+that set slightly to avoid a circular import: `_list_relations` calls
+`_relation_dict` (previously local to `relations.py`), so both moved
+together, same reasoning for `_list_knowledge`/`_knowledge_dict`. Moving
+only the lister without its dict-builder would have made `_shared.py`
+import back from `relations.py`/`knowledge.py`, which in turn import
+`_list_relations`/`RELATION_FIELDS` etc. from `_shared.py` — a load-time
+deadlock. `RELATION_TYPES`/`RELATION_DIRECTIONS`/`KNOWLEDGE_LEVELS_ORDERED`
+moved alongside their respective `*_FIELDS` constant for the same reason
+(each is used nowhere else in its home file). `EVENT_TYPE_LABELS_FR`/
+`EVENT_KNOWLEDGE_STATUSES` moved too, since `EVENT_FIELDS` is built from
+them and `events.py` also needs them for its own validation — keeping a
+single source of truth beat duplicating the literals in two modules.
+`crud/__init__.py`'s existing re-export imports (`from .relations import
+RELATION_FIELDS, ...`) needed no changes at all: `from .relations import
+X` resolves against whatever name is bound in `relations`'s namespace,
+whether defined there or imported — so every domain module re-importing
+its needed names from `._shared` kept the package's public re-export
+surface working unchanged.
+
+`routes/play.py` gained `_log = logging.getLogger(__name__)` (never
+defined there; both call sites are on `_analyze_window`'s exception path,
+which is exactly why neither the harness nor any prior review noticed) and
+imports for `_load_mj_interpret_template`/`_interpret_mode` from
+`..play_physical`. `cockpit/play.py`'s `_propose_engine_discovery` type
+hint on `DiscoverableDetail` was undefined too (same class of miss,
+different site) — added to its `..models` import.
+
+**Mandatory harness re-runs, and the gap those closed.** Both disposable
+harnesses replay clean on the fixed branch: `harness_say_replay.py replay`
+(SSE + DB dumps, the 3 existing TURNS) and `harness_mutation_apply.py
+replay` (all 13 mutation types + the deliberately-failing sibling). But
+the 3 `say` TURNS never route through `POST /api/scene/join`, so they
+never exercised `_interpret_mode`/`_load_mj_interpret_template` — the
+exact two names BRIEF-0027-d silently broke. Per the brief's mandatory
+instruction, a 4th reference turn was recorded once against commit
+`5b5f237` (merge of BRIEF-0027-c, immediately pre-BRIEF-0027-d — confirmed
+by its file list: monolithic `cockpit/app.py`/`crud.py`, no `routes/` or
+`crud/` package yet) via a throwaway script run from a `git worktree`,
+starting from the harness's own already-recorded `pre_state.sqlite` (not a
+fresh live-DB pull) with the reference player's `gathering_member.left_at`
+soft-set so `scene_join` falls through to the `_interpret_mode` branch
+instead of short-circuiting on `already_joined`. The recorded outcome is
+an ambiguous `join_candidates` result (two open gatherings at the
+location) — a legitimate, deterministic branch, not an error. Replayed
+against the fixed branch's `cockpit.routes.play.scene_join` with an
+isolated `sqlmodel` engine (its own workdb copy, never touching
+`world_engine.db.engine`, which the 3-TURN replay has already bound): PASS
+on both the JSON result and the before/after DB dump. The recorded
+fixtures (`scene_join_call/result/dump.json`) live in the existing
+gitignored, disposable `scripts/harness_say_fixtures/` directory;
+`harness_say_replay.py`'s `record` mode does not regenerate them (it only
+ever captures the 3 `say` TURNS against whatever is currently checked
+out) — regenerating against post-fix code would defeat the point of
+proving pre/post-d equivalence.
+
+**R8 promotion.** `undefined_names.py` runs pyflakes over every file under
+`src/` via `pyflakes.checker.Checker` directly (typed `UndefinedName`
+message objects, not string-matching the text reporter — a renamed
+message string would otherwise silently blind the check the same way
+`prompt_registry.py`'s static scan went blind during BRIEF-0027-b).
+Fail-closed on zero files scanned or pyflakes unavailable. Proven
+fail-closed by a temporary injected F821 (added to `_shared.py`, confirmed
+red, removed, confirmed green again) before this record was written.
+`code_standards.md` section 2 gained R8 verbatim; `pyflakes>=3.4.0` is
+pinned in a new `requirements-dev.txt` (no prior dev-requirements file
+existed in the repo).
+
+**Standing lesson.** A module split is not proven correct by import success
+or route-table identity — Python's late name binding means a decomposition
+can be wrong in exactly the branches nothing exercises (here: two
+exception-handler `_log` calls and one non-`/say` route). `undefined_names.py`
+now makes that entire failure class visible on every future split,
+independent of what any specific harness happens to traverse.
+
 ---
 
 *Co-built with Claude, June 2026.*

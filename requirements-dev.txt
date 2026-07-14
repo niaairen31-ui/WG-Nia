@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# tooling/verify/checks/undefined_names.py (TICKET-0027 R8, BRIEF-0027-i)
+pyflakes>=3.4.0

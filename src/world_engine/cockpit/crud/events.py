@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -46,7 +46,6 @@ from ...models import (
     Relation,
     Skill,
     SkillDefinition,
-    World,
 )
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
@@ -79,33 +78,13 @@ from ...writes import (
 )
 
 from ._router import router
-
-
-EVENT_TYPE_LABELS_FR: dict[str, str] = {
-    "political": "politique",
-    "military":  "militaire",
-    "criminal":  "criminel",
-    "social":    "social",
-    "mystery":   "mystère",
-    "magical":   "magique",
-    "other":     "autre",
-}
-
-
-EVENT_KNOWLEDGE_STATUSES = ("secret", "public", "confirmed")
-
-
-EVENT_FIELDS: list[dict[str, Any]] = [
-    {"name": "title", "label": "Titre", "kind": "text", "required": True},
-    {"name": "description", "label": "Description", "kind": "textarea"},
-    {"name": "type", "label": "Type", "kind": "datalist",
-     "options": list(EVENT_TYPE_LABELS_FR.keys())},
-    {"name": "knowledge_status", "label": "Statut de connaissance",
-     "kind": "select", "options": list(EVENT_KNOWLEDGE_STATUSES),
-     "default": "secret", "required": True},
-    {"name": "location_id", "label": "Lieu", "kind": "entity_ref",
-     "ref_type": "location"},
-]
+from ._shared import (
+    EVENT_FIELDS,
+    EVENT_KNOWLEDGE_STATUSES,
+    EVENT_TYPE_LABELS_FR,
+    _iso,
+    _world_id,
+)
 
 
 def _event_dict(event: Event, db: DbSession) -> dict:

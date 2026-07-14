@@ -50,7 +50,6 @@ from ...models import (
     Relation,
     Skill,
     SkillDefinition,
-    World,
 )
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
@@ -83,10 +82,16 @@ from ...writes import (
 )
 
 from ._router import router
-
-
-def _iso(dt: Optional[datetime]) -> Optional[str]:
-    return dt.isoformat() if dt else None
+from ._shared import (
+    EVENT_FIELDS,
+    KNOWLEDGE_FIELDS,
+    RELATION_FIELDS,
+    _get_entity,
+    _iso,
+    _list_knowledge,
+    _list_relations,
+    _world_id,
+)
 
 
 ENTITY_STATUSES = ("active", "inactive", "destroyed", "missing")
@@ -255,13 +260,6 @@ def _coerce_field(db: DbSession, field: dict, raw: Any) -> Any:
     return str(raw)
 
 
-def _world_id(db: DbSession) -> str:
-    world = db.exec(select(World).where(World.is_active == True)).first()  # noqa: E712
-    if world is None:
-        raise HTTPException(status_code=400, detail="No active world. Activate a world before proceeding.")
-    return world.id
-
-
 def _player_character_id(db: DbSession, world_id: str) -> str:
     char = db.exec(
         select(Character)
@@ -274,13 +272,6 @@ def _player_character_id(db: DbSession, world_id: str) -> str:
     if char is None:
         raise HTTPException(status_code=400, detail="No player character in the active world.")
     return char.id
-
-
-def _get_entity(db: DbSession, entity_id: str) -> Entity:
-    entity = db.get(Entity, entity_id)
-    if entity is None:
-        raise HTTPException(status_code=404, detail=f"Entity {entity_id!r} not found")
-    return entity
 
 
 def _entity_summary(e: Entity) -> dict:

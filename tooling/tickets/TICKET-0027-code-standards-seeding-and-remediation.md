@@ -11,7 +11,7 @@ created: 2026-07-13
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []          # no schema change; no migration; no destructive data op
 blast_radius: large       # touches say (live play path) and _apply_mutation (canon-write path)
-brief_ids: [BRIEF-0027-a, BRIEF-0027-b, BRIEF-0027-h]
+brief_ids: [BRIEF-0027-a, BRIEF-0027-b, BRIEF-0027-h, BRIEF-0027-i]
 schema_version_touched:   # none
 retry_count: 0
 ---
@@ -85,6 +85,10 @@ against `main` at schema v1.79 (RECON-0027). Decisions locked with Nia:
 - [ ] `page_contract.py`, `single_canon_write.py`, `json_ui_boundary.py`,
       and the full existing check suite remain green after every stage
       -> tooling/verify/run.py
+- [ ] `undefined_names.py` exists, fail-closed: pyflakes reports zero
+      undefined names under `src/` (BRIEF-0027-d's split left 80 F821
+      sites; promoted to an enforced check, R8, at BRIEF-0027-i)
+      -> verify/checks/undefined_names.py
 
 ### Live  ->  human gate (Nia)
 

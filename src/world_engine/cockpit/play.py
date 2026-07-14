@@ -34,6 +34,7 @@ from ..models import (
     Character,
     Conversation,
     ConversationMessage,
+    DiscoverableDetail,
     Entity,
     Gathering,
     GatheringMember,

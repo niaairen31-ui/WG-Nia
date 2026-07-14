@@ -121,6 +121,20 @@ Each rule targets a concrete failure mode observed in the ticket history.
   existing helpers of that domain (same obligation as tracing UI-visible
   fields) and reuse before creating.
 
+- **R8 (enforced) No undefined names in `src/`.**
+  `python -m pyflakes src/` must report zero `UndefinedName` warnings.
+  Check: `undefined_names.py` (typed-message scan via
+  `pyflakes.checker.Checker`, not string matching on the reporter's text;
+  fail-closed on zero files scanned or pyflakes unavailable).
+  Failure mode addressed: BRIEF-0027-d's module split left 80 undefined-name
+  sites — a shared private helper stayed in one domain module while its
+  callers moved to siblings without importing it. Python resolves names at
+  call time, so every import in the split still succeeded and the route
+  table stayed set-identical (109/110 routes, zero shadow pairs, unchanged
+  by the fix) — the defect was invisible to every existing check and
+  surfaced only as a 500 when a handler touching the missing name actually
+  ran, breaking the live gate on both play and creation (BRIEF-0027-i).
+
 ## 3. Frontend (advisory)
 
 `cockpit/index.html` (8.8k lines, ~350 JS functions) stays governed

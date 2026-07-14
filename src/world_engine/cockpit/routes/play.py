@@ -12,6 +12,7 @@ helper had no prior consumer — see BRIEF-0027-d execution notes).
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Optional
 
@@ -60,6 +61,8 @@ from ..play_physical import (
     _compute_return_delta,
     _default_scene_state,
     _get_scene_state,
+    _interpret_mode,
+    _load_mj_interpret_template,
     _render_gathering_status,
     _resolve_join_target,
     _write_scene_state,
@@ -68,6 +71,7 @@ from ..play_stream import _perform_travel, _scene_response
 from .mutations import _find_applied_duplicate, _iso, _mutation_dict
 
 router = APIRouter()
+_log = logging.getLogger(__name__)
 
 
 _VALID_TICK_INTERVALS = frozenset({"quelques heures", "quelques jours", "quelques semaines"})
