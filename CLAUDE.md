@@ -396,7 +396,7 @@ WG-Nia/
 │   ├── analyzer.py          # window + overhearing analysis -> proposed_mutation rows
 │   ├── resolution.py        # physical-action dice resolution (2d6 bands)
 │   ├── ledger.py            # ledger read helpers
-│   ├── writes.py            # shared canon-write helpers (both sanctioned paths)
+│   ├── writes/               # shared canon-write helpers (both sanctioned paths), split by canon domain; writes/__init__.py re-exports the whole surface
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
 │   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)
 │   ├── entity_author.py     # AI authoring assistant (entities, PC, skill catalogue, agendas, events)

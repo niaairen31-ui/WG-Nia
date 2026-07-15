@@ -34,7 +34,7 @@ CONTEXT_FILE = SRC / "world_engine" / "context.py"
 
 ALLOWED_MODULES = {
     "src/world_engine/models.py",
-    "src/world_engine/writes.py",
+    "src/world_engine/writes/goals_agendas.py",
     "src/world_engine/context.py",
     "src/world_engine/cockpit/crud/goals.py",
     "src/world_engine/cockpit/crud/agendas.py",
