@@ -1,12 +1,11 @@
 """G1 check: no print() in src/ (TICKET-0027 R3, BRIEF-0027-a).
 
 AST call check (not grep): `print(...)` under `src/world_engine/` must be
-zero, except up to a per-file transition allowance in TRANSITION_ALLOW
-below — existing sites TICKET-0027 stage f replaces with the `logging`
-module (see code_standards.md section 4, R3), which empties this list.
-`scripts/` is out of scope by design: operator-facing CLI output stays
-`print`. Counts may only shrink; this check never rewrites the list.
-Zero .py files found under `src/` is a FAILURE (fail-closed).
+zero — TICKET-0027 stage f replaced every remaining site with the `logging`
+module (see code_standards.md section 4, R3), emptying the transition
+allowance below for good (R3 exemption-free). `scripts/` is out of scope
+by design: operator-facing CLI output stays `print`. Zero .py files found
+under `src/` is a FAILURE (fail-closed).
 
 No DB, stdlib `ast` only.
 """
@@ -19,12 +18,8 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
 
-# Transition allowance: existing print() sites TICKET-0027 stage f replaces
-# with logging. Counts may only shrink; empty at stage f.
-TRANSITION_ALLOW: dict[str, int] = {
-    "src/world_engine/analyzer.py": 12,
-    "src/world_engine/tick.py": 26,
-}
+# Transition allowance: empty (R3 exemption-free, TICKET-0027 stage f).
+TRANSITION_ALLOW: dict[str, int] = {}
 
 FAILURES: list[str] = []
 

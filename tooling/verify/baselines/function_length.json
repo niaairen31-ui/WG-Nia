@@ -1,7 +1,7 @@
 // Transition baseline (TICKET-0027 stage a, R1). Generated from `main` at
 // schema v1.79 by an AST pass over src/ (see RECON-0027 section 3).
 // Entries may only shrink or disappear; this file is deleted entirely at
-// TICKET-0027 stage g (code_standards.md section 4), after which
+// TICKET-0028's close (code_standards.md section 4), after which
 // function_length.py runs with no exemptions.
 [
   {"file": "src/world_engine/tick.py", "qualname": "run_world_tick", "lines": 417},

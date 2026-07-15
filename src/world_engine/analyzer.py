@@ -25,6 +25,7 @@ the change-detection logic in the prompt.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sys
 from datetime import UTC, datetime
@@ -46,6 +47,8 @@ from .models import (
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
 from .writes import knowledge_level_rank
+
+_log = logging.getLogger(__name__)
 
 # Canonical mutation_type values (schema).
 VALID_MUTATION_TYPES = frozenset(
@@ -177,9 +180,9 @@ def load_analysis_prompt(
         )
     ).all()
     if not templates:
-        print(
-            f"\n[error] No active {usage!r} prompt template found.\n"
-            "        Seed it first: python scripts/seed_pilot.py"
+        _log.error(
+            "No active %r prompt template found. Seed it first: python scripts/seed_pilot.py",
+            usage,
         )
         sys.exit(1)
     for prefer in (lambda t: t.world_id == world_id, lambda t: t.world_id is None):
@@ -502,15 +505,15 @@ def analyze_overhearing(
     classified: list[tuple[str, str]] = []
     for raw_item in items:
         if not isinstance(raw_item, dict):
-            print(f"[overhearing] dropped non-dict element: {raw_item!r}")
+            _log.warning("[overhearing] dropped non-dict element: %r", raw_item)
             continue
         subject = raw_item.get("subject")
         speaker = raw_item.get("speaker")
         if subject not in subject_set:
-            print(f"[overhearing] dropped unknown subject: {subject!r}")
+            _log.warning("[overhearing] dropped unknown subject: %r", subject)
             continue
         if speaker not in ("player", "npc"):
-            print(f"[overhearing] dropped invalid speaker: {speaker!r}")
+            _log.warning("[overhearing] dropped invalid speaker: %r", speaker)
             continue
         classified.append((subject, speaker))
 
@@ -764,19 +767,19 @@ def analyze_window(
         {"role": "user", "content": user_message},
     ]
 
-    print("Analyse en cours…", end="\r", flush=True)
+    _log.info("Analysis in progress...")
     # format="json" constrains Ollama to valid JSON syntax (≥ 0.1.x).
     # The normalizer below then maps the model's field names to our schema.
     raw = ollama_client.chat(
         llm_messages, model=effective_model(template, model), host=host, format="json"
     )
-    print(" " * 40, end="\r")
 
     try:
         items = llm_parse.extract_array(raw)
     except llm_parse.LlmParseError as exc:
-        print(f"[warn] Model output is not valid JSON ({exc}).")
-        print(f"       Raw snippet: {raw[:400]!r}")
+        _log.warning(
+            "Model output is not valid JSON (%s). Raw snippet: %r", exc, raw[:400]
+        )
         return []
 
     # Existing 'proposed' rows for this conversation — write-time dedup so a
@@ -801,17 +804,17 @@ def analyze_window(
     for i, raw_item in enumerate(items):
         normalized = _normalize_to_schema(raw_item, conv, db)
         if normalized is None:
-            print(f"[skip] Item {i}: normalization failed — {raw_item!r}")
+            _log.warning("[skip] Item %d: normalization failed — %r", i, raw_item)
             continue
         err = _validate_item(normalized)
         if err:
-            print(f"[skip] Item {i}: {err} — {normalized!r}")
+            _log.warning("[skip] Item %d: %s — %r", i, err, normalized)
             continue
 
         key = _mutation_match_key(normalized["mutation_type"], normalized["payload"])
         if key is not None:
             if key in covered:
-                print(f"[skip] Item {i}: already proposed this window — {key!r}")
+                _log.warning("[skip] Item %d: already proposed this window — %r", i, key)
                 continue
             covered.add(key)
 

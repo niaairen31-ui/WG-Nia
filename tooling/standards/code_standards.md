@@ -171,9 +171,17 @@ path) executes, in order:
   and the `analyzer.py`/`tick.py` helpers onto it (shrinks R2's allow-list
   to final form).
 - **f.** Replace `analyzer.py` `print()` with logging; translate its French
-  strings (closes S5 known violations; R3 runs with no exemptions).
+  strings (closes S5 known violations; R3 runs with no exemptions). Scope
+  amended in-session (BRIEF-0027-f) to also cover `tick.py`'s 26 sites,
+  once `TRANSITION_ALLOW`'s AST-authoritative count (not RECON-0027's
+  grep-based one) surfaced both files still open — see
+  ARCHITECTURE_DECISIONS.md. `tick.py`'s `module_budget.json` entry was
+  re-keyed 1797 -> 1799 lines for the mandated logging preamble, a
+  one-time, Nia-approved, shrink-only-from-here exception.
 - **g.** Delete `tooling/verify/baselines/function_length.json` and
   `module_budget.json`; R1 and R5 run exemption-free from this point.
+  Deferred to TICKET-0028's close (not this ticket) per the same
+  amendment.
 
 Behavior-preserving throughout: no route contract, prompt, or schema change.
 Each stage closes with `/verify` green plus a live smoke of the touched
