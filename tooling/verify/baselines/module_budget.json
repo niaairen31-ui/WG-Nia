@@ -5,16 +5,11 @@
 // close (code_standards.md section 4), after which module_budget.py runs
 // with no exemptions.
 //
-// tick.py re-keyed 1797 -> 1799 (BRIEF-0027-f, Nia-approved one-time
-// exception): the R3 print()->logging conversion's mandated preamble
-// (`import logging` + module `_log = logging.getLogger(__name__)`) is +2
-// unavoidable lines with zero print-call-site content — all 26 converted
-// sites are informational (no decorative/banner prints to delete to
-// absorb it). Shrink-only from 1799 going forward. See
-// ARCHITECTURE_DECISIONS.md.
+// tick.py entry (19f/1799l, re-keyed 1797 -> 1799 at BRIEF-0027-f) removed
+// at TICKET-0028/BRIEF-0028-a: decomposed into tick.py + tick_context.py +
+// tick_normalize.py, each unbaselined-compliant. See ARCHITECTURE_DECISIONS.md.
 [
   {"file": "src/world_engine/entity_author.py", "functions": 28, "lines": 1055},
   {"file": "src/world_engine/models.py", "functions": 2, "lines": 1188},
-  {"file": "src/world_engine/tick.py", "functions": 19, "lines": 1799},
   {"file": "src/world_engine/writes.py", "functions": 32, "lines": 1607}
 ]

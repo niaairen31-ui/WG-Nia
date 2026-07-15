@@ -5,14 +5,10 @@
 // close (code_standards.md section 4), after which function_length.py
 // runs with no exemptions.
 [
-  {"file": "src/world_engine/tick.py", "qualname": "run_world_tick", "lines": 417},
-  {"file": "src/world_engine/tick.py", "qualname": "_normalize_scope_event", "lines": 292},
   {"file": "src/world_engine/cockpit/routes/regions.py", "qualname": "commit_region", "lines": 271},
   {"file": "src/world_engine/context.py", "qualname": "assemble_npc_context", "lines": 267},
   {"file": "src/world_engine/analyzer.py", "qualname": "analyze_overhearing", "lines": 256},
   {"file": "src/world_engine/cockpit/routes/mutations.py", "qualname": "_find_applied_duplicate", "lines": 256},
-  {"file": "src/world_engine/tick.py", "qualname": "_normalize_tick_item", "lines": 239},
-  {"file": "src/world_engine/tick.py", "qualname": "assemble_tick_context", "lines": 214},
   {"file": "src/world_engine/analyzer.py", "qualname": "_normalize_to_schema", "lines": 180},
   {"file": "src/world_engine/cockpit/routes/play.py", "qualname": "scene_join", "lines": 163},
   {"file": "src/world_engine/context.py", "qualname": "assemble_mj_context", "lines": 161},
@@ -24,7 +20,6 @@
   {"file": "src/world_engine/entity_author.py", "qualname": "generate_event_draft", "lines": 118},
   {"file": "src/world_engine/cockpit/play_stream.py", "qualname": "_npc_initiative_vote", "lines": 117},
   {"file": "src/world_engine/cockpit/play_stream.py", "qualname": "_build_mj_user", "lines": 114},
-  {"file": "src/world_engine/tick.py", "qualname": "assemble_faction_event_context", "lines": 114},
   {"file": "src/world_engine/writes.py", "qualname": "write_relation", "lines": 111},
   {"file": "src/world_engine/cockpit/routes/creator.py", "qualname": "create_player_character", "lines": 108},
   {"file": "src/world_engine/cockpit/routes/mutations.py", "qualname": "approve_mutation", "lines": 106},

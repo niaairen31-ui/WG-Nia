@@ -42,6 +42,7 @@ ALLOWED_MODULES = {
     "src/world_engine/cockpit/play_stream.py",
     "src/world_engine/cockpit/mutations.py",
     "src/world_engine/tick.py",
+    "src/world_engine/tick_context.py",
     "scripts/migrate_v1_69_npc_goal.py",
     "tooling/verify/checks/npc_goal_read.py",
 }
