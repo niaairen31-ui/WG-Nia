@@ -45,8 +45,9 @@ Each rule targets a concrete failure mode observed in the ticket history.
   (name + file + length). The check fails if: (a) a non-baselined function
   exceeds 80 lines, or (b) a baselined function grows past its recorded
   length. Baselined entries may only shrink or disappear. The baseline file
-  is a transition artifact: it is deleted at the final remediation stage
-  (section 4, stage g), after which the check runs with no exemptions.
+  is a transition artifact: reduced at TICKET-0027 stage g to a frozen
+  residual owned by TICKET-0028, and deleted at TICKET-0028's close, after
+  which the check runs with no exemptions.
   Check: `function_length.py`.
   Failure mode addressed: `say` reached 1130 lines (958-line nested
   `_stream`), `_apply_mutation` 682, through per-ticket accretion with no
@@ -87,7 +88,9 @@ Each rule targets a concrete failure mode observed in the ticket history.
   `tooling/verify/baselines/module_budget.json` (file + function count +
   line count); a baselined module may not grow past its recorded values on
   either dimension, and entries may only shrink or disappear. The baseline
-  is a transition artifact, deleted at stage g alongside R1's.
+  is a transition artifact: reduced at TICKET-0027 stage g to a frozen
+  residual owned by TICKET-0028, and deleted at TICKET-0028's close,
+  alongside R1's.
   No permanent exemptions: when a doctrinal registry module such as
   `writes.py` legitimately needs to grow past the cap, the failing check is
   the intended tripwire — it forces the split (e.g. a `writes/` package by
@@ -178,10 +181,17 @@ path) executes, in order:
   ARCHITECTURE_DECISIONS.md. `tick.py`'s `module_budget.json` entry was
   re-keyed 1797 -> 1799 lines for the mandated logging preamble, a
   one-time, Nia-approved, shrink-only-from-here exception.
-- **g.** Delete `tooling/verify/baselines/function_length.json` and
-  `module_budget.json`; R1 and R5 run exemption-free from this point.
-  Deferred to TICKET-0028's close (not this ticket) per the same
-  amendment.
+- **g.** Close TICKET-0027 without decomposing the remainder. Stages a–f
+  do not bring the whole codebase under R1/R5 — ~25
+  `function_length.json` entries (`tick.py`, `context.py`, `analyzer.py`,
+  plus handlers moved intact by stage d) and the `tick.py`/`models.py`
+  `module_budget.json` entries are out of this ticket's scope. Rather than
+  extending TICKET-0027 or relaxing the caps, the residual is FROZEN:
+  shrink-only (unchanged mechanic), ownership transfers to successor
+  ticket TICKET-0028 (residual decomposition), and both baseline files are
+  deleted outright only at TICKET-0028's close, after which R1 and R5 run
+  exemption-free. A bounded transition with a named owner, not permanent
+  grandfathering (decision I2, `ARCHITECTURE_DECISIONS.md`).
 
 Behavior-preserving throughout: no route contract, prompt, or schema change.
 Each stage closes with `/verify` green plus a live smoke of the touched

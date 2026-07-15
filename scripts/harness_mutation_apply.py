@@ -1,10 +1,15 @@
 """Disposable record/replay harness for `_apply_mutation` (BRIEF-0027-c).
 
 Proves the `_apply_mutation` decomposition (app.py -> cockpit/mutations.py)
-is behavior-preserving. Disposable: deleted at TICKET-0027 stage g along
-with the transition baselines it exists to protect (sibling of
-`harness_say_replay.py`, same DB-copy discipline — never the live DB).
-`print` is fine here — this script lives in scripts/, never in src/.
+is behavior-preserving. Disposable, but its deletion is re-scoped past
+TICKET-0027 stage g (I2, ARCHITECTURE_DECISIONS.md): the transition
+baselines it exists to protect are frozen to a residual owned by
+TICKET-0028, not deleted at stage g, and TICKET-0028's own decompositions
+need the same record/replay proof discipline this harness established
+(sibling of `harness_say_replay.py`, same DB-copy discipline — never the
+live DB) — so this script is deleted at TICKET-0028's close, alongside the
+baselines, not before. `print` is fine here — this script lives in
+scripts/, never in src/.
 
 Unlike `say`, applying a stored proposal involves NO model call, so there
 is nothing to record from Ollama — record mode's only job is to snapshot

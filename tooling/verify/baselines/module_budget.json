@@ -1,8 +1,9 @@
 // Transition baseline (TICKET-0027 stage a, R5). Generated from `main` at
-// schema v1.79 by an AST pass over src/ (see RECON-0027 section 1). Entries
-// may only shrink or disappear; this file is deleted entirely at
-// TICKET-0028's close (code_standards.md section 4), after which
-// module_budget.py runs with no exemptions.
+// schema v1.79 by an AST pass over src/ (see RECON-0027 section 1).
+// FROZEN at TICKET-0027 stage g (I2, ARCHITECTURE_DECISIONS.md): residual
+// owned by TICKET-0028; entries shrink-only; file deleted at TICKET-0028
+// close (code_standards.md section 4), after which module_budget.py runs
+// with no exemptions.
 //
 // tick.py re-keyed 1797 -> 1799 (BRIEF-0027-f, Nia-approved one-time
 // exception): the R3 print()->logging conversion's mandated preamble
