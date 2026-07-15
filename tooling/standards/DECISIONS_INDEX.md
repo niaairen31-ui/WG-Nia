@@ -92,3 +92,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 6203 | SAY/_STREAM DECOMPOSITION — record/replay proof + module split (BRIEF-0027-b, no schema change) | BRIEF-0027-b |  |
 | 6309 | UNDEFINED-NAME REMEDIATION + R8 PROMOTION (BRIEF-0027-i, no schema change) | BRIEF-0027-i |  |
 | 6404 | ANALYZER/TICK LOGGING + MODULE-BUDGET RE-KEY (BRIEF-0027-f, no schema change) | BRIEF-0027-f |  |
+| 6478 | RESIDUAL FREEZE — successor ownership handoff to TICKET-0028 (BRIEF-0027-g, no schema change) | BRIEF-0027-g |  |

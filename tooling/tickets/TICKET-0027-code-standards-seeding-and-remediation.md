@@ -3,15 +3,17 @@ id: TICKET-0027
 title: Code standards v1 seeding — enforcement checks and legacy remediation
 type: feature
 status: live-gate
-# BRIEF-0027-a/-b/-h executed and verified (green); PR #32 merge conflict
-# (DECISIONS_INDEX.md, generated file) resolved and pushed -- CLEAN/
-# MERGEABLE. Awaiting Nia's live play-test and merge. Remaining briefs
-# (c-g) not yet deposited.
+# Stages a/b/h/c/d/i/e/f/g executed; full verify suite green on
+# ticket/0027 (function_length, module_budget, llm_parse_chokepoint,
+# no_print_in_src, single_canon_write, undefined_names all PASS). Residual
+# ~25-entry set frozen to TICKET-0028 (I2, ARCHITECTURE_DECISIONS.md) per
+# BRIEF-0027-g; stage-g wording in code_standards.md amended accordingly.
+# Awaiting Nia's live gate: merge, mark done, open TICKET-0028.
 created: 2026-07-13
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []          # no schema change; no migration; no destructive data op
 blast_radius: large       # touches say (live play path) and _apply_mutation (canon-write path)
-brief_ids: [BRIEF-0027-a, BRIEF-0027-b, BRIEF-0027-h, BRIEF-0027-i]
+brief_ids: [BRIEF-0027-a, BRIEF-0027-b, BRIEF-0027-h, BRIEF-0027-c, BRIEF-0027-d, BRIEF-0027-i, BRIEF-0027-e, BRIEF-0027-f, BRIEF-0027-g]
 schema_version_touched:   # none
 retry_count: 0
 ---
@@ -56,36 +58,42 @@ against `main` at schema v1.79 (RECON-0027). Decisions locked with Nia:
 
 ### Machine-checkable  ->  G1 deterministic gate
 
-- [ ] `function_length.py` exists, fail-closed: any function created or
+- [x] `function_length.py` exists, fail-closed: any function created or
       modified beyond 80 lines fails unless present in
       `baselines/function_length.json` at a length it has not exceeded;
       baseline entries may only shrink or disappear
       -> verify/checks/function_length.py
-- [ ] `module_budget.py` exists, fail-closed: any `src/` module over 40
+- [x] `module_budget.py` exists, fail-closed: any `src/` module over 40
       top-level functions/methods OR over 1000 lines fails unless baselined
       at values it has not exceeded on either dimension
       -> verify/checks/module_budget.py
-- [ ] `llm_parse_chokepoint.py` exists, fail-closed: `json.loads` appears
+- [x] `llm_parse_chokepoint.py` exists, fail-closed: `json.loads` appears
       only in `src/world_engine/llm_parse.py` and named allow-list entries;
       an empty parsed allow-list is a failure, not a vacuous pass
       -> verify/checks/llm_parse_chokepoint.py
-- [ ] `no_print_in_src.py` exists, fail-closed: zero `print(` call sites
+- [x] `no_print_in_src.py` exists, fail-closed: zero `print(` call sites
       under `src/world_engine/` (AST call check, not grep)
       -> verify/checks/no_print_in_src.py
-- [ ] After stage g: both transition baseline files are absent from
+- [ ] ~~After stage g: both transition baseline files are absent from
       `tooling/verify/baselines/` and all four checks pass with no
-      exemptions -> verify/checks/function_length.py, module_budget.py
-- [ ] `say` route handler and every function extracted from it are each
+      exemptions~~ AMENDED (I2, BRIEF-0027-g, ARCHITECTURE_DECISIONS.md):
+      both baselines are reduced to a frozen, enumerated residual (30 +
+      4 entries) owned by TICKET-0028 instead, shrink-only, deleted at
+      TICKET-0028's close -> verify/checks/function_length.py,
+      module_budget.py
+- [x] `say` route handler and every function extracted from it are each
       <= 80 lines -> verify/checks/function_length.py
-- [ ] `_apply_mutation` is decomposed into per-mutation-type appliers, each
+- [x] `_apply_mutation` is decomposed into per-mutation-type appliers, each
       <= 80 lines, all canon writes still routed through `writes.py`
       helpers -> verify/checks/single_canon_write.py (must stay green)
-- [ ] `cockpit/app.py` and `cockpit/crud.py` each <= 40 functions and
+- [x] `cockpit/app.py` and `cockpit/crud.py` each <= 40 functions and
       <= 1000 lines after stage d -> verify/checks/module_budget.py
-- [ ] `page_contract.py`, `single_canon_write.py`, `json_ui_boundary.py`,
+      (`app.py` now 2 functions / 74 lines, wiring only; `crud.py` no
+      longer exists as a single file, split into `cockpit/crud/`)
+- [x] `page_contract.py`, `single_canon_write.py`, `json_ui_boundary.py`,
       and the full existing check suite remain green after every stage
       -> tooling/verify/run.py
-- [ ] `undefined_names.py` exists, fail-closed: pyflakes reports zero
+- [x] `undefined_names.py` exists, fail-closed: pyflakes reports zero
       undefined names under `src/` (BRIEF-0027-d's split left 80 F821
       sites; promoted to an enforced check, R8, at BRIEF-0027-i)
       -> verify/checks/undefined_names.py

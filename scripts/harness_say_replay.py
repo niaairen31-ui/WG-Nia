@@ -1,9 +1,15 @@
 """Disposable record/replay harness for the `say` play path (BRIEF-0027-b).
 
 Proves the `say`/`_stream` decomposition (app.py -> cockpit/play.py) is
-behavior-preserving. Disposable: deleted at TICKET-0027 stage g along with
-the transition baselines it exists to protect. `print` is fine here — this
-script lives in scripts/, never in src/.
+behavior-preserving. Disposable, but its deletion is re-scoped past
+TICKET-0027 stage g (I2, ARCHITECTURE_DECISIONS.md): the transition
+baselines it exists to protect are frozen to a residual owned by
+TICKET-0028, not deleted at stage g, and TICKET-0028's own decompositions
+(`run_world_tick`, `assemble_npc_context`, `analyze_overhearing`) need the
+same record/replay proof discipline this harness established — so this
+script is deleted at TICKET-0028's close, alongside the baselines, not
+before. `print` is fine here — this script lives in scripts/, never in
+src/.
 
 Record mode: runs N reference /say round-trips against a REAL Ollama model
 on a disposable copy of the live DB (one plain narration turn, one turn

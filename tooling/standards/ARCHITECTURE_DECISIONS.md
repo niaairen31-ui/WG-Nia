@@ -6475,4 +6475,91 @@ already specified; every other field byte-identical.
 
 ---
 
+## RESIDUAL FREEZE — successor ownership handoff to TICKET-0028 (BRIEF-0027-g, no schema change)
+
+**The trigger.** Stages a–f decomposed `say`/`_stream`, `_apply_mutation`,
+`cockpit/app.py`/`crud.py`, the LLM-parse chokepoint, and
+`analyzer.py`/`tick.py` logging — but never targeted the whole codebase.
+At stage g, `tooling/verify/baselines/function_length.json` still carries
+30 entries (`tick.py`, `context.py`, `analyzer.py`, `entity_author.py`,
+`writes.py`, `region_author.py`, plus handlers moved intact by stage d
+into `cockpit/routes/*.py`, `cockpit/play_stream.py`,
+`cockpit/play_physical.py`, `cockpit/mutations.py`, `cockpit/crud/goals.py`)
+and `module_budget.json` still carries 4 (`tick.py`, `writes.py`,
+`models.py`, `entity_author.py`). Every entry belonging to a file/function
+stages b–f actually touched (`say`, `_stream`, `_apply_mutation`,
+`cockpit/app.py`, `cockpit/crud.py`) is confirmed absent from both files —
+the residual is exactly, and only, what the ticket never scoped.
+
+**I2 (locked by Nia) — freeze, don't extend or relax.** Two rejected
+alternatives: extending TICKET-0027 itself to decompose the residual
+(scope creep on an already nine-brief ticket), or relaxing R1/R5 to a
+permanent exemption (the exact grandfathering C2 already rejected at
+intake). Instead the residual is FROZEN — shrink-only (existing mechanic,
+unchanged), ownership named to a successor ticket, TICKET-0028 (residual
+decomposition; ID to be confirmed by Nia at deposit), which deletes both
+baseline files at its own close. A bounded transition with a named owner,
+not grandfathering: the freeze is scoped to two files with a fixed,
+enumerated entry set, not an open-ended carve-out.
+
+**Baseline audit (no entries changed).** Both baseline files were
+regenerated against `main`-equivalent `src/` state at this brief's
+execution and diffed entry-for-entry against an AST pass over the current
+tree: identical. Every stage from a onward already kept its own baseline
+edits shrink-only and in sync (confirmed via `git log` on both files:
+stages a, b, c, d, e, f each touched exactly the baseline rows their own
+decomposition affected). Stage g's baseline audit is therefore a
+confirmation, not a rewrite — only the header comment in each file changes,
+recording the freeze and the new deletion owner.
+
+**Residual enumeration (execution notes).** `function_length.json`, 30
+entries, `file:qualname:lines`: `tick.py:run_world_tick:417`,
+`tick.py:_normalize_scope_event:292`,
+`context.py:assemble_npc_context:267`,
+`cockpit/routes/regions.py:commit_region:264`,
+`analyzer.py:analyze_overhearing:256`,
+`cockpit/routes/mutations.py:_find_applied_duplicate:256`,
+`tick.py:_normalize_tick_item:239`, `tick.py:assemble_tick_context:214`,
+`analyzer.py:_normalize_to_schema:180`,
+`cockpit/routes/play.py:scene_join:163`,
+`context.py:assemble_mj_context:161`,
+`region_author.py:generate_region_draft:157`,
+`cockpit/mutations.py:_apply_completion_effects:150`,
+`analyzer.py:analyze_window:149`, `writes.py:write_faction_role:144`,
+`entity_author.py:generate_entity_draft:119`,
+`entity_author.py:generate_event_draft:118`,
+`cockpit/play_stream.py:_npc_initiative_vote:117`,
+`cockpit/play_stream.py:_build_mj_user:114`,
+`tick.py:assemble_faction_event_context:114`,
+`writes.py:write_relation:111`,
+`cockpit/routes/creator.py:create_player_character:108`,
+`cockpit/routes/mutations.py:approve_mutation:106`,
+`cockpit/routes/mutations.py:batch_review_mutations:97`,
+`writes.py:delete_world_cascade:94`,
+`region_author.py:_normalize_manifest:91`, `writes.py:write_knowledge:91`,
+`cockpit/play_physical.py:_arbitrate:87`,
+`cockpit/crud/goals.py:backfill_npc_goals:84`,
+`cockpit/routes/play.py:world_tick_endpoint:81`,
+`entity_author.py:generate_player_draft:81`. `module_budget.json`, 4
+entries, `file:functions:lines`: `entity_author.py:28:1055`,
+`models.py:2:1188`, `tick.py:19:1799`, `writes.py:32:1607`.
+
+**Harness ownership transfer.** `scripts/harness_say_replay.py` and
+`scripts/harness_mutation_apply.py` (record/replay proofs for the `say`
+and `_apply_mutation` decompositions) are not deleted at this stage.
+TICKET-0028's decompositions (`run_world_tick` 421 lines, tick.py;
+`assemble_npc_context` 267 lines, context.py; `analyze_overhearing` 260
+lines, analyzer.py) will need the same before/after proof discipline;
+their deletion is re-scoped to TICKET-0028's close alongside the
+baselines, noted in each script's header docstring.
+
+**Ticket close.** TICKET-0027 ships zero schema change
+(`schema_version_touched` stays empty). `code_standards.md` R1, R5, and
+section 4 stage g are rewritten to match: the baseline files are described
+as reduced to a frozen residual at this stage, not deleted here.
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*
