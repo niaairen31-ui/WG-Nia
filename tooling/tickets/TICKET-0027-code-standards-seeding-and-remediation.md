@@ -2,7 +2,7 @@
 id: TICKET-0027
 title: Code standards v1 seeding — enforcement checks and legacy remediation
 type: feature
-status: live-gate
+status: done
 # Stages a/b/h/c/d/i/e/f/g executed; full verify suite green on
 # ticket/0027 (function_length, module_budget, llm_parse_chokepoint,
 # no_print_in_src, single_canon_write, undefined_names all PASS). Residual

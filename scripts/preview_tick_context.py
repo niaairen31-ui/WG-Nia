@@ -24,7 +24,7 @@ from sqlmodel import Session  # noqa: E402
 
 from world_engine.db import engine  # noqa: E402
 from world_engine.models import Character  # noqa: E402
-from world_engine.tick import (  # noqa: E402
+from world_engine.tick_context import (  # noqa: E402
     INTERVAL_HOP_RADIUS,
     _reachable_locations,
     assemble_tick_context,

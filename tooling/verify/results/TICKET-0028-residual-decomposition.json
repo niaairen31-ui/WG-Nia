@@ -1,0 +1,27 @@
+{
+  "ticket": "TICKET-0028-residual-decomposition",
+  "when": "2026-07-15T18:23:22.524186+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u2014 every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "llm_parse_chokepoint.py",
+      "status": "PASS",
+      "msg": "PASS: llm_parse_chokepoint \u2014 every json.loads site is the chokepoint, a named permanent site, or within its transition allowance"
+    }
+  ]
+}

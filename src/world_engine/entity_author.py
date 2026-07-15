@@ -26,7 +26,7 @@ from .models import BASE_SKILL_DOMAINS, Entity, PromptTemplate, World
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
-from .tick import _EVENT_TYPES
+from .tick_normalize import _EVENT_TYPES
 from .writes import KNOWLEDGE_LEVELS
 
 _LOCATION_TYPES = ("city", "district", "building", "natural", "underground", "other")

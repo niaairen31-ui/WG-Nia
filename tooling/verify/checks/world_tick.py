@@ -122,6 +122,15 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
 TICK_FILE = SRC / "world_engine" / "tick.py"
+# Decomposed at TICKET-0028, BRIEF-0028-a: context assembly and
+# model-output normalization moved out of tick.py into these two flat
+# siblings (F1) — `run_world_tick` (decomposed into `_tick_*` stage
+# helpers) stays in tick.py. Every rule below that used to require an
+# identifier literally inside tick.py now looks in whichever of the three
+# files actually holds it post-decomposition — same assertions, relocated
+# anchors (check-anchor-relocation precedent, BRIEF-0027-c/-d).
+TICK_CONTEXT_FILE = SRC / "world_engine" / "tick_context.py"
+TICK_NORMALIZE_FILE = SRC / "world_engine" / "tick_normalize.py"
 APP_FILE = SRC / "world_engine" / "cockpit" / "routes" / "mutations.py"
 MUTATIONS_FILE = SRC / "world_engine" / "cockpit" / "mutations.py"
 ANALYZER_FILE = SRC / "world_engine" / "analyzer.py"
@@ -130,6 +139,7 @@ CRUD_FILE = SRC / "world_engine" / "cockpit" / "crud" / "entities.py"
 
 ALLOWED_MODULES = {
     "src/world_engine/tick.py",
+    "src/world_engine/tick_context.py",
     "src/world_engine/cockpit/routes/play.py",
     "scripts/preview_tick_context.py",
 }
@@ -206,14 +216,39 @@ def _find_function(tree: ast.AST, name: str) -> ast.FunctionDef | None:
     return None
 
 
+def _tick_pipeline_functions(tree: ast.AST) -> list[ast.FunctionDef]:
+    """`run_world_tick`, decomposed at TICKET-0028/BRIEF-0028-a into
+    `_tick_*`-prefixed stage helpers living alongside it in tick.py (R7
+    naming). A rule that used to require an identifier literally inside
+    `run_world_tick`'s own body now accepts it anywhere across this set —
+    exactly as strict, since nothing outside the tick-running pipeline
+    could satisfy it, while surviving the decomposition."""
+    out = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and (node.name == "run_world_tick" or node.name.startswith("_tick_")):
+            out.append(node)
+    return out
+
+
+def _pipeline_references(tree: ast.AST, identifier: str) -> bool:
+    return any(
+        isinstance(n, ast.Name) and n.id == identifier
+        for func in _tick_pipeline_functions(tree)
+        for n in ast.walk(func)
+    )
+
+
 def check_forced_attribution() -> None:
-    if not TICK_FILE.exists():
-        fail(f"{TICK_FILE} not found")
+    """Forced-attribution dict literals (npc_id/entity_a_id/etc.) now live
+    in the payload-building normalizers, all relocated to
+    tick_normalize.py."""
+    if not TICK_NORMALIZE_FILE.exists():
+        fail(f"{TICK_NORMALIZE_FILE} not found")
         return
-    tree = _parse(TICK_FILE)
+    tree = _parse(TICK_NORMALIZE_FILE)
     if tree is None:
         return
-    rel = TICK_FILE.relative_to(ROOT).as_posix()
+    rel = TICK_NORMALIZE_FILE.relative_to(ROOT).as_posix()
 
     for node in ast.walk(tree):
         if (
@@ -286,25 +321,34 @@ def check_z3_floor() -> None:
     if not built:
         fail(f"{rel}: no `secret_subjects` set comprehension filtered on is_secret found")
 
+    # The comparison (`in`/`not in` against secret_subjects) and the
+    # decoupling guard both live inside the new_knowledge branch of the
+    # per-NPC normalizer, relocated to tick_normalize.py at TICKET-0028/
+    # BRIEF-0028-a — scanned there, whole-file rather than function-scoped,
+    # since `_normalize_tick_item` is now a thin dispatcher and the actual
+    # logic sits in its extracted `_tick_normalize_new_knowledge` branch.
+    if not TICK_NORMALIZE_FILE.exists():
+        fail(f"{TICK_NORMALIZE_FILE} not found")
+        return
+    norm_tree = _parse(TICK_NORMALIZE_FILE)
+    if norm_tree is None:
+        return
+    norm_rel = TICK_NORMALIZE_FILE.relative_to(ROOT).as_posix()
+
     # A comparison (`in`/`not in`) against secret_subjects somewhere.
     compared = False
-    for node in ast.walk(tree):
+    for node in ast.walk(norm_tree):
         if isinstance(node, ast.Compare):
             operands = [node.left, *node.comparators]
             if any(isinstance(o, ast.Name) and o.id == "secret_subjects" for o in operands):
                 if any(isinstance(op, (ast.In, ast.NotIn)) for op in node.ops):
                     compared = True
     if not compared:
-        fail(f"{rel}: no `in`/`not in` comparison against `secret_subjects` found")
+        fail(f"{norm_rel}: no `in`/`not in` comparison against `secret_subjects` found")
 
-    # Decoupling: within _normalize_tick_item, is_secret never assigned
-    # (Name/Subscript target, or dict-literal key) from a value referencing
-    # secret_subjects or secret_derived — the floor cannot set confidentiality.
-    func = _find_function(tree, "_normalize_tick_item")
-    if func is None:
-        fail(f"{rel}: _normalize_tick_item not found")
-        return
-
+    # Decoupling: is_secret never assigned (Name/Subscript target, or
+    # dict-literal key) from a value referencing secret_subjects or
+    # secret_derived — the floor cannot set confidentiality.
     def _references_forbidden(value_node: ast.AST) -> bool:
         return any(
             isinstance(n, ast.Name) and n.id in ("secret_subjects", "secret_derived")
@@ -320,14 +364,14 @@ def check_z3_floor() -> None:
                 return True
         return False
 
-    for node in ast.walk(func):
+    for node in ast.walk(norm_tree):
         if isinstance(node, ast.Assign):
             if any(_target_is_is_secret(t) for t in node.targets) and _references_forbidden(node.value):
-                fail(f"{rel}:{node.lineno} — is_secret assigned from secret_subjects/secret_derived (floor must not set confidentiality)")
+                fail(f"{norm_rel}:{node.lineno} — is_secret assigned from secret_subjects/secret_derived (floor must not set confidentiality)")
         if isinstance(node, ast.Dict):
             for key, value in zip(node.keys, node.values):
                 if isinstance(key, ast.Constant) and key.value == "is_secret" and _references_forbidden(value):
-                    fail(f"{rel}:{getattr(value, 'lineno', node.lineno)} — is_secret dict value references secret_subjects/secret_derived (floor must not set confidentiality)")
+                    fail(f"{norm_rel}:{getattr(value, 'lineno', node.lineno)} — is_secret dict value references secret_subjects/secret_derived (floor must not set confidentiality)")
 
 
 def _dict_assign_target(node: ast.AST):
@@ -362,13 +406,16 @@ def check_analyzer_no_npc_move() -> None:
 
 
 def check_interval_hop_radius() -> None:
-    if not TICK_FILE.exists():
-        fail(f"{TICK_FILE} not found")
+    """Retargeted (TICKET-0028, BRIEF-0028-a): INTERVAL_HOP_RADIUS and
+    `_reachable_locations` both moved to tick_context.py — same assertions,
+    relocated anchor."""
+    if not TICK_CONTEXT_FILE.exists():
+        fail(f"{TICK_CONTEXT_FILE} not found")
         return
-    tree = _parse(TICK_FILE)
+    tree = _parse(TICK_CONTEXT_FILE)
     if tree is None:
         return
-    rel = TICK_FILE.relative_to(ROOT).as_posix()
+    rel = TICK_CONTEXT_FILE.relative_to(ROOT).as_posix()
 
     found = False
     for node in ast.walk(tree):
@@ -432,14 +479,34 @@ def check_apply_mutation_location_write() -> None:
         fail(f"{rel}: _mutation_apply_npc_move does not call close_open_memberships")
 
 
+def _per_npc_normalize_functions(tree: ast.AST) -> list[ast.FunctionDef]:
+    """`_normalize_tick_item`'s own body plus its `_tick_normalize_*`
+    per-mutation-type branch helpers (TICKET-0028/BRIEF-0028-a
+    decomposition) — excludes the `_tick_normalize_scope_*` siblings,
+    which are the separate scope-level normalizer's own branches and
+    legitimately handle event_creation/entity_creation/agenda_delegation."""
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if node.name == "_normalize_tick_item":
+            out.append(node)
+        elif node.name.startswith("_tick_normalize_") and "_scope_" not in node.name:
+            out.append(node)
+    return out
+
+
 def check_scope_event_producer_isolation() -> None:
-    if not TICK_FILE.exists():
-        fail(f"{TICK_FILE} not found")
+    """Retargeted (TICKET-0028, BRIEF-0028-a): _TICK_MUTATION_TYPES,
+    _TICK_TYPE_ALIASES, and _normalize_tick_item all moved to
+    tick_normalize.py."""
+    if not TICK_NORMALIZE_FILE.exists():
+        fail(f"{TICK_NORMALIZE_FILE} not found")
         return
-    tree = _parse(TICK_FILE)
+    tree = _parse(TICK_NORMALIZE_FILE)
     if tree is None:
         return
-    rel = TICK_FILE.relative_to(ROOT).as_posix()
+    rel = TICK_NORMALIZE_FILE.relative_to(ROOT).as_posix()
 
     for node in ast.walk(tree):
         name, value = _dict_assign_target(node)
@@ -452,13 +519,14 @@ def check_scope_event_producer_isolation() -> None:
                 if isinstance(v, ast.Constant) and v.value == "event_creation":
                     fail(f"{rel}:{node.lineno} — _TICK_TYPE_ALIASES maps a key to 'event_creation'")
 
-    func = _find_function(tree, "_normalize_tick_item")
-    if func is None:
+    funcs = _per_npc_normalize_functions(tree)
+    if not funcs:
         fail(f"{rel}: _normalize_tick_item not found")
         return
-    for node in ast.walk(func):
-        if isinstance(node, ast.Constant) and node.value == "event_creation":
-            fail(f"{rel}:{node.lineno} — 'event_creation' referenced inside _normalize_tick_item")
+    for func in funcs:
+        for node in ast.walk(func):
+            if isinstance(node, ast.Constant) and node.value == "event_creation":
+                fail(f"{rel}:{node.lineno} — 'event_creation' referenced inside the per-NPC normalizer ({func.name})")
 
 
 def check_scope_event_quota() -> None:
@@ -480,12 +548,11 @@ def check_scope_event_quota() -> None:
         fail(f"{rel}: SCOPE_EVENT_QUOTA module constant not found")
         return
 
-    func = _find_function(tree, "run_world_tick")
-    if func is None:
-        fail(f"{rel}: run_world_tick not found")
-        return
-    if not any(isinstance(n, ast.Name) and n.id == "SCOPE_EVENT_QUOTA" for n in ast.walk(func)):
-        fail(f"{rel}: run_world_tick does not reference SCOPE_EVENT_QUOTA")
+    # Retargeted (TICKET-0028, BRIEF-0028-a): run_world_tick decomposed
+    # into `_tick_*` stage helpers — SCOPE_EVENT_QUOTA is now referenced
+    # from `_tick_normalize_scope_items`, not run_world_tick's own body.
+    if not _pipeline_references(tree, "SCOPE_EVENT_QUOTA"):
+        fail(f"{rel}: the tick-running pipeline (run_world_tick / _tick_* stage helpers) does not reference SCOPE_EVENT_QUOTA")
 
 
 def check_agenda_type_isolation() -> None:
@@ -493,14 +560,15 @@ def check_agenda_type_isolation() -> None:
     BRIEF-0020-b): agenda types live in the scope-level normalizer AND, now
     deliberately, the per-NPC closed contract — this asserts PRESENCE in
     both, the flip of the original 0018-only "never in the per-NPC one"
-    claim."""
-    if not TICK_FILE.exists():
-        fail(f"{TICK_FILE} not found")
+    claim. Retargeted (TICKET-0028, BRIEF-0028-a): both normalizers moved
+    to tick_normalize.py."""
+    if not TICK_NORMALIZE_FILE.exists():
+        fail(f"{TICK_NORMALIZE_FILE} not found")
         return
-    tree = _parse(TICK_FILE)
+    tree = _parse(TICK_NORMALIZE_FILE)
     if tree is None:
         return
-    rel = TICK_FILE.relative_to(ROOT).as_posix()
+    rel = TICK_NORMALIZE_FILE.relative_to(ROOT).as_posix()
     agenda_types = ("agenda_step_change", "agenda_creation")
 
     scope_func = _find_function(tree, "_normalize_scope_event")
@@ -542,14 +610,16 @@ def check_agenda_type_isolation() -> None:
 def check_agenda_delegation_isolation() -> None:
     """Rule 19 (TICKET-0020, BRIEF-0020-b): agenda_delegation lives ONLY in
     the scope-level (faction-only) normalizer, never the per-NPC contract —
-    the same isolation shape as rules 9/15, for this new type."""
-    if not TICK_FILE.exists():
-        fail(f"{TICK_FILE} not found")
+    the same isolation shape as rules 9/15, for this new type. Retargeted
+    (TICKET-0028, BRIEF-0028-a): both normalizers moved to
+    tick_normalize.py."""
+    if not TICK_NORMALIZE_FILE.exists():
+        fail(f"{TICK_NORMALIZE_FILE} not found")
         return
-    tree = _parse(TICK_FILE)
+    tree = _parse(TICK_NORMALIZE_FILE)
     if tree is None:
         return
-    rel = TICK_FILE.relative_to(ROOT).as_posix()
+    rel = TICK_NORMALIZE_FILE.relative_to(ROOT).as_posix()
 
     scope_func = _find_function(tree, "_normalize_scope_event")
     if scope_func is None:
@@ -573,20 +643,24 @@ def check_agenda_delegation_isolation() -> None:
                 if isinstance(v, ast.Constant) and v.value == "agenda_delegation":
                     fail(f"{rel}:{node.lineno} — _TICK_TYPE_ALIASES maps a key to 'agenda_delegation'")
 
-    tick_func = _find_function(tree, "_normalize_tick_item")
-    if tick_func is None:
+    funcs = _per_npc_normalize_functions(tree)
+    if not funcs:
         fail(f"{rel}: _normalize_tick_item not found")
         return
-    for node in ast.walk(tick_func):
-        if isinstance(node, ast.Constant) and node.value == "agenda_delegation":
-            fail(f"{rel}:{node.lineno} — 'agenda_delegation' referenced inside _normalize_tick_item")
+    for func in funcs:
+        for node in ast.walk(func):
+            if isinstance(node, ast.Constant) and node.value == "agenda_delegation":
+                fail(f"{rel}:{node.lineno} — 'agenda_delegation' referenced inside the per-NPC normalizer ({func.name})")
 
 
 def check_per_npc_agendas_index_owner_restricted() -> None:
     """Rule 20 (TICKET-0020, BRIEF-0020-b): the per-NPC agendas_index passed
     into _normalize_tick_item is built from a query comparing
     Agenda.owner_entity_id against a bare npc_id Name — owner-restricted,
-    never the faction/scope index."""
+    never the faction/scope index. Retargeted (TICKET-0028, BRIEF-0028-a):
+    the query moved into `_tick_build_npc_indexes`, one of run_world_tick's
+    decomposed stage helpers — checked across the whole tick-running
+    pipeline rather than run_world_tick's own body alone."""
     if not TICK_FILE.exists():
         fail(f"{TICK_FILE} not found")
         return
@@ -595,28 +669,24 @@ def check_per_npc_agendas_index_owner_restricted() -> None:
         return
     rel = TICK_FILE.relative_to(ROOT).as_posix()
 
-    func = _find_function(tree, "run_world_tick")
-    if func is None:
-        fail(f"{rel}: run_world_tick not found")
-        return
-
     def _is_owner_entity_id_attr(node) -> bool:
         return isinstance(node, ast.Attribute) and node.attr == "owner_entity_id"
 
     found = False
-    for node in ast.walk(func):
-        if isinstance(node, ast.Compare):
-            operands = [node.left, *node.comparators]
-            has_owner_attr = any(_is_owner_entity_id_attr(o) for o in operands)
-            has_npc_id_name = any(
-                isinstance(o, ast.Name) and o.id == "npc_id" for o in operands
-            )
-            if has_owner_attr and has_npc_id_name:
-                found = True
+    for func in _tick_pipeline_functions(tree):
+        for node in ast.walk(func):
+            if isinstance(node, ast.Compare):
+                operands = [node.left, *node.comparators]
+                has_owner_attr = any(_is_owner_entity_id_attr(o) for o in operands)
+                has_npc_id_name = any(
+                    isinstance(o, ast.Name) and o.id == "npc_id" for o in operands
+                )
+                if has_owner_attr and has_npc_id_name:
+                    found = True
     if not found:
         fail(
-            f"{rel}: run_world_tick has no Agenda.owner_entity_id == npc_id comparison — "
-            "the per-NPC agendas_index must be owner-restricted"
+            f"{rel}: the tick-running pipeline (run_world_tick / _tick_* stage helpers) has no "
+            "Agenda.owner_entity_id == npc_id comparison — the per-NPC agendas_index must be owner-restricted"
         )
 
 
@@ -671,14 +741,16 @@ def check_agenda_step_one_active_index() -> None:
 
 def check_entity_creation_isolation() -> None:
     """Rule 15 (TICKET-0019, BRIEF-0019-a): entity_creation lives ONLY in the
-    scope-level normalizer, never in the per-NPC closed contract."""
-    if not TICK_FILE.exists():
-        fail(f"{TICK_FILE} not found")
+    scope-level normalizer, never in the per-NPC closed contract.
+    Retargeted (TICKET-0028, BRIEF-0028-a): both normalizers moved to
+    tick_normalize.py."""
+    if not TICK_NORMALIZE_FILE.exists():
+        fail(f"{TICK_NORMALIZE_FILE} not found")
         return
-    tree = _parse(TICK_FILE)
+    tree = _parse(TICK_NORMALIZE_FILE)
     if tree is None:
         return
-    rel = TICK_FILE.relative_to(ROOT).as_posix()
+    rel = TICK_NORMALIZE_FILE.relative_to(ROOT).as_posix()
 
     scope_func = _find_function(tree, "_normalize_scope_event")
     if scope_func is None:
@@ -702,18 +774,22 @@ def check_entity_creation_isolation() -> None:
                 if isinstance(v, ast.Constant) and v.value == "entity_creation":
                     fail(f"{rel}:{node.lineno} — _TICK_TYPE_ALIASES maps a key to 'entity_creation'")
 
-    tick_func = _find_function(tree, "_normalize_tick_item")
-    if tick_func is None:
+    funcs = _per_npc_normalize_functions(tree)
+    if not funcs:
         fail(f"{rel}: _normalize_tick_item not found")
         return
-    for node in ast.walk(tick_func):
-        if isinstance(node, ast.Constant) and node.value == "entity_creation":
-            fail(f"{rel}:{node.lineno} — 'entity_creation' referenced inside _normalize_tick_item")
+    for func in funcs:
+        for node in ast.walk(func):
+            if isinstance(node, ast.Constant) and node.value == "entity_creation":
+                fail(f"{rel}:{node.lineno} — 'entity_creation' referenced inside the per-NPC normalizer ({func.name})")
 
 
 def check_entity_creation_quota() -> None:
     """Rule 16 (TICKET-0019, BRIEF-0019-a): ENTITY_CREATION_QUOTA exists and
-    bounds the scope-level emit loop (twin of rule 10)."""
+    bounds the scope-level emit loop (twin of rule 10). Retargeted
+    (TICKET-0028, BRIEF-0028-a): run_world_tick decomposed into `_tick_*`
+    stage helpers — the reference now lives in
+    `_tick_normalize_scope_items`."""
     if not TICK_FILE.exists():
         fail(f"{TICK_FILE} not found")
         return
@@ -732,12 +808,8 @@ def check_entity_creation_quota() -> None:
         fail(f"{rel}: ENTITY_CREATION_QUOTA module constant not found")
         return
 
-    func = _find_function(tree, "run_world_tick")
-    if func is None:
-        fail(f"{rel}: run_world_tick not found")
-        return
-    if not any(isinstance(n, ast.Name) and n.id == "ENTITY_CREATION_QUOTA" for n in ast.walk(func)):
-        fail(f"{rel}: run_world_tick does not reference ENTITY_CREATION_QUOTA")
+    if not _pipeline_references(tree, "ENTITY_CREATION_QUOTA"):
+        fail(f"{rel}: the tick-running pipeline (run_world_tick / _tick_* stage helpers) does not reference ENTITY_CREATION_QUOTA")
 
 
 def check_apply_mutation_no_entity_construction() -> None:
