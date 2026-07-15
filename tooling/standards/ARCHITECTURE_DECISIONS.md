@@ -6401,6 +6401,78 @@ exception-handler `_log` calls and one non-`/say` route). `undefined_names.py`
 now makes that entire failure class visible on every future split,
 independent of what any specific harness happens to traverse.
 
+## ANALYZER/TICK LOGGING + MODULE-BUDGET RE-KEY (BRIEF-0027-f, no schema change)
+
+**Scope amendment.** BRIEF-0027-f originally scoped `analyzer.py`'s 12
+`print()` sites only. Mid-execution, `TRANSITION_ALLOW`'s live entry for
+`tick.py` (26 sites, matching the AST-authoritative census, not
+RECON-0027's grep-based one) surfaced a contradiction: Scope IN named only
+`analyzer.py`, but the brief's own Done-means required
+`TRANSITION_ALLOW` empty and zero `print()` sites tree-wide. Nia amended
+the brief in-session to extend the conversion to `tick.py`, same rules
+verbatim (module `_log = logging.getLogger(__name__)`, level mapping
+info/warning, message content preserved, French-label DATA exclusion
+unchanged).
+
+**Every converted site was informational, not decorative.** All 11 actual
+`analyzer.py` sites (RECON's estimate of 12 overcounted by one) and all 26
+`tick.py` sites carry real diagnostic payload — "what was dropped/skipped
+and why," one item at a time. The single exception was `analyzer.py`'s
+mid-window terminal cursor-clear (`print(" " * 40, end="\r")`, paired with
+the "Analyse en cours…" progress print): pure terminal-redraw mechanics
+with zero informational content, deleted rather than converted — a log
+stream has no cursor to clear. `analyzer.py:140`'s
+`_GOAL_ACTION_MAP["abandonné"]` key and `:749`'s
+`"(aucun contexte enregistré)"` fallback stayed untouched: both are
+prompt-consumed DATA (the first matches the local model's own French
+wording, the second is transcript filler sent back into the next model
+call), not messages — same category as the canonical interval-vocabulary
+exclusion already on record.
+
+**Whole-tree French-string audit (scope item 2) — no further sites
+qualified.** A `[àâäéèêëîïôöùûüçÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ]` sweep across `src/`
+turned up French content in `tick.py`, `context.py`, `play.py`,
+`play_stream.py`, `play_physical.py`, `entity_author.py`, `region_author.py`,
+and several `cockpit/crud`/`cockpit/routes` modules. Every hit resolved to
+one of: (a) prompt content sent to or shaping a model call (NPC/MJ
+narration instructions, briefing headers, affinity-tier and
+condition-ladder labels — the interval-vocabulary precedent generalizes to
+all of it), or (b) creator-facing note/reason strings surfaced in the
+cockpit UI, which is itself French by deliberate product design
+(`index.html`'s own tab labels — "Création", "Créations en attente" —
+confirm this) — translating those would desync UI copy from its own
+review notes, not fix a stray developer message. `ollama_client.py`'s
+docstring quoting `"réflexion…"` is a literal reference to that exact
+`index.html` UI string, not prose. None of this is `src/`'s frontend
+governance gap either (RECON-0027 risk zone D, a separate, larger, un-ticketed
+concern). Zero additional translations were made; this reasoning is the
+audit's documented output per the brief's own "escalate, do not
+translate" instruction for ambiguous data-vs-message calls.
+
+**Module-budget collision, and its resolution.** Adding `tick.py`'s
+mandated logger preamble (`import logging` + module-level `_log`) costs 2
+physical lines with zero print-call-site content — all 26 conversions
+themselves are exactly line-neutral (one `print()` line replaced by one
+`_log.warning()` line each, after collapsing initially-wrapped calls back
+to single lines to protect `function_length.py`'s `_normalize_tick_item`
+baseline, which closed unchanged at 239/239). `module_budget.py`'s own
+docstring is explicit that trimming unrelated content to dodge the line
+cap is the exact workaround the check exists to block, and the 26
+converted sites are all substantive (no decorative separator/banner
+prints existed to delete and absorb the 2 lines). Nia approved a one-time,
+documented re-key of `tooling/verify/baselines/module_budget.json`:
+`tick.py` `1797 -> 1799` lines, `functions` unchanged at 19, comment
+citing this decision. Shrink-only from 1799 forward; the entry (and the
+whole baseline file) is deleted outright at TICKET-0028's close, per the
+updated baseline-file header comment.
+
+**Bug-log flip.** `tooling/improvement/bug_log.jsonl`'s sole entry
+(2026-07-03, `context.py` subculture-values crash, actually fixed by
+BRIEF-0025-d/v1.78) had sat at `status: "open"` since — `code_standards.md`
+section 5's documented housekeeping debt. Flipped to
+`"fixed (BRIEF-0025-d, v1.78)"`, the exact string `code_standards.md`
+already specified; every other field byte-identical.
+
 ---
 
 *Co-built with Claude, June 2026.*

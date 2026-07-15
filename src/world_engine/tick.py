@@ -18,6 +18,7 @@ locally rather than imported, so this module's AST stays self-contained and
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -54,6 +55,7 @@ from .prompt_registry import effective_model
 from .prompt_store import current_prompt
 from .writes import _find_relation_pair
 
+_log = logging.getLogger(__name__)
 H_IDENTITY = "QUI TU ES"
 H_GOALS = "TES OBJECTIFS"
 H_KNOWLEDGE = "CE QUE TU SAIS"
@@ -1064,7 +1066,7 @@ def _normalize_effect_item(raw_eff: Any, *, effects_roster: dict[str, str]) -> d
     `_apply_completion_effects`, stays whole-reject because canon is at
     stake there — this is pre-canon and cheap)."""
     if not isinstance(raw_eff, dict):
-        print(f"[tick] dropped effect: not a dict — {raw_eff!r}")
+        _log.warning("[tick] dropped effect: not a dict — %r", raw_eff)
         return None
     eff_type = str(raw_eff.get("type") or "").strip().casefold()
 
@@ -1075,13 +1077,13 @@ def _normalize_effect_item(raw_eff: Any, *, effects_roster: dict[str, str]) -> d
         try:
             value = int(raw_eff.get("value"))
         except (TypeError, ValueError):
-            print(f"[tick] dropped effect relation_delta: invalid value {raw_eff.get('value')!r}")
+            _log.warning("[tick] dropped effect relation_delta: invalid value %r", raw_eff.get("value"))
             return None
         if not target_id:
-            print(f"[tick] dropped effect relation_delta: unresolved target {target_name!r}")
+            _log.warning("[tick] dropped effect relation_delta: unresolved target %r", target_name)
             return None
         if not relation_type:
-            print("[tick] dropped effect relation_delta: missing relation_type")
+            _log.warning("[tick] dropped effect relation_delta: missing relation_type")
             return None
         return {
             "type": "relation_delta", "target_entity_id": target_id,
@@ -1096,10 +1098,10 @@ def _normalize_effect_item(raw_eff: Any, *, effects_roster: dict[str, str]) -> d
         try:
             amount = int(raw_eff.get("amount"))
         except (TypeError, ValueError):
-            print(f"[tick] dropped effect ledger_transfer: invalid amount {raw_eff.get('amount')!r}")
+            _log.warning("[tick] dropped effect ledger_transfer: invalid amount %r", raw_eff.get("amount"))
             return None
         if not from_id or not to_id:
-            print(f"[tick] dropped effect ledger_transfer: unresolved from/to — {from_name!r}/{to_name!r}")
+            _log.warning("[tick] dropped effect ledger_transfer: unresolved from/to — %r/%r", from_name, to_name)
             return None
         return {
             "type": "ledger_transfer", "from_entity_id": from_id, "to_entity_id": to_id,
@@ -1111,14 +1113,14 @@ def _normalize_effect_item(raw_eff: Any, *, effects_roster: dict[str, str]) -> d
         faction_id = effects_roster.get(faction_name.casefold())
         role = str(raw_eff.get("role") or "").strip()
         if not faction_id or not role:
-            print(f"[tick] dropped effect role_change: unresolved faction {faction_name!r} or empty role")
+            _log.warning("[tick] dropped effect role_change: unresolved faction %r or empty role", faction_name)
             return None
         return {
             "type": "role_change", "faction_id": faction_id, "role": role,
             "declare": bool(raw_eff.get("declare", False)),
         }
 
-    print(f"[tick] dropped effect: unknown type {raw_eff.get('type')!r}")
+    _log.warning("[tick] dropped effect: unknown type %r", raw_eff.get("type"))
     return None
 
 
@@ -1132,7 +1134,7 @@ def _normalize_effects_list(raw_effects: Any, *, effects_roster: dict[str, str])
         if (item := _normalize_effect_item(raw_eff, effects_roster=effects_roster)) is not None
     ]
     if len(normalized) > 3:
-        print(f"[tick] effects: {len(normalized) - 3} excess effect(s) dropped (cap 3)")
+        _log.warning("[tick] effects: %d excess effect(s) dropped (cap 3)", len(normalized) - 3)
         normalized = normalized[:3]
     return normalized
 
@@ -1173,13 +1175,13 @@ def _normalize_tick_item(
     del world_id  # reserved: no payload shape carries it (entity-scoped, not world-keyed)
 
     if not isinstance(raw_item, dict):
-        print(f"[tick] dropped: not a dict — {raw_item!r}")
+        _log.warning("[tick] dropped: not a dict — %r", raw_item)
         return None
 
     raw_mt = str(raw_item.get("mutation_type") or "").lower()
     mutation_type = _TICK_TYPE_ALIASES.get(raw_mt)
     if mutation_type not in _TICK_MUTATION_TYPES:
-        print(f"[tick] dropped: unrecognised or out-of-contract mutation_type {raw_item.get('mutation_type')!r}")
+        _log.warning("[tick] dropped: unrecognised or out-of-contract mutation_type %r", raw_item.get("mutation_type"))
         return None
 
     payload_in = raw_item.get("payload") if isinstance(raw_item.get("payload"), dict) else {}
@@ -1191,7 +1193,7 @@ def _normalize_tick_item(
             payload_in.get("goal") or payload_in.get("description") or payload_in.get("content") or ""
         ).strip()
         if action is None or not goal_text:
-            print(f"[tick] dropped goal_change: unrecognised action or empty goal text — {payload_in!r}")
+            _log.warning("[tick] dropped goal_change: unrecognised action or empty goal text — %r", payload_in)
             return None
         payload = {"npc_id": npc_id, "action": action, "goal": goal_text}
 
@@ -1207,7 +1209,7 @@ def _normalize_tick_item(
                 if agenda_id:
                     payload["agenda_id"] = agenda_id
                 else:
-                    print(f"[tick] goal_change: unresolved agenda reference {agenda_title!r} dropped")
+                    _log.warning("[tick] goal_change: unresolved agenda reference %r dropped", agenda_title)
 
         # Completion effects (TICKET-0024, BRIEF-0024-c) — `complete` only.
         if action == "complete" and isinstance(payload_in.get("effects"), list):
@@ -1224,12 +1226,12 @@ def _normalize_tick_item(
         agenda_title = str(payload_in.get("agenda") or "").strip()
         agenda_id = agendas_index.get(agenda_title.casefold()) if agenda_title else None
         if not agenda_id:
-            print(f"[tick] dropped agenda_step_change: unresolved agenda {agenda_title!r}")
+            _log.warning("[tick] dropped agenda_step_change: unresolved agenda %r", agenda_title)
             return None
 
         raw_step_action = str(payload_in.get("action") or "").strip().casefold()
         if raw_step_action not in ("complete", "fail"):
-            print(f"[tick] dropped agenda_step_change: unrecognised action {payload_in.get('action')!r}")
+            _log.warning("[tick] dropped agenda_step_change: unrecognised action %r", payload_in.get("action"))
             return None
 
         # The step is NEVER addressed by the model — derived here as the
@@ -1240,7 +1242,7 @@ def _normalize_tick_item(
             select(AgendaStep).where(AgendaStep.agenda_id == agenda_id, AgendaStep.status == "active")
         ).first()
         if active_step is None:
-            print(f"[tick] dropped agenda_step_change: agenda {agenda_title!r} has no active step (closed since)")
+            _log.warning("[tick] dropped agenda_step_change: agenda %r has no active step (closed since)", agenda_title)
             return None
 
         step_outcome = payload_in.get("outcome")
@@ -1267,23 +1269,23 @@ def _normalize_tick_item(
         # second creation is dropped here, never proposed.
         agenda_title = str(payload_in.get("title") or "").strip()
         if not agenda_title:
-            print("[tick] dropped agenda_creation: empty title")
+            _log.warning("[tick] dropped agenda_creation: empty title")
             return None
 
         raw_agenda_steps = payload_in.get("steps")
         if not isinstance(raw_agenda_steps, list):
-            print(f"[tick] dropped agenda_creation {agenda_title!r}: steps not a list")
+            _log.warning("[tick] dropped agenda_creation %r: steps not a list", agenda_title)
             return None
         agenda_steps = [str(s).strip() for s in raw_agenda_steps if str(s).strip()]
         if not (2 <= len(agenda_steps) <= 5):
-            print(f"[tick] dropped agenda_creation {agenda_title!r}: steps count {len(agenda_steps)} out of range 2-5")
+            _log.warning("[tick] dropped agenda_creation %r: steps count %d out of range 2-5", agenda_title, len(agenda_steps))
             return None
 
         existing_own_agenda = db.exec(
             select(Agenda).where(Agenda.owner_entity_id == npc_id, Agenda.status == "active")
         ).first()
         if existing_own_agenda is not None:
-            print(f"[tick] dropped agenda_creation {agenda_title!r}: NPC already owns an active agenda")
+            _log.warning("[tick] dropped agenda_creation %r: NPC already owns an active agenda", agenda_title)
             return None
 
         payload = {"owner_entity_id": npc_id, "title": agenda_title, "steps": agenda_steps}
@@ -1293,12 +1295,12 @@ def _normalize_tick_item(
         other_name = str(payload_in.get("other") or "").strip()
         other_id = roster.get(other_name.casefold())
         if not other_id:
-            print(f"[tick] dropped relation_change: unresolved counterpart {other_name!r}")
+            _log.warning("[tick] dropped relation_change: unresolved counterpart %r", other_name)
             return None
         try:
             delta = int(payload_in.get("intensity_delta"))
         except (TypeError, ValueError):
-            print(f"[tick] dropped relation_change: missing/invalid intensity_delta — {payload_in!r}")
+            _log.warning("[tick] dropped relation_change: missing/invalid intensity_delta — %r", payload_in)
             return None
         payload = {
             "entity_a_id": npc_id,
@@ -1310,12 +1312,12 @@ def _normalize_tick_item(
 
     elif mutation_type == "npc_move":
         if not from_location_id:
-            print("[tick] dropped npc_move: NPC has no current location")
+            _log.warning("[tick] dropped npc_move: NPC has no current location")
             return None
         destination_name = str(payload_in.get("destination") or "").strip()
         to_id = destinations.get(destination_name.casefold())
         if not destination_name or not to_id:
-            print(f"[tick] dropped npc_move: unresolved or out-of-radius destination {destination_name!r}")
+            _log.warning("[tick] dropped npc_move: unresolved or out-of-radius destination %r", destination_name)
             return None
         payload = {
             "npc_id": npc_id,
@@ -1333,11 +1335,11 @@ def _normalize_tick_item(
         else:
             entity_id = roster.get(recipient.casefold())
             if not entity_id:
-                print(f"[tick] dropped new_knowledge: unresolved recipient {recipient!r}")
+                _log.warning("[tick] dropped new_knowledge: unresolved recipient %r", recipient)
                 return None
         content = str(payload_in.get("content") or "").strip()
         if not content:
-            print("[tick] dropped new_knowledge: empty content")
+            _log.warning("[tick] dropped new_knowledge: empty content")
             return None
         subject = str(payload_in.get("subject") or "").strip() or _content_to_subject_slug(content)
 
