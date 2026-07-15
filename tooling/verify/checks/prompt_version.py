@@ -12,13 +12,14 @@ world_engine import) so this check never touches Nia's real DB.
    version_number); `prompt_template` no longer has system_prompt /
    user_template / version columns.
 2. Static scan: `PromptVersion` (the class) is imported/referenced only in
-   models.py, prompt_store.py, writes.py, and the migration script.
+   models.py, prompt_store.py, writes/prompts.py, and the migration script.
 3. Static scan: raw SQL referencing the `prompt_version` table (inside a
    `text(...)` call) appears only in models.py's `__tablename__` and the
    migration script.
 4. Static scan: no `Session.add(PromptVersion(...))` outside
-   writes.py::write_prompt_version (the migration script uses raw SQL, not
-   the ORM class, so it never triggers this pattern in the first place).
+   writes/prompts.py::write_prompt_version (the migration script uses raw
+   SQL, not the ORM class, so it never triggers this pattern in the first
+   place).
 5. Static scan: no UPDATE/DELETE SQL statement ever targets `prompt_version`
    anywhere (append-only by construction) — no allowlist, this must be
    universally true.
@@ -43,10 +44,12 @@ SRC = ROOT / "src"
 MIGRATION = ROOT / "scripts" / "migrate_v1_68_prompt_version.py"
 
 # Files allowed to reference the PromptVersion class / prompt_version table.
+# `writes.py` -> `writes/prompts.py` (TICKET-0028, BRIEF-0028-b): anchor
+# relocated, assertions unchanged (relocation-not-broadening precedent).
 ALLOWED_FILES = {
     (SRC / "world_engine" / "models.py").resolve(),
     (SRC / "world_engine" / "prompt_store.py").resolve(),
-    (SRC / "world_engine" / "writes.py").resolve(),
+    (SRC / "world_engine" / "writes" / "prompts.py").resolve(),
     MIGRATION.resolve(),
 }
 
@@ -122,8 +125,8 @@ def check_sql_table_reference_allowlist() -> None:
 
 
 def check_single_write_shape() -> None:
-    """No `Session.add(PromptVersion(...))` outside writes.py::write_prompt_version."""
-    writes_path = (SRC / "world_engine" / "writes.py").resolve()
+    """No `Session.add(PromptVersion(...))` outside writes/prompts.py::write_prompt_version."""
+    writes_path = (SRC / "world_engine" / "writes" / "prompts.py").resolve()
     for path in _iter_py_files():
         resolved = path.resolve()
         try:
@@ -141,7 +144,7 @@ def check_single_write_shape() -> None:
                 arg = node.args[0]
                 is_prompt_version_ctor = isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name) and arg.func.id == "PromptVersion"
                 if is_prompt_version_ctor and not (resolved == writes_path and fn.name == "write_prompt_version"):
-                    fail(f"{path}:{node.lineno} adds a PromptVersion row outside writes.py::write_prompt_version")
+                    fail(f"{path}:{node.lineno} adds a PromptVersion row outside writes/prompts.py::write_prompt_version")
 
 
 def check_append_only() -> None:

@@ -6,28 +6,33 @@ npc_price location_subculture world_law
 
 [ALLOWED_SITES]
 # path::function                                              tables
-src/world_engine/writes.py::write_relation                    relation
-src/world_engine/writes.py::write_character_location           character
-src/world_engine/writes.py::write_knowledge                   knowledge
-src/world_engine/writes.py::write_ledger_entry                ledger
-src/world_engine/writes.py::write_membership                  faction_membership
-src/world_engine/writes.py::write_skill_tier                  skill
-src/world_engine/writes.py::write_npc_goal                    npc_goal
-src/world_engine/writes.py::write_npc_goal_status             npc_goal
-src/world_engine/writes.py::write_npc_goal_prerequisites      npc_goal
-src/world_engine/writes.py::write_faction_role                faction_role
-src/world_engine/writes.py::write_npc_prices                  npc_price
-src/world_engine/writes.py::write_location_subculture         location_subculture
-src/world_engine/writes.py::write_world_laws                  world_law
-src/world_engine/writes.py::write_event                       event
-src/world_engine/writes.py::write_event_update                 event
-src/world_engine/writes.py::write_agenda                      agenda
-src/world_engine/writes.py::write_agenda_step                 agenda_step
-src/world_engine/writes.py::write_agenda_step_status           agenda_step
-src/world_engine/writes.py::write_agenda_status                agenda
-src/world_engine/writes.py::write_goal_agenda_link             goal_agenda_link
-src/world_engine/writes.py::detach_goal_agenda_link            goal_agenda_link
-src/world_engine/writes.py::delete_world_cascade               *
+# writes.py -> writes/<domain>.py (TICKET-0028, BRIEF-0028-b, 2026-07-15):
+# the `writes/` package split relocates every site below to its new
+# domain module — same relocation-not-broadening rule as the 0027-c/-d
+# comments further down. Same 22 sites, same count of sanctioned
+# canon-write paths, not a broadening.
+src/world_engine/writes/relations.py::write_relation           relation
+src/world_engine/writes/characters.py::write_character_location character
+src/world_engine/writes/knowledge.py::write_knowledge          knowledge
+src/world_engine/writes/characters.py::write_ledger_entry      ledger
+src/world_engine/writes/factions.py::write_membership          faction_membership
+src/world_engine/writes/characters.py::write_skill_tier        skill
+src/world_engine/writes/goals_agendas.py::write_npc_goal       npc_goal
+src/world_engine/writes/goals_agendas.py::write_npc_goal_status npc_goal
+src/world_engine/writes/goals_agendas.py::write_npc_goal_prerequisites npc_goal
+src/world_engine/writes/factions.py::write_faction_role        faction_role
+src/world_engine/writes/config.py::write_npc_prices            npc_price
+src/world_engine/writes/config.py::write_location_subculture   location_subculture
+src/world_engine/writes/config.py::write_world_laws            world_law
+src/world_engine/writes/events.py::write_event                 event
+src/world_engine/writes/events.py::write_event_update           event
+src/world_engine/writes/goals_agendas.py::write_agenda         agenda
+src/world_engine/writes/goals_agendas.py::write_agenda_step    agenda_step
+src/world_engine/writes/goals_agendas.py::write_agenda_step_status agenda_step
+src/world_engine/writes/goals_agendas.py::write_agenda_status  agenda
+src/world_engine/writes/goals_agendas.py::write_goal_agenda_link goal_agenda_link
+src/world_engine/writes/goals_agendas.py::detach_goal_agenda_link goal_agenda_link
+src/world_engine/writes/worlds.py::delete_world_cascade         *
 # _apply_mutation relocated (TICKET-0027, BRIEF-0027-c): the dispatcher in
 # app.py now only dispatches; its direct (non-writes.py) canon writes moved
 # to per-type appliers in mutations.py. Three sites replace the one former

@@ -29,6 +29,13 @@ invalid — `write_goal_agenda_link` raises inside the SAVEPOINT after
 the SAVEPOINT rolls back that partial write (zero residual `npc_goal` rows
 for it).
 
+`faction_membership`/`faction_role` joined `DUMP_TABLES`, and a
+`goal_change complete` with a `role_change` (`declare=True`) effect joined
+`head`, at TICKET-0028/BRIEF-0028-b — the pre-existing manifest exercised
+`write_relation`/`write_knowledge` but never `write_faction_role` (the
+`writes/` package split's highest-care mover), and neither dumped table it
+writes through (BRIEF-0027-c's vacuous-proof rule: extend fixtures first).
+
 Usage:
     python scripts/harness_mutation_apply.py record
     python scripts/harness_mutation_apply.py replay
@@ -66,7 +73,7 @@ KNOWLEDGE_ROW = "kn-maelis-incidents"  # level "partial"
 DUMP_TABLES = [
     "entity", "character", "item", "knowledge", "relation", "ledger",
     "npc_goal", "goal_agenda_link", "agenda", "agenda_step", "event",
-    "event_entity", "gathering_member",
+    "event_entity", "gathering_member", "faction_membership", "faction_role",
 ]
 
 _UUID_RE = re.compile(
@@ -225,6 +232,18 @@ def _run(mode: str) -> bool:
             ("goal_change complete", "goal_change", {
                 "npc_id": NPC_MAELIS, "action": "complete",
                 "goal": "Harness test goal for BRIEF-0027-c",
+            }),
+            ("goal_change create_short (role)", "goal_change", {
+                "npc_id": NPC_REIKE, "action": "create_short",
+                "goal": "Harness test goal for BRIEF-0028-b role effect",
+            }),
+            ("goal_change complete (role_change declare)", "goal_change", {
+                "npc_id": NPC_REIKE, "action": "complete",
+                "goal": "Harness test goal for BRIEF-0028-b role effect",
+                "effects": [{
+                    "type": "role_change", "faction_id": FAC_GUARD,
+                    "role": "Harness Eclaireur", "declare": True,
+                }],
             }),
             ("npc_move", "npc_move", {
                 "npc_id": NPC_MAELIS, "from_location_id": LOC_TAVERN,
