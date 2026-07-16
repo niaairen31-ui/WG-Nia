@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0030-server-side-collision-endpoint",
-  "when": "2026-07-16T18:02:52.717473+00:00",
+  "when": "2026-07-16T18:11:36.083570+00:00",
   "green": true,
   "checks": [
     {
