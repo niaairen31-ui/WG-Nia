@@ -31,7 +31,11 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
 CRUD_PY = SRC / "world_engine" / "cockpit" / "crud" / "entities.py"
-MODELS_PY = SRC / "world_engine" / "models.py"
+# Retargeted (TICKET-0028, BRIEF-0028-c): models.py split into a models/
+# package by schema stratum — volet c now walks every file in the package
+# instead of one flat module (relocation-not-broadening precedent,
+# BRIEF-0027-c/-d).
+MODELS_DIR = SRC / "world_engine" / "models"
 
 # Volet c — every `Column(JSON` occurrence in models.py must appear here,
 # one line each with justification. Adding a JSON column requires editing
@@ -115,7 +119,9 @@ def _check_source_access_volet() -> None:
         fail(f"volet b: metadata_/Column(\"metadata\" reference(s) found outside comments: {', '.join(hits)}")
 
 
-def _check_json_column_volet(src: str) -> None:
+def _scan_json_columns_one(rel: str, src: str) -> dict[str, int]:
+    """Per-file scan — `current_class`/`current_field` state never crosses a
+    file boundary, so each models/*.py file is scanned independently."""
     lines = src.splitlines()
     current_class: str | None = None
     current_field: str | None = None
@@ -132,8 +138,17 @@ def _check_json_column_volet(src: str) -> None:
             current_field = field_match.group(1)
         if "Column(JSON" in line:
             if current_class is None or current_field is None:
-                fail(f"volet c: Column(JSON at models.py:{lineno} could not be attributed to a class.field")
+                fail(f"volet c: Column(JSON at {rel}:{lineno} could not be attributed to a class.field")
             found[f"{current_class}.{current_field}"] = lineno
+
+    return found
+
+
+def _check_json_column_volet(models_dir: pathlib.Path) -> None:
+    found: dict[str, int] = {}
+    for path in sorted(models_dir.glob("*.py")):
+        rel = path.relative_to(ROOT).as_posix()
+        found.update(_scan_json_columns_one(rel, path.read_text(encoding="utf-8")))
 
     if not found:
         fail("volet c: zero Column(JSON occurrences found — parse is broken, not the repo clean")
@@ -150,20 +165,19 @@ def _check_json_column_volet(src: str) -> None:
 def main() -> None:
     if not CRUD_PY.exists():
         fail(f"{CRUD_PY} not found")
-    if not MODELS_PY.exists():
-        fail(f"{MODELS_PY} not found")
+    if not MODELS_DIR.is_dir():
+        fail(f"{MODELS_DIR} not found")
 
     crud_src = CRUD_PY.read_text(encoding="utf-8")
-    models_src = MODELS_PY.read_text(encoding="utf-8")
 
     _check_crud_registry_volet(crud_src)
     _check_source_access_volet()
-    _check_json_column_volet(models_src)
+    _check_json_column_volet(MODELS_DIR)
 
     print(
         "PASS: json_ui_boundary — zero \"kind\": \"json\" CRUD fields, zero "
         "metadata_/Column(\"metadata\" references outside comments, every "
-        "Column(JSON in models.py is a named allow-list entry"
+        "Column(JSON in models/*.py is a named allow-list entry"
     )
     sys.exit(0)
 

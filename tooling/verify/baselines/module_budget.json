@@ -12,7 +12,11 @@
 // writes.py entry (32f/1607l) removed at TICKET-0028/BRIEF-0028-b:
 // decomposed into the writes/ package (10 modules by canon domain), each
 // unbaselined-compliant. See ARCHITECTURE_DECISIONS.md.
+//
+// models.py entry (2f/1188l) removed at TICKET-0028/BRIEF-0028-c:
+// decomposed into the models/ package (canon.py, ephemeral.py, pipeline.py,
+// __init__.py) by schema stratum, each unbaselined-compliant. See
+// ARCHITECTURE_DECISIONS.md.
 [
-  {"file": "src/world_engine/entity_author.py", "functions": 28, "lines": 1055},
-  {"file": "src/world_engine/models.py", "functions": 2, "lines": 1188}
+  {"file": "src/world_engine/entity_author.py", "functions": 28, "lines": 1055}
 ]

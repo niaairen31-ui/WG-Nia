@@ -21,7 +21,11 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
-MODELS_FILE = SRC / "world_engine" / "models.py"
+# Retargeted (TICKET-0028, BRIEF-0028-c): models.py split into a models/
+# package by schema stratum — same class->table attribution, walked across
+# every file in the package instead of one flat module (relocation-not-
+# broadening precedent, BRIEF-0027-c/-d).
+MODELS_DIR = SRC / "world_engine" / "models"
 POLICY_FILE = ROOT / "tooling" / "verify" / "canon_write_policy.txt"
 
 WRITE_METHODS = {"add", "delete"}
@@ -64,9 +68,9 @@ def parse_policy(text: str):
     return canon_tables, allowed
 
 
-# ── models.py: class name -> table name ─────────────────────────────────────
+# ── models/*.py: class name -> table name ───────────────────────────────────
 
-def build_model_tables(models_path: pathlib.Path) -> dict[str, str]:
+def _build_model_tables_one(models_path: pathlib.Path) -> dict[str, str]:
     tree = ast.parse(models_path.read_text(encoding="utf-8"), filename=str(models_path))
     out: dict[str, str] = {}
     for node in tree.body:
@@ -89,6 +93,16 @@ def build_model_tables(models_path: pathlib.Path) -> dict[str, str]:
             ):
                 out[node.name] = stmt.value.value
                 break
+    return out
+
+
+def build_model_tables(models_dir: pathlib.Path) -> dict[str, str]:
+    """Union the class->table map across every file in the models/ package
+    (canon.py, ephemeral.py, pipeline.py, __init__.py — __init__.py itself
+    defines no table classes, so it contributes nothing here)."""
+    out: dict[str, str] = {}
+    for path in sorted(models_dir.glob("*.py")):
+        out.update(_build_model_tables_one(path))
     return out
 
 
@@ -416,13 +430,13 @@ def main() -> None:
         fail(f"{POLICY_FILE} not found")
         _report_and_exit()
         return
-    if not MODELS_FILE.exists():
-        fail(f"{MODELS_FILE} not found")
+    if not MODELS_DIR.is_dir():
+        fail(f"{MODELS_DIR} not found")
         _report_and_exit()
         return
 
     canon_tables, allowed_sites = parse_policy(POLICY_FILE.read_text(encoding="utf-8"))
-    model_tables = build_model_tables(MODELS_FILE)
+    model_tables = build_model_tables(MODELS_DIR)
 
     paths = sorted(SRC.rglob("*.py"))
     trees: dict[pathlib.Path, ast.Module] = {}

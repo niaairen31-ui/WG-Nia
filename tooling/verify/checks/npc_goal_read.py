@@ -33,7 +33,11 @@ SRC = ROOT / "src"
 CONTEXT_FILE = SRC / "world_engine" / "context.py"
 
 ALLOWED_MODULES = {
-    "src/world_engine/models.py",
+    # models.py -> models/ package (TICKET-0028, BRIEF-0028-c): NpcGoal is
+    # defined in models/canon.py and re-exported through models/__init__.py's
+    # import — both listed (relocation-not-broadening precedent).
+    "src/world_engine/models/canon.py",
+    "src/world_engine/models/__init__.py",
     "src/world_engine/writes/goals_agendas.py",
     "src/world_engine/context.py",
     "src/world_engine/cockpit/crud/goals.py",

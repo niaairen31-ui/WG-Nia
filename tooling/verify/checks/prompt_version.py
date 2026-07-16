@@ -46,8 +46,15 @@ MIGRATION = ROOT / "scripts" / "migrate_v1_68_prompt_version.py"
 # Files allowed to reference the PromptVersion class / prompt_version table.
 # `writes.py` -> `writes/prompts.py` (TICKET-0028, BRIEF-0028-b): anchor
 # relocated, assertions unchanged (relocation-not-broadening precedent).
+# `models.py` -> the `models/` package (TICKET-0028, BRIEF-0028-c):
+# PromptVersion is defined in models/pipeline.py (a ClassDef, never matched
+# by this scan) and re-exported through models/__init__.py's import (an
+# ImportFrom, which IS matched) — only those two files need to be allowed;
+# canon.py/ephemeral.py must stay OUT so a stray reference planted there is
+# still caught (verified by the BRIEF-0028-c fail-closed proof).
 ALLOWED_FILES = {
-    (SRC / "world_engine" / "models.py").resolve(),
+    (SRC / "world_engine" / "models" / "pipeline.py").resolve(),
+    (SRC / "world_engine" / "models" / "__init__.py").resolve(),
     (SRC / "world_engine" / "prompt_store.py").resolve(),
     (SRC / "world_engine" / "writes" / "prompts.py").resolve(),
     MIGRATION.resolve(),

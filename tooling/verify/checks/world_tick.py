@@ -134,7 +134,11 @@ TICK_NORMALIZE_FILE = SRC / "world_engine" / "tick_normalize.py"
 APP_FILE = SRC / "world_engine" / "cockpit" / "routes" / "mutations.py"
 MUTATIONS_FILE = SRC / "world_engine" / "cockpit" / "mutations.py"
 ANALYZER_FILE = SRC / "world_engine" / "analyzer.py"
-MODELS_FILE = SRC / "world_engine" / "models.py"
+# Retargeted (TICKET-0028, BRIEF-0028-c): models.py split into a models/
+# package by schema stratum — AgendaStep now lives in models/canon.py;
+# rule 14 walks the package instead of one flat module (relocation-not-
+# broadening precedent, BRIEF-0027-c/-d).
+MODELS_DIR = SRC / "world_engine" / "models"
 CRUD_FILE = SRC / "world_engine" / "cockpit" / "crud" / "entities.py"
 
 ALLOWED_MODULES = {
@@ -694,13 +698,9 @@ def check_agenda_step_one_active_index() -> None:
     """Rule 14 (TICKET-0018, BRIEF-0018-a): the structural one-active-step
     invariant is a partial unique index/constraint on AgendaStep, not
     discipline (RECON-0018 F2)."""
-    if not MODELS_FILE.exists():
-        fail(f"{MODELS_FILE} not found")
+    if not MODELS_DIR.is_dir():
+        fail(f"{MODELS_DIR} not found")
         return
-    tree = _parse(MODELS_FILE)
-    if tree is None:
-        return
-    rel = MODELS_FILE.relative_to(ROOT).as_posix()
 
     def _sqlite_where_text(kw_value) -> str | None:
         if isinstance(kw_value, ast.Call):
@@ -712,31 +712,37 @@ def check_agenda_step_one_active_index() -> None:
             return kw_value.value
         return None
 
-    for node in ast.walk(tree):
-        if not (isinstance(node, ast.ClassDef) and node.name == "AgendaStep"):
+    for path in sorted(MODELS_DIR.glob("*.py")):
+        tree = _parse(path)
+        if tree is None:
             continue
-        found = False
-        for sub in ast.walk(node):
-            if not (
-                isinstance(sub, ast.Call)
-                and isinstance(sub.func, ast.Name)
-                and sub.func.id in ("Index", "UniqueConstraint")
-            ):
-                continue
-            for kw in sub.keywords:
-                if kw.arg != "sqlite_where":
-                    continue
-                text_val = _sqlite_where_text(kw.value)
-                if text_val and "status" in text_val and "active" in text_val:
-                    found = True
-        if not found:
-            fail(
-                f"{rel}: AgendaStep has no partial-unique Index/UniqueConstraint with "
-                "sqlite_where mentioning status='active'"
-            )
-        return
+        rel = path.relative_to(ROOT).as_posix()
 
-    fail(f"{rel}: AgendaStep class not found")
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.ClassDef) and node.name == "AgendaStep"):
+                continue
+            found = False
+            for sub in ast.walk(node):
+                if not (
+                    isinstance(sub, ast.Call)
+                    and isinstance(sub.func, ast.Name)
+                    and sub.func.id in ("Index", "UniqueConstraint")
+                ):
+                    continue
+                for kw in sub.keywords:
+                    if kw.arg != "sqlite_where":
+                        continue
+                    text_val = _sqlite_where_text(kw.value)
+                    if text_val and "status" in text_val and "active" in text_val:
+                        found = True
+            if not found:
+                fail(
+                    f"{rel}: AgendaStep has no partial-unique Index/UniqueConstraint with "
+                    "sqlite_where mentioning status='active'"
+                )
+            return
+
+    fail(f"{MODELS_DIR.relative_to(ROOT).as_posix()}: AgendaStep class not found")
 
 
 def check_entity_creation_isolation() -> None:
