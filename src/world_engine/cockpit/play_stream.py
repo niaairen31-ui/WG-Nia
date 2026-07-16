@@ -520,54 +520,13 @@ _NPC_INITIATIVE_ACT_FALLBACK = (
 )
 
 
-def _npc_initiative_vote(
-    *,
-    template: PromptTemplate,
-    location_name: str,
-    members: list[tuple[GatheringMember, Entity]],
-    non_member_ids: set[str],
-    player_line: str,
-    interpreted_mode: ResponseMode,
-    player_id: str,
-    model: str,
-    db: Session,
-) -> tuple[bool, Optional[str]]:
-    """Ask the MJ if a bystander NPC takes spontaneous initiative this turn.
-
-    Returns (act, entity_id). Resolves the model's answer against the active
-    roster (A2-style: case-insensitive exact match on the list of names
-    actually shown). Unresolved name → (False, None); never invents.
-
-    Cadence E1: at most one NPC per turn. The caller is responsible for not
-    calling this function more than once per turn.
-
-    members = all_candidates (in-group + non-members from other open gatherings
-    at the same location). non_member_ids identifies the non-member subset so
-    the prompt labels the two classes distinctly and the caller can apply the
-    structural move override.
-    """
-    if not members:
-        return False, None
-
-    npc_ids = [e.id for _gm, e in members]
-    # Batch-query NPC→player relations for all candidates in one round-trip.
+def _initiative_candidate_data(npc_ids: list[str], player_id: str, db: Session) -> tuple[list[Relation], dict[str, str]]:
     all_rels = db.exec(
         select(Relation).where(
             ((Relation.entity_a_id.in_(npc_ids)) & (Relation.entity_b_id == player_id))
             | ((Relation.entity_b_id.in_(npc_ids)) & (Relation.entity_a_id == player_id))
         )
     ).all()
-
-    def _npc_rel(npc_id: str) -> Optional[Relation]:
-        for rel in all_rels:
-            if rel.entity_a_id == npc_id and rel.direction in ("a_to_b", "mutual"):
-                return rel
-            if rel.entity_b_id == npc_id and rel.direction in ("b_to_a", "mutual"):
-                return rel
-        return None
-
-    # BRIEF-0013-c (R1): one batched query for every candidate's most recent
-    # ACTIVE short-term goal — long-term goals never enter the vote.
     all_short_goals = db.exec(
         select(NpcGoal)
         .where(NpcGoal.npc_id.in_(npc_ids), NpcGoal.horizon == "short", NpcGoal.status == "active")
@@ -576,6 +535,21 @@ def _npc_initiative_vote(
     goal_by_npc: dict[str, str] = {}
     for g in all_short_goals:
         goal_by_npc.setdefault(g.npc_id, g.description)
+    return all_rels, goal_by_npc
+
+
+def _initiative_signal_lines(
+    members: list[tuple[GatheringMember, Entity]], non_member_ids: set[str],
+    all_rels: list[Relation], goal_by_npc: dict[str, str],
+) -> tuple[list[str], list[str]]:
+    """(group_lines, distant_lines) — non-members can only intervene by approaching (move=True)."""
+    def _npc_rel(npc_id: str) -> Optional[Relation]:
+        for rel in all_rels:
+            if rel.entity_a_id == npc_id and rel.direction in ("a_to_b", "mutual"):
+                return rel
+            if rel.entity_b_id == npc_id and rel.direction in ("b_to_a", "mutual"):
+                return rel
+        return None
 
     def _signal_line(e: Entity) -> str:
         rel = _npc_rel(e.id)
@@ -587,10 +561,16 @@ def _npc_initiative_vote(
             goal_frag = f", objectif=« {text} »"
         return f"- {e.name} : {signal}, statut={e.status}{goal_frag}"
 
-    # Two-section signal list: in-group members react in place; non-members can
-    # only intervene by approaching the player's gathering (structural move=True).
     group_lines   = [_signal_line(e) for _gm, e in members if e.id not in non_member_ids]
     distant_lines = [_signal_line(e) for _gm, e in members if e.id in non_member_ids]
+    return group_lines, distant_lines
+
+
+def _initiative_vote_call(
+    template: PromptTemplate, location_name: str, interpreted_mode: ResponseMode,
+    player_line: str, group_lines: list[str], distant_lines: list[str],
+    members: list[tuple[GatheringMember, Entity]], model: str, db: Session,
+) -> tuple[bool, Optional[str]]:
     parts: list[str] = []
     if group_lines:
         parts.append(
@@ -637,6 +617,34 @@ def _npc_initiative_vote(
     except Exception as exc:
         _log.warning("MJ initiative vote failed (%s) → no initiative", exc)
         return False, None
+
+
+def _npc_initiative_vote(
+    *,
+    template: PromptTemplate,
+    location_name: str,
+    members: list[tuple[GatheringMember, Entity]],
+    non_member_ids: set[str],
+    player_line: str,
+    interpreted_mode: ResponseMode,
+    player_id: str,
+    model: str,
+    db: Session,
+) -> tuple[bool, Optional[str]]:
+    """Returns (act, entity_id) — see `_initiative_vote_call`. Cadence E1: at
+    most one NPC per turn, enforced by the caller. members = all_candidates;
+    non_member_ids lets the caller apply the structural move override."""
+    if not members:
+        return False, None
+
+    npc_ids = [e.id for _gm, e in members]
+    all_rels, goal_by_npc = _initiative_candidate_data(npc_ids, player_id, db)
+    group_lines, distant_lines = _initiative_signal_lines(members, non_member_ids, all_rels, goal_by_npc)
+
+    return _initiative_vote_call(
+        template, location_name, interpreted_mode, player_line,
+        group_lines, distant_lines, members, model, db,
+    )
 
 
 def _build_initiative_trigger(
@@ -774,6 +782,36 @@ def _build_refusal_instruction(object_name: Optional[str]) -> str:
     return _POSSESSION_REFUSAL_INSTRUCTION.format(object_name=object_name or "cet objet")
 
 
+def _mj_user_physical(
+    context_block: str, inventory_block: str, location_name: str, player_line: str,
+    npc_name: str, npc_reply: str, verdict_band: Optional[str], search_rubric: Optional[str],
+) -> str:
+    """BRIEF-11: `verdict_band` injects the verbatim resolution rubric."""
+    band = verdict_band or "failure"
+    npc_reaction_block = (
+        f"{npc_name} réagit :\n{npc_reply}\n\n" if npc_reply else ""
+    )
+    search_rubric_block = f"\n{search_rubric}\n" if search_rubric else ""
+    return (
+        f"{context_block}"
+        f"{inventory_block}"
+        f"Lieu : « {location_name} ».\n"
+        f"Mode : résolution physique.\n\n"
+        f"Action du joueur :\n{player_line}\n\n"
+        f"{npc_reaction_block}"
+        f"[RÉSOLUTION PHYSIQUE — VERDICT IMPOSÉ]\n"
+        f"Résultat mécanique : {band}.\n"
+        f"- failure : l'action échoue. Ne l'adoucis pas en demi-réussite.\n"
+        f"- partial : l'action réussit MAIS avec un coût, une complication ou\n"
+        f"  une position dégradée, OU échoue avec un avantage inattendu.\n"
+        f"- success : l'action réussit nettement.\n"
+        f"Tu narres les conséquences ; tu ne rejuges JAMAIS le résultat.\n"
+        f"Aucune mort, blessure permanente ou capture durable ne peut découler\n"
+        f"de cette narration : au pire, neutralisé ou contraint.{search_rubric_block}\n\n"
+        f"Narration MJ :\n/no_think"
+    )
+
+
 def _build_mj_user(
     *,
     mode: ResponseMode,
@@ -788,30 +826,12 @@ def _build_mj_user(
     search_rubric: Optional[str] = None,
     travel_instruction: Optional[str] = None,
 ) -> str:
-    """Build the MJ narration user message for the given mode.
-
-    dialogue     → existing template (verbatim NPC quote contract unchanged).
-    npc_reaction → third-person wordless reaction; no dialogue to quote.
-    scene        → environment description only; NPC not involved.
-    physical     → verdict-constrained narration (BRIEF-11); `verdict_band`
-                   ("failure" | "partial" | "success") is required for this
-                   mode and injects the verbatim resolution rubric.
-    travel       → departure-only narration (BRIEF-16); `travel_instruction`
-                   carries the one-shot [DÉPART] / [DÉPART INCERTAIN] /
-                   [SORTIE INTROUVABLE] directive (not persisted).
-
-    `mj_context` (schema v1.12, scope D-b3): the dict returned by
-    `assemble_mj_context`, rendered via `format_mj_context` and prepended as
-    a "CONTEXTE DE SCÈNE" block — the player's perception boundary (location,
-    co-presents, player knowledge, public events). Empty/None → no block.
-    `scene` mode benefits most (environment prose finally has material).
-
-    `inventory_line` (schema v1.18, BRIEF-06): the player's static inventory
-    line (`format_inventory_line`), read fresh every turn — never cached.
-    Prepended ahead of the scene description in every mode.
-
-    /no_think appended on all modes; the stream filter backs it up.
-    """
+    """Build the MJ narration user message for the given mode; `physical`
+    delegates to `_mj_user_physical` (BRIEF-11's verdict-constrained
+    narration). `mj_context` (schema v1.12) renders via `format_mj_context`
+    as a "CONTEXTE DE SCÈNE" block; `inventory_line` (BRIEF-06) is read
+    fresh every turn. Both prepended ahead of the mode body. /no_think
+    appended on all modes; the stream filter backs it up."""
     context_block = format_mj_context(mj_context) if mj_context else ""
     if context_block:
         context_block = f"=== CONTEXTE DE SCÈNE ===\n{context_block}\n"
@@ -843,28 +863,9 @@ def _build_mj_user(
             f"Narration MJ :\n/no_think"
         )
     if mode == ResponseMode.physical:
-        band = verdict_band or "failure"
-        npc_reaction_block = (
-            f"{npc_name} réagit :\n{npc_reply}\n\n" if npc_reply else ""
-        )
-        search_rubric_block = f"\n{search_rubric}\n" if search_rubric else ""
-        return (
-            f"{context_block}"
-            f"{inventory_block}"
-            f"Lieu : « {location_name} ».\n"
-            f"Mode : résolution physique.\n\n"
-            f"Action du joueur :\n{player_line}\n\n"
-            f"{npc_reaction_block}"
-            f"[RÉSOLUTION PHYSIQUE — VERDICT IMPOSÉ]\n"
-            f"Résultat mécanique : {band}.\n"
-            f"- failure : l'action échoue. Ne l'adoucis pas en demi-réussite.\n"
-            f"- partial : l'action réussit MAIS avec un coût, une complication ou\n"
-            f"  une position dégradée, OU échoue avec un avantage inattendu.\n"
-            f"- success : l'action réussit nettement.\n"
-            f"Tu narres les conséquences ; tu ne rejuges JAMAIS le résultat.\n"
-            f"Aucune mort, blessure permanente ou capture durable ne peut découler\n"
-            f"de cette narration : au pire, neutralisé ou contraint.{search_rubric_block}\n\n"
-            f"Narration MJ :\n/no_think"
+        return _mj_user_physical(
+            context_block, inventory_block, location_name, player_line,
+            npc_name, npc_reply, verdict_band, search_rubric,
         )
     if mode == ResponseMode.travel and travel_instruction:
         return (

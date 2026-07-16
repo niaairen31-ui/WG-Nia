@@ -27,7 +27,7 @@ drops and continues).
 from __future__ import annotations
 
 import unicodedata
-from typing import Any
+from typing import Any, Optional
 
 from sqlmodel import Session, select
 
@@ -101,29 +101,21 @@ def _dedupe_by_name(raw: Any, label: str, notes: list[str]) -> list[dict]:
     return rows
 
 
-def _normalize_manifest(parsed: dict, notes: list[str]) -> tuple[dict, list[dict]]:
-    """Structural normalization of a parsed manifest. Returns (manifest, skipped)."""
-    skipped: list[dict] = []
-
+def _normalize_concept(parsed: dict) -> str:
+    """The small local model sometimes emits a list of sentences instead of
+    one string — coerce rather than drop (see CLAUDE.md "Local model notes":
+    format compliance is best-effort, not guaranteed)."""
     concept_raw = parsed.get("concept")
     if isinstance(concept_raw, str):
-        concept = concept_raw
-    elif isinstance(concept_raw, list):
-        # The small local model sometimes emits a list of sentences instead
-        # of one string — coerce rather than drop (see CLAUDE.md "Local
-        # model notes": format compliance is best-effort, not guaranteed).
-        concept = " ".join(str(part) for part in concept_raw if isinstance(part, str))
-    else:
-        concept = ""
+        return concept_raw
+    if isinstance(concept_raw, list):
+        return " ".join(str(part) for part in concept_raw if isinstance(part, str))
+    return ""
 
-    factions = _dedupe_by_name(parsed.get("factions"), "Faction", notes)
-    locations = _dedupe_by_name(parsed.get("locations"), "Lieu", notes)
-    npcs = _dedupe_by_name(parsed.get("npcs"), "PNJ", notes)
 
-    faction_names = {f["name"].strip().lower() for f in factions}
-    location_names = {l["name"].strip().lower() for l in locations}
-
-    # Exactly one root location.
+def _normalize_root_location(locations: list[dict], notes: list[str]) -> Optional[str]:
+    """Exactly one root location. Mutates `locations` in place; returns the
+    resolved root's name (None if `locations` is empty)."""
     root_indices = [i for i, l in enumerate(locations) if l.get("is_root") is True]
     if not root_indices:
         if locations:
@@ -139,13 +131,16 @@ def _normalize_manifest(parsed: dict, notes: list[str]) -> tuple[dict, list[dict
             "reste racine"
         )
 
-    root_name = None
     for l in locations:
         if l.get("is_root") is True:
-            root_name = l["name"]
-            break
+            return l["name"]
+    return None
 
-    # parent_name validation for non-root locations.
+
+def _normalize_location_parents(
+    locations: list[dict], location_names: set[str], root_name: Optional[str], notes: list[str],
+) -> None:
+    """parent_name validation for non-root locations. Mutates `locations` in place."""
     for l in locations:
         if l.get("is_root") is True:
             l["parent_name"] = None
@@ -162,7 +157,13 @@ def _normalize_manifest(parsed: dict, notes: list[str]) -> tuple[dict, list[dict
                 f"Lieu '{l['name']}' — parent invalide ou absent, rattaché à la racine"
             )
 
-    # npc.location_name must resolve; on a miss, drop the NPC.
+
+def _normalize_npc_placement(
+    npcs: list[dict], location_names: set[str], faction_names: set[str],
+    skipped: list[dict], notes: list[str],
+) -> list[dict]:
+    """npc.location_name must resolve; on a miss, drop the NPC (appended to
+    `skipped`). An unresolved faction_name is nulled, not dropped."""
     placed_npcs: list[dict] = []
     for n in npcs:
         location_name = n.get("location_name")
@@ -184,6 +185,24 @@ def _normalize_manifest(parsed: dict, notes: list[str]) -> tuple[dict, list[dict
                 )
                 n["faction_name"] = None
         placed_npcs.append(n)
+    return placed_npcs
+
+
+def _normalize_manifest(parsed: dict, notes: list[str]) -> tuple[dict, list[dict]]:
+    """Structural normalization of a parsed manifest. Returns (manifest, skipped)."""
+    skipped: list[dict] = []
+
+    concept = _normalize_concept(parsed)
+    factions = _dedupe_by_name(parsed.get("factions"), "Faction", notes)
+    locations = _dedupe_by_name(parsed.get("locations"), "Lieu", notes)
+    npcs = _dedupe_by_name(parsed.get("npcs"), "PNJ", notes)
+
+    faction_names = {f["name"].strip().lower() for f in factions}
+    location_names = {l["name"].strip().lower() for l in locations}
+
+    root_name = _normalize_root_location(locations, notes)
+    _normalize_location_parents(locations, location_names, root_name, notes)
+    placed_npcs = _normalize_npc_placement(npcs, location_names, faction_names, skipped, notes)
 
     manifest = {
         "concept": concept,
@@ -423,26 +442,10 @@ def generate_region_manifest(brief: str, db: Session) -> dict:
     return _run_npc_topup(result, db)
 
 
-def generate_region_draft(manifest: dict, db: Session) -> dict:
-    """Phase B — generate a region draft (factions/locations/NPCs) from an
-    already-produced manifest dict (Phase A's output, possibly creator-edited).
-
-    The incoming manifest is advisory; this function re-runs
-    `_normalize_manifest` on it first and uses the result as authoritative,
-    guaranteeing invariants on untrusted re-submitted input. Writes no canon
-    anywhere in this function or its call path. Never raises into the
-    caller: a per-entity Stage 1-3 failure drops that entity (recorded in
-    `region.skipped`) and the run continues.
-    """
-    notes: list[str] = []
-    manifest, skipped = _normalize_manifest(dict(manifest), notes)
-
-    concept = manifest["concept"]
-    factions_in = manifest["factions"]
-    locations_in = manifest["locations"]
-    npcs_in = manifest["npcs"]
-
-    # Stage 1 — factions.
+def _draft_factions(
+    concept: str, factions_in: list[dict], skipped: list[dict], db: Session,
+) -> tuple[dict[str, str], list[dict]]:
+    """Stage 1 — factions. Returns (faction_local_id, factions_out)."""
     faction_local_id: dict[str, str] = {}
     factions_out: list[dict] = []
     for i, fac in enumerate(factions_in):
@@ -456,8 +459,14 @@ def generate_region_draft(manifest: dict, db: Session) -> dict:
             continue
         faction_local_id[fac["name"].strip().lower()] = local_id
         factions_out.append({"local_id": local_id, "manifest": fac, "result": result})
+    return faction_local_id, factions_out
 
-    # Stage 2 — locations, root first then the rest in manifest order.
+
+def _draft_locations(
+    concept: str, locations_in: list[dict], skipped: list[dict], notes: list[str], db: Session,
+) -> tuple[dict[str, str], list[dict]]:
+    """Stage 2 — locations, root first then the rest in manifest order.
+    Returns (location_local_id, locations_out)."""
     root_first = sorted(
         enumerate(locations_in), key=lambda pair: 0 if pair[1].get("is_root") else 1
     )
@@ -489,7 +498,87 @@ def generate_region_draft(manifest: dict, db: Session) -> dict:
                 "result": result,
             }
         )
+    return location_local_id, locations_out
 
+
+def _draft_one_npc(
+    i: int, npc: dict, concept: str, npcs_in: list[dict],
+    location_local_id: dict[str, str], faction_local_id: dict[str, str],
+    locations_by_name: dict[str, dict], factions_by_name: dict[str, dict],
+    faction_goals_by_local: dict[str, Any], skipped: list[dict], notes: list[str], db: Session,
+) -> Optional[dict]:
+    """One Stage-3 NPC: composite brief -> draft -> (on success) goals.
+    Returns None (appended to `skipped`) when the host location is
+    unavailable or the character draft itself fails."""
+    location_name = npc["location_name"].strip().lower()
+    loc_local = location_local_id.get(location_name)
+    if loc_local is None:
+        skipped.append(
+            {
+                "stage": "npc",
+                "name": npc.get("name"),
+                "reason": f"lieu '{npc['location_name']}' indisponible (généré en échec)",
+            }
+        )
+        return None
+
+    faction_name = npc.get("faction_name")
+    fac_local = None
+    if faction_name:
+        fac_local = faction_local_id.get(faction_name.strip().lower())
+        if fac_local is None:
+            notes.append(
+                f"PNJ '{npc['name']}' — faction '{faction_name}' indisponible (généré en échec), "
+                "affiliation mise à null"
+            )
+
+    co_located = [
+        other for other in npcs_in if other["location_name"].strip().lower() == location_name
+    ]
+    location_obj = locations_by_name.get(location_name)
+    faction_obj = factions_by_name.get(faction_name.strip().lower()) if faction_name else None
+
+    composite_brief = _compose_npc_brief(concept, npc, location_obj, faction_obj, co_located)
+    result = generate_entity_draft("character", composite_brief, db)
+    if not result.get("ok"):
+        skipped.append(
+            {"stage": "npc", "name": npc.get("name"), "reason": result.get("error")}
+        )
+        return None
+
+    # BRIEF-0013-b (G1): goals generated after the character draft succeeds,
+    # attached read-only to the draft for the region review UI. A goal-
+    # generation failure never drops the NPC — it ships without goals, noted.
+    pub = result["draft"]["public"]
+    goals_result = generate_npc_goals(
+        pub.get("name", ""),
+        pub.get("description", ""),
+        pub.get("backstory", ""),
+        faction_goals_by_local.get(fac_local) if fac_local else None,
+        db,
+    )
+    if goals_result.get("ok"):
+        pub["goals"] = {"long": goals_result.get("long", ""), "shorts": goals_result.get("shorts", [])}
+    else:
+        notes.append(
+            f"PNJ '{npc['name']}' — génération des objectifs échouée : {goals_result.get('error')}"
+        )
+
+    return {
+        "local_id": f"npc-{i}",
+        "location_local_id": loc_local,
+        "faction_local_id": fac_local,
+        "manifest": npc,
+        "result": result,
+    }
+
+
+def _draft_npcs(
+    concept: str, npcs_in: list[dict], locations_in: list[dict], factions_in: list[dict],
+    location_local_id: dict[str, str], faction_local_id: dict[str, str],
+    factions_out: list[dict], skipped: list[dict], notes: list[str], db: Session,
+) -> list[dict]:
+    """Stage 3 — NPCs."""
     locations_by_name = {l["name"].strip().lower(): l for l in locations_in}
     factions_by_name = {f["name"].strip().lower(): f for f in factions_in}
 
@@ -502,74 +591,44 @@ def generate_region_draft(manifest: dict, db: Session) -> dict:
         for f in factions_out
     }
 
-    # Stage 3 — NPCs.
     npcs_out: list[dict] = []
     for i, npc in enumerate(npcs_in):
-        location_name = npc["location_name"].strip().lower()
-        loc_local = location_local_id.get(location_name)
-        if loc_local is None:
-            skipped.append(
-                {
-                    "stage": "npc",
-                    "name": npc.get("name"),
-                    "reason": f"lieu '{npc['location_name']}' indisponible (généré en échec)",
-                }
-            )
-            continue
-
-        faction_name = npc.get("faction_name")
-        fac_local = None
-        if faction_name:
-            fac_local = faction_local_id.get(faction_name.strip().lower())
-            if fac_local is None:
-                notes.append(
-                    f"PNJ '{npc['name']}' — faction '{faction_name}' indisponible (généré en échec), "
-                    "affiliation mise à null"
-                )
-
-        co_located = [
-            other for other in npcs_in if other["location_name"].strip().lower() == location_name
-        ]
-        location_obj = locations_by_name.get(location_name)
-        faction_obj = factions_by_name.get(faction_name.strip().lower()) if faction_name else None
-
-        composite_brief = _compose_npc_brief(concept, npc, location_obj, faction_obj, co_located)
-        result = generate_entity_draft("character", composite_brief, db)
-        if not result.get("ok"):
-            skipped.append(
-                {"stage": "npc", "name": npc.get("name"), "reason": result.get("error")}
-            )
-            continue
-
-        # BRIEF-0013-b (G1): goals generated after the character draft
-        # succeeds, attached read-only to the draft for the region review UI.
-        # A goal-generation failure never drops the NPC — it ships without
-        # goals, noted.
-        pub = result["draft"]["public"]
-        goals_result = generate_npc_goals(
-            pub.get("name", ""),
-            pub.get("description", ""),
-            pub.get("backstory", ""),
-            faction_goals_by_local.get(fac_local) if fac_local else None,
-            db,
+        drafted = _draft_one_npc(
+            i, npc, concept, npcs_in, location_local_id, faction_local_id,
+            locations_by_name, factions_by_name, faction_goals_by_local,
+            skipped, notes, db,
         )
-        if goals_result.get("ok"):
-            pub["goals"] = {"long": goals_result.get("long", ""), "shorts": goals_result.get("shorts", [])}
-        else:
-            notes.append(
-                f"PNJ '{npc['name']}' — génération des objectifs échouée : {goals_result.get('error')}"
-            )
+        if drafted is not None:
+            npcs_out.append(drafted)
+    return npcs_out
 
-        local_id = f"npc-{i}"
-        npcs_out.append(
-            {
-                "local_id": local_id,
-                "location_local_id": loc_local,
-                "faction_local_id": fac_local,
-                "manifest": npc,
-                "result": result,
-            }
-        )
+
+def generate_region_draft(manifest: dict, db: Session) -> dict:
+    """Phase B — generate a region draft (factions/locations/NPCs) from an
+    already-produced manifest dict (Phase A's output, possibly creator-edited).
+
+    The incoming manifest is advisory; this function re-runs
+    `_normalize_manifest` on it first and uses the result as authoritative,
+    guaranteeing invariants on untrusted re-submitted input. Writes no canon
+    anywhere in this function or its call path. Never raises into the
+    caller: a per-entity Stage 1-3 failure drops that entity (recorded in
+    `region.skipped`) and the run continues. See `_draft_factions` /
+    `_draft_locations` / `_draft_npcs` for the per-stage logic.
+    """
+    notes: list[str] = []
+    manifest, skipped = _normalize_manifest(dict(manifest), notes)
+
+    concept = manifest["concept"]
+    factions_in = manifest["factions"]
+    locations_in = manifest["locations"]
+    npcs_in = manifest["npcs"]
+
+    faction_local_id, factions_out = _draft_factions(concept, factions_in, skipped, db)
+    location_local_id, locations_out = _draft_locations(concept, locations_in, skipped, notes, db)
+    npcs_out = _draft_npcs(
+        concept, npcs_in, locations_in, factions_in, location_local_id, faction_local_id,
+        factions_out, skipped, notes, db,
+    )
 
     region = {
         "concept": concept,

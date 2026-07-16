@@ -830,6 +830,37 @@ def _interpret_mode(
         return ResponseMode.dialogue, "", None
 
 
+def _parse_arbitrate_response(
+    obj: dict, allowed_domains: set[str], name_to_id: dict[str, str], player_line: str,
+) -> tuple[str, Optional[str], Optional[str], bool]:
+    """Parse the arbiter's JSON object into (domain, opposed_npc_id,
+    applies_constraint, violent), resolving the model's NPC name against the
+    roster (case-insensitive exact match, never invented)."""
+    domain = str(obj.get("domain", "")).strip()
+    if domain not in allowed_domains:
+        domain = "physical"
+
+    opposed_raw = obj.get("opposed_npc_id")
+    opposed_name = str(opposed_raw).strip() if opposed_raw else ""
+    opposed_npc_id = name_to_id.get(opposed_name.lower()) if opposed_name else None
+
+    # applies_constraint: only accept known values; null/invalid → None.
+    ac_raw = obj.get("applies_constraint")
+    applies_constraint: Optional[str] = (
+        str(ac_raw).strip() if ac_raw and str(ac_raw).strip() in _VALID_CONSTRAINTS
+        else None
+    )
+
+    violent = bool(obj.get("violent", False))
+
+    _log.info(
+        "MJ arbitrate: %r → domain=%s, opposed=%r (%s), constraint=%s, violent=%s",
+        player_line[:60], domain, opposed_name, opposed_npc_id or "none",
+        applies_constraint or "none", violent,
+    )
+    return domain, opposed_npc_id, applies_constraint, violent
+
+
 def _arbitrate(
     *,
     player_line: str,
@@ -842,16 +873,11 @@ def _arbitrate(
 ) -> tuple[str, Optional[str], Optional[str], bool]:
     """Classify a `physical` turn into a domain and optional NPC opposition.
 
-    The model sees only NPC names (never raw entity rows) and returns the
-    name of the NPC it targets (or null) in `opposed_npc_id` — resolved here
-    to an actual entity id via case-insensitive lookup in `name_to_id`, the
-    same "exact match against the roster, never invented" pattern as
-    `_resolve_join_target`'s `reference`.
-
     The model classifies ONLY; it never rolls and never decides outcomes. On
     any failure (bad JSON, unknown domain, Ollama error, timeout): falls back
     to `("physical", None, None, False)` — a misclassification must never
-    break a turn.
+    break a turn. See `_parse_arbitrate_response` for the response shape and
+    NPC-name resolution.
 
     `custom_skill_names` (BRIEF-55, schema v1.63): the active world's
     `skill_definition.name` values, filled into the `pt-mj-arbiter` prompt's
@@ -890,30 +916,7 @@ def _arbitrate(
             format="json",
         )
         obj = llm_parse.extract_object(raw)
-
-        domain = str(obj.get("domain", "")).strip()
-        if domain not in allowed_domains:
-            domain = "physical"
-
-        opposed_raw = obj.get("opposed_npc_id")
-        opposed_name = str(opposed_raw).strip() if opposed_raw else ""
-        opposed_npc_id = name_to_id.get(opposed_name.lower()) if opposed_name else None
-
-        # applies_constraint: only accept known values; null/invalid → None.
-        ac_raw = obj.get("applies_constraint")
-        applies_constraint: Optional[str] = (
-            str(ac_raw).strip() if ac_raw and str(ac_raw).strip() in _VALID_CONSTRAINTS
-            else None
-        )
-
-        violent = bool(obj.get("violent", False))
-
-        _log.info(
-            "MJ arbitrate: %r → domain=%s, opposed=%r (%s), constraint=%s, violent=%s",
-            player_line[:60], domain, opposed_name, opposed_npc_id or "none",
-            applies_constraint or "none", violent,
-        )
-        return domain, opposed_npc_id, applies_constraint, violent
+        return _parse_arbitrate_response(obj, allowed_domains, name_to_id, player_line)
     except Exception as exc:
         _log.warning("MJ arbitrate failed (%s), fallback to physical/unopposed", exc)
         return "physical", None, None, False

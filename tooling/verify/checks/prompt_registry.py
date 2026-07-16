@@ -54,7 +54,10 @@ EXEMPT_FUNCTIONS = {
         "_say_physical_npc_reaction",
     },
     SRC / "cockpit" / "play_stream.py": {
-        "_npc_initiative_vote",
+        # _npc_initiative_vote's chat() call relocated to _initiative_vote_call
+        # at TICKET-0028/BRIEF-0028-e (in-place decomposition, same file,
+        # same exemption rationale — check-anchor relocation).
+        "_initiative_vote_call",
         "_select_group_speaker",
         "_say_stream_mj_narration",
         "_say_initiative_generate",

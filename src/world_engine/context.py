@@ -218,6 +218,237 @@ def _goal_provenance_suffix(goal: NpcGoal, npc_id: str, session: Session) -> str
     return " (sert : " + ", ".join(f"« {t} »" for t in titles) + ")"
 
 
+def _npc_context_identity(npc_entity: Entity, npc_char: Character) -> str:
+    """----- 1. Identity -----"""
+    lines = [f"Tu es {npc_entity.name}."]
+    if npc_char.appearance:
+        lines.append(npc_char.appearance)
+    if npc_char.backstory:
+        lines.append(npc_char.backstory)
+    if npc_char.aversion:
+        lines.append(npc_char.aversion)
+    if npc_entity.description:
+        lines.append(npc_entity.description)
+    return " ".join(lines)
+
+
+def _npc_context_goals(npc_id: str, session: Session) -> str:
+    """----- 1b. Goals (BRIEF-0013-a, Q1/S1/N1) — the long goal + the 2 most
+    recent active shorts, newest first within each horizon. Read-side LIMIT
+    is the S1 bound; no write-side cap exists anywhere on active shorts."""
+    long_goal = session.exec(
+        select(NpcGoal)
+        .where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active", NpcGoal.horizon == "long")
+        .order_by(NpcGoal.created_at.desc())
+        .limit(1)
+    ).first()
+    short_goals = session.exec(
+        select(NpcGoal)
+        .where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active", NpcGoal.horizon == "short")
+        .order_by(NpcGoal.created_at.desc())
+        .limit(2)
+    ).all()
+    goal_lines = []
+    if long_goal:
+        goal_lines.append(f"[LONG TERME] {long_goal.description}{_goal_provenance_suffix(long_goal, npc_id, session)}")
+    for g in short_goals:
+        goal_lines.append(f"[COURT TERME] {g.description}{_goal_provenance_suffix(g, npc_id, session)}")
+    return (_section(H_GOALS, "\n".join(goal_lines)) + "\n") if goal_lines else ""
+
+
+def _npc_context_setting(location_id: str, player_condition: str, session: Session) -> str:
+    """----- 2. Setting -----"""
+    loc_entity = session.get(Entity, location_id)
+    location = session.get(Location, location_id)
+    loc_name = loc_entity.name if loc_entity else location_id
+    setting_lines = [f"Tu te trouves dans un lieu nommé « {loc_name} »."]
+    if loc_entity and loc_entity.description:
+        setting_lines.append(loc_entity.description)
+    # Inject player condition so the NPC can observe the player's state.
+    if player_condition != "unharmed":
+        _condition_labels = {
+            "bruised": "légèrement blessé / meurtri",
+            "injured": "blessé, en mauvais état",
+            "neutralized": "hors de combat / inconscient",
+        }
+        setting_lines.append(
+            f"[ÉTAT DU JOUEUR] Le joueur est actuellement : "
+            f"{_condition_labels.get(player_condition, player_condition)}."
+        )
+    if location:
+        values_row = session.exec(
+            select(LocationSubculture).where(
+                LocationSubculture.location_id == location_id,
+                LocationSubculture.key == "values",
+                LocationSubculture.is_hidden == False,  # noqa: E712
+            )
+        ).first()
+        if values_row and values_row.value:
+            setting_lines.append(values_row.value)
+    return " ".join(setting_lines)
+
+
+def _npc_context_perceived(npc_id: str, session: Session) -> dict[str, Relation]:
+    """Relations: who this NPC perceives, and how warmly toward whom."""
+    relations = session.exec(
+        select(Relation).where(
+            (Relation.entity_a_id == npc_id) | (Relation.entity_b_id == npc_id)
+        )
+    ).all()
+    perceived: dict[str, Relation] = {}
+    for rel in relations:
+        target = _perceived_target(rel, npc_id)
+        if target and target not in perceived:
+            perceived[target] = rel
+    return perceived
+
+
+def _npc_context_speak(npc_id: str, intensity: int, session: Session) -> str:
+    """----- 3. What this NPC may speak about (secret-excluded, relation-gated) -----"""
+    knowledge = session.exec(
+        select(Knowledge)
+        .where(Knowledge.entity_id == npc_id)
+        .order_by(Knowledge.id)
+    ).all()
+    allowed = [
+        k for k in knowledge
+        if not k.is_secret and intensity >= k.share_threshold
+    ]
+    if allowed:
+        speak_body = (
+            "Tu peux parler librement de ce qui suit, si la conversation s'y prête :\n"
+        )
+        speak_body += "\n".join(_knowledge_line(k) for k in allowed)
+        return speak_body
+    return "Tu n'as rien de particulier à partager spontanément."
+
+
+def _npc_context_perception(
+    npc_id: str,
+    interlocutor_id: str,
+    inter_name: str,
+    inter_relation: Relation | None,
+    intensity: int,
+    location_id: str,
+    perceived: dict[str, Relation],
+    session: Session,
+) -> str:
+    """----- 4. Perception of those present -----"""
+    present = session.exec(
+        select(Character).where(Character.current_location_id == location_id)
+    ).all()
+    present_ids = [c.id for c in present]
+
+    def name_of(entity_id: str) -> str:
+        e = session.get(Entity, entity_id)
+        return e.name if e else entity_id
+
+    perception_lines = [f"Face à toi : {inter_name}."]
+    if inter_relation is not None:
+        perception_lines.append("  " + _render_perception(inter_name, inter_relation))
+    else:
+        perception_lines.append(
+            "  Cette personne n'est qu'un visage de plus pour toi ; tu n'as ni "
+            "lien ni opinion particulière à son sujet."
+        )
+    _, directive = _affinity_tier(intensity)
+    perception_lines.append("  " + directive)
+
+    others = [cid for cid in present_ids if cid not in (npc_id, interlocutor_id)]
+    perceived_others = [cid for cid in others if cid in perceived]
+    neutral_others = [cid for cid in others if cid not in perceived]
+
+    if perceived_others:
+        perception_lines.append("")
+        perception_lines.append("Autres personnes présentes que tu remarques :")
+        for cid in perceived_others:
+            perception_lines.append("  " + _render_perception(name_of(cid), perceived[cid]))
+    if neutral_others:
+        names = ", ".join(name_of(cid) for cid in neutral_others)
+        perception_lines.append("")
+        perception_lines.append(
+            f"Également présents, sans que tu y prêtes attention particulière : {names}."
+        )
+    return "\n".join(perception_lines)
+
+
+def _npc_context_company(
+    npc_id: str, interlocutor_id: str, gathering_id: str | None, session: Session,
+) -> str | None:
+    """----- 4b. Gathering co-presence (D1 — simple, no relation modulation) -----"""
+    if not gathering_id:
+        return None
+    co_rows = session.exec(
+        select(GatheringMember, Entity, Character)
+        .join(Entity, Entity.id == GatheringMember.entity_id)
+        .join(Character, Character.id == GatheringMember.entity_id)
+        .where(
+            GatheringMember.gathering_id == gathering_id,
+            GatheringMember.left_at.is_(None),
+            Character.character_type != "player",
+            Entity.status == "active",
+            Character.vital_status == "alive",
+        )
+    ).all()
+    co_lines = []
+    for _member, co_entity, co_char in co_rows:
+        if co_entity.id in (npc_id, interlocutor_id):
+            continue
+        description = co_char.appearance or co_entity.description or "(pas de description)"
+        co_lines.append(f"- {co_entity.name} : {description}")
+    if not co_lines:
+        return None
+    return "Sont avec vous, dans le même groupe :\n" + "\n".join(co_lines)
+
+
+def _npc_context_affiliations(npc_id: str, session: Session) -> str:
+    """----- 4b. Affiliations (BRIEF-29) — this NPC's own public memberships -----"""
+    memberships = read_public_memberships(npc_id, session)
+    if not memberships:
+        return ""
+    affiliation_lines = ["TES AFFILIATIONS :"]
+    for faction_name, role in memberships:
+        if role:
+            affiliation_lines.append(f"- {faction_name} ({role})")
+        else:
+            affiliation_lines.append(f"- {faction_name}")
+    return "\n".join(affiliation_lines) + "\n\n"
+
+
+def _npc_context_pricing(npc_id: str, session: Session) -> str:
+    """----- 4c. Seller tariffs (BRIEF-20, relationalized TICKET-0025,
+    BRIEF-0025-a) — this NPC's own npc_price rows only -----"""
+    price_rows = session.exec(
+        select(NpcPrice).where(NpcPrice.entity_id == npc_id)
+    ).all()
+    if not price_rows:
+        return ""
+    tariff_lines = ["TES TARIFS (prix fermes) :"]
+    for row in price_rows:
+        tariff_lines.append(f"- {row.tag} : {row.amount}")
+    tariff_lines.append("")
+    tariff_lines.append("RÈGLES DE TARIFICATION :")
+    tariff_lines.append(
+        "- Tes prix affichés ci-dessus sont FERMES et identiques pour tout le monde : "
+        "tu les énonces tels quels, sans marchander."
+    )
+    tariff_lines.append(
+        "- Pour une chose qui n'est PAS dans tes tarifs (objet rare, service "
+        "inhabituel, faveur), tu proposes toi-même un prix, en te servant de tes "
+        "tarifs comme ÉCHELLE de référence : reste dans le même ordre de grandeur, ne "
+        "lance pas un nombre absurde. Tu peux laisser ta relation avec la personne "
+        "l'influencer — plus bas pour quelqu'un que tu apprécies, plus haut pour "
+        "quelqu'un dont tu te méfies. Annonce UN seul prix (pas de marchandage en "
+        "va-et-vient pour l'instant)."
+    )
+    tariff_lines.append(
+        "- Tu ne vends que ce que tu possèdes ou peux raisonnablement fournir ; tu "
+        "n'inventes pas un stock que tu n'as pas."
+    )
+    tariff_lines.append("- Les montants sont dans la monnaie du lieu.")
+    return "\n".join(tariff_lines) + "\n\n"
+
+
 def assemble_npc_context(
     npc_id: str,
     interlocutor_id: str,
@@ -254,221 +485,33 @@ def assemble_npc_context(
     inter_entity = session.get(Entity, interlocutor_id)
     inter_name = inter_entity.name if inter_entity else "un inconnu"
 
-    def name_of(entity_id: str) -> str:
-        e = session.get(Entity, entity_id)
-        return e.name if e else entity_id
+    identity = _npc_context_identity(npc_entity, npc_char)
+    goals_section = _npc_context_goals(npc_id, session)
+    setting = _npc_context_setting(location_id, player_condition, session)
 
-    # ----- 1. Identity ------------------------------------------------------
-    identity_lines = [f"Tu es {npc_entity.name}."]
-    if npc_char.appearance:
-        identity_lines.append(npc_char.appearance)
-    if npc_char.backstory:
-        identity_lines.append(npc_char.backstory)
-    if npc_char.aversion:
-        identity_lines.append(npc_char.aversion)
-    if npc_entity.description:
-        identity_lines.append(npc_entity.description)
-    identity = " ".join(identity_lines)
-
-    # ----- 1b. Goals (BRIEF-0013-a, Q1/S1/N1) — the long goal + the 2 most
-    # recent active shorts, newest first within each horizon. Read-side LIMIT
-    # is the S1 bound; no write-side cap exists anywhere on active shorts.
-    long_goal = session.exec(
-        select(NpcGoal)
-        .where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active", NpcGoal.horizon == "long")
-        .order_by(NpcGoal.created_at.desc())
-        .limit(1)
-    ).first()
-    short_goals = session.exec(
-        select(NpcGoal)
-        .where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active", NpcGoal.horizon == "short")
-        .order_by(NpcGoal.created_at.desc())
-        .limit(2)
-    ).all()
-    goal_lines = []
-    if long_goal:
-        goal_lines.append(f"[LONG TERME] {long_goal.description}{_goal_provenance_suffix(long_goal, npc_id, session)}")
-    for g in short_goals:
-        goal_lines.append(f"[COURT TERME] {g.description}{_goal_provenance_suffix(g, npc_id, session)}")
-    goals_section = (_section(H_GOALS, "\n".join(goal_lines)) + "\n") if goal_lines else ""
-
-    # ----- 2. Setting -------------------------------------------------------
-    loc_entity = session.get(Entity, location_id)
-    location = session.get(Location, location_id)
-    loc_name = loc_entity.name if loc_entity else location_id
-    setting_lines = [f"Tu te trouves dans un lieu nommé « {loc_name} »."]
-    if loc_entity and loc_entity.description:
-        setting_lines.append(loc_entity.description)
-    # Inject player condition so the NPC can observe the player's state.
-    if player_condition != "unharmed":
-        _condition_labels = {
-            "bruised": "légèrement blessé / meurtri",
-            "injured": "blessé, en mauvais état",
-            "neutralized": "hors de combat / inconscient",
-        }
-        setting_lines.append(
-            f"[ÉTAT DU JOUEUR] Le joueur est actuellement : "
-            f"{_condition_labels.get(player_condition, player_condition)}."
-        )
-    if location:
-        values_row = session.exec(
-            select(LocationSubculture).where(
-                LocationSubculture.location_id == location_id,
-                LocationSubculture.key == "values",
-                LocationSubculture.is_hidden == False,  # noqa: E712
-            )
-        ).first()
-        if values_row and values_row.value:
-            setting_lines.append(values_row.value)
-    setting = " ".join(setting_lines)
-
-    # ----- Relations: who this NPC perceives, and how warmly toward whom ----
-    relations = session.exec(
-        select(Relation).where(
-            (Relation.entity_a_id == npc_id) | (Relation.entity_b_id == npc_id)
-        )
-    ).all()
-    perceived: dict[str, Relation] = {}
-    for rel in relations:
-        target = _perceived_target(rel, npc_id)
-        if target and target not in perceived:
-            perceived[target] = rel
-
+    perceived = _npc_context_perceived(npc_id, session)
     # NPC→interlocutor relation intensity drives disclosure (neutral if none).
     inter_relation = perceived.get(interlocutor_id)
     intensity = inter_relation.intensity if inter_relation else NEUTRAL_INTENSITY
 
-    # ----- 3. What this NPC may speak about (secret-excluded, relation-gated)-
-    knowledge = session.exec(
-        select(Knowledge)
-        .where(Knowledge.entity_id == npc_id)
-        .order_by(Knowledge.id)
-    ).all()
-    allowed = [
-        k for k in knowledge
-        if not k.is_secret and intensity >= k.share_threshold
-    ]
-    if allowed:
-        speak_body = (
-            "Tu peux parler librement de ce qui suit, si la conversation s'y prête :\n"
-        )
-        speak_body += "\n".join(_knowledge_line(k) for k in allowed)
-    else:
-        speak_body = "Tu n'as rien de particulier à partager spontanément."
+    speak_body = _npc_context_speak(npc_id, intensity, session)
+    perception = _npc_context_perception(
+        npc_id, interlocutor_id, inter_name, inter_relation, intensity,
+        location_id, perceived, session,
+    )
+    company = _npc_context_company(npc_id, interlocutor_id, gathering_id, session)
+    company_section = _section(H_COMPANY, company) + "\n" if company else ""
 
-    # ----- 4. Perception of those present -----------------------------------
-    present = session.exec(
-        select(Character).where(Character.current_location_id == location_id)
-    ).all()
-    present_ids = [c.id for c in present]
+    affiliations_section = _npc_context_affiliations(npc_id, session)
+    pricing_section = _npc_context_pricing(npc_id, session)
 
-    perception_lines = [f"Face à toi : {inter_name}."]
-    if inter_relation is not None:
-        perception_lines.append("  " + _render_perception(inter_name, inter_relation))
-    else:
-        perception_lines.append(
-            "  Cette personne n'est qu'un visage de plus pour toi ; tu n'as ni "
-            "lien ni opinion particulière à son sujet."
-        )
-    _, directive = _affinity_tier(intensity)
-    perception_lines.append("  " + directive)
-
-    others = [cid for cid in present_ids if cid not in (npc_id, interlocutor_id)]
-    perceived_others = [cid for cid in others if cid in perceived]
-    neutral_others = [cid for cid in others if cid not in perceived]
-
-    if perceived_others:
-        perception_lines.append("")
-        perception_lines.append("Autres personnes présentes que tu remarques :")
-        for cid in perceived_others:
-            perception_lines.append("  " + _render_perception(name_of(cid), perceived[cid]))
-    if neutral_others:
-        names = ", ".join(name_of(cid) for cid in neutral_others)
-        perception_lines.append("")
-        perception_lines.append(
-            f"Également présents, sans que tu y prêtes attention particulière : {names}."
-        )
-    perception = "\n".join(perception_lines)
-
-    # ----- 4b. Gathering co-presence (D1 — simple, no relation modulation) --
-    company: str | None = None
-    if gathering_id:
-        co_rows = session.exec(
-            select(GatheringMember, Entity, Character)
-            .join(Entity, Entity.id == GatheringMember.entity_id)
-            .join(Character, Character.id == GatheringMember.entity_id)
-            .where(
-                GatheringMember.gathering_id == gathering_id,
-                GatheringMember.left_at.is_(None),
-                Character.character_type != "player",
-                Entity.status == "active",
-                Character.vital_status == "alive",
-            )
-        ).all()
-        co_lines = []
-        for _member, co_entity, co_char in co_rows:
-            if co_entity.id in (npc_id, interlocutor_id):
-                continue
-            description = co_char.appearance or co_entity.description or "(pas de description)"
-            co_lines.append(f"- {co_entity.name} : {description}")
-        if co_lines:
-            company = (
-                "Sont avec vous, dans le même groupe :\n" + "\n".join(co_lines)
-            )
-
-    # ----- 5. Hard boundaries ----------------------------------------------
+    # ----- 5. Hard boundaries -----
     boundaries = (
         "Tu ne sais que ce qui est écrit ci-dessus. N'invente aucun fait sur le "
         "monde, sur les autres personnes, ou sur des événements au-delà de ce "
         "contexte. Si l'on t'interroge sur quelque chose que tu ignores, réagis "
         "comme quelqu'un qui, simplement, ne sait pas."
     )
-
-    company_section = _section(H_COMPANY, company) + "\n" if company else ""
-
-    # ----- 4b. Affiliations (BRIEF-29) — this NPC's own public memberships --
-    memberships = read_public_memberships(npc_id, session)
-    affiliations_section = ""
-    if memberships:
-        affiliation_lines = ["TES AFFILIATIONS :"]
-        for faction_name, role in memberships:
-            if role:
-                affiliation_lines.append(f"- {faction_name} ({role})")
-            else:
-                affiliation_lines.append(f"- {faction_name}")
-        affiliations_section = "\n".join(affiliation_lines) + "\n\n"
-
-    # ----- 4c. Seller tariffs (BRIEF-20, relationalized TICKET-0025,
-    # BRIEF-0025-a) — this NPC's own npc_price rows only -------------------
-    price_rows = session.exec(
-        select(NpcPrice).where(NpcPrice.entity_id == npc_id)
-    ).all()
-    pricing_section = ""
-    if price_rows:
-        tariff_lines = ["TES TARIFS (prix fermes) :"]
-        for row in price_rows:
-            tariff_lines.append(f"- {row.tag} : {row.amount}")
-        tariff_lines.append("")
-        tariff_lines.append("RÈGLES DE TARIFICATION :")
-        tariff_lines.append(
-            "- Tes prix affichés ci-dessus sont FERMES et identiques pour tout le monde : "
-            "tu les énonces tels quels, sans marchander."
-        )
-        tariff_lines.append(
-            "- Pour une chose qui n'est PAS dans tes tarifs (objet rare, service "
-            "inhabituel, faveur), tu proposes toi-même un prix, en te servant de tes "
-            "tarifs comme ÉCHELLE de référence : reste dans le même ordre de grandeur, ne "
-            "lance pas un nombre absurde. Tu peux laisser ta relation avec la personne "
-            "l'influencer — plus bas pour quelqu'un que tu apprécies, plus haut pour "
-            "quelqu'un dont tu te méfies. Annonce UN seul prix (pas de marchandage en "
-            "va-et-vient pour l'instant)."
-        )
-        tariff_lines.append(
-            "- Tu ne vends que ce que tu possèdes ou peux raisonnablement fournir ; tu "
-            "n'inventes pas un stock que tu n'as pas."
-        )
-        tariff_lines.append("- Les montants sont dans la monnaie du lieu.")
-        pricing_section = "\n".join(tariff_lines) + "\n\n"
 
     return (
         _section(H_IDENTITY, identity)
@@ -499,6 +542,120 @@ H_MJ_EVENTS = "ÉVÉNEMENTS CONNUS DU PUBLIC"
 
 # Cap on public/confirmed events surfaced to the MJ (schema v1.12).
 _MJ_EVENT_CAP = 5
+
+
+def _mj_context_location(location_id: str, blindfolded: bool, db: Session) -> tuple[dict, Entity | None]:
+    """Location block (name/description/ambient subculture); also returns the
+    resolved location entity so the caller can derive world_id from it."""
+    loc_entity = db.get(Entity, location_id)
+    location = db.get(Location, location_id)
+
+    subculture: dict = {}
+    if location:
+        subculture_rows = db.exec(
+            select(LocationSubculture).where(
+                LocationSubculture.location_id == location_id,
+                LocationSubculture.key.in_(_SAFE_SUBCULTURE_KEYS),
+                LocationSubculture.is_hidden == False,  # noqa: E712
+            )
+        ).all()
+        subculture = {row.key: row.value for row in subculture_rows if row.value}
+
+    location_block = {
+        "name": loc_entity.name if loc_entity else location_id,
+        # Excluded when blindfolded — visual data structurally absent (BRIEF-12).
+        "description": None if blindfolded else (loc_entity.description if loc_entity else None),
+        "subculture": subculture,
+    }
+    return location_block, loc_entity
+
+
+def _mj_context_player_knowledge(player_character_id: str, db: Session) -> list[dict]:
+    """The player's own rows, no further filtering."""
+    knowledge_rows = db.exec(
+        select(Knowledge)
+        .where(Knowledge.entity_id == player_character_id)
+        .order_by(Knowledge.id)
+    ).all()
+    return [
+        {"subject": k.subject, "level": k.level, "content": k.content}
+        for k in knowledge_rows
+    ]
+
+
+def _mj_context_public_events(world_id: str | None, location_id: str, db: Session) -> list[dict]:
+    """Public/confirmed only, location-matched first, capped at _MJ_EVENT_CAP."""
+    if not world_id:
+        return []
+    events = db.exec(
+        select(Event)
+        .where(
+            Event.world_id == world_id,
+            Event.knowledge_status.in_(("public", "confirmed")),
+        )
+        # `occurred_at` is written by nobody (in-fiction time, dormant
+        # column) — order by `recorded_at`, aligning with tick.py and
+        # app.py's return-visit delta (TICKET-0022, RECON finding 7).
+        .order_by(Event.recorded_at.desc())
+    ).all()
+    local = [e for e in events if e.location_id == location_id]
+    other = [e for e in events if e.location_id != location_id]
+    public_events: list[dict] = []
+    for e in (local + other)[:_MJ_EVENT_CAP]:
+        public_events.append({
+            "title": e.title,
+            "description": e.description,
+            "type": e.type,
+            "occurred_at": e.occurred_at.isoformat() if e.occurred_at else None,
+            "location_id": e.location_id,
+        })
+    return public_events
+
+
+def _mj_context_co_presents(
+    gathering_id: str | None, player_character_id: str, blindfolded: bool, db: Session,
+) -> list[dict]:
+    """Dynamic — gathering roster, public entities only."""
+    if not gathering_id:
+        return []
+    co_rows = db.exec(
+        select(GatheringMember, Entity)
+        .join(Entity, Entity.id == GatheringMember.entity_id)
+        .join(Character, Character.id == Entity.id)
+        .where(
+            GatheringMember.gathering_id == gathering_id,
+            GatheringMember.left_at.is_(None),
+            Entity.status == "active",
+            Character.vital_status == "alive",
+        )
+    ).all()
+    co_presents: list[dict] = []
+    for _member, co_entity in co_rows:
+        if co_entity.id == player_character_id or not co_entity.is_public:
+            continue
+        co_presents.append({
+            "name": co_entity.name,
+            # Appearance excluded when blindfolded — visual data structurally
+            # absent; sound/touch context (names) stays (BRIEF-12).
+            "description": None if blindfolded else co_entity.description,
+        })
+    return co_presents
+
+
+def _mj_context_custom_skills(world_id: str | None, db: Session) -> list[str]:
+    """Custom skill vocabulary (BRIEF-55, schema v1.63) — names only, no
+    description, no tier, no per-PC data (Scope OUT 4/7). World-scoped at
+    query construction, mirroring list_entities' pattern."""
+    if not world_id:
+        return []
+    return [
+        d.name
+        for d in db.exec(
+            select(SkillDefinition)
+            .where(SkillDefinition.world_id == world_id)
+            .order_by(SkillDefinition.name)
+        ).all()
+    ]
 
 
 def assemble_mj_context(
@@ -558,101 +715,13 @@ def assemble_mj_context(
     """
     del relevance_hint  # reserved, inert (schema v1.12)
 
-    loc_entity = db.get(Entity, location_id)
-    location = db.get(Location, location_id)
-
-    subculture: dict = {}
-    if location:
-        subculture_rows = db.exec(
-            select(LocationSubculture).where(
-                LocationSubculture.location_id == location_id,
-                LocationSubculture.key.in_(_SAFE_SUBCULTURE_KEYS),
-                LocationSubculture.is_hidden == False,  # noqa: E712
-            )
-        ).all()
-        subculture = {row.key: row.value for row in subculture_rows if row.value}
-
-    location_block = {
-        "name": loc_entity.name if loc_entity else location_id,
-        # Excluded when blindfolded — visual data structurally absent (BRIEF-12).
-        "description": None if blindfolded else (loc_entity.description if loc_entity else None),
-        "subculture": subculture,
-    }
-
-    # ----- Player knowledge — the player's own rows, no further filtering ---
-    knowledge_rows = db.exec(
-        select(Knowledge)
-        .where(Knowledge.entity_id == player_character_id)
-        .order_by(Knowledge.id)
-    ).all()
-    player_knowledge = [
-        {"subject": k.subject, "level": k.level, "content": k.content}
-        for k in knowledge_rows
-    ]
-
-    # ----- Public events — public/confirmed only, location-matched first ----
-    public_events: list[dict] = []
+    location_block, loc_entity = _mj_context_location(location_id, blindfolded, db)
     world_id = loc_entity.world_id if loc_entity else None
-    if world_id:
-        events = db.exec(
-            select(Event)
-            .where(
-                Event.world_id == world_id,
-                Event.knowledge_status.in_(("public", "confirmed")),
-            )
-            # `occurred_at` is written by nobody (in-fiction time, dormant
-            # column) — order by `recorded_at`, aligning with tick.py and
-            # app.py's return-visit delta (TICKET-0022, RECON finding 7).
-            .order_by(Event.recorded_at.desc())
-        ).all()
-        local = [e for e in events if e.location_id == location_id]
-        other = [e for e in events if e.location_id != location_id]
-        for e in (local + other)[:_MJ_EVENT_CAP]:
-            public_events.append({
-                "title": e.title,
-                "description": e.description,
-                "type": e.type,
-                "occurred_at": e.occurred_at.isoformat() if e.occurred_at else None,
-                "location_id": e.location_id,
-            })
 
-    # ----- Co-presents (dynamic) — gathering roster, public entities only ---
-    co_presents: list[dict] = []
-    if gathering_id:
-        co_rows = db.exec(
-            select(GatheringMember, Entity)
-            .join(Entity, Entity.id == GatheringMember.entity_id)
-            .join(Character, Character.id == Entity.id)
-            .where(
-                GatheringMember.gathering_id == gathering_id,
-                GatheringMember.left_at.is_(None),
-                Entity.status == "active",
-                Character.vital_status == "alive",
-            )
-        ).all()
-        for _member, co_entity in co_rows:
-            if co_entity.id == player_character_id or not co_entity.is_public:
-                continue
-            co_presents.append({
-                "name": co_entity.name,
-                # Appearance excluded when blindfolded — visual data structurally
-                # absent; sound/touch context (names) stays (BRIEF-12).
-                "description": None if blindfolded else co_entity.description,
-            })
-
-    # ----- Custom skill vocabulary (BRIEF-55, schema v1.63) — names only ----
-    # World-scoped at query construction, mirroring list_entities' pattern.
-    # Names ONLY — no description, no tier, no per-PC data (Scope OUT 4/7).
-    custom_skills: list[str] = []
-    if world_id:
-        custom_skills = [
-            d.name
-            for d in db.exec(
-                select(SkillDefinition)
-                .where(SkillDefinition.world_id == world_id)
-                .order_by(SkillDefinition.name)
-            ).all()
-        ]
+    player_knowledge = _mj_context_player_knowledge(player_character_id, db)
+    public_events = _mj_context_public_events(world_id, location_id, db)
+    co_presents = _mj_context_co_presents(gathering_id, player_character_id, blindfolded, db)
+    custom_skills = _mj_context_custom_skills(world_id, db)
 
     return {
         "location": location_block,

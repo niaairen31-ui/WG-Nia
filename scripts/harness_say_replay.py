@@ -36,6 +36,16 @@ when `scene_join` still lived in `cockpit.app`) via a throwaway script, not
 by this file's `record` mode — `record` mode here only ever (re)captures
 the 3 `say` TURNS against whatever code is currently checked out.
 
+BRIEF-0028-e coverage manifest (R-learned-in-0027, same vacuous-proof rule
+as `harness_tick_replay.py`): `replay` wraps `analyze_overhearing`,
+`_npc_initiative_vote`, and `_build_mj_user` to record invocation counts.
+The reference gathering conversation (bystanders present, turn 3 phrased
+to surface an overhearing acquisition, and every turn producing an MJ user
+message with a bystander initiative vote) already exercises all three
+transitively — confirmed by inspecting the recorded `ollama_calls.json`
+call sequence before this manifest was added. Refuses to report REPLAY
+PASS if any tracked function shows a zero count.
+
 Usage:
     python scripts/harness_say_replay.py record
     python scripts/harness_say_replay.py replay
@@ -101,6 +111,32 @@ SCENE_JOIN_TEXT = (
     "Je m'approche du groupe rassemblé au comptoir et je m'installe avec eux, "
     "en saluant Maelis d'un signe de tête."
 )
+
+# BRIEF-0028-e gap-closure fixture: `analyze_window` (analyzer.py) is on a
+# model-calling path but untouched by the 3 TURNS above (window analysis
+# fires at scene boundaries, never mid-conversation) and by the scene_join
+# fixture. Recorded once (throwaway script, same precedent as scene_join)
+# against this file's own REFERENCE_CONVERSATION_ID — status='closed',
+# last_analyzed_turn=0, 6 never-analyzed turns sitting on it already — via
+# its own copy of pre_state.sqlite, independent of the 3-TURN and
+# scene_join workdbs.
+WINDOW_ANALYSIS_WORKDB_PATH = FIXTURE_DIR / "window_analysis_workdb.sqlite"
+WINDOW_ANALYSIS_CALL_PATH = FIXTURE_DIR / "window_analysis_call.json"
+WINDOW_ANALYSIS_RESULT_PATH = FIXTURE_DIR / "window_analysis_result.json"
+WINDOW_ANALYSIS_DUMP_PATH = FIXTURE_DIR / "window_analysis_dump.json"
+
+# BRIEF-0028-e gap-closure fixture: `_arbitrate` (play_physical.py) is a
+# model-calling function with no db/session dependency at all — recorded
+# once (throwaway script, same precedent as scene_join/window_analysis)
+# against the real pt-mj-arbiter template, a physical-turn player line, and
+# a 2-NPC roster. No DB copy needed; replay only re-installs the Ollama
+# wrapper and calls the function directly.
+ARBITRATE_CALL_PATH = FIXTURE_DIR / "arbitrate_call.json"
+ARBITRATE_RESULT_PATH = FIXTURE_DIR / "arbitrate_result.json"
+ARBITRATE_TEMPLATES_PATH = FIXTURE_DIR / "arbitrate_templates.json"
+ARBITRATE_PLAYER_LINE = "Je bondis sur Reike et tente de le plaquer au sol avant qu'il ne dégaine."
+ARBITRATE_NPC_LIST = "- Reike\n- Maelis"
+ARBITRATE_NAME_TO_ID = {"reike": "npc-reike", "maelis": "npc-maelis"}
 
 _UUID_RE = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
@@ -230,6 +266,27 @@ def _install_record_wrappers(ollama_client, calls: list[dict]) -> tuple:
     return real_chat, real_chat_stream
 
 
+# BRIEF-0028-e (R7/harness discipline): functions on a model-calling path that
+# no harness manifest names yet. The reference gathering conversation already
+# exercises all three transitively (bystanders present, an initiative vote
+# every turn, an overhearing acquisition on turn 3); these wrappers turn that
+# into a checked assertion instead of an unverified assumption.
+COVERAGE_FUNCTIONS = ("_analyze_overhearing", "_npc_initiative_vote", "_build_mj_user")
+
+
+def _install_coverage_wrappers(play_stream_module, counts: dict[str, int]) -> None:
+    for name in COVERAGE_FUNCTIONS:
+        real_fn = getattr(play_stream_module, name)
+
+        def make_wrapper(real_fn=real_fn, name=name):
+            def wrapper(*args, **kwargs):
+                counts[name] = counts.get(name, 0) + 1
+                return real_fn(*args, **kwargs)
+            return wrapper
+
+        setattr(play_stream_module, name, make_wrapper())
+
+
 def _install_replay_wrappers(ollama_client, queue: list[dict], mismatches: list[dict]) -> None:
     state = {"i": 0}
 
@@ -282,9 +339,10 @@ def _run_record() -> None:
     print(f"RECORD: {len(calls)} Ollama calls, {len(TURNS)} turns captured to {FIXTURE_DIR}")
 
 
-def _run_replay() -> bool:
+def _run_replay() -> tuple[bool, dict[str, int]]:
     from sqlmodel import Session
     from world_engine import ollama_client
+    from world_engine.cockpit import play_stream
     from world_engine.cockpit.routes.play import SayBody, say
     from world_engine.db import engine
 
@@ -294,6 +352,8 @@ def _run_replay() -> bool:
 
     mismatches: list[dict] = []
     _install_replay_wrappers(ollama_client, calls, mismatches)
+    coverage: dict[str, int] = {}
+    _install_coverage_wrappers(play_stream, coverage)
 
     dumps: dict[str, Any] = {"before": _dump_db(WORKDB_PATH)}
     sse: dict[str, str] = {}
@@ -305,6 +365,10 @@ def _run_replay() -> bool:
         dumps[f"after_turn_{n}"] = _dump_db(WORKDB_PATH)
 
     ok = True
+    for name in COVERAGE_FUNCTIONS:
+        if coverage.get(name, 0) == 0:
+            ok = False
+            print(f"FAIL: coverage manifest — {name} was never invoked by the reference scenario")
     if mismatches:
         print(f"WARN: {len(mismatches)} Ollama request(s) drifted from the recording:")
         for m in mismatches:
@@ -327,8 +391,9 @@ def _run_replay() -> bool:
                     print(f"    recorded: {recorded_dumps[key].get(table)}")
                     print(f"    replayed: {dumps.get(key, {}).get(table)}")
 
-    print("REPLAY: PASS — empty diff on SSE and DB writes" if ok else "REPLAY: FAIL — see diffs above")
-    return ok
+    print(f"COVERAGE: {json.dumps({k: coverage.get(k, 0) for k in COVERAGE_FUNCTIONS})}")
+    print("REPLAY: PASS — empty diff on SSE and DB writes, coverage manifest non-zero" if ok else "REPLAY: FAIL — see diffs above")
+    return ok, coverage
 
 
 def _run_scene_join_replay() -> bool:
@@ -402,6 +467,104 @@ def _run_scene_join_replay() -> bool:
     return ok
 
 
+def _run_window_analysis_replay() -> bool:
+    """Replay `analyzer.analyze_window` directly against the reference
+    gathering conversation's own never-analyzed 6-turn window (BRIEF-0028-e
+    gap-closure — see WINDOW_ANALYSIS_* comment above). Uses its own engine
+    on its own workdb copy — independent of the 3-TURN and scene_join
+    workdbs."""
+    from sqlmodel import Session, create_engine
+    from world_engine import ollama_client
+    from world_engine.analyzer import analyze_window
+
+    if not (WINDOW_ANALYSIS_CALL_PATH.exists() and WINDOW_ANALYSIS_RESULT_PATH.exists() and WINDOW_ANALYSIS_DUMP_PATH.exists()):
+        print(f"FAIL: window_analysis fixtures missing under {FIXTURE_DIR} — run the gap-closure recording first")
+        return False
+
+    _sqlite_copy(PRESTATE_PATH, WINDOW_ANALYSIS_WORKDB_PATH)
+    wa_engine = create_engine(f"sqlite:///{WINDOW_ANALYSIS_WORKDB_PATH}")
+
+    recorded_calls = json.loads(WINDOW_ANALYSIS_CALL_PATH.read_text(encoding="utf-8"))
+    recorded_result = json.loads(WINDOW_ANALYSIS_RESULT_PATH.read_text(encoding="utf-8"))
+    recorded_dump = json.loads(WINDOW_ANALYSIS_DUMP_PATH.read_text(encoding="utf-8"))
+
+    mismatches: list[dict] = []
+    _install_replay_wrappers(ollama_client, recorded_calls, mismatches)
+
+    dump_before = _dump_db(WINDOW_ANALYSIS_WORKDB_PATH)
+
+    with Session(wa_engine) as db:
+        mutations = analyze_window(REFERENCE_CONVERSATION_ID, db)
+        result = {"count": len(mutations), "mutation_types": sorted(m.mutation_type for m in mutations)}
+
+    dump_after = _dump_db(WINDOW_ANALYSIS_WORKDB_PATH)
+    wa_engine.dispose()
+    WINDOW_ANALYSIS_WORKDB_PATH.unlink(missing_ok=True)
+
+    ok = True
+    if mismatches:
+        print(f"WARN: window_analysis: {len(mismatches)} Ollama request(s) drifted from the recording")
+
+    if result != recorded_result:
+        ok = False
+        print("FAIL: window_analysis result diverged")
+        print(f"  recorded: {recorded_result!r}")
+        print(f"  replayed: {result!r}")
+
+    if dump_before != recorded_dump["before"] or dump_after != recorded_dump["after"]:
+        ok = False
+        print("FAIL: window_analysis DB dump diverged from the recording")
+
+    print(
+        "WINDOW_ANALYSIS REPLAY: PASS — analyze_window reference window matches the recording"
+        if ok else "WINDOW_ANALYSIS REPLAY: FAIL — see diffs above"
+    )
+    return ok
+
+
+def _run_arbitrate_replay() -> bool:
+    """Replay `_arbitrate` (play_physical.py) against its recorded fixture —
+    no DB involved, so no workdb copy either."""
+    from world_engine import ollama_client
+    from world_engine.cockpit.play_physical import _arbitrate
+
+    if not (ARBITRATE_CALL_PATH.exists() and ARBITRATE_RESULT_PATH.exists() and ARBITRATE_TEMPLATES_PATH.exists()):
+        print(f"FAIL: arbitrate fixtures missing under {FIXTURE_DIR} — run the gap-closure recording first")
+        return False
+
+    recorded_calls = json.loads(ARBITRATE_CALL_PATH.read_text(encoding="utf-8"))
+    recorded_result = json.loads(ARBITRATE_RESULT_PATH.read_text(encoding="utf-8"))
+    templates = json.loads(ARBITRATE_TEMPLATES_PATH.read_text(encoding="utf-8"))
+
+    mismatches: list[dict] = []
+    _install_replay_wrappers(ollama_client, recorded_calls, mismatches)
+
+    result = list(_arbitrate(
+        player_line=ARBITRATE_PLAYER_LINE,
+        npc_list=ARBITRATE_NPC_LIST,
+        name_to_id=ARBITRATE_NAME_TO_ID,
+        arbiter_system=templates["system"],
+        arbiter_user_tpl=templates["user_tpl"],
+        model=templates["model"],
+        custom_skill_names=(),
+    ))
+
+    ok = True
+    if mismatches:
+        print(f"WARN: arbitrate: {len(mismatches)} Ollama request(s) drifted from the recording")
+    if result != recorded_result:
+        ok = False
+        print("FAIL: arbitrate result diverged")
+        print(f"  recorded: {recorded_result!r}")
+        print(f"  replayed: {result!r}")
+
+    print(
+        "ARBITRATE REPLAY: PASS — _arbitrate reference turn matches the recording"
+        if ok else "ARBITRATE REPLAY: FAIL — see diffs above"
+    )
+    return ok
+
+
 def main() -> None:
     if len(sys.argv) != 2 or sys.argv[1] not in ("record", "replay"):
         raise SystemExit(__doc__)
@@ -414,8 +577,10 @@ def main() -> None:
     if mode == "record":
         _run_record()
     else:
-        ok = _run_replay()
+        ok, _coverage = _run_replay()
         ok = _run_scene_join_replay() and ok
+        ok = _run_window_analysis_replay() and ok
+        ok = _run_arbitrate_replay() and ok
         if not ok:
             raise SystemExit(1)
 

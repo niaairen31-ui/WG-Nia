@@ -10,7 +10,7 @@ danger_class: []       # no db_write/migration/destructive intent; behavior-
                        # preserving refactors on the tick pipeline and the
                        # canon-write module — treated as high-care regardless
 blast_radius: large
-brief_ids: [BRIEF-0028-a, BRIEF-0028-b, BRIEF-0028-c, BRIEF-0028-d]   # e..f appended as authored
+brief_ids: [BRIEF-0028-a, BRIEF-0028-b, BRIEF-0028-c, BRIEF-0028-d, BRIEF-0028-e]   # f appended as authored
 schema_version_touched:     # none — no schema change anywhere in this ticket
 retry_count: 0
 ---

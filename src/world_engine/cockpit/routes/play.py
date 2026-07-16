@@ -393,28 +393,10 @@ class SceneJoinBody(BaseModel):
     player_id: Optional[str] = None        # defaults to the resolved player character
 
 
-@router.post("/api/scene/join")
-def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
-    """Join a gathering from the scene view — creates the conversation.
-
-    Autonomous join: no pre-existing conversation required. Interprets the
-    player's text (via the full pt-mj-interpretation pipeline) to resolve a
-    gathering target (contract A2), then:
-
-    - Resolved (exactly one match): inserts gathering_member, creates a
-      conversation anchored to the gathering (npc_id=None — pure gathering
-      conversation; responder selection is A3-group by default). Returns
-      {"conversation_id": ..., "gathering": {...}}.
-    - Unresolved / ambiguous: returns {"join_candidates": [...]} so the
-      cockpit picker (C2 selector) can surface the open gatherings for an
-      explicit click.
-    - Already joined: returns {"already_joined": True, "gathering": {...},
-      "conversation_id": ...} with the active conversation if one exists.
-
-    Joining is not a canon mutation — no proposed_mutation row is produced.
-    """
-    player_id     = body.player_id or _crud._player_character_id(db, _crud._world_id(db))
-    char          = db.get(Character, player_id)
+def _scene_join_resolve_player(body: "SceneJoinBody", db: Session) -> tuple[str, str, str, str]:
+    """(player_id, location_id, world_id, location_name)."""
+    player_id = body.player_id or _crud._player_character_id(db, _crud._world_id(db))
+    char = db.get(Character, player_id)
     if char is None:
         raise HTTPException(status_code=404, detail=f"Player {player_id!r} not found")
     if not char.current_location_id:
@@ -423,70 +405,64 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
     if player_entity is None:
         raise HTTPException(status_code=404, detail=f"Player entity {player_id!r} not found")
 
-    location_id  = char.current_location_id
-    world_id     = player_entity.world_id
-    loc_entity   = db.get(Entity, location_id)
+    location_id = char.current_location_id
+    world_id = player_entity.world_id
+    loc_entity = db.get(Entity, location_id)
     location_name = loc_entity.name if loc_entity else location_id
+    return player_id, location_id, world_id, location_name
 
-    sess    = _get_or_open_session(world_id, db)
-    open_g  = _open_gatherings(location_id, sess.id, db)
-    player_g = _player_gathering(player_id, location_id, sess.id, db)
-
-    if player_g is not None:
-        # Already a gathering member — find any open conversation in it.
-        existing_conv = db.exec(
-            select(Conversation).where(
-                Conversation.gathering_id == player_g.id,
-                Conversation.player_id    == player_id,
-                Conversation.status       == "open",
-            )
-        ).first()
-        if existing_conv:
-            # Resume the active conversation.
-            return {
-                "already_joined":  True,
-                "gathering":       _gathering_brief(player_g.id, db),
-                "conversation_id": existing_conv.id,
-            }
-        # In the gathering but no open conversation (e.g. previous one was
-        # closed, or the player re-loaded after the test). Create a fresh one
-        # anchored to the same gathering — identical to the resolve path below.
-        behaviour = _load_npc_dialogue_template(world_id, db)
-        behaviour_version = current_prompt(db, behaviour)
-        model     = effective_model(behaviour, ollama_client.DEFAULT_MODEL)
-        mj_context = assemble_mj_context(db, player_id, location_id, gathering_id=player_g.id)
-        new_conv  = Conversation(
-            world_id    = world_id,
-            session_id  = sess.id,
-            location_id = location_id,
-            player_id   = player_id,
-            npc_id      = None,
-            status      = "open",
-            injected_context = {
-                "model":              model,
-                "interlocutor_id":    player_id,
-                "location_id":        location_id,
-                "prompt_template_id": behaviour.id,
-                "behaviour_prompt":   behaviour_version.system_prompt,
-                "system_prompt":      "",
-                "mj": {k: v for k, v in mj_context.items() if k != "co_presents"},
-            },
-            gathering_id = player_g.id,
-            started_at   = datetime.now(UTC),
+def _scene_join_already_member(player_g: Gathering, player_id: str, location_id: str, world_id: str, sess, db: Session) -> dict:
+    existing_conv = db.exec(
+        select(Conversation).where(
+            Conversation.gathering_id == player_g.id,
+            Conversation.player_id    == player_id,
+            Conversation.status       == "open",
         )
-        db.add(new_conv)
-        db.commit()
-        db.refresh(new_conv)
+    ).first()
+    if existing_conv:
         return {
             "already_joined":  True,
             "gathering":       _gathering_brief(player_g.id, db),
-            "conversation_id": new_conv.id,
+            "conversation_id": existing_conv.id,
         }
 
-    if not open_g:
-        raise HTTPException(status_code=400, detail="No open gatherings at this location")
+    behaviour = _load_npc_dialogue_template(world_id, db)
+    behaviour_version = current_prompt(db, behaviour)
+    model     = effective_model(behaviour, ollama_client.DEFAULT_MODEL)
+    mj_context = assemble_mj_context(db, player_id, location_id, gathering_id=player_g.id)
+    new_conv  = Conversation(
+        world_id    = world_id,
+        session_id  = sess.id,
+        location_id = location_id,
+        player_id   = player_id,
+        npc_id      = None,
+        status      = "open",
+        injected_context = {
+            "model":              model,
+            "interlocutor_id":    player_id,
+            "location_id":        location_id,
+            "prompt_template_id": behaviour.id,
+            "behaviour_prompt":   behaviour_version.system_prompt,
+            "system_prompt":      "",
+            "mj": {k: v for k, v in mj_context.items() if k != "co_presents"},
+        },
+        gathering_id = player_g.id,
+        started_at   = datetime.now(UTC),
+    )
+    db.add(new_conv)
+    db.commit()
+    db.refresh(new_conv)
+    return {
+        "already_joined":  True,
+        "gathering":       _gathering_brief(player_g.id, db),
+        "conversation_id": new_conv.id,
+    }
 
-    # ── Interpret the player's text via the full MJ pipeline (A2 reused) ──
+def _scene_join_resolve_and_create(
+    body: "SceneJoinBody", player_id: str, location_id: str, location_name: str,
+    world_id: str, open_g: list[Gathering], sess, db: Session,
+) -> dict:
+    # A2 reused: interpret the text to resolve a gathering target, then create the conversation.
     gathering_status  = _render_gathering_status(player_id, None, open_g, db)
     interpret_template = _load_mj_interpret_template(world_id, db)
     interpret_version = current_prompt(db, interpret_template)
@@ -512,18 +488,14 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
         interpret_user_tpl = interpret_version.user_template,
         model             = model,
     )
-
-    # If the model didn't classify as join, treat the full text as the reference
-    # anyway — the player typed in a join-specific field, so intent is clear.
+    # Not classified as join: treat the full text as the reference anyway — join-field intent is clear.
     if mode != ResponseMode.join:
         reference = body.player_text
 
     resolved_id = _resolve_join_target(reference, open_g, db)
-
     if resolved_id is None:
         return {"join_candidates": [_gathering_brief(g.id, db) for g in open_g]}
 
-    # ── Create the conversation anchored to the resolved gathering ─────────
     behaviour   = _load_npc_dialogue_template(world_id, db)
     behaviour_version = current_prompt(db, behaviour)
     mj_context = assemble_mj_context(db, player_id, location_id, gathering_id=resolved_id)
@@ -557,6 +529,39 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
         "conversation_id": conv.id,
         "gathering":       _gathering_brief(gathering.id, db),
     }
+
+
+@router.post("/api/scene/join")
+def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
+    """Join a gathering from the scene view — creates the conversation.
+    Autonomous join: no pre-existing conversation required. Interprets the
+    player's text (full pt-mj-interpretation pipeline, contract A2) to
+    resolve a gathering target, then:
+
+    - Resolved (exactly one match): inserts gathering_member, creates a
+      conversation anchored to the gathering (npc_id=None — pure gathering
+      conversation, A3-group responder). Returns {"conversation_id": ..., "gathering": {...}}.
+    - Unresolved / ambiguous: returns {"join_candidates": [...]} so the
+      cockpit picker (C2 selector) can surface the open gatherings.
+    - Already joined: returns {"already_joined": True, "gathering": {...},
+      "conversation_id": ...} with the active conversation if one exists.
+    Joining is not a canon mutation — no proposed_mutation row is produced.
+    """
+    player_id, location_id, world_id, location_name = _scene_join_resolve_player(body, db)
+
+    sess    = _get_or_open_session(world_id, db)
+    open_g  = _open_gatherings(location_id, sess.id, db)
+    player_g = _player_gathering(player_id, location_id, sess.id, db)
+
+    if player_g is not None:
+        return _scene_join_already_member(player_g, player_id, location_id, world_id, sess, db)
+
+    if not open_g:
+        raise HTTPException(status_code=400, detail="No open gatherings at this location")
+
+    return _scene_join_resolve_and_create(
+        body, player_id, location_id, location_name, world_id, open_g, sess, db,
+    )
 
 
 @router.post("/api/scene/leave")
@@ -910,26 +915,10 @@ class WorldTickBody(BaseModel):
     interval: str
 
 
-@router.post("/api/world-tick")
-def world_tick_endpoint(
-    body: WorldTickBody,
-    db: Session = Depends(get_session),
-) -> dict:
-    """Resolve a scope to NPC ids, then run one world tick over them
-    (TICKET-0014, BRIEF-0014-b). Writes `proposed_mutation` rows only (C2) —
-    every result still needs creator approval through the normal queue.
-
-    Unknown interval, unknown scope_type, or an empty resolved NPC list ->
-    422, no model call, nothing written.
-    """
-    if body.interval not in _VALID_TICK_INTERVALS:
-        raise HTTPException(422, f"interval must be one of {sorted(_VALID_TICK_INTERVALS)}")
-
-    world_id = _crud._world_id(db)
-    npc_ids: list[str]
-
+def _resolve_tick_scope(body: "WorldTickBody", world_id: str, db: Session) -> list[str]:
+    # TICKET-0014/-b: raises 422 on a bad npc_id, missing scope_id, or unknown scope_type.
     if body.scope_type == "npcs":
-        npc_ids = []
+        npc_ids: list[str] = []
         for entity_id in (body.npc_ids or []):
             char = db.get(Character, entity_id)
             entity = db.get(Entity, entity_id)
@@ -942,8 +931,9 @@ def world_tick_endpoint(
                     422, f"{entity_id!r} does not resolve to an NPC character of the active world"
                 )
             npc_ids.append(entity_id)
+        return npc_ids
 
-    elif body.scope_type == "location":
+    if body.scope_type == "location":
         if not body.scope_id:
             raise HTTPException(422, "scope_id is required for scope_type='location'")
         rows = db.exec(
@@ -957,9 +947,9 @@ def world_tick_endpoint(
                 Entity.status == "active",
             )
         ).all()
-        npc_ids = [c.id for c in rows]
+        return [c.id for c in rows]
 
-    elif body.scope_type == "faction":
+    if body.scope_type == "faction":
         if not body.scope_id:
             raise HTTPException(422, "scope_id is required for scope_type='faction'")
         rows = db.exec(
@@ -975,10 +965,26 @@ def world_tick_endpoint(
                 Entity.status == "active",
             )
         ).all()
-        npc_ids = [c.id for c in rows]
+        return [c.id for c in rows]
 
-    else:
-        raise HTTPException(422, f"unknown scope_type {body.scope_type!r}")
+    raise HTTPException(422, f"unknown scope_type {body.scope_type!r}")
+
+
+@router.post("/api/world-tick")
+def world_tick_endpoint(
+    body: WorldTickBody,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Resolve a scope to NPC ids, then run one world tick over them
+    (TICKET-0014, BRIEF-0014-b). Writes `proposed_mutation` rows only (C2) —
+    every result still needs creator approval through the normal queue.
+    Unknown interval, unknown scope_type, or an empty resolved NPC list ->
+    422, no model call, nothing written."""
+    if body.interval not in _VALID_TICK_INTERVALS:
+        raise HTTPException(422, f"interval must be one of {sorted(_VALID_TICK_INTERVALS)}")
+
+    world_id = _crud._world_id(db)
+    npc_ids = _resolve_tick_scope(body, world_id, db)
 
     if not npc_ids:
         raise HTTPException(422, "resolved scope is empty — nothing to tick")
