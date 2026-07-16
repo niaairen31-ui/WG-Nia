@@ -1,0 +1,32 @@
+{
+  "ticket": "TICKET-0031-npc-spatial-presence-proximity",
+  "when": "2026-07-16T18:58:06.197081+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "placement_unit.py",
+      "status": "PASS",
+      "msg": "PASS: placement_unit \u2014 all 7 derive_positions/distance cases hold"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u2014 section whitelist, line budgets, archaeology ban, pointer freshness"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    }
+  ]
+}
