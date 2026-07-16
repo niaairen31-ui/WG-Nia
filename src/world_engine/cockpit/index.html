@@ -937,6 +937,12 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 .spatial-error   { flex-shrink: 0; padding: 10px 14px; font-size: 13px; color: var(--red); }
 #spatial-canvas  { flex: 1; min-height: 0; width: 100%; display: block; background: var(--bg);
   cursor: crosshair; outline: none; }
+/* ── Proximity "Parler" affordance — TICKET-0032, BRIEF-0032-c ── */
+.spatial-actions { flex-shrink: 0; padding: 8px 14px; font-size: 13px; color: var(--muted);
+  background: var(--panel); border-top: 1px solid var(--border); display: flex; flex-wrap: wrap;
+  align-items: center; gap: 8px; }
+.spatial-actions-empty    { color: var(--muted); }
+.spatial-actions-distance { color: var(--muted); font-size: 11px; }
 
 /* ── Création sub-tab bar ────────────────────────────────────────────────── */
 .creation-sub-tab-bar {
@@ -1165,11 +1171,12 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     </div>
   </div><!-- #play-savoirs -->
 
-  <!-- ── Play (spatiale) sub-tab — TICKET-0032, BRIEF-0032-b ── -->
+  <!-- ── Play (spatiale) sub-tab — TICKET-0032, BRIEF-0032-b/c ── -->
   <div id="play-spatiale" style="display:none">
     <div id="spatial-status" class="spatial-status"></div>
     <div id="spatial-error" class="spatial-error" style="display:none"></div>
     <canvas id="spatial-canvas" tabindex="0"></canvas>
+    <div id="spatial-actions" class="spatial-actions"></div>
   </div><!-- #play-spatiale -->
 
 </div><!-- #play-view -->
@@ -3252,6 +3259,10 @@ let _spatialMovePending    = false;
 let _spatialMoveError      = null;
 let _spatialColors         = null;  // cached CSS variable values, read once
 let _spatialListenersReady = false;
+let _spatialScene              = null;  // last GET /api/scene response (gatherings, player_gathering, active_conversation_id)
+let _spatialInRange            = [];    // [{ npc_id, name, distance }] from /api/spatial/proximity
+let _spatialProximityTimer     = null;  // debounce handle (D1: 200ms after movement stops)
+let _spatialProximityInFlight  = false; // one in-flight request max
 
 const _SPATIAL_KEY_MAP = {
   w: 'up', a: 'left', s: 'down', d: 'right',
@@ -3278,6 +3289,7 @@ async function spatialActivate() {
 
   try {
     const scene = await api('/api/scene');
+    _spatialScene         = scene;
     _spatialLocationId   = scene.location_id;
     _spatialLocationName = scene.location_name;
 
@@ -3314,6 +3326,11 @@ async function spatialActivate() {
     spatialUpdateStatus();
     _spatialDirty = true;
     spatialStartLoop();
+
+    // On-stop proximity (D1): one call on scene entry/spawn, undebounced.
+    _spatialInRange = [];
+    spatialRenderActions();
+    spatialFireProximity();
   } catch (e) {
     _spatialBounds = null;
     canvasEl.style.display = 'none';
@@ -3329,6 +3346,7 @@ function spatialDeactivate() {
   _spatialActive = false;
   spatialStopLoop();
   spatialStopTicker();
+  spatialCancelProximityTimer();
   _spatialKeysDown = { up: false, down: false, left: false, right: false };
 }
 
@@ -3456,8 +3474,11 @@ function spatialRender() {
     ctx.stroke();
   });
 
-  // NPC circles (radius 0.35 m) with name label above
+  // NPC circles (radius 0.35 m) with name label above; in-range NPCs (proximity)
+  // get a ring stroke — matched by npc_id (proximity) against id (presence),
+  // a known field-name divergence between the two endpoints.
   const radiusPx = 0.35 * _spatialScale;
+  const inRangeIds = new Set(_spatialInRange.map(entry => entry.npc_id));
   ctx.textAlign = 'center';
   ctx.font = '11px ' + _spatialColors.mono;
   _spatialNpcs.forEach(npc => {
@@ -3466,6 +3487,13 @@ function spatialRender() {
     ctx.arc(px, py, radiusPx, 0, Math.PI * 2);
     ctx.fillStyle = _spatialColors.npc;
     ctx.fill();
+    if (inRangeIds.has(npc.id)) {
+      ctx.beginPath();
+      ctx.arc(px, py, radiusPx + 3, 0, Math.PI * 2);
+      ctx.strokeStyle = _spatialColors.player;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
     ctx.fillStyle = _spatialColors.label;
     ctx.fillText(npc.name || '', px, py - radiusPx - 4);
   });
@@ -3507,8 +3535,19 @@ function spatialOnKeyDown(e) {
   if (!dir) return;
   e.preventDefault();
   if (!_spatialKeysDown[dir]) {
+    const wasIdle = !Object.values(_spatialKeysDown).some(Boolean);
     _spatialKeysDown[dir] = true;
     spatialStartTicker();
+    if (wasIdle) {
+      // Movement start (D1): cancel any pending on-stop proximity call and
+      // clear the affordance list — never while moving.
+      spatialCancelProximityTimer();
+      if (_spatialInRange.length) {
+        _spatialInRange = [];
+        spatialRenderActions();
+        _spatialDirty = true;
+      }
+    }
   }
 }
 
@@ -3562,7 +3601,12 @@ function spatialTick() {
  *  fires while one is pending coalesces (recomputed from the latest
  *  confirmed position once the in-flight request resolves). */
 function spatialRequestMove(dir) {
-  if (dir.x === 0 && dir.y === 0) return;
+  if (dir.x === 0 && dir.y === 0) {
+    // No-op stop (e.g. opposite keys released down to zero net direction):
+    // still counts as movement ending — schedule proximity if now idle.
+    if (!Object.values(_spatialKeysDown).some(Boolean)) spatialScheduleProximity();
+    return;
+  }
   if (_spatialMoveInFlight) { _spatialMovePending = true; return; }
   spatialSendMove(dir);
 }
@@ -3591,11 +3635,15 @@ async function spatialSendMove(dir) {
   } finally {
     _spatialMoveInFlight = false;
     spatialUpdateStatus();
+    let coalesced = false;
     if (_spatialMovePending) {
       _spatialMovePending = false;
       const nextDir = spatialDirectionVector();
-      if (nextDir.x !== 0 || nextDir.y !== 0) spatialSendMove(nextDir);
+      if (nextDir.x !== 0 || nextDir.y !== 0) { spatialSendMove(nextDir); coalesced = true; }
     }
+    // Movement end (D1): the final confirmed response has landed — schedule
+    // the on-stop proximity call only once no keys remain down.
+    if (!coalesced && !Object.values(_spatialKeysDown).some(Boolean)) spatialScheduleProximity();
   }
 }
 
@@ -3610,6 +3658,126 @@ function spatialInitListeners() {
   document.addEventListener('keydown', spatialOnKeyDown);
   document.addEventListener('keyup', spatialOnKeyUp);
   window.addEventListener('resize', () => { if (_spatialActive) spatialResizeCanvas(); });
+}
+
+/* ── Proximity on-stop + "Parler" affordance (TICKET-0032, BRIEF-0032-c) ─── */
+
+function spatialCancelProximityTimer() {
+  if (_spatialProximityTimer != null) { clearTimeout(_spatialProximityTimer); _spatialProximityTimer = null; }
+}
+
+/** 200ms debounce (D1) — a new keydown within the window cancels it
+ *  (spatialOnKeyDown calls spatialCancelProximityTimer on movement start). */
+function spatialScheduleProximity() {
+  spatialCancelProximityTimer();
+  _spatialProximityTimer = setTimeout(() => {
+    _spatialProximityTimer = null;
+    spatialFireProximity();
+  }, 200);
+}
+
+/** Single spatial-distance authority: in-range comes solely from this
+ *  endpoint — the client never computes distance. Never while moving; one
+ *  in-flight request max. Failure is silent (advisory gate, G-A). */
+async function spatialFireProximity() {
+  if (!_spatialActive || !_spatialBounds) return;
+  if (Object.values(_spatialKeysDown).some(Boolean)) return;
+  if (_spatialProximityInFlight) return;
+  _spatialProximityInFlight = true;
+  try {
+    const res = await api('/api/spatial/proximity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ location_id: _spatialLocationId, position: _spatialConfirmed }),
+    });
+    _spatialInRange = res.in_range || [];
+    spatialRenderActions();
+    _spatialDirty = true;
+  } catch (e) {
+    // Advisory gate — a failed proximity fetch never breaks movement.
+  } finally {
+    _spatialProximityInFlight = false;
+  }
+}
+
+function spatialRenderActions() {
+  const el = document.getElementById('spatial-actions');
+  if (!el) return;
+  if (!_spatialInRange.length) {
+    el.innerHTML = '<span class="spatial-actions-empty">Personne à portée de voix.</span>';
+    return;
+  }
+  el.innerHTML = _spatialInRange.map(entry =>
+    `<button class="btn-send" onclick="spatialTalkTo('${esc(entry.npc_id)}')">Parler à ${esc(entry.name)}</button>` +
+    `<span class="spatial-actions-distance">(${entry.distance.toFixed(1)} m)</span>`
+  ).join('');
+}
+
+/** Map a clicked npc_id to its open gathering via the scene response already
+ *  held; null if the NPC is present in no open gathering there. */
+function _spatialFindGatheringForNpc(npcId) {
+  if (!_spatialScene || !_spatialScene.gatherings) return null;
+  for (const g of _spatialScene.gatherings) {
+    if ((g.members || []).some(m => m.id === npcId)) return g.id;
+  }
+  return null;
+}
+
+async function spatialRefreshPresence() {
+  try {
+    const presence = await api('/api/spatial/presence?location_id=' + encodeURIComponent(_spatialLocationId));
+    _spatialNpcs = presence.npcs || [];
+    _spatialDirty = true;
+  } catch (e) { /* advisory refresh only */ }
+}
+
+/** Deterministic targeted join (G2-b): no player_text, zero model calls. */
+async function spatialJoinGathering(gatheringId) {
+  const result = await api('/api/scene/join', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ target_gathering_id: gatheringId }),
+  });
+  if (result.conversation_id) {
+    await loadConversations();
+    await selectConv(result.conversation_id);
+  }
+}
+
+/** Click flow for the "Parler" affordance (G2-b/I1). Same-gathering NPC
+ *  resumes/continues; other-gathering NPC leaves first then joins (sequential,
+ *  awaited — a failed leave stops here with no join attempt). No confirmation
+ *  dialog either way; the affordance label is the intent. */
+async function spatialTalkTo(npcId) {
+  const statusEl = document.getElementById('spatial-status');
+  let gatheringId = _spatialFindGatheringForNpc(npcId);
+  if (gatheringId == null) {
+    try { _spatialScene = await api('/api/scene'); } catch (e) { /* retry below with stale scene */ }
+    gatheringId = _spatialFindGatheringForNpc(npcId);
+    if (gatheringId == null) {
+      statusEl.textContent = "Ce personnage n'est plus disponible.";
+      spatialRefreshPresence();
+      return;
+    }
+  }
+
+  try {
+    const playerGathering = _spatialScene && _spatialScene.player_gathering;
+    if (playerGathering) {
+      if (playerGathering.id === gatheringId) {
+        if (_spatialScene.active_conversation_id) {
+          await selectConv(_spatialScene.active_conversation_id);
+        } else {
+          await _sceneResumeOrStart();
+        }
+        return;
+      }
+      await api('/api/scene/leave', { method: 'POST' });
+    }
+    await spatialJoinGathering(gatheringId);
+  } catch (e) {
+    statusEl.innerHTML = `<span style="color:var(--red)">Erreur : ${esc(e.message)}</span>`;
+  }
 }
 
 /* ── Création sub-tabs ───────────────────────────────────────────────────── */
