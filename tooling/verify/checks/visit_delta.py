@@ -25,7 +25,10 @@ SRC = ROOT / "src"
 APP_FILE = SRC / "world_engine" / "cockpit" / "play_physical.py"
 
 ALLOWED_CONSTRUCTOR_MODULES = {
-    "src/world_engine/cockpit/routes/play.py",
+    # Relocated (TICKET-0032, C2): enter_scene (with it) moved to
+    # routes/scene.py when routes/play.py hit the module-budget cap — same
+    # sole write site, not a broadening.
+    "src/world_engine/cockpit/routes/scene.py",
 }
 
 FAILURES: list[str] = []
