@@ -2,13 +2,12 @@
 id: TICKET-0028
 title: Residual decomposition — retire the R1/R5 transition baselines
 type: feature
-status: live-gate
+status: done
 # Stages a-f executed; full verify suite green on ticket/0028. Both
 # transition baselines emptied (a-e) then deleted outright (f); R1/R5 run
 # exemption-free, fail-closed absence proof recorded. Four disposable
 # harnesses + fixtures deleted. code_standards.md closure edit applied
-# (v1 -> v1.01). Awaiting Nia's live gate: merge, mark done, open the next
-# ticket.
+# (v1 -> v1.01). Merged to main via PR #44 (2026-07-16); live gate cleared.
 created: 2026-07-15
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []       # no db_write/migration/destructive intent; behavior-
