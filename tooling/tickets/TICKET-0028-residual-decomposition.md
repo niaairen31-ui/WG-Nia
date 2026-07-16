@@ -2,15 +2,20 @@
 id: TICKET-0028
 title: Residual decomposition — retire the R1/R5 transition baselines
 type: feature
-status: brief
-# RECON done, decisions locked, BRIEF-0028-a authored
+status: live-gate
+# Stages a-f executed; full verify suite green on ticket/0028. Both
+# transition baselines emptied (a-e) then deleted outright (f); R1/R5 run
+# exemption-free, fail-closed absence proof recorded. Four disposable
+# harnesses + fixtures deleted. code_standards.md closure edit applied
+# (v1 -> v1.01). Awaiting Nia's live gate: merge, mark done, open the next
+# ticket.
 created: 2026-07-15
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []       # no db_write/migration/destructive intent; behavior-
                        # preserving refactors on the tick pipeline and the
                        # canon-write module — treated as high-care regardless
 blast_radius: large
-brief_ids: [BRIEF-0028-a, BRIEF-0028-b, BRIEF-0028-c, BRIEF-0028-d, BRIEF-0028-e]   # f appended as authored
+brief_ids: [BRIEF-0028-a, BRIEF-0028-b, BRIEF-0028-c, BRIEF-0028-d, BRIEF-0028-e, BRIEF-0028-f]
 schema_version_touched:     # none — no schema change anywhere in this ticket
 retry_count: 0
 ---
@@ -117,7 +122,13 @@ one branch + one PR per brief.
 
 - Harness ownership: `harness_say_replay.py` and
   `harness_mutation_apply.py` transferred from TICKET-0027;
-  `harness_tick_replay.py` created here. All three deleted at stage f.
+  `harness_tick_replay.py` created here. All three deleted at stage f,
+  alongside `harness_entity_author_replay.py` (created BRIEF-0028-d).
+- Status flip: this ticket closes stage f with `status: live-gate`, not
+  `done`. Per the TICKET-0027 precedent (BRIEF-0027-g's own `live-gate`
+  close, flipped to `done` by BRIEF-0028-a — the first commit of this
+  ticket, G1 pattern), the `live-gate -> done` flip for TICKET-0028 rides
+  the first commit of the next ticket, not a commit of this one.
 - After this ticket: return to the spatial / Play mode stream (four
   standalone discussion briefs; NPC spatial presence is the blocking
   chantier), plus pending Tier 4 overhearing propagation and Tier 3 C2

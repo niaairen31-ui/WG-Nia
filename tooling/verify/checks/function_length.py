@@ -2,15 +2,17 @@
 
 AST-based: every function/method in `src/`, including nested ones, must be
 <= 80 physical lines (`end_lineno - lineno + 1`; Python's ast already
-excludes decorator lines from a FunctionDef's own lineno). Existing
-violations are frozen in `tooling/verify/baselines/function_length.json`
-(transition artifact, deleted at TICKET-0027 stage g — see
-code_standards.md section 4, R1). Fails if:
+excludes decorator lines from a FunctionDef's own lineno). Historical
+violations were frozen in `tooling/verify/baselines/function_length.json`,
+a transition artifact retired at TICKET-0028's close (code_standards.md
+section 4, R1). Fails if:
   a. a function over 80 lines is absent from the baseline, or
   b. a baselined function now exceeds its recorded length.
 Baseline entries may only shrink or disappear; this check never rewrites
-the baseline. Missing/unparsable baseline file, or zero functions found
-under `src/`, is a FAILURE (fail-closed / vacuous-pass guard).
+the baseline. A missing baseline file is treated as an empty exemption
+set — the cap is enforced on every function, fail-closed, not a vacuous
+pass. An unparsable baseline file, or zero functions found under `src/`,
+is a FAILURE.
 
 No DB, stdlib `ast` only.
 """
@@ -86,8 +88,7 @@ def _strip_json_comments(text: str) -> str:
 
 def _load_baseline() -> "dict[tuple[str, str], int] | None":
     if not BASELINE_FILE.exists():
-        fail(f"{BASELINE_FILE} not found")
-        return None
+        return {}
     try:
         data = json.loads(_strip_json_comments(BASELINE_FILE.read_text(encoding="utf-8")))
     except json.JSONDecodeError as exc:

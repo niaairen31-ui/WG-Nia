@@ -8,7 +8,8 @@ normalization lives in `tick_normalize.py`. This module keeps only the
 orchestration: roster/context assembly per NPC, the model call + parse, the
 per-NPC and scope-level proposal loops, and the single end-of-run commit.
 Pure decomposition — no logic, prompt, or ordering change from the
-pre-BRIEF-0028-a shape (proven by `scripts/harness_tick_replay.py`).
+pre-BRIEF-0028-a shape (proven by record/replay harness at decomposition
+time).
 """
 
 from __future__ import annotations

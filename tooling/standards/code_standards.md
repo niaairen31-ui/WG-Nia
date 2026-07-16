@@ -1,5 +1,8 @@
 # Code standards
 
+Version: v1.01 (TICKET-0028, BRIEF-0028-f — R1/R5 transition-baseline
+closure edit, historical tense only, no rule change).
+
 Seeded: 2026-07-13, from the one-time SEEDING review (26 tickets closed,
 schema v1.79, `main`). Amendments happen only through a ticket; rationale for
 any rule change is appended to `ARCHITECTURE_DECISIONS.md`, never rewritten
@@ -44,10 +47,9 @@ Each rule targets a concrete failure mode observed in the ticket history.
   are frozen in `tooling/verify/baselines/function_length.json`
   (name + file + length). The check fails if: (a) a non-baselined function
   exceeds 80 lines, or (b) a baselined function grows past its recorded
-  length. Baselined entries may only shrink or disappear. The baseline file
-  is a transition artifact: reduced at TICKET-0027 stage g to a frozen
-  residual owned by TICKET-0028, and deleted at TICKET-0028's close, after
-  which the check runs with no exemptions.
+  length. Baselined entries may only shrink or disappear. The transition
+  baseline was retired at TICKET-0028's close; the check runs with no
+  exemptions.
   Check: `function_length.py`.
   Failure mode addressed: `say` reached 1130 lines (958-line nested
   `_stream`), `_apply_mutation` 682, through per-ticket accretion with no
@@ -87,10 +89,9 @@ Each rule targets a concrete failure mode observed in the ticket history.
   the same pass; exceeding either fails. Existing violations are frozen in
   `tooling/verify/baselines/module_budget.json` (file + function count +
   line count); a baselined module may not grow past its recorded values on
-  either dimension, and entries may only shrink or disappear. The baseline
-  is a transition artifact: reduced at TICKET-0027 stage g to a frozen
-  residual owned by TICKET-0028, and deleted at TICKET-0028's close,
-  alongside R1's.
+  either dimension, and entries may only shrink or disappear. The
+  transition baseline was retired at TICKET-0028's close; the check runs
+  with no exemptions.
   No permanent exemptions: when a doctrinal registry module such as
   `writes.py` legitimately needs to grow past the cap, the failing check is
   the intended tripwire — it forces the split (e.g. a `writes/` package by
@@ -186,12 +187,12 @@ path) executes, in order:
   `function_length.json` entries (`tick.py`, `context.py`, `analyzer.py`,
   plus handlers moved intact by stage d) and the `tick.py`/`models.py`
   `module_budget.json` entries are out of this ticket's scope. Rather than
-  extending TICKET-0027 or relaxing the caps, the residual is FROZEN:
-  shrink-only (unchanged mechanic), ownership transfers to successor
-  ticket TICKET-0028 (residual decomposition), and both baseline files are
-  deleted outright only at TICKET-0028's close, after which R1 and R5 run
-  exemption-free. A bounded transition with a named owner, not permanent
-  grandfathering (decision I2, `ARCHITECTURE_DECISIONS.md`).
+  extending TICKET-0027 or relaxing the caps, the residual was FROZEN:
+  shrink-only (unchanged mechanic), ownership transferred to successor
+  ticket TICKET-0028 (residual decomposition). Transition baseline retired
+  at TICKET-0028's close (BRIEF-0028-f); R1 and R5 run with no exemptions.
+  A bounded transition with a named owner, not permanent grandfathering
+  (decision I2, `ARCHITECTURE_DECISIONS.md`).
 
 Behavior-preserving throughout: no route contract, prompt, or schema change.
 Each stage closes with `/verify` green plus a live smoke of the touched
