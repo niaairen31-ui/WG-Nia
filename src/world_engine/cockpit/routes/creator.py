@@ -16,14 +16,14 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from ...entity_author import build_world_roster as _build_world_roster
-from ...entity_author import generate_agenda_draft as _generate_agenda_draft
 from ...entity_author import generate_entity_draft as _generate_entity_draft
-from ...entity_author import generate_event_draft as _generate_event_draft
 from ...entity_author import generate_npc_goals as _generate_npc_goals
 from ...entity_author import generate_player_draft as _generate_player_draft
 from ...entity_author import generate_skill_catalogue_draft as _generate_skill_catalogue_draft
 from ...entity_author import generate_world_draft as _generate_world_draft
+from ...event_author import build_world_roster as _build_world_roster
+from ...event_author import generate_agenda_draft as _generate_agenda_draft
+from ...event_author import generate_event_draft as _generate_event_draft
 from ...db import get_session
 from ...models import (
     BASE_SKILL_DOMAINS,
@@ -286,7 +286,7 @@ def generate_agenda(
 
     Deliberately NOT in crud.py: crud.py is a sanctioned canon-write path
     and this route writes nothing — delegates only to
-    entity_author.generate_agenda_draft. Server-side D1 resolution mirrors
+    event_author.generate_agenda_draft. Server-side D1 resolution mirrors
     write_agenda's owner rule so the assistant can never draft for an owner
     the create would reject: 404/422 if the entity is missing, inactive, or
     not `faction`/`character`. owner_context is built from PUBLIC fields
@@ -332,13 +332,13 @@ def generate_event(
 
     Deliberately NOT in crud.py: crud.py is a sanctioned canon-write path
     and this route writes nothing — delegates only to
-    entity_author.generate_event_draft. `location_id`, when supplied, must
+    event_author.generate_event_draft. `location_id`, when supplied, must
     resolve to an active `location` entity in the active world (the same
     predicate as `_apply_mutation`'s `event_creation` branch); it then wins
     outright over the model's own location proposal. `location_context` is
     the location's `name` + `description` only — public fields, never
     `internal_name`, never `metadata`. The J3 roster
-    (`entity_author.build_world_roster`) is public-only, filtered in SQL.
+    (`event_author.build_world_roster`) is public-only, filtered in SQL.
     Returns {"ok": false, "error": ...} (never a 500) on any failure.
     """
     brief = (body.brief or "").strip()

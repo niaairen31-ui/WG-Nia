@@ -26,7 +26,6 @@ from .models import BASE_SKILL_DOMAINS, Entity, PromptTemplate, World
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
-from .tick_normalize import _EVENT_TYPES
 from .writes import KNOWLEDGE_LEVELS
 
 _LOCATION_TYPES = ("city", "district", "building", "natural", "underground", "other")
@@ -134,24 +133,6 @@ def _load_npc_goals_template(db: Session) -> PromptTemplate | None:
     stmt = (
         select(PromptTemplate)
         .where(PromptTemplate.usage == "npc_goal_generation")
-        .where(PromptTemplate.is_active == True)  # noqa: E712
-    )
-    return db.exec(stmt).first()
-
-
-def _load_agenda_draft_template(db: Session) -> PromptTemplate | None:
-    stmt = (
-        select(PromptTemplate)
-        .where(PromptTemplate.usage == "agenda_generation")
-        .where(PromptTemplate.is_active == True)  # noqa: E712
-    )
-    return db.exec(stmt).first()
-
-
-def _load_event_draft_template(db: Session) -> PromptTemplate | None:
-    stmt = (
-        select(PromptTemplate)
-        .where(PromptTemplate.usage == "event_generation")
         .where(PromptTemplate.is_active == True)  # noqa: E712
     )
     return db.exec(stmt).first()
@@ -405,20 +386,13 @@ def _normalize_sensed_links(raw: Any) -> list[dict]:
     return rows
 
 
-def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
-    """Generate a pre-fill draft for the creator-CRUD form.
+def _entity_draft_call(entity_type: str, brief: str, db: Session) -> dict:
+    """Prompt assembly + model call + parse for `generate_entity_draft`.
 
-    Pure generate-and-return: writes no canon anywhere in this function or
-    its call path. Never raises into the caller — every failure mode
-    (missing template, unreachable model, malformed JSON, empty parse)
-    returns {"ok": False, "error": "<reason>"}. On success returns
-    {"ok": True, "draft": {...}, "notes": [...]}.
+    Returns {"ok": False, "error": "<reason>"} on any failure mode (missing
+    template, unreachable model, malformed JSON, empty parse), else
+    {"ok": True, "public_in": dict, "secret_in": dict}.
     """
-    if entity_type not in _TYPE_FIELDS:
-        return {"ok": False, "error": f"Unsupported entity_type {entity_type!r}"}
-    if not brief or not brief.strip():
-        return {"ok": False, "error": "brief must not be empty"}
-
     template = _load_template(db)
     if template is None:
         return {"ok": False, "error": "No active pt-entity-generation template found"}
@@ -452,52 +426,55 @@ def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
     public_in = public_in if isinstance(public_in, dict) else {}
     secret_in = parsed.get("secret")
     secret_in = secret_in if isinstance(secret_in, dict) else {}
+    return {"ok": True, "public_in": public_in, "secret_in": secret_in}
 
-    notes: list[str] = []
 
-    if entity_type == "location":
-        subculture_public = _filter_subculture_public(
-            public_in.get("subculture"), notes
-        )
-        draft = {
-            "public": {
-                "name": public_in.get("name") or "",
-                "description": public_in.get("description") or "",
-                "location_type": _validate_location_type(
-                    public_in.get("location_type"), notes
-                ),
-                "access_level": _validate_access_level(
-                    public_in.get("access_level"), notes
-                ),
-                "subculture": subculture_public,
-            },
-            "secret": {
-                "subculture_hidden": secret_in.get("subculture_hidden") or "",
-                "sensed_links": _normalize_sensed_links(secret_in.get("sensed_links")),
-            },
-        }
-        return {"ok": True, "draft": draft, "notes": notes}
+def _entity_location_draft(public_in: dict, secret_in: dict, notes: list[str]) -> dict:
+    subculture_public = _filter_subculture_public(public_in.get("subculture"), notes)
+    draft = {
+        "public": {
+            "name": public_in.get("name") or "",
+            "description": public_in.get("description") or "",
+            "location_type": _validate_location_type(
+                public_in.get("location_type"), notes
+            ),
+            "access_level": _validate_access_level(
+                public_in.get("access_level"), notes
+            ),
+            "subculture": subculture_public,
+        },
+        "secret": {
+            "subculture_hidden": secret_in.get("subculture_hidden") or "",
+            "sensed_links": _normalize_sensed_links(secret_in.get("sensed_links")),
+        },
+    }
+    return {"ok": True, "draft": draft, "notes": notes}
 
-    if entity_type == "faction":
-        draft = {
-            "public": {
-                "name": public_in.get("name") or "",
-                "description": public_in.get("description") or "",
-                "faction_type": _validate_faction_type(
-                    public_in.get("faction_type"), notes
-                ),
-                "philosophy": public_in.get("philosophy") or "",
-                "internal_structure": public_in.get("internal_structure") or "",
-                "roles": _normalize_roles(public_in.get("roles"), notes),
-                "aversion": public_in.get("aversion") or "",
-            },
-            "secret": {
-                "internal_tensions": secret_in.get("internal_tensions") or "",
-                "goals": secret_in.get("goals") or "",
-            },
-        }
-        return {"ok": True, "draft": draft, "notes": notes}
 
+def _entity_faction_draft(public_in: dict, secret_in: dict, notes: list[str]) -> dict:
+    draft = {
+        "public": {
+            "name": public_in.get("name") or "",
+            "description": public_in.get("description") or "",
+            "faction_type": _validate_faction_type(
+                public_in.get("faction_type"), notes
+            ),
+            "philosophy": public_in.get("philosophy") or "",
+            "internal_structure": public_in.get("internal_structure") or "",
+            "roles": _normalize_roles(public_in.get("roles"), notes),
+            "aversion": public_in.get("aversion") or "",
+        },
+        "secret": {
+            "internal_tensions": secret_in.get("internal_tensions") or "",
+            "goals": secret_in.get("goals") or "",
+        },
+    }
+    return {"ok": True, "draft": draft, "notes": notes}
+
+
+def _entity_character_draft(
+    public_in: dict, secret_in: dict, notes: list[str], db: Session
+) -> dict:
     faction_id, faction_note = _resolve_faction_id(
         db, _world_id(db), public_in.get("faction_name")
     )
@@ -524,6 +501,35 @@ def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
         },
     }
     return {"ok": True, "draft": draft, "notes": notes}
+
+
+def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
+    """Generate a pre-fill draft for the creator-CRUD form.
+
+    Pure generate-and-return: writes no canon anywhere in this function or
+    its call path. Never raises into the caller — every failure mode
+    (missing template, unreachable model, malformed JSON, empty parse)
+    returns {"ok": False, "error": "<reason>"}. On success returns
+    {"ok": True, "draft": {...}, "notes": [...]}.
+    """
+    if entity_type not in _TYPE_FIELDS:
+        return {"ok": False, "error": f"Unsupported entity_type {entity_type!r}"}
+    if not brief or not brief.strip():
+        return {"ok": False, "error": "brief must not be empty"}
+
+    call_result = _entity_draft_call(entity_type, brief, db)
+    if not call_result.get("ok"):
+        return call_result
+    public_in = call_result["public_in"]
+    secret_in = call_result["secret_in"]
+
+    notes: list[str] = []
+
+    if entity_type == "location":
+        return _entity_location_draft(public_in, secret_in, notes)
+    if entity_type == "faction":
+        return _entity_faction_draft(public_in, secret_in, notes)
+    return _entity_character_draft(public_in, secret_in, notes, db)
 
 
 def generate_world_draft(brief: str, db: Session) -> dict:
@@ -605,33 +611,13 @@ def generate_world_draft(brief: str, db: Session) -> dict:
     return {"ok": True, "draft": draft, "notes": notes}
 
 
-def generate_player_draft(brief: str, db: Session) -> dict:
-    """Generate a pre-fill draft for the PC creation assistant (BRIEF-52).
+def _player_draft_call(brief: str, db: Session) -> dict:
+    """Prompt assembly + model call + parse for `generate_player_draft`.
 
-    Standalone sibling to `generate_world_draft` — NOT a `_TYPE_FIELDS`
-    entry, NOT routed through `generate_entity_draft`. Pure generate-and-
-    return: writes no canon anywhere in this function or its call path; it
-    never calls `_create_entity_core` and emits no `world_id`/
-    `current_location_id`/`faction`/`entity_id` (location stays creator-
-    picked — C1). `db` is read-only here: its single use is the
-    `pt-player-generation` template lookup.
-
-    Parses a SINGLE top-level JSON object (no `public`/`secret` blocks —
-    D1/G1): {"name", "description", "appearance", "backstory", "knowledge"}.
-    Unrecognised keys are dropped. Knowledge is normalised by
-    `_normalize_player_knowledge`, NOT `_normalize_knowledge` (which forces
-    `is_secret=True` — wrong for a PC); `is_secret=False` is applied at
-    write time by the accept route, not here.
-
-    Never raises into the caller — every failure mode (missing template,
-    unreachable model, malformed JSON, empty parse) returns
-    {"ok": False, "error": "<reason>"}. On success returns
-    {"ok": True, "draft": {"name", "description", "appearance", "backstory",
-    "knowledge": [...]}, "notes": [...]}.
+    Returns {"ok": False, "error": "<reason>"} on any failure mode, else
+    {"ok": True, "parsed": dict} — the single top-level JSON object (no
+    `public`/`secret` blocks — D1/G1).
     """
-    if not brief or not brief.strip():
-        return {"ok": False, "error": "brief must not be empty"}
-
     template = _load_player_template(db)
     if template is None:
         return {"ok": False, "error": "No active pt-player-generation template found"}
@@ -655,7 +641,14 @@ def generate_player_draft(brief: str, db: Session) -> dict:
         return {"ok": False, "error": "Model returned non-JSON output"}
     if not parsed:
         return {"ok": False, "error": "Model returned an empty or malformed draft"}
+    return {"ok": True, "parsed": parsed}
 
+
+def _player_draft_shape(parsed: dict) -> dict:
+    """Unrecognised keys are dropped. Knowledge is normalised by
+    `_normalize_player_knowledge`, NOT `_normalize_knowledge` (which forces
+    `is_secret=True` — wrong for a PC); `is_secret=False` is applied at
+    write time by the accept route, not here."""
     notes: list[str] = []
 
     name = parsed.get("name") or ""
@@ -686,6 +679,32 @@ def generate_player_draft(brief: str, db: Session) -> dict:
         "knowledge": knowledge,
     }
     return {"ok": True, "draft": draft, "notes": notes}
+
+
+def generate_player_draft(brief: str, db: Session) -> dict:
+    """Generate a pre-fill draft for the PC creation assistant (BRIEF-52).
+
+    Standalone sibling to `generate_world_draft` — NOT a `_TYPE_FIELDS`
+    entry, NOT routed through `generate_entity_draft`. Pure generate-and-
+    return: writes no canon anywhere in this function or its call path; it
+    never calls `_create_entity_core` and emits no `world_id`/
+    `current_location_id`/`faction`/`entity_id` (location stays creator-
+    picked — C1). `db` is read-only here: its single use is the
+    `pt-player-generation` template lookup.
+
+    Never raises into the caller — every failure mode (missing template,
+    unreachable model, malformed JSON, empty parse) returns
+    {"ok": False, "error": "<reason>"}. On success returns
+    {"ok": True, "draft": {"name", "description", "appearance", "backstory",
+    "knowledge": [...]}, "notes": [...]}.
+    """
+    if not brief or not brief.strip():
+        return {"ok": False, "error": "brief must not be empty"}
+
+    call_result = _player_draft_call(brief, db)
+    if not call_result.get("ok"):
+        return call_result
+    return _player_draft_shape(call_result["parsed"])
 
 
 def generate_skill_catalogue_draft(brief: str, db: Session) -> dict:
@@ -825,231 +844,3 @@ def generate_npc_goals(
         return {"ok": False, "error": "Model returned no usable goal"}
 
     return {"ok": True, "long": long_goal, "shorts": shorts, "notes": notes}
-
-
-def generate_agenda_draft(
-    owner_kind: str,        # "faction" | "personnage" (French, injected verbatim)
-    owner_name: str,
-    owner_context: str,     # pre-assembled public context (see the /generate route)
-    brief: str,
-    db: Session,
-) -> dict:
-    """Generate an agenda draft — title + 2-to-5 steps (TICKET-0021, BRIEF-0021-b,
-    B1/C1/D1).
-
-    Standalone sibling of `generate_npc_goals` — agendas aren't `entity` rows,
-    so this is NOT a `_TYPE_FIELDS` entry. Pure generate-and-return: writes no
-    canon anywhere in this function; the only write is the creator's accept
-    through the EXISTING `POST /api/agendas`. C2 (suggested goal-name links)
-    is explicitly deferred — the JSON contract carries no `linked_goals` key.
-
-    Never raises into the caller — every failure mode (missing template,
-    unreachable model, malformed JSON, empty parse) returns
-    {"ok": False, "error": "<reason>"}. On success returns {"ok": True,
-    "title": str, "steps": [str, ...], "notes": [...]}: `title` is `""` when
-    absent/malformed (noted); `steps` keeps trimmed non-empty strings only,
-    truncated to 5 (noted on truncation); fewer than 2 is a PARTIAL accept
-    (noted), never an error — the creator finishes the shell by hand.
-    """
-    template = _load_agenda_draft_template(db)
-    if template is None:
-        return {"ok": False, "error": "No active pt-agenda-draft template found"}
-
-    version = current_prompt(db, template)
-    user_message = (
-        version.user_template
-        .replace("{owner_kind}", owner_kind or "")
-        .replace("{owner_name}", owner_name or "")
-        .replace("{owner_context}", owner_context or "")
-        .replace("{brief}", brief or "")
-    )
-
-    messages = [
-        {"role": "system", "content": version.system_prompt},
-        {"role": "user", "content": user_message},
-    ]
-
-    try:
-        raw = chat(messages, model=effective_model(template, AUTHOR_MODEL), format="json")
-    except OllamaError as exc:
-        return {"ok": False, "error": str(exc)}
-
-    try:
-        parsed = llm_parse.extract_object(raw)
-    except llm_parse.LlmParseError:
-        return {"ok": False, "error": "Model returned non-JSON output"}
-    if not parsed:
-        return {"ok": False, "error": "Model returned an empty or malformed draft"}
-
-    notes: list[str] = []
-
-    title = parsed.get("title")
-    title = title.strip() if isinstance(title, str) else ""
-    if not title:
-        notes.append("Titre absent du brouillon — à saisir manuellement.")
-
-    steps_raw = parsed.get("steps")
-    steps: list[str] = []
-    if isinstance(steps_raw, list):
-        for item in steps_raw:
-            if isinstance(item, str) and item.strip():
-                steps.append(item.strip())
-    if len(steps) > 5:
-        steps = steps[:5]
-        notes.append("Plus de 5 étapes reçues — tronqué à 5.")
-    elif len(steps) < 2:
-        notes.append("Moins de 2 étapes générées — compléter manuellement.")
-
-    if not title and not steps:
-        return {"ok": False, "error": "Model returned no usable draft"}
-
-    return {"ok": True, "title": title, "steps": steps, "notes": notes}
-
-
-def build_world_roster(db: Session, world_id: str) -> dict[str, str]:
-    """name.casefold() -> entity_id for every active, public entity in the
-    world (TICKET-0022, BRIEF-0022-b, J3) — feeds `generate_event_draft`'s
-    name resolution for both `location` and `involved_entities`.
-
-    `is_public` is filtered in the `where` clause, not post-filtered in
-    Python — `context.py:615` post-filters it after the query, which is the
-    pattern NOT to copy: secrets are excluded by query construction at every
-    assembler, and this is an assembler. Only `name`/`type` leave this
-    function; `internal_name` is never selected (`context.py:530`).
-
-    Ambiguity discipline from `tick.py:_build_roster` (tick.py:929-940): two
-    active public entities sharing a casefolded name are BOTH removed so
-    resolution fails cleanly instead of guessing, rather than silently
-    picking one.
-    """
-    rows = db.exec(
-        select(Entity.id, Entity.name).where(
-            Entity.world_id == world_id,
-            Entity.status == "active",
-            Entity.is_public.is_(True),
-        )
-    ).all()
-    candidates: dict[str, list[str]] = {}
-    for entity_id, name in rows:
-        candidates.setdefault(name.casefold(), []).append(entity_id)
-    return {name: ids[0] for name, ids in candidates.items() if len(ids) == 1}
-
-
-def generate_event_draft(
-    brief: str,
-    location_hint: str,          # location name, or "" when none pre-selected
-    location_context: str,       # pre-assembled public context, see the /generate route
-    roster: dict[str, str],      # name.casefold() -> entity_id, see build_world_roster
-    db: Session,
-) -> dict:
-    """Generate an event draft — title, description, type, location and
-    involved entities (TICKET-0022, BRIEF-0022-b, I2/J3).
-
-    Standalone sibling of `generate_agenda_draft`/`generate_npc_goals` —
-    `event` is not an `entity` row, so this is NOT a `_TYPE_FIELDS` entry.
-    Pure generate-and-return: writes no canon anywhere in this function; the
-    only write is the creator's accept through the EXISTING
-    `POST /api/events` (BRIEF-0022-a).
-
-    `knowledge_status` is deliberately never read from `parsed` and never
-    appears in the returned dict, even if the model volunteers one (I2): the
-    model must never decide what the world knows. Every id returned was
-    resolved from `roster` by code; an unresolvable name is dropped with a
-    note, never coerced into a plausible id.
-
-    Never raises into the caller — every failure mode (missing template,
-    unreachable model, malformed JSON, empty parse) returns
-    {"ok": False, "error": "<reason>"}.
-    """
-    template = _load_event_draft_template(db)
-    if template is None:
-        return {"ok": False, "error": "No active pt-event-draft template found"}
-
-    version = current_prompt(db, template)
-    roster_names = ", ".join(sorted(roster.keys()))
-    user_message = (
-        version.user_template
-        .replace("{brief}", brief or "")
-        .replace("{location_hint}", location_hint or "")
-        .replace("{location_context}", location_context or "")
-        .replace("{roster_names}", roster_names)
-    )
-
-    messages = [
-        {"role": "system", "content": version.system_prompt},
-        {"role": "user", "content": user_message},
-    ]
-
-    try:
-        raw = chat(messages, model=effective_model(template, AUTHOR_MODEL), format="json")
-    except OllamaError as exc:
-        return {"ok": False, "error": str(exc)}
-
-    try:
-        parsed = llm_parse.extract_object(raw)
-    except llm_parse.LlmParseError:
-        return {"ok": False, "error": "Model returned non-JSON output"}
-    if not parsed:
-        return {"ok": False, "error": "Model returned an empty or malformed draft"}
-
-    notes: list[str] = []
-
-    title = parsed.get("title")
-    title = title.strip() if isinstance(title, str) else ""
-    if not title:
-        notes.append("Titre absent du brouillon — à saisir manuellement.")
-
-    description = parsed.get("description")
-    description = description.strip() if isinstance(description, str) else ""
-
-    if not title and not description:
-        return {"ok": False, "error": "Model returned no usable draft"}
-
-    raw_type = str(parsed.get("type") or "").strip().casefold()
-    if raw_type in _EVENT_TYPES:
-        event_type = raw_type
-    else:
-        event_type = "other"
-        notes.append(f"type {parsed.get('type')!r} inconnu, ramené à 'other'.")
-
-    # Location: the creator's pre-selection (location_hint), when present,
-    # wins outright over the model's own proposal (drafting decision 2) —
-    # only the disagreement is noted, never silently swallowed.
-    if location_hint:
-        location_id = roster.get(location_hint.casefold())
-        model_location = parsed.get("location")
-        model_location = model_location.strip() if isinstance(model_location, str) else ""
-        if model_location and model_location.casefold() != location_hint.casefold():
-            notes.append(
-                f"lieu proposé par le modèle ({model_location!r}) ignoré — "
-                f"le lieu présélectionné ({location_hint!r}) prévaut."
-            )
-    else:
-        model_location = parsed.get("location")
-        model_location = model_location.strip() if isinstance(model_location, str) else ""
-        location_id = roster.get(model_location.casefold()) if model_location else None
-        if model_location and location_id is None:
-            notes.append(f"lieu non résolu, ignoré : {model_location!r}")
-
-    involved_raw = parsed.get("involved_entities")
-    involved_entities: list[str] = []
-    seen_ids: set[str] = set()
-    if isinstance(involved_raw, list):
-        for name in involved_raw:
-            entity_id = roster.get(str(name).casefold())
-            if entity_id:
-                if entity_id not in seen_ids:
-                    involved_entities.append(entity_id)
-                    seen_ids.add(entity_id)
-            else:
-                notes.append(f"nom non résolu, ignoré : {name!r}")
-
-    return {
-        "ok": True,
-        "title": title,
-        "description": description,
-        "type": event_type,
-        "location_id": location_id,
-        "involved_entities": involved_entities,
-        "notes": notes,
-    }

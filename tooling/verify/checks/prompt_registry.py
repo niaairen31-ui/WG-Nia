@@ -25,8 +25,10 @@ SEED = ROOT / "scripts" / "seed_pilot.py"
 sys.path.insert(0, str(ROOT / "src"))
 
 # Files carrying a templated chat()/chat_stream() call, per BRIEF-0008-a Scope IN 3.
+# event_author.py added at TICKET-0028/BRIEF-0028-d (entity_author extraction).
 WIRED_FILES = [
     SRC / "entity_author.py",
+    SRC / "event_author.py",
     SRC / "region_author.py",
     SRC / "analyzer.py",
     SRC / "gathering.py",

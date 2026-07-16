@@ -1,9 +1,10 @@
 """G1 check for TICKET-0021/BRIEF-0021-b — AI agenda-draft assistant.
 
 Asserts the standalone-sibling-generator shape is intact:
-1. `generate_agenda_draft` exists in entity_author.py and its body contains
-   none of `writes.`, `session.add`, `db.add`, `.commit(` — generate-and-
-   return only, no canon write.
+1. `generate_agenda_draft` exists in event_author.py (relocated from
+   entity_author.py at TICKET-0028/BRIEF-0028-d) and its body contains none
+   of `writes.`, `session.add`, `db.add`, `.commit(` — generate-and-return
+   only, no canon write.
 2. The `pt-agenda-draft` prompt template upsert exists in seed_pilot.py with
    usage="agenda_generation" and the exact four variables.
 3. `POST /api/agendas/generate` is registered in the cockpit app.
@@ -18,7 +19,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-ENTITY_AUTHOR = ROOT / "src" / "world_engine" / "entity_author.py"
+EVENT_AUTHOR = ROOT / "src" / "world_engine" / "event_author.py"
 SEED_PILOT = ROOT / "scripts" / "seed_pilot.py"
 APP_PY = ROOT / "src" / "world_engine" / "cockpit" / "routes" / "creator.py"
 
@@ -38,9 +39,9 @@ def _function_source(path: pathlib.Path, name: str) -> str | None:
 def main() -> int:
     failures: list[str] = []
 
-    body = _function_source(ENTITY_AUTHOR, "generate_agenda_draft")
+    body = _function_source(EVENT_AUTHOR, "generate_agenda_draft")
     if body is None:
-        failures.append("generate_agenda_draft not found in entity_author.py")
+        failures.append("generate_agenda_draft not found in event_author.py")
     else:
         for token in FORBIDDEN_SUBSTRINGS:
             if token in body:

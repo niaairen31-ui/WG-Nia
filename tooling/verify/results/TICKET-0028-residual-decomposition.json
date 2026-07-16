@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0028-residual-decomposition",
-  "when": "2026-07-16T00:32:48.314695+00:00",
+  "when": "2026-07-16T00:54:00.437265+00:00",
   "green": true,
   "checks": [
     {

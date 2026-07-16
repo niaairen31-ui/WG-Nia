@@ -224,7 +224,8 @@ def _event_inputs(db, location_name: str) -> tuple[str, str, dict[str, str]]:
     location_context / roster derivation — location's name + description
     only, roster from `build_world_roster` (public-only, filtered in SQL)."""
     from sqlmodel import select
-    from world_engine.entity_author import _world_id, build_world_roster
+    from world_engine.entity_author import _world_id
+    from world_engine.event_author import build_world_roster
     from world_engine.models import Entity
 
     location = db.exec(select(Entity).where(Entity.name == location_name)).first()
@@ -238,14 +239,10 @@ def _event_inputs(db, location_name: str) -> tuple[str, str, dict[str, str]]:
 
 def _run_record() -> None:
     from sqlmodel import Session
-    from world_engine import entity_author, region_author
+    from world_engine import entity_author, event_author, region_author
     from world_engine.db import engine
-    from world_engine.entity_author import (
-        generate_agenda_draft,
-        generate_entity_draft,
-        generate_event_draft,
-        generate_player_draft,
-    )
+    from world_engine.entity_author import generate_entity_draft, generate_player_draft
+    from world_engine.event_author import generate_agenda_draft, generate_event_draft
     from world_engine.ollama_client import chat as pristine_chat
     from world_engine.region_author import generate_region_draft, generate_region_manifest
 
@@ -275,14 +272,14 @@ def _run_record() -> None:
     manifest.add("generate_player_draft")
 
     agenda_calls: list[dict] = []
-    _install_record_wrapper([entity_author], agenda_calls, pristine_chat)
+    _install_record_wrapper([event_author], agenda_calls, pristine_chat)
     with Session(engine) as db:
         owner_kind, owner_name, owner_context = _agenda_owner_fields(db, AGENDA_OWNER_NAME)
         agenda_result = generate_agenda_draft(owner_kind, owner_name, owner_context, AGENDA_BRIEF, db)
     manifest.add("generate_agenda_draft")
 
     event_calls: list[dict] = []
-    _install_record_wrapper([entity_author], event_calls, pristine_chat)
+    _install_record_wrapper([event_author], event_calls, pristine_chat)
     with Session(engine) as db:
         location_hint, location_context, roster = _event_inputs(db, EVENT_LOCATION_NAME)
         event_result = generate_event_draft(EVENT_BRIEF, location_hint, location_context, roster, db)
@@ -325,14 +322,10 @@ def _run_record() -> None:
 
 def _run_replay() -> bool:
     from sqlmodel import Session
-    from world_engine import entity_author, region_author
+    from world_engine import entity_author, event_author, region_author
     from world_engine.db import engine
-    from world_engine.entity_author import (
-        generate_agenda_draft,
-        generate_entity_draft,
-        generate_event_draft,
-        generate_player_draft,
-    )
+    from world_engine.entity_author import generate_entity_draft, generate_player_draft
+    from world_engine.event_author import generate_agenda_draft, generate_event_draft
     from world_engine.region_author import generate_region_draft, generate_region_manifest
 
     ok = True
@@ -398,7 +391,7 @@ def _run_replay() -> bool:
     agenda_calls = json.loads(AGENDA_CALLS_PATH.read_text(encoding="utf-8"))
     recorded_agenda_result = json.loads(AGENDA_RESULT_PATH.read_text(encoding="utf-8"))
     mismatches = []
-    _install_replay_wrapper([entity_author], agenda_calls, mismatches)
+    _install_replay_wrapper([event_author], agenda_calls, mismatches)
     with Session(engine) as db:
         owner_kind, owner_name, owner_context = _agenda_owner_fields(db, AGENDA_OWNER_NAME)
         agenda_result = generate_agenda_draft(owner_kind, owner_name, owner_context, AGENDA_BRIEF, db)
@@ -413,7 +406,7 @@ def _run_replay() -> bool:
     event_calls = json.loads(EVENT_CALLS_PATH.read_text(encoding="utf-8"))
     recorded_event_result = json.loads(EVENT_RESULT_PATH.read_text(encoding="utf-8"))
     mismatches = []
-    _install_replay_wrapper([entity_author], event_calls, mismatches)
+    _install_replay_wrapper([event_author], event_calls, mismatches)
     with Session(engine) as db:
         location_hint, location_context, roster = _event_inputs(db, EVENT_LOCATION_NAME)
         event_result = generate_event_draft(EVENT_BRIEF, location_hint, location_context, roster, db)

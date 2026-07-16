@@ -8,6 +8,12 @@
 // writes.py's four entries (write_faction_role 144, write_relation 111,
 // write_knowledge 91, delete_world_cascade 94) removed at TICKET-0028/
 // BRIEF-0028-b: each decomposed to <= 80 lines in the new writes/ package.
+//
+// entity_author.py's three entries (generate_entity_draft 119,
+// generate_event_draft 118, generate_player_draft 81) removed at
+// TICKET-0028/BRIEF-0028-d: generate_event_draft moved to the new
+// event_author.py; all three decomposed to <= 80 lines along existing
+// prompt-assembly/model-call/parse/normalization seams.
 [
   {"file": "src/world_engine/cockpit/routes/regions.py", "qualname": "commit_region", "lines": 271},
   {"file": "src/world_engine/context.py", "qualname": "assemble_npc_context", "lines": 267},
@@ -19,8 +25,6 @@
   {"file": "src/world_engine/region_author.py", "qualname": "generate_region_draft", "lines": 157},
   {"file": "src/world_engine/analyzer.py", "qualname": "analyze_window", "lines": 149},
   {"file": "src/world_engine/cockpit/mutations.py", "qualname": "_apply_completion_effects", "lines": 150},
-  {"file": "src/world_engine/entity_author.py", "qualname": "generate_entity_draft", "lines": 119},
-  {"file": "src/world_engine/entity_author.py", "qualname": "generate_event_draft", "lines": 118},
   {"file": "src/world_engine/cockpit/play_stream.py", "qualname": "_npc_initiative_vote", "lines": 117},
   {"file": "src/world_engine/cockpit/play_stream.py", "qualname": "_build_mj_user", "lines": 114},
   {"file": "src/world_engine/cockpit/routes/creator.py", "qualname": "create_player_character", "lines": 108},
@@ -29,6 +33,5 @@
   {"file": "src/world_engine/region_author.py", "qualname": "_normalize_manifest", "lines": 91},
   {"file": "src/world_engine/cockpit/play_physical.py", "qualname": "_arbitrate", "lines": 87},
   {"file": "src/world_engine/cockpit/crud/goals.py", "qualname": "backfill_npc_goals", "lines": 84},
-  {"file": "src/world_engine/entity_author.py", "qualname": "generate_player_draft", "lines": 81},
   {"file": "src/world_engine/cockpit/routes/play.py", "qualname": "world_tick_endpoint", "lines": 81}
 ]
