@@ -157,8 +157,11 @@ def enter_scene(
 
 
 class SceneJoinBody(BaseModel):
-    player_text: str                       # player's free-text join expression
+    player_text: Optional[str] = None      # player's free-text join expression
     player_id: Optional[str] = None        # defaults to the resolved player character
+    # G2-b (TICKET-0032): deterministic targeted join — when present, the
+    # interpretation step is skipped entirely; code resolves what code knows.
+    target_gathering_id: Optional[str] = None
 
 
 def _scene_join_resolve_player(body: "SceneJoinBody", db: Session) -> tuple[str, str, str, str]:
@@ -264,8 +267,15 @@ def _scene_join_resolve_and_create(
     if resolved_id is None:
         return {"join_candidates": [_gathering_brief(g.id, db) for g in open_g]}
 
+    return _scene_join_create_for_gathering(resolved_id, player_id, location_id, world_id, sess, db)
+
+
+def _scene_join_create_for_gathering(
+    resolved_id: str, player_id: str, location_id: str, world_id: str, sess, db: Session,
+) -> dict:
     behaviour   = _load_npc_dialogue_template(world_id, db)
     behaviour_version = current_prompt(db, behaviour)
+    model       = effective_model(behaviour, ollama_client.DEFAULT_MODEL)
     mj_context = assemble_mj_context(db, player_id, location_id, gathering_id=resolved_id)
     conv = Conversation(
         world_id    = world_id,
@@ -302,19 +312,30 @@ def _scene_join_resolve_and_create(
 @router.post("/api/scene/join")
 def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
     """Join a gathering from the scene view — creates the conversation.
-    Autonomous join: no pre-existing conversation required. Interprets the
-    player's text (full pt-mj-interpretation pipeline, contract A2) to
-    resolve a gathering target, then:
+    Autonomous join: no pre-existing conversation required. Exactly one of
+    `player_text` / `target_gathering_id` must be set (422 otherwise).
 
+    - `player_text`: interprets the free text (full pt-mj-interpretation
+      pipeline, contract A2) to resolve a gathering target.
+    - `target_gathering_id` (G2-b, TICKET-0032): the caller already knows
+      the exact gathering (e.g. the spatial canvas's "Parler" affordance,
+      resolved client-side from the scene roster) — the interpretation
+      step is skipped entirely, zero model calls, after validating the
+      gathering is open at the player's current location/session.
+
+    Either way:
     - Resolved (exactly one match): inserts gathering_member, creates a
       conversation anchored to the gathering (npc_id=None — pure gathering
       conversation, A3-group responder). Returns {"conversation_id": ..., "gathering": {...}}.
-    - Unresolved / ambiguous: returns {"join_candidates": [...]} so the
+    - Unresolved / ambiguous (free text only): returns {"join_candidates": [...]} so the
       cockpit picker (C2 selector) can surface the open gatherings.
     - Already joined: returns {"already_joined": True, "gathering": {...},
       "conversation_id": ...} with the active conversation if one exists.
     Joining is not a canon mutation — no proposed_mutation row is produced.
     """
+    if (body.player_text is None) == (body.target_gathering_id is None):
+        raise HTTPException(status_code=422, detail="Provide exactly one of player_text or target_gathering_id")
+
     player_id, location_id, world_id, location_name = _scene_join_resolve_player(body, db)
 
     sess    = _get_or_open_session(world_id, db)
@@ -326,6 +347,14 @@ def scene_join(body: SceneJoinBody, db: Session = Depends(get_session)) -> dict:
 
     if not open_g:
         raise HTTPException(status_code=400, detail="No open gatherings at this location")
+
+    if body.target_gathering_id is not None:
+        gathering = db.get(Gathering, body.target_gathering_id)
+        if gathering is None or gathering.status != "open":
+            raise HTTPException(status_code=404, detail="Gathering not found or not open")
+        if gathering.location_id != location_id or gathering.session_id != sess.id:
+            raise HTTPException(status_code=400, detail="Gathering does not match this location/session")
+        return _scene_join_create_for_gathering(gathering.id, player_id, location_id, world_id, sess, db)
 
     return _scene_join_resolve_and_create(
         body, player_id, location_id, location_name, world_id, open_g, sess, db,

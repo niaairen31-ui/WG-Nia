@@ -1,0 +1,22 @@
+{
+  "ticket": "TICKET-0032-play-canvas-wasd",
+  "when": "2026-07-16T23:03:37.951244+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "scene_join_target.py",
+      "status": "PASS",
+      "msg": "PASS: scene/join targeted join \u2014 success/closed/wrong-location/422, zero model calls, free-text regression intact"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values"
+    }
+  ]
+}
