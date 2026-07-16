@@ -78,6 +78,7 @@ from .entities import (
     _get_entity,
     _iso,
     _link_entity_creation,
+    _location_geometry_dict,
     _location_subculture_rows,
     _npc_prices_dict,
     _player_character_id,

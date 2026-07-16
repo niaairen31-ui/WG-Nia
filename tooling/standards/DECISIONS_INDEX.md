@@ -95,3 +95,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 6478 | RESIDUAL FREEZE — successor ownership handoff to TICKET-0028 (BRIEF-0027-g, no schema change) | BRIEF-0027-g |  |
 | 6563 | I2 CLOSED — baseline retirement, harness deletion, exemption-free R1/R5 (BRIEF-0028-f, no schema change) | BRIEF-0028-f |  |
 | 6622 | OBSTACLE GEOMETRY SCHEMA (BRIEF-0029-a, schema v1.80) | BRIEF-0029-a | v1.80 |
+| 6731 | SERVER-SIDE COLLISION ENDPOINT (BRIEF-0030-a, BRIEF-0030-b, no schema change) | BRIEF-0030-a, BRIEF-0030-b |  |

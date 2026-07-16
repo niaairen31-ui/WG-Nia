@@ -6728,4 +6728,83 @@ workstream-wide).
 
 ---
 
+## SERVER-SIDE COLLISION ENDPOINT (BRIEF-0030-a, BRIEF-0030-b, no schema change)
+
+Second step of the spatial / Play mode workstream (0029 obstacle geometry
+-> **0030 collision authority** -> 0031 NPC spatial presence + proximity
+gate -> 0032 canvas/WASD surface). A single server authority judges
+transient player movement against the persistent obstacle geometry
+written in 0029, and never writes position to canon.
+
+**D5 — a named third register: transient adjudication.** Neither
+`_apply_mutation` (AI proposal -> creator checkpoint -> canon) nor creator
+CRUD (direct canon): read persistent geometry, judge transient position,
+persist NOTHING. Stated verbatim in both `geometry.py`'s and
+`spatial.py`'s module docstrings — this is the first citizen of the
+register; 0031's proximity endpoint joins the same module.
+
+**D1 — pure module as sole collision authority.** All intersection math
+lives in `src/world_engine/geometry.py::clip_segment` (zero DB, zero
+FastAPI, zero `cockpit/` imports); `cockpit/routes/spatial.py` is a caller
+only, never a co-implementer. Gate-guarded by the permanent regression
+check `tooling/verify/checks/geometry_unit.py` (free move, rectangle hit,
+triangle hit, bounds clip, degenerate origins, zero-length, on-edge
+destination, parallel graze). Rejected: math inlined in the route module
+(logic/interface fusion) — the pure module is exactly the piece a future
+client-side predictor (rejected C3) would reuse verbatim. Placement
+forced by RECON: `routes/play.py` sits at exactly 1000 lines, the G1
+module-budget cap — the endpoint lands in a new `routes/spatial.py`
+instead.
+
+**D2 — endpoint contract + structural location guard.** `POST
+/api/spatial/move-check`, body `{location_id, origin: {x, y},
+destination: {x, y}}`, response `{x, y, blocked}`. The handler verifies
+`location_id` matches the resolved player's `current_location_id` (409
+otherwise) — role doctrine: injected context, and judged geometry,
+depends on the active role; a player client must not probe the geometry
+of a location the PC is not in. Errors: 404 unknown player or unknown
+location; 409 wrong location; 409 no spatial mode (NULL bounds); 422
+non-finite coordinates. Rejected: free `location_id` (geometry probing by
+segment dichotomy).
+
+**D3 — hard-stop semantics, client-emergent slide.** The server returns
+the clipped stop point (pulled back 1mm along the segment) plus
+`blocked`; slide-along-wall emerges client-side in 0032 via
+axis-component re-submission. Server-computed slide (option B) is
+recorded as a compatible evolution — same endpoint, same response shape,
+only the returned point would change — kept in mind, not built.
+
+**D4 — point player, visual-only radius.** The player is a point; the
+0032 circle radius is purely visual. Rejected: polygon inflation / radius
+parameter (premature, same doctrine as the rejected C3). A degenerate
+origin (inside an obstacle or outside bounds) returns `(origin,
+blocked=true)` — the judge never rescues the player; unblocking is a
+creator act.
+
+**Bounds enforcement.** In scope for this ticket (0029 explicitly
+deferred it): bounds edges are judged as walls seen from inside, uniformly
+with obstacle edges — `geometry.clip_segment`'s edge set always includes
+the four bounds edges when bounds is present, no containment assumption
+between obstacles and bounds.
+
+**Module budget tripwire as placement rationale.** `routes/play.py`
+stayed untouched at its 1000-line cap; `routes/spatial.py` is a new,
+same-tier sibling router (mounted alongside play/mutations/creator/
+regions/prompts in `cockpit/app.py`), reusing `crud/entities.py`'s
+`_location_geometry_dict` (0029's sole geometry assembler) rather than a
+second reader.
+
+**Scope OUT, deferred:** persisting any position (Q1 locked
+workstream-wide — player position stays client-held per scene); NPC
+positions and the proximity endpoint (ticket 0031); canvas, WASD, player
+circle, any frontend (ticket 0032); a play-facing geometry READ endpoint
+(0032's intake decides its shape); server-side slide (D3-B), player
+radius (D4-B) — recorded, not built; rate limiting/batching for WASD
+cadence (0032 owns call cadence).
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*

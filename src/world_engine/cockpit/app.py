@@ -41,6 +41,7 @@ from .routes import mutations as _routes_mutations
 from .routes import play as _routes_play
 from .routes import prompts as _routes_prompts
 from .routes import regions as _routes_regions
+from .routes import spatial as _routes_spatial
 
 _INDEX_HTML = Path(__file__).parent / "index.html"
 _log = logging.getLogger(__name__)
@@ -58,6 +59,7 @@ app.include_router(_routes_regions.router)
 app.include_router(_routes_prompts.router)
 app.include_router(_routes_mutations.router)
 app.include_router(_routes_play.router)
+app.include_router(_routes_spatial.router)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
