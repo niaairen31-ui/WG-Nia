@@ -6619,4 +6619,113 @@ first commit of the next ticket, not this one.
 
 ---
 
+## OBSTACLE GEOMETRY SCHEMA (BRIEF-0029-a, schema v1.80)
+
+First step of the spatial / Play mode workstream (0029 obstacle geometry ->
+0030 collision authority -> 0031 NPC spatial presence + proximity gate ->
+0032 canvas/WASD surface). Adds persistent intra-location wall geometry
+storage the server can judge movement against and the client can draw —
+nothing that moves ships in this step.
+
+**A1 — two relational tables, agenda/agenda_step precedent.** `obstacle`
+(`id, world_id, location_id, created_at`) + `obstacle_vertex` (`id,
+obstacle_id, vertex_order, x, y`), unique index `idx_obstacle_vertex_order
+(obstacle_id, vertex_order)`. Rejected: single-table-with-implicit-obstacle
+(identity by convention is an anti-pattern this codebase avoids
+elsewhere). No `kind`/`label` column: no reader exists for one yet (same
+discipline as the DORMANT `npc_price`/`faction` fields — do not
+speculatively add columns).
+
+**B1 — curated-config governance family.** `obstacle`/`obstacle_vertex`
+join the `faction_role`/`location_subculture`/`npc_price`/`world_law`
+family: no `change_history`, full-replace per location via new sanctioned
+site `writes.write_location_obstacles`, added to
+`canon_write_policy.txt`'s `[CANON_TABLES]` and as the 23rd site in the
+`writes/` package (22 relocated at TICKET-0028 + this one new site).
+Correction against the brief's assumption: `location.bounds_width`/
+`bounds_height` writes inside the new `set_location_geometry` endpoint are
+NOT covered by the existing `crud/entities.py::update_entity` sanctioned
+site — `single_canon_write.py` attributes sites at function grain, not
+file grain, so a second entity of `location` was added:
+`crud/entities.py::set_location_geometry   location`.
+
+**B2 — vertex storage, never `(x,y,w,h)` in the schema.** Locked upstream
+in the workstream doc: even though v1's only authoring surface is
+rectangles, the schema stores ordered vertex rows from day one so a future
+polygon migration only adds rows, never rewrites the schema. The v1 UI's
+`rect` shorthand (`[x, y, width, height]`) is an API/UI convenience,
+expanded server-side into 4 vertices — it never touches the schema.
+
+**C1 — per-location local coordinate space.** Origin top-left, x
+rightward, y DOWNWARD (canvas-native), floats, nominal unit 1.0 = one
+world-meter. Explicitly DISTINCT from `location.coord_x`/`coord_y`
+(world-map placement, schema v1.78) — the two coordinate spaces answer
+different questions (where is this location on the world map, vs. where
+are the walls inside it) and must never be conflated. The doctrine comment
+above the `Obstacle` model class states this verbatim; any future reader
+confusing the two spaces is a defect against this decision.
+
+**C-b1 — playable bounds as two nullable `location` columns.** NULL means
+"no spatial mode" for that location — most locations never opt in.
+Rejected: bounds-as-special-obstacle (would require every geometry reader
+to special-case the first row).
+
+**D'1 — rectangle-form authoring over a polygon-ready contract.** The
+creator sheet exposes plain numeric rows (x, y, width, height); the wire
+contract (`PUT /entities/{id}/geometry`) accepts EITHER `rect` shorthand OR
+a generic `vertices` list (>= 3), so a future graphical polygon editor
+(deferred, D'2) needs no endpoint change. Server-side rectangle expansion
+is clockwise from top-left: `(x,y), (x+w,y), (x+w,y+h), (x,y+h)` — a
+declared convention, not structurally enforced (nothing rejects a
+CCW-wound custom `vertices` polygon; only the rect shorthand is
+canonicalized).
+
+**Migration discipline.** `migrate_v1_80_obstacle_geometry.py` guards
+table existence (`obstacle`, `obstacle_vertex`) and column existence
+(`location.bounds_width`, `bounds_height`) INDEPENDENTLY rather than a
+single "does the first artifact exist" check — a partially applied prior
+run (e.g. interrupted after creating `obstacle` but before the `location`
+ALTER) completes only the missing pieces on re-run instead of silently
+skipping the rest. Purely additive: no data copy, no seed rows: the live
+smoke authors its one demo rectangle through the new form instead of the
+migration seeding one.
+
+**Read/write surface.** Location detail payload gains `geometry:
+{bounds_width, bounds_height, obstacles: [{id, vertices}]}` at every site
+already carrying `subculture_rows` (`GET /entities/{id}`, `POST
+/entities`, `PUT /entities/{id}`). `PUT /entities/{id}/geometry` is a new,
+dedicated full-replace endpoint (bounds + obstacles, one transaction) —
+same shape as `PUT /entities/{id}/subculture`, but 404 (not 422) on a
+non-location entity, matching this ticket's acceptance criteria rather
+than the subculture endpoint's precedent literally. Validation is
+fail-closed before any write: each obstacle needs >= 3 vertices, every
+coordinate finite (NaN/inf rejected), `rect` width/height and `bounds_*`
+must be `> 0` when present.
+
+**Frontend — advisory tier.** The location sheet gets a "Spatial
+geometry" panel below the subculture editor: bounds width/height inputs,
+a row list of rect obstacles (x/y/width/height + remove), an "Add block"
+button, one Save. Existing-locations-only (Tarifs-editor discipline, no
+`isNew` draft — unlike the subculture/roles editors). Incoming vertex
+lists that are exactly 4 corners of an axis-aligned rectangle (the
+server's clockwise-from-top-left convention) render as an editable rect
+row; any other polygon renders read-only (`polygone (N sommets)`) and
+round-trips its vertices unchanged on save — `authorGeometryDetectItem` in
+`cockpit/index.html` is the sole classifier.
+
+**Scope OUT, deferred:** the collision endpoint and movement judging
+(ticket 0030); NPC positions and the proximity endpoint (ticket 0031); the
+canvas renderer, WASD input, and player circle (ticket 0032); the
+graphical obstacle editor — click-to-draw, drag handles (D'2); obstacle
+metadata (`kind`, `label`, passable flags, materials — no reader exists);
+bounds enforcement / clamping movement inside bounds (0030's job);
+`change_history` on the obstacle tables (B1 locked: curated config,
+none); building entry/exit, doors, multi-level/z (deferred
+workstream-wide).
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*

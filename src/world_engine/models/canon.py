@@ -222,6 +222,11 @@ class Location(SQLModel, table=True):
     # NULL = unplaced.
     coord_x: Optional[float] = None
     coord_y: Optional[float] = None
+    # Playable-area bounds for the intra-location obstacle space (schema
+    # v1.80, TICKET-0029). NULL = this location has no spatial mode.
+    # Same local space as obstacle_vertex, NOT the world-map coords above.
+    bounds_width: Optional[float] = None
+    bounds_height: Optional[float] = None
     access_level: Optional[str] = None
 
 
@@ -250,6 +255,50 @@ class LocationSubculture(SQLModel, table=True):
     key: str
     value: str
     is_hidden: bool = Field(default=False, sa_column_kwargs={"server_default": text("0")})
+
+
+# -----------------------------------------------------------------------------
+# obstacle / obstacle_vertex  (intra-location wall geometry, schema v1.80,
+# TICKET-0029, BRIEF-0029-a)
+#
+# Curated config (faction_role family): no change_history, full-replace
+# writes via writes.write_location_obstacles only. One obstacle = one
+# closed polygon, stored as ordered vertex rows (agenda_step.step_order
+# precedent) — NEVER a JSON list. v1 obstacles are 4-vertex rectangles;
+# real polygons later add vertex rows only, never a schema rewrite.
+#
+# COORDINATE SPACE: per-location local coordinates. Origin at the
+# top-left of the playable area, x rightward, y DOWNWARD (canvas-native).
+# Nominal unit: 1.0 = one world-meter. This space is DISTINCT from
+# location.coord_x / coord_y (v1.78), which place the location on the
+# WORLD map — never mix the two. Rectangle→vertex expansion emits the 4
+# corners CLOCKWISE from the top-left corner (declared convention, not
+# structurally enforced).
+# -----------------------------------------------------------------------------
+class Obstacle(SQLModel, table=True):
+    __tablename__ = "obstacle"
+    __table_args__ = (Index("idx_obstacle_location", "location_id"),)
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    location_id: str = Field(foreign_key="entity.id", nullable=False)
+    created_at: datetime = _created_ts()
+
+
+class ObstacleVertex(SQLModel, table=True):
+    __tablename__ = "obstacle_vertex"
+    __table_args__ = (
+        Index(
+            "idx_obstacle_vertex_order", "obstacle_id", "vertex_order",
+            unique=True,
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    obstacle_id: str = Field(foreign_key="obstacle.id", nullable=False)
+    vertex_order: int
+    x: float
+    y: float
 
 
 # -----------------------------------------------------------------------------

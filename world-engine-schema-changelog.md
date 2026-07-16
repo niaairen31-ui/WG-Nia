@@ -8,6 +8,29 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.80** — TICKET-0029, BRIEF-0029-a: first step of the spatial / Play
+  mode workstream — intra-location wall geometry storage, no readers yet
+  (collision endpoint is ticket 0030, canvas renderer is ticket 0032). New
+  tables `obstacle` (`id, world_id, location_id (FK entity.id), created_at`)
+  with index `idx_obstacle_location (location_id)`, and `obstacle_vertex`
+  (`id, obstacle_id (FK obstacle.id), vertex_order, x, y`) with structural
+  unique index `idx_obstacle_vertex_order (obstacle_id, vertex_order)` —
+  two relational tables on the `agenda`/`agenda_step` precedent (A1),
+  ordered vertex rows, never `(x,y,w,h)` in the schema (B2). Curated config,
+  same family as `faction_role`: no `change_history`, full-replace writes
+  via new sanctioned site `writes.write_location_obstacles` (B1).
+  `location.bounds_width` / `bounds_height` (REAL, nullable) added — NULL =
+  no spatial mode (C-b1). Per-location local coordinate space: origin
+  top-left, y DOWN (canvas-native), floats, nominal unit 1.0 = one
+  world-meter — DISTINCT from `location.coord_x`/`coord_y` (world-map
+  placement, v1.78) (C1). Creator authors rectangles through a form (x, y,
+  width, height); the endpoint expands `rect` shorthand into 4 clockwise
+  vertices from the top-left corner, and is polygon-ready (generic
+  `vertices` lists, >= 3, also accepted) (D'1). Migration
+  `scripts/migrate_v1_80_obstacle_geometry.py`: purely additive, no data
+  copy, no seed rows; guards check column existence on `location` and table
+  existence for the two new tables INDEPENDENTLY, so a partially applied
+  prior run completes only the missing parts rather than skipping wholesale.
 - **v1.79** — TICKET-0025, BRIEF-0025-c (final corrective step): new table
   `goal_prerequisite` (`id, world_id, goal_id (FK npc_goal.id), type CHECK
   IN ('relation_gte'), target_entity_id (FK entity.id), threshold CHECK

@@ -13,8 +13,9 @@ Layout, by canon domain:
     knowledge.py        — `knowledge`: `write_knowledge` and the level ladder.
     characters.py       — `character`/`skill`/`ledger`: three unbaselined movers.
     factions.py         — `faction_membership`/`faction_role`.
-    config.py           — the governed-config trio (`npc_price`,
-                          `location_subculture`, `world_law`).
+    config.py           — the governed-config group (`npc_price`,
+                          `location_subculture`, `world_law`, `obstacle`/
+                          `obstacle_vertex`).
     goals_agendas.py    — `npc_goal`/`goal_prerequisite`/`agenda`/
                           `agenda_step`/`goal_agenda_link`.
     events.py           — `event`.
@@ -33,7 +34,12 @@ from __future__ import annotations
 
 from ._shared import _append_history_snapshot, _clamp
 from .characters import write_character_location, write_ledger_entry, write_skill_tier
-from .config import write_location_subculture, write_npc_prices, write_world_laws
+from .config import (
+    write_location_obstacles,
+    write_location_subculture,
+    write_npc_prices,
+    write_world_laws,
+)
 from .events import write_event, write_event_update
 from .factions import (
     _validate_max_holders,
