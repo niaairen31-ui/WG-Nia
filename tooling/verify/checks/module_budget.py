@@ -4,12 +4,13 @@ AST-based: every module under `src/` stays within 40 top-level functions
 + methods (module-level function defs and methods on module-level classes;
 nested closures don't count) AND 1000 physical lines. Exceeding either cap
 fails unless the module is baselined in
-`tooling/verify/baselines/module_budget.json` (transition artifact,
-deleted at TICKET-0027 stage g — see code_standards.md section 4, R5) at
+`tooling/verify/baselines/module_budget.json`, a transition artifact
+retired at TICKET-0028's close (code_standards.md section 4, R5) at
 values it has not exceeded on either dimension. Baseline entries may only
-shrink or disappear; this check never rewrites the baseline. Missing/
-unparsable baseline file, or zero .py files found under `src/`, is a
-FAILURE (fail-closed).
+shrink or disappear; this check never rewrites the baseline. A missing
+baseline file is treated as an empty exemption set — the cap is enforced
+on every module, fail-closed, not a vacuous pass. An unparsable baseline
+file, or zero .py files found under `src/`, is a FAILURE.
 
 No permanent exemptions: a doctrinal registry module legitimately growing
 past the cap is the intended tripwire forcing a split — the failing check
@@ -70,8 +71,7 @@ def _strip_json_comments(text: str) -> str:
 
 def _load_baseline() -> "dict[str, tuple[int, int]] | None":
     if not BASELINE_FILE.exists():
-        fail(f"{BASELINE_FILE} not found")
-        return None
+        return {}
     try:
         data = json.loads(_strip_json_comments(BASELINE_FILE.read_text(encoding="utf-8")))
     except json.JSONDecodeError as exc:

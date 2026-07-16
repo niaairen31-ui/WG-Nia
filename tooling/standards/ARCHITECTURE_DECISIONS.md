@@ -6560,6 +6560,63 @@ as reduced to a frozen residual at this stage, not deleted here.
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## I2 CLOSED — baseline retirement, harness deletion, exemption-free R1/R5 (BRIEF-0028-f, no schema change)
+
+**I2's death date.** Stages a–e of TICKET-0028 emptied both transition
+baselines entry-by-entry (`tick.py` via BRIEF-0028-a, `writes.py` via
+BRIEF-0028-b, `models.py` via BRIEF-0028-c, `entity_author.py` via
+BRIEF-0028-d, the remaining 19 `function_length.json` entries via
+BRIEF-0028-e) — both files stood at `[]` going into this brief. This brief
+deletes the artifacts outright: `tooling/verify/baselines/function_length.json`
+and `tooling/verify/baselines/module_budget.json` are gone; `function_length.py`
+and `module_budget.py` run with no exemptions, decision I2 (`ARCHITECTURE_DECISIONS.md`,
+BRIEF-0027-g) fully discharged, not merely frozen.
+
+**Fail-closed absence handling.** Both checks previously treated a missing
+baseline file as an error (`fail(f"{BASELINE_FILE} not found")`), which
+would have broken the check the moment the (already-empty) baseline was
+deleted. `_load_baseline()` in each check now returns `{}` on file absence
+instead of failing — an empty exemption set, not a vacuous pass: every
+function/module over cap still fails since nothing is baselined. Proven at
+execution, not assumed: with both baseline files absent, a scratch function
+of 92 lines was planted in a throwaway `src/world_engine/` module and
+`function_length.py` FAILed on it (`not present in function_length.json`);
+removed, the suite returned to PASS. Same proof for `module_budget.py`
+with a scratch 45-function module. Both scratch files were never committed.
+
+**Harness deletion.** All four disposable record/replay harnesses and
+their fixture directories are deleted: `scripts/harness_say_replay.py`
+and `scripts/harness_mutation_apply.py` (transferred from TICKET-0027,
+BRIEF-0027-g), `scripts/harness_tick_replay.py` (BRIEF-0028-a),
+`scripts/harness_entity_author_replay.py` (BRIEF-0028-d) — plus
+`scripts/harness_{say,mutation,tick,entity_author}_fixtures/` (untracked,
+`.gitignore`-only) and the now-dead `.gitignore` entries pointing at them.
+Pre-deletion census (grep across `src/`, `tooling/`, `CLAUDE.md`,
+`scripts/`) found one live-code reference outside the harnesses
+themselves: `src/world_engine/tick.py`'s module docstring named
+`scripts/harness_tick_replay.py` directly; reworded to describe the proof
+without naming the deleted file. Every other hit was either a harness
+mentioning a sibling harness (deleted alongside it) or a historical
+mention in a ticket/brief/this archive (kept, per the append-only-history
+exception).
+
+**`code_standards.md` closure edit.** R1 and R5's transition-artifact
+sentences, and the I2 paragraph in section 4 stage g, move from
+present/future tense ("owned by TICKET-0028, deleted at TICKET-0028's
+close") to past-tense closure ("transition baseline retired at
+TICKET-0028's close (BRIEF-0028-f); the check runs with no exemptions").
+No assertion, cap, or mechanic changed — historical tense only. Doc
+version bumped v1 -> v1.01 (no prior explicit version line existed; one
+was added to the header, per the brief's default convention).
+
+**Ticket bookkeeping.** `TICKET-0028` front-matter: `BRIEF-0028-f`
+appended to `brief_ids`, `status: live-gate`. Per the BRIEF-0027-g/
+TICKET-0028 precedent (G1 pattern), the `live-gate -> done` flip rides the
+first commit of the next ticket, not this one.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*
