@@ -5936,6 +5936,12 @@ function authorRenderSheet(detail, isNew, type) {
     html += '</div>';
   }
 
+  if (!isNew && type === 'location') {
+    html += '<div class="field-section"><div class="field-section-title">Spatial geometry</div>';
+    html += `<div id="author-geometry">${authorRenderGeometryEditor(detail.geometry || { bounds_width: null, bounds_height: null, obstacles: [] })}</div>`;
+    html += '</div>';
+  }
+
   if (!isNew) {
     html += '<div class="field-section"><div class="field-section-title">Relations</div>';
     html += `<div id="author-relations">${authorRenderRelations(detail.relations)}</div>`;
@@ -6525,6 +6531,119 @@ async function authorSaveSubcultureRowsData(rows) {
     authorRenderSheet(detail, false, detail.type);
     document.getElementById('author-status').className = 'author-status ok';
     document.getElementById('author-status').textContent = 'Subculture mise à jour.';
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = e.message;
+  }
+}
+
+/* ── Location spatial geometry editor (TICKET-0029, BRIEF-0029-a) —
+ * `obstacle`/`obstacle_vertex` full-replace via PUT /api/entities/{id}/geometry.
+ * v1 authoring surface is numeric rect rows only (graphical editor deferred,
+ * D'2). Existing locations only (Tarifs-editor discipline — no isNew draft).
+ * Incoming vertex lists that are exactly 4 corners of an axis-aligned
+ * rectangle (server's clockwise-from-top-left convention) render as an
+ * editable rect row; any other polygon renders read-only and round-trips
+ * its vertices unchanged on save. */
+
+let authorLocationGeometryItems = [];
+
+function authorGeometryDetectItem(vertices) {
+  if (Array.isArray(vertices) && vertices.length === 4) {
+    const [p0, p1, p2, p3] = vertices;
+    if (p0[1] === p1[1] && p1[0] === p2[0] && p2[1] === p3[1] && p3[0] === p0[0]
+        && p1[0] > p0[0] && p2[1] > p1[1]) {
+      return { kind: 'rect', x: p0[0], y: p0[1], width: p1[0] - p0[0], height: p2[1] - p1[1] };
+    }
+  }
+  return { kind: 'polygon', vertices };
+}
+
+function authorRenderGeometryEditor(geometry) {
+  authorLocationGeometryItems = (geometry.obstacles || []).map(o => authorGeometryDetectItem(o.vertices));
+  return authorRenderGeometryEditorFromItems(geometry.bounds_width, geometry.bounds_height);
+}
+
+function authorRenderGeometryEditorFromItems(boundsWidth, boundsHeight) {
+  const rowsHtml = authorLocationGeometryItems.map((item, i) => {
+    if (item.kind === 'rect') {
+      return `<div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-bottom:6px">
+        <input type="number" step="any" id="geom-rect-x-${i}" value="${item.x}" placeholder="x" style="flex:1">
+        <input type="number" step="any" id="geom-rect-y-${i}" value="${item.y}" placeholder="y" style="flex:1">
+        <input type="number" step="any" id="geom-rect-w-${i}" value="${item.width}" placeholder="largeur" style="flex:1">
+        <input type="number" step="any" id="geom-rect-h-${i}" value="${item.height}" placeholder="hauteur" style="flex:1">
+        <button class="btn-icon" onclick="authorRemoveGeometryRow(${i})" title="Supprimer">✕</button>
+      </div>`;
+    }
+    return `<div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-bottom:6px">
+      <span style="flex:1">polygone (${item.vertices.length} sommets)</span>
+      <button class="btn-icon" onclick="authorRemoveGeometryRow(${i})" title="Supprimer">✕</button>
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-bottom:8px">
+      <label style="flex:1">Largeur (bounds_width)</label>
+      <input type="number" step="any" id="geom-bounds-width" value="${boundsWidth ?? ''}" style="flex:1">
+      <label style="flex:1">Hauteur (bounds_height)</label>
+      <input type="number" step="any" id="geom-bounds-height" value="${boundsHeight ?? ''}" style="flex:1">
+    </div>
+    <div id="author-geometry-rows">${rowsHtml || '<div class="empty">Aucun obstacle.</div>'}</div>
+    <div class="row-card-actions" style="margin-top:6px; gap:8px">
+      <button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick="authorAddGeometryRow()">+ Ajouter un bloc</button>
+      <button class="btn-send" onclick="authorSaveGeometry()">💾 Enregistrer</button>
+    </div>`;
+}
+
+function _syncGeometryItemsFromDom() {
+  authorLocationGeometryItems.forEach((item, i) => {
+    if (item.kind !== 'rect') return;
+    const xEl = document.getElementById(`geom-rect-x-${i}`);
+    const yEl = document.getElementById(`geom-rect-y-${i}`);
+    const wEl = document.getElementById(`geom-rect-w-${i}`);
+    const hEl = document.getElementById(`geom-rect-h-${i}`);
+    if (xEl) item.x = parseFloat(xEl.value) || 0;
+    if (yEl) item.y = parseFloat(yEl.value) || 0;
+    if (wEl) item.width = parseFloat(wEl.value) || 0;
+    if (hEl) item.height = parseFloat(hEl.value) || 0;
+  });
+}
+
+function _currentGeometryBoundsFromDom() {
+  const widthEl = document.getElementById('geom-bounds-width');
+  const heightEl = document.getElementById('geom-bounds-height');
+  return { width: widthEl ? widthEl.value : '', height: heightEl ? heightEl.value : '' };
+}
+
+function authorAddGeometryRow() {
+  _syncGeometryItemsFromDom();
+  authorLocationGeometryItems.push({ kind: 'rect', x: 0, y: 0, width: 0, height: 0 });
+  const bounds = _currentGeometryBoundsFromDom();
+  document.getElementById('author-geometry').innerHTML = authorRenderGeometryEditorFromItems(bounds.width, bounds.height);
+}
+
+function authorRemoveGeometryRow(i) {
+  _syncGeometryItemsFromDom();
+  authorLocationGeometryItems.splice(i, 1);
+  const bounds = _currentGeometryBoundsFromDom();
+  document.getElementById('author-geometry').innerHTML = authorRenderGeometryEditorFromItems(bounds.width, bounds.height);
+}
+
+async function authorSaveGeometry() {
+  _syncGeometryItemsFromDom();
+  const statusEl = document.getElementById('author-status');
+  const bounds = _currentGeometryBoundsFromDom();
+  const bounds_width = bounds.width === '' ? null : parseFloat(bounds.width);
+  const bounds_height = bounds.height === '' ? null : parseFloat(bounds.height);
+  const obstacles = authorLocationGeometryItems.map(item =>
+    item.kind === 'rect' ? { rect: [item.x, item.y, item.width, item.height] } : { vertices: item.vertices }
+  );
+  try {
+    const body = JSON.stringify({ bounds_width, bounds_height, obstacles });
+    const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}/geometry`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
+    authorRenderSheet(detail, false, detail.type);
+    document.getElementById('author-status').className = 'author-status ok';
+    document.getElementById('author-status').textContent = 'Géométrie mise à jour.';
   } catch (e) {
     statusEl.className = 'author-status err';
     statusEl.textContent = e.message;

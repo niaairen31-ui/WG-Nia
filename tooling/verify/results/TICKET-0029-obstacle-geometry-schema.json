@@ -1,0 +1,22 @@
+{
+  "ticket": "TICKET-0029-obstacle-geometry-schema",
+  "when": "2026-07-16T16:58:13.677162+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "json_ui_boundary.py",
+      "status": "PASS",
+      "msg": "PASS: json_ui_boundary \u2014 zero \"kind\": \"json\" CRUD fields, zero metadata_/Column(\"metadata\" references outside comments, every Column(JSON in models/*.py is a named allow-list entry"
+    },
+    {
+      "check": "schema_partition.py",
+      "status": "PASS",
+      "msg": "PASS: hot/cold partition holds"
+    }
+  ]
+}

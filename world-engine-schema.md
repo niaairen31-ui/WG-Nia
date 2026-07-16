@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.79
+Current schema version: v1.80
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -176,7 +176,10 @@ CREATE TABLE location (
                     -- inert | sensitive | active | nexus
   coord_x           REAL,      -- map position (schema v1.78, TICKET-0025)
   coord_y           REAL,      -- was coordinates JSON {x,y}; NULL = unplaced
-  access_level      TEXT      -- public | restricted | secret
+  access_level      TEXT,     -- public | restricted | secret
+  bounds_width      REAL,      -- playable-area bounds (schema v1.80, TICKET-0029)
+  bounds_height     REAL       -- NULL = no spatial mode. Same local space as
+                    -- obstacle_vertex, NOT coord_x/coord_y above.
 );
 ```
 
@@ -202,6 +205,48 @@ CREATE TABLE location_subculture (
 );
 CREATE UNIQUE INDEX idx_location_subculture_key
   ON location_subculture(location_id, key COLLATE NOCASE);
+```
+
+-----
+
+### `obstacle` / `obstacle_vertex`
+
+Intra-location wall geometry (schema v1.80, TICKET-0029, BRIEF-0029-a).
+First step of the spatial / Play mode workstream — the server can judge
+movement against this (collision endpoint, ticket 0030) and the client can
+draw it (canvas renderer, ticket 0032); nothing here moves. Curated config,
+same family as `faction_role`: no `change_history`, full-replace writes via
+`writes.write_location_obstacles` only. One obstacle = one closed polygon,
+stored as ordered vertex rows (`agenda_step.step_order` precedent) — NEVER a
+JSON list. v1 obstacles are 4-vertex rectangles; real polygons later add
+vertex rows only, never a schema rewrite.
+
+**COORDINATE SPACE:** per-location local coordinates. Origin at the
+top-left of the playable area, x rightward, y DOWNWARD (canvas-native).
+Nominal unit: 1.0 = one world-meter. This space is DISTINCT from
+`location.coord_x` / `coord_y` (v1.78), which place the location on the
+WORLD map — never mix the two. Rectangle→vertex expansion emits the 4
+corners CLOCKWISE from the top-left corner (declared convention, not
+structurally enforced).
+
+```sql
+CREATE TABLE obstacle (
+  id          TEXT PRIMARY KEY,
+  world_id    TEXT NOT NULL REFERENCES world(id),
+  location_id TEXT NOT NULL REFERENCES entity(id),
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_obstacle_location ON obstacle(location_id);
+
+CREATE TABLE obstacle_vertex (
+  id            TEXT PRIMARY KEY,
+  obstacle_id   TEXT NOT NULL REFERENCES obstacle(id),
+  vertex_order  INTEGER NOT NULL,
+  x             REAL NOT NULL,
+  y             REAL NOT NULL
+);
+CREATE UNIQUE INDEX idx_obstacle_vertex_order
+  ON obstacle_vertex(obstacle_id, vertex_order);
 ```
 
 -----

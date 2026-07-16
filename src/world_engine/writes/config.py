@@ -13,14 +13,20 @@ none of these three functions were baselined.
 - `write_world_laws(...)`               : full-replace `world_law` rows
   (TICKET-0025, BRIEF-0025-b — replaces `world.fundamental_laws` JSON).
   `position` is list order; same curated-config discipline.
+- `write_location_obstacles(...)`       : full-replace `obstacle` +
+  `obstacle_vertex` rows (TICKET-0029, BRIEF-0029-a — intra-location wall
+  geometry). Same curated-config discipline: no `change_history`,
+  delete-then-insert inside the caller's transaction.
 """
 
 from __future__ import annotations
 
+import math
+
 from sqlalchemy import text
 from sqlmodel import Session
 
-from ..models import Character, LocationSubculture, NpcPrice, World, WorldLaw
+from ..models import Character, LocationSubculture, NpcPrice, Obstacle, ObstacleVertex, World, WorldLaw
 
 
 def write_npc_prices(
@@ -124,3 +130,58 @@ def write_world_laws(
         db.add(row)
         new_rows.append(row)
     return new_rows
+
+
+def write_location_obstacles(
+    db: Session,
+    *,
+    world_id: str,
+    location_id: str,
+    obstacles: list[list[tuple[float, float]]],
+    changed_by: str,
+) -> list[Obstacle]:
+    """Full-replace `obstacle` + `obstacle_vertex` rows for one location.
+    Caller adds the returned rows to the session and commits.
+
+    Each item in `obstacles` is an ordered list of `(x, y)` vertex tuples
+    forming one closed polygon — validated all-or-nothing before any write:
+    each obstacle needs >= 3 vertices, and every coordinate must be a finite
+    float (NaN/inf rejected). `vertex_order` is emitted by enumeration
+    (0..n-1), so contiguity is by construction. NO bounds-containment
+    validation here — the collision endpoint (ticket 0030) is the sole judge
+    of space.
+    """
+    clean: list[list[tuple[float, float]]] = []
+    for polygon in obstacles:
+        if len(polygon) < 3:
+            raise ValueError(
+                f"write_location_obstacles: obstacle has {len(polygon)} vertex/vertices, needs >= 3"
+            )
+        vertices: list[tuple[float, float]] = []
+        for x, y in polygon:
+            fx, fy = float(x), float(y)
+            if not (math.isfinite(fx) and math.isfinite(fy)):
+                raise ValueError(f"write_location_obstacles: non-finite vertex ({x!r}, {y!r})")
+            vertices.append((fx, fy))
+        clean.append(vertices)
+
+    db.execute(
+        text(
+            "DELETE FROM obstacle_vertex WHERE obstacle_id IN "
+            "(SELECT id FROM obstacle WHERE location_id = :location_id)"
+        ),
+        {"location_id": location_id},
+    )
+    db.execute(
+        text("DELETE FROM obstacle WHERE location_id = :location_id"),
+        {"location_id": location_id},
+    )
+
+    new_obstacles: list[Obstacle] = []
+    for vertices in clean:
+        obstacle = Obstacle(world_id=world_id, location_id=location_id)
+        db.add(obstacle)
+        new_obstacles.append(obstacle)
+        for vertex_order, (x, y) in enumerate(vertices):
+            db.add(ObstacleVertex(obstacle_id=obstacle.id, vertex_order=vertex_order, x=x, y=y))
+    return new_obstacles

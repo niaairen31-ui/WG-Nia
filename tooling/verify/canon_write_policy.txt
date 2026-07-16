@@ -2,7 +2,7 @@
 world entity character location faction faction_membership faction_role relation
 knowledge ledger item skill skill_definition discoverable_detail
 event artifact npc_goal agenda agenda_step goal_agenda_link
-npc_price location_subculture world_law
+npc_price location_subculture world_law obstacle obstacle_vertex
 
 [ALLOWED_SITES]
 # path::function                                              tables
@@ -11,6 +11,9 @@ npc_price location_subculture world_law
 # domain module — same relocation-not-broadening rule as the 0027-c/-d
 # comments further down. Same 22 sites, same count of sanctioned
 # canon-write paths, not a broadening.
+# TICKET-0029, BRIEF-0029-a: write_location_obstacles is the 23rd site in
+# this package (22 relocated + this one new site) — obstacle geometry
+# full-replace, curated-config family.
 src/world_engine/writes/relations.py::write_relation           relation
 src/world_engine/writes/characters.py::write_character_location character
 src/world_engine/writes/knowledge.py::write_knowledge          knowledge
@@ -24,6 +27,7 @@ src/world_engine/writes/factions.py::write_faction_role        faction_role
 src/world_engine/writes/config.py::write_npc_prices            npc_price
 src/world_engine/writes/config.py::write_location_subculture   location_subculture
 src/world_engine/writes/config.py::write_world_laws            world_law
+src/world_engine/writes/config.py::write_location_obstacles    obstacle obstacle_vertex
 src/world_engine/writes/events.py::write_event                 event
 src/world_engine/writes/events.py::write_event_update           event
 src/world_engine/writes/goals_agendas.py::write_agenda         agenda
@@ -53,6 +57,10 @@ src/world_engine/cockpit/play_stream.py::_perform_travel               character
 src/world_engine/cockpit/crud/entities.py::_create_entity_core           entity character location faction item
 src/world_engine/cockpit/crud/entities.py::update_entity                 entity character location faction item
 src/world_engine/cockpit/crud/entities.py::delete_entity                 entity
+# TICKET-0029, BRIEF-0029-a: set_location_geometry writes location.bounds_*
+# directly (single_canon_write.py is function-scoped, not file-scoped — this
+# site is distinct from update_entity above despite sharing a file).
+src/world_engine/cockpit/crud/entities.py::set_location_geometry        location
 src/world_engine/cockpit/crud/relations.py::delete_relation                relation
 src/world_engine/cockpit/crud/knowledge.py::delete_knowledge               knowledge
 src/world_engine/cockpit/crud/skills.py::create_skill_definition        skill_definition skill
