@@ -2,7 +2,7 @@
 id: TICKET-0032
 title: Play-mode canvas + WASD input (client spatial surface)
 type: feature
-status: brief
+status: live-gate
 created: 2026-07-16
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write]      # scene/join creates conversation + gathering_member rows (existing paths only)
