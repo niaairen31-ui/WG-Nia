@@ -2,7 +2,7 @@
 id: TICKET-0031
 title: NPC spatial presence + proximity endpoint
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-16
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []              # read-only feature; no migration, no canon write, no schema change
