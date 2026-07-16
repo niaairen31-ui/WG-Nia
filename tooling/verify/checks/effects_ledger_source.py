@@ -7,6 +7,12 @@ relocation"): `_apply_completion_effects` moved as-is (same name) from
 `app.py` to `cockpit/mutations.py`. Assertions unchanged. Only the file
 anchor moved.
 
+Retargeted again (TICKET-0028, BRIEF-0028-e, same "check-anchor
+relocation" precedent): the `ledger_transfer` effect's two
+`write_ledger_entry` calls were decomposed out of `_apply_completion_effects`
+into their own `_apply_effect_ledger_transfer` helper (in-place extraction,
+no behavior change). Assertions unchanged; only the function anchor moved.
+
 No DB, stdlib `ast` only.
 """
 import ast
@@ -29,18 +35,18 @@ def main():
 
     func = None
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "_apply_completion_effects":
+        if isinstance(node, ast.FunctionDef) and node.name == "_apply_effect_ledger_transfer":
             func = node
             break
     if func is None:
-        fail("_apply_completion_effects not found in mutations.py")
+        fail("_apply_effect_ledger_transfer not found in mutations.py")
 
     ledger_calls = [
         n for n in ast.walk(func)
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "write_ledger_entry"
     ]
     if len(ledger_calls) != 2:
-        fail(f"expected exactly 2 write_ledger_entry calls in _apply_completion_effects, found {len(ledger_calls)}")
+        fail(f"expected exactly 2 write_ledger_entry calls in _apply_effect_ledger_transfer, found {len(ledger_calls)}")
 
     for call in ledger_calls:
         source_kw = next((kw for kw in call.keywords if kw.arg == "source_type"), None)

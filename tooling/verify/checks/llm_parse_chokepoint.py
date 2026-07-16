@@ -33,7 +33,11 @@ LLM_PARSE_FILE = SRC / "world_engine" / "llm_parse.py"
 # Non-model JSON. Site key is "relative/path.py::enclosing_qualname"
 # (module scope if the call isn't inside any function). One reason each.
 PERMANENT_ALLOW: dict[str, str] = {
-    "src/world_engine/cockpit/routes/mutations.py::approve_mutation":
+    # Retargeted (TICKET-0028, BRIEF-0028-e, check-anchor relocation): the
+    # json.loads(body.payload) call was decomposed out of approve_mutation
+    # into its own _approve_apply_edited_payload helper (in-place
+    # extraction, no behavior change). Reason unchanged.
+    "src/world_engine/cockpit/routes/mutations.py::_approve_apply_edited_payload":
         "creator-edited proposed_mutation.payload from the review form, not model output",
     "src/world_engine/cockpit/crud/entities.py::_coerce_field":
         "creator CRUD request-body field decode, fail-closed 422 on bad input",

@@ -151,6 +151,150 @@ def _h1_strip_satisfied_prerequisite_deltas(
     return kept, notes
 
 
+def _apply_effect_relation_delta(
+    db: Session, world_id: str, subject_id: str, mutation_id: str, item: dict,
+) -> Optional[str]:
+    target_id = item.get("target_entity_id")
+    relation_type = item.get("relation_type")
+    try:
+        value = int(item.get("value"))
+    except (TypeError, ValueError):
+        return "relation_delta: value must be a nonzero int in [-10, 10]"
+    if value == 0 or not (-10 <= value <= 10):
+        return "relation_delta: value must be a nonzero int in [-10, 10]"
+    if not target_id or db.get(Entity, target_id) is None:
+        return f"relation_delta: target entity {target_id!r} not found"
+    if not isinstance(relation_type, str) or not relation_type.strip():
+        return "relation_delta: relation_type is required"
+    write_relation(
+        db, mode="delta", world_id=world_id, entity_a_id=subject_id,
+        entity_b_id=target_id, type=relation_type, value=value,
+        mutation_id=mutation_id,
+    )
+    return None
+
+
+def _apply_effect_ledger_transfer(db: Session, world_id: str, item: dict) -> Optional[str]:
+    from_id = item.get("from_entity_id")
+    to_id = item.get("to_entity_id")
+    reason = item.get("reason")
+    try:
+        amount = int(item.get("amount"))
+    except (TypeError, ValueError):
+        return "ledger_transfer: amount must be a positive int"
+    if amount <= 0:
+        return "ledger_transfer: amount must be a positive int"
+    if not from_id or db.get(Entity, from_id) is None:
+        return f"ledger_transfer: from entity {from_id!r} not found"
+    if not to_id or db.get(Entity, to_id) is None:
+        return f"ledger_transfer: to entity {to_id!r} not found"
+    if _get_balance(db, from_id) - amount < 0:
+        return "insufficient balance"
+    # BRIEF-19 idiom: two INSERT-only legs, mutual counterparty, both
+    # source_type="tick" (M1 — new documented enum value).
+    write_ledger_entry(
+        db, world_id=world_id, entity_id=from_id, amount=-amount,
+        counterparty_id=to_id, reason=reason, source_type="tick",
+    )
+    write_ledger_entry(
+        db, world_id=world_id, entity_id=to_id, amount=amount,
+        counterparty_id=from_id, reason=reason, source_type="tick",
+    )
+    return None
+
+
+def _resolve_role_change_role(
+    db: Session, world_id: str, faction_id: str, faction_entity: Entity,
+    role_key: str, mutation_id: str, declare: bool,
+) -> tuple[Optional[str], Optional[str]]:
+    """Resolve role_key against faction_role, exact case-insensitive
+    (TICKET-0024, BRIEF-0024-d — corrective, replaces
+    faction.role_capacities). Matched in Python (`.casefold()`), not SQL
+    `lower()` — SQLite's NOCASE/lower() is ASCII-only and would mishandle
+    accented French role names. Returns (final_role, error) — exactly one
+    is None."""
+    declared_roles = db.exec(
+        select(FactionRole).where(FactionRole.faction_id == faction_id)
+    ).all()
+    declared = next(
+        (r for r in declared_roles if r.name.casefold() == role_key.casefold()), None
+    )
+    if declared is not None:
+        resolved_key = declared.name
+        limit = declared.max_holders
+        if limit is not None:
+            holders = db.exec(
+                select(FactionMembership).where(
+                    FactionMembership.faction_id == faction_id,
+                    FactionMembership.left_at.is_(None),
+                )
+            ).all()
+            count = sum(
+                1 for m in holders if (m.role or "").casefold() == resolved_key.casefold()
+            )
+            if count >= limit:
+                return None, f"role_change: role {resolved_key} is full ({count}/{limit})"
+        return resolved_key, None
+    if declare:
+        # L2 declare-and-occupy: a role is never created without a holder —
+        # declaration (INSERT) and occupation (close+reopen, by the caller)
+        # commit in the same SAVEPOINT as the rest of this mutation. Newly
+        # declared role is always unlimited; only the creator sets a limit
+        # thereafter.
+        new_role = write_faction_role(
+            db, mode="create", world_id=world_id, faction_id=faction_id,
+            name=role_key, description=None, max_holders=None,
+            changed_by=f"mutation:{mutation_id}",
+        )
+        return new_role.name, None
+    return None, f"role_change: role {role_key} is not declared for {faction_entity.name}"
+
+
+def _apply_effect_role_change(
+    db: Session, world_id: str, subject_id: str, subject_is_character: bool,
+    mutation_id: str, item: dict,
+) -> Optional[str]:
+    if not subject_is_character:
+        return "role_change: subject of a faction-owned agenda is not a character"
+    faction_id = item.get("faction_id")
+    role = item.get("role")
+    declare = bool(item.get("declare", False))
+    if not faction_id or not isinstance(role, str) or not role.strip():
+        return "role_change: faction_id and role are required"
+    faction_entity = db.get(Entity, faction_id)
+    faction = db.get(Faction, faction_id)
+    if faction_entity is None or faction_entity.world_id != world_id or faction is None:
+        return f"role_change: faction {faction_id!r} not found"
+    role_key = role.strip()
+
+    # (i) subject must hold an ACTIVE membership in this faction.
+    membership = db.exec(
+        select(FactionMembership).where(
+            FactionMembership.entity_id == subject_id,
+            FactionMembership.faction_id == faction_id,
+            FactionMembership.left_at.is_(None),
+        )
+    ).first()
+    if membership is None:
+        return f"role_change: NPC is not an active member of {faction_entity.name}"
+
+    # (ii) resolve the role name, declaring-and-occupying it first if needed.
+    final_role, error = _resolve_role_change_role(
+        db, world_id, faction_id, faction_entity, role_key, mutation_id, declare,
+    )
+    if error:
+        return error
+
+    write_membership(db, mode="close", membership_id=membership.id)
+    write_membership(
+        db, mode="open", world_id=world_id, entity_id=subject_id,
+        faction_id=faction_id, role=final_role,
+        cover_role=membership.cover_role, is_primary=membership.is_primary,
+        is_secret=membership.is_secret,
+    )
+    return None
+
+
 def _apply_completion_effects(
     db: Session,
     *,
@@ -167,7 +311,7 @@ def _apply_completion_effects(
     `None` on success. `effects` is expected already H1-stripped by the
     caller when applicable (goal_change only). The subject is FORCED by
     the caller (O1/H1 forcing precedent) — never read from the payload
-    here.
+    here. Per-type validation/write logic lives in `_apply_effect_*`.
     """
     if not effects:
         return None
@@ -180,125 +324,13 @@ def _apply_completion_effects(
             return f"unknown effect type {eff_type!r}"
 
         if eff_type == "relation_delta":
-            target_id = item.get("target_entity_id")
-            relation_type = item.get("relation_type")
-            try:
-                value = int(item.get("value"))
-            except (TypeError, ValueError):
-                return "relation_delta: value must be a nonzero int in [-10, 10]"
-            if value == 0 or not (-10 <= value <= 10):
-                return "relation_delta: value must be a nonzero int in [-10, 10]"
-            if not target_id or db.get(Entity, target_id) is None:
-                return f"relation_delta: target entity {target_id!r} not found"
-            if not isinstance(relation_type, str) or not relation_type.strip():
-                return "relation_delta: relation_type is required"
-            write_relation(
-                db, mode="delta", world_id=world_id, entity_a_id=subject_id,
-                entity_b_id=target_id, type=relation_type, value=value,
-                mutation_id=mutation_id,
-            )
-
+            error = _apply_effect_relation_delta(db, world_id, subject_id, mutation_id, item)
         elif eff_type == "ledger_transfer":
-            from_id = item.get("from_entity_id")
-            to_id = item.get("to_entity_id")
-            reason = item.get("reason")
-            try:
-                amount = int(item.get("amount"))
-            except (TypeError, ValueError):
-                return "ledger_transfer: amount must be a positive int"
-            if amount <= 0:
-                return "ledger_transfer: amount must be a positive int"
-            if not from_id or db.get(Entity, from_id) is None:
-                return f"ledger_transfer: from entity {from_id!r} not found"
-            if not to_id or db.get(Entity, to_id) is None:
-                return f"ledger_transfer: to entity {to_id!r} not found"
-            if _get_balance(db, from_id) - amount < 0:
-                return "insufficient balance"
-            # BRIEF-19 idiom: two INSERT-only legs, mutual counterparty,
-            # both source_type="tick" (M1 — new documented enum value).
-            write_ledger_entry(
-                db, world_id=world_id, entity_id=from_id, amount=-amount,
-                counterparty_id=to_id, reason=reason, source_type="tick",
-            )
-            write_ledger_entry(
-                db, world_id=world_id, entity_id=to_id, amount=amount,
-                counterparty_id=from_id, reason=reason, source_type="tick",
-            )
-
-        elif eff_type == "role_change":
-            if not subject_is_character:
-                return "role_change: subject of a faction-owned agenda is not a character"
-            faction_id = item.get("faction_id")
-            role = item.get("role")
-            declare = bool(item.get("declare", False))
-            if not faction_id or not isinstance(role, str) or not role.strip():
-                return "role_change: faction_id and role are required"
-            faction_entity = db.get(Entity, faction_id)
-            faction = db.get(Faction, faction_id)
-            if faction_entity is None or faction_entity.world_id != world_id or faction is None:
-                return f"role_change: faction {faction_id!r} not found"
-            role_key = role.strip()
-
-            # (i) subject must hold an ACTIVE membership in this faction.
-            membership = db.exec(
-                select(FactionMembership).where(
-                    FactionMembership.entity_id == subject_id,
-                    FactionMembership.faction_id == faction_id,
-                    FactionMembership.left_at.is_(None),
-                )
-            ).first()
-            if membership is None:
-                return f"role_change: NPC is not an active member of {faction_entity.name}"
-
-            # (ii) resolve role against faction_role, exact case-insensitive
-            # (TICKET-0024, BRIEF-0024-d — corrective, replaces
-            # faction.role_capacities). Matched in Python (`.casefold()`),
-            # not SQL `lower()` — SQLite's NOCASE/lower() is ASCII-only and
-            # would mishandle accented French role names.
-            declared_roles = db.exec(
-                select(FactionRole).where(FactionRole.faction_id == faction_id)
-            ).all()
-            declared = next(
-                (r for r in declared_roles if r.name.casefold() == role_key.casefold()), None
-            )
-            if declared is not None:
-                resolved_key = declared.name
-                limit = declared.max_holders
-                if limit is not None:
-                    holders = db.exec(
-                        select(FactionMembership).where(
-                            FactionMembership.faction_id == faction_id,
-                            FactionMembership.left_at.is_(None),
-                        )
-                    ).all()
-                    count = sum(
-                        1 for m in holders if (m.role or "").casefold() == resolved_key.casefold()
-                    )
-                    if count >= limit:
-                        return f"role_change: role {resolved_key} is full ({count}/{limit})"
-                final_role = resolved_key
-            elif declare:
-                # L2 declare-and-occupy: a role is never created without a
-                # holder — declaration (INSERT) and occupation (close+reopen
-                # below) commit in the same SAVEPOINT as the rest of this
-                # mutation. Newly declared role is always unlimited; only
-                # the creator sets a limit thereafter.
-                new_role = write_faction_role(
-                    db, mode="create", world_id=world_id, faction_id=faction_id,
-                    name=role_key, description=None, max_holders=None,
-                    changed_by=f"mutation:{mutation_id}",
-                )
-                final_role = new_role.name
-            else:
-                return f"role_change: role {role_key} is not declared for {faction_entity.name}"
-
-            write_membership(db, mode="close", membership_id=membership.id)
-            write_membership(
-                db, mode="open", world_id=world_id, entity_id=subject_id,
-                faction_id=faction_id, role=final_role,
-                cover_role=membership.cover_role, is_primary=membership.is_primary,
-                is_secret=membership.is_secret,
-            )
+            error = _apply_effect_ledger_transfer(db, world_id, item)
+        else:  # role_change
+            error = _apply_effect_role_change(db, world_id, subject_id, subject_is_character, mutation_id, item)
+        if error:
+            return error
 
     return None
 

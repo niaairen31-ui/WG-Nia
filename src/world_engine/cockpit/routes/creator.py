@@ -526,33 +526,9 @@ class PlayerCharacterCreateBody(BaseModel):
     knowledge: Optional[list[PlayerKnowledgeItem]] = None
 
 
-@router.post("/api/characters/player")
-def create_player_character(
-    body: PlayerCharacterCreateBody, db: Session = Depends(get_session)
-) -> dict:
-    """Create a PC and place it at a starting location in the active world.
-
-    Binds to the lone creator user (`role='creator'`) — there is no real
-    multiplayer user identity yet. Mirrors `seed_pilot.py`'s `char-player`
-    creation: entity + `character` row + the four `skill` rows (physical,
-    agility, perception, composure) at `tier=0`, since the skill sheet and
-    physical-resolution arbiter both read those rows off a PC. One PC per
-    user per world is defended by `idx_character_one_pc_per_user_world`
-    (partial unique index) — a collision surfaces as a clean `{"ok": false}`,
-    not a 500.
-
-    BRIEF-52 (E1): also accepts the optional PC creation assistant draft —
-    `description`/`appearance`/`backstory` set on the rows that own them,
-    and `knowledge` written through `write_knowledge` with `is_secret=False`
-    (never through `POST /api/entities/{id}/knowledge`, which 422s on a bad
-    level instead of defaulting to "rumor"). The base-domain skill seed stays
-    untouched (B1, no proposed tiers).
-
-    BRIEF-55 (B1, schema v1.63): after the four base-domain rows, also seeds
-    one `skill` row per `skill_definition` of the PC's world, at `tier=0`,
-    `domain=<definition.base_domain>`, `skill_definition_id=<definition.id>`
-    — never proposed by a model.
-    """
+def _validate_pc_creation(body: "PlayerCharacterCreateBody", db: Session) -> tuple[str, str, User]:
+    """Validate the PC-creation request. Returns (name, world_id,
+    creator_user); raises HTTPException on any validation failure."""
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name is required")
@@ -573,6 +549,63 @@ def create_player_character(
     creator_user = db.exec(select(User).where(User.role == "creator")).first()
     if creator_user is None:
         raise HTTPException(status_code=400, detail="No creator user found.")
+
+    return name, world_id, creator_user
+
+
+def _pc_custom_skill_defs(world_id: str, db: Session) -> list[SkillDefinition]:
+    return db.exec(
+        select(SkillDefinition).where(SkillDefinition.world_id == world_id)
+    ).all()
+
+
+def _write_pc_knowledge(entity_id: str, knowledge_items: Optional[list], db: Session) -> None:
+    """BRIEF-52 (E1): PC creation assistant draft knowledge, written
+    `is_secret=False` through `write_knowledge` — never through
+    `POST /api/entities/{id}/knowledge`, which 422s on a bad level instead
+    of defaulting to "rumor"."""
+    for item in (knowledge_items or []):
+        level = item.level if item.level in KNOWLEDGE_LEVELS else "rumor"
+        write_knowledge(
+            db,
+            entity_id=entity_id,
+            subject=item.subject,
+            level=level,
+            content=item.content,
+            source="pc_creation",
+            is_incorrect=False,
+            is_secret=False,
+            share_threshold=50,
+            session_id=None,
+        )
+
+
+@router.post("/api/characters/player")
+def create_player_character(
+    body: PlayerCharacterCreateBody, db: Session = Depends(get_session)
+) -> dict:
+    """Create a PC and place it at a starting location in the active world.
+
+    Binds to the lone creator user (`role='creator'`) — there is no real
+    multiplayer user identity yet. Mirrors `seed_pilot.py`'s `char-player`
+    creation: entity + `character` row + the four `skill` rows (physical,
+    agility, perception, composure) at `tier=0`, since the skill sheet and
+    physical-resolution arbiter both read those rows off a PC. One PC per
+    user per world is defended by `idx_character_one_pc_per_user_world`
+    (partial unique index) — a collision surfaces as a clean `{"ok": false}`,
+    not a 500. See `_validate_pc_creation` for request validation.
+
+    BRIEF-52 (E1): also accepts the optional PC creation assistant draft —
+    `description`/`appearance`/`backstory` set on the rows that own them,
+    and `knowledge` written per `_write_pc_knowledge`. The base-domain skill
+    seed stays untouched (B1, no proposed tiers).
+
+    BRIEF-55 (B1, schema v1.63): after the four base-domain rows, also seeds
+    one `skill` row per `skill_definition` of the PC's world, at `tier=0`,
+    `domain=<definition.base_domain>`, `skill_definition_id=<definition.id>`
+    — never proposed by a model.
+    """
+    name, world_id, creator_user = _validate_pc_creation(body, db)
 
     try:
         entity = Entity(
@@ -598,30 +631,14 @@ def create_player_character(
         # B1 (schema v1.63): flat tier-0 seed for every custom skill of the
         # PC's world — never proposed by a model, set here after the draft
         # is accepted.
-        custom_defs = db.exec(
-            select(SkillDefinition).where(SkillDefinition.world_id == world_id)
-        ).all()
-        for definition in custom_defs:
+        for definition in _pc_custom_skill_defs(world_id, db):
             db.add(Skill(
                 character_id=entity.id,
                 domain=definition.base_domain,
                 tier=0,
                 skill_definition_id=definition.id,
             ))
-        for item in (body.knowledge or []):
-            level = item.level if item.level in KNOWLEDGE_LEVELS else "rumor"
-            write_knowledge(
-                db,
-                entity_id=entity.id,
-                subject=item.subject,
-                level=level,
-                content=item.content,
-                source="pc_creation",
-                is_incorrect=False,
-                is_secret=False,
-                share_threshold=50,
-                session_id=None,
-            )
+        _write_pc_knowledge(entity.id, body.knowledge, db)
         db.commit()
     except IntegrityError:
         db.rollback()

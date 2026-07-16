@@ -13,6 +13,15 @@ amendment named explicitly — this one tests the same relocated function's
 role_change branch, so the amendment's rules apply here too: assertions
 preserved verbatim, only the file anchor moves.
 
+Retargeted again (TICKET-0028, BRIEF-0028-e, same precedent): the
+role_change branch was decomposed into `_apply_effect_role_change` /
+`_resolve_role_change_role`, and the declare-and-occupy branch changed
+shape from `elif declare:` to `if declare:` (the resolved/declared branch
+above it now returns early, so the elif's condition is unreachable
+without it — same L2 semantics, no behavior change). Scanned string
+updated to match; assertion (an L2 declare-and-occupy branch exists)
+preserved verbatim.
+
 No DB, plain text scan of `mutations.py`.
 """
 import pathlib
@@ -40,8 +49,8 @@ def main():
         fail("role resolution still reads faction.role_capacities directly")
     if "is not declared for" not in src:
         fail("no K1 reject message for an undeclared role without declare")
-    if "elif declare:" not in src:
-        fail("no L2 declare-and-occupy branch (elif declare:)")
+    if "if declare:" not in src:
+        fail("no L2 declare-and-occupy branch (if declare:)")
     if "write_faction_role(" not in src or 'mode="create"' not in src:
         fail("declare branch does not call write_faction_role(mode='create')")
     if "is full (" not in src:

@@ -21,7 +21,11 @@ call anywhere in `tick.py`, and every dict-literal key `"npc_id"`/
 `Call`/`Subscript` reading the raw item.
 Rule 4 (guard branch, BRIEF-0014-b): `_find_applied_duplicate` in
 `cockpit/app.py` references `mut.tick_id` — the tick scope exists (Y2,
-closes RECON-0014 F2).
+closes RECON-0014 F2). Retargeted at TICKET-0028/BRIEF-0028-e (check-anchor
+relocation): `_find_applied_duplicate` decomposed into
+`_find_applied_duplicate_tick_sourced` (the tick_id-scoped branch itself)
+plus per-type `_dup_tick_*` helpers — the scan now walks that whole
+decomposed call graph, not just the top `_find_applied_duplicate` frame.
 Rule 5 (Z3 floor + decoupling, BRIEF-0014-b): `tick.py` builds
 `secret_subjects` as a set comprehension over `Knowledge` rows filtered on
 `is_secret`, and compares against it with `in`; within
@@ -290,8 +294,18 @@ def check_guard_branch() -> None:
     if func is None:
         fail(f"{rel}: _find_applied_duplicate not found")
         return
+    # TICKET-0028/BRIEF-0028-e: the tick_id-scoped branch was decomposed into
+    # _find_applied_duplicate_tick_sourced (called from _find_applied_duplicate)
+    # plus per-type _dup_tick_* helpers it dispatches to — scan the whole
+    # decomposed call graph, not just _find_applied_duplicate's own frame.
+    related_names = {"_find_applied_duplicate", "_find_applied_duplicate_tick_sourced"} | {
+        node.name for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("_dup_tick_")
+    }
     has_tick_id = any(
-        isinstance(n, ast.Attribute) and n.attr == "tick_id" for n in ast.walk(func)
+        isinstance(node, ast.FunctionDef) and node.name in related_names
+        and any(isinstance(n, ast.Attribute) and n.attr == "tick_id" for n in ast.walk(node))
+        for node in ast.walk(tree)
     )
     if not has_tick_id:
         fail(f"{rel}: _find_applied_duplicate has no tick_id-scoped branch")

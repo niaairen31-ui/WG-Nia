@@ -252,17 +252,9 @@ class GoalBackfillBody(BaseModel):
     entity_id: Optional[str] = None
 
 
-@router.post("/npc-goals/backfill")
-def backfill_npc_goals(body: GoalBackfillBody, db: DbSession = Depends(get_session)) -> dict:
-    """Fill per-horizon goal deficits (G2/P2, BRIEF-0013-b) — never rewrites
-    a satisfied NPC. Scoped to `body.entity_id`, or every NPC of the active
-    world (`character_type == 'npc'`, `vital_status == 'alive'`) when absent.
-    Idempotent by construction: a second run on an unchanged world writes
-    zero rows. A per-NPC generator failure is recorded in `failures` and
-    never aborts the batch.
-    """
-    world_id = _world_id(db)
-
+def _backfill_targets(body: "GoalBackfillBody", world_id: str, db: DbSession) -> list[Character]:
+    """Resolve backfill scope: `body.entity_id`, or every alive NPC
+    (`character_type == 'npc'`, `vital_status == 'alive'`) of the active world."""
     if body.entity_id:
         entity = _get_entity(db, body.entity_id)
         if entity.world_id != world_id:
@@ -270,17 +262,76 @@ def backfill_npc_goals(body: GoalBackfillBody, db: DbSession = Depends(get_sessi
         char = db.get(Character, body.entity_id)
         if char is None or char.character_type != "npc":
             raise HTTPException(422, "backfill targets NPC characters only")
-        targets = [char]
-    else:
-        targets = db.exec(
-            select(Character)
-            .join(Entity, Entity.id == Character.id)
-            .where(
-                Entity.world_id == world_id,
-                Character.character_type == "npc",
-                Character.vital_status == "alive",
+        return [char]
+    return db.exec(
+        select(Character)
+        .join(Entity, Entity.id == Character.id)
+        .where(
+            Entity.world_id == world_id,
+            Character.character_type == "npc",
+            Character.vital_status == "alive",
+        )
+    ).all()
+
+
+def _backfill_one_npc(char: Character, world_id: str, db: DbSession) -> dict:
+    """Fill this NPC's per-horizon goal deficits (G2/P2, BRIEF-0013-b) —
+    never rewrites a satisfied NPC. Returns {"skipped": bool,
+    "failure": dict | None, "written": {"long": int, "short": int}}."""
+    active_goals = db.exec(
+        select(NpcGoal).where(NpcGoal.npc_id == char.id, NpcGoal.status == "active")
+    ).all()
+    needs_long = not any(g.horizon == "long" for g in active_goals)
+    n_shorts = sum(1 for g in active_goals if g.horizon == "short")
+    needs_shorts = max(0, 2 - n_shorts)
+    if not needs_long and needs_shorts == 0:
+        return {"skipped": True, "failure": None, "written": {"long": 0, "short": 0}}
+
+    entity = db.get(Entity, char.id)
+    result = generate_npc_goals(
+        entity.name if entity else "",
+        entity.description if entity else "",
+        char.backstory,
+        _npc_faction_goals(char.id, db),
+        db,
+    )
+    if not result.get("ok"):
+        failure = {"npc": entity.name if entity else char.id, "reason": result.get("error")}
+        return {"skipped": False, "failure": failure, "written": {"long": 0, "short": 0}}
+
+    written = {"long": 0, "short": 0}
+    if needs_long:
+        long_desc = (result.get("long") or "").strip()
+        if long_desc:
+            write_npc_goal(
+                db, world_id=world_id, npc_id=char.id,
+                description=long_desc, horizon="long", changed_by="creator-backfill",
             )
-        ).all()
+            written["long"] += 1
+    if needs_shorts:
+        for short_desc in (result.get("shorts") or [])[:needs_shorts]:
+            short_desc = (short_desc or "").strip()
+            if short_desc:
+                write_npc_goal(
+                    db, world_id=world_id, npc_id=char.id,
+                    description=short_desc, horizon="short", changed_by="creator-backfill",
+                )
+                written["short"] += 1
+
+    return {"skipped": False, "failure": None, "written": written}
+
+
+@router.post("/npc-goals/backfill")
+def backfill_npc_goals(body: GoalBackfillBody, db: DbSession = Depends(get_session)) -> dict:
+    """Fill per-horizon goal deficits (G2/P2, BRIEF-0013-b) — never rewrites
+    a satisfied NPC. Scoped to `body.entity_id`, or every NPC of the active
+    world (`character_type == 'npc'`, `vital_status == 'alive'`) when absent.
+    Idempotent by construction: a second run on an unchanged world writes
+    zero rows. A per-NPC generator failure is recorded in `failures` and
+    never aborts the batch. See `_backfill_targets`/`_backfill_one_npc`.
+    """
+    world_id = _world_id(db)
+    targets = _backfill_targets(body, world_id, db)
 
     processed = 0
     skipped_complete = 0
@@ -289,45 +340,15 @@ def backfill_npc_goals(body: GoalBackfillBody, db: DbSession = Depends(get_sessi
 
     for char in targets:
         processed += 1
-        active_goals = db.exec(
-            select(NpcGoal).where(NpcGoal.npc_id == char.id, NpcGoal.status == "active")
-        ).all()
-        needs_long = not any(g.horizon == "long" for g in active_goals)
-        n_shorts = sum(1 for g in active_goals if g.horizon == "short")
-        needs_shorts = max(0, 2 - n_shorts)
-        if not needs_long and needs_shorts == 0:
+        outcome = _backfill_one_npc(char, world_id, db)
+        if outcome["skipped"]:
             skipped_complete += 1
             continue
-
-        entity = db.get(Entity, char.id)
-        result = generate_npc_goals(
-            entity.name if entity else "",
-            entity.description if entity else "",
-            char.backstory,
-            _npc_faction_goals(char.id, db),
-            db,
-        )
-        if not result.get("ok"):
-            failures.append({"npc": entity.name if entity else char.id, "reason": result.get("error")})
+        if outcome["failure"] is not None:
+            failures.append(outcome["failure"])
             continue
-
-        if needs_long:
-            long_desc = (result.get("long") or "").strip()
-            if long_desc:
-                write_npc_goal(
-                    db, world_id=world_id, npc_id=char.id,
-                    description=long_desc, horizon="long", changed_by="creator-backfill",
-                )
-                written["long"] += 1
-        if needs_shorts:
-            for short_desc in (result.get("shorts") or [])[:needs_shorts]:
-                short_desc = (short_desc or "").strip()
-                if short_desc:
-                    write_npc_goal(
-                        db, world_id=world_id, npc_id=char.id,
-                        description=short_desc, horizon="short", changed_by="creator-backfill",
-                    )
-                    written["short"] += 1
+        written["long"] += outcome["written"]["long"]
+        written["short"] += outcome["written"]["short"]
 
     db.commit()
     return {

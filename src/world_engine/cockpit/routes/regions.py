@@ -132,6 +132,229 @@ def _region_resolve_link_target(
     return None, f"Cible « {name} » introuvable"
 
 
+def _commit_region_factions(
+    factions_in: list[dict], accepted_factions: dict, db: Session,
+) -> tuple[dict[str, str], list[dict]]:
+    """Stage 1 — factions."""
+    fac_id_map: dict[str, str] = {}
+    committed_factions: list[dict] = []
+    for entry in factions_in:
+        local_id = entry["local_id"]
+        if local_id not in accepted_factions:
+            continue
+        draft = entry["result"]["draft"]
+        pub, sec = draft["public"], draft["secret"]
+        entity_data: dict[str, Any] = {
+            "type": "faction",
+            "name": pub.get("name"),
+            "description": pub.get("description"),
+        }
+        ext_data = {
+            "faction_type": pub.get("faction_type"),
+            "philosophy": pub.get("philosophy"),
+            "internal_structure": pub.get("internal_structure"),
+            "aversion": pub.get("aversion"),
+            "internal_tensions": sec.get("internal_tensions"),
+            "goals": sec.get("goals"),
+        }
+        fac_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data)
+        fac_entity = _crud._create_entity_core(fac_body, db)
+        fac_id_map[local_id] = fac_entity.id
+        committed_factions.append({"local_id": local_id, "id": fac_entity.id, "name": fac_entity.name})
+    return fac_id_map, committed_factions
+
+
+def _commit_region_locations(
+    locations_in: list[dict], accepted_locations: dict, root_local: Optional[str], db: Session,
+) -> tuple[dict[str, str], list[dict]]:
+    """Stage 2 — locations, dependency order (parent before child)."""
+    loc_id_map: dict[str, str] = {}
+    committed_locations: list[dict] = []
+    remaining = [l for l in locations_in if l["local_id"] in accepted_locations]
+    while remaining:
+        ready = [
+            l for l in remaining
+            if (p := _region_resolve_location_parent(l, accepted_locations, root_local)) is None
+            or p in loc_id_map
+        ]
+        if not ready:
+            break  # cycle guard — should not happen on a well-formed draft
+        for entry in ready:
+            local_id = entry["local_id"]
+            draft = entry["result"]["draft"]
+            pub, sec = draft["public"], draft["secret"]
+            subculture = dict(pub.get("subculture") or {})
+            if sec.get("subculture_hidden"):
+                subculture["hidden"] = sec["subculture_hidden"]
+            parent_local = _region_resolve_location_parent(entry, accepted_locations, root_local)
+            entity_data = {
+                "type": "location",
+                "name": pub.get("name"),
+                "description": pub.get("description"),
+            }
+            ext_data = {
+                "location_type": pub.get("location_type"),
+                "access_level": pub.get("access_level") or None,
+                "subculture": subculture or None,
+                "parent_location_id": loc_id_map.get(parent_local) if parent_local else None,
+            }
+            loc_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data)
+            loc_entity = _crud._create_entity_core(loc_body, db)
+            loc_id_map[local_id] = loc_entity.id
+            committed_locations.append({"local_id": local_id, "id": loc_entity.id, "name": loc_entity.name})
+            remaining.remove(entry)
+    return loc_id_map, committed_locations
+
+
+def _commit_region_npcs(
+    npcs_in: list[dict], accepted: dict, loc_id_map: dict, fac_id_map: dict,
+    world_id: Optional[str], db: Session,
+) -> tuple[dict[str, str], list[dict]]:
+    """Stage 3 — NPCs (accepted + placeable only) + their knowledge + goals."""
+    npc_id_map: dict[str, str] = {}
+    committed_npcs: list[dict] = []
+    for entry in npcs_in:
+        local_id = entry["local_id"]
+        if not accepted.get(local_id, True):
+            continue
+        host_local = entry.get("location_local_id")
+        if host_local not in loc_id_map:
+            continue  # host location rejected/missing — NPC is unplaceable, dropped
+
+        draft = entry["result"]["draft"]
+        pub, sec = draft["public"], draft["secret"]
+        entity_data = {
+            "type": "character",
+            "name": pub.get("name"),
+            "description": pub.get("description"),
+        }
+        ext_data: dict[str, Any] = {
+            "character_type": "npc",
+            "appearance": pub.get("appearance"),
+            "backstory": pub.get("backstory"),
+            "aversion": pub.get("aversion"),
+            "current_location_id": loc_id_map[host_local],
+            "secrets": json.dumps(sec["creator_meta"]) if sec.get("creator_meta") is not None else None,
+        }
+        if pub.get("physical_tier") is not None:
+            ext_data["physical_tier"] = pub["physical_tier"]
+        faction_local = entry.get("faction_local_id")
+        if faction_local and faction_local in fac_id_map:
+            ext_data["faction_id"] = fac_id_map[faction_local]
+
+        npc_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data)
+        npc_entity = _crud._create_entity_core(npc_body, db)
+        npc_id_map[local_id] = npc_entity.id
+        committed_npcs.append({"local_id": local_id, "id": npc_entity.id, "name": npc_entity.name})
+
+        for k in (sec.get("knowledge") or []):
+            k_body = _crud.KnowledgeWriteBody(
+                subject=k.get("subject"),
+                level=k.get("level"),
+                content=k.get("content"),
+                source=None,
+                is_incorrect=False,
+                is_secret=True,
+                share_threshold=50,
+            )
+            _crud._create_knowledge_core(npc_entity.id, k_body, db)
+
+        # BRIEF-0013-b (G1): the goal block attached at draft time
+        # (region_author.generate_region_draft) writes here, in the SAME
+        # transaction as the NPC — malformed or absent writes nothing for
+        # that NPC, never blocks the rest of the commit.
+        goals = pub.get("goals")
+        if isinstance(goals, dict):
+            long_desc = (goals.get("long") or "").strip()
+            if long_desc:
+                write_npc_goal(
+                    db, world_id=world_id, npc_id=npc_entity.id,
+                    description=long_desc, horizon="long", changed_by="creator",
+                )
+            for short_desc in (goals.get("shorts") or []):
+                short_desc = (short_desc or "").strip()
+                if short_desc:
+                    write_npc_goal(
+                        db, world_id=world_id, npc_id=npc_entity.id,
+                        description=short_desc, horizon="short", changed_by="creator",
+                    )
+    return npc_id_map, committed_npcs
+
+
+def _commit_region_links(
+    locations_in: list[dict], loc_id_map: dict, confirmed_links: dict,
+    committed_locations: list[dict], committed_factions: list[dict],
+    world_id: Optional[str], db: Session,
+) -> tuple[list[dict], list[dict]]:
+    """Stage 4 — confirmed judgment links (BRIEF-37, chantier 3)."""
+    committed_locations_by_name = {
+        c["name"].strip().lower(): c["id"] for c in committed_locations if c.get("name")
+    }
+    committed_factions_by_name = {
+        c["name"].strip().lower(): c["id"] for c in committed_factions if c.get("name")
+    }
+    written_links: list[dict] = []
+    unresolved_links: list[dict] = []
+    for entry in locations_in:
+        local_id = entry["local_id"]
+        source_id = loc_id_map.get(local_id)
+        sensed_links = entry["result"]["draft"]["secret"].get("sensed_links") or []
+        for idx, link in enumerate(sensed_links):
+            if not isinstance(link, dict):
+                continue
+            kind = link.get("kind")
+            if kind not in ("connection", "faction"):
+                continue  # parent/other stay display-only
+            if not confirmed_links.get(f"{local_id}#{idx}"):
+                continue  # default unconfirmed — creator opts in
+
+            if source_id is None:
+                unresolved_links.append({
+                    "location_local_id": local_id, "kind": kind, "name": link.get("name"),
+                    "reason": "Lieu source rejeté ou non commité",
+                })
+                continue
+
+            target_id, reason = _region_resolve_link_target(
+                db, world_id, link.get("name"), kind,
+                committed_locations_by_name, committed_factions_by_name,
+            )
+            if target_id is None:
+                unresolved_links.append({
+                    "location_local_id": local_id, "kind": kind, "name": link.get("name"),
+                    "reason": reason,
+                })
+                continue
+            if target_id == source_id:
+                unresolved_links.append({
+                    "location_local_id": local_id, "kind": kind, "name": link.get("name"),
+                    "reason": "Auto-lien ignoré",
+                })
+                continue
+
+            if kind == "connection":
+                write_relation(
+                    db, mode="set", world_id=world_id,
+                    entity_a_id=source_id, entity_b_id=target_id,
+                    type="connects_to", value=50, direction="mutual",
+                )
+                written_links.append({
+                    "location_local_id": local_id, "kind": kind, "type": "connects_to",
+                    "entity_a_id": source_id, "entity_b_id": target_id,
+                })
+            else:  # kind == "faction" — controller is entity_a, asset is entity_b
+                write_relation(
+                    db, mode="set", world_id=world_id,
+                    entity_a_id=target_id, entity_b_id=source_id,
+                    type="controls", value=50, direction="a_to_b",
+                )
+                written_links.append({
+                    "location_local_id": local_id, "kind": kind, "type": "controls",
+                    "entity_a_id": target_id, "entity_b_id": source_id,
+                })
+    return written_links, unresolved_links
+
+
 @router.post("/api/regions/commit")
 def commit_region(
     body: RegionCommitBody,
@@ -182,208 +405,23 @@ def commit_region(
     accepted_locations = {l["local_id"]: l for l in locations_in if accepted.get(l["local_id"], True)}
     root_local = next((l["local_id"] for l in locations_in if l.get("parent_local_id") is None), None)
 
-    fac_id_map: dict[str, str] = {}
-    loc_id_map: dict[str, str] = {}
-    npc_id_map: dict[str, str] = {}
-    committed = {"factions": [], "locations": [], "npcs": []}
     world_id = _crud._world_id(db)
+    committed = {"factions": [], "locations": [], "npcs": []}
 
     try:
-        # ── Stage 1 — factions ───────────────────────────────────────────
-        for entry in factions_in:
-            local_id = entry["local_id"]
-            if local_id not in accepted_factions:
-                continue
-            draft = entry["result"]["draft"]
-            pub, sec = draft["public"], draft["secret"]
-            entity_data: dict[str, Any] = {
-                "type": "faction",
-                "name": pub.get("name"),
-                "description": pub.get("description"),
-            }
-            ext_data = {
-                "faction_type": pub.get("faction_type"),
-                "philosophy": pub.get("philosophy"),
-                "internal_structure": pub.get("internal_structure"),
-                "aversion": pub.get("aversion"),
-                "internal_tensions": sec.get("internal_tensions"),
-                "goals": sec.get("goals"),
-            }
-            fac_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data)
-            fac_entity = _crud._create_entity_core(fac_body, db)
-            fac_id_map[local_id] = fac_entity.id
-            committed["factions"].append({"local_id": local_id, "id": fac_entity.id, "name": fac_entity.name})
-
-        # ── Stage 2 — locations, dependency order (parent before child) ──
-        remaining = [l for l in locations_in if l["local_id"] in accepted_locations]
-        while remaining:
-            ready = [
-                l for l in remaining
-                if (p := _region_resolve_location_parent(l, accepted_locations, root_local)) is None
-                or p in loc_id_map
-            ]
-            if not ready:
-                break  # cycle guard — should not happen on a well-formed draft
-            for entry in ready:
-                local_id = entry["local_id"]
-                draft = entry["result"]["draft"]
-                pub, sec = draft["public"], draft["secret"]
-                subculture = dict(pub.get("subculture") or {})
-                if sec.get("subculture_hidden"):
-                    subculture["hidden"] = sec["subculture_hidden"]
-                parent_local = _region_resolve_location_parent(entry, accepted_locations, root_local)
-                entity_data = {
-                    "type": "location",
-                    "name": pub.get("name"),
-                    "description": pub.get("description"),
-                }
-                ext_data = {
-                    "location_type": pub.get("location_type"),
-                    "access_level": pub.get("access_level") or None,
-                    "subculture": subculture or None,
-                    "parent_location_id": loc_id_map.get(parent_local) if parent_local else None,
-                }
-                loc_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data)
-                loc_entity = _crud._create_entity_core(loc_body, db)
-                loc_id_map[local_id] = loc_entity.id
-                committed["locations"].append({"local_id": local_id, "id": loc_entity.id, "name": loc_entity.name})
-                remaining.remove(entry)
-
-        # ── Stage 3 — NPCs (accepted + placeable only) + their knowledge ─
-        for entry in npcs_in:
-            local_id = entry["local_id"]
-            if not accepted.get(local_id, True):
-                continue
-            host_local = entry.get("location_local_id")
-            if host_local not in loc_id_map:
-                continue  # host location rejected/missing — NPC is unplaceable, dropped
-
-            draft = entry["result"]["draft"]
-            pub, sec = draft["public"], draft["secret"]
-            entity_data = {
-                "type": "character",
-                "name": pub.get("name"),
-                "description": pub.get("description"),
-            }
-            ext_data: dict[str, Any] = {
-                "character_type": "npc",
-                "appearance": pub.get("appearance"),
-                "backstory": pub.get("backstory"),
-                "aversion": pub.get("aversion"),
-                "current_location_id": loc_id_map[host_local],
-                "secrets": json.dumps(sec["creator_meta"]) if sec.get("creator_meta") is not None else None,
-            }
-            if pub.get("physical_tier") is not None:
-                ext_data["physical_tier"] = pub["physical_tier"]
-            faction_local = entry.get("faction_local_id")
-            if faction_local and faction_local in fac_id_map:
-                ext_data["faction_id"] = fac_id_map[faction_local]
-
-            npc_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data)
-            npc_entity = _crud._create_entity_core(npc_body, db)
-            npc_id_map[local_id] = npc_entity.id
-            committed["npcs"].append({"local_id": local_id, "id": npc_entity.id, "name": npc_entity.name})
-
-            for k in (sec.get("knowledge") or []):
-                k_body = _crud.KnowledgeWriteBody(
-                    subject=k.get("subject"),
-                    level=k.get("level"),
-                    content=k.get("content"),
-                    source=None,
-                    is_incorrect=False,
-                    is_secret=True,
-                    share_threshold=50,
-                )
-                _crud._create_knowledge_core(npc_entity.id, k_body, db)
-
-            # BRIEF-0013-b (G1): the goal block attached at draft time
-            # (region_author.generate_region_draft) writes here, in the SAME
-            # transaction as the NPC — malformed or absent writes nothing for
-            # that NPC, never blocks the rest of the commit.
-            goals = pub.get("goals")
-            if isinstance(goals, dict):
-                long_desc = (goals.get("long") or "").strip()
-                if long_desc:
-                    write_npc_goal(
-                        db, world_id=world_id, npc_id=npc_entity.id,
-                        description=long_desc, horizon="long", changed_by="creator",
-                    )
-                for short_desc in (goals.get("shorts") or []):
-                    short_desc = (short_desc or "").strip()
-                    if short_desc:
-                        write_npc_goal(
-                            db, world_id=world_id, npc_id=npc_entity.id,
-                            description=short_desc, horizon="short", changed_by="creator",
-                        )
-
-        # ── Stage 4 — confirmed judgment links (BRIEF-37, chantier 3) ────
-        # world_id computed once, above, before Stage 3 (BRIEF-0013-b needs
-        # it there too — same source, no re-derivation).
-        committed_locations_by_name = {
-            c["name"].strip().lower(): c["id"] for c in committed["locations"] if c.get("name")
-        }
-        committed_factions_by_name = {
-            c["name"].strip().lower(): c["id"] for c in committed["factions"] if c.get("name")
-        }
-        written_links: list[dict] = []
-        unresolved_links: list[dict] = []
-        for entry in locations_in:
-            local_id = entry["local_id"]
-            source_id = loc_id_map.get(local_id)
-            sensed_links = entry["result"]["draft"]["secret"].get("sensed_links") or []
-            for idx, link in enumerate(sensed_links):
-                if not isinstance(link, dict):
-                    continue
-                kind = link.get("kind")
-                if kind not in ("connection", "faction"):
-                    continue  # parent/other stay display-only
-                if not confirmed_links.get(f"{local_id}#{idx}"):
-                    continue  # default unconfirmed — creator opts in
-
-                if source_id is None:
-                    unresolved_links.append({
-                        "location_local_id": local_id, "kind": kind, "name": link.get("name"),
-                        "reason": "Lieu source rejeté ou non commité",
-                    })
-                    continue
-
-                target_id, reason = _region_resolve_link_target(
-                    db, world_id, link.get("name"), kind,
-                    committed_locations_by_name, committed_factions_by_name,
-                )
-                if target_id is None:
-                    unresolved_links.append({
-                        "location_local_id": local_id, "kind": kind, "name": link.get("name"),
-                        "reason": reason,
-                    })
-                    continue
-                if target_id == source_id:
-                    unresolved_links.append({
-                        "location_local_id": local_id, "kind": kind, "name": link.get("name"),
-                        "reason": "Auto-lien ignoré",
-                    })
-                    continue
-
-                if kind == "connection":
-                    write_relation(
-                        db, mode="set", world_id=world_id,
-                        entity_a_id=source_id, entity_b_id=target_id,
-                        type="connects_to", value=50, direction="mutual",
-                    )
-                    written_links.append({
-                        "location_local_id": local_id, "kind": kind, "type": "connects_to",
-                        "entity_a_id": source_id, "entity_b_id": target_id,
-                    })
-                else:  # kind == "faction" — controller is entity_a, asset is entity_b
-                    write_relation(
-                        db, mode="set", world_id=world_id,
-                        entity_a_id=target_id, entity_b_id=source_id,
-                        type="controls", value=50, direction="a_to_b",
-                    )
-                    written_links.append({
-                        "location_local_id": local_id, "kind": kind, "type": "controls",
-                        "entity_a_id": target_id, "entity_b_id": source_id,
-                    })
+        # world_id computed once, above (BRIEF-0013-b needs it in stage 3 too
+        # — same source, no re-derivation).
+        fac_id_map, committed["factions"] = _commit_region_factions(factions_in, accepted_factions, db)
+        loc_id_map, committed["locations"] = _commit_region_locations(
+            locations_in, accepted_locations, root_local, db,
+        )
+        _npc_id_map, committed["npcs"] = _commit_region_npcs(
+            npcs_in, accepted, loc_id_map, fac_id_map, world_id, db,
+        )
+        written_links, unresolved_links = _commit_region_links(
+            locations_in, loc_id_map, confirmed_links,
+            committed["locations"], committed["factions"], world_id, db,
+        )
 
         db.commit()
     except HTTPException as exc:

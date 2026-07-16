@@ -14,24 +14,12 @@
 // TICKET-0028/BRIEF-0028-d: generate_event_draft moved to the new
 // event_author.py; all three decomposed to <= 80 lines along existing
 // prompt-assembly/model-call/parse/normalization seams.
-[
-  {"file": "src/world_engine/cockpit/routes/regions.py", "qualname": "commit_region", "lines": 271},
-  {"file": "src/world_engine/context.py", "qualname": "assemble_npc_context", "lines": 267},
-  {"file": "src/world_engine/analyzer.py", "qualname": "analyze_overhearing", "lines": 256},
-  {"file": "src/world_engine/cockpit/routes/mutations.py", "qualname": "_find_applied_duplicate", "lines": 256},
-  {"file": "src/world_engine/analyzer.py", "qualname": "_normalize_to_schema", "lines": 180},
-  {"file": "src/world_engine/cockpit/routes/play.py", "qualname": "scene_join", "lines": 163},
-  {"file": "src/world_engine/context.py", "qualname": "assemble_mj_context", "lines": 161},
-  {"file": "src/world_engine/region_author.py", "qualname": "generate_region_draft", "lines": 157},
-  {"file": "src/world_engine/analyzer.py", "qualname": "analyze_window", "lines": 149},
-  {"file": "src/world_engine/cockpit/mutations.py", "qualname": "_apply_completion_effects", "lines": 150},
-  {"file": "src/world_engine/cockpit/play_stream.py", "qualname": "_npc_initiative_vote", "lines": 117},
-  {"file": "src/world_engine/cockpit/play_stream.py", "qualname": "_build_mj_user", "lines": 114},
-  {"file": "src/world_engine/cockpit/routes/creator.py", "qualname": "create_player_character", "lines": 108},
-  {"file": "src/world_engine/cockpit/routes/mutations.py", "qualname": "approve_mutation", "lines": 106},
-  {"file": "src/world_engine/cockpit/routes/mutations.py", "qualname": "batch_review_mutations", "lines": 97},
-  {"file": "src/world_engine/region_author.py", "qualname": "_normalize_manifest", "lines": 91},
-  {"file": "src/world_engine/cockpit/play_physical.py", "qualname": "_arbitrate", "lines": 87},
-  {"file": "src/world_engine/cockpit/crud/goals.py", "qualname": "backfill_npc_goals", "lines": 84},
-  {"file": "src/world_engine/cockpit/routes/play.py", "qualname": "world_tick_endpoint", "lines": 81}
-]
+//
+// All 19 remaining function entries removed at TICKET-0028/BRIEF-0028-e:
+// each decomposed to <= 80 lines in place, along existing seams, across
+// analyzer.py, context.py, routes/regions.py, routes/mutations.py,
+// routes/play.py, play_stream.py, region_author.py, cockpit/mutations.py,
+// routes/creator.py, play_physical.py, and crud/goals.py. Baseline is now
+// EMPTY (0 function entries); the file itself is deleted at TICKET-0028
+// stage f (BRIEF-0028-f), per the original freeze note above.
+[]

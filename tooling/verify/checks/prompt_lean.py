@@ -6,7 +6,11 @@ Static assertions only (source text / AST, no DB):
 2. No seed prompt constant (*_SYSTEM_PROMPT, *_USER_TEMPLATE) contains any
    pilot identifier, case-insensitively.
 3. context.py: no "magiquement"; _SAFE_SUBCULTURE_KEYS == ("values",);
-   _affinity_tier is defined and referenced inside assemble_npc_context.
+   _affinity_tier is defined and referenced inside assemble_npc_context or
+   one of its `_npc_context_*` decomposition helpers (TICKET-0028,
+   BRIEF-0028-e retargeted this from assemble_npc_context's own body to
+   the call graph it decomposed into — check-anchor relocation, assertion
+   unchanged: _affinity_tier must still drive NPC disclosure).
 4. "RÈGLES DE TARIFICATION" appears exactly once in context.py, zero times
    in seed_pilot.py.
 5. CONVERSATION_ANALYSIS_SYSTEM_PROMPT: exactly 5 "=== EXEMPLE" markers,
@@ -73,13 +77,33 @@ def main() -> int:
     if "def _affinity_tier(" not in context_text:
         failures.append("context.py: _affinity_tier is not defined")
     else:
-        assemble_start = context_text.find("def assemble_npc_context(")
-        assemble_end = context_text.find("\ndef ", assemble_start + 1)
-        if assemble_end == -1:
-            assemble_end = len(context_text)
-        assemble_body = context_text[assemble_start:assemble_end]
-        if "_affinity_tier(" not in assemble_body:
-            failures.append("context.py: _affinity_tier is not referenced inside assemble_npc_context")
+        # TICKET-0028/BRIEF-0028-e: assemble_npc_context decomposed into
+        # named _npc_context_* helpers — _affinity_tier now lives in
+        # _npc_context_perception's call, not assemble_npc_context's own
+        # body. Check the whole decomposed call graph, not just one function.
+        tree = ast.parse(context_text, filename=str(CONTEXT))
+        target_names = {"assemble_npc_context"} | {
+            node.name for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name.startswith("_npc_context_")
+        }
+        referenced = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name in target_names:
+                for sub in ast.walk(node):
+                    if (
+                        isinstance(sub, ast.Call)
+                        and isinstance(sub.func, ast.Name)
+                        and sub.func.id == "_affinity_tier"
+                    ):
+                        referenced = True
+                        break
+            if referenced:
+                break
+        if not referenced:
+            failures.append(
+                "context.py: _affinity_tier is not referenced inside assemble_npc_context "
+                "or its _npc_context_* helpers"
+            )
 
     # 4. Pricing rules text lives in exactly one place.
     if context_text.count("RÈGLES DE TARIFICATION") != 1:
