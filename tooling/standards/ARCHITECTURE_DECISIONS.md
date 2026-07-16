@@ -6807,4 +6807,89 @@ cadence (0032 owns call cadence).
 
 ---
 
+## NPC SPATIAL PRESENCE + PROXIMITY ENDPOINT (BRIEF-0031-a, BRIEF-0031-b, no schema change)
+
+Third step of the spatial / Play mode workstream (0029 obstacle geometry
+-> 0030 collision authority -> **0031 NPC spatial presence + proximity
+gate** -> 0032 canvas/WASD surface). NPCs get a position the canvas can
+draw and the server can measure distance against, without introducing
+persistent NPC coordinates.
+
+**A — deterministic pure derivation, zero storage.** NPC position =
+`f(location geometry, open gatherings + rosters, stable ids)`, recomputed
+on every request; stability comes from determinism, not storage. Q1 holds
+workstream-wide: nothing transient is ever persisted. Rejected: prose
+extraction (B — non-deterministic, model-call cost, fragile against the
+resilience doctrine); client placement (C — server-side proximity
+authority evaporates, the rejected-C3 anti-pattern's NPC edition);
+authored spawn layout (D — persistent config nobody reads yet; recorded
+as a compatible refinement, not built).
+
+**A-i — placement.py pure sibling + spatial_presence.py sole assembler.**
+`src/world_engine/placement.py` (geometry.py's sibling: zero DB, zero
+FastAPI, zero `cockpit/` imports) holds `derive_positions`/`distance`.
+`cockpit/spatial_presence.py::npc_positions` is the SINGLE site that
+turns a location into named NPC positions, reusing `_open_gatherings`,
+`_active_members` (cockpit/play.py) and `_location_geometry_dict`
+(crud/entities.py, 0029's sole geometry assembler). Player exclusion
+lives at the assembler level (filter `character_type == "player"`) —
+RECON finding: `_active_members` rosters include the player; that helper
+itself is NOT narrowed, since other consumers (initiative vote, speaker
+selection) legitimately see the player.
+
+**Determinism doctrine.** All placement randomness derives from
+`hashlib.sha256` over stable ids, never Python's salted `hash()` — a
+server restart mid-scene must never reshuffle a circle. Gate-guarded by
+the permanent regression check `placement_unit.py` (determinism,
+obstacle avoidance, bounds containment, clustering, saturation totality,
+`distance` exactness), the same discipline `geometry_unit.py` applies to
+the collision authority.
+
+**E2 — two endpoints, one derivation.** `GET /api/spatial/presence`
+returns the drawable NPC circles (0032's draw cadence); `POST
+/api/spatial/proximity` judges a transient player position against the
+same recomputed NPC positions (interaction cadence). Both are thin
+callers of `spatial_presence.npc_positions` — `routes/spatial.py` stays a
+caller only (D1-0030 precedent). Rejected: one merged endpoint (draw
+cadence != interaction cadence; 0032 would call "proximity" just to
+draw).
+
+**G-A — advisory dialogue gate.** The proximity result enables the
+client-side "Parler" affordance for in-range NPCs; `POST
+/api/conversations/start` and `/api/scene/join` are byte-for-byte
+untouched. Player position is client-held workstream-wide (Q1), so a
+structural gate would judge client-supplied data anyway — no added
+guarantee — and non-spatial locations / creator flows must keep working
+unchanged. G-B (optional `position` in start_conversation, re-judged
+server-side when the location has spatial mode) is recorded as a
+compatible evolution, not built.
+
+**Threshold.** `placement.INTERACTION_RANGE = 2.0` world-meters, a named
+constant, echoed in every proximity response so 0032 never hardcodes it.
+Calibrated at live gate; a per-location column is a trivial additive
+change later, not built now.
+
+**Earshot rail.** `placement.distance` and
+`spatial_presence.npc_positions` are the SOLE spatial-distance site in
+the engine; any future audibility reader (who-hears-what) imports them,
+never recomputes — mirroring the gate-guarded "sole collision authority"
+discipline of 0030. Nothing of earshot itself ships in this ticket.
+
+**Guards mirror move-check (D2-0030 parity).** Both endpoints: 404
+unknown player; 409 `location_id` != player's `current_location_id`; 404
+unknown location; 409 no spatial mode (NULL bounds); proximity adds 422
+non-finite position.
+
+**Scope OUT, deferred:** canvas/WASD/frontend (ticket 0032); a
+play-facing wall-geometry READ endpoint (0032's intake decides its
+shape); earshot/audibility implementation (rail named only); authored
+spawn zones, per-location threshold column, persistent NPC coordinates
+(workstream-wide never for this ticket); G-B structural gate (compatible
+evolution, not built); rate limiting (0032 owns call cadence).
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*

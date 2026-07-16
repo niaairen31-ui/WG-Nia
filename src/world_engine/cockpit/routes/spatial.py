@@ -1,12 +1,21 @@
-"""Spatial adjudication routes (TICKET-0030, BRIEF-0030-b).
+"""Spatial adjudication routes (TICKET-0030, BRIEF-0030-b; TICKET-0031,
+BRIEF-0031-b).
 
 TRANSIENT ADJUDICATION register: these endpoints read persistent
 geometry, judge transient positions, and persist NOTHING — neither
 _apply_mutation nor creator CRUD. Player position lives client-side
 for the duration of a scene (workstream decision Q1); the server is
 judge, never registrar. All intersection math lives in
-world_engine.geometry (sole collision authority) — this module is a
-caller only. Ticket 0031's proximity endpoint joins this module.
+world_engine.geometry (sole collision authority); all NPC placement and
+distance math lives in world_engine.placement (sole spatial-distance
+authority) — this module is a caller only.
+
+Client handoff contract (0032, not implemented here): the client maps
+`/api/spatial/proximity`'s returned `npc_id`s onto the rosters already
+present in `_scene_response`, enables the "Parler" affordance for
+in-range NPCs, and fires the EXISTING `POST /api/conversations/start`.
+Zero server coupling — this is an advisory gate (G-A), not a structural
+one.
 """
 
 from __future__ import annotations
@@ -18,10 +27,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from ... import geometry
+from ... import geometry, placement
 from ...db import get_session
 from ...models import Character, Location
 from .. import crud as _crud
+from .. import spatial_presence
 
 router = APIRouter()
 
@@ -82,3 +92,74 @@ def move_check(
         bounds,
     )
     return {"x": point[0], "y": point[1], "blocked": blocked}
+
+
+class ProximityBody(BaseModel):
+    location_id: str
+    position: PointBody
+
+
+def _resolve_spatial_location(location_id: str, player_id: Optional[str], db: Session) -> tuple[str, Location]:
+    """Shared guard chain (move-check parity): resolve the player, verify
+    `location_id` is their current location, resolve the location, and
+    verify it is in spatial mode. Returns (world_id, location)."""
+    world_id = _crud._world_id(db)
+    player_id = player_id or _crud._player_character_id(db, world_id)
+    char = db.get(Character, player_id)
+    if char is None:
+        raise HTTPException(status_code=404, detail=f"Player character {player_id!r} not found")
+
+    if location_id != char.current_location_id:
+        raise HTTPException(
+            status_code=409,
+            detail="location_id is not the player's current location",
+        )
+
+    location = db.get(Location, location_id)
+    if location is None:
+        raise HTTPException(status_code=404, detail=f"Location {location_id!r} not found")
+
+    if location.bounds_width is None or location.bounds_height is None:
+        raise HTTPException(status_code=409, detail="location has no spatial mode")
+
+    return world_id, location
+
+
+@router.get("/api/spatial/presence")
+def spatial_presence_endpoint(
+    location_id: str = Query(...),
+    player_id: Optional[str] = Query(None),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Drawable NPC circles for a spatial-mode location: gathering-clustered,
+    deterministic, recomputed from scratch on every call. Read-only: the
+    handler performs zero writes of any kind."""
+    world_id, location = _resolve_spatial_location(location_id, player_id, db)
+    npcs = spatial_presence.npc_positions(location.id, world_id, db)
+    return {"npcs": npcs}
+
+
+@router.post("/api/spatial/proximity")
+def spatial_proximity(
+    body: ProximityBody,
+    player_id: Optional[str] = Query(None),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Judge a transient player position against the same recomputed NPC
+    positions `presence` draws. Advisory only (G-A): enables the client's
+    talk affordance, never gates `/api/conversations/start` itself.
+    Read-only: the handler performs zero writes of any kind."""
+    world_id, location = _resolve_spatial_location(body.location_id, player_id, db)
+
+    if not math.isfinite(body.position.x) or not math.isfinite(body.position.y):
+        raise HTTPException(status_code=422, detail="position must be finite")
+
+    npcs = spatial_presence.npc_positions(location.id, world_id, db)
+    position = (body.position.x, body.position.y)
+    in_range = []
+    for npc in npcs:
+        d = placement.distance(position, (npc["x"], npc["y"]))
+        if d <= placement.INTERACTION_RANGE:
+            in_range.append({"npc_id": npc["id"], "name": npc["name"], "distance": round(d, 3)})
+    in_range.sort(key=lambda entry: entry["distance"])
+    return {"in_range": in_range, "threshold": placement.INTERACTION_RANGE}
