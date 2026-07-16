@@ -1,0 +1,27 @@
+{
+  "ticket": "TICKET-0030-server-side-collision-endpoint",
+  "when": "2026-07-16T18:02:52.717473+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "geometry_unit.py",
+      "status": "PASS",
+      "msg": "PASS: geometry_unit \u2014 all 10 clip_segment cases hold"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u2014 section whitelist, line budgets, archaeology ban, pointer freshness"
+    }
+  ]
+}
