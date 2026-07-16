@@ -24,14 +24,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ... import ollama_client
-from ...entity_author import build_world_roster as _build_world_roster
-from ...entity_author import generate_agenda_draft as _generate_agenda_draft
 from ...entity_author import generate_entity_draft as _generate_entity_draft
-from ...entity_author import generate_event_draft as _generate_event_draft
 from ...entity_author import generate_npc_goals as _generate_npc_goals
 from ...entity_author import generate_player_draft as _generate_player_draft
 from ...entity_author import generate_skill_catalogue_draft as _generate_skill_catalogue_draft
 from ...entity_author import generate_world_draft as _generate_world_draft
+from ...event_author import build_world_roster as _build_world_roster
+from ...event_author import generate_agenda_draft as _generate_agenda_draft
+from ...event_author import generate_event_draft as _generate_event_draft
 from ...region_author import generate_region_draft as _generate_region_draft
 from ...region_author import generate_region_manifest as _generate_region_manifest
 from ...gathering import enter_location as _enter_location

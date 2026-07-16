@@ -125,7 +125,7 @@ def _build_effects_roster(db: Session, world_id: str) -> dict[str, str]:
     — feeds completion-effect name resolution (`relation_delta`/
     `ledger_transfer` target/from/to, `role_change` faction) at
     tick-normalize time. Same ambiguity discipline as `_build_roster`/
-    `entity_author.build_world_roster`: a casefolded name shared by two ids
+    `event_author.build_world_roster`: a casefolded name shared by two ids
     is removed from the roster, resolution then fails cleanly for that
     name rather than guessing."""
     candidates: dict[str, list[str]] = {}

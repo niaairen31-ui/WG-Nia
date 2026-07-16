@@ -17,6 +17,9 @@
 // decomposed into the models/ package (canon.py, ephemeral.py, pipeline.py,
 // __init__.py) by schema stratum, each unbaselined-compliant. See
 // ARCHITECTURE_DECISIONS.md.
-[
-  {"file": "src/world_engine/entity_author.py", "functions": 28, "lines": 1055}
-]
+//
+// entity_author.py entry (28f/1055l) removed at TICKET-0028/BRIEF-0028-d:
+// event/agenda domain extracted to the new event_author.py, three
+// baselined functions decomposed in place — both files unbaselined-
+// compliant. See ARCHITECTURE_DECISIONS.md.
+[]
