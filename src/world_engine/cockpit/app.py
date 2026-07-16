@@ -12,9 +12,11 @@ BRIEF-0027-d (R5):
   creator.py to fit the module-budget cap).
 - `cockpit/routes/prompts.py` — prompt dry-run preview routes.
 - `cockpit/routes/mutations.py` — the mutation review queue.
-- `cockpit/routes/play.py` — conversations, scene, travel, world-tick; the
-  private helpers those routes call live in `cockpit/play.py`,
-  `cockpit/play_physical.py` and `cockpit/play_stream.py`.
+- `cockpit/routes/play.py` — conversations, travel, world-tick; the private
+  helpers those routes call live in `cockpit/play.py`, `cockpit/play_physical.py`
+  and `cockpit/play_stream.py`.
+- `cockpit/routes/scene.py` — scene lifecycle (view/enter/join/leave),
+  extracted from `routes/play.py` at TICKET-0032 (C2, module-budget cap).
 
 Every route keeps its original path, method, and body verbatim (pure move,
 no logic change) — see BRIEF-0027-d for the full census.
@@ -41,6 +43,7 @@ from .routes import mutations as _routes_mutations
 from .routes import play as _routes_play
 from .routes import prompts as _routes_prompts
 from .routes import regions as _routes_regions
+from .routes import scene as _routes_scene
 from .routes import spatial as _routes_spatial
 
 _INDEX_HTML = Path(__file__).parent / "index.html"
@@ -59,6 +62,7 @@ app.include_router(_routes_regions.router)
 app.include_router(_routes_prompts.router)
 app.include_router(_routes_mutations.router)
 app.include_router(_routes_play.router)
+app.include_router(_routes_scene.router)
 app.include_router(_routes_spatial.router)
 
 

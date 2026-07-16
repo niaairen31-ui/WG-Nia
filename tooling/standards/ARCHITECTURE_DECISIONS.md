@@ -6892,4 +6892,46 @@ evolution, not built); rate limiting (0032 owns call cadence).
 
 ---
 
+## "PARLER" HANDOFF AMENDED + SCENE ROUTE SPLIT (BRIEF-0032-a, no schema change)
+
+Fourth step of the spatial / Play mode workstream (0029 obstacle geometry
+-> 0030 collision authority -> 0031 NPC spatial presence + proximity gate
+-> **0032-a deterministic targeted join**, ahead of 0032-b/-c's canvas).
+
+**C2 — module split over exemption.** `routes/play.py` was at exactly
+1000/1000 lines (the G1 module-budget cap, zero baseline headroom) when
+this brief's addition needed room. Rejected: a `module_budget.json`
+baseline entry — the check's own doctrine ("no permanent exemptions... the
+failing check IS the mechanism forcing a split") rules it out for a new
+violation. Resolution: extract the scene lifecycle cluster (`get_scene`,
+`enter_scene`, `SceneJoinBody`, the `_scene_join_*` helpers, `scene_join`,
+`scene_leave`) verbatim into a new `cockpit/routes/scene.py`, landed as its
+own move-only commit (byte-identical bodies, confirmed by diff) before the
+G2-b addition — same precedent as `routes/spatial.py` splitting off 0030,
+and as the original BRIEF-0027-d module-budget split. `routes/play.py`
+keeps conversations, travel, and world-tick; `visit_delta.py`'s
+`Visit(...)` constructor allowlist relocated with `enter_scene`
+(relocation-not-broadening, not a new write site).
+
+**G2-b — "Parler" handoff AMENDED:** the 0031 client contract
+(`routes/spatial.py` header) pointed the talk affordance at
+`POST /api/conversations/start`, which creates gathering-less
+conversations invisible to `_active_conv_for_gathering`. The affordance
+now performs a deterministic targeted join via
+`scene/join.target_gathering_id` (no LLM call — code resolves what code
+knows). `conversations/start` remains for 1:1 pilot flows.
+`SceneJoinBody` requires exactly one of `player_text` /
+`target_gathering_id` (422 otherwise); the targeted branch validates the
+gathering exists, is open, and matches the player's current
+location/session (404 / 400, mirroring `join_gathering`'s wording) before
+reusing the same conversation-creation tail as the free-text path
+(`_scene_join_create_for_gathering`, extracted from
+`_scene_join_resolve_and_create`'s tail — the free-text path is otherwise
+byte-identical: same interpretation call, same rows, same response shape).
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*

@@ -10,12 +10,16 @@ world_engine.geometry (sole collision authority); all NPC placement and
 distance math lives in world_engine.placement (sole spatial-distance
 authority) — this module is a caller only.
 
-Client handoff contract (0032, not implemented here): the client maps
+Client handoff contract (TICKET-0032, BRIEF-0032-a; AMENDS the 0031
+paragraph this replaces, decision G2-b): the client maps
 `/api/spatial/proximity`'s returned `npc_id`s onto the rosters already
 present in `_scene_response`, enables the "Parler" affordance for
-in-range NPCs, and fires the EXISTING `POST /api/conversations/start`.
-Zero server coupling — this is an advisory gate (G-A), not a structural
-one.
+in-range NPCs, and fires `POST /api/scene/join` with `target_gathering_id`
+set to that roster's gathering id — a deterministic targeted join, zero
+model calls. The previously-cited `POST /api/conversations/start` created
+gathering-less conversations, invisible to `_active_conv_for_gathering`;
+it remains for 1:1 pilot flows only. Zero server coupling — this is an
+advisory gate (G-A), not a structural one.
 """
 
 from __future__ import annotations
