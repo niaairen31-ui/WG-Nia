@@ -10,7 +10,7 @@ danger_class: []       # no db_write/migration/destructive intent; behavior-
                        # preserving refactors on the tick pipeline and the
                        # canon-write module — treated as high-care regardless
 blast_radius: large
-brief_ids: [BRIEF-0028-a, BRIEF-0028-b]   # c..f appended as authored
+brief_ids: [BRIEF-0028-a, BRIEF-0028-b, BRIEF-0028-c]   # d..f appended as authored
 schema_version_touched:     # none — no schema change anywhere in this ticket
 retry_count: 0
 ---
@@ -66,6 +66,26 @@ Decisions locked (option blocks, 2026-07-15 session):
   re-keying for a 19-function module.
 - **G1** — The TICKET-0027 `status: live-gate -> done` flip rides the
   first commit of BRIEF-0028-a.
+
+BRIEF-0028-c citation correction (stated openly, supersedes C1's intake
+wording above): the machine reader of the canon/ephemeral/pipeline-internal
+stratum classification is NOT `schema_partition.py` (that check guards the
+hot/cold doc partition) — it is `canon_write_policy.txt`'s `[CANON_TABLES]`
+plus the class->table mapping `single_canon_write.py:69`
+(`build_model_tables`) derives by parsing the models file(s). C1 itself
+stands; only the citation moves.
+
+BRIEF-0028-c stratum escalation (2026-07-15, four ambiguous rows resolved
+by Nia): `GoalPrerequisite`/`goal_prerequisite` and `EventEntity`/
+`event_entity` -> `models/canon.py` (world-truth rule data written by a
+sanctioned site; their absence from `[CANON_TABLES]` is a known governance
+gap, not a nature signal — two candidate follow-up tickets logged in the
+BRIEF-0028-c execution notes: (a) add both tables to `[CANON_TABLES]` and
+extend their sanctioned-site lines; (b) no-reader review of the dormant
+`user` table). `User` -> `models/pipeline.py` (app/account infrastructure,
+zero readers outside the models module as of schema v1.79). `PassPlay` ->
+`models/pipeline.py` (batch-anchored offline-analysis grouping).
+`[CANON_TABLES]` itself is untouched by BRIEF-0028-c (Scope OUT).
 
 Standing precedents applied, not re-litigated: shrink-only baselines
 with a named owner and a death date; open baseline bends only;
