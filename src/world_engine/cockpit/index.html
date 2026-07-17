@@ -929,6 +929,21 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 #play-historique { flex: 1; min-height: 0; overflow-y: auto; }
 #play-savoirs    { flex: 1; min-height: 0; overflow-y: auto; }
 
+/* ── Play (spatiale) — TICKET-0032, BRIEF-0032-b — standalone canvas,
+   outside HTMX; server-lockstep movement (A1), transient only (Q1) ── */
+#play-spatiale   { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.spatial-status  { flex-shrink: 0; padding: 4px 14px; font-size: 12px; color: var(--muted);
+  background: var(--panel); border-bottom: 1px solid var(--border); }
+.spatial-error   { flex-shrink: 0; padding: 10px 14px; font-size: 13px; color: var(--red); }
+#spatial-canvas  { flex: 1; min-height: 0; width: 100%; display: block; background: var(--bg);
+  cursor: crosshair; outline: none; }
+/* ── Proximity "Parler" affordance — TICKET-0032, BRIEF-0032-c ── */
+.spatial-actions { flex-shrink: 0; padding: 8px 14px; font-size: 13px; color: var(--muted);
+  background: var(--panel); border-top: 1px solid var(--border); display: flex; flex-wrap: wrap;
+  align-items: center; gap: 8px; }
+.spatial-actions-empty    { color: var(--muted); }
+.spatial-actions-distance { color: var(--muted); font-size: 11px; }
+
 /* ── Création sub-tab bar ────────────────────────────────────────────────── */
 .creation-sub-tab-bar {
   flex-shrink: 0; background: var(--panel); border-bottom: 1px solid var(--border);
@@ -1037,6 +1052,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       <button class="sub-tab active" id="play-tab-discussion" onclick="showPlaySubTab('discussion')">Discussion</button>
       <button class="sub-tab"        id="play-tab-historique" onclick="showPlaySubTab('historique')">Historique</button>
       <button class="sub-tab"        id="play-tab-savoirs"    onclick="showPlaySubTab('savoirs')">Mes savoirs</button>
+      <button class="sub-tab"        id="play-tab-spatiale"   onclick="showPlaySubTab('spatiale')">Play (spatiale)</button>
     </div>
   </div>
 
@@ -1154,6 +1170,14 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       <div class="empty"><span class="spin">⟳</span></div>
     </div>
   </div><!-- #play-savoirs -->
+
+  <!-- ── Play (spatiale) sub-tab — TICKET-0032, BRIEF-0032-b/c ── -->
+  <div id="play-spatiale" style="display:none">
+    <div id="spatial-status" class="spatial-status"></div>
+    <div id="spatial-error" class="spatial-error" style="display:none"></div>
+    <canvas id="spatial-canvas" tabindex="0"></canvas>
+    <div id="spatial-actions" class="spatial-actions"></div>
+  </div><!-- #play-spatiale -->
 
 </div><!-- #play-view -->
 
@@ -1532,6 +1556,10 @@ function _renderScene(scene) {
   nameEl.textContent = scene.location_name || '?';
   document.getElementById('transcript-title').textContent = scene.location_name || 'Scène';
   _populateTravelSelect(scene.location_id);
+  // Travel/refresh coherence (TICKET-0032, BRIEF-0032-b): every loadScene()
+  // call funnels here, so this is the single place to re-run the spatial
+  // activation flow when the tab is open (reuse the hook, no polling).
+  if (_spatialActive) spatialActivate();
 
   if (!scene.gatherings || !scene.gatherings.length) {
     listEl.innerHTML = '<div class="empty">Personne d\'autre ici pour le moment.</div>';
@@ -3155,12 +3183,13 @@ function showCreationView() {
 /* ── Play sub-tabs ───────────────────────────────────────────────────────── */
 
 function showPlaySubTab(tab) {
-  ['discussion', 'historique', 'savoirs'].forEach(t => {
+  ['discussion', 'historique', 'savoirs', 'spatiale'].forEach(t => {
     document.getElementById('play-tab-' + t).classList.toggle('active', t === tab);
     document.getElementById('play-' + t).style.display = (t === tab) ? '' : 'none';
   });
   if (tab === 'historique') loadConversations();
   if (tab === 'savoirs')    loadPlayerKnowledge();
+  if (tab === 'spatiale')   spatialActivate(); else spatialDeactivate();
 }
 
 /** Resolve world_id/player_id structurally before any other init call (BRIEF-45). */
@@ -3202,6 +3231,552 @@ async function loadPlayerKnowledge() {
       </div>`).join('') + '</div>';
   } catch (e) {
     bodyEl.innerHTML = `<div class="empty" style="color:var(--red)">Erreur : ${esc(e.message)}</div>`;
+  }
+}
+
+/* ── Play (spatiale) — TICKET-0032, BRIEF-0032-b — standalone canvas,
+   outside HTMX; server-lockstep movement (A1), transient only (Q1) ── */
+
+const SPATIAL_SPEED_MPS = 3.0;  // world-m/s, walking pace; comment: calibrate at live gate
+
+let _spatialActive         = false;
+let _spatialLocationId     = null;
+let _spatialLocationName   = '';
+let _spatialBounds         = null;  // { width, height } world-meters, or null (non-spatial)
+let _spatialObstacles      = [];    // [{ id, vertices: [[x,y], ...] }]
+let _spatialNpcs           = [];    // [{ id, name, x, y }]
+let _spatialScale          = 24;    // px per world-meter
+let _spatialOrigin         = { x: 0, y: 0 };  // world point at canvas pixel (0,0)
+let _spatialConfirmed      = { x: 0, y: 0 };  // last server-confirmed player position
+let _spatialDrawn          = { x: 0, y: 0 };  // interpolated drawn player position
+let _spatialKeysDown       = { up: false, down: false, left: false, right: false };
+let _spatialRafId          = null;
+let _spatialTickerId       = null;
+let _spatialLastFrameTime  = null;
+let _spatialDirty          = true;
+let _spatialMoveInFlight   = false;
+let _spatialMovePending    = false;
+let _spatialMoveError      = null;
+let _spatialColors         = null;  // cached CSS variable values, read once
+let _spatialListenersReady = false;
+let _spatialScene              = null;  // last GET /api/scene response (gatherings, player_gathering, active_conversation_id)
+let _spatialInRange            = [];    // [{ npc_id, name, distance }] from /api/spatial/proximity
+let _spatialProximityTimer     = null;  // debounce handle (D1: 200ms after movement stops)
+let _spatialProximityInFlight  = false; // one in-flight request max
+
+const _SPATIAL_KEY_MAP = {
+  w: 'up', a: 'left', s: 'down', d: 'right',
+  arrowup: 'up', arrowleft: 'left', arrowdown: 'down', arrowright: 'right',
+};
+
+/** Activation flow: GET /api/scene for location_id/location_name, then
+ *  GET /api/entities/{id} for geometry. Non-spatial -> error, no canvas, no
+ *  presence request. Otherwise store {bounds, obstacles}, spawn at center,
+ *  fetch presence once (Scope OUT: no presence re-polling loop), start the
+ *  render loop. Reused verbatim as the travel/refresh reload hook. */
+async function spatialActivate() {
+  _spatialActive = true;
+  spatialInitListeners();
+  spatialStopTicker();
+  spatialStopLoop();
+
+  const statusEl = document.getElementById('spatial-status');
+  const errorEl  = document.getElementById('spatial-error');
+  const canvasEl = document.getElementById('spatial-canvas');
+  errorEl.style.display = 'none';
+  canvasEl.style.display = '';
+  statusEl.textContent = 'Chargement…';
+
+  try {
+    const scene = await api('/api/scene');
+    _spatialScene         = scene;
+    _spatialLocationId   = scene.location_id;
+    _spatialLocationName = scene.location_name;
+
+    const entity = await api('/api/entities/' + _spatialLocationId);
+    const geo = entity.geometry || {};
+    if (geo.bounds_width == null || geo.bounds_height == null) {
+      _spatialBounds = null;
+      canvasEl.style.display = 'none';
+      statusEl.textContent = '';
+      errorEl.textContent =
+        "Ce lieu n'a pas de mode spatial. Définissez ses dimensions dans l'éditeur de géométrie (onglet Auteur).";
+      errorEl.style.display = '';
+      return;
+    }
+
+    _spatialBounds    = { width: geo.bounds_width, height: geo.bounds_height };
+    _spatialObstacles = geo.obstacles || [];
+
+    // TRANSITIONAL SPAWN (TICKET-0032): fixed center until the door chantier
+    // introduces spawn-at-door. If the center lies inside an obstacle, the
+    // judge blocks all movement by design (geometry.py degenerate origin —
+    // the judge never rescues); fix the location's geometry, not this code.
+    _spatialConfirmed = { x: geo.bounds_width / 2, y: geo.bounds_height / 2 };
+    _spatialDrawn     = { x: _spatialConfirmed.x, y: _spatialConfirmed.y };
+    _spatialScale     = 24;
+    _spatialMoveError = null;
+    _spatialKeysDown  = { up: false, down: false, left: false, right: false };
+
+    const presence = await api('/api/spatial/presence?location_id=' + encodeURIComponent(_spatialLocationId));
+    _spatialNpcs = presence.npcs || [];
+
+    if (!_spatialColors) spatialCacheColors();
+    spatialResizeCanvas();
+    spatialUpdateStatus();
+    _spatialDirty = true;
+    spatialStartLoop();
+
+    // On-stop proximity (D1): one call on scene entry/spawn, undebounced.
+    _spatialInRange = [];
+    spatialRenderActions();
+    spatialFireProximity();
+  } catch (e) {
+    _spatialBounds = null;
+    canvasEl.style.display = 'none';
+    statusEl.textContent = '';
+    errorEl.textContent = `Erreur : ${esc(e.message)}`;
+    errorEl.style.display = '';
+  }
+}
+
+/** Deactivating the tab stops the rAF loop and the movement ticker — no
+ *  background requests from a hidden tab. */
+function spatialDeactivate() {
+  _spatialActive = false;
+  spatialStopLoop();
+  spatialStopTicker();
+  spatialCancelProximityTimer();
+  _spatialKeysDown = { up: false, down: false, left: false, right: false };
+}
+
+function spatialCacheColors() {
+  const cs = getComputedStyle(document.documentElement);
+  _spatialColors = {
+    wall:   cs.getPropertyValue('--border').trim() || '#30363d',
+    fill:   cs.getPropertyValue('--card').trim()   || '#21262d',
+    npc:    cs.getPropertyValue('--text').trim()   || '#c9d1d9',
+    label:  cs.getPropertyValue('--muted').trim()  || '#8b949e',
+    player: cs.getPropertyValue('--accent').trim() || '#58a6ff',
+    mono:   cs.getPropertyValue('--mono').trim()   || 'monospace',
+  };
+}
+
+function spatialResizeCanvas() {
+  const canvas = document.getElementById('spatial-canvas');
+  const w = canvas.clientWidth  || 1;
+  const h = canvas.clientHeight || 1;
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width  = w;
+    canvas.height = h;
+  }
+  if (_spatialBounds) spatialResetCamera();
+  _spatialDirty = true;
+}
+
+/** View centered on the bounds when content is smaller than the canvas,
+ *  otherwise centered on the player — the spawn/resize resting placement.
+ *  Wheel zoom subsequently pans this origin, cursor-anchored (no free pan
+ *  gesture exists — Scope OUT). */
+function spatialResetCamera() {
+  const canvas  = document.getElementById('spatial-canvas');
+  const canvasW = canvas.width  || 1;
+  const canvasH = canvas.height || 1;
+  const contentW = _spatialBounds.width  * _spatialScale;
+  const contentH = _spatialBounds.height * _spatialScale;
+  _spatialOrigin = {
+    x: contentW <= canvasW
+      ? _spatialBounds.width  / 2 - (canvasW / 2) / _spatialScale
+      : _spatialDrawn.x - (canvasW / 2) / _spatialScale,
+    y: contentH <= canvasH
+      ? _spatialBounds.height / 2 - (canvasH / 2) / _spatialScale
+      : _spatialDrawn.y - (canvasH / 2) / _spatialScale,
+  };
+}
+
+function spatialUpdateStatus() {
+  const statusEl = document.getElementById('spatial-status');
+  if (!statusEl || !_spatialActive) return;
+  if (_spatialMoveError) {
+    statusEl.innerHTML =
+      `<span style="color:var(--red)">Déplacement interrompu (${esc(_spatialMoveError)}) — reprenez avec une touche.</span>`;
+    return;
+  }
+  statusEl.textContent =
+    `${_spatialLocationName} · ${Math.round(_spatialScale)} px/m · Position transitoire — rien n'est écrit au canon.`;
+}
+
+/* ── Render loop (requestAnimationFrame) ────────────────────────────────── */
+
+function spatialStartLoop() {
+  if (_spatialRafId != null) return;
+  _spatialLastFrameTime = null;
+  const step = (now) => {
+    if (!_spatialActive) { _spatialRafId = null; return; }
+    spatialInterpolate(now);
+    if (_spatialDirty) spatialRender();
+    _spatialRafId = requestAnimationFrame(step);
+  };
+  _spatialRafId = requestAnimationFrame(step);
+}
+
+function spatialStopLoop() {
+  if (_spatialRafId != null) { cancelAnimationFrame(_spatialRafId); _spatialRafId = null; }
+}
+
+/** Drawn position interpolates linearly toward the server-confirmed point,
+ *  reaching it in ~100 ms — the drawn circle never leads confirmed (A1). */
+function spatialInterpolate(now) {
+  const dt = _spatialLastFrameTime == null ? 16 : now - _spatialLastFrameTime;
+  _spatialLastFrameTime = now;
+  const dx = _spatialConfirmed.x - _spatialDrawn.x;
+  const dy = _spatialConfirmed.y - _spatialDrawn.y;
+  if (Math.abs(dx) < 1e-4 && Math.abs(dy) < 1e-4) return;
+  const t = Math.min(1, dt / 100);
+  _spatialDrawn = { x: _spatialDrawn.x + dx * t, y: _spatialDrawn.y + dy * t };
+  _spatialDirty = true;
+}
+
+/** Idle scene must not spin CPU: skip the draw when nothing moved and no
+ *  zoom/pan changed (dirty flag, cleared here, set by interpolation/zoom/
+ *  successful move-check responses). */
+function spatialRender() {
+  const canvas = document.getElementById('spatial-canvas');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  _spatialDirty = false;
+  if (!_spatialBounds) return;
+
+  const toPx = (wx, wy) => [(wx - _spatialOrigin.x) * _spatialScale, (wy - _spatialOrigin.y) * _spatialScale];
+
+  // Bounds rectangle (wall stroke)
+  const [bx0, by0] = toPx(0, 0);
+  const [bx1, by1] = toPx(_spatialBounds.width, _spatialBounds.height);
+  ctx.strokeStyle = _spatialColors.wall;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(bx0, by0, bx1 - bx0, by1 - by0);
+
+  // Obstacle polygons (filled)
+  _spatialObstacles.forEach(ob => {
+    const verts = ob.vertices || [];
+    if (verts.length < 3) return;
+    ctx.beginPath();
+    verts.forEach((v, i) => {
+      const [px, py] = toPx(v[0], v[1]);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    });
+    ctx.closePath();
+    ctx.fillStyle = _spatialColors.fill;
+    ctx.fill();
+    ctx.strokeStyle = _spatialColors.wall;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+
+  // NPC circles (radius 0.35 m) with name label above; in-range NPCs (proximity)
+  // get a ring stroke — matched by npc_id (proximity) against id (presence),
+  // a known field-name divergence between the two endpoints.
+  const radiusPx = 0.35 * _spatialScale;
+  const inRangeIds = new Set(_spatialInRange.map(entry => entry.npc_id));
+  ctx.textAlign = 'center';
+  ctx.font = '11px ' + _spatialColors.mono;
+  _spatialNpcs.forEach(npc => {
+    const [px, py] = toPx(npc.x, npc.y);
+    ctx.beginPath();
+    ctx.arc(px, py, radiusPx, 0, Math.PI * 2);
+    ctx.fillStyle = _spatialColors.npc;
+    ctx.fill();
+    if (inRangeIds.has(npc.id)) {
+      ctx.beginPath();
+      ctx.arc(px, py, radiusPx + 3, 0, Math.PI * 2);
+      ctx.strokeStyle = _spatialColors.player;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.fillStyle = _spatialColors.label;
+    ctx.fillText(npc.name || '', px, py - radiusPx - 4);
+  });
+
+  // Player circle (visually distinct)
+  const [ppx, ppy] = toPx(_spatialDrawn.x, _spatialDrawn.y);
+  ctx.beginPath();
+  ctx.arc(ppx, ppy, radiusPx, 0, Math.PI * 2);
+  ctx.fillStyle = _spatialColors.player;
+  ctx.fill();
+}
+
+/* ── WASD input (H1) ─────────────────────────────────────────────────────── */
+
+function spatialDirectionVector() {
+  let dx = 0, dy = 0;
+  if (_spatialKeysDown.left)  dx -= 1;
+  if (_spatialKeysDown.right) dx += 1;
+  if (_spatialKeysDown.up)    dy -= 1;
+  if (_spatialKeysDown.down)  dy += 1;
+  if (dx !== 0 && dy !== 0) { const inv = Math.SQRT1_2; dx *= inv; dy *= inv; }
+  return { x: dx, y: dy };
+}
+
+function _spatialInputBlocked() {
+  const el = document.activeElement;
+  if (!el) return false;
+  return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
+}
+
+/** keydown/keyup on document (not the canvas): clicking the canvas focuses
+ *  it (affordance only — WASD works document-wide whenever no input has
+ *  focus and the tab is active); Esc blurs. */
+function spatialOnKeyDown(e) {
+  if (!_spatialActive) return;
+  if (e.key === 'Escape') { if (document.activeElement) document.activeElement.blur(); return; }
+  if (_spatialInputBlocked()) return;
+  const dir = _SPATIAL_KEY_MAP[e.key.toLowerCase()];
+  if (!dir) return;
+  e.preventDefault();
+  if (!_spatialKeysDown[dir]) {
+    const wasIdle = !Object.values(_spatialKeysDown).some(Boolean);
+    _spatialKeysDown[dir] = true;
+    spatialStartTicker();
+    if (wasIdle) {
+      // Movement start (D1): cancel any pending on-stop proximity call and
+      // clear the affordance list — never while moving.
+      spatialCancelProximityTimer();
+      if (_spatialInRange.length) {
+        _spatialInRange = [];
+        spatialRenderActions();
+        _spatialDirty = true;
+      }
+    }
+  }
+}
+
+function spatialOnKeyUp(e) {
+  const dir = _SPATIAL_KEY_MAP[e.key.toLowerCase()];
+  if (!dir || !_spatialKeysDown[dir]) return;
+  const releasedDirection = spatialDirectionVector();  // direction active up to this release
+  _spatialKeysDown[dir] = false;
+  if (!Object.values(_spatialKeysDown).some(Boolean)) {
+    spatialStopTicker();
+    if (_spatialActive && _spatialBounds) spatialRequestMove(releasedDirection);  // final tick
+  }
+}
+
+/* ── Wheel zoom ──────────────────────────────────────────────────────────── */
+
+/** Multiplies scale by 1.1 / 0.9 per notch, clamped [8, 64] px/m, anchored
+ *  on the cursor's world point. */
+function spatialOnWheel(e) {
+  if (!_spatialActive || !_spatialBounds) return;
+  e.preventDefault();
+  const canvas = document.getElementById('spatial-canvas');
+  const rect = canvas.getBoundingClientRect();
+  const px = e.clientX - rect.left;
+  const py = e.clientY - rect.top;
+  const worldBefore = { x: _spatialOrigin.x + px / _spatialScale, y: _spatialOrigin.y + py / _spatialScale };
+  const factor = e.deltaY < 0 ? 1.1 : 0.9;
+  _spatialScale = Math.min(64, Math.max(8, _spatialScale * factor));
+  _spatialOrigin = { x: worldBefore.x - px / _spatialScale, y: worldBefore.y - py / _spatialScale };
+  _spatialDirty = true;
+  spatialUpdateStatus();
+}
+
+/* ── Server-lockstep movement (A1/B1) ────────────────────────────────────── */
+
+function spatialStartTicker() {
+  if (_spatialTickerId != null) return;
+  _spatialTickerId = setInterval(spatialTick, 100);
+}
+
+function spatialStopTicker() {
+  if (_spatialTickerId != null) { clearInterval(_spatialTickerId); _spatialTickerId = null; }
+}
+
+function spatialTick() {
+  if (!_spatialActive || !_spatialBounds) return;
+  spatialRequestMove(spatialDirectionVector());
+}
+
+/** In-flight guard: never more than one move-check outstanding; a tick that
+ *  fires while one is pending coalesces (recomputed from the latest
+ *  confirmed position once the in-flight request resolves). */
+function spatialRequestMove(dir) {
+  if (dir.x === 0 && dir.y === 0) {
+    // No-op stop (e.g. opposite keys released down to zero net direction):
+    // still counts as movement ending — schedule proximity if now idle.
+    if (!Object.values(_spatialKeysDown).some(Boolean)) spatialScheduleProximity();
+    return;
+  }
+  if (_spatialMoveInFlight) { _spatialMovePending = true; return; }
+  spatialSendMove(dir);
+}
+
+async function spatialSendMove(dir) {
+  _spatialMoveInFlight = true;
+  const origin = { x: _spatialConfirmed.x, y: _spatialConfirmed.y };
+  const destination = {
+    x: origin.x + dir.x * SPATIAL_SPEED_MPS * 0.1,
+    y: origin.y + dir.y * SPATIAL_SPEED_MPS * 0.1,
+  };
+  try {
+    const res = await api('/api/spatial/move-check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ location_id: _spatialLocationId, origin, destination }),
+    });
+    // blocked:true needs no special UI — the confirmed point simply stops at the wall.
+    _spatialConfirmed = { x: res.x, y: res.y };
+    _spatialMoveError = null;
+    _spatialDirty = true;
+  } catch (e) {
+    _spatialMoveError = e.message;
+    spatialStopTicker();
+    _spatialKeysDown = { up: false, down: false, left: false, right: false };
+  } finally {
+    _spatialMoveInFlight = false;
+    spatialUpdateStatus();
+    let coalesced = false;
+    if (_spatialMovePending) {
+      _spatialMovePending = false;
+      const nextDir = spatialDirectionVector();
+      if (nextDir.x !== 0 || nextDir.y !== 0) { spatialSendMove(nextDir); coalesced = true; }
+    }
+    // Movement end (D1): the final confirmed response has landed — schedule
+    // the on-stop proximity call only once no keys remain down.
+    if (!coalesced && !Object.values(_spatialKeysDown).some(Boolean)) spatialScheduleProximity();
+  }
+}
+
+/* ── One-time listener setup (idempotent) ────────────────────────────────── */
+
+function spatialInitListeners() {
+  if (_spatialListenersReady) return;
+  _spatialListenersReady = true;
+  const canvas = document.getElementById('spatial-canvas');
+  canvas.addEventListener('click', () => canvas.focus());
+  canvas.addEventListener('wheel', spatialOnWheel, { passive: false });
+  document.addEventListener('keydown', spatialOnKeyDown);
+  document.addEventListener('keyup', spatialOnKeyUp);
+  window.addEventListener('resize', () => { if (_spatialActive) spatialResizeCanvas(); });
+}
+
+/* ── Proximity on-stop + "Parler" affordance (TICKET-0032, BRIEF-0032-c) ─── */
+
+function spatialCancelProximityTimer() {
+  if (_spatialProximityTimer != null) { clearTimeout(_spatialProximityTimer); _spatialProximityTimer = null; }
+}
+
+/** 200ms debounce (D1) — a new keydown within the window cancels it
+ *  (spatialOnKeyDown calls spatialCancelProximityTimer on movement start). */
+function spatialScheduleProximity() {
+  spatialCancelProximityTimer();
+  _spatialProximityTimer = setTimeout(() => {
+    _spatialProximityTimer = null;
+    spatialFireProximity();
+  }, 200);
+}
+
+/** Single spatial-distance authority: in-range comes solely from this
+ *  endpoint — the client never computes distance. Never while moving; one
+ *  in-flight request max. Failure is silent (advisory gate, G-A). */
+async function spatialFireProximity() {
+  if (!_spatialActive || !_spatialBounds) return;
+  if (Object.values(_spatialKeysDown).some(Boolean)) return;
+  if (_spatialProximityInFlight) return;
+  _spatialProximityInFlight = true;
+  try {
+    const res = await api('/api/spatial/proximity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ location_id: _spatialLocationId, position: _spatialConfirmed }),
+    });
+    _spatialInRange = res.in_range || [];
+    spatialRenderActions();
+    _spatialDirty = true;
+  } catch (e) {
+    // Advisory gate — a failed proximity fetch never breaks movement.
+  } finally {
+    _spatialProximityInFlight = false;
+  }
+}
+
+function spatialRenderActions() {
+  const el = document.getElementById('spatial-actions');
+  if (!el) return;
+  if (!_spatialInRange.length) {
+    el.innerHTML = '<span class="spatial-actions-empty">Personne à portée de voix.</span>';
+    return;
+  }
+  el.innerHTML = _spatialInRange.map(entry =>
+    `<button class="btn-send" onclick="spatialTalkTo('${esc(entry.npc_id)}')">Parler à ${esc(entry.name)}</button>` +
+    `<span class="spatial-actions-distance">(${entry.distance.toFixed(1)} m)</span>`
+  ).join('');
+}
+
+/** Map a clicked npc_id to its open gathering via the scene response already
+ *  held; null if the NPC is present in no open gathering there. */
+function _spatialFindGatheringForNpc(npcId) {
+  if (!_spatialScene || !_spatialScene.gatherings) return null;
+  for (const g of _spatialScene.gatherings) {
+    if ((g.members || []).some(m => m.id === npcId)) return g.id;
+  }
+  return null;
+}
+
+async function spatialRefreshPresence() {
+  try {
+    const presence = await api('/api/spatial/presence?location_id=' + encodeURIComponent(_spatialLocationId));
+    _spatialNpcs = presence.npcs || [];
+    _spatialDirty = true;
+  } catch (e) { /* advisory refresh only */ }
+}
+
+/** Deterministic targeted join (G2-b): no player_text, zero model calls. */
+async function spatialJoinGathering(gatheringId) {
+  const result = await api('/api/scene/join', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ target_gathering_id: gatheringId }),
+  });
+  if (result.conversation_id) {
+    await loadConversations();
+    await selectConv(result.conversation_id);
+  }
+}
+
+/** Click flow for the "Parler" affordance (G2-b/I1). Same-gathering NPC
+ *  resumes/continues; other-gathering NPC leaves first then joins (sequential,
+ *  awaited — a failed leave stops here with no join attempt). No confirmation
+ *  dialog either way; the affordance label is the intent. */
+async function spatialTalkTo(npcId) {
+  const statusEl = document.getElementById('spatial-status');
+  let gatheringId = _spatialFindGatheringForNpc(npcId);
+  if (gatheringId == null) {
+    try { _spatialScene = await api('/api/scene'); } catch (e) { /* retry below with stale scene */ }
+    gatheringId = _spatialFindGatheringForNpc(npcId);
+    if (gatheringId == null) {
+      statusEl.textContent = "Ce personnage n'est plus disponible.";
+      spatialRefreshPresence();
+      return;
+    }
+  }
+
+  try {
+    const playerGathering = _spatialScene && _spatialScene.player_gathering;
+    if (playerGathering) {
+      if (playerGathering.id === gatheringId) {
+        if (_spatialScene.active_conversation_id) {
+          await selectConv(_spatialScene.active_conversation_id);
+        } else {
+          await _sceneResumeOrStart();
+        }
+        return;
+      }
+      await api('/api/scene/leave', { method: 'POST' });
+    }
+    await spatialJoinGathering(gatheringId);
+  } catch (e) {
+    statusEl.innerHTML = `<span style="color:var(--red)">Erreur : ${esc(e.message)}</span>`;
   }
 }
 
