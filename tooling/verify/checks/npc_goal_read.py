@@ -43,7 +43,10 @@ ALLOWED_MODULES = {
     "src/world_engine/cockpit/crud/goals.py",
     "src/world_engine/cockpit/crud/agendas.py",
     "src/world_engine/cockpit/routes/mutations.py",
-    "src/world_engine/cockpit/play_stream.py",
+    # play_stream.py -> play_initiative.py (TICKET-0035): the NPC-initiative
+    # cluster (the sole reader here, _initiative_candidate_data) relocated
+    # verbatim; same relocation-not-broadening precedent as above.
+    "src/world_engine/cockpit/play_initiative.py",
     "src/world_engine/cockpit/mutations.py",
     "src/world_engine/tick.py",
     "src/world_engine/tick_context.py",

@@ -72,7 +72,7 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         surface="play",
         world_scoped=True,
         dry_run_capable=False,
-        call_sites=("src/world_engine/cockpit/play_stream.py:_load_npc_initiative_act_template",),
+        call_sites=("src/world_engine/cockpit/play_initiative.py:_load_npc_initiative_act_template",),
         default_model=_game_model,
     ),
     "player_narration": PromptSpec(
@@ -121,7 +121,7 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         surface="play",
         world_scoped=True,
         dry_run_capable=False,
-        call_sites=("src/world_engine/cockpit/play_stream.py:_load_mj_initiative_template",),
+        call_sites=("src/world_engine/cockpit/play_initiative.py:_load_mj_initiative_template",),
         default_model=_game_model,
     ),
     "conversation_analysis": PromptSpec(

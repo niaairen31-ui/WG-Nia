@@ -9,7 +9,7 @@ danger_class: []          # pure code relocation: no canon write, no schema, no 
 blast_radius: medium
 brief_ids: [BRIEF-0035-a]
 schema_version_touched: none
-retry_count: 0
+retry_count: 1
 ---
 
 ## Request (verbatim, as Nia stated it)

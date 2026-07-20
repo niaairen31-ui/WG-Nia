@@ -7134,6 +7134,47 @@ swapped for `cose`, matching the brief's locked choice.
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## PLAY_INITIATIVE MODULE SPLIT (BRIEF-0035-a, no schema change)
+
+**Relocation only, on the `play_physical.py` split precedent.** `play_stream.py`
+sat at exactly the 1000-line `module_budget.py` cap before TICKET-0034's
+BRIEF-0034-c door-travel work needed to add a few lines to it. Rather than
+shorten the mandated comment (the check-dodge `module_budget.py`'s own
+docstring warns against) or re-add a retired baseline exemption, the
+self-contained NPC-initiative cluster — vote, candidate signal assembly,
+self-initiated NPC action, group speaker selection, join narration — moved
+verbatim into a new `play_initiative.py`. No function body changed; only
+the file boundary moved. Sequenced between BRIEF-0034-b and BRIEF-0034-c
+so the door-travel work lands with headroom (recorded on both TICKET-0034
+and TICKET-0035).
+
+**One-way import edge, no cycle.** `play_initiative.py` imports from
+`play.py` only (the shared `_TurnCtx`, `ResponseMode`, and a few
+`_load_*`/`_active_members` helpers); it never imports `play_stream.py`.
+`play_stream.py`'s single remaining reference to the moved cluster
+(`_say_narrate_and_finish` calling `_say_initiative_phase`) is a lazy,
+function-body import (`from . import play_initiative as _play_initiative`)
+— the same idiom `play.py`/`play_physical.py` already use to call into
+`play_stream.py` without a module-load-time cycle. `play.py`'s two
+external callers of the moved `_select_group_speaker` and
+`_build_join_narration_user` were repointed from `_play_stream` to
+`_play_initiative` the same way.
+
+**New generic check: `tooling/verify/checks/import_cycle.py`.** TICKET-0035's
+acceptance criteria named this check before it existed ("if present; else
+asserted in the live smoke"); the deterministic G1 gate fails closed on a
+MISSING check, so the retry built it rather than leaving the criterion
+unsatisfiable. AST-based, module-level-only (mirrors `module_budget.py`'s
+"nested closures don't count" discipline): only import statements that are
+direct children of a module's top-level body count as graph edges, so the
+lazy function-body imports this codebase relies on to break cycles are
+correctly excluded, not flagged as false positives. Generic over all of
+`src/world_engine`, not scoped to this ticket's two files — reusable for
+any future module split.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*
