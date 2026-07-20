@@ -8,6 +8,21 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.82** — TICKET-0036, BRIEF-0036-a: NPC link agent, first step —
+  ephemeral staging substrate for batch relation/knowledge authoring. New
+  tables `link_batch` (`id, world_id, status, scope JSON, pairs_total,
+  pairs_done, coherence_status, coherence_findings JSON, created_at,
+  closed_at`) and `link_batch_row` (`id, batch_id, pair_a_id, pair_b_id,
+  kind, payload JSON, row_status, created_at, updated_at`) with index
+  `idx_link_batch_row_batch`. Both join the EPHEMERAL stratum alongside
+  `gathering`/`pass_play`: never listed in `canon_write_policy.txt`, never
+  a `proposed_mutation`, never creator-CRUD-reviewed as canon. Closed
+  batches (`committed`/`abandoned`) are purged to a last-2 retention at
+  cockpit startup — legal by construction for ephemeral plumbing, not a
+  "history is sacred" exception, since long memory of a run lives in the
+  append-only journal under `~/.world_engine/link_agent_journal/` instead.
+  No LLM call, no pair enumeration, no commit endpoint yet (0036-b/c).
+
 - **v1.81** — TICKET-0034, BRIEF-0034-a: fifth step of the spatial / Play
   mode workstream — inter-location door geometry, storage and creator
   authoring only (resolution, spawn and travel are BRIEF-0034-b/-c/-d). New

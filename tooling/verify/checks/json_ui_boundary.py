@@ -63,6 +63,13 @@ JSON_COLUMN_ALLOWLIST = {
     "Event.consequences",
     "Artifact.known_properties",
     "Artifact.actual_behavior",
+    # NPC link agent staging (TICKET-0036, BRIEF-0036-a) — ephemeral
+    # stratum, same non-canon status as scene_state/injected_context above.
+    # Rendered readonly in the batch review UI (0036-d); the FIRST
+    # structured field UI consumer must relationalize.
+    "LinkBatch.scope",
+    "LinkBatch.coherence_findings",
+    "LinkBatchRow.payload",
 }
 
 

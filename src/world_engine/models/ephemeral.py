@@ -152,3 +152,57 @@ class Visit(SQLModel, table=True):
     location_id: str = Field(foreign_key="entity.id", nullable=False)
     entered_at: datetime = _created_ts()
     present_npc_ids: Optional[Any] = Field(default=None, sa_column=Column(JSON))
+
+
+# -----------------------------------------------------------------------------
+# link_batch / link_batch_row  (NPC link agent staging — schema v1.82,
+# TICKET-0036, BRIEF-0036-a)
+#
+# NOTE: link_batch / link_batch_row are EPHEMERAL stratum (TICKET-0036):
+# staging for the NPC link agent. Never listed in canon_write_policy.txt,
+# never a proposed_mutation, never creator-CRUD-reviewed as canon. Purge of
+# closed batches (retention: last 2) is legal by construction -- the
+# append-only generation journal under ~/.world_engine/link_agent_journal/
+# carries long memory. History-is-sacred governs canon, not this plumbing.
+# -----------------------------------------------------------------------------
+class LinkBatch(SQLModel, table=True):
+    __tablename__ = "link_batch"
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    status: str = Field(
+        default="open", sa_column_kwargs={"server_default": text("'open'")}
+    )  # open | committed | abandoned
+    scope: Any = Field(sa_column=Column(JSON, nullable=False))
+    # {root_location_ids, expanded_location_ids, npc_ids, pair_count}
+    pairs_total: int = Field(
+        default=0, sa_column_kwargs={"server_default": text("0")}
+    )
+    pairs_done: int = Field(
+        default=0, sa_column_kwargs={"server_default": text("0")}
+    )
+    coherence_status: Optional[str] = None  # NULL | ran | partial
+    coherence_findings: Any = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
+    )
+    created_at: datetime = _created_ts()
+    closed_at: Optional[datetime] = None
+
+
+class LinkBatchRow(SQLModel, table=True):
+    __tablename__ = "link_batch_row"
+    __table_args__ = (Index("idx_link_batch_row_batch", "batch_id"),)
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    batch_id: str = Field(foreign_key="link_batch.id", nullable=False)
+    pair_a_id: str = Field(foreign_key="entity.id", nullable=False)
+    pair_b_id: str = Field(foreign_key="entity.id", nullable=False)
+    kind: str  # relation | knowledge | no_links
+    payload: Any = Field(sa_column=Column(JSON, nullable=False))
+    # full proposed field set; {} for no_links
+    row_status: str = Field(
+        default="proposed", sa_column_kwargs={"server_default": text("'proposed'")}
+    )  # proposed | edited | rejected | committed
+    created_at: datetime = _created_ts()
+    updated_at: datetime = _created_ts()

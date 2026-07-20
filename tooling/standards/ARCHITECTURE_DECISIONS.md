@@ -7486,6 +7486,56 @@ acted on).
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## NPC LINK AGENT — STAGING STRATA, RETENTION, JOURNAL (BRIEF-0036-a, schema v1.82)
+
+First step of TICKET-0036 (batch AI authoring of NPC relations/knowledge,
+plus a final coherence pass). This step builds only the ephemeral
+substrate the later passes stage into — no LLM call, no canon write, no
+commit endpoint yet.
+
+**Numbering note.** RECON-0036/TICKET-0036/BRIEF-0036-a through -d were
+authored and deposited under the number 0035, which by the time of
+execution had already been spent (merged) by the unrelated play-stream-
+extraction ticket. Renumbered 0035 -> 0036 wholesale (filename + every
+in-content id/front-matter reference) before branching, per the "IDs are
+computed, never chosen" rule — no content change beyond the number.
+
+**A1 — two new tables, EPHEMERAL stratum, not canon.** `link_batch` /
+`link_batch_row` join `gathering`/`pass_play` in `models/ephemeral.py`:
+never listed in `canon_write_policy.txt`, never a `proposed_mutation`,
+never creator-CRUD-reviewed. The commit step (0036-c) writes canon
+exclusively through the existing `write_relation`/`write_knowledge`
+chokepoints — this ticket adds ZERO new canon-write sites, made
+structural by the new `tooling/verify/checks/link_agent_strata.py` gate
+(fails if either table ever appears in the canon policy or a `writes/`
+module, and fails if the `LinkBatch`/`LinkBatchRow` model classes are
+referenced from anywhere outside `routes/link_agent.py`,
+`link_author.py`, `models/ephemeral.py`, and `cockpit/app.py`'s purge).
+
+**R1 + journal — retention is legal by construction, not a "history is
+sacred" exception.** Closed batches (`committed`/`abandoned`) are purged
+to the last 2 at cockpit startup (`purge_closed_link_batches`,
+`cockpit/app.py`, wired to a FastAPI `startup` event — the first one this
+codebase has needed). This is sound specifically BECAUSE canon is
+untouched by the purge: the durable trace of a run is the append-only
+generation journal under `~/.world_engine/link_agent_journal/`
+(`link_author.journal_append`), an absolute home-anchored path outside
+the git tree and outside the DB entirely, so it survives the purge by
+construction. `link_author.py` also owns `resolve_roster` (S1): a
+code-owned BFS over `location.parent_location_id`, zero model call, that
+resolves a multi-location root selection into the present-NPC roster and
+`N*(N-1)/2` pair count surfaced for creator confirmation before launch.
+
+**Staging JSON columns are allow-listed, not relationalized, at this
+step.** `LinkBatch.scope`, `LinkBatch.coherence_findings`, and
+`LinkBatchRow.payload` are `json_ui_boundary` allow-list entries, same
+non-UI-consumed status as `Conversation.scene_state` — the first
+structured-field UI consumer (0036-d renders them readonly first) must
+relationalize if it ever needs to query into them.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*

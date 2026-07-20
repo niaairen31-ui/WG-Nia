@@ -402,7 +402,7 @@ WG-Nia/
 │   ├── entity_author.py     # AI authoring assistant (entities, PC, skill catalogue, agendas, events)
 │   ├── region_author.py     # region generation orchestrator (proposes names, no canon)
 │   └── cockpit/             # creator web UI (FastAPI + HTMX, port 8000, loopback)
-│       ├── app.py           # app factory + router mounting; routes/ holds the routers
+│       ├── app.py           # app factory + router mounting + link-batch retention purge (startup); routes/ holds the routers
 │       ├── play*.py         # say() decomposition: routing, physical branch, narration/initiative
 │       ├── crud/            # creator CRUD routes, split by domain (entities, relations, ...)
 │       ├── index.html       # single-page UI; CREATION_TABS registry + dispatcher
