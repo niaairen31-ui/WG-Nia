@@ -2,7 +2,7 @@
 id: TICKET-0034
 title: Spatial doors — inter-location passage from the Play canvas
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-17
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write]   # v1.81 additive migration; door-travel calls _perform_travel (closes conversations + memberships, moves the player)
