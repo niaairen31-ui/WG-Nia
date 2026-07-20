@@ -5848,31 +5848,98 @@ async function regionGenerate() {
   regionRenderAll();
 }
 
-/* ── Checkpoint (BRIEF-38) — editable manifest one-liners, name read-only ── */
+/* ── Checkpoint (BRIEF-38, full editing BRIEF-0033-b) — everything editable,
+   server-side re-normalization (Phase B) remains the sole authority ── */
+
+/** Build <option>s for a select bound to a manifest name field: `names` is the
+ *  current candidate list, `current` the stored value. If `current` no longer
+ *  matches any name (a referenced row was renamed/removed) it is injected as
+ *  its own selected option rather than silently dropped — selects are never
+ *  live-synced against the row that produced `current`. */
+function regionManifestOptions(names, current, allowEmpty) {
+  const opts = [];
+  if (allowEmpty) opts.push(`<option value=""${current ? '' : ' selected'}>--</option>`);
+  let found = !current;
+  for (const name of names) {
+    if (name === current) found = true;
+    opts.push(`<option value="${esc(name)}"${name === current ? ' selected' : ''}>${esc(name)}</option>`);
+  }
+  if (current && !found) opts.push(`<option value="${esc(current)}" selected>${esc(current)}</option>`);
+  return opts.join('');
+}
+
+function regionManifestRemoveRow(kind, i) {
+  regionManifest[kind].splice(i, 1);
+  regionRenderManifest();
+}
+
+function regionManifestAddFaction() {
+  (regionManifest.factions = regionManifest.factions || []).push({ name: '', one_liner: '' });
+  regionRenderManifest();
+}
+
+function regionManifestAddLocation() {
+  (regionManifest.locations = regionManifest.locations || []).push(
+    { name: '', one_liner: '', is_root: false, parent_name: null });
+  regionRenderManifest();
+}
+
+function regionManifestAddNpc() {
+  const firstLocation = (regionManifest.locations || [])[0];
+  (regionManifest.npcs = regionManifest.npcs || []).push(
+    { name: '', one_liner: '', location_name: firstLocation ? firstLocation.name : '', faction_name: null });
+  regionRenderManifest();
+}
+
+function regionManifestSetRoot(i, checked) {
+  const l = regionManifest.locations[i];
+  l.is_root = checked;
+  if (checked) l.parent_name = null;
+  regionRenderManifest();
+}
 
 function regionRenderManifest() {
   const root = document.getElementById('region-root');
   const m = regionManifest;
-  const section = (title, rows) => `
+  const section = (title, rows, addLabel, addFn) => `
     <div class="field-section" style="border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:10px;">
-      <div class="field-section-title">${esc(title)}</div>
+      <div class="field-section-title" style="display:flex; align-items:center; gap:8px;">
+        <span>${esc(title)}</span>
+        <button class="btn-icon" style="margin-left:auto" onclick="${addFn}()">${esc(addLabel)}</button>
+      </div>
       ${rows.length ? '<div class="row-table">' + rows + '</div>' : '<div class="empty">Aucun.</div>'}
     </div>`;
 
   const factionRows = (m.factions || []).map((f, i) => `
     <div class="row-card">
-      <div style="font-weight:600">${esc(f.name)}</div>
+      <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap">
+        <div class="field-row" style="flex:1; min-width:140px"><label>Nom</label>
+          <input type="text" value="${esc(f.name)}" placeholder="Nom de la faction"
+            oninput="regionManifest.factions[${i}].name = this.value"></div>
+        <button class="btn-icon" title="Retirer" onclick="regionManifestRemoveRow('factions', ${i})">x</button>
+      </div>
       <textarea rows="2" style="width:100%; resize:vertical"
         oninput="regionManifest.factions[${i}].one_liner = this.value">${esc(f.one_liner || '')}</textarea>
     </div>`).join('');
 
   const locationRows = (m.locations || []).map((l, i) => {
-    const ctx = l.is_root ? 'racine' : (l.parent_name ? `sous ${l.parent_name}` : '');
+    const parentNames = (m.locations || []).filter((_, j) => j !== i).map(o => o.name);
     return `
     <div class="row-card">
-      <div style="display:flex; align-items:center; gap:8px">
-        <span style="font-weight:600">${esc(l.name)}</span>
-        ${ctx ? `<span style="font-size:11px; color:var(--muted)">(${esc(ctx)})</span>` : ''}
+      <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap">
+        <div class="field-row" style="flex:1; min-width:140px"><label>Nom</label>
+          <input type="text" value="${esc(l.name)}" placeholder="Nom du lieu"
+            oninput="regionManifest.locations[${i}].name = this.value"></div>
+        <div class="field-row checkbox" style="margin:0 0 5px 0">
+          <input type="checkbox" id="region-loc-root-${i}" ${l.is_root ? 'checked' : ''}
+            onchange="regionManifestSetRoot(${i}, this.checked)">
+          <label for="region-loc-root-${i}">racine</label></div>
+        <div class="field-row" style="min-width:140px"><label>Parent</label>
+          <select ${l.is_root ? 'disabled' : ''}
+            onchange="regionManifest.locations[${i}].parent_name = this.value || null">
+            ${regionManifestOptions(parentNames, l.parent_name, true)}
+          </select></div>
+        <button class="btn-icon" title="Retirer" onclick="regionManifestRemoveRow('locations', ${i})">x</button>
       </div>
       <textarea rows="2" style="width:100%; resize:vertical"
         oninput="regionManifest.locations[${i}].one_liner = this.value">${esc(l.one_liner || '')}</textarea>
@@ -5880,12 +5947,23 @@ function regionRenderManifest() {
   }).join('');
 
   const npcRows = (m.npcs || []).map((n, i) => {
-    const ctx = [n.location_name, n.faction_name].filter(Boolean).join(' · ');
+    const locationNames = (m.locations || []).map(o => o.name);
+    const factionNames = (m.factions || []).map(o => o.name);
     return `
     <div class="row-card">
-      <div style="display:flex; align-items:center; gap:8px">
-        <span style="font-weight:600">${esc(n.name)}</span>
-        ${ctx ? `<span style="font-size:11px; color:var(--muted)">(${esc(ctx)})</span>` : ''}
+      <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap">
+        <div class="field-row" style="flex:1; min-width:140px"><label>Nom</label>
+          <input type="text" value="${esc(n.name)}" placeholder="Nom du PNJ"
+            oninput="regionManifest.npcs[${i}].name = this.value"></div>
+        <div class="field-row" style="min-width:140px"><label>Lieu</label>
+          <select onchange="regionManifest.npcs[${i}].location_name = this.value">
+            ${regionManifestOptions(locationNames, n.location_name, false)}
+          </select></div>
+        <div class="field-row" style="min-width:140px"><label>Faction</label>
+          <select onchange="regionManifest.npcs[${i}].faction_name = this.value || null">
+            ${regionManifestOptions(factionNames, n.faction_name, true)}
+          </select></div>
+        <button class="btn-icon" title="Retirer" onclick="regionManifestRemoveRow('npcs', ${i})">x</button>
       </div>
       <textarea rows="2" style="width:100%; resize:vertical"
         oninput="regionManifest.npcs[${i}].one_liner = this.value">${esc(n.one_liner || '')}</textarea>
@@ -5896,8 +5974,12 @@ function regionRenderManifest() {
     `${s.stage || ''} · ${s.name || '?'} — ${s.reason || ''}`)];
 
   root.innerHTML = `
+    <div class="field-section" style="border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:10px;">
+      <div class="field-section-title">Concept</div>
+      <textarea rows="3" style="width:100%; resize:vertical"
+        oninput="regionManifest.concept = this.value">${esc(m.concept || '')}</textarea>
+    </div>
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap">
-      <h2 style="margin:0; font-size:15px">${esc(m.concept || 'Région')}</h2>
       <button class="btn-send" onclick="regionBuild()" style="margin-left:auto">Générer les fiches</button>
       <button class="btn-end" onclick="regionRestart()">Recommencer</button>
     </div>
@@ -5905,22 +5987,39 @@ function regionRenderManifest() {
       <div class="field-section-title">Notes de génération du manifeste</div>
       ${notes.map(n => `<div style="font-size:11px; color:var(--muted)">${esc(n)}</div>`).join('')}
     </div>` : ''}
-    ${section('Factions', factionRows)}
-    ${section('Lieux', locationRows)}
-    ${section('PNJ', npcRows)}
+    ${section('Factions', factionRows, '+ Ajouter une faction', 'regionManifestAddFaction')}
+    ${section('Lieux', locationRows, '+ Ajouter un emplacement', 'regionManifestAddLocation')}
+    ${section('PNJ', npcRows, '+ Ajouter un PNJ', 'regionManifestAddNpc')}
     <div id="region-build-status" style="font-size:12px; color:var(--muted)"></div>
   `;
 }
 
 async function regionBuild() {
   const statusEl = document.getElementById('region-build-status');
+
+  const isNameless = (item) => !((item.name || '').trim());
+  const hasContent = (item) => !!((item.one_liner || '').trim());
+  const blocked = ['factions', 'locations', 'npcs'].some(kind =>
+    (regionManifest[kind] || []).some(item => isNameless(item) && hasContent(item)));
+  if (blocked) {
+    if (statusEl) statusEl.textContent = 'Chaque entrée doit avoir un nom.';
+    return;
+  }
+
+  const manifestToSend = {
+    ...regionManifest,
+    factions: (regionManifest.factions || []).filter(f => !isNameless(f)),
+    locations: (regionManifest.locations || []).filter(l => !isNameless(l)),
+    npcs: (regionManifest.npcs || []).filter(n => !isNameless(n)),
+  };
+
   if (statusEl) statusEl.textContent = 'Génération des fiches… (peut prendre un moment)';
   let result;
   try {
     result = await api('/api/regions/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ manifest: regionManifest }),
+      body: JSON.stringify({ manifest: manifestToSend }),
     });
   } catch (e) {
     if (statusEl) statusEl.textContent = e.message;

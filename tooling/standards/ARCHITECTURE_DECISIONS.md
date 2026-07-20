@@ -6953,6 +6953,51 @@ would otherwise abort the whole atomic region commit against
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## REGION MANIFEST CHECKPOINT — FULL EDITING (BRIEF-0033-b, no schema change)
+
+**Locked: A1 — everything editable.** Amends the BRIEF-38 entry above
+("REGION GENERATION — two-phase manifest checkpoint"): the C1 boundary
+("one-liner is the only writable field", "name fields rendered read-only")
+and the "C1 — one-liner text only, C2/C3 deferred" section are both
+superseded. The concept (now a `<textarea>`), every entity's `name`, and
+row add/remove for factions/locations/NPCs are editable; locations gain an
+`is_root` checkbox and a `parent_name` select, NPCs gain `location_name`
+(required) and `faction_name` selects. No new manifest key was added — only
+existing keys (`concept`, `name`, `one_liner`, `is_root`, `parent_name`,
+`location_name`, `faction_name`) became writable, so K1 stays intact: the
+composite-brief composers still read only
+`name`/`one_liner`/`parent_name`/`concept`.
+
+**Server-authoritative / client-is-advisory still holds, now doing more
+work.** The BRIEF-38 posture is unchanged in kind, only in load: Phase B's
+`_normalize_manifest` re-run on the incoming dict is still the *sole*
+safeguard (no draft store to diff against, B1), and it now has to resolve a
+materially wider edit surface — renamed/added/removed factions, locations,
+and NPCs, dangling `parent_name`/`location_name`/`faction_name` references
+left behind by a rename — with the same structural guarantees as before
+(exactly one root, valid `parent_name`, NPCs placed only into manifest
+locations). Nothing new is trusted client-side; this step adds no
+server-side validation of its own by design (Scope OUT).
+
+**Selects are not live-synced against renames.** A faction/location rename
+does not walk the manifest to update every row that references its old
+name by string — selects are rebuilt from current names only on
+add/remove re-renders, and a stored reference that no longer matches any
+current name is injected as its own selected option rather than silently
+reassigned or dropped. This mirrors the existing contract Phase B already
+has to handle (an edited `parent_name`/`location_name`/`faction_name` may
+not resolve, and the server notes/nulls it) — the UI does not pre-empt
+that resolution.
+
+**Nameless-row handling at build time.** `regionBuild()` drops
+empty-named rows before POSTing (mirrors the server's own drop-nameless
+posture) — unless a nameless row carries a non-empty one-liner, in which
+case the build is blocked with a status message instead of silently
+discarding typed content.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*
