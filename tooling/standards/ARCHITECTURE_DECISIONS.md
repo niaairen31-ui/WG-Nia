@@ -7486,6 +7486,275 @@ acted on).
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## NPC LINK AGENT — STAGING STRATA, RETENTION, JOURNAL (BRIEF-0036-a, schema v1.82)
+
+First step of TICKET-0036 (batch AI authoring of NPC relations/knowledge,
+plus a final coherence pass). This step builds only the ephemeral
+substrate the later passes stage into — no LLM call, no canon write, no
+commit endpoint yet.
+
+**Numbering note.** RECON-0036/TICKET-0036/BRIEF-0036-a through -d were
+authored and deposited under the number 0035, which by the time of
+execution had already been spent (merged) by the unrelated play-stream-
+extraction ticket. Renumbered 0035 -> 0036 wholesale (filename + every
+in-content id/front-matter reference) before branching, per the "IDs are
+computed, never chosen" rule — no content change beyond the number.
+
+**A1 — two new tables, EPHEMERAL stratum, not canon.** `link_batch` /
+`link_batch_row` join `gathering`/`pass_play` in `models/ephemeral.py`:
+never listed in `canon_write_policy.txt`, never a `proposed_mutation`,
+never creator-CRUD-reviewed. The commit step (0036-c) writes canon
+exclusively through the existing `write_relation`/`write_knowledge`
+chokepoints — this ticket adds ZERO new canon-write sites, made
+structural by the new `tooling/verify/checks/link_agent_strata.py` gate
+(fails if either table ever appears in the canon policy or a `writes/`
+module, and fails if the `LinkBatch`/`LinkBatchRow` model classes are
+referenced from anywhere outside `routes/link_agent.py`,
+`link_author.py`, `models/ephemeral.py`, and `cockpit/app.py`'s purge).
+
+**R1 + journal — retention is legal by construction, not a "history is
+sacred" exception.** Closed batches (`committed`/`abandoned`) are purged
+to the last 2 at cockpit startup (`purge_closed_link_batches`,
+`cockpit/app.py`, wired to a FastAPI `startup` event — the first one this
+codebase has needed). This is sound specifically BECAUSE canon is
+untouched by the purge: the durable trace of a run is the append-only
+generation journal under `~/.world_engine/link_agent_journal/`
+(`link_author.journal_append`), an absolute home-anchored path outside
+the git tree and outside the DB entirely, so it survives the purge by
+construction. `link_author.py` also owns `resolve_roster` (S1): a
+code-owned BFS over `location.parent_location_id`, zero model call, that
+resolves a multi-location root selection into the present-NPC roster and
+`N*(N-1)/2` pair count surfaced for creator confirmation before launch.
+
+**Staging JSON columns are allow-listed, not relationalized, at this
+step.** `LinkBatch.scope`, `LinkBatch.coherence_findings`, and
+`LinkBatchRow.payload` are `json_ui_boundary` allow-list entries, same
+non-UI-consumed status as `Conversation.scene_state` — the first
+structured-field UI consumer (0036-d renders them readonly first) must
+relationalize if it ever needs to query into them.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+## NPC LINK AGENT — PAIR PASS (BRIEF-0036-b, no schema change)
+
+Second step of TICKET-0036: one LLM call per NPC pair proposes relations
+and knowledge; code judges everything before staging into `link_batch_row`
+(still ephemeral — see BRIEF-0036-a above, unchanged by this step).
+
+**Coverage is code-owned, never the model's.** `enumerate_pairs` computes
+every unordered pair over the batch's roster, sorted ids, MINUS pairs that
+already hold a canon `relation` in either direction (F1) — one query over
+the whole id set, not N^2, reusing `_find_relation_pair`'s both-directions
+semantics. Excluded pairs are journaled (`pair_skipped_existing`) and never
+reach the model. `POST /api/link-batches/{id}/run-next` processes exactly
+one pending pair per call and recomputes "pending" (enumerated pairs minus
+pairs already holding any row in this batch) fresh every call — resume
+after a restart costs nothing extra.
+
+**A silence is never a verdict.** The model must return an explicit
+`{"verdict": "links"|"no_links", "links": [...]}`; a `no_links` verdict
+still writes one `link_batch_row` (`kind='no_links'`, `payload={}`) so it
+is visibly distinct from "not yet processed." A parse failure or a missing/
+invalid `verdict` writes NO row, journals `pair_parse_error` with the raw
+response, and surfaces as a 502 — the pair stays pending; a plain retry
+(`run-next` again) is the whole recovery path, no retry budget in code.
+
+**Per-item drop policy.** Within a `"links"` verdict, each item is
+validated independently: relation `type` against a vocabulary deliberately
+NARROWER than the creator-CRUD list (`connects_to`/`controls` excluded —
+those are location-map topology/control edges, structurally impossible for
+this agent to propose, asserted at import time in `link_author.py`),
+`direction` against `mutual|a_to_b|b_to_a`, `intensity`/`share_threshold`
+clamped 1-100, knowledge `level` against the canonical ladder
+(`writes.KNOWLEDGE_LEVELS`), `holder` against `a|b`. An invalid item is
+dropped alone (journaled `link_item_rejected` with the reason) — it never
+fails the whole pair.
+
+**D3 — the model proposes a holder, code alone derives a subject.** Every
+staged knowledge payload's `subject` is code-stamped `npc:{other_id}` in
+exactly one function (`_build_knowledge_row`); the model's JSON never
+carries a `subject` field and none of its output ever reaches that key.
+`tooling/verify/checks/link_agent_strata.py` gained a third guarantee: an
+AST scan asserts the `"subject"` key of a knowledge payload is built in a
+single function, as an f-string carrying the `npc:` literal, and never as
+a passthrough of the model's own `item.get(...)` output.
+
+**Creator-surface exception, named (RECON-0036 R-4).** Pair-context
+assembly (`build_pair_context`) never reads `character.secrets` — same
+structural exclusion as every other context assembler. It DOES read
+existing `knowledge` rows with `is_secret=TRUE` when they are already
+about the other member of the pair (matched on the same `npc:{id}` subject
+convention this step introduces), because the link agent's output is
+reviewed by the creator before any commit — the one context assembler
+allowed this inclusion, and only for this reason.
+
+**Prompt wiring.** New registry key `npc_link_pair` (surface="authoring",
+`world_scoped=False`, single global template like the other authoring
+prompts), seeded as `pt-npc-link-pair`. Call site
+`link_author.py:_load_pair_template`; the pair prompt substitutes
+`{world_name}` into the system text and `{a_sheet}`/`{b_sheet}`/
+`{shared_context}` into the user text, both via chained `.replace()` (H1) —
+never `.format()`.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+## NPC LINK AGENT — COHERENCE PASS AND COMMIT (BRIEF-0036-c, no schema change)
+
+Third and final step of TICKET-0036: a coherence pass over the staged
+batch AND the full canon character graph (E1-tout-le-graphe), producing
+pre-validated one-click patches (W-ok), plus the commit endpoint that
+turns accepted staged rows into canon. `link_batch`/`link_batch_row` stay
+ephemeral (BRIEF-0036-a, unchanged); `coherence_findings` (shipped at
+0036-a) is the only column this step writes to on `link_batch`.
+
+**Two-phase contract, phase 1 never blocked by phase 2.** Mechanical
+findings (`_mechanical_findings`, code, no model call) always run first
+and are persisted even if the model call or parse fails — duplicate
+staged pairs (same pair + kind + type/subject discriminator), a staged
+relation whose pair gained a canon relation since generation (F1 re-run,
+`_canon_relation_exists`), payload vocab/bounds defense-in-depth vs
+0036-b, and a D3 subject-stamp mismatch. Model findings (phase 2) run
+`link_context.serialize_staged_batch`/`serialize_canon_graph` through the
+`npc_link_coherence` template, parsed via `llm_parse.extract_object` only.
+A parse failure or malformed `findings` key journals
+`coherence_parse_error`, persists the phase-1 findings, and raises 502 —
+`batch.coherence_status` stays NULL (coherence has not "run" until phase 2
+also succeeds), so a failed pass cannot silently unlock commit.
+
+**R-1 budget — truncation is a row-boundary fact, not a best-effort
+guess.** `serialize_canon_graph` sorts canon relations (structural
+exclusion of `connects_to`/`controls`, same `context.RELATION_GRAPH_EXCLUDED_TYPES`
+constant now shared with the relation-graph endpoints — extracted out of
+`cockpit/crud/relations.py` at this step, never re-typed) and knowledge
+rows (subject `npc:{id}` OR `entity_id` in the roster) by how many
+endpoints touch the batch's NPC roster, then adds rows one at a time
+until the next row would exceed `CANON_SERIAL_BUDGET` (24000 chars) —
+truncation always lands between rows, never mid-JSON. A truncated pass
+sets `coherence_status='partial'` and journals `coherence_truncated`;
+Nia may still commit a partial pass (the refusal at commit is only for
+"never ran").
+
+**W — the patch whitelist gate.** Every model finding's `patch` is
+validated BEFORE storage (`_validate_patch`) and again at apply time
+(`apply_finding`'s time-of-use re-check, same function): target exists
+(staged row of this batch, not rejected; or a canon relation/knowledge row
+of this world), field is on the whitelist (staged: any existing payload
+key EXCEPT identity fields — ids, `mode`, `subject`, session bookkeeping,
+never patchable, on either side, not just canon; canon relation:
+`intensity`/`notes`/`type`/`direction`/`visible_to_b`; canon knowledge:
+`level`/`content`/`source`/`is_incorrect`/`is_secret`/`share_threshold`),
+and `new_value` passes the same vocab/clamp validation as 0036-b's item
+builders (`_coerce_patch_value`) — a canon relation `type` patch is
+checked against the narrower link-agent vocabulary, never the full
+creator vocabulary, so a patch can never introduce `connects_to`/
+`controls` as a "social" edge. Invalid -> `validation='rejected'` +
+`validation_reason`, `patch` stripped to `null`, finding kept as a flag —
+never silently dropped. The UI contract (0036-d): only
+`validation='valid'` findings with a non-null `patch` are ever
+button-eligible.
+
+**Apply and commit are the ONLY places this ticket writes canon**, and
+both do so exclusively through `write_relation(mode="set", ...)` /
+`write_knowledge(mode="update", ...)` — never a bespoke write. A canon
+patch merges the finding's one field into the row's CURRENT other fields
+before calling the helper (so an untouched field is never silently reset
+to a default); the helper's own history-snapshot-before-overwrite
+behavior (history is sacred) is unchanged and untouched by this step.
+Commit re-runs the F1 check per relation row immediately before writing
+(`_canon_relation_exists`, RECON-0036 s.9) — a pair that gained a canon
+relation since generation, including one gained by an EARLIER row in the
+same commit transaction, is skipped and surfaced in `{skipped: [...]}`,
+never silently double-written. Knowledge rows carry no such conflict risk
+and always write. Commit refuses (409) when `coherence_status` is NULL;
+`'partial'` is an allowed commit, `'ran'` is the ordinary case.
+
+**Structural guarantee, extended (`link_agent_strata.py`).** A fourth
+AST check: neither `cockpit/routes/link_agent.py` nor `link_author.py`
+may contain a direct `db.add(Relation(...))` / `db.add(Knowledge(...))`
+or raw SQL INSERT/UPDATE touching `relation`/`knowledge` — the coherence
+patch and commit paths are structurally forced through the two
+chokepoints. `link_context.py` (new, serialization only — no writes) was
+added to the reference-scope allowlist alongside the existing four files.
+
+**Prompt wiring.** New registry key `npc_link_coherence` (surface=
+"authoring", `world_scoped=True`, unlike `npc_link_pair`'s `False` —
+canon serialization is genuinely per-world), seeded as
+`pt-npc-link-coherence`. Call site
+`link_author.py:_load_coherence_template`; substitutes `{world_name}`
+into the system text and `{staged_serialized}`/`{canon_serialized}`/
+`{truncation_marker}` into the user text via chained `.replace()` (H1).
+
+Routes: `POST /api/link-batches/{id}/coherence`,
+`POST /api/link-batches/{id}/findings/{index}/apply`,
+`POST /api/link-batches/{id}/commit` — all thin wrappers in
+`cockpit/routes/link_agent.py` delegating to `link_author.run_coherence`/
+`apply_finding`/`commit_batch`.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+## NPC LINK AGENT — FRONTEND ON THE RELGRAPH PANEL (BRIEF-0036-d, no schema change)
+
+Fourth and closing step of TICKET-0036: the creator UI for the whole
+0036-a/b/c flow, attached to the existing NPC relation graph panel
+(`#creation-npc-relgraph`, "Agent liens" button in its head bar) — no new
+creation tab, `CREATION_TABS` untouched. All new JS is `linkAgent*`,
+appended after the `relGraph*` block in `cockpit/index.html`; the panel's
+entire content is rendered by JS into one empty `#linkagent-panel` div,
+matching the file's existing dynamic-panel convention (relgraph info card,
+mutation review cards).
+
+**One backend addition: `PATCH /api/link-batches/{id}/rows/{row_id}`**
+(`link_author.patch_row`). Edits a staged row's payload fields and/or
+`row_status`, staging-only (batch must be `open`), reusing
+`_coerce_patch_value` — the SAME vocab/clamp gate BRIEF-0036-c's coherence
+patch pipeline uses — so a field edit here can never introduce a value the
+pair-pass or the coherence patch would have rejected. `link_agent_strata.py`
+needed no change: this function writes only `link_batch_row`, never
+`Relation`/`Knowledge`.
+
+**Supersedes BRIEF-0036-a's "readonly" prediction.** That step's
+`json_ui_boundary` allow-list comment for `LinkBatchRow.payload` assumed
+0036-d would render the staged payload readonly. The brief actually locked
+inline editing (relation type/direction/intensity/notes; knowledge
+level/content/source/is_incorrect/is_secret/share_threshold), so the
+comment is corrected in this step rather than left stale. This does not
+weaken the `json_ui_boundary` guarantee: every edit goes through the
+per-field PATCH validation gate above, never a raw JSON blob write, and the
+row is staging that becomes a real relational `relation`/`knowledge` row on
+commit — not a durable UI-query surface. The allow-list's actual
+requirement (relationalize on the FIRST consumer that needs to QUERY into
+the JSON, e.g. list/filter/report) is unaffected and still open.
+
+**Server-truth resume, no client state.** The run loop is a plain
+sequential `fetch` loop (`POST run-next` until `{done:true}`) — no SSE/
+websocket. "Pause" only flips a client-side flag the loop checks between
+iterations; "Reprendre" calls the same loop function again. Reopening the
+panel (or the cockpit itself) re-derives everything from
+`GET /api/link-batches` (open-batch badge) and
+`GET /api/link-batches/{id}` (rows) — no browser storage of any kind. A 502
+from `run-next` (pair parse failure, BRIEF-0036-b) leaves the batch
+untouched server-side and is surfaced as a blocking "Réessayer" state
+client-side; the loop never silently continues past it.
+
+**Commit gate mirrors the server exactly.** "Committer le lot" is disabled
+client-side unless `coherence_status` is `ran` or `partial` — the same
+condition `commit_batch` enforces server-side (409 otherwise) — so the
+button is a UX convenience, never the actual gate. NPC names shown in the
+pair groups and roster preview are resolved by re-calling
+`POST /api/link-batches/preview` with the batch's own
+`scope.root_location_ids` (no new read endpoint added for this — the
+preview endpoint already returns exactly `{id, name}` pairs over the same
+roster).
+
+Ticket closed: TICKET-0036 status -> `live-gate` after this step's
+`/verify` and PR.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*

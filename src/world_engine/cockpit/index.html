@@ -987,6 +987,19 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   font-size: 11px; font-weight: 600; text-transform: uppercase;
   letter-spacing: 0.5px; color: var(--muted);
 }
+/* ── NPC link agent panel (BRIEF-0036-d) ─────────────────────────────────── */
+#linkagent-badge { color: var(--accent); font-size: 10px; margin-left: 2px; }
+.linkagent-loc-node { margin: 2px 0; font-size: 12px; text-transform: none; letter-spacing: normal; font-weight: 400; color: var(--text); }
+.linkagent-loc-children { margin-left: 18px; border-left: 1px dashed var(--border); padding-left: 10px; }
+.linkagent-pair-group { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
+.linkagent-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 0; font-size: 12px; }
+.linkagent-row.rejected { opacity: 0.5; text-decoration: line-through; }
+.linkagent-row input[type="text"], .linkagent-row input[type="number"] {
+  font-size: 12px; padding: 2px 4px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px;
+}
+.linkagent-finding { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin: 6px 0; font-size: 12px; }
+.linkagent-finding.finding-rejected { opacity: 0.5; }
+.linkagent-warn-banner { background: #2b1d00; color: var(--yellow); border: 1px solid #9e6a03; border-radius: 6px; padding: 6px 10px; margin: 6px 0; font-size: 12px; }
 .lieux-graph-head .btn-send { margin-left: auto; font-size: 12px; padding: 4px 10px; }
 
 /* ── Generic modal (BRIEF-41) — reusable overlay, body swapped per use ──────── */
@@ -1270,6 +1283,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       <span>Graphe de relations</span>
       <button class="btn-icon" id="relgraph-mode-btn" onclick="relGraphToggleMode()">Global</button>
       <button class="btn-icon" id="relgraph-link-btn" onclick="relGraphToggleLinkMode()" style="display:none">Lier</button>
+      <button class="btn-icon" id="linkagent-launcher-btn" onclick="linkAgentToggle()">Agent liens<span id="linkagent-badge" style="display:none">●</span></button>
       <div class="relgraph-buckets" style="display:flex; gap:10px; margin-left:auto">
         <label><input type="checkbox" class="relgraph-bucket" checked onchange="relGraphBucketToggle(1, this.checked)"> Rouge (1-25)</label>
         <label><input type="checkbox" class="relgraph-bucket" checked onchange="relGraphBucketToggle(2, this.checked)"> Orange (26-50)</label>
@@ -1277,6 +1291,9 @@ button:not(:disabled):hover { filter: brightness(1.15); }
         <label><input type="checkbox" class="relgraph-bucket" checked onchange="relGraphBucketToggle(4, this.checked)"> Vert (76-100)</label>
       </div>
     </div>
+    <!-- ── NPC link agent panel (BRIEF-0036-d) — content rendered entirely
+         by linkAgent* JS below; empty/hidden until "Agent liens" is clicked ── -->
+    <div id="linkagent-panel" style="display:none; border-bottom:1px solid var(--border); padding:10px 14px; max-height:460px; overflow-y:auto"></div>
     <div style="display:flex; gap:0">
       <div id="relgraph-canvas" style="flex:1; height:340px; background:var(--bg)"></div>
       <div id="relgraph-info-card" style="width:220px; flex-shrink:0; padding:10px; font-size:12px; border-left:1px solid var(--border)">
@@ -9442,6 +9459,7 @@ function _relGraphRenderEmptyState(msg) {
  *  selected character; ego mode with none selected -> empty state (I2). */
 function relGraphLoad() {
   _relGraphUpdateModeUI();
+  linkAgentCheckOpenBatch();
   if (relGraphMode === 'global') {
     relGraphFetchGlobal();
     return;
@@ -9780,6 +9798,472 @@ function _relGraphReset() {
   relGraphRenderInfoCard(null);
   document.querySelectorAll('#creation-npc-relgraph input.relgraph-bucket').forEach(c => { c.checked = true; });
   _relGraphUpdateModeUI();
+  linkAgentReset();
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   NPC link agent panel (BRIEF-0036-d) — attaches to the relgraph panel head;
+   drives the 0036-a/b/c backend (staging, pair-pass, coherence, commit).
+   Sequential client-side fetch loop only (no SSE/websocket, Scope OUT);
+   server state is the only state (no client-side persistence, Scope OUT).
+   ════════════════════════════════════════════════════════════════════════════ */
+
+let linkAgentOpen         = false;
+let linkAgentOpenBatchId  = null;  // set by linkAgentCheckOpenBatch — drives the badge + reopen path
+let linkAgentLocations    = [];    // flat [{id, name, parent_location_id, ...}], fetched fresh on open
+let linkAgentCheckedRoots = new Set(); // location ids the USER explicitly clicked (S1 — sent as root_location_ids)
+let linkAgentPreview      = null;  // last /preview response
+let linkAgentBatch        = null;  // current batch object
+let linkAgentRows         = [];    // current batch rows
+let linkAgentNpcNames     = {};    // id -> name, resolved via /preview over the batch's own root_location_ids
+let linkAgentLoopRunning  = false; // Pause/Reprendre toggle for the run loop
+let linkAgentFailedPair   = null;  // {message} on a 502 — drives "Réessayer"
+let linkAgentCommitResult = null;  // last commit's result text — survives the
+                                    // post-commit repaint (_linkAgentPaintReview
+                                    // rebuilds #linkagent-commit-result from this,
+                                    // since linkAgentLoadBatch's reload would
+                                    // otherwise wipe a DOM-only message)
+
+/** Resets ALL link-agent state — called by _relGraphReset (tab re-entry /
+ *  world switch, same contract as relGraph's own reset). Setting
+ *  linkAgentLoopRunning = false also stops any in-flight run loop on its
+ *  next iteration check, so a world switch mid-run cannot keep hammering
+ *  run-next for a batch that is no longer in view. */
+function linkAgentReset() {
+  linkAgentOpen = false;
+  linkAgentOpenBatchId = null;
+  linkAgentLocations = [];
+  linkAgentCheckedRoots = new Set();
+  linkAgentPreview = null;
+  linkAgentBatch = null;
+  linkAgentRows = [];
+  linkAgentNpcNames = {};
+  linkAgentLoopRunning = false;
+  linkAgentFailedPair = null;
+  linkAgentCommitResult = null;
+  const panelEl = document.getElementById('linkagent-panel');
+  if (panelEl) { panelEl.style.display = 'none'; panelEl.innerHTML = ''; }
+  const badgeEl = document.getElementById('linkagent-badge');
+  if (badgeEl) badgeEl.style.display = 'none';
+}
+
+/** GET /api/link-batches -> badge dot on "Agent liens" if this world has an
+ *  open batch (reopen path, item 6). Called from relGraphLoad every time
+ *  the on_demand relgraph slot fires. */
+async function linkAgentCheckOpenBatch() {
+  const badgeEl = document.getElementById('linkagent-badge');
+  try {
+    const data = await api('/api/link-batches');
+    const open = (data.batches || []).find(b => b.status === 'open');
+    linkAgentOpenBatchId = open ? open.id : null;
+  } catch {
+    linkAgentOpenBatchId = null;
+  }
+  if (badgeEl) badgeEl.style.display = linkAgentOpenBatchId ? '' : 'none';
+}
+
+/** Launcher toggle. Opens directly on the review surface of the open batch
+ *  if there is one (reopen path), else the location-picker launcher. */
+function linkAgentToggle() {
+  linkAgentOpen = !linkAgentOpen;
+  const panelEl = document.getElementById('linkagent-panel');
+  if (!panelEl) return;
+  panelEl.style.display = linkAgentOpen ? '' : 'none';
+  if (!linkAgentOpen) return;
+  if (linkAgentOpenBatchId) linkAgentLoadBatch(linkAgentOpenBatchId);
+  else linkAgentRenderLauncher();
+}
+
+/* ── Launcher: location multi-select + preview + launch ──────────────────── */
+
+async function linkAgentRenderLauncher() {
+  const panelEl = document.getElementById('linkagent-panel');
+  if (!panelEl) return;
+  panelEl.innerHTML = '<div class="empty"><span class="spin">⟳</span> Chargement des lieux…</div>';
+  try {
+    linkAgentLocations = await api('/api/locations');
+  } catch (e) {
+    panelEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    return;
+  }
+  linkAgentCheckedRoots = new Set();
+  linkAgentPreview = null;
+  linkAgentCommitResult = null;
+  _linkAgentPaintLauncher();
+}
+
+/** A node is visually checked if the user clicked it directly, or clicked
+ *  any ancestor (S1 visual mirror) — but only directly-clicked ids are
+ *  ever sent as root_location_ids; server-side expansion stays authoritative. */
+function _linkAgentIsChecked(locId) {
+  if (linkAgentCheckedRoots.has(locId)) return true;
+  const byId = new Map(linkAgentLocations.map(l => [l.id, l]));
+  let current = byId.get(locId);
+  while (current && current.parent_location_id) {
+    if (linkAgentCheckedRoots.has(current.parent_location_id)) return true;
+    current = byId.get(current.parent_location_id);
+  }
+  return false;
+}
+
+function _linkAgentTreeHtml(parentId) {
+  const known = new Set(linkAgentLocations.map(l => l.id));
+  const children = linkAgentLocations
+    .filter(l => (parentId == null ? (!l.parent_location_id || !known.has(l.parent_location_id)) : l.parent_location_id === parentId))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (!children.length) return '';
+  return children.map(l => `
+    <div class="linkagent-loc-node">
+      <label><input type="checkbox" ${_linkAgentIsChecked(l.id) ? 'checked' : ''}
+        onchange="linkAgentToggleLocation('${esc(l.id)}', this.checked)"> ${esc(l.name)}</label>
+      <div class="linkagent-loc-children">${_linkAgentTreeHtml(l.id)}</div>
+    </div>`).join('');
+}
+
+function linkAgentToggleLocation(locId, checked) {
+  if (checked) linkAgentCheckedRoots.add(locId);
+  else linkAgentCheckedRoots.delete(locId);
+  linkAgentPreview = null;
+  _linkAgentPaintLauncher();
+}
+
+function _linkAgentPaintLauncher() {
+  const panelEl = document.getElementById('linkagent-panel');
+  if (!panelEl) return;
+  const previewHtml = linkAgentPreview
+    ? `<div style="margin-top:8px">${linkAgentPreview.npcs.length} PNJ, ${linkAgentPreview.pair_count} paires, ${linkAgentPreview.pair_count} appels au modèle<br>
+       <span style="color:var(--muted); font-size:11px">${linkAgentPreview.npcs.map(n => esc(n.name)).join(', ') || '(aucun)'}</span></div>`
+    : '';
+  panelEl.innerHTML = `
+    <div style="font-weight:600; margin-bottom:6px">Agent liens — sélection des lieux</div>
+    <div>${_linkAgentTreeHtml(null) || '<div class="empty">Aucun lieu.</div>'}</div>
+    ${previewHtml}
+    <div style="margin-top:10px; display:flex; gap:6px">
+      <button class="btn-icon" onclick="linkAgentPreviewRoster()">Prévisualiser</button>
+      <button class="btn-icon" id="linkagent-launch-btn" ${linkAgentPreview ? '' : 'disabled'} onclick="linkAgentLaunch()">Lancer</button>
+    </div>
+    <div id="linkagent-launch-error" style="color:var(--red); margin-top:6px"></div>
+  `;
+}
+
+async function linkAgentPreviewRoster() {
+  const errEl = document.getElementById('linkagent-launch-error');
+  try {
+    linkAgentPreview = await api('/api/link-batches/preview', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ root_location_ids: Array.from(linkAgentCheckedRoots) }),
+    });
+    if (errEl) errEl.textContent = '';
+  } catch (e) {
+    linkAgentPreview = null;
+    if (errEl) errEl.textContent = e.message;
+  }
+  _linkAgentPaintLauncher();
+}
+
+/** "Lancer" both opens the batch AND starts the run loop (brief item 1+2
+ *  are one click) — the loop runs unawaited so progress paints live. */
+async function linkAgentLaunch() {
+  const errEl = document.getElementById('linkagent-launch-error');
+  try {
+    const batch = await api('/api/link-batches', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ root_location_ids: Array.from(linkAgentCheckedRoots) }),
+    });
+    linkAgentOpenBatchId = batch.id;
+    const badgeEl = document.getElementById('linkagent-badge');
+    if (badgeEl) badgeEl.style.display = '';
+    await linkAgentLoadBatch(batch.id);
+    linkAgentRunLoop();
+  } catch (e) {
+    if (errEl && e.message && e.message.includes('already open')) {
+      errEl.innerHTML = 'Un lot est déjà ouvert. ' +
+        '<button class="btn-icon" onclick="linkAgentCheckOpenBatch().then(() => linkAgentLoadBatch(linkAgentOpenBatchId))">Ouvrir le lot existant</button>';
+    } else if (errEl) {
+      errEl.textContent = e.message;
+    }
+  }
+}
+
+/* ── Run loop: sequential fetch of run-next until {done:true} ─────────────── */
+
+async function linkAgentRunLoop() {
+  if (!linkAgentBatch || linkAgentLoopRunning) return;
+  linkAgentLoopRunning = true;
+  linkAgentFailedPair = null;
+  _linkAgentPaintReview();
+  while (linkAgentLoopRunning) {
+    let result;
+    try {
+      result = await api(`/api/link-batches/${encodeURIComponent(linkAgentBatch.id)}/run-next`, { method: 'POST' });
+    } catch (e) {
+      linkAgentLoopRunning = false;
+      linkAgentFailedPair = { message: e.message };
+      _linkAgentPaintReview();
+      return;
+    }
+    if (result.done) {
+      linkAgentLoopRunning = false;
+      await linkAgentLoadBatch(linkAgentBatch.id);
+      return;
+    }
+    linkAgentBatch.pairs_done = result.pairs_done;
+    _linkAgentPaintReview();
+  }
+}
+
+function linkAgentPause() {
+  linkAgentLoopRunning = false;
+  _linkAgentPaintReview();
+}
+
+function linkAgentRetry() {
+  linkAgentFailedPair = null;
+  linkAgentRunLoop();
+}
+
+/* ── Review surface: GET /api/link-batches/{id}, grouped by pair ─────────── */
+
+async function linkAgentLoadBatch(batchId) {
+  const panelEl = document.getElementById('linkagent-panel');
+  if (panelEl) panelEl.innerHTML = '<div class="empty"><span class="spin">⟳</span> Chargement du lot…</div>';
+  try {
+    const data = await api(`/api/link-batches/${encodeURIComponent(batchId)}`);
+    linkAgentBatch = data.batch;
+    linkAgentRows = data.rows;
+    linkAgentOpenBatchId = linkAgentBatch.status === 'open' ? linkAgentBatch.id : null;
+    const badgeEl = document.getElementById('linkagent-badge');
+    if (badgeEl) badgeEl.style.display = linkAgentOpenBatchId ? '' : 'none';
+    // Names aren't stored on the batch/rows — re-derive via /preview over
+    // the batch's OWN root_location_ids rather than adding a new endpoint.
+    const rootIds = (linkAgentBatch.scope && linkAgentBatch.scope.root_location_ids) || [];
+    try {
+      const preview = await api('/api/link-batches/preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ root_location_ids: rootIds }),
+      });
+      linkAgentNpcNames = {};
+      preview.npcs.forEach(n => { linkAgentNpcNames[n.id] = n.name; });
+    } catch { linkAgentNpcNames = {}; }
+  } catch (e) {
+    if (panelEl) panelEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    return;
+  }
+  _linkAgentPaintReview();
+}
+
+function _linkAgentNpcName(id) { return linkAgentNpcNames[id] || id; }
+
+function _linkAgentGroupRows() {
+  const groups = new Map();
+  for (const row of linkAgentRows) {
+    const key = row.pair_a_id + '::' + row.pair_b_id;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return groups;
+}
+
+/** Relation "type" is a free-text input, not a <select>, deliberately —
+ *  same precedent as relGraphOpenEdgePanel: the vocab lives ONLY server-side
+ *  (_LINK_RELATION_TYPES in link_author.py) and PATCH re-validates it. */
+function _linkAgentRelationRowHtml(row) {
+  const p = row.payload;
+  const rejected = row.row_status === 'rejected';
+  const dirOpt = v => `<option value="${v}"${p.direction === v ? ' selected' : ''}>${v}</option>`;
+  return `
+    <div class="linkagent-row ${rejected ? 'rejected' : ''}">
+      <span class="badge b-other">relation</span>
+      <input type="text" placeholder="type" style="width:110px" value="${esc(p.type || '')}" ${rejected ? 'disabled' : ''}
+        onchange="linkAgentEditField('${esc(row.id)}', 'type', this.value)">
+      <select ${rejected ? 'disabled' : ''} onchange="linkAgentEditField('${esc(row.id)}', 'direction', this.value)">
+        ${dirOpt('mutual')}${dirOpt('a_to_b')}${dirOpt('b_to_a')}
+      </select>
+      <input type="number" min="1" max="100" style="width:52px" value="${p.value}" ${rejected ? 'disabled' : ''}
+        onchange="linkAgentEditField('${esc(row.id)}', 'value', Number(this.value))">
+      <label style="font-size:11px"><input type="checkbox" ${p.visible_to_b ? 'checked' : ''} ${rejected ? 'disabled' : ''}
+        onchange="linkAgentEditField('${esc(row.id)}', 'visible_to_b', this.checked)"> visible à B</label>
+      <input type="text" placeholder="notes" style="flex:1; min-width:100px" value="${esc(p.notes || '')}" ${rejected ? 'disabled' : ''}
+        onchange="linkAgentEditField('${esc(row.id)}', 'notes', this.value)">
+      <button class="btn-icon" onclick="linkAgentToggleReject('${esc(row.id)}', ${rejected})">${rejected ? 'Rétablir' : 'Rejeter'}</button>
+    </div>`;
+}
+
+function _linkAgentKnowledgeRowHtml(row) {
+  const p = row.payload;
+  const rejected = row.row_status === 'rejected';
+  const aboutId = (p.subject || '').replace(/^npc:/, '');
+  return `
+    <div class="linkagent-row ${rejected ? 'rejected' : ''}">
+      <span class="badge b-other">knowledge</span>
+      <span style="font-size:11px; color:var(--muted)">${esc(_linkAgentNpcName(p.entity_id))} à propos de ${esc(_linkAgentNpcName(aboutId))}</span>
+      <input type="text" placeholder="niveau" style="width:110px" value="${esc(p.level || '')}" ${rejected ? 'disabled' : ''}
+        onchange="linkAgentEditField('${esc(row.id)}', 'level', this.value)">
+      <input type="text" placeholder="contenu" style="flex:1; min-width:120px" value="${esc(p.content || '')}" ${rejected ? 'disabled' : ''}
+        onchange="linkAgentEditField('${esc(row.id)}', 'content', this.value)">
+      <input type="text" placeholder="source" style="width:100px" value="${esc(p.source || '')}" ${rejected ? 'disabled' : ''}
+        onchange="linkAgentEditField('${esc(row.id)}', 'source', this.value)">
+      <input type="number" min="1" max="100" style="width:52px" title="share_threshold" value="${p.share_threshold}" ${rejected ? 'disabled' : ''}
+        onchange="linkAgentEditField('${esc(row.id)}', 'share_threshold', Number(this.value))">
+      <label style="font-size:11px"><input type="checkbox" ${p.is_incorrect ? 'checked' : ''} ${rejected ? 'disabled' : ''}
+        onchange="linkAgentEditField('${esc(row.id)}', 'is_incorrect', this.checked)"> incorrect</label>
+      <label style="font-size:11px"><input type="checkbox" ${p.is_secret ? 'checked' : ''} ${rejected ? 'disabled' : ''}
+        onchange="linkAgentEditField('${esc(row.id)}', 'is_secret', this.checked)"> secret</label>
+      <button class="btn-icon" onclick="linkAgentToggleReject('${esc(row.id)}', ${rejected})">${rejected ? 'Rétablir' : 'Rejeter'}</button>
+    </div>`;
+}
+
+function _linkAgentNoLinksRowHtml(row) {
+  const rejected = row.row_status === 'rejected';
+  return `<div class="linkagent-row ${rejected ? 'rejected' : ''}" style="color:var(--muted); font-style:italic">
+    Aucun lien proposé
+    <button class="btn-icon" onclick="linkAgentToggleReject('${esc(row.id)}', ${rejected})">${rejected ? 'Rétablir' : 'Rejeter'}</button>
+  </div>`;
+}
+
+function _linkAgentPairGroupHtml(key, rows) {
+  const [aId, bId] = key.split('::');
+  const rowsHtml = rows.map(r => {
+    if (r.kind === 'relation') return _linkAgentRelationRowHtml(r);
+    if (r.kind === 'knowledge') return _linkAgentKnowledgeRowHtml(r);
+    return _linkAgentNoLinksRowHtml(r);
+  }).join('');
+  return `<div class="linkagent-pair-group">
+    <div style="font-weight:600; font-size:12px">${esc(_linkAgentNpcName(aId))} — ${esc(_linkAgentNpcName(bId))}</div>
+    ${rowsHtml}
+  </div>`;
+}
+
+async function linkAgentEditField(rowId, field, value) {
+  try {
+    const row = await api(`/api/link-batches/${encodeURIComponent(linkAgentBatch.id)}/rows/${encodeURIComponent(rowId)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload: { [field]: value } }),
+    });
+    const idx = linkAgentRows.findIndex(r => r.id === rowId);
+    if (idx !== -1) linkAgentRows[idx] = row;
+  } catch (e) {
+    alert(e.message);
+  }
+  _linkAgentPaintReview();
+}
+
+async function linkAgentToggleReject(rowId, currentlyRejected) {
+  try {
+    const row = await api(`/api/link-batches/${encodeURIComponent(linkAgentBatch.id)}/rows/${encodeURIComponent(rowId)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ row_status: currentlyRejected ? 'proposed' : 'rejected' }),
+    });
+    const idx = linkAgentRows.findIndex(r => r.id === rowId);
+    if (idx !== -1) linkAgentRows[idx] = row;
+  } catch (e) {
+    alert(e.message);
+  }
+  _linkAgentPaintReview();
+}
+
+/* ── Coherence block + commit ──────────────────────────────────────────── */
+
+function _linkAgentFindingHtml(finding, index) {
+  const rejected = finding.validation === 'rejected';
+  const applied = !!finding.applied_at;
+  const targetTxt = finding.target ? `${finding.target.scope}:${(finding.target.id || '').slice(0, 8)}` : '';
+  const canonBadge = (finding.target && finding.target.scope === 'canon' && applied) ? '<span class="badge b-approved">canon modifié</span>' : '';
+  return `
+    <div class="linkagent-finding ${rejected ? 'finding-rejected' : ''}">
+      <div><span class="badge b-other">${esc(finding.source)}</span> <span style="font-size:11px; color:var(--muted)">${esc(targetTxt)}</span>
+        ${applied ? '<span class="badge b-applied">appliqué</span>' : ''}${canonBadge}</div>
+      <div style="margin-top:4px">${esc(finding.problem || '')}</div>
+      ${finding.rationale ? `<div style="color:var(--muted); font-size:11px; margin-top:2px">${esc(finding.rationale)}</div>` : ''}
+      ${rejected ? `<div style="color:var(--red); font-size:11px; margin-top:4px">rejeté : ${esc(finding.validation_reason || '')}</div>` : ''}
+      ${(finding.validation === 'valid' && finding.patch != null && !applied) ? `<button class="btn-icon" style="margin-top:6px" onclick="linkAgentApplyFinding(${index})">Appliquer</button>` : ''}
+    </div>`;
+}
+
+async function linkAgentRunCoherence() {
+  try {
+    const result = await api(`/api/link-batches/${encodeURIComponent(linkAgentBatch.id)}/coherence`, { method: 'POST' });
+    linkAgentBatch.coherence_status = result.coherence_status;
+    linkAgentBatch.coherence_findings = result.findings;
+  } catch (e) {
+    alert(e.message);
+  }
+  _linkAgentPaintReview();
+}
+
+/** A finding whose patch targets a STAGED row mutates that row's payload —
+ *  reload the batch so the pair group shows the patched value; a CANON
+ *  patch only flips this finding's own applied_at/badge, no row refresh. */
+async function linkAgentApplyFinding(index) {
+  try {
+    const finding = await api(`/api/link-batches/${encodeURIComponent(linkAgentBatch.id)}/findings/${index}/apply`, { method: 'POST' });
+    if (finding.target && finding.target.scope === 'staged') {
+      await linkAgentLoadBatch(linkAgentBatch.id);
+      return;
+    }
+    const findings = linkAgentBatch.coherence_findings.slice();
+    findings[index] = finding;
+    linkAgentBatch.coherence_findings = findings;
+  } catch (e) {
+    alert(e.message);
+  }
+  _linkAgentPaintReview();
+}
+
+async function linkAgentCommit() {
+  try {
+    const result = await api(`/api/link-batches/${encodeURIComponent(linkAgentBatch.id)}/commit`, { method: 'POST' });
+    linkAgentCommitResult = `${result.committed.length} lien(s) committé(s)` +
+      (result.skipped.length ? `, ${result.skipped.length} ignoré(s) (conflit)` : '');
+    await linkAgentLoadBatch(linkAgentBatch.id);
+    if (relGraphMode === 'global') await relGraphFetchGlobal();
+    else if (authorEntityId) await relGraphFetch(authorEntityId);
+  } catch (e) {
+    linkAgentCommitResult = e.message;
+    _linkAgentPaintReview();
+  }
+}
+
+function _linkAgentPaintReview() {
+  const panelEl = document.getElementById('linkagent-panel');
+  if (!panelEl || !linkAgentBatch) return;
+  const b = linkAgentBatch;
+  const isOpen = b.status === 'open';
+  const groups = _linkAgentGroupRows();
+  const pairsHtml = Array.from(groups.entries()).map(([key, rows]) => _linkAgentPairGroupHtml(key, rows)).join('')
+    || '<div class="empty">Aucune paire traitée pour l’instant.</div>';
+
+  const progressHtml = isOpen
+    ? `<div>paire ${b.pairs_done}/${b.pairs_total}
+        ${linkAgentLoopRunning
+          ? '<button class="btn-icon" onclick="linkAgentPause()">Pause</button>'
+          : (b.pairs_done < b.pairs_total ? '<button class="btn-icon" onclick="linkAgentRunLoop()">Reprendre</button>' : '')}
+      </div>
+      ${linkAgentFailedPair ? `<div style="color:var(--red)">Échec : ${esc(linkAgentFailedPair.message)}
+        <button class="btn-icon" onclick="linkAgentRetry()">Réessayer</button></div>` : ''}`
+    : `<div style="color:var(--muted)">Lot ${esc(b.status)}.</div>`;
+
+  const findings = b.coherence_findings || [];
+  const findingsHtml = findings.length ? findings.map((f, i) => _linkAgentFindingHtml(f, i)).join('')
+    : '<div class="empty">Aucun résultat de cohérence pour l’instant.</div>';
+  const truncatedBanner = b.coherence_status === 'partial'
+    ? '<div class="linkagent-warn-banner">Graphe canon tronqué — passe partielle</div>' : '';
+  const canCommit = isOpen && (b.coherence_status === 'ran' || b.coherence_status === 'partial');
+
+  panelEl.innerHTML = `
+    <div style="font-weight:600; margin-bottom:6px">Agent liens — lot ${esc(b.id.slice(0, 8))}</div>
+    ${progressHtml}
+    <div style="margin-top:10px">${pairsHtml}</div>
+    <div style="margin-top:14px; font-weight:600">Passe de cohérence
+      ${isOpen ? '<button class="btn-icon" onclick="linkAgentRunCoherence()">Lancer</button>' : ''}
+    </div>
+    ${truncatedBanner}
+    <div>${findingsHtml}</div>
+    <div style="margin-top:14px">
+      <button class="btn-icon" ${canCommit ? '' : 'disabled'} onclick="linkAgentCommit()">Committer le lot</button>
+    </div>
+    <div id="linkagent-commit-result" style="margin-top:8px">${esc(linkAgentCommitResult || '')}</div>
+  `;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════

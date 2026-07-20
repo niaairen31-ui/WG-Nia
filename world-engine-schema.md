@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.81
+Current schema version: v1.82
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1380,6 +1380,60 @@ CREATE INDEX idx_goal_agenda_link_agenda ON goal_agenda_link(agenda_id);
 -- detached pair may be re-attached.
 CREATE UNIQUE INDEX idx_goal_agenda_link_active
   ON goal_agenda_link(goal_id, agenda_id) WHERE detached_at IS NULL;
+```
+
+-----
+
+### `link_batch`
+
+-- NOTE: link_batch / link_batch_row are EPHEMERAL stratum
+(TICKET-0036): staging for the NPC link agent. Never listed in
+canon_write_policy.txt, never a proposed_mutation, never
+creator-CRUD-reviewed as canon. Purge of closed batches (retention:
+last 2) is legal by construction -- the append-only generation
+journal under ~/.world_engine/link_agent_journal/ carries long
+memory. History-is-sacred governs canon, not this plumbing.
+
+```sql
+CREATE TABLE link_batch (
+  id               TEXT PRIMARY KEY,
+  world_id         TEXT NOT NULL REFERENCES world(id),
+  status           TEXT NOT NULL DEFAULT 'open',
+                   -- open | committed | abandoned
+  scope            JSON NOT NULL,
+                   -- {root_location_ids, expanded_location_ids,
+                   --  npc_ids, pair_count}
+  pairs_total      INTEGER NOT NULL DEFAULT 0,
+  pairs_done       INTEGER NOT NULL DEFAULT 0,
+  coherence_status TEXT,          -- NULL | ran | partial
+  coherence_findings JSON DEFAULT '[]',
+  created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+  closed_at        DATETIME
+);
+```
+
+-----
+
+### `link_batch_row`
+
+One staged relation/knowledge proposal (or an explicit "no links" verdict)
+between a pair of NPCs in an open or closed `link_batch`. Ephemeral
+stratum, same non-canon status as `link_batch` (see NOTE above).
+
+```sql
+CREATE TABLE link_batch_row (
+  id          TEXT PRIMARY KEY,
+  batch_id    TEXT NOT NULL REFERENCES link_batch(id),
+  pair_a_id   TEXT NOT NULL REFERENCES entity(id),
+  pair_b_id   TEXT NOT NULL REFERENCES entity(id),
+  kind        TEXT NOT NULL,   -- relation | knowledge | no_links
+  payload     JSON NOT NULL,   -- full proposed field set; {} for no_links
+  row_status  TEXT NOT NULL DEFAULT 'proposed',
+              -- proposed | edited | rejected | committed
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_link_batch_row_batch ON link_batch_row(batch_id);
 ```
 
 -----

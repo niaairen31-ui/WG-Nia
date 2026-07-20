@@ -1,6 +1,8 @@
 """Cockpit — local review web UI for World Engine.
 
-App factory, static/vendor serving, and router mounting only. Every route
+App factory, static/vendor serving, router mounting, and the NPC link
+agent's startup retention purge (`purge_closed_link_batches`, TICKET-0036).
+Every route
 handler lives in a domain module, split out of this file at TICKET-0027,
 BRIEF-0027-d (R5):
 - `cockpit/crud/` — author CRUD (entities, relations, knowledge, goals,
@@ -36,9 +38,13 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
+from sqlmodel import Session, select
 
+from ..db import engine
+from ..models import LinkBatch, LinkBatchRow
 from . import crud as _crud
 from .routes import creator as _routes_creator
+from .routes import link_agent as _routes_link_agent
 from .routes import mutations as _routes_mutations
 from .routes import play as _routes_play
 from .routes import prompts as _routes_prompts
@@ -64,6 +70,34 @@ app.include_router(_routes_mutations.router)
 app.include_router(_routes_play.router)
 app.include_router(_routes_scene.router)
 app.include_router(_routes_spatial.router)
+app.include_router(_routes_link_agent.router)
+
+
+def purge_closed_link_batches(db: Session) -> None:
+    """Retention purge for the NPC link agent's staging tables (TICKET-0036,
+    BRIEF-0036-a, R1): keep the 2 most recently closed `link_batch` rows
+    (status committed/abandoned), delete older ones and their
+    `link_batch_row` rows. Legal by construction for this ephemeral
+    stratum — see the NOTE on `link_batch` in `models/ephemeral.py` — the
+    append-only journal under `~/.world_engine/link_agent_journal/` is
+    never touched here."""
+    to_purge = db.exec(
+        select(LinkBatch)
+        .where(LinkBatch.status.in_(("committed", "abandoned")))
+        .order_by(LinkBatch.closed_at.desc())
+        .offset(2)
+    ).all()
+    for batch in to_purge:
+        for row in db.exec(select(LinkBatchRow).where(LinkBatchRow.batch_id == batch.id)).all():
+            db.delete(row)
+        db.delete(batch)
+    db.commit()
+
+
+@app.on_event("startup")
+def _purge_closed_link_batches_on_startup() -> None:
+    with Session(engine) as db:
+        purge_closed_link_batches(db)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────

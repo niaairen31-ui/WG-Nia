@@ -63,6 +63,19 @@ JSON_COLUMN_ALLOWLIST = {
     "Event.consequences",
     "Artifact.known_properties",
     "Artifact.actual_behavior",
+    # NPC link agent staging (TICKET-0036, BRIEF-0036-a) — ephemeral
+    # stratum, same non-canon status as scene_state/injected_context above.
+    # Individual fields are edited in the batch review UI (0036-d), but
+    # ONLY via PATCH /api/link-batches/{id}/rows/{row_id}, which re-validates
+    # each field through the same vocab/clamp gate as the coherence patch
+    # pipeline (_coerce_patch_value) — never a raw JSON blob edit. This
+    # staging row mirrors the write_relation/write_knowledge kwargs it
+    # becomes on commit; it is not a durable UI-query surface. The FIRST
+    # consumer that needs to QUERY into these fields (list/filter/report)
+    # must relationalize.
+    "LinkBatch.scope",
+    "LinkBatch.coherence_findings",
+    "LinkBatchRow.payload",
 }
 
 

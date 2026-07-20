@@ -1,0 +1,12 @@
+{
+  "ticket": "TICKET-0036-npc-link-agent",
+  "when": "2026-07-20T23:04:15.571348+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "link_agent_strata.py",
+      "status": "PASS",
+      "msg": "PASS: link_agent_strata \u2014 link_batch/link_batch_row stay ephemeral and narrowly scoped"
+    }
+  ]
+}

@@ -1473,6 +1473,76 @@ Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre 
              et motivé. En cas de doute, false.\
 """
 
+# NPC link agent — pair pass (TICKET-0036, BRIEF-0036-b). usage =
+# "npc_link_pair". world_id = NULL (single global template, like the other
+# authoring prompts). Calls go through link_author.run_pair, one call per
+# NPC pair; the parsed verdict/links are code-validated (closed vocab,
+# 1-100 clamps, D3 subject stamp) before staging into link_batch_row —
+# writes no canon at any stage. {a_sheet}/{b_sheet}/{shared_context} are
+# code-assembled by link_author.build_pair_context (RECON-0036 R-4:
+# character.secrets never enters; existing is_secret=TRUE knowledge about
+# the OTHER pair member is a named creator-surface exception).
+NPC_LINK_PAIR_SYSTEM_PROMPT = """\
+You are the world-building assistant for the world {world_name}.
+Two NPCs may or may not know each other. Propose the links between them, \
+or none.\
+"""
+
+NPC_LINK_PAIR_USER_TEMPLATE = """\
+NPC A: {a_sheet}
+NPC B: {b_sheet}
+Shared context: {shared_context}
+
+Reply ONLY with JSON:
+{"verdict": "links" or "no_links", "links": [ ... ]}
+Each link is one of:
+{"kind":"relation","type":<one of: ally, enemy, debt, fear, fascination, \
+shared_secret, instrumentalizes, interest, indifference, rejection, \
+passive_attention, other>,"direction":"mutual"|"a_to_b"|"b_to_a", \
+"intensity":1-100,"visible_to_b":true|false,"notes":"..."}
+{"kind":"knowledge","holder":"a"|"b","level":<unaware, rumor, suspicious, \
+partial, knows, fully_understands>,"content":"what the holder knows about \
+the other","source":"how they learned it","is_incorrect":true|false, \
+"is_secret":true|false,"share_threshold":1-100}
+Prefer asymmetry and imperfection where the sheets justify it: a relation \
+one side hides (visible_to_b false), a wrong belief (is_incorrect), a \
+guarded secret (is_secret). If nothing plausibly connects them, verdict \
+no_links with an empty links array.\
+"""
+
+# NPC link agent — coherence pass (TICKET-0036, BRIEF-0036-c). usage =
+# "npc_link_coherence". world_id = NULL (single global template, like the
+# other authoring prompts). Called once per coherence run
+# (link_author.run_coherence) over the staged batch AND the full canon
+# character graph ({staged_serialized}/{canon_serialized}, code-assembled by
+# link_context.py, RECON-0036 E1-tout-le-graphe). Findings are code-
+# validated (target exists, field on the patch whitelist, value passes the
+# same vocab/clamps as BRIEF-0036-b) before any patch button is renderable —
+# an invalid finding is kept as a flag, never silently dropped.
+NPC_LINK_COHERENCE_SYSTEM_PROMPT = """\
+You review a proposed batch of NPC relations and knowledge for the world \
+{world_name}, against the existing canon graph. Find contradictions and \
+implausibilities. Do NOT invent new links.\
+"""
+
+NPC_LINK_COHERENCE_USER_TEMPLATE = """\
+Staged batch: {staged_serialized}
+Canon graph: {canon_serialized}{truncation_marker}
+
+Reply ONLY with JSON:
+{"findings": [ ... ]}
+Each finding:
+{"target": {"scope": "staged"|"canon", "id": "<row id or \
+relation/knowledge id, copied exactly from the input>"},"problem": \
+"one sentence","patch": null or {"field": "<field name>", "new_value": \
+...},"rationale": "one sentence"}
+A finding with patch null is a flag for the creator with no proposed fix. \
+Typical problems: mutual hostility alongside intimate secret knowledge \
+with no shared_secret link; A knows B's secret but B's sheet says nobody \
+does; intensity contradicting notes; duplicate or near-duplicate staged \
+rows; staged row contradicting a canon relation.\
+"""
+
 
 def seed(session: Session) -> None:
     # ----- world -------------------------------------------------------------
@@ -1841,6 +1911,40 @@ def seed(session: Session) -> None:
         system_prompt=REGION_MANIFEST_TOPUP_SYSTEM_PROMPT,
         user_template=REGION_MANIFEST_TOPUP_USER_TEMPLATE,
         variables=["concept", "factions_block", "locations_block", "existing_npcs_block", "requests_block"],
+        destination="local",
+    )
+
+    # ----- prompt template: NPC link agent — pair pass (BRIEF-0036-b) --------
+    # usage = "npc_link_pair". world_id = NULL. Calls go through
+    # link_author.run_pair, one LLM call per NPC pair; code validates the
+    # parsed verdict/links (closed vocab, clamps, D3 subject stamp) before
+    # staging into link_batch_row. Writes no canon at any stage.
+    upsert_prompt_template(
+        session,
+        "pt-npc-link-pair",
+        world_id=None,
+        name="Agent de liaison PNJ — passe par paire",
+        usage="npc_link_pair",
+        system_prompt=NPC_LINK_PAIR_SYSTEM_PROMPT,
+        user_template=NPC_LINK_PAIR_USER_TEMPLATE,
+        variables=["world_name", "a_sheet", "b_sheet", "shared_context"],
+        destination="local",
+    )
+
+    # ----- prompt template: NPC link agent — coherence pass (BRIEF-0036-c) ---
+    # usage = "npc_link_coherence". world_id = NULL. One call per coherence
+    # run over the staged batch + full canon character graph; findings are
+    # code-validated (target exists, whitelisted field, clamped value)
+    # before any patch is renderable as a one-click button.
+    upsert_prompt_template(
+        session,
+        "pt-npc-link-coherence",
+        world_id=None,
+        name="Agent de liaison PNJ — passe de cohérence",
+        usage="npc_link_coherence",
+        system_prompt=NPC_LINK_COHERENCE_SYSTEM_PROMPT,
+        user_template=NPC_LINK_COHERENCE_USER_TEMPLATE,
+        variables=["world_name", "staged_serialized", "canon_serialized", "truncation_marker"],
         destination="local",
     )
 
