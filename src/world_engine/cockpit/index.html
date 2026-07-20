@@ -3265,6 +3265,17 @@ let _spatialScene              = null;  // last GET /api/scene response (gatheri
 let _spatialInRange            = [];    // [{ npc_id, name, distance }] from /api/spatial/proximity
 let _spatialProximityTimer     = null;  // debounce handle (D1: 200ms after movement stops)
 let _spatialProximityInFlight  = false; // one in-flight request max
+let _spatialDoors              = [];    // [{ id, target_location_id, target_name, x, y }] live doors of the current location (TICKET-0034)
+let _spatialDoorsInRange       = [];    // [{ door_id, target_location_id, target_name, distance }] from /api/spatial/proximity
+let _spatialTravelInFlight     = false; // one in-flight travel request max (double-click guard)
+
+// TICKET-0034 (G1): the origin lives HERE and only here — in a page
+// variable, for the length of one arrival. The server persists no
+// position and no last-location by decision (Q1); a reload, a narrative
+// travel or a creator god-mode move legitimately loses it and costs a
+// center spawn, never an error. Do not "fix" that by storing it
+// anywhere durable.
+let _spatialArrivalFrom = null;  // transient origin (G1): the location we door-travelled FROM, or null
 
 const _SPATIAL_KEY_MAP = {
   w: 'up', a: 'left', s: 'down', d: 'right',
@@ -3310,11 +3321,29 @@ async function spatialActivate() {
     _spatialBounds    = { width: geo.bounds_width, height: geo.bounds_height };
     _spatialObstacles = geo.obstacles || [];
 
-    // TRANSITIONAL SPAWN (TICKET-0032): fixed center until the door chantier
-    // introduces spawn-at-door. If the center lies inside an obstacle, the
-    // judge blocks all movement by design (geometry.py degenerate origin —
-    // the judge never rescues); fix the location's geometry, not this code.
-    _spatialConfirmed = { x: geo.bounds_width / 2, y: geo.bounds_height / 2 };
+    // edge_live:false rows are the CREATOR's view — an orphan door whose
+    // connects_to relation died, surfaced in the sheet so it can be fixed
+    // (BRIEF-0034-a). In play they do not exist. The server filters them
+    // too (spatial_doors.location_doors, B1's read half) and re-judges at
+    // the travel gate; this filter is cosmetic honesty, never the guard.
+    _spatialDoors = (entity.doors || []).filter(d => d.edge_live !== false);
+
+    try {
+      const spawnQs = 'location_id=' + encodeURIComponent(_spatialLocationId) +
+        (_spatialArrivalFrom ? '&from_location_id=' + encodeURIComponent(_spatialArrivalFrom) : '');
+      const spawn = await api('/api/spatial/spawn?' + spawnQs);
+      _spatialConfirmed = { x: spawn.x, y: spawn.y };
+    } catch (e) {
+      // The tab must never fail to open because a door could not be
+      // resolved — fall back to the bounds center client-side, carrying
+      // forward TICKET-0032's documented center-spawn behavior. If the
+      // center lies inside an obstacle, the judge blocks all movement by
+      // design (geometry.py degenerate origin — the judge never rescues);
+      // fix the location's geometry, not this code.
+      console.error('spatial spawn resolution failed, falling back to center', e);
+      _spatialConfirmed = { x: geo.bounds_width / 2, y: geo.bounds_height / 2 };
+    }
+    _spatialArrivalFrom = null;  // consumed exactly once, by the arrival it describes
     _spatialDrawn     = { x: _spatialConfirmed.x, y: _spatialConfirmed.y };
     _spatialScale     = 24;
     _spatialMoveError = null;
@@ -3331,6 +3360,7 @@ async function spatialActivate() {
 
     // On-stop proximity (D1): one call on scene entry/spawn, undebounced.
     _spatialInRange = [];
+    _spatialDoorsInRange = [];
     spatialRenderActions();
     spatialFireProximity();
   } catch (e) {
@@ -3474,6 +3504,38 @@ function spatialRender() {
     ctx.strokeStyle = _spatialColors.wall;
     ctx.lineWidth = 1;
     ctx.stroke();
+  });
+
+  // Door markers (filled diamond, half-width 0.3 m) with the destination
+  // entity's name beside them — the reader that kept a `label` column off
+  // the `door` table (BRIEF-0034-a Scope OUT). Diamond shape keeps them
+  // visually distinct from obstacle polygons and NPC/player circles. A
+  // door within reach (proximity) gets the same ring-stroke reachable
+  // style as an in-range NPC below — reusing the pattern, not inventing a
+  // second visual language for "reachable".
+  const doorHalfPx = 0.3 * _spatialScale;
+  const doorInRangeIds = new Set(_spatialDoorsInRange.map(entry => entry.door_id));
+  ctx.textAlign = 'center';
+  ctx.font = '11px ' + _spatialColors.mono;
+  _spatialDoors.forEach(door => {
+    const [px, py] = toPx(door.x, door.y);
+    ctx.beginPath();
+    ctx.moveTo(px, py - doorHalfPx);
+    ctx.lineTo(px + doorHalfPx, py);
+    ctx.lineTo(px, py + doorHalfPx);
+    ctx.lineTo(px - doorHalfPx, py);
+    ctx.closePath();
+    ctx.fillStyle = _spatialColors.player;
+    ctx.fill();
+    if (doorInRangeIds.has(door.id)) {
+      ctx.beginPath();
+      ctx.arc(px, py, doorHalfPx + 4, 0, Math.PI * 2);
+      ctx.strokeStyle = _spatialColors.player;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.fillStyle = _spatialColors.label;
+    ctx.fillText(door.target_name || '', px, py - doorHalfPx - 4);
   });
 
   // NPC circles (radius 0.35 m) with name label above; in-range NPCs (proximity)
@@ -3693,6 +3755,9 @@ async function spatialFireProximity() {
       body: JSON.stringify({ location_id: _spatialLocationId, position: _spatialConfirmed }),
     });
     _spatialInRange = res.in_range || [];
+    // D1: doors ride the same on-stop proximity call, no new cadence — the
+    // response already carries doors_in_range beside in_range.
+    _spatialDoorsInRange = res.doors_in_range || [];
     spatialRenderActions();
     _spatialDirty = true;
   } catch (e) {
@@ -3705,14 +3770,50 @@ async function spatialFireProximity() {
 function spatialRenderActions() {
   const el = document.getElementById('spatial-actions');
   if (!el) return;
-  if (!_spatialInRange.length) {
+  if (!_spatialInRange.length && !_spatialDoorsInRange.length) {
     el.innerHTML = '<span class="spatial-actions-empty">Personne à portée de voix.</span>';
     return;
   }
-  el.innerHTML = _spatialInRange.map(entry =>
+  const talkButtons = _spatialInRange.map(entry =>
     `<button class="btn-send" onclick="spatialTalkTo('${esc(entry.npc_id)}')">Parler à ${esc(entry.name)}</button>` +
     `<span class="spatial-actions-distance">(${entry.distance.toFixed(1)} m)</span>`
   ).join('');
+  const doorButtons = _spatialDoorsInRange.map(entry =>
+    `<button class="btn-send" onclick="spatialTravelTo('${esc(entry.door_id)}', this)">Aller à ${esc(entry.target_name)}</button>` +
+    `<span class="spatial-actions-distance">(${entry.distance.toFixed(1)} m)</span>`
+  ).join('');
+  el.innerHTML = talkButtons + doorButtons;
+}
+
+/** Click flow for the "Aller à X" door affordance (TICKET-0034, BRIEF-0034-d).
+ *  Disables the clicked button first (double-click must not fire two
+ *  travels). On success: the server-returned origin_location_id becomes
+ *  the transient _spatialArrivalFrom (G1), then spatialActivate() re-runs
+ *  the full activation path — the same one a fresh tab open takes — so
+ *  the room, the geometry, the NPCs and the spawn all come from the
+ *  server in one place; no local state is hand-patched. On rejection
+ *  (404/409): re-enable the button, log to the console, and re-sync the
+ *  affordance with a fresh proximity call — the server's picture is the
+ *  truth, and refreshing it IS the message (no modal, no alert). */
+async function spatialTravelTo(doorId, buttonEl) {
+  if (_spatialTravelInFlight) return;
+  _spatialTravelInFlight = true;
+  if (buttonEl) buttonEl.disabled = true;
+  try {
+    const res = await api('/api/spatial/travel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ door_id: doorId, position: _spatialConfirmed }),
+    });
+    _spatialArrivalFrom = res.origin_location_id || null;
+    await spatialActivate();
+  } catch (e) {
+    console.error('door travel refused', e);
+    if (buttonEl) buttonEl.disabled = false;
+    spatialFireProximity();
+  } finally {
+    _spatialTravelInFlight = false;
+  }
 }
 
 /** Map a clicked npc_id to its open gathering via the scene response already

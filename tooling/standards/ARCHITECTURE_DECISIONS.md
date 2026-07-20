@@ -7431,6 +7431,61 @@ same endpoint, which still does not move the player on its own).
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## CANVAS DOORS, SPAWN-AT-DOOR AND THE TRAVEL AFFORDANCE (BRIEF-0034-d, no schema change)
+
+Eighth and closing step of the spatial / Play mode workstream. Every
+server surface TICKET-0034 built (door storage, resolution, spawn
+resolution, the travel gate) had no caller until this step wires the Play
+canvas to them, closing the dette named verbatim at `cockpit/index.html:3311`
+— *"TRANSITIONAL SPAWN (TICKET-0032): fixed center until the door chantier
+introduces spawn-at-door"* — the ticket's stated request, *"J'apparais
+toujours a la porte."*
+
+**C1 — the affordance stays a button, the deliberate pilot shape.** Doors
+render on the canvas as a filled diamond (visually distinct from obstacle
+polygons and NPC/player circles) labelled with `target_name` — the reader
+that kept a `label` column off the `door` table (BRIEF-0034-a Scope OUT).
+A door within reach gets the same ring-stroke reachable style already used
+for in-range NPCs; no second visual language for "reachable" was
+introduced. The `POST /api/spatial/travel` call site this step wires up is
+the same one the later walk-through chantier (C3) will reuse unchanged —
+C3 adds an advisory `door_crossed` from `move-check`, the client still
+fires this endpoint, which still does not move the player on its own.
+
+**D1 — no new server cadence.** `doors_in_range` rides the existing
+on-stop proximity call (the 200 ms debounce from BRIEF-0032-c); the door
+affordance button is rendered from the same response that already
+populates "Parler". No door polling, no per-frame distance check.
+
+**G1 — the origin is page-scoped with a one-arrival lifetime.**
+`_spatialArrivalFrom` is a plain module-level variable, written only by a
+successful travel's `origin_location_id` and consumed (then cleared)
+exactly once by the `spatialActivate()` call that follows — never
+`localStorage`, `sessionStorage`, a cookie, or the URL. A reload, a
+narrative travel, or a creator god-mode move loses it by design and costs
+a center spawn, never an error; `GET /api/spatial/spawn`'s own fallback
+chain (BRIEF-0034-b) absorbs all of those cases identically.
+
+**The client is not the judge — verified, not just asserted.** The door
+list, the reachability flag, and the spawn point are all server responses
+rendered as-is; no `Math.hypot`, `localStorage`, or `sessionStorage` was
+introduced in the spatial tab (grepped clean). A refused travel (404/409)
+re-enables the clicked button, re-fires the proximity call to re-sync the
+affordance with what the server actually allows, and shows no modal or
+alert — a stale client picture correcting itself IS the message, matching
+proximity's own advisory posture (G-A).
+
+**Scope OUT, deferred:** walk-through / door-crossing (C2, permanently
+out); a door hitbox or blocking the door point; a graphical door editor on
+the creator's geometry panel (deferred alongside the graphical obstacle
+editor, D'2, TICKET-0029); showing orphan (`edge_live: false`) doors in
+play (creator-only); any refactor of the spatial tab beyond the door pass
+(the ungoverned 8,834-line frontend — the pull is real, reported, not
+acted on).
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*
