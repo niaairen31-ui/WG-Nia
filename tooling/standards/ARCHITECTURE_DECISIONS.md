@@ -6932,6 +6932,27 @@ byte-identical: same interpretation call, same rows, same response shape).
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## TICKET-0033 (BRIEF-0033-a, no schema change)
+
+**Region commit now writes faction roles.** `_commit_region_factions`
+(`cockpit/routes/regions.py`) displayed `public.roles` (from
+`entity_author._normalize_roles`) in the review sheet but never wrote them
+— the unitary faction creator committed roles correctly via
+`POST /api/factions/{id}/roles`, but the region path silently dropped
+them. Fixed by calling `write_faction_role` — the sole `faction_role`
+write chokepoint — for each draft role, in draft order, right after the
+faction entity is created, inside the same commit-free transaction as the
+rest of `commit_region` (no new commit point). `max_holders` stays `null`
+at region commit (the draft never carries it, consistent with the unitary
+creator's `limit: null`); `world_id` is the region commit's already-computed
+`world_id` (no re-derivation). Casefold-deduped within one faction's list,
+first occurrence wins, before the write — a model-produced duplicate name
+would otherwise abort the whole atomic region commit against
+`idx_faction_role_name`'s unique index.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*

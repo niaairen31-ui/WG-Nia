@@ -98,3 +98,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 6731 | SERVER-SIDE COLLISION ENDPOINT (BRIEF-0030-a, BRIEF-0030-b, no schema change) | BRIEF-0030-a, BRIEF-0030-b |  |
 | 6810 | NPC SPATIAL PRESENCE + PROXIMITY ENDPOINT (BRIEF-0031-a, BRIEF-0031-b, no schema change) | BRIEF-0031-a, BRIEF-0031-b |  |
 | 6895 | "PARLER" HANDOFF AMENDED + SCENE ROUTE SPLIT (BRIEF-0032-a, no schema change) | BRIEF-0032-a |  |
+| 6935 | TICKET-0033 (BRIEF-0033-a, no schema change) | BRIEF-0033-a |  |
