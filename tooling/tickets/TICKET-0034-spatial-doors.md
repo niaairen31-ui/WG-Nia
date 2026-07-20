@@ -2,7 +2,7 @@
 id: TICKET-0034
 title: Spatial doors — inter-location passage from the Play canvas
 type: feature
-status: escalated
+status: exec
 created: 2026-07-17
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write]   # v1.81 additive migration; door-travel calls _perform_travel (closes conversations + memberships, moves the player)
@@ -11,6 +11,19 @@ brief_ids: [BRIEF-0034-a, BRIEF-0034-b, BRIEF-0034-c, BRIEF-0034-d]
 schema_version_touched: v1.81
 retry_count: 0
 ---
+
+## Execution notes
+
+Corrected execution sequence: **0034-a -> 0034-b -> 0035 -> 0034-c ->
+0034-d.** BRIEF-0034-c's mandated `origin_location_id` capture comment in
+`_perform_travel` pushed `play_stream.py` from exactly 1000 to 1008 lines,
+over `module_budget.py`'s cap, with no baseline file to fall back on
+(retired at TICKET-0028). Escalated (D1-c, see resolved
+`tooling/questions/QUESTION-TICKET-0034.md` in git history). Resolved by
+TICKET-0035 (BRIEF-0035-a), which extracted the NPC-initiative cluster
+into `play_initiative.py`; `ticket/0034` was rebased onto `main` post-0035
+merge, giving `play_stream.py` headroom, and BRIEF-0034-c resumed as
+originally scoped.
 
 ## Request (verbatim, as Nia stated it)
 
