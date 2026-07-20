@@ -1,7 +1,7 @@
 {
   "ticket": "TICKET-0034-spatial-doors",
-  "when": "2026-07-20T13:06:11.165151+00:00",
-  "green": false,
+  "when": "2026-07-20T14:21:40.203732+00:00",
+  "green": true,
   "checks": [
     {
       "check": "single_canon_write.py",
@@ -10,8 +10,8 @@
     },
     {
       "check": "spatial_door_travel.py",
-      "status": "MISSING",
-      "msg": "C:\\Users\\Utilisateur\\Documents\\World-genrator\\tooling\\verify\\checks\\spatial_door_travel.py not found"
+      "status": "PASS",
+      "msg": "PASS: spatial_door_travel \u2014 POST /api/spatial/travel gates on unknown door / wrong location / dead connects_to edge / archived target / out-of-range position, happy path moves the player and returns origin_location_id, creator travel regression holds"
     },
     {
       "check": "door_terminal.py",

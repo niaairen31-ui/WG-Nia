@@ -7367,6 +7367,70 @@ doors (C3); caching door resolution across requests (matches
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## DOOR-GATED TRAVEL ENDPOINT (BRIEF-0034-c, no schema change)
+
+Seventh step of the spatial / Play mode workstream. BRIEF-0034-b resolved
+which doors are live and where a transient position stands relative to
+them; nothing moved the player yet. This step adds the third
+`_perform_travel` caller: `POST /api/spatial/travel`, door-gated in-fiction
+travel fired from the Play canvas.
+
+**E1 + J1 — the endpoint lives in `routes/play.py`, not `routes/spatial.py`,
+because it writes.** `_perform_travel` closes conversations (running
+`analyze_window` first), closes `gathering_member` rows, and moves
+`character.current_location_id` — `routes/spatial.py`'s zero-write register
+(`routes/spatial.py:4-10`) forbids it there. It joins the other two
+`_perform_travel` callers (the in-fiction `/say` travel path and the
+creator god-mode route) in the same module. The `/api/spatial/` URL prefix
+names the player-facing surface, not the module that implements it — the
+`scene/join`-in-`routes/scene.py` precedent (BRIEF-0032-a).
+
+**`door_id` carries the neighbour restriction.** The in-fiction callers'
+property of only reaching a directly-linked location (C1, BRIEF-16) is
+enforced here by re-judging the same predicate BRIEF-0034-b already
+resolves: a door toward a non-neighbour cannot be written
+(`write_location_doors`) and a door toward a dead `connects_to` edge does
+not resolve (`spatial_doors.location_doors`). The handler calls
+`location_doors` itself rather than trusting the client's earlier
+proximity read — the read filter is live state, not a cached snapshot from
+an earlier call.
+
+**Gate hardness is not uniform, and that asymmetry is deliberate.** Checks
+1-3 (unknown door, door not in the player's location, door that doesn't
+resolve) are judged against canon — a client cannot bypass them. Check 4
+(`placement.distance` vs. `DOOR_RANGE`) is good-faith: `position` is
+client-declared and the server persists no position (Q1, BRIEF-0031-a), so
+it has nothing to verify it against — the same advisory posture as
+proximity's G-A gate. Persisting a position to harden check 4 was
+considered and rejected: it is exactly what Q1 already ruled out, not a
+pending fix.
+
+**G1 — the origin is transient and client-carried.** `_perform_travel`
+captures `character.current_location_id` before its own mutation and
+returns it as `origin_location_id`; the client passes that value straight
+to `GET /api/spatial/spawn` (BRIEF-0034-d) to be placed at the return
+door. No `character.last_location_id` column exists and none will — a
+transient concern (only meaningful for the instant between one travel call
+and the next spawn read) never earns a canon write. The `noop` branch
+(origin equals destination) carries no `origin_location_id` key: no reader
+wants it there.
+
+**Scope OUT, deferred:** canvas rendering, spawn-at-door on the client, the
+"Aller à X" affordance button (BRIEF-0034-d); widening or relocating
+`_resolve_spatial_location` (deliberately not imported here — a
+routes -> routes import is exactly what K1's `spatial_doors.py` seam
+exists to prevent); refactoring the three `_perform_travel` callers to
+share a guard chain (they gate differently on purpose: conversation-bound,
+god-mode, door-bound); locked doors / `access_level` checks (named
+deferral of TICKET-0034, four checks and no fifth); rate-limiting or
+debouncing travel server-side (no reader, no requirement); walk-through /
+automatic door crossing (C2, permanently out — the later chantier is C3,
+an advisory `door_crossed` from `move-check` with the client firing this
+same endpoint, which still does not move the player on its own).
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*
