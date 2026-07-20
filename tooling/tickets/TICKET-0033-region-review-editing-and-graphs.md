@@ -2,7 +2,7 @@
 id: TICKET-0033
 title: Region wizard — full manifest/review editing, pre-commit location graph, global NPC relation graph, faction-roles commit fix
 type: feature            # includes one corrective sub-item (BRIEF-0033-a, type bug)
-status: brief
+status: live-gate
 created: 2026-07-17
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write]
