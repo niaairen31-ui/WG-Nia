@@ -302,6 +302,57 @@ class ObstacleVertex(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
+# door  (inter-location passage, spatial side, schema v1.81, TICKET-0034,
+# BRIEF-0034-a)
+#
+# ONE ROW PER SIDE (A1). A passage between A and B is two rows: (A -> B)
+# and (B -> A), each carrying the point in ITS OWN location's local
+# space. Pairing is DERIVED at arrival — "the door of B that points back
+# at A" — and made unambiguous BY idx_door_target, not by a defended
+# invariant. The consequence is deliberate: at most one door per ordered
+# pair of locations.
+#
+# TERMINAL BY CONTRACT: no table may take a foreign key on door.id. The
+# A1 -> A2 escalation (one `passage` row carrying both endpoints, needed
+# the day two passages must join the same pair of locations) is a
+# mechanical self-join ONLY while nothing references a door by id. This
+# is enforced by tooling/verify/checks/door_terminal.py, not by memory.
+#
+# A door is the SPATIAL MANIFESTATION of a connects_to edge, never its
+# source (B1): write_location_doors rejects a target with no active
+# connects_to edge, and the play-side reader (cockpit/spatial_doors.py)
+# filters doors whose edge later disappeared. The map stays the world's
+# traversability truth. Neither side cascades or deletes.
+#
+# Curated config (faction_role family): no change_history, full-replace
+# writes via writes.write_location_doors only.
+#
+# COORDINATE SPACE: per-location local coordinates — the obstacle_vertex
+# space (origin top-left, x rightward, y DOWNWARD, 1.0 = one
+# world-meter), NOT location.coord_x / coord_y (world map). x, y is the
+# door's point in `location_id`'s space; the counterpart row carries its
+# own point in the counterpart's space. NOTHING here judges whether that
+# point is inside a wall — see write_location_doors' NOTE.
+# -----------------------------------------------------------------------------
+class Door(SQLModel, table=True):
+    __tablename__ = "door"
+    __table_args__ = (
+        Index(
+            "idx_door_target", "location_id", "target_location_id",
+            unique=True,
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    location_id: str = Field(foreign_key="entity.id", nullable=False)
+    target_location_id: str = Field(foreign_key="entity.id", nullable=False)
+    x: float
+    y: float
+    created_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
 # faction  (extension of entity)
 # -----------------------------------------------------------------------------
 class Faction(SQLModel, table=True):

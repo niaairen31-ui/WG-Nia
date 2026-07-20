@@ -7177,4 +7177,112 @@ any future module split.
 
 ---
 
+## DOOR SCHEMA, WRITE PATH AND CREATOR AUTHORING (BRIEF-0034-a, schema v1.81)
+
+Fifth step of the spatial / Play mode workstream (0029 geometry -> 0030
+collision -> 0031 presence/proximity -> 0032 canvas/WASD -> 0034 doors).
+This step ships storage, the sanctioned write path, the creator read
+helper and the authoring panel — nothing that resolves, judges or moves.
+
+**A1 — one row per side, unique index `(location_id,
+target_location_id)`, pairing derived not defended.** `door(id, world_id,
+location_id, target_location_id, x, y, created_at)`. A passage between A
+and B is two independent rows, each carrying the point in its own
+location's local space; pairing is derived at arrival ("the door of B
+that points back at A") and made unambiguous by `idx_door_target`, not by
+a defended invariant. Consequence, deliberate: at most one door per
+ordered pair of locations.
+
+**A1 escalation guard (locked with A1).** `door` is TERMINAL: no table
+may take a foreign key on `door.id` while A1 stands. The A1 -> A2
+escalation — one `passage` row carrying both endpoints — stays a
+mechanical self-join (a data migration, not a write-path reshape) only
+while nothing references a door by id. Trigger: a second passage needed
+between the same pair of locations. Enforced by
+`tooling/verify/checks/door_terminal.py` (BRIEF-0034-b), not by memory.
+
+**B1 — the door is the spatial manifestation of a `connects_to` edge.**
+`write_location_doors` REJECTS a target with no active `connects_to`
+relation touching both endpoints (read in either column order, the same
+predicate `play.py::_location_neighbours` uses — decision D1 of BRIEF-19
+stands, this is the fourth `connects_to` reader, not refactored to share
+code). The play-side reader (`cockpit/spatial_doors.py`, BRIEF-0034-b)
+FILTERS doors whose edge later disappeared. No cascade, no delete on
+either side — the map stays the world's traversability truth.
+
+**No write-time geometry validation, by design.** `write_location_doors`
+does not check that the door's point is inside bounds or outside an
+obstacle. A write-time check could not stay true: the creator may edit
+bounds or obstacles afterwards and strand a door inside a wall without
+touching the `door` table. Only a READ-TIME fallback is sound
+(`cockpit/spatial_doors.py::resolve_spawn`, BRIEF-0034-b). The relational
+gates (target active, `connects_to` live) can go stale the same way,
+which is why B1 pairs them with a read-time filter at the same site.
+
+**Write/read surface.** `write_location_doors` (`writes/config.py`, 24th
+sanctioned site) is a full-replace per location — the
+`write_location_obstacles` shape, copied: delete-then-insert inside the
+caller's transaction, validated all-or-nothing before any write
+(non-empty target, no self-target, finite coordinates, no duplicate
+target in one payload, target is an active location of the same world,
+B1 gate). `_location_doors_rows` (`crud/entities.py`) is the
+creator-facing read helper: returns EVERY row including orphans
+(`edge_live: false`) — the creator-facing surface is deliberately more
+permissive than the play-side reader, structural exclusion for which
+lives only in `cockpit/spatial_doors.py` (BRIEF-0034-b). Location detail
+payload gains `doors: [...]` at the three sites already returning
+`geometry` from a live query (`GET /entities/{id}`, `POST /entities`,
+`PUT /entities/{id}`) — the write endpoint's own response
+(`PUT /entities/{id}/doors`) returns its own fresh `doors` alongside the
+existing `geometry`/`subculture_rows` keys, matching
+`set_location_geometry`'s shape. `PUT /entities/{id}/doors` is a
+SEPARATE endpoint from `/geometry` (the subculture/geometry precedent:
+one concern, one full-replace endpoint, one Save button); 404 (not 422)
+on a non-location entity.
+
+**Frontend — advisory tier.** A "Portes" panel below "Spatial geometry"
+in the location sheet, existing-locations-only (geometry-editor
+discipline, no `isNew` draft). Its row set is driven by the location's
+`connects_to` neighbours (from `detail.relations`, filtered
+`type === 'connects_to'`) — not free text: one row per neighbour, static
+name label plus x/y inputs; blank x or y = no door toward that neighbour
+(the row is simply not sent on Save). This is structurally why the panel
+cannot author a door toward a non-neighbour: the choice surface has no
+such row. An orphan door (`edge_live: false`) renders read-only above the
+neighbour rows with the destination id and a warning; its remove button
+triggers an immediate save (the subculture-row-delete precedent) built
+from the currently-valid neighbour rows — full-replace drops every
+orphan from any subsequent save by construction, since an orphan's target
+is never a live neighbour. No neighbour -> empty-state text, no Save
+button.
+
+**Migration discipline.** `migrate_v1_81_door_geometry.py` guards table
+existence (`door`) and index existence (`idx_door_target`)
+INDEPENDENTLY, so a partially applied prior run (interrupted after
+`CREATE TABLE` but before `CREATE INDEX`) completes only the missing
+piece on re-run instead of skipping wholesale. Purely additive: no data
+copy, no seed rows.
+
+**Scope OUT, deferred:** door resolution, `DOOR_RANGE`, spawn offset,
+`cockpit/spatial_doors.py`, `placement.spawn_point`, `GET
+/api/spatial/spawn`, `doors_in_range` (BRIEF-0034-b); `POST
+/api/spatial/travel` (BRIEF-0034-c); canvas door rendering, spawn-at-door,
+the "Aller à X" affordance (BRIEF-0034-d); a `label` column on `door` (no
+reader — canvas labels with the destination entity's name, BRIEF-0034-d,
+same discipline that kept `kind`/`label` off `obstacle`); `width` /
+orientation columns (the walk-through chantier, C3, needs them to punch
+an opening — no reader now); locked doors, `access_level` gating, one-way
+doors (no reader, named deferrals of TICKET-0034); two passages between
+the same pair of locations (structurally excluded by `idx_door_target` —
+that index IS the A1 -> A2 trigger); punching a hole in bounds/obstacle
+edges (the wall stays solid, the door is a marker); any FK onto
+`door.id` (the A1 escalation guard); cascading door deletion when a
+`connects_to` relation is deleted (B1 is reject-at-write +
+filter-at-read, no cascade, no orphan sweep).
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*

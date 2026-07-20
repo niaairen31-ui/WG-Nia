@@ -1,0 +1,37 @@
+{
+  "ticket": "TICKET-0034-spatial-doors",
+  "when": "2026-07-20T12:53:54.897440+00:00",
+  "green": false,
+  "checks": [
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "spatial_door_travel.py",
+      "status": "MISSING",
+      "msg": "C:\\Users\\Utilisateur\\Documents\\World-genrator\\tooling\\verify\\checks\\spatial_door_travel.py not found"
+    },
+    {
+      "check": "door_terminal.py",
+      "status": "MISSING",
+      "msg": "C:\\Users\\Utilisateur\\Documents\\World-genrator\\tooling\\verify\\checks\\door_terminal.py not found"
+    },
+    {
+      "check": "placement_unit.py",
+      "status": "PASS",
+      "msg": "PASS: placement_unit \u2014 all 7 derive_positions/distance cases hold"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values"
+    },
+    {
+      "check": "schema_partition.py",
+      "status": "PASS",
+      "msg": "PASS: hot/cold partition holds"
+    }
+  ]
+}

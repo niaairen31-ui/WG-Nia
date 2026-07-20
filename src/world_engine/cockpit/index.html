@@ -6695,6 +6695,10 @@ function authorRenderSheet(detail, isNew, type) {
     html += '<div class="field-section"><div class="field-section-title">Spatial geometry</div>';
     html += `<div id="author-geometry">${authorRenderGeometryEditor(detail.geometry || { bounds_width: null, bounds_height: null, obstacles: [] })}</div>`;
     html += '</div>';
+
+    html += '<div class="field-section"><div class="field-section-title">Portes</div>';
+    html += `<div id="author-doors">${authorRenderDoorsEditor(detail.relations, detail.doors)}</div>`;
+    html += '</div>';
   }
 
   if (!isNew) {
@@ -7403,6 +7407,100 @@ async function authorSaveGeometry() {
     statusEl.className = 'author-status err';
     statusEl.textContent = e.message;
   }
+}
+
+/* ── Location doors editor (TICKET-0034, BRIEF-0034-a) — `door` full-replace
+ * via PUT /api/entities/{id}/doors. Row set is driven by the location's
+ * connects_to neighbours (from detail.relations), not free text: blank x or
+ * y on a neighbour row = no door toward it (the row is simply not sent).
+ * Existing locations only (Tarifs-editor / geometry-editor discipline, no
+ * isNew draft). Orphan rows (edge_live: false — the connects_to edge died
+ * after authoring) render read-only above the neighbour rows; removing one
+ * saves immediately (subculture-row-delete precedent) — full-replace drops
+ * every orphan from the sent payload by construction, since an orphan's
+ * target is never a live neighbour. */
+
+let authorLocationDoorsNeighbours = [];
+let authorLocationDoorsOrphans = [];
+let authorLocationDoorsValues = {};
+
+function authorRenderDoorsEditor(relations, doors) {
+  authorLocationDoorsNeighbours = (relations || [])
+    .filter(r => r.type === 'connects_to')
+    .map(r => ({ id: r.other_entity_id, name: r.other_entity_name }));
+  authorLocationDoorsOrphans = (doors || []).filter(d => !d.edge_live);
+
+  const doorsByTarget = {};
+  (doors || []).forEach(d => { doorsByTarget[d.target_location_id] = d; });
+  authorLocationDoorsValues = {};
+  authorLocationDoorsNeighbours.forEach(n => {
+    const d = doorsByTarget[n.id];
+    authorLocationDoorsValues[n.id] = { x: d ? d.x : '', y: d ? d.y : '' };
+  });
+
+  return authorRenderDoorsEditorFromState();
+}
+
+function authorRenderDoorsEditorFromState() {
+  let html = '';
+  if (authorLocationDoorsOrphans.length) {
+    html += authorLocationDoorsOrphans.map(d => `<div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-bottom:6px; opacity:0.75">
+      <span style="flex:1">⚠ lien connects_to absent — cette porte est ignorée en jeu. Supprimez-la ou recréez le lien. (${esc(d.target_name)})</span>
+      <button class="btn-icon" onclick="authorRemoveOrphanDoor('${esc(d.id)}')" title="Supprimer">✕</button>
+    </div>`).join('');
+  }
+
+  if (authorLocationDoorsNeighbours.length === 0) {
+    html += '<div class="empty">Aucun lieu adjacent — créez une relation connects_to d\'abord.</div>';
+    return html;
+  }
+
+  const rowsHtml = authorLocationDoorsNeighbours.map(n => {
+    const v = authorLocationDoorsValues[n.id] || { x: '', y: '' };
+    return `<div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-bottom:6px">
+      <span style="flex:1">${esc(n.name)}</span>
+      <input type="number" step="any" id="door-x-${esc(n.id)}" value="${v.x}" placeholder="x" style="flex:1">
+      <input type="number" step="any" id="door-y-${esc(n.id)}" value="${v.y}" placeholder="y" style="flex:1">
+    </div>`;
+  }).join('');
+
+  html += `<div id="author-doors-rows">${rowsHtml}</div>`;
+  html += `<div class="row-card-actions" style="margin-top:6px; gap:8px">
+    <button class="btn-send" onclick="authorSaveDoors()">💾 Enregistrer</button>
+  </div>`;
+  return html;
+}
+
+function _readDoorsFromDom() {
+  const doors = [];
+  authorLocationDoorsNeighbours.forEach(n => {
+    const xEl = document.getElementById(`door-x-${n.id}`);
+    const yEl = document.getElementById(`door-y-${n.id}`);
+    const xVal = xEl ? xEl.value : '';
+    const yVal = yEl ? yEl.value : '';
+    if (xVal === '' || yVal === '') return;
+    doors.push({ target_location_id: n.id, x: parseFloat(xVal), y: parseFloat(yVal) });
+  });
+  return doors;
+}
+
+async function authorSaveDoors() {
+  const statusEl = document.getElementById('author-status');
+  try {
+    const body = JSON.stringify({ doors: _readDoorsFromDom() });
+    const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}/doors`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
+    authorRenderSheet(detail, false, detail.type);
+    document.getElementById('author-status').className = 'author-status ok';
+    document.getElementById('author-status').textContent = 'Portes mises à jour.';
+  } catch (e) {
+    statusEl.className = 'author-status err';
+    statusEl.textContent = e.message;
+  }
+}
+
+function authorRemoveOrphanDoor(id) {
+  authorLocationDoorsOrphans = authorLocationDoorsOrphans.filter(d => d.id !== id);
+  authorSaveDoors();
 }
 
 /** Read-only "Solde" block on a character sheet (schema v1.31, BRIEF-18).

@@ -8,6 +8,34 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.81** — TICKET-0034, BRIEF-0034-a: fifth step of the spatial / Play
+  mode workstream — inter-location door geometry, storage and creator
+  authoring only (resolution, spawn and travel are BRIEF-0034-b/-c/-d). New
+  table `door` (`id, world_id, location_id (FK entity.id),
+  target_location_id (FK entity.id), x, y, created_at`) with UNIQUE index
+  `idx_door_target (location_id, target_location_id)` — ONE ROW PER SIDE
+  (A1): a passage between A and B is two rows, each in its own location's
+  local space, paired by DERIVATION at arrival and made unambiguous by the
+  index, not a defended invariant. TERMINAL BY CONTRACT: no table may take
+  an FK on `door.id` while A1 stands — the A1 -> A2 escalation (one
+  `passage` row carrying both endpoints) is a named deferral, triggered
+  only by a second passage needed between the same pair of locations.
+  `door` is the SPATIAL MANIFESTATION of a `connects_to` edge, never its
+  source (B1): `write_location_doors` rejects a target with no active
+  `connects_to` edge at write time; the play-side reader filters doors
+  whose edge later disappeared — no cascade, no delete on either side.
+  Curated config, same family as `faction_role`: no `change_history`,
+  full-replace writes via new sanctioned site `writes.write_location_doors`
+  (24th `writes/` package site). Per-location local coordinate space,
+  identical to `obstacle_vertex`'s (origin top-left, y DOWN, 1.0 = one
+  world-meter) — DISTINCT from `location.coord_x`/`coord_y` (world-map
+  placement). No write-time geometry validation (bounds/obstacle
+  containment): a write-time check could not stay true against later
+  bounds/obstacle edits, so only a read-time fallback is sound
+  (BRIEF-0034-b). Migration `scripts/migrate_v1_81_door_geometry.py`:
+  purely additive, no data copy, no seed rows; guards check table
+  existence and index existence INDEPENDENTLY, so a partially applied
+  prior run completes only the missing part rather than skipping wholesale.
 - **v1.80** — TICKET-0029, BRIEF-0029-a: first step of the spatial / Play
   mode workstream — intra-location wall geometry storage, no readers yet
   (collision endpoint is ticket 0030, canvas renderer is ticket 0032). New
