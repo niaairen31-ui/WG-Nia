@@ -1,0 +1,22 @@
+{
+  "ticket": "TICKET-0035-play-stream-extraction",
+  "when": "2026-07-20T14:13:54.953000+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "import_cycle.py",
+      "status": "PASS",
+      "msg": "PASS: import_cycle \u00e2\u20ac\u201d no module-level import cycle under src/world_engine"
+    }
+  ]
+}

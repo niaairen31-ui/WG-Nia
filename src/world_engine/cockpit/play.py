@@ -382,13 +382,13 @@ def _say_join_branch(
     forms/anchors no canon mutation (see ARCHITECTURE_DECISIONS.md).
     """
     from . import play_physical as _play_physical
-    from . import play_stream as _play_stream
+    from . import play_initiative as _play_initiative
 
     resolved_id = _play_physical._resolve_join_target(reference, open_gatherings, ctx.db)
     if resolved_id is not None:
         gathering = _join_gathering(ctx.conv, resolved_id, ctx.db)
         extra_event = {"joined": {"gathering_id": gathering.id, "label": gathering.label}}
-        mj_user = _play_stream._build_join_narration_user(
+        mj_user = _play_initiative._build_join_narration_user(
             location_name=ctx.location_name, player_line=ctx.content,
             joined=True, gathering_label=gathering.label,
         )
@@ -396,7 +396,7 @@ def _say_join_branch(
         extra_event = {
             "join_candidates": [_gathering_brief(g.id, ctx.db) for g in open_gatherings]
         }
-        mj_user = _play_stream._build_join_narration_user(
+        mj_user = _play_initiative._build_join_narration_user(
             location_name=ctx.location_name, player_line=ctx.content,
             joined=False, gathering_label=None,
         )
@@ -487,7 +487,7 @@ def _say_resolve_speaker(
     """Speaker / target resolution (contract A3 hybrid). Returns (mode,
     responder_id) — mode may downgrade to 'scene' if nobody can answer."""
     from . import play_physical as _play_physical
-    from . import play_stream as _play_stream
+    from . import play_initiative as _play_initiative
 
     db = ctx.db
     responder_id: Optional[str] = None
@@ -503,7 +503,7 @@ def _say_resolve_speaker(
             if e.id != ctx.conv.player_id
         ]
         if co_members:
-            responder_id = _play_stream._select_group_speaker(
+            responder_id = _play_initiative._select_group_speaker(
                 template=_play_physical._load_mj_speaker_template(ctx.world_id, db),
                 location_name=ctx.location_name,
                 gathering=player_gathering,
@@ -518,7 +518,7 @@ def _say_resolve_speaker(
             # join, no seed NPC). Treat omitted target as "group"
             # so the MJ always picks a responder — the player joined
             # a gathering, not a 1:1.
-            responder_id = _play_stream._select_group_speaker(
+            responder_id = _play_initiative._select_group_speaker(
                 template=_play_physical._load_mj_speaker_template(ctx.world_id, db),
                 location_name=ctx.location_name,
                 gathering=player_gathering,
