@@ -171,6 +171,34 @@ def delete_relation(relation_id: str, db: DbSession = Depends(get_session)) -> d
 _RELATION_GRAPH_EXCLUDED_TYPES = ("connects_to", "controls")
 
 
+def _relation_graph_nodes(rows) -> list[dict]:
+    """Node shape shared by the ego and global relation-graph endpoints."""
+    return [
+        {
+            "id": e.id,
+            "name": e.name,
+            "character_type": c.character_type,
+            "description": (e.description or "")[:200],
+        }
+        for e, c in rows
+    ]
+
+
+def _relation_graph_edges(rels) -> list[dict]:
+    """Edge shape shared by the ego and global relation-graph endpoints."""
+    return [
+        {
+            "id": r.id,
+            "source": r.entity_a_id,
+            "target": r.entity_b_id,
+            "type": r.type,
+            "intensity": r.intensity,
+            "direction": r.direction,
+        }
+        for r in rels
+    ]
+
+
 @router.get("/characters/{entity_id}/relation-graph")
 def get_character_relation_graph(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
     """Depth-1 ego-graph of a character's relations — display-only, read-only.
@@ -217,15 +245,7 @@ def get_character_relation_graph(entity_id: str, db: DbSession = Depends(get_ses
     active_chars = {e.id: (e, c) for e, c in active_char_rows}
     node_ids = set(active_chars.keys())
 
-    nodes = [
-        {
-            "id": e.id,
-            "name": e.name,
-            "character_type": c.character_type,
-            "description": (e.description or "")[:200],
-        }
-        for e, c in active_chars.values()
-    ]
+    nodes = _relation_graph_nodes(active_chars.values())
 
     edge_rels = db.exec(
         select(Relation)
@@ -234,16 +254,42 @@ def get_character_relation_graph(entity_id: str, db: DbSession = Depends(get_ses
         .where(Relation.entity_a_id.in_(node_ids))
         .where(Relation.entity_b_id.in_(node_ids))
     ).all()
-    edges = [
-        {
-            "id": r.id,
-            "source": r.entity_a_id,
-            "target": r.entity_b_id,
-            "type": r.type,
-            "intensity": r.intensity,
-            "direction": r.direction,
-        }
-        for r in edge_rels
-    ]
+    edges = _relation_graph_edges(edge_rels)
 
     return {"center": entity_id, "nodes": nodes, "edges": edges}
+
+
+@router.get("/relation-graph")
+def get_global_relation_graph(db: DbSession = Depends(get_session)) -> dict:
+    """Global relation graph — every active character of the world, read-only.
+
+    Same node/edge shapes as the ego endpoint (`_relation_graph_nodes`/
+    `_relation_graph_edges`), no `center` key. Isolated characters (zero
+    edges) are included so links can be created toward them. Structural
+    exclusion of `_RELATION_GRAPH_EXCLUDED_TYPES` in the WHERE clause,
+    same as the ego route (G1 of BRIEF-0023-b) — never post-filtered.
+    Path deliberately outside `/characters/{entity_id}/...` so the
+    ego route's `{entity_id}` segment never swallows this literal path.
+    """
+    world_id = _world_id(db)
+
+    active_char_rows = db.exec(
+        select(Entity, Character)
+        .join(Character, Character.id == Entity.id)
+        .where(Entity.world_id == world_id)
+        .where(Entity.type == "character")
+        .where(Entity.status == "active")
+    ).all()
+    node_ids = {e.id for e, _c in active_char_rows}
+    nodes = _relation_graph_nodes(active_char_rows)
+
+    edge_rels = db.exec(
+        select(Relation)
+        .where(Relation.world_id == world_id)
+        .where(Relation.type.not_in(_RELATION_GRAPH_EXCLUDED_TYPES))
+        .where(Relation.entity_a_id.in_(node_ids))
+        .where(Relation.entity_b_id.in_(node_ids))
+    ).all()
+    edges = _relation_graph_edges(edge_rels)
+
+    return {"nodes": nodes, "edges": edges}

@@ -23,7 +23,7 @@ from ...region_author import generate_region_draft as _generate_region_draft
 from ...region_author import generate_region_manifest as _generate_region_manifest
 from ...db import get_session
 from ...models import Entity
-from ...writes import write_npc_goal, write_relation
+from ...writes import write_faction_role, write_npc_goal, write_relation
 from .. import crud as _crud
 
 router = APIRouter()
@@ -133,9 +133,18 @@ def _region_resolve_link_target(
 
 
 def _commit_region_factions(
-    factions_in: list[dict], accepted_factions: dict, db: Session,
+    factions_in: list[dict], accepted_factions: dict, world_id: Optional[str], db: Session,
 ) -> tuple[dict[str, str], list[dict]]:
-    """Stage 1 — factions."""
+    """Stage 1 — factions.
+
+    Also commits each faction's role vocabulary (`public.roles`, produced by
+    `entity_author._normalize_roles`) through `write_faction_role` — the
+    sole `faction_role` write chokepoint — mirroring the unitary faction
+    creator's `POST /factions/{id}/roles` route exactly (BRIEF-0033-a
+    corrective; previously silently dropped). Casefold-deduped, first
+    occurrence wins, so a model-produced duplicate name never aborts the
+    atomic region commit via the unique index.
+    """
     fac_id_map: dict[str, str] = {}
     committed_factions: list[dict] = []
     for entry in factions_in:
@@ -161,6 +170,18 @@ def _commit_region_factions(
         fac_entity = _crud._create_entity_core(fac_body, db)
         fac_id_map[local_id] = fac_entity.id
         committed_factions.append({"local_id": local_id, "id": fac_entity.id, "name": fac_entity.name})
+
+        seen_casefold: set[str] = set()
+        for r in (pub.get("roles") or []):
+            name = (r.get("name") or "").strip()
+            if not name or name.casefold() in seen_casefold:
+                continue
+            seen_casefold.add(name.casefold())
+            write_faction_role(
+                db, mode="create", world_id=world_id, faction_id=fac_entity.id,
+                name=name, description=r.get("description"), max_holders=None,
+                changed_by="creator",
+            )
     return fac_id_map, committed_factions
 
 
@@ -411,7 +432,7 @@ def commit_region(
     try:
         # world_id computed once, above (BRIEF-0013-b needs it in stage 3 too
         # — same source, no re-derivation).
-        fac_id_map, committed["factions"] = _commit_region_factions(factions_in, accepted_factions, db)
+        fac_id_map, committed["factions"] = _commit_region_factions(factions_in, accepted_factions, world_id, db)
         loc_id_map, committed["locations"] = _commit_region_locations(
             locations_in, accepted_locations, root_local, db,
         )
