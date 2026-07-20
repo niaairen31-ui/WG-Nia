@@ -2,7 +2,7 @@
 id: TICKET-0036
 title: NPC link agent — batch relation/knowledge authoring with coherence pass
 type: feature
-status: exec         # BRIEF-0036-a/b/c landed; -d remaining
+status: live-gate    # all briefs landed; PR #55 awaits Nia's play-test
 created: 2026-07-20
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
