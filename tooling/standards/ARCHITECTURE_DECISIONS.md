@@ -7086,6 +7086,54 @@ inherits a stale open graph.
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## NPC TAB — GLOBAL RELATION GRAPH + LINK EDITING (BRIEF-0033-e, no schema change)
+
+**Locked: D1 — global mode inside the existing ego panel, no new surface.**
+The on_demand `relgraph` slot (BRIEF-0023-a/b) gains a `relGraphMode`
+('ego' | 'global') instead of a second panel: a "Global" toggle in the
+panel head flips the fetch target between the existing ego endpoint
+(`GET /characters/{id}/relation-graph`) and the new
+`GET /api/relation-graph`, re-rendering the same cytoscape instance with
+the same bucket coloring and info-card column. `relGraphOnSelect` ignores
+NPC-list selection while in global mode (the graph is world-wide, not
+keyed to a selected character); `_relGraphReset` resets the mode to
+`'ego'` on every tab-enter/world-switch, so global mode never survives a
+navigation.
+
+**Backend: one read-only route, two shared row-builders.** `_relation_graph_nodes`/
+`_relation_graph_edges` (`cockpit/crud/relations.py`) factor the node/edge
+dict shapes out of the ego endpoint so `GET /api/relation-graph` reuses
+them byte-for-byte — same fields, no `center` key. The path is a top-level
+`/relation-graph` segment (not nested under `/characters/{entity_id}/...`)
+specifically so the ego route's `{entity_id}` path parameter never
+swallows it. Same structural exclusion of `_RELATION_GRAPH_EXCLUDED_TYPES`
+in the WHERE clause as the ego route (G1 of BRIEF-0023-b) — never
+post-filtered. Writes nothing; isolated (zero-edge) active characters are
+included so a link can be created toward them.
+
+**Locked: E1 — tap/dbltap/edge semantics differ only in global mode.**
+Ego mode's tap (info card) and dbltap (recenter via `relGraphFetch`) are
+untouched. In global mode: tap opens the info card with the node's own
+relations list (label "Relations", not "Relations avec le centre");
+dbltap toggles a cosmetic `.followed` cytoscape class (56px, not
+persisted); a "Lier" toggle arms two-tap link creation (tap A, tap B ->
+edge panel in CREATE mode); tap on an edge opens the edge panel in EDIT
+mode. All three writes (create/update/delete) go through the existing
+relation CRUD routes (`POST /entities/{id}/relations`,
+`PUT /relations/{id}`, `DELETE /relations/{id}` -> `write_relation`) — the
+edge panel itself writes nothing, it only calls them. Every successful
+write refetches `GET /api/relation-graph` and re-renders, preserving the
+live bucket-visibility state (`relGraphBucketState` is untouched by a
+refetch).
+
+**Layout: `cose` for global, `concentric` stays for ego.** A world-wide
+graph has no natural center, so `isCenter` is forced `false` for every
+node in global mode and the concentric layout (which needs one) is
+swapped for `cose`, matching the brief's locked choice.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*

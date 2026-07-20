@@ -1264,10 +1264,12 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     </p>
   </div>
 
-  <!-- ── NPC — Relation ego-graph panel (BRIEF-0023-b, no schema change) ── -->
+  <!-- ── NPC — Relation ego/global graph panel (BRIEF-0023-b, BRIEF-0033-e) ── -->
   <div id="creation-npc-relgraph" style="display:none">
     <div class="lieux-graph-head">
       <span>Graphe de relations</span>
+      <button class="btn-icon" id="relgraph-mode-btn" onclick="relGraphToggleMode()">Global</button>
+      <button class="btn-icon" id="relgraph-link-btn" onclick="relGraphToggleLinkMode()" style="display:none">Lier</button>
       <div class="relgraph-buckets" style="display:flex; gap:10px; margin-left:auto">
         <label><input type="checkbox" class="relgraph-bucket" checked onchange="relGraphBucketToggle(1, this.checked)"> Rouge (1-25)</label>
         <label><input type="checkbox" class="relgraph-bucket" checked onchange="relGraphBucketToggle(2, this.checked)"> Orange (26-50)</label>
@@ -1281,7 +1283,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
         <div class="empty">Cliquez un nœud pour voir ses informations.</div>
       </div>
     </div>
-    <p style="padding:4px 14px 6px; font-size:11px; color:var(--muted)">
+    <p id="relgraph-help" style="padding:4px 14px 6px; font-size:11px; color:var(--muted)">
       Molette pour zoomer, glisser pour déplacer. Cliquez un nœud pour ses informations, double-cliquez pour le recentrer. Lecture seule — aucune modification de relation depuis ce graphe.
     </p>
   </div>
@@ -9212,9 +9214,13 @@ async function graphLoad() {
    NPC relation ego-graph — cytoscape, display-only, on-demand (BRIEF-0023-b)
    ════════════════════════════════════════════════════════════════════════════ */
 
-let relGraphData         = null;  // { center, nodes, edges } from the last fetch
+let relGraphData         = null;  // { center?, nodes, edges } from the last fetch
 let relGraphCy           = null;  // the live cytoscape instance, or null
 let relGraphBucketState  = { 1: true, 2: true, 3: true, 4: true };
+let relGraphMode         = 'ego';   // 'ego' | 'global' (BRIEF-0033-e)
+let relGraphLinkArmed    = false;   // global mode "Lier" toggle
+let relGraphLinkSourceId = null;    // first tap while armed
+let _relGraphEdgePanelCtx = null;   // { mode: 'create'|'edit', sourceId?, targetId?, edgeId? }
 
 const RELGRAPH_BUCKET_COLORS = { 1: '#e5534b', 2: '#d29922', 3: '#58a6ff', 4: '#3fb950' };
 
@@ -9233,9 +9239,14 @@ function _relGraphRenderEmptyState(msg) {
 }
 
 /** The npc entry's relgraph slot loader (BRIEF-0023-a on_demand contract) —
- *  fires once when the panel is first opened. No character selected yet ->
- *  empty state, fetches nothing (I2). */
+ *  fires once when the panel is first opened. Global mode needs no
+ *  selected character; ego mode with none selected -> empty state (I2). */
 function relGraphLoad() {
+  _relGraphUpdateModeUI();
+  if (relGraphMode === 'global') {
+    relGraphFetchGlobal();
+    return;
+  }
   if (!authorEntityId) {
     _relGraphRenderEmptyState('Sélectionnez un personnage pour voir son graphe de relations.');
     return;
@@ -9244,10 +9255,12 @@ function relGraphLoad() {
 }
 
 /** The npc entry's relgraph slot onSelect (mirrors pjFicheOnSelect's seam) —
- *  only refetches while the panel is open; closed panels load nothing. */
+ *  only refetches while the panel is open, in ego mode; closed panels and
+ *  global mode ignore list selection changes. */
 function relGraphOnSelect(id) {
   const st = onDemandSlotState['creation-npc-relgraph'];
   if (!st || !st.open) return;
+  if (relGraphMode !== 'ego') return;
   relGraphFetch(id);
 }
 
@@ -9262,15 +9275,71 @@ async function relGraphFetch(centerId) {
   }
 }
 
+async function relGraphFetchGlobal() {
+  _relGraphRenderEmptyState('Chargement…');
+  try {
+    relGraphData = await api('/api/relation-graph');
+    relGraphRenderCanvas();
+  } catch (err) {
+    relGraphData = null;
+    _relGraphRenderEmptyState(err.message);
+  }
+}
+
+/** Flips ego <-> global and refetches. Disarms any in-progress link
+ *  creation (E1 — mode switch cancels it). */
+function relGraphToggleMode() {
+  relGraphMode = relGraphMode === 'global' ? 'ego' : 'global';
+  relGraphLinkArmed = false;
+  relGraphLinkSourceId = null;
+  _relGraphEdgePanelCtx = null;
+  _relGraphUpdateModeUI();
+  if (relGraphMode === 'global') {
+    relGraphFetchGlobal();
+  } else if (authorEntityId) {
+    relGraphFetch(authorEntityId);
+  } else {
+    _relGraphRenderEmptyState('Sélectionnez un personnage pour voir son graphe de relations.');
+  }
+}
+
+/** Arms/disarms "Lier" (global mode only) — the next two node taps become
+ *  A then B instead of opening the info card. */
+function relGraphToggleLinkMode() {
+  if (relGraphMode !== 'global') return;
+  relGraphLinkArmed = !relGraphLinkArmed;
+  relGraphLinkSourceId = null;
+  if (relGraphCy) relGraphCy.nodes().removeClass('link-source');
+  _relGraphUpdateModeUI();
+}
+
+function _relGraphUpdateModeUI() {
+  const modeBtn = document.getElementById('relgraph-mode-btn');
+  const linkBtn = document.getElementById('relgraph-link-btn');
+  const helpEl  = document.getElementById('relgraph-help');
+  const isGlobal = relGraphMode === 'global';
+  if (modeBtn) modeBtn.textContent = isGlobal ? 'Ego' : 'Global';
+  if (linkBtn) {
+    linkBtn.style.display = isGlobal ? '' : 'none';
+    linkBtn.textContent = relGraphLinkArmed ? 'Lier (annuler)' : 'Lier';
+  }
+  if (helpEl) {
+    helpEl.textContent = isGlobal
+      ? 'Molette pour zoomer, glisser pour déplacer. Cliquez un nœud pour ses informations, double-cliquez pour l’agrandir et le suivre. « Lier » puis cliquez deux nœuds pour créer un lien ; cliquez un lien pour le modifier ou le supprimer.'
+      : 'Molette pour zoomer, glisser pour déplacer. Cliquez un nœud pour ses informations, double-cliquez pour le recentrer. Lecture seule — aucune modification de relation depuis ce graphe.';
+  }
+}
+
 function relGraphRenderCanvas() {
   const canvasEl = document.getElementById('relgraph-canvas');
   if (!canvasEl || !relGraphData) return;
   if (relGraphCy) { relGraphCy.destroy(); relGraphCy = null; }
   canvasEl.innerHTML = '';
 
+  const isGlobal = relGraphMode === 'global';
   const elements = [
     ...relGraphData.nodes.map(n => ({
-      data: { id: n.id, label: n.name, isCenter: n.id === relGraphData.center },
+      data: { id: n.id, label: n.name, isCenter: !isGlobal && n.id === relGraphData.center },
     })),
     ...relGraphData.edges.map(e => ({
       data: {
@@ -9284,7 +9353,9 @@ function relGraphRenderCanvas() {
   relGraphCy = cytoscape({
     container: canvasEl,
     elements,
-    layout: { name: 'concentric', concentric: n => (n.data('isCenter') ? 2 : 1) },
+    layout: isGlobal
+      ? { name: 'cose' }
+      : { name: 'concentric', concentric: n => (n.data('isCenter') ? 2 : 1) },
     style: [
       { selector: 'node', style: {
           'label': 'data(label)', 'background-color': 'var(--card)',
@@ -9293,6 +9364,12 @@ function relGraphRenderCanvas() {
       } },
       { selector: 'node[?isCenter]', style: {
           'background-color': 'var(--accent)', 'border-width': 3, 'width': 44, 'height': 44,
+      } },
+      { selector: 'node.followed', style: {
+          'width': 56, 'height': 56, 'border-width': 3,
+      } },
+      { selector: 'node.link-source', style: {
+          'border-color': 'var(--accent)', 'border-width': 3,
       } },
       { selector: 'edge', style: {
           'width': 2, 'curve-style': 'bezier', 'target-arrow-shape': 'none', 'source-arrow-shape': 'none',
@@ -9306,11 +9383,54 @@ function relGraphRenderCanvas() {
     ],
   });
 
-  relGraphCy.on('tap', 'node', evt => relGraphRenderInfoCard(evt.target.id()));
-  relGraphCy.on('dbltap', 'node', evt => relGraphFetch(evt.target.id()));
+  if (isGlobal) {
+    relGraphCy.on('tap', 'node', evt => relGraphGlobalNodeTap(evt.target.id()));
+    relGraphCy.on('dbltap', 'node', evt => relGraphGlobalNodeDblTap(evt.target.id()));
+    relGraphCy.on('tap', 'edge', evt => relGraphEdgeTap(evt.target.id()));
+  } else {
+    relGraphCy.on('tap', 'node', evt => relGraphRenderInfoCard(evt.target.id()));
+    relGraphCy.on('dbltap', 'node', evt => relGraphFetch(evt.target.id()));
+  }
 
   _relGraphApplyBucketVisibility();
   relGraphRenderInfoCard(null);
+}
+
+/** Global-mode node tap: while "Lier" is armed, the first tap selects A
+ *  (highlighted), the second selects B and opens the edge panel in CREATE
+ *  mode; otherwise behaves like ego mode's info-card tap (E1). */
+function relGraphGlobalNodeTap(nodeId) {
+  if (relGraphLinkArmed) {
+    if (!relGraphLinkSourceId) {
+      relGraphLinkSourceId = nodeId;
+      if (relGraphCy) relGraphCy.getElementById(nodeId).addClass('link-source');
+      return;
+    }
+    const sourceId = relGraphLinkSourceId, targetId = nodeId;
+    relGraphLinkSourceId = null;
+    if (relGraphCy) relGraphCy.nodes().removeClass('link-source');
+    relGraphLinkArmed = false;
+    _relGraphUpdateModeUI();
+    if (sourceId === targetId) return;
+    relGraphOpenEdgePanel({ mode: 'create', sourceId, targetId });
+    return;
+  }
+  relGraphRenderInfoCard(nodeId);
+}
+
+/** Global-mode node double-tap: toggle the cosmetic "followed" (enlarged)
+ *  class — not persisted (E1). Ego mode's dbltap (recenter) is untouched. */
+function relGraphGlobalNodeDblTap(nodeId) {
+  if (!relGraphCy) return;
+  relGraphCy.getElementById(nodeId).toggleClass('followed');
+}
+
+/** Global-mode edge tap -> edge panel in EDIT mode. */
+function relGraphEdgeTap(edgeId) {
+  if (relGraphLinkArmed) return;
+  const edge = relGraphData && relGraphData.edges.find(e => e.id === edgeId);
+  if (!edge) return;
+  relGraphOpenEdgePanel({ mode: 'edit', edge });
 }
 
 function _relGraphApplyBucketVisibility() {
@@ -9328,30 +9448,119 @@ function relGraphBucketToggle(bucket, checked) {
 function relGraphRenderInfoCard(nodeId) {
   const cardEl = document.getElementById('relgraph-info-card');
   if (!cardEl) return;
+  _relGraphEdgePanelCtx = null;
   if (!nodeId || !relGraphData) {
     cardEl.innerHTML = '<div class="empty">Cliquez un nœud pour voir ses informations.</div>';
     return;
   }
   const node = relGraphData.nodes.find(n => n.id === nodeId);
   if (!node) { cardEl.innerHTML = '<div class="empty">Nœud introuvable.</div>'; return; }
+  const isGlobal = relGraphMode === 'global';
   const centerId = relGraphData.center;
-  const relsToCenter = relGraphData.edges.filter(e =>
-    (e.source === nodeId && e.target === centerId) || (e.source === centerId && e.target === nodeId)
-  );
-  const relsHTML = relsToCenter.length
-    ? relsToCenter.map(e => `
+  const rels = isGlobal
+    ? relGraphData.edges.filter(e => e.source === nodeId || e.target === nodeId)
+    : relGraphData.edges.filter(e =>
+        (e.source === nodeId && e.target === centerId) || (e.source === centerId && e.target === nodeId)
+      );
+  const relsHTML = rels.length
+    ? rels.map(e => `
         <div style="margin-top:6px">
           <span class="badge b-other" style="font-size:10px">${esc(e.type)}</span>
           <div style="font-size:11px; color:var(--muted)">intensité ${e.intensity} · ${esc(e.direction)}</div>
         </div>`).join('')
-    : '<div class="empty" style="font-size:11px">Aucune relation directe avec le centre.</div>';
+    : `<div class="empty" style="font-size:11px">${isGlobal ? 'Aucune relation.' : 'Aucune relation directe avec le centre.'}</div>`;
   cardEl.innerHTML = `
     <div style="font-weight:600">${esc(node.name)}</div>
     <div style="color:var(--muted); font-size:11px">${esc(node.character_type)}</div>
     ${node.description ? `<div style="margin-top:6px; font-size:12px">${esc(node.description)}</div>` : ''}
-    <div style="margin-top:10px; font-weight:600; font-size:11px">Relations avec le centre</div>
+    <div style="margin-top:10px; font-weight:600; font-size:11px">${isGlobal ? 'Relations' : 'Relations avec le centre'}</div>
     ${relsHTML}
   `;
+}
+
+/** Global-mode edge panel (create or edit) — rendered inside the info-card
+ *  column (BRIEF-0033-e item 5). CREATE posts to the source entity's
+ *  relations; EDIT PUTs the relation; DELETE (edit only) hard-deletes via
+ *  the existing route. All writes go through the existing relation CRUD
+ *  (`write_relation` chokepoint) — this panel writes nothing directly. */
+function relGraphOpenEdgePanel(ctx) {
+  const cardEl = document.getElementById('relgraph-info-card');
+  if (!cardEl || !relGraphData) return;
+  _relGraphEdgePanelCtx = ctx;
+  const isEdit = ctx.mode === 'edit';
+  const sourceId = isEdit ? ctx.edge.source : ctx.sourceId;
+  const targetId = isEdit ? ctx.edge.target : ctx.targetId;
+  const sourceName = (relGraphData.nodes.find(n => n.id === sourceId) || {}).name || sourceId;
+  const targetName = (relGraphData.nodes.find(n => n.id === targetId) || {}).name || targetId;
+  const type      = isEdit ? ctx.edge.type : '';
+  const intensity = isEdit ? ctx.edge.intensity : 50;
+  const direction = isEdit ? ctx.edge.direction : 'mutual';
+  const notes     = isEdit ? (ctx.edge.notes || '') : '';
+  const dirOpt = (v, label) => `<option value="${v}"${direction === v ? ' selected' : ''}>${label}</option>`;
+
+  cardEl.innerHTML = `
+    <div style="font-weight:600">${isEdit ? 'Modifier le lien' : 'Nouveau lien'}</div>
+    <div style="color:var(--muted); font-size:11px; margin-top:4px">${esc(sourceName)} → ${esc(targetName)}</div>
+    <label style="display:block; margin-top:8px; font-size:11px">Type
+      <input id="relgraph-edge-type" type="text" value="${esc(type)}" style="width:100%; box-sizing:border-box">
+    </label>
+    <label style="display:block; margin-top:6px; font-size:11px">Intensité (1-100)
+      <input id="relgraph-edge-intensity" type="number" min="1" max="100" value="${esc(String(intensity))}" style="width:100%; box-sizing:border-box">
+    </label>
+    <label style="display:block; margin-top:6px; font-size:11px">Direction
+      <select id="relgraph-edge-direction" style="width:100%; box-sizing:border-box">
+        ${dirOpt('mutual', 'mutual')}${dirOpt('a_to_b', 'a_to_b')}${dirOpt('b_to_a', 'b_to_a')}
+      </select>
+    </label>
+    <label style="display:block; margin-top:6px; font-size:11px">Notes
+      <textarea id="relgraph-edge-notes" rows="3" style="width:100%; box-sizing:border-box">${esc(notes)}</textarea>
+    </label>
+    <div style="margin-top:10px; display:flex; gap:6px; flex-wrap:wrap">
+      <button class="btn-icon" onclick="relGraphSaveEdgePanel()">Enregistrer</button>
+      ${isEdit ? `<button class="btn-icon" onclick="relGraphDeleteEdge('${esc(ctx.edge.id)}')">Supprimer</button>` : ''}
+      <button class="btn-icon" onclick="relGraphRenderInfoCard(null)">Annuler</button>
+    </div>
+  `;
+}
+
+async function relGraphSaveEdgePanel() {
+  const ctx = _relGraphEdgePanelCtx;
+  if (!ctx) return;
+  const type      = document.getElementById('relgraph-edge-type').value.trim();
+  const intensity = Number(document.getElementById('relgraph-edge-intensity').value);
+  const direction = document.getElementById('relgraph-edge-direction').value;
+  const notes     = document.getElementById('relgraph-edge-notes').value;
+  if (!type) { alert('Le type est requis.'); return; }
+  try {
+    if (ctx.mode === 'create') {
+      await api(`/api/entities/${encodeURIComponent(ctx.sourceId)}/relations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ other_entity_id: ctx.targetId, type, intensity, direction, notes }),
+      });
+    } else {
+      await api(`/api/relations/${encodeURIComponent(ctx.edge.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, intensity, direction, notes }),
+      });
+    }
+    _relGraphEdgePanelCtx = null;
+    await relGraphFetchGlobal();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function relGraphDeleteEdge(edgeId) {
+  if (!confirm('Supprimer ce lien ?')) return;
+  try {
+    await api(`/api/relations/${encodeURIComponent(edgeId)}`, { method: 'DELETE' });
+    _relGraphEdgePanelCtx = null;
+    await relGraphFetchGlobal();
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 /** Resets ALL relgraph state (G1/J1 state contract) — destroys the live
@@ -9363,10 +9572,15 @@ function _relGraphReset() {
   if (relGraphCy) { relGraphCy.destroy(); relGraphCy = null; }
   relGraphData = null;
   relGraphBucketState = { 1: true, 2: true, 3: true, 4: true };
+  relGraphMode = 'ego';
+  relGraphLinkArmed = false;
+  relGraphLinkSourceId = null;
+  _relGraphEdgePanelCtx = null;
   const canvasEl = document.getElementById('relgraph-canvas');
   if (canvasEl) canvasEl.innerHTML = '';
   relGraphRenderInfoCard(null);
   document.querySelectorAll('#creation-npc-relgraph input.relgraph-bucket').forEach(c => { c.checked = true; });
+  _relGraphUpdateModeUI();
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
