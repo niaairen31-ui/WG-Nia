@@ -24,6 +24,7 @@ from ...link_author import (
     apply_finding,
     commit_batch,
     journal_append,
+    patch_row,
     pending_pairs,
     resolve_roster,
     run_coherence,
@@ -159,6 +160,23 @@ def _get_batch_or_404(batch_id: str, db: Session) -> LinkBatch:
     if batch is None:
         raise HTTPException(status_code=404, detail=f"link batch {batch_id!r} not found")
     return batch
+
+
+class LinkBatchRowPatchBody(BaseModel):
+    payload: dict | None = None
+    row_status: str | None = None
+
+
+@router.patch("/api/link-batches/{batch_id}/rows/{row_id}")
+def patch_link_batch_row(
+    batch_id: str, row_id: str, body: LinkBatchRowPatchBody,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Edits one staged row's payload and/or row_status — the one backend
+    addition of BRIEF-0036-d, staging-only (link_agent_strata.py keeps it
+    off every canon write path)."""
+    batch = _get_batch_or_404(batch_id, db)
+    return patch_row(db, batch, row_id, body.payload, body.row_status)
 
 
 @router.post("/api/link-batches/{batch_id}/coherence")

@@ -442,6 +442,62 @@ def run_pair(db: Session, batch: LinkBatch, a_id: str, b_id: str) -> dict:
     return {"verdict": verdict, "row_count": 1 if verdict == "no_links" else kept}
 
 
+# ── Row edits (creator inline review, staging only) ──────────────────────
+
+
+_ROW_STATUS_ALLOWED = ("proposed", "rejected")
+
+
+def patch_row(
+    db: Session, batch: LinkBatch, row_id: str,
+    payload_patch: dict | None, row_status: str | None,
+) -> dict:
+    """Edits ONE staged row's payload fields and/or row_status (0036-d's
+    one backend addition) — staging only, batch must be open. Payload
+    fields reuse `_coerce_patch_value`'s vocab/clamp rules, the same gate
+    the coherence patch pipeline uses (W); ids/mode/subject/session
+    bookkeeping stay unpatchable here too. row_status is reversible while
+    the batch stays open (reject / un-reject)."""
+    if batch.status != "open":
+        raise HTTPException(status_code=409, detail=f"link batch {batch.id!r} is not open")
+
+    row = db.get(LinkBatchRow, row_id)
+    if row is None or row.batch_id != batch.id:
+        raise HTTPException(status_code=404, detail=f"row {row_id!r} not found in batch {batch.id!r}")
+
+    if payload_patch:
+        if row.kind == "no_links":
+            raise HTTPException(status_code=422, detail="no_links rows carry no editable payload")
+        domain = "staged_relation" if row.kind == "relation" else "staged_knowledge"
+        merged = dict(row.payload)
+        for field, value in payload_patch.items():
+            if field not in merged:
+                raise HTTPException(status_code=422, detail=f"field {field!r} is not on the staged payload")
+            ok, reason, coerced = _coerce_patch_value(domain, field, value)
+            if not ok:
+                raise HTTPException(status_code=422, detail=reason)
+            merged[field] = coerced
+        row.payload = merged
+        row.row_status = "edited"
+        row.updated_at = datetime.now(UTC)
+        db.add(row)
+
+    if row_status is not None:
+        if row_status not in _ROW_STATUS_ALLOWED:
+            raise HTTPException(status_code=422, detail=f"row_status {row_status!r} is not allowed")
+        row.row_status = row_status
+        row.updated_at = datetime.now(UTC)
+        db.add(row)
+
+    db.commit()
+    db.refresh(row)
+    journal_append(batch.id, {
+        "event": "row_patched", "row_id": row.id,
+        "payload_patch": payload_patch, "row_status": row_status,
+    })
+    return row.model_dump()
+
+
 # ── Coherence pass — prompt wiring ──────────────────────────────────────
 
 

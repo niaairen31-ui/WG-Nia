@@ -7695,6 +7695,66 @@ Routes: `POST /api/link-batches/{id}/coherence`,
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## NPC LINK AGENT — FRONTEND ON THE RELGRAPH PANEL (BRIEF-0036-d, no schema change)
+
+Fourth and closing step of TICKET-0036: the creator UI for the whole
+0036-a/b/c flow, attached to the existing NPC relation graph panel
+(`#creation-npc-relgraph`, "Agent liens" button in its head bar) — no new
+creation tab, `CREATION_TABS` untouched. All new JS is `linkAgent*`,
+appended after the `relGraph*` block in `cockpit/index.html`; the panel's
+entire content is rendered by JS into one empty `#linkagent-panel` div,
+matching the file's existing dynamic-panel convention (relgraph info card,
+mutation review cards).
+
+**One backend addition: `PATCH /api/link-batches/{id}/rows/{row_id}`**
+(`link_author.patch_row`). Edits a staged row's payload fields and/or
+`row_status`, staging-only (batch must be `open`), reusing
+`_coerce_patch_value` — the SAME vocab/clamp gate BRIEF-0036-c's coherence
+patch pipeline uses — so a field edit here can never introduce a value the
+pair-pass or the coherence patch would have rejected. `link_agent_strata.py`
+needed no change: this function writes only `link_batch_row`, never
+`Relation`/`Knowledge`.
+
+**Supersedes BRIEF-0036-a's "readonly" prediction.** That step's
+`json_ui_boundary` allow-list comment for `LinkBatchRow.payload` assumed
+0036-d would render the staged payload readonly. The brief actually locked
+inline editing (relation type/direction/intensity/notes; knowledge
+level/content/source/is_incorrect/is_secret/share_threshold), so the
+comment is corrected in this step rather than left stale. This does not
+weaken the `json_ui_boundary` guarantee: every edit goes through the
+per-field PATCH validation gate above, never a raw JSON blob write, and the
+row is staging that becomes a real relational `relation`/`knowledge` row on
+commit — not a durable UI-query surface. The allow-list's actual
+requirement (relationalize on the FIRST consumer that needs to QUERY into
+the JSON, e.g. list/filter/report) is unaffected and still open.
+
+**Server-truth resume, no client state.** The run loop is a plain
+sequential `fetch` loop (`POST run-next` until `{done:true}`) — no SSE/
+websocket. "Pause" only flips a client-side flag the loop checks between
+iterations; "Reprendre" calls the same loop function again. Reopening the
+panel (or the cockpit itself) re-derives everything from
+`GET /api/link-batches` (open-batch badge) and
+`GET /api/link-batches/{id}` (rows) — no browser storage of any kind. A 502
+from `run-next` (pair parse failure, BRIEF-0036-b) leaves the batch
+untouched server-side and is surfaced as a blocking "Réessayer" state
+client-side; the loop never silently continues past it.
+
+**Commit gate mirrors the server exactly.** "Committer le lot" is disabled
+client-side unless `coherence_status` is `ran` or `partial` — the same
+condition `commit_batch` enforces server-side (409 otherwise) — so the
+button is a UX convenience, never the actual gate. NPC names shown in the
+pair groups and roster preview are resolved by re-calling
+`POST /api/link-batches/preview` with the batch's own
+`scope.root_location_ids` (no new read endpoint added for this — the
+preview endpoint already returns exactly `{id, name}` pairs over the same
+roster).
+
+Ticket closed: TICKET-0036 status -> `live-gate` after this step's
+`/verify` and PR.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*
