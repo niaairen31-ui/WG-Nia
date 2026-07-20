@@ -6185,9 +6185,13 @@ function regionRenderTree(cascade) {
     if (p == null) continue;
     (childrenByParent[p] = childrenByParent[p] || []).push(loc);
   }
-  const root = regionDraft.locations.find(l => l.parent_local_id == null);
-  if (!root) return '<div class="empty">Aucun lieu racine dans le brouillon.</div>';
-  return regionRenderLocationNode(root, cascade, childrenByParent);
+  // BRIEF-0033-c: parent reassignment can set a second location's
+  // parent_local_id to null (root fallback, matching the commit's None ->
+  // no-parent resolution) — render every top-level location, not just the
+  // first found, so a reparented-to-root location and its NPCs stay visible.
+  const roots = regionDraft.locations.filter(l => l.parent_local_id == null);
+  if (!roots.length) return '<div class="empty">Aucun lieu racine dans le brouillon.</div>';
+  return roots.map(root => regionRenderLocationNode(root, cascade, childrenByParent)).join('');
 }
 
 function regionRenderCommitResult() {
@@ -9305,6 +9309,12 @@ function genericModalOpen(title, bodyHtml, options = {}) {
 function genericModalClose() {
   document.getElementById('generic-modal-backdrop').classList.add('hidden');
   document.getElementById('generic-modal-body').innerHTML = '';
+  // BRIEF-0033-c: the region zoom sheet edits regionDraft in place with no
+  // save button — refresh the tree on close so renames/reassignments show.
+  // Guarded on regionDraft (not just region-root) so closing an unrelated
+  // modal (world create/delete, skill delete) while a brief-only view is
+  // showing never clobbers regionRenderBriefForm's in-progress input.
+  if (regionDraft) regionRenderAll();
 }
 
 document.addEventListener('keydown', (e) => {
@@ -9313,10 +9323,17 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-/* ── Region full-sheet read-only render (BRIEF-41, R4a) ─────────────────────
-   Pure client render from regionDraft — no fetch, no canon, no mutation.
-   Secrets are shown by design (creator surface); in-play structural
-   exclusion is enforced elsewhere (the accessors), never weakened here. */
+/* ── Region full-sheet editable render (BRIEF-41 R4a display; made editable
+   by BRIEF-0033-c B1/F1) ─────────────────────────────────────────────────
+   Pure client render/mutation of regionDraft — no fetch, no canon write.
+   Every input/select/textarea below mutates regionDraft in place via
+   oninput/onchange, the same direct-mutation pattern as the manifest
+   checkpoint (regionRenderManifest). The commit route re-derives the whole
+   cascade server-side from this draft; nothing here writes canon. Secrets
+   are shown/editable by design (creator surface); in-play structural
+   exclusion is enforced elsewhere (the accessors), never weakened here.
+   shared_with and sensed_links stay display-only (creator-judgment confirm
+   surfaces, not draft fields — B1 scope). */
 
 function _sheetField(label, value) {
   if (value === undefined || value === null || value === '') return '';
@@ -9329,71 +9346,225 @@ function _sheetListSection(title, items, renderItem) {
     items.map(it => `<div class="sheet-list-item">${renderItem(it)}</div>`).join('');
 }
 
+function _regionSheetNode(type, localId) {
+  const collection = type === 'npc' ? regionDraft.npcs : (type === 'location' ? regionDraft.locations : regionDraft.factions);
+  return (collection || []).find(e => e.local_id === localId);
+}
+
+function _sheetFieldInput(label, value, path) {
+  return `<div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">${esc(label)}</div>
+    <input type="text" style="width:100%" value="${esc(value === undefined || value === null ? '' : String(value))}"
+      oninput="${path} = this.value"></div>`;
+}
+
+function _sheetFieldTextarea(label, value, path) {
+  return `<div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">${esc(label)}</div>
+    <textarea rows="3" style="width:100%; resize:vertical" oninput="${path} = this.value">${esc(value || '')}</textarea></div>`;
+}
+
+/** Options for a Faction/Lieu/parent select, keyed by local_id, suffixing
+ *  rejected entities " (rejeté)" — the accept/reject cascade re-derives at
+ *  commit unchanged, this is display only. */
+function _sheetEntityOptions(collection, currentId, allowNull, excludeId) {
+  const opts = [];
+  if (allowNull) opts.push(`<option value=""${currentId ? '' : ' selected'}>--</option>`);
+  for (const e of (collection || [])) {
+    if (excludeId && e.local_id === excludeId) continue;
+    const name = e.result.draft.public.name || '(sans nom)';
+    const label = regionIsAccepted(e.local_id) ? name : `${name} (rejeté)`;
+    opts.push(`<option value="${esc(e.local_id)}"${e.local_id === currentId ? ' selected' : ''}>${esc(label)}</option>`);
+  }
+  return opts.join('');
+}
+
+/* NPC knowledge rows (secret, F1-style row editor) — subject/level/content
+ * inputs + is_secret checkbox; level is a plain input (KNOWLEDGE_LEVELS is
+ * not exposed to the frontend today — brief's documented fallback, no new
+ * endpoint added for this). */
+function _regionSheetKnowledgeRows(localId) {
+  const node = _regionSheetNode('npc', localId);
+  const rows = (node.result.draft.secret.knowledge || []).map((k, i) => {
+    const base = `_regionSheetNode('npc','${esc(localId)}').result.draft.secret.knowledge[${i}]`;
+    return `
+    <div class="row-card" style="flex-direction:row; gap:6px; align-items:flex-start; flex-wrap:wrap">
+      <input type="text" placeholder="Sujet" value="${esc(k.subject || '')}" style="flex:1; min-width:100px"
+        oninput="${base}.subject = this.value">
+      <input type="text" placeholder="Niveau" value="${esc(k.level || '')}" style="width:110px"
+        oninput="${base}.level = this.value || null">
+      <input type="text" placeholder="Contenu" value="${esc(k.content || '')}" style="flex:2; min-width:140px"
+        oninput="${base}.content = this.value">
+      <label style="font-size:11px; display:flex; align-items:center; gap:3px">
+        <input type="checkbox" ${k.is_secret !== false ? 'checked' : ''} onchange="${base}.is_secret = this.checked"> secret</label>
+      <button class="btn-icon" title="Supprimer" onclick="_regionSheetRemoveKnowledge('${esc(localId)}', ${i})">✕</button>
+    </div>`;
+  }).join('');
+  return `<div>${rows || '<div class="empty">Aucun savoir.</div>'}</div>
+    <div class="row-card-actions" style="margin-top:6px">
+      <button class="btn-send" onclick="_regionSheetAddKnowledge('${esc(localId)}')">+ Ajouter un savoir</button>
+    </div>`;
+}
+
+function _regionSheetAddKnowledge(localId) {
+  const node = _regionSheetNode('npc', localId);
+  (node.result.draft.secret.knowledge = node.result.draft.secret.knowledge || []).push(
+    { subject: '', level: null, content: '', is_secret: true });
+  regionRenderSheet('npc', localId);
+}
+
+function _regionSheetRemoveKnowledge(localId, i) {
+  const node = _regionSheetNode('npc', localId);
+  node.result.draft.secret.knowledge.splice(i, 1);
+  regionRenderSheet('npc', localId);
+}
+
+/* NPC goals: long (textarea) + shorts (list of inputs), bound to
+ * draft.public.goals — lazily initialized on render so the long-term
+ * textarea always has an object to write into (goals may be absent on a
+ * freshly generated NPC). */
+function _regionSheetGoalsHtml(localId) {
+  const node = _regionSheetNode('npc', localId);
+  const pub = node.result.draft.public;
+  pub.goals = pub.goals || { long: '', shorts: [] };
+  const goals = pub.goals;
+  const base = `_regionSheetNode('npc','${esc(localId)}').result.draft.public.goals`;
+  const shortsRows = (goals.shorts || []).map((s, i) => `
+    <div style="display:flex; gap:6px; align-items:center; margin-top:3px">
+      <input type="text" value="${esc(s || '')}" style="flex:1" oninput="${base}.shorts[${i}] = this.value">
+      <button class="btn-icon" title="Supprimer" onclick="_regionSheetRemoveGoalShort('${esc(localId)}', ${i})">✕</button>
+    </div>`).join('');
+  return `
+    <div class="sheet-field-label" style="font-size:11px; margin-top:6px">Objectifs</div>
+    <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Long terme</div>
+      <textarea rows="2" style="width:100%; resize:vertical" oninput="${base}.long = this.value">${esc(goals.long || '')}</textarea></div>
+    <div>${shortsRows}</div>
+    <div class="row-card-actions" style="margin-top:4px">
+      <button class="btn-icon" onclick="_regionSheetAddGoalShort('${esc(localId)}')">+ Ajouter un objectif court terme</button>
+    </div>`;
+}
+
+function _regionSheetAddGoalShort(localId) {
+  const node = _regionSheetNode('npc', localId);
+  const pub = node.result.draft.public;
+  pub.goals = pub.goals || { long: '', shorts: [] };
+  (pub.goals.shorts = pub.goals.shorts || []).push('');
+  regionRenderSheet('npc', localId);
+}
+
+function _regionSheetRemoveGoalShort(localId, i) {
+  const node = _regionSheetNode('npc', localId);
+  node.result.draft.public.goals.shorts.splice(i, 1);
+  regionRenderSheet('npc', localId);
+}
+
+/* Faction roles editor bound to the draft array (F1) — mirrors the look of
+ * the NEW-faction roles editor (authorRenderRolesEditor) but writes into
+ * this faction's draft.public.roles, not authorFactionRolesDraft. Order IS
+ * the committed position (write_faction_role, BRIEF-0033-a). */
+function _regionSheetRolesHtml(localId) {
+  const node = _regionSheetNode('faction', localId);
+  const roles = node.result.draft.public.roles || [];
+  const base = `_regionSheetNode('faction','${esc(localId)}').result.draft.public.roles`;
+  const rows = roles.map((r, i) => `
+    <div class="row-card" style="flex-direction:row; gap:8px; align-items:center;">
+      <input type="text" placeholder="Rôle" value="${esc(r.name || '')}" style="flex:1" oninput="${base}[${i}].name = this.value">
+      <input type="text" placeholder="Description" value="${esc(r.description || '')}" style="flex:2" oninput="${base}[${i}].description = this.value">
+      <button class="btn-icon" onclick="_regionSheetMoveRole('${esc(localId)}', ${i}, -1)" title="Monter" ${i === 0 ? 'disabled' : ''}>↑</button>
+      <button class="btn-icon" onclick="_regionSheetMoveRole('${esc(localId)}', ${i}, 1)" title="Descendre" ${i === roles.length - 1 ? 'disabled' : ''}>↓</button>
+      <button class="btn-icon" onclick="_regionSheetRemoveRole('${esc(localId)}', ${i})" title="Supprimer">✕</button>
+    </div>`).join('');
+  return `<div>${rows || '<div class="empty">Aucun rôle.</div>'}</div>
+    <div class="row-card-actions" style="margin-top:6px">
+      <button class="btn-send" onclick="_regionSheetAddRole('${esc(localId)}')">+ Ajouter un rôle</button>
+    </div>`;
+}
+
+function _regionSheetAddRole(localId) {
+  const node = _regionSheetNode('faction', localId);
+  (node.result.draft.public.roles = node.result.draft.public.roles || []).push({ name: '', description: '' });
+  regionRenderSheet('faction', localId);
+}
+
+function _regionSheetRemoveRole(localId, i) {
+  const node = _regionSheetNode('faction', localId);
+  node.result.draft.public.roles.splice(i, 1);
+  regionRenderSheet('faction', localId);
+}
+
+function _regionSheetMoveRole(localId, i, dir) {
+  const node = _regionSheetNode('faction', localId);
+  const roles = node.result.draft.public.roles;
+  const j = i + dir;
+  if (j < 0 || j >= roles.length) return;
+  [roles[i], roles[j]] = [roles[j], roles[i]];
+  regionRenderSheet('faction', localId);
+}
+
 function regionRenderSheet(type, localId) {
   if (!regionDraft) return;
-  const collection = type === 'npc' ? regionDraft.npcs : (type === 'location' ? regionDraft.locations : regionDraft.factions);
-  const node = (collection || []).find(e => e.local_id === localId);
+  const node = _regionSheetNode(type, localId);
   if (!node) return;
   const draft = node.result.draft;
   const pub = draft.public || {};
   const sec = draft.secret || {};
+  const pubPath = `_regionSheetNode('${type}','${esc(localId)}').result.draft.public`;
+  const secPath = `_regionSheetNode('${type}','${esc(localId)}').result.draft.secret`;
 
   let publicHtml = '';
   let secretHtml = '';
 
   if (type === 'npc') {
-    const fac = pub.faction_local_id ? regionDraft.factions.find(f => f.local_id === node.faction_local_id) : null;
-    const loc = node.location_local_id ? regionDraft.locations.find(l => l.local_id === node.location_local_id) : null;
-    publicHtml += _sheetField('Nom', pub.name);
-    publicHtml += _sheetField('Description', pub.description);
-    publicHtml += _sheetField('Apparence', pub.appearance);
-    publicHtml += _sheetField('Passé', pub.backstory);
-    publicHtml += _sheetField('Aversion', pub.aversion);
-    if (pub.physical_tier !== undefined && pub.physical_tier !== null && pub.physical_tier !== '') {
-      publicHtml += _sheetField('Carrure', pub.physical_tier);
-    }
-    publicHtml += _sheetField('Faction', fac ? fac.result.draft.public.name : 'Sans faction');
-    publicHtml += _sheetField('Lieu', loc ? loc.result.draft.public.name : null);
-    if (pub.goals) {
-      const goalRows = [
-        ...(pub.goals.long ? [{ label: 'LONG TERME', text: pub.goals.long }] : []),
-        ...((pub.goals.shorts || []).map(s => ({ label: 'COURT TERME', text: s }))),
-      ];
-      publicHtml += _sheetListSection('Objectifs', goalRows, (g) => `<div>[${esc(g.label)}] ${esc(g.text)}</div>`);
-    }
+    publicHtml += _sheetFieldInput('Nom', pub.name, `${pubPath}.name`);
+    publicHtml += _sheetFieldTextarea('Description', pub.description, `${pubPath}.description`);
+    publicHtml += _sheetFieldTextarea('Apparence', pub.appearance, `${pubPath}.appearance`);
+    publicHtml += _sheetFieldTextarea('Passé', pub.backstory, `${pubPath}.backstory`);
+    publicHtml += _sheetFieldTextarea('Aversion', pub.aversion, `${pubPath}.aversion`);
+    publicHtml += `<div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Carrure</div>
+      <input type="number" min="-1" max="2" step="1" style="width:70px"
+        value="${pub.physical_tier === undefined || pub.physical_tier === null ? '' : esc(String(pub.physical_tier))}"
+        oninput="${pubPath}.physical_tier = this.value === '' ? null : Number(this.value)"></div>`;
+    publicHtml += `<div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Faction</div>
+      <select onchange="_regionSheetNode('npc','${esc(localId)}').faction_local_id = this.value || null">
+        ${_sheetEntityOptions(regionDraft.factions, node.faction_local_id, true)}
+      </select></div>`;
+    publicHtml += `<div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Lieu</div>
+      <select onchange="_regionSheetNode('npc','${esc(localId)}').location_local_id = this.value">
+        ${_sheetEntityOptions(regionDraft.locations, node.location_local_id, false)}
+      </select></div>`;
+    publicHtml += _regionSheetGoalsHtml(localId);
 
-    secretHtml += _sheetListSection('Savoirs', sec.knowledge, (k) =>
-      `<div>${esc(k.subject || '')} ${k.level ? '· ' + esc(k.level) : ''}${k.is_secret ? ' · secret' : ''}</div>` +
-      (k.content ? `<div style="color:var(--muted)">${esc(k.content)}</div>` : ''));
-    secretHtml += _sheetField('Notes du créateur', sec.creator_meta);
+    secretHtml += `<div class="sheet-field-label" style="font-size:11px; margin-top:6px">Savoirs</div>`;
+    secretHtml += _regionSheetKnowledgeRows(localId);
+    secretHtml += _sheetFieldTextarea('Notes du créateur', sec.creator_meta, `${secPath}.creator_meta`);
     secretHtml += _sheetListSection('Partagé avec', sec.shared_with, (sw) =>
       `<div>${esc(sw.with || '')}${sw.note ? ' — ' + esc(sw.note) : ''}</div>`);
 
   } else if (type === 'location') {
-    const parent = node.parent_local_id ? regionDraft.locations.find(l => l.local_id === node.parent_local_id) : null;
-    publicHtml += _sheetField('Nom', pub.name);
-    publicHtml += _sheetField('Description', pub.description);
-    publicHtml += _sheetField('Type', pub.location_type);
-    publicHtml += _sheetField('Niveau d\'accès', pub.access_level);
-    publicHtml += _sheetField('Subculture', pub.subculture);
-    if (parent) publicHtml += _sheetField('Contenu dans', parent.result.draft.public.name);
+    publicHtml += _sheetFieldInput('Nom', pub.name, `${pubPath}.name`);
+    publicHtml += _sheetFieldTextarea('Description', pub.description, `${pubPath}.description`);
+    publicHtml += _sheetFieldInput('Type', pub.location_type, `${pubPath}.location_type`);
+    publicHtml += _sheetFieldInput('Niveau d\'accès', pub.access_level, `${pubPath}.access_level`);
+    publicHtml += _sheetFieldInput('Subculture', pub.subculture, `${pubPath}.subculture`);
+    publicHtml += `<div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Contenu dans</div>
+      <select onchange="_regionSheetNode('location','${esc(localId)}').parent_local_id = this.value || null">
+        ${_sheetEntityOptions(regionDraft.locations, node.parent_local_id, true, localId)}
+      </select></div>`;
 
-    secretHtml += _sheetField('Subculture cachée', sec.subculture_hidden);
+    secretHtml += _sheetFieldTextarea('Subculture cachée', sec.subculture_hidden, `${secPath}.subculture_hidden`);
     secretHtml += _sheetListSection('Liens perçus', sec.sensed_links, (l) =>
       `<div>${esc(l.kind || '')} · ${esc(l.name || '')}${l.note ? ' — ' + esc(l.note) : ''}</div>`);
 
   } else if (type === 'faction') {
-    publicHtml += _sheetField('Nom', pub.name);
-    publicHtml += _sheetField('Description', pub.description);
-    publicHtml += _sheetField('Type', pub.faction_type);
-    publicHtml += _sheetField('Philosophie', pub.philosophy);
-    publicHtml += _sheetField('Structure interne', pub.internal_structure);
-    publicHtml += _sheetListSection('Rôles', pub.roles, (r) =>
-      `<div>${esc(r.name || '')}</div>` + (r.description ? `<div style="color:var(--muted)">${esc(r.description)}</div>` : ''));
-    publicHtml += _sheetField('Aversion', pub.aversion);
+    publicHtml += _sheetFieldInput('Nom', pub.name, `${pubPath}.name`);
+    publicHtml += _sheetFieldTextarea('Description', pub.description, `${pubPath}.description`);
+    publicHtml += _sheetFieldInput('Type', pub.faction_type, `${pubPath}.faction_type`);
+    publicHtml += _sheetFieldTextarea('Philosophie', pub.philosophy, `${pubPath}.philosophy`);
+    publicHtml += _sheetFieldTextarea('Structure interne', pub.internal_structure, `${pubPath}.internal_structure`);
+    publicHtml += `<div class="sheet-field-label" style="font-size:11px; margin-top:6px">Rôles</div>`;
+    publicHtml += _regionSheetRolesHtml(localId);
+    publicHtml += _sheetFieldTextarea('Aversion', pub.aversion, `${pubPath}.aversion`);
 
-    secretHtml += _sheetField('Tensions internes', sec.internal_tensions);
-    secretHtml += _sheetField('Objectifs', sec.goals);
+    secretHtml += _sheetFieldTextarea('Tensions internes', sec.internal_tensions, `${secPath}.internal_tensions`);
+    secretHtml += _sheetFieldTextarea('Objectifs', sec.goals, `${secPath}.goals`);
   }
 
   const notes = (node.result.notes || []);

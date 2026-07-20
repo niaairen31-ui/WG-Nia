@@ -100,3 +100,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 6895 | "PARLER" HANDOFF AMENDED + SCENE ROUTE SPLIT (BRIEF-0032-a, no schema change) | BRIEF-0032-a |  |
 | 6935 | TICKET-0033 (BRIEF-0033-a, no schema change) | BRIEF-0033-a |  |
 | 6956 | REGION MANIFEST CHECKPOINT — FULL EDITING (BRIEF-0033-b, no schema change) | BRIEF-0033-b |  |
+| 7001 | REGION REVIEW SHEET — FULL EDITING (BRIEF-0033-c, no schema change) | BRIEF-0033-c |  |

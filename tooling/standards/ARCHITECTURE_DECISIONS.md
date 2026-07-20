@@ -6998,6 +6998,59 @@ discarding typed content.
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## REGION REVIEW SHEET — FULL EDITING (BRIEF-0033-c, no schema change)
+
+**Locked: B1 — the zoom sheet is the region-review editing surface.**
+`regionRenderSheet` (`cockpit/index.html`) turns from a display-only
+`_sheetField` render into a form: every field oninput/onchange-mutates
+`regionDraft` directly (`node.result.draft.public.X` / `.secret.X`), the
+same direct-mutation pattern BRIEF-0033-b established for the manifest
+checkpoint. Faction/Lieu/parent reassignment writes the node's top-level
+`faction_local_id`/`location_local_id`/`parent_local_id` via `<select>`s
+built from the live draft (rejected entities included, suffixed
+"(rejeté)") — the accept/reject cascade still re-derives entirely at
+commit, unchanged (`_commit_region_*`, `cockpit/routes/regions.py`). No
+save button: the draft IS the state, and `genericModalClose()` now calls
+`regionRenderAll()` on every close so renames/reassignments reach the tree
+cards immediately (guarded on `regionDraft` truthy, so closing an
+unrelated modal — world create/delete, skill delete — while only a bare
+manifest/brief view is up never clobbers `regionRenderBriefForm`'s
+in-progress input).
+
+**Locked: F1 — faction roles editable in the sheet.** New
+`_regionSheetRolesHtml` mirrors the look of the NEW-faction roles editor
+(`authorRenderRolesEditor`) but binds to this faction's
+`draft.public.roles` array, not `authorFactionRolesDraft` — add/remove/
+reorder, committed in draft order via `write_faction_role`
+(BRIEF-0033-a). NPC knowledge rows and goals (long + shorts) get the same
+row-editor treatment, bound to `draft.secret.knowledge` /
+`draft.public.goals`.
+
+**No new draft fields, no backend change.** Every editable field already
+had a commit-side reader; nothing new was invented. Knowledge `level` is a
+plain text input, not a `KNOWLEDGE_LEVELS` select — that constant isn't
+exposed to the frontend today, and adding an endpoint for it was
+explicitly out of scope; the brief's documented fallback applies. The
+knowledge row's `is_secret` checkbox is editable but currently inert at
+commit: `_commit_region_npcs` hardcodes `is_secret=True` regardless of the
+draft value (pre-existing, unchanged) — a known, harmless discrepancy
+between what the sheet shows and what the commit writes, left as-is
+because fixing it is a backend change this step's scope forbids.
+
+**Multi-root tree rendering (incidental fix).** `regionRenderTree`
+previously rendered only the *first* location found with
+`parent_local_id == null`, matching the single-root invariant generation
+always produced. Parent reassignment (B1) can now legitimately produce a
+second such location (the "--" / root-fallback option, matching the
+commit's `None` -> no-parent resolution in
+`_region_resolve_location_parent`) — without this fix that location, and
+any NPCs hosted in it, would silently disappear from the review tree
+while remaining correct in the underlying draft and at commit. Fixed to
+render every top-level location, not just one.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*
