@@ -7536,6 +7536,70 @@ relationalize if it ever needs to query into them.
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## NPC LINK AGENT — PAIR PASS (BRIEF-0036-b, no schema change)
+
+Second step of TICKET-0036: one LLM call per NPC pair proposes relations
+and knowledge; code judges everything before staging into `link_batch_row`
+(still ephemeral — see BRIEF-0036-a above, unchanged by this step).
+
+**Coverage is code-owned, never the model's.** `enumerate_pairs` computes
+every unordered pair over the batch's roster, sorted ids, MINUS pairs that
+already hold a canon `relation` in either direction (F1) — one query over
+the whole id set, not N^2, reusing `_find_relation_pair`'s both-directions
+semantics. Excluded pairs are journaled (`pair_skipped_existing`) and never
+reach the model. `POST /api/link-batches/{id}/run-next` processes exactly
+one pending pair per call and recomputes "pending" (enumerated pairs minus
+pairs already holding any row in this batch) fresh every call — resume
+after a restart costs nothing extra.
+
+**A silence is never a verdict.** The model must return an explicit
+`{"verdict": "links"|"no_links", "links": [...]}`; a `no_links` verdict
+still writes one `link_batch_row` (`kind='no_links'`, `payload={}`) so it
+is visibly distinct from "not yet processed." A parse failure or a missing/
+invalid `verdict` writes NO row, journals `pair_parse_error` with the raw
+response, and surfaces as a 502 — the pair stays pending; a plain retry
+(`run-next` again) is the whole recovery path, no retry budget in code.
+
+**Per-item drop policy.** Within a `"links"` verdict, each item is
+validated independently: relation `type` against a vocabulary deliberately
+NARROWER than the creator-CRUD list (`connects_to`/`controls` excluded —
+those are location-map topology/control edges, structurally impossible for
+this agent to propose, asserted at import time in `link_author.py`),
+`direction` against `mutual|a_to_b|b_to_a`, `intensity`/`share_threshold`
+clamped 1-100, knowledge `level` against the canonical ladder
+(`writes.KNOWLEDGE_LEVELS`), `holder` against `a|b`. An invalid item is
+dropped alone (journaled `link_item_rejected` with the reason) — it never
+fails the whole pair.
+
+**D3 — the model proposes a holder, code alone derives a subject.** Every
+staged knowledge payload's `subject` is code-stamped `npc:{other_id}` in
+exactly one function (`_build_knowledge_row`); the model's JSON never
+carries a `subject` field and none of its output ever reaches that key.
+`tooling/verify/checks/link_agent_strata.py` gained a third guarantee: an
+AST scan asserts the `"subject"` key of a knowledge payload is built in a
+single function, as an f-string carrying the `npc:` literal, and never as
+a passthrough of the model's own `item.get(...)` output.
+
+**Creator-surface exception, named (RECON-0036 R-4).** Pair-context
+assembly (`build_pair_context`) never reads `character.secrets` — same
+structural exclusion as every other context assembler. It DOES read
+existing `knowledge` rows with `is_secret=TRUE` when they are already
+about the other member of the pair (matched on the same `npc:{id}` subject
+convention this step introduces), because the link agent's output is
+reviewed by the creator before any commit — the one context assembler
+allowed this inclusion, and only for this reason.
+
+**Prompt wiring.** New registry key `npc_link_pair` (surface="authoring",
+`world_scoped=False`, single global template like the other authoring
+prompts), seeded as `pt-npc-link-pair`. Call site
+`link_author.py:_load_pair_template`; the pair prompt substitutes
+`{world_name}` into the system text and `{a_sheet}`/`{b_sheet}`/
+`{shared_context}` into the user text, both via chained `.replace()` (H1) —
+never `.format()`.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*

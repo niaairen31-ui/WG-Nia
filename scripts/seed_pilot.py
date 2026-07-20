@@ -1473,6 +1473,43 @@ Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre 
              et motivé. En cas de doute, false.\
 """
 
+# NPC link agent — pair pass (TICKET-0036, BRIEF-0036-b). usage =
+# "npc_link_pair". world_id = NULL (single global template, like the other
+# authoring prompts). Calls go through link_author.run_pair, one call per
+# NPC pair; the parsed verdict/links are code-validated (closed vocab,
+# 1-100 clamps, D3 subject stamp) before staging into link_batch_row —
+# writes no canon at any stage. {a_sheet}/{b_sheet}/{shared_context} are
+# code-assembled by link_author.build_pair_context (RECON-0036 R-4:
+# character.secrets never enters; existing is_secret=TRUE knowledge about
+# the OTHER pair member is a named creator-surface exception).
+NPC_LINK_PAIR_SYSTEM_PROMPT = """\
+You are the world-building assistant for the world {world_name}.
+Two NPCs may or may not know each other. Propose the links between them, \
+or none.\
+"""
+
+NPC_LINK_PAIR_USER_TEMPLATE = """\
+NPC A: {a_sheet}
+NPC B: {b_sheet}
+Shared context: {shared_context}
+
+Reply ONLY with JSON:
+{"verdict": "links" or "no_links", "links": [ ... ]}
+Each link is one of:
+{"kind":"relation","type":<one of: ally, enemy, debt, fear, fascination, \
+shared_secret, instrumentalizes, interest, indifference, rejection, \
+passive_attention, other>,"direction":"mutual"|"a_to_b"|"b_to_a", \
+"intensity":1-100,"visible_to_b":true|false,"notes":"..."}
+{"kind":"knowledge","holder":"a"|"b","level":<unaware, rumor, suspicious, \
+partial, knows, fully_understands>,"content":"what the holder knows about \
+the other","source":"how they learned it","is_incorrect":true|false, \
+"is_secret":true|false,"share_threshold":1-100}
+Prefer asymmetry and imperfection where the sheets justify it: a relation \
+one side hides (visible_to_b false), a wrong belief (is_incorrect), a \
+guarded secret (is_secret). If nothing plausibly connects them, verdict \
+no_links with an empty links array.\
+"""
+
 
 def seed(session: Session) -> None:
     # ----- world -------------------------------------------------------------
@@ -1841,6 +1878,23 @@ def seed(session: Session) -> None:
         system_prompt=REGION_MANIFEST_TOPUP_SYSTEM_PROMPT,
         user_template=REGION_MANIFEST_TOPUP_USER_TEMPLATE,
         variables=["concept", "factions_block", "locations_block", "existing_npcs_block", "requests_block"],
+        destination="local",
+    )
+
+    # ----- prompt template: NPC link agent — pair pass (BRIEF-0036-b) --------
+    # usage = "npc_link_pair". world_id = NULL. Calls go through
+    # link_author.run_pair, one LLM call per NPC pair; code validates the
+    # parsed verdict/links (closed vocab, clamps, D3 subject stamp) before
+    # staging into link_batch_row. Writes no canon at any stage.
+    upsert_prompt_template(
+        session,
+        "pt-npc-link-pair",
+        world_id=None,
+        name="Agent de liaison PNJ — passe par paire",
+        usage="npc_link_pair",
+        system_prompt=NPC_LINK_PAIR_SYSTEM_PROMPT,
+        user_template=NPC_LINK_PAIR_USER_TEMPLATE,
+        variables=["world_name", "a_sheet", "b_sheet", "shared_context"],
         destination="local",
     )
 

@@ -1,12 +1,13 @@
-"""NPC link agent — batch staging lifecycle routes (TICKET-0036,
-BRIEF-0036-a).
+"""NPC link agent — batch staging lifecycle and pair-pass routes
+(TICKET-0036, BRIEF-0036-a, BRIEF-0036-b).
 
 Creator-surface only. Writes NO canon: `link_batch`/`link_batch_row` are
 ephemeral stratum (models/ephemeral.py NOTE), never a `proposed_mutation`,
-never routed through `writes/`. The pair pass (0036-b) and the coherence
-pass / commit endpoint (0036-c) are NOT built here — this module only
-resolves the roster preview and manages the batch's open/abandoned
-lifecycle, one open batch per world at a time.
+never routed through `writes/`. The coherence pass / commit endpoint
+(0036-c) is NOT built here — this module resolves the roster preview,
+manages the batch's open/abandoned lifecycle (one open batch per world at
+a time), and drives the pair pass one pair per call (`run-next`); the
+frontend loop (0036-d) drives repetition, no server-side loop.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ...db import get_session
-from ...link_author import journal_append, resolve_roster
+from ...link_author import journal_append, pending_pairs, resolve_roster, run_pair
 from ...models import LinkBatch, LinkBatchRow
 from .. import crud as _crud
 
@@ -117,3 +118,28 @@ def abandon_link_batch(batch_id: str, db: Session = Depends(get_session)) -> dic
     db.refresh(batch)
     journal_append(batch.id, {"event": "batch_abandoned"})
     return batch.model_dump()
+
+
+@router.post("/api/link-batches/{batch_id}/run-next")
+def run_next_pair(batch_id: str, db: Session = Depends(get_session)) -> dict:
+    """Process exactly ONE pending pair (BRIEF-0036-b) and return progress.
+    Pending is recomputed from scratch every call (F1 exclusion + rows
+    already staged in this batch) — resume-after-restart is free. Returns
+    {done: true} once nothing is pending; refuses on a non-open batch."""
+    batch = db.get(LinkBatch, batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail=f"link batch {batch_id!r} not found")
+    if batch.status != "open":
+        raise HTTPException(status_code=409, detail=f"link batch {batch_id!r} is not open")
+
+    pending = pending_pairs(db, batch)
+    if not pending:
+        return {"done": True}
+
+    a_id, b_id = pending[0]
+    result = run_pair(db, batch, a_id, b_id)
+    return {
+        "pairs_done": batch.pairs_done,
+        "pairs_total": batch.pairs_total,
+        "last_pair": {"a": a_id, "b": b_id, "verdict": result["verdict"], "row_count": result["row_count"]},
+    }

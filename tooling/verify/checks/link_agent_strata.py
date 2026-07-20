@@ -1,8 +1,9 @@
-"""G1 check: NPC link agent staging strata (TICKET-0036, BRIEF-0036-a).
+"""G1 check: NPC link agent staging strata (TICKET-0036, BRIEF-0036-a,
+BRIEF-0036-b).
 
 `link_batch` / `link_batch_row` are EPHEMERAL stratum (models/ephemeral.py
 NOTE): never canon, never a `proposed_mutation`, never creator-CRUD-reviewed.
-Two structural guarantees, both fail-closed:
+Three structural guarantees, all fail-closed:
 
   1. `link_batch`/`link_batch_row` appear in NEITHER
      `canon_write_policy.txt` NOR any `src/world_engine/writes/` module —
@@ -14,6 +15,11 @@ Two structural guarantees, both fail-closed:
      `models/ephemeral.py` (definition), `models/__init__.py` (package
      re-export surface, same as every other model), and `cockpit/app.py`
      (the retention purge).
+  3. D3 (BRIEF-0036-b): every staged knowledge payload's "subject" key is
+     built in exactly ONE function in `link_author.py`, as a code-stamped
+     f-string carrying the `npc:` literal prefix — never a passthrough of
+     the model's own `item.get(...)` output. The model proposes a
+     "holder"; code alone derives "subject".
 
 Vacuous-proof: if the policy file or the model definitions are missing,
 that is a FAILURE, not a silent pass — there is nothing to structurally
@@ -32,6 +38,7 @@ SRC = ROOT / "src"
 WRITES_DIR = SRC / "world_engine" / "writes"
 POLICY_FILE = ROOT / "tooling" / "verify" / "canon_write_policy.txt"
 MODELS_FILE = SRC / "world_engine" / "models" / "ephemeral.py"
+LINK_AUTHOR_FILE = SRC / "world_engine" / "link_author.py"
 
 STRATA_TABLES = ("link_batch", "link_batch_row")
 STRATA_MODELS = {"LinkBatch", "LinkBatchRow"}
@@ -126,12 +133,75 @@ def _check_reference_scope() -> bool:
     return found_any
 
 
+class _SubjectKeyVisitor(ast.NodeVisitor):
+    """Finds every dict literal `"subject": <value>` and tags it with its
+    innermost enclosing function name."""
+
+    def __init__(self) -> None:
+        self.func_stack: list[str] = []
+        self.hits: list[tuple[str, ast.AST]] = []
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.func_stack.append(node.name)
+        self.generic_visit(node)
+        self.func_stack.pop()
+
+    def visit_Dict(self, node: ast.Dict) -> None:
+        for key, value in zip(node.keys, node.values):
+            if isinstance(key, ast.Constant) and key.value == "subject":
+                fname = self.func_stack[-1] if self.func_stack else "<module>"
+                self.hits.append((fname, value))
+        self.generic_visit(node)
+
+
+def _check_knowledge_subject_stamp() -> None:
+    """D3: the "subject" key of a staged knowledge payload must be built in
+    exactly one function, as an f-string carrying the `npc:` stamp — never
+    a passthrough of the model's own `item.get(...)` output."""
+    if not LINK_AUTHOR_FILE.exists():
+        fail(f"{LINK_AUTHOR_FILE} not found — D3 subject stamp cannot be verified")
+        return
+
+    tree = ast.parse(LINK_AUTHOR_FILE.read_text(encoding="utf-8"), filename=str(LINK_AUTHOR_FILE))
+    visitor = _SubjectKeyVisitor()
+    visitor.visit(tree)
+
+    if not visitor.hits:
+        fail(f"{LINK_AUTHOR_FILE}: no 'subject' key construction found for a knowledge payload — vacuous proof, not a pass")
+        return
+
+    functions = {fname for fname, _ in visitor.hits}
+    if len(functions) != 1:
+        fail(
+            f"{LINK_AUTHOR_FILE}: 'subject' key constructed in multiple functions "
+            f"{sorted(functions)} — D3 stamp must be a single chokepoint"
+        )
+
+    for fname, value_node in visitor.hits:
+        if not isinstance(value_node, ast.JoinedStr):
+            fail(f"{LINK_AUTHOR_FILE}:{value_node.lineno} in {fname}(): 'subject' value is not an f-string — D3 stamp must be code-derived")
+            continue
+        literal_parts = [v.value for v in value_node.values if isinstance(v, ast.Constant)]
+        if not any(part.startswith("npc:") for part in literal_parts):
+            fail(f"{LINK_AUTHOR_FILE}:{value_node.lineno} in {fname}(): 'subject' f-string does not carry the 'npc:' stamp literal")
+        for sub in ast.walk(value_node):
+            if (
+                isinstance(sub, ast.Call)
+                and isinstance(sub.func, ast.Attribute)
+                and sub.func.attr == "get"
+                and isinstance(sub.func.value, ast.Name)
+                and sub.func.value.id == "item"
+            ):
+                fail(f"{LINK_AUTHOR_FILE}:{value_node.lineno} in {fname}(): 'subject' reads item.get(...) — the model must never supply the subject")
+
+
 def main() -> None:
     _check_policy_file()
     _check_writes_dir()
     found_any = _check_reference_scope()
     if not FAILURES and not found_any:
         fail("zero LinkBatch/LinkBatchRow references found anywhere — vacuous proof, not a pass")
+    _check_knowledge_subject_stamp()
     _report_and_exit()
 
 

@@ -109,3 +109,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 7370 | DOOR-GATED TRAVEL ENDPOINT (BRIEF-0034-c, no schema change) | BRIEF-0034-c |  |
 | 7434 | CANVAS DOORS, SPAWN-AT-DOOR AND THE TRAVEL AFFORDANCE (BRIEF-0034-d, no schema change) | BRIEF-0034-d |  |
 | 7489 | NPC LINK AGENT — STAGING STRATA, RETENTION, JOURNAL (BRIEF-0036-a, schema v1.82) | BRIEF-0036-a | v1.82 |
+| 7539 | NPC LINK AGENT — PAIR PASS (BRIEF-0036-b, no schema change) | BRIEF-0036-b |  |
