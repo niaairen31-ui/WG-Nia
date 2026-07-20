@@ -119,6 +119,60 @@ def check_distance_3_4_5() -> None:
         fail(f"distance: expected 5.0 on a 3-4-5 triangle, got {d}")
 
 
+# spawn_point cases (TICKET-0034, BRIEF-0034-b). Same restart-determinism
+# proxy shape as EXPECTED above: pinned literal for a fixed
+# (door_id, anchor, BOUNDS, [BLOCK]) — a salted-hash regression would
+# flip it on the very next process.
+SPAWN_ANCHOR = (20.0, 15.0)
+SPAWN_EXPECTED = (20.59911422942053, 15.03259049103416)
+
+
+def check_spawn_point_restart_determinism_proxy() -> None:
+    point = placement.spawn_point("door-spawn-basic", SPAWN_ANCHOR, BOUNDS, [BLOCK])
+    if not (close(point[0], SPAWN_EXPECTED[0]) and close(point[1], SPAWN_EXPECTED[1])):
+        fail(
+            f"spawn_point restart-determinism proxy: expected {SPAWN_EXPECTED}, got {point} "
+            "— a salted-hash regression would flip a pinned coordinate like this"
+        )
+
+
+def check_spawn_point_offset() -> None:
+    point = placement.spawn_point("door-spawn-basic", SPAWN_ANCHOR, BOUNDS, [BLOCK])
+    d = placement.distance(SPAWN_ANCHOR, point)
+    if not close(d, placement.DOOR_SPAWN_OFFSET, tol=1e-6):
+        fail(f"spawn_point offset: expected {placement.DOOR_SPAWN_OFFSET} from anchor, got {d}")
+
+
+def check_spawn_point_beside_wall() -> None:
+    anchor = (10.0, 7.3)  # just outside BLOCK's bottom edge (y=7)
+    point = placement.spawn_point("door-wall", anchor, BOUNDS, [BLOCK])
+    if geometry.point_in_polygon(point, BLOCK):
+        fail(f"spawn_point beside wall: {point} lands inside BLOCK")
+
+
+def check_spawn_point_bounds_corner() -> None:
+    anchor = (0.2, 0.2)  # near the (0, 0) corner of BOUNDS
+    point = placement.spawn_point("door-corner", anchor, BOUNDS, [BLOCK])
+    width, height = BOUNDS
+    if not (0.0 <= point[0] <= width and 0.0 <= point[1] <= height):
+        fail(f"spawn_point bounds corner: {point} escapes bounds {BOUNDS}")
+
+
+def check_spawn_point_saturation() -> None:
+    anchor = (10.0, 10.0)
+    ring_block: geometry.Polygon = [
+        (anchor[0] - 2.0, anchor[1] - 2.0), (anchor[0] + 2.0, anchor[1] - 2.0),
+        (anchor[0] + 2.0, anchor[1] + 2.0), (anchor[0] - 2.0, anchor[1] + 2.0),
+    ]
+    try:
+        point = placement.spawn_point("door-sat", anchor, BOUNDS, [ring_block])
+    except Exception as exc:  # pragma: no cover - the assertion IS the guard
+        fail(f"spawn_point saturation: raised on a fully-boxed anchor: {exc!r}")
+        return
+    if point != anchor:
+        fail(f"spawn_point saturation: expected the anchor itself {anchor}, got {point}")
+
+
 CASES = [
     check_determinism_across_calls,
     check_restart_determinism_proxy,
@@ -127,6 +181,11 @@ CASES = [
     check_clustering,
     check_saturation_totality,
     check_distance_3_4_5,
+    check_spawn_point_restart_determinism_proxy,
+    check_spawn_point_offset,
+    check_spawn_point_beside_wall,
+    check_spawn_point_bounds_corner,
+    check_spawn_point_saturation,
 ]
 
 

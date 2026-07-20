@@ -20,6 +20,12 @@ model calls. The previously-cited `POST /api/conversations/start` created
 gathering-less conversations, invisible to `_active_conv_for_gathering`;
 it remains for 1:1 pilot flows only. Zero server coupling — this is an
 advisory gate (G-A), not a structural one.
+
+Door flow (TICKET-0034, BRIEF-0034-b): `doors_in_range` (folded into this
+module's proximity response) feeds `GET /api/spatial/spawn`, which feeds
+`POST /api/spatial/travel` (BRIEF-0034-c). `/api/spatial/travel` lives in
+`routes/play.py`, not here, precisely BECAUSE it writes and this module's
+zero-write register forbids it.
 """
 
 from __future__ import annotations
@@ -35,7 +41,7 @@ from ... import geometry, placement
 from ...db import get_session
 from ...models import Character, Location
 from .. import crud as _crud
-from .. import spatial_presence
+from .. import spatial_doors, spatial_presence
 
 router = APIRouter()
 
@@ -166,4 +172,25 @@ def spatial_proximity(
         if d <= placement.INTERACTION_RANGE:
             in_range.append({"npc_id": npc["id"], "name": npc["name"], "distance": round(d, 3)})
     in_range.sort(key=lambda entry: entry["distance"])
-    return {"in_range": in_range, "threshold": placement.INTERACTION_RANGE}
+    return {
+        "in_range": in_range,
+        "threshold": placement.INTERACTION_RANGE,
+        "doors_in_range": spatial_doors.doors_in_range(location.id, world_id, position, db),
+        "door_threshold": placement.DOOR_RANGE,
+    }
+
+
+@router.get("/api/spatial/spawn")
+def spatial_spawn(
+    location_id: str = Query(...),
+    from_location_id: Optional[str] = Query(None),
+    player_id: Optional[str] = Query(None),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Where the player appears on arriving in a spatial location
+    (TICKET-0034, F1). Read-only: the handler performs zero writes of any
+    kind. `from_location_id` is a transient client-carried hint (G1) —
+    the server persists no position and no last-location; an absent,
+    stale or wrong origin costs a center spawn, never an error."""
+    world_id, location = _resolve_spatial_location(location_id, player_id, db)
+    return spatial_doors.resolve_spawn(location.id, world_id, from_location_id, db)

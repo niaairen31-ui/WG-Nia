@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0034-spatial-doors",
-  "when": "2026-07-20T12:53:54.897440+00:00",
+  "when": "2026-07-20T13:06:11.165151+00:00",
   "green": false,
   "checks": [
     {
@@ -15,13 +15,13 @@
     },
     {
       "check": "door_terminal.py",
-      "status": "MISSING",
-      "msg": "C:\\Users\\Utilisateur\\Documents\\World-genrator\\tooling\\verify\\checks\\door_terminal.py not found"
+      "status": "PASS",
+      "msg": "PASS: door_terminal \u2014 door.id carries no FK, spatial_doors.py implements no math"
     },
     {
       "check": "placement_unit.py",
       "status": "PASS",
-      "msg": "PASS: placement_unit \u2014 all 7 derive_positions/distance cases hold"
+      "msg": "PASS: placement_unit \u2014 all 12 derive_positions/distance cases hold"
     },
     {
       "check": "module_budget.py",
