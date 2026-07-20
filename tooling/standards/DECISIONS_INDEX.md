@@ -101,3 +101,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 6935 | TICKET-0033 (BRIEF-0033-a, no schema change) | BRIEF-0033-a |  |
 | 6956 | REGION MANIFEST CHECKPOINT — FULL EDITING (BRIEF-0033-b, no schema change) | BRIEF-0033-b |  |
 | 7001 | REGION REVIEW SHEET — FULL EDITING (BRIEF-0033-c, no schema change) | BRIEF-0033-c |  |
+| 7054 | REGION REVIEW — PRE-COMMIT LOCATION GRAPH (BRIEF-0033-d, no schema change) | BRIEF-0033-d |  |

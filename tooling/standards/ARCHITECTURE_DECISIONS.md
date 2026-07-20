@@ -7051,6 +7051,41 @@ render every top-level location, not just one.
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## REGION REVIEW — PRE-COMMIT LOCATION GRAPH (BRIEF-0033-d, no schema change)
+
+**Locked: C1 — on-demand, read-only viewport over the draft cascade.**
+`regionRenderAll` (`cockpit/index.html`) gains a `regionLocGraphOpen`
+toggle (hidden by default) and a `region-lieux-graph`/
+`region-lieux-graph-svg` container, reusing the Lieux tab's SVG renderer
+functions (`graphAutoPlace`, the node/edge markup shape) rather than
+Cytoscape or a new rendering path. Fed entirely by client-held draft state
+(`regionDraft`, `regionCascade()`, `regionAccepted`, `regionConfirmedLinks`)
+— no new backend endpoint, no new draft key.
+
+**Adapter mirrors backend link resolution, intra-region half only.**
+`regionLocGraphData()` draws hierarchy edges from `regionCascade()`'s
+already-computed `effectiveParent` map (no re-implementation of the
+fallback-to-root rule) and connection edges from CONFIRMED `sensed_links`
+of kind `connection`, matched to another accepted draft location by
+trim+lowercase name equality — the same intra-region half
+`_region_resolve_link_target` (`cockpit/routes/regions.py`) applies before
+falling back to a DB scan. Pre-commit there is nothing to fall back to, so
+the DB half is intentionally not replicated client-side; an unresolved or
+self-referential name simply produces no edge rather than a synthesized
+one, keeping the viewport from ever showing a connection the server
+wouldn't also draw.
+
+**Strictly read-only.** No handlers are wired for edge creation, edge
+deletion, or position persistence (`graphCreateEdge`, `graphEdgeClick`,
+`graphPersistPos` are never called from this path); node drag is omitted
+entirely (static circular layout). `regionRestart()` and
+`_regionWorldReset()` both reset `regionLocGraphOpen` to `false` alongside
+the existing region state resets, so a fresh draft or a world switch never
+inherits a stale open graph.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*

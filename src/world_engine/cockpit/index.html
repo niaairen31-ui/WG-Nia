@@ -3940,6 +3940,7 @@ function _regionWorldReset() {
   regionManifestSkipped   = [];
   regionAccepted          = {};
   regionConfirmedLinks    = {};
+  regionLocGraphOpen      = false;
 }
 
 function _registreWorldReset() { _registreEntitiesLoaded = false; }
@@ -5746,6 +5747,7 @@ let regionManifestSkipped = [];
 let regionAccepted    = {};
 let regionConfirmedLinks = {};
 let regionCommitResult = null;
+let regionLocGraphOpen = false;
 
 const REGION_FACTION_COLORS = ['#e0703c', '#3c91e0', '#5cc06a', '#c95cc0', '#d4b23c', '#6a7bd1', '#c0505c', '#3cc0a8'];
 
@@ -6047,6 +6049,7 @@ function regionRestart() {
   regionAccepted        = {};
   regionConfirmedLinks  = {};
   regionCommitResult    = null;
+  regionLocGraphOpen    = false;
   regionRenderBriefForm();
 }
 
@@ -6236,6 +6239,14 @@ function regionRenderAll() {
       <div class="field-section-title">Écartés à la génération</div>
       ${skipped.map(s => `<div style="font-size:11px; color:var(--muted)">${esc(s.stage)} · ${esc(s.name || '?')} — ${esc(s.reason || '')}</div>`).join('')}
     </div>` : ''}
+    <div style="margin-bottom:10px">
+      <button class="btn-icon" onclick="regionToggleLocGraph()">${regionLocGraphOpen ? 'Masquer le graphe des lieux' : 'Voir le graphe des lieux'}</button>
+      <div id="region-lieux-graph" style="display:${regionLocGraphOpen ? 'block' : 'none'}; margin-top:8px;">
+        <div class="lieux-graph-head"><span>Carte des lieux (aperçu pré-commit)</span></div>
+        <svg id="region-lieux-graph-svg" viewBox="0 0 960 480" width="100%" height="300"
+             style="display:block; background:var(--bg)"></svg>
+      </div>
+    </div>
     <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start">
       <div style="flex:2; min-width:320px">
         <div class="field-section-title">Lieux &amp; PNJ</div>
@@ -6248,6 +6259,70 @@ function regionRenderAll() {
     </div>
     <div id="region-commit-status">${regionRenderCommitResult()}</div>
   `;
+  if (regionLocGraphOpen) regionLocGraphRender();
+}
+
+function regionToggleLocGraph() {
+  regionLocGraphOpen = !regionLocGraphOpen;
+  regionRenderAll();
+}
+
+/** Pre-commit location graph adapter (C1, BRIEF-0033-d) — draft-fed, no IDs,
+ * read-only. Mirrors the intra-region half of _region_resolve_link_target
+ * (regions.py) for confirmed connection links: trim+lowercase name match,
+ * no DB fallback (nothing committed yet). */
+function regionLocGraphData() {
+  const accepted = regionDraft.locations.filter(l => regionIsAccepted(l.local_id));
+  const nodes = accepted.map(l => ({ id: l.local_id, name: l.result.draft.public.name }));
+
+  const cascade = regionCascade();
+  const hierEdges = [];
+  for (const l of accepted) {
+    const parent = cascade.effectiveParent[l.local_id];
+    if (parent != null) hierEdges.push({ id: `h-${l.local_id}`, entity_a_id: parent, entity_b_id: l.local_id, kind: 'hierarchy' });
+  }
+
+  const byName = new Map(accepted.map(l => [(l.result.draft.public.name || '').trim().toLowerCase(), l.local_id]));
+  const connEdges = [];
+  for (const l of accepted) {
+    const links = l.result.draft.secret.sensed_links || [];
+    links.forEach((link, idx) => {
+      if (link.kind !== 'connection') return;
+      if (!regionIsLinkConfirmed(regionLinkKey(l.local_id, idx))) return;
+      const targetName = (link.name || '').trim().toLowerCase();
+      if (!targetName) return;
+      const targetId = byName.get(targetName);
+      if (!targetId || targetId === l.local_id) return;
+      connEdges.push({ id: `c-${l.local_id}-${idx}`, entity_a_id: l.local_id, entity_b_id: targetId, kind: 'connection' });
+    });
+  }
+
+  return { nodes, edges: [...hierEdges, ...connEdges] };
+}
+
+function regionLocGraphRender() {
+  const svg = document.getElementById('region-lieux-graph-svg');
+  if (!svg) return;
+  const data = regionLocGraphData();
+  const placed = graphAutoPlace(data.nodes);
+  const nodeMap = Object.fromEntries(placed.map(n => [n.id, n]));
+
+  const edgesHTML = data.edges.map(e => {
+    const a = nodeMap[e.entity_a_id], b = nodeMap[e.entity_b_id];
+    if (!a || !b) return '';
+    const dash = e.kind === 'connection' ? ' stroke-dasharray="4"' : '';
+    return `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"
+      stroke="var(--muted)" stroke-width="2" stroke-linecap="round"${dash} />`;
+  }).join('');
+
+  const nodesHTML = placed.map(n => `<g>
+      <circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${NODE_R}" fill="var(--card)" stroke="var(--border)" stroke-width="1.5" />
+      <text x="${n.x.toFixed(1)}" y="${(n.y + NODE_R + 13).toFixed(1)}"
+        text-anchor="middle" fill="var(--text)" font-size="11"
+        style="pointer-events:none;user-select:none">${esc(n.name)}</text>
+    </g>`).join('');
+
+  svg.innerHTML = edgesHTML + nodesHTML;
 }
 
 async function regionCommit() {
