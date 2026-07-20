@@ -99,6 +99,14 @@ def _affinity_tier(intensity: int) -> tuple[str, str]:
 # (e.g. "hidden", "secret") is deliberately withheld from the Setting section.
 _SAFE_SUBCULTURE_KEYS = ("values",)
 
+# Structural exclusion shared by every world-wide relation scan (CLAUDE.md:
+# "connects_to is location map topology, never a social signal" / "controls"
+# is a faction-control edge, also never a social signal). Single source of
+# truth for cockpit.crud.relations.get_global_relation_graph /
+# get_character_relation_graph AND link_author.py's F1 pair exclusion and
+# coherence-pass canon serialization (BRIEF-0036-c) — never re-typed.
+RELATION_GRAPH_EXCLUDED_TYPES = ("connects_to", "controls")
+
 # Directions under which `entity_a` / `entity_b` is the perceiving side.
 _A_PERCEIVES = ("a_to_b", "mutual")
 _B_PERCEIVES = ("b_to_a", "mutual")

@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session as DbSession, select
 
+from ...context import RELATION_GRAPH_EXCLUDED_TYPES as _RELATION_GRAPH_EXCLUDED_TYPES
 from ...db import get_session
 from ...entity_author import generate_npc_goals
 from ...gathering import close_open_memberships
@@ -166,9 +167,6 @@ def delete_relation(relation_id: str, db: DbSession = Depends(get_session)) -> d
     db.delete(rel)
     db.commit()
     return {"deleted": True, "id": relation_id}
-
-
-_RELATION_GRAPH_EXCLUDED_TYPES = ("connects_to", "controls")
 
 
 def _relation_graph_nodes(rows) -> list[dict]:

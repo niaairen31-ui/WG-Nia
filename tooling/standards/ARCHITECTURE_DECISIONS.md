@@ -7600,6 +7600,101 @@ never `.format()`.
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## NPC LINK AGENT — COHERENCE PASS AND COMMIT (BRIEF-0036-c, no schema change)
+
+Third and final step of TICKET-0036: a coherence pass over the staged
+batch AND the full canon character graph (E1-tout-le-graphe), producing
+pre-validated one-click patches (W-ok), plus the commit endpoint that
+turns accepted staged rows into canon. `link_batch`/`link_batch_row` stay
+ephemeral (BRIEF-0036-a, unchanged); `coherence_findings` (shipped at
+0036-a) is the only column this step writes to on `link_batch`.
+
+**Two-phase contract, phase 1 never blocked by phase 2.** Mechanical
+findings (`_mechanical_findings`, code, no model call) always run first
+and are persisted even if the model call or parse fails — duplicate
+staged pairs (same pair + kind + type/subject discriminator), a staged
+relation whose pair gained a canon relation since generation (F1 re-run,
+`_canon_relation_exists`), payload vocab/bounds defense-in-depth vs
+0036-b, and a D3 subject-stamp mismatch. Model findings (phase 2) run
+`link_context.serialize_staged_batch`/`serialize_canon_graph` through the
+`npc_link_coherence` template, parsed via `llm_parse.extract_object` only.
+A parse failure or malformed `findings` key journals
+`coherence_parse_error`, persists the phase-1 findings, and raises 502 —
+`batch.coherence_status` stays NULL (coherence has not "run" until phase 2
+also succeeds), so a failed pass cannot silently unlock commit.
+
+**R-1 budget — truncation is a row-boundary fact, not a best-effort
+guess.** `serialize_canon_graph` sorts canon relations (structural
+exclusion of `connects_to`/`controls`, same `context.RELATION_GRAPH_EXCLUDED_TYPES`
+constant now shared with the relation-graph endpoints — extracted out of
+`cockpit/crud/relations.py` at this step, never re-typed) and knowledge
+rows (subject `npc:{id}` OR `entity_id` in the roster) by how many
+endpoints touch the batch's NPC roster, then adds rows one at a time
+until the next row would exceed `CANON_SERIAL_BUDGET` (24000 chars) —
+truncation always lands between rows, never mid-JSON. A truncated pass
+sets `coherence_status='partial'` and journals `coherence_truncated`;
+Nia may still commit a partial pass (the refusal at commit is only for
+"never ran").
+
+**W — the patch whitelist gate.** Every model finding's `patch` is
+validated BEFORE storage (`_validate_patch`) and again at apply time
+(`apply_finding`'s time-of-use re-check, same function): target exists
+(staged row of this batch, not rejected; or a canon relation/knowledge row
+of this world), field is on the whitelist (staged: any existing payload
+key EXCEPT identity fields — ids, `mode`, `subject`, session bookkeeping,
+never patchable, on either side, not just canon; canon relation:
+`intensity`/`notes`/`type`/`direction`/`visible_to_b`; canon knowledge:
+`level`/`content`/`source`/`is_incorrect`/`is_secret`/`share_threshold`),
+and `new_value` passes the same vocab/clamp validation as 0036-b's item
+builders (`_coerce_patch_value`) — a canon relation `type` patch is
+checked against the narrower link-agent vocabulary, never the full
+creator vocabulary, so a patch can never introduce `connects_to`/
+`controls` as a "social" edge. Invalid -> `validation='rejected'` +
+`validation_reason`, `patch` stripped to `null`, finding kept as a flag —
+never silently dropped. The UI contract (0036-d): only
+`validation='valid'` findings with a non-null `patch` are ever
+button-eligible.
+
+**Apply and commit are the ONLY places this ticket writes canon**, and
+both do so exclusively through `write_relation(mode="set", ...)` /
+`write_knowledge(mode="update", ...)` — never a bespoke write. A canon
+patch merges the finding's one field into the row's CURRENT other fields
+before calling the helper (so an untouched field is never silently reset
+to a default); the helper's own history-snapshot-before-overwrite
+behavior (history is sacred) is unchanged and untouched by this step.
+Commit re-runs the F1 check per relation row immediately before writing
+(`_canon_relation_exists`, RECON-0036 s.9) — a pair that gained a canon
+relation since generation, including one gained by an EARLIER row in the
+same commit transaction, is skipped and surfaced in `{skipped: [...]}`,
+never silently double-written. Knowledge rows carry no such conflict risk
+and always write. Commit refuses (409) when `coherence_status` is NULL;
+`'partial'` is an allowed commit, `'ran'` is the ordinary case.
+
+**Structural guarantee, extended (`link_agent_strata.py`).** A fourth
+AST check: neither `cockpit/routes/link_agent.py` nor `link_author.py`
+may contain a direct `db.add(Relation(...))` / `db.add(Knowledge(...))`
+or raw SQL INSERT/UPDATE touching `relation`/`knowledge` — the coherence
+patch and commit paths are structurally forced through the two
+chokepoints. `link_context.py` (new, serialization only — no writes) was
+added to the reference-scope allowlist alongside the existing four files.
+
+**Prompt wiring.** New registry key `npc_link_coherence` (surface=
+"authoring", `world_scoped=True`, unlike `npc_link_pair`'s `False` —
+canon serialization is genuinely per-world), seeded as
+`pt-npc-link-coherence`. Call site
+`link_author.py:_load_coherence_template`; substitutes `{world_name}`
+into the system text and `{staged_serialized}`/`{canon_serialized}`/
+`{truncation_marker}` into the user text via chained `.replace()` (H1).
+
+Routes: `POST /api/link-batches/{id}/coherence`,
+`POST /api/link-batches/{id}/findings/{index}/apply`,
+`POST /api/link-batches/{id}/commit` — all thin wrappers in
+`cockpit/routes/link_agent.py` delegating to `link_author.run_coherence`/
+`apply_finding`/`commit_batch`.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*

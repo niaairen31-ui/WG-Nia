@@ -1510,6 +1510,39 @@ guarded secret (is_secret). If nothing plausibly connects them, verdict \
 no_links with an empty links array.\
 """
 
+# NPC link agent — coherence pass (TICKET-0036, BRIEF-0036-c). usage =
+# "npc_link_coherence". world_id = NULL (single global template, like the
+# other authoring prompts). Called once per coherence run
+# (link_author.run_coherence) over the staged batch AND the full canon
+# character graph ({staged_serialized}/{canon_serialized}, code-assembled by
+# link_context.py, RECON-0036 E1-tout-le-graphe). Findings are code-
+# validated (target exists, field on the patch whitelist, value passes the
+# same vocab/clamps as BRIEF-0036-b) before any patch button is renderable —
+# an invalid finding is kept as a flag, never silently dropped.
+NPC_LINK_COHERENCE_SYSTEM_PROMPT = """\
+You review a proposed batch of NPC relations and knowledge for the world \
+{world_name}, against the existing canon graph. Find contradictions and \
+implausibilities. Do NOT invent new links.\
+"""
+
+NPC_LINK_COHERENCE_USER_TEMPLATE = """\
+Staged batch: {staged_serialized}
+Canon graph: {canon_serialized}{truncation_marker}
+
+Reply ONLY with JSON:
+{"findings": [ ... ]}
+Each finding:
+{"target": {"scope": "staged"|"canon", "id": "<row id or \
+relation/knowledge id, copied exactly from the input>"},"problem": \
+"one sentence","patch": null or {"field": "<field name>", "new_value": \
+...},"rationale": "one sentence"}
+A finding with patch null is a flag for the creator with no proposed fix. \
+Typical problems: mutual hostility alongside intimate secret knowledge \
+with no shared_secret link; A knows B's secret but B's sheet says nobody \
+does; intensity contradicting notes; duplicate or near-duplicate staged \
+rows; staged row contradicting a canon relation.\
+"""
+
 
 def seed(session: Session) -> None:
     # ----- world -------------------------------------------------------------
@@ -1895,6 +1928,23 @@ def seed(session: Session) -> None:
         system_prompt=NPC_LINK_PAIR_SYSTEM_PROMPT,
         user_template=NPC_LINK_PAIR_USER_TEMPLATE,
         variables=["world_name", "a_sheet", "b_sheet", "shared_context"],
+        destination="local",
+    )
+
+    # ----- prompt template: NPC link agent — coherence pass (BRIEF-0036-c) ---
+    # usage = "npc_link_coherence". world_id = NULL. One call per coherence
+    # run over the staged batch + full canon character graph; findings are
+    # code-validated (target exists, whitelisted field, clamped value)
+    # before any patch is renderable as a one-click button.
+    upsert_prompt_template(
+        session,
+        "pt-npc-link-coherence",
+        world_id=None,
+        name="Agent de liaison PNJ — passe de cohérence",
+        usage="npc_link_coherence",
+        system_prompt=NPC_LINK_COHERENCE_SYSTEM_PROMPT,
+        user_template=NPC_LINK_COHERENCE_USER_TEMPLATE,
+        variables=["world_name", "staged_serialized", "canon_serialized", "truncation_marker"],
         destination="local",
     )
 

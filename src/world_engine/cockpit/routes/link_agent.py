@@ -1,13 +1,14 @@
-"""NPC link agent — batch staging lifecycle and pair-pass routes
-(TICKET-0036, BRIEF-0036-a, BRIEF-0036-b).
+"""NPC link agent — batch staging lifecycle, pair-pass, coherence pass and
+commit routes (TICKET-0036, BRIEF-0036-a/b/c).
 
-Creator-surface only. Writes NO canon: `link_batch`/`link_batch_row` are
-ephemeral stratum (models/ephemeral.py NOTE), never a `proposed_mutation`,
-never routed through `writes/`. The coherence pass / commit endpoint
-(0036-c) is NOT built here — this module resolves the roster preview,
-manages the batch's open/abandoned lifecycle (one open batch per world at
-a time), and drives the pair pass one pair per call (`run-next`); the
-frontend loop (0036-d) drives repetition, no server-side loop.
+Creator-surface only. This module is a thin HTTP wrapper: every canon write
+happens inside `link_author.apply_finding`/`commit_batch`, which route
+exclusively through `write_relation`/`write_knowledge` — nothing here calls
+those helpers, or touches `Relation`/`Knowledge` model classes, directly
+(`link_agent_strata.py` enforces via AST scan). `link_batch`/`link_batch_row`
+stay ephemeral stratum (models/ephemeral.py NOTE), never a
+`proposed_mutation`, never routed through `writes/`. The frontend loop
+(0036-d) drives pair-pass repetition; no server-side loop here either.
 """
 
 from __future__ import annotations
@@ -19,7 +20,15 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ...db import get_session
-from ...link_author import journal_append, pending_pairs, resolve_roster, run_pair
+from ...link_author import (
+    apply_finding,
+    commit_batch,
+    journal_append,
+    pending_pairs,
+    resolve_roster,
+    run_coherence,
+    run_pair,
+)
 from ...models import LinkBatch, LinkBatchRow
 from .. import crud as _crud
 
@@ -143,3 +152,34 @@ def run_next_pair(batch_id: str, db: Session = Depends(get_session)) -> dict:
         "pairs_total": batch.pairs_total,
         "last_pair": {"a": a_id, "b": b_id, "verdict": result["verdict"], "row_count": result["row_count"]},
     }
+
+
+def _get_batch_or_404(batch_id: str, db: Session) -> LinkBatch:
+    batch = db.get(LinkBatch, batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail=f"link batch {batch_id!r} not found")
+    return batch
+
+
+@router.post("/api/link-batches/{batch_id}/coherence")
+def run_batch_coherence(batch_id: str, db: Session = Depends(get_session)) -> dict:
+    """Mechanical (phase 1) + model (phase 2) coherence pass over the
+    staged batch and the full canon character graph (BRIEF-0036-c)."""
+    batch = _get_batch_or_404(batch_id, db)
+    return run_coherence(db, batch)
+
+
+@router.post("/api/link-batches/{batch_id}/findings/{index}/apply")
+def apply_batch_finding(batch_id: str, index: int, db: Session = Depends(get_session)) -> dict:
+    """Applies one pre-validated (validation='valid') coherence finding's
+    patch — one click, one finding. Re-validates at time-of-use."""
+    batch = _get_batch_or_404(batch_id, db)
+    return apply_finding(db, batch, index)
+
+
+@router.post("/api/link-batches/{batch_id}/commit")
+def commit_batch_route(batch_id: str, db: Session = Depends(get_session)) -> dict:
+    """Commits every non-rejected staged row to canon (write_relation /
+    write_knowledge). Refuses if coherence never ran on this batch."""
+    batch = _get_batch_or_404(batch_id, db)
+    return commit_batch(db, batch)

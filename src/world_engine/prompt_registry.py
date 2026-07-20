@@ -208,6 +208,13 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         call_sites=("src/world_engine/link_author.py:_load_pair_template",),
         default_model=_author_model,
     ),
+    "npc_link_coherence": PromptSpec(
+        surface="authoring",
+        world_scoped=True,
+        dry_run_capable=False,
+        call_sites=("src/world_engine/link_author.py:_load_coherence_template",),
+        default_model=_author_model,
+    ),
     "world_tick": PromptSpec(
         surface="play",
         world_scoped=False,
