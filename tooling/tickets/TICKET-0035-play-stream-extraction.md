@@ -2,7 +2,7 @@
 id: TICKET-0035
 title: Extract the NPC-initiative cluster out of play_stream.py
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-17
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []          # pure code relocation: no canon write, no schema, no migration
