@@ -30,6 +30,7 @@ from ...models import (
     BASE_SKILL_DOMAINS,
     Character,
     DiscoverableDetail,
+    Door,
     Entity,
     Event,
     EventEntity,
@@ -72,6 +73,7 @@ from ...writes import (
     write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
+    write_location_doors,
     write_location_obstacles,
     write_location_subculture,
     write_membership,
@@ -352,6 +354,54 @@ def _location_geometry_dict(location_id: str, db: DbSession) -> dict:
     }
 
 
+def _location_doors_rows(location_id: str, db: DbSession) -> list[dict]:
+    """`door` rows for one location, as [{id, target_location_id,
+    target_name, x, y, edge_live}, ...] (TICKET-0034, BRIEF-0034-a).
+    Ordered by target_name (stable panel order).
+
+    CREATOR-FACING: returns EVERY row, including doors whose
+    connects_to edge or target has since died — `edge_live: false` is
+    exactly what lets the creator see and fix an orphan. Structural
+    exclusion for play-side reads lives in cockpit/spatial_doors.py's
+    query construction, not here (the location_subculture `is_hidden`
+    precedent at :316)."""
+    rows = db.exec(select(Door).where(Door.location_id == location_id)).all()
+
+    def _edge_live(row: Door) -> bool:
+        target = db.get(Entity, row.target_location_id)
+        if target is None or target.type != "location" or target.status != "active":
+            return False
+        rel_a = db.exec(
+            select(Relation).where(
+                Relation.type == "connects_to",
+                Relation.entity_a_id == location_id,
+                Relation.entity_b_id == row.target_location_id,
+            )
+        ).first()
+        rel_b = db.exec(
+            select(Relation).where(
+                Relation.type == "connects_to",
+                Relation.entity_a_id == row.target_location_id,
+                Relation.entity_b_id == location_id,
+            )
+        ).first()
+        return rel_a is not None or rel_b is not None
+
+    result = []
+    for row in rows:
+        target = db.get(Entity, row.target_location_id)
+        result.append({
+            "id": row.id,
+            "target_location_id": row.target_location_id,
+            "target_name": target.name if target is not None else row.target_location_id,
+            "x": row.x,
+            "y": row.y,
+            "edge_live": _edge_live(row),
+        })
+    result.sort(key=lambda d: d["target_name"])
+    return result
+
+
 def _apply_base_fields(db: DbSession, entity: Entity, data: dict) -> None:
     for field in ENTITY_BASE_FIELDS:
         name = field["name"]
@@ -395,6 +445,16 @@ class LocationGeometryBody(BaseModel):
     bounds_width: Optional[float] = None
     bounds_height: Optional[float] = None
     obstacles: list[ObstacleIn] = []
+
+
+class DoorIn(BaseModel):
+    target_location_id: str
+    x: float
+    y: float
+
+
+class LocationDoorsBody(BaseModel):
+    doors: list[DoorIn] = []
 
 
 @router.get("/entity-types")
@@ -444,6 +504,7 @@ def get_entity(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
         elif entity.type == "location":
             result["subculture_rows"] = _location_subculture_rows(entity_id, db)
             result["geometry"] = _location_geometry_dict(entity_id, db)
+            result["doors"] = _location_doors_rows(entity_id, db)
     else:
         result["extension"] = {}
         result["relations"] = []
@@ -582,6 +643,7 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
     elif entity.type == "location":
         result["subculture_rows"] = []
         result["geometry"] = {"bounds_width": None, "bounds_height": None, "obstacles": []}
+        result["doors"] = []
     if body.mutation_id:
         result["creation_linkage"] = _link_entity_creation(body.mutation_id, entity.id, db)
     return result
@@ -638,6 +700,7 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
         elif entity.type == "location":
             result["subculture_rows"] = _location_subculture_rows(entity_id, db)
             result["geometry"] = _location_geometry_dict(entity_id, db)
+            result["doors"] = _location_doors_rows(entity_id, db)
     else:
         result["extension"] = {}
         result["relations"] = []
@@ -758,6 +821,37 @@ def set_location_geometry(entity_id: str, body: LocationGeometryBody, db: DbSess
     result["knowledge"] = _list_knowledge(entity_id, db)
     result["subculture_rows"] = _location_subculture_rows(entity_id, db)
     result["geometry"] = _location_geometry_dict(entity_id, db)
+    return result
+
+
+@router.put("/entities/{entity_id}/doors")
+def set_location_doors(entity_id: str, body: LocationDoorsBody, db: DbSession = Depends(get_session)) -> dict:
+    """Full-replace a location's `door` rows (TICKET-0034, BRIEF-0034-a).
+    One row per `connects_to` neighbour the creator points a door at — the
+    B1 gate (write_location_doors) rejects any target without a live
+    connects_to edge. Nothing here resolves, judges or moves; see
+    BRIEF-0034-b/-c for that."""
+    entity = _get_entity(db, entity_id)
+    if entity.type != "location":
+        raise HTTPException(404, f"Entity {entity_id!r} is not a location")
+
+    try:
+        write_location_doors(
+            db, world_id=entity.world_id, location_id=entity_id,
+            doors=[d.model_dump() for d in body.doors], changed_by="creator",
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    db.commit()
+
+    result = _entity_dict(entity)
+    location = db.get(Location, entity_id)
+    result["extension"] = _extension_dict("location", location)
+    result["relations"] = _list_relations(entity_id, db)
+    result["knowledge"] = _list_knowledge(entity_id, db)
+    result["subculture_rows"] = _location_subculture_rows(entity_id, db)
+    result["geometry"] = _location_geometry_dict(entity_id, db)
+    result["doors"] = _location_doors_rows(entity_id, db)
     return result
 
 

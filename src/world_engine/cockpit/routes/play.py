@@ -32,16 +32,19 @@ from ...prompt_registry import effective_model
 from ...prompt_store import current_prompt
 from ...context import assemble_mj_context, assemble_npc_context
 from ...db import get_session
+from ... import placement
 from ...models import (
     Character,
     Conversation,
     ConversationMessage,
+    Door,
     Entity,
     FactionMembership,
     Gathering,
     ProposedMutation,
 )
 from .. import crud as _crud
+from .. import spatial_doors
 from ..play import (
     _gathering_brief,
     _get_or_open_session,
@@ -385,6 +388,70 @@ def travel(
             detail=f"{body.location_id!r} is not a location of this world",
         )
     return result
+
+
+class SpatialTravelPosition(BaseModel):
+    x: float
+    y: float
+
+
+class SpatialTravelBody(BaseModel):
+    door_id: str
+    position: SpatialTravelPosition
+    player_id: Optional[str] = None
+
+
+@router.post("/api/spatial/travel")
+def spatial_travel(body: SpatialTravelBody, db: Session = Depends(get_session)) -> dict:
+    """Door-gated in-fiction travel from the Play canvas (TICKET-0034,
+    E1/J1).
+
+    Lives HERE, not in routes/spatial.py, because it writes: it is the
+    third caller of _perform_travel, beside the conversation route and
+    the creator route above. routes/spatial.py is a zero-write register
+    (routes/spatial.py:4-10); the /api/spatial/ URL prefix names the
+    player-facing surface, not the module (scene/join precedent).
+
+    The neighbour restriction is a property of the in-fiction callers
+    (C1, BRIEF-16), and here it is carried by `door_id` itself: a door
+    toward a non-neighbour cannot be written (write_location_doors) and
+    a door toward a dead edge does not resolve (spatial_doors.
+    location_doors). This handler re-judges that same predicate rather
+    than trusting the client's earlier proximity call.
+
+    GATE HARDNESS IS NOT UNIFORM. Checks 1-3 are structural: judged
+    against canon, a client cannot bypass them. Check 4 is good faith:
+    `position` is client-declared and the server persists no position
+    (Q1), so it has nothing to verify it against — the same advisory
+    posture as proximity's G-A gate. Persisting a position to harden it
+    is NOT the fix; it is the decision Q1 rejected.
+    """
+    player_id = body.player_id or _crud._player_character_id(db, _crud._world_id(db))
+    char = db.get(Character, player_id)
+    if char is None:
+        raise HTTPException(status_code=404, detail="no player character")
+
+    door = db.get(Door, body.door_id)
+    if door is None:
+        raise HTTPException(status_code=404, detail=f"Door {body.door_id!r} not found")
+
+    if door.location_id != char.current_location_id:
+        raise HTTPException(
+            status_code=409,
+            detail="door is not in the player's current location",
+        )
+
+    live_door_ids = {
+        d["id"] for d in spatial_doors.location_doors(char.current_location_id, char.world_id, db)
+    }
+    if door.id not in live_door_ids:
+        raise HTTPException(status_code=409, detail="door does not resolve")
+
+    d = placement.distance((body.position.x, body.position.y), (door.x, door.y))
+    if d > placement.DOOR_RANGE:
+        raise HTTPException(status_code=409, detail="out of door range")
+
+    return _perform_travel(char.id, door.target_location_id, db)
 
 
 @router.get("/api/conversations")

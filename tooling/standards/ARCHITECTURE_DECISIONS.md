@@ -7177,4 +7177,315 @@ any future module split.
 
 ---
 
+## DOOR SCHEMA, WRITE PATH AND CREATOR AUTHORING (BRIEF-0034-a, schema v1.81)
+
+Fifth step of the spatial / Play mode workstream (0029 geometry -> 0030
+collision -> 0031 presence/proximity -> 0032 canvas/WASD -> 0034 doors).
+This step ships storage, the sanctioned write path, the creator read
+helper and the authoring panel — nothing that resolves, judges or moves.
+
+**A1 — one row per side, unique index `(location_id,
+target_location_id)`, pairing derived not defended.** `door(id, world_id,
+location_id, target_location_id, x, y, created_at)`. A passage between A
+and B is two independent rows, each carrying the point in its own
+location's local space; pairing is derived at arrival ("the door of B
+that points back at A") and made unambiguous by `idx_door_target`, not by
+a defended invariant. Consequence, deliberate: at most one door per
+ordered pair of locations.
+
+**A1 escalation guard (locked with A1).** `door` is TERMINAL: no table
+may take a foreign key on `door.id` while A1 stands. The A1 -> A2
+escalation — one `passage` row carrying both endpoints — stays a
+mechanical self-join (a data migration, not a write-path reshape) only
+while nothing references a door by id. Trigger: a second passage needed
+between the same pair of locations. Enforced by
+`tooling/verify/checks/door_terminal.py` (BRIEF-0034-b), not by memory.
+
+**B1 — the door is the spatial manifestation of a `connects_to` edge.**
+`write_location_doors` REJECTS a target with no active `connects_to`
+relation touching both endpoints (read in either column order, the same
+predicate `play.py::_location_neighbours` uses — decision D1 of BRIEF-19
+stands, this is the fourth `connects_to` reader, not refactored to share
+code). The play-side reader (`cockpit/spatial_doors.py`, BRIEF-0034-b)
+FILTERS doors whose edge later disappeared. No cascade, no delete on
+either side — the map stays the world's traversability truth.
+
+**No write-time geometry validation, by design.** `write_location_doors`
+does not check that the door's point is inside bounds or outside an
+obstacle. A write-time check could not stay true: the creator may edit
+bounds or obstacles afterwards and strand a door inside a wall without
+touching the `door` table. Only a READ-TIME fallback is sound
+(`cockpit/spatial_doors.py::resolve_spawn`, BRIEF-0034-b). The relational
+gates (target active, `connects_to` live) can go stale the same way,
+which is why B1 pairs them with a read-time filter at the same site.
+
+**Write/read surface.** `write_location_doors` (`writes/config.py`, 24th
+sanctioned site) is a full-replace per location — the
+`write_location_obstacles` shape, copied: delete-then-insert inside the
+caller's transaction, validated all-or-nothing before any write
+(non-empty target, no self-target, finite coordinates, no duplicate
+target in one payload, target is an active location of the same world,
+B1 gate). `_location_doors_rows` (`crud/entities.py`) is the
+creator-facing read helper: returns EVERY row including orphans
+(`edge_live: false`) — the creator-facing surface is deliberately more
+permissive than the play-side reader, structural exclusion for which
+lives only in `cockpit/spatial_doors.py` (BRIEF-0034-b). Location detail
+payload gains `doors: [...]` at the three sites already returning
+`geometry` from a live query (`GET /entities/{id}`, `POST /entities`,
+`PUT /entities/{id}`) — the write endpoint's own response
+(`PUT /entities/{id}/doors`) returns its own fresh `doors` alongside the
+existing `geometry`/`subculture_rows` keys, matching
+`set_location_geometry`'s shape. `PUT /entities/{id}/doors` is a
+SEPARATE endpoint from `/geometry` (the subculture/geometry precedent:
+one concern, one full-replace endpoint, one Save button); 404 (not 422)
+on a non-location entity.
+
+**Frontend — advisory tier.** A "Portes" panel below "Spatial geometry"
+in the location sheet, existing-locations-only (geometry-editor
+discipline, no `isNew` draft). Its row set is driven by the location's
+`connects_to` neighbours (from `detail.relations`, filtered
+`type === 'connects_to'`) — not free text: one row per neighbour, static
+name label plus x/y inputs; blank x or y = no door toward that neighbour
+(the row is simply not sent on Save). This is structurally why the panel
+cannot author a door toward a non-neighbour: the choice surface has no
+such row. An orphan door (`edge_live: false`) renders read-only above the
+neighbour rows with the destination id and a warning; its remove button
+triggers an immediate save (the subculture-row-delete precedent) built
+from the currently-valid neighbour rows — full-replace drops every
+orphan from any subsequent save by construction, since an orphan's target
+is never a live neighbour. No neighbour -> empty-state text, no Save
+button.
+
+**Migration discipline.** `migrate_v1_81_door_geometry.py` guards table
+existence (`door`) and index existence (`idx_door_target`)
+INDEPENDENTLY, so a partially applied prior run (interrupted after
+`CREATE TABLE` but before `CREATE INDEX`) completes only the missing
+piece on re-run instead of skipping wholesale. Purely additive: no data
+copy, no seed rows.
+
+**Scope OUT, deferred:** door resolution, `DOOR_RANGE`, spawn offset,
+`cockpit/spatial_doors.py`, `placement.spawn_point`, `GET
+/api/spatial/spawn`, `doors_in_range` (BRIEF-0034-b); `POST
+/api/spatial/travel` (BRIEF-0034-c); canvas door rendering, spawn-at-door,
+the "Aller à X" affordance (BRIEF-0034-d); a `label` column on `door` (no
+reader — canvas labels with the destination entity's name, BRIEF-0034-d,
+same discipline that kept `kind`/`label` off `obstacle`); `width` /
+orientation columns (the walk-through chantier, C3, needs them to punch
+an opening — no reader now); locked doors, `access_level` gating, one-way
+doors (no reader, named deferrals of TICKET-0034); two passages between
+the same pair of locations (structurally excluded by `idx_door_target` —
+that index IS the A1 -> A2 trigger); punching a hole in bounds/obstacle
+edges (the wall stays solid, the door is a marker); any FK onto
+`door.id` (the A1 escalation guard); cascading door deletion when a
+`connects_to` relation is deleted (B1 is reject-at-write +
+filter-at-read, no cascade, no orphan sweep).
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+## DOOR RESOLUTION MODULE AND READ ENDPOINTS (BRIEF-0034-b, no schema change)
+
+Sixth step of the spatial / Play mode workstream. BRIEF-0034-a stored
+doors and let the creator author them; nothing read them in play. This
+step builds the resolution layer: which doors of a location are live,
+which are within reach of a transient position, and where the player
+appears on arrival.
+
+**K1 — `cockpit/spatial_doors.py`, on the `spatial_presence.py:39`
+precedent.** Three readers span two route modules: `routes/spatial.py`
+needs it twice (proximity's `doors_in_range`, the new spawn endpoint) and
+`routes/play.py` needs it once for door-travel (BRIEF-0034-c, which
+writes and so cannot live in `routes/spatial.py`'s zero-write register).
+Without this seam the two route modules would import each other for the
+same resolution. The module touches the DB, calls `placement` and
+`geometry`, and implements NO math — a `math.hypot` appearing there is a
+bug, not a convenience, and `door_terminal.py`'s K1 guard makes that
+structural rather than reviewed-by-eye.
+
+**Threshold vs. authority — `DOOR_RANGE` and `DOOR_SPAWN_OFFSET` live in
+`placement.py`, not in `spatial_doors.py`.** A dedicated `door.py`
+carrying threshold + distance + offset was considered and rejected (K3):
+it would fork the sole distance authority and pull placement logic out
+of the placement authority for no reason beyond topical grouping.
+`DOOR_RANGE` (1.5m) is deliberately distinct from `INTERACTION_RANGE`
+(2.0m) — reaching a door handle and being heard across a room are
+calibrated separately — but both are compared by the same `distance`
+function; two thresholds, one authority.
+
+**`spawn_point`'s ring derivation, and why no orientation column
+exists.** A door is a point with no facing — TICKET-0034 deliberately
+left `width`/orientation off the schema (BRIEF-0034-a Scope OUT, reserved
+for the future walk-through chantier C3) — so "inward" is not
+computable. `spawn_point` instead derives a standing point
+`DOOR_SPAWN_OFFSET` off the anchor via deterministic rejection sampling
+on a ring, seeded by `door_id` (the `_derive_member_position` shape,
+copied for the same reason: candidates outside bounds or inside a wall
+are rejected, so the survivor is inside the room by construction, no
+orientation needed). Total function: saturation (the whole ring boxed
+in) returns the anchor itself rather than raising — `resolve_spawn` is
+what turns that degenerate case into a center fallback, not
+`spawn_point` itself.
+
+**`resolve_spawn`'s three fallback conditions, and why the geometry
+check can only be sound at read time.** `anchor="center"` when: no
+`from_location_id` (narrative travel, creator god-mode, page reload); no
+live return door (the counterpart side was never authored, or B1's
+read-time filter dropped it); or a degenerate anchor (the door's point
+now sits in a wall or out of bounds). BRIEF-0034-a's write path
+deliberately carries no geometry validation, because a write-time check
+could not stay true — the creator can edit bounds or obstacles after a
+door is authored, stranding it without ever touching the `door` table.
+Only a check performed at the moment of resolution can be sound, and
+`resolve_spawn` is that moment. The center fallback itself is returned
+RAW, unchecked — carrying forward TICKET-0032's documented behavior
+(`cockpit/index.html:3311`) verbatim: if the center lies inside an
+obstacle, `geometry.clip_segment`'s degenerate-origin rule blocks
+movement by design, and the judge never rescues the player. Fixing that
+is a creator geometry edit, not adjudicator behavior.
+
+**B1's read half.** `location_doors` is the structural counterpart to
+`write_location_doors`'s reject-at-write: a live door additionally
+requires an active `connects_to` edge touching both endpoints, checked
+at query construction (not filtered after the fact by the caller). This
+is the fifth `connects_to` reader (`play.py::_location_neighbours`,
+`write_location_doors`, `crud/entities.py::_location_doors_rows`, the
+world graph endpoint, now `spatial_doors.py::location_doors`) — decision
+D1 (BRIEF-19) stands: reported, not refactored together.
+
+**Scope OUT, deferred:** `POST /api/spatial/travel`,
+`_perform_travel`'s `origin_location_id`, `spatial_door_travel.py`
+(BRIEF-0034-c — nothing in this step writes, nothing calls
+`_perform_travel`); canvas rendering, spawn-at-door on the client, the
+"Aller à X" button (BRIEF-0034-d — `GET /api/spatial/spawn` ships with
+no caller, the one deliberate exception to "no structure without a
+reader" in this ticket); widening or relocating
+`_resolve_spatial_location` (BRIEF-0034-c deliberately does not import
+it); a `door.py` module (K3, rejected above); orientation/`width` on
+doors (C3); caching door resolution across requests (matches
+`spatial_presence.npc_positions`, recomputed from scratch every call).
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+## DOOR-GATED TRAVEL ENDPOINT (BRIEF-0034-c, no schema change)
+
+Seventh step of the spatial / Play mode workstream. BRIEF-0034-b resolved
+which doors are live and where a transient position stands relative to
+them; nothing moved the player yet. This step adds the third
+`_perform_travel` caller: `POST /api/spatial/travel`, door-gated in-fiction
+travel fired from the Play canvas.
+
+**E1 + J1 — the endpoint lives in `routes/play.py`, not `routes/spatial.py`,
+because it writes.** `_perform_travel` closes conversations (running
+`analyze_window` first), closes `gathering_member` rows, and moves
+`character.current_location_id` — `routes/spatial.py`'s zero-write register
+(`routes/spatial.py:4-10`) forbids it there. It joins the other two
+`_perform_travel` callers (the in-fiction `/say` travel path and the
+creator god-mode route) in the same module. The `/api/spatial/` URL prefix
+names the player-facing surface, not the module that implements it — the
+`scene/join`-in-`routes/scene.py` precedent (BRIEF-0032-a).
+
+**`door_id` carries the neighbour restriction.** The in-fiction callers'
+property of only reaching a directly-linked location (C1, BRIEF-16) is
+enforced here by re-judging the same predicate BRIEF-0034-b already
+resolves: a door toward a non-neighbour cannot be written
+(`write_location_doors`) and a door toward a dead `connects_to` edge does
+not resolve (`spatial_doors.location_doors`). The handler calls
+`location_doors` itself rather than trusting the client's earlier
+proximity read — the read filter is live state, not a cached snapshot from
+an earlier call.
+
+**Gate hardness is not uniform, and that asymmetry is deliberate.** Checks
+1-3 (unknown door, door not in the player's location, door that doesn't
+resolve) are judged against canon — a client cannot bypass them. Check 4
+(`placement.distance` vs. `DOOR_RANGE`) is good-faith: `position` is
+client-declared and the server persists no position (Q1, BRIEF-0031-a), so
+it has nothing to verify it against — the same advisory posture as
+proximity's G-A gate. Persisting a position to harden check 4 was
+considered and rejected: it is exactly what Q1 already ruled out, not a
+pending fix.
+
+**G1 — the origin is transient and client-carried.** `_perform_travel`
+captures `character.current_location_id` before its own mutation and
+returns it as `origin_location_id`; the client passes that value straight
+to `GET /api/spatial/spawn` (BRIEF-0034-d) to be placed at the return
+door. No `character.last_location_id` column exists and none will — a
+transient concern (only meaningful for the instant between one travel call
+and the next spawn read) never earns a canon write. The `noop` branch
+(origin equals destination) carries no `origin_location_id` key: no reader
+wants it there.
+
+**Scope OUT, deferred:** canvas rendering, spawn-at-door on the client, the
+"Aller à X" affordance button (BRIEF-0034-d); widening or relocating
+`_resolve_spatial_location` (deliberately not imported here — a
+routes -> routes import is exactly what K1's `spatial_doors.py` seam
+exists to prevent); refactoring the three `_perform_travel` callers to
+share a guard chain (they gate differently on purpose: conversation-bound,
+god-mode, door-bound); locked doors / `access_level` checks (named
+deferral of TICKET-0034, four checks and no fifth); rate-limiting or
+debouncing travel server-side (no reader, no requirement); walk-through /
+automatic door crossing (C2, permanently out — the later chantier is C3,
+an advisory `door_crossed` from `move-check` with the client firing this
+same endpoint, which still does not move the player on its own).
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+## CANVAS DOORS, SPAWN-AT-DOOR AND THE TRAVEL AFFORDANCE (BRIEF-0034-d, no schema change)
+
+Eighth and closing step of the spatial / Play mode workstream. Every
+server surface TICKET-0034 built (door storage, resolution, spawn
+resolution, the travel gate) had no caller until this step wires the Play
+canvas to them, closing the dette named verbatim at `cockpit/index.html:3311`
+— *"TRANSITIONAL SPAWN (TICKET-0032): fixed center until the door chantier
+introduces spawn-at-door"* — the ticket's stated request, *"J'apparais
+toujours a la porte."*
+
+**C1 — the affordance stays a button, the deliberate pilot shape.** Doors
+render on the canvas as a filled diamond (visually distinct from obstacle
+polygons and NPC/player circles) labelled with `target_name` — the reader
+that kept a `label` column off the `door` table (BRIEF-0034-a Scope OUT).
+A door within reach gets the same ring-stroke reachable style already used
+for in-range NPCs; no second visual language for "reachable" was
+introduced. The `POST /api/spatial/travel` call site this step wires up is
+the same one the later walk-through chantier (C3) will reuse unchanged —
+C3 adds an advisory `door_crossed` from `move-check`, the client still
+fires this endpoint, which still does not move the player on its own.
+
+**D1 — no new server cadence.** `doors_in_range` rides the existing
+on-stop proximity call (the 200 ms debounce from BRIEF-0032-c); the door
+affordance button is rendered from the same response that already
+populates "Parler". No door polling, no per-frame distance check.
+
+**G1 — the origin is page-scoped with a one-arrival lifetime.**
+`_spatialArrivalFrom` is a plain module-level variable, written only by a
+successful travel's `origin_location_id` and consumed (then cleared)
+exactly once by the `spatialActivate()` call that follows — never
+`localStorage`, `sessionStorage`, a cookie, or the URL. A reload, a
+narrative travel, or a creator god-mode move loses it by design and costs
+a center spawn, never an error; `GET /api/spatial/spawn`'s own fallback
+chain (BRIEF-0034-b) absorbs all of those cases identically.
+
+**The client is not the judge — verified, not just asserted.** The door
+list, the reachability flag, and the spawn point are all server responses
+rendered as-is; no `Math.hypot`, `localStorage`, or `sessionStorage` was
+introduced in the spatial tab (grepped clean). A refused travel (404/409)
+re-enables the clicked button, re-fires the proximity call to re-sync the
+affordance with what the server actually allows, and shows no modal or
+alert — a stale client picture correcting itself IS the message, matching
+proximity's own advisory posture (G-A).
+
+**Scope OUT, deferred:** walk-through / door-crossing (C2, permanently
+out); a door hitbox or blocking the door point; a graphical door editor on
+the creator's geometry panel (deferred alongside the graphical obstacle
+editor, D'2, TICKET-0029); showing orphan (`edge_live: false`) doors in
+play (creator-only); any refactor of the spatial tab beyond the door pass
+(the ungoverned 8,834-line frontend — the pull is real, reported, not
+acted on).
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*

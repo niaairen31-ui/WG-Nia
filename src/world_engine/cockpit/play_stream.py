@@ -409,6 +409,14 @@ def _perform_travel(player_id: str, location_id: str, db: Session) -> dict:
     if char.current_location_id == location_id:
         return {"status": "noop", "location_id": location_id}
 
+    # Captured before the mutation below: the caller's ONLY way back to
+    # where the player came from (G1, TICKET-0034). The origin is transient
+    # by decision — no character.last_location_id column exists and none
+    # will: a transient concern never earns a canon write. The spatial
+    # client carries this value to GET /api/spatial/spawn to be placed at
+    # the return door.
+    origin_location_id = char.current_location_id
+
     # 1. Close any open conversation(s) of the player. Normally at most one,
     # but close every match defensively — a stray open conversation left at
     # the old location must not stay open after the player leaves.
@@ -449,4 +457,4 @@ def _perform_travel(player_id: str, location_id: str, db: Session) -> dict:
     db.add(char)
 
     db.commit()
-    return {"status": "ok", "location_id": location_id}
+    return {"status": "ok", "location_id": location_id, "origin_location_id": origin_location_id}

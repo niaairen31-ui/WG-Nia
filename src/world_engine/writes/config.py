@@ -17,6 +17,12 @@ none of these three functions were baselined.
   `obstacle_vertex` rows (TICKET-0029, BRIEF-0029-a — intra-location wall
   geometry). Same curated-config discipline: no `change_history`,
   delete-then-insert inside the caller's transaction.
+- `write_location_doors(...)`           : full-replace `door` rows
+  (TICKET-0034, BRIEF-0034-a — inter-location passage geometry). Same
+  curated-config discipline: no `change_history`, delete-then-insert
+  inside the caller's transaction. A door is the spatial manifestation of
+  a `connects_to` edge (B1): rejected at write when no active edge touches
+  both locations.
 """
 
 from __future__ import annotations
@@ -24,9 +30,20 @@ from __future__ import annotations
 import math
 
 from sqlalchemy import text
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from ..models import Character, LocationSubculture, NpcPrice, Obstacle, ObstacleVertex, World, WorldLaw
+from ..models import (
+    Character,
+    Door,
+    Entity,
+    LocationSubculture,
+    NpcPrice,
+    Obstacle,
+    ObstacleVertex,
+    Relation,
+    World,
+    WorldLaw,
+)
 
 
 def write_npc_prices(
@@ -185,3 +202,104 @@ def write_location_obstacles(
         for vertex_order, (x, y) in enumerate(vertices):
             db.add(ObstacleVertex(obstacle_id=obstacle.id, vertex_order=vertex_order, x=x, y=y))
     return new_obstacles
+
+
+def write_location_doors(
+    db: Session,
+    *,
+    world_id: str,
+    location_id: str,
+    doors: list[dict],
+    changed_by: str,
+) -> list[Door]:
+    """Full-replace `door` rows for one location. Caller adds the returned
+    rows to the session and commits.
+
+    Each item is `{"target_location_id": str, "x": float, "y": float}` —
+    validated all-or-nothing before any write: non-empty target, no
+    self-target, finite coordinates, no duplicate target within one
+    payload (defense in depth — `idx_door_target` is the structural
+    guard), the target must be an active location of the same world, and
+    (B1) an active `connects_to` relation must touch both `location_id`
+    and `target_location_id` — a door is the spatial manifestation of a
+    `connects_to` edge, never its source.
+
+    # NO GEOMETRY VALIDATION HERE, BY DESIGN. This site does not check that
+    # the door's point is inside bounds or outside an obstacle — not as an
+    # oversight, and not merely because "the collision endpoint is the sole
+    # judge of space" (write_location_obstacles' rule). A write-time
+    # geometry check could not stay true: the creator may edit bounds or
+    # obstacles afterwards and strand a door inside a wall without touching
+    # this table. Only a READ-TIME fallback is sound, and it lives in
+    # cockpit/spatial_doors.py::resolve_spawn (BRIEF-0034-b). The relational
+    # gates above (target active, connects_to live) can go stale the same
+    # way, which is why B1 pairs them with a read-time filter at the same
+    # site. REPORT ONLY if this feels wrong during execution; do not add a
+    # geometry check.
+    """
+    clean: list[tuple[str, float, float]] = []
+    seen_targets: set[str] = set()
+    for item in doors:
+        target_location_id = str(item.get("target_location_id") or "").strip()
+        if not target_location_id:
+            raise ValueError("write_location_doors: target_location_id must be a non-empty string")
+        if target_location_id == location_id:
+            raise ValueError("write_location_doors: a door cannot target its own location")
+        if target_location_id in seen_targets:
+            raise ValueError(f"write_location_doors: duplicate target_location_id {target_location_id!r}")
+        seen_targets.add(target_location_id)
+
+        fx, fy = float(item.get("x")), float(item.get("y"))
+        if not (math.isfinite(fx) and math.isfinite(fy)):
+            raise ValueError(f"write_location_doors: non-finite point ({item.get('x')!r}, {item.get('y')!r})")
+
+        target = db.get(Entity, target_location_id)
+        if (
+            target is None
+            or target.type != "location"
+            or target.status != "active"
+            or target.world_id != world_id
+        ):
+            raise ValueError(
+                f"write_location_doors: target_location_id {target_location_id!r} is not an active "
+                "location of this world"
+            )
+
+        # B1 gate: an active connects_to relation must touch both endpoints,
+        # in either column order — read both orders exactly as
+        # play.py:847 _location_neighbours does. Not refactored to share
+        # code (decision D1 of BRIEF-19 stands; this is the fourth
+        # connects_to reader).
+        rel_a = db.exec(
+            select(Relation).where(
+                Relation.type == "connects_to",
+                Relation.entity_a_id == location_id,
+                Relation.entity_b_id == target_location_id,
+            )
+        ).first()
+        rel_b = db.exec(
+            select(Relation).where(
+                Relation.type == "connects_to",
+                Relation.entity_a_id == target_location_id,
+                Relation.entity_b_id == location_id,
+            )
+        ).first()
+        if rel_a is None and rel_b is None:
+            raise ValueError(
+                f"write_location_doors: no active connects_to relation between {location_id!r} "
+                f"and {target_location_id!r}"
+            )
+
+        clean.append((target_location_id, fx, fy))
+
+    db.execute(
+        text("DELETE FROM door WHERE location_id = :location_id"),
+        {"location_id": location_id},
+    )
+
+    new_doors: list[Door] = []
+    for target_location_id, x, y in clean:
+        row = Door(world_id=world_id, location_id=location_id, target_location_id=target_location_id, x=x, y=y)
+        db.add(row)
+        new_doors.append(row)
+    return new_doors

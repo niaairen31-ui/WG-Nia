@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.80
+Current schema version: v1.81
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -247,6 +247,55 @@ CREATE TABLE obstacle_vertex (
 );
 CREATE UNIQUE INDEX idx_obstacle_vertex_order
   ON obstacle_vertex(obstacle_id, vertex_order);
+```
+
+-----
+
+### `door`
+
+Inter-location passage, spatial side (schema v1.81, TICKET-0034,
+BRIEF-0034-a). Curated config, same family as `faction_role`: no
+`change_history`, full-replace writes via `writes.write_location_doors`
+only.
+
+**ONE ROW PER SIDE.** A passage between A and B is two rows: (A -> B) and
+(B -> A), each carrying the point in ITS OWN location's local space.
+Pairing is DERIVED at arrival — "the door of B that points back at A" —
+and made unambiguous BY `idx_door_target`, not by a defended invariant.
+The consequence is deliberate: at most one door per ordered pair of
+locations.
+
+**TERMINAL BY CONTRACT:** no table may take a foreign key on `door.id`.
+The A1 -> A2 escalation (one `passage` row carrying both endpoints,
+needed the day two passages must join the same pair of locations) is a
+mechanical self-join ONLY while nothing references a door by id. This is
+enforced by `tooling/verify/checks/door_terminal.py`, not by memory.
+
+A door is the SPATIAL MANIFESTATION of a `connects_to` edge, never its
+source: `write_location_doors` REJECTS a target with no active
+`connects_to` edge; the play-side reader FILTERS doors whose edge later
+disappeared. The map stays the world's traversability truth. Neither side
+cascades or deletes.
+
+**COORDINATE SPACE:** per-location local coordinates — the
+`obstacle_vertex` space (origin top-left, x rightward, y DOWNWARD, 1.0 =
+one world-meter), NOT `location.coord_x` / `coord_y` (world map). `x, y`
+is the door's point in `location_id`'s space; the counterpart row carries
+its own point in the counterpart's space. Nothing at the write site judges
+whether that point is inside a wall.
+
+```sql
+CREATE TABLE door (
+  id                 TEXT PRIMARY KEY,
+  world_id           TEXT NOT NULL REFERENCES world(id),
+  location_id        TEXT NOT NULL REFERENCES entity(id),
+  target_location_id TEXT NOT NULL REFERENCES entity(id),
+  x                  REAL NOT NULL,
+  y                  REAL NOT NULL,
+  created_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_door_target
+  ON door(location_id, target_location_id);
 ```
 
 -----

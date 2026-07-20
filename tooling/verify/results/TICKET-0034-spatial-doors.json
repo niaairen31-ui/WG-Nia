@@ -1,0 +1,37 @@
+{
+  "ticket": "TICKET-0034-spatial-doors",
+  "when": "2026-07-20T14:39:42.685442+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "spatial_door_travel.py",
+      "status": "PASS",
+      "msg": "PASS: spatial_door_travel \u2014 POST /api/spatial/travel gates on unknown door / wrong location / dead connects_to edge / archived target / out-of-range position, happy path moves the player and returns origin_location_id, creator travel regression holds"
+    },
+    {
+      "check": "door_terminal.py",
+      "status": "PASS",
+      "msg": "PASS: door_terminal \u2014 door.id carries no FK, spatial_doors.py implements no math"
+    },
+    {
+      "check": "placement_unit.py",
+      "status": "PASS",
+      "msg": "PASS: placement_unit \u2014 all 12 derive_positions/distance cases hold"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values"
+    },
+    {
+      "check": "schema_partition.py",
+      "status": "PASS",
+      "msg": "PASS: hot/cold partition holds"
+    }
+  ]
+}
