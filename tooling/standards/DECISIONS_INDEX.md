@@ -112,3 +112,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 7539 | NPC LINK AGENT — PAIR PASS (BRIEF-0036-b, no schema change) | BRIEF-0036-b |  |
 | 7603 | NPC LINK AGENT — COHERENCE PASS AND COMMIT (BRIEF-0036-c, no schema change) | BRIEF-0036-c |  |
 | 7698 | NPC LINK AGENT — FRONTEND ON THE RELGRAPH PANEL (BRIEF-0036-d, no schema change) | BRIEF-0036-d |  |
+| 7758 | DOOR-WRITE VALIDATION EXTRACTION (BRIEF-0038-a, no schema change) | BRIEF-0038-a |  |
