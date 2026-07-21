@@ -206,3 +206,53 @@ class LinkBatchRow(SQLModel, table=True):
     )  # proposed | edited | rejected | committed
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
+# npc_batch / npc_batch_row  (NPC group agent staging — schema v1.83,
+# TICKET-0037, BRIEF-0037-a)
+#
+# NOTE: npc_batch / npc_batch_row are EPHEMERAL stratum (TICKET-0037):
+# staging for the NPC group agent. Never listed in canon_write_policy.txt,
+# never a proposed_mutation, never creator-CRUD-reviewed as canon. Purge of
+# closed batches (retention: last 2) is legal by construction -- the
+# append-only generation journal under ~/.world_engine/npc_agent_journal/
+# carries long memory. History-is-sacred governs canon, not this plumbing.
+# -----------------------------------------------------------------------------
+class NpcBatch(SQLModel, table=True):
+    __tablename__ = "npc_batch"
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    status: str = Field(
+        default="open", sa_column_kwargs={"server_default": text("'open'")}
+    )  # open | committed | abandoned
+    scope: Any = Field(sa_column=Column(JSON, nullable=False))
+    # {root_location_id, expanded_location_ids, lines, group_brief}
+    # lines = [{count, description, faction_id, location_id}] (nullable ids)
+    npcs_total: int = Field(
+        default=0, sa_column_kwargs={"server_default": text("0")}
+    )
+    npcs_done: int = Field(
+        default=0, sa_column_kwargs={"server_default": text("0")}
+    )
+    created_at: datetime = _created_ts()
+    closed_at: Optional[datetime] = None
+
+
+class NpcBatchRow(SQLModel, table=True):
+    __tablename__ = "npc_batch_row"
+    __table_args__ = (Index("idx_npc_batch_row_batch", "batch_id"),)
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    batch_id: str = Field(foreign_key="npc_batch.id", nullable=False)
+    line_index: int
+    kind: str  # draft | failed
+    payload: Any = Field(sa_column=Column(JSON, nullable=False))
+    # full draft (public/secret), resolved location_id, goals block, notes
+    # list; {} + reason for failed
+    row_status: str = Field(
+        default="proposed", sa_column_kwargs={"server_default": text("'proposed'")}
+    )  # proposed | edited | rejected | committed
+    created_at: datetime = _created_ts()
+    updated_at: datetime = _created_ts()

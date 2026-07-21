@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.82
+Current schema version: v1.83
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1199,7 +1199,7 @@ CREATE TABLE prompt_template (
                    -- mj_establishment | entity_generation | region_manifest |
                    -- mj_gathering | mj_speaker_selection | mj_initiative |
                    -- npc_initiative_act | world_generation | player_generation |
-                   -- skill_catalogue | region_manifest_topup | other
+                   -- skill_catalogue | other
   destination      TEXT DEFAULT 'local',
                    -- local | claude_api | both
   model            TEXT,            -- NULL = code decides (default_model);
@@ -1434,6 +1434,61 @@ CREATE TABLE link_batch_row (
   updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_link_batch_row_batch ON link_batch_row(batch_id);
+```
+
+-----
+
+### `npc_batch`
+
+-- NOTE: npc_batch / npc_batch_row are EPHEMERAL stratum
+(TICKET-0037): staging for the NPC group agent. Never listed in
+canon_write_policy.txt, never a proposed_mutation, never
+creator-CRUD-reviewed as canon. Purge of closed batches (retention:
+last 2) is legal by construction -- the append-only generation
+journal under ~/.world_engine/npc_agent_journal/ carries long
+memory. History-is-sacred governs canon, not this plumbing.
+
+```sql
+CREATE TABLE npc_batch (
+  id          TEXT PRIMARY KEY,
+  world_id    TEXT NOT NULL REFERENCES world(id),
+  status      TEXT NOT NULL DEFAULT 'open',
+              -- open | committed | abandoned
+  scope       JSON NOT NULL,
+              -- {root_location_id, expanded_location_ids, lines,
+              --  group_brief}
+              -- lines = [{count, description, faction_id, location_id}]
+              -- (faction_id/location_id nullable)
+  npcs_total  INTEGER NOT NULL DEFAULT 0,
+  npcs_done   INTEGER NOT NULL DEFAULT 0,
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  closed_at   DATETIME
+);
+```
+
+-----
+
+### `npc_batch_row`
+
+One staged NPC draft (or an explicit generation failure) produced by a
+spec line in an open or closed `npc_batch`. Ephemeral stratum, same
+non-canon status as `npc_batch` (see NOTE above).
+
+```sql
+CREATE TABLE npc_batch_row (
+  id          TEXT PRIMARY KEY,
+  batch_id    TEXT NOT NULL REFERENCES npc_batch(id),
+  line_index  INTEGER NOT NULL,   -- which spec line produced this NPC
+  kind        TEXT NOT NULL,      -- draft | failed
+  payload     JSON NOT NULL,
+              -- full draft (public/secret), resolved location_id, goals
+              -- block, notes list; {} + reason for failed
+  row_status  TEXT NOT NULL DEFAULT 'proposed',
+              -- proposed | edited | rejected | committed
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_npc_batch_row_batch ON npc_batch_row(batch_id);
 ```
 
 -----

@@ -62,6 +62,8 @@ from .ephemeral import (
     GatheringMember,
     LinkBatch,
     LinkBatchRow,
+    NpcBatch,
+    NpcBatchRow,
     Session,
     Visit,
 )
@@ -101,6 +103,8 @@ __all__ = [
     "GatheringMember",
     "LinkBatch",
     "LinkBatchRow",
+    "NpcBatch",
+    "NpcBatchRow",
     "Conversation",
     "ConversationMessage",
     "ProposedMutation",

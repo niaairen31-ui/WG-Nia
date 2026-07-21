@@ -7808,4 +7808,346 @@ only by a later unrelated ticket) should not repeat silently.
 
 ---
 
+## NPC GROUP AGENT — STAGING SUBSTRATE (BRIEF-0037-a, schema v1.83)
+
+First step of TICKET-0037 (splitting NPC creation out of the region wizard
+into a standalone batch agent, mirroring TICKET-0036's link agent). This
+step builds only the ephemeral substrate the later passes stage into — no
+LLM call, no canon write, no commit endpoint, no frontend yet.
+
+**G1 — sibling ephemeral tables, entity grain, not a `link_batch`
+generalization.** `npc_batch`/`npc_batch_row` join `link_batch`/
+`link_batch_row`/`gathering`/`pass_play` in `models/ephemeral.py`: never
+listed in `canon_write_policy.txt`, never a `proposed_mutation`, never
+creator-CRUD-reviewed. `npc_batch_row` payload is one full NPC draft per
+row (entity grain) versus `link_batch_row`'s one pair-verdict per row (pair
+grain) — deliberately NOT a polymorphic table, since the two agents stage
+structurally different things. Made structural by the new
+`tooling/verify/checks/npc_agent_strata.py` gate, scoped to the two
+guarantees this step can actually prove (policy/writes-dir absence,
+reference-scope narrowing to `cockpit/routes/npc_agent.py`,
+`npc_group_author.py`, `models/ephemeral.py`, `models/__init__.py`,
+`cockpit/app.py`) — the D3-style subject-stamp and no-direct-canon-write
+scans arrive with BRIEF-0037-c's commit path, once there is a commit path
+to scan.
+
+**Per-agent open-batch rule.** `npc_batch` and `link_batch` each enforce
+their own single-open-batch-per-world 409 independently — an open batch of
+one agent never blocks the other, since they stage disjoint things (NPC
+drafts vs. NPC-pair relations/knowledge) and TICKET-0037's own J1 handoff
+(BRIEF-0037-c) deliberately chains a fresh link batch onto a just-committed
+NPC batch.
+
+**Purge parametrization.** `cockpit/app.py`'s `purge_closed_link_batches`
+is refactored into a private, model-parametrized `_purge_closed_batches(db,
+batch_model, row_model, row_fk_attr)` carrying the same last-2/
+`closed_at desc`/`offset(2)` logic, with `purge_closed_link_batches` and
+the new `purge_closed_npc_batches` as thin named wrappers — both still
+called from the one FastAPI `startup` hook. Legal by construction for both
+tables' ephemeral stratum, per each table's own NOTE in
+`models/ephemeral.py`; each agent's append-only journal
+(`~/.world_engine/link_agent_journal/`, `~/.world_engine/npc_agent_journal/`)
+carries the long memory the purge discards from the DB.
+
+**Corollary: one new `canon_write_policy.txt` wildcard entry, no new canon
+site.** `_purge_closed_batches`'s generic `Type[SQLModel]` parameters defeat
+`single_canon_write.py`'s static per-table write attribution (it resolves a
+literal model class or a `list[Model]`/`Optional[Model]` annotation, not a
+type-parameterized generic) — the same class of case the checker already
+carves out for `delete_world_cascade`. Added
+`src/world_engine/cockpit/app.py::_purge_closed_batches *` to
+`ALLOWED_SITES` with a comment explaining why: it never writes a CANON
+table (both call sites pass only their own agent's EPHEMERAL batch/row
+pair), verified instead by each agent's own strata check. The comment
+deliberately never spells out either ephemeral table's literal name, so it
+cannot trip the strata checks' own text-substring guarantee.
+
+**C2 refactor-over-duplication: `link_author.expand_location_ids`.** The
+BFS descent embedded in `link_author.resolve_roster` is extracted verbatim
+into a module-level `expand_location_ids(db, root_ids) -> set[str]`;
+`resolve_roster` now calls it, behavior byte-identical. `npc_group_author.
+resolve_vocabulary` reuses the same function for the NPC agent's
+placement vocabulary (expanded location set + the active world's active
+faction entities) — the same S1 code-owned descent, no model call, shared
+rather than re-implemented.
+
+**No structure without a reader.** Every new column has a named consumer
+in briefs b/c: `payload` -> generation output then the commit path,
+`line_index` -> review grouping back to its spec line, `npcs_done` -> the
+BRIEF-0037-b run driver's progress counter. No coherence columns on
+`npc_batch` (I1: this agent gets no model coherence pass — mechanical
+checks only; social coherence stays the link agent's downstream territory).
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+## NPC GROUP AGENT — GENERATION RUN (BRIEF-0037-b, no schema change)
+
+Second step of TICKET-0037: makes a staged `npc_batch` (BRIEF-0037-a)
+runnable — one `generate_entity_draft("character")` call per NPC (H1),
+a single batch-level placement plan for unanchored spec lines, goals
+attached per draft (F), and inline row-review edits. Still no canon write,
+no commit endpoint, no frontend (BRIEF-0037-c).
+
+**H1 — exact count by construction, no floor, no clamp.** `_line_units`
+flattens every spec line's `count` into a fixed run order (`(line_index,
+ordinal)` per NPC); unit `k` of the run is always `_line_units[k]`.
+`run_next_npc` (mirror of `link_author.run_pair`) processes exactly one
+pending unit per call: `ok: False` from `generate_entity_draft` journals
+`npc_parse_error` and raises 502 with the unit left pending (`npcs_done`
+unchanged) — a silence is never a verdict, and there is no retry loop or
+top-up construct anywhere in this module (the BRIEF-40 pattern this ticket
+retires).
+
+**Placement plan — one model call per batch, S1-resolved.**
+`plan_placements` runs at most once, triggered by the first `run_next_npc`
+call, covering every spec line lacking a pinned `location_id` in a single
+`chat(..., format="json")` call parsed through `llm_parse.extract_object`
+only. Returned location names are matched case-insensitively against the
+expanded location set in code (S1 — the model proposes, code resolves); a
+whole-call failure or a per-line count mismatch leaves that line's slots at
+`None`, individually resolved to `scope["root_location_id"]` at
+unit-resolution time with the verbatim note "Placement non résolu — replié
+sur la racine". The plan is cached into `batch.scope["placement_plan"]`
+(JSON round-trip forces string keys, converted back to `int` on read) so a
+restart never re-triggers the call. A placement failure never aborts the
+batch or blocks the count contract — every unit still gets a location.
+
+**Pin always overrides the model.** A pinned line's `faction_id` /
+`location_id` (from the batch's own `scope["lines"]`) resolve before the
+generation call and are applied AFTER it: `draft["public"]["faction_id"]`
+is overwritten with the pin regardless of what the model's own
+`faction_name` resolved to (that resolution is advisory only on a pinned
+line). An unpinned line keeps `generate_entity_draft`'s own resolved
+`faction_id` as-is, including `None`.
+
+**Name dedup stages, never drops (BRIEF-42 `_name_key` posture).** Each
+generated name is checked against (a) this batch's own staged non-rejected
+rows and (b) active `entity` names of the world, using a local
+`_name_key` (apostrophe/whitespace/accent-composition fold — same posture
+as `region_author._name_key`, not a cross-module reuse of that private
+helper). A collision stages the row anyway with the verbatim note "Nom en
+collision avec {name} — à éditer avant commit"; the creator resolves it at
+review, never a silent retry.
+
+**Goals attach per draft, never block it (F/G1).** After a successful
+character draft, `generate_npc_goals` runs once with `faction_goals` read
+from the FINAL resolved faction's `Faction.goals` (post-pin-override, None
+when factionless) — same call as the region wizard's existing gate, one
+per NPC, no batching. A goal-generation failure appends a note and leaves
+`payload["goals"]` `None`; it never drops or blocks the row.
+
+**Composite brief, adapted not reused verbatim.** `_compose_group_npc_brief`
+mirrors `region_author._compose_npc_brief`'s prose style but with a
+different peer set: the group brief, this spec line (description + count),
+every other spec line's description, the pinned faction's name + truncated
+(300 char) description when pinned, the resolved location's name, and — for
+every already-staged sibling of the same line — an explicit anti-clone
+block naming each sibling and instructing the model to differ in name,
+temperament, and angle on the shared role.
+
+**Row PATCH, sibling of `link_author.patch_row`.** `patch_npc_row` edits
+one staged row's payload and/or `row_status` while the batch stays open.
+Patchable fields route to different parts of the nested payload —
+`name`/`description`/`appearance`/`backstory`/`aversion`/`physical_tier`/
+`faction_id` into `payload["draft"]["public"]`, `location_id` into the
+payload's own top level (re-validated against `scope["expanded_location_ids"]`),
+`goals.long`/`goals.shorts` into `payload["goals"]` — ids of batch/row,
+`line_index`, and `kind` are never reachable through this vocabulary.
+`row_status` is reversible between `proposed`/`rejected` while the batch
+stays open, same as the link agent's row PATCH.
+
+**Prompt wiring.** New registry key `npc_batch_placement`
+(surface="authoring", `world_scoped=False`, single global template),
+seeded as `pt-npc-batch-placement`. Call site
+`npc_group_author.py:_load_placement_template`; the placement prompt
+substitutes `{group_brief}`/`{spec_lines}`/`{candidate_locations}` into the
+user text via chained `.replace()` (H1), never `.format()`.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+## NPC GROUP AGENT — COMMIT, COCKPIT SURFACE, LINK HANDOFF (BRIEF-0037-c, no schema change)
+
+Third step of TICKET-0037: closes the loop opened by BRIEF-0037-a/b — the
+atomic commit of accepted `npc_batch_row`s into canon, the "Agent PNJ"
+cockpit panel mirroring the link agent's, and the J1 handoff that prefills
+a link batch on the same region root. After this step the pipeline
+regions -> NPCs -> liens is live end-to-end; the region wizard's legacy NPC
+path is untouched until BRIEF-0037-d retires it.
+
+**Commit lives route-side, not in `npc_group_author.py` — region-commit
+layering, not link-agent layering.** `_commit_npc_batch`/`_commit_npc_row`
+are `cockpit/routes/npc_agent.py`-module functions mirroring
+`routes/regions.py::_commit_region_npcs` + `commit_region`'s transaction
+shape (try/rollback, exactly one `db.commit()`), deliberately NOT the link
+agent's own precedent (`link_author.py::commit_batch`, author-module-side).
+Same "canon writes live route-side, the author module stays generate-only"
+split as the region commit. `_commit_npc_row` is split out from
+`_commit_npc_batch` to hold the R1 80-line ceiling on the per-row NPC +
+knowledge + goals write.
+
+**No new `canon_write_policy.txt` entry — the commit rides only
+already-allowed sites.** `_commit_npc_row` calls `_crud._create_entity_core`
+(entity + character + optional primary faction membership),
+`_crud._create_knowledge_core` per `secret.knowledge` item (`is_secret=True,
+share_threshold=50, is_incorrect=False, source=None` — byte-same posture as
+`_commit_region_npcs`), and `write_npc_goal` for the attached goals block —
+all three already-sanctioned sites. Neither `_commit_npc_batch` nor
+`_commit_npc_row` performs a direct `db.add(Entity(...)/...)`, so — exactly
+like `_commit_region_npcs` itself — no ALLOWED_SITES entry is added. Made
+structural by `npc_agent_strata.py`'s new guarantee 3 (link_agent_strata.py
+guarantee-4 precedent): an AST scan of `routes/npc_agent.py` and
+`npc_group_author.py` for direct `db.add(Entity(...)/Character(...)/
+FactionMembership(...)/Knowledge(...)/NpcGoal(...))` or raw SQL touching
+those tables.
+
+**No-partial-commit guard (I1 precedent).** `_commit_npc_batch` refuses
+(409) unless `batch.status == "open"` and `npcs_done == npcs_total` —
+"generation incomplete — run or abandon" is the only escape hatch, deliberate
+per Scope OUT (no "commit what's generated so far"). No coherence gate
+either (I1 carries forward from BRIEF-0037-a). Rows are re-read from the DB
+by `row_status in ("proposed", "edited")` — server-authoritative, the
+client's rendering is never trusted; a `kind == "failed"` row (defensive,
+not currently produced by `run_next_npc`) is skipped rather than committed.
+
+**J1 handoff reuses the link agent's own creation route verbatim.** The
+cockpit's "Générer les liens pour ce groupe" button calls the EXISTING
+`POST /api/link-batches` with `{root_location_ids: [batch.scope.
+root_location_id]}` — no new backend route, no link-agent behavior change.
+A 409 (a link batch already open) surfaces as a plain warning banner and is
+never retried automatically (Scope OUT: no "chained auto-run" of pairs).
+
+**Cockpit surface — structural mirror of the link agent's, `.linkagent-*`
+CSS reused wholesale.** `npcagent-launcher-btn`/`npcagent-panel` sit in the
+same relgraph panel head as `linkagent-launcher-btn`/`linkagent-panel`
+(index.html, NPC tab's `creation-npc-relgraph` block), "Agent PNJ" preceding
+"Agent liens" — the region -> NPC -> liens pipeline order. `npcAgent*` JS
+mirrors `linkAgent*`'s shape (reset/checkOpenBatch/toggle/launcher/run
+loop/review/commit) with two deliberate departures: (a) the location picker
+is a single-select radio, not a multi-select checkbox tree (C1 — one root
+per batch, intra-region v1); (b) the run driver's stop condition is a
+message-text check on the 409 ("already fully generated") rather than an
+explicit `{done:true}` response field, since `run_next_npc` signals
+completion via HTTPException, not a sentinel payload — `api()`'s thin fetch
+wrapper only ever surfaces `Error(detail)`, no status code. `npcAgentReset`
+is wired into `_relGraphReset` (world switch / tab re-entry), same as
+`linkAgentReset`.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+## REGION NPC RETIREMENT (BRIEF-0037-d, no schema change)
+
+A1 (TICKET-0037 intake): hard retirement of the region pipeline's NPC
+machinery, superseding BRIEF-39 (density floor) and BRIEF-40 (top-up
+clamp) now that the NPC group agent (BRIEF-0037-a/b/c) is live end-to-end.
+Region generation becomes factions + locations only — every character
+enters the world exclusively through the group agent, which the region
+commit hands off into via the existing J1 handoff button. Removal, not a
+bypass flag (S-norme: no dead code); their ARCHITECTURE_DECISIONS.md
+entries stay as written (append-only), superseded by this one.
+
+**`region_author.py`** loses `MIN_NPCS_PER_FACTION`/`MIN_FACTIONLESS`,
+`_load_manifest_topup_template`, `_normalize_npc_placement` (and the npcs
+branch of `_normalize_manifest` — the normalized manifest shape is now
+`{concept, factions, locations}`), `_compose_npc_brief`, `_npc_deficits`,
+`_topup_blocks`, `_run_npc_topup` and its call site, `_draft_one_npc`,
+`_draft_npcs`, and the Stage-3 block of `generate_region_draft`. Pure
+shrinkage — module and function-length budgets hold on their own.
+
+**`cockpit/routes/regions.py`** loses `_commit_region_npcs` and its call in
+`commit_region`; the commit's `committed` response dict drops its `npcs`
+key. `write_npc_goal` and the `json` import both lose their only caller
+and are dropped. `npc_goal_generation`'s registry entry needed no edit —
+it never listed a region call site (only `entity_author.py`'s pre-fill
+loader), so its surviving readers (single-NPC pre-fill, backfill) are
+unaffected.
+
+**`scripts/seed_pilot.py`**: `pt-region-manifest`'s system prompt is
+rewritten to a three-key contract (`concept`/`factions`/`locations`) with
+the density-floor paragraph removed; S2 (a head with an existing v1 never
+has its text touched again) means an already-seeded DB keeps the OLD
+npcs-section wording until re-seeded from a virgin head. The seed stops
+upserting `pt-region-manifest-topup` entirely — its `prompt_template` head
+(if a DB was ever seeded through TICKET-0036 or earlier) is left exactly
+as it stands, untouched, `is_active` unchanged, `prompt_version` history
+intact (history is sacred); a world never seeded with a predecessor never
+gets the row.
+
+**`prompt_registry.py`** drops the `region_manifest_topup` entry outright
+(its only call site, `_load_manifest_topup_template`, no longer exists).
+
+**`cockpit/index.html`**: the manifest checkpoint's PNJ section and
+`regionManifestAddNpc` are gone (`{concept, factions, locations}` only);
+the review tree's `regionRenderNpc` and its call sites (faction member
+counts, location nodes' `npcsHere`) are gone, along with `regionCascade`'s
+`npcPlaceable`/`npcFactionEffective` and the now-dead `acceptedFactions`
+they were the sole reader of. The full-sheet editor (BRIEF-0033-c) drops
+its entire `type === 'npc'` branch — knowledge-row and goals-row editors
+included — and `_regionSheetNode` narrows to location/faction. The
+`.region-npc-row` CSS rule is removed with its only consumer.
+
+**New fail-closed gate, `tooling/verify/checks/region_npc_retirement.py`**
+(door_terminal.py idiom): `region_author.py` and `regions.py` carry none
+of the nine retired tokens; `region_author.py` additionally carries zero
+case-insensitive `"npc"` substrings; `prompt_registry.py` carries no
+`region_manifest_topup` token. A missing target file fails closed, never
+a vacuous pass.
+
+**CLAUDE.md**: the region-generation invariant's described commit skeleton
+(`parent_location_id`, primary faction membership, `current_location_id`)
+was entirely NPC wiring — rewritten to `parent_location_id` + faction role
+vocabulary only, with a pointer to this ticket.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+## PURGE CHILD-BEFORE-PARENT DELETE ORDERING FIX (BRIEF-0037-e, no schema change)
+
+Live-gate regression on TICKET-0037: the shared retention purge
+`_purge_closed_batches` (`cockpit/app.py`) crashed app startup with
+`sqlite3.IntegrityError: FOREIGN KEY constraint failed` as soon as more
+than 2 closed batches existed for either staging agent — the exact
+condition the group agent's live test finally produced. Latent since
+TICKET-0036 (`purge_closed_link_batches` had the identical body); 0037
+generalized it into the shared helper and surfaced it once a second agent
+started closing batches too.
+
+**Root cause.** The batch/row models (`link_batch`/`link_batch_row`,
+`npc_batch`/`npc_batch_row`) carry only a column-level `foreign_key=` on
+the row model — no ORM `relationship()`. Per-object `db.delete(...)` gives
+the SQLAlchemy unit-of-work no child-before-parent dependency edge; the
+next loop iteration's `select(...)` autoflushes, and the UOW emitted the
+parent batch's DELETE before its rows' DELETEs. `PRAGMA foreign_keys=ON`
+(the `db.py` connect listener) then rejects it.
+
+**Fix — Option A, statement-ordered Core deletes.** `_purge_closed_batches`
+now selects the to-purge batch ids, then issues two explicit
+`sqlalchemy.delete(...)` Core statements in the same session — rows first,
+batch second — instead of relying on UOW flush ordering. `if not ids:
+return` keeps the empty case a clean no-op (no stray `IN ()`, no pointless
+commit). Signature, retention semantics (last-2, `committed`/`abandoned`,
+`closed_at` desc), and both thin wrappers (`purge_closed_link_batches`,
+`purge_closed_npc_batches`) are unchanged — one fix repairs both agents.
+Adding an ORM `relationship()` or `ON DELETE CASCADE` (schema change) were
+both considered and rejected: the ephemeral models are deliberately
+relationship-free (`models/ephemeral.py`), and this is code-only plumbing,
+not a schema-touching brief.
+
+**New runtime gate, `tooling/verify/checks/purge_fk_ordering.py`** — the
+first RUNTIME check in this family (the sibling `npc_batch_purge.py` is
+AST-only and structurally cannot see a flush-ordering fault). Fresh
+temp-file SQLite DB, real `PRAGMA foreign_keys=ON` in force, exercises the
+real `_purge_closed_batches` against BOTH table pairs: 3 closed batches
+(ascending `closed_at`) plus 1 open batch, each with row-children.
+Confirmed to FAIL with the exact reproduced `IntegrityError` against the
+pre-fix helper body and PASS against the fixed one. TICKET-0037's
+Machine-checkable section gains this criterion — the gate is now 9/9.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*

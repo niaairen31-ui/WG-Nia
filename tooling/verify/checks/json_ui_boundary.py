@@ -76,6 +76,18 @@ JSON_COLUMN_ALLOWLIST = {
     "LinkBatch.scope",
     "LinkBatch.coherence_findings",
     "LinkBatchRow.payload",
+    # NPC group agent staging (TICKET-0037, BRIEF-0037-a) — ephemeral
+    # stratum, same non-canon status as the link-agent staging fields
+    # above. No frontend surface exists yet this step (that is
+    # BRIEF-0037-c); once it lands, any per-field edit route must
+    # re-validate through a vocab/clamp gate rather than a raw JSON blob
+    # edit, same posture as LinkBatchRow.payload. This staging row mirrors
+    # the per-NPC `_create_entity_core`/`write_npc_goal` kwargs it becomes
+    # on commit; it is not a durable UI-query surface. The FIRST consumer
+    # that needs to QUERY into these fields (list/filter/report) must
+    # relationalize.
+    "NpcBatch.scope",
+    "NpcBatchRow.payload",
 }
 
 

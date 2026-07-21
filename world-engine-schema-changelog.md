@@ -8,6 +8,29 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.83** — TICKET-0037, BRIEF-0037-a: NPC group agent, first step —
+  ephemeral staging substrate for batch NPC drafting, replacing the region
+  wizard's retired NPC machinery (retirement itself is BRIEF-0037-d, last).
+  New tables `npc_batch` (`id, world_id, status, scope JSON, npcs_total,
+  npcs_done, created_at, closed_at`) and `npc_batch_row` (`id, batch_id,
+  line_index, kind, payload JSON, row_status, created_at, updated_at`) with
+  index `idx_npc_batch_row_batch`. Both join the EPHEMERAL stratum alongside
+  `link_batch`/`gathering`/`pass_play`: never listed in
+  `canon_write_policy.txt`, never a `proposed_mutation`, never
+  creator-CRUD-reviewed as canon. `scope` carries the same
+  BFS-region-descent shape as `link_batch` (`root_location_id`,
+  `expanded_location_ids`) plus the creator's spec (`lines`,
+  `group_brief`); `npc_batch_row.payload` carries the full per-NPC draft
+  (grain: one row per NPC, not per pair — G1 sibling-tables decision, never
+  a generalization of `link_batch`). Closed batches
+  (`committed`/`abandoned`) are purged to a last-2 retention at cockpit
+  startup via the newly shared `_purge_closed_batches` helper (parametrized
+  over both agents' batch/row model pairs) — legal by construction for
+  ephemeral plumbing, since long memory of a run lives in the append-only
+  journal under `~/.world_engine/npc_agent_journal/` instead. No LLM call,
+  no generation loop, no commit endpoint yet (0037-b/c). An open `npc_batch`
+  and an open `link_batch` may coexist — each table enforces its own 409.
+
 - **v1.82** — TICKET-0036, BRIEF-0036-a: NPC link agent, first step —
   ephemeral staging substrate for batch relation/knowledge authoring. New
   tables `link_batch` (`id, world_id, status, scope JSON, pairs_total,
