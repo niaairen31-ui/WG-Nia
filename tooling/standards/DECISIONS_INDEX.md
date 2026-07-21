@@ -113,3 +113,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 7603 | NPC LINK AGENT — COHERENCE PASS AND COMMIT (BRIEF-0036-c, no schema change) | BRIEF-0036-c |  |
 | 7698 | NPC LINK AGENT — FRONTEND ON THE RELGRAPH PANEL (BRIEF-0036-d, no schema change) | BRIEF-0036-d |  |
 | 7760 | NPC GROUP AGENT — STAGING SUBSTRATE (BRIEF-0037-a, schema v1.83) | BRIEF-0037-a | v1.83 |
+| 7833 | NPC GROUP AGENT — GENERATION RUN (BRIEF-0037-b, no schema change) | BRIEF-0037-b |  |

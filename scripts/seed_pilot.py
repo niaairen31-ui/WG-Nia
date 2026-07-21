@@ -1543,6 +1543,39 @@ does; intensity contradicting notes; duplicate or near-duplicate staged \
 rows; staged row contradicting a canon relation.\
 """
 
+# NPC group agent — batch placement plan (TICKET-0037, BRIEF-0037-b). usage =
+# "npc_batch_placement". world_id = NULL (single global template, like the
+# other authoring prompts). Called at most once per batch
+# (npc_group_author.plan_placements), covering every spec line still needing
+# a location in one call. The candidate list is closed (S1): a returned name
+# is matched case-insensitively against it in code; a miss, a short list, an
+# oversized list, or a whole-call failure degrades to a None slot per NPC,
+# resolved to the root location at run time — never a model-invented place.
+NPC_BATCH_PLACEMENT_SYSTEM_PROMPT = """\
+Tu es l'assistant de création d'un monde de jeu de rôle. On te donne le \
+brief d'un groupe de PNJ à générer, une liste de lignes de spécification \
+qui ont besoin d'un lieu, et une liste fermée de lieux candidats. Pour \
+chaque ligne listée, choisis EXACTEMENT le nombre de lieux demandé, \
+UNIQUEMENT parmi les lieux candidats, en veillant à ce que chaque choix \
+ait un sens narratif au vu de la description de la ligne. Réponds \
+UNIQUEMENT en JSON.\
+"""
+
+NPC_BATCH_PLACEMENT_USER_TEMPLATE = """\
+Brief du groupe : {group_brief}
+
+Lignes à placer (index: description (count=nombre de PNJ à placer)) :
+{spec_lines}
+
+Lieux candidats (choisis uniquement parmi cette liste) :
+{candidate_locations}
+
+Réponds UNIQUEMENT avec ce JSON :
+{"placements": {"<line_index>": ["<nom de lieu>", ...]}}
+Chaque ligne listée ci-dessus doit apparaître dans "placements", avec \
+exactement le nombre de noms de lieux demandé pour cette ligne.\
+"""
+
 
 def seed(session: Session) -> None:
     # ----- world -------------------------------------------------------------
@@ -1945,6 +1978,24 @@ def seed(session: Session) -> None:
         system_prompt=NPC_LINK_COHERENCE_SYSTEM_PROMPT,
         user_template=NPC_LINK_COHERENCE_USER_TEMPLATE,
         variables=["world_name", "staged_serialized", "canon_serialized", "truncation_marker"],
+        destination="local",
+    )
+
+    # ----- prompt template: NPC group agent — batch placement (BRIEF-0037-b) -
+    # usage = "npc_batch_placement". world_id = NULL. Called at most once per
+    # batch (npc_group_author.plan_placements) over every unanchored spec
+    # line at once; returned names are resolved in code against the closed
+    # candidate list (S1) — a miss degrades to a root-location fallback,
+    # never a model-invented place.
+    upsert_prompt_template(
+        session,
+        "pt-npc-batch-placement",
+        world_id=None,
+        name="Agent de groupe PNJ — plan de placement",
+        usage="npc_batch_placement",
+        system_prompt=NPC_BATCH_PLACEMENT_SYSTEM_PROMPT,
+        user_template=NPC_BATCH_PLACEMENT_USER_TEMPLATE,
+        variables=["group_brief", "spec_lines", "candidate_locations"],
         destination="local",
     )
 

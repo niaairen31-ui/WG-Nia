@@ -18,7 +18,7 @@ from sqlmodel import Session, select
 
 from ...db import get_session
 from ...models import NpcBatch, NpcBatchRow
-from ...npc_group_author import journal_append, resolve_vocabulary
+from ...npc_group_author import journal_append, patch_npc_row, resolve_vocabulary, run_next_npc
 from .. import crud as _crud
 
 router = APIRouter()
@@ -30,6 +30,11 @@ class NpcBatchBody(BaseModel):
     root_location_id: str
     group_brief: str
     lines: list[dict]
+
+
+class NpcRowPatchBody(BaseModel):
+    payload_patch: dict | None = None
+    row_status: str | None = None
 
 
 def _open_batch(world_id: str, db: Session) -> NpcBatch | None:
@@ -136,3 +141,25 @@ def abandon_npc_batch(batch_id: str, db: Session = Depends(get_session)) -> dict
     db.refresh(batch)
     journal_append(batch.id, {"event": "batch_abandoned"})
     return batch.model_dump()
+
+
+@router.post("/api/npc-batches/{batch_id}/run-next")
+def run_next_npc_batch(batch_id: str, db: Session = Depends(get_session)) -> dict:
+    """Generate exactly one more NPC for this batch (H1 — exact count by
+    construction). Backend only; the cockpit panel arrives in BRIEF-0037-c."""
+    batch = db.get(NpcBatch, batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail=f"NPC batch {batch_id!r} not found")
+    return run_next_npc(db, batch)
+
+
+@router.patch("/api/npc-batches/{batch_id}/rows/{row_id}")
+def patch_npc_batch_row(
+    batch_id: str, row_id: str, body: NpcRowPatchBody, db: Session = Depends(get_session)
+) -> dict:
+    """Inline creator review edit on one staged row — mirror of the link
+    agent's row PATCH."""
+    batch = db.get(NpcBatch, batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail=f"NPC batch {batch_id!r} not found")
+    return patch_npc_row(db, batch, row_id, body.payload_patch, body.row_status)

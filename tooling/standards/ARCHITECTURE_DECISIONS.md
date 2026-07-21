@@ -7830,6 +7830,92 @@ checks only; social coherence stays the link agent's downstream territory).
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## NPC GROUP AGENT — GENERATION RUN (BRIEF-0037-b, no schema change)
+
+Second step of TICKET-0037: makes a staged `npc_batch` (BRIEF-0037-a)
+runnable — one `generate_entity_draft("character")` call per NPC (H1),
+a single batch-level placement plan for unanchored spec lines, goals
+attached per draft (F), and inline row-review edits. Still no canon write,
+no commit endpoint, no frontend (BRIEF-0037-c).
+
+**H1 — exact count by construction, no floor, no clamp.** `_line_units`
+flattens every spec line's `count` into a fixed run order (`(line_index,
+ordinal)` per NPC); unit `k` of the run is always `_line_units[k]`.
+`run_next_npc` (mirror of `link_author.run_pair`) processes exactly one
+pending unit per call: `ok: False` from `generate_entity_draft` journals
+`npc_parse_error` and raises 502 with the unit left pending (`npcs_done`
+unchanged) — a silence is never a verdict, and there is no retry loop or
+top-up construct anywhere in this module (the BRIEF-40 pattern this ticket
+retires).
+
+**Placement plan — one model call per batch, S1-resolved.**
+`plan_placements` runs at most once, triggered by the first `run_next_npc`
+call, covering every spec line lacking a pinned `location_id` in a single
+`chat(..., format="json")` call parsed through `llm_parse.extract_object`
+only. Returned location names are matched case-insensitively against the
+expanded location set in code (S1 — the model proposes, code resolves); a
+whole-call failure or a per-line count mismatch leaves that line's slots at
+`None`, individually resolved to `scope["root_location_id"]` at
+unit-resolution time with the verbatim note "Placement non résolu — replié
+sur la racine". The plan is cached into `batch.scope["placement_plan"]`
+(JSON round-trip forces string keys, converted back to `int` on read) so a
+restart never re-triggers the call. A placement failure never aborts the
+batch or blocks the count contract — every unit still gets a location.
+
+**Pin always overrides the model.** A pinned line's `faction_id` /
+`location_id` (from the batch's own `scope["lines"]`) resolve before the
+generation call and are applied AFTER it: `draft["public"]["faction_id"]`
+is overwritten with the pin regardless of what the model's own
+`faction_name` resolved to (that resolution is advisory only on a pinned
+line). An unpinned line keeps `generate_entity_draft`'s own resolved
+`faction_id` as-is, including `None`.
+
+**Name dedup stages, never drops (BRIEF-42 `_name_key` posture).** Each
+generated name is checked against (a) this batch's own staged non-rejected
+rows and (b) active `entity` names of the world, using a local
+`_name_key` (apostrophe/whitespace/accent-composition fold — same posture
+as `region_author._name_key`, not a cross-module reuse of that private
+helper). A collision stages the row anyway with the verbatim note "Nom en
+collision avec {name} — à éditer avant commit"; the creator resolves it at
+review, never a silent retry.
+
+**Goals attach per draft, never block it (F/G1).** After a successful
+character draft, `generate_npc_goals` runs once with `faction_goals` read
+from the FINAL resolved faction's `Faction.goals` (post-pin-override, None
+when factionless) — same call as the region wizard's existing gate, one
+per NPC, no batching. A goal-generation failure appends a note and leaves
+`payload["goals"]` `None`; it never drops or blocks the row.
+
+**Composite brief, adapted not reused verbatim.** `_compose_group_npc_brief`
+mirrors `region_author._compose_npc_brief`'s prose style but with a
+different peer set: the group brief, this spec line (description + count),
+every other spec line's description, the pinned faction's name + truncated
+(300 char) description when pinned, the resolved location's name, and — for
+every already-staged sibling of the same line — an explicit anti-clone
+block naming each sibling and instructing the model to differ in name,
+temperament, and angle on the shared role.
+
+**Row PATCH, sibling of `link_author.patch_row`.** `patch_npc_row` edits
+one staged row's payload and/or `row_status` while the batch stays open.
+Patchable fields route to different parts of the nested payload —
+`name`/`description`/`appearance`/`backstory`/`aversion`/`physical_tier`/
+`faction_id` into `payload["draft"]["public"]`, `location_id` into the
+payload's own top level (re-validated against `scope["expanded_location_ids"]`),
+`goals.long`/`goals.shorts` into `payload["goals"]` — ids of batch/row,
+`line_index`, and `kind` are never reachable through this vocabulary.
+`row_status` is reversible between `proposed`/`rejected` while the batch
+stays open, same as the link agent's row PATCH.
+
+**Prompt wiring.** New registry key `npc_batch_placement`
+(surface="authoring", `world_scoped=False`, single global template),
+seeded as `pt-npc-batch-placement`. Call site
+`npc_group_author.py:_load_placement_template`; the placement prompt
+substitutes `{group_brief}`/`{spec_lines}`/`{candidate_locations}` into the
+user text via chained `.replace()` (H1), never `.format()`.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*
