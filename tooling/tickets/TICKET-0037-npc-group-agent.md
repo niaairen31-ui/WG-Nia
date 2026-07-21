@@ -2,14 +2,14 @@
 id: TICKET-0037
 title: NPC group generation agent + region wizard NPC retirement
 type: feature
-status: brief
+status: escalated
 created: 2026-07-21
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
 blast_radius: large
 brief_ids: [BRIEF-0037-a, BRIEF-0037-b, BRIEF-0037-c, BRIEF-0037-d]
 schema_version_touched: vX.YY (npc_batch / npc_batch_row, brief a)
-retry_count: 0
+retry_count: 1
 ---
 
 ## Request (verbatim, as Nia stated it)
