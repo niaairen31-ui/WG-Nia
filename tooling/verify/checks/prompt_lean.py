@@ -15,8 +15,9 @@ Static assertions only (source text / AST, no DB):
    in seed_pilot.py.
 5. CONVERSATION_ANALYSIS_SYSTEM_PROMPT: exactly 5 "=== EXEMPLE" markers,
    zero "=== EXAMPLE" markers, all four rubric headers present.
-6. REGION_MANIFEST_SYSTEM_PROMPT: no "synchronis", no "BRIEF-", "au moins 4"
-   appears twice.
+6. REGION_MANIFEST_SYSTEM_PROMPT: no "synchronis", no "BRIEF-", zero
+   "au moins 4" (TICKET-0037 A1 retired the NPC density floor this phrase
+   guarded — the contract is concept + factions + locations only now).
 """
 import ast
 import pathlib
@@ -136,8 +137,11 @@ def main() -> int:
     if "BRIEF-" in region:
         failures.append("REGION_MANIFEST_SYSTEM_PROMPT still contains 'BRIEF-'")
     floor_count = region.count("au moins 4")
-    if floor_count != 2:
-        failures.append(f"REGION_MANIFEST_SYSTEM_PROMPT has 'au moins 4' {floor_count} times, expected 2")
+    if floor_count != 0:
+        failures.append(
+            f"REGION_MANIFEST_SYSTEM_PROMPT has 'au moins 4' {floor_count} times, expected 0 "
+            "(TICKET-0037 A1 retired the NPC density floor)"
+        )
 
     if failures:
         for f in failures:

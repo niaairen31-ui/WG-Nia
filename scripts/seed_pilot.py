@@ -1255,26 +1255,26 @@ Brouillon JSON :\
 
 # BRIEF-34: Region orchestrator, Stage 0 — manifest. usage = "region_manifest".
 # Transforms a free-text creator region brief into a single structured JSON
-# manifest (concept + factions/locations/NPCs by name, with by-name
-# relationships) and nothing else. The manifest is consumed by
-# region_author.generate_region_draft, which code-judges it (dedup, root
-# location enforcement, name resolution) before composing the atomic
-# generators across it. No counts are prescribed here or in code — density
-# is entirely the model's response to the brief.
-# The two "au moins 4" minimums inside this prompt MUST stay in sync with
-# MIN_NPCS_PER_FACTION / MIN_FACTIONLESS in region_author.py (BRIEF-40).
+# manifest (concept + factions/locations by name, with by-name relationships)
+# and nothing else. The manifest is consumed by region_author.generate_region_draft,
+# which code-judges it (dedup, root location enforcement, name resolution)
+# before composing the atomic generators across it. No counts are prescribed
+# here or in code — density is entirely the model's response to the brief.
+# TICKET-0037 (A1): the npcs section and its density floor are retired —
+# characters now enter the world exclusively through the group generation
+# agent, seeded from this region's committed factions/locations.
 REGION_MANIFEST_SYSTEM_PROMPT = """\
 Tu es l'assistant de création du créateur d'un monde de jeu de rôle. Le \
 créateur te donne une intention en quelques phrases pour une RÉGION entière ; \
 ton travail est de proposer un MANIFESTE structuré qui servira de plan pour \
-générer ensuite chaque faction, chaque lieu et chaque PNJ de cette région. \
+générer ensuite chaque faction et chaque lieu de cette région. \
 Tu ne crées rien toi-même — tu proposes seulement une structure, et le \
 créateur (puis d'autres étapes automatisées) jugera et enrichira chaque \
 élément ensuite.
 
 === STRUCTURE DU MANIFESTE ===
-Ta réponse est TOUJOURS un unique objet JSON avec exactement quatre clés de \
-premier niveau : "concept", "factions", "locations", "npcs".
+Ta réponse est TOUJOURS un unique objet JSON avec exactement trois clés de \
+premier niveau : "concept", "factions", "locations".
 - "concept" : 2 à 4 phrases décrivant la géographie de la région et la \
 tension politique qui la traverse.
 - "factions" : une liste d'objets {"name", "one_liner"} — chaque nom est \
@@ -1284,29 +1284,11 @@ région.
 "parent_name"} — chaque nom est unique ; EXACTEMENT un lieu doit avoir \
 "is_root": true (le lieu d'entrée de la région) ; tout autre lieu doit \
 avoir "parent_name" égal au nom exact d'un autre lieu de cette même liste.
-- "npcs" : une liste d'objets {"name", "one_liner", "location_name", \
-"faction_name"} — chaque nom est unique ; "location_name" doit être le nom \
-exact d'un lieu de la liste "locations" ; "faction_name" est le nom exact \
-d'une faction de la liste "factions", ou null si ce PNJ n'appartient à \
-aucune.
 
 === RÈGLE — LA DENSITÉ EST TA DÉCISION ===
-Aucun nombre de factions, de lieux ou de PNJ n'est imposé : propose ce que \
+Aucun nombre de factions ou de lieux n'est imposé : propose ce que \
 l'intention du créateur appelle, ni plus ni moins. Une région modeste peut \
-n'avoir qu'un lieu et deux PNJ ; une région riche peut en avoir beaucoup \
-plus.
-
-Plancher de densité de PNJ (à respecter impérativement) :
-- Pour CHAQUE faction listée dans `factions`, la liste `npcs` doit contenir \
-au moins 4 PNJ dont le champ `faction_name` est exactement le nom de \
-cette faction.
-- La liste `npcs` doit aussi contenir au moins 4 PNJ sans faction \
-(`faction_name` = null).
-- Ce sont des minimums : produis-en davantage si le brief le suggère, \
-jamais moins.
-- Chaque PNJ ajouté pour atteindre ces minimums respecte le format normal : \
-`name`, `one_liner`, `location_name` (un lieu existant de la liste \
-`locations`), et `faction_name`.
+n'avoir qu'un lieu ; une région riche peut en avoir beaucoup plus.
 
 === FORMAT DE SORTIE ===
 Réponds UNIQUEMENT avec l'objet JSON demandé — aucun texte avant ou après, \
@@ -1317,49 +1299,6 @@ REGION_MANIFEST_USER_TEMPLATE = """\
 {world_description}{world_fundamental_laws}Intention du créateur pour cette région : {brief}
 
 Manifeste JSON :\
-"""
-
-# BRIEF-40: Region NPC top-up clamp (A1) — Stage-0 manifest gained a density
-# floor (BRIEF-39) but the small authoring model honors it unreliably. This
-# template issues ONE targeted re-prompt, to the SAME authoring model, asking
-# only for the exact missing NPCs. usage = "region_manifest_topup". Called
-# from region_author.py's generate_region_manifest, after normalization,
-# only when a deficit remains.
-REGION_MANIFEST_TOPUP_SYSTEM_PROMPT = """\
-Tu complètes un manifeste de région déjà existant. On te fournit le \
-concept, les factions, les lieux et les PNJ déjà présents, ainsi qu'un \
-nombre exact de PNJ à ajouter. Tu produis UNIQUEMENT les PNJ manquants \
-demandés, au format JSON.
-
-Règles impératives :
-- Réponds avec un seul objet JSON : {"npcs": [ ... ]}. Aucun texte hors du JSON.
-- Chaque PNJ : {"name": str, "one_liner": str, "location_name": str, "faction_name": str ou null}.
-- `location_name` DOIT être l'un des lieux fournis, copié à l'identique.
-- `faction_name` DOIT être exactement le nom de la faction demandée pour ce \
-PNJ, ou null pour un PNJ sans faction.
-- Aucun nom de PNJ ne doit reprendre un PNJ déjà présent ni un autre PNJ \
-que tu ajoutes.
-- Produis EXACTEMENT le nombre de PNJ demandé pour chaque cible, ni plus ni moins.
-- `one_liner` : une seule phrase en français qui campe le personnage.\
-"""
-
-REGION_MANIFEST_TOPUP_USER_TEMPLATE = """\
-Concept de la région :
-{concept}
-
-Factions existantes :
-{factions_block}
-
-Lieux existants (valeurs autorisées pour location_name) :
-{locations_block}
-
-PNJ déjà présents (noms à ne pas réutiliser) :
-{existing_npcs_block}
-
-PNJ à ajouter :
-{requests_block}
-
-Produis uniquement ces PNJ manquants, au format JSON {{"npcs": [...]}}.\
 """
 
 # MJ initiative vote — decides whether a bystander NPC acts spontaneously this
@@ -1916,6 +1855,12 @@ def seed(session: Session) -> None:
     # a ready-rendered block (label + text + blank line) or "" when the
     # world field is empty, so an empty-premise world degrades to the
     # original brief-only prompt with no dangling label.
+    # TICKET-0037 (A1): the npcs section and its density-floor wording are
+    # retired from the contract (concept + factions + locations only) — a
+    # head with an existing v1 never has its text touched again (S2), so a
+    # DB seeded before this ticket keeps the OLD npcs-section wording until
+    # a fresh, un-seeded DB or an explicit prompt_version edit; the new
+    # wording only applies to a virgin head.
     upsert_prompt_template(
         session,
         "pt-region-manifest",
@@ -1929,23 +1874,15 @@ def seed(session: Session) -> None:
     )
 
     # ----- prompt template: region manifest NPC top-up (BRIEF-40) ------------
-    # usage = "region_manifest_topup". world_id = NULL. Calls go through
-    # region_author.py's generate_region_manifest, after normalization, only
-    # when the NPC density floor isn't met — one targeted re-prompt to the
-    # same AUTHOR_MODEL for exactly the missing NPCs. The `variables` list is
-    # metadata only (RECON E14) — the call site passes these as explicit
-    # .format() kwargs.
-    upsert_prompt_template(
-        session,
-        "pt-region-manifest-topup",
-        world_id=None,
-        name="Orchestrateur de région — complément PNJ",
-        usage="region_manifest_topup",
-        system_prompt=REGION_MANIFEST_TOPUP_SYSTEM_PROMPT,
-        user_template=REGION_MANIFEST_TOPUP_USER_TEMPLATE,
-        variables=["concept", "factions_block", "locations_block", "existing_npcs_block", "requests_block"],
-        destination="local",
-    )
+    # RETIRED by TICKET-0037 (A1): the NPC density-floor clamp is gone from
+    # region_author.py, so this template's only caller no longer exists.
+    # The seed intentionally stops upserting "pt-region-manifest-topup" —
+    # a `prompt_template` head this seed created in the past is left exactly
+    # as it stands (orphaned, not deleted, `is_active` unchanged); its
+    # `prompt_version` history is untouched (history is sacred). A world
+    # never seeded with this ticket's predecessor never gets the row at all.
+    # `prompt_registry.py`'s "region_manifest_topup" entry is deleted in the
+    # same brief, so no live code path resolves this usage anymore.
 
     # ----- prompt template: NPC link agent — pair pass (BRIEF-0036-b) --------
     # usage = "npc_link_pair". world_id = NULL. Calls go through

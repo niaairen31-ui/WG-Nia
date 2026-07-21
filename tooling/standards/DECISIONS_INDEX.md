@@ -115,3 +115,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 7760 | NPC GROUP AGENT — STAGING SUBSTRATE (BRIEF-0037-a, schema v1.83) | BRIEF-0037-a | v1.83 |
 | 7833 | NPC GROUP AGENT — GENERATION RUN (BRIEF-0037-b, no schema change) | BRIEF-0037-b |  |
 | 7919 | NPC GROUP AGENT — COMMIT, COCKPIT SURFACE, LINK HANDOFF (BRIEF-0037-c, no schema change) | BRIEF-0037-c |  |
+| 7989 | REGION NPC RETIREMENT (BRIEF-0037-d, no schema change) | BRIEF-0037-d |  |

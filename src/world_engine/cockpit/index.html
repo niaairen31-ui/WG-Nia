@@ -971,8 +971,6 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 /* ── Région review tree (BRIEF-36) ───────────────────────────────────────── */
 .region-loc-node   { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
 .region-loc-children { margin-left: 22px; border-left: 1px dashed var(--border); padding-left: 12px; }
-.region-npc-row    { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 5px 8px; margin: 4px 0 4px 22px; border: 1px solid var(--border); border-radius: 6px; }
 .region-rejected   { opacity: 0.5; }
 .region-fac-badge  { font-size: 10px; padding: 1px 6px; border-radius: 10px; border: 1px solid; }
 
@@ -5860,11 +5858,11 @@ async function promptsRunAssembledPreview(usage) {
  * regionDraft holds the `region` envelope from POST /api/regions/generate,
  * client-side only (never server-persisted) until commit or "Recommencer".
  * regionAccepted is the per-local_id accept/reject map — absence means
- * accepted (default-accept, decision B1). The cascade rendered here (faction
- * rejection greys NPC badges, host-location rejection auto-rejects its NPCs,
- * parent rejection re-parents children to root) is advisory only: POST
+ * accepted (default-accept, decision B1). The cascade rendered here (parent
+ * rejection re-parents children to root) is advisory only: POST
  * /api/regions/commit re-derives it server-side from the raw map — see
- * commit_region in cockpit/app.py. */
+ * commit_region in cockpit/routes/regions.py. TICKET-0037 (A1): factions and
+ * locations only — characters enter the world through the group agent. */
 let regionDraft       = null;
 let regionManifest    = null;
 let regionManifestNotes = [];
@@ -5909,7 +5907,6 @@ function regionToggleLink(key) {
 
 /** Re-derive the server's cascade, client-side, for display only (B1). */
 function regionCascade() {
-  const acceptedFactions  = new Set(regionDraft.factions.filter(f => regionIsAccepted(f.local_id)).map(f => f.local_id));
   const acceptedLocations = new Set(regionDraft.locations.filter(l => regionIsAccepted(l.local_id)).map(l => l.local_id));
   const rootLocal = (regionDraft.locations.find(l => l.parent_local_id == null) || {}).local_id || null;
 
@@ -5921,15 +5918,7 @@ function regionCascade() {
     effectiveParent[l.local_id] = (rootLocal && acceptedLocations.has(rootLocal) && rootLocal !== l.local_id) ? rootLocal : null;
   }
 
-  const npcPlaceable = new Set();
-  const npcFactionEffective = {};
-  for (const n of regionDraft.npcs) {
-    const placeable = regionIsAccepted(n.local_id) && acceptedLocations.has(n.location_local_id);
-    if (placeable) npcPlaceable.add(n.local_id);
-    npcFactionEffective[n.local_id] = (n.faction_local_id && acceptedFactions.has(n.faction_local_id)) ? n.faction_local_id : null;
-  }
-
-  return { acceptedFactions, acceptedLocations, rootLocal, effectiveParent, npcPlaceable, npcFactionEffective };
+  return { acceptedLocations, rootLocal, effectiveParent };
 }
 
 function regionRenderBriefForm() {
@@ -6011,13 +6000,6 @@ function regionManifestAddLocation() {
   regionRenderManifest();
 }
 
-function regionManifestAddNpc() {
-  const firstLocation = (regionManifest.locations || [])[0];
-  (regionManifest.npcs = regionManifest.npcs || []).push(
-    { name: '', one_liner: '', location_name: firstLocation ? firstLocation.name : '', faction_name: null });
-  regionRenderManifest();
-}
-
 function regionManifestSetRoot(i, checked) {
   const l = regionManifest.locations[i];
   l.is_root = checked;
@@ -6073,30 +6055,6 @@ function regionRenderManifest() {
     </div>`;
   }).join('');
 
-  const npcRows = (m.npcs || []).map((n, i) => {
-    const locationNames = (m.locations || []).map(o => o.name);
-    const factionNames = (m.factions || []).map(o => o.name);
-    return `
-    <div class="row-card">
-      <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap">
-        <div class="field-row" style="flex:1; min-width:140px"><label>Nom</label>
-          <input type="text" value="${esc(n.name)}" placeholder="Nom du PNJ"
-            oninput="regionManifest.npcs[${i}].name = this.value"></div>
-        <div class="field-row" style="min-width:140px"><label>Lieu</label>
-          <select onchange="regionManifest.npcs[${i}].location_name = this.value">
-            ${regionManifestOptions(locationNames, n.location_name, false)}
-          </select></div>
-        <div class="field-row" style="min-width:140px"><label>Faction</label>
-          <select onchange="regionManifest.npcs[${i}].faction_name = this.value || null">
-            ${regionManifestOptions(factionNames, n.faction_name, true)}
-          </select></div>
-        <button class="btn-icon" title="Retirer" onclick="regionManifestRemoveRow('npcs', ${i})">x</button>
-      </div>
-      <textarea rows="2" style="width:100%; resize:vertical"
-        oninput="regionManifest.npcs[${i}].one_liner = this.value">${esc(n.one_liner || '')}</textarea>
-    </div>`;
-  }).join('');
-
   const notes = [...(regionManifestNotes || []), ...(regionManifestSkipped || []).map(s =>
     `${s.stage || ''} · ${s.name || '?'} — ${s.reason || ''}`)];
 
@@ -6116,7 +6074,6 @@ function regionRenderManifest() {
     </div>` : ''}
     ${section('Factions', factionRows, '+ Ajouter une faction', 'regionManifestAddFaction')}
     ${section('Lieux', locationRows, '+ Ajouter un emplacement', 'regionManifestAddLocation')}
-    ${section('PNJ', npcRows, '+ Ajouter un PNJ', 'regionManifestAddNpc')}
     <div id="region-build-status" style="font-size:12px; color:var(--muted)"></div>
   `;
 }
@@ -6126,7 +6083,7 @@ async function regionBuild() {
 
   const isNameless = (item) => !((item.name || '').trim());
   const hasContent = (item) => !!((item.one_liner || '').trim());
-  const blocked = ['factions', 'locations', 'npcs'].some(kind =>
+  const blocked = ['factions', 'locations'].some(kind =>
     (regionManifest[kind] || []).some(item => isNameless(item) && hasContent(item)));
   if (blocked) {
     if (statusEl) statusEl.textContent = 'Chaque entrée doit avoir un nom.';
@@ -6137,7 +6094,6 @@ async function regionBuild() {
     ...regionManifest,
     factions: (regionManifest.factions || []).filter(f => !isNameless(f)),
     locations: (regionManifest.locations || []).filter(l => !isNameless(l)),
-    npcs: (regionManifest.npcs || []).filter(n => !isNameless(n)),
   };
 
   if (statusEl) statusEl.textContent = 'Génération des fiches… (peut prendre un moment)';
@@ -6195,10 +6151,6 @@ function regionEntityNotes(entry, kind) {
       notes.push(`Lien perçu (${link.kind}) : ${link.name}${link.note ? ' — ' + link.note : ''}`);
     }
     if (draft.secret.subculture_hidden) notes.push(`Subculture cachée proposée : ${draft.secret.subculture_hidden}`);
-  } else if (kind === 'npc') {
-    for (const sw of (draft.secret.shared_with || [])) {
-      notes.push(`Pourrait être partagé avec ${sw.with}${sw.note ? ' — ' + sw.note : ''}`);
-    }
   }
   return notes;
 }
@@ -6236,13 +6188,11 @@ function regionRenderFactionsPanel(cascade) {
   return '<div class="row-table">' + regionDraft.factions.map(f => {
     const draft = f.result.draft;
     const accepted = regionIsAccepted(f.local_id);
-    const memberCount = regionDraft.npcs.filter(n => n.faction_local_id === f.local_id).length;
     const color = regionFactionColor(f.local_id);
     return `
       <div class="row-card ${accepted ? '' : 'region-rejected'}">
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
           <span class="region-fac-badge region-name-link" onclick="regionRenderSheet('faction','${esc(f.local_id)}')" style="border-color:${color}; color:${color}">${esc(draft.public.name)}</span>
-          <span style="font-size:11px; color:var(--muted)">${memberCount} membre${memberCount === 1 ? '' : 's'}</span>
           <button class="btn-icon" onclick="regionToggleAccept('${esc(f.local_id)}')" style="margin-left:auto">
             ${accepted ? 'Rejeter' : 'Accepter'}</button>
         </div>
@@ -6252,41 +6202,10 @@ function regionRenderFactionsPanel(cascade) {
   }).join('') + '</div>';
 }
 
-function regionRenderNpc(n, cascade) {
-  const draft = n.result.draft;
-  const placeable = cascade.npcPlaceable.has(n.local_id);
-  const autoRejected = !regionIsAccepted(n.local_id) ? false : !cascade.acceptedLocations.has(n.location_local_id);
-  const facLocal = cascade.npcFactionEffective[n.local_id];
-  const fac = facLocal ? regionDraft.factions.find(f => f.local_id === facLocal) : null;
-  const rawFac = n.faction_local_id ? regionDraft.factions.find(f => f.local_id === n.faction_local_id) : null;
-  const badge = rawFac
-    ? `<span class="region-fac-badge" style="border-color:${regionFactionColor(rawFac.local_id)}; color:${regionFactionColor(rawFac.local_id)}; ${fac ? '' : 'opacity:0.4; text-decoration:line-through'}">${esc(rawFac.result.draft.public.name)}</span>`
-    : '';
-  // BRIEF-0013-b (G1 review UI): read-only, horizon-tagged — no per-goal
-  // controls here (accept/reject stays per-NPC, unchanged).
-  const goals = draft.public.goals;
-  const goalsHtml = goals ? `
-    <div style="font-size:11px; color:var(--muted); margin-top:2px;">
-      ${goals.long ? `<div>[LONG TERME] ${esc(goals.long)}</div>` : ''}
-      ${(goals.shorts || []).map(s => `<div>[COURT TERME] ${esc(s)}</div>`).join('')}
-    </div>` : '';
-  return `
-    <div class="region-npc-row ${placeable ? '' : 'region-rejected'}">
-      <span style="font-weight:600" class="region-name-link" onclick="regionRenderSheet('npc','${esc(n.local_id)}')">${esc(draft.public.name)}</span>
-      ${badge}
-      ${autoRejected ? '<span class="badge b-rejected" style="font-size:10px">auto-rejeté (lieu rejeté)</span>' : ''}
-      <button class="btn-icon" onclick="regionToggleAccept('${esc(n.local_id)}')" style="margin-left:auto" ${autoRejected ? 'disabled title="Lieu hôte rejeté"' : ''}>
-        ${regionIsAccepted(n.local_id) ? 'Rejeter' : 'Accepter'}</button>
-      ${goalsHtml}
-      ${regionRenderNotes(regionEntityNotes(n, 'npc'))}
-    </div>`;
-}
-
 function regionRenderLocationNode(loc, cascade, childrenByParent) {
   const draft = loc.result.draft;
   const accepted = regionIsAccepted(loc.local_id);
   const reparented = loc.parent_local_id != null && cascade.effectiveParent[loc.local_id] !== loc.parent_local_id;
-  const npcsHere = regionDraft.npcs.filter(n => n.location_local_id === loc.local_id);
   const children = childrenByParent[loc.local_id] || [];
   return `
     <div class="region-loc-node ${accepted ? '' : 'region-rejected'}">
@@ -6300,7 +6219,6 @@ function regionRenderLocationNode(loc, cascade, childrenByParent) {
       ${draft.public.description ? `<div style="font-size:12px; color:var(--muted)">${esc(draft.public.description)}</div>` : ''}
       ${regionRenderNotes(regionEntityNotes(loc, 'location'))}
       ${regionRenderLinkToggles(loc)}
-      ${npcsHere.map(n => regionRenderNpc(n, cascade)).join('')}
       ${children.length ? `<div class="region-loc-children">${children.map(c => regionRenderLocationNode(c, cascade, childrenByParent)).join('')}</div>` : ''}
     </div>`;
 }
@@ -6316,7 +6234,7 @@ function regionRenderTree(cascade) {
   // BRIEF-0033-c: parent reassignment can set a second location's
   // parent_local_id to null (root fallback, matching the commit's None ->
   // no-parent resolution) — render every top-level location, not just the
-  // first found, so a reparented-to-root location and its NPCs stay visible.
+  // first found, so a reparented-to-root location stays visible.
   const roots = regionDraft.locations.filter(l => l.parent_local_id == null);
   if (!roots.length) return '<div class="empty">Aucun lieu racine dans le brouillon.</div>';
   return roots.map(root => regionRenderLocationNode(root, cascade, childrenByParent)).join('');
@@ -6334,7 +6252,7 @@ function regionRenderCommitResult() {
   const links = regionCommitResult.links || { written: [], unresolved: [] };
   return `<div class="field-section" style="border:1px solid var(--green); border-radius:6px; padding:10px; margin-top:12px;">
     <div class="field-section-title" style="color:var(--green)">Région commitée</div>
-    <div style="font-size:12px">${c.factions.length} faction(s), ${c.locations.length} lieu(x), ${c.npcs.length} PNJ — entités créées dans le canon.</div>
+    <div style="font-size:12px">${c.factions.length} faction(s), ${c.locations.length} lieu(x) — entités créées dans le canon.</div>
     ${links.written.length ? `<div style="font-size:12px; margin-top:4px">${links.written.length} lien(s) confirmé(s) câblé(s).</div>` : ''}
     ${links.unresolved.length ? `<div style="font-size:11px; color:var(--muted); margin-top:4px">
       ${links.unresolved.map(u => `· ${esc(u.kind)} « ${esc(u.name || '')} » non câblé — ${esc(u.reason || '')}`).join('<br>')}
@@ -6374,7 +6292,7 @@ function regionRenderAll() {
     </div>
     <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start">
       <div style="flex:2; min-width:320px">
-        <div class="field-section-title">Lieux &amp; PNJ</div>
+        <div class="field-section-title">Lieux</div>
         ${regionRenderTree(cascade)}
       </div>
       <div style="flex:1; min-width:240px">
@@ -10810,7 +10728,7 @@ function _sheetListSection(title, items, renderItem) {
 }
 
 function _regionSheetNode(type, localId) {
-  const collection = type === 'npc' ? regionDraft.npcs : (type === 'location' ? regionDraft.locations : regionDraft.factions);
+  const collection = type === 'location' ? regionDraft.locations : regionDraft.factions;
   return (collection || []).find(e => e.local_id === localId);
 }
 
@@ -10838,85 +10756,6 @@ function _sheetEntityOptions(collection, currentId, allowNull, excludeId) {
     opts.push(`<option value="${esc(e.local_id)}"${e.local_id === currentId ? ' selected' : ''}>${esc(label)}</option>`);
   }
   return opts.join('');
-}
-
-/* NPC knowledge rows (secret, F1-style row editor) — subject/level/content
- * inputs + is_secret checkbox; level is a plain input (KNOWLEDGE_LEVELS is
- * not exposed to the frontend today — brief's documented fallback, no new
- * endpoint added for this). */
-function _regionSheetKnowledgeRows(localId) {
-  const node = _regionSheetNode('npc', localId);
-  const rows = (node.result.draft.secret.knowledge || []).map((k, i) => {
-    const base = `_regionSheetNode('npc','${esc(localId)}').result.draft.secret.knowledge[${i}]`;
-    return `
-    <div class="row-card" style="flex-direction:row; gap:6px; align-items:flex-start; flex-wrap:wrap">
-      <input type="text" placeholder="Sujet" value="${esc(k.subject || '')}" style="flex:1; min-width:100px"
-        oninput="${base}.subject = this.value">
-      <input type="text" placeholder="Niveau" value="${esc(k.level || '')}" style="width:110px"
-        oninput="${base}.level = this.value || null">
-      <input type="text" placeholder="Contenu" value="${esc(k.content || '')}" style="flex:2; min-width:140px"
-        oninput="${base}.content = this.value">
-      <label style="font-size:11px; display:flex; align-items:center; gap:3px">
-        <input type="checkbox" ${k.is_secret !== false ? 'checked' : ''} onchange="${base}.is_secret = this.checked"> secret</label>
-      <button class="btn-icon" title="Supprimer" onclick="_regionSheetRemoveKnowledge('${esc(localId)}', ${i})">✕</button>
-    </div>`;
-  }).join('');
-  return `<div>${rows || '<div class="empty">Aucun savoir.</div>'}</div>
-    <div class="row-card-actions" style="margin-top:6px">
-      <button class="btn-send" onclick="_regionSheetAddKnowledge('${esc(localId)}')">+ Ajouter un savoir</button>
-    </div>`;
-}
-
-function _regionSheetAddKnowledge(localId) {
-  const node = _regionSheetNode('npc', localId);
-  (node.result.draft.secret.knowledge = node.result.draft.secret.knowledge || []).push(
-    { subject: '', level: null, content: '', is_secret: true });
-  regionRenderSheet('npc', localId);
-}
-
-function _regionSheetRemoveKnowledge(localId, i) {
-  const node = _regionSheetNode('npc', localId);
-  node.result.draft.secret.knowledge.splice(i, 1);
-  regionRenderSheet('npc', localId);
-}
-
-/* NPC goals: long (textarea) + shorts (list of inputs), bound to
- * draft.public.goals — lazily initialized on render so the long-term
- * textarea always has an object to write into (goals may be absent on a
- * freshly generated NPC). */
-function _regionSheetGoalsHtml(localId) {
-  const node = _regionSheetNode('npc', localId);
-  const pub = node.result.draft.public;
-  pub.goals = pub.goals || { long: '', shorts: [] };
-  const goals = pub.goals;
-  const base = `_regionSheetNode('npc','${esc(localId)}').result.draft.public.goals`;
-  const shortsRows = (goals.shorts || []).map((s, i) => `
-    <div style="display:flex; gap:6px; align-items:center; margin-top:3px">
-      <input type="text" value="${esc(s || '')}" style="flex:1" oninput="${base}.shorts[${i}] = this.value">
-      <button class="btn-icon" title="Supprimer" onclick="_regionSheetRemoveGoalShort('${esc(localId)}', ${i})">✕</button>
-    </div>`).join('');
-  return `
-    <div class="sheet-field-label" style="font-size:11px; margin-top:6px">Objectifs</div>
-    <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Long terme</div>
-      <textarea rows="2" style="width:100%; resize:vertical" oninput="${base}.long = this.value">${esc(goals.long || '')}</textarea></div>
-    <div>${shortsRows}</div>
-    <div class="row-card-actions" style="margin-top:4px">
-      <button class="btn-icon" onclick="_regionSheetAddGoalShort('${esc(localId)}')">+ Ajouter un objectif court terme</button>
-    </div>`;
-}
-
-function _regionSheetAddGoalShort(localId) {
-  const node = _regionSheetNode('npc', localId);
-  const pub = node.result.draft.public;
-  pub.goals = pub.goals || { long: '', shorts: [] };
-  (pub.goals.shorts = pub.goals.shorts || []).push('');
-  regionRenderSheet('npc', localId);
-}
-
-function _regionSheetRemoveGoalShort(localId, i) {
-  const node = _regionSheetNode('npc', localId);
-  node.result.draft.public.goals.shorts.splice(i, 1);
-  regionRenderSheet('npc', localId);
 }
 
 /* Faction roles editor bound to the draft array (F1) — mirrors the look of
@@ -10975,33 +10814,7 @@ function regionRenderSheet(type, localId) {
   let publicHtml = '';
   let secretHtml = '';
 
-  if (type === 'npc') {
-    publicHtml += _sheetFieldInput('Nom', pub.name, `${pubPath}.name`);
-    publicHtml += _sheetFieldTextarea('Description', pub.description, `${pubPath}.description`);
-    publicHtml += _sheetFieldTextarea('Apparence', pub.appearance, `${pubPath}.appearance`);
-    publicHtml += _sheetFieldTextarea('Passé', pub.backstory, `${pubPath}.backstory`);
-    publicHtml += _sheetFieldTextarea('Aversion', pub.aversion, `${pubPath}.aversion`);
-    publicHtml += `<div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Carrure</div>
-      <input type="number" min="-1" max="2" step="1" style="width:70px"
-        value="${pub.physical_tier === undefined || pub.physical_tier === null ? '' : esc(String(pub.physical_tier))}"
-        oninput="${pubPath}.physical_tier = this.value === '' ? null : Number(this.value)"></div>`;
-    publicHtml += `<div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Faction</div>
-      <select onchange="_regionSheetNode('npc','${esc(localId)}').faction_local_id = this.value || null">
-        ${_sheetEntityOptions(regionDraft.factions, node.faction_local_id, true)}
-      </select></div>`;
-    publicHtml += `<div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Lieu</div>
-      <select onchange="_regionSheetNode('npc','${esc(localId)}').location_local_id = this.value">
-        ${_sheetEntityOptions(regionDraft.locations, node.location_local_id, false)}
-      </select></div>`;
-    publicHtml += _regionSheetGoalsHtml(localId);
-
-    secretHtml += `<div class="sheet-field-label" style="font-size:11px; margin-top:6px">Savoirs</div>`;
-    secretHtml += _regionSheetKnowledgeRows(localId);
-    secretHtml += _sheetFieldTextarea('Notes du créateur', sec.creator_meta, `${secPath}.creator_meta`);
-    secretHtml += _sheetListSection('Partagé avec', sec.shared_with, (sw) =>
-      `<div>${esc(sw.with || '')}${sw.note ? ' — ' + esc(sw.note) : ''}</div>`);
-
-  } else if (type === 'location') {
+  if (type === 'location') {
     publicHtml += _sheetFieldInput('Nom', pub.name, `${pubPath}.name`);
     publicHtml += _sheetFieldTextarea('Description', pub.description, `${pubPath}.description`);
     publicHtml += _sheetFieldInput('Type', pub.location_type, `${pubPath}.location_type`);

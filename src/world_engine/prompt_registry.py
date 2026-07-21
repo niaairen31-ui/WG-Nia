@@ -194,13 +194,6 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         call_sites=("src/world_engine/region_author.py:_load_manifest_template",),
         default_model=_author_model,
     ),
-    "region_manifest_topup": PromptSpec(
-        surface="authoring",
-        world_scoped=False,
-        dry_run_capable=False,
-        call_sites=("src/world_engine/region_author.py:_load_manifest_topup_template",),
-        default_model=_author_model,
-    ),
     "npc_link_pair": PromptSpec(
         surface="authoring",
         world_scoped=False,

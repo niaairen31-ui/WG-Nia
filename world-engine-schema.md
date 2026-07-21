@@ -1199,7 +1199,7 @@ CREATE TABLE prompt_template (
                    -- mj_establishment | entity_generation | region_manifest |
                    -- mj_gathering | mj_speaker_selection | mj_initiative |
                    -- npc_initiative_act | world_generation | player_generation |
-                   -- skill_catalogue | region_manifest_topup | other
+                   -- skill_catalogue | other
   destination      TEXT DEFAULT 'local',
                    -- local | claude_api | both
   model            TEXT,            -- NULL = code decides (default_model);

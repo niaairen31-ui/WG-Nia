@@ -11,7 +11,6 @@ route paths, methods and bodies are unchanged (pure move).
 
 from __future__ import annotations
 
-import json
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -23,7 +22,7 @@ from ...region_author import generate_region_draft as _generate_region_draft
 from ...region_author import generate_region_manifest as _generate_region_manifest
 from ...db import get_session
 from ...models import Entity
-from ...writes import write_faction_role, write_npc_goal, write_relation
+from ...writes import write_faction_role, write_relation
 from .. import crud as _crud
 
 router = APIRouter()
@@ -64,7 +63,7 @@ def generate_region(
     Deliberately NOT in crud.py, same neighbourhood as /api/entities/generate:
     crud.py is a sanctioned canon-write path and this route writes nothing.
     Calls only generate_region_draft, which composes generate_entity_draft
-    across factions/locations/NPCs and writes no canon itself. The manifest
+    across factions/locations and writes no canon itself. The manifest
     is re-normalized server-side before use (client-edited input is
     advisory). Returns {"ok": false, "error": ...} (never a 500) on any
     failure.
@@ -227,81 +226,6 @@ def _commit_region_locations(
     return loc_id_map, committed_locations
 
 
-def _commit_region_npcs(
-    npcs_in: list[dict], accepted: dict, loc_id_map: dict, fac_id_map: dict,
-    world_id: Optional[str], db: Session,
-) -> tuple[dict[str, str], list[dict]]:
-    """Stage 3 — NPCs (accepted + placeable only) + their knowledge + goals."""
-    npc_id_map: dict[str, str] = {}
-    committed_npcs: list[dict] = []
-    for entry in npcs_in:
-        local_id = entry["local_id"]
-        if not accepted.get(local_id, True):
-            continue
-        host_local = entry.get("location_local_id")
-        if host_local not in loc_id_map:
-            continue  # host location rejected/missing — NPC is unplaceable, dropped
-
-        draft = entry["result"]["draft"]
-        pub, sec = draft["public"], draft["secret"]
-        entity_data = {
-            "type": "character",
-            "name": pub.get("name"),
-            "description": pub.get("description"),
-        }
-        ext_data: dict[str, Any] = {
-            "character_type": "npc",
-            "appearance": pub.get("appearance"),
-            "backstory": pub.get("backstory"),
-            "aversion": pub.get("aversion"),
-            "current_location_id": loc_id_map[host_local],
-            "secrets": json.dumps(sec["creator_meta"]) if sec.get("creator_meta") is not None else None,
-        }
-        if pub.get("physical_tier") is not None:
-            ext_data["physical_tier"] = pub["physical_tier"]
-        faction_local = entry.get("faction_local_id")
-        if faction_local and faction_local in fac_id_map:
-            ext_data["faction_id"] = fac_id_map[faction_local]
-
-        npc_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data)
-        npc_entity = _crud._create_entity_core(npc_body, db)
-        npc_id_map[local_id] = npc_entity.id
-        committed_npcs.append({"local_id": local_id, "id": npc_entity.id, "name": npc_entity.name})
-
-        for k in (sec.get("knowledge") or []):
-            k_body = _crud.KnowledgeWriteBody(
-                subject=k.get("subject"),
-                level=k.get("level"),
-                content=k.get("content"),
-                source=None,
-                is_incorrect=False,
-                is_secret=True,
-                share_threshold=50,
-            )
-            _crud._create_knowledge_core(npc_entity.id, k_body, db)
-
-        # BRIEF-0013-b (G1): the goal block attached at draft time
-        # (region_author.generate_region_draft) writes here, in the SAME
-        # transaction as the NPC — malformed or absent writes nothing for
-        # that NPC, never blocks the rest of the commit.
-        goals = pub.get("goals")
-        if isinstance(goals, dict):
-            long_desc = (goals.get("long") or "").strip()
-            if long_desc:
-                write_npc_goal(
-                    db, world_id=world_id, npc_id=npc_entity.id,
-                    description=long_desc, horizon="long", changed_by="creator",
-                )
-            for short_desc in (goals.get("shorts") or []):
-                short_desc = (short_desc or "").strip()
-                if short_desc:
-                    write_npc_goal(
-                        db, world_id=world_id, npc_id=npc_entity.id,
-                        description=short_desc, horizon="short", changed_by="creator",
-                    )
-    return npc_id_map, committed_npcs
-
-
 def _commit_region_links(
     locations_in: list[dict], loc_id_map: dict, confirmed_links: dict,
     committed_locations: list[dict], committed_factions: list[dict],
@@ -387,22 +311,19 @@ def commit_region(
     default neighbourhood as /api/regions/generate but this route DOES write
     canon. The region draft + accept/reject map are untrusted client-held
     state (re-sent, not server-persisted) — every reference and the whole
-    cascade (faction rejection -> NPC unaffiliated, host-location rejection
-    -> NPC dropped, parent rejection -> re-parent to root) is re-derived here
-    from the raw `accepted` map, never trusted from the client's rendering.
+    cascade (parent rejection -> re-parent to root) is re-derived here from
+    the raw `accepted` map, never trusted from the client's rendering.
 
-    Calls the commit-free cores directly (`_crud._create_entity_core`,
-    `_crud._create_knowledge_core`) in dependency order — factions, then
-    locations (root first), then placeable NPCs + their knowledge — against
-    one shared session, with exactly one `db.commit()` at the end. Any
+    Calls the commit-free cores directly (`_crud._create_entity_core`) in
+    dependency order — factions, then locations (root first) — against one
+    shared session, with exactly one `db.commit()` at the end. Any
     exception rolls back the whole batch and returns {"ok": false, ...}; no
     half-committed region is ever observable.
 
-    The structural skeleton is wired in stages 1-3: `parent_location_id`,
-    the primary PUBLIC faction_membership (via `extension.faction_id`), and
-    `current_location_id`. No `is_secret=True` membership is ever written.
+    The structural skeleton is wired in stages 1-2: `parent_location_id` and
+    each faction's role vocabulary (`write_faction_role`).
 
-    Stage 4 (BRIEF-37, chantier 3) extends this same transaction with the
+    Stage 3 (BRIEF-37, chantier 3) extends this same transaction with the
     CONFIRMED `sensed_links` judgment suggestions — only the two wirable
     kinds (`connection` -> `connects_to`, `faction` -> `controls`
     faction->location `direction="a_to_b"`); `parent` / `other` /
@@ -412,7 +333,7 @@ def commit_region(
     rejected/uncommitted source or target, or a miss against both the
     just-committed entities and the DB, writes no relation and is recorded
     in the response's `links.unresolved` list instead. `write_relation` is
-    commit-free, so phase 4 joins the SAME transaction with no extra commit.
+    commit-free, so phase 3 joins the SAME transaction with no extra commit.
     """
     region = body.region
     accepted = body.accepted
@@ -420,24 +341,18 @@ def commit_region(
 
     factions_in = region.get("factions") or []
     locations_in = region.get("locations") or []
-    npcs_in = region.get("npcs") or []
 
     accepted_factions = {f["local_id"]: f for f in factions_in if accepted.get(f["local_id"], True)}
     accepted_locations = {l["local_id"]: l for l in locations_in if accepted.get(l["local_id"], True)}
     root_local = next((l["local_id"] for l in locations_in if l.get("parent_local_id") is None), None)
 
     world_id = _crud._world_id(db)
-    committed = {"factions": [], "locations": [], "npcs": []}
+    committed = {"factions": [], "locations": []}
 
     try:
-        # world_id computed once, above (BRIEF-0013-b needs it in stage 3 too
-        # — same source, no re-derivation).
-        fac_id_map, committed["factions"] = _commit_region_factions(factions_in, accepted_factions, world_id, db)
+        _fac_id_map, committed["factions"] = _commit_region_factions(factions_in, accepted_factions, world_id, db)
         loc_id_map, committed["locations"] = _commit_region_locations(
             locations_in, accepted_locations, root_local, db,
-        )
-        _npc_id_map, committed["npcs"] = _commit_region_npcs(
-            npcs_in, accepted, loc_id_map, fac_id_map, world_id, db,
         )
         written_links, unresolved_links = _commit_region_links(
             locations_in, loc_id_map, confirmed_links,

@@ -245,15 +245,15 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   route wrapper owning the single commit — a structural seam, not a
   `commit:` flag.
 - **Region generation writes no canon; commit is atomic; resolution is
-  server-authoritative.** `generate_region_draft` only proposes names.
+  server-authoritative.** `generate_region_draft` proposes factions and
+  locations only — characters retired to the group agent (TICKET-0037 A1).
   `POST /api/regions/commit` is the single write point: entities, skeleton
-  (`parent_location_id`, primary public `faction_membership`,
-  `current_location_id`) and creator-confirmed links commit in one
-  transaction, all-or-nothing, via the commit-free cores and
-  `write_relation`. No model-emitted id ever reaches a canon row; the
-  accept/reject cascade and link targets are re-derived server-side from
-  raw client state; rejected/uncommitted/unresolved/self-referential
-  targets write nothing.
+  (`parent_location_id`, faction role vocabulary via `write_faction_role`)
+  and creator-confirmed links commit in one transaction, all-or-nothing,
+  via the commit-free cores and `write_relation`. No model-emitted id ever
+  reaches a canon row; the accept/reject cascade and link targets are
+  re-derived server-side from raw client state; rejected/uncommitted/
+  unresolved/self-referential targets write nothing.
 - **PC knowledge is written `is_secret=False`; `_normalize_knowledge` is
   NPC-only and forces `is_secret=True` — never reuse it for a PC.**
   `_normalize_player_knowledge` emits no `is_secret` key; `False` is

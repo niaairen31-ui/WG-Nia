@@ -7986,6 +7986,72 @@ is wired into `_relGraphReset` (world switch / tab re-entry), same as
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## REGION NPC RETIREMENT (BRIEF-0037-d, no schema change)
+
+A1 (TICKET-0037 intake): hard retirement of the region pipeline's NPC
+machinery, superseding BRIEF-39 (density floor) and BRIEF-40 (top-up
+clamp) now that the NPC group agent (BRIEF-0037-a/b/c) is live end-to-end.
+Region generation becomes factions + locations only — every character
+enters the world exclusively through the group agent, which the region
+commit hands off into via the existing J1 handoff button. Removal, not a
+bypass flag (S-norme: no dead code); their ARCHITECTURE_DECISIONS.md
+entries stay as written (append-only), superseded by this one.
+
+**`region_author.py`** loses `MIN_NPCS_PER_FACTION`/`MIN_FACTIONLESS`,
+`_load_manifest_topup_template`, `_normalize_npc_placement` (and the npcs
+branch of `_normalize_manifest` — the normalized manifest shape is now
+`{concept, factions, locations}`), `_compose_npc_brief`, `_npc_deficits`,
+`_topup_blocks`, `_run_npc_topup` and its call site, `_draft_one_npc`,
+`_draft_npcs`, and the Stage-3 block of `generate_region_draft`. Pure
+shrinkage — module and function-length budgets hold on their own.
+
+**`cockpit/routes/regions.py`** loses `_commit_region_npcs` and its call in
+`commit_region`; the commit's `committed` response dict drops its `npcs`
+key. `write_npc_goal` and the `json` import both lose their only caller
+and are dropped. `npc_goal_generation`'s registry entry needed no edit —
+it never listed a region call site (only `entity_author.py`'s pre-fill
+loader), so its surviving readers (single-NPC pre-fill, backfill) are
+unaffected.
+
+**`scripts/seed_pilot.py`**: `pt-region-manifest`'s system prompt is
+rewritten to a three-key contract (`concept`/`factions`/`locations`) with
+the density-floor paragraph removed; S2 (a head with an existing v1 never
+has its text touched again) means an already-seeded DB keeps the OLD
+npcs-section wording until re-seeded from a virgin head. The seed stops
+upserting `pt-region-manifest-topup` entirely — its `prompt_template` head
+(if a DB was ever seeded through TICKET-0036 or earlier) is left exactly
+as it stands, untouched, `is_active` unchanged, `prompt_version` history
+intact (history is sacred); a world never seeded with a predecessor never
+gets the row.
+
+**`prompt_registry.py`** drops the `region_manifest_topup` entry outright
+(its only call site, `_load_manifest_topup_template`, no longer exists).
+
+**`cockpit/index.html`**: the manifest checkpoint's PNJ section and
+`regionManifestAddNpc` are gone (`{concept, factions, locations}` only);
+the review tree's `regionRenderNpc` and its call sites (faction member
+counts, location nodes' `npcsHere`) are gone, along with `regionCascade`'s
+`npcPlaceable`/`npcFactionEffective` and the now-dead `acceptedFactions`
+they were the sole reader of. The full-sheet editor (BRIEF-0033-c) drops
+its entire `type === 'npc'` branch — knowledge-row and goals-row editors
+included — and `_regionSheetNode` narrows to location/faction. The
+`.region-npc-row` CSS rule is removed with its only consumer.
+
+**New fail-closed gate, `tooling/verify/checks/region_npc_retirement.py`**
+(door_terminal.py idiom): `region_author.py` and `regions.py` carry none
+of the nine retired tokens; `region_author.py` additionally carries zero
+case-insensitive `"npc"` substrings; `prompt_registry.py` carries no
+`region_manifest_topup` token. A missing target file fails closed, never
+a vacuous pass.
+
+**CLAUDE.md**: the region-generation invariant's described commit skeleton
+(`parent_location_id`, primary faction membership, `current_location_id`)
+was entirely NPC wiring — rewritten to `parent_location_id` + faction role
+vocabulary only, with a pointer to this ticket.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*

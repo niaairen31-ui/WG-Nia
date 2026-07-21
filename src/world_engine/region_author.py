@@ -1,5 +1,7 @@
 """Region orchestrator — BRIEF-34, chantier 1; split into two phases by
-BRIEF-38.
+BRIEF-38. Character-population machinery retired by TICKET-0037 (A1) — new
+characters now enter the world exclusively through the group generation
+agent.
 
 Turns a creator region brief into a **region draft**: a tree of per-entity
 drafts plus draft-local references, produced by composing the atomic entity
@@ -12,16 +14,15 @@ Two phases, split by a creator checkpoint (BRIEF-38, C1 — one-liner text
 editing only): `generate_region_manifest(brief, db)` runs Stage 0 (the
 model call producing the manifest) and returns it for the creator to edit;
 `generate_region_draft(manifest, db)` takes that manifest (advisory —
-re-normalized server-side first) and runs Stages 1-3 (Factions ->
-Locations (root first) -> NPCs).
+re-normalized server-side first) and runs Stages 1-2 (Factions ->
+Locations (root first)).
 
 Locked design (see ARCHITECTURE_DECISIONS.md, "REGION GENERATION —
 orchestrator (chantier 1)"): A3 (structural skeleton only, link suggestions
-are confirm-by-creator), B1 (order Factions -> Locations -> NPCs), C1
-(bounded forward context), F1 (sequential, peers as context), K1 (the
-manifest IS the density control and the source of compact peer summaries),
-I1 (factions flat in v1), J1 (stage-0 failure aborts; per-entity failure
-drops and continues).
+are confirm-by-creator), B1 (order Factions -> Locations), C1
+(bounded forward context), F1 (sequential, peers as context), I1 (factions
+flat in v1), J1 (stage-0 failure aborts; per-entity failure drops and
+continues).
 """
 
 from __future__ import annotations
@@ -32,16 +33,11 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from . import llm_parse
-from .entity_author import AUTHOR_MODEL, generate_entity_draft, generate_npc_goals
+from .entity_author import AUTHOR_MODEL, generate_entity_draft
 from .models import PromptTemplate, World, WorldLaw
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
-
-# BRIEF-40: code-side targeted re-prompt clamp (A1). Must equal the prose
-# floor stated in REGION_MANIFEST_SYSTEM_PROMPT (seed_pilot.py) — keep in sync.
-MIN_NPCS_PER_FACTION = 4
-MIN_FACTIONLESS = 4
 
 
 def _active_world(db: Session) -> World | None:
@@ -53,15 +49,6 @@ def _load_manifest_template(db: Session) -> PromptTemplate | None:
     stmt = (
         select(PromptTemplate)
         .where(PromptTemplate.usage == "region_manifest")
-        .where(PromptTemplate.is_active == True)  # noqa: E712
-    )
-    return db.exec(stmt).first()
-
-
-def _load_manifest_topup_template(db: Session) -> PromptTemplate | None:
-    stmt = (
-        select(PromptTemplate)
-        .where(PromptTemplate.usage == "region_manifest_topup")
         .where(PromptTemplate.is_active == True)  # noqa: E712
     )
     return db.exec(stmt).first()
@@ -158,36 +145,6 @@ def _normalize_location_parents(
             )
 
 
-def _normalize_npc_placement(
-    npcs: list[dict], location_names: set[str], faction_names: set[str],
-    skipped: list[dict], notes: list[str],
-) -> list[dict]:
-    """npc.location_name must resolve; on a miss, drop the NPC (appended to
-    `skipped`). An unresolved faction_name is nulled, not dropped."""
-    placed_npcs: list[dict] = []
-    for n in npcs:
-        location_name = n.get("location_name")
-        if not isinstance(location_name, str) or location_name.strip().lower() not in location_names:
-            skipped.append(
-                {
-                    "stage": "npc",
-                    "name": n.get("name"),
-                    "reason": f"location_name '{location_name}' introuvable dans le manifeste",
-                }
-            )
-            continue
-        faction_name = n.get("faction_name")
-        if faction_name:
-            if not isinstance(faction_name, str) or faction_name.strip().lower() not in faction_names:
-                notes.append(
-                    f"PNJ '{n.get('name')}' — faction_name '{faction_name}' introuvable, "
-                    "mise à null"
-                )
-                n["faction_name"] = None
-        placed_npcs.append(n)
-    return placed_npcs
-
-
 def _normalize_manifest(parsed: dict, notes: list[str]) -> tuple[dict, list[dict]]:
     """Structural normalization of a parsed manifest. Returns (manifest, skipped)."""
     skipped: list[dict] = []
@@ -195,20 +152,16 @@ def _normalize_manifest(parsed: dict, notes: list[str]) -> tuple[dict, list[dict
     concept = _normalize_concept(parsed)
     factions = _dedupe_by_name(parsed.get("factions"), "Faction", notes)
     locations = _dedupe_by_name(parsed.get("locations"), "Lieu", notes)
-    npcs = _dedupe_by_name(parsed.get("npcs"), "PNJ", notes)
 
-    faction_names = {f["name"].strip().lower() for f in factions}
     location_names = {l["name"].strip().lower() for l in locations}
 
     root_name = _normalize_root_location(locations, notes)
     _normalize_location_parents(locations, location_names, root_name, notes)
-    placed_npcs = _normalize_npc_placement(npcs, location_names, faction_names, skipped, notes)
 
     manifest = {
         "concept": concept,
         "factions": factions,
         "locations": locations,
-        "npcs": placed_npcs,
     }
     return manifest, skipped
 
@@ -259,128 +212,6 @@ def _compose_location_brief(concept: str, locations: list[dict], this_location: 
     )
 
 
-def _compose_npc_brief(
-    concept: str,
-    npc: dict,
-    location: dict | None,
-    faction: dict | None,
-    co_located: list[dict],
-) -> str:
-    parts = [concept, "", f"--- Ce PNJ ---\n{npc['name']} : {npc.get('one_liner', '')}"]
-    if location is not None:
-        parts.append(f"--- Son lieu ---\n{location['name']} : {location.get('one_liner', '')}")
-    if faction is not None:
-        parts.append(f"--- Sa faction ---\n{faction['name']} : {faction.get('one_liner', '')}")
-    peers = [
-        f"- {p['name']} : {p.get('one_liner', '')}"
-        for p in co_located
-        if p["name"] != npc["name"]
-    ]
-    if peers:
-        parts.append("--- Autres PNJ du même lieu ---\n" + "\n".join(peers))
-    return "\n\n".join(parts)
-
-
-# ── BRIEF-40 — NPC top-up clamp (A1: one targeted re-prompt, code-judged) ───
-
-
-def _npc_deficits(manifest: dict) -> dict[str | None, int]:
-    """Map faction name (or None for factionless) -> shortfall against the
-    floor. Only positive deficits are included."""
-    npcs = manifest["npcs"]
-    deficits: dict[str | None, int] = {}
-    for faction in manifest["factions"]:
-        name = faction["name"]
-        count = sum(1 for n in npcs if n.get("faction_name") == name)
-        deficit = max(0, MIN_NPCS_PER_FACTION - count)
-        if deficit:
-            deficits[name] = deficit
-    factionless_count = sum(1 for n in npcs if n.get("faction_name") is None)
-    factionless_deficit = max(0, MIN_FACTIONLESS - factionless_count)
-    if factionless_deficit:
-        deficits[None] = factionless_deficit
-    return deficits
-
-
-def _topup_blocks(manifest: dict, deficits: dict[str | None, int]) -> tuple[str, str, str, str]:
-    factions_block = "\n".join(
-        f"- {f['name']} : {f.get('one_liner', '')}" for f in manifest["factions"]
-    ) or "(aucune)"
-    locations_block = "\n".join(f"- {l['name']}" for l in manifest["locations"]) or "(aucun)"
-    existing_npcs_block = "\n".join(f"- {n['name']}" for n in manifest["npcs"]) or "(aucun)"
-    request_lines = []
-    for faction_name, count in deficits.items():
-        if faction_name is None:
-            request_lines.append(f"Sans faction : {count} PNJ manquants")
-        else:
-            request_lines.append(f"Faction « {faction_name} » : {count} PNJ manquants")
-    requests_block = "\n".join(request_lines)
-    return factions_block, locations_block, existing_npcs_block, requests_block
-
-
-def _run_npc_topup(result: dict, db: Session) -> dict:
-    """Mutates and returns `result` in place: tops up under-floor NPCs via a
-    single targeted re-prompt to AUTHOR_MODEL. Never raises; on any failure,
-    appends a shortfall note and returns the original `result` unchanged."""
-    manifest = result["manifest"]
-    deficits = _npc_deficits(manifest)
-    if not deficits:
-        return result
-
-    template = _load_manifest_topup_template(db)
-    if template is None:
-        result["notes"].append(
-            "Plancher PNJ non atteint : modèle de complément introuvable, pas de complément tenté"
-        )
-        return result
-
-    factions_block, locations_block, existing_npcs_block, requests_block = _topup_blocks(
-        manifest, deficits
-    )
-    version = current_prompt(db, template)
-    user_message = (
-        version.user_template
-        .replace("{concept}", manifest["concept"])
-        .replace("{factions_block}", factions_block)
-        .replace("{locations_block}", locations_block)
-        .replace("{existing_npcs_block}", existing_npcs_block)
-        .replace("{requests_block}", requests_block)
-    )
-
-    messages = [
-        {"role": "system", "content": version.system_prompt},
-        {"role": "user", "content": user_message},
-    ]
-
-    try:
-        raw_topup = chat(messages, model=effective_model(template, AUTHOR_MODEL), format="json")
-        data = llm_parse.extract_object(raw_topup)
-    except (OllamaError, llm_parse.LlmParseError) as exc:
-        result["notes"].append(f"Plancher PNJ non atteint : complément échoué ({exc})")
-        return result
-
-    new_npcs = data.get("npcs")
-    if not isinstance(new_npcs, list) or not new_npcs:
-        result["notes"].append("Plancher PNJ non atteint : le complément n'a renvoyé aucun PNJ")
-        return result
-
-    merged = {**manifest, "npcs": manifest["npcs"] + new_npcs}
-    normalized_manifest, new_skipped = _normalize_manifest(merged, result["notes"])
-    result["manifest"] = normalized_manifest
-    result["skipped"].extend(new_skipped)
-
-    residual = _npc_deficits(normalized_manifest)
-    if residual:
-        result["notes"].append(
-            "Plancher PNJ non atteint après complément : "
-            + "; ".join(
-                ("sans faction" if k is None else f"faction « {k} »") + f" manque {v}"
-                for k, v in residual.items()
-            )
-        )
-    return result
-
-
 # ── Entry point ───────────────────────────────────────────────────────────
 
 
@@ -391,12 +222,6 @@ def generate_region_manifest(brief: str, db: Session) -> dict:
     returns {"ok": False, "error": ...} verbatim (empty brief, missing
     template, template format error, Ollama error, malformed/non-JSON
     manifest).
-
-    After a successful parse, a code-side clamp (BRIEF-40, A1) checks the
-    manifest against the NPC density floor and, if short, issues one
-    targeted re-prompt to AUTHOR_MODEL for exactly the missing NPCs. The
-    clamp only ever adds NPCs — it never caps, drops, or overrides the
-    model's counts above the floor (K1, amended, bounded).
     """
     if not brief or not brief.strip():
         return {"ok": False, "error": "brief must not be empty"}
@@ -435,11 +260,7 @@ def generate_region_manifest(brief: str, db: Session) -> dict:
     except OllamaError as exc:
         return {"ok": False, "error": str(exc)}
 
-    result = _parse_manifest_response(raw)
-    if not result["ok"]:
-        return result
-
-    return _run_npc_topup(result, db)
+    return _parse_manifest_response(raw)
 
 
 def _draft_factions(
@@ -501,119 +322,17 @@ def _draft_locations(
     return location_local_id, locations_out
 
 
-def _draft_one_npc(
-    i: int, npc: dict, concept: str, npcs_in: list[dict],
-    location_local_id: dict[str, str], faction_local_id: dict[str, str],
-    locations_by_name: dict[str, dict], factions_by_name: dict[str, dict],
-    faction_goals_by_local: dict[str, Any], skipped: list[dict], notes: list[str], db: Session,
-) -> Optional[dict]:
-    """One Stage-3 NPC: composite brief -> draft -> (on success) goals.
-    Returns None (appended to `skipped`) when the host location is
-    unavailable or the character draft itself fails."""
-    location_name = npc["location_name"].strip().lower()
-    loc_local = location_local_id.get(location_name)
-    if loc_local is None:
-        skipped.append(
-            {
-                "stage": "npc",
-                "name": npc.get("name"),
-                "reason": f"lieu '{npc['location_name']}' indisponible (généré en échec)",
-            }
-        )
-        return None
-
-    faction_name = npc.get("faction_name")
-    fac_local = None
-    if faction_name:
-        fac_local = faction_local_id.get(faction_name.strip().lower())
-        if fac_local is None:
-            notes.append(
-                f"PNJ '{npc['name']}' — faction '{faction_name}' indisponible (généré en échec), "
-                "affiliation mise à null"
-            )
-
-    co_located = [
-        other for other in npcs_in if other["location_name"].strip().lower() == location_name
-    ]
-    location_obj = locations_by_name.get(location_name)
-    faction_obj = factions_by_name.get(faction_name.strip().lower()) if faction_name else None
-
-    composite_brief = _compose_npc_brief(concept, npc, location_obj, faction_obj, co_located)
-    result = generate_entity_draft("character", composite_brief, db)
-    if not result.get("ok"):
-        skipped.append(
-            {"stage": "npc", "name": npc.get("name"), "reason": result.get("error")}
-        )
-        return None
-
-    # BRIEF-0013-b (G1): goals generated after the character draft succeeds,
-    # attached read-only to the draft for the region review UI. A goal-
-    # generation failure never drops the NPC — it ships without goals, noted.
-    pub = result["draft"]["public"]
-    goals_result = generate_npc_goals(
-        pub.get("name", ""),
-        pub.get("description", ""),
-        pub.get("backstory", ""),
-        faction_goals_by_local.get(fac_local) if fac_local else None,
-        db,
-    )
-    if goals_result.get("ok"):
-        pub["goals"] = {"long": goals_result.get("long", ""), "shorts": goals_result.get("shorts", [])}
-    else:
-        notes.append(
-            f"PNJ '{npc['name']}' — génération des objectifs échouée : {goals_result.get('error')}"
-        )
-
-    return {
-        "local_id": f"npc-{i}",
-        "location_local_id": loc_local,
-        "faction_local_id": fac_local,
-        "manifest": npc,
-        "result": result,
-    }
-
-
-def _draft_npcs(
-    concept: str, npcs_in: list[dict], locations_in: list[dict], factions_in: list[dict],
-    location_local_id: dict[str, str], faction_local_id: dict[str, str],
-    factions_out: list[dict], skipped: list[dict], notes: list[str], db: Session,
-) -> list[dict]:
-    """Stage 3 — NPCs."""
-    locations_by_name = {l["name"].strip().lower(): l for l in locations_in}
-    factions_by_name = {f["name"].strip().lower(): f for f in factions_in}
-
-    # BRIEF-0013-b (G1): faction.goals per local_id, for generate_npc_goals'
-    # faction_goals input only — None when a faction draft's secret.goals is
-    # empty. `faction.goals` gains its first reader here, as generator INPUT
-    # only; prompt injection of faction posture remains a separate chantier.
-    faction_goals_by_local = {
-        f["local_id"]: (f["result"]["draft"]["secret"].get("goals") or None)
-        for f in factions_out
-    }
-
-    npcs_out: list[dict] = []
-    for i, npc in enumerate(npcs_in):
-        drafted = _draft_one_npc(
-            i, npc, concept, npcs_in, location_local_id, faction_local_id,
-            locations_by_name, factions_by_name, faction_goals_by_local,
-            skipped, notes, db,
-        )
-        if drafted is not None:
-            npcs_out.append(drafted)
-    return npcs_out
-
-
 def generate_region_draft(manifest: dict, db: Session) -> dict:
-    """Phase B — generate a region draft (factions/locations/NPCs) from an
+    """Phase B — generate a region draft (factions/locations) from an
     already-produced manifest dict (Phase A's output, possibly creator-edited).
 
     The incoming manifest is advisory; this function re-runs
     `_normalize_manifest` on it first and uses the result as authoritative,
     guaranteeing invariants on untrusted re-submitted input. Writes no canon
     anywhere in this function or its call path. Never raises into the
-    caller: a per-entity Stage 1-3 failure drops that entity (recorded in
+    caller: a per-entity Stage 1-2 failure drops that entity (recorded in
     `region.skipped`) and the run continues. See `_draft_factions` /
-    `_draft_locations` / `_draft_npcs` for the per-stage logic.
+    `_draft_locations` for the per-stage logic.
     """
     notes: list[str] = []
     manifest, skipped = _normalize_manifest(dict(manifest), notes)
@@ -621,20 +340,14 @@ def generate_region_draft(manifest: dict, db: Session) -> dict:
     concept = manifest["concept"]
     factions_in = manifest["factions"]
     locations_in = manifest["locations"]
-    npcs_in = manifest["npcs"]
 
-    faction_local_id, factions_out = _draft_factions(concept, factions_in, skipped, db)
-    location_local_id, locations_out = _draft_locations(concept, locations_in, skipped, notes, db)
-    npcs_out = _draft_npcs(
-        concept, npcs_in, locations_in, factions_in, location_local_id, faction_local_id,
-        factions_out, skipped, notes, db,
-    )
+    _, factions_out = _draft_factions(concept, factions_in, skipped, db)
+    _, locations_out = _draft_locations(concept, locations_in, skipped, notes, db)
 
     region = {
         "concept": concept,
         "factions": factions_out,
         "locations": locations_out,
-        "npcs": npcs_out,
         "skipped": skipped,
         "notes": notes,
     }
