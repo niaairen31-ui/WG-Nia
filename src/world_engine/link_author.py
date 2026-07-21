@@ -71,6 +71,21 @@ assert "controls" not in _LINK_RELATION_TYPES
 _LINK_DIRECTIONS = ("mutual", "a_to_b", "b_to_a")
 
 
+def expand_location_ids(db: Session, root_ids: list[str]) -> set[str]:
+    """BFS-expand `root_ids` through `parent_location_id` descent. Code-owned,
+    no model call. Returns the expanded set (roots included)."""
+    expanded: set[str] = set(root_ids)
+    frontier = list(root_ids)
+    while frontier:
+        children = db.exec(
+            select(Location.id).where(Location.parent_location_id.in_(frontier))
+        ).all()
+        new_children = [c for c in children if c not in expanded]
+        expanded.update(new_children)
+        frontier = new_children
+    return expanded
+
+
 def resolve_roster(db: Session, root_location_ids: list[str]) -> dict:
     """BFS-expand `root_location_ids` through `parent_location_id` descent,
     then collect the present NPC roster over the expanded set.
@@ -79,15 +94,7 @@ def resolve_roster(db: Session, root_location_ids: list[str]) -> dict:
     entity.status='active', current_location_id in the expanded set.
     Returns {expanded_location_ids, npcs: [{id, name}], pair_count} where
     pair_count = N*(N-1)/2. Writes nothing."""
-    expanded: set[str] = set(root_location_ids)
-    frontier = list(root_location_ids)
-    while frontier:
-        children = db.exec(
-            select(Location.id).where(Location.parent_location_id.in_(frontier))
-        ).all()
-        new_children = [c for c in children if c not in expanded]
-        expanded.update(new_children)
-        frontier = new_children
+    expanded = expand_location_ids(db, root_location_ids)
 
     rows = db.exec(
         select(Entity, Character)

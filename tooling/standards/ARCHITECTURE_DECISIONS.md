@@ -7757,4 +7757,79 @@ Ticket closed: TICKET-0036 status -> `live-gate` after this step's
 
 ---
 
+## NPC GROUP AGENT — STAGING SUBSTRATE (BRIEF-0037-a, schema v1.83)
+
+First step of TICKET-0037 (splitting NPC creation out of the region wizard
+into a standalone batch agent, mirroring TICKET-0036's link agent). This
+step builds only the ephemeral substrate the later passes stage into — no
+LLM call, no canon write, no commit endpoint, no frontend yet.
+
+**G1 — sibling ephemeral tables, entity grain, not a `link_batch`
+generalization.** `npc_batch`/`npc_batch_row` join `link_batch`/
+`link_batch_row`/`gathering`/`pass_play` in `models/ephemeral.py`: never
+listed in `canon_write_policy.txt`, never a `proposed_mutation`, never
+creator-CRUD-reviewed. `npc_batch_row` payload is one full NPC draft per
+row (entity grain) versus `link_batch_row`'s one pair-verdict per row (pair
+grain) — deliberately NOT a polymorphic table, since the two agents stage
+structurally different things. Made structural by the new
+`tooling/verify/checks/npc_agent_strata.py` gate, scoped to the two
+guarantees this step can actually prove (policy/writes-dir absence,
+reference-scope narrowing to `cockpit/routes/npc_agent.py`,
+`npc_group_author.py`, `models/ephemeral.py`, `models/__init__.py`,
+`cockpit/app.py`) — the D3-style subject-stamp and no-direct-canon-write
+scans arrive with BRIEF-0037-c's commit path, once there is a commit path
+to scan.
+
+**Per-agent open-batch rule.** `npc_batch` and `link_batch` each enforce
+their own single-open-batch-per-world 409 independently — an open batch of
+one agent never blocks the other, since they stage disjoint things (NPC
+drafts vs. NPC-pair relations/knowledge) and TICKET-0037's own J1 handoff
+(BRIEF-0037-c) deliberately chains a fresh link batch onto a just-committed
+NPC batch.
+
+**Purge parametrization.** `cockpit/app.py`'s `purge_closed_link_batches`
+is refactored into a private, model-parametrized `_purge_closed_batches(db,
+batch_model, row_model, row_fk_attr)` carrying the same last-2/
+`closed_at desc`/`offset(2)` logic, with `purge_closed_link_batches` and
+the new `purge_closed_npc_batches` as thin named wrappers — both still
+called from the one FastAPI `startup` hook. Legal by construction for both
+tables' ephemeral stratum, per each table's own NOTE in
+`models/ephemeral.py`; each agent's append-only journal
+(`~/.world_engine/link_agent_journal/`, `~/.world_engine/npc_agent_journal/`)
+carries the long memory the purge discards from the DB.
+
+**Corollary: one new `canon_write_policy.txt` wildcard entry, no new canon
+site.** `_purge_closed_batches`'s generic `Type[SQLModel]` parameters defeat
+`single_canon_write.py`'s static per-table write attribution (it resolves a
+literal model class or a `list[Model]`/`Optional[Model]` annotation, not a
+type-parameterized generic) — the same class of case the checker already
+carves out for `delete_world_cascade`. Added
+`src/world_engine/cockpit/app.py::_purge_closed_batches *` to
+`ALLOWED_SITES` with a comment explaining why: it never writes a CANON
+table (both call sites pass only their own agent's EPHEMERAL batch/row
+pair), verified instead by each agent's own strata check. The comment
+deliberately never spells out either ephemeral table's literal name, so it
+cannot trip the strata checks' own text-substring guarantee.
+
+**C2 refactor-over-duplication: `link_author.expand_location_ids`.** The
+BFS descent embedded in `link_author.resolve_roster` is extracted verbatim
+into a module-level `expand_location_ids(db, root_ids) -> set[str]`;
+`resolve_roster` now calls it, behavior byte-identical. `npc_group_author.
+resolve_vocabulary` reuses the same function for the NPC agent's
+placement vocabulary (expanded location set + the active world's active
+faction entities) — the same S1 code-owned descent, no model call, shared
+rather than re-implemented.
+
+**No structure without a reader.** Every new column has a named consumer
+in briefs b/c: `payload` -> generation output then the commit path,
+`line_index` -> review grouping back to its spec line, `npcs_done` -> the
+BRIEF-0037-b run driver's progress counter. No coherence columns on
+`npc_batch` (I1: this agent gets no model coherence pass — mechanical
+checks only; social coherence stays the link agent's downstream territory).
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*

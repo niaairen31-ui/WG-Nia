@@ -39,6 +39,15 @@ src/world_engine/writes/goals_agendas.py::write_agenda_status  agenda
 src/world_engine/writes/goals_agendas.py::write_goal_agenda_link goal_agenda_link
 src/world_engine/writes/goals_agendas.py::detach_goal_agenda_link goal_agenda_link
 src/world_engine/writes/worlds.py::delete_world_cascade         *
+# TICKET-0037, BRIEF-0037-a: _purge_closed_batches is a generic, model-
+# parametrized retention-purge helper shared by both staging agents'
+# startup purge wrappers (cockpit/app.py). It never writes a CANON table —
+# both callers pass only their own agent's EPHEMERAL stratum batch/row
+# model pair (models/ephemeral.py) — but its generic `Type[SQLModel]`
+# parameters defeat this checker's static per-table attribution, same
+# class of case as delete_world_cascade above. Verified instead by each
+# agent's own strata check (structural narrow-reference-scope guarantee).
+src/world_engine/cockpit/app.py::_purge_closed_batches          *
 # _apply_mutation relocated (TICKET-0027, BRIEF-0027-c): the dispatcher in
 # app.py now only dispatches; its direct (non-writes.py) canon writes moved
 # to per-type appliers in mutations.py. Three sites replace the one former
