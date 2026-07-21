@@ -93,4 +93,7 @@ C. Loosen `tooling/verify/run.py`'s `LINK` regex to also match the
    mentions) — a tooling change affecting every future ticket's `/verify`
    parsing, not scoped to this one alone.
 ## Response
-
+Option A(a): rewrite the 8 bullets' arrow syntax to the parseable form,
+and author the two missing checks now (staging_purge retention check for
+BRIEF-0037-a, exact-count invariant check for BRIEF-0037-b) so all 8
+criteria are real, machine-checked gates.

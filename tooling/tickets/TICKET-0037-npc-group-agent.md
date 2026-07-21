@@ -107,24 +107,25 @@ Retirement list (brief d):
 
 ### Machine-checkable  ->  G1 deterministic gate
 - [ ] `npc_batch`/`npc_batch_row` live in the ephemeral stratum and appear
-      nowhere in `canon_write_policy.txt`  -> single_canon_write.py (no new
-      violation) + policy file diff
-- [ ] The new commit route's entity/membership/goal writes are declared in
-      `canon_write_policy.txt` ALLOWED_SITES  -> single_canon_write.py
+      nowhere in `canon_write_policy.txt` -> verify/checks/npc_agent_strata.py
+      (guarantee 1: policy-file + writes/ module exclusion)
+- [ ] The new commit route's entity/membership/goal writes ride only
+      already-sanctioned sites -- no unattributed or undeclared canon write
+      site exists -> verify/checks/single_canon_write.py
 - [ ] Startup purge covers `npc_batch` with last-2 retention (shared or
-      sibling of `purge_closed_link_batches`)  -> verify/checks/<staging_purge>.py
+      sibling of `purge_closed_link_batches`) -> verify/checks/npc_batch_purge.py
 - [ ] `region_author.py` contains zero references to npcs, MIN_NPCS_PER_FACTION,
-      MIN_FACTIONLESS, topup after brief d  -> verify/checks/<region_npc_retirement>.py
+      MIN_FACTIONLESS, topup after brief d -> verify/checks/region_npc_retirement.py
       (fail-closed: missing file or zero criteria parsed = failure)
 - [ ] `region_manifest_topup` absent from PROMPT_REGISTRY; every remaining
-      registry entry still resolves its call sites  -> prompt_registry check
+      registry entry still resolves its call sites -> verify/checks/prompt_registry.py
 - [ ] Exact-count invariant: batch run produces exactly sum(count) staged
       rows OR per-line failure notes -- never a silent shortfall
-      -> verify/checks/<npc_batch_count_contract>.py (static: loop-per-count
+      -> verify/checks/npc_batch_count_contract.py (static: loop-per-count
       structure present, no floor/top-up constructs in npc group author)
 - [ ] Module budgets hold (R5: 1000 lines / 40 functions) for the new
-      author module and touched route modules  -> existing module_budget check
-- [ ] R1 80-line ceiling holds on all new functions  -> existing check
+      author module and touched route modules -> verify/checks/module_budget.py
+- [ ] R1 80-line ceiling holds on all new functions -> verify/checks/function_length.py
 
 ### Live  ->  human gate (Nia)
 - [ ] Create a batch "5 gardes (faction pinned, location pinned) + 2
