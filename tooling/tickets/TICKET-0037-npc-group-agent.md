@@ -2,7 +2,7 @@
 id: TICKET-0037
 title: NPC group generation agent + region wizard NPC retirement
 type: feature
-status: escalated
+status: live-gate
 created: 2026-07-21
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]

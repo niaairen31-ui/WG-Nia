@@ -1,7 +1,47 @@
 {
   "ticket": "TICKET-0037-npc-group-agent",
-  "when": "2026-07-21T15:32:13.991240+00:00",
-  "green": false,
-  "checks": [],
-  "error": "machine-checkable section parsed to zero criteria \u2014 malformed arrows or empty section"
+  "when": "2026-07-21T19:48:36.575808+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "npc_agent_strata.py",
+      "status": "PASS",
+      "msg": "PASS: npc_agent_strata \u00e2\u20ac\u201d npc_batch/npc_batch_row stay ephemeral and narrowly scoped"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "npc_batch_purge.py",
+      "status": "PASS",
+      "msg": "PASS: npc_batch_purge \u00e2\u20ac\u201d purge_closed_npc_batches wired to the shared last-2-retention helper and called at startup"
+    },
+    {
+      "check": "region_npc_retirement.py",
+      "status": "PASS",
+      "msg": "PASS: region_npc_retirement \u00e2\u20ac\u201d region_author.py/regions.py clean of retired NPC tokens, prompt_registry.py clean of region_manifest_topup"
+    },
+    {
+      "check": "prompt_registry.py",
+      "status": "PASS",
+      "msg": "PASS: prompt_registry \u00e2\u20ac\u201d usage bijection, registry entry shape, static resolver wiring, effective_model pure-function behavior"
+    },
+    {
+      "check": "npc_batch_count_contract.py",
+      "status": "PASS",
+      "msg": "PASS: npc_batch_count_contract \u00e2\u20ac\u201d loop-per-count run order, un-clamped total, no-partial-commit guard, no floor/top-up vocabulary"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u00e2\u20ac\u201d every function over 80 lines is baselined at or below its recorded length"
+    }
+  ]
 }
