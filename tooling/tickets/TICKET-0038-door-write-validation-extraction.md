@@ -2,7 +2,7 @@
 id: TICKET-0038
 title: Extract door-payload validation to clear function_length on write_location_doors
 type: bug
-status: brief
+status: live-gate
 created: 2026-07-21
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []          # pure intra-module extraction: no canon write added or moved, no schema, no migration
