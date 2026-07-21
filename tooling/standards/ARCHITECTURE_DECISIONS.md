@@ -8103,6 +8103,51 @@ vocabulary only, with a pointer to this ticket.
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## PURGE CHILD-BEFORE-PARENT DELETE ORDERING FIX (BRIEF-0037-e, no schema change)
+
+Live-gate regression on TICKET-0037: the shared retention purge
+`_purge_closed_batches` (`cockpit/app.py`) crashed app startup with
+`sqlite3.IntegrityError: FOREIGN KEY constraint failed` as soon as more
+than 2 closed batches existed for either staging agent — the exact
+condition the group agent's live test finally produced. Latent since
+TICKET-0036 (`purge_closed_link_batches` had the identical body); 0037
+generalized it into the shared helper and surfaced it once a second agent
+started closing batches too.
+
+**Root cause.** The batch/row models (`link_batch`/`link_batch_row`,
+`npc_batch`/`npc_batch_row`) carry only a column-level `foreign_key=` on
+the row model — no ORM `relationship()`. Per-object `db.delete(...)` gives
+the SQLAlchemy unit-of-work no child-before-parent dependency edge; the
+next loop iteration's `select(...)` autoflushes, and the UOW emitted the
+parent batch's DELETE before its rows' DELETEs. `PRAGMA foreign_keys=ON`
+(the `db.py` connect listener) then rejects it.
+
+**Fix — Option A, statement-ordered Core deletes.** `_purge_closed_batches`
+now selects the to-purge batch ids, then issues two explicit
+`sqlalchemy.delete(...)` Core statements in the same session — rows first,
+batch second — instead of relying on UOW flush ordering. `if not ids:
+return` keeps the empty case a clean no-op (no stray `IN ()`, no pointless
+commit). Signature, retention semantics (last-2, `committed`/`abandoned`,
+`closed_at` desc), and both thin wrappers (`purge_closed_link_batches`,
+`purge_closed_npc_batches`) are unchanged — one fix repairs both agents.
+Adding an ORM `relationship()` or `ON DELETE CASCADE` (schema change) were
+both considered and rejected: the ephemeral models are deliberately
+relationship-free (`models/ephemeral.py`), and this is code-only plumbing,
+not a schema-touching brief.
+
+**New runtime gate, `tooling/verify/checks/purge_fk_ordering.py`** — the
+first RUNTIME check in this family (the sibling `npc_batch_purge.py` is
+AST-only and structurally cannot see a flush-ordering fault). Fresh
+temp-file SQLite DB, real `PRAGMA foreign_keys=ON` in force, exercises the
+real `_purge_closed_batches` against BOTH table pairs: 3 closed batches
+(ascending `closed_at`) plus 1 open batch, each with row-children.
+Confirmed to FAIL with the exact reproduced `IntegrityError` against the
+pre-fix helper body and PASS against the fixed one. TICKET-0037's
+Machine-checkable section gains this criterion — the gate is now 9/9.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -7,7 +7,7 @@ created: 2026-07-21
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
 blast_radius: large
-brief_ids: [BRIEF-0037-a, BRIEF-0037-b, BRIEF-0037-c, BRIEF-0037-d]
+brief_ids: [BRIEF-0037-a, BRIEF-0037-b, BRIEF-0037-c, BRIEF-0037-d, BRIEF-0037-e]
 schema_version_touched: vX.YY (npc_batch / npc_batch_row, brief a)
 retry_count: 1
 ---
@@ -126,6 +126,12 @@ Retirement list (brief d):
 - [ ] Module budgets hold (R5: 1000 lines / 40 functions) for the new
       author module and touched route modules -> verify/checks/module_budget.py
 - [ ] R1 80-line ceiling holds on all new functions -> verify/checks/function_length.py
+- [ ] The shared retention purge (`_purge_closed_batches`) deletes each
+      purged batch's row-children BEFORE the batch, under real SQLite FK
+      enforcement, for BOTH agents (link + npc), with >2 closed batches
+      present -- app boots clean, no `IntegrityError`
+      -> verify/checks/purge_fk_ordering.py (runtime, real FK-enforcing
+      temp DB; fails against the pre-fix helper body)
 
 ### Live  ->  human gate (Nia)
 - [ ] Create a batch "5 gardes (faction pinned, location pinned) + 2

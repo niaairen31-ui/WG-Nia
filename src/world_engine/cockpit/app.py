@@ -40,6 +40,7 @@ from typing import Type
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
+from sqlalchemy import delete
 from sqlmodel import Session, SQLModel, select
 
 from ..db import engine
@@ -85,18 +86,28 @@ def _purge_closed_batches(
     delete older ones and their row-table children. Legal by construction
     for the ephemeral stratum — see the NOTE on the batch model in
     `models/ephemeral.py` — the append-only journal for the batch's agent
-    is never touched here."""
-    to_purge = db.exec(
-        select(batch_model)
+    is never touched here.
+
+    NOTE (BRIEF-0037-e): children are deleted before the batch via two
+    explicit Core DELETEs in statement order, NOT via per-object
+    `db.delete(...)`. These models declare only a column-level
+    `foreign_key=` (no ORM `relationship()`), so the unit-of-work gives
+    no child-before-parent delete ordering; under `PRAGMA
+    foreign_keys=ON` an autoflush would emit the parent DELETE first and
+    SQLite would reject it. Statement-ordered Core deletes make the
+    order explicit and independent of flush timing.
+    """
+    ids = db.exec(
+        select(batch_model.id)
         .where(batch_model.status.in_(("committed", "abandoned")))
         .order_by(batch_model.closed_at.desc())
         .offset(2)
     ).all()
+    if not ids:
+        return
     row_fk_column = getattr(row_model, row_fk_attr)
-    for batch in to_purge:
-        for row in db.exec(select(row_model).where(row_fk_column == batch.id)).all():
-            db.delete(row)
-        db.delete(batch)
+    db.exec(delete(row_model).where(row_fk_column.in_(ids)))
+    db.exec(delete(batch_model).where(batch_model.id.in_(ids)))
     db.commit()
 
 

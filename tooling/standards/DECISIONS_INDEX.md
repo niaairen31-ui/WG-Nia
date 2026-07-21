@@ -117,3 +117,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 7884 | NPC GROUP AGENT — GENERATION RUN (BRIEF-0037-b, no schema change) | BRIEF-0037-b |  |
 | 7970 | NPC GROUP AGENT — COMMIT, COCKPIT SURFACE, LINK HANDOFF (BRIEF-0037-c, no schema change) | BRIEF-0037-c |  |
 | 8040 | REGION NPC RETIREMENT (BRIEF-0037-d, no schema change) | BRIEF-0037-d |  |
+| 8106 | PURGE CHILD-BEFORE-PARENT DELETE ORDERING FIX (BRIEF-0037-e, no schema change) | BRIEF-0037-e |  |
