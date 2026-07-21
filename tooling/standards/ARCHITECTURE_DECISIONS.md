@@ -7755,6 +7755,57 @@ Ticket closed: TICKET-0036 status -> `live-gate` after this step's
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## DOOR-WRITE VALIDATION EXTRACTION (BRIEF-0038-a, no schema change)
+
+**Extraction, not exemption, on the TICKET-0035 precedent.**
+`write_location_doors` (`writes/config.py`) landed at 99 physical lines via
+BRIEF-0034-a (2026-07-20) — over the R1 80-line ceiling — because the
+transition baseline had already been retired at TICKET-0028/BRIEF-0028-f,
+so it was born over budget rather than exempted into it. The failure
+surfaced only in TICKET-0037's verify run (the check scans all of `src/`;
+0037 does not touch this file). TICKET-0034 is closed, so a dedicated
+remediation ticket (TICKET-0038) owns the fix, the same shape TICKET-0035
+used for the sibling `module_budget` over-`play_stream.py` case: split the
+unit, never re-add the retired baseline.
+
+**Per-item validation moved verbatim into a new private, read-only
+helper, `_validate_doors_payload`**, defined immediately above
+`write_location_doors` in the same module. It owns the `clean`/
+`seen_targets` loop — non-empty target, no self-target, no duplicate
+target within one payload, finite coordinates, target-is-an-active-
+location-of-this-world, and the B1 `connects_to` double-`select` gate
+(still the fourth reader of that relation, per BRIEF-19's D1 — not
+deduplicated here either) — and returns the cleaned
+`(target_location_id, x, y)` tuples. `write_location_doors` keeps its
+public signature, full docstring (including the NO-GEOMETRY block), and
+the `DELETE`-then-insert unchanged; it now calls the helper for the
+`clean` list. No import changed (the helper is intra-module). Both
+functions land under 80 lines by construction: `_validate_doors_payload`
+at 72, `write_location_doors` at 48.
+
+**Canon-write site count is unchanged.** `write_location_doors` remains
+the sole sanctioned writer of `door` rows; `_validate_doors_payload`
+performs no write. `canon_write_policy.txt` has a zero-line diff.
+
+**Process finding, for follow-up.** Under the same baseline-retired
+regime, `module_budget` fail-closed on `play_stream.py` mid-TICKET-0034
+(surfaced as TICKET-0035), but `function_length` did NOT fail-closed on
+`write_location_doors@99` landing via BRIEF-0034-a — it let the merge
+through, and the violation only surfaced later, incidentally, via
+TICKET-0037's unrelated verify run. Preliminary read: `function_length.py`
+is a G1 gate run by `/verify` at ticket close, and TICKET-0034's own
+`/verify` pass evidently ran before this function crossed 80 lines, or
+the check's per-ticket scope at that time did not force a fresh full-tree
+scan the way the current `/verify` does — the exact mechanism is not yet
+confirmed. Escalate for a deliberate look at whether `function_length.py`
+(and any sibling line/def-count check) needs to run against the full
+tree, not a ticket-scoped diff, on every ticket's close — the evasion
+class (an over-budget unit born clean of its own ticket's verify, caught
+only by a later unrelated ticket) should not repeat silently.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 ## NPC GROUP AGENT — STAGING SUBSTRATE (BRIEF-0037-a, schema v1.83)
