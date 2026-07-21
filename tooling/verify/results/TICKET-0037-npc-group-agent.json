@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0037-npc-group-agent",
-  "when": "2026-07-21T14:11:46.106839+00:00",
+  "when": "2026-07-21T14:51:00.358896+00:00",
   "green": false,
   "checks": [],
   "error": "machine-checkable section parsed to zero criteria \u2014 malformed arrows or empty section"

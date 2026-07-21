@@ -987,8 +987,9 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   font-size: 11px; font-weight: 600; text-transform: uppercase;
   letter-spacing: 0.5px; color: var(--muted);
 }
-/* ── NPC link agent panel (BRIEF-0036-d) ─────────────────────────────────── */
-#linkagent-badge { color: var(--accent); font-size: 10px; margin-left: 2px; }
+/* ── NPC link agent panel (BRIEF-0036-d) + NPC group agent panel
+   (BRIEF-0037-c) — the latter reuses every .linkagent-* class wholesale. ── */
+#linkagent-badge, #npcagent-badge { color: var(--accent); font-size: 10px; margin-left: 2px; }
 .linkagent-loc-node { margin: 2px 0; font-size: 12px; text-transform: none; letter-spacing: normal; font-weight: 400; color: var(--text); }
 .linkagent-loc-children { margin-left: 18px; border-left: 1px dashed var(--border); padding-left: 10px; }
 .linkagent-pair-group { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
@@ -1283,6 +1284,7 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       <span>Graphe de relations</span>
       <button class="btn-icon" id="relgraph-mode-btn" onclick="relGraphToggleMode()">Global</button>
       <button class="btn-icon" id="relgraph-link-btn" onclick="relGraphToggleLinkMode()" style="display:none">Lier</button>
+      <button class="btn-icon" id="npcagent-launcher-btn" onclick="npcAgentToggle()">Agent PNJ<span id="npcagent-badge" style="display:none">●</span></button>
       <button class="btn-icon" id="linkagent-launcher-btn" onclick="linkAgentToggle()">Agent liens<span id="linkagent-badge" style="display:none">●</span></button>
       <div class="relgraph-buckets" style="display:flex; gap:10px; margin-left:auto">
         <label><input type="checkbox" class="relgraph-bucket" checked onchange="relGraphBucketToggle(1, this.checked)"> Rouge (1-25)</label>
@@ -1291,6 +1293,9 @@ button:not(:disabled):hover { filter: brightness(1.15); }
         <label><input type="checkbox" class="relgraph-bucket" checked onchange="relGraphBucketToggle(4, this.checked)"> Vert (76-100)</label>
       </div>
     </div>
+    <!-- ── NPC group agent panel (BRIEF-0037-c) — content rendered entirely
+         by npcAgent* JS below; empty/hidden until "Agent PNJ" is clicked ── -->
+    <div id="npcagent-panel" style="display:none; border-bottom:1px solid var(--border); padding:10px 14px; max-height:460px; overflow-y:auto"></div>
     <!-- ── NPC link agent panel (BRIEF-0036-d) — content rendered entirely
          by linkAgent* JS below; empty/hidden until "Agent liens" is clicked ── -->
     <div id="linkagent-panel" style="display:none; border-bottom:1px solid var(--border); padding:10px 14px; max-height:460px; overflow-y:auto"></div>
@@ -9459,6 +9464,7 @@ function _relGraphRenderEmptyState(msg) {
  *  selected character; ego mode with none selected -> empty state (I2). */
 function relGraphLoad() {
   _relGraphUpdateModeUI();
+  npcAgentCheckOpenBatch();
   linkAgentCheckOpenBatch();
   if (relGraphMode === 'global') {
     relGraphFetchGlobal();
@@ -9798,7 +9804,492 @@ function _relGraphReset() {
   relGraphRenderInfoCard(null);
   document.querySelectorAll('#creation-npc-relgraph input.relgraph-bucket').forEach(c => { c.checked = true; });
   _relGraphUpdateModeUI();
+  npcAgentReset();
   linkAgentReset();
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   NPC group agent panel (BRIEF-0037-c) — attaches to the relgraph panel head,
+   sibling of the link agent panel below (same header, "Agent PNJ" precedes
+   "Agent liens" — the region -> NPC -> liens pipeline order). Drives the
+   0037-a/b/c backend (staging, generation run, review, commit + J1 handoff).
+   Sequential client-side fetch loop only; server state is the only state.
+   Reuses every `.linkagent-*` CSS class wholesale (no new stylesheet block).
+   ════════════════════════════════════════════════════════════════════════════ */
+
+let npcAgentOpen           = false;
+let npcAgentOpenBatchId    = null;  // set by npcAgentCheckOpenBatch — drives the badge + reopen path
+let npcAgentLocations      = [];    // flat [{id, name, parent_location_id, ...}], fetched fresh on open
+let npcAgentSelectedRoot   = null;  // single root_location_id (C1/S1 — intra-region v1, radio not checkbox)
+let npcAgentPreview        = null;  // last /preview response {expanded_location_ids, locations, factions}
+let npcAgentGroupBrief     = '';    // launcher's free-prose group brief
+let npcAgentLines          = [];    // draft line editor state [{count, description, faction_id, location_id}]
+let npcAgentBatch          = null;  // current batch object
+let npcAgentRows           = [];    // current batch rows
+let npcAgentLoopRunning    = false; // Pause/"Tout générer" toggle for the run loop
+let npcAgentFailedRun      = null;  // {message} on a real generation failure — drives "Réessayer"
+let npcAgentCommitResult   = null;  // last commit's result text — survives the post-commit repaint
+let npcAgentLinkHandoffMsg = null;  // J1 handoff outcome (409 banner) — never retried automatically
+
+/** Resets ALL NPC-agent state — called by _relGraphReset (tab re-entry /
+ *  world switch, same contract as linkAgentReset). Setting
+ *  npcAgentLoopRunning = false also stops any in-flight run loop on its
+ *  next iteration check, so a world switch mid-run cannot keep hammering
+ *  run-next for a batch that is no longer in view. */
+function npcAgentReset() {
+  npcAgentOpen = false;
+  npcAgentOpenBatchId = null;
+  npcAgentLocations = [];
+  npcAgentSelectedRoot = null;
+  npcAgentPreview = null;
+  npcAgentGroupBrief = '';
+  npcAgentLines = [];
+  npcAgentBatch = null;
+  npcAgentRows = [];
+  npcAgentLoopRunning = false;
+  npcAgentFailedRun = null;
+  npcAgentCommitResult = null;
+  npcAgentLinkHandoffMsg = null;
+  const panelEl = document.getElementById('npcagent-panel');
+  if (panelEl) { panelEl.style.display = 'none'; panelEl.innerHTML = ''; }
+  const badgeEl = document.getElementById('npcagent-badge');
+  if (badgeEl) badgeEl.style.display = 'none';
+}
+
+/** GET /api/npc-batches -> badge dot on "Agent PNJ" if this world has an
+ *  open batch (reopen path). Called from relGraphLoad every time the
+ *  on_demand relgraph slot fires (linkAgentCheckOpenBatch precedent). */
+async function npcAgentCheckOpenBatch() {
+  const badgeEl = document.getElementById('npcagent-badge');
+  try {
+    const data = await api('/api/npc-batches');
+    const open = (data.batches || []).find(b => b.status === 'open');
+    npcAgentOpenBatchId = open ? open.id : null;
+  } catch {
+    npcAgentOpenBatchId = null;
+  }
+  if (badgeEl) badgeEl.style.display = npcAgentOpenBatchId ? '' : 'none';
+}
+
+/** Launcher toggle. Opens directly on the review surface of the open batch
+ *  if there is one (reopen path), else the root-picker launcher. */
+function npcAgentToggle() {
+  npcAgentOpen = !npcAgentOpen;
+  const panelEl = document.getElementById('npcagent-panel');
+  if (!panelEl) return;
+  panelEl.style.display = npcAgentOpen ? '' : 'none';
+  if (!npcAgentOpen) return;
+  if (npcAgentOpenBatchId) npcAgentLoadBatch(npcAgentOpenBatchId);
+  else npcAgentRenderLauncher();
+}
+
+/* ── Launcher: single-root location tree + group brief + line editor ─────── */
+
+async function npcAgentRenderLauncher() {
+  const panelEl = document.getElementById('npcagent-panel');
+  if (!panelEl) return;
+  panelEl.innerHTML = '<div class="empty"><span class="spin">⟳</span> Chargement des lieux…</div>';
+  try {
+    npcAgentLocations = await api('/api/locations');
+  } catch (e) {
+    panelEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    return;
+  }
+  npcAgentSelectedRoot = null;
+  npcAgentPreview = null;
+  npcAgentGroupBrief = '';
+  npcAgentLines = [{ count: 1, description: '', faction_id: null, location_id: null }];
+  npcAgentCommitResult = null;
+  _npcAgentPaintLauncher();
+}
+
+function _npcAgentTreeHtml(parentId) {
+  const known = new Set(npcAgentLocations.map(l => l.id));
+  const children = npcAgentLocations
+    .filter(l => (parentId == null ? (!l.parent_location_id || !known.has(l.parent_location_id)) : l.parent_location_id === parentId))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (!children.length) return '';
+  return children.map(l => `
+    <div class="linkagent-loc-node">
+      <label><input type="radio" name="npcagent-root" ${npcAgentSelectedRoot === l.id ? 'checked' : ''}
+        onchange="npcAgentSelectRoot('${esc(l.id)}')"> ${esc(l.name)}</label>
+      <div class="linkagent-loc-children">${_npcAgentTreeHtml(l.id)}</div>
+    </div>`).join('');
+}
+
+function npcAgentSelectRoot(locId) {
+  npcAgentSelectedRoot = locId;
+  npcAgentPreview = null;
+  _npcAgentPaintLauncher();
+}
+
+async function npcAgentPreviewRoot() {
+  const errEl = document.getElementById('npcagent-launch-error');
+  try {
+    npcAgentPreview = await api(`/api/npc-batches/preview?root_location_id=${encodeURIComponent(npcAgentSelectedRoot)}`);
+    if (errEl) errEl.textContent = '';
+  } catch (e) {
+    npcAgentPreview = null;
+    if (errEl) errEl.textContent = e.message;
+  }
+  _npcAgentPaintLauncher();
+}
+
+function npcAgentAddLine() {
+  npcAgentLines.push({ count: 1, description: '', faction_id: null, location_id: null });
+  _npcAgentPaintLauncher();
+}
+
+function npcAgentRemoveLine(i) {
+  npcAgentLines.splice(i, 1);
+  _npcAgentPaintLauncher();
+}
+
+function npcAgentEditLine(i, field, value) {
+  npcAgentLines[i][field] = value;
+  _npcAgentPaintLauncher();
+}
+
+function _npcAgentLineTotal() {
+  return npcAgentLines.reduce((sum, l) => sum + (Number(l.count) || 0), 0);
+}
+
+function _npcAgentLineRowHtml(line, i) {
+  const factionOpts = (npcAgentPreview ? npcAgentPreview.factions : []).map(f =>
+    `<option value="${esc(f.id)}" ${line.faction_id === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('');
+  const locationOpts = (npcAgentPreview ? npcAgentPreview.locations : []).map(l =>
+    `<option value="${esc(l.id)}" ${line.location_id === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
+  return `
+    <div class="linkagent-row">
+      <input type="number" min="1" style="width:52px" value="${line.count}"
+        onchange="npcAgentEditLine(${i}, 'count', Number(this.value))">
+      <input type="text" placeholder="description" style="flex:1; min-width:140px" value="${esc(line.description || '')}"
+        onchange="npcAgentEditLine(${i}, 'description', this.value)">
+      <select onchange="npcAgentEditLine(${i}, 'faction_id', this.value || null)">
+        <option value="">(aucune)</option>${factionOpts}
+      </select>
+      <select onchange="npcAgentEditLine(${i}, 'location_id', this.value || null)">
+        <option value="">(modèle)</option>${locationOpts}
+      </select>
+      <button class="btn-icon" onclick="npcAgentRemoveLine(${i})">Retirer</button>
+    </div>`;
+}
+
+function _npcAgentPaintLauncher() {
+  const panelEl = document.getElementById('npcagent-panel');
+  if (!panelEl) return;
+  const previewHtml = npcAgentPreview
+    ? `<div style="margin-top:8px; font-size:11px; color:var(--muted)">${npcAgentPreview.locations.length} lieu(x), ${npcAgentPreview.factions.length} faction(s) dans la zone</div>`
+    : '';
+  const linesHtml = npcAgentPreview
+    ? npcAgentLines.map((l, i) => _npcAgentLineRowHtml(l, i)).join('')
+    : '<div class="empty">Sélectionnez une racine puis prévisualisez pour éditer les lignes.</div>';
+  panelEl.innerHTML = `
+    <div style="font-weight:600; margin-bottom:6px">Agent PNJ — sélection de la racine</div>
+    <div>${_npcAgentTreeHtml(null) || '<div class="empty">Aucun lieu.</div>'}</div>
+    ${previewHtml}
+    <div style="margin-top:10px">
+      <button class="btn-icon" ${npcAgentSelectedRoot ? '' : 'disabled'} onclick="npcAgentPreviewRoot()">Prévisualiser</button>
+    </div>
+    <div style="margin-top:10px; font-weight:600">Brief du groupe</div>
+    <textarea id="npcagent-group-brief" rows="2" style="width:100%; resize:vertical"
+      oninput="npcAgentGroupBrief = this.value">${esc(npcAgentGroupBrief)}</textarea>
+    <div style="margin-top:8px">${linesHtml}</div>
+    ${npcAgentPreview ? `<button class="btn-icon" onclick="npcAgentAddLine()">+ Ligne</button>` : ''}
+    <div style="margin-top:8px">Total : ${_npcAgentLineTotal()} PNJ</div>
+    <div style="margin-top:10px">
+      <button class="btn-icon" id="npcagent-launch-btn" ${npcAgentPreview ? '' : 'disabled'} onclick="npcAgentLaunch()">Lancer</button>
+    </div>
+    <div id="npcagent-launch-error" style="color:var(--red); margin-top:6px"></div>
+  `;
+}
+
+async function npcAgentLaunch() {
+  const errEl = document.getElementById('npcagent-launch-error');
+  try {
+    const batch = await api('/api/npc-batches', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        root_location_id: npcAgentSelectedRoot,
+        group_brief: npcAgentGroupBrief,
+        lines: npcAgentLines,
+      }),
+    });
+    npcAgentOpenBatchId = batch.id;
+    const badgeEl = document.getElementById('npcagent-badge');
+    if (badgeEl) badgeEl.style.display = '';
+    await npcAgentLoadBatch(batch.id);
+  } catch (e) {
+    if (errEl && e.message && e.message.includes('already open')) {
+      errEl.innerHTML = 'Un lot est déjà ouvert. ' +
+        '<button class="btn-icon" onclick="npcAgentCheckOpenBatch().then(() => npcAgentLoadBatch(npcAgentOpenBatchId))">Ouvrir le lot existant</button>';
+    } else if (errEl) {
+      errEl.textContent = e.message;
+    }
+  }
+}
+
+/* ── Run driver: "Suivant" (one unit) / "Tout générer" (loop until 409/error) ── */
+
+/** run-next's response is just {line_index, name, npcs_done, npcs_total} —
+ *  the newly staged row itself isn't in it, so every successful call
+ *  re-fetches batch+rows (GET, not the heavier npcAgentLoadBatch which
+ *  also re-fetches /preview) before repainting, or the review list would
+ *  never show the row that was just generated. */
+async function _npcAgentRefreshRows() {
+  const data = await api(`/api/npc-batches/${encodeURIComponent(npcAgentBatch.id)}`);
+  npcAgentBatch = data.batch;
+  npcAgentRows = data.rows;
+}
+
+async function npcAgentRunOne() {
+  try {
+    await api(`/api/npc-batches/${encodeURIComponent(npcAgentBatch.id)}/run-next`, { method: 'POST' });
+    npcAgentFailedRun = null;
+    await _npcAgentRefreshRows();
+  } catch (e) {
+    if (e.message && e.message.includes('already fully generated')) {
+      await npcAgentLoadBatch(npcAgentBatch.id);
+      return;
+    }
+    npcAgentFailedRun = { message: e.message };
+  }
+  _npcAgentPaintReview();
+}
+
+async function npcAgentRunLoop() {
+  if (!npcAgentBatch || npcAgentLoopRunning) return;
+  npcAgentLoopRunning = true;
+  npcAgentFailedRun = null;
+  _npcAgentPaintReview();
+  while (npcAgentLoopRunning) {
+    try {
+      await api(`/api/npc-batches/${encodeURIComponent(npcAgentBatch.id)}/run-next`, { method: 'POST' });
+    } catch (e) {
+      npcAgentLoopRunning = false;
+      if (e.message && e.message.includes('already fully generated')) {
+        await npcAgentLoadBatch(npcAgentBatch.id);
+      } else {
+        npcAgentFailedRun = { message: e.message };
+        _npcAgentPaintReview();
+      }
+      return;
+    }
+    await _npcAgentRefreshRows();
+    _npcAgentPaintReview();
+  }
+}
+
+function npcAgentPause() {
+  npcAgentLoopRunning = false;
+  _npcAgentPaintReview();
+}
+
+function npcAgentRetryRun() {
+  npcAgentFailedRun = null;
+  npcAgentRunLoop();
+}
+
+/* ── Review surface: GET /api/npc-batches/{id}, grouped by line_index ────── */
+
+async function npcAgentLoadBatch(batchId) {
+  const panelEl = document.getElementById('npcagent-panel');
+  if (panelEl) panelEl.innerHTML = '<div class="empty"><span class="spin">⟳</span> Chargement du lot…</div>';
+  try {
+    const data = await api(`/api/npc-batches/${encodeURIComponent(batchId)}`);
+    npcAgentBatch = data.batch;
+    npcAgentRows = data.rows;
+    npcAgentOpenBatchId = npcAgentBatch.status === 'open' ? npcAgentBatch.id : null;
+    const badgeEl = document.getElementById('npcagent-badge');
+    if (badgeEl) badgeEl.style.display = npcAgentOpenBatchId ? '' : 'none';
+    // Faction/location names for the review selects aren't stored on the
+    // batch/rows — re-derive via /preview over the batch's OWN
+    // root_location_id, same precedent as linkAgentLoadBatch's name lookup.
+    try {
+      npcAgentPreview = await api(`/api/npc-batches/preview?root_location_id=${encodeURIComponent(npcAgentBatch.scope.root_location_id)}`);
+    } catch { npcAgentPreview = null; }
+  } catch (e) {
+    if (panelEl) panelEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    return;
+  }
+  _npcAgentPaintReview();
+}
+
+function _npcAgentGroupRows() {
+  const groups = new Map();
+  for (const row of npcAgentRows) {
+    if (!groups.has(row.line_index)) groups.set(row.line_index, []);
+    groups.get(row.line_index).push(row);
+  }
+  return groups;
+}
+
+function _npcAgentRowHtml(row) {
+  const pub = (row.payload.draft && row.payload.draft.public) || {};
+  const goals = row.payload.goals || {};
+  const notes = row.payload.notes || [];
+  const rejected = row.row_status === 'rejected';
+  const factionOpts = (npcAgentPreview ? npcAgentPreview.factions : []).map(f =>
+    `<option value="${esc(f.id)}" ${pub.faction_id === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('');
+  const locationOpts = (npcAgentPreview ? npcAgentPreview.locations : []).map(l =>
+    `<option value="${esc(l.id)}" ${row.payload.location_id === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
+  const notesHtml = notes.length
+    ? `<div style="color:var(--muted); font-size:11px; margin-top:2px">${notes.map(n => esc(n)).join(' · ')}</div>` : '';
+  return `
+    <div class="linkagent-row ${rejected ? 'rejected' : ''}" style="flex-direction:column; align-items:stretch">
+      <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center">
+        <input type="text" style="width:140px" value="${esc(pub.name || '')}" ${rejected ? 'disabled' : ''}
+          onchange="npcAgentEditField('${esc(row.id)}', 'name', this.value)">
+        <input type="text" placeholder="description" style="flex:1; min-width:140px" value="${esc(pub.description || '')}" ${rejected ? 'disabled' : ''}
+          onchange="npcAgentEditField('${esc(row.id)}', 'description', this.value)">
+        <input type="number" min="-1" max="2" title="physical_tier" style="width:52px" value="${pub.physical_tier ?? ''}" ${rejected ? 'disabled' : ''}
+          onchange="npcAgentEditField('${esc(row.id)}', 'physical_tier', Number(this.value))">
+        <select ${rejected ? 'disabled' : ''} onchange="npcAgentEditField('${esc(row.id)}', 'faction_id', this.value || null)">
+          <option value="">(aucune)</option>${factionOpts}
+        </select>
+        <select ${rejected ? 'disabled' : ''} onchange="npcAgentEditField('${esc(row.id)}', 'location_id', this.value || null)">
+          ${locationOpts}
+        </select>
+        <button class="btn-icon" onclick="npcAgentToggleReject('${esc(row.id)}', ${rejected})">${rejected ? 'Rétablir' : 'Rejeter'}</button>
+      </div>
+      <div style="display:flex; gap:6px; margin-top:4px">
+        <input type="text" placeholder="objectif long" style="flex:1" value="${esc(goals.long || '')}" ${rejected ? 'disabled' : ''}
+          onchange="npcAgentEditField('${esc(row.id)}', 'goals.long', this.value)">
+        <input type="text" placeholder="objectifs courts (séparés par ;)" style="flex:1" value="${esc((goals.shorts || []).join('; '))}" ${rejected ? 'disabled' : ''}
+          onchange="npcAgentEditField('${esc(row.id)}', 'goals.shorts', this.value.split(';').map(s => s.trim()).filter(Boolean))">
+      </div>
+      ${notesHtml}
+    </div>`;
+}
+
+function _npcAgentGroupHtml(lineIndex, rows) {
+  const line = ((npcAgentBatch.scope && npcAgentBatch.scope.lines) || [])[lineIndex];
+  const desc = line ? line.description : `ligne ${lineIndex}`;
+  const rowsHtml = rows.map(r => _npcAgentRowHtml(r)).join('');
+  return `<div class="linkagent-pair-group">
+    <div style="font-weight:600; font-size:12px">${esc(desc)}</div>
+    ${rowsHtml}
+  </div>`;
+}
+
+async function npcAgentEditField(rowId, field, value) {
+  try {
+    const row = await api(`/api/npc-batches/${encodeURIComponent(npcAgentBatch.id)}/rows/${encodeURIComponent(rowId)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload_patch: { [field]: value } }),
+    });
+    const idx = npcAgentRows.findIndex(r => r.id === rowId);
+    if (idx !== -1) npcAgentRows[idx] = row;
+  } catch (e) {
+    alert(e.message);
+  }
+  _npcAgentPaintReview();
+}
+
+async function npcAgentToggleReject(rowId, currentlyRejected) {
+  try {
+    const row = await api(`/api/npc-batches/${encodeURIComponent(npcAgentBatch.id)}/rows/${encodeURIComponent(rowId)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ row_status: currentlyRejected ? 'proposed' : 'rejected' }),
+    });
+    const idx = npcAgentRows.findIndex(r => r.id === rowId);
+    if (idx !== -1) npcAgentRows[idx] = row;
+  } catch (e) {
+    alert(e.message);
+  }
+  _npcAgentPaintReview();
+}
+
+/* ── Commit + J1 handoff to the link agent ────────────────────────────────── */
+
+async function npcAgentCommit() {
+  try {
+    const result = await api(`/api/npc-batches/${encodeURIComponent(npcAgentBatch.id)}/commit`, { method: 'POST' });
+    npcAgentCommitResult = `${result.committed.length} PNJ committé(s)` +
+      (result.skipped.length ? `, ${result.skipped.length} ignoré(s)` : '');
+    npcAgentLinkHandoffMsg = null;
+    await npcAgentLoadBatch(npcAgentBatch.id);
+  } catch (e) {
+    npcAgentCommitResult = e.message;
+    _npcAgentPaintReview();
+  }
+}
+
+async function npcAgentAbandon() {
+  if (!confirm('Abandonner ce lot de PNJ ?')) return;
+  try {
+    await api(`/api/npc-batches/${encodeURIComponent(npcAgentBatch.id)}/abandon`, { method: 'POST' });
+    await npcAgentLoadBatch(npcAgentBatch.id);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+/** J1 handoff: calls the EXISTING link agent creation route with this
+ *  batch's own root_location_id, then opens the link agent panel on the
+ *  fresh batch (linkAgentLoadBatch — the roster then includes both the new
+ *  NPCs and pre-existing residents of the root, F1 skips canon pairs). A
+ *  409 (a link batch is already open) surfaces as a plain warning banner
+ *  and is never retried automatically. */
+async function npcAgentGenerateLinks() {
+  try {
+    const batch = await api('/api/link-batches', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ root_location_ids: [npcAgentBatch.scope.root_location_id] }),
+    });
+    npcAgentLinkHandoffMsg = null;
+    linkAgentOpenBatchId = batch.id;
+    linkAgentOpen = true;
+    const linkPanelEl = document.getElementById('linkagent-panel');
+    if (linkPanelEl) linkPanelEl.style.display = '';
+    const linkBadgeEl = document.getElementById('linkagent-badge');
+    if (linkBadgeEl) linkBadgeEl.style.display = '';
+    await linkAgentLoadBatch(batch.id);
+  } catch (e) {
+    npcAgentLinkHandoffMsg = e.message;
+    _npcAgentPaintReview();
+  }
+}
+
+function _npcAgentPaintReview() {
+  const panelEl = document.getElementById('npcagent-panel');
+  if (!panelEl || !npcAgentBatch) return;
+  const b = npcAgentBatch;
+  const isOpen = b.status === 'open';
+  const groups = _npcAgentGroupRows();
+  const groupsHtml = Array.from(groups.entries()).map(([li, rows]) => _npcAgentGroupHtml(li, rows)).join('')
+    || '<div class="empty">Aucun PNJ généré pour l’instant.</div>';
+
+  const progressHtml = isOpen
+    ? `<div>PNJ ${b.npcs_done}/${b.npcs_total}
+        <button class="btn-icon" onclick="npcAgentRunOne()" ${b.npcs_done >= b.npcs_total ? 'disabled' : ''}>Suivant</button>
+        ${npcAgentLoopRunning
+          ? '<button class="btn-icon" onclick="npcAgentPause()">Pause</button>'
+          : (b.npcs_done < b.npcs_total ? '<button class="btn-icon" onclick="npcAgentRunLoop()">Tout générer</button>' : '')}
+      </div>
+      ${npcAgentFailedRun ? `<div style="color:var(--red)">Échec : ${esc(npcAgentFailedRun.message)}
+        <button class="btn-icon" onclick="npcAgentRetryRun()">Réessayer</button></div>` : ''}`
+    : `<div style="color:var(--muted)">Lot ${esc(b.status)}.</div>`;
+
+  const canCommit = isOpen && b.npcs_done === b.npcs_total;
+  const handoffHtml = b.status === 'committed'
+    ? `<div style="margin-top:8px">
+         <button class="btn-icon" onclick="npcAgentGenerateLinks()">Générer les liens pour ce groupe</button>
+       </div>
+       ${npcAgentLinkHandoffMsg ? `<div class="linkagent-warn-banner">${esc(npcAgentLinkHandoffMsg)}</div>` : ''}`
+    : '';
+
+  panelEl.innerHTML = `
+    <div style="font-weight:600; margin-bottom:6px">Agent PNJ — lot ${esc(b.id.slice(0, 8))}</div>
+    ${progressHtml}
+    <div style="margin-top:10px">${groupsHtml}</div>
+    <div style="margin-top:14px; display:flex; gap:6px; align-items:center">
+      <button class="btn-icon" ${canCommit ? '' : 'disabled'} onclick="npcAgentCommit()">Committer le lot</button>
+      ${isOpen ? '<button class="btn-icon" onclick="npcAgentAbandon()">Abandonner</button>' : ''}
+    </div>
+    <div id="npcagent-commit-result" style="margin-top:8px">${esc(npcAgentCommitResult || '')}</div>
+    ${handoffHtml}
+  `;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════

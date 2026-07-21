@@ -7916,6 +7916,76 @@ user text via chained `.replace()` (H1), never `.format()`.
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## NPC GROUP AGENT — COMMIT, COCKPIT SURFACE, LINK HANDOFF (BRIEF-0037-c, no schema change)
+
+Third step of TICKET-0037: closes the loop opened by BRIEF-0037-a/b — the
+atomic commit of accepted `npc_batch_row`s into canon, the "Agent PNJ"
+cockpit panel mirroring the link agent's, and the J1 handoff that prefills
+a link batch on the same region root. After this step the pipeline
+regions -> NPCs -> liens is live end-to-end; the region wizard's legacy NPC
+path is untouched until BRIEF-0037-d retires it.
+
+**Commit lives route-side, not in `npc_group_author.py` — region-commit
+layering, not link-agent layering.** `_commit_npc_batch`/`_commit_npc_row`
+are `cockpit/routes/npc_agent.py`-module functions mirroring
+`routes/regions.py::_commit_region_npcs` + `commit_region`'s transaction
+shape (try/rollback, exactly one `db.commit()`), deliberately NOT the link
+agent's own precedent (`link_author.py::commit_batch`, author-module-side).
+Same "canon writes live route-side, the author module stays generate-only"
+split as the region commit. `_commit_npc_row` is split out from
+`_commit_npc_batch` to hold the R1 80-line ceiling on the per-row NPC +
+knowledge + goals write.
+
+**No new `canon_write_policy.txt` entry — the commit rides only
+already-allowed sites.** `_commit_npc_row` calls `_crud._create_entity_core`
+(entity + character + optional primary faction membership),
+`_crud._create_knowledge_core` per `secret.knowledge` item (`is_secret=True,
+share_threshold=50, is_incorrect=False, source=None` — byte-same posture as
+`_commit_region_npcs`), and `write_npc_goal` for the attached goals block —
+all three already-sanctioned sites. Neither `_commit_npc_batch` nor
+`_commit_npc_row` performs a direct `db.add(Entity(...)/...)`, so — exactly
+like `_commit_region_npcs` itself — no ALLOWED_SITES entry is added. Made
+structural by `npc_agent_strata.py`'s new guarantee 3 (link_agent_strata.py
+guarantee-4 precedent): an AST scan of `routes/npc_agent.py` and
+`npc_group_author.py` for direct `db.add(Entity(...)/Character(...)/
+FactionMembership(...)/Knowledge(...)/NpcGoal(...))` or raw SQL touching
+those tables.
+
+**No-partial-commit guard (I1 precedent).** `_commit_npc_batch` refuses
+(409) unless `batch.status == "open"` and `npcs_done == npcs_total` —
+"generation incomplete — run or abandon" is the only escape hatch, deliberate
+per Scope OUT (no "commit what's generated so far"). No coherence gate
+either (I1 carries forward from BRIEF-0037-a). Rows are re-read from the DB
+by `row_status in ("proposed", "edited")` — server-authoritative, the
+client's rendering is never trusted; a `kind == "failed"` row (defensive,
+not currently produced by `run_next_npc`) is skipped rather than committed.
+
+**J1 handoff reuses the link agent's own creation route verbatim.** The
+cockpit's "Générer les liens pour ce groupe" button calls the EXISTING
+`POST /api/link-batches` with `{root_location_ids: [batch.scope.
+root_location_id]}` — no new backend route, no link-agent behavior change.
+A 409 (a link batch already open) surfaces as a plain warning banner and is
+never retried automatically (Scope OUT: no "chained auto-run" of pairs).
+
+**Cockpit surface — structural mirror of the link agent's, `.linkagent-*`
+CSS reused wholesale.** `npcagent-launcher-btn`/`npcagent-panel` sit in the
+same relgraph panel head as `linkagent-launcher-btn`/`linkagent-panel`
+(index.html, NPC tab's `creation-npc-relgraph` block), "Agent PNJ" preceding
+"Agent liens" — the region -> NPC -> liens pipeline order. `npcAgent*` JS
+mirrors `linkAgent*`'s shape (reset/checkOpenBatch/toggle/launcher/run
+loop/review/commit) with two deliberate departures: (a) the location picker
+is a single-select radio, not a multi-select checkbox tree (C1 — one root
+per batch, intra-region v1); (b) the run driver's stop condition is a
+message-text check on the 409 ("already fully generated") rather than an
+explicit `{done:true}` response field, since `run_next_npc` signals
+completion via HTTPException, not a sentinel payload — `api()`'s thin fetch
+wrapper only ever surfaces `Error(detail)`, no status code. `npcAgentReset`
+is wired into `_relGraphReset` (world switch / tab re-entry), same as
+`linkAgentReset`.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*
