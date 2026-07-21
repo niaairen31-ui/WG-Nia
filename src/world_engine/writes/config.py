@@ -204,38 +204,21 @@ def write_location_obstacles(
     return new_obstacles
 
 
-def write_location_doors(
+def _validate_doors_payload(
     db: Session,
     *,
     world_id: str,
     location_id: str,
     doors: list[dict],
-    changed_by: str,
-) -> list[Door]:
-    """Full-replace `door` rows for one location. Caller adds the returned
-    rows to the session and commits.
-
-    Each item is `{"target_location_id": str, "x": float, "y": float}` —
-    validated all-or-nothing before any write: non-empty target, no
-    self-target, finite coordinates, no duplicate target within one
-    payload (defense in depth — `idx_door_target` is the structural
-    guard), the target must be an active location of the same world, and
-    (B1) an active `connects_to` relation must touch both `location_id`
-    and `target_location_id` — a door is the spatial manifestation of a
-    `connects_to` edge, never its source.
-
-    # NO GEOMETRY VALIDATION HERE, BY DESIGN. This site does not check that
-    # the door's point is inside bounds or outside an obstacle — not as an
-    # oversight, and not merely because "the collision endpoint is the sole
-    # judge of space" (write_location_obstacles' rule). A write-time
-    # geometry check could not stay true: the creator may edit bounds or
-    # obstacles afterwards and strand a door inside a wall without touching
-    # this table. Only a READ-TIME fallback is sound, and it lives in
-    # cockpit/spatial_doors.py::resolve_spawn (BRIEF-0034-b). The relational
-    # gates above (target active, connects_to live) can go stale the same
-    # way, which is why B1 pairs them with a read-time filter at the same
-    # site. REPORT ONLY if this feels wrong during execution; do not add a
-    # geometry check.
+) -> list[tuple[str, float, float]]:
+    """All-or-nothing validation for a `write_location_doors` payload. Returns
+    the cleaned `(target_location_id, x, y)` tuples, or raises `ValueError` on
+    the first offending item -- non-empty target, no self-target, no duplicate
+    target within one payload, finite coordinates, the target is an active
+    location of the same world, and (B1) an active `connects_to` relation
+    touches both endpoints. READ ONLY: performs no write. Extracted verbatim
+    from `write_location_doors` at TICKET-0038 to hold R1 (80-line ceiling);
+    the delete-then-insert stays in the writer.
     """
     clean: list[tuple[str, float, float]] = []
     seen_targets: set[str] = set()
@@ -291,6 +274,46 @@ def write_location_doors(
             )
 
         clean.append((target_location_id, fx, fy))
+
+    return clean
+
+
+def write_location_doors(
+    db: Session,
+    *,
+    world_id: str,
+    location_id: str,
+    doors: list[dict],
+    changed_by: str,
+) -> list[Door]:
+    """Full-replace `door` rows for one location. Caller adds the returned
+    rows to the session and commits.
+
+    Each item is `{"target_location_id": str, "x": float, "y": float}` —
+    validated all-or-nothing before any write: non-empty target, no
+    self-target, finite coordinates, no duplicate target within one
+    payload (defense in depth — `idx_door_target` is the structural
+    guard), the target must be an active location of the same world, and
+    (B1) an active `connects_to` relation must touch both `location_id`
+    and `target_location_id` — a door is the spatial manifestation of a
+    `connects_to` edge, never its source.
+
+    # NO GEOMETRY VALIDATION HERE, BY DESIGN. This site does not check that
+    # the door's point is inside bounds or outside an obstacle — not as an
+    # oversight, and not merely because "the collision endpoint is the sole
+    # judge of space" (write_location_obstacles' rule). A write-time
+    # geometry check could not stay true: the creator may edit bounds or
+    # obstacles afterwards and strand a door inside a wall without touching
+    # this table. Only a READ-TIME fallback is sound, and it lives in
+    # cockpit/spatial_doors.py::resolve_spawn (BRIEF-0034-b). The relational
+    # gates above (target active, connects_to live) can go stale the same
+    # way, which is why B1 pairs them with a read-time filter at the same
+    # site. REPORT ONLY if this feels wrong during execution; do not add a
+    # geometry check.
+    """
+    clean = _validate_doors_payload(
+        db, world_id=world_id, location_id=location_id, doors=doors
+    )
 
     db.execute(
         text("DELETE FROM door WHERE location_id = :location_id"),
