@@ -663,7 +663,10 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
         result["prices"] = {}
     elif entity.type == "location":
         result["subculture_rows"] = []
-        result["geometry"] = {"bounds_width": None, "bounds_height": None, "obstacles": []}
+        # TICKET-0040: read the real geometry - birth bounds come from the
+        # type template (E1), so a hardcoded null stub would make the
+        # client render an empty editor whose next save wipes them.
+        result["geometry"] = _location_geometry_dict(entity.id, db)
         result["doors"] = []
     if body.mutation_id:
         result["creation_linkage"] = _link_entity_creation(body.mutation_id, entity.id, db)
@@ -830,8 +833,16 @@ def set_location_geometry(entity_id: str, body: LocationGeometryBody, db: DbSess
         raise HTTPException(422, str(exc))
 
     location = db.get(Location, entity_id)
-    location.bounds_width = body.bounds_width
-    location.bounds_height = body.bounds_height
+    fields_set = body.model_fields_set
+    # F1, TICKET-0040: a key absent from the body preserves the stored
+    # value; an explicit null clears it. Same posture as
+    # writes.upsert_location_type, which never overwrites a decided value
+    # with NULL. Full-replace still governs `obstacle` rows below - only
+    # the two bounds columns gained this distinction.
+    if "bounds_width" in fields_set:
+        location.bounds_width = body.bounds_width
+    if "bounds_height" in fields_set:
+        location.bounds_height = body.bounds_height
     db.add(location)
     db.commit()
 

@@ -8477,4 +8477,62 @@ job) is left visibly broken rather than half-fixed here.
 
 ---
 
+## BOUNDS PRESERVATION AND TEMPLATE AUTHORING IN THE TYPE PICKER (BRIEF-0040-c, no schema change)
+
+Closes the two silent-erasure paths BRIEF-0040-b's birth-bounds stamping
+exposed, and gives the creator surface to author a template for a type
+other than `room`.
+
+**Truthful create response.** `create_entity`
+(`cockpit/crud/entities.py`) no longer hardcodes
+`{"bounds_width": None, "bounds_height": None, "obstacles": []}` in its
+`elif entity.type == "location":` branch — it calls the same
+`_location_geometry_dict` accessor `set_location_geometry` already uses.
+Before this, a templated room's sheet opened with an EMPTY geometry editor
+immediately after creation; the next save posted `null` for both bounds
+and silently wiped the stamped template — the exact under-reporting
+BRIEF-0040-a named and deliberately left broken.
+
+**F1 — absent means preserve, explicit null clears.**
+`set_location_geometry` distinguishes a bounds key OMITTED from the
+request body from one sent as explicit `null`, via Pydantic v2's
+`body.model_fields_set`: an omitted key leaves the stored
+`bounds_width`/`bounds_height` untouched; an explicit `null` clears it
+(the emptied-field-then-save case from the geometry editor); a number
+still validates `> 0` before assignment. Same posture as
+`writes.upsert_location_type`'s never-overwrite-a-decided-value-with-NULL
+rule — now the second place in the codebase with this asymmetry. The
+`obstacle` full-replace under it is unchanged: `write_location_obstacles`
+still receives and replaces the submitted set wholesale — this brief
+touches only the two bounds columns, no other route.
+
+**Template authoring is lazy-on-use plus one on-demand button, never a
+bulk screen.** The classification prompt (BRIEF-0039-b) gains two
+optional numeric inputs, pre-filled from the catalog row when a template
+already exists, posted to `POST /api/location-types` alongside
+`classification`. The modal's trigger condition is UNCHANGED — uncatalogued
+type or `classification == null` — a missing template alone never fires
+it. The new `Gabarit...` button beside the `location_type` field opens the
+SAME modal, unconditionally, for whatever string the field currently
+holds: the only way to size an already-classified type (`building`,
+`city`, ...) without a bulk admin screen, matching BRIEF-0039-b's Scope
+OUT doctrine. Client-side guard (exactly one of the two fields filled) is
+a UX nicety only — `upsert_location_type`'s both-or-neither `ValueError`
+stays the actual authority.
+
+**A template change is never retroactive.** Nothing in this brief writes
+a bounds value onto an existing location the creator did not explicitly
+submit through `PUT /entities/{id}/geometry`; the `Gabarit...` button
+touches only `location_type_catalog`, never a `location` row, and no
+"re-apply template" action exists anywhere in the UI.
+
+`json_ui_boundary.py`, `page_contract.py`, `module_budget.py`, and
+`function_length.py` stay green: no new route, no new JSON-blob field, and
+`crud/entities.py` grows under 15 lines.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*
