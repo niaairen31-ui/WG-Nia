@@ -969,9 +969,9 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 #creation-prompts     { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 /* ── Région review tree (BRIEF-36) ───────────────────────────────────────── */
-.region-loc-node   { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
-.region-loc-children { margin-left: 22px; border-left: 1px dashed var(--border); padding-left: 12px; }
-.region-rejected   { opacity: 0.5; }
+.review-node   { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
+.review-children { margin-left: 22px; border-left: 1px dashed var(--border); padding-left: 12px; }
+.review-rejected   { opacity: 0.5; }
 .region-fac-badge  { font-size: 10px; padding: 1px 6px; border-radius: 10px; border: 1px solid; }
 
 /* ── Lieux graph panel (BRIEF-15) ────────────────────────────────────────── */
@@ -1031,8 +1031,8 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 .sheet-field { font-size: 13px; margin: 4px 0; }
 .sheet-field .sheet-field-label { color: var(--muted); }
 .sheet-list-item { border-left: 2px solid var(--border); padding: 4px 8px; margin: 4px 0; font-size: 12px; }
-.region-name-link { cursor: pointer; }
-.region-name-link:hover { text-decoration: underline; }
+.review-name-link { cursor: pointer; }
+.review-name-link:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -5869,6 +5869,120 @@ async function promptsRunAssembledPreview(usage) {
  * /api/regions/commit re-derives it server-side from the raw map — see
  * commit_region in cockpit/routes/regions.py. TICKET-0037 (A1): factions and
  * locations only — characters enter the world through the group agent. */
+
+/* ── Review component (TICKET-0041, BRIEF-0041-a) ─────────────────────────
+ * Generic accept/reject review tree. Knows NOTHING about the world model:
+ * no location, no faction, no draft, no sensed_link. A consumer registers a
+ * descriptor under a key and the component drives the render from it.
+ *
+ * Inline onclick handlers are string literals and cannot carry a closure,
+ * so every DOM-reachable entry point takes the registry key as its first
+ * argument (E1). reviewCascade and reviewNotes are pure and take no key.
+ *
+ * DESCRIPTOR CONTRACT
+ *   key               registry key, e.g. 'region'
+ *   nodes             [{ id, name, subtitle, parentId, description,
+ *                        notes[], extras }]
+ *                     `extras` is a pre-rendered HTML string owned by the
+ *                     consumer (region: the sensed_links toggles).
+ *   accepted          plain map id -> bool. ABSENT or true means accepted
+ *                     (default-accept, unchanged from BRIEF-36 B1).
+ *   fallbackParentId  where an orphaned node re-attaches, or null.
+ *                     region -> the draft root; batch -> the creator's
+ *                     anchor. THIS is the parameter TICKET-0041 exists for:
+ *                     it must never be recomputed inside the component.
+ *   reparentedLabel   badge text shown on a re-attached node
+ *   graphSvgId        DOM id of the <svg> the graph draws into
+ *   graphOpen         bool, graph pane currently open
+ *   onToggleAccept(id)  consumer mutates its own accepted map
+ *   onToggleGraph()     consumer mutates its own open flag
+ *   onOpenSheet(id)     consumer opens its own full sheet
+ *   onRender()          consumer re-renders itself fully
+ *   graphExtraEdges(acceptedIds, nodeById) -> [{ id, entity_a_id,
+ *                       entity_b_id, kind }]   (BRIEF-0041-b)
+ * ────────────────────────────────────────────────────────────────────── */
+
+const REVIEW_DESCRIPTORS = {};
+function reviewRegister(key, descriptor) { REVIEW_DESCRIPTORS[key] = descriptor; }
+function reviewDescriptor(key) { return REVIEW_DESCRIPTORS[key]; }
+
+/** Re-derive the server's cascade, client-side, for display only (B1). PURE. */
+function reviewCascade(descriptor) {
+  const acceptedIds = new Set(descriptor.nodes.filter(n => (descriptor.accepted[n.id] !== false)).map(n => n.id));
+  const fallbackParentId = descriptor.fallbackParentId;
+
+  const effectiveParent = {};
+  for (const n of descriptor.nodes) {
+    const p = n.parentId;
+    if (p == null) { effectiveParent[n.id] = null; continue; }
+    if (acceptedIds.has(p)) { effectiveParent[n.id] = p; continue; }
+    effectiveParent[n.id] = (fallbackParentId && acceptedIds.has(fallbackParentId) && fallbackParentId !== n.id) ? fallbackParentId : null;
+  }
+
+  return { acceptedIds, effectiveParent };
+}
+
+function reviewIsAccepted(key, id) {
+  return reviewDescriptor(key).accepted[id] !== false;
+}
+
+function reviewToggleAccept(key, id) {
+  const d = reviewDescriptor(key);
+  d.onToggleAccept(id);
+  d.onRender();
+}
+
+function reviewNotes(notes) {
+  if (!notes.length) return '';
+  return '<div style="margin-top:4px">' + notes.map(n =>
+    `<div style="font-size:11px; color:var(--muted)">· ${esc(n)}</div>`
+  ).join('') + '</div>';
+}
+
+function reviewOpenSheet(key, id) {
+  reviewDescriptor(key).onOpenSheet(id);
+}
+
+function reviewNode(key, node, cascade, childrenByParent) {
+  const d = reviewDescriptor(key);
+  const accepted = reviewIsAccepted(key, node.id);
+  const reparented = node.parentId != null && cascade.effectiveParent[node.id] !== node.parentId;
+  const children = childrenByParent[node.id] || [];
+  return `
+    <div class="review-node ${accepted ? '' : 'review-rejected'}">
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+        <span style="font-weight:600" class="review-name-link" onclick="reviewOpenSheet('${esc(key)}','${esc(node.id)}')">${esc(node.name)}</span>
+        <span style="font-size:11px; color:var(--muted)">${esc(node.subtitle || '')}</span>
+        ${reparented ? `<span class="badge b-other" style="font-size:10px">${esc(d.reparentedLabel)}</span>` : ''}
+        <button class="btn-icon" onclick="reviewToggleAccept('${esc(key)}','${esc(node.id)}')" style="margin-left:auto">
+          ${accepted ? 'Rejeter' : 'Accepter'}</button>
+      </div>
+      ${node.description ? `<div style="font-size:12px; color:var(--muted)">${esc(node.description)}</div>` : ''}
+      ${reviewNotes(node.notes)}
+      ${node.extras}
+      ${children.length ? `<div class="review-children">${children.map(c => reviewNode(key, c, cascade, childrenByParent)).join('')}</div>` : ''}
+    </div>`;
+}
+
+function reviewTree(key, cascade) {
+  const d = reviewDescriptor(key);
+  if (!d.nodes.length) return '<div class="empty">Aucun element propose.</div>';
+  const childrenByParent = {};
+  for (const n of d.nodes) {
+    const p = cascade.effectiveParent[n.id];
+    if (p == null) continue;
+    (childrenByParent[p] = childrenByParent[p] || []).push(n);
+  }
+  // BRIEF-0033-c: parent reassignment can set a second location's
+  // parent_local_id to null (root fallback, matching the commit's None ->
+  // no-parent resolution) — render every top-level location, not just the
+  // first found, so a reparented-to-root location stays visible.
+  const roots = d.nodes.filter(n => n.parentId == null);
+  if (!roots.length) return '<div class="empty">Aucun element racine dans le brouillon.</div>';
+  return roots.map(root => reviewNode(key, root, cascade, childrenByParent)).join('');
+}
+/* ── End review component ──────────────────────────────────────────────── */
+
 let regionDraft       = null;
 let regionManifest    = null;
 let regionManifestNotes = [];
@@ -5884,15 +5998,6 @@ function regionFactionColor(localId) {
   if (!regionDraft) return '#888';
   const i = regionDraft.factions.findIndex(f => f.local_id === localId);
   return REGION_FACTION_COLORS[i >= 0 ? i % REGION_FACTION_COLORS.length : 0];
-}
-
-function regionIsAccepted(localId) {
-  return regionAccepted[localId] !== false;
-}
-
-function regionToggleAccept(localId) {
-  regionAccepted[localId] = !regionIsAccepted(localId);
-  regionRenderAll();
 }
 
 /* Wirable sensed_links (kind=connection|faction) — confirm/discard toggle,
@@ -5911,20 +6016,31 @@ function regionToggleLink(key) {
   regionRenderAll();
 }
 
-/** Re-derive the server's cascade, client-side, for display only (B1). */
-function regionCascade() {
-  const acceptedLocations = new Set(regionDraft.locations.filter(l => regionIsAccepted(l.local_id)).map(l => l.local_id));
-  const rootLocal = (regionDraft.locations.find(l => l.parent_local_id == null) || {}).local_id || null;
-
-  const effectiveParent = {};
-  for (const l of regionDraft.locations) {
-    const p = l.parent_local_id;
-    if (p == null) { effectiveParent[l.local_id] = null; continue; }
-    if (acceptedLocations.has(p)) { effectiveParent[l.local_id] = p; continue; }
-    effectiveParent[l.local_id] = (rootLocal && acceptedLocations.has(rootLocal) && rootLocal !== l.local_id) ? rootLocal : null;
-  }
-
-  return { acceptedLocations, rootLocal, effectiveParent };
+/** Builds the review descriptor for the region location tree (TICKET-0041).
+ * The single site that reads regionDraft/regionAccepted to build a descriptor. */
+function regionReviewDescriptor() {
+  return {
+    key: 'region',
+    nodes: regionDraft.locations.map(l => ({
+      id: l.local_id,
+      name: l.result.draft.public.name,
+      subtitle: l.result.draft.public.location_type || '',
+      parentId: l.parent_local_id,
+      description: l.result.draft.public.description,
+      notes: regionEntityNotes(l, 'location'),
+      extras: regionRenderLinkToggles(l),
+    })),
+    accepted: regionAccepted,
+    fallbackParentId: (regionDraft.locations.find(l => l.parent_local_id == null) || {}).local_id || null,
+    reparentedLabel: 'rattaché à la racine',
+    graphSvgId: 'region-lieux-graph-svg',
+    graphOpen: regionLocGraphOpen,
+    onToggleAccept: id => { regionAccepted[id] = !reviewIsAccepted('region', id); },
+    onToggleGraph: () => { regionLocGraphOpen = !regionLocGraphOpen; },
+    onOpenSheet: id => regionRenderSheet('location', id),
+    onRender: regionRenderAll,
+    graphExtraEdges: () => [],
+  };
 }
 
 function regionRenderBriefForm() {
@@ -6182,68 +6298,23 @@ function regionRenderLinkToggles(loc) {
   }).join('') + '</div>';
 }
 
-function regionRenderNotes(notes) {
-  if (!notes.length) return '';
-  return '<div style="margin-top:4px">' + notes.map(n =>
-    `<div style="font-size:11px; color:var(--muted)">· ${esc(n)}</div>`
-  ).join('') + '</div>';
-}
-
 function regionRenderFactionsPanel(cascade) {
   if (!regionDraft.factions.length) return '<div class="empty">Aucune faction proposée.</div>';
   return '<div class="row-table">' + regionDraft.factions.map(f => {
     const draft = f.result.draft;
-    const accepted = regionIsAccepted(f.local_id);
+    const accepted = reviewIsAccepted('region', f.local_id);
     const color = regionFactionColor(f.local_id);
     return `
-      <div class="row-card ${accepted ? '' : 'region-rejected'}">
+      <div class="row-card ${accepted ? '' : 'review-rejected'}">
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
-          <span class="region-fac-badge region-name-link" onclick="regionRenderSheet('faction','${esc(f.local_id)}')" style="border-color:${color}; color:${color}">${esc(draft.public.name)}</span>
-          <button class="btn-icon" onclick="regionToggleAccept('${esc(f.local_id)}')" style="margin-left:auto">
+          <span class="region-fac-badge review-name-link" onclick="regionRenderSheet('faction','${esc(f.local_id)}')" style="border-color:${color}; color:${color}">${esc(draft.public.name)}</span>
+          <button class="btn-icon" onclick="reviewToggleAccept('region','${esc(f.local_id)}')" style="margin-left:auto">
             ${accepted ? 'Rejeter' : 'Accepter'}</button>
         </div>
         ${draft.public.description ? `<div style="font-size:12px; color:var(--muted)">${esc(draft.public.description)}</div>` : ''}
-        ${regionRenderNotes(regionEntityNotes(f, 'faction'))}
+        ${reviewNotes(regionEntityNotes(f, 'faction'))}
       </div>`;
   }).join('') + '</div>';
-}
-
-function regionRenderLocationNode(loc, cascade, childrenByParent) {
-  const draft = loc.result.draft;
-  const accepted = regionIsAccepted(loc.local_id);
-  const reparented = loc.parent_local_id != null && cascade.effectiveParent[loc.local_id] !== loc.parent_local_id;
-  const children = childrenByParent[loc.local_id] || [];
-  return `
-    <div class="region-loc-node ${accepted ? '' : 'region-rejected'}">
-      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
-        <span style="font-weight:600" class="region-name-link" onclick="regionRenderSheet('location','${esc(loc.local_id)}')">${esc(draft.public.name)}</span>
-        <span style="font-size:11px; color:var(--muted)">${esc(draft.public.location_type || '')}</span>
-        ${reparented ? '<span class="badge b-other" style="font-size:10px">rattaché à la racine</span>' : ''}
-        <button class="btn-icon" onclick="regionToggleAccept('${esc(loc.local_id)}')" style="margin-left:auto">
-          ${accepted ? 'Rejeter' : 'Accepter'}</button>
-      </div>
-      ${draft.public.description ? `<div style="font-size:12px; color:var(--muted)">${esc(draft.public.description)}</div>` : ''}
-      ${regionRenderNotes(regionEntityNotes(loc, 'location'))}
-      ${regionRenderLinkToggles(loc)}
-      ${children.length ? `<div class="region-loc-children">${children.map(c => regionRenderLocationNode(c, cascade, childrenByParent)).join('')}</div>` : ''}
-    </div>`;
-}
-
-function regionRenderTree(cascade) {
-  if (!regionDraft.locations.length) return '<div class="empty">Aucun lieu proposé.</div>';
-  const childrenByParent = {};
-  for (const loc of regionDraft.locations) {
-    const p = cascade.effectiveParent[loc.local_id];
-    if (p == null) continue;
-    (childrenByParent[p] = childrenByParent[p] || []).push(loc);
-  }
-  // BRIEF-0033-c: parent reassignment can set a second location's
-  // parent_local_id to null (root fallback, matching the commit's None ->
-  // no-parent resolution) — render every top-level location, not just the
-  // first found, so a reparented-to-root location stays visible.
-  const roots = regionDraft.locations.filter(l => l.parent_local_id == null);
-  if (!roots.length) return '<div class="empty">Aucun lieu racine dans le brouillon.</div>';
-  return roots.map(root => regionRenderLocationNode(root, cascade, childrenByParent)).join('');
 }
 
 function regionRenderCommitResult() {
@@ -6279,7 +6350,9 @@ function regionRenderAll() {
     return;
   }
 
-  const cascade = regionCascade();
+  const descriptor = regionReviewDescriptor();
+  reviewRegister('region', descriptor);
+  const cascade = reviewCascade(descriptor);
   const skipped = regionDraft.skipped || [];
 
   root.innerHTML = `
@@ -6303,7 +6376,7 @@ function regionRenderAll() {
     <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start">
       <div style="flex:2; min-width:320px">
         <div class="field-section-title">Lieux</div>
-        ${regionRenderTree(cascade)}
+        ${reviewTree('region', cascade)}
       </div>
       <div style="flex:1; min-width:240px">
         <div class="field-section-title">Factions</div>
@@ -6325,10 +6398,10 @@ function regionToggleLocGraph() {
  * (regions.py) for confirmed connection links: trim+lowercase name match,
  * no DB fallback (nothing committed yet). */
 function regionLocGraphData() {
-  const accepted = regionDraft.locations.filter(l => regionIsAccepted(l.local_id));
+  const accepted = regionDraft.locations.filter(l => reviewIsAccepted('region', l.local_id));
   const nodes = accepted.map(l => ({ id: l.local_id, name: l.result.draft.public.name }));
 
-  const cascade = regionCascade();
+  const cascade = reviewCascade(regionReviewDescriptor());
   const hierEdges = [];
   for (const l of accepted) {
     const parent = cascade.effectiveParent[l.local_id];
@@ -10884,7 +10957,7 @@ function _sheetEntityOptions(collection, currentId, allowNull, excludeId) {
   for (const e of (collection || [])) {
     if (excludeId && e.local_id === excludeId) continue;
     const name = e.result.draft.public.name || '(sans nom)';
-    const label = regionIsAccepted(e.local_id) ? name : `${name} (rejeté)`;
+    const label = reviewIsAccepted('region', e.local_id) ? name : `${name} (rejeté)`;
     opts.push(`<option value="${esc(e.local_id)}"${e.local_id === currentId ? ' selected' : ''}>${esc(label)}</option>`);
   }
   return opts.join('');
