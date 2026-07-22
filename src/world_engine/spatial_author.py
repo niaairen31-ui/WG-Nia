@@ -5,10 +5,12 @@ rows via writes.config.write_location_doors - the SOLE door-write path. It
 NEVER creates, judges or removes connects_to edges (a door is the spatial
 manifestation of an edge, never its source - B1). It preserves hand-placed
 door coordinates and only invents a placeholder point (placement.
-door_placeholder_point, N1) for an edge that has no door yet. Idempotent:
-re-running on the same locations reproduces the same door set. This module
-is NOT reachable from _apply_mutation - world creation is creator direct
-authority, never an AI proposal.
+door_placeholder_point, N1) for an edge that has no door yet - except a
+point still sitting at the exact H1 bounds center, which is re-derived onto
+the perimeter (G1, TICKET-0040). Idempotent: re-running on the same
+locations reproduces the same door set. This module is NOT reachable from
+_apply_mutation - world creation is creator direct authority, never an AI
+proposal.
 """
 from __future__ import annotations
 
@@ -62,15 +64,17 @@ def materialize_doors(
 ) -> dict:
     """Rebuilds the `door` rows of every location in `location_ids` from its
     live `connects_to` neighbours, via write_location_doors. Preserves any
-    existing (x, y) for a surviving edge; invents
-    placement.door_placeholder_point(location, neighbour_id) only for an edge that has no
-    door yet. Full-replace naturally drops doors whose edge died. Caller
-    owns the commit (match the region commit's single-db.commit() contract,
-    regions.py) — this function never commits.
+    existing (x, y) for a surviving edge - except a point still sitting at
+    the exact H1 bounds center, which is re-derived onto the perimeter (G1,
+    TICKET-0040); invents placement.door_placeholder_point(location,
+    neighbour_id) only for an edge that has no door yet. Full-replace
+    naturally drops doors whose edge died. Caller owns the commit (match the
+    region commit's single-db.commit() contract, regions.py) — this
+    function never commits.
 
-    Returns `{"locations": n, "doors_written": m, "placeholders": k}`.
+    Returns `{"locations": n, "doors_written": m, "placeholders": k, "rederived": r}`.
     """
-    summary = {"locations": 0, "doors_written": 0, "placeholders": 0}
+    summary = {"locations": 0, "doors_written": 0, "placeholders": 0, "rederived": 0}
     for location_id in dict.fromkeys(location_ids):
         location = db.get(Location, location_id)
         if location is None:
@@ -84,11 +88,14 @@ def materialize_doors(
 
         payload = []
         for neighbour_id in neighbour_ids:
-            if neighbour_id in existing_points:
-                x, y = existing_points[neighbour_id]
-            else:
+            if neighbour_id not in existing_points:
                 x, y = placement.door_placeholder_point(location, neighbour_id)
                 summary["placeholders"] += 1
+            elif placement.is_legacy_center(location, existing_points[neighbour_id]):
+                x, y = placement.door_placeholder_point(location, neighbour_id)
+                summary["rederived"] += 1
+            else:
+                x, y = existing_points[neighbour_id]
             payload.append({"target_location_id": neighbour_id, "x": x, "y": y})
 
         new_doors = write_location_doors(

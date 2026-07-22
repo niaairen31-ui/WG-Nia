@@ -87,6 +87,29 @@ def door_placeholder_point(location, target_location_id: str) -> Point:
     return (0.0, 2 * (width + height) - t)
 
 
+def is_legacy_center(location, point: Point) -> bool:
+    """G1, TICKET-0040: recognises a door still sitting at the H1 placeholder
+    point (the exact bounds center), so materialize_doors can re-derive it
+    onto the perimeter. A door the creator hand-placed at the exact center
+    is statistically null, and the worst case is that it moves to a wall.
+    The comparison lives here, not in spatial_author.py, for the same
+    reason the placement does: coordinate math has one authority.
+    """
+    width = location.bounds_width
+    height = location.bounds_height
+    if (
+        width is None
+        or height is None
+        or not math.isfinite(width)
+        or not math.isfinite(height)
+        or width <= 0
+        or height <= 0
+    ):
+        return False
+    x, y = point
+    return math.isclose(x, width / 2.0, abs_tol=1e-9) and math.isclose(y, height / 2.0, abs_tol=1e-9)
+
+
 def _unit_floats(seed: str, counter: int, n: int) -> tuple[float, ...]:
     """n deterministic floats in [0, 1), derived from
     sha256(f"{seed}:{counter}"). The single source of pseudo-randomness

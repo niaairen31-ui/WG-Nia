@@ -8264,6 +8264,38 @@ delivered by BRIEF-0039-c, not a silent bugfix; no existing `door` row is
 re-derived here (`materialize_doors` still reuses `existing_points` for
 every surviving edge) — that is BRIEF-0040-e.
 
+**G1 — legacy-center re-derivation (BRIEF-0040-e, no schema change).**
+Replacing `door_placeholder_point` (above) was not enough on its own:
+`materialize_doors` preserves any existing `(x, y)` for a surviving edge,
+so no door materialized before this ticket would ever have moved off the
+center just because the function producing NEW points changed. This step
+adds `placement.is_legacy_center(location, point)`: true when the location
+has usable bounds (non-None, finite, > 0 on both axes) AND `point` equals
+`(width / 2.0, height / 2.0)` within `1e-9` on both axes — false in every
+other case, including NULL bounds, whose `(0, 0)` doors must never be
+disturbed (I1). The comparison lives in `placement.py`, not
+`spatial_author.py`, for the same reason the placement math does —
+coordinate math has one authority (`door_terminal.py`). `materialize_doors`'s
+per-neighbour branch becomes three-way: no existing door -> invent a
+placeholder (`summary["placeholders"]`); existing door at the exact legacy
+center -> re-derive onto the perimeter (`summary["rederived"]`, new key);
+existing door anywhere else -> reuse verbatim (hand-placed, untouched).
+The rule is exact-equality only, by design: a door the creator hand-placed
+at the exact center is statistically null, and the accepted false positive
+is that it moves to a wall — no proximity threshold, no heuristic beyond
+equality, no `door.is_placeholder` column (`door` stays terminal, gains no
+column) and no one-shot retro-derivation script (re-derivation lives on the
+materialization path itself, so a world loaded later can never revert to
+stacked doors). Idempotence survives: a re-derived point is a perimeter
+point, so `is_legacy_center` is false for it on the next pass and it is
+then reused verbatim. Guarded by a new fail-closed check,
+`tooling/verify/checks/door_distinct_points.py` (L1): within one active
+location carrying non-NULL, positive bounds, no two `door` rows share the
+same `(x, y)`; a location with NULL bounds is excluded (its doors are
+legitimately all at `(0, 0)`). Live DB check before deployment found 2 of 8
+existing door rows sitting at the exact legacy center — the number this
+ticket's live gate expects to see move onto the perimeter.
+
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 

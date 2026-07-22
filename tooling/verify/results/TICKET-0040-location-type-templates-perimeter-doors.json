@@ -1,17 +1,17 @@
 {
   "ticket": "TICKET-0040-location-type-templates-perimeter-doors",
-  "when": "2026-07-22T19:52:08.442333+00:00",
-  "green": false,
+  "when": "2026-07-22T20:08:33.733134+00:00",
+  "green": true,
   "checks": [
     {
       "check": "door_distinct_points.py",
-      "status": "MISSING",
-      "msg": "C:\\Users\\Utilisateur\\Documents\\World-genrator\\tooling\\verify\\checks\\door_distinct_points.py not found"
+      "status": "PASS",
+      "msg": "PASS: door_distinct_points \u2014 scanned qualifying locations with non-NULL positive bounds; no two door rows of any location share the same (x, y); a forced duplicate surfaces by name and heals via delete + re-materialize; two doors sitting at the exact bounds center are re-derived onto distinct perimeter points by materialize_doors (G1, TICKET-0040)"
     },
     {
       "check": "placement_unit.py",
       "status": "PASS",
-      "msg": "PASS: placement_unit \u2014 all 12 derive_positions/distance cases hold"
+      "msg": "PASS: placement_unit \u2014 all 19 derive_positions/distance/door_placeholder_point perimeter cases hold"
     },
     {
       "check": "door_coverage.py",
