@@ -8203,4 +8203,50 @@ default). Scope OUT of BRIEF-0039-e locks this deferral in place.
 
 ---
 
+## DOOR MATERIALIZATION CORE (BRIEF-0039-c, no schema change)
+
+Third step of TICKET-0039. Builds the pure core that turns a location's live
+`connects_to` neighbours into `door` rows — no call sites wired in yet (that
+is BRIEF-0039-d); exercised here by a standalone script only.
+
+**Placeholder point stays in `placement.py`, the sole placement/distance
+authority.** `door_placeholder_point(location)` returns the center of
+`(bounds_width, bounds_height)` when both are non-null and finite, else
+`(0.0, 0.0)` — H1 verbatim. `door_terminal.py` forbids this math living in
+`spatial_doors.py`; keeping it in `placement.py` alongside `distance` and
+`derive_positions` means `spatial_author.py` (below) does no coordinate
+arithmetic of its own, only dict-building and dispatch.
+
+**`spatial_author.py` — Creation-side orchestrator, delegates every write to
+`write_location_doors`.** `materialize_doors(db, *, world_id, location_ids,
+changed_by)` is the fifth `connects_to` reader (decision D1 of BRIEF-19
+stands — not refactored into a shared helper with `play.py`'s
+`_location_neighbours` or `write_location_doors`'s validator). Per location:
+gather its live `connects_to` neighbours that are active locations (a
+neighbour that is not an active location entity is dropped, never aborts
+the commit); read the location's current `door` rows into a
+`{target_location_id: (x, y)}` map; build one payload item per neighbour,
+reusing the existing point if a door already exists for that target, else
+`placement.door_placeholder_point(location)`; call `write_location_doors` —
+the SOLE door-write path — with the full payload. The full-replace
+naturally drops doors whose edge died and keeps hand-placed coordinates for
+every surviving edge. Idempotent: re-running on the same locations
+reproduces the same door set. `materialize_doors` never commits — the
+caller owns the transaction, matching the region commit's single-commit
+contract. Not reachable from `_apply_mutation`: world creation is creator
+direct authority, never an AI proposal — this module is inert until
+BRIEF-0039-d imports it.
+
+Verified live (script, not committed): two active locations with one
+`connects_to` edge produce exactly two door rows (A->B, B->A) at the
+placeholder point; hand-placing one door's coordinate and adding a second
+neighbour preserves the hand-placed point and places the new door at the
+placeholder; deleting the `connects_to` edge and re-running drops the
+corresponding door row while leaving the others untouched.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*

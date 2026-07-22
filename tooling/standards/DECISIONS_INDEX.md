@@ -119,3 +119,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 8040 | REGION NPC RETIREMENT (BRIEF-0037-d, no schema change) | BRIEF-0037-d |  |
 | 8106 | PURGE CHILD-BEFORE-PARENT DELETE ORDERING FIX (BRIEF-0037-e, no schema change) | BRIEF-0037-e |  |
 | 8151 | LOCATION TYPE CLASSIFIED REGISTRY (BRIEF-0039-a, schema v1.84) | BRIEF-0039-a | v1.84 |
+| 8206 | DOOR MATERIALIZATION CORE (BRIEF-0039-c, no schema change) | BRIEF-0039-c |  |

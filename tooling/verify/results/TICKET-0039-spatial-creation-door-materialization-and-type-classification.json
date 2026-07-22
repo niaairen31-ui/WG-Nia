@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0039-spatial-creation-door-materialization-and-type-classification",
+  "when": "2026-07-22T13:00:51.319583+00:00",
+  "green": false,
+  "checks": [
+    {
+      "check": "door_coverage.py",
+      "status": "MISSING",
+      "msg": "C:\\Users\\Utilisateur\\Documents\\World-genrator\\tooling\\verify\\checks\\door_coverage.py not found"
+    },
+    {
+      "check": "location_type_classified.py",
+      "status": "MISSING",
+      "msg": "C:\\Users\\Utilisateur\\Documents\\World-genrator\\tooling\\verify\\checks\\location_type_classified.py not found"
+    }
+  ]
+}

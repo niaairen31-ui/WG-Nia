@@ -35,8 +35,7 @@ and `world-engine-schema-changelog.md` — never here.
   the player character is not meant to know.
 - Keep the database engine URL in an environment variable (default to a local
   SQLite file) so switching to PostgreSQL/Supabase needs no code change.
-- History is sacred: prefer preserving successive states over overwriting
-  them.
+- History is sacred: prefer preserving successive states over overwriting them.
 - **`--force` only deletes `proposed` rows.** Any `proposed_mutation` row
   with status `applied`, `approved`, or `rejected` is reviewed history and
   must never be deleted — not by the CLI `--force` flag, not by the cockpit
@@ -401,6 +400,7 @@ WG-Nia/
 │   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)
 │   ├── entity_author.py     # AI authoring assistant (entities, PC, skill catalogue, agendas, events)
 │   ├── region_author.py     # region generation orchestrator (proposes names, no canon)
+│   ├── spatial_author.py    # Creation-side door materialization from live connects_to (TICKET-0039)
 │   └── cockpit/             # creator web UI (FastAPI + HTMX, port 8000, loopback)
 │       ├── app.py           # app factory + router mounting + link-batch retention purge (startup); routes/ holds the routers
 │       ├── play*.py         # say() decomposition: routing, physical branch, narration/initiative
