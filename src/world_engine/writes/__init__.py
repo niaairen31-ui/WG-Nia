@@ -35,6 +35,7 @@ from __future__ import annotations
 from ._shared import _append_history_snapshot, _clamp
 from .characters import write_character_location, write_ledger_entry, write_skill_tier
 from .config import (
+    upsert_location_type,
     write_location_doors,
     write_location_obstacles,
     write_location_subculture,

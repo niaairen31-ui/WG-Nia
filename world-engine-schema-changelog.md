@@ -8,6 +8,45 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.84** — TICKET-0039, BRIEF-0039-a: classified `location_type_catalog`
+  registry — first step of spatial creation + door materialization. New
+  table `location_type_catalog` (`id, world_id, name, classification, created_at`)
+  with UNIQUE index `idx_location_type_catalog_name (world_id, name COLLATE
+  NOCASE)`. One row per `location_type` string per world; `classification`
+  (`interior` | `exterior` | NULL) is the ONLY interior/exterior signal in
+  the engine — door derivation (BRIEF-0039-c) and street-access checks
+  (BRIEF-0039-e) read it; NULL = not yet classified, inert until the
+  creator decides (BRIEF-0039-b prompts on next use). Curated config, but
+  NOT full-replace: a per-row upsert catalog written ONLY via the new
+  `writes.upsert_location_type` (25th sanctioned canon-write site) —
+  case-insensitive lookup by `(world_id, name)`, inserts if absent, updates
+  `classification` only when the incoming value is non-NULL (a decided
+  classification is never downgraded to NULL). Seeded by
+  `migrate_v1_84_location_type_catalog.py`: the 7 known defaults (exterior:
+  `city`/`district`/`natural`; interior: `building`/`room`/`underground`;
+  NULL: `other`) plus every distinct non-null `location.location_type`
+  value already in use per world not already covered by the defaults
+  (seeded NULL, awaiting creator classification). No reader consumes
+  `classification` yet — that lands later in the same ticket
+  (BRIEF-0039-c/d/e), a deliberate ticket-scoped exception to "no structure
+  without a reader".
+  — *BRIEF-0039-e (application layer, no schema change)*: the first reader
+  of `classification` lands — `spatial_author.location_classification(db,
+  *, world_id, location_id)`, the ONLY interior/exterior reader (D1),
+  resolving a `location_type` case-insensitively against
+  `location_type_catalog`; NULL type, uncatalogued type, or unclassified
+  type all resolve to None. `commit_region` (`routes/regions.py`) gains the
+  E1 SOFT note: a BUILDING SHELL (interior with an exterior parent, or an
+  interior root) with no live `connects_to` neighbour classified exterior
+  appends `"Batiment '{name}' sans acces exterieur-public - aucune porte ne
+  donne sur un lieu exterieur."` to the response's `notes` list — purely
+  advisory, never blocking the commit, never mutating. Two new fail-closed
+  G1 gates on the door_terminal.py/single_canon_write.py FAILURES idiom:
+  `tooling/verify/checks/door_coverage.py` (every active `connects_to` edge
+  between active locations carries both directed `door` rows) and
+  `tooling/verify/checks/location_type_classified.py` (every active
+  location's `location_type` is catalogued with a non-NULL classification).
+
 - **v1.83** — TICKET-0037, BRIEF-0037-a: NPC group agent, first step —
   ephemeral staging substrate for batch NPC drafting, replacing the region
   wizard's retired NPC machinery (retirement itself is BRIEF-0037-d, last).

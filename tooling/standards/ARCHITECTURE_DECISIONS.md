@@ -8148,6 +8148,253 @@ Machine-checkable section gains this criterion — the gate is now 9/9.
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## LOCATION TYPE CLASSIFIED REGISTRY (BRIEF-0039-a, schema v1.84)
+
+First step of TICKET-0039 (spatial creation: door materialization +
+`location_type` classification). Ships the storage and the sanctioned
+write path only — no reader consumes `classification` yet; it lands later
+in the SAME ticket (door derivation, BRIEF-0039-c; type-vocab/E1 checks,
+BRIEF-0039-e). A deliberate, ticket-scoped exception to "no structure
+without a reader".
+
+**G — classified, extensible registry; NULL = lazy classification;
+upsert-one, not full-replace.** `location_type` was a free-text datalist
+backed only by a frontend constant (`LOCATION_TYPE_ORDER`), with no
+persistence and no interior/exterior notion. `location_type_catalog`
+(`id, world_id, name, classification, created_at`, UNIQUE
+`(world_id, name COLLATE NOCASE)`) makes `classification`
+(`interior` | `exterior` | NULL) the ONLY interior/exterior signal in the
+engine: door kind (D1, BRIEF-0039-c) is derived from the two endpoints'
+classification, never stored on the door itself, and street-access (E1,
+BRIEF-0039-e) reads it. NULL = not yet decided by the creator — inert for
+both readers until classified. The table is a per-row upsert catalog
+(`writes.upsert_location_type`, 25th sanctioned canon-write site), NOT a
+full-replace config table like `world_law`/`npc_prices`: types are added
+one at a time from the picker (BRIEF-0039-b), so a delete-then-insert
+shape would destroy every other type's classification on every edit.
+`upsert_location_type` inserts if the case-insensitive `(world_id, name)`
+lookup misses, and on a hit updates `classification` ONLY when the
+incoming value is non-NULL — a decided classification is never
+downgraded to NULL by a later NULL-classified upsert (e.g. the seed
+re-discovering the same free-text type). Curated config, same family as
+`location_subculture`/`npc_price`: no `change_history` column.
+
+`migrate_v1_84_location_type_catalog.py` seeds every world with the 7
+known defaults (exterior: `city`/`district`/`natural`; interior:
+`building`/`room`/`underground`; NULL: `other`) plus every DISTINCT
+non-null `location.location_type` value already in use, not covered by
+the defaults, seeded NULL and printed so the creator sees what still
+needs classifying (RECON against the live DB surfaced one such value,
+`settlement`, confirming the dynamic DISTINCT query is load-bearing and
+must never be replaced by a hardcoded list beyond the 7 defaults).
+
+**B1 simplification carried forward — exterior-public == exterior for
+v1.** The ticket's B1 resolution ("a street is an ordinary exterior
+location") collapses the public/private axis into the single
+interior/exterior classification for now. Named deferral, same trigger as
+stated in the ticket: the day a walled private courtyard must not count
+as street access, `location_type_catalog` gains a second classification
+axis (or a `classification` value split) rather than reusing
+`access_level` (which is a per-location override, not a per-type
+default). Scope OUT of BRIEF-0039-e locks this deferral in place.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
+## DOOR MATERIALIZATION CORE (BRIEF-0039-c, no schema change)
+
+Third step of TICKET-0039. Builds the pure core that turns a location's live
+`connects_to` neighbours into `door` rows — no call sites wired in yet (that
+is BRIEF-0039-d); exercised here by a standalone script only.
+
+**Placeholder point stays in `placement.py`, the sole placement/distance
+authority.** `door_placeholder_point(location)` returns the center of
+`(bounds_width, bounds_height)` when both are non-null and finite, else
+`(0.0, 0.0)` — H1 verbatim. `door_terminal.py` forbids this math living in
+`spatial_doors.py`; keeping it in `placement.py` alongside `distance` and
+`derive_positions` means `spatial_author.py` (below) does no coordinate
+arithmetic of its own, only dict-building and dispatch.
+
+**`spatial_author.py` — Creation-side orchestrator, delegates every write to
+`write_location_doors`.** `materialize_doors(db, *, world_id, location_ids,
+changed_by)` is the fifth `connects_to` reader (decision D1 of BRIEF-19
+stands — not refactored into a shared helper with `play.py`'s
+`_location_neighbours` or `write_location_doors`'s validator). Per location:
+gather its live `connects_to` neighbours that are active locations (a
+neighbour that is not an active location entity is dropped, never aborts
+the commit); read the location's current `door` rows into a
+`{target_location_id: (x, y)}` map; build one payload item per neighbour,
+reusing the existing point if a door already exists for that target, else
+`placement.door_placeholder_point(location)`; call `write_location_doors` —
+the SOLE door-write path — with the full payload. The full-replace
+naturally drops doors whose edge died and keeps hand-placed coordinates for
+every surviving edge. Idempotent: re-running on the same locations
+reproduces the same door set. `materialize_doors` never commits — the
+caller owns the transaction, matching the region commit's single-commit
+contract. Not reachable from `_apply_mutation`: world creation is creator
+direct authority, never an AI proposal — this module is inert until
+BRIEF-0039-d imports it.
+
+Verified live (script, not committed): two active locations with one
+`connects_to` edge produce exactly two door rows (A->B, B->A) at the
+placeholder point; hand-placing one door's coordinate and adding a second
+neighbour preserves the hand-placed point and places the new door at the
+placeholder; deleting the `connects_to` edge and re-running drops the
+corresponding door row while leaving the others untouched.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
+## WIRE MATERIALIZATION AT CONNECTS_TO BIRTH (BRIEF-0039-d, no schema change)
+
+Fourth step of TICKET-0039. `materialize_doors` (BRIEF-0039-c) had no call
+site; this step fires it at every point a `connects_to` edge is actually
+born, per **J1**: door coverage is a build-time invariant, not something
+each edge-creating call site has to remember.
+
+**J1 — `connect_locations(db, *, world_id, entity_a_id, entity_b_id,
+changed_by)` (`spatial_author.py`) is the thin wrapper: write the edge, then
+materialize both endpoints.** It calls `write_relation(mode="set", ...,
+type="connects_to", value=50, direction="mutual")` — the exact args the
+region-commit connection branch already used — then
+`materialize_doors(db, world_id=world_id, location_ids=[entity_a_id,
+entity_b_id], changed_by=changed_by)`. Returns the merged
+`materialize_doors` summary; never commits (caller owns the transaction).
+Two call sites now route through it or its bulk equivalent:
+
+- **Region commit** (`routes/regions.py::commit_region`) takes the bulk
+  path (preferred over routing `_commit_region_links` through
+  `connect_locations` edge-by-edge): `_commit_region_links` is unchanged,
+  still writing edges via `write_relation` directly; after it returns,
+  `commit_region` collects every location id touched by a `connects_to`
+  entry in `written_links` (`_touched_location_ids`, a named extraction to
+  hold `commit_region` under the R1 80-line cap) and calls
+  `materialize_doors` ONCE with that set, before the single `db.commit()`.
+  A region with many adjacency edges materializes each node's doors exactly
+  once, not once per incident edge. `controls` links are excluded —
+  materialization is connects_to only.
+- **Manual adjacency** (`POST /entities/{id}/relations`,
+  `crud/relations.py::create_relation` — the route the location graph editor
+  posts to) branches on `body.type == "connects_to"`: that branch calls
+  `connect_locations` (fixed value=50/direction=mutual, mirroring the
+  region-commit args — `intensity`/`direction`/`visible_to_b`/`notes` from
+  the request body are not applicable to a topology edge) and re-reads the
+  written row via `_find_relation_pair` for the response shape; every other
+  relation type is untouched, still going through `write_relation` mode=set
+  as before.
+
+**Rejected J2 — embedding materialization inside `write_relation` itself.**
+Would blur `write_relation` back into a mixed writer (it currently writes
+one canon type, cleanly) and fire on every relation type, not just
+`connects_to`; `connect_locations` at the call site is the narrower change.
+
+Both call sites thread the existing creator identity (`"creator"`) into
+`changed_by` — no new identity invented. No second `db.commit()` was added
+on either path. `single_canon_write.py` stays green: doors still only
+reach the table via `write_location_doors`, itself only reached through
+`materialize_doors`.
+
+Two other `write_relation` call sites were checked and excluded as
+`connects_to` birth points: `link_author.py`'s coherence-patch path
+(`_apply_canon_relation_patch`) edits an existing row by `relation_id` and
+never varies its type into `connects_to` (`_LINK_RELATION_TYPES`
+structurally excludes it); `cockpit/mutations.py`'s `relation_change` apply
+(`mode="delta"`, AI-proposed, creator-review-gated) is a different
+write semantic entirely (accumulating delta on a possibly-new pair) and is
+not a `connects_to` edge author in practice — CLAUDE.md's "connects_to is
+never a social signal" invariant keeps AI relation proposals off it. Neither
+is rewired here; both are out of scope without a deliberate decision.
+
+Not addressed here (deferred to BRIEF-0039-e per that brief's scope): no
+verify check yet enforces every `connects_to` edge has materialized doors;
+no delete-time sweep for a location's doors on hard delete (a surviving
+neighbour's dangling door is dropped on its own next materialize, not
+swept eagerly).
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
+## INVARIANTS: DOOR COVERAGE, TYPE VOCAB, STREET NOTE (BRIEF-0039-e, no schema change)
+
+Fifth and final step of TICKET-0039. With materialization wired
+(BRIEF-0039-d), door coverage becomes a build-time invariant — this step
+adds the two G1 gates that guard it, plus the E1 building-shell
+street-access soft note.
+
+**D1 — `location_classification` is the ONLY interior/exterior reader,
+door kind stays derived, never stored.** `spatial_author.location_classification
+(db, *, world_id, location_id) -> Optional[str]` reads a location's
+`location_type`, case-insensitively against `location_type_catalog` (same
+lookup `writes.upsert_location_type` uses). NULL `location_type`, an
+uncatalogued type, or a catalogued-but-still-NULL classification all
+resolve to `None` — inert for both this note and any future door-kind
+reader. No `door.type`/`door.kind` column was added; door kind (interior-
+interior / boundary / exterior-exterior) stays derived on demand from the
+two endpoints' classification wherever a reader needs it.
+
+**E1 — building-shell street-access is a SOFT note, never a gate.** A
+BUILDING SHELL is defined as: `location_classification == "interior"` AND
+(its parent's classification is `"exterior"` OR it has no parent — an
+interior root). `commit_region` (`routes/regions.py`) checks, for every
+location committed THAT transaction, whether a building shell has at least
+one live `connects_to` neighbour classified `"exterior"` (exterior-public
+== exterior for v1 — the same named deferral BRIEF-0039-a recorded: the
+day a walled PRIVATE courtyard must not satisfy this, add an exterior
+sub-classification and refine the neighbour test; trigger = first private-
+exterior location that wrongly clears the note). No neighbour qualifies ->
+one note, verbatim `f"Batiment '{name}' sans acces exterieur-public -
+aucune porte ne donne sur un lieu exterieur."`, appended to the response's
+`notes` list (same channel `region_author` uses) — advisory only, never
+rejects, never mutates, no stored exception flag. "Most buildings on a
+street" is deliberately not "all": a hidden cabin or an interior courtyard
+is legitimate. The neighbour scan re-implements the two-query
+`connects_to` read locally in `regions.py` rather than importing
+`spatial_author._live_neighbour_ids` — decision D1 of BRIEF-19 stands, not
+refactored into a shared helper.
+
+**Two new fail-closed G1 gates, both DB-backed against a self-contained
+fresh temp-file SQLite fixture** (WORLD_ENGINE_DATABASE_URL set before any
+`world_engine` import — same idiom as `spatial_door_travel.py` /
+`scene_join_target.py`, so neither check ever touches Nia's real DB), on
+the `door_terminal.py`/`single_canon_write.py` FAILURES-list idiom (zero
+parsed criteria is never a vacuous pass):
+
+- **`door_coverage.py`** — for every active `connects_to` relation whose
+  both endpoints are active locations, both directed `door` rows must
+  exist. Exercises the REAL production writers (`connect_locations` /
+  `materialize_doors`) to build the positive fixture; an edge touching an
+  archived location is excluded (same active-locations filter as
+  `crud/locations.py:get_locations_graph`). Verified live: deleting one
+  direction surfaces it by name; re-running `materialize_doors` heals it;
+  an empty world reaches an explicit "no edges to verify" pass, reachable
+  only because the scan query concretely ran (an exception during the scan
+  crashes the check non-zero, never masquerading as a pass).
+- **`location_type_classified.py`** — every DISTINCT `location_type` on an
+  active location must exist in `location_type_catalog` (case-insensitive)
+  with a non-NULL classification in `{"interior", "exterior"}`. An
+  archived location's uncatalogued type never surfaces. Vacuous-proof:
+  when active locations carry a `location_type`, the examined-type count
+  must be `> 0`. Verified live: an uncatalogued type and a catalogued-but-
+  NULL type both FAIL by name; classifying them heals the gate; an
+  out-of-vocab classification value landing via a path other than
+  `upsert_location_type` (which validates) also FAILs by name.
+
+Neither check depends on `connects_to` being created only via
+`connect_locations` — both assert the RESULTING state, so either would
+also catch an edge that somehow bypassed materialization.
+
+`single_canon_write.py` and `door_terminal.py` stay green: this brief adds
+readers and checks, no new canon-write path.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -51,12 +51,14 @@ from ...models import (
 )
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
+from ...spatial_author import connect_locations
 from ...tick_normalize import _EVENT_TYPES
 from ...writes import (
     KNOWLEDGE_LEVELS,
     NPC_GOAL_HORIZONS,
     NPC_GOAL_PREREQUISITE_TYPES,
     PromptValidationError,
+    _find_relation_pair,
     detach_goal_agenda_link,
     write_agenda,
     write_agenda_status,
@@ -117,6 +119,15 @@ def create_relation(entity_id: str, body: RelationWriteBody, db: DbSession = Dep
         raise HTTPException(422, f"Entity {body.other_entity_id!r} not found")
     if not body.type:
         raise HTTPException(422, "type is required")
+
+    if body.type == "connects_to":
+        connect_locations(
+            db, world_id=entity.world_id, entity_a_id=entity_id,
+            entity_b_id=body.other_entity_id, changed_by="creator",
+        )
+        db.commit()
+        rel = _find_relation_pair(db, entity_id, body.other_entity_id)
+        return _relation_dict(rel, entity_id, db)
 
     rel = write_relation(
         db,

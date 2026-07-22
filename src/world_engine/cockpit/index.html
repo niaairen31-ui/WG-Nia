@@ -3128,7 +3128,13 @@ let creationSelectedRecordId = null;
 /* Lieux hierarchy browse (BRIEF-51, no schema change) — read-only
  * GET /api/locations tree + client view-state only (no server persistence). */
 let authorLocationTree = [];     // [{id, name, parent_location_id, location_type, status}, ...]
+// LOCATION_TYPE_ORDER stays the browse-tree bucket order (display only, not
+// the vocabulary — TICKET-0039, BRIEF-0039-b). The type picker's own source
+// of truth is authorLocationTypeCatalog (GET /api/location-types).
 const LOCATION_TYPE_ORDER = ['city', 'district', 'building', 'room', 'natural', 'underground', 'other'];
+// [{name, classification: "interior"|"exterior"|null}, ...] for the active
+// world — refreshed by authorLoadEntityList; backs the location_type datalist.
+let authorLocationTypeCatalog = [];
 const LOCATION_TYPE_LABELS = {
   city: 'Villes', district: 'Quartiers', building: 'Bâtiments', room: 'Pièces',
   natural: 'Lieux naturels', underground: 'Souterrains', other: 'Autres',
@@ -6250,12 +6256,16 @@ function regionRenderCommitResult() {
   }
   const c = regionCommitResult.committed;
   const links = regionCommitResult.links || { written: [], unresolved: [] };
+  const notes = regionCommitResult.notes || [];
   return `<div class="field-section" style="border:1px solid var(--green); border-radius:6px; padding:10px; margin-top:12px;">
     <div class="field-section-title" style="color:var(--green)">Région commitée</div>
     <div style="font-size:12px">${c.factions.length} faction(s), ${c.locations.length} lieu(x) — entités créées dans le canon.</div>
     ${links.written.length ? `<div style="font-size:12px; margin-top:4px">${links.written.length} lien(s) confirmé(s) câblé(s).</div>` : ''}
     ${links.unresolved.length ? `<div style="font-size:11px; color:var(--muted); margin-top:4px">
       ${links.unresolved.map(u => `· ${esc(u.kind)} « ${esc(u.name || '')} » non câblé — ${esc(u.reason || '')}`).join('<br>')}
+    </div>` : ''}
+    ${notes.length ? `<div style="font-size:11px; color:var(--yellow); margin-top:4px">
+      ${notes.map(n => `· ${esc(n)}`).join('<br>')}
     </div>` : ''}
   </div>`;
 }
@@ -6564,14 +6574,16 @@ async function authorLoadEntityList() {
   const listEl = document.getElementById('author-entity-list');
   if (listEl) listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
   try {
-    const [entities, pcs, locations] = await Promise.all([
+    const [entities, pcs, locations, locationTypes] = await Promise.all([
       api('/api/entities'),
       api('/api/skills/player-characters').catch(() => []),
       api('/api/locations').catch(() => []),
+      api('/api/location-types').catch(() => []),
     ]);
     authorAllEntities = entities;
     playerCharIds = new Set(pcs.map(p => p.id));
     authorLocationTree = locations;
+    authorLocationTypeCatalog = locationTypes;
   } catch (e) {
     if (listEl) listEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
     return;
@@ -6612,7 +6624,13 @@ function authorRenderField(field, value, idPrefix) {
     }
     case 'datalist': {
       const dlid = `${id}-dl`;
-      const opts = (field.options || []).map(o => `<option value="${esc(o)}">`).join('');
+      // TICKET-0039, BRIEF-0039-b: location_type sources its options from the
+      // classified registry (authorLocationTypeCatalog), not field.options —
+      // every other datalist field (relation type, faction_type) is unchanged.
+      const optionValues = field.name === 'location_type'
+        ? authorLocationTypeCatalog.map(r => r.name)
+        : (field.options || []);
+      const opts = optionValues.map(o => `<option value="${esc(o)}">`).join('');
       return `<div class="field-row"><label for="${id}">${label}</label>
         <input type="text" id="${id}" data-field="${esc(field.name)}" data-kind="text" list="${dlid}" value="${esc(value ?? '')}">
         <datalist id="${dlid}">${opts}</datalist></div>`;
@@ -8276,6 +8294,69 @@ async function authorSave() {
   }
   if (isNew) entityData.type = type;
 
+  // TICKET-0039, BRIEF-0039-b: a location save is gated on its CHOSEN
+  // location_type being classified (interior/exterior) — a type absent from
+  // the catalog, or present with classification === null, must prompt once
+  // before the save proceeds. Already-classified types save with no prompt.
+  if (type === 'location') {
+    const chosenType = (extData.location_type || '').trim();
+    if (chosenType) {
+      const folded = chosenType.toLowerCase();
+      const catalogRow = authorLocationTypeCatalog.find(r => r.name.toLowerCase() === folded);
+      if (!catalogRow || catalogRow.classification == null) {
+        _authorPromptLocationTypeClassification(chosenType, () => {
+          _authorSaveSubmit(isNew, type, entityData, extData, statusEl);
+        });
+        return;
+      }
+    }
+  }
+
+  await _authorSaveSubmit(isNew, type, entityData, extData, statusEl);
+}
+
+/** Two-button Interieur/Exterieur prompt for a never-classified location_type
+ *  (TICKET-0039, BRIEF-0039-b). Persists the choice via POST /api/location-types,
+ *  refreshes the cached catalog, then runs `onClassified` to resume the save
+ *  that triggered the prompt. */
+function _authorPromptLocationTypeClassification(typeName, onClassified) {
+  genericModalOpen('Classification du type de lieu', `
+    <p>Le type « ${esc(typeName)} » n'est pas encore classifié. Ce lieu est-il
+    intérieur ou extérieur ? Ce choix est mémorisé pour les prochains lieux de
+    ce type.</p>
+    <div class="row-card-actions" style="margin-top:10px">
+      <button class="btn-send" id="loctype-classify-interior">Interieur</button>
+      <button class="btn-send" id="loctype-classify-exterior">Exterieur</button>
+    </div>
+    <div id="loctype-classify-status" style="color:var(--red); margin-top:6px"></div>
+  `, { dismissOnBackdrop: false });
+  document.getElementById('loctype-classify-interior').onclick =
+    () => _authorClassifyLocationType(typeName, 'interior', onClassified);
+  document.getElementById('loctype-classify-exterior').onclick =
+    () => _authorClassifyLocationType(typeName, 'exterior', onClassified);
+}
+
+async function _authorClassifyLocationType(typeName, classification, onClassified) {
+  const statusEl = document.getElementById('loctype-classify-status');
+  statusEl.textContent = '…';
+  try {
+    await api('/api/location-types', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: typeName, classification }),
+    });
+    authorLocationTypeCatalog = await api('/api/location-types');
+    genericModalClose();
+    await onClassified();
+  } catch (e) {
+    statusEl.textContent = e.message;
+  }
+}
+
+/** The actual entity write + dependent-draft POSTs, split out of authorSave
+ *  (TICKET-0039, BRIEF-0039-b) so the location_type classification prompt can
+ *  gate it without duplicating the submission logic. */
+async function _authorSaveSubmit(isNew, type, entityData, extData, statusEl) {
   // TICKET-0024, BRIEF-0024-d: for a NEW faction, roles drafted before the
   // entity exists are held in authorFactionRolesDraft and POSTed to the
   // faction_role create route right after creation (below) — never merged

@@ -231,6 +231,35 @@ class Location(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
+# location_type_catalog  (classified type registry, schema v1.84, TICKET-0039,
+# BRIEF-0039-a)
+#
+# One row per location_type string, per world. classification is the ONLY
+# interior/exterior signal in the engine (A1/B1): doors derive their kind from
+# the two endpoints' classification (D1), and street-access (E1) reads it.
+# NULL classification = not yet decided; a NULL-classified type is inert for
+# door derivation and E1 until the creator classifies it (BRIEF-0039-b prompts
+# on next use). This is a per-row upsert catalog, NOT a full-replace config
+# table: types are added one at a time from the picker. exterior-public ==
+# exterior for v1; the public/private split on exterior is a named deferral.
+# -----------------------------------------------------------------------------
+class LocationTypeCatalog(SQLModel, table=True):
+    __tablename__ = "location_type_catalog"
+    __table_args__ = (
+        Index(
+            "idx_location_type_catalog_name", "world_id", text("name COLLATE NOCASE"),
+            unique=True,
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    name: str
+    classification: Optional[str] = None
+    created_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
 # location_subculture  (ambient culture lines, schema v1.78,
 # TICKET-0025, BRIEF-0025-b — replaces location.subculture JSON)
 #

@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.83
+Current schema version: v1.84
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -181,6 +181,32 @@ CREATE TABLE location (
   bounds_height     REAL       -- NULL = no spatial mode. Same local space as
                     -- obstacle_vertex, NOT coord_x/coord_y above.
 );
+```
+
+-----
+
+### `location_type_catalog`
+
+Classified interior/exterior type registry (schema v1.84, TICKET-0039,
+BRIEF-0039-a). One row per `location_type` string, per world.
+`classification` is the ONLY interior/exterior signal in the engine: door
+kind is derived from the two endpoints' classification, and street-access
+checks read it. NULL classification = not yet decided — inert for door
+derivation until the creator classifies it via the type picker. Curated
+config, but NOT full-replace: this is a per-row upsert catalog, written
+ONLY via `writes.upsert_location_type`, which never overwrites a decided
+classification with NULL.
+
+```sql
+CREATE TABLE location_type_catalog (
+  id             TEXT PRIMARY KEY,
+  world_id       TEXT NOT NULL REFERENCES world(id),
+  name           TEXT NOT NULL,
+  classification TEXT,        -- interior | exterior | NULL (not yet classified)
+  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_location_type_catalog_name
+  ON location_type_catalog(world_id, name COLLATE NOCASE);
 ```
 
 -----

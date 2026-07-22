@@ -46,6 +46,24 @@ def distance(a: Point, b: Point) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
 
+def door_placeholder_point(location) -> Point:
+    """Placeholder door point for an edge with no door yet (H1,
+    TICKET-0039): center of `location`'s obstacle-space bounds when both
+    `bounds_width` and `bounds_height` are non-null and finite, else the
+    origin. The sole placement authority — spatial_author.py calls this
+    rather than computing a midpoint itself."""
+    width = location.bounds_width
+    height = location.bounds_height
+    if (
+        width is not None
+        and height is not None
+        and math.isfinite(width)
+        and math.isfinite(height)
+    ):
+        return (width / 2.0, height / 2.0)
+    return (0.0, 0.0)
+
+
 def _unit_floats(seed: str, counter: int, n: int) -> tuple[float, ...]:
     """n deterministic floats in [0, 1), derived from
     sha256(f"{seed}:{counter}"). The single source of pseudo-randomness
