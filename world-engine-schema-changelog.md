@@ -30,6 +30,22 @@ source of "what version are we at".
   `classification` yet — that lands later in the same ticket
   (BRIEF-0039-c/d/e), a deliberate ticket-scoped exception to "no structure
   without a reader".
+  — *BRIEF-0039-e (application layer, no schema change)*: the first reader
+  of `classification` lands — `spatial_author.location_classification(db,
+  *, world_id, location_id)`, the ONLY interior/exterior reader (D1),
+  resolving a `location_type` case-insensitively against
+  `location_type_catalog`; NULL type, uncatalogued type, or unclassified
+  type all resolve to None. `commit_region` (`routes/regions.py`) gains the
+  E1 SOFT note: a BUILDING SHELL (interior with an exterior parent, or an
+  interior root) with no live `connects_to` neighbour classified exterior
+  appends `"Batiment '{name}' sans acces exterieur-public - aucune porte ne
+  donne sur un lieu exterieur."` to the response's `notes` list — purely
+  advisory, never blocking the commit, never mutating. Two new fail-closed
+  G1 gates on the door_terminal.py/single_canon_write.py FAILURES idiom:
+  `tooling/verify/checks/door_coverage.py` (every active `connects_to` edge
+  between active locations carries both directed `door` rows) and
+  `tooling/verify/checks/location_type_classified.py` (every active
+  location's `location_type` is catalogued with a non-NULL classification).
 
 - **v1.83** — TICKET-0037, BRIEF-0037-a: NPC group agent, first step —
   ephemeral staging substrate for batch NPC drafting, replacing the region

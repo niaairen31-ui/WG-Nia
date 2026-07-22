@@ -21,8 +21,8 @@ from sqlmodel import Session, select
 from ...region_author import generate_region_draft as _generate_region_draft
 from ...region_author import generate_region_manifest as _generate_region_manifest
 from ...db import get_session
-from ...models import Entity
-from ...spatial_author import materialize_doors
+from ...models import Entity, Location, Relation
+from ...spatial_author import location_classification, materialize_doors
 from ...writes import write_faction_role, write_relation
 from .. import crud as _crud
 
@@ -319,6 +319,64 @@ def _touched_location_ids(written_links: list[dict]) -> list[str]:
     return ids
 
 
+def _building_shell_street_access_notes(
+    committed_locations: list[dict], world_id: Optional[str], db: Session,
+) -> list[str]:
+    """E1 SOFT note (BRIEF-0039-e) — advisory only, never blocks the commit
+    and never mutates. For every location committed THIS transaction that is
+    a BUILDING SHELL (`location_classification == "interior"` AND its parent
+    is "exterior", or it has no parent — an interior root), check whether it
+    has at least one live `connects_to` neighbour classified "exterior"
+    (exterior-public == exterior for v1, a named deferral — see
+    ARCHITECTURE_DECISIONS.md). No neighbour qualifies -> one note. "Most
+    buildings on a street" stays a soft note, not a gate: a hidden cabin or
+    an interior courtyard is legitimate (E1, Scope OUT — never a reject).
+
+    Neighbour scan re-implements the two-query connects_to read locally,
+    same as `spatial_author._live_neighbour_ids` and `play._location_neighbours`
+    — decision D1 of BRIEF-19 stands: not refactored into a shared helper.
+    """
+    notes: list[str] = []
+    for entry in committed_locations:
+        location_id = entry["id"]
+        if location_classification(db, world_id=world_id, location_id=location_id) != "interior":
+            continue
+
+        location = db.get(Location, location_id)
+        parent_id = location.parent_location_id if location else None
+        if parent_id is not None:
+            parent_classification = location_classification(db, world_id=world_id, location_id=parent_id)
+            if parent_classification != "exterior":
+                continue  # interior with a non-exterior parent — not a building shell
+
+        rels_a = db.exec(
+            select(Relation).where(Relation.type == "connects_to", Relation.entity_a_id == location_id)
+        ).all()
+        rels_b = db.exec(
+            select(Relation).where(Relation.type == "connects_to", Relation.entity_b_id == location_id)
+        ).all()
+        has_exterior_neighbour = False
+        seen: set[str] = set()
+        for rel in [*rels_a, *rels_b]:
+            neighbour_id = rel.entity_b_id if rel.entity_a_id == location_id else rel.entity_a_id
+            if neighbour_id in seen:
+                continue
+            seen.add(neighbour_id)
+            neighbour_entity = db.get(Entity, neighbour_id)
+            if neighbour_entity is None or neighbour_entity.type != "location" or neighbour_entity.status != "active":
+                continue
+            if location_classification(db, world_id=world_id, location_id=neighbour_id) == "exterior":
+                has_exterior_neighbour = True
+                break
+
+        if not has_exterior_neighbour:
+            notes.append(
+                f"Batiment '{entry['name']}' sans acces exterieur-public - "
+                "aucune porte ne donne sur un lieu exterieur."
+            )
+    return notes
+
+
 @router.post("/api/regions/commit")
 def commit_region(
     body: RegionCommitBody,
@@ -382,6 +440,8 @@ def commit_region(
         if touched_ids:
             materialize_doors(db, world_id=world_id, location_ids=touched_ids, changed_by="creator")
 
+        notes = _building_shell_street_access_notes(committed["locations"], world_id, db)
+
         db.commit()
     except HTTPException as exc:
         db.rollback()
@@ -393,4 +453,8 @@ def commit_region(
         db.rollback()
         return {"ok": False, "error": str(exc)}
 
-    return {"ok": True, "committed": committed, "links": {"written": written_links, "unresolved": unresolved_links}}
+    return {
+        "ok": True, "committed": committed,
+        "links": {"written": written_links, "unresolved": unresolved_links},
+        "notes": notes,
+    }

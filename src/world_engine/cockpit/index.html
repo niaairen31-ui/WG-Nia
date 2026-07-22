@@ -6256,12 +6256,16 @@ function regionRenderCommitResult() {
   }
   const c = regionCommitResult.committed;
   const links = regionCommitResult.links || { written: [], unresolved: [] };
+  const notes = regionCommitResult.notes || [];
   return `<div class="field-section" style="border:1px solid var(--green); border-radius:6px; padding:10px; margin-top:12px;">
     <div class="field-section-title" style="color:var(--green)">Région commitée</div>
     <div style="font-size:12px">${c.factions.length} faction(s), ${c.locations.length} lieu(x) — entités créées dans le canon.</div>
     ${links.written.length ? `<div style="font-size:12px; margin-top:4px">${links.written.length} lien(s) confirmé(s) câblé(s).</div>` : ''}
     ${links.unresolved.length ? `<div style="font-size:11px; color:var(--muted); margin-top:4px">
       ${links.unresolved.map(u => `· ${esc(u.kind)} « ${esc(u.name || '')} » non câblé — ${esc(u.reason || '')}`).join('<br>')}
+    </div>` : ''}
+    ${notes.length ? `<div style="font-size:11px; color:var(--yellow); margin-top:4px">
+      ${notes.map(n => `· ${esc(n)}`).join('<br>')}
     </div>` : ''}
   </div>`;
 }

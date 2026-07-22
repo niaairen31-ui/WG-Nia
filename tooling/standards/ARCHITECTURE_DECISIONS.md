@@ -8320,4 +8320,81 @@ swept eagerly).
 
 ---
 
+## INVARIANTS: DOOR COVERAGE, TYPE VOCAB, STREET NOTE (BRIEF-0039-e, no schema change)
+
+Fifth and final step of TICKET-0039. With materialization wired
+(BRIEF-0039-d), door coverage becomes a build-time invariant — this step
+adds the two G1 gates that guard it, plus the E1 building-shell
+street-access soft note.
+
+**D1 — `location_classification` is the ONLY interior/exterior reader,
+door kind stays derived, never stored.** `spatial_author.location_classification
+(db, *, world_id, location_id) -> Optional[str]` reads a location's
+`location_type`, case-insensitively against `location_type_catalog` (same
+lookup `writes.upsert_location_type` uses). NULL `location_type`, an
+uncatalogued type, or a catalogued-but-still-NULL classification all
+resolve to `None` — inert for both this note and any future door-kind
+reader. No `door.type`/`door.kind` column was added; door kind (interior-
+interior / boundary / exterior-exterior) stays derived on demand from the
+two endpoints' classification wherever a reader needs it.
+
+**E1 — building-shell street-access is a SOFT note, never a gate.** A
+BUILDING SHELL is defined as: `location_classification == "interior"` AND
+(its parent's classification is `"exterior"` OR it has no parent — an
+interior root). `commit_region` (`routes/regions.py`) checks, for every
+location committed THAT transaction, whether a building shell has at least
+one live `connects_to` neighbour classified `"exterior"` (exterior-public
+== exterior for v1 — the same named deferral BRIEF-0039-a recorded: the
+day a walled PRIVATE courtyard must not satisfy this, add an exterior
+sub-classification and refine the neighbour test; trigger = first private-
+exterior location that wrongly clears the note). No neighbour qualifies ->
+one note, verbatim `f"Batiment '{name}' sans acces exterieur-public -
+aucune porte ne donne sur un lieu exterieur."`, appended to the response's
+`notes` list (same channel `region_author` uses) — advisory only, never
+rejects, never mutates, no stored exception flag. "Most buildings on a
+street" is deliberately not "all": a hidden cabin or an interior courtyard
+is legitimate. The neighbour scan re-implements the two-query
+`connects_to` read locally in `regions.py` rather than importing
+`spatial_author._live_neighbour_ids` — decision D1 of BRIEF-19 stands, not
+refactored into a shared helper.
+
+**Two new fail-closed G1 gates, both DB-backed against a self-contained
+fresh temp-file SQLite fixture** (WORLD_ENGINE_DATABASE_URL set before any
+`world_engine` import — same idiom as `spatial_door_travel.py` /
+`scene_join_target.py`, so neither check ever touches Nia's real DB), on
+the `door_terminal.py`/`single_canon_write.py` FAILURES-list idiom (zero
+parsed criteria is never a vacuous pass):
+
+- **`door_coverage.py`** — for every active `connects_to` relation whose
+  both endpoints are active locations, both directed `door` rows must
+  exist. Exercises the REAL production writers (`connect_locations` /
+  `materialize_doors`) to build the positive fixture; an edge touching an
+  archived location is excluded (same active-locations filter as
+  `crud/locations.py:get_locations_graph`). Verified live: deleting one
+  direction surfaces it by name; re-running `materialize_doors` heals it;
+  an empty world reaches an explicit "no edges to verify" pass, reachable
+  only because the scan query concretely ran (an exception during the scan
+  crashes the check non-zero, never masquerading as a pass).
+- **`location_type_classified.py`** — every DISTINCT `location_type` on an
+  active location must exist in `location_type_catalog` (case-insensitive)
+  with a non-NULL classification in `{"interior", "exterior"}`. An
+  archived location's uncatalogued type never surfaces. Vacuous-proof:
+  when active locations carry a `location_type`, the examined-type count
+  must be `> 0`. Verified live: an uncatalogued type and a catalogued-but-
+  NULL type both FAIL by name; classifying them heals the gate; an
+  out-of-vocab classification value landing via a path other than
+  `upsert_location_type` (which validates) also FAILs by name.
+
+Neither check depends on `connects_to` being created only via
+`connect_locations` — both assert the RESULTING state, so either would
+also catch an edge that somehow bypassed materialization.
+
+`single_canon_write.py` and `door_terminal.py` stay green: this brief adds
+readers and checks, no new canon-write path.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*

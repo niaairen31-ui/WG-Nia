@@ -1,17 +1,17 @@
 {
   "ticket": "TICKET-0039-spatial-creation-door-materialization-and-type-classification",
-  "when": "2026-07-22T13:00:51.319583+00:00",
-  "green": false,
+  "when": "2026-07-22T14:29:49.770391+00:00",
+  "green": true,
   "checks": [
     {
       "check": "door_coverage.py",
-      "status": "MISSING",
-      "msg": "C:\\Users\\Utilisateur\\Documents\\World-genrator\\tooling\\verify\\checks\\door_coverage.py not found"
+      "status": "PASS",
+      "msg": "PASS: door_coverage \u2014 every active connects_to edge between active locations carries both directed door rows; an archived endpoint is excluded; a broken direction surfaces by name and heals via materialize_doors; an empty world reaches an explicit 'no edges to verify' pass"
     },
     {
       "check": "location_type_classified.py",
-      "status": "MISSING",
-      "msg": "C:\\Users\\Utilisateur\\Documents\\World-genrator\\tooling\\verify\\checks\\location_type_classified.py not found"
+      "status": "PASS",
+      "msg": "PASS: location_type_classified \u2014 every active location's type is catalogued with a non-NULL interior/exterior classification; an archived location's uncatalogued type never surfaces; missing, NULL, and out-of-vocab classifications all FAIL by name"
     }
   ]
 }

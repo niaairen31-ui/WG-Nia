@@ -12,12 +12,12 @@ authority, never an AI proposal.
 """
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Iterable, Optional
 
 from sqlmodel import Session, select
 
 from . import placement
-from .models import Door, Entity, Location, Relation
+from .models import Door, Entity, Location, LocationTypeCatalog, Relation
 from .writes import write_location_doors, write_relation
 
 
@@ -121,3 +121,25 @@ def connect_locations(
     return materialize_doors(
         db, world_id=world_id, location_ids=[entity_a_id, entity_b_id], changed_by=changed_by,
     )
+
+
+def location_classification(db: Session, *, world_id: str, location_id: str) -> Optional[str]:
+    """The `interior` | `exterior` | None classification of a location's
+    `location_type`, read through `location_type_catalog` (case-insensitive
+    lookup, world-scoped — same lookup `writes.upsert_location_type` uses).
+    NULL `location_type`, or a type with no catalog row, or a catalogued but
+    still-unclassified type, all resolve to None (D1: inert for door-kind
+    derivation and the E1 street-access note until the creator classifies
+    it). This is the ONLY interior/exterior reader — never infer from the
+    type string itself.
+    """
+    location = db.get(Location, location_id)
+    if location is None or not location.location_type:
+        return None
+    folded = location.location_type.casefold()
+    for row in db.exec(
+        select(LocationTypeCatalog).where(LocationTypeCatalog.world_id == world_id)
+    ).all():
+        if row.name.casefold() == folded:
+            return row.classification
+    return None

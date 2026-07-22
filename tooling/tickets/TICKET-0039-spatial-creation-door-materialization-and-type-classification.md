@@ -2,7 +2,7 @@
 id: TICKET-0039
 title: Spatial Creation - door materialization + location_type classification at region commit and add-location
 type: feature
-status: brief
+status: exec
 created: 2026-07-21
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
