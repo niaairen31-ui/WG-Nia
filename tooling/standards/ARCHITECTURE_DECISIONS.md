@@ -8249,4 +8249,75 @@ corresponding door row while leaving the others untouched.
 
 ---
 
+## WIRE MATERIALIZATION AT CONNECTS_TO BIRTH (BRIEF-0039-d, no schema change)
+
+Fourth step of TICKET-0039. `materialize_doors` (BRIEF-0039-c) had no call
+site; this step fires it at every point a `connects_to` edge is actually
+born, per **J1**: door coverage is a build-time invariant, not something
+each edge-creating call site has to remember.
+
+**J1 — `connect_locations(db, *, world_id, entity_a_id, entity_b_id,
+changed_by)` (`spatial_author.py`) is the thin wrapper: write the edge, then
+materialize both endpoints.** It calls `write_relation(mode="set", ...,
+type="connects_to", value=50, direction="mutual")` — the exact args the
+region-commit connection branch already used — then
+`materialize_doors(db, world_id=world_id, location_ids=[entity_a_id,
+entity_b_id], changed_by=changed_by)`. Returns the merged
+`materialize_doors` summary; never commits (caller owns the transaction).
+Two call sites now route through it or its bulk equivalent:
+
+- **Region commit** (`routes/regions.py::commit_region`) takes the bulk
+  path (preferred over routing `_commit_region_links` through
+  `connect_locations` edge-by-edge): `_commit_region_links` is unchanged,
+  still writing edges via `write_relation` directly; after it returns,
+  `commit_region` collects every location id touched by a `connects_to`
+  entry in `written_links` (`_touched_location_ids`, a named extraction to
+  hold `commit_region` under the R1 80-line cap) and calls
+  `materialize_doors` ONCE with that set, before the single `db.commit()`.
+  A region with many adjacency edges materializes each node's doors exactly
+  once, not once per incident edge. `controls` links are excluded —
+  materialization is connects_to only.
+- **Manual adjacency** (`POST /entities/{id}/relations`,
+  `crud/relations.py::create_relation` — the route the location graph editor
+  posts to) branches on `body.type == "connects_to"`: that branch calls
+  `connect_locations` (fixed value=50/direction=mutual, mirroring the
+  region-commit args — `intensity`/`direction`/`visible_to_b`/`notes` from
+  the request body are not applicable to a topology edge) and re-reads the
+  written row via `_find_relation_pair` for the response shape; every other
+  relation type is untouched, still going through `write_relation` mode=set
+  as before.
+
+**Rejected J2 — embedding materialization inside `write_relation` itself.**
+Would blur `write_relation` back into a mixed writer (it currently writes
+one canon type, cleanly) and fire on every relation type, not just
+`connects_to`; `connect_locations` at the call site is the narrower change.
+
+Both call sites thread the existing creator identity (`"creator"`) into
+`changed_by` — no new identity invented. No second `db.commit()` was added
+on either path. `single_canon_write.py` stays green: doors still only
+reach the table via `write_location_doors`, itself only reached through
+`materialize_doors`.
+
+Two other `write_relation` call sites were checked and excluded as
+`connects_to` birth points: `link_author.py`'s coherence-patch path
+(`_apply_canon_relation_patch`) edits an existing row by `relation_id` and
+never varies its type into `connects_to` (`_LINK_RELATION_TYPES`
+structurally excludes it); `cockpit/mutations.py`'s `relation_change` apply
+(`mode="delta"`, AI-proposed, creator-review-gated) is a different
+write semantic entirely (accumulating delta on a possibly-new pair) and is
+not a `connects_to` edge author in practice — CLAUDE.md's "connects_to is
+never a social signal" invariant keeps AI relation proposals off it. Neither
+is rewired here; both are out of scope without a deliberate decision.
+
+Not addressed here (deferred to BRIEF-0039-e per that brief's scope): no
+verify check yet enforces every `connects_to` edge has materialized doors;
+no delete-time sweep for a location's doors on hard delete (a surviving
+neighbour's dangling door is dropped on its own next materialize, not
+swept eagerly).
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*

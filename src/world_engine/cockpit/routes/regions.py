@@ -22,6 +22,7 @@ from ...region_author import generate_region_draft as _generate_region_draft
 from ...region_author import generate_region_manifest as _generate_region_manifest
 from ...db import get_session
 from ...models import Entity
+from ...spatial_author import materialize_doors
 from ...writes import write_faction_role, write_relation
 from .. import crud as _crud
 
@@ -300,6 +301,24 @@ def _commit_region_links(
     return written_links, unresolved_links
 
 
+def _touched_location_ids(written_links: list[dict]) -> list[str]:
+    """Location ids touched by a `connects_to` link written this commit
+    (BRIEF-0039-d, J1 bulk path) — both endpoints of every `connection`
+    link, so `materialize_doors` recomputes each node's door set exactly
+    once regardless of edge count. `controls` links are excluded —
+    materialization is connects_to only."""
+    ids: list[str] = []
+    seen: set[str] = set()
+    for link in written_links:
+        if link.get("type") != "connects_to":
+            continue
+        for entity_id in (link["entity_a_id"], link["entity_b_id"]):
+            if entity_id not in seen:
+                seen.add(entity_id)
+                ids.append(entity_id)
+    return ids
+
+
 @router.post("/api/regions/commit")
 def commit_region(
     body: RegionCommitBody,
@@ -358,6 +377,10 @@ def commit_region(
             locations_in, loc_id_map, confirmed_links,
             committed["locations"], committed["factions"], world_id, db,
         )
+
+        touched_ids = _touched_location_ids(written_links)
+        if touched_ids:
+            materialize_doors(db, world_id=world_id, location_ids=touched_ids, changed_by="creator")
 
         db.commit()
     except HTTPException as exc:

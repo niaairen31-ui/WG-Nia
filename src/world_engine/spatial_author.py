@@ -18,7 +18,7 @@ from sqlmodel import Session, select
 
 from . import placement
 from .models import Door, Entity, Location, Relation
-from .writes import write_location_doors
+from .writes import write_location_doors, write_relation
 
 
 def _live_neighbour_ids(location_id: str, db: Session) -> list[str]:
@@ -97,3 +97,27 @@ def materialize_doors(
         summary["doors_written"] += len(new_doors)
 
     return summary
+
+
+def connect_locations(
+    db: Session,
+    *,
+    world_id: str,
+    entity_a_id: str,
+    entity_b_id: str,
+    changed_by: str,
+) -> dict:
+    """Writes a `connects_to` edge and materializes doors for both endpoints
+    in one call (J1, TICKET-0039) — the single point where a connects_to
+    edge is born wraps "write the edge + materialize both endpoints", so
+    every edge creator (region commit, the manual relation-CRUD path) yields
+    doors. Does NOT commit — caller owns the commit.
+    """
+    write_relation(
+        db, mode="set", world_id=world_id,
+        entity_a_id=entity_a_id, entity_b_id=entity_b_id,
+        type="connects_to", value=50, direction="mutual",
+    )
+    return materialize_doors(
+        db, world_id=world_id, location_ids=[entity_a_id, entity_b_id], changed_by=changed_by,
+    )
