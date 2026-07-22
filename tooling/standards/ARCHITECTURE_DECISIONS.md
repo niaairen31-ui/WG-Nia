@@ -8444,6 +8444,34 @@ this brief does not add one. `upsert_location_type` stays the only writer
 of the table; the migration calls it to create the `room` row rather than
 issuing a raw INSERT.
 
+**E1/J1 (BRIEF-0040-b, no schema change) — the template gets one reader and
+one application site.** `spatial_author._catalog_row` is now the single
+catalog read accessor (J1): a case-insensitive, world-scoped
+`location_type_catalog` lookup, extracted verbatim from
+`location_classification`'s old inline scan — `location_classification`
+keeps its signature, return type and docstring contract byte-identical, and
+is now its first caller. `spatial_author.location_type_template` is the
+second caller: fail-closed (B1) — no type, no catalog row, either bound
+NULL, non-finite, or `<= 0` all resolve to `None`, never an exception, never
+an invented number.
+
+`cockpit/crud/entities.py::_stamp_type_template` (E1) is the template's only
+application site, called from `_create_entity_core` immediately after the
+extension row is constructed, in-memory, before `db.add`. It writes
+`bounds_width`/`bounds_height` only when the template resolves AND both
+columns are still NULL on the row — true for every row in this function,
+since the row was just constructed, but written as an explicit guard rather
+than assumed. Deliberately NOT placed in `_build_extension_kwargs`: that
+function is shared with the `PUT /entities/{id}` update path, and stamping
+there would re-apply the template on every edit — including a
+`location_type` change on an already-born location — silently overwriting
+creator-set geometry and breaking F1 (a template change is never
+retroactive). `routes/regions.py` and `routes/npc_agent.py` both construct
+their location rows via `_create_entity_core`; no second birth path exists,
+so one call site covers region commit and NPC-agent-driven creation too.
+The create response's under-reporting of the stamped bounds (BRIEF-0040-c's
+job) is left visibly broken rather than half-fixed here.
+
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 

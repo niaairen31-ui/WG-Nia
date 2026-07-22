@@ -56,6 +56,7 @@ from ...models import (
 )
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
+from ...spatial_author import location_type_template
 from ...tick_normalize import _EVENT_TYPES
 from ...writes import (
     KNOWLEDGE_LEVELS,
@@ -515,6 +516,21 @@ def get_entity(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
     return result
 
 
+def _stamp_type_template(db: DbSession, world_id: str, ext_row: Location) -> None:
+    """E1, TICKET-0040: birth bounds from the location_type size template.
+    Called from _create_entity_core ONLY - never from the update path
+    (_build_extension_kwargs is shared with PUT /entities/{id} and would
+    re-stamp on every edit, breaking F1: a template change is never
+    retroactive).
+    """
+    if ext_row.bounds_width is not None or ext_row.bounds_height is not None:
+        return
+    template = location_type_template(db, world_id=world_id, type_name=ext_row.location_type)
+    if template is None:
+        return
+    ext_row.bounds_width, ext_row.bounds_height = template
+
+
 def _create_entity_core(body: EntityWriteBody, db: DbSession) -> Entity:
     """Commit-free core of `create_entity`.
 
@@ -564,6 +580,8 @@ def _create_entity_core(body: EntityWriteBody, db: DbSession) -> Entity:
         # never a user-editable registry field.
         ext_kwargs["world_id"] = entity.world_id
     ext_row = ext_model(id=entity.id, **ext_kwargs)
+    if entity_type == "location":
+        _stamp_type_template(db, entity.world_id, ext_row)
 
     db.add(entity)
     # Flush the entity row first: SQLModel's auto insert-order detection gets

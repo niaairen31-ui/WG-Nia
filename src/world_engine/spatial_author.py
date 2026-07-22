@@ -12,6 +12,7 @@ authority, never an AI proposal.
 """
 from __future__ import annotations
 
+import math
 from typing import Iterable, Optional
 
 from sqlmodel import Session, select
@@ -123,6 +124,21 @@ def connect_locations(
     )
 
 
+def _catalog_row(db: Session, *, world_id: str, type_name: str) -> Optional[LocationTypeCatalog]:
+    """The single catalog read path (J1, TICKET-0040). Both the
+    interior/exterior classification and the size template resolve a
+    location_type through here; writes.upsert_location_type keeps its own
+    lookup - the write layer never climbs into the read layer.
+    """
+    folded = type_name.casefold()
+    for row in db.exec(
+        select(LocationTypeCatalog).where(LocationTypeCatalog.world_id == world_id)
+    ).all():
+        if row.name.casefold() == folded:
+            return row
+    return None
+
+
 def location_classification(db: Session, *, world_id: str, location_id: str) -> Optional[str]:
     """The `interior` | `exterior` | None classification of a location's
     `location_type`, read through `location_type_catalog` (case-insensitive
@@ -136,10 +152,26 @@ def location_classification(db: Session, *, world_id: str, location_id: str) -> 
     location = db.get(Location, location_id)
     if location is None or not location.location_type:
         return None
-    folded = location.location_type.casefold()
-    for row in db.exec(
-        select(LocationTypeCatalog).where(LocationTypeCatalog.world_id == world_id)
-    ).all():
-        if row.name.casefold() == folded:
-            return row.classification
-    return None
+    row = _catalog_row(db, world_id=world_id, type_name=location.location_type)
+    return row.classification if row is not None else None
+
+
+def location_type_template(
+    db: Session, *, world_id: str, type_name: Optional[str]
+) -> Optional[tuple[float, float]]:
+    """Fail-closed (B1): no template -> None -> the location is born with
+    NULL bounds and has no spatial mode. Nothing is ever invented.
+    """
+    if not type_name:
+        return None
+    row = _catalog_row(db, world_id=world_id, type_name=type_name)
+    if row is None:
+        return None
+    width, height = row.default_width, row.default_height
+    if width is None or height is None:
+        return None
+    if not math.isfinite(width) or not math.isfinite(height):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return (width, height)
