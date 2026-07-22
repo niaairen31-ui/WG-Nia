@@ -5,7 +5,7 @@ rows via writes.config.write_location_doors - the SOLE door-write path. It
 NEVER creates, judges or removes connects_to edges (a door is the spatial
 manifestation of an edge, never its source - B1). It preserves hand-placed
 door coordinates and only invents a placeholder point (placement.
-door_placeholder_point, H1) for an edge that has no door yet. Idempotent:
+door_placeholder_point, N1) for an edge that has no door yet. Idempotent:
 re-running on the same locations reproduces the same door set. This module
 is NOT reachable from _apply_mutation - world creation is creator direct
 authority, never an AI proposal.
@@ -63,7 +63,7 @@ def materialize_doors(
     """Rebuilds the `door` rows of every location in `location_ids` from its
     live `connects_to` neighbours, via write_location_doors. Preserves any
     existing (x, y) for a surviving edge; invents
-    placement.door_placeholder_point(location) only for an edge that has no
+    placement.door_placeholder_point(location, neighbour_id) only for an edge that has no
     door yet. Full-replace naturally drops doors whose edge died. Caller
     owns the commit (match the region commit's single-db.commit() contract,
     regions.py) — this function never commits.
@@ -87,7 +87,7 @@ def materialize_doors(
             if neighbour_id in existing_points:
                 x, y = existing_points[neighbour_id]
             else:
-                x, y = placement.door_placeholder_point(location)
+                x, y = placement.door_placeholder_point(location, neighbour_id)
                 summary["placeholders"] += 1
             payload.append({"target_location_id": neighbour_id, "x": x, "y": y})
 

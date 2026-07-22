@@ -173,6 +173,119 @@ def check_spawn_point_saturation() -> None:
         fail(f"spawn_point saturation: expected the anchor itself {anchor}, got {point}")
 
 
+# door_placeholder_point cases (N1, TICKET-0040, BRIEF-0040-d): the
+# perimeter walk replacing the H1 center placeholder.
+class _StubLocation:
+    """Minimal location stand-in — door_placeholder_point reads only
+    .id, .bounds_width, .bounds_height. No DB import needed here."""
+
+    def __init__(self, id: str, bounds_width, bounds_height):
+        self.id = id
+        self.bounds_width = bounds_width
+        self.bounds_height = bounds_height
+
+
+DOOR_BOUNDS = (12.0, 8.0)
+DOOR_LOCATION = _StubLocation("loc-1", *DOOR_BOUNDS)
+DOOR_TARGETS = [f"target-{i}" for i in range(20)]
+
+# Restart-determinism proxy: pinned literals for 3 fixed
+# (location_id, target_id, bounds) triples — same shape as EXPECTED and
+# SPAWN_EXPECTED above. A salted-hash regression would flip these on the
+# very next process.
+DOOR_EXPECTED = {
+    ("loc-a", "loc-b", (12.0, 8.0)): (1.0271424920696788, 8.0),
+    ("loc-b", "loc-a", (20.0, 10.0)): (4.094636449441468, 0.0),
+    ("loc-x", "loc-y", (5.0, 5.0)): (0.0, 1.1892164356755295),
+}
+
+
+def check_door_placeholder_on_perimeter() -> None:
+    width, height = DOOR_BOUNDS
+    for target in DOOR_TARGETS:
+        x, y = placement.door_placeholder_point(DOOR_LOCATION, target)
+        on_edge = (
+            close(x, 0.0, tol=1e-9) or close(x, width, tol=1e-9)
+            or close(y, 0.0, tol=1e-9) or close(y, height, tol=1e-9)
+        )
+        if not on_edge:
+            fail(f"door_placeholder_point on-perimeter: {target} at ({x}, {y}) is not on the border")
+        if not (0.0 <= x <= width and 0.0 <= y <= height):
+            fail(f"door_placeholder_point on-perimeter: {target} at ({x}, {y}) escapes bounds {DOOR_BOUNDS}")
+
+
+def check_door_placeholder_distinctness() -> None:
+    points = [placement.door_placeholder_point(DOOR_LOCATION, target) for target in DOOR_TARGETS]
+    if len(set(points)) != len(points):
+        fail(f"door_placeholder_point distinctness: duplicate point among {len(points)} distinct targets")
+
+
+def check_door_placeholder_spread() -> None:
+    width, height = DOOR_BOUNDS
+    edges: set[str] = set()
+    for target in DOOR_TARGETS:
+        x, y = placement.door_placeholder_point(DOOR_LOCATION, target)
+        if close(y, 0.0, tol=1e-9):
+            edges.add("top")
+        if close(x, width, tol=1e-9):
+            edges.add("right")
+        if close(y, height, tol=1e-9):
+            edges.add("bottom")
+        if close(x, 0.0, tol=1e-9):
+            edges.add("left")
+    if len(edges) < 3:
+        fail(f"door_placeholder_point spread: only touched edges {edges}, expected >= 3 of 4")
+
+
+def check_door_placeholder_determinism() -> None:
+    for (location_id, target_id, bounds), (ex, ey) in DOOR_EXPECTED.items():
+        location = _StubLocation(location_id, *bounds)
+        x, y = placement.door_placeholder_point(location, target_id)
+        if not (close(x, ex) and close(y, ey)):
+            fail(
+                f"door_placeholder_point determinism: ({location_id}, {target_id}, {bounds}) "
+                f"expected ({ex}, {ey}), got ({x}, {y}) — a salted-hash regression would flip "
+                "pinned coordinates like this"
+            )
+
+
+def check_door_placeholder_asymmetry() -> None:
+    loc_a = _StubLocation("loc-a", 12.0, 8.0)
+    loc_b = _StubLocation("loc-b", 20.0, 10.0)
+    ab = placement.door_placeholder_point(loc_a, "loc-b")
+    ba = placement.door_placeholder_point(loc_b, "loc-a")
+    if ab == ba:
+        fail(f"door_placeholder_point asymmetry: (A,B)={ab} equals (B,A)={ba}, expected different points")
+
+
+def check_door_placeholder_null_bounds() -> None:
+    cases = [
+        (None, None),
+        (10.0, None),
+        (0.0, 5.0),
+        (float("inf"), 5.0),
+    ]
+    for width, height in cases:
+        point = placement.door_placeholder_point(_StubLocation("loc-null", width, height), "target")
+        if point != (0.0, 0.0):
+            fail(f"door_placeholder_point null bounds: ({width}, {height}) expected (0.0, 0.0), got {point}")
+
+
+def check_door_placeholder_elongation() -> None:
+    location = _StubLocation("loc-elongated", 100.0, 2.0)
+    short_edge_hits = 0
+    for target in DOOR_TARGETS:
+        x, _y = placement.door_placeholder_point(location, target)
+        if close(x, 0.0, tol=1e-9) or close(x, 100.0, tol=1e-9):
+            short_edge_hits += 1
+    fraction = short_edge_hits / len(DOOR_TARGETS)
+    if fraction >= 0.2:
+        fail(
+            f"door_placeholder_point elongation: {fraction:.2f} of points landed on the short edges, "
+            "expected < 0.2 — a uniform-angle ray-cast implementation would cluster there"
+        )
+
+
 CASES = [
     check_determinism_across_calls,
     check_restart_determinism_proxy,
@@ -186,6 +299,13 @@ CASES = [
     check_spawn_point_beside_wall,
     check_spawn_point_bounds_corner,
     check_spawn_point_saturation,
+    check_door_placeholder_on_perimeter,
+    check_door_placeholder_distinctness,
+    check_door_placeholder_spread,
+    check_door_placeholder_determinism,
+    check_door_placeholder_asymmetry,
+    check_door_placeholder_null_bounds,
+    check_door_placeholder_elongation,
 ]
 
 
@@ -198,7 +318,10 @@ def main() -> None:
             print(f"FAIL: {msg}")
         sys.exit(1)
 
-    print(f"PASS: placement_unit — all {len(CASES)} derive_positions/distance cases hold")
+    print(
+        f"PASS: placement_unit — all {len(CASES)} derive_positions/distance/"
+        "door_placeholder_point perimeter cases hold"
+    )
     sys.exit(0)
 
 

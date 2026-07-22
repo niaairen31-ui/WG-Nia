@@ -8244,6 +8244,26 @@ neighbour preserves the hand-placed point and places the new door at the
 placeholder; deleting the `connects_to` edge and re-running drops the
 corresponding door row while leaving the others untouched.
 
+**N1 supersedes H1 (TICKET-0040, BRIEF-0040-d).** The center placeholder
+above stacked every door of a room at one point — three neighbours, three
+doors, one coordinate — a defect visible in both TICKET-0034's proximity
+affordance and TICKET-0032's spawn, both of which read these points. The
+replacement is a deterministic arc-length walk of the location's bounds
+perimeter, clockwise from the top-left corner `(0, 0)`, seeded by the
+asymmetric pair `f"{location.id}:{target_location_id}"` — asymmetric
+because the door A->B and the door B->A each live in their OWN location's
+local coordinate space, with different bounds and a different origin, so a
+symmetric (sorted-pair) seed would be a bug. The signature gained a second
+required parameter, `target_location_id` (the single call site,
+`spatial_author.py`, passes `neighbour_id`). `(0.0, 0.0)` survives verbatim
+as the NULL/non-finite-bounds fallback, now also guarding `<= 0` (a
+zero-width location would otherwise yield a degenerate perimeter). The
+placement stays in `placement.py` for the same reason H1 did — the sole
+placement/distance authority. This is an assumed evolution of a function
+delivered by BRIEF-0039-c, not a silent bugfix; no existing `door` row is
+re-derived here (`materialize_doors` still reuses `existing_points` for
+every surviving edge) — that is BRIEF-0040-e.
+
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
