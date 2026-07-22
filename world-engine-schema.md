@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.84
+Current schema version: v1.85
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -197,12 +197,21 @@ config, but NOT full-replace: this is a per-row upsert catalog, written
 ONLY via `writes.upsert_location_type`, which never overwrites a decided
 classification with NULL.
 
+`default_width`/`default_height` (schema v1.85, TICKET-0040, BRIEF-0040-a)
+are the size template for a location born with this type: the ONLY source
+of birth bounds, applied ONCE at creation and never retroactive to an
+existing location. Both NULL or both set, enforced by
+`writes.upsert_location_type`; a type with no template leaves bounds NULL
+(no spatial mode). Same local coordinate space as `obstacle_vertex`.
+
 ```sql
 CREATE TABLE location_type_catalog (
   id             TEXT PRIMARY KEY,
   world_id       TEXT NOT NULL REFERENCES world(id),
   name           TEXT NOT NULL,
   classification TEXT,        -- interior | exterior | NULL (not yet classified)
+  default_width  REAL,        -- size template, world-meters; NULL = no template
+  default_height REAL,        -- size template, world-meters; NULL = no template
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE UNIQUE INDEX idx_location_type_catalog_name

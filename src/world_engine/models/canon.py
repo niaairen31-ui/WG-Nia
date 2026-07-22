@@ -258,6 +258,17 @@ class LocationTypeCatalog(SQLModel, table=True):
     classification: Optional[str] = None
     created_at: datetime = _created_ts()
 
+    # Size template (schema v1.85, TICKET-0040, BRIEF-0040-a). The ONLY
+    # source of a location's birth bounds: code reads these, a model never
+    # produces a number (A1). Applied ONCE, at creation
+    # (crud/entities.py::_create_entity_core, E1) - never a live link: a
+    # template change is NEVER retroactive (F1). Both NULL or both set,
+    # enforced by writes.upsert_location_type; a type with no template ->
+    # bounds NULL -> no spatial mode. Same LOCAL coordinate space as
+    # obstacle_vertex (1.0 = one world-meter), NEVER coord_x/coord_y.
+    default_width: Optional[float] = None
+    default_height: Optional[float] = None
+
 
 # -----------------------------------------------------------------------------
 # location_subculture  (ambient culture lines, schema v1.78,

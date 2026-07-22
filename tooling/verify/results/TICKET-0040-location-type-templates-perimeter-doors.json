@@ -1,0 +1,47 @@
+{
+  "ticket": "TICKET-0040-location-type-templates-perimeter-doors",
+  "when": "2026-07-22T19:23:32.718500+00:00",
+  "green": false,
+  "checks": [
+    {
+      "check": "door_distinct_points.py",
+      "status": "MISSING",
+      "msg": "C:\\Users\\Utilisateur\\Documents\\World-genrator\\tooling\\verify\\checks\\door_distinct_points.py not found"
+    },
+    {
+      "check": "placement_unit.py",
+      "status": "PASS",
+      "msg": "PASS: placement_unit \u2014 all 12 derive_positions/distance cases hold"
+    },
+    {
+      "check": "door_coverage.py",
+      "status": "PASS",
+      "msg": "PASS: door_coverage \u2014 every active connects_to edge between active locations carries both directed door rows; an archived endpoint is excluded; a broken direction surfaces by name and heals via materialize_doors; an empty world reaches an explicit 'no edges to verify' pass"
+    },
+    {
+      "check": "door_terminal.py",
+      "status": "PASS",
+      "msg": "PASS: door_terminal \u2014 door.id carries no FK, spatial_doors.py implements no math"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "location_type_classified.py",
+      "status": "PASS",
+      "msg": "PASS: location_type_classified \u2014 every active location's type is catalogued with a non-NULL interior/exterior classification; an archived location's uncatalogued type never surfaces; missing, NULL, and out-of-vocab classifications all FAIL by name"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u2014 every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values"
+    }
+  ]
+}

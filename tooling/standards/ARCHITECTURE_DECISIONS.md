@@ -8397,4 +8397,56 @@ readers and checks, no new canon-write path.
 
 ---
 
+## LOCATION TYPE SIZE TEMPLATES (BRIEF-0040-a, schema v1.85)
+
+First step of TICKET-0040 (location type size templates + perimeter door
+placement — first of three tickets toward contextual room-batch
+generation). Ships storage, the write path, and the `room` seed only; the
+template is applied to NOTHING yet (BRIEF-0040-b).
+
+**A1 — the model produces no number.** Sizes come from the code, never a
+generation prompt. `location_type_catalog` gains two nullable REAL columns,
+`default_width`/`default_height`, in the same local coordinate space as
+`obstacle_vertex` (1.0 = one world-meter, never `coord_x`/`coord_y`).
+
+**B1 — templates live on the per-world catalog, not Python constants.**
+`location_type_catalog` is already per-world and upsert-per-row, hence
+reusable across worlds without a code change per world. A type with no
+template -> bounds stay NULL -> no spatial mode for a location of that
+type — fail-closed, no invented number. `upsert_location_type` gains
+keyword-only `default_width`/`default_height`, posture identical to
+`classification`: on an existing row, assigned ONLY when the incoming
+value is non-NULL — a decided template is never overwritten with NULL.
+Validated before any lookup: both-or-neither (`ValueError`), and each
+value finite and `> 0` (`ValueError`) — the same 422 idiom
+`set_location_geometry` already uses, no new SQL CHECK constraint.
+
+**K2 — `room`-only seed, 6.0 x 5.0 world-meters, never overwriting a
+decided value.** `migrate_v1_85_location_type_templates.py` finds the
+`room` row case-insensitively per world (same fold as
+`upsert_location_type`); if it exists with both columns NULL, sets the
+seed values; if it does not exist, creates it via `upsert_location_type`
+with `classification="interior"` (matching `migrate_v1_84`'s defaults) and
+the seed values. No other type is seeded — `city`, `district`, `natural`,
+`building`, `underground`, `other` keep NULL templates, since inventing a
+width for `city` would defeat B1's fail-closed posture. This is the one
+value TICKET-0042's room-batch generator needs to be unblocked.
+
+**B4 — DEFERRED, named.** Template override by the median of `>= 3`
+sibling locations under the same parent, once worlds are populated enough
+for a median to mean something. Not implemented this brief; no code path
+computes or stores a median. Trigger: a world with enough sibling rooms
+under one parent that a per-type flat default starts looking wrong.
+
+Curated config, same family as `location_subculture`/`npc_price`: no
+`change_history` column — `location_type_catalog` carries none today and
+this brief does not add one. `upsert_location_type` stays the only writer
+of the table; the migration calls it to create the `room` row rather than
+issuing a raw INSERT.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*
