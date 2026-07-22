@@ -2,13 +2,13 @@
 id: TICKET-0040
 title: Location type size templates + perimeter door placement
 type: feature
-status: brief
+status: live-gate
 created: 2026-07-22
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
 blast_radius: medium
 brief_ids: [BRIEF-0040-a, BRIEF-0040-b, BRIEF-0040-c, BRIEF-0040-d, BRIEF-0040-e]
-schema_version_touched: vX.YY   # exec assigns the next number after v1.84
+schema_version_touched: v1.85
 retry_count: 0
 ---
 
