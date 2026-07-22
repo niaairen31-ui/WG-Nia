@@ -138,8 +138,11 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
         "fields": [
             {"name": "parent_location_id", "label": "Parent location", "kind": "entity_ref", "ref_type": "location"},
             {
+                # TICKET-0039, BRIEF-0039-b: no "options" here — the picker
+                # sources its datalist from GET /api/location-types (the
+                # classified registry), not a hardcoded vocab. See
+                # authorRenderField's 'datalist' case (index.html).
                 "name": "location_type", "label": "Location type", "kind": "datalist",
-                "options": ["city", "district", "building", "room", "natural", "underground", "other"],
             },
             {
                 "name": "magic_status", "label": "Magic status", "kind": "select",

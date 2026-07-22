@@ -40,6 +40,7 @@ from ...models import (
     Ledger,
     Location,
     LocationSubculture,
+    LocationTypeCatalog,
     NpcPrice,
     PromptTemplate,
     PromptVariable,
@@ -58,6 +59,7 @@ from ...writes import (
     NPC_GOAL_PREREQUISITE_TYPES,
     PromptValidationError,
     detach_goal_agenda_link,
+    upsert_location_type,
     write_agenda,
     write_agenda_status,
     write_agenda_step,
@@ -280,3 +282,44 @@ def list_locations(db: DbSession = Depends(get_session)) -> list[dict]:
         }
         for e, loc in rows
     ]
+
+
+def _location_type_dict(row: LocationTypeCatalog) -> dict:
+    return {"name": row.name, "classification": row.classification}
+
+
+@router.get("/location-types")
+def list_location_types(db: DbSession = Depends(get_session)) -> list[dict]:
+    """The classified location_type catalog for the active world (TICKET-0039,
+    BRIEF-0039-b) — read-only, creator surface backing the type picker."""
+    world_id = _world_id(db)
+    rows = db.exec(
+        select(LocationTypeCatalog)
+        .where(LocationTypeCatalog.world_id == world_id)
+        .order_by(LocationTypeCatalog.name)
+    ).all()
+    return [_location_type_dict(r) for r in rows]
+
+
+class LocationTypeBody(BaseModel):
+    name: str
+    classification: Optional[str] = None
+
+
+@router.post("/location-types")
+def create_or_classify_location_type(
+    body: LocationTypeBody, db: DbSession = Depends(get_session)
+) -> dict:
+    """Upsert one `location_type_catalog` row for the active world (TICKET-0039,
+    BRIEF-0039-b) — the classification prompt's persist step."""
+    world_id = _world_id(db)
+    try:
+        row = upsert_location_type(
+            db, world_id=world_id, name=body.name,
+            classification=body.classification, changed_by="creator",
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    db.commit()
+    db.refresh(row)
+    return _location_type_dict(row)
