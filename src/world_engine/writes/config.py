@@ -23,11 +23,18 @@ none of these three functions were baselined.
   inside the caller's transaction. A door is the spatial manifestation of
   a `connects_to` edge (B1): rejected at write when no active edge touches
   both locations.
+- `upsert_location_type(...)`           : per-row upsert of one
+  `location_type_catalog` row (TICKET-0039, BRIEF-0039-a — classified
+  interior/exterior type registry). Same curated-config discipline (no
+  `change_history`), but NOT a full-replace: this is an upsert-one, never a
+  `DELETE FROM location_type_catalog`. A decided classification is never
+  overwritten with NULL.
 """
 
 from __future__ import annotations
 
 import math
+from typing import Optional
 
 from sqlalchemy import text
 from sqlmodel import Session, select
@@ -37,6 +44,7 @@ from ..models import (
     Door,
     Entity,
     LocationSubculture,
+    LocationTypeCatalog,
     NpcPrice,
     Obstacle,
     ObstacleVertex,
@@ -326,3 +334,46 @@ def write_location_doors(
         db.add(row)
         new_doors.append(row)
     return new_doors
+
+
+def upsert_location_type(
+    db: Session,
+    *,
+    world_id: str,
+    name: str,
+    classification: Optional[str],
+    changed_by: str,
+) -> LocationTypeCatalog:
+    """Upsert one `location_type_catalog` row. Caller adds the returned row
+    to the session and commits.
+
+    Case-insensitive lookup by `(world_id, name)`. If a row exists, its
+    `classification` is updated ONLY when the incoming `classification` is
+    non-NULL — a decided classification is never overwritten with NULL. If
+    none exists, a new row is inserted. This is an upsert-ONE, NOT a
+    full-replace: never `DELETE FROM location_type_catalog`.
+    """
+    name = name.strip()
+    if not name:
+        raise ValueError("upsert_location_type: name must be a non-empty string")
+    if classification not in ("interior", "exterior", None):
+        raise ValueError(f"upsert_location_type: invalid classification {classification!r}")
+
+    folded = name.casefold()
+    existing = None
+    for row in db.exec(
+        select(LocationTypeCatalog).where(LocationTypeCatalog.world_id == world_id)
+    ).all():
+        if row.name.casefold() == folded:
+            existing = row
+            break
+
+    if existing is not None:
+        if classification is not None:
+            existing.classification = classification
+            db.add(existing)
+        return existing
+
+    new_row = LocationTypeCatalog(world_id=world_id, name=name, classification=classification)
+    db.add(new_row)
+    return new_row

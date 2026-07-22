@@ -8148,6 +8148,59 @@ Machine-checkable section gains this criterion — the gate is now 9/9.
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## LOCATION TYPE CLASSIFIED REGISTRY (BRIEF-0039-a, schema v1.84)
+
+First step of TICKET-0039 (spatial creation: door materialization +
+`location_type` classification). Ships the storage and the sanctioned
+write path only — no reader consumes `classification` yet; it lands later
+in the SAME ticket (door derivation, BRIEF-0039-c; type-vocab/E1 checks,
+BRIEF-0039-e). A deliberate, ticket-scoped exception to "no structure
+without a reader".
+
+**G — classified, extensible registry; NULL = lazy classification;
+upsert-one, not full-replace.** `location_type` was a free-text datalist
+backed only by a frontend constant (`LOCATION_TYPE_ORDER`), with no
+persistence and no interior/exterior notion. `location_type_catalog`
+(`id, world_id, name, classification, created_at`, UNIQUE
+`(world_id, name COLLATE NOCASE)`) makes `classification`
+(`interior` | `exterior` | NULL) the ONLY interior/exterior signal in the
+engine: door kind (D1, BRIEF-0039-c) is derived from the two endpoints'
+classification, never stored on the door itself, and street-access (E1,
+BRIEF-0039-e) reads it. NULL = not yet decided by the creator — inert for
+both readers until classified. The table is a per-row upsert catalog
+(`writes.upsert_location_type`, 25th sanctioned canon-write site), NOT a
+full-replace config table like `world_law`/`npc_prices`: types are added
+one at a time from the picker (BRIEF-0039-b), so a delete-then-insert
+shape would destroy every other type's classification on every edit.
+`upsert_location_type` inserts if the case-insensitive `(world_id, name)`
+lookup misses, and on a hit updates `classification` ONLY when the
+incoming value is non-NULL — a decided classification is never
+downgraded to NULL by a later NULL-classified upsert (e.g. the seed
+re-discovering the same free-text type). Curated config, same family as
+`location_subculture`/`npc_price`: no `change_history` column.
+
+`migrate_v1_84_location_type_catalog.py` seeds every world with the 7
+known defaults (exterior: `city`/`district`/`natural`; interior:
+`building`/`room`/`underground`; NULL: `other`) plus every DISTINCT
+non-null `location.location_type` value already in use, not covered by
+the defaults, seeded NULL and printed so the creator sees what still
+needs classifying (RECON against the live DB surfaced one such value,
+`settlement`, confirming the dynamic DISTINCT query is load-bearing and
+must never be replaced by a hardcoded list beyond the 7 defaults).
+
+**B1 simplification carried forward — exterior-public == exterior for
+v1.** The ticket's B1 resolution ("a street is an ordinary exterior
+location") collapses the public/private axis into the single
+interior/exterior classification for now. Named deferral, same trigger as
+stated in the ticket: the day a walled private courtyard must not count
+as street access, `location_type_catalog` gains a second classification
+axis (or a `classification` value split) rather than reusing
+`access_level` (which is a per-location override, not a per-type
+default). Scope OUT of BRIEF-0039-e locks this deferral in place.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*
