@@ -285,7 +285,12 @@ def list_locations(db: DbSession = Depends(get_session)) -> list[dict]:
 
 
 def _location_type_dict(row: LocationTypeCatalog) -> dict:
-    return {"name": row.name, "classification": row.classification}
+    return {
+        "name": row.name,
+        "classification": row.classification,
+        "default_width": row.default_width,
+        "default_height": row.default_height,
+    }
 
 
 @router.get("/location-types")
@@ -304,6 +309,8 @@ def list_location_types(db: DbSession = Depends(get_session)) -> list[dict]:
 class LocationTypeBody(BaseModel):
     name: str
     classification: Optional[str] = None
+    default_width: Optional[float] = None
+    default_height: Optional[float] = None
 
 
 @router.post("/location-types")
@@ -317,6 +324,7 @@ def create_or_classify_location_type(
         row = upsert_location_type(
             db, world_id=world_id, name=body.name,
             classification=body.classification, changed_by="creator",
+            default_width=body.default_width, default_height=body.default_height,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc))

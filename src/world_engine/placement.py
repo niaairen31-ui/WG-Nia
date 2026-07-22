@@ -46,22 +46,68 @@ def distance(a: Point, b: Point) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
 
-def door_placeholder_point(location) -> Point:
-    """Placeholder door point for an edge with no door yet (H1,
-    TICKET-0039): center of `location`'s obstacle-space bounds when both
-    `bounds_width` and `bounds_height` are non-null and finite, else the
-    origin. The sole placement authority — spatial_author.py calls this
-    rather than computing a midpoint itself."""
+def door_placeholder_point(location, target_location_id: str) -> Point:
+    """Placeholder door point for an edge with no door yet (N1,
+    TICKET-0040, supersedes H1): a deterministic clockwise walk of
+    `location`'s obstacle-space bounds perimeter, starting at the
+    top-left corner `(0, 0)`, when both `bounds_width` and
+    `bounds_height` are non-null, finite, and > 0 — else the origin. The
+    sole placement authority — spatial_author.py calls this rather than
+    computing a point itself.
+
+    The seed is f"{location.id}:{target_location_id}" and is deliberately
+    ASYMMETRIC: the door A->B and the door B->A get different positions
+    because each lives in its OWN location's local coordinate space, with
+    different bounds and a different origin. A symmetric (sorted-pair)
+    seed would be a bug, not a simplification.
+
+    Replaceable wholesale the day a geometric floor plan lands —
+    `placement.py` is the single placement authority.
+    """
     width = location.bounds_width
     height = location.bounds_height
     if (
-        width is not None
-        and height is not None
-        and math.isfinite(width)
-        and math.isfinite(height)
+        width is None
+        or height is None
+        or not math.isfinite(width)
+        or not math.isfinite(height)
+        or width <= 0
+        or height <= 0
     ):
-        return (width / 2.0, height / 2.0)
-    return (0.0, 0.0)
+        return (0.0, 0.0)
+
+    u = _unit_floats(f"{location.id}:{target_location_id}", 0, 1)[0]
+    t = u * 2.0 * (width + height)
+    if t < width:
+        return (t, 0.0)
+    if t < width + height:
+        return (width, t - width)
+    if t < 2 * width + height:
+        return (2 * width + height - t, height)
+    return (0.0, 2 * (width + height) - t)
+
+
+def is_legacy_center(location, point: Point) -> bool:
+    """G1, TICKET-0040: recognises a door still sitting at the H1 placeholder
+    point (the exact bounds center), so materialize_doors can re-derive it
+    onto the perimeter. A door the creator hand-placed at the exact center
+    is statistically null, and the worst case is that it moves to a wall.
+    The comparison lives here, not in spatial_author.py, for the same
+    reason the placement does: coordinate math has one authority.
+    """
+    width = location.bounds_width
+    height = location.bounds_height
+    if (
+        width is None
+        or height is None
+        or not math.isfinite(width)
+        or not math.isfinite(height)
+        or width <= 0
+        or height <= 0
+    ):
+        return False
+    x, y = point
+    return math.isclose(x, width / 2.0, abs_tol=1e-9) and math.isclose(y, height / 2.0, abs_tol=1e-9)
 
 
 def _unit_floats(seed: str, counter: int, n: int) -> tuple[float, ...]:

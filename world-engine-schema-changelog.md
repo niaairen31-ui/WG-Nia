@@ -8,6 +8,23 @@ source of "what version are we at".
 
 ## CHANGELOG
 
+- **v1.85** — TICKET-0040, BRIEF-0040-a: `location_type_catalog` size
+  templates. Two new nullable REAL columns, `default_width` and
+  `default_height` (world-meters, same local coordinate space as
+  `obstacle_vertex`) — the ONLY source of a location's birth bounds: code
+  reads these, a model never produces a number. Applied ONCE, at creation
+  (`crud/entities.py::_create_entity_core`) — never a live link; a template
+  change is never retroactive. Both NULL or both set, enforced by
+  `writes.upsert_location_type` (extended with keyword-only
+  `default_width`/`default_height`, posture identical to `classification`:
+  on an existing row, assigned only when the incoming value is non-NULL —
+  a decided template is never overwritten with NULL); a type with no
+  template leaves bounds NULL (no spatial mode). Seeded by
+  `migrate_v1_85_location_type_templates.py`: `room` ONLY, `6.0 x 5.0`,
+  only where both columns are currently NULL — no other type is seeded.
+  `GET /api/location-types` and `POST /api/location-types` pass the two
+  fields through.
+
 - **v1.84** — TICKET-0039, BRIEF-0039-a: classified `location_type_catalog`
   registry — first step of spatial creation + door materialization. New
   table `location_type_catalog` (`id, world_id, name, classification, created_at`)

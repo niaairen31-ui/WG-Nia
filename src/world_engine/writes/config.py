@@ -343,6 +343,8 @@ def upsert_location_type(
     name: str,
     classification: Optional[str],
     changed_by: str,
+    default_width: Optional[float] = None,
+    default_height: Optional[float] = None,
 ) -> LocationTypeCatalog:
     """Upsert one `location_type_catalog` row. Caller adds the returned row
     to the session and commits.
@@ -351,13 +353,23 @@ def upsert_location_type(
     `classification` is updated ONLY when the incoming `classification` is
     non-NULL — a decided classification is never overwritten with NULL. If
     none exists, a new row is inserted. This is an upsert-ONE, NOT a
-    full-replace: never `DELETE FROM location_type_catalog`.
+    full-replace: never `DELETE FROM location_type_catalog`. `default_width`/
+    `default_height` follow the same never-overwrite-with-NULL posture as
+    `classification`, and must be both set or both NULL.
     """
     name = name.strip()
     if not name:
         raise ValueError("upsert_location_type: name must be a non-empty string")
     if classification not in ("interior", "exterior", None):
         raise ValueError(f"upsert_location_type: invalid classification {classification!r}")
+    if (default_width is None) != (default_height is None):
+        raise ValueError(
+            "upsert_location_type: default_width and default_height must be both set or both NULL"
+        )
+    if default_width is not None and not (math.isfinite(default_width) and default_width > 0):
+        raise ValueError("upsert_location_type: default_width must be a finite number > 0")
+    if default_height is not None and not (math.isfinite(default_height) and default_height > 0):
+        raise ValueError("upsert_location_type: default_height must be a finite number > 0")
 
     folded = name.casefold()
     existing = None
@@ -371,9 +383,16 @@ def upsert_location_type(
     if existing is not None:
         if classification is not None:
             existing.classification = classification
-            db.add(existing)
+        if default_width is not None:
+            existing.default_width = default_width
+        if default_height is not None:
+            existing.default_height = default_height
+        db.add(existing)
         return existing
 
-    new_row = LocationTypeCatalog(world_id=world_id, name=name, classification=classification)
+    new_row = LocationTypeCatalog(
+        world_id=world_id, name=name, classification=classification,
+        default_width=default_width, default_height=default_height,
+    )
     db.add(new_row)
     return new_row

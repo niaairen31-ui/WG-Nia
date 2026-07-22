@@ -8244,6 +8244,58 @@ neighbour preserves the hand-placed point and places the new door at the
 placeholder; deleting the `connects_to` edge and re-running drops the
 corresponding door row while leaving the others untouched.
 
+**N1 supersedes H1 (TICKET-0040, BRIEF-0040-d).** The center placeholder
+above stacked every door of a room at one point — three neighbours, three
+doors, one coordinate — a defect visible in both TICKET-0034's proximity
+affordance and TICKET-0032's spawn, both of which read these points. The
+replacement is a deterministic arc-length walk of the location's bounds
+perimeter, clockwise from the top-left corner `(0, 0)`, seeded by the
+asymmetric pair `f"{location.id}:{target_location_id}"` — asymmetric
+because the door A->B and the door B->A each live in their OWN location's
+local coordinate space, with different bounds and a different origin, so a
+symmetric (sorted-pair) seed would be a bug. The signature gained a second
+required parameter, `target_location_id` (the single call site,
+`spatial_author.py`, passes `neighbour_id`). `(0.0, 0.0)` survives verbatim
+as the NULL/non-finite-bounds fallback, now also guarding `<= 0` (a
+zero-width location would otherwise yield a degenerate perimeter). The
+placement stays in `placement.py` for the same reason H1 did — the sole
+placement/distance authority. This is an assumed evolution of a function
+delivered by BRIEF-0039-c, not a silent bugfix; no existing `door` row is
+re-derived here (`materialize_doors` still reuses `existing_points` for
+every surviving edge) — that is BRIEF-0040-e.
+
+**G1 — legacy-center re-derivation (BRIEF-0040-e, no schema change).**
+Replacing `door_placeholder_point` (above) was not enough on its own:
+`materialize_doors` preserves any existing `(x, y)` for a surviving edge,
+so no door materialized before this ticket would ever have moved off the
+center just because the function producing NEW points changed. This step
+adds `placement.is_legacy_center(location, point)`: true when the location
+has usable bounds (non-None, finite, > 0 on both axes) AND `point` equals
+`(width / 2.0, height / 2.0)` within `1e-9` on both axes — false in every
+other case, including NULL bounds, whose `(0, 0)` doors must never be
+disturbed (I1). The comparison lives in `placement.py`, not
+`spatial_author.py`, for the same reason the placement math does —
+coordinate math has one authority (`door_terminal.py`). `materialize_doors`'s
+per-neighbour branch becomes three-way: no existing door -> invent a
+placeholder (`summary["placeholders"]`); existing door at the exact legacy
+center -> re-derive onto the perimeter (`summary["rederived"]`, new key);
+existing door anywhere else -> reuse verbatim (hand-placed, untouched).
+The rule is exact-equality only, by design: a door the creator hand-placed
+at the exact center is statistically null, and the accepted false positive
+is that it moves to a wall — no proximity threshold, no heuristic beyond
+equality, no `door.is_placeholder` column (`door` stays terminal, gains no
+column) and no one-shot retro-derivation script (re-derivation lives on the
+materialization path itself, so a world loaded later can never revert to
+stacked doors). Idempotence survives: a re-derived point is a perimeter
+point, so `is_legacy_center` is false for it on the next pass and it is
+then reused verbatim. Guarded by a new fail-closed check,
+`tooling/verify/checks/door_distinct_points.py` (L1): within one active
+location carrying non-NULL, positive bounds, no two `door` rows share the
+same `(x, y)`; a location with NULL bounds is excluded (its doors are
+legitimately all at `(0, 0)`). Live DB check before deployment found 2 of 8
+existing door rows sitting at the exact legacy center — the number this
+ticket's live gate expects to see move onto the perimeter.
+
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
@@ -8391,6 +8443,144 @@ also catch an edge that somehow bypassed materialization.
 
 `single_canon_write.py` and `door_terminal.py` stay green: this brief adds
 readers and checks, no new canon-write path.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
+## LOCATION TYPE SIZE TEMPLATES (BRIEF-0040-a, schema v1.85)
+
+First step of TICKET-0040 (location type size templates + perimeter door
+placement — first of three tickets toward contextual room-batch
+generation). Ships storage, the write path, and the `room` seed only; the
+template is applied to NOTHING yet (BRIEF-0040-b).
+
+**A1 — the model produces no number.** Sizes come from the code, never a
+generation prompt. `location_type_catalog` gains two nullable REAL columns,
+`default_width`/`default_height`, in the same local coordinate space as
+`obstacle_vertex` (1.0 = one world-meter, never `coord_x`/`coord_y`).
+
+**B1 — templates live on the per-world catalog, not Python constants.**
+`location_type_catalog` is already per-world and upsert-per-row, hence
+reusable across worlds without a code change per world. A type with no
+template -> bounds stay NULL -> no spatial mode for a location of that
+type — fail-closed, no invented number. `upsert_location_type` gains
+keyword-only `default_width`/`default_height`, posture identical to
+`classification`: on an existing row, assigned ONLY when the incoming
+value is non-NULL — a decided template is never overwritten with NULL.
+Validated before any lookup: both-or-neither (`ValueError`), and each
+value finite and `> 0` (`ValueError`) — the same 422 idiom
+`set_location_geometry` already uses, no new SQL CHECK constraint.
+
+**K2 — `room`-only seed, 6.0 x 5.0 world-meters, never overwriting a
+decided value.** `migrate_v1_85_location_type_templates.py` finds the
+`room` row case-insensitively per world (same fold as
+`upsert_location_type`); if it exists with both columns NULL, sets the
+seed values; if it does not exist, creates it via `upsert_location_type`
+with `classification="interior"` (matching `migrate_v1_84`'s defaults) and
+the seed values. No other type is seeded — `city`, `district`, `natural`,
+`building`, `underground`, `other` keep NULL templates, since inventing a
+width for `city` would defeat B1's fail-closed posture. This is the one
+value TICKET-0042's room-batch generator needs to be unblocked.
+
+**B4 — DEFERRED, named.** Template override by the median of `>= 3`
+sibling locations under the same parent, once worlds are populated enough
+for a median to mean something. Not implemented this brief; no code path
+computes or stores a median. Trigger: a world with enough sibling rooms
+under one parent that a per-type flat default starts looking wrong.
+
+Curated config, same family as `location_subculture`/`npc_price`: no
+`change_history` column — `location_type_catalog` carries none today and
+this brief does not add one. `upsert_location_type` stays the only writer
+of the table; the migration calls it to create the `room` row rather than
+issuing a raw INSERT.
+
+**E1/J1 (BRIEF-0040-b, no schema change) — the template gets one reader and
+one application site.** `spatial_author._catalog_row` is now the single
+catalog read accessor (J1): a case-insensitive, world-scoped
+`location_type_catalog` lookup, extracted verbatim from
+`location_classification`'s old inline scan — `location_classification`
+keeps its signature, return type and docstring contract byte-identical, and
+is now its first caller. `spatial_author.location_type_template` is the
+second caller: fail-closed (B1) — no type, no catalog row, either bound
+NULL, non-finite, or `<= 0` all resolve to `None`, never an exception, never
+an invented number.
+
+`cockpit/crud/entities.py::_stamp_type_template` (E1) is the template's only
+application site, called from `_create_entity_core` immediately after the
+extension row is constructed, in-memory, before `db.add`. It writes
+`bounds_width`/`bounds_height` only when the template resolves AND both
+columns are still NULL on the row — true for every row in this function,
+since the row was just constructed, but written as an explicit guard rather
+than assumed. Deliberately NOT placed in `_build_extension_kwargs`: that
+function is shared with the `PUT /entities/{id}` update path, and stamping
+there would re-apply the template on every edit — including a
+`location_type` change on an already-born location — silently overwriting
+creator-set geometry and breaking F1 (a template change is never
+retroactive). `routes/regions.py` and `routes/npc_agent.py` both construct
+their location rows via `_create_entity_core`; no second birth path exists,
+so one call site covers region commit and NPC-agent-driven creation too.
+The create response's under-reporting of the stamped bounds (BRIEF-0040-c's
+job) is left visibly broken rather than half-fixed here.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
+## BOUNDS PRESERVATION AND TEMPLATE AUTHORING IN THE TYPE PICKER (BRIEF-0040-c, no schema change)
+
+Closes the two silent-erasure paths BRIEF-0040-b's birth-bounds stamping
+exposed, and gives the creator surface to author a template for a type
+other than `room`.
+
+**Truthful create response.** `create_entity`
+(`cockpit/crud/entities.py`) no longer hardcodes
+`{"bounds_width": None, "bounds_height": None, "obstacles": []}` in its
+`elif entity.type == "location":` branch — it calls the same
+`_location_geometry_dict` accessor `set_location_geometry` already uses.
+Before this, a templated room's sheet opened with an EMPTY geometry editor
+immediately after creation; the next save posted `null` for both bounds
+and silently wiped the stamped template — the exact under-reporting
+BRIEF-0040-a named and deliberately left broken.
+
+**F1 — absent means preserve, explicit null clears.**
+`set_location_geometry` distinguishes a bounds key OMITTED from the
+request body from one sent as explicit `null`, via Pydantic v2's
+`body.model_fields_set`: an omitted key leaves the stored
+`bounds_width`/`bounds_height` untouched; an explicit `null` clears it
+(the emptied-field-then-save case from the geometry editor); a number
+still validates `> 0` before assignment. Same posture as
+`writes.upsert_location_type`'s never-overwrite-a-decided-value-with-NULL
+rule — now the second place in the codebase with this asymmetry. The
+`obstacle` full-replace under it is unchanged: `write_location_obstacles`
+still receives and replaces the submitted set wholesale — this brief
+touches only the two bounds columns, no other route.
+
+**Template authoring is lazy-on-use plus one on-demand button, never a
+bulk screen.** The classification prompt (BRIEF-0039-b) gains two
+optional numeric inputs, pre-filled from the catalog row when a template
+already exists, posted to `POST /api/location-types` alongside
+`classification`. The modal's trigger condition is UNCHANGED — uncatalogued
+type or `classification == null` — a missing template alone never fires
+it. The new `Gabarit...` button beside the `location_type` field opens the
+SAME modal, unconditionally, for whatever string the field currently
+holds: the only way to size an already-classified type (`building`,
+`city`, ...) without a bulk admin screen, matching BRIEF-0039-b's Scope
+OUT doctrine. Client-side guard (exactly one of the two fields filled) is
+a UX nicety only — `upsert_location_type`'s both-or-neither `ValueError`
+stays the actual authority.
+
+**A template change is never retroactive.** Nothing in this brief writes
+a bounds value onto an existing location the creator did not explicitly
+submit through `PUT /entities/{id}/geometry`; the `Gabarit...` button
+touches only `location_type_catalog`, never a `location` row, and no
+"re-apply template" action exists anywhere in the UI.
+
+`json_ui_boundary.py`, `page_contract.py`, `module_budget.py`, and
+`function_length.py` stay green: no new route, no new JSON-blob field, and
+`crud/entities.py` grows under 15 lines.
 
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.

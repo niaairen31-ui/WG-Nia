@@ -6627,12 +6627,19 @@ function authorRenderField(field, value, idPrefix) {
       // TICKET-0039, BRIEF-0039-b: location_type sources its options from the
       // classified registry (authorLocationTypeCatalog), not field.options —
       // every other datalist field (relation type, faction_type) is unchanged.
-      const optionValues = field.name === 'location_type'
-        ? authorLocationTypeCatalog.map(r => r.name)
-        : (field.options || []);
-      const opts = optionValues.map(o => `<option value="${esc(o)}">`).join('');
+      // TICKET-0040, BRIEF-0040-c: a templated type's option carries a plain
+      // suffix ("room (interieur, 6 x 5 m)") via the option's text content —
+      // the option's value stays the bare name, so selection is unaffected.
+      const opts = field.name === 'location_type'
+        ? authorLocationTypeCatalog.map(r => `<option value="${esc(r.name)}">${esc(_authorLocationTypeOptionLabel(r))}</option>`).join('')
+        : (field.options || []).map(o => `<option value="${esc(o)}">`).join('');
+      const gabaritBtn = field.name === 'location_type'
+        ? ` <button type="button" class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick="_authorOpenTemplateModalFor('${id}')">Gabarit...</button>`
+        : '';
       return `<div class="field-row"><label for="${id}">${label}</label>
-        <input type="text" id="${id}" data-field="${esc(field.name)}" data-kind="text" list="${dlid}" value="${esc(value ?? '')}">
+        <div style="display:flex; gap:6px; align-items:center">
+        <input type="text" id="${id}" data-field="${esc(field.name)}" data-kind="text" list="${dlid}" value="${esc(value ?? '')}" style="flex:1">${gabaritBtn}
+        </div>
         <datalist id="${dlid}">${opts}</datalist></div>`;
     }
     case 'entity_ref': {
@@ -8315,11 +8322,38 @@ async function authorSave() {
   await _authorSaveSubmit(isNew, type, entityData, extData, statusEl);
 }
 
+/** Plain-suffix label for a location_type datalist option (TICKET-0040,
+ *  BRIEF-0040-c): "name (interieur, 6 x 5 m)" when a size template is set,
+ *  bare name otherwise. */
+function _authorLocationTypeOptionLabel(row) {
+  if (row.default_width == null || row.default_height == null) return row.name;
+  const classLabel = row.classification === 'interior' ? 'interieur'
+    : row.classification === 'exterior' ? 'exterieur' : (row.classification || '?');
+  return `${row.name} (${classLabel}, ${row.default_width} x ${row.default_height} m)`;
+}
+
+/** Gabarit... button handler beside the location_type field (TICKET-0040,
+ *  BRIEF-0040-c): opens the same classification/template modal for whatever
+ *  string the field currently holds, with no onClassified follow-up — this
+ *  is a standalone template-authoring affordance, not a save gate. */
+function _authorOpenTemplateModalFor(fieldId) {
+  const inputEl = document.getElementById(fieldId);
+  const typeName = (inputEl ? inputEl.value : '').trim();
+  if (!typeName) return;
+  _authorPromptLocationTypeClassification(typeName, () => {});
+}
+
 /** Two-button Interieur/Exterieur prompt for a never-classified location_type
- *  (TICKET-0039, BRIEF-0039-b). Persists the choice via POST /api/location-types,
- *  refreshes the cached catalog, then runs `onClassified` to resume the save
- *  that triggered the prompt. */
+ *  (TICKET-0039, BRIEF-0039-b), plus two optional default-size inputs
+ *  (TICKET-0040, BRIEF-0040-c), pre-filled from the catalog entry when
+ *  present. Persists the choice via POST /api/location-types, refreshes the
+ *  cached catalog, then runs `onClassified` to resume the save that
+ *  triggered the prompt (or a no-op for the standalone Gabarit... button). */
 function _authorPromptLocationTypeClassification(typeName, onClassified) {
+  const folded = typeName.trim().toLowerCase();
+  const catalogRow = authorLocationTypeCatalog.find(r => r.name.toLowerCase() === folded);
+  const prefWidth = catalogRow && catalogRow.default_width != null ? catalogRow.default_width : '';
+  const prefHeight = catalogRow && catalogRow.default_height != null ? catalogRow.default_height : '';
   genericModalOpen('Classification du type de lieu', `
     <p>Le type « ${esc(typeName)} » n'est pas encore classifié. Ce lieu est-il
     intérieur ou extérieur ? Ce choix est mémorisé pour les prochains lieux de
@@ -8327,6 +8361,12 @@ function _authorPromptLocationTypeClassification(typeName, onClassified) {
     <div class="row-card-actions" style="margin-top:10px">
       <button class="btn-send" id="loctype-classify-interior">Interieur</button>
       <button class="btn-send" id="loctype-classify-exterior">Exterieur</button>
+    </div>
+    <div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-top:10px">
+      <label style="flex:1">Largeur par défaut (m)</label>
+      <input type="number" step="any" id="loctype-classify-width" value="${prefWidth}" style="flex:1">
+      <label style="flex:1">Hauteur par défaut (m)</label>
+      <input type="number" step="any" id="loctype-classify-height" value="${prefHeight}" style="flex:1">
     </div>
     <div id="loctype-classify-status" style="color:var(--red); margin-top:6px"></div>
   `, { dismissOnBackdrop: false });
@@ -8338,12 +8378,23 @@ function _authorPromptLocationTypeClassification(typeName, onClassified) {
 
 async function _authorClassifyLocationType(typeName, classification, onClassified) {
   const statusEl = document.getElementById('loctype-classify-status');
+  const widthVal = (document.getElementById('loctype-classify-width').value || '').trim();
+  const heightVal = (document.getElementById('loctype-classify-height').value || '').trim();
+  if ((widthVal === '') !== (heightVal === '')) {
+    statusEl.textContent = 'Renseigne les deux dimensions, ou aucune.';
+    return;
+  }
   statusEl.textContent = '…';
   try {
+    const body = { name: typeName, classification };
+    if (widthVal !== '') {
+      body.default_width = parseFloat(widthVal);
+      body.default_height = parseFloat(heightVal);
+    }
     await api('/api/location-types', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: typeName, classification }),
+      body: JSON.stringify(body),
     });
     authorLocationTypeCatalog = await api('/api/location-types');
     genericModalClose();
