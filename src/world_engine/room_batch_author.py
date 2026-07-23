@@ -8,13 +8,14 @@ against location_type_catalog (P1), NEVER the _LOCATION_TYPES enum."""
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from typing import Any, Optional
 
 from sqlmodel import Session, select
 
 from . import llm_parse
-from .entity_author import AUTHOR_MODEL
+from .entity_author import AUTHOR_MODEL, generate_entity_draft
 from .models import Entity, Location, LocationSubculture, LocationTypeCatalog, PromptTemplate, Relation
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
@@ -27,6 +28,8 @@ MAX_COUNT = 25
 _ANCHOR_PARENT_KEY = "__anchor__"
 _SELF_PARENT_KEY = "__self__"
 _UNRESOLVED_PARENT_KEY = "__unresolved__"
+
+_SLUG_NON_WORD = re.compile(r"[^a-z0-9]+")
 
 
 def _load_manifest_template(db: Session) -> PromptTemplate | None:
@@ -354,3 +357,115 @@ def generate_room_batch_manifest(anchor_id: str, count: int, db: Session) -> dic
         return result
     result["anchor"] = context["anchor"]
     return result
+
+
+# ── Phase B — per-room fiche generation ──────────────────────────────────────
+
+
+def _room_local_id(name: str, index: int) -> str:
+    """Stable per-batch id: a slug of the room name plus its manifest index."""
+    slug = _SLUG_NON_WORD.sub("-", _name_key(name)).strip("-")
+    return f"room-{index}-{slug}" if slug else f"room-{index}"
+
+
+def _compose_room_brief(anchor: dict, manifest: dict, this_room: dict) -> str:
+    """Manifest-sourced-only brief: anchor + full manifest as peer context +
+    this room highlighted as the one to write. No DB re-read, no secrets."""
+    anchor_one_line = _one_line(anchor.get("description"))
+    anchor_block = f"{anchor.get('name', '')} ({anchor.get('location_type') or 'type inconnu'})"
+    if anchor_one_line:
+        anchor_block += f" — {anchor_one_line}"
+
+    rooms = manifest.get("rooms") if isinstance(manifest, dict) else None
+    rooms = rooms if isinstance(rooms, list) else []
+    lines = []
+    for r in rooms:
+        if not isinstance(r, dict):
+            continue
+        parent = r.get("parent_room")
+        suffix = f" (sous {parent})" if parent else " (sous l'ancre)"
+        lines.append(
+            f"- {r.get('name', '')}{suffix} [{r.get('location_type') or 'type inconnu'}] : "
+            f"{r.get('one_liner', '')}"
+        )
+    rooms_block = "\n".join(lines) if lines else "(aucune autre pièce)"
+
+    this_parent = this_room.get("parent_room")
+    this_suffix = f" (sous {this_parent})" if this_parent else " (sous l'ancre)"
+    return (
+        f"--- Ancre ---\n{anchor_block}\n\n"
+        f"--- Pièces du lot ---\n{rooms_block}\n\n"
+        f"--- Cette pièce à rédiger ---\n"
+        f"{this_room.get('name', '')}{this_suffix} — Type : {this_room.get('location_type') or 'inconnu'} — "
+        f"{this_room.get('one_liner', '')}"
+    )
+
+
+def _draft_room_with_retry(brief: str, db: Session) -> dict:
+    """Retry-once-then-skip (R). `generate_entity_draft` never raises, but a
+    defensive backstop mirrors the brief's "parse error, exception, empty
+    draft" failure list exactly once before giving up."""
+    for _ in range(2):
+        try:
+            result = generate_entity_draft("location", brief, db)
+        except Exception as exc:  # pragma: no cover - defensive backstop only
+            result = {"ok": False, "error": str(exc)}
+        if result.get("ok"):
+            return result
+    return result
+
+
+def generate_room_batch_draft(manifest: dict, anchor: dict, db: Session) -> dict:
+    """Phase B — one full location fiche per room, from an already-produced
+    (and possibly creator-edited) manifest. Each call sees the whole
+    manifest as peer context. Writes no canon anywhere in this function or
+    its call path.
+
+    P1 type override: the fiche's `location_type` is always the manifest's
+    verbatim value, never the atomic author's echo (which may have
+    repli-fallen to "other") — the enum gate (`_validate_location_type`) is
+    never touched here. Skipped rooms are NOT reparented; their children
+    keep pointing at the absent `parent_room` (the review cascade
+    reparents to the anchor at review time, BRIEF-0042-d).
+    """
+    rooms_in = manifest.get("rooms") if isinstance(manifest, dict) else None
+    rooms_in = rooms_in if isinstance(rooms_in, list) else []
+
+    notes: list[str] = []
+    skipped: list[dict] = []
+    rooms_out: list[dict] = []
+
+    for i, room in enumerate(rooms_in):
+        if not isinstance(room, dict) or not room.get("name"):
+            continue
+        name = room["name"]
+        local_id = _room_local_id(name, i)
+        brief = _compose_room_brief(anchor, manifest, room)
+        result = _draft_room_with_retry(brief, db)
+        if not result.get("ok"):
+            skipped.append({"local_id": local_id, "name": name, "reason": result.get("error")})
+            continue
+
+        for note in result.get("notes", []):
+            notes.append(f"{name} : {note}")
+
+        draft = result["draft"]
+        manifest_type = room.get("location_type") or ""
+        model_type = draft["public"].get("location_type")
+        if manifest_type and model_type != manifest_type:
+            notes.append(
+                f"Pièce '{name}' — type modèle '{model_type}' remplacé par le type "
+                f"du manifeste '{manifest_type}'"
+            )
+        draft["public"]["location_type"] = manifest_type
+
+        rooms_out.append(
+            {
+                "local_id": local_id,
+                "name": name,
+                "parent_room": room.get("parent_room"),
+                "result": {"draft": draft},
+            }
+        )
+
+    return {"ok": True, "rooms": rooms_out, "skipped": skipped, "notes": notes}

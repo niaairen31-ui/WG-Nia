@@ -8720,6 +8720,41 @@ pass.
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## ROOM BATCH FICHE GENERATION — P1 OVERRIDE + RETRY-ONCE (BRIEF-0042-b, no schema change)
+
+Second step of TICKET-0042. Ships `room_batch_author.generate_room_batch_draft`
+— Phase B, one full location fiche per manifest room, mirroring
+`region_author.generate_region_draft`'s per-entity loop shape
+(`_draft_locations`) and its `skipped`-on-failure precedent. Writes no canon;
+every fiche stays ephemeral until the atomic commit route (BRIEF-0042-e).
+
+**P1 enforced in this module, not in `entity_author`.** Each room's content
+call is the unmodified `entity_author.generate_entity_draft("location", brief,
+db)` — same call, same `_validate_location_type` repli-fall-to-`"other"`
+internally. `generate_room_batch_draft` overwrites the returned
+`draft["public"]["location_type"]` with the manifest room's verbatim type
+*after* the call returns, noting any divergence for transparency. This keeps
+the enum gate (`_validate_location_type`, `_LOCATION_TYPES`) untouched and
+shared by every other authoring path, while the batch's own type authority
+(BRIEF-0042-a's P1) never round-trips through it.
+
+**R — retry-once-then-skip, new at this step.** `_draft_room_with_retry`
+calls the same content generation exactly twice on a first failure (parse
+error, empty draft, or a defensive exception backstop — `generate_entity_draft`
+itself never raises); a second failure drops the room into `skipped` with
+`{local_id, name, reason}` and the loop continues. No exponential backoff, no
+per-room retry budget beyond one.
+
+**A skipped internal node's children are NOT reparented in Phase B.** They
+keep their original `parent_room` pointing at the now-absent room name. This
+is deliberate (ticket decision R): reparenting orphans to the anchor is
+already the review cascade's job (`fallbackParentId`, TICKET-0041's generic
+component, wired in BRIEF-0042-d) — Phase B introduces no second reparenting
+mechanism.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*

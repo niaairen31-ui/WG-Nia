@@ -401,7 +401,7 @@ WG-Nia/
 │   ├── entity_author.py     # AI authoring assistant (entities, PC, skill catalogue, agendas, events)
 │   ├── region_author.py     # region generation orchestrator (proposes names, no canon)
 │   ├── spatial_author.py    # Creation-side door materialization from live connects_to (TICKET-0039)
-│   ├── room_batch_author.py # Room batch orchestrator, Phase A manifest (TICKET-0042)
+│   ├── room_batch_author.py # Room batch orchestrator: Phase A manifest, Phase B per-room fiche generation (TICKET-0042)
 │   └── cockpit/             # creator web UI (FastAPI + HTMX, port 8000, loopback)
 │       ├── app.py           # app factory + router mounting + link-batch retention purge (startup); routes/ holds the routers
 │       ├── play*.py         # say() decomposition: routing, physical branch, narration/initiative
