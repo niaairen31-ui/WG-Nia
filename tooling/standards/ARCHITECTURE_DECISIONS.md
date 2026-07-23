@@ -8804,4 +8804,59 @@ NOT built here.
 
 ---
 
+## ROOM BATCH REVIEW — SECOND CONSUMER OF THE SHARED COMPONENT (BRIEF-0042-d, no schema change)
+
+Fourth step of TICKET-0042. Ships the Lieux-browse entry point ("Générer un
+lot ici"), the Phase A manifest editor (type-picker reuse, add/remove rows,
+parent_room select), the Phase B/C trigger buttons, and `batchReviewDescriptor`
++ `batchRenderAll` — the room batch generator's wiring into the TICKET-0041
+shared review component. Writes no canon; the atomic commit route
+(BRIEF-0042-e) is called by the panel's "Commiter le lot" button but does not
+yet exist as of this step.
+
+**The predicted second consumer arrives.** TICKET-0041's closure entry
+(`SHARED REVIEW-TREE COMPONENT — EXTRACTION`) named its `CONSUMER_ALLOW_LIST`
+teeth as necessarily four-entry-only at that ticket's close ("the component's
+second consumer is TICKET-0042, not yet written") and predicted this exact
+extension. `review_component.py`'s `CONSUMER_ALLOW_LIST` grows from four to
+six: `batchRenderAll` (mirrors `regionRenderAll` — the registration + render
+site, calling `reviewRegister`/`reviewCascade`/`reviewTree`/`reviewToggleGraph`/
+`reviewGraphRender`) and `batchReviewDescriptor` (mirrors `regionReviewDescriptor`
+— the descriptor factory, whose `onToggleAccept` closure calls `reviewIsAccepted`).
+No other function was added to the list; `batchRenderEdgesPanel`, `_batchNodeName`,
+`batchOpenSheet`, `batchCommit` and the Phase A/B/C trigger functions reference
+no `review*` symbol, so none needed allow-listing — confirmed by
+`review_component.py` rule 6 passing unchanged (whole-identifier boundary,
+zero new false positives).
+
+**Q1 (the synthetic anchor) needed no component change.** The anchor enters
+`batchReviewDescriptor`'s `nodes` array as an ordinary, always-accepted,
+`parentId: null` root; `onToggleAccept` no-ops for its id. `reviewNode` still
+renders an Accepter/Rejeter button for it (the shared component was
+deliberately left untouched, per BRIEF-0042-d Scope OUT) — the button is
+visually present but inert, confirmed live (`reviewToggleAccept('batch',
+batchAnchorId)` leaves `batchAccepted` unchanged). O1's "visually distinct
+non-editable root" therefore falls out entirely from descriptor data
+(`subtitle: '(ancre)'`), exactly as TICKET-0041 predicted.
+
+**Batch state lives in a second container, not a new tab.** `CREATION_TABS.lieux`
+gained a second `containers` entry (`batch-panel-wrap`) — the existing
+multi-container array shape, previously exercised by no other entry — so the
+generic show/hide loop in `showCreationSubTab` hides the batch panel on any
+tab switch with zero new tab-id literals. The panel's own open/closed state
+(`#batch-panel`, nested one level deeper) is independent of that loop,
+reset by `batchReset()` from both `_lieuxTabEnterReset` and `_lieuxWorldReset`.
+
+**Confirmed live** (manual browser session against a real anchor + Ollama):
+Phase A manifest generation and edit, Phase B fiche generation, Phase C
+coherence (one supplementary edge to a canon sibling, one unresolved
+skeleton-duplicate), reject-cascade reparenting with the badge, edge
+confirm/discard, and graph rendering (solid spanning-tree lines, dashed
+confirmed supplementary edges) — zero console errors throughout.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*

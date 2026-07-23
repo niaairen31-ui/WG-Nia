@@ -13,10 +13,13 @@ but not applied" comment, `doBatchAction`'s `/api/mutations/batch-review`
 endpoint literal, `npcAgentLoadBatch`'s "review selects" comment,
 `renderCard`'s "reviewed rows" comment. None of those four functions calls a
 review* symbol. Matching on a whole-identifier boundary against the exact
-GENERICS names instead proves the same "blast radius is exactly the four
+GENERICS names instead proves the same "blast radius is exactly the
 sanctioned consumers" claim the rule exists for, without breaking on
 unrelated English prose. Confirmed against the real file: the whole-identifier
-matcher yields exactly CONSUMER_ALLOW_LIST and nothing else.
+matcher yields exactly CONSUMER_ALLOW_LIST and nothing else. (TICKET-0042,
+BRIEF-0042-d: CONSUMER_ALLOW_LIST grew from four to six entries when the room
+batch generator became the review component's second consumer — the rule's
+shape is unchanged, only the roster.)
 
 No DB, no subprocess, stdlib only. Exit 0 on pass / 1 on failure.
 """
@@ -37,7 +40,14 @@ GENERICS = ["reviewCascade", "reviewIsAccepted", "reviewToggleAccept",
             "reviewToggleGraph", "reviewGraphData", "reviewGraphRender",
             "reviewRegister", "reviewDescriptor"]
 CONSUMER_ALLOW_LIST = ["regionRenderAll", "regionReviewDescriptor",
-                       "regionRenderFactionsPanel", "_sheetEntityOptions"]
+                       "regionRenderFactionsPanel", "_sheetEntityOptions",
+                       # TICKET-0042, BRIEF-0042-d: the room batch generator is
+                       # the SECOND sanctioned consumer of the generic review
+                       # component (region was the first, TICKET-0041) —
+                       # batchRenderAll is the onRender/registration site
+                       # (mirrors regionRenderAll), batchReviewDescriptor is
+                       # the descriptor factory (mirrors regionReviewDescriptor).
+                       "batchRenderAll", "batchReviewDescriptor"]
 FORBIDDEN_IN_COMPONENT = ("region", "REGION_")
 
 _SYMBOL_RE = re.compile(r"\b(?:" + "|".join(re.escape(n) for n in GENERICS) + r")\b")
