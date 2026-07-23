@@ -12,10 +12,14 @@ Asserts the machine-checkable acceptance criteria that route here:
 3. Both handlers' relation queries exclude `type IN ('connects_to',
    'controls')` in the WHERE clause itself (G1 — structural, never
    post-filtered).
-4. Amended by BRIEF-0033-e's locked E1: the graph fetch/render/display
-   path (every relGraph* function except the two sanctioned global-mode
-   edge-panel writers) contains no write fetch. Any POST/PUT/DELETE fetch
-   anywhere in the relGraph* JS section exists ONLY inside
+4. Amended by BRIEF-0033-e's locked E1, rescoped by BRIEF-0043-a: the graph
+   fetch/render/display path (every relGraph* function except the two
+   sanctioned global-mode edge-panel writers) contains no write fetch. The
+   relGraph* JS section is collected by function name — every
+   `function relGraph\\w+(...) { ... }` in index.html, brace-balanced — not
+   a comment-anchored slice (that anchor pair drifted after TICKET-0041 to
+   also contain unrelated npcAgent*/linkAgent* functions). Any
+   POST/PUT/DELETE fetch anywhere in that collected set exists ONLY inside
    `relGraphSaveEdgePanel`/`relGraphDeleteEdge`, and every fetch inside
    those two targets ONLY the pre-existing sanctioned relation CRUD
    endpoints (`/api/entities/{id}/relations`, `/api/relations/{id}`) — no
@@ -36,6 +40,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 COCKPIT = ROOT / "src" / "world_engine" / "cockpit"
+CONTEXT_PY = ROOT / "src" / "world_engine" / "context.py"
 APP_PY = COCKPIT / "app.py"
 CRUD_PY = COCKPIT / "crud" / "relations.py"
 INDEX_HTML = COCKPIT / "index.html"
@@ -95,10 +100,34 @@ def main() -> int:
     # `_relation_graph_edges` refactor).
     crud_src = CRUD_PY.read_text(encoding="utf-8") if CRUD_PY.exists() else ""
     excl_const_m = re.search(r"_RELATION_GRAPH_EXCLUDED_TYPES\s*=\s*\(([^)]*)\)", crud_src)
-    if not excl_const_m:
-        failures.append("_RELATION_GRAPH_EXCLUDED_TYPES constant not found in crud/relations.py")
-    elif "connects_to" not in excl_const_m.group(1) or "controls" not in excl_const_m.group(1):
-        failures.append("_RELATION_GRAPH_EXCLUDED_TYPES does not exclude both connects_to and controls")
+    if excl_const_m:
+        if "connects_to" not in excl_const_m.group(1) or "controls" not in excl_const_m.group(1):
+            failures.append("_RELATION_GRAPH_EXCLUDED_TYPES does not exclude both connects_to and controls")
+    else:
+        # Not a local tuple literal — accept an (aliased or bare) import of
+        # RELATION_GRAPH_EXCLUDED_TYPES from context.py, and resolve the
+        # actual tuple contents there instead of failing outright.
+        import_m = re.search(
+            r"from\s+\S*context\s+import\s+RELATION_GRAPH_EXCLUDED_TYPES(?:\s+as\s+\w+)?",
+            crud_src,
+        )
+        if not import_m:
+            failures.append(
+                "_RELATION_GRAPH_EXCLUDED_TYPES constant not found in crud/relations.py "
+                "(neither a local tuple literal nor an import from context.py)"
+            )
+        else:
+            context_src = CONTEXT_PY.read_text(encoding="utf-8") if CONTEXT_PY.exists() else ""
+            context_const_m = re.search(r"RELATION_GRAPH_EXCLUDED_TYPES\s*=\s*\(([^)]*)\)", context_src)
+            if not context_const_m:
+                failures.append(
+                    "RELATION_GRAPH_EXCLUDED_TYPES imported from context.py but not defined there"
+                )
+            elif "connects_to" not in context_const_m.group(1) or "controls" not in context_const_m.group(1):
+                failures.append(
+                    "context.py's RELATION_GRAPH_EXCLUDED_TYPES does not exclude both "
+                    "connects_to and controls"
+                )
 
     ROUTES = {
         "ego": r"""@router\.get\(\s*["']/characters/\{entity_id\}/relation-graph["']\s*\)\s*def\s+\w+\([^)]*\)[^:]*:""",
@@ -129,13 +158,13 @@ def main() -> int:
     # the two sanctioned global-mode edge-panel writers, and those writers
     # call only the pre-existing sanctioned relation CRUD endpoints.
     html_src = INDEX_HTML.read_text(encoding="utf-8") if INDEX_HTML.exists() else ""
-    section_m = re.search(
-        r"cytoscape, display-only, on-demand.*?(?=Generic modal \(BRIEF-41\))", html_src, re.S
-    )
-    if not section_m:
-        failures.append("NPC relation ego-graph JS section not found in index.html")
+    relgraph_fn_names = sorted(set(re.findall(r"function\s+(relGraph\w+)\(", html_src)))
+    if not relgraph_fn_names:
+        failures.append("no relGraph\\w+ functions found in index.html")
     else:
-        relgraph_src = section_m.group(0)
+        relgraph_src = "\n".join(
+            _braced_function(html_src, name) for name in relgraph_fn_names
+        )
         WRITE_FNS = ("relGraphSaveEdgePanel", "relGraphDeleteEdge")
         SANCTIONED_URL_RE = re.compile(r"/api/(entities/\$\{[^}]*\}/relations|relations/\$\{[^}]*\})")
 

@@ -1,0 +1,27 @@
+{
+  "ticket": "TICKET-0043-post-0041-check-drift-and-review-root-fallback",
+  "when": "2026-07-23T00:44:58.163120+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "relation_graph.py",
+      "status": "PASS",
+      "msg": "PASS: relation_graph \u00e2\u20ac\u201d vendor route present, ego + global relation-graph endpoints read-only with structural connects_to/controls exclusion, write fetches confined to the sanctioned global-mode edge-panel writers, Lieux graph component untouched"
+    },
+    {
+      "check": "schema_0024.py",
+      "status": "PASS",
+      "msg": "PASS: faction_role table + idx_faction_role_name (COLLATE NOCASE) present; faction.role_capacities and entity.metadata.roles usage gone"
+    },
+    {
+      "check": "schema_0025.py",
+      "status": "PASS",
+      "msg": "PASS: goal_prerequisite columns present; ck_goal_prerequisite_type and ck_goal_prerequisite_threshold CHECK constraints present with expected DDL text; idx_goal_prerequisite_unique is a UNIQUE index on (goal_id, type, target_entity_id)"
+    },
+    {
+      "check": "review_root_fallback.py",
+      "status": "PASS",
+      "msg": "PASS: review_root_fallback \u00e2\u20ac\u201d reviewTree()'s roots filter uses cascade.effectiveParent, not a bare n.parentId == null check"
+    }
+  ]
+}

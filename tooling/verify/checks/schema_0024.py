@@ -1,6 +1,5 @@
 """G1 gate for TICKET-0024 schema.
 
-- BRIEF-0024-a: `npc_goal.prerequisites` is a nullable JSON column.
 - BRIEF-0024-d (corrective): `faction_role` exists with the structural
   unique index `idx_faction_role_name` (faction_id, name COLLATE NOCASE);
   `faction.role_capacities` is gone. Static scan: no code path still reads
@@ -11,8 +10,7 @@
 
 Builds tables from a fresh temp-file SQLite DB (WORLD_ENGINE_DATABASE_URL
 set before any world_engine import) so this check never touches Nia's real
-DB, then falls back to a plain in-memory metadata check for the
-`npc_goal.prerequisites` column (no DB connection required there).
+DB.
 """
 import os
 import pathlib
@@ -44,21 +42,6 @@ def _fresh_engine():
 
     create_db_and_tables()
     return engine
-
-
-def check_prerequisites_column() -> None:
-    from sqlalchemy import JSON
-    from world_engine import models
-
-    columns = models.NpcGoal.__table__.columns
-    if "prerequisites" not in columns:
-        fail("npc_goal.prerequisites column missing")
-        return
-    col = columns["prerequisites"]
-    if not isinstance(col.type, JSON):
-        fail(f"npc_goal.prerequisites is not JSON (got {col.type})")
-    if not col.nullable:
-        fail("npc_goal.prerequisites must be nullable")
 
 
 def check_faction_role_schema(engine) -> None:
@@ -127,7 +110,6 @@ def main() -> None:
     # SQLAlchemy Table objects against the same metadata singleton and
     # raise InvalidRequestError).
     engine = _fresh_engine()
-    check_prerequisites_column()
     check_faction_role_schema(engine)
     check_no_metadata_roles_usage()
 
@@ -137,7 +119,7 @@ def main() -> None:
         sys.exit(1)
 
     print(
-        "PASS: npc_goal.prerequisites present; faction_role table + "
+        "PASS: faction_role table + "
         "idx_faction_role_name (COLLATE NOCASE) present; "
         "faction.role_capacities and entity.metadata.roles usage gone"
     )
