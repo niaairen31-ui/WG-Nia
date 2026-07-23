@@ -1,10 +1,13 @@
-"""Room batch orchestrator (TICKET-0042). Two phases mirroring the region
+"""Room batch orchestrator (TICKET-0042). Three phases mirroring the region
 generator: generate_room_batch_manifest(anchor_id, count, db) runs the
 manifest model call and returns it for creator editing (Phase A);
 generate_room_batch_draft (BRIEF-0042-b) turns the edited manifest into one
-fiche per room. Writes NO canon -- every draft is ephemeral until the atomic
-commit route (BRIEF-0042-e). Type authority is the manifest, validated
-against location_type_catalog (P1), NEVER the _LOCATION_TYPES enum."""
+fiche per room; propose_batch_coherence (BRIEF-0042-c, D3 relocated after
+Phase B) proposes supplementary edges over the generated batch, resolved by
+name in code (L1). Writes NO canon -- every draft/edge is ephemeral until
+the atomic commit route (BRIEF-0042-e). Type authority is the manifest,
+validated against location_type_catalog (P1), NEVER the _LOCATION_TYPES
+enum."""
 
 from __future__ import annotations
 
@@ -102,6 +105,7 @@ def _compose_batch_context(anchor_id: str, anchor_entity: Entity, db: Session) -
     ).all()
 
     anchor = {
+        "id": anchor_id,
         "name": anchor_entity.name,
         "location_type": anchor_location.location_type if anchor_location else None,
         "description": anchor_entity.description,
@@ -368,13 +372,19 @@ def _room_local_id(name: str, index: int) -> str:
     return f"room-{index}-{slug}" if slug else f"room-{index}"
 
 
+def _anchor_one_liner(anchor: dict) -> str:
+    """Anchor name/type/one-line, shared by the Phase B and Phase C briefs."""
+    block = f"{anchor.get('name', '')} ({anchor.get('location_type') or 'type inconnu'})"
+    one_line = _one_line(anchor.get("description"))
+    if one_line:
+        block += f" — {one_line}"
+    return block
+
+
 def _compose_room_brief(anchor: dict, manifest: dict, this_room: dict) -> str:
     """Manifest-sourced-only brief: anchor + full manifest as peer context +
     this room highlighted as the one to write. No DB re-read, no secrets."""
-    anchor_one_line = _one_line(anchor.get("description"))
-    anchor_block = f"{anchor.get('name', '')} ({anchor.get('location_type') or 'type inconnu'})"
-    if anchor_one_line:
-        anchor_block += f" — {anchor_one_line}"
+    anchor_block = _anchor_one_liner(anchor)
 
     rooms = manifest.get("rooms") if isinstance(manifest, dict) else None
     rooms = rooms if isinstance(rooms, list) else []
@@ -469,3 +479,235 @@ def generate_room_batch_draft(manifest: dict, anchor: dict, db: Session) -> dict
         )
 
     return {"ok": True, "rooms": rooms_out, "skipped": skipped, "notes": notes}
+
+
+# ── Phase C — coherence pass, supplementary edges (D3, relocated) ───────────
+
+
+def _load_coherence_template(db: Session) -> PromptTemplate | None:
+    stmt = (
+        select(PromptTemplate)
+        .where(PromptTemplate.usage == "room_batch_coherence")
+        .where(PromptTemplate.is_active == True)  # noqa: E712
+    )
+    return db.exec(stmt).first()
+
+
+def _canon_siblings_for_coherence(anchor_id: str, db: Session) -> list[dict]:
+    """Canon siblings under the anchor: external resolution candidates for a
+    supplementary edge that leaves the batch (D3 case b). Name + id + type
+    only — no hidden subculture, no discoverable_detail, no NPC."""
+    sibling_locations = db.exec(
+        select(Location).where(Location.parent_location_id == anchor_id)
+    ).all()
+    sibling_ids = [loc.id for loc in sibling_locations]
+    sibling_entities: dict[str, Entity] = {}
+    if sibling_ids:
+        sibling_entities = {
+            e.id: e for e in db.exec(select(Entity).where(Entity.id.in_(sibling_ids))).all()
+        }
+    return [
+        {
+            "id": loc.id,
+            "name": sibling_entities[loc.id].name if loc.id in sibling_entities else loc.id,
+            "location_type": loc.location_type,
+        }
+        for loc in sibling_locations
+    ]
+
+
+def _rooms_tree_block(rooms: list[dict]) -> str:
+    if not rooms:
+        return "(aucune pièce générée)"
+    lines = []
+    for r in rooms:
+        public = r.get("result", {}).get("draft", {}).get("public", {})
+        parent = r.get("parent_room")
+        suffix = f" (sous {parent})" if parent else " (sous l'ancre)"
+        lines.append(
+            f"- {r.get('name', '')}{suffix} [{public.get('location_type') or 'type inconnu'}] : "
+            f"{_one_line(public.get('description'))}"
+        )
+    return "\n".join(lines)
+
+
+def _siblings_candidates_block(siblings: list[dict]) -> str:
+    if not siblings:
+        return "(aucun lieu existant sous cet ancre)"
+    return "\n".join(f"- {s['name']} [{s.get('location_type') or 'type inconnu'}]" for s in siblings)
+
+
+def _parse_coherence_response(raw: str) -> tuple[list[dict], list[str]]:
+    """May raise `llm_parse.LlmParseError`; the caller treats that as a
+    call failure eligible for the one retry."""
+    parsed = llm_parse.extract_object(raw)
+    raw_edges_in = parsed.get("edges")
+    raw_edges_in = raw_edges_in if isinstance(raw_edges_in, list) else []
+    edges = []
+    for item in raw_edges_in:
+        if not isinstance(item, dict):
+            continue
+        a, b = item.get("a"), item.get("b")
+        if not (isinstance(a, str) and a.strip() and isinstance(b, str) and b.strip()):
+            continue
+        reason = item.get("reason")
+        edges.append({"a": a, "b": b, "reason": reason if isinstance(reason, str) else ""})
+    raw_notes = parsed.get("notes")
+    notes = [n for n in raw_notes if isinstance(n, str) and n.strip()] if isinstance(raw_notes, list) else []
+    return edges, notes
+
+
+def _coherence_name_index(
+    anchor: dict, generated_rooms: list[dict], siblings: list[dict]
+) -> dict[str, tuple[str, bool]]:
+    """fold(name) -> (resolved_id, is_local). `is_local=True` means
+    `resolved_id` is a batch draft `local_id` (BRIEF-0042-e must resolve it
+    through its own commit-time id map); `False` means it is already a real
+    canon entity id (the anchor or an existing sibling), usable directly.
+    Rooms win a name collision (checked last)."""
+    index: dict[str, tuple[str, bool]] = {}
+    for s in siblings:
+        index[_name_key(s["name"])] = (s["id"], False)
+    anchor_name, anchor_id = anchor.get("name"), anchor.get("id")
+    if anchor_name and anchor_id:
+        index[_name_key(anchor_name)] = (anchor_id, False)
+    for r in generated_rooms:
+        index[_name_key(r["name"])] = (r["local_id"], True)
+    return index
+
+
+def _spanning_tree_pairs(
+    generated_rooms: list[dict], anchor_id: Optional[str], name_index: dict
+) -> set[frozenset]:
+    """Undirected {child, parent} id pairs already guaranteed by the K1
+    spanning tree (BRIEF-0042-a) — a proposed edge duplicating one of these
+    is dropped, never resolved a second time."""
+    pairs: set[frozenset] = set()
+    for r in generated_rooms:
+        parent_name = r.get("parent_room")
+        if parent_name:
+            entry = name_index.get(_name_key(parent_name))
+            parent_id = entry[0] if entry else None
+        else:
+            parent_id = anchor_id
+        if parent_id is not None:
+            pairs.add(frozenset({r["local_id"], parent_id}))
+    return pairs
+
+
+def _resolve_coherence_edges(
+    raw_edges: list[dict],
+    name_index: dict[str, tuple[str, bool]],
+    tree_pairs: set[frozenset],
+    skipped_names: set[str],
+) -> tuple[list[dict], list[dict]]:
+    """L1 resolver: naming a location never creates it. Drops an edge that
+    fails to resolve on either side, resolves both sides to the same node,
+    or duplicates a spanning-tree edge — never more than that (R)."""
+    resolved: list[dict] = []
+    unresolved: list[dict] = []
+    for i, item in enumerate(raw_edges):
+        a_name, b_name, reason = item["a"], item["b"], item["reason"]
+        a_entry = name_index.get(_name_key(a_name))
+        b_entry = name_index.get(_name_key(b_name))
+        if a_entry is None or b_entry is None:
+            missing = a_name if a_entry is None else b_name
+            if _name_key(missing) in skipped_names:
+                drop_reason = f"Pièce '{missing}' du manifeste non générée (ignorée en Phase B)"
+            else:
+                drop_reason = f"Nom introuvable : '{missing}'"
+            unresolved.append({"a": a_name, "b": b_name, "reason": drop_reason})
+            continue
+        a_id, a_local = a_entry
+        b_id, b_local = b_entry
+        if a_id == b_id:
+            unresolved.append({"a": a_name, "b": b_name, "reason": "Auto-lien ignoré"})
+            continue
+        if frozenset({a_id, b_id}) in tree_pairs:
+            unresolved.append({"a": a_name, "b": b_name, "reason": "Doublon de l'arête du squelette"})
+            continue
+        resolved.append(
+            {
+                "id": f"coh-{i}",
+                "a_id": a_id,
+                "b_id": b_id,
+                "a_local": a_local,
+                "b_local": b_local,
+                "reason": reason,
+            }
+        )
+    return resolved, unresolved
+
+
+def _coherence_call(system_prompt: str, user_message: str, model: str) -> dict:
+    """One chat + parse attempt. Never raises (mirrors
+    `entity_author._entity_draft_call`): {"ok": True, "raw_edges", "notes"}
+    or {"ok": False, "error"}."""
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+    try:
+        raw = chat(messages, model=model, format="json")
+    except OllamaError as exc:
+        return {"ok": False, "error": str(exc)}
+    try:
+        raw_edges, notes = _parse_coherence_response(raw)
+    except llm_parse.LlmParseError:
+        return {"ok": False, "error": "Model returned non-JSON output"}
+    return {"ok": True, "raw_edges": raw_edges, "notes": notes}
+
+
+def propose_batch_coherence(manifest: dict, drafts: dict, anchor: dict, db: Session) -> dict:
+    """Phase C (D3, relocated after Phase B, intake 2026-07-23) — one model
+    call sees the full generated batch and proposes supplementary edges
+    over the guaranteed K1 spanning tree, resolved by NAME in code (L1:
+    naming a location never creates it). Never blocking: a coherence-call
+    failure retries once, then the batch proceeds on the tree alone (R).
+    Writes no canon anywhere in this function or its call path.
+    """
+    generated_rooms = drafts.get("rooms") if isinstance(drafts, dict) else None
+    generated_rooms = generated_rooms if isinstance(generated_rooms, list) else []
+    if not generated_rooms:
+        return {"ok": True, "edges": [], "unresolved": [], "notes": []}
+
+    manifest_rooms = manifest.get("rooms") if isinstance(manifest, dict) else None
+    manifest_names = {
+        _name_key(r["name"]) for r in (manifest_rooms or []) if isinstance(r, dict) and r.get("name")
+    }
+    generated_names = {_name_key(r["name"]) for r in generated_rooms}
+    skipped_names = manifest_names - generated_names
+
+    anchor_id = anchor.get("id")
+    siblings = _canon_siblings_for_coherence(anchor_id, db) if anchor_id else []
+    name_index = _coherence_name_index(anchor, generated_rooms, siblings)
+    tree_pairs = _spanning_tree_pairs(generated_rooms, anchor_id, name_index)
+
+    template = _load_coherence_template(db)
+    if template is None:
+        return {
+            "ok": False, "edges": [], "unresolved": [],
+            "notes": ["Aucun template pt-room-batch-coherence actif"],
+        }
+
+    version = current_prompt(db, template)
+    user_message = (
+        version.user_template
+        .replace("{anchor_block}", _anchor_one_liner(anchor))
+        .replace("{rooms_block}", _rooms_tree_block(generated_rooms))
+        .replace("{siblings_block}", _siblings_candidates_block(siblings))
+    )
+    model = effective_model(template, AUTHOR_MODEL)
+
+    call_result: dict = {"ok": False}
+    for _ in range(2):
+        call_result = _coherence_call(version.system_prompt, user_message, model)
+        if call_result.get("ok"):
+            break
+    if not call_result.get("ok"):
+        return {"ok": False, "edges": [], "unresolved": [], "notes": ["Passe de coherence indisponible"]}
+
+    resolved, unresolved = _resolve_coherence_edges(
+        call_result["raw_edges"], name_index, tree_pairs, skipped_names
+    )
+    return {"ok": True, "edges": resolved, "unresolved": unresolved, "notes": call_result["notes"]}

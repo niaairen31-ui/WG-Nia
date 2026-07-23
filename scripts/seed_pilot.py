@@ -1358,6 +1358,64 @@ Génère un manifeste d'exactement {count} pièces sous cet ancre.
 Manifeste JSON :\
 """
 
+# TICKET-0042 (BRIEF-0042-c): Room batch orchestrator, Phase C — coherence
+# pass (D3, relocated after Phase B at intake, 2026-07-23). usage =
+# "room_batch_coherence". Given the already-generated fiches (Phase B) and
+# their guaranteed K1 spanning tree, proposes SUPPLEMENTARY undirected edges
+# ("a"/"b" room or sibling NAMES + "reason") plus optional incoherence
+# notes. Consumed by room_batch_author.propose_batch_coherence, which
+# resolves every proposed edge by name in code (L1: an unresolved name is
+# a note, never a new room) and drops anything duplicating the spanning
+# tree. Writes no canon at any stage.
+ROOM_BATCH_COHERENCE_SYSTEM_PROMPT = """\
+Tu es l'assistant de création du créateur d'un monde de jeu de rôle. Le \
+créateur vient de générer un LOT DE PIÈCES sous un lieu ANCRE ; chaque pièce \
+a déjà sa fiche complète, et un squelette de connexions (l'arborescence \
+parent_room, indiquée par "sous ...") garantit déjà que tout est accessible \
+depuis l'ancre. Ton travail est de proposer des LIAISONS SUPPLÉMENTAIRES \
+par-dessus ce squelette — un couloir de service, un escalier caché, un \
+raccourci — motivées par le contenu réel des fiches ci-dessous, jamais \
+devinées à l'aveugle.
+
+=== STRUCTURE DE LA RÉPONSE ===
+Ta réponse est TOUJOURS un unique objet JSON avec exactement deux clés de \
+premier niveau :
+- "edges" : une liste d'objets {"a", "b", "reason"}, chacun proposant une \
+liaison NON DIRIGÉE entre deux lieux nommés EXACTEMENT comme dans les \
+sections ci-dessous (une pièce de ce lot OU un lieu déjà existant sous \
+l'ancre) — "reason" est une courte justification narrative (une phrase).
+- "notes" : une liste optionnelle de courtes notes d'incohérence, en prose, \
+à l'attention du créateur (peut être vide).
+
+=== RÈGLES ===
+- N'invente JAMAIS un nom de pièce ou de lieu absent des sections \
+ci-dessous — une liaison vers un nom inconnu sera ignorée par le code, \
+jamais créée.
+- Reste SPARSE : quelques liaisons pertinentes valent mieux qu'un maillage \
+dense. La plupart des lots n'en appellent que peu, voire aucune.
+- Ne propose PAS de liaison qui duplique une connexion déjà garantie par \
+le squelette (le rattachement "sous ..." de chaque pièce).
+- Ne réécris ni ne renomme aucune pièce ; ne change aucun type. Cette passe \
+ne propose QUE des liaisons et des notes.
+
+=== FORMAT DE SORTIE ===
+Réponds UNIQUEMENT avec l'objet JSON demandé — aucun texte avant ou après, \
+aucun bloc de code Markdown, aucun commentaire.\
+"""
+
+ROOM_BATCH_COHERENCE_USER_TEMPLATE = """\
+--- Ancre ---
+{anchor_block}
+
+--- Pièces générées dans ce lot (avec leur rattachement au squelette) ---
+{rooms_block}
+
+--- Lieux déjà existants sous cet ancre (cibles externes possibles) ---
+{siblings_block}
+
+Propose les liaisons supplémentaires et notes d'incohérence, en JSON.\
+"""
+
 # MJ initiative vote — decides whether a bystander NPC acts spontaneously this
 # turn (Tier 3, step 1 — C1). Cheap non-streaming JSON call; /no_think appended
 # at call time. usage = "mj_initiative", world_id = NULL.
@@ -1946,6 +2004,24 @@ def seed(session: Session) -> None:
         system_prompt=ROOM_BATCH_MANIFEST_SYSTEM_PROMPT,
         user_template=ROOM_BATCH_MANIFEST_USER_TEMPLATE,
         variables=["anchor_block", "siblings_block", "edges_block", "catalog_types", "count"],
+        destination="local",
+    )
+
+    # ----- prompt template: room batch orchestrator coherence (BRIEF-0042-c) -
+    # usage = "room_batch_coherence" (new usage value). world_id = NULL. Calls
+    # go through room_batch_author.propose_batch_coherence (Phase C), which
+    # formats user_template with {anchor_block}, {rooms_block},
+    # {siblings_block} and code-resolves the resulting edges by name (L1).
+    # Writes no canon at any stage.
+    upsert_prompt_template(
+        session,
+        "pt-room-batch-coherence",
+        world_id=None,
+        name="Orchestrateur de lot de pièces — cohérence",
+        usage="room_batch_coherence",
+        system_prompt=ROOM_BATCH_COHERENCE_SYSTEM_PROMPT,
+        user_template=ROOM_BATCH_COHERENCE_USER_TEMPLATE,
+        variables=["anchor_block", "rooms_block", "siblings_block"],
         destination="local",
     )
 

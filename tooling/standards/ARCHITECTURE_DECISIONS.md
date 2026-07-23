@@ -8755,6 +8755,53 @@ mechanism.
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## ROOM BATCH COHERENCE — D3 RELOCATED POST-PHASE-B (BRIEF-0042-c, no schema change)
+
+Third step of TICKET-0042. Ships `room_batch_author.propose_batch_coherence`
+— Phase C, one model call over the FULL generated batch (all Phase B fiches)
+proposing supplementary undirected edges (`{a, b, reason}`, room/sibling
+names) plus advisory incoherence notes. Writes no canon; every edge stays
+`{id, a_id, b_id, a_local, b_local, reason}` — ephemeral until the atomic
+commit route (BRIEF-0042-e).
+
+**D3 relocated to run AFTER Phase B, not blind at the manifest stage.** At
+intake (2026-07-23) this pass was moved past fiche generation: a
+supplementary edge motivated by real generated content (a room's actual
+description, not just its one-line manifest pitch) is a materially better
+proposal than one guessed from the manifest alone, at the cost of being the
+heaviest token call in the ticket (it is the only call that sees every
+fiche). Measured once at the ticket's own MAX_COUNT (25 rooms, synthetic
+fiches with realistic-length descriptions): ~3500 characters (~875 tokens on
+a chars/4 heuristic) for the full user message — comfortably inside any of
+the project's local 8b models' context window, so the Scope-OUT compaction
+fallback (name + one-line only, dropping descriptions) is NOT triggered at
+this step. If a future template revision or richer fiches push this over
+budget, that compaction is where to reach first — not a new mechanism.
+
+**L1 enforced by `_resolve_coherence_edges`, never the model.** Every
+proposed edge is resolved by name against a `fold(name) -> (id, is_local)`
+index built from real data only: Phase B's surviving fiches (`local_id`,
+`is_local=True`), the anchor, and canon siblings queried fresh from
+`location.parent_location_id == anchor_id` (`is_local=False` for both — both
+are already-real entity ids, unlike a batch `local_id` which BRIEF-0042-e
+must still resolve through its own commit-time id map). A name that resolves
+to neither, resolves both sides to the same node, or duplicates a K1
+spanning-tree pair (BRIEF-0042-a) is dropped into `unresolved` with a
+reason — a name naming a manifest room that Phase B itself skipped gets a
+more specific reason than a truly unknown name, using `manifest` (the
+function's third input) purely for that distinction; it plays no role in
+resolution itself. No name ever creates a room.
+
+**Named deferral, on the record: no O(N^2) pairwise semantic re-check.**
+This pass proposes edges and advisory notes only — it never rewrites a
+fiche's description, renames a room, or changes a type, and it never
+compares every fiche against every other fiche. A full semantic coherence
+sweep across the batch is a real, larger feature Nia may want later; it is
+NOT built here.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*
