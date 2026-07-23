@@ -1,0 +1,22 @@
+{
+  "ticket": "TICKET-0048-canon-faction-stratum-extraction",
+  "when": "2026-07-23T22:25:03.979286+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u2014 section whitelist, line budgets, archaeology ban, pointer freshness"
+    }
+  ]
+}

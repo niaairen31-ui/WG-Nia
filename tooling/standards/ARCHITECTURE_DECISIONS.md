@@ -8942,4 +8942,57 @@ copy-paste away.
 
 ---
 
+## CANON.PY STRATUM SUB-SPLIT — FACTION DOMAIN EXTRACTION (BRIEF-0048-a, no schema change)
+
+Resume-blocking decision surfaced during BRIEF-0044-b execution: adding
+`EntityType`/`EntityTypeHistory` to `canon.py` would have pushed it from
+985 to 1064 lines, tripping `module_budget.py`'s 1000-line cap for the
+first time (PASS -> FAIL). Per doctrine C2 (refactor over exemption) and
+`module_budget.py`'s own docstring — its baseline is a transition artifact
+retired at TICKET-0028's close, entries "may only shrink or disappear,"
+never grow for new work — the resolution is a split, not a fresh baseline
+entry. This is the first sub-split of a canon-stratum file by domain, one
+fractal level below the TICKET-0028 canon/ephemeral/pipeline split.
+
+**A1 — extract the faction domain.** `Faction`, `FactionRole`,
+`FactionMembership` move verbatim into a new `models/canon_faction.py` —
+the largest clean single-domain block in `canon.py` (395-515, 121 lines).
+Post-split `canon.py` is 864 lines, leaving ~136 lines of headroom before
+BRIEF-0044-b's own EntityType/EntityTypeHistory addition (which stays in
+the slimmed `canon.py`, decision C1 below) brings it to ~943.
+
+**B1 — shared helpers stay in `canon.py`, no `models/_base.py` yet.**
+`canon_faction.py` imports `_uuid`/`_created_ts` from `.canon` rather than
+duplicating them or extracting a shared base module. Trigger to revisit:
+extract `models/_base.py` only when a SECOND domain extraction also needs
+these helpers — one consumer doesn't justify the abstraction.
+
+**C1 — no registry/catalog stratum.** `EntityType`/`EntityTypeHistory`
+(BRIEF-0044-b) stay in the slimmed `canon.py`, unchanged from that brief's
+original placement; this ticket does not introduce a registry stratum
+(`C2` deferred, same trigger discipline as B1 — a second registry-shaped
+table would be the signal to revisit).
+
+**D — module name `models/canon_faction.py`,** following the existing
+`canon.py` naming, scoped to the extracted domain rather than a generic
+`canon2.py`.
+
+**Move-only, zero blast radius beyond the package boundary.** RECON (live
+`main`, canon.py at 985) confirmed all 93 external import sites resolve
+through `from .models import X` — zero direct `models.canon` imports — so
+only `models/__init__.py`'s internal import block changes; `__all__` stays
+byte-for-byte identical, same names and order. Structural gates
+(`single_canon_write.py`, `world_tick.py`) walk the package directory, not
+a fixed file list, so the new module is covered automatically; no
+verify-check needed a path-coupling edit (`npc_goal_read.py`'s
+`canon.py`-only allow-list concerns an unrelated cluster, and
+`prompt_version.py` deliberately excludes `canon.py` either way).
+Zero test-file edits — the existing suite is the move-only correctness
+signal.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*
