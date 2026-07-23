@@ -40,11 +40,13 @@ from typing import Type
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
-from sqlalchemy import delete
+from sqlalchemy import delete, inspect
 from sqlmodel import Session, SQLModel, select
 
+from .. import schema_reconcile
 from ..db import engine
-from ..models import LinkBatch, LinkBatchRow, NpcBatch, NpcBatchRow
+from ..models import LinkBatch, LinkBatchRow, NpcBatch, NpcBatchRow, SchemaMeta
+from ..schema_version import EXPECTED_STATIC_SCHEMA_VERSION
 from . import crud as _crud
 from .routes import creator as _routes_creator
 from .routes import link_agent as _routes_link_agent
@@ -133,6 +135,51 @@ def purge_closed_npc_batches(db: Session) -> None:
     append-only journal under `~/.world_engine/npc_agent_journal/` is
     never touched here."""
     _purge_closed_batches(db, NpcBatch, NpcBatchRow, "batch_id")
+
+
+def _check_schema_version(db: Session) -> None:
+    """Fail-closed boot guard (C2 two-plane governance, plane 1 —
+    TICKET-0044, BRIEF-0044-a): refuse to start unless the DB's
+    `schema_meta` singleton matches `EXPECTED_STATIC_SCHEMA_VERSION`. Checks
+    the STATIC plane only — no table-enumeration/reconciliation here
+    (that's BRIEF-0044-d)."""
+    if SchemaMeta.__tablename__ not in inspect(engine).get_table_names():
+        raise RuntimeError(
+            "schema_meta is not initialized — run scripts/init_db.py then the migrations."
+        )
+    row = db.get(SchemaMeta, 1)
+    if row is None:
+        raise RuntimeError(
+            "schema_meta is not initialized — run scripts/init_db.py then the migrations."
+        )
+    if row.static_version != EXPECTED_STATIC_SCHEMA_VERSION:
+        raise RuntimeError(
+            f"schema_meta says DB is at {row.static_version!r}, code expects "
+            f"{EXPECTED_STATIC_SCHEMA_VERSION!r} — run pending migrations "
+            "(scripts/migrate_*.py) before starting."
+        )
+
+
+def _check_schema_reconciliation(db: Session) -> None:
+    """Fail-closed boot guard (C2 two-plane governance, plane 2 —
+    TICKET-0044, BRIEF-0044-d): refuse to start if any physical table is
+    neither a static model table nor a registered
+    `entity_type.physical_table` (`_orphan_ext_*` quarantine tables are
+    pattern-accounted, never flagged)."""
+    unaccounted = schema_reconcile.unaccounted_tables(engine, db)
+    if unaccounted:
+        raise RuntimeError(
+            "unaccounted physical tables (not static, not in entity_type): "
+            f"{unaccounted} — a runtime table with no registry row indicates "
+            "corruption or a failed constructor write; refuse to serve."
+        )
+
+
+@app.on_event("startup")
+def _check_schema_version_on_startup() -> None:
+    with Session(engine) as db:
+        _check_schema_version(db)
+        _check_schema_reconciliation(db)
 
 
 @app.on_event("startup")

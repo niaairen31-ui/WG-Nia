@@ -3,7 +3,7 @@ world entity character location faction faction_membership faction_role relation
 knowledge ledger item skill skill_definition discoverable_detail
 event artifact npc_goal agenda agenda_step goal_agenda_link
 npc_price location_subculture world_law obstacle obstacle_vertex door
-location_type_catalog
+location_type_catalog entity_type entity_type_history
 
 [ALLOWED_SITES]
 # path::function                                              tables
@@ -33,6 +33,14 @@ src/world_engine/writes/config.py::write_location_obstacles    obstacle obstacle
 src/world_engine/writes/config.py::write_location_doors        door
 # TICKET-0039, BRIEF-0039-a: upsert_location_type is the 25th site — classified interior/exterior type registry, curated-config family (upsert-one, not full-replace).
 src/world_engine/writes/config.py::upsert_location_type        location_type_catalog
+# TICKET-0044, BRIEF-0044-c: create_entity_type is the 26th site — the governed
+# structural-write authority (D2), a NEW sanctioned site distinct from the two
+# canon-write paths (AI-proposal pipeline, creator CRUD). Its `CREATE TABLE
+# ext_*` DDL is not a row write (invisible to this checker's row-write
+# attribution, by construction — see runtime_ddl_guard.py); only the two
+# INSERTs into entity_type / entity_type_history are row writes and are
+# allow-listed here.
+src/world_engine/writes/schema.py::create_entity_type          entity_type entity_type_history
 src/world_engine/writes/events.py::write_event                 event
 src/world_engine/writes/events.py::write_event_update           event
 src/world_engine/writes/goals_agendas.py::write_agenda         agenda

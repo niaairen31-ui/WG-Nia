@@ -134,8 +134,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
 - **Per-NPC uniqueness:** each present NPC belongs to exactly ONE open
   gathering. Per-NPC, NOT per-location (multiple open gatherings in one
   location are legal). Defended on every join/migrate path.
-- **Dissolve-before-create lives in the caller** (`enter_location`), never
-  inside `generate_gatherings`.
+- **Dissolve-before-create lives in the caller** (`enter_location`), never inside `generate_gatherings`.
 - **`relation_change` is owned by window analysis** (`analyze_window`,
   `proposed_by='local_ai_window'`): at most one `relation_change` per NPC
   pair per window, proportionate to that window. Never deduplicated against
@@ -154,23 +153,22 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   payload.** Missing -> skip and log (`_normalize_to_schema` returns
   `None`); never attributed via a conversation-level default. Per-item
   roster resolution is a named deferral.
-- **Two sanctioned canon-write paths, no others:** `_apply_mutation` (AI
-  proposals, after creator approval) and the creator CRUD. No code path may
-  ever write canon in response to an AI proposal outside `_apply_mutation`.
-  `POST /api/entities/generate` writes no canon; its accept reuses the
-  creator CRUD path.
+- **Two sanctioned canon-write paths for canon ROWS:** `_apply_mutation` (AI
+  proposals, post-approval) and the creator CRUD, never elsewhere for an AI proposal
+  (`POST /api/entities/generate` accept reuses creator CRUD). A THIRD, creator-only
+  authority covers canon STRUCTURE: `writes/schema.py::create_entity_type`, closed
+  by `single_canon_write.py` + `runtime_ddl_guard.py`.
 - **History is sacred on BOTH write paths:** any edit to `relation` or
   `knowledge` appends the previous state to `change_history`; states are
-  preserved, never silently overwritten.
+  preserved, never silently overwritten. `entity_type_history` extends this to the schema grain: append-only by construction, no `change_history` column — the rows ARE the history.
 - **Commit before touching any canon-writing path** (`_apply_mutation`, the
   creator CRUD, the analyzers, and everything they call) — hard.
   Recommended: also commit before touching the `/say` flow or the
-  interpretation phase (playability-critical).
+  interpretation phase (playability-critical). On SQLite, DDL participates in the surrounding transaction — a structural guarantee of the shared engine (`db.py`), never a per-site precaution.
 - **The MJ context assembler is scoped to the player's perception
   boundary:** only what the player may perceive or already knows. Never
   NPC-private knowledge, secrets, internal names, non-public entities, or
-  invisible relations. Enforced by query construction, never by
-  instruction.
+  invisible relations. Enforced by query construction, never by instruction.
 - **Knowledge levels never decrease through the mutation pipeline:**
   `unaware < rumor < suspicious < partial < knows < fully_understands` is
   monotone for every `knowledge_change` apply (`_apply_mutation`'s
@@ -190,11 +188,8 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   (`_stream` in `app.py`). Blindfolded exclusion is a data exclusion in
   `assemble_mj_context`, never a "don't describe" prompt.
 - **Condition ladder is monotone for engine writes:** `unharmed -> bruised
-  -> injured -> neutralized` — forward only by violent-verdict code;
-  backward only by creator CRUD.
-- **Frozen scene yields no model calls:** `scene_state.frozen = True` ->
-  `/say` short-circuits with a fixed MJ message. Only the creator panel
-  unfreezes.
+  -> injured -> neutralized` — forward only by violent-verdict code; backward only by creator CRUD.
+- **Frozen scene yields no model calls:** `scene_state.frozen = True` -> `/say` short-circuits with a fixed MJ message. Only the creator panel unfreezes.
 - **`discoverable_detail` is structurally excluded from every assembler,
   with one consciously narrowed exception:** no assembler or prompt-building
   path reads the table. `hidden` content reaches a model ONLY via the
@@ -330,6 +325,8 @@ Law only. Rationale, chantier history, and deferred alternatives live in
 - Affinity tiers are resolved in code (`context.py::_affinity_tier`); prompt templates never carry the tier table.
 - **UI-visible data never lives in JSON** — relational only; enforced
   fail-closed by `json_ui_boundary` (exceptions justified in that file).
+- **The app refuses to boot when `schema_meta.static_version` != `EXPECTED_STATIC_SCHEMA_VERSION`, OR when a physical table is neither a static model table nor a registered `entity_type.physical_table`** (fail-closed on both; the second check is `schema_reconcile.unaccounted_tables`, extending the same `cockpit/app.py` startup hook — `_orphan_ext_*` quarantine tables are pattern-accounted, never flagged); `schema_meta` is migration-only infra, never canon, never writable outside a migration script.
+- **Rollback contract (B1):** "Once a runtime type exists, rolling code back past the constructor version requires running `scripts/rollback_quarantine.py` first (after a backup). Roll-forward restoration (`--restore`) is potentially lossy, bounded to rows whose `entity` row was deleted during the rollback window; every lost row is preserved in `_orphan_lost_*` and reported — never silently dropped. This contract is SQLite-scoped (the rebuild-without-FK recipe is SQLite-specific), matching the engine's current single-backend reality." Full rationale: `ARCHITECTURE_DECISIONS.md`, "ENTITY-TYPE CONSTRUCTOR — rollback quarantine (B1)".
 
 ## Local model notes
 
@@ -387,6 +384,8 @@ WG-Nia/
 │   └── settings.json        # permissions allowlist
 ├── src/world_engine/        # the importable package (PYTHONPATH=src)
 │   ├── db.py                # engine + session; URL from env var
+│   ├── schema_version.py    # code-side expected-version constant for the static schema, checked at cockpit boot
+│   ├── schema_reconcile.py  # physical-table reconciliation (C2 plane 2): static ∪ registered_runtime ∪ orphan-pattern accounting, boot guard + CLI
 │   ├── models/               # all SQLModel table classes (the schema), split by canon/canon_faction/ephemeral/pipeline stratum; models/__init__.py re-exports the whole surface
 │   ├── context.py           # NPC + MJ context assembly; structural exclusions; signposts
 │   ├── tick*.py             # world-tick: tick.py orchestrates, tick_context.py assembles, tick_normalize.py normalizes; call sites allowlisted by verify/checks/world_tick.py
@@ -395,7 +394,7 @@ WG-Nia/
 │   ├── analyzer.py          # window + overhearing analysis -> proposed_mutation rows
 │   ├── resolution.py        # physical-action dice resolution (2d6 bands)
 │   ├── ledger.py            # ledger read helpers
-│   ├── writes/               # shared canon-write helpers (both sanctioned paths), split by canon domain; writes/__init__.py re-exports the whole surface
+│   ├── writes/               # shared canon-write helpers, split by canon domain; writes/__init__.py re-exports the whole surface; schema.py is the third structural-write authority (governed runtime-DDL writer for ext_* tables)
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
 │   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)
 │   ├── entity_author.py     # AI authoring assistant (entities, PC, skill catalogue, agendas, events)
@@ -403,7 +402,7 @@ WG-Nia/
 │   ├── spatial_author.py    # Creation-side door materialization from live connects_to (TICKET-0039)
 │   ├── room_batch_author.py # Room batch orchestrator: Phase A manifest, Phase B fiches, Phase C coherence edges (TICKET-0042)
 │   └── cockpit/             # creator web UI (FastAPI + HTMX, port 8000, loopback)
-│       ├── app.py           # app factory + router mounting + link-batch retention purge (startup); routes/ holds the routers
+│       ├── app.py           # app factory + router mounting + fail-closed schema-version boot guard + link-batch retention purge (startup); routes/ holds the routers
 │       ├── play*.py         # say() decomposition: routing, physical branch, narration/initiative
 │       ├── crud/            # creator CRUD routes, split by domain (entities, relations, ...)
 │       ├── index.html       # single-page UI; CREATION_TABS registry + dispatcher
@@ -416,6 +415,7 @@ WG-Nia/
 │   ├── cockpit.py           # launch the world cockpit
 │   ├── pipeline_cockpit.py  # launch the pipeline cockpit (port 8100; deposit dormant)
 │   ├── backup.py            # manual DB backup, 2-file rotation
+│   ├── rollback_quarantine.py  # B1 quarantine/restore for runtime entity types (destructive_data, manual)
 │   └── migrate_*.py         # one idempotent migration per schema step
 ├── tooling/
 │   ├── tickets/, recon/, briefs/  # pipeline artifacts (filename is law)

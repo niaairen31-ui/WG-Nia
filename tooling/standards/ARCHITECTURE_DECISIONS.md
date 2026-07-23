@@ -8995,4 +8995,328 @@ signal.
 
 ---
 
+## SCHEMA VERSION — two-plane governance (C2), plane 1: stored static version + fail-closed boot guard (BRIEF-0044-a, schema v1.86)
+
+TICKET-0044 introduces a third structural-write authority: the runtime-DDL
+constructor (BRIEF-0044-c) creates `ext_*` tables at runtime, outside
+migration. Once tables can be born that way, the schema version doc string
+stops describing the base — nothing detected DB-vs-code drift. This step
+ships plane 1 of the locked design: a STATIC-plane version, stored and
+checked at boot. Plane 2 (per-world runtime-type manifest / reconciliation)
+is a separate, later concern (BRIEF-0044-b/d) — the two planes answer
+different questions and never share a write path.
+
+**Stored, not doc-only.** `schema_meta` is a new singleton table
+(`CHECK (id = 1)`) holding `static_version`. It lives in `models/pipeline.py`
+(infra stratum, alongside `User`) — never `canon.py`, never
+`canon_write_policy.txt [CANON_TABLES]`: it is engine infra, not
+world-domain canon, and the constructor is structurally forbidden any write
+path to it. The ONLY writer is a migration script (this ticket's
+`migrate_v1_86_schema_meta.py`) plus `scripts/init_db.py`'s virgin-head
+seed — the same "migration backfill AND seed virgin-head both" idiom
+`writes/prompts.py` already documents for `prompt_version`.
+
+**Code-side constant, checked at boot, fail-closed.** New module
+`schema_version.py` exposes `EXPECTED_STATIC_SCHEMA_VERSION`. The cockpit's
+existing startup hook (`cockpit/app.py`, previously only the link/NPC batch
+purge) gained a second `@app.on_event("startup")` handler, registered
+FIRST, that reads the `schema_meta` singleton and raises `RuntimeError`
+before the app serves a single route when: the table is absent, the row is
+absent, or `static_version != EXPECTED_STATIC_SCHEMA_VERSION`. On agreement
+it starts silently — no log noise on the success path. A migration bumps
+the constant, the `schema_meta` row, and the `world-engine-schema.md`
+header line together, in the same commit — never one without the others;
+`verify/checks/schema_version_agreement.py` is the static G1 gate that
+catches drift between the doc line and the constant (not between the doc
+and the live DB — that's what the boot guard is for).
+
+**Deliberately narrow scope.** This guard checks the VERSION only — no
+table-enumeration or "every physical table accounted for" logic; that's
+plane 2's reconciliation job (BRIEF-0044-d), scoped OUT here on purpose so
+the two planes stay genuinely separate. No `world_id` on `schema_meta` —
+it is GLOBAL static-plane; per-world runtime types are a different plane
+entirely.
+
+---
+
+## ENTITY-TYPE CONSTRUCTOR — socle registry + schema-birth history (BRIEF-0044-b, schema v1.87)
+
+Plane 2 of the C2 two-plane governance design (BRIEF-0044-a shipped plane 1,
+`schema_meta`, v1.86): the per-world runtime-type manifest that the
+governed runtime-DDL writer (BRIEF-0044-c), reconciliation (BRIEF-0044-d),
+and B1 quarantine (BRIEF-0044-e) all read. This step ships the two static
+tables ONLY — no writer, no DDL emission, no traits, no seeding. No
+runtime types exist yet, so no code path reads a populated row.
+
+**`entity_type` mirrors `location_type_catalog`, not the entity-extension
+shape.** A plain `TEXT PRIMARY KEY` with a `world_id` foreign key — NOT
+`id: str = Field(primary_key=True, foreign_key="entity.id")` like
+`Character`/`Location`/`Item`. `entity_type` is world-scoped CONFIG
+describing a category of entity, never an entity itself; the FUTURE
+`ext_*` runtime tables (BRIEF-0044-c) are the ones that take the
+extension shape, one per registered type.
+
+**Dname1/Ddrop1 belt-and-suspenders in the CHECK constraints, not just the
+writer.** `physical_table GLOB 'ext_*'` and `status IN ('active',
+'retired','quarantined')` are enforced at the schema level now, even
+though the writer that produces these values doesn't exist until
+BRIEF-0044-c — a partially-built registry can never smuggle a non-`ext_`
+physical table name or an out-of-vocabulary status past the DB, regardless
+of which code path writes it later. `quarantined` (B1) and the `retired`
+soft-retire value (Ddrop1 — never a `DROP`) are both present in the CHECK
+now so their respective briefs need no ALTER.
+
+**Dgov1 — reserved governance columns, a named cross-ticket exception.**
+`write_authorities` (JSON, which authorities may write ROWS of this type)
+and `ai_proposable` (the future `mutable_by_ai` trait wire, TICKET-0045)
+ship now, unpopulated, with NO reader until 0047. This deliberately
+violates "no structure without a reader" — unlike `location_type_catalog`,
+whose reader lands in the SAME ticket (BRIEF-0039-c/d/e). The exception is
+taken because `entity_type` is the chantier's central table: adding these
+columns via a later ALTER would touch it on every subsequent ticket
+through 0047. Recorded here as the named exception; no reader may be
+"helpfully" added before 0047.
+
+**`entity_type_history` extends "History is sacred" to the schema grain.**
+Same append-only posture as `Ledger` and the closed `FactionMembership`/
+`FactionRole` rows: no `change_history` column, because there is no
+"previous state" to snapshot — each row already IS one immutable event
+(A1). `definition_snapshot` (JSON) carries the full definition at the
+instant of the event and `ddl_text` carries the exact DDL emitted, making
+each row independently auditable and replayable without reconstructing
+state from a diff chain. Only `'type_created'` is produced at the socle;
+`trait_added` (0045), `type_retired`/`type_quarantined`/`type_restored`
+(BRIEF-0044-e) are reserved in the `event` CHECK now so those briefs need
+no ALTER — the closed-vocabulary-via-CHECK idiom already used for
+`npc_goal.status`, `goal_prerequisite.type`, and `skill.base_domain`.
+
+**Scope boundary held.** No writer, no `[CANON_TABLES]`/
+`[ALLOWED_SITES]` policy edit (BRIEF-0044-c's job — adding these tables to
+`canon_write_policy.txt` before a governed write site exists would leave
+the policy pointing at nothing); no reconciliation; no quarantine status
+transition logic beyond reserving the enum values. Migration
+`scripts/migrate_v1_87_entity_type.py` follows the `migrate_v1_86_schema_meta`
+two-independent-guard shape (table existence, index existence) but seeds
+nothing — a virgin registry, unlike `location_type_catalog`'s v1.84 seed.
+
+## ENGINE — TRANSACTIONAL DDL ON SQLITE, UNBLOCKS A1 (BRIEF-0044-f, no schema change)
+
+BRIEF-0044-c's live gate proved A1 (the "(CREATE TABLE ext_*) + (INSERT
+entity_type) + (INSERT entity_type_history) commit together or none do"
+guarantee) cannot hold on the engine as configured: pysqlite's default
+driver mode auto-commits any pending transaction the instant a DDL
+statement runs, so a `CREATE TABLE` inside `engine.begin()` survives a
+later `rollback()` even though the row INSERTs around it correctly do
+not. This was asserted "(it does)" in BRIEF-0044-c's own mini-RECON and
+was wrong — see `tooling/questions/QUESTION-TICKET-0044.md` for the
+minimal reproduction and root cause. This step lands BEFORE BRIEF-0044-c
+because the fix is to the shared `engine` object every canon-write path
+binds to, not to `writes/schema.py`; 0044-c's code needed no change once
+this landed.
+
+**The fix is SQLAlchemy's own documented pysqlite recipe, guarded to
+`dialect.name == "sqlite"`.** In the existing connect listener
+(`db.py::_enable_sqlite_foreign_keys`), `dbapi_connection.isolation_level
+= None` disables the driver's own BEGIN/COMMIT management (which is what
+was silently committing DDL early); a new `engine`-instance `"begin"`
+listener (`_begin_sqlite_transaction`) issues an explicit
+`conn.exec_driver_sql("BEGIN")` so every transaction — DDL included — is
+one SQLite transaction, committed or rolled back as a whole. The existing
+`PRAGMA foreign_keys=ON` connect-time behavior is unaffected (it always
+ran in autocommit at connect time, before any BEGIN). Both empirically
+verified on the installed SQLAlchemy 2.0.50 / sqlmodel 0.0.38 pair against
+scratch databases: a forced failure between a CREATE TABLE and a later
+INSERT now leaves neither; a committed transaction leaves both; FK
+enforcement still fires on a fresh connection; every existing
+`migrate_*.py`'s DDL pattern (`engine.begin()` context manager, or a bare
+`Table.create(engine)`) still lands and commits under the new setup, and
+`scripts/init_db.py` still fully creates a virgin database (49 tables).
+Re-running BRIEF-0044-c's forced-failure A1 test through the actual
+`create_entity_type` afterward, unmodified, now correctly leaves none of
+the three writes behind.
+
+**Process lesson — engine/driver claims in a mini-RECON are asserted-then-
+verified, never trusted.** BRIEF-0044-c's mini-RECON stated the SQLite
+CREATE-TABLE-rollback behavior as settled fact ("(it does)") without
+reproducing it; that claim was false and only surfaced at the brief's own
+live-gate check. This brief's own mini-RECON therefore re-verified every
+claim (SQLAlchemy major version, the exact `"begin"`-listener incantation,
+the connect-listener class-vs-instance question, and the full
+`migrate_*.py`/`init_db.py` regression surface) empirically before
+touching `db.py` — the verify step is load-bearing for exactly this kind
+of claim, and is not satisfied by restating the recipe from memory.
+
+**Scope held.** `writes/schema.py`/`create_entity_type` and its A1
+acceptance test are untouched (BRIEF-0044-c's own scope); no change to
+what any canon-write path writes or to `canon_write_policy.txt`; no
+Postgres/Supabase transactional path (untouched, sqlite-guarded); A1
+itself is not broadened or narrowed, only made true on this engine.
+
+---
+
+## ENTITY-TYPE CONSTRUCTOR — governed runtime-DDL writer (BRIEF-0044-c, no schema change)
+
+The socle's third structural-write authority (D2): `writes/schema.py::create_entity_type`
+materializes a runtime `ext_*` table AND registers it — one transaction,
+all three writes or none (A1): `CREATE TABLE ext_<slug>`, the `entity_type`
+row, the `entity_type_history` `type_created` row. This is CREATOR-authority
+structural, invoked only by explicit creator action, never by an AI
+proposal — the "two sanctioned canon-write paths" invariant (AI-proposal
+pipeline, creator CRUD) is unchanged for canon ROWS; this is a distinct,
+named THIRD authority for canon STRUCTURE plus the two static registry
+tables. CLAUDE.md's canon-write invariant is amended accordingly.
+
+**Socle boundary held.** The writer performs NO row write into any `ext_*`
+table — entities of a runtime type are authored later (0046 creator CRUD,
+0047 AI dispatch). The F1' runtime write-authority check for DYNAMIC-table
+ROW writes is therefore 0047's concern; `runtime_ddl_guard.py` here is a
+STATIC guard on the DDL writer itself, not the F1' runtime check.
+
+**Dcol1 — closed column-type enum, the sole source of SQL type
+fragments.** `_COLUMN_TYPES` maps TEXT/INTEGER/REAL/BOOLEAN/JSON/TIMESTAMP/
+FK_ENTITY/FK_ENTITY_NULLABLE to their SQL fragments (BOOLEAN emits an
+`INTEGER` column with a `CHECK (col IN (0,1))`; JSON is SQLite `TEXT`). A
+`col_type` outside this set raises before any DDL is built. The mandatory
+shared PK (`id TEXT PRIMARY KEY REFERENCES entity(id)`) is emitted first,
+always, never part of the caller-supplied `columns` — reproducing the
+extension-table PK shape (`Character`/`Location`/... in `canon.py`) exactly.
+
+**Dname1 — mandatory `ext_` prefix, single-sourced.** `EXT_PREFIX = "ext_"`
+is the ONLY definition of the literal in the codebase; BRIEF-0044-d's
+reconciliation imports this constant rather than re-declaring it.
+`_validate_identifier` (regex `^[a-z][a-z0-9_]{0,62}$`, closed reserved-word
+set, no leading/trailing underscore) gates `slug` and every `col_name`
+before any DDL text exists. Collision is checked two ways: `inspect(engine)
+.has_table(...)` (the physical table doesn't already exist) AND no
+`entity_type` row already claims the slug (case-insensitive) or the
+physical table name.
+
+**Ddrop1 — CREATE only, structurally.** No `DROP`/`ALTER` branch, and no
+`ADD COLUMN` function, exists anywhere in `writes/schema.py` — not
+"unused," genuinely absent. `runtime_ddl_guard.py` (new G1 check, AST-based)
+enforces this fail-closed over the module: no DROP/ALTER token reaches a
+code-path string (docstrings and the `_RESERVED_WORDS` rejection set are
+the two named exemptions — the latter's entire purpose is REJECTING those
+words as identifiers); every literal SQL-type fragment traces to the
+`_COLUMN_TYPES` enum or the one fixed PK line; the `"ext_"` literal appears
+nowhere but `EXT_PREFIX`; every `.add(...)` targets only `EntityType`/
+`EntityTypeHistory`, and no raw-SQL `.execute()`/`.exec()` resolves to an
+INSERT/UPDATE/DELETE on a dynamic table. Zero parsed assertions is itself a
+failure (vacuous-proof), matching the `door_terminal.py`/
+`single_canon_write.py` idiom this check is built on.
+
+**Canon-write policy closed, not left open.** `entity_type` and
+`entity_type_history` join `[CANON_TABLES]`; `create_entity_type` is the
+sole `[ALLOWED_SITES]` entry for both. The DDL `session.execute(text(...))`
+is a `CREATE TABLE` statement, not `INSERT`/`UPDATE`/`DELETE` — invisible to
+`single_canon_write.py`'s row-write attribution by construction, not a
+broadening of row-write authority; only the two INSERTs are row writes and
+both are allow-listed.
+
+## SCHEMA VERSION — two-plane governance (C2), plane 2: physical-table reconciliation (BRIEF-0044-d, no schema change)
+
+Plane 1 (`schema_meta`, BRIEF-0044-a) answers "is the code's expected
+static schema live in this DB." Plane 2 answers a different question that
+plane 1 structurally cannot: "does every PHYSICAL table in the live DB
+actually belong here." Once `create_entity_type` can birth tables at
+runtime, a table can exist that no migration declared and no registry row
+claims — that is corruption or a failed constructor write, and the two
+planes never collapse into one check.
+
+**Why runtime, not static.** The accounting depends on the live database's
+actual tables (`sqlalchemy.inspect(engine).get_table_names()`) and the
+live `entity_type` rows — a static AST check cannot see either. So
+`schema_reconcile.py` runs the ACCOUNTING at boot and as a CLI
+(`python -m world_engine.schema_reconcile`); the new
+`schema_reconciliation.py` G1 check stays static and guards only that the
+MECHANISM exists, is `SQLModel.metadata`-sourced (never a hardcoded table
+list), single-sources `EXT_PREFIX` from `writes/schema.py`, and is
+imported by the boot module — mirroring `single_canon_write.py`'s
+static-AST precedent for a check that cannot itself touch the DB.
+
+**Accounted set.** `static ∪ registered_runtime ∪ {_orphan_ext_* pattern}`.
+`static_table_names()` is every table on `SQLModel.metadata` post-import.
+`registered_runtime_tables()` reads `entity_type.physical_table` for ALL
+statuses (`active`, `retired`, `quarantined`) — a retired or quarantined
+type's table still physically exists and must not read as unaccounted.
+`_orphan_ext_*` (BRIEF-0044-e's quarantine tables) are pattern-accounted:
+this step only accounts for that prefix, it never creates it. Any `ext_*`
+table outside all three is the dangerous case — a runtime table with no
+registry row — and trips both the CLI (`sys.exit(1)`, naming it) and the
+boot guard (`RuntimeError`, refuse to serve).
+
+**Boot wiring extends, not duplicates.** `cockpit/app.py`'s single startup
+hook now runs the plane-1 version check, then the plane-2 reconciliation
+check, in that order, both fail-closed — not two independent hooks, one
+guard with two sequential gates.
+
+## ENTITY-TYPE CONSTRUCTOR — rollback quarantine (B1) (BRIEF-0044-e, no schema change)
+
+Consequence #2 of D2 (hot materialization): a code rollback past the
+constructor version finds `ext_*` tables it does not know about, and —
+because `PRAGMA foreign_keys=ON` (`db.py:44`) — their FK into `entity`
+BLOCKS the old code's `entity` deletes. B1 (locked at intake): quarantine
+by construction, not prevention. `entity_type` is the manifest;
+`scripts/rollback_quarantine.py` (danger_class: destructive_data, manual —
+mirrors `backup.py`, no hook, no scheduler, no boot integration) rebuilds
+each runtime table WITHOUT the entity FK, preserving data under
+`_orphan_ext_*`.
+
+**Why rename alone fails, and why a rebuild is required.** SQLite has no
+`ALTER TABLE DROP CONSTRAINT`. While `ext_grimoire.id REFERENCES
+entity(id)` exists under any name, an old-code `DELETE` on `entity` is
+still blocked by a table the old code cannot see. Only a rebuild —
+`CREATE TABLE _orphan_ext_<slug>` with the same columns MINUS the entity
+FK (and minus any other `REFERENCES entity(id)` column's FK, kept plain
+`TEXT`) → copy every row → `DROP TABLE ext_<slug>` — actually neutralizes
+the FK. `_table_columns_from_creation` sources the exact original column
+shape from the `type_created` `entity_type_history` row (the manifest's
+own birth record), never re-derived or guessed; `_orphan_column_fragment`
+reuses `writes/schema.py`'s `_COLUMN_TYPES` enum for every non-FK column,
+so no second SQL-type-fragment source exists.
+
+**Restore is a rebuild, not an undo, and the lossy edge is inherent.**
+`--restore` rebuilds `ext_<slug>` WITH the FK restored (via
+`writes/schema.py::_build_create_table_ddl`, the SAME builder the original
+constructor used — single-sourced DDL shape). A row whose `entity` still
+exists re-attaches. A row whose `entity` was deleted DURING the
+quarantine window cannot re-attach (its FK target is gone) — that loss is
+inherent to letting old code mutate `entity` freely during the window,
+not a bug to eliminate. B1's guarantee is honesty, not losslessness: that
+row is parked in `_orphan_lost_ext_<slug>` (created on demand, no FK),
+counted, and the count is recorded on the `type_restored` history row's
+`definition_snapshot.lost_count` — never a silent drop.
+
+**History is sacred on both transitions.** `type_quarantined` and
+`type_restored` were already reserved in `entity_type_history`'s CHECK
+constraint at BRIEF-0044-b (Dgov1-style forward reservation) — this brief
+USES them, no `ALTER` needed, confirmed live. Both statuses
+(`quarantined`/`active`) and both history events append; nothing is
+overwritten in place.
+
+**Reconciliation stays green through both transitions.**
+`schema_reconcile.py`'s `_ORPHAN_PREFIX` pattern-accounts `_orphan_ext_*`
+during quarantine (BRIEF-0044-d) — `python -m world_engine.schema_reconcile`
+reports nothing unaccounted while a type sits quarantined. The B1 reader,
+`scripts/test_rollback_quarantine.py`, exercises the full cycle (create a
+throwaway type via `create_entity_type` → quarantine → simulate an
+old-code `entity` delete during the window → restore) against a scratch
+DB, asserting the FK is genuinely absent on `_orphan_ext_qtest`, present
+again on the rebuilt `ext_qtest`, the deleted-entity row lands in
+`_orphan_lost_ext_qtest`, and reconciliation is clean throughout — 18/18
+assertions, satisfying "no structure without a reader" for the socle.
+
+**The rollback contract (verbatim, also in CLAUDE.md):**
+
+> Once a runtime type exists, rolling code back past the constructor
+> version requires running scripts/rollback_quarantine.py first (after a
+> backup). Roll-forward restoration (--restore) is potentially lossy,
+> bounded to rows whose entity row was deleted during the rollback
+> window; every lost row is preserved in _orphan_lost_* and reported —
+> never silently dropped. This contract is SQLite-scoped (the
+> rebuild-without-FK recipe is SQLite-specific), matching the engine's
+> current single-backend reality.
+
+---
+
 *Co-built with Claude, June 2026.*

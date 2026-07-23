@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.85
+Current schema version: v1.87
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -216,6 +216,72 @@ CREATE TABLE location_type_catalog (
 );
 CREATE UNIQUE INDEX idx_location_type_catalog_name
   ON location_type_catalog(world_id, name COLLATE NOCASE);
+```
+
+-----
+
+### `entity_type`
+
+Per-world runtime-type registry (schema v1.87, TICKET-0044, BRIEF-0044-b —
+socle of the governed runtime-DDL constructor, A1/Dgov1). World-scoped
+config, `location_type_catalog` family (a plain PK, not the entity-extension
+shape) — one row per runtime type the constructor has materialized as an
+`ext_<slug>` physical table. `status` reserves `quarantined` for B1
+(BRIEF-0044-e) now so that step needs no ALTER; `retired` is the soft-retire
+value (Ddrop1 — never a `DROP`). `write_authorities`/`ai_proposable` are
+Dgov1 governance columns: present now, unpopulated, with NO reader until
+0047 — a deliberate, ticket-spanning exception to "no structure without a
+reader", taken to avoid an ALTER on this central table every subsequent
+ticket. This step ships the table only — no writer, no DDL emission
+(BRIEF-0044-c).
+
+```sql
+CREATE TABLE entity_type (
+  id                TEXT PRIMARY KEY,
+  world_id          TEXT NOT NULL REFERENCES world(id),
+  name              TEXT NOT NULL,
+  slug              TEXT NOT NULL,
+  physical_table    TEXT NOT NULL CHECK (physical_table GLOB 'ext_*'),
+  status            TEXT NOT NULL DEFAULT 'active',
+                    -- active | retired | quarantined
+  write_authorities JSON NOT NULL DEFAULT '[]',  -- reserved, Dgov1, no reader yet
+  ai_proposable     BOOLEAN NOT NULL DEFAULT FALSE,  -- reserved, Dgov1, no reader yet
+  created_by        TEXT,
+  created_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_entity_type_world ON entity_type(world_id);
+CREATE UNIQUE INDEX idx_entity_type_slug
+  ON entity_type(world_id, slug COLLATE NOCASE);
+CREATE UNIQUE INDEX idx_entity_type_physical_table ON entity_type(physical_table);
+```
+
+-----
+
+### `entity_type_history`
+
+Append-only DDL-event log (schema v1.87, TICKET-0044, BRIEF-0044-b — A1,
+`ledger` family). History is sacred, now at the schema grain: append-only by
+construction, no `change_history` column — the rows ARE the history. Only
+`type_created` is produced at the socle; the remaining `event` values are
+reserved (present in the CHECK now so 0045/BRIEF-0044-e need no ALTER).
+Source for B1 quarantine and C2 reconciliation (later briefs of this
+ticket).
+
+```sql
+CREATE TABLE entity_type_history (
+  id                   TEXT PRIMARY KEY,
+  world_id             TEXT NOT NULL REFERENCES world(id),
+  entity_type_id       TEXT NOT NULL REFERENCES entity_type(id),
+  event                TEXT NOT NULL,
+                       -- type_created | trait_added | type_retired |
+                       -- type_quarantined | type_restored
+  definition_snapshot  JSON NOT NULL,  -- full definition at the instant of the event
+  physical_table       TEXT NOT NULL,
+  ddl_text             TEXT,           -- exact DDL emitted for this event
+  changed_by           TEXT,
+  created_at           DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_entity_type_history_type ON entity_type_history(entity_type_id);
 ```
 
 -----
@@ -1211,6 +1277,28 @@ CREATE TABLE user (
 -- Injected context depends on the ACTIVE ROLE, not the account: in player mode
 -- the app injects only what the player character is meant to know — secrets are
 -- hidden from view. This is the same mechanism multiplayer reuses later.
+```
+
+-----
+
+### `schema_meta`
+
+Static-plane schema version (C2 two-plane governance, schema v1.86,
+TICKET-0044). Singleton row (`CHECK (id = 1)`) recording the DB's applied
+static schema version. Migration-only infra, never canon — the ONLY writer
+is `scripts/migrate_v1_86_schema_meta.py` (plus `scripts/init_db.py`'s
+virgin-head seed). Read by the cockpit's fail-closed boot guard
+(`cockpit/app.py`) against `schema_version.EXPECTED_STATIC_SCHEMA_VERSION`;
+app startup refuses when the row is absent or the version disagrees. This
+is the STATIC plane only — the per-world runtime-type manifest
+(`entity_type`, plane 2) is a separate concern and never writes here.
+
+```sql
+CREATE TABLE schema_meta (
+  id             INTEGER PRIMARY KEY CHECK (id = 1),
+  static_version TEXT NOT NULL,
+  updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
 -----

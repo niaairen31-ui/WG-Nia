@@ -4,9 +4,127 @@ Append-only history of `world-engine-schema.md`, extracted verbatim
 (BRIEF-0001-a, no schema change). Newest entry first. The current
 version number lives ONLY in `world-engine-schema.md`
 (`Current schema version:` line); this file is the log, never the
-source of "what version are we at".
+source of "what version are we at". As of v1.86 (TICKET-0044, BRIEF-0044-a)
+the version ALSO lives in the `src/world_engine/schema_version.py` code
+constant `EXPECTED_STATIC_SCHEMA_VERSION` — the doc line and the constant
+are kept equal by `tooling/verify/checks/schema_version_agreement.py`; the
+doc remains the human-facing source, the constant is what the fail-closed
+boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
+
+- **(no schema change — applicatif addendum)** — TICKET-0044, BRIEF-0044-e:
+  rollback quarantine (B1) for runtime entity types. New
+  `scripts/rollback_quarantine.py` (danger_class: destructive_data, manual
+  — no hook, no scheduler, no boot integration): quarantine rebuilds each
+  live `ext_*` table under `_orphan_ext_*` WITHOUT the entity FK (SQLite
+  has no `ALTER TABLE DROP CONSTRAINT`; a table the old code cannot see
+  would otherwise block its `entity` deletes under `PRAGMA
+  foreign_keys=ON`), copies every row, drops the original, flips
+  `entity_type.status` to `quarantined`, appends a `type_quarantined`
+  history row (both the status and the event were already reserved by
+  BRIEF-0044-b, so no CHECK constraint changed). `--restore` rebuilds
+  `ext_*` WITH the FK restored; a row whose `entity` survived the window
+  re-attaches, a row whose `entity` was deleted during the window is
+  parked in `_orphan_lost_ext_*` (created on demand) and counted — never
+  silently dropped — with the count recorded on the `type_restored`
+  history row. `_orphan_ext_*` stays reconciliation-green throughout
+  (pattern-accounted by `schema_reconcile.py`, BRIEF-0044-d). New
+  `scripts/test_rollback_quarantine.py` (the B1 reader) exercises the
+  full quarantine -> simulated entity-delete -> restore cycle against a
+  scratch DB, 18/18 assertions green. Rollback contract now stated
+  verbatim in `CLAUDE.md` and `tooling/standards/ARCHITECTURE_DECISIONS.md`
+  — "ENTITY-TYPE CONSTRUCTOR — rollback quarantine (B1)".
+
+- **(no schema change — applicatif addendum)** — TICKET-0044, BRIEF-0044-d:
+  physical-table reconciliation, C2 plane 2. New `schema_reconcile.py`
+  accounts every physical table as static (`SQLModel.metadata`),
+  registered runtime (`entity_type.physical_table`, any status), or
+  pattern-accounted `_orphan_ext_*` quarantine table (BRIEF-0044-e) —
+  anything else is corruption or a failed constructor write. Extends
+  `cockpit/app.py`'s existing plane-1 boot hook (BRIEF-0044-a) with a
+  sequential, fail-closed plane-2 check; also runnable standalone as
+  `python -m world_engine.schema_reconcile`. New static check
+  `schema_reconciliation.py` guards the mechanism, never the live DB.
+  Live-tested against the dev DB: a hand-created stray `ext_zzz` table
+  fails the CLI and refuses boot, both naming it; dropping it restores
+  green. See `tooling/standards/ARCHITECTURE_DECISIONS.md` — "SCHEMA
+  VERSION — two-plane governance (C2), plane 2".
+
+- **(no schema change — applicatif addendum)** — TICKET-0044, BRIEF-0044-f:
+  engine transaction semantics only, no table/column touched. Fixes A1 (the
+  BRIEF-0044-c "(CREATE + 2 INSERTs) are one transaction" guarantee), which
+  did not hold: pysqlite's default driver auto-commits any pending
+  transaction the instant a DDL statement runs, so a `CREATE TABLE` inside
+  `engine.begin()` survived a later `rollback()` even though the row
+  INSERTs around it correctly did not (see
+  `tooling/questions/QUESTION-TICKET-0044.md`). Fix, sqlite-guarded in
+  `src/world_engine/db.py`: `dbapi_connection.isolation_level = None` on
+  connect (disables the driver's own BEGIN/COMMIT management) plus a new
+  `engine`-instance `"begin"` listener issuing an explicit
+  `conn.exec_driver_sql("BEGIN")`, so DDL now joins the surrounding
+  transaction like any other statement. `PRAGMA foreign_keys=ON` and every
+  existing `migrate_*.py`/`init_db.py` DDL path re-verified unaffected.
+  New `scripts/test_ddl_atomicity.py` is the engine-level proof. See
+  `tooling/standards/ARCHITECTURE_DECISIONS.md` — "ENGINE — TRANSACTIONAL
+  DDL ON SQLITE, UNBLOCKS A1".
+
+- **v1.87** — TICKET-0044, BRIEF-0044-b: `entity_type` + `entity_type_history`
+  — socle registry and schema-birth history for the governed runtime-DDL
+  constructor (A1, Dgov1). This is plane 2 of the C2 two-plane governance
+  design (v1.86 shipped plane 1, `schema_meta`) — a separate concern, no
+  write path to `schema_meta`. `entity_type` (world-scoped config,
+  `location_type_catalog` family — plain PK, not the entity-extension
+  shape): `id, world_id, name, slug, physical_table, status,
+  write_authorities, ai_proposable, created_by, created_at`.
+  `physical_table` is CHECK-constrained `GLOB 'ext_*'` (Dname1
+  belt-and-suspenders); `status` is CHECK `active | retired | quarantined`
+  (Ddrop1 soft-retire; `quarantined` reserved for BRIEF-0044-e). UNIQUE on
+  `(world_id, slug COLLATE NOCASE)` and on `physical_table`.
+  `write_authorities`/`ai_proposable` are Dgov1 reserved governance
+  columns — shipped unpopulated, with NO reader until 0047, a deliberate
+  ticket-spanning exception to "no structure without a reader" (avoids an
+  ALTER on this central table every subsequent ticket). `entity_type_history`
+  (append-only, `ledger` family — no `change_history` column, the rows ARE
+  the history): `id, world_id, entity_type_id, event, definition_snapshot,
+  physical_table, ddl_text, changed_by, created_at`. `event` is CHECK
+  `type_created | trait_added | type_retired | type_quarantined |
+  type_restored` — only `type_created` is produced at the socle, the rest
+  reserved so 0045/BRIEF-0044-e need no ALTER. Both tables ship with NO
+  writer and NO seeding this step — the governed runtime-DDL writer lands in
+  BRIEF-0044-c (same ticket), which also adds both tables to
+  `canon_write_policy.txt`. Migration: `scripts/migrate_v1_87_entity_type.py`
+  (guarded, idempotent, table + index existence, no seed).
+  — *BRIEF-0044-c (application layer, no schema change)*: the governed
+  runtime-DDL writer lands — `writes/schema.py::create_entity_type`, the
+  socle's third structural-write authority (D2), creator-invoked only. One
+  transaction, all-or-nothing (A1): `CREATE TABLE ext_<slug>` (closed
+  column-type enum, Dcol1; mandatory shared PK
+  `id TEXT PRIMARY KEY REFERENCES entity(id)`; no destructive-DDL path
+  exists, Ddrop1) + the `entity_type` row + the `entity_type_history`
+  `type_created` row. `slug`/`col_name` pass a closed identifier validator
+  (Dname1) — reserved-word rejection, mandatory `ext_` prefix single-sourced
+  as `EXT_PREFIX`. `canon_write_policy.txt` closes on both tables:
+  `entity_type`/`entity_type_history` join `[CANON_TABLES]`,
+  `create_entity_type` is their sole `[ALLOWED_SITES]` entry. New fail-closed
+  static check `runtime_ddl_guard.py` enforces CREATE-only, enum-typed,
+  single-sourced DDL over the module. No row write into any `ext_*` table
+  yet (0046/0047). No migration — no static table added.
+
+- **v1.86** — TICKET-0044, BRIEF-0044-a: `schema_meta` static-plane schema
+  version + fail-closed boot guard (C2 two-plane governance, plane 1).
+  Singleton table `schema_meta` (`id INTEGER PRIMARY KEY CHECK (id = 1)`,
+  `static_version`, `updated_at`) — migration-only infra, never canon; the
+  only writer is `scripts/migrate_v1_86_schema_meta.py` (plus
+  `scripts/init_db.py`'s virgin-head seed). New code-side constant
+  `src/world_engine/schema_version.py::EXPECTED_STATIC_SCHEMA_VERSION` is
+  the code's expected static version; the cockpit boot guard
+  (`cockpit/app.py` startup) refuses to start when `schema_meta` is absent
+  or its `static_version` disagrees with the constant. This is the STATIC
+  plane only — the per-world runtime-type manifest (`entity_type`, plane 2,
+  BRIEF-0044-b/d) is a separate concern with no write path to `schema_meta`.
+  New static verify gate `tooling/verify/checks/schema_version_agreement.py`
+  checks the constant against this file's doc header.
 
 - **v1.85** — TICKET-0040, BRIEF-0040-a: `location_type_catalog` size
   templates. Two new nullable REAL columns, `default_width` and

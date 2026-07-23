@@ -88,6 +88,16 @@ JSON_COLUMN_ALLOWLIST = {
     # relationalize.
     "NpcBatch.scope",
     "NpcBatchRow.payload",
+    # Entity-type constructor socle (TICKET-0044, BRIEF-0044-b). Dgov1
+    # reserved governance column — unpopulated at the socle, no reader
+    # until 0047/F1'; a list of write-authority identifiers, not a UI
+    # field. The first reader (0047) must relationalize before rendering
+    # or editing it in any UI surface.
+    "EntityType.write_authorities",
+    # Append-only DDL-event audit snapshot — the full type definition at
+    # the instant of the event, never rendered in any UI surface (same
+    # posture as the change_history columns above).
+    "EntityTypeHistory.definition_snapshot",
 }
 
 

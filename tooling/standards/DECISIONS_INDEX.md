@@ -131,3 +131,9 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 8807 | ROOM BATCH REVIEW — SECOND CONSUMER OF THE SHARED COMPONENT (BRIEF-0042-d, no schema change) | BRIEF-0042-d |  |
 | 8862 | ROOM BATCH ATOMIC COMMIT (BRIEF-0042-e, no schema change) | BRIEF-0042-e |  |
 | 8945 | CANON.PY STRATUM SUB-SPLIT — FACTION DOMAIN EXTRACTION (BRIEF-0048-a, no schema change) | BRIEF-0048-a |  |
+| 8998 | SCHEMA VERSION — two-plane governance (C2), plane 1: stored static version + fail-closed boot guard (BRIEF-0044-a, schema v1.86) | BRIEF-0044-a | v1.86 |
+| 9042 | ENTITY-TYPE CONSTRUCTOR — socle registry + schema-birth history (BRIEF-0044-b, schema v1.87) | BRIEF-0044-b | v1.87 |
+| 9102 | ENGINE — TRANSACTIONAL DDL ON SQLITE, UNBLOCKS A1 (BRIEF-0044-f, no schema change) | BRIEF-0044-f |  |
+| 9157 | ENTITY-TYPE CONSTRUCTOR — governed runtime-DDL writer (BRIEF-0044-c, no schema change) | BRIEF-0044-c |  |
+| 9216 | SCHEMA VERSION — two-plane governance (C2), plane 2: physical-table reconciliation (BRIEF-0044-d, no schema change) | BRIEF-0044-d |  |
+| 9253 | ENTITY-TYPE CONSTRUCTOR — rollback quarantine (B1) (BRIEF-0044-e, no schema change) | BRIEF-0044-e |  |
