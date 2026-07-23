@@ -1,0 +1,12 @@
+{
+  "ticket": "TICKET-0041-shared-review-tree-component",
+  "when": "2026-07-23T00:01:30.662868+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "review_component.py",
+      "status": "PASS",
+      "msg": "PASS: review_component \u2014 6 rules evaluated, nine region* names gone, twelve review* generics singly-defined and region-blind, reviewCascade is a pure one-parameter function keyed on fallbackParentId, single region descriptor factory, boundary holds in both directions"
+    }
+  ]
+}
