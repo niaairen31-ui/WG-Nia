@@ -83,3 +83,8 @@ C. Narrow A1's claim instead of fixing the engine: accept that on this
    rewording A1's docstring/doc claims from "all three commit together or
    none do" to the weaker guarantee actually deliverable today.
 ## Response
+B - separate brief. Confirmed 2026-07-23: the db.py transactional-DDL fix
+landed as its own BRIEF-0044-f (scoped to db.py's transactional-DDL
+boundary, independently reviewed/verified), keeping BRIEF-0044-c's diff to
+exactly its stated Scope IN. BRIEF-0044-c was then re-run against the
+fixed engine and completed clean. Chain resumes at BRIEF-0044-d.
