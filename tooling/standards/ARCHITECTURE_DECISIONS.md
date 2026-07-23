@@ -8859,4 +8859,87 @@ confirmed supplementary edges) — zero console errors throughout.
 
 ---
 
+## ROOM BATCH ATOMIC COMMIT (BRIEF-0042-e, no schema change)
+
+Fifth and final step of TICKET-0042. Ships `cockpit/routes/room_batch.py::
+commit_room_batch` — the SOLE canon-write path for a batch, posture
+identical to `commit_region`: rooms commit via `_create_entity_core`
+(template bounds from the manifest type, P1) in parent-before-child
+dependency order; every `connects_to` edge (the K1 spanning tree,
+unconditional, plus confirmed supplementary edges from Phase C) commits via
+`spatial_author.connect_locations` so doors materialize on the perimeter
+(N1); the whole batch commits in ONE transaction, full rollback on any
+exception. Also ships `tooling/verify/checks/room_batch_report_only.py`,
+the ticket's own machine-checkable acceptance criterion (a fail-closed token
+scan proving `room_batch_author.py` carries none of `_apply_mutation`,
+`write_relation`, `_create_entity_core`, `db.commit(`).
+
+**Door materialization: `connect_locations` PER edge, not a single
+end-of-commit sweep (drafting decision, flagged in the brief).** Region's
+`commit_region` collects every touched location id into a set and calls
+`materialize_doors` ONCE before its single commit — more efficient when many
+edges share endpoints. This route instead calls `connect_locations` once per
+confirmed/tree edge, so a room touched by k edges is re-swept k times.
+`materialize_doors` is idempotent and full-replace per location, so the
+redundancy is a performance cost, not a correctness one — chosen here for
+single-point-of-edge-birth clarity (every edge's write and door
+materialization happen at the exact same call site, easier to read than a
+two-phase collect-then-sweep). **Trigger to switch to the region pattern:**
+if the redundant re-sweeps show up as a measurable latency cost at
+`MAX_COUNT` (25 rooms, up to 24 tree edges plus any supplementary edges) —
+measure before switching, don't assume.
+
+**No canon-write-policy allow-list entry needed.** `commit_room_batch`
+makes zero direct `.add()`/`.delete()`/`.exec()` session calls — every write
+delegates to `_crud._create_entity_core` and `connect_locations` (->
+`write_relation` + `write_location_doors`), both already sanctioned sites in
+`canon_write_policy.txt`. `single_canon_write.py`'s function-grain
+attribution (not call-graph-grain) means a route that fully delegates, like
+`commit_region` before it, needs no entry of its own — confirmed by running
+the check after this route landed: unchanged PASS, zero new lines in the
+policy file.
+
+**Server-authoritative cascade re-derivation reuses `room_batch_author.
+_name_key` directly, not a second copy.** Unlike `region_author.py` and
+`room_batch_author.py`, which each keep their OWN separate `_name_key`
+(no shared-module abstraction — a deliberate precedent, not an oversight),
+this route imports `room_batch_author._name_key` directly: the SAME
+case-insensitive, whitespace-normalized key must resolve a `parent_room`
+name identically at generation time (BRIEF-0042-a's K1 tree, BRIEF-0042-c's
+coherence index) and at commit time, or a room could silently resolve to a
+different parent than the one the creator reviewed. A second, subtly
+different copy is the one thing that must not happen here.
+
+**Confirmed live** (manual browser session, three scenarios): (1) a
+5-room batch with one room rejected mid-tree — the rejected room is absent,
+its child's `parent_location_id` re-resolved to the anchor server-side
+(never the rejected room), template bounds and perimeter doors materialized
+on both sides of every tree edge; (2) a batch under a NULL-bounds,
+NULL-classification anchor (`location_type` absent from the catalog) —
+commit succeeds, the anchor-side doors land at `(0, 0)`, and the T1 note is
+returned; (3) a corrupted room (empty `name`, forcing `_create_entity_core`'s
+422) mid-batch — the whole commit rolls back, location count under the
+anchor unchanged (zero partial writes), `{"ok": false, "error": ...}`
+returned. Zero console errors throughout.
+
+**Named deferral, on the record: a Phase B fiche's `subculture`/
+`sensed_links` are not wired to canon.** Region's commit writes
+`pub.subculture` (plus `sec.subculture_hidden` folded in as `"hidden"`) onto
+the new location; this route's `_commit_batch_rooms` sets only
+`location_type`, `access_level`, `description` and `parent_location_id` —
+Scope IN never named subculture wiring, and the ticket's supplementary-edge
+mechanism (Phase C) already supersedes fiches' own `sensed_links` as the
+room batch's edge-proposal path. A batch room therefore commits with
+whatever `subculture` its fiche proposed silently discarded. Trigger to
+revisit: if Nia wants a generated room's ambient/hidden subculture rows to
+survive the batch commit, wire `pub.get("subculture")` (and
+`sec.get("subculture_hidden")`) through the same `ext_data` dict
+`_commit_batch_rooms` already builds — the region precedent is a direct
+copy-paste away.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*
