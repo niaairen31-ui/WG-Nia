@@ -1,0 +1,52 @@
+{
+  "ticket": "TICKET-0044-socle-entity-type",
+  "when": "2026-07-23T23:55:07.653423+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v1.87'"
+    },
+    {
+      "check": "runtime_ddl_guard.py",
+      "status": "PASS",
+      "msg": "PASS: runtime_ddl_guard \u2014 writes/schema.py is CREATE-only, enum-typed, single-sourced"
+    },
+    {
+      "check": "schema_reconciliation.py",
+      "status": "PASS",
+      "msg": "PASS: schema_reconciliation \u2014 mechanism present, SQLModel.metadata-sourced, EXT_PREFIX single-sourced, boot-wired"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u2014 every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values"
+    },
+    {
+      "check": "import_cycle.py",
+      "status": "PASS",
+      "msg": "PASS: import_cycle \u2014 no module-level import cycle under src/world_engine"
+    },
+    {
+      "check": "undefined_names.py",
+      "status": "PASS",
+      "msg": "PASS: undefined_names \u2014 pyflakes reports zero undefined names under src/"
+    },
+    {
+      "check": "no_print_in_src.py",
+      "status": "PASS",
+      "msg": "PASS: no_print_in_src \u2014 every print() site under src/world_engine/ is within its transition allowance"
+    }
+  ]
+}

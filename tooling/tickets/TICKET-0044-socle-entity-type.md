@@ -2,13 +2,13 @@
 id: TICKET-0044-socle-entity-type
 title: Socle entity_type — governed runtime DDL foundation
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-23
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration, destructive_data]
 blast_radius: large
 brief_ids: [BRIEF-0044-a, BRIEF-0044-b, BRIEF-0044-f, BRIEF-0044-c, BRIEF-0044-d, BRIEF-0044-e]
-schema_version_touched: vX.YY-vX.YY  # Claude Code assigns; current head v1.85
+schema_version_touched: v1.85-v1.87
 retry_count: 0
 ---
 
