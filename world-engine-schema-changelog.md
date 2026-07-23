@@ -57,6 +57,21 @@ boot guard checks against the stored `schema_meta` row.
   BRIEF-0044-c (same ticket), which also adds both tables to
   `canon_write_policy.txt`. Migration: `scripts/migrate_v1_87_entity_type.py`
   (guarded, idempotent, table + index existence, no seed).
+  — *BRIEF-0044-c (application layer, no schema change)*: the governed
+  runtime-DDL writer lands — `writes/schema.py::create_entity_type`, the
+  socle's third structural-write authority (D2), creator-invoked only. One
+  transaction, all-or-nothing (A1): `CREATE TABLE ext_<slug>` (closed
+  column-type enum, Dcol1; mandatory shared PK
+  `id TEXT PRIMARY KEY REFERENCES entity(id)`; no destructive-DDL path
+  exists, Ddrop1) + the `entity_type` row + the `entity_type_history`
+  `type_created` row. `slug`/`col_name` pass a closed identifier validator
+  (Dname1) — reserved-word rejection, mandatory `ext_` prefix single-sourced
+  as `EXT_PREFIX`. `canon_write_policy.txt` closes on both tables:
+  `entity_type`/`entity_type_history` join `[CANON_TABLES]`,
+  `create_entity_type` is their sole `[ALLOWED_SITES]` entry. New fail-closed
+  static check `runtime_ddl_guard.py` enforces CREATE-only, enum-typed,
+  single-sourced DDL over the module. No row write into any `ext_*` table
+  yet (0046/0047). No migration — no static table added.
 
 - **v1.86** — TICKET-0044, BRIEF-0044-a: `schema_meta` static-plane schema
   version + fail-closed boot guard (C2 two-plane governance, plane 1).

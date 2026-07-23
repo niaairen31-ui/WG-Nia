@@ -9154,4 +9154,65 @@ itself is not broadened or narrowed, only made true on this engine.
 
 ---
 
+## ENTITY-TYPE CONSTRUCTOR — governed runtime-DDL writer (BRIEF-0044-c, no schema change)
+
+The socle's third structural-write authority (D2): `writes/schema.py::create_entity_type`
+materializes a runtime `ext_*` table AND registers it — one transaction,
+all three writes or none (A1): `CREATE TABLE ext_<slug>`, the `entity_type`
+row, the `entity_type_history` `type_created` row. This is CREATOR-authority
+structural, invoked only by explicit creator action, never by an AI
+proposal — the "two sanctioned canon-write paths" invariant (AI-proposal
+pipeline, creator CRUD) is unchanged for canon ROWS; this is a distinct,
+named THIRD authority for canon STRUCTURE plus the two static registry
+tables. CLAUDE.md's canon-write invariant is amended accordingly.
+
+**Socle boundary held.** The writer performs NO row write into any `ext_*`
+table — entities of a runtime type are authored later (0046 creator CRUD,
+0047 AI dispatch). The F1' runtime write-authority check for DYNAMIC-table
+ROW writes is therefore 0047's concern; `runtime_ddl_guard.py` here is a
+STATIC guard on the DDL writer itself, not the F1' runtime check.
+
+**Dcol1 — closed column-type enum, the sole source of SQL type
+fragments.** `_COLUMN_TYPES` maps TEXT/INTEGER/REAL/BOOLEAN/JSON/TIMESTAMP/
+FK_ENTITY/FK_ENTITY_NULLABLE to their SQL fragments (BOOLEAN emits an
+`INTEGER` column with a `CHECK (col IN (0,1))`; JSON is SQLite `TEXT`). A
+`col_type` outside this set raises before any DDL is built. The mandatory
+shared PK (`id TEXT PRIMARY KEY REFERENCES entity(id)`) is emitted first,
+always, never part of the caller-supplied `columns` — reproducing the
+extension-table PK shape (`Character`/`Location`/... in `canon.py`) exactly.
+
+**Dname1 — mandatory `ext_` prefix, single-sourced.** `EXT_PREFIX = "ext_"`
+is the ONLY definition of the literal in the codebase; BRIEF-0044-d's
+reconciliation imports this constant rather than re-declaring it.
+`_validate_identifier` (regex `^[a-z][a-z0-9_]{0,62}$`, closed reserved-word
+set, no leading/trailing underscore) gates `slug` and every `col_name`
+before any DDL text exists. Collision is checked two ways: `inspect(engine)
+.has_table(...)` (the physical table doesn't already exist) AND no
+`entity_type` row already claims the slug (case-insensitive) or the
+physical table name.
+
+**Ddrop1 — CREATE only, structurally.** No `DROP`/`ALTER` branch, and no
+`ADD COLUMN` function, exists anywhere in `writes/schema.py` — not
+"unused," genuinely absent. `runtime_ddl_guard.py` (new G1 check, AST-based)
+enforces this fail-closed over the module: no DROP/ALTER token reaches a
+code-path string (docstrings and the `_RESERVED_WORDS` rejection set are
+the two named exemptions — the latter's entire purpose is REJECTING those
+words as identifiers); every literal SQL-type fragment traces to the
+`_COLUMN_TYPES` enum or the one fixed PK line; the `"ext_"` literal appears
+nowhere but `EXT_PREFIX`; every `.add(...)` targets only `EntityType`/
+`EntityTypeHistory`, and no raw-SQL `.execute()`/`.exec()` resolves to an
+INSERT/UPDATE/DELETE on a dynamic table. Zero parsed assertions is itself a
+failure (vacuous-proof), matching the `door_terminal.py`/
+`single_canon_write.py` idiom this check is built on.
+
+**Canon-write policy closed, not left open.** `entity_type` and
+`entity_type_history` join `[CANON_TABLES]`; `create_entity_type` is the
+sole `[ALLOWED_SITES]` entry for both. The DDL `session.execute(text(...))`
+is a `CREATE TABLE` statement, not `INSERT`/`UPDATE`/`DELETE` — invisible to
+`single_canon_write.py`'s row-write attribution by construction, not a
+broadening of row-write authority; only the two INSERTs are row writes and
+both are allow-listed.
+
+---
+
 *Co-built with Claude, June 2026.*

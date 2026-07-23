@@ -154,11 +154,11 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   payload.** Missing -> skip and log (`_normalize_to_schema` returns
   `None`); never attributed via a conversation-level default. Per-item
   roster resolution is a named deferral.
-- **Two sanctioned canon-write paths, no others:** `_apply_mutation` (AI
-  proposals, after creator approval) and the creator CRUD. No code path may
-  ever write canon in response to an AI proposal outside `_apply_mutation`.
-  `POST /api/entities/generate` writes no canon; its accept reuses the
-  creator CRUD path.
+- **Two sanctioned canon-write paths for canon ROWS:** `_apply_mutation` (AI
+  proposals, post-approval) and the creator CRUD, never elsewhere for an AI proposal
+  (`POST /api/entities/generate` accept reuses creator CRUD). A THIRD, creator-only
+  authority covers canon STRUCTURE: `writes/schema.py::create_entity_type`, closed
+  by `single_canon_write.py` + `runtime_ddl_guard.py`.
 - **History is sacred on BOTH write paths:** any edit to `relation` or
   `knowledge` appends the previous state to `change_history`; states are
   preserved, never silently overwritten. `entity_type_history` extends this to the schema grain: append-only by construction, no `change_history` column — the rows ARE the history.
@@ -395,7 +395,7 @@ WG-Nia/
 │   ├── analyzer.py          # window + overhearing analysis -> proposed_mutation rows
 │   ├── resolution.py        # physical-action dice resolution (2d6 bands)
 │   ├── ledger.py            # ledger read helpers
-│   ├── writes/               # shared canon-write helpers (both sanctioned paths), split by canon domain; writes/__init__.py re-exports the whole surface
+│   ├── writes/               # shared canon-write helpers, split by canon domain; writes/__init__.py re-exports the whole surface; schema.py is the third structural-write authority (governed runtime-DDL writer for ext_* tables)
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
 │   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)
 │   ├── entity_author.py     # AI authoring assistant (entities, PC, skill catalogue, agendas, events)
