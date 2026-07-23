@@ -161,7 +161,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   creator CRUD path.
 - **History is sacred on BOTH write paths:** any edit to `relation` or
   `knowledge` appends the previous state to `change_history`; states are
-  preserved, never silently overwritten.
+  preserved, never silently overwritten. `entity_type_history` extends this to the schema grain: append-only by construction, no `change_history` column — the rows ARE the history.
 - **Commit before touching any canon-writing path** (`_apply_mutation`, the
   creator CRUD, the analyzers, and everything they call) — hard.
   Recommended: also commit before touching the `/say` flow or the

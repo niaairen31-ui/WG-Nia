@@ -9039,4 +9039,66 @@ entirely.
 
 ---
 
+## ENTITY-TYPE CONSTRUCTOR — socle registry + schema-birth history (BRIEF-0044-b, schema v1.87)
+
+Plane 2 of the C2 two-plane governance design (BRIEF-0044-a shipped plane 1,
+`schema_meta`, v1.86): the per-world runtime-type manifest that the
+governed runtime-DDL writer (BRIEF-0044-c), reconciliation (BRIEF-0044-d),
+and B1 quarantine (BRIEF-0044-e) all read. This step ships the two static
+tables ONLY — no writer, no DDL emission, no traits, no seeding. No
+runtime types exist yet, so no code path reads a populated row.
+
+**`entity_type` mirrors `location_type_catalog`, not the entity-extension
+shape.** A plain `TEXT PRIMARY KEY` with a `world_id` foreign key — NOT
+`id: str = Field(primary_key=True, foreign_key="entity.id")` like
+`Character`/`Location`/`Item`. `entity_type` is world-scoped CONFIG
+describing a category of entity, never an entity itself; the FUTURE
+`ext_*` runtime tables (BRIEF-0044-c) are the ones that take the
+extension shape, one per registered type.
+
+**Dname1/Ddrop1 belt-and-suspenders in the CHECK constraints, not just the
+writer.** `physical_table GLOB 'ext_*'` and `status IN ('active',
+'retired','quarantined')` are enforced at the schema level now, even
+though the writer that produces these values doesn't exist until
+BRIEF-0044-c — a partially-built registry can never smuggle a non-`ext_`
+physical table name or an out-of-vocabulary status past the DB, regardless
+of which code path writes it later. `quarantined` (B1) and the `retired`
+soft-retire value (Ddrop1 — never a `DROP`) are both present in the CHECK
+now so their respective briefs need no ALTER.
+
+**Dgov1 — reserved governance columns, a named cross-ticket exception.**
+`write_authorities` (JSON, which authorities may write ROWS of this type)
+and `ai_proposable` (the future `mutable_by_ai` trait wire, TICKET-0045)
+ship now, unpopulated, with NO reader until 0047. This deliberately
+violates "no structure without a reader" — unlike `location_type_catalog`,
+whose reader lands in the SAME ticket (BRIEF-0039-c/d/e). The exception is
+taken because `entity_type` is the chantier's central table: adding these
+columns via a later ALTER would touch it on every subsequent ticket
+through 0047. Recorded here as the named exception; no reader may be
+"helpfully" added before 0047.
+
+**`entity_type_history` extends "History is sacred" to the schema grain.**
+Same append-only posture as `Ledger` and the closed `FactionMembership`/
+`FactionRole` rows: no `change_history` column, because there is no
+"previous state" to snapshot — each row already IS one immutable event
+(A1). `definition_snapshot` (JSON) carries the full definition at the
+instant of the event and `ddl_text` carries the exact DDL emitted, making
+each row independently auditable and replayable without reconstructing
+state from a diff chain. Only `'type_created'` is produced at the socle;
+`trait_added` (0045), `type_retired`/`type_quarantined`/`type_restored`
+(BRIEF-0044-e) are reserved in the `event` CHECK now so those briefs need
+no ALTER — the closed-vocabulary-via-CHECK idiom already used for
+`npc_goal.status`, `goal_prerequisite.type`, and `skill.base_domain`.
+
+**Scope boundary held.** No writer, no `[CANON_TABLES]`/
+`[ALLOWED_SITES]` policy edit (BRIEF-0044-c's job — adding these tables to
+`canon_write_policy.txt` before a governed write site exists would leave
+the policy pointing at nothing); no reconciliation; no quarantine status
+transition logic beyond reserving the enum values. Migration
+`scripts/migrate_v1_87_entity_type.py` follows the `migrate_v1_86_schema_meta`
+two-independent-guard shape (table existence, index existence) but seeds
+nothing — a virgin registry, unlike `location_type_catalog`'s v1.84 seed.
+
+---
+
 *Co-built with Claude, June 2026.*

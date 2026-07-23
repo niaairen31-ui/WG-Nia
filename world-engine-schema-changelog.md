@@ -13,6 +13,33 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v1.87** — TICKET-0044, BRIEF-0044-b: `entity_type` + `entity_type_history`
+  — socle registry and schema-birth history for the governed runtime-DDL
+  constructor (A1, Dgov1). This is plane 2 of the C2 two-plane governance
+  design (v1.86 shipped plane 1, `schema_meta`) — a separate concern, no
+  write path to `schema_meta`. `entity_type` (world-scoped config,
+  `location_type_catalog` family — plain PK, not the entity-extension
+  shape): `id, world_id, name, slug, physical_table, status,
+  write_authorities, ai_proposable, created_by, created_at`.
+  `physical_table` is CHECK-constrained `GLOB 'ext_*'` (Dname1
+  belt-and-suspenders); `status` is CHECK `active | retired | quarantined`
+  (Ddrop1 soft-retire; `quarantined` reserved for BRIEF-0044-e). UNIQUE on
+  `(world_id, slug COLLATE NOCASE)` and on `physical_table`.
+  `write_authorities`/`ai_proposable` are Dgov1 reserved governance
+  columns — shipped unpopulated, with NO reader until 0047, a deliberate
+  ticket-spanning exception to "no structure without a reader" (avoids an
+  ALTER on this central table every subsequent ticket). `entity_type_history`
+  (append-only, `ledger` family — no `change_history` column, the rows ARE
+  the history): `id, world_id, entity_type_id, event, definition_snapshot,
+  physical_table, ddl_text, changed_by, created_at`. `event` is CHECK
+  `type_created | trait_added | type_retired | type_quarantined |
+  type_restored` — only `type_created` is produced at the socle, the rest
+  reserved so 0045/BRIEF-0044-e need no ALTER. Both tables ship with NO
+  writer and NO seeding this step — the governed runtime-DDL writer lands in
+  BRIEF-0044-c (same ticket), which also adds both tables to
+  `canon_write_policy.txt`. Migration: `scripts/migrate_v1_87_entity_type.py`
+  (guarded, idempotent, table + index existence, no seed).
+
 - **v1.86** — TICKET-0044, BRIEF-0044-a: `schema_meta` static-plane schema
   version + fail-closed boot guard (C2 two-plane governance, plane 1).
   Singleton table `schema_meta` (`id INTEGER PRIMARY KEY CHECK (id = 1)`,

@@ -862,3 +862,82 @@ class GoalAgendaLink(SQLModel, table=True):
     created_by: str
     detached_at: Optional[datetime] = None
     detached_by: Optional[str] = None
+
+
+# -----------------------------------------------------------------------------
+# entity_type  (per-world runtime-type registry, schema v1.87, TICKET-0044,
+# BRIEF-0044-b — socle for the governed runtime-DDL constructor, A1/Dgov1)
+#
+# World-scoped config, `LocationTypeCatalog` family (NOT the entity-extension
+# shape): a plain PK, no `entity.id` foreign key. One row per runtime type the
+# constructor has materialized (`ext_<slug>` physical table). `status`
+# reserves `'quarantined'` for B1 (BRIEF-0044-e) now, so that brief needs no
+# ALTER. `write_authorities`/`ai_proposable` are Dgov1 governance columns:
+# shipped now, unpopulated, with NO reader until 0047 — a deliberate,
+# ticket-spanning exception to "no structure without a reader" (see
+# ARCHITECTURE_DECISIONS.md), taken to avoid an ALTER on this central table
+# every subsequent ticket. This brief ships the table only — no writer, no
+# DDL emission (BRIEF-0044-c).
+# -----------------------------------------------------------------------------
+class EntityType(SQLModel, table=True):
+    __tablename__ = "entity_type"
+    __table_args__ = (
+        CheckConstraint("physical_table GLOB 'ext_*'", name="ck_entity_type_physical_table"),
+        CheckConstraint(
+            "status IN ('active','retired','quarantined')", name="ck_entity_type_status"
+        ),
+        Index("idx_entity_type_world", "world_id"),
+        Index(
+            "idx_entity_type_slug", "world_id", text("slug COLLATE NOCASE"),
+            unique=True,
+        ),
+        Index("idx_entity_type_physical_table", "physical_table", unique=True),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    name: str
+    slug: str
+    physical_table: str
+    status: str = Field(default="active", sa_column_kwargs={"server_default": text("'active'")})
+    # Dgov1 reserved governance columns — unpopulated at socle, reader is 0047/F1'.
+    write_authorities: list = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
+    )
+    ai_proposable: bool = Field(
+        default=False, sa_column_kwargs={"server_default": text("0")}
+    )
+    created_by: Optional[str] = None
+    created_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
+# entity_type_history  (append-only DDL-event log, schema v1.87, TICKET-0044,
+# BRIEF-0044-b — A1, `Ledger` family)
+#
+# History is sacred, now at the schema grain: append-only by construction,
+# NO `change_history` column — the rows ARE the history, no update path
+# exists or ever will. Only `'type_created'` is produced at the socle; the
+# remaining `event` values are reserved (present in the CHECK now so 0045/
+# BRIEF-0044-e need no ALTER).
+# -----------------------------------------------------------------------------
+class EntityTypeHistory(SQLModel, table=True):
+    __tablename__ = "entity_type_history"
+    __table_args__ = (
+        CheckConstraint(
+            "event IN ('type_created','trait_added','type_retired','type_quarantined','type_restored')",
+            name="ck_entity_type_history_event",
+        ),
+        Index("idx_entity_type_history_type", "entity_type_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    entity_type_id: str = Field(foreign_key="entity_type.id", nullable=False)
+    event: str
+    definition_snapshot: dict = Field(sa_column=Column(JSON, nullable=False))
+    physical_table: str
+    ddl_text: Optional[str] = None
+    changed_by: Optional[str] = None
+    created_at: datetime = _created_ts()

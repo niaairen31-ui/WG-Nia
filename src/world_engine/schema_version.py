@@ -12,4 +12,4 @@ statically checks this constant against the doc header.
 
 from __future__ import annotations
 
-EXPECTED_STATIC_SCHEMA_VERSION: str = "v1.86"
+EXPECTED_STATIC_SCHEMA_VERSION: str = "v1.87"
