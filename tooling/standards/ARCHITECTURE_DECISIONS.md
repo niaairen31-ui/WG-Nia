@@ -8675,4 +8675,51 @@ none of the other four regressed on this ticket's CSS renames.
 
 ---
 
+## ROOM BATCH MANIFEST — TYPE AUTHORITY (BRIEF-0042-a, no schema change)
+
+First step of TICKET-0042 (room batch generator). Ships
+`room_batch_author.generate_room_batch_manifest` — a Phase A manifest call
+mirroring `region_author`'s two-phase shape (parse -> normalize ->
+`{ok, manifest, notes, skipped}`), scoped to one creator-chosen anchor
+location. Writes no canon; the manifest is ephemeral until the atomic
+commit route (BRIEF-0042-e).
+
+**P1 — the manifest is the sole `location_type` authority; the batch never
+routes through `entity_author._validate_location_type`.** Every other
+authoring path (`entity_author._entity_location_draft`) validates a
+proposed type against the frozen `_LOCATION_TYPES` enum and repli-falls an
+unrecognized value to `"other"`, silently discarding it. That is wrong for
+a batch: the real vocabulary with classification AND size template is
+`location_type_catalog` (TICKET-0039/0040), and a repli-fall to `"other"`
+would lose the template on the very generator whose rooms most need one. So
+`_normalize_batch_types` looks the proposed string up via
+`spatial_author._catalog_row` (the single catalog read path, J1,
+TICKET-0040) and, on a miss, **keeps the string verbatim** and appends a
+note (`"Type '{t}' absent du catalogue -- ce lieu naîtra sans bounds tant
+que le type n'est pas classifié"`) instead of substituting anything. The
+creator resolves it in Phase A editing via the existing classification
+affordance (P-a, BRIEF-0042-d). A type present in the catalog but with a
+NULL size template is left as-is — that room legitimately borns without
+bounds, consistent with T1 (an anchor/room with NULL bounds never blocks
+the batch).
+
+**K1 spanning tree — cycle detection is new, not mirrored.** The manifest's
+`parent_room` per room is model-proposed, code-guaranteed: resolved
+case-insensitively against (surviving manifest rooms | the anchor name),
+with any unresolved name, self-parent, or a cycle (a room reachable from
+itself through a chain of `parent_room` pointers) forced to attach
+directly to the anchor, noted. `region_author._normalize_location_parents`
+is the SHAPE precedent (parse -> normalize -> notes) but does not itself
+detect true cycles among non-root entries (a region's flat two-tier
+manifest has no depth to cycle through); `room_batch_author._detect_cycle`
+walks the resolved-parent chain against a frozen first-pass resolution
+(`_resolve_parent_keys`), so a forced-attach mutation made for one room
+never corrupts the chain walk for another room evaluated later in the same
+pass.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*

@@ -1301,6 +1301,63 @@ REGION_MANIFEST_USER_TEMPLATE = """\
 Manifeste JSON :\
 """
 
+# TICKET-0042 (BRIEF-0042-a): Room batch orchestrator, Phase A — manifest.
+# usage = "room_batch_manifest". Transforms a creator-chosen anchor location
+# + its existing siblings/edges into a JSON manifest of `count` proposed
+# rooms. Consumed by room_batch_author.generate_room_batch_manifest, which
+# code-judges it (dedup, K1 spanning-tree cycle detection forcing an
+# unresolved/self/cyclic parent_room to the anchor, P1 catalog type
+# validation that KEEPS an uncatalogued type verbatim). Writes no canon.
+ROOM_BATCH_MANIFEST_SYSTEM_PROMPT = """\
+Tu es l'assistant de création du créateur d'un monde de jeu de rôle. Le \
+créateur a choisi un lieu ANCRE existant et veut y générer un LOT DE PIÈCES \
+sous cet ancre. Ton travail est de proposer un MANIFESTE structuré de ces \
+pièces, cohérent avec l'ancre et les pièces qui existent déjà ; tu ne crées \
+rien toi-même — le créateur éditera ce manifeste avant que chaque pièce ne \
+soit détaillée.
+
+=== STRUCTURE DU MANIFESTE ===
+Ta réponse est TOUJOURS un unique objet JSON avec exactement une clé de \
+premier niveau : "rooms" — une liste d'objets \
+{"name", "one_liner", "location_type", "parent_room"}, un par pièce, dans \
+le nombre exact demandé par le message utilisateur.
+- "name" : nom court de la pièce, unique dans la liste.
+- "one_liner" : une seule phrase d'accroche pour cette pièce.
+- "location_type" : de préférence un type parmi ceux déjà catalogués pour ce \
+monde (liste fournie) ; une pièce d'intérieur ordinaire est le plus souvent \
+"room".
+- "parent_room" : le nom exact d'une AUTRE pièce proposée dans ce même lot, \
+pour construire de la profondeur, OU null (ou le nom de l'ancre) pour \
+rattacher directement à l'ancre.
+
+=== RÈGLE — RIEN D'AUTRE ===
+Ne propose aucune arête supplémentaire entre pièces : seule la hiérarchie \
+parent_room est demandée ici, une passe ultérieure proposera des liaisons \
+en plus. N'invente aucune coordonnée, aucune taille.
+
+=== FORMAT DE SORTIE ===
+Réponds UNIQUEMENT avec l'objet JSON demandé — aucun texte avant ou après, \
+aucun bloc de code Markdown, aucun commentaire.\
+"""
+
+ROOM_BATCH_MANIFEST_USER_TEMPLATE = """\
+--- Ancre ---
+{anchor_block}
+
+--- Pièces déjà existantes sous cet ancre ---
+{siblings_block}
+
+--- Liaisons existantes entre ces pièces ---
+{edges_block}
+
+--- Types de lieu déjà catalogués pour ce monde ---
+{catalog_types}
+
+Génère un manifeste d'exactement {count} pièces sous cet ancre.
+
+Manifeste JSON :\
+"""
+
 # MJ initiative vote — decides whether a bystander NPC acts spontaneously this
 # turn (Tier 3, step 1 — C1). Cheap non-streaming JSON call; /no_think appended
 # at call time. usage = "mj_initiative", world_id = NULL.
@@ -1870,6 +1927,25 @@ def seed(session: Session) -> None:
         system_prompt=REGION_MANIFEST_SYSTEM_PROMPT,
         user_template=REGION_MANIFEST_USER_TEMPLATE,
         variables=["world_description", "world_fundamental_laws", "brief"],
+        destination="local",
+    )
+
+    # ----- prompt template: room batch orchestrator manifest (BRIEF-0042-a) --
+    # usage = "room_batch_manifest" (new usage value). world_id = NULL. Calls
+    # go through room_batch_author.generate_room_batch_manifest (Phase A),
+    # which formats user_template with {anchor_block}, {siblings_block},
+    # {edges_block}, {catalog_types}, {count} and code-judges the resulting
+    # manifest (dedup, K1 spanning-tree cycle detection, P1 catalog type
+    # validation). Writes no canon at any stage.
+    upsert_prompt_template(
+        session,
+        "pt-room-batch-manifest",
+        world_id=None,
+        name="Orchestrateur de lot de pièces — manifeste",
+        usage="room_batch_manifest",
+        system_prompt=ROOM_BATCH_MANIFEST_SYSTEM_PROMPT,
+        user_template=ROOM_BATCH_MANIFEST_USER_TEMPLATE,
+        variables=["anchor_block", "siblings_block", "edges_block", "catalog_types", "count"],
         destination="local",
     )
 

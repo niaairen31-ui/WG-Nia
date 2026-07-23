@@ -401,6 +401,7 @@ WG-Nia/
 │   ├── entity_author.py     # AI authoring assistant (entities, PC, skill catalogue, agendas, events)
 │   ├── region_author.py     # region generation orchestrator (proposes names, no canon)
 │   ├── spatial_author.py    # Creation-side door materialization from live connects_to (TICKET-0039)
+│   ├── room_batch_author.py # Room batch orchestrator, Phase A manifest (TICKET-0042)
 │   └── cockpit/             # creator web UI (FastAPI + HTMX, port 8000, loopback)
 │       ├── app.py           # app factory + router mounting + link-batch retention purge (startup); routes/ holds the routers
 │       ├── play*.py         # say() decomposition: routing, physical branch, narration/initiative
@@ -467,8 +468,7 @@ WG-Nia/
   never touches text once a version exists (S2), and still converges
   non-text head fields (name, variables, destination, notes, is_active)
   without losing other data.
-- **Backup:** `python scripts/backup.py` — manual, SQLite online backup
-  API, 2-file rotation to `~/.world_engine/backups/`.
+- **Backup:** `python scripts/backup.py` — manual, SQLite online backup API, 2-file rotation to `~/.world_engine/backups/`.
 - **CLI conversation:** `python scripts/talk.py` (requires `ollama serve`).
 - **Analyze a conversation:**
   `python scripts/analyze_conversation.py <conversation_id>` — reads
