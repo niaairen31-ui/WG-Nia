@@ -8585,6 +8585,94 @@ touches only `location_type_catalog`, never a `location` row, and no
 `DECISIONS_INDEX.md` is regenerated from this entry via
 `gen_decisions_index.py`.
 
+## SHARED REVIEW-TREE COMPONENT — EXTRACTION (BRIEF-0041-a, BRIEF-0041-b, BRIEF-0041-c, no schema change)
+
+Nine `region*` review functions (cascade, accept/reject, notes, node, tree,
+graph toggle, graph data, graph render) are replaced by a generic `review*`
+component (`index.html`) driven by an explicit descriptor, with the region
+tree and the pre-commit location graph cut over to it. Zero behaviour
+change: region review renders, cascades, toggles and commits identically to
+`main` — asserted by static gates plus a scripted live sequence run once
+end to end, not by a JS runtime the codebase does not have.
+
+**Structural justification, not aesthetics.** `regionCascade` computed the
+region root inside its own body and hard-wired it as the fallback parent of
+every orphaned node. TICKET-0042's batch generator must re-attach orphans to
+a creator-chosen anchor instead — the two consumers differ by the VALUE of
+one parameter (`fallbackParentId`), not by behaviour. Duplicating the
+cascade would have shipped two copies identical up to a constant, and two
+places to fix the next reparenting bug (S-norme; C2, refactor over
+exemption).
+
+**E1 — a registry, not a closure.** Inline `onclick` handlers are string
+literals evaluated in global scope; they cannot carry a JS closure over a
+descriptor object. The component therefore keeps `REVIEW_DESCRIPTORS`, a
+plain object keyed by a registry key (`reviewRegister(key, descriptor)`),
+and every DOM-reachable entry point (`reviewToggleAccept`, `reviewOpenSheet`,
+`reviewToggleGraph`, …) takes that key as its first argument and re-resolves
+the descriptor via `reviewDescriptor(key)`. `reviewCascade` and `reviewNotes`
+are the two exceptions: they are pure functions of their arguments and never
+touch the registry.
+
+**B1 — the anti-vacuity teeth are purity plus a parameterised fallback, not
+a caller count.** A caller-count criterion cannot be green at THIS ticket's
+close: the component's second consumer is TICKET-0042, not yet written, so
+four of the nine generics would show exactly one caller here regardless of
+how correctly the extraction was done. A fail-closed gate that cannot
+structurally be green is a broken gate. The teeth that replace it, both
+enforced by `tooling/verify/checks/review_component.py`: (a) no `review*`
+function body may contain the token `region` or `REGION_`, in any
+context — a rename without real mutualisation leaves a global read in the
+body and fails here; (b) `reviewCascade` takes exactly one parameter and its
+body references `fallbackParentId` while touching no DOM and no registry — a
+rename that keeps the root hard-wired recomputed inside the function fails
+here.
+
+**Rejected: the `_git_show` byte-identical footprint criterion.** Precedent
+(`relation_graph.py`'s Lieux-graph-vs-`main` diff) compares the current tree
+to `main`. That criterion goes vacuous the moment this ticket merges — `main`
+then instantly equals the new code, and the check would silently stop
+proving anything. Replaced by a permanent BIDIRECTIONAL boundary, named-
+allow-list style (`json_ui_boundary.py` precedent): outside the component,
+only `regionRenderAll`, `regionReviewDescriptor`, `regionRenderFactionsPanel`
+and `_sheetEntityOptions` may reference a `review*` symbol — checked by
+walking every top-level function in `index.html` and testing its
+brace-balanced body against the exact twelve `review*` identifiers, not
+against the bare substring `review`. The substring alone false-positives on
+unrelated, pre-existing English prose already on `main` (`doApprove`'s
+"reviewed but not applied" comment, the `/api/mutations/batch-review`
+endpoint literal in `doBatchAction`, `npcAgentLoadBatch`'s "review selects"
+comment, `renderCard`'s "reviewed rows" comment) — none of those four
+functions calls a `review*` symbol, so a raw-substring gate would have been
+permanently red for reasons unconnected to this boundary. The
+identifier-boundary match proves the same "blast radius is exactly the four
+sanctioned consumers" claim without that false-positive surface, confirmed
+against the live file before the check was committed.
+
+**C1 — why `index.html` stays one file.** Splitting it out of a single page
+is a documented convention (`CLAUDE.md`, "single-page HTMX/vanilla-JS
+cockpit/index.html, no build step"), and `module_budget.py` scans
+`src/**/*.py` only — `index.html` is structurally exempt from the
+1000-line cap by construction, not by oversight. Splitting it needs a
+serving decision (today only `/vendor/{filename}` is a whitelisted static
+route, and it explicitly rejects non-vendored assets), an evaluation-order
+decision (`const NODE_R` is declared after the region/review block and does
+not hoist — a `<script src>` split could load the component before `NODE_R`
+exists, a TDZ error silent until the graph is opened), and a `CLAUDE.md`
+doctrine amendment. None of that is this ticket's work.
+
+**Named deferral — `index.html` file split (D3).** Trigger: the next ticket
+that needs a JS unit test or a golden-render snapshot test, since neither
+can exist without a loadable module. Blocked on: the serving-route decision,
+the `const NODE_R` evaluation-order decision, and the `CLAUDE.md` doctrine
+amendment above.
+
+`review_component.py` is `index.html`'s fifth structural gate alongside
+`page_contract.py`, `relation_graph.py`, `event_tab.py` and `schema_0024.py`;
+none of the other four regressed on this ticket's CSS renames.
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*

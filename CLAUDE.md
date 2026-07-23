@@ -54,8 +54,8 @@ and `world-engine-schema-changelog.md` — never here.
   standard shell; no page or tab-specific branch may exist outside the
   registry, and a page's primary action exists only as its registry
   `primaryAction` (`tooling/verify/checks/page_contract.py` enforces). A
-  slot may declare `display: 'on_demand'` to stay hidden and unloaded until
-  its shell toggle is clicked (default `'always'`, today's behavior).
+  slot may declare `display: 'on_demand'` to stay hidden and unloaded until its shell toggle is clicked (default `'always'`, today's behavior).
+- **The review tree** (`review*`, `index.html`) is a generic accept/reject component driven by a registered descriptor, never by consumer globals: a consumer calls `reviewRegister(key, descriptor)` and every DOM-reachable entry point takes that key as its first argument (inline `onclick` handlers are strings and cannot carry a closure). `reviewCascade` is PURE and re-attaches an orphan to `descriptor.fallbackParentId` — region passes its draft root, a future batch generator would pass its own anchor; that fallback is never recomputed inside the component. No `review*` body may name `region`, and outside the component only `regionRenderAll`, `regionReviewDescriptor`, `regionRenderFactionsPanel` and `_sheetEntityOptions` may name a `review*` symbol — both directions enforced fail-closed by `tooling/verify/checks/review_component.py`. `index.html` remains a single file with no build step; splitting it is a doctrine change, not a refactor.
 
 ## Ticket pipeline (governance)
 
