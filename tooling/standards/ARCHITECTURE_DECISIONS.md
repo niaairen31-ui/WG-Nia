@@ -9250,6 +9250,73 @@ hook now runs the plane-1 version check, then the plane-2 reconciliation
 check, in that order, both fail-closed — not two independent hooks, one
 guard with two sequential gates.
 
+## ENTITY-TYPE CONSTRUCTOR — rollback quarantine (B1) (BRIEF-0044-e, no schema change)
+
+Consequence #2 of D2 (hot materialization): a code rollback past the
+constructor version finds `ext_*` tables it does not know about, and —
+because `PRAGMA foreign_keys=ON` (`db.py:44`) — their FK into `entity`
+BLOCKS the old code's `entity` deletes. B1 (locked at intake): quarantine
+by construction, not prevention. `entity_type` is the manifest;
+`scripts/rollback_quarantine.py` (danger_class: destructive_data, manual —
+mirrors `backup.py`, no hook, no scheduler, no boot integration) rebuilds
+each runtime table WITHOUT the entity FK, preserving data under
+`_orphan_ext_*`.
+
+**Why rename alone fails, and why a rebuild is required.** SQLite has no
+`ALTER TABLE DROP CONSTRAINT`. While `ext_grimoire.id REFERENCES
+entity(id)` exists under any name, an old-code `DELETE` on `entity` is
+still blocked by a table the old code cannot see. Only a rebuild —
+`CREATE TABLE _orphan_ext_<slug>` with the same columns MINUS the entity
+FK (and minus any other `REFERENCES entity(id)` column's FK, kept plain
+`TEXT`) → copy every row → `DROP TABLE ext_<slug>` — actually neutralizes
+the FK. `_table_columns_from_creation` sources the exact original column
+shape from the `type_created` `entity_type_history` row (the manifest's
+own birth record), never re-derived or guessed; `_orphan_column_fragment`
+reuses `writes/schema.py`'s `_COLUMN_TYPES` enum for every non-FK column,
+so no second SQL-type-fragment source exists.
+
+**Restore is a rebuild, not an undo, and the lossy edge is inherent.**
+`--restore` rebuilds `ext_<slug>` WITH the FK restored (via
+`writes/schema.py::_build_create_table_ddl`, the SAME builder the original
+constructor used — single-sourced DDL shape). A row whose `entity` still
+exists re-attaches. A row whose `entity` was deleted DURING the
+quarantine window cannot re-attach (its FK target is gone) — that loss is
+inherent to letting old code mutate `entity` freely during the window,
+not a bug to eliminate. B1's guarantee is honesty, not losslessness: that
+row is parked in `_orphan_lost_ext_<slug>` (created on demand, no FK),
+counted, and the count is recorded on the `type_restored` history row's
+`definition_snapshot.lost_count` — never a silent drop.
+
+**History is sacred on both transitions.** `type_quarantined` and
+`type_restored` were already reserved in `entity_type_history`'s CHECK
+constraint at BRIEF-0044-b (Dgov1-style forward reservation) — this brief
+USES them, no `ALTER` needed, confirmed live. Both statuses
+(`quarantined`/`active`) and both history events append; nothing is
+overwritten in place.
+
+**Reconciliation stays green through both transitions.**
+`schema_reconcile.py`'s `_ORPHAN_PREFIX` pattern-accounts `_orphan_ext_*`
+during quarantine (BRIEF-0044-d) — `python -m world_engine.schema_reconcile`
+reports nothing unaccounted while a type sits quarantined. The B1 reader,
+`scripts/test_rollback_quarantine.py`, exercises the full cycle (create a
+throwaway type via `create_entity_type` → quarantine → simulate an
+old-code `entity` delete during the window → restore) against a scratch
+DB, asserting the FK is genuinely absent on `_orphan_ext_qtest`, present
+again on the rebuilt `ext_qtest`, the deleted-entity row lands in
+`_orphan_lost_ext_qtest`, and reconciliation is clean throughout — 18/18
+assertions, satisfying "no structure without a reader" for the socle.
+
+**The rollback contract (verbatim, also in CLAUDE.md):**
+
+> Once a runtime type exists, rolling code back past the constructor
+> version requires running scripts/rollback_quarantine.py first (after a
+> backup). Roll-forward restoration (--restore) is potentially lossy,
+> bounded to rows whose entity row was deleted during the rollback
+> window; every lost row is preserved in _orphan_lost_* and reported —
+> never silently dropped. This contract is SQLite-scoped (the
+> rebuild-without-FK recipe is SQLite-specific), matching the engine's
+> current single-backend reality.
+
 ---
 
 *Co-built with Claude, June 2026.*

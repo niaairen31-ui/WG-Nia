@@ -13,6 +13,44 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **(no schema change — applicatif addendum)** — TICKET-0044, BRIEF-0044-e:
+  rollback quarantine (B1) for runtime entity types. New
+  `scripts/rollback_quarantine.py` (danger_class: destructive_data, manual
+  — no hook, no scheduler, no boot integration): quarantine rebuilds each
+  live `ext_*` table under `_orphan_ext_*` WITHOUT the entity FK (SQLite
+  has no `ALTER TABLE DROP CONSTRAINT`; a table the old code cannot see
+  would otherwise block its `entity` deletes under `PRAGMA
+  foreign_keys=ON`), copies every row, drops the original, flips
+  `entity_type.status` to `quarantined`, appends a `type_quarantined`
+  history row (both the status and the event were already reserved by
+  BRIEF-0044-b, so no CHECK constraint changed). `--restore` rebuilds
+  `ext_*` WITH the FK restored; a row whose `entity` survived the window
+  re-attaches, a row whose `entity` was deleted during the window is
+  parked in `_orphan_lost_ext_*` (created on demand) and counted — never
+  silently dropped — with the count recorded on the `type_restored`
+  history row. `_orphan_ext_*` stays reconciliation-green throughout
+  (pattern-accounted by `schema_reconcile.py`, BRIEF-0044-d). New
+  `scripts/test_rollback_quarantine.py` (the B1 reader) exercises the
+  full quarantine -> simulated entity-delete -> restore cycle against a
+  scratch DB, 18/18 assertions green. Rollback contract now stated
+  verbatim in `CLAUDE.md` and `tooling/standards/ARCHITECTURE_DECISIONS.md`
+  — "ENTITY-TYPE CONSTRUCTOR — rollback quarantine (B1)".
+
+- **(no schema change — applicatif addendum)** — TICKET-0044, BRIEF-0044-d:
+  physical-table reconciliation, C2 plane 2. New `schema_reconcile.py`
+  accounts every physical table as static (`SQLModel.metadata`),
+  registered runtime (`entity_type.physical_table`, any status), or
+  pattern-accounted `_orphan_ext_*` quarantine table (BRIEF-0044-e) —
+  anything else is corruption or a failed constructor write. Extends
+  `cockpit/app.py`'s existing plane-1 boot hook (BRIEF-0044-a) with a
+  sequential, fail-closed plane-2 check; also runnable standalone as
+  `python -m world_engine.schema_reconcile`. New static check
+  `schema_reconciliation.py` guards the mechanism, never the live DB.
+  Live-tested against the dev DB: a hand-created stray `ext_zzz` table
+  fails the CLI and refuses boot, both naming it; dropping it restores
+  green. See `tooling/standards/ARCHITECTURE_DECISIONS.md` — "SCHEMA
+  VERSION — two-plane governance (C2), plane 2".
+
 - **(no schema change — applicatif addendum)** — TICKET-0044, BRIEF-0044-f:
   engine transaction semantics only, no table/column touched. Fixes A1 (the
   BRIEF-0044-c "(CREATE + 2 INSERTs) are one transaction" guarantee), which

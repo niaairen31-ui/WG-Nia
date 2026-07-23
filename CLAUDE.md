@@ -189,9 +189,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   `assemble_mj_context`, never a "don't describe" prompt.
 - **Condition ladder is monotone for engine writes:** `unharmed -> bruised
   -> injured -> neutralized` — forward only by violent-verdict code; backward only by creator CRUD.
-- **Frozen scene yields no model calls:** `scene_state.frozen = True` ->
-  `/say` short-circuits with a fixed MJ message. Only the creator panel
-  unfreezes.
+- **Frozen scene yields no model calls:** `scene_state.frozen = True` -> `/say` short-circuits with a fixed MJ message. Only the creator panel unfreezes.
 - **`discoverable_detail` is structurally excluded from every assembler,
   with one consciously narrowed exception:** no assembler or prompt-building
   path reads the table. `hidden` content reaches a model ONLY via the
@@ -328,6 +326,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
 - **UI-visible data never lives in JSON** — relational only; enforced
   fail-closed by `json_ui_boundary` (exceptions justified in that file).
 - **The app refuses to boot when `schema_meta.static_version` != `EXPECTED_STATIC_SCHEMA_VERSION`, OR when a physical table is neither a static model table nor a registered `entity_type.physical_table`** (fail-closed on both; the second check is `schema_reconcile.unaccounted_tables`, extending the same `cockpit/app.py` startup hook — `_orphan_ext_*` quarantine tables are pattern-accounted, never flagged); `schema_meta` is migration-only infra, never canon, never writable outside a migration script.
+- **Rollback contract (B1):** "Once a runtime type exists, rolling code back past the constructor version requires running `scripts/rollback_quarantine.py` first (after a backup). Roll-forward restoration (`--restore`) is potentially lossy, bounded to rows whose `entity` row was deleted during the rollback window; every lost row is preserved in `_orphan_lost_*` and reported — never silently dropped. This contract is SQLite-scoped (the rebuild-without-FK recipe is SQLite-specific), matching the engine's current single-backend reality." Full rationale: `ARCHITECTURE_DECISIONS.md`, "ENTITY-TYPE CONSTRUCTOR — rollback quarantine (B1)".
 
 ## Local model notes
 
@@ -416,6 +415,7 @@ WG-Nia/
 │   ├── cockpit.py           # launch the world cockpit
 │   ├── pipeline_cockpit.py  # launch the pipeline cockpit (port 8100; deposit dormant)
 │   ├── backup.py            # manual DB backup, 2-file rotation
+│   ├── rollback_quarantine.py  # B1 quarantine/restore for runtime entity types (destructive_data, manual)
 │   └── migrate_*.py         # one idempotent migration per schema step
 ├── tooling/
 │   ├── tickets/, recon/, briefs/  # pipeline artifacts (filename is law)
