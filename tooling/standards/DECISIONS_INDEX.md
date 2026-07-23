@@ -133,3 +133,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 8945 | CANON.PY STRATUM SUB-SPLIT — FACTION DOMAIN EXTRACTION (BRIEF-0048-a, no schema change) | BRIEF-0048-a |  |
 | 8998 | SCHEMA VERSION — two-plane governance (C2), plane 1: stored static version + fail-closed boot guard (BRIEF-0044-a, schema v1.86) | BRIEF-0044-a | v1.86 |
 | 9042 | ENTITY-TYPE CONSTRUCTOR — socle registry + schema-birth history (BRIEF-0044-b, schema v1.87) | BRIEF-0044-b | v1.87 |
+| 9102 | ENGINE — TRANSACTIONAL DDL ON SQLITE, UNBLOCKS A1 (BRIEF-0044-f, no schema change) | BRIEF-0044-f |  |

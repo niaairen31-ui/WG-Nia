@@ -13,6 +13,24 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **(no schema change — applicatif addendum)** — TICKET-0044, BRIEF-0044-f:
+  engine transaction semantics only, no table/column touched. Fixes A1 (the
+  BRIEF-0044-c "(CREATE + 2 INSERTs) are one transaction" guarantee), which
+  did not hold: pysqlite's default driver auto-commits any pending
+  transaction the instant a DDL statement runs, so a `CREATE TABLE` inside
+  `engine.begin()` survived a later `rollback()` even though the row
+  INSERTs around it correctly did not (see
+  `tooling/questions/QUESTION-TICKET-0044.md`). Fix, sqlite-guarded in
+  `src/world_engine/db.py`: `dbapi_connection.isolation_level = None` on
+  connect (disables the driver's own BEGIN/COMMIT management) plus a new
+  `engine`-instance `"begin"` listener issuing an explicit
+  `conn.exec_driver_sql("BEGIN")`, so DDL now joins the surrounding
+  transaction like any other statement. `PRAGMA foreign_keys=ON` and every
+  existing `migrate_*.py`/`init_db.py` DDL path re-verified unaffected.
+  New `scripts/test_ddl_atomicity.py` is the engine-level proof. See
+  `tooling/standards/ARCHITECTURE_DECISIONS.md` — "ENGINE — TRANSACTIONAL
+  DDL ON SQLITE, UNBLOCKS A1".
+
 - **v1.87** — TICKET-0044, BRIEF-0044-b: `entity_type` + `entity_type_history`
   — socle registry and schema-birth history for the governed runtime-DDL
   constructor (A1, Dgov1). This is plane 2 of the C2 two-plane governance

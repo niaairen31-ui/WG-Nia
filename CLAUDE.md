@@ -165,7 +165,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
 - **Commit before touching any canon-writing path** (`_apply_mutation`, the
   creator CRUD, the analyzers, and everything they call) — hard.
   Recommended: also commit before touching the `/say` flow or the
-  interpretation phase (playability-critical).
+  interpretation phase (playability-critical). On SQLite, DDL participates in the surrounding transaction — a structural guarantee of the shared engine (`db.py`), never a per-site precaution.
 - **The MJ context assembler is scoped to the player's perception
   boundary:** only what the player may perceive or already knows. Never
   NPC-private knowledge, secrets, internal names, non-public entities, or

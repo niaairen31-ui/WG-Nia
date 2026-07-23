@@ -9099,6 +9099,59 @@ transition logic beyond reserving the enum values. Migration
 two-independent-guard shape (table existence, index existence) but seeds
 nothing — a virgin registry, unlike `location_type_catalog`'s v1.84 seed.
 
+## ENGINE — TRANSACTIONAL DDL ON SQLITE, UNBLOCKS A1 (BRIEF-0044-f, no schema change)
+
+BRIEF-0044-c's live gate proved A1 (the "(CREATE TABLE ext_*) + (INSERT
+entity_type) + (INSERT entity_type_history) commit together or none do"
+guarantee) cannot hold on the engine as configured: pysqlite's default
+driver mode auto-commits any pending transaction the instant a DDL
+statement runs, so a `CREATE TABLE` inside `engine.begin()` survives a
+later `rollback()` even though the row INSERTs around it correctly do
+not. This was asserted "(it does)" in BRIEF-0044-c's own mini-RECON and
+was wrong — see `tooling/questions/QUESTION-TICKET-0044.md` for the
+minimal reproduction and root cause. This step lands BEFORE BRIEF-0044-c
+because the fix is to the shared `engine` object every canon-write path
+binds to, not to `writes/schema.py`; 0044-c's code needed no change once
+this landed.
+
+**The fix is SQLAlchemy's own documented pysqlite recipe, guarded to
+`dialect.name == "sqlite"`.** In the existing connect listener
+(`db.py::_enable_sqlite_foreign_keys`), `dbapi_connection.isolation_level
+= None` disables the driver's own BEGIN/COMMIT management (which is what
+was silently committing DDL early); a new `engine`-instance `"begin"`
+listener (`_begin_sqlite_transaction`) issues an explicit
+`conn.exec_driver_sql("BEGIN")` so every transaction — DDL included — is
+one SQLite transaction, committed or rolled back as a whole. The existing
+`PRAGMA foreign_keys=ON` connect-time behavior is unaffected (it always
+ran in autocommit at connect time, before any BEGIN). Both empirically
+verified on the installed SQLAlchemy 2.0.50 / sqlmodel 0.0.38 pair against
+scratch databases: a forced failure between a CREATE TABLE and a later
+INSERT now leaves neither; a committed transaction leaves both; FK
+enforcement still fires on a fresh connection; every existing
+`migrate_*.py`'s DDL pattern (`engine.begin()` context manager, or a bare
+`Table.create(engine)`) still lands and commits under the new setup, and
+`scripts/init_db.py` still fully creates a virgin database (49 tables).
+Re-running BRIEF-0044-c's forced-failure A1 test through the actual
+`create_entity_type` afterward, unmodified, now correctly leaves none of
+the three writes behind.
+
+**Process lesson — engine/driver claims in a mini-RECON are asserted-then-
+verified, never trusted.** BRIEF-0044-c's mini-RECON stated the SQLite
+CREATE-TABLE-rollback behavior as settled fact ("(it does)") without
+reproducing it; that claim was false and only surfaced at the brief's own
+live-gate check. This brief's own mini-RECON therefore re-verified every
+claim (SQLAlchemy major version, the exact `"begin"`-listener incantation,
+the connect-listener class-vs-instance question, and the full
+`migrate_*.py`/`init_db.py` regression surface) empirically before
+touching `db.py` — the verify step is load-bearing for exactly this kind
+of claim, and is not satisfied by restating the recipe from memory.
+
+**Scope held.** `writes/schema.py`/`create_entity_type` and its A1
+acceptance test are untouched (BRIEF-0044-c's own scope); no change to
+what any canon-write path writes or to `canon_write_policy.txt`; no
+Postgres/Supabase transactional path (untouched, sqlite-guarded); A1
+itself is not broadened or narrowed, only made true on this engine.
+
 ---
 
 *Co-built with Claude, June 2026.*
