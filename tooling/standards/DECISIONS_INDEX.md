@@ -135,3 +135,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 9042 | ENTITY-TYPE CONSTRUCTOR — socle registry + schema-birth history (BRIEF-0044-b, schema v1.87) | BRIEF-0044-b | v1.87 |
 | 9102 | ENGINE — TRANSACTIONAL DDL ON SQLITE, UNBLOCKS A1 (BRIEF-0044-f, no schema change) | BRIEF-0044-f |  |
 | 9157 | ENTITY-TYPE CONSTRUCTOR — governed runtime-DDL writer (BRIEF-0044-c, no schema change) | BRIEF-0044-c |  |
+| 9216 | SCHEMA VERSION — two-plane governance (C2), plane 2: physical-table reconciliation (BRIEF-0044-d, no schema change) | BRIEF-0044-d |  |

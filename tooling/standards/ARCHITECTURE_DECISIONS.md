@@ -9213,6 +9213,43 @@ is a `CREATE TABLE` statement, not `INSERT`/`UPDATE`/`DELETE` — invisible to
 broadening of row-write authority; only the two INSERTs are row writes and
 both are allow-listed.
 
+## SCHEMA VERSION — two-plane governance (C2), plane 2: physical-table reconciliation (BRIEF-0044-d, no schema change)
+
+Plane 1 (`schema_meta`, BRIEF-0044-a) answers "is the code's expected
+static schema live in this DB." Plane 2 answers a different question that
+plane 1 structurally cannot: "does every PHYSICAL table in the live DB
+actually belong here." Once `create_entity_type` can birth tables at
+runtime, a table can exist that no migration declared and no registry row
+claims — that is corruption or a failed constructor write, and the two
+planes never collapse into one check.
+
+**Why runtime, not static.** The accounting depends on the live database's
+actual tables (`sqlalchemy.inspect(engine).get_table_names()`) and the
+live `entity_type` rows — a static AST check cannot see either. So
+`schema_reconcile.py` runs the ACCOUNTING at boot and as a CLI
+(`python -m world_engine.schema_reconcile`); the new
+`schema_reconciliation.py` G1 check stays static and guards only that the
+MECHANISM exists, is `SQLModel.metadata`-sourced (never a hardcoded table
+list), single-sources `EXT_PREFIX` from `writes/schema.py`, and is
+imported by the boot module — mirroring `single_canon_write.py`'s
+static-AST precedent for a check that cannot itself touch the DB.
+
+**Accounted set.** `static ∪ registered_runtime ∪ {_orphan_ext_* pattern}`.
+`static_table_names()` is every table on `SQLModel.metadata` post-import.
+`registered_runtime_tables()` reads `entity_type.physical_table` for ALL
+statuses (`active`, `retired`, `quarantined`) — a retired or quarantined
+type's table still physically exists and must not read as unaccounted.
+`_orphan_ext_*` (BRIEF-0044-e's quarantine tables) are pattern-accounted:
+this step only accounts for that prefix, it never creates it. Any `ext_*`
+table outside all three is the dangerous case — a runtime table with no
+registry row — and trips both the CLI (`sys.exit(1)`, naming it) and the
+boot guard (`RuntimeError`, refuse to serve).
+
+**Boot wiring extends, not duplicates.** `cockpit/app.py`'s single startup
+hook now runs the plane-1 version check, then the plane-2 reconciliation
+check, in that order, both fail-closed — not two independent hooks, one
+guard with two sequential gates.
+
 ---
 
 *Co-built with Claude, June 2026.*

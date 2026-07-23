@@ -43,6 +43,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from sqlalchemy import delete, inspect
 from sqlmodel import Session, SQLModel, select
 
+from .. import schema_reconcile
 from ..db import engine
 from ..models import LinkBatch, LinkBatchRow, NpcBatch, NpcBatchRow, SchemaMeta
 from ..schema_version import EXPECTED_STATIC_SCHEMA_VERSION
@@ -159,10 +160,26 @@ def _check_schema_version(db: Session) -> None:
         )
 
 
+def _check_schema_reconciliation(db: Session) -> None:
+    """Fail-closed boot guard (C2 two-plane governance, plane 2 —
+    TICKET-0044, BRIEF-0044-d): refuse to start if any physical table is
+    neither a static model table nor a registered
+    `entity_type.physical_table` (`_orphan_ext_*` quarantine tables are
+    pattern-accounted, never flagged)."""
+    unaccounted = schema_reconcile.unaccounted_tables(engine, db)
+    if unaccounted:
+        raise RuntimeError(
+            "unaccounted physical tables (not static, not in entity_type): "
+            f"{unaccounted} — a runtime table with no registry row indicates "
+            "corruption or a failed constructor write; refuse to serve."
+        )
+
+
 @app.on_event("startup")
 def _check_schema_version_on_startup() -> None:
     with Session(engine) as db:
         _check_schema_version(db)
+        _check_schema_reconciliation(db)
 
 
 @app.on_event("startup")

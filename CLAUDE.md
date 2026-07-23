@@ -134,8 +134,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
 - **Per-NPC uniqueness:** each present NPC belongs to exactly ONE open
   gathering. Per-NPC, NOT per-location (multiple open gatherings in one
   location are legal). Defended on every join/migrate path.
-- **Dissolve-before-create lives in the caller** (`enter_location`), never
-  inside `generate_gatherings`.
+- **Dissolve-before-create lives in the caller** (`enter_location`), never inside `generate_gatherings`.
 - **`relation_change` is owned by window analysis** (`analyze_window`,
   `proposed_by='local_ai_window'`): at most one `relation_change` per NPC
   pair per window, proportionate to that window. Never deduplicated against
@@ -328,7 +327,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
 - Affinity tiers are resolved in code (`context.py::_affinity_tier`); prompt templates never carry the tier table.
 - **UI-visible data never lives in JSON** — relational only; enforced
   fail-closed by `json_ui_boundary` (exceptions justified in that file).
-- **The app refuses to boot when `schema_meta.static_version` != `EXPECTED_STATIC_SCHEMA_VERSION`** (fail-closed, `cockpit/app.py` startup); `schema_meta` is migration-only infra, never canon, never writable outside a migration script.
+- **The app refuses to boot when `schema_meta.static_version` != `EXPECTED_STATIC_SCHEMA_VERSION`, OR when a physical table is neither a static model table nor a registered `entity_type.physical_table`** (fail-closed on both; the second check is `schema_reconcile.unaccounted_tables`, extending the same `cockpit/app.py` startup hook — `_orphan_ext_*` quarantine tables are pattern-accounted, never flagged); `schema_meta` is migration-only infra, never canon, never writable outside a migration script.
 
 ## Local model notes
 
@@ -387,6 +386,7 @@ WG-Nia/
 ├── src/world_engine/        # the importable package (PYTHONPATH=src)
 │   ├── db.py                # engine + session; URL from env var
 │   ├── schema_version.py    # code-side expected-version constant for the static schema, checked at cockpit boot
+│   ├── schema_reconcile.py  # physical-table reconciliation (C2 plane 2): static ∪ registered_runtime ∪ orphan-pattern accounting, boot guard + CLI
 │   ├── models/               # all SQLModel table classes (the schema), split by canon/canon_faction/ephemeral/pipeline stratum; models/__init__.py re-exports the whole surface
 │   ├── context.py           # NPC + MJ context assembly; structural exclusions; signposts
 │   ├── tick*.py             # world-tick: tick.py orchestrates, tick_context.py assembles, tick_normalize.py normalizes; call sites allowlisted by verify/checks/world_tick.py
