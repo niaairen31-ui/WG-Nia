@@ -4,9 +4,29 @@ Append-only history of `world-engine-schema.md`, extracted verbatim
 (BRIEF-0001-a, no schema change). Newest entry first. The current
 version number lives ONLY in `world-engine-schema.md`
 (`Current schema version:` line); this file is the log, never the
-source of "what version are we at".
+source of "what version are we at". As of v1.86 (TICKET-0044, BRIEF-0044-a)
+the version ALSO lives in the `src/world_engine/schema_version.py` code
+constant `EXPECTED_STATIC_SCHEMA_VERSION` — the doc line and the constant
+are kept equal by `tooling/verify/checks/schema_version_agreement.py`; the
+doc remains the human-facing source, the constant is what the fail-closed
+boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
+
+- **v1.86** — TICKET-0044, BRIEF-0044-a: `schema_meta` static-plane schema
+  version + fail-closed boot guard (C2 two-plane governance, plane 1).
+  Singleton table `schema_meta` (`id INTEGER PRIMARY KEY CHECK (id = 1)`,
+  `static_version`, `updated_at`) — migration-only infra, never canon; the
+  only writer is `scripts/migrate_v1_86_schema_meta.py` (plus
+  `scripts/init_db.py`'s virgin-head seed). New code-side constant
+  `src/world_engine/schema_version.py::EXPECTED_STATIC_SCHEMA_VERSION` is
+  the code's expected static version; the cockpit boot guard
+  (`cockpit/app.py` startup) refuses to start when `schema_meta` is absent
+  or its `static_version` disagrees with the constant. This is the STATIC
+  plane only — the per-world runtime-type manifest (`entity_type`, plane 2,
+  BRIEF-0044-b/d) is a separate concern with no write path to `schema_meta`.
+  New static verify gate `tooling/verify/checks/schema_version_agreement.py`
+  checks the constant against this file's doc header.
 
 - **v1.85** — TICKET-0040, BRIEF-0040-a: `location_type_catalog` size
   templates. Two new nullable REAL columns, `default_width` and

@@ -8995,4 +8995,48 @@ signal.
 
 ---
 
+## SCHEMA VERSION — two-plane governance (C2), plane 1: stored static version + fail-closed boot guard (BRIEF-0044-a, schema v1.86)
+
+TICKET-0044 introduces a third structural-write authority: the runtime-DDL
+constructor (BRIEF-0044-c) creates `ext_*` tables at runtime, outside
+migration. Once tables can be born that way, the schema version doc string
+stops describing the base — nothing detected DB-vs-code drift. This step
+ships plane 1 of the locked design: a STATIC-plane version, stored and
+checked at boot. Plane 2 (per-world runtime-type manifest / reconciliation)
+is a separate, later concern (BRIEF-0044-b/d) — the two planes answer
+different questions and never share a write path.
+
+**Stored, not doc-only.** `schema_meta` is a new singleton table
+(`CHECK (id = 1)`) holding `static_version`. It lives in `models/pipeline.py`
+(infra stratum, alongside `User`) — never `canon.py`, never
+`canon_write_policy.txt [CANON_TABLES]`: it is engine infra, not
+world-domain canon, and the constructor is structurally forbidden any write
+path to it. The ONLY writer is a migration script (this ticket's
+`migrate_v1_86_schema_meta.py`) plus `scripts/init_db.py`'s virgin-head
+seed — the same "migration backfill AND seed virgin-head both" idiom
+`writes/prompts.py` already documents for `prompt_version`.
+
+**Code-side constant, checked at boot, fail-closed.** New module
+`schema_version.py` exposes `EXPECTED_STATIC_SCHEMA_VERSION`. The cockpit's
+existing startup hook (`cockpit/app.py`, previously only the link/NPC batch
+purge) gained a second `@app.on_event("startup")` handler, registered
+FIRST, that reads the `schema_meta` singleton and raises `RuntimeError`
+before the app serves a single route when: the table is absent, the row is
+absent, or `static_version != EXPECTED_STATIC_SCHEMA_VERSION`. On agreement
+it starts silently — no log noise on the success path. A migration bumps
+the constant, the `schema_meta` row, and the `world-engine-schema.md`
+header line together, in the same commit — never one without the others;
+`verify/checks/schema_version_agreement.py` is the static G1 gate that
+catches drift between the doc line and the constant (not between the doc
+and the live DB — that's what the boot guard is for).
+
+**Deliberately narrow scope.** This guard checks the VERSION only — no
+table-enumeration or "every physical table accounted for" logic; that's
+plane 2's reconciliation job (BRIEF-0044-d), scoped OUT here on purpose so
+the two planes stay genuinely separate. No `world_id` on `schema_meta` —
+it is GLOBAL static-plane; per-world runtime types are a different plane
+entirely.
+
+---
+
 *Co-built with Claude, June 2026.*

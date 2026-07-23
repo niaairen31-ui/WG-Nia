@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import JSON, Column, Index, text
+from sqlalchemy import JSON, CheckConstraint, Column, Index, text
 from sqlmodel import Field, SQLModel
 
 from .canon import _created_ts, _uuid
@@ -142,6 +142,27 @@ class User(SQLModel, table=True):
     is_active: bool = Field(
         default=True, sa_column_kwargs={"server_default": text("1")}
     )
+
+
+# -----------------------------------------------------------------------------
+# schema_meta  (static-plane schema version, C2 two-plane governance,
+# schema v1.86 / TICKET-0044, BRIEF-0044-a)
+#
+# Singleton row (`CHECK (id = 1)`) recording the DB's applied static schema
+# version. Migration-only infra, never canon: the ONLY writer is
+# `scripts/migrate_v1_86_schema_meta.py` (plus `scripts/init_db.py`'s
+# virgin-head seed). Read by the cockpit's fail-closed boot guard
+# (`cockpit/app.py`) against `schema_version.EXPECTED_STATIC_SCHEMA_VERSION`.
+# This is the STATIC plane only — the per-world runtime-type manifest
+# (`entity_type`, BRIEF-0044-b) is a separate plane and never writes here.
+# -----------------------------------------------------------------------------
+class SchemaMeta(SQLModel, table=True):
+    __tablename__ = "schema_meta"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_schema_meta_singleton"),)
+
+    id: int = Field(default=1, primary_key=True)
+    static_version: str
+    updated_at: datetime = _created_ts()
 
 
 # -----------------------------------------------------------------------------

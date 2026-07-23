@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.85
+Current schema version: v1.86
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1211,6 +1211,28 @@ CREATE TABLE user (
 -- Injected context depends on the ACTIVE ROLE, not the account: in player mode
 -- the app injects only what the player character is meant to know — secrets are
 -- hidden from view. This is the same mechanism multiplayer reuses later.
+```
+
+-----
+
+### `schema_meta`
+
+Static-plane schema version (C2 two-plane governance, schema v1.86,
+TICKET-0044). Singleton row (`CHECK (id = 1)`) recording the DB's applied
+static schema version. Migration-only infra, never canon — the ONLY writer
+is `scripts/migrate_v1_86_schema_meta.py` (plus `scripts/init_db.py`'s
+virgin-head seed). Read by the cockpit's fail-closed boot guard
+(`cockpit/app.py`) against `schema_version.EXPECTED_STATIC_SCHEMA_VERSION`;
+app startup refuses when the row is absent or the version disagrees. This
+is the STATIC plane only — the per-world runtime-type manifest
+(`entity_type`, plane 2) is a separate concern and never writes here.
+
+```sql
+CREATE TABLE schema_meta (
+  id             INTEGER PRIMARY KEY CHECK (id = 1),
+  static_version TEXT NOT NULL,
+  updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
 -----

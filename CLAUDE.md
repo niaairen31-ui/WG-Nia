@@ -169,8 +169,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
 - **The MJ context assembler is scoped to the player's perception
   boundary:** only what the player may perceive or already knows. Never
   NPC-private knowledge, secrets, internal names, non-public entities, or
-  invisible relations. Enforced by query construction, never by
-  instruction.
+  invisible relations. Enforced by query construction, never by instruction.
 - **Knowledge levels never decrease through the mutation pipeline:**
   `unaware < rumor < suspicious < partial < knows < fully_understands` is
   monotone for every `knowledge_change` apply (`_apply_mutation`'s
@@ -190,8 +189,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   (`_stream` in `app.py`). Blindfolded exclusion is a data exclusion in
   `assemble_mj_context`, never a "don't describe" prompt.
 - **Condition ladder is monotone for engine writes:** `unharmed -> bruised
-  -> injured -> neutralized` — forward only by violent-verdict code;
-  backward only by creator CRUD.
+  -> injured -> neutralized` — forward only by violent-verdict code; backward only by creator CRUD.
 - **Frozen scene yields no model calls:** `scene_state.frozen = True` ->
   `/say` short-circuits with a fixed MJ message. Only the creator panel
   unfreezes.
@@ -330,6 +328,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
 - Affinity tiers are resolved in code (`context.py::_affinity_tier`); prompt templates never carry the tier table.
 - **UI-visible data never lives in JSON** — relational only; enforced
   fail-closed by `json_ui_boundary` (exceptions justified in that file).
+- **The app refuses to boot when `schema_meta.static_version` != `EXPECTED_STATIC_SCHEMA_VERSION`** (fail-closed, `cockpit/app.py` startup); `schema_meta` is migration-only infra, never canon, never writable outside a migration script.
 
 ## Local model notes
 
@@ -387,6 +386,7 @@ WG-Nia/
 │   └── settings.json        # permissions allowlist
 ├── src/world_engine/        # the importable package (PYTHONPATH=src)
 │   ├── db.py                # engine + session; URL from env var
+│   ├── schema_version.py    # code-side expected-version constant for the static schema, checked at cockpit boot
 │   ├── models/               # all SQLModel table classes (the schema), split by canon/canon_faction/ephemeral/pipeline stratum; models/__init__.py re-exports the whole surface
 │   ├── context.py           # NPC + MJ context assembly; structural exclusions; signposts
 │   ├── tick*.py             # world-tick: tick.py orchestrates, tick_context.py assembles, tick_normalize.py normalizes; call sites allowlisted by verify/checks/world_tick.py
@@ -403,7 +403,7 @@ WG-Nia/
 │   ├── spatial_author.py    # Creation-side door materialization from live connects_to (TICKET-0039)
 │   ├── room_batch_author.py # Room batch orchestrator: Phase A manifest, Phase B fiches, Phase C coherence edges (TICKET-0042)
 │   └── cockpit/             # creator web UI (FastAPI + HTMX, port 8000, loopback)
-│       ├── app.py           # app factory + router mounting + link-batch retention purge (startup); routes/ holds the routers
+│       ├── app.py           # app factory + router mounting + fail-closed schema-version boot guard + link-batch retention purge (startup); routes/ holds the routers
 │       ├── play*.py         # say() decomposition: routing, physical branch, narration/initiative
 │       ├── crud/            # creator CRUD routes, split by domain (entities, relations, ...)
 │       ├── index.html       # single-page UI; CREATION_TABS registry + dispatcher

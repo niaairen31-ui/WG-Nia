@@ -13,7 +13,9 @@ Layout, by stratum:
                         TICKET-0048 for the module_budget cap.
     ephemeral.py     — session/scene-lifetime tables.
     pipeline.py      — prompt/pipeline/approval machinery, plus User (app/
-                        account infrastructure — Nia's stratum escalation).
+                        account infrastructure — Nia's stratum escalation)
+                        and SchemaMeta (static-plane schema version,
+                        migration-only).
 
 This module re-exports the ENTIRE former public surface of the flat
 `models.py` — every class, constant, and the two module functions
@@ -82,6 +84,7 @@ from .pipeline import (
     PromptTemplate,
     PromptVariable,
     PromptVersion,
+    SchemaMeta,
     User,
 )
 
@@ -125,6 +128,7 @@ __all__ = [
     "Skill",
     "DiscoverableDetail",
     "User",
+    "SchemaMeta",
     "PromptTemplate",
     "PromptVariable",
     "PromptVersion",

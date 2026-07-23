@@ -131,3 +131,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 8807 | ROOM BATCH REVIEW — SECOND CONSUMER OF THE SHARED COMPONENT (BRIEF-0042-d, no schema change) | BRIEF-0042-d |  |
 | 8862 | ROOM BATCH ATOMIC COMMIT (BRIEF-0042-e, no schema change) | BRIEF-0042-e |  |
 | 8945 | CANON.PY STRATUM SUB-SPLIT — FACTION DOMAIN EXTRACTION (BRIEF-0048-a, no schema change) | BRIEF-0048-a |  |
+| 8998 | SCHEMA VERSION — two-plane governance (C2), plane 1: stored static version + fail-closed boot guard (BRIEF-0044-a, schema v1.86) | BRIEF-0044-a | v1.86 |
