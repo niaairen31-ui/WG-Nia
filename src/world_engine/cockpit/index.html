@@ -1276,6 +1276,22 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     </p>
   </div>
 
+  <!-- ── Lieux — Room batch generator panel (TICKET-0042, BRIEF-0042-d).
+       Outer wrapper participates in CREATION_TABS.lieux's containers
+       hide/show loop (so it disappears when leaving the Lieux tab); the
+       inner #batch-panel is independently opened/closed by
+       batchOpenPanel/batchClosePanel, so it stays hidden by default even
+       while the Lieux tab itself is active. ── -->
+  <div id="batch-panel-wrap">
+    <div id="batch-panel" style="display:none">
+      <div class="lieux-graph-head">
+        <span>Génération de lot — <span id="batch-anchor-label"></span></span>
+        <button class="btn-icon" onclick="batchClosePanel()">Fermer</button>
+      </div>
+      <div id="batch-root" style="padding:10px 14px; max-height:600px; overflow-y:auto"></div>
+    </div>
+  </div>
+
   <!-- ── NPC — Relation ego/global graph panel (BRIEF-0023-b, BRIEF-0033-e) ── -->
   <div id="creation-npc-relgraph" style="display:none">
     <div class="lieux-graph-head">
@@ -4014,6 +4030,7 @@ function _lieuxTabEnterReset() {
   lieuxBrowseParentId = null;
   lieuxBreadcrumb = [];
   _onDemandSlotReset(CREATION_TABS.lieux);
+  batchReset();
 }
 
 /* Shared authorAllEntities/playerCharIds cache — used by every entity tab
@@ -4051,6 +4068,7 @@ function _lieuxWorldReset() {
   lieuxActiveOnly     = false;
   graphData           = null;
   _onDemandSlotReset(CREATION_TABS.lieux);
+  batchReset();
 }
 
 function _factionsWorldReset() {
@@ -4142,7 +4160,7 @@ const CREATION_TABS = {
   lieux: {
     label: 'Lieux',
     archetype: 'entity',
-    containers: ['creation-editor-area'],
+    containers: ['creation-editor-area', 'batch-panel-wrap'],
     loader: null,
     state: { onTabEnter: _lieuxTabEnterReset, onWorldSwitch: _lieuxWorldReset },
     type: 'location',
@@ -6480,6 +6498,444 @@ async function regionCommit() {
   regionRenderAll();
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+   Room batch generator (TICKET-0042, BRIEF-0042-d) — anchored on a Lieux
+   browse node ("Générer un lot ici"), NOT the region* globals (a batch and
+   a region can never be live at once, but separate state keeps the two
+   consumers independent — the same S-norme reason TICKET-0041's generic
+   review component exists). Everything here is client-held until the
+   atomic commit route (BRIEF-0042-e); no draft/manifest is persisted
+   server-side.
+   ════════════════════════════════════════════════════════════════════════ */
+
+let batchAnchorId       = null;
+let batchAnchorName     = null;
+let batchCount          = 8;
+let batchManifest       = null;   // {rooms: [{name, one_liner, location_type, parent_room}]}
+let batchManifestAnchor = null;   // anchor block returned by /manifest (name/location_type/description/…)
+let batchManifestNotes  = [];
+let batchManifestSkipped = [];
+let batchDrafts         = null;   // {rooms: [{local_id, name, parent_room, result:{draft, notes}}], skipped, notes}
+let batchCoherence      = null;   // {edges: [{id, a_id, b_id, a_local, b_local, reason}], unresolved, notes}
+let batchAccepted       = {};
+let batchConfirmedEdges = {};
+let batchGraphOpen      = false;
+let batchCommitResult   = null;
+
+function batchReset() {
+  batchAnchorId        = null;
+  batchAnchorName      = null;
+  batchCount           = 8;
+  batchManifest        = null;
+  batchManifestAnchor  = null;
+  batchManifestNotes   = [];
+  batchManifestSkipped = [];
+  batchDrafts          = null;
+  batchCoherence       = null;
+  batchAccepted        = {};
+  batchConfirmedEdges  = {};
+  batchGraphOpen       = false;
+  batchCommitResult    = null;
+  const panelEl = document.getElementById('batch-panel');
+  if (panelEl) panelEl.style.display = 'none';
+}
+
+function batchOpenPanel(anchorId, anchorName) {
+  batchReset();
+  batchAnchorId = anchorId;
+  batchAnchorName = anchorName;
+  const panelEl = document.getElementById('batch-panel');
+  if (panelEl) panelEl.style.display = '';
+  const labelEl = document.getElementById('batch-anchor-label');
+  if (labelEl) labelEl.textContent = anchorName;
+  batchRenderAll();
+}
+
+function batchClosePanel() {
+  batchReset();
+}
+
+async function batchGenerateManifest() {
+  const statusEl = document.getElementById('batch-gen-status');
+  if (statusEl) statusEl.textContent = 'Génération du manifeste… (peut prendre un moment)';
+  let result;
+  try {
+    result = await api('/api/room-batch/manifest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ anchor_id: batchAnchorId, count: batchCount }),
+    });
+  } catch (e) {
+    if (statusEl) statusEl.textContent = e.message;
+    return;
+  }
+  if (!result || result.ok === false) {
+    if (statusEl) statusEl.textContent = (result && result.error) || 'Échec de la génération.';
+    return;
+  }
+  batchManifest        = result.manifest;
+  batchManifestAnchor  = result.anchor;
+  batchManifestNotes   = result.notes || [];
+  batchManifestSkipped = result.skipped || [];
+  batchDrafts          = null;
+  batchCoherence       = null;
+  batchAccepted        = {};
+  batchConfirmedEdges  = {};
+  batchRenderAll();
+}
+
+function batchManifestAddRow() {
+  batchManifest.rooms.push({ name: '', one_liner: '', location_type: '', parent_room: null });
+  batchRenderAll();
+}
+
+function batchManifestRemoveRow(i) {
+  batchManifest.rooms.splice(i, 1);
+  batchRenderAll();
+}
+
+/** Parent select options for manifest row i: the anchor (empty value) plus
+ *  every OTHER manifest room name (BRIEF-0042-d item 3). Mirrors
+ *  regionManifestOptions' "inject the stale value as its own option"
+ *  fallback if a referenced name was since renamed/removed. */
+function batchManifestParentOptions(i) {
+  const names = batchManifest.rooms.filter((_, j) => j !== i).map(r => r.name);
+  const current = batchManifest.rooms[i].parent_room;
+  const opts = [`<option value=""${current ? '' : ' selected'}>${esc(batchAnchorName)} (ancre)</option>`];
+  let found = !current;
+  for (const name of names) {
+    if (name === current) found = true;
+    opts.push(`<option value="${esc(name)}"${name === current ? ' selected' : ''}>${esc(name)}</option>`);
+  }
+  if (current && !found) opts.push(`<option value="${esc(current)}" selected>${esc(current)}</option>`);
+  return opts.join('');
+}
+
+/** Phase A manifest editor: per-row name / one-liner / location_type
+ *  (catalog datalist + Gabarit… affordance, reused verbatim from
+ *  _authorOpenTemplateModalFor) / parent_room select, add/remove rows. */
+function batchRenderManifestTable() {
+  const rows = (batchManifest.rooms || []).map((r, i) => {
+    const typeInputId = `batch-type-${i}`;
+    const typeDlId = `${typeInputId}-dl`;
+    const typeOpts = (authorLocationTypeCatalog || [])
+      .map(row => `<option value="${esc(row.name)}">${esc(_authorLocationTypeOptionLabel(row))}</option>`).join('');
+    return `
+    <div class="row-card">
+      <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap">
+        <div class="field-row" style="flex:1; min-width:140px"><label>Nom</label>
+          <input type="text" value="${esc(r.name)}" placeholder="Nom de la pièce"
+            oninput="batchManifest.rooms[${i}].name = this.value"></div>
+        <div class="field-row" style="min-width:200px"><label>Type</label>
+          <div style="display:flex; gap:6px; align-items:center">
+            <input type="text" id="${typeInputId}" list="${typeDlId}" value="${esc(r.location_type || '')}" style="flex:1"
+              oninput="batchManifest.rooms[${i}].location_type = this.value">
+            <button type="button" class="btn-ghost" style="font-size:12px; padding:3px 8px"
+              onclick="_authorOpenTemplateModalFor('${typeInputId}')">Gabarit...</button>
+          </div>
+          <datalist id="${typeDlId}">${typeOpts}</datalist></div>
+        <div class="field-row" style="min-width:160px"><label>Parent</label>
+          <select onchange="batchManifest.rooms[${i}].parent_room = this.value || null">
+            ${batchManifestParentOptions(i)}
+          </select></div>
+        <button class="btn-icon" title="Retirer" onclick="batchManifestRemoveRow(${i})">x</button>
+      </div>
+      <textarea rows="2" style="width:100%; resize:vertical" placeholder="Accroche en une ligne"
+        oninput="batchManifest.rooms[${i}].one_liner = this.value">${esc(r.one_liner || '')}</textarea>
+    </div>`;
+  }).join('');
+
+  const notes = [...(batchManifestNotes || []), ...(batchManifestSkipped || []).map(s =>
+    `${s.stage || ''} · ${s.name || '?'} — ${s.reason || ''}`)];
+
+  return `
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap">
+      <button class="btn-icon" onclick="batchManifestAddRow()">+ Ajouter une pièce</button>
+      <button class="btn-send" onclick="batchGenerateDrafts()" style="margin-left:auto">Générer les fiches</button>
+    </div>
+    ${notes.length ? `<div class="field-section" style="border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:10px;">
+      <div class="field-section-title">Notes de génération du manifeste</div>
+      ${notes.map(n => `<div style="font-size:11px; color:var(--muted)">${esc(n)}</div>`).join('')}
+    </div>` : ''}
+    <div class="row-table">${rows}</div>
+    <div id="batch-draft-status" style="font-size:12px; color:var(--muted); margin-top:8px"></div>
+  `;
+}
+
+async function batchGenerateDrafts() {
+  const statusEl = document.getElementById('batch-draft-status');
+  const isNameless = (r) => !((r.name || '').trim());
+  const rooms = (batchManifest.rooms || []).filter(r => !isNameless(r));
+  if (!rooms.length) {
+    if (statusEl) statusEl.textContent = 'Au moins une pièce nommée est requise.';
+    return;
+  }
+
+  if (statusEl) statusEl.textContent = 'Génération des fiches… (peut prendre un moment)';
+  let result;
+  try {
+    result = await api('/api/room-batch/draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ manifest: { rooms }, anchor: batchManifestAnchor }),
+    });
+  } catch (e) {
+    if (statusEl) statusEl.textContent = e.message;
+    return;
+  }
+  if (!result || result.ok === false) {
+    if (statusEl) statusEl.textContent = (result && result.error) || 'Échec de la génération.';
+    return;
+  }
+  batchDrafts = result;
+  batchAccepted = {};
+  for (const r of result.rooms) batchAccepted[r.local_id] = true;
+  batchAccepted[batchAnchorId] = true;
+  batchCoherence = null;
+  batchConfirmedEdges = {};
+  batchRenderAll();
+}
+
+async function batchRunCoherence() {
+  const statusEl = document.getElementById('batch-coherence-status');
+  if (statusEl) statusEl.textContent = 'Passe de cohérence…';
+  let result;
+  try {
+    result = await api('/api/room-batch/coherence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ manifest: batchManifest, drafts: batchDrafts, anchor: batchManifestAnchor }),
+    });
+  } catch (e) {
+    if (statusEl) statusEl.textContent = e.message;
+    return;
+  }
+  batchCoherence = result;
+  batchConfirmedEdges = {};
+  batchRenderAll();
+}
+
+function _batchNodeName(id) {
+  if (id === batchAnchorId) return batchAnchorName;
+  const room = ((batchDrafts && batchDrafts.rooms) || []).find(r => r.local_id === id);
+  if (room) return room.name;
+  const loc = (authorLocationTree || []).find(l => l.id === id);
+  return loc ? loc.name : id;
+}
+
+function batchToggleEdgeConfirm(edgeId) {
+  batchConfirmedEdges[edgeId] = !batchConfirmedEdges[edgeId];
+  batchRenderAll();
+}
+
+/** Confirm/discard toggle per supplementary edge, default UNCONFIRMED
+ *  (opt-in, mirroring region's sensed_links toggles — the inverse default
+ *  of the review tree's accept/reject above). */
+function batchRenderEdgesPanel() {
+  if (!batchCoherence) return '<div class="empty">Passe de cohérence non lancée.</div>';
+  const edges = batchCoherence.edges || [];
+  const unresolved = batchCoherence.unresolved || [];
+  const notes = batchCoherence.notes || [];
+
+  const edgesHtml = edges.length ? edges.map(e => {
+    const confirmed = !!batchConfirmedEdges[e.id];
+    return `
+      <div style="display:flex; align-items:center; gap:6px; font-size:11px; ${confirmed ? '' : 'color:var(--muted)'}">
+        <button class="btn-icon" onclick="batchToggleEdgeConfirm('${esc(e.id)}')">${confirmed ? '✓ Confirmé' : 'Confirmer'}</button>
+        <span>${esc(_batchNodeName(e.a_id))} <-> ${esc(_batchNodeName(e.b_id))}${e.reason ? ' — ' + esc(e.reason) : ''}</span>
+      </div>`;
+  }).join('') : '<div class="empty">Aucune arête supplémentaire proposée.</div>';
+
+  const unresolvedHtml = unresolved.length ? `<div style="margin-top:8px">${unresolved.map(u =>
+    `<div style="font-size:11px; color:var(--muted)">· ${esc(u.a)} <-> ${esc(u.b)} — ${esc(u.reason || '')}</div>`
+  ).join('')}</div>` : '';
+  const notesHtml = notes.length ? `<div style="margin-top:8px">${notes.map(n =>
+    `<div style="font-size:11px; color:var(--muted)">· ${esc(n)}</div>`
+  ).join('')}</div>` : '';
+
+  return edgesHtml + unresolvedHtml + notesHtml;
+}
+
+function batchOpenSheet(id) {
+  if (id === batchAnchorId) {
+    genericModalOpen(batchAnchorName, `<div style="font-size:12px; color:var(--muted)">
+      ${esc((batchManifestAnchor && batchManifestAnchor.description) || '')}</div>`);
+    return;
+  }
+  const room = ((batchDrafts && batchDrafts.rooms) || []).find(r => r.local_id === id);
+  if (!room) return;
+  const pub = room.result.draft.public;
+  genericModalOpen(room.name, `
+    <div style="font-size:12px; color:var(--muted)">${esc(pub.location_type || '')}</div>
+    <div style="margin-top:8px">${esc(pub.description || '')}</div>
+  `);
+}
+
+/** Builds the review descriptor for the batch's room tree (TICKET-0041).
+ *  The single site that reads batchDrafts/batchAccepted to build a
+ *  descriptor. The anchor is a SYNTHETIC, always-accepted, non-toggleable
+ *  root (Q1) — O1's distinct root and the "everything reaches the anchor"
+ *  tree fall out with no change to the shared component core. */
+function batchReviewDescriptor() {
+  const draftRooms = (batchDrafts && batchDrafts.rooms) || [];
+
+  if (batchAccepted[batchAnchorId] === undefined) batchAccepted[batchAnchorId] = true;
+
+  const nodes = [
+    { id: batchAnchorId, name: batchAnchorName, subtitle: '(ancre)', parentId: null,
+      description: '', notes: [], extras: '', __anchor: true },
+    ...draftRooms.map(r => {
+      const pub = r.result.draft.public;
+      const parentRoom = r.parent_room ? draftRooms.find(o => o.name === r.parent_room) : null;
+      return {
+        id: r.local_id,
+        name: r.name,
+        subtitle: pub.location_type || '',
+        parentId: parentRoom ? parentRoom.local_id : batchAnchorId,
+        description: pub.description,
+        notes: r.result.notes || [],
+        extras: '',
+      };
+    }),
+  ];
+
+  return {
+    key: 'batch',
+    nodes,
+    accepted: batchAccepted,
+    fallbackParentId: batchAnchorId,
+    reparentedLabel: 'rattaché à l\'ancre',
+    graphSvgId: 'batch-lieux-graph-svg',
+    graphOpen: batchGraphOpen,
+    onToggleAccept: id => {
+      if (id === batchAnchorId) return; // Q1: non-toggleable
+      batchAccepted[id] = !reviewIsAccepted('batch', id);
+    },
+    onToggleGraph: () => { batchGraphOpen = !batchGraphOpen; },
+    onOpenSheet: id => batchOpenSheet(id),
+    onRender: batchRenderAll,
+    graphExtraEdges: (acceptedIds, nodeById) => {
+      const edges = (batchCoherence && batchCoherence.edges) || [];
+      return edges
+        .filter(e => batchConfirmedEdges[e.id] && acceptedIds.has(e.a_id) && acceptedIds.has(e.b_id))
+        .map(e => ({ id: e.id, entity_a_id: e.a_id, entity_b_id: e.b_id, kind: 'connection' }));
+    },
+  };
+}
+
+function batchRenderCommitResult() {
+  if (!batchCommitResult) return '';
+  if (!batchCommitResult.ok) {
+    return `<div class="field-section" style="border:1px solid var(--red); border-radius:6px; padding:10px; margin-top:12px;">
+      <div class="field-section-title" style="color:var(--red)">Échec du commit — aucun changement n'a été appliqué</div>
+      <div style="font-size:12px">${esc(batchCommitResult.error || '')}</div>
+    </div>`;
+  }
+  const rooms = (batchCommitResult.committed && batchCommitResult.committed.rooms) || [];
+  const unresolved = batchCommitResult.unresolved || [];
+  const notes = batchCommitResult.notes || [];
+  return `<div class="field-section" style="border:1px solid var(--green); border-radius:6px; padding:10px; margin-top:12px;">
+    <div class="field-section-title" style="color:var(--green)">Lot commité</div>
+    <div style="font-size:12px">${rooms.length} pièce(s) créée(s), ${batchCommitResult.edges_written || 0} arête(s) écrite(s).</div>
+    ${unresolved.length ? `<div style="font-size:11px; color:var(--muted); margin-top:4px">
+      ${unresolved.map(u => `· ${esc(u.reason || '')}`).join('<br>')}
+    </div>` : ''}
+    ${notes.length ? `<div style="font-size:11px; color:var(--yellow); margin-top:4px">
+      ${notes.map(n => `· ${esc(n)}`).join('<br>')}
+    </div>` : ''}
+  </div>`;
+}
+
+async function batchCommit() {
+  const statusEl = document.getElementById('batch-commit-status');
+  if (statusEl) statusEl.innerHTML = '<div class="empty"><span class="spin">⟳</span> Commit en cours…</div>';
+  const rooms = (batchDrafts.rooms || []).map(r => (
+    { local_id: r.local_id, name: r.name, parent_room: r.parent_room, result: r.result }
+  ));
+  const edges = (batchCoherence && batchCoherence.edges) || [];
+  let result;
+  try {
+    result = await api('/api/room-batch/commit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        anchor_id: batchAnchorId, rooms, accepted: batchAccepted,
+        edges, confirmed_edges: batchConfirmedEdges,
+      }),
+    });
+  } catch (e) {
+    result = { ok: false, error: e.message };
+  }
+  batchCommitResult = result;
+  if (result.ok) {
+    await authorLoadEntityList();
+    if (currentCreationSubTab === 'lieux') graphLoad();
+  }
+  batchRenderAll();
+}
+
+function batchRenderAll() {
+  const root = document.getElementById('batch-root');
+  if (!root) return;
+
+  if (!batchManifest) {
+    root.innerHTML = `
+      <div class="field-section" style="border:1px solid var(--border); border-radius:6px; padding:10px;">
+        <div class="field-section-title">Générer le manifeste</div>
+        <div class="field-row" style="max-width:160px"><label>Nombre de pièces</label>
+          <input type="number" min="3" max="25" value="${batchCount}"
+            oninput="batchCount = Math.max(3, Math.min(25, Number(this.value) || 3))"></div>
+        <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
+          <button class="btn-send" onclick="batchGenerateManifest()">Générer le manifeste</button>
+          <span id="batch-gen-status" style="font-size:12px; color:var(--muted)"></span>
+        </div>
+      </div>`;
+    return;
+  }
+
+  if (!batchDrafts) {
+    root.innerHTML = batchRenderManifestTable();
+    return;
+  }
+
+  const descriptor = batchReviewDescriptor();
+  reviewRegister('batch', descriptor);
+  const cascade = reviewCascade(descriptor);
+  const skipped = batchDrafts.skipped || [];
+
+  root.innerHTML = `
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap">
+      <button class="btn-icon" onclick="batchRunCoherence()">Passe de cohérence</button>
+      <span id="batch-coherence-status" style="font-size:12px; color:var(--muted)"></span>
+      <button class="btn-send" onclick="batchCommit()" style="margin-left:auto">Commiter le lot</button>
+    </div>
+    ${skipped.length ? `<div class="field-section" style="border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:10px;">
+      <div class="field-section-title">Écartées à la génération</div>
+      ${skipped.map(s => `<div style="font-size:11px; color:var(--muted)">${esc(s.name)} — ${esc(s.reason || '')}</div>`).join('')}
+    </div>` : ''}
+    <div style="margin-bottom:10px">
+      <button class="btn-icon" onclick="reviewToggleGraph('batch')">${batchGraphOpen ? 'Masquer le graphe' : 'Voir le graphe'}</button>
+      <div id="batch-lieux-graph" style="display:${batchGraphOpen ? 'block' : 'none'}; margin-top:8px;">
+        <div class="lieux-graph-head"><span>Carte du lot (aperçu pré-commit)</span></div>
+        <svg id="batch-lieux-graph-svg" viewBox="0 0 960 480" width="100%" height="300"
+             style="display:block; background:var(--bg)"></svg>
+      </div>
+    </div>
+    <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start">
+      <div style="flex:2; min-width:320px">
+        <div class="field-section-title">Pièces</div>
+        ${reviewTree('batch', cascade)}
+      </div>
+      <div style="flex:1; min-width:240px">
+        <div class="field-section-title">Arêtes supplémentaires</div>
+        ${batchRenderEdgesPanel()}
+      </div>
+    </div>
+    <div id="batch-commit-status">${batchRenderCommitResult()}</div>
+  `;
+  if (batchGraphOpen) reviewGraphRender('batch');
+}
+
 function creationNewEntity() {
   if (!authorRegistry) return;
   const entry = CREATION_TABS[currentCreationSubTab];
@@ -6605,6 +7061,11 @@ function renderLieuxBrowse() {
     }),
   ].join('');
 
+  const anchorName = lieuxBreadcrumb.length ? lieuxBreadcrumb[lieuxBreadcrumb.length - 1].name : '';
+  const batchBtnHtml = lieuxBrowseParentId != null
+    ? `<button class="btn-icon" onclick="batchOpenPanel('${esc(lieuxBrowseParentId)}', '${esc(anchorName)}')">Générer un lot ici</button>`
+    : `<button class="btn-icon" disabled title="Descends dans un lieu pour l'utiliser comme ancre">Générer un lot ici</button>`;
+
   const headHtml = `
     <div class="lieux-browse-head">
       <label class="field-row checkbox">
@@ -6612,6 +7073,7 @@ function renderLieuxBrowse() {
         <span style="font-size:12px">Actifs seulement</span>
       </label>
       <div class="lieux-breadcrumb">${breadcrumbHtml}</div>
+      ${batchBtnHtml}
     </div>
   `;
 

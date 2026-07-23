@@ -8675,4 +8675,271 @@ none of the other four regressed on this ticket's CSS renames.
 
 ---
 
+## ROOM BATCH MANIFEST — TYPE AUTHORITY (BRIEF-0042-a, no schema change)
+
+First step of TICKET-0042 (room batch generator). Ships
+`room_batch_author.generate_room_batch_manifest` — a Phase A manifest call
+mirroring `region_author`'s two-phase shape (parse -> normalize ->
+`{ok, manifest, notes, skipped}`), scoped to one creator-chosen anchor
+location. Writes no canon; the manifest is ephemeral until the atomic
+commit route (BRIEF-0042-e).
+
+**P1 — the manifest is the sole `location_type` authority; the batch never
+routes through `entity_author._validate_location_type`.** Every other
+authoring path (`entity_author._entity_location_draft`) validates a
+proposed type against the frozen `_LOCATION_TYPES` enum and repli-falls an
+unrecognized value to `"other"`, silently discarding it. That is wrong for
+a batch: the real vocabulary with classification AND size template is
+`location_type_catalog` (TICKET-0039/0040), and a repli-fall to `"other"`
+would lose the template on the very generator whose rooms most need one. So
+`_normalize_batch_types` looks the proposed string up via
+`spatial_author._catalog_row` (the single catalog read path, J1,
+TICKET-0040) and, on a miss, **keeps the string verbatim** and appends a
+note (`"Type '{t}' absent du catalogue -- ce lieu naîtra sans bounds tant
+que le type n'est pas classifié"`) instead of substituting anything. The
+creator resolves it in Phase A editing via the existing classification
+affordance (P-a, BRIEF-0042-d). A type present in the catalog but with a
+NULL size template is left as-is — that room legitimately borns without
+bounds, consistent with T1 (an anchor/room with NULL bounds never blocks
+the batch).
+
+**K1 spanning tree — cycle detection is new, not mirrored.** The manifest's
+`parent_room` per room is model-proposed, code-guaranteed: resolved
+case-insensitively against (surviving manifest rooms | the anchor name),
+with any unresolved name, self-parent, or a cycle (a room reachable from
+itself through a chain of `parent_room` pointers) forced to attach
+directly to the anchor, noted. `region_author._normalize_location_parents`
+is the SHAPE precedent (parse -> normalize -> notes) but does not itself
+detect true cycles among non-root entries (a region's flat two-tier
+manifest has no depth to cycle through); `room_batch_author._detect_cycle`
+walks the resolved-parent chain against a frozen first-pass resolution
+(`_resolve_parent_keys`), so a forced-attach mutation made for one room
+never corrupts the chain walk for another room evaluated later in the same
+pass.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+## ROOM BATCH FICHE GENERATION — P1 OVERRIDE + RETRY-ONCE (BRIEF-0042-b, no schema change)
+
+Second step of TICKET-0042. Ships `room_batch_author.generate_room_batch_draft`
+— Phase B, one full location fiche per manifest room, mirroring
+`region_author.generate_region_draft`'s per-entity loop shape
+(`_draft_locations`) and its `skipped`-on-failure precedent. Writes no canon;
+every fiche stays ephemeral until the atomic commit route (BRIEF-0042-e).
+
+**P1 enforced in this module, not in `entity_author`.** Each room's content
+call is the unmodified `entity_author.generate_entity_draft("location", brief,
+db)` — same call, same `_validate_location_type` repli-fall-to-`"other"`
+internally. `generate_room_batch_draft` overwrites the returned
+`draft["public"]["location_type"]` with the manifest room's verbatim type
+*after* the call returns, noting any divergence for transparency. This keeps
+the enum gate (`_validate_location_type`, `_LOCATION_TYPES`) untouched and
+shared by every other authoring path, while the batch's own type authority
+(BRIEF-0042-a's P1) never round-trips through it.
+
+**R — retry-once-then-skip, new at this step.** `_draft_room_with_retry`
+calls the same content generation exactly twice on a first failure (parse
+error, empty draft, or a defensive exception backstop — `generate_entity_draft`
+itself never raises); a second failure drops the room into `skipped` with
+`{local_id, name, reason}` and the loop continues. No exponential backoff, no
+per-room retry budget beyond one.
+
+**A skipped internal node's children are NOT reparented in Phase B.** They
+keep their original `parent_room` pointing at the now-absent room name. This
+is deliberate (ticket decision R): reparenting orphans to the anchor is
+already the review cascade's job (`fallbackParentId`, TICKET-0041's generic
+component, wired in BRIEF-0042-d) — Phase B introduces no second reparenting
+mechanism.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+## ROOM BATCH COHERENCE — D3 RELOCATED POST-PHASE-B (BRIEF-0042-c, no schema change)
+
+Third step of TICKET-0042. Ships `room_batch_author.propose_batch_coherence`
+— Phase C, one model call over the FULL generated batch (all Phase B fiches)
+proposing supplementary undirected edges (`{a, b, reason}`, room/sibling
+names) plus advisory incoherence notes. Writes no canon; every edge stays
+`{id, a_id, b_id, a_local, b_local, reason}` — ephemeral until the atomic
+commit route (BRIEF-0042-e).
+
+**D3 relocated to run AFTER Phase B, not blind at the manifest stage.** At
+intake (2026-07-23) this pass was moved past fiche generation: a
+supplementary edge motivated by real generated content (a room's actual
+description, not just its one-line manifest pitch) is a materially better
+proposal than one guessed from the manifest alone, at the cost of being the
+heaviest token call in the ticket (it is the only call that sees every
+fiche). Measured once at the ticket's own MAX_COUNT (25 rooms, synthetic
+fiches with realistic-length descriptions): ~3500 characters (~875 tokens on
+a chars/4 heuristic) for the full user message — comfortably inside any of
+the project's local 8b models' context window, so the Scope-OUT compaction
+fallback (name + one-line only, dropping descriptions) is NOT triggered at
+this step. If a future template revision or richer fiches push this over
+budget, that compaction is where to reach first — not a new mechanism.
+
+**L1 enforced by `_resolve_coherence_edges`, never the model.** Every
+proposed edge is resolved by name against a `fold(name) -> (id, is_local)`
+index built from real data only: Phase B's surviving fiches (`local_id`,
+`is_local=True`), the anchor, and canon siblings queried fresh from
+`location.parent_location_id == anchor_id` (`is_local=False` for both — both
+are already-real entity ids, unlike a batch `local_id` which BRIEF-0042-e
+must still resolve through its own commit-time id map). A name that resolves
+to neither, resolves both sides to the same node, or duplicates a K1
+spanning-tree pair (BRIEF-0042-a) is dropped into `unresolved` with a
+reason — a name naming a manifest room that Phase B itself skipped gets a
+more specific reason than a truly unknown name, using `manifest` (the
+function's third input) purely for that distinction; it plays no role in
+resolution itself. No name ever creates a room.
+
+**Named deferral, on the record: no O(N^2) pairwise semantic re-check.**
+This pass proposes edges and advisory notes only — it never rewrites a
+fiche's description, renames a room, or changes a type, and it never
+compares every fiche against every other fiche. A full semantic coherence
+sweep across the batch is a real, larger feature Nia may want later; it is
+NOT built here.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
+## ROOM BATCH REVIEW — SECOND CONSUMER OF THE SHARED COMPONENT (BRIEF-0042-d, no schema change)
+
+Fourth step of TICKET-0042. Ships the Lieux-browse entry point ("Générer un
+lot ici"), the Phase A manifest editor (type-picker reuse, add/remove rows,
+parent_room select), the Phase B/C trigger buttons, and `batchReviewDescriptor`
++ `batchRenderAll` — the room batch generator's wiring into the TICKET-0041
+shared review component. Writes no canon; the atomic commit route
+(BRIEF-0042-e) is called by the panel's "Commiter le lot" button but does not
+yet exist as of this step.
+
+**The predicted second consumer arrives.** TICKET-0041's closure entry
+(`SHARED REVIEW-TREE COMPONENT — EXTRACTION`) named its `CONSUMER_ALLOW_LIST`
+teeth as necessarily four-entry-only at that ticket's close ("the component's
+second consumer is TICKET-0042, not yet written") and predicted this exact
+extension. `review_component.py`'s `CONSUMER_ALLOW_LIST` grows from four to
+six: `batchRenderAll` (mirrors `regionRenderAll` — the registration + render
+site, calling `reviewRegister`/`reviewCascade`/`reviewTree`/`reviewToggleGraph`/
+`reviewGraphRender`) and `batchReviewDescriptor` (mirrors `regionReviewDescriptor`
+— the descriptor factory, whose `onToggleAccept` closure calls `reviewIsAccepted`).
+No other function was added to the list; `batchRenderEdgesPanel`, `_batchNodeName`,
+`batchOpenSheet`, `batchCommit` and the Phase A/B/C trigger functions reference
+no `review*` symbol, so none needed allow-listing — confirmed by
+`review_component.py` rule 6 passing unchanged (whole-identifier boundary,
+zero new false positives).
+
+**Q1 (the synthetic anchor) needed no component change.** The anchor enters
+`batchReviewDescriptor`'s `nodes` array as an ordinary, always-accepted,
+`parentId: null` root; `onToggleAccept` no-ops for its id. `reviewNode` still
+renders an Accepter/Rejeter button for it (the shared component was
+deliberately left untouched, per BRIEF-0042-d Scope OUT) — the button is
+visually present but inert, confirmed live (`reviewToggleAccept('batch',
+batchAnchorId)` leaves `batchAccepted` unchanged). O1's "visually distinct
+non-editable root" therefore falls out entirely from descriptor data
+(`subtitle: '(ancre)'`), exactly as TICKET-0041 predicted.
+
+**Batch state lives in a second container, not a new tab.** `CREATION_TABS.lieux`
+gained a second `containers` entry (`batch-panel-wrap`) — the existing
+multi-container array shape, previously exercised by no other entry — so the
+generic show/hide loop in `showCreationSubTab` hides the batch panel on any
+tab switch with zero new tab-id literals. The panel's own open/closed state
+(`#batch-panel`, nested one level deeper) is independent of that loop,
+reset by `batchReset()` from both `_lieuxTabEnterReset` and `_lieuxWorldReset`.
+
+**Confirmed live** (manual browser session against a real anchor + Ollama):
+Phase A manifest generation and edit, Phase B fiche generation, Phase C
+coherence (one supplementary edge to a canon sibling, one unresolved
+skeleton-duplicate), reject-cascade reparenting with the badge, edge
+confirm/discard, and graph rendering (solid spanning-tree lines, dashed
+confirmed supplementary edges) — zero console errors throughout.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
+## ROOM BATCH ATOMIC COMMIT (BRIEF-0042-e, no schema change)
+
+Fifth and final step of TICKET-0042. Ships `cockpit/routes/room_batch.py::
+commit_room_batch` — the SOLE canon-write path for a batch, posture
+identical to `commit_region`: rooms commit via `_create_entity_core`
+(template bounds from the manifest type, P1) in parent-before-child
+dependency order; every `connects_to` edge (the K1 spanning tree,
+unconditional, plus confirmed supplementary edges from Phase C) commits via
+`spatial_author.connect_locations` so doors materialize on the perimeter
+(N1); the whole batch commits in ONE transaction, full rollback on any
+exception. Also ships `tooling/verify/checks/room_batch_report_only.py`,
+the ticket's own machine-checkable acceptance criterion (a fail-closed token
+scan proving `room_batch_author.py` carries none of `_apply_mutation`,
+`write_relation`, `_create_entity_core`, `db.commit(`).
+
+**Door materialization: `connect_locations` PER edge, not a single
+end-of-commit sweep (drafting decision, flagged in the brief).** Region's
+`commit_region` collects every touched location id into a set and calls
+`materialize_doors` ONCE before its single commit — more efficient when many
+edges share endpoints. This route instead calls `connect_locations` once per
+confirmed/tree edge, so a room touched by k edges is re-swept k times.
+`materialize_doors` is idempotent and full-replace per location, so the
+redundancy is a performance cost, not a correctness one — chosen here for
+single-point-of-edge-birth clarity (every edge's write and door
+materialization happen at the exact same call site, easier to read than a
+two-phase collect-then-sweep). **Trigger to switch to the region pattern:**
+if the redundant re-sweeps show up as a measurable latency cost at
+`MAX_COUNT` (25 rooms, up to 24 tree edges plus any supplementary edges) —
+measure before switching, don't assume.
+
+**No canon-write-policy allow-list entry needed.** `commit_room_batch`
+makes zero direct `.add()`/`.delete()`/`.exec()` session calls — every write
+delegates to `_crud._create_entity_core` and `connect_locations` (->
+`write_relation` + `write_location_doors`), both already sanctioned sites in
+`canon_write_policy.txt`. `single_canon_write.py`'s function-grain
+attribution (not call-graph-grain) means a route that fully delegates, like
+`commit_region` before it, needs no entry of its own — confirmed by running
+the check after this route landed: unchanged PASS, zero new lines in the
+policy file.
+
+**Server-authoritative cascade re-derivation reuses `room_batch_author.
+_name_key` directly, not a second copy.** Unlike `region_author.py` and
+`room_batch_author.py`, which each keep their OWN separate `_name_key`
+(no shared-module abstraction — a deliberate precedent, not an oversight),
+this route imports `room_batch_author._name_key` directly: the SAME
+case-insensitive, whitespace-normalized key must resolve a `parent_room`
+name identically at generation time (BRIEF-0042-a's K1 tree, BRIEF-0042-c's
+coherence index) and at commit time, or a room could silently resolve to a
+different parent than the one the creator reviewed. A second, subtly
+different copy is the one thing that must not happen here.
+
+**Confirmed live** (manual browser session, three scenarios): (1) a
+5-room batch with one room rejected mid-tree — the rejected room is absent,
+its child's `parent_location_id` re-resolved to the anchor server-side
+(never the rejected room), template bounds and perimeter doors materialized
+on both sides of every tree edge; (2) a batch under a NULL-bounds,
+NULL-classification anchor (`location_type` absent from the catalog) —
+commit succeeds, the anchor-side doors land at `(0, 0)`, and the T1 note is
+returned; (3) a corrupted room (empty `name`, forcing `_create_entity_core`'s
+422) mid-batch — the whole commit rolls back, location count under the
+anchor unchanged (zero partial writes), `{"ok": false, "error": ...}`
+returned. Zero console errors throughout.
+
+**Named deferral, on the record: a Phase B fiche's `subculture`/
+`sensed_links` are not wired to canon.** Region's commit writes
+`pub.subculture` (plus `sec.subculture_hidden` folded in as `"hidden"`) onto
+the new location; this route's `_commit_batch_rooms` sets only
+`location_type`, `access_level`, `description` and `parent_location_id` —
+Scope IN never named subculture wiring, and the ticket's supplementary-edge
+mechanism (Phase C) already supersedes fiches' own `sensed_links` as the
+room batch's edge-proposal path. A batch room therefore commits with
+whatever `subculture` its fiche proposed silently discarded. Trigger to
+revisit: if Nia wants a generated room's ambient/hidden subculture rows to
+survive the batch commit, wire `pub.get("subculture")` (and
+`sec.get("subculture_hidden")`) through the same `ext_data` dict
+`_commit_batch_rooms` already builds — the region precedent is a direct
+copy-paste away.
+
+`DECISIONS_INDEX.md` is regenerated from this entry via
+`gen_decisions_index.py`.
+
+---
+
 *Co-built with Claude, June 2026.*
