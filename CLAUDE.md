@@ -387,7 +387,7 @@ WG-Nia/
 │   └── settings.json        # permissions allowlist
 ├── src/world_engine/        # the importable package (PYTHONPATH=src)
 │   ├── db.py                # engine + session; URL from env var
-│   ├── models/               # all SQLModel table classes (the schema), split by canon/ephemeral/pipeline stratum; models/__init__.py re-exports the whole surface
+│   ├── models/               # all SQLModel table classes (the schema), split by canon/canon_faction/ephemeral/pipeline stratum; models/__init__.py re-exports the whole surface
 │   ├── context.py           # NPC + MJ context assembly; structural exclusions; signposts
 │   ├── tick*.py             # world-tick: tick.py orchestrates, tick_context.py assembles, tick_normalize.py normalizes; call sites allowlisted by verify/checks/world_tick.py
 │   ├── gathering.py         # initial NPC clustering into gatherings

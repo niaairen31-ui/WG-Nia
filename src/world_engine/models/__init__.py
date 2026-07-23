@@ -3,21 +3,26 @@
 package by schema stratum).
 
 Layout, by stratum:
-    canon.py      — every table in canon_write_policy.txt's [CANON_TABLES],
-                     plus GoalPrerequisite/EventEntity (canon-domain writes,
-                     absent from [CANON_TABLES] by a known governance gap —
-                     Nia's stratum escalation, 2026-07-15).
-    ephemeral.py  — session/scene-lifetime tables.
-    pipeline.py   — prompt/pipeline/approval machinery, plus User (app/
-                     account infrastructure — Nia's stratum escalation).
+    canon.py         — every table in canon_write_policy.txt's
+                        [CANON_TABLES], plus GoalPrerequisite/EventEntity
+                        (canon-domain writes, absent from [CANON_TABLES] by
+                        a known governance gap — Nia's stratum escalation,
+                        2026-07-15).
+    canon_faction.py — faction extension tables (Faction, FactionRole,
+                        FactionMembership), extracted from canon.py at
+                        TICKET-0048 for the module_budget cap.
+    ephemeral.py     — session/scene-lifetime tables.
+    pipeline.py      — prompt/pipeline/approval machinery, plus User (app/
+                        account infrastructure — Nia's stratum escalation).
 
 This module re-exports the ENTIRE former public surface of the flat
 `models.py` — every class, constant, and the two module functions
 (`_uuid`, `_created_ts`) — so every existing `from .models import X` /
 `from world_engine.models import X` in `src/` and `scripts/` resolves
-unchanged. Import order (canon, ephemeral, pipeline) keeps table
-registration on `SQLModel.metadata` deterministic; cross-stratum foreign
-keys (string table-name references) resolve regardless of file order.
+unchanged. Import order (canon, canon_faction, ephemeral, pipeline) keeps
+table registration on `SQLModel.metadata` deterministic; cross-stratum
+foreign keys (string table-name references) resolve regardless of file
+order.
 """
 
 from __future__ import annotations
@@ -33,9 +38,6 @@ from .canon import (
     Entity,
     Event,
     EventEntity,
-    Faction,
-    FactionMembership,
-    FactionRole,
     GoalAgendaLink,
     GoalPrerequisite,
     Item,
@@ -55,6 +57,11 @@ from .canon import (
     WorldLaw,
     _created_ts,
     _uuid,
+)
+from .canon_faction import (
+    Faction,
+    FactionMembership,
+    FactionRole,
 )
 from .ephemeral import (
     Conversation,
