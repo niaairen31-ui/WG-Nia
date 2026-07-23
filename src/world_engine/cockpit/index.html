@@ -5977,7 +5977,7 @@ function reviewTree(key, cascade) {
   // parent_local_id to null (root fallback, matching the commit's None ->
   // no-parent resolution) — render every top-level location, not just the
   // first found, so a reparented-to-root location stays visible.
-  const roots = d.nodes.filter(n => n.parentId == null);
+  const roots = d.nodes.filter(n => cascade.effectiveParent[n.id] == null);
   if (!roots.length) return '<div class="empty">Aucun element racine dans le brouillon.</div>';
   return roots.map(root => reviewNode(key, root, cascade, childrenByParent)).join('');
 }
