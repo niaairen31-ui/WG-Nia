@@ -9319,4 +9319,95 @@ assertions, satisfying "no structure without a reader" for the socle.
 
 ---
 
+## TRAIT REGISTRY — code-source-of-truth, structural reader enforcement (BRIEF-0045-b, no schema change)
+
+TICKET-0045. A1 (locked at intake): the trait registry is code, not data.
+`src/world_engine/traits.py` is the single source of truth for what a
+trait IS — its key, its column bundle, its FK spec, and an IMPORTABLE
+reference to its reader — never a DB row: a trait declared in the DB
+cannot structurally prove its reader exists (a TEXT string
+`"placement.spawn_point"` is unverifiable at commit). New traits (e.g.
+`rideable`) are added via Claude Code and become available to every
+entity type — never hot-editable by the creator at runtime. The
+projection (which entity_type has checked which trait) is the separate,
+DB-backed `entity_trait` table (BRIEF-0045-a); this decision covers only
+the definitional module.
+
+**E2 — every trait carries a real reader, enforced structurally, not
+documentarily.** `TraitDef` is a frozen dataclass whose `__post_init__`
+raises `ValueError` unless exactly one of `reader_callable`,
+`reader_guard`, `reader_deferred` is non-`None` — a malformed trait fails
+at import time, before `trait_reader.py` (BRIEF-0045-c) ever runs. This
+makes "no structure without a reader" a construction-time guarantee, the
+same posture as `runtime_ddl_guard.py`'s enum-typed DDL enforcement.
+
+**F1 — two reader forms, because `secretable` has no positive accessor.**
+Most traits declare `reader_callable` (a dotted `"module:function"` path
+the check resolves to a real, importable callable — `describable` to
+`context.py:_npc_context_identity`, `spatial` to
+`placement.py:spawn_point`, `knowable` to `context.py:_npc_context_speak`,
+all RECON-anchored on live main at schema v1.87). `secretable`'s reader is
+a negative WHERE-clause exclusion (`is_secret == False` at query
+construction, `context.py:167,194`), not an accessor a callable can name —
+so `reader_guard` carries `(module_dotted_path, column_name)` and the
+check instead confirms the column appears in a query-construction filter
+in that module. This is a second, mutually-exclusive reader FORM, never a
+second doctrine for what counts as "read": secrets stay excluded
+structurally, never instructionally — `secretable`'s reader_guard points
+at the filter, not at a prose instruction to the model.
+
+**B2(ii) — `mutable_by_ai` is the sole `reader_deferred` exception.** Its
+reader is the canon-write dispatch of TICKET-0047
+(`entity_type.write_authorities`/`ai_proposable`, reserved unpopulated at
+the schema v1.87 socle, BRIEF-0044-b) — not yet built. `trait_reader.py`
+tolerates this ONE trait by name; renaming any other trait to claim
+`reader_deferred` is a FAIL (verified by BRIEF-0045-c's check, red-teamed
+in that brief's Done means). This mirrors the socle's own
+`write_authorities`/`ai_proposable` ticket-spanning exception — the
+project now has exactly two such named, deliberate gaps, both logged
+here.
+
+**S-norme — one vocabulary, one partition authority.** `trait_keys()` is
+the sole source `scripts/seed_trait_keys.py` (BRIEF-0045-a) and the
+projection check (BRIEF-0045-c) cross-reference; that seed script's
+literal is a pre-registry bootstrap only, asserted equal to `trait_keys()`
+the instant this module exists (verified live: re-running
+`seed_trait_keys.py` after this brief now imports `traits.py` and passes
+the equality assertion; a hand-mocked drift was confirmed to FAIL the
+same assertion). `checkable_traits()` is the second view over the same
+`TRAITS` tuple (excludes `describable`, the non-checkable socle) — the
+constructor UI (TICKET-0046) will consume it, but no UI ships in this
+brief.
+
+**D-derived (deferral logged, OUT).** Value-conditioned / derived traits
+(Nia's "rideable if size > medium", "portable if size < medium") are a
+richer third tier the registry does not model: `TraitDef` carries no
+`condition` field. Trigger for building this: when a value-conditioned
+trait is first genuinely needed by a ticket (not anticipated here).
+
+## SOCLE TRAITS ARE IMPLICIT, NEVER PROJECTED (BRIEF-0045-d, no schema change)
+
+TICKET-0045. `describable` (and any future non-checkable trait) is the
+"what an entity should have, no exception" socle (Nia's framing): every
+entity_type carries it, unconditionally — never a palette checkbox, never
+an `entity_trait` row. `traits.socle_traits()` is the single authority for
+"which traits are implicit", the counterpart to `checkable_traits()` from
+BRIEF-0045-b: together the two partition `TRAITS` totally and disjointly
+(`set(socle_traits()) | set(checkable_traits()) == set(TRAITS)`, and the
+two sets never intersect — asserted structurally, not just documented).
+
+**Why no row.** A describable projection row on every entity_type would be
+redundant on every single row and invite drift (a type missing the row by
+accident vs. by design becomes unanswerable). Instead, the (future, 0046)
+constructor reads `socle_traits() + that type's entity_trait rows`;
+describable is always in the effective set without ever being written.
+
+**Structural, not disciplinary.** `trait_registry_projection.py`
+(BRIEF-0045-c) gained a third volet: any `entity_trait` row naming a socle
+trait_key is a FAIL ("socle traits are implicit, never projected"),
+verified live by planting a `describable` row in the temp fixture and
+confirming the check FAILs, then removing it and confirming green again.
+
+---
+
 *Co-built with Claude, June 2026.*
