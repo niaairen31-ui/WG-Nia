@@ -1,0 +1,32 @@
+{
+  "ticket": "TICKET-0045-trait-registry",
+  "when": "2026-07-24T18:33:17.115144+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "trait_reader.py",
+      "status": "PASS",
+      "msg": "PASS: trait_reader \u00e2\u20ac\u201d 5 traits, all readers resolve"
+    },
+    {
+      "check": "trait_registry_projection.py",
+      "status": "PASS",
+      "msg": "PASS: trait_registry_projection \u00e2\u20ac\u201d registry vocabulary is exactly the 5 canonical traits; every entity_trait.trait_key resolves against it; an orphan key FAILs by name"
+    },
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v1.88'"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u00e2\u20ac\u201d every function over 80 lines is baselined at or below its recorded length"
+    }
+  ]
+}
