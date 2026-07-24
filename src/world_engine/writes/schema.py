@@ -47,6 +47,13 @@ _RESERVED_WORDS = {
 }
 
 
+def valid_col_types() -> frozenset[str]:
+    """Read-only accessor onto the closed Dcol1 enum (BRIEF-0046-a): the
+    single source of SQL type fragments, referenced by `traits.py` rather
+    than redefined there."""
+    return frozenset(_COLUMN_TYPES)
+
+
 def _validate_identifier(name: str) -> None:
     """Dname1. Raises ValueError on anything but a safe, non-reserved,
     lowercase snake_case identifier with no leading/trailing underscore."""

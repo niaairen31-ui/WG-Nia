@@ -139,3 +139,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 9253 | ENTITY-TYPE CONSTRUCTOR — rollback quarantine (B1) (BRIEF-0044-e, no schema change) | BRIEF-0044-e |  |
 | 9322 | TRAIT REGISTRY — code-source-of-truth, structural reader enforcement (BRIEF-0045-b, no schema change) | BRIEF-0045-b |  |
 | 9388 | SOCLE TRAITS ARE IMPLICIT, NEVER PROJECTED (BRIEF-0045-d, no schema change) | BRIEF-0045-d |  |
+| 9411 | TRAIT EXT-COLUMN TYPING + FIELD-SPEC (BRIEF-0046-a, no schema change) | BRIEF-0046-a |  |

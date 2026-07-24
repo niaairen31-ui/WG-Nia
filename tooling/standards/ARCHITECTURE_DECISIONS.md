@@ -9408,6 +9408,50 @@ trait_key is a FAIL ("socle traits are implicit, never projected"),
 verified live by planting a `describable` row in the temp fixture and
 confirming the check FAILs, then removing it and confirming green again.
 
+## TRAIT EXT-COLUMN TYPING + FIELD-SPEC (BRIEF-0046-a, no schema change)
+
+TICKET-0046. Completes the 0045 derivation gap flagged at
+`writes/schema.py:15` ("`columns` is supplied by the caller; deriving it
+from traits is 0045"): `TraitDef` now carries `ext_columns: tuple[
+ExtColumnSpec, ...]`, replacing the dormant, reader-less `columns`/`fk`
+pair (RECON confirmed no `.columns`/`.fk` consumer existed anywhere in
+`src/`). `ExtColumnSpec` bundles a name, a `col_type` (validated against
+`writes/schema.py::valid_col_types()`, a new read-only accessor onto the
+same Dcol1 enum — referenced, never redefined) and the form field-spec
+that column renders as, so one declaration on the trait is the single
+source for both the DDL `columns` list `create_entity_type` consumes and
+the generated-form fields `GET /api/entity-types` will serve (0046-b).
+
+**Zero-ext-column rule.** `describable` (socle), `knowable`, and
+`mutable_by_ai` all declare `ext_columns=()` — their concerns are either
+already served by `ENTITY_BASE_FIELDS` (`describable`'s name/description)
+or carry no typed state at all. `spatial` contributes `location_id`
+(`FK_ENTITY_NULLABLE`); `secretable` contributes `is_secret` (`BOOLEAN`).
+
+**Single readers, ordered.** `ext_columns_for()` / `form_fields_for()`
+(E2: structure ships with its reader) both iterate `socle_traits()` first,
+then `checkable_traits()` filtered to the requested keys in `TRAITS`
+declaration order, raising on any cross-trait name collision — the one
+ordering both derivations share.
+
+**Base-name guard, hardcoded by necessity.** A module-import-time
+assertion in `traits.py` rejects a socle trait whose `ext_columns` collides
+with an `ENTITY_BASE_FIELDS` name. The base-name set is hardcoded (with a
+pointer comment) rather than imported from `cockpit/crud/entities.py`:
+that module sits in the FastAPI cockpit route layer and pulls in the
+whole app, which `traits.py` — a core module imported by verify checks
+and (0046-b) the DDL path — must stay free of.
+
+**Side effect on an existing check, fixed here.** `traits.py` now
+transitively imports `world_engine.models` (via `writes.schema`).
+`trait_registry_projection.py`'s temp-fixture helper used to purge every
+`world_engine.*` submodule from `sys.modules` before reimporting to force
+a fresh engine bind; re-executing `models`' class bodies a second time
+against SQLModel's shared metadata now collides ("table already defined").
+Fixed by excluding `world_engine.models*` from the purge — the module only
+ever needs to be imported once per process; only `world_engine.db` (for
+its module-level `engine` binding) needs the fresh reimport.
+
 ---
 
 *Co-built with Claude, June 2026.*
