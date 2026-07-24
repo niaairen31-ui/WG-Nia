@@ -13,6 +13,28 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v1.88** — TICKET-0045, BRIEF-0045-a: `entity_trait` — materialized
+  projection table for the trait registry (A1). Records which
+  `entity_type` has checked which trait; the trait DEFINITION lives in
+  code (`traits.py`, BRIEF-0045-b), never in this table.
+  `id, entity_type_id, trait_key, created_by, created_at`. FK
+  `entity_type_id -> entity_type.id`; UNIQUE on
+  `(entity_type_id, trait_key)`; non-unique index on `entity_type_id`.
+  `trait_key` is a plain TEXT column with no SQL CHECK enumerating the
+  vocabulary — legality is a code-plane property verified by
+  `trait_registry_projection.py` (BRIEF-0045-c) against `traits.py`, never
+  duplicated into DDL. No `change_history` column: this is a projection,
+  not history — a creator un-checking a trait is an `entity_type` DDL
+  event recorded in `entity_type_history` (`trait_added`) instead. Ships
+  with NO writer, NO reader, and NO seeded rows this step — "no structure
+  without a reader" holds across the ticket, closed by the projection
+  check landing in the same ticket (BRIEF-0045-c). Migration:
+  `scripts/migrate_v1_88_entity_trait.py` (guarded, idempotent, table +
+  index existence, no seed). `scripts/seed_trait_keys.py` seeds nothing
+  into the table — it verifies the table exists and is empty and prints
+  the five canonical trait keys (`describable`, `spatial`, `knowable`,
+  `secretable`, `mutable_by_ai`) for operator eyeballing.
+
 - **(no schema change — applicatif addendum)** — TICKET-0044, BRIEF-0044-e:
   rollback quarantine (B1) for runtime entity types. New
   `scripts/rollback_quarantine.py` (danger_class: destructive_data, manual

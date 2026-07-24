@@ -38,6 +38,7 @@ from .canon import (
     DiscoverableDetail,
     Door,
     Entity,
+    EntityTrait,
     EntityType,
     EntityTypeHistory,
     Event,
@@ -140,5 +141,6 @@ __all__ = [
     "GoalAgendaLink",
     "EntityType",
     "EntityTypeHistory",
+    "EntityTrait",
     "BASE_SKILL_DOMAINS",
 ]

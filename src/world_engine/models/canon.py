@@ -941,3 +941,34 @@ class EntityTypeHistory(SQLModel, table=True):
     ddl_text: Optional[str] = None
     changed_by: Optional[str] = None
     created_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
+# entity_trait  (materialized projection, schema v1.88, TICKET-0045,
+# BRIEF-0045-a — A1)
+#
+# Which entity_type has checked which trait. NOT the trait definition (that
+# lives in code, traits.py, BRIEF-0045-b) and NOT an entity-extension row —
+# a projection join row only. `trait_key` is a plain TEXT column; its closed
+# vocabulary is a code-plane property verified by the projection check
+# (trait_registry_projection.py, BRIEF-0045-c) against traits.py, never a SQL
+# CHECK (would duplicate the vocabulary across code and DDL). This table is
+# not history: a creator un-checking a trait is an entity_type DDL event
+# recorded in `entity_type_history` (`trait_added` reserved there), not a
+# `change_history` column on this row.
+# -----------------------------------------------------------------------------
+class EntityTrait(SQLModel, table=True):
+    __tablename__ = "entity_trait"
+    __table_args__ = (
+        Index("idx_entity_trait_type", "entity_type_id"),
+        Index(
+            "idx_entity_trait_unique", "entity_type_id", "trait_key",
+            unique=True,
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    entity_type_id: str = Field(foreign_key="entity_type.id", nullable=False)
+    trait_key: str
+    created_by: Optional[str] = None
+    created_at: datetime = _created_ts()

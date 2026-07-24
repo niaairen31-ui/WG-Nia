@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.87
+Current schema version: v1.88
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -282,6 +282,34 @@ CREATE TABLE entity_type_history (
   created_at           DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_entity_type_history_type ON entity_type_history(entity_type_id);
+```
+
+-----
+
+### `entity_trait`
+
+Materialized trait projection (schema v1.88, TICKET-0045, BRIEF-0045-a).
+Which `entity_type` has checked which trait — NOT the trait definition
+(that lives in code, `traits.py`) and NOT an entity-extension row, a
+projection join row only. `trait_key` legality is a code-plane property
+verified by `trait_registry_projection.py`, NOT a SQL CHECK — a CHECK would
+duplicate the vocabulary across code and DDL and need an ALTER every time a
+trait is added. Reader is the projection check plus the constructor UI
+(TICKET-0046). Not history: a creator un-checking a trait is an
+`entity_type` DDL event recorded in `entity_type_history` (`trait_added`),
+not a `change_history` column here.
+
+```sql
+CREATE TABLE entity_trait (
+  id             TEXT PRIMARY KEY,
+  entity_type_id TEXT NOT NULL REFERENCES entity_type(id),
+  trait_key      TEXT NOT NULL,
+  created_by     TEXT,
+  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_entity_trait_type ON entity_trait(entity_type_id);
+CREATE UNIQUE INDEX idx_entity_trait_unique
+  ON entity_trait(entity_type_id, trait_key);
 ```
 
 -----
