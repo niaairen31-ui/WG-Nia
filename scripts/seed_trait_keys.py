@@ -54,12 +54,13 @@ def main() -> None:
     print("Table `entity_trait` is empty, as expected.")
 
     try:
-        from world_engine.traits import TRAIT_KEYS as registry_keys  # noqa: E402
+        from world_engine.traits import trait_keys as registry_trait_keys  # noqa: E402
 
-        if list(registry_keys) != TRAIT_KEYS:
+        registry_keys = list(registry_trait_keys())
+        if registry_keys != TRAIT_KEYS:
             print(
-                "FAIL: traits.py TRAIT_KEYS drifted from the brief literal.\n"
-                f"  traits.py:      {list(registry_keys)}\n"
+                "FAIL: traits.py trait_keys() drifted from the brief literal.\n"
+                f"  traits.py:      {registry_keys}\n"
                 f"  brief literal:  {TRAIT_KEYS}"
             )
             raise SystemExit(1)

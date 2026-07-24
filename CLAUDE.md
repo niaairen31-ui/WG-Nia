@@ -157,7 +157,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   proposals, post-approval) and the creator CRUD, never elsewhere for an AI proposal
   (`POST /api/entities/generate` accept reuses creator CRUD). A THIRD, creator-only
   authority covers canon STRUCTURE: `writes/schema.py::create_entity_type`, closed
-  by `single_canon_write.py` + `runtime_ddl_guard.py`.
+  by `single_canon_write.py` + `runtime_ddl_guard.py`. The trait registry (`src/world_engine/traits.py`, TICKET-0045) is code-source-of-truth for entity-type trait contracts — traits are added via Claude Code, never hot-edited at runtime; every trait declares exactly one reader form (`reader_callable` | `reader_guard` | `reader_deferred`), enforced at construction, with `mutable_by_ai` the sole `reader_deferred` exception (TICKET-0047).
 - **History is sacred on BOTH write paths:** any edit to `relation` or
   `knowledge` appends the previous state to `change_history`; states are
   preserved, never silently overwritten. `entity_type_history` extends this to the schema grain: append-only by construction, no `change_history` column — the rows ARE the history.
