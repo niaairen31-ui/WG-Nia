@@ -9385,6 +9385,29 @@ richer third tier the registry does not model: `TraitDef` carries no
 `condition` field. Trigger for building this: when a value-conditioned
 trait is first genuinely needed by a ticket (not anticipated here).
 
+## SOCLE TRAITS ARE IMPLICIT, NEVER PROJECTED (BRIEF-0045-d, no schema change)
+
+TICKET-0045. `describable` (and any future non-checkable trait) is the
+"what an entity should have, no exception" socle (Nia's framing): every
+entity_type carries it, unconditionally — never a palette checkbox, never
+an `entity_trait` row. `traits.socle_traits()` is the single authority for
+"which traits are implicit", the counterpart to `checkable_traits()` from
+BRIEF-0045-b: together the two partition `TRAITS` totally and disjointly
+(`set(socle_traits()) | set(checkable_traits()) == set(TRAITS)`, and the
+two sets never intersect — asserted structurally, not just documented).
+
+**Why no row.** A describable projection row on every entity_type would be
+redundant on every single row and invite drift (a type missing the row by
+accident vs. by design becomes unanswerable). Instead, the (future, 0046)
+constructor reads `socle_traits() + that type's entity_trait rows`;
+describable is always in the effective set without ever being written.
+
+**Structural, not disciplinary.** `trait_registry_projection.py`
+(BRIEF-0045-c) gained a third volet: any `entity_trait` row naming a socle
+trait_key is a FAIL ("socle traits are implicit, never projected"),
+verified live by planting a `describable` row in the temp fixture and
+confirming the check FAILs, then removing it and confirming green again.
+
 ---
 
 *Co-built with Claude, June 2026.*

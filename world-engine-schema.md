@@ -297,7 +297,10 @@ duplicate the vocabulary across code and DDL and need an ALTER every time a
 trait is added. Reader is the projection check plus the constructor UI
 (TICKET-0046). Not history: a creator un-checking a trait is an
 `entity_type` DDL event recorded in `entity_type_history` (`trait_added`),
-not a `change_history` column here.
+not a `change_history` column here. Socle traits (`traits.socle_traits()`,
+`describable` today) are implicit on every entity_type and NEVER appear as
+a row here — guaranteed at read time, not projected (BRIEF-0045-d); a
+socle trait_key in this table is a `trait_registry_projection.py` FAIL.
 
 ```sql
 CREATE TABLE entity_trait (

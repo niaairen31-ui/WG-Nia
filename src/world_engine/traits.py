@@ -99,3 +99,10 @@ def trait_keys() -> tuple[str, ...]:
 
 def checkable_traits() -> tuple[TraitDef, ...]:
     return tuple(trait for trait in TRAITS if trait.checkable)
+
+
+def socle_traits() -> tuple[TraitDef, ...]:
+    """Non-checkable traits, implicit on every entity_type (describable
+    today) — never a palette checkbox, never an entity_trait row. The
+    counterpart to checkable_traits(): together they partition TRAITS."""
+    return tuple(trait for trait in TRAITS if not trait.checkable)

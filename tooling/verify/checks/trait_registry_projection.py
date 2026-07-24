@@ -7,7 +7,7 @@ DATABASE_URL set BEFORE any world_engine import) — same idiom as
 location_type_classified.py / spatial_door_travel.py, so this check never
 touches Nia's real DB.
 
-Two structural properties:
+Three structural properties:
 
 1. **No orphan projection key.** Every DISTINCT `trait_key` present in
    `entity_trait` is a member of the registry vocabulary (`traits.trait_keys()`).
@@ -20,6 +20,13 @@ Two structural properties:
    knowable, secretable, mutable_by_ai) — no fewer, no more. This volet always
    examines the 5 canonical keys, so this check can never silently pass on a
    broken/truncated registry parse even against an empty projection table.
+
+3. **Socle traits are never projected (BRIEF-0045-d).** `describable` (and any
+   future non-checkable trait from `traits.socle_traits()`) is implicit on
+   every entity_type, guaranteed at read time — it must never appear as an
+   `entity_trait` row. A socle trait_key found in the projection is a FAIL
+   naming it ("socle traits are implicit, never projected"). Vacuous-proof is
+   already satisfied by volet 2's completeness check.
 """
 from __future__ import annotations
 
@@ -84,7 +91,21 @@ def _scan_projection(session, vocab: set[str]) -> tuple[int, list[str]]:
     return len(distinct_keys), failures
 
 
-def check_projection_fixture(engine, vocab: set[str]) -> None:
+def _scan_socle_violations(session, socle_keys: set[str]) -> list[str]:
+    from sqlmodel import select
+
+    from world_engine.models import EntityTrait
+
+    rows = session.exec(select(EntityTrait)).all()
+    distinct_keys = {row.trait_key for row in rows}
+    violating = distinct_keys & socle_keys
+    return [
+        f"entity_trait carries socle trait_key {key!r} — socle traits are implicit, never projected"
+        for key in sorted(violating)
+    ]
+
+
+def check_projection_fixture(engine, vocab: set[str], socle_keys: set[str]) -> None:
     from sqlmodel import Session as DbSession, select
 
     from world_engine.models import EntityTrait, EntityType, World
@@ -128,6 +149,24 @@ def check_projection_fixture(engine, vocab: set[str]) -> None:
         if failures_after:
             fail(f"expected green after removing the orphan row, got: {failures_after}")
 
+        # ── Socle-never-projected: plant a describable row -> FAILs naming it ──
+        session.add(EntityTrait(entity_type_id=entity_type.id, trait_key="describable"))
+        session.commit()
+
+        socle_failures = _scan_socle_violations(session, socle_keys)
+        if not any("describable" in msg for msg in socle_failures):
+            fail(f"expected a FAIL naming the planted socle trait 'describable', got: {socle_failures}")
+
+        for row in session.exec(
+            select(EntityTrait).where(EntityTrait.trait_key == "describable")
+        ).all():
+            session.delete(row)
+        session.commit()
+
+        socle_failures_after = _scan_socle_violations(session, socle_keys)
+        if socle_failures_after:
+            fail(f"expected green after removing the socle-trait row, got: {socle_failures_after}")
+
 
 def main() -> int:
     sys.path.insert(0, str(SRC))
@@ -140,10 +179,11 @@ def main() -> int:
         return 1
 
     vocab = set(traits.trait_keys())
+    socle_keys = {trait.key for trait in traits.socle_traits()}
     _check_vocabulary_completeness(vocab)
 
     engine = _fresh_engine()
-    check_projection_fixture(engine, vocab)
+    check_projection_fixture(engine, vocab, socle_keys)
 
     if FAILURES:
         for msg in FAILURES:
