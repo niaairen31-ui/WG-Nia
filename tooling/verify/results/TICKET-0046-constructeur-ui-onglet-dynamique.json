@@ -1,0 +1,27 @@
+{
+  "ticket": "TICKET-0046-constructeur-ui-onglet-dynamique",
+  "when": "2026-07-26T17:37:09.292168+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "trait_ext_columns.py",
+      "status": "PASS",
+      "msg": "PASS: trait_ext_columns \u2014 spatial/secretable derive their expected columns, socle traits emit none, 2 ext column(s) validate against the closed col_type enum with no json-kind field"
+    },
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u2014 CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry"
+    },
+    {
+      "check": "json_ui_boundary.py",
+      "status": "PASS",
+      "msg": "PASS: json_ui_boundary \u2014 zero \"kind\": \"json\" CRUD fields, zero metadata_/Column(\"metadata\" references outside comments, every Column(JSON in models/*.py is a named allow-list entry, zero trait ext-column field(s) with kind 'json'"
+    },
+    {
+      "check": "dynamic_ext_crud.py",
+      "status": "PASS",
+      "msg": "PASS: dynamic_ext_crud \u2014 governed runtime type create/read/update round-trips location_id/is_secret through the reflected ext_* table; an ungoverned slug is rejected with 422 on both create and update, touching no table"
+    }
+  ]
+}
