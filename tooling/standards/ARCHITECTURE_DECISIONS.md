@@ -9557,4 +9557,81 @@ by the check until now).
 
 ---
 
+## DYNAMIC INSTANCE CRUD for custom ext_* + json_ui_boundary F1 volet (BRIEF-0046-e, no schema change)
+
+TICKET-0046 (A1 vertical slice, closing). `POST`/`GET`/`PUT /api/entities`
+now dispatch on `type`: a static `ENTITY_TYPE_REGISTRY` slug takes the
+unchanged SQLModel-class path (`_create_static_entity_core`, byte-for-byte
+moved out of the old `_create_entity_core`); a slug resolving to an ACTIVE,
+world-scoped `entity_type` row (`_runtime_type_spec`, the single "is this
+governed" gate) takes the new reflected-table path — `entity_runtime.py`'s
+`_insert_runtime_ext_row`/`_update_runtime_ext_row`/`_read_runtime_ext_row`,
+built entirely on parameterized SQLAlchemy Core statements
+(`sa_insert(table).values(...)`, never string interpolation) against a
+`Table` reflected via `autoload_with`. `physical_table` is never user
+input: it only ever comes from an `entity_type` row already validated as a
+safe identifier at creation (`writes/schema.py`, Dname1) and DB-CHECK-
+constrained to `GLOB 'ext_*'`. Neither dispatch branch is reachable for an
+AI proposal — this is the creator-CRUD path only, same as every static
+type; the AI-proposal dispatch and its fail-closed completeness check are
+TICKET-0047. An ungoverned slug (neither static nor an active
+`entity_type`) 422s on create AND update before any table is touched
+(A1 fail-closed), verified by the new `dynamic_ext_crud.py` (temp-fixture
+idiom, same as `trait_registry_projection.py`) and live in the browser.
+
+**Delete needed no change (brief's "REPORT which" resolved).** RECON
+`grep db.delete\(` across `entities.py` found zero hits: `delete_entity`
+is, and always was, a SOFT delete (`entity.status = 'inactive'`) with no
+ext-row touch of any kind, for ANY entity type, static or runtime —
+already generic over `type`. The brief's drafted "delete the ext row then
+the entity row" assumption didn't match the actual code; the brief itself
+named the resolution mechanism ("match the existing pattern"), and the
+existing pattern is non-destructive. `entity`/`ext_*` were never eligible
+for the closed hard-delete list (CLAUDE.md) and stay that way.
+
+**SQLite has no native BOOLEAN.** The Dcol1 `BOOLEAN` mapping is
+`INTEGER CHECK (col IN (0,1))`; plain Core reflection (no ORM `Boolean`
+type decorator) hands back a raw `0`/`1` int on read. `_read_runtime_ext_row`
+coerces any `kind: "bool"` field to a real Python `bool` so the JSON
+response matches every other bool field in this API (e.g.
+`ENTITY_BASE_FIELDS.is_public`) — caught by `dynamic_ext_crud.py`'s strict
+`is True`/`is False` assertions before this fix, not a cosmetic choice.
+
+**`json_ui_boundary.py` gained a fourth volet (F1):** imports `traits`
+(pure, no DB) and fails if any `ExtColumnSpec.field.get("kind") ==
+"json"` across the whole registry — mirrors `ExtColumnSpec.__post_init__`'s
+construction-time guard at the verify plane, defense in depth against a
+future removal of that guard. Red-teamed: mutating a real spec's `field`
+dict in place to plant `kind:"json"` FAILs by name; reverting returns green.
+
+**Module split, not a baseline exemption (`module_budget.py`).** The
+runtime-CRUD addition pushed `entities.py` past the 1000-line cap; per
+that check's own "no permanent exemptions — the failing check IS the
+mechanism" doctrine, the ext-row mechanics moved to a new
+`src/world_engine/cockpit/crud/entity_runtime.py` instead. To keep the
+import graph acyclic (`entity_runtime.py` must never import `entities.py`),
+the two generic field helpers `_validate_entity_ref`/`_coerce_field`
+(previously defined in `entities.py`) moved to `_shared.py`, the existing
+closed cross-domain accessor set (R6 — this brief is the "requires a
+brief" justification for the addition); both `entities.py` and
+`entity_runtime.py` import them from there, one direction only.
+`single_canon_write.py`'s policy and `llm_parse_chokepoint.py`'s
+`_coerce_field` allow-list entry were re-keyed to match.
+
+**Deferred:** runtime-type relations/knowledge editing (both stay `[]` for
+a governed runtime type this brief, same as any unknown type today) —
+logged as "runtime-type relations/knowledge UI", picked up whenever a
+concrete need lands, not necessarily 0047. Also deferred (not a brief
+requirement, noted for awareness): `ext_*` row INSERT/UPDATE is invisible
+to `single_canon_write.py`'s static per-table attribution (it only
+recognizes raw SQL-text `.execute(text(...))`, not Core statement
+objects) — same class of blind spot already precedented for
+`create_entity_type`'s DDL in `canon_write_policy.txt`'s own comments,
+mitigated here by `dynamic_ext_crud.py`'s functional round-trip instead
+of a static guard. A `runtime_ddl_guard.py`-style dedicated AST guard for
+`entity_runtime.py`'s row-write shape would close that gap structurally;
+out of this brief's scope, worth a future ticket.
+
+---
+
 *Co-built with Claude, June 2026.*

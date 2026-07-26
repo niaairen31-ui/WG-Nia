@@ -142,3 +142,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 9411 | TRAIT EXT-COLUMN TYPING + FIELD-SPEC (BRIEF-0046-a, no schema change) | BRIEF-0046-a |  |
 | 9455 | ENTITY-TYPE CONSTRUCTOR — creator route + runtime-type serializer (BRIEF-0046-b, no schema change) | BRIEF-0046-b |  |
 | 9506 | DYNAMIC TAB FACTORY — runtime Creation tabs + page_contract mechanism assertion (BRIEF-0046-d, no schema change) | BRIEF-0046-d |  |
+| 9560 | DYNAMIC INSTANCE CRUD for custom ext_* + json_ui_boundary F1 volet (BRIEF-0046-e, no schema change) | BRIEF-0046-e |  |

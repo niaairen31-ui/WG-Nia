@@ -39,7 +39,10 @@ PERMANENT_ALLOW: dict[str, str] = {
     # extraction, no behavior change). Reason unchanged.
     "src/world_engine/cockpit/routes/mutations.py::_approve_apply_edited_payload":
         "creator-edited proposed_mutation.payload from the review form, not model output",
-    "src/world_engine/cockpit/crud/entities.py::_coerce_field":
+    # Re-homed to _shared.py (TICKET-0046, BRIEF-0046-e): _coerce_field
+    # moved so both entities.py and the new entity_runtime.py could call it
+    # without a circular import; reason unchanged.
+    "src/world_engine/cockpit/crud/_shared.py::_coerce_field":
         "creator CRUD request-body field decode, fail-closed 422 on bad input",
     "src/world_engine/ollama_client.py::ping":
         "Ollama /api/tags transport envelope — transport-only per CLAUDE.md",

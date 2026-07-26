@@ -197,6 +197,31 @@ def _check_json_column_volet(models_dir: pathlib.Path) -> None:
         fail(f"volet c: JSON_COLUMN_ALLOWLIST entry(ies) whose column no longer exists: {', '.join(stale)}")
 
 
+def _check_trait_ext_field_kind_volet() -> None:
+    """Volet d (F1, TICKET-0046 BRIEF-0046-e): the dynamic constructor form
+    surface born from a trait's `ext_columns` must stay relational-only — no
+    `ExtColumnSpec` anywhere in the trait registry may declare field
+    `kind: "json"`. Mirrors `ExtColumnSpec.__post_init__`'s construction-time
+    guard at the verify plane — defense in depth, so this stays fail-closed
+    even if that guard is later removed from `traits.py`. Pure import, no DB
+    (drafting decision 3: imports `traits` rather than text-scanning it)."""
+    sys.path.insert(0, str(SRC))
+    from world_engine import traits
+
+    total = 0
+    json_fields: list[str] = []
+    for trait in traits.TRAITS:
+        for spec in trait.ext_columns:
+            total += 1
+            if spec.field.get("kind") == "json":
+                json_fields.append(f"{trait.key}.{spec.name}")
+
+    if total == 0:
+        fail("volet d: zero ExtColumnSpec parsed across the trait registry — parse is broken, not the repo clean")
+    if json_fields:
+        fail(f"volet d: trait ext column field(s) with kind 'json': {', '.join(json_fields)}")
+
+
 def main() -> None:
     if not CRUD_PY.exists():
         fail(f"{CRUD_PY} not found")
@@ -208,11 +233,13 @@ def main() -> None:
     _check_crud_registry_volet(crud_src)
     _check_source_access_volet()
     _check_json_column_volet(MODELS_DIR)
+    _check_trait_ext_field_kind_volet()
 
     print(
         "PASS: json_ui_boundary — zero \"kind\": \"json\" CRUD fields, zero "
         "metadata_/Column(\"metadata\" references outside comments, every "
-        "Column(JSON in models/*.py is a named allow-list entry"
+        "Column(JSON in models/*.py is a named allow-list entry, zero trait "
+        "ext-column field(s) with kind 'json'"
     )
     sys.exit(0)
 

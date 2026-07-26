@@ -10,7 +10,6 @@ original path/method.
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -96,11 +95,20 @@ from ._shared import (
     EVENT_FIELDS,
     KNOWLEDGE_FIELDS,
     RELATION_FIELDS,
+    _coerce_field,
     _get_entity,
     _iso,
     _list_knowledge,
     _list_relations,
+    _validate_entity_ref,
     _world_id,
+)
+from .entity_runtime import (
+    _build_runtime_ext_kwargs,
+    _insert_runtime_ext_row,
+    _read_runtime_ext_row,
+    _runtime_type_spec,
+    _update_runtime_ext_row,
 )
 
 
@@ -202,75 +210,6 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
     },
 }
-
-
-def _validate_entity_ref(db: DbSession, value: Any, ref_type: str, label: str) -> Optional[str]:
-    if not value:
-        return None
-    target = db.get(Entity, value)
-    if target is None or target.type != ref_type:
-        raise HTTPException(422, f"{label}: {value!r} is not a valid {ref_type} entity id")
-    return value
-
-
-def _coerce_field(db: DbSession, field: dict, raw: Any) -> Any:
-    kind = field["kind"]
-    label = field.get("label", field["name"])
-    required = field.get("required", False)
-
-    if kind == "entity_ref":
-        val = _validate_entity_ref(db, raw, field["ref_type"], label)
-        if required and val is None:
-            raise HTTPException(422, f"{label} is required")
-        return val
-
-    if kind == "bool":
-        if raw is None:
-            return bool(field.get("default", False))
-        return bool(raw)
-
-    if kind == "number":
-        if raw is None or raw == "":
-            if required:
-                raise HTTPException(422, f"{label} is required")
-            return field.get("default")
-        try:
-            n = float(raw) if field.get("float") else int(raw)
-        except (TypeError, ValueError):
-            raise HTTPException(422, f"{label} must be a number")
-        lo, hi = field.get("min"), field.get("max")
-        if lo is not None:
-            n = max(lo, n)
-        if hi is not None:
-            n = min(hi, n)
-        return n
-
-    if kind == "json":
-        if raw in (None, ""):
-            return None
-        if isinstance(raw, str):
-            try:
-                return json.loads(raw)
-            except json.JSONDecodeError as exc:
-                raise HTTPException(422, f"{label}: invalid JSON ({exc})")
-        return raw
-
-    if kind == "select":
-        if raw in (None, ""):
-            if required and "default" not in field:
-                raise HTTPException(422, f"{label} is required")
-            return field.get("default")
-        options = field.get("options")
-        if options and raw not in options:
-            raise HTTPException(422, f"{label}: {raw!r} is not one of {options}")
-        return raw
-
-    # text / textarea / datalist
-    if raw in (None, ""):
-        if required:
-            raise HTTPException(422, f"{label} is required")
-        return field.get("default")
-    return str(raw)
 
 
 def _player_character_id(db: DbSession, world_id: str) -> str:
@@ -589,7 +528,10 @@ def get_entity(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
             result["geometry"] = _location_geometry_dict(entity_id, db)
             result["doors"] = _location_doors_rows(entity_id, db)
     else:
-        result["extension"] = {}
+        # Governed runtime type or unknown slug: relations/knowledge stay []
+        # this brief (deferral: runtime-type relations/knowledge UI, 0047+).
+        runtime_spec = _runtime_type_spec(db, entity.type)
+        result["extension"] = _read_runtime_ext_row(db, runtime_spec, entity_id) if runtime_spec else {}
         result["relations"] = []
         result["knowledge"] = []
     return result
@@ -611,7 +553,26 @@ def _stamp_type_template(db: DbSession, world_id: str, ext_row: Location) -> Non
 
 
 def _create_entity_core(body: EntityWriteBody, db: DbSession) -> Entity:
-    """Commit-free core of `create_entity`.
+    """Commit-free core of `create_entity` — dispatches to the static
+    (`ENTITY_TYPE_REGISTRY`) or governed-runtime (reflected `ext_*`,
+    TICKET-0046 BRIEF-0046-e) path by `type`. An ungoverned slug (neither)
+    is a 422 before any table is touched (A1 fail-closed)."""
+    entity_type = body.entity.get("type")
+    if entity_type in ENTITY_TYPE_REGISTRY:
+        return _create_static_entity_core(body, db, entity_type)
+
+    runtime_spec = _runtime_type_spec(db, entity_type) if entity_type else None
+    if runtime_spec is None:
+        raise HTTPException(
+            422,
+            f"type must be one of {list(ENTITY_TYPE_REGISTRY)} or an active governed entity type",
+        )
+    return _create_runtime_entity_core(body, db, entity_type, runtime_spec)
+
+
+def _create_static_entity_core(body: EntityWriteBody, db: DbSession, entity_type: str) -> Entity:
+    """Static-registry create core — moved verbatim out of
+    `_create_entity_core` (BRIEF-0046-e), behavior byte-for-byte unchanged.
 
     Does everything up to and including `db.add` / `db.flush()` — never
     `db.commit()` / `db.refresh()`. Returns the `Entity` row (with its
@@ -624,10 +585,6 @@ def _create_entity_core(body: EntityWriteBody, db: DbSession) -> Entity:
     DB) but never added to the session, so no orphan `entity` row results.
     """
     data = body.entity
-    entity_type = data.get("type")
-    if entity_type not in ENTITY_TYPE_REGISTRY:
-        raise HTTPException(422, f"type must be one of {list(ENTITY_TYPE_REGISTRY)}")
-
     name = data.get("name")
     if not name:
         raise HTTPException(422, "Name is required")
@@ -687,6 +644,32 @@ def _create_entity_core(body: EntityWriteBody, db: DbSession) -> Entity:
     return entity
 
 
+def _create_runtime_entity_core(
+    body: EntityWriteBody, db: DbSession, entity_type: str, runtime_spec: dict
+) -> Entity:
+    """Governed-runtime-type create core (A1, TICKET-0046 BRIEF-0046-e): no
+    SQLModel class exists for a runtime type, so the ext row goes in via
+    `entity_runtime._insert_runtime_ext_row` instead of `db.add()`. No
+    faction-membership leg (character-only, static types only)."""
+    data = body.entity
+    name = data.get("name")
+    if not name:
+        raise HTTPException(422, "Name is required")
+
+    entity = Entity(world_id=_world_id(db), type=entity_type, name=str(name))
+    _apply_base_fields(db, entity, data)
+
+    # Validate the extension payload BEFORE adding anything to the session —
+    # a 422 here leaves no orphan `entity` row (same posture as the static path).
+    ext_kwargs = _build_runtime_ext_kwargs(db, runtime_spec["fields"], body.extension)
+
+    db.add(entity)
+    db.flush()
+    _insert_runtime_ext_row(db, runtime_spec, entity.id, ext_kwargs)
+
+    return entity
+
+
 def _link_entity_creation(mutation_id: str, entity_id: str, db: DbSession) -> dict:
     """Guarded flip: entity_creation germ -> applied + created_entity_id
     (BRIEF-0019-a item 5, RECON F4). Guards — must exist, be
@@ -731,22 +714,32 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
             "in the same faction.",
         )
     db.refresh(entity)
-    ext_row = db.get(ENTITY_TYPE_REGISTRY[entity.type]["model"], entity.id)
-    db.refresh(ext_row)
 
-    result = _entity_dict(entity)
-    result["extension"] = _extension_dict(entity.type, ext_row)
-    result["relations"] = []
-    result["knowledge"] = []
-    if entity.type == "character":
-        result["prices"] = {}
-    elif entity.type == "location":
-        result["subculture_rows"] = []
-        # TICKET-0040: read the real geometry - birth bounds come from the
-        # type template (E1), so a hardcoded null stub would make the
-        # client render an empty editor whose next save wipes them.
-        result["geometry"] = _location_geometry_dict(entity.id, db)
-        result["doors"] = []
+    if entity.type in ENTITY_TYPE_REGISTRY:
+        ext_row = db.get(ENTITY_TYPE_REGISTRY[entity.type]["model"], entity.id)
+        db.refresh(ext_row)
+
+        result = _entity_dict(entity)
+        result["extension"] = _extension_dict(entity.type, ext_row)
+        result["relations"] = []
+        result["knowledge"] = []
+        if entity.type == "character":
+            result["prices"] = {}
+        elif entity.type == "location":
+            result["subculture_rows"] = []
+            # TICKET-0040: read the real geometry - birth bounds come from the
+            # type template (E1), so a hardcoded null stub would make the
+            # client render an empty editor whose next save wipes them.
+            result["geometry"] = _location_geometry_dict(entity.id, db)
+            result["doors"] = []
+    else:
+        # Governed runtime type (TICKET-0046, BRIEF-0046-e).
+        runtime_spec = _runtime_type_spec(db, entity.type)
+        result = _entity_dict(entity)
+        result["extension"] = _read_runtime_ext_row(db, runtime_spec, entity.id) if runtime_spec else {}
+        result["relations"] = []
+        result["knowledge"] = []
+
     if body.mutation_id:
         result["creation_linkage"] = _link_entity_creation(body.mutation_id, entity.id, db)
     return result
@@ -768,6 +761,7 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
 
     ext: Any = None
     prior_location_id: Optional[str] = None
+    runtime_spec: Optional[dict] = None
     if entity.type in ENTITY_TYPE_REGISTRY:
         ext_model = ENTITY_TYPE_REGISTRY[entity.type]["model"]
         ext = db.get(ext_model, entity_id)
@@ -779,6 +773,16 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
         for key, value in ext_kwargs.items():
             setattr(ext, key, value)
         db.add(ext)
+    else:
+        # Governed runtime type (TICKET-0046, BRIEF-0046-e): no SQLModel
+        # class exists, so the ext row is a parameterized Core update()
+        # against the reflected table instead of ORM attribute assignment.
+        # Fail-closed: an ungoverned slug touches no table.
+        runtime_spec = _runtime_type_spec(db, entity.type)
+        if runtime_spec is None:
+            raise HTTPException(422, f"{entity.type!r} is not a governed entity type")
+        runtime_ext_kwargs = _build_runtime_ext_kwargs(db, runtime_spec["fields"], body.extension)
+        _update_runtime_ext_row(db, runtime_spec, entity_id, runtime_ext_kwargs)
 
     # BRIEF-53 A1: a character's location change, or any transition to a
     # non-active entity.status, closes its open gathering_member rows
@@ -804,6 +808,10 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
             result["subculture_rows"] = _location_subculture_rows(entity_id, db)
             result["geometry"] = _location_geometry_dict(entity_id, db)
             result["doors"] = _location_doors_rows(entity_id, db)
+    elif runtime_spec is not None:
+        result["extension"] = _read_runtime_ext_row(db, runtime_spec, entity_id)
+        result["relations"] = []
+        result["knowledge"] = []
     else:
         result["extension"] = {}
         result["relations"] = []
