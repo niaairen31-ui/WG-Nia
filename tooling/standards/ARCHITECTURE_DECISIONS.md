@@ -9503,4 +9503,58 @@ convention rather than inventing a new identity source.
 
 ---
 
+## DYNAMIC TAB FACTORY — runtime Creation tabs + page_contract mechanism assertion (BRIEF-0046-d, no schema change)
+
+TICKET-0046 (B1/E1). Runtime Creation tabs are injected by a single
+boot/refresh factory, `_buildRuntimeCreationTabs()`
+(`cockpit/index.html`) — the sole producer of a runtime `#ctab-<slug>`
+button + `CREATION_TABS[<slug>]` entry, one per ACTIVE, world-scoped
+`entity_type` row from `authorRegistry.runtime_types`
+(`GET /api/entity-types`, BRIEF-0046-b). Every injected entry is a NORMAL
+entity-archetype registry entry on the shared `creation-editor-area`
+shell (`createPanel: () => authorRenderSheet({}, true, slug)`) — no new
+container, no per-type hand authoring, no dispatcher branch. The factory
+is idempotent and world-scoped: a `_runtimeCreationSlugs` set tracks
+exactly what it injected, so a slug no longer live (retirement, or a
+world switch) is removed without ever touching a static entry/button.
+
+`refreshCreationTabs()` re-fetches `authorRegistry` then rebuilds — called
+from `creationInit()` (boot), from the Constructeur's create-success path
+(BRIEF-0046-c), and from `_creationRunWorldSwitchResets()` (both
+`activateWorld()` and `worldDeleteConfirm()` already awaited it) so a
+world switch never leaves the previous world's runtime tab live.
+
+**Fixed during live verification: the factory must never write
+`currentCreationSubTab` directly.** The first draft reset
+`currentCreationSubTab` to `'npc'` inside the removal loop, on the
+assumption the caller's subsequent `showCreationSubTab(currentCreationSubTab)`
+would then activate it. Instead this silently defeated
+`showCreationSubTab`'s own `prev !== tab` guard (`prev` is captured as
+whatever `currentCreationSubTab` already holds at call time) — with both
+`prev` and `tab` now `'npc'`, `onTabEnter` never ran and the stale
+removed-type form stayed rendered under the NPC tab. The factory now
+leaves `currentCreationSubTab` untouched; instead the two world-switch
+call sites (`activateWorld`, `worldDeleteConfirm`) compute the fallback
+inline right before calling `showCreationSubTab`:
+`CREATION_TABS[currentCreationSubTab] ? currentCreationSubTab : 'npc'` —
+so `prev` (still the just-removed slug) legitimately differs from the
+resolved `tab`, and the reset fires. General lesson: never pre-mutate a
+dispatcher's tracked "current" state ahead of the call that is supposed
+to react to the transition — the transition's own before/after diff is
+what triggers the reset.
+
+`page_contract.py` (E1) now asserts the MECHANISM, never live types
+(no-DB doctrine preserved): `_buildRuntimeCreationTabs` is defined and
+called from `creationInit`; every static `id="ctab-<slug>"` in the raw
+HTML source must have its slug in the frozen `TAB_KEYS` list (a runtime
+button's id only ever exists in the live DOM via `insertAdjacentHTML`
+template interpolation, never in the static source text, so this static
+scan cannot false-positive on an injected tab) — red-teamed both ways:
+hand-adding a static `#ctab-foo` fails, and removing the factory's call
+from `creationInit` fails. `constructeur` was added to `TAB_KEYS` here
+(its registry entry + `primaryAction` landed in BRIEF-0046-c, uncovered
+by the check until now).
+
+---
+
 *Co-built with Claude, June 2026.*

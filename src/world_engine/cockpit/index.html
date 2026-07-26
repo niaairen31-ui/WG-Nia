@@ -4383,11 +4383,15 @@ function renderCreationShell(entry) {
 }
 
 /** Runs every registry entry's world-switch reset (BRIEF-0005-a item 3, G1) —
- *  called by activateWorld() and worldDeleteConfirm(), never per-tab. */
-function _creationRunWorldSwitchResets() {
+ *  called by activateWorld() and worldDeleteConfirm(), never per-tab. Also
+ *  refreshes runtime Creation tabs for the newly active world (TICKET-0046,
+ *  BRIEF-0046-d) — a world switch must clear the previous world's runtime
+ *  tabs, never leave a stale one live. */
+async function _creationRunWorldSwitchResets() {
   Object.values(CREATION_TABS).forEach(entry => {
     if (entry.state && entry.state.onWorldSwitch) entry.state.onWorldSwitch();
   });
+  if (authorRegistry) await refreshCreationTabs();
 }
 
 /* ── Compétences — world-scoped custom skill catalogue (BRIEF-56) ───────── */
@@ -7046,6 +7050,60 @@ function constructeurResetForm() {
   constructeurRender();
 }
 
+/* ── Runtime Creation tabs — dynamic tab factory (TICKET-0046, BRIEF-0046-d) ──
+ * The single producer of runtime (custom entity-type) Creation tabs: reads
+ * authorRegistry.runtime_types (world-scoped, from GET /api/entity-types) and
+ * injects one entity-archetype CREATION_TABS entry + one #ctab-<slug> button
+ * per active runtime type onto the shared creation-editor-area shell — no new
+ * container, no per-type hand authoring, no dispatcher branch. Idempotent and
+ * world-scoped: a slug previously injected but no longer live (retired type,
+ * or a world switch) is removed via the tracked _runtimeCreationSlugs set —
+ * static entries/buttons are never touched. */
+let _runtimeCreationSlugs = new Set();
+
+function _buildRuntimeCreationTabs() {
+  const liveSlugs = new Set((authorRegistry && authorRegistry.runtime_types) || []);
+  const tabBar = document.querySelector('.creation-sub-tab-bar');
+
+  for (const slug of Array.from(_runtimeCreationSlugs)) {
+    if (liveSlugs.has(slug)) continue;
+    delete CREATION_TABS[slug];
+    const btn = document.getElementById('ctab-' + slug);
+    if (btn) btn.remove();
+    _runtimeCreationSlugs.delete(slug);
+  }
+
+  for (const slug of liveSlugs) {
+    const typeInfo = (authorRegistry.types && authorRegistry.types[slug]) || { label: slug };
+    if (!CREATION_TABS[slug]) {
+      CREATION_TABS[slug] = {
+        label: typeInfo.label,
+        archetype: 'entity',
+        containers: ['creation-editor-area'],
+        loader: null,
+        state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _entityListWorldReset },
+        type: slug,
+        createPanel: () => authorRenderSheet({}, true, slug),
+        primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
+        slots: [],
+      };
+    }
+    if (tabBar && !document.getElementById('ctab-' + slug)) {
+      tabBar.insertAdjacentHTML('beforeend',
+        `<button class="creation-sub-tab" id="ctab-${esc(slug)}" onclick="showCreationSubTab('${slug}')">${esc(typeInfo.label)}</button>`);
+    }
+    _runtimeCreationSlugs.add(slug);
+  }
+}
+
+/** Re-fetches authorRegistry then rebuilds runtime tabs — the hook 0046-c
+ *  calls after a successful type create; also run on world switch via
+ *  _creationRunWorldSwitchResets(). */
+async function refreshCreationTabs() {
+  authorRegistry = await api('/api/entity-types');
+  _buildRuntimeCreationTabs();
+}
+
 /* ── Création bootstrap ──────────────────────────────────────────────────── */
 
 async function creationInit() {
@@ -7055,6 +7113,7 @@ async function creationInit() {
     document.getElementById('author-entity-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
     return;
   }
+  _buildRuntimeCreationTabs();
   _creationActivateTab();
 }
 
@@ -11669,12 +11728,15 @@ async function activateWorld(worldId) {
   // Invalidate every tab's world-scoped state so no stale other-world row
   // survives the switch (BRIEF-47 creation-world-scoping, widened to every
   // registry entry's declared reset by BRIEF-0005-a G1).
-  _creationRunWorldSwitchResets();
+  await _creationRunWorldSwitchResets();
 
   const creationView = document.getElementById('creation-view');
   if (creationView && creationView.style.display !== 'none') {
     if (authorRegistry) {
-      showCreationSubTab(currentCreationSubTab);
+      // The active tab may have been a runtime type that just got removed
+      // by refreshCreationTabs (world-scoped) — fall back to npc so the
+      // switch always lands on a live entry (BRIEF-0046-d).
+      showCreationSubTab(CREATION_TABS[currentCreationSubTab] ? currentCreationSubTab : 'npc');
     } else {
       creationInit();
     }
@@ -11810,11 +11872,11 @@ async function worldDeleteConfirm(worldId) {
     }
     await loadWorldSelector();
     await loadBootstrap();
-    _creationRunWorldSwitchResets();
+    await _creationRunWorldSwitchResets();
     const creationView = document.getElementById('creation-view');
     if (creationView && creationView.style.display !== 'none') {
       if (authorRegistry) {
-        showCreationSubTab(currentCreationSubTab);
+        showCreationSubTab(CREATION_TABS[currentCreationSubTab] ? currentCreationSubTab : 'npc');
       } else {
         creationInit();
       }

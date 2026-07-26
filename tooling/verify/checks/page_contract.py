@@ -10,7 +10,7 @@ INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
 
 TAB_KEYS = [
     "npc", "pj", "lieux", "factions", "objets",
-    "competences", "region", "artefacts", "registre", "intrigues", "evenements", "queue", "prompts",
+    "competences", "region", "constructeur", "artefacts", "registre", "intrigues", "evenements", "queue", "prompts",
 ]
 
 
@@ -125,6 +125,31 @@ def main() -> int:
                     f"_creationActivateTab body contains the tab-id literal '{key}' "
                     "— on_demand handling must read slot data only (BRIEF-0023-a)"
                 )
+
+    # TICKET-0046/BRIEF-0046-d (E1): runtime Creation tabs may ONLY exist via
+    # the single boot/refresh factory — mechanism-only, never a live-type
+    # enumeration (no-DB doctrine holds).
+    factory_src = _braced_block(html, r"function _buildRuntimeCreationTabs\(\)\s*")
+    if not factory_src:
+        failures.append("_buildRuntimeCreationTabs() function body not found in index.html")
+
+    init_src = _braced_block(html, r"async function creationInit\(\)\s*")
+    if not init_src:
+        failures.append("creationInit() function body not found in index.html")
+    elif "_buildRuntimeCreationTabs()" not in init_src:
+        failures.append(
+            "creationInit() does not call _buildRuntimeCreationTabs() — the "
+            "factory must run on every Création boot (BRIEF-0046-d)"
+        )
+
+    for m in re.finditer(r"""id=["']ctab-([a-zA-Z0-9_-]+)["']""", html):
+        slug = m.group(1)
+        if slug not in TAB_KEYS:
+            failures.append(
+                f"static markup hand-authors '#ctab-{slug}' — runtime Creation "
+                "tabs must be injected by _buildRuntimeCreationTabs only, "
+                "never present in static HTML (BRIEF-0046-d E1)"
+            )
 
     # TICKET-0023/BRIEF-0023-a: on-demand slot contract (F1) — the entry
     # contract comment documents `display`, and any slot named 'graph' (the
