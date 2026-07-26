@@ -48,12 +48,24 @@ def fail(msg: str) -> None:
 
 
 def _fresh_engine():
+    """Rebinds `world_engine.db`'s module-level `engine` to a fresh temp
+    SQLite file by purging it (and the `world_engine` package itself) from
+    `sys.modules` before reimport. `world_engine.models` is deliberately
+    LEFT cached (BRIEF-0046-a): `traits.py` now imports `writes.schema`,
+    which imports `models`, so by the time this check reaches here
+    `world_engine.models` may already be registered on SQLModel's shared
+    metadata — purging and re-executing its class bodies a second time
+    would collide on the same table names. Reusing the already-registered
+    classes is correct: `create_db_and_tables()` only needs the module
+    imported once, ever, per process."""
     tmp_dir = tempfile.mkdtemp()
     db_path = pathlib.Path(tmp_dir) / "check.db"
     os.environ["WORLD_ENGINE_DATABASE_URL"] = f"sqlite:///{db_path}"
     sys.path.insert(0, str(SRC))
     for name in list(sys.modules):
-        if name == "world_engine" or name.startswith("world_engine."):
+        if name == "world_engine" or (
+            name.startswith("world_engine.") and not name.startswith("world_engine.models")
+        ):
             del sys.modules[name]
 
     from world_engine.db import create_db_and_tables, engine
