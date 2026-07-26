@@ -32,6 +32,8 @@ from ...models import (
     DiscoverableDetail,
     Door,
     Entity,
+    EntityTrait,
+    EntityType,
     Event,
     EventEntity,
     Faction,
@@ -58,6 +60,8 @@ from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
 from ...spatial_author import location_type_template
 from ...tick_normalize import _EVENT_TYPES
+from ...traits import checkable_traits, ext_columns_for, form_fields_for
+from ...writes.schema import create_entity_type
 from ...writes import (
     KNOWLEDGE_LEVELS,
     NPC_GOAL_HORIZONS,
@@ -461,24 +465,99 @@ class LocationDoorsBody(BaseModel):
     doors: list[DoorIn] = []
 
 
+class EntityTypeCreateBody(BaseModel):
+    name: str
+    slug: str
+    trait_keys: list[str] = []
+
+
 @router.get("/entity-types")
-def get_entity_types() -> dict:
+def get_entity_types(db: DbSession = Depends(get_session)) -> dict:
     """Registry metadata driving the composite form (decision 5).
 
     Adding a future type means one entry in ENTITY_TYPE_REGISTRY — the
     frontend renders the base form plus whatever `fields` the type declares.
+    Runtime types (TICKET-0046, BRIEF-0046-b) are appended after the static
+    ones: one `types[slug]` entry per ACTIVE, world-scoped `entity_type` row,
+    its `fields` derived from `form_fields_for` over that row's checked
+    `entity_trait` rows — never recomputed inline.
     """
+    types: dict[str, Any] = {
+        t: {"label": spec["label"], "fields": spec["fields"]}
+        for t, spec in ENTITY_TYPE_REGISTRY.items()
+    }
+    runtime_types: list[str] = []
+    world_id = _world_id(db)
+    runtime_rows = db.exec(
+        select(EntityType).where(
+            EntityType.world_id == world_id, EntityType.status == "active"
+        )
+    ).all()
+    for row in runtime_rows:
+        trait_keys = [
+            et.trait_key
+            for et in db.exec(
+                select(EntityTrait).where(EntityTrait.entity_type_id == row.id)
+            ).all()
+        ]
+        types[row.slug] = {"label": row.name, "fields": form_fields_for(trait_keys)}
+        runtime_types.append(row.slug)
+
     return {
-        "entity_types": list(ENTITY_TYPE_REGISTRY.keys()),
+        "entity_types": list(ENTITY_TYPE_REGISTRY.keys()) + runtime_types,
         "entity_base_fields": ENTITY_BASE_FIELDS,
         "entity_statuses": list(ENTITY_STATUSES),
-        "types": {
-            t: {"label": spec["label"], "fields": spec["fields"]}
-            for t, spec in ENTITY_TYPE_REGISTRY.items()
-        },
+        "types": types,
+        "runtime_types": runtime_types,
+        "checkable_traits": [
+            {"key": t.key, "label": t.label} for t in checkable_traits()
+        ],
         "relation_fields": RELATION_FIELDS,
         "knowledge_fields": KNOWLEDGE_FIELDS,
         "event_fields": EVENT_FIELDS,
+    }
+
+
+@router.post("/entity-types", status_code=201)
+def create_entity_type_route(
+    body: EntityTypeCreateBody, db: DbSession = Depends(get_session)
+) -> dict:
+    """Creator-direct type creation (TICKET-0046, BRIEF-0046-b). Composes
+    the governed DDL/registry writer (`create_entity_type`, TICKET-0044)
+    with the `entity_trait` projection inserts in the SAME transaction —
+    never a second write path, never a bypass. Columns/fields derive
+    exclusively from `ext_columns_for`/`form_fields_for` (S-norme)."""
+    checkable_keys = {t.key for t in checkable_traits()}
+    unknown = [k for k in body.trait_keys if k not in checkable_keys]
+    if unknown:
+        raise HTTPException(422, f"unknown or non-checkable trait_keys: {unknown}")
+
+    if body.slug.casefold() in {k.casefold() for k in ENTITY_TYPE_REGISTRY}:
+        raise HTTPException(422, "slug collides with a built-in type")
+
+    columns = ext_columns_for(body.trait_keys)
+    try:
+        etype_id = create_entity_type(
+            db,
+            world_id=_world_id(db),
+            name=body.name,
+            slug=body.slug,
+            columns=columns,
+            changed_by="creator",
+        )
+        db.flush()
+        for trait_key in body.trait_keys:
+            db.add(EntityTrait(entity_type_id=etype_id, trait_key=trait_key))
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc))
+
+    return {
+        "ok": True,
+        "entity_type_id": etype_id,
+        "slug": body.slug,
+        "physical_table": "ext_" + body.slug,
     }
 
 

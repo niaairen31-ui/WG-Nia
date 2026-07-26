@@ -9452,6 +9452,55 @@ Fixed by excluding `world_engine.models*` from the purge — the module only
 ever needs to be imported once per process; only `world_engine.db` (for
 its module-level `engine` binding) needs the fresh reimport.
 
+## ENTITY-TYPE CONSTRUCTOR — creator route + runtime-type serializer (BRIEF-0046-b, no schema change)
+
+TICKET-0046. `POST /api/entity-types` is the creator-direct type-creation
+path: it composes the governed DDL/registry writer (`create_entity_type`,
+BRIEF-0044-c) with the `entity_trait` projection inserts (BRIEF-0045-a) in
+ONE transaction — never a second write path, never a bypass. Validation
+order: unknown/non-checkable `trait_keys` (including socle keys like
+`describable`, which are implicit and never a checkbox) -> 422; a `slug`
+colliding case-insensitively with a static `ENTITY_TYPE_REGISTRY` key -> 422
+("runtime-vs-static" collision — `create_entity_type` itself already guards
+runtime-vs-runtime via `_check_collision`). `columns` come from
+`ext_columns_for(trait_keys)` exclusively (never recomputed inline); no
+`entity_trait` row is written for a socle trait.
+
+**`db.flush()` between the governed writer and the `entity_trait` inserts —
+required, not defensive.** Neither `EntityType` nor `EntityTrait` declares
+an ORM `relationship()` to the other (plain FK columns only, matching the
+rest of this codebase). Without an explicit flush, SQLAlchemy's
+unit-of-work has no dependency information ordering the two mapper
+batches within one flush and can emit the `entity_trait` INSERT before its
+parent `entity_type` row exists, raising a FOREIGN KEY constraint failure
+(reproduced directly: `entity_type`/`entity_trait` added un-flushed in the
+same transaction fails every time, table-name-ordered, not FK-ordered;
+`entity_type`/`entity_type_history` — both written inside
+`create_entity_type` itself — happens to commit fine un-flushed only
+because "entity_type" alphabetically precedes "entity_type_history",
+not because SQLAlchemy resolved the FK). This is the same reason
+`_create_entity_core` (`cockpit/crud/entities.py`) flushes the `entity` row
+before adding its extension row — an established codebase pattern for any
+multi-table insert of FK-dependent rows sharing one uncommitted
+transaction, now also documented here since 0046-b hit it fresh.
+
+**Serializer is the single source for the frontend (0046-c/d/e build on
+this).** `GET /api/entity-types` appends one `types[slug]` entry per
+ACTIVE, world-scoped `entity_type` row (`fields` from `form_fields_for`
+over that row's `entity_trait` keys), a new `runtime_types` key (the
+runtime slug list, letting the client distinguish runtime from static
+without shipping the static set), and a new `checkable_traits` key (the
+trait-palette source for the UI, BRIEF-0046-c). Static entries and their
+`fields` are unchanged — regression-verified against the pre-change
+serializer output.
+
+**`changed_by="creator"`.** RECON (`grep changed_by src/world_engine/cockpit`)
+found no dedicated creator-identity accessor; every existing author-CRUD
+write site (`write_npc_prices`, `write_location_subculture`,
+`write_faction_role`, `write_relation`, goal/skill writers, etc.) already
+passes the literal `"creator"`. This route follows the same established
+convention rather than inventing a new identity source.
+
 ---
 
 *Co-built with Claude, June 2026.*
