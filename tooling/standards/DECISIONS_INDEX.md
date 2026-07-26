@@ -140,3 +140,6 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 9322 | TRAIT REGISTRY — code-source-of-truth, structural reader enforcement (BRIEF-0045-b, no schema change) | BRIEF-0045-b |  |
 | 9388 | SOCLE TRAITS ARE IMPLICIT, NEVER PROJECTED (BRIEF-0045-d, no schema change) | BRIEF-0045-d |  |
 | 9411 | TRAIT EXT-COLUMN TYPING + FIELD-SPEC (BRIEF-0046-a, no schema change) | BRIEF-0046-a |  |
+| 9455 | ENTITY-TYPE CONSTRUCTOR — creator route + runtime-type serializer (BRIEF-0046-b, no schema change) | BRIEF-0046-b |  |
+| 9506 | DYNAMIC TAB FACTORY — runtime Creation tabs + page_contract mechanism assertion (BRIEF-0046-d, no schema change) | BRIEF-0046-d |  |
+| 9560 | DYNAMIC INSTANCE CRUD for custom ext_* + json_ui_boundary F1 volet (BRIEF-0046-e, no schema change) | BRIEF-0046-e |  |

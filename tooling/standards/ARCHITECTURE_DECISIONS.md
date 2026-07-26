@@ -9452,6 +9452,186 @@ Fixed by excluding `world_engine.models*` from the purge — the module only
 ever needs to be imported once per process; only `world_engine.db` (for
 its module-level `engine` binding) needs the fresh reimport.
 
+## ENTITY-TYPE CONSTRUCTOR — creator route + runtime-type serializer (BRIEF-0046-b, no schema change)
+
+TICKET-0046. `POST /api/entity-types` is the creator-direct type-creation
+path: it composes the governed DDL/registry writer (`create_entity_type`,
+BRIEF-0044-c) with the `entity_trait` projection inserts (BRIEF-0045-a) in
+ONE transaction — never a second write path, never a bypass. Validation
+order: unknown/non-checkable `trait_keys` (including socle keys like
+`describable`, which are implicit and never a checkbox) -> 422; a `slug`
+colliding case-insensitively with a static `ENTITY_TYPE_REGISTRY` key -> 422
+("runtime-vs-static" collision — `create_entity_type` itself already guards
+runtime-vs-runtime via `_check_collision`). `columns` come from
+`ext_columns_for(trait_keys)` exclusively (never recomputed inline); no
+`entity_trait` row is written for a socle trait.
+
+**`db.flush()` between the governed writer and the `entity_trait` inserts —
+required, not defensive.** Neither `EntityType` nor `EntityTrait` declares
+an ORM `relationship()` to the other (plain FK columns only, matching the
+rest of this codebase). Without an explicit flush, SQLAlchemy's
+unit-of-work has no dependency information ordering the two mapper
+batches within one flush and can emit the `entity_trait` INSERT before its
+parent `entity_type` row exists, raising a FOREIGN KEY constraint failure
+(reproduced directly: `entity_type`/`entity_trait` added un-flushed in the
+same transaction fails every time, table-name-ordered, not FK-ordered;
+`entity_type`/`entity_type_history` — both written inside
+`create_entity_type` itself — happens to commit fine un-flushed only
+because "entity_type" alphabetically precedes "entity_type_history",
+not because SQLAlchemy resolved the FK). This is the same reason
+`_create_entity_core` (`cockpit/crud/entities.py`) flushes the `entity` row
+before adding its extension row — an established codebase pattern for any
+multi-table insert of FK-dependent rows sharing one uncommitted
+transaction, now also documented here since 0046-b hit it fresh.
+
+**Serializer is the single source for the frontend (0046-c/d/e build on
+this).** `GET /api/entity-types` appends one `types[slug]` entry per
+ACTIVE, world-scoped `entity_type` row (`fields` from `form_fields_for`
+over that row's `entity_trait` keys), a new `runtime_types` key (the
+runtime slug list, letting the client distinguish runtime from static
+without shipping the static set), and a new `checkable_traits` key (the
+trait-palette source for the UI, BRIEF-0046-c). Static entries and their
+`fields` are unchanged — regression-verified against the pre-change
+serializer output.
+
+**`changed_by="creator"`.** RECON (`grep changed_by src/world_engine/cockpit`)
+found no dedicated creator-identity accessor; every existing author-CRUD
+write site (`write_npc_prices`, `write_location_subculture`,
+`write_faction_role`, `write_relation`, goal/skill writers, etc.) already
+passes the literal `"creator"`. This route follows the same established
+convention rather than inventing a new identity source.
+
+---
+
+## DYNAMIC TAB FACTORY — runtime Creation tabs + page_contract mechanism assertion (BRIEF-0046-d, no schema change)
+
+TICKET-0046 (B1/E1). Runtime Creation tabs are injected by a single
+boot/refresh factory, `_buildRuntimeCreationTabs()`
+(`cockpit/index.html`) — the sole producer of a runtime `#ctab-<slug>`
+button + `CREATION_TABS[<slug>]` entry, one per ACTIVE, world-scoped
+`entity_type` row from `authorRegistry.runtime_types`
+(`GET /api/entity-types`, BRIEF-0046-b). Every injected entry is a NORMAL
+entity-archetype registry entry on the shared `creation-editor-area`
+shell (`createPanel: () => authorRenderSheet({}, true, slug)`) — no new
+container, no per-type hand authoring, no dispatcher branch. The factory
+is idempotent and world-scoped: a `_runtimeCreationSlugs` set tracks
+exactly what it injected, so a slug no longer live (retirement, or a
+world switch) is removed without ever touching a static entry/button.
+
+`refreshCreationTabs()` re-fetches `authorRegistry` then rebuilds — called
+from `creationInit()` (boot), from the Constructeur's create-success path
+(BRIEF-0046-c), and from `_creationRunWorldSwitchResets()` (both
+`activateWorld()` and `worldDeleteConfirm()` already awaited it) so a
+world switch never leaves the previous world's runtime tab live.
+
+**Fixed during live verification: the factory must never write
+`currentCreationSubTab` directly.** The first draft reset
+`currentCreationSubTab` to `'npc'` inside the removal loop, on the
+assumption the caller's subsequent `showCreationSubTab(currentCreationSubTab)`
+would then activate it. Instead this silently defeated
+`showCreationSubTab`'s own `prev !== tab` guard (`prev` is captured as
+whatever `currentCreationSubTab` already holds at call time) — with both
+`prev` and `tab` now `'npc'`, `onTabEnter` never ran and the stale
+removed-type form stayed rendered under the NPC tab. The factory now
+leaves `currentCreationSubTab` untouched; instead the two world-switch
+call sites (`activateWorld`, `worldDeleteConfirm`) compute the fallback
+inline right before calling `showCreationSubTab`:
+`CREATION_TABS[currentCreationSubTab] ? currentCreationSubTab : 'npc'` —
+so `prev` (still the just-removed slug) legitimately differs from the
+resolved `tab`, and the reset fires. General lesson: never pre-mutate a
+dispatcher's tracked "current" state ahead of the call that is supposed
+to react to the transition — the transition's own before/after diff is
+what triggers the reset.
+
+`page_contract.py` (E1) now asserts the MECHANISM, never live types
+(no-DB doctrine preserved): `_buildRuntimeCreationTabs` is defined and
+called from `creationInit`; every static `id="ctab-<slug>"` in the raw
+HTML source must have its slug in the frozen `TAB_KEYS` list (a runtime
+button's id only ever exists in the live DOM via `insertAdjacentHTML`
+template interpolation, never in the static source text, so this static
+scan cannot false-positive on an injected tab) — red-teamed both ways:
+hand-adding a static `#ctab-foo` fails, and removing the factory's call
+from `creationInit` fails. `constructeur` was added to `TAB_KEYS` here
+(its registry entry + `primaryAction` landed in BRIEF-0046-c, uncovered
+by the check until now).
+
+---
+
+## DYNAMIC INSTANCE CRUD for custom ext_* + json_ui_boundary F1 volet (BRIEF-0046-e, no schema change)
+
+TICKET-0046 (A1 vertical slice, closing). `POST`/`GET`/`PUT /api/entities`
+now dispatch on `type`: a static `ENTITY_TYPE_REGISTRY` slug takes the
+unchanged SQLModel-class path (`_create_static_entity_core`, byte-for-byte
+moved out of the old `_create_entity_core`); a slug resolving to an ACTIVE,
+world-scoped `entity_type` row (`_runtime_type_spec`, the single "is this
+governed" gate) takes the new reflected-table path — `entity_runtime.py`'s
+`_insert_runtime_ext_row`/`_update_runtime_ext_row`/`_read_runtime_ext_row`,
+built entirely on parameterized SQLAlchemy Core statements
+(`sa_insert(table).values(...)`, never string interpolation) against a
+`Table` reflected via `autoload_with`. `physical_table` is never user
+input: it only ever comes from an `entity_type` row already validated as a
+safe identifier at creation (`writes/schema.py`, Dname1) and DB-CHECK-
+constrained to `GLOB 'ext_*'`. Neither dispatch branch is reachable for an
+AI proposal — this is the creator-CRUD path only, same as every static
+type; the AI-proposal dispatch and its fail-closed completeness check are
+TICKET-0047. An ungoverned slug (neither static nor an active
+`entity_type`) 422s on create AND update before any table is touched
+(A1 fail-closed), verified by the new `dynamic_ext_crud.py` (temp-fixture
+idiom, same as `trait_registry_projection.py`) and live in the browser.
+
+**Delete needed no change (brief's "REPORT which" resolved).** RECON
+`grep db.delete\(` across `entities.py` found zero hits: `delete_entity`
+is, and always was, a SOFT delete (`entity.status = 'inactive'`) with no
+ext-row touch of any kind, for ANY entity type, static or runtime —
+already generic over `type`. The brief's drafted "delete the ext row then
+the entity row" assumption didn't match the actual code; the brief itself
+named the resolution mechanism ("match the existing pattern"), and the
+existing pattern is non-destructive. `entity`/`ext_*` were never eligible
+for the closed hard-delete list (CLAUDE.md) and stay that way.
+
+**SQLite has no native BOOLEAN.** The Dcol1 `BOOLEAN` mapping is
+`INTEGER CHECK (col IN (0,1))`; plain Core reflection (no ORM `Boolean`
+type decorator) hands back a raw `0`/`1` int on read. `_read_runtime_ext_row`
+coerces any `kind: "bool"` field to a real Python `bool` so the JSON
+response matches every other bool field in this API (e.g.
+`ENTITY_BASE_FIELDS.is_public`) — caught by `dynamic_ext_crud.py`'s strict
+`is True`/`is False` assertions before this fix, not a cosmetic choice.
+
+**`json_ui_boundary.py` gained a fourth volet (F1):** imports `traits`
+(pure, no DB) and fails if any `ExtColumnSpec.field.get("kind") ==
+"json"` across the whole registry — mirrors `ExtColumnSpec.__post_init__`'s
+construction-time guard at the verify plane, defense in depth against a
+future removal of that guard. Red-teamed: mutating a real spec's `field`
+dict in place to plant `kind:"json"` FAILs by name; reverting returns green.
+
+**Module split, not a baseline exemption (`module_budget.py`).** The
+runtime-CRUD addition pushed `entities.py` past the 1000-line cap; per
+that check's own "no permanent exemptions — the failing check IS the
+mechanism" doctrine, the ext-row mechanics moved to a new
+`src/world_engine/cockpit/crud/entity_runtime.py` instead. To keep the
+import graph acyclic (`entity_runtime.py` must never import `entities.py`),
+the two generic field helpers `_validate_entity_ref`/`_coerce_field`
+(previously defined in `entities.py`) moved to `_shared.py`, the existing
+closed cross-domain accessor set (R6 — this brief is the "requires a
+brief" justification for the addition); both `entities.py` and
+`entity_runtime.py` import them from there, one direction only.
+`single_canon_write.py`'s policy and `llm_parse_chokepoint.py`'s
+`_coerce_field` allow-list entry were re-keyed to match.
+
+**Deferred:** runtime-type relations/knowledge editing (both stay `[]` for
+a governed runtime type this brief, same as any unknown type today) —
+logged as "runtime-type relations/knowledge UI", picked up whenever a
+concrete need lands, not necessarily 0047. Also deferred (not a brief
+requirement, noted for awareness): `ext_*` row INSERT/UPDATE is invisible
+to `single_canon_write.py`'s static per-table attribution (it only
+recognizes raw SQL-text `.execute(text(...))`, not Core statement
+objects) — same class of blind spot already precedented for
+`create_entity_type`'s DDL in `canon_write_policy.txt`'s own comments,
+mitigated here by `dynamic_ext_crud.py`'s functional round-trip instead
+of a static guard. A `runtime_ddl_guard.py`-style dedicated AST guard for
+`entity_runtime.py`'s row-write shape would close that gap structurally;
+out of this brief's scope, worth a future ticket.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -21,12 +21,20 @@ a brief. The set, and why each entry is here:
 - `EVENT_TYPE_LABELS_FR`, `EVENT_KNOWLEDGE_STATUSES`, `EVENT_FIELDS` —
   `EVENT_FIELDS` is built from the other two, which `events.py` also uses
   for its own validation; kept together as one source of truth.
+- `_validate_entity_ref`, `_coerce_field` (BRIEF-0046-e) — the generic
+  field-coercion pair, re-homed here so both `entities.py` (static
+  `ENTITY_TYPE_REGISTRY` CRUD) and the new `entity_runtime.py` (governed
+  runtime `ext_*` CRUD, TICKET-0046) can call them without either module
+  importing the other (avoids a circular import; also relieves
+  `entities.py`'s `module_budget` line cap, which the runtime-CRUD split
+  alone did not clear).
 
 Every helper body below is byte-identical to its original definition; only
 its module (and the callers' import lines) changed.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, Optional
 
@@ -52,6 +60,75 @@ def _get_entity(db: DbSession, entity_id: str) -> Entity:
     if entity is None:
         raise HTTPException(status_code=404, detail=f"Entity {entity_id!r} not found")
     return entity
+
+
+def _validate_entity_ref(db: DbSession, value: Any, ref_type: str, label: str) -> Optional[str]:
+    if not value:
+        return None
+    target = db.get(Entity, value)
+    if target is None or target.type != ref_type:
+        raise HTTPException(422, f"{label}: {value!r} is not a valid {ref_type} entity id")
+    return value
+
+
+def _coerce_field(db: DbSession, field: dict, raw: Any) -> Any:
+    kind = field["kind"]
+    label = field.get("label", field["name"])
+    required = field.get("required", False)
+
+    if kind == "entity_ref":
+        val = _validate_entity_ref(db, raw, field["ref_type"], label)
+        if required and val is None:
+            raise HTTPException(422, f"{label} is required")
+        return val
+
+    if kind == "bool":
+        if raw is None:
+            return bool(field.get("default", False))
+        return bool(raw)
+
+    if kind == "number":
+        if raw is None or raw == "":
+            if required:
+                raise HTTPException(422, f"{label} is required")
+            return field.get("default")
+        try:
+            n = float(raw) if field.get("float") else int(raw)
+        except (TypeError, ValueError):
+            raise HTTPException(422, f"{label} must be a number")
+        lo, hi = field.get("min"), field.get("max")
+        if lo is not None:
+            n = max(lo, n)
+        if hi is not None:
+            n = min(hi, n)
+        return n
+
+    if kind == "json":
+        if raw in (None, ""):
+            return None
+        if isinstance(raw, str):
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(422, f"{label}: invalid JSON ({exc})")
+        return raw
+
+    if kind == "select":
+        if raw in (None, ""):
+            if required and "default" not in field:
+                raise HTTPException(422, f"{label} is required")
+            return field.get("default")
+        options = field.get("options")
+        if options and raw not in options:
+            raise HTTPException(422, f"{label}: {raw!r} is not one of {options}")
+        return raw
+
+    # text / textarea / datalist
+    if raw in (None, ""):
+        if required:
+            raise HTTPException(422, f"{label} is required")
+        return field.get("default")
+    return str(raw)
 
 
 RELATION_TYPES = (
