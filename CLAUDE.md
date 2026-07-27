@@ -33,8 +33,8 @@ and `world-engine-schema-changelog.md` — never here.
 - **Injected context depends on the active role, never the account.** In
   player mode, never expose an NPC's secrets, others' secrets, or anything
   the player character is not meant to know.
-- Keep the database engine URL in an environment variable (default to a local
-  SQLite file) so switching to PostgreSQL/Supabase needs no code change.
+- Database URL resolves fail-closed from `WORLD_ENGINE_ENV=prod|test` (no
+  implicit default; `WORLD_ENGINE_DATABASE_URL` overrides) — PostgreSQL/Supabase needs only a variable change.
 - History is sacred: prefer preserving successive states over overwriting them.
 - **`--force` only deletes `proposed` rows.** Any `proposed_mutation` row
   with status `applied`, `approved`, or `rejected` is reviewed history and
@@ -458,9 +458,9 @@ WG-Nia/
 ### How to run / test
 
 - **Install:** `python -m venv .venv`, activate, `pip install -r requirements.txt`.
-- **Database URL:** from `WORLD_ENGINE_DATABASE_URL` (defaults to
-  `~/.world_engine/world_engine.db`, outside the git working tree).
-  Switching to PostgreSQL/Supabase changes only this variable, never code.
+- **Database URL:** `WORLD_ENGINE_ENV=prod|test` resolves the SQLite file
+  (see `docs/launch-procedure.md`); `WORLD_ENGINE_DATABASE_URL` overrides.
+  Neither set => refuses to start, fail-closed.
 - **Initialize:** `python scripts/init_db.py` — idempotent.
 - **Seed:** `python scripts/seed_pilot.py` — Verkhaal world, NPCs,
   relations, knowledge, prompt templates; idempotent; `upsert_prompt_template`

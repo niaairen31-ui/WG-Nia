@@ -9632,6 +9632,24 @@ of a static guard. A `runtime_ddl_guard.py`-style dedicated AST guard for
 `entity_runtime.py`'s row-write shape would close that gap structurally;
 out of this brief's scope, worth a future ticket.
 
+## DB ENGINE — WORLD_ENGINE_ENV primary resolver, fail-closed (BRIEF-0049-a, no schema change)
+
+TICKET-0049 (test database infrastructure, opening). `src/world_engine/db.py`
+previously read `WORLD_ENGINE_DATABASE_URL` and silently fell back to the
+prod SQLite file (`~/.world_engine/world_engine.db`) when unset — the exact
+trap that let test runs write into prod. `_resolve_database_url()` is now
+the single resolution point: an explicit, non-empty `WORLD_ENGINE_DATABASE_URL`
+wins outright (override, satisfies fail-closed on its own — used unchanged
+by `scripts/test_ddl_atomicity.py`, `scripts/test_rollback_quarantine.py`,
+and every temp-fixture `tooling/verify/checks/*.py`); otherwise
+`WORLD_ENGINE_ENV` must be exactly `"prod"` or `"test"`, resolving to
+`~/.world_engine/world_engine.db` or `~/.world_engine/test/world_engine_test.db`
+respectively. Any other state — both unset, or an unrecognized
+`WORLD_ENGINE_ENV` value — raises `RuntimeError` at import time; there is
+no implicit default. `docs/launch-procedure.md` documents the operator-side
+export for prod and test. F1 (per TICKET-0049 intake): explicit URL >
+resolved ENV > refuse to start.
+
 ---
 
 *Co-built with Claude, June 2026.*
