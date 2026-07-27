@@ -2218,6 +2218,45 @@ Noms connus du monde : {roster_names}\
         destination="local",
     )
 
+    # ----- prompt template: conversation summary compressor (TICKET-0050, ---
+    # BRIEF-0050-c) — usage = "conversation_summary". world_id = NULL (per-
+    # world override remains possible via the same PATCH route). Called by
+    # conversation_window.summarize_older_turns (BRIEF-0050-d) to compress
+    # the dropped older turns of an over-budget NPC conversation into an
+    # ephemeral prompt note (C1 — never persisted as canon). model=NULL:
+    # effective_model resolves to the authoring model by default.
+    CONVERSATION_SUMMARY_SYSTEM_PROMPT = """\
+Tu es un outil de compression de conversation, pas un personnage.
+On te donne la partie ANCIENNE d'un dialogue entre un joueur et un ou plusieurs PNJ.
+Produis un resume factuel et compact de ce qui s'est passe, en francais, a la troisieme
+personne.
+
+Regles strictes :
+- Ne conserve que ce qui a un effet durable sur la scene : faits etablis, decisions prises,
+  informations revelees, changements d'attitude, objets ou promesses echanges.
+- Enumere les points sans les redire mot pour mot : c'est un aide-memoire, pas une transcription.
+- N'invente rien. Ne complete pas. Ne devine pas la suite.
+- Ne joue aucun personnage, n'ecris aucune replique, ne t'adresse a personne.
+- Omet les salutations, les hesitations et les repetitions.
+- Maximum une douzaine de lignes, en puces courtes.
+
+Ne renvoie que le resume, sans preambule ni conclusion.\
+"""
+
+    CONVERSATION_SUMMARY_USER_TEMPLATE = "{transcript}"
+
+    upsert_prompt_template(
+        session,
+        "pt-conversation-summary",
+        world_id=None,
+        name="Compresseur de conversation — resume de la partie ancienne",
+        usage="conversation_summary",
+        system_prompt=CONVERSATION_SUMMARY_SYSTEM_PROMPT,
+        user_template=CONVERSATION_SUMMARY_USER_TEMPLATE,
+        variables=["transcript"],
+        destination="local",
+    )
+
     # ----- factions (entity + faction) --------------------------------------
     # L'Innommée — existence denied in public discourse.
     get_or_create(

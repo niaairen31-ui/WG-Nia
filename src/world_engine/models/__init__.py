@@ -11,6 +11,9 @@ Layout, by stratum:
     canon_faction.py — faction extension tables (Faction, FactionRole,
                         FactionMembership), extracted from canon.py at
                         TICKET-0048 for the module_budget cap.
+    config.py        — canon curated-config tables too new/small to justify
+                        growing canon.py at its module_budget cap
+                        (ConversationWindowConfig, TICKET-0050).
     ephemeral.py     — session/scene-lifetime tables.
     pipeline.py      — prompt/pipeline/approval machinery, plus User (app/
                         account infrastructure — Nia's stratum escalation)
@@ -21,8 +24,8 @@ This module re-exports the ENTIRE former public surface of the flat
 `models.py` — every class, constant, and the two module functions
 (`_uuid`, `_created_ts`) — so every existing `from .models import X` /
 `from world_engine.models import X` in `src/` and `scripts/` resolves
-unchanged. Import order (canon, canon_faction, ephemeral, pipeline) keeps
-table registration on `SQLModel.metadata` deterministic; cross-stratum
+unchanged. Import order (canon, canon_faction, config, ephemeral, pipeline)
+keeps table registration on `SQLModel.metadata` deterministic; cross-stratum
 foreign keys (string table-name references) resolve regardless of file
 order.
 """
@@ -68,6 +71,7 @@ from .canon_faction import (
     FactionMembership,
     FactionRole,
 )
+from .config import ConversationWindowConfig
 from .ephemeral import (
     Conversation,
     ConversationMessage,
@@ -143,4 +147,5 @@ __all__ = [
     "EntityTypeHistory",
     "EntityTrait",
     "BASE_SKILL_DOMAINS",
+    "ConversationWindowConfig",
 ]

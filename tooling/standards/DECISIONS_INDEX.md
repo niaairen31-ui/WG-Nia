@@ -145,3 +145,8 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 9560 | DYNAMIC INSTANCE CRUD for custom ext_* + json_ui_boundary F1 volet (BRIEF-0046-e, no schema change) | BRIEF-0046-e |  |
 | 9635 | DB ENGINE — WORLD_ENGINE_ENV primary resolver, fail-closed (BRIEF-0049-a, no schema change) | BRIEF-0049-a |  |
 | 9653 | VERIFY — env_fail_closed + env_guard, KNOWN_OPERATOR_SCRIPT_ALLOW (BRIEF-0049-d, no schema change) | BRIEF-0049-d |  |
+| 9686 | CONVERSATION WINDOW CONFIG — dedicated table, summary default-on, editing surface deferred (BRIEF-0050-a, schema v1.89) | BRIEF-0050-a | v1.89 |
+| 9720 | CONVERSATION WINDOW — K-verbatim cap + scene-tail re-injection implemented (BRIEF-0050-b, no schema change) | BRIEF-0050-b |  |
+| 9749 | CONVERSATION SUMMARY — prompt-usage plumbing, no call site yet (BRIEF-0050-c, no schema change) | BRIEF-0050-c |  |
+| 9770 | CONVERSATION SUMMARY — budget-trigger, recompute, fail-soft insertion (BRIEF-0050-d, no schema change) | BRIEF-0050-d |  |
+| 9805 | CONVERSATION WINDOW — config editing surface + replay measurement (BRIEF-0050-e, no schema change) | BRIEF-0050-e |  |

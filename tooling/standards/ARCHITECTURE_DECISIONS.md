@@ -9683,6 +9683,166 @@ tool), so the check still enforces fail-closed on every script BRIEF-0049-b/
 script added later — the allow-list is a closed, named exception set, not a
 silent bypass.
 
+## CONVERSATION WINDOW CONFIG — dedicated table, summary default-on, editing surface deferred (BRIEF-0050-a, schema v1.89)
+
+TICKET-0050 (conversation context window: sliding summary + K-verbatim tail
++ scene re-injection). This step lays the persisted, relational config every
+later brief reads: word budget, verbatim-turn count, summary kill-switch.
+
+**L1 — dedicated narrow relational table, not a key-value settings table.**
+No key-value config table exists in the engine (RECON-0050); the in-doctrine
+pattern for world-scoped curated config is a dedicated table plus an
+upsert-one chokepoint, same family as `location_type_catalog`
+(`writes.upsert_location_type` precedent) — not a generic settings blob,
+which would violate `json_ui_boundary` the moment the fields become
+creator-editable (brief e).
+
+**M1 — `summary_enabled` defaults TRUE.** The K-verbatim cap and scene tail
+always apply above budget regardless of this flag; the flag alone gates the
+sliding-summary recovery. Defaulting TRUE means every existing world gets
+the full behavior with no explicit opt-in, while still letting Nia flip it
+off per-world for a live A/B against the cap-only baseline (brief e).
+
+**Named deferral D-0050 — config editing surface.** The `word_budget` /
+`verbatim_turns` / `summary_enabled` fields are edited on the existing
+prompts surface, beside the `conversation_summary` template row (N2, ticket
+intake) — not a dedicated world-configuration surface, because none exists
+yet. Migrate this editing to a dedicated surface once one exists; not
+scoped to this ticket.
+
+This step ships the table (`conversation_window_config`), the writer
+(`writes.upsert_conversation_window_config`, upsert-one, no
+`change_history` — metadata-config category), and the reader
+(`conversation_window.load_conversation_window_config`, new module — G1,
+`play.py` has no line budget left to grow) ONLY. No prompt-assembly change,
+no creator UI, no trigger wiring — those are briefs (b)-(e).
+
+## CONVERSATION WINDOW — K-verbatim cap + scene-tail re-injection implemented (BRIEF-0050-b, no schema change)
+
+TICKET-0050. Implements D2 and H1 (intake), previously only decided:
+
+**D2 — scene context re-injected as a compact tail, not only at the head.**
+`context.assemble_scene_tail` (new function, same module as
+`assemble_npc_context` — its semantic home) re-states location + one-line
+setting + co-presence + player condition in <=~6 lines, appended as the
+LAST message before the model's turn — never a second full
+`assemble_npc_context`.
+
+**H1 — message-list shape implemented exactly:** `[behaviour+context
+system, summary note (unused, None, until brief d), *verbatim_K, scene
+tail]`, built by `conversation_window.build_npc_message_list`. The
+K-verbatim cap and scene tail apply on the `word_budget` condition ALONE —
+never gated on `summary_enabled` (that flag only controls the brief-d
+sliding-summary recovery layered on top; a degraded-but-bounded baseline
+ships now, independently live-testable, and already beats the pre-0050
+uncapped-history behavior).
+
+Below `word_budget`, behavior is byte-for-byte unchanged (full history,
+same system-prompt suffix mutations for `npc_reaction`/refusal). `play.py`
+and `context.py` both had no line budget left (RECON-0050); the
+config-read + scene-tail + message-list composition lives in
+`conversation_window.resolve_npc_message_list`, the single call site
+`cockpit/play.py::_say_npc_generation` uses — kept out of `play.py` itself
+to hold both the file's 1000-line cap and `_say_npc_generation`'s
+80-line cap.
+
+## CONVERSATION SUMMARY — prompt-usage plumbing, no call site yet (BRIEF-0050-c, no schema change)
+
+TICKET-0050. Ships the `conversation_summary` prompt usage's two halves
+together (registry + seed), per the standing invariant that every seeded
+usage carries a `PROMPT_REGISTRY` entry:
+
+- `PROMPT_REGISTRY["conversation_summary"]`: `surface="play"`,
+  `world_scoped=True`, `default_model=_author_model` (the authoring model,
+  `llama3.1:8b` — this is a compression tool, not the game-dialogue model),
+  `call_sites=("src/world_engine/conversation_window.py:_load_summary_template",)`
+  naming the loader brief (d) adds.
+- Seeded `prompt_template` row `pt-conversation-summary`, `world_id=None`,
+  `model=NULL` (creator override resolved at read time via
+  `effective_model`, same as every other usage), verbatim French compression
+  system prompt, `user_template="{transcript}"`.
+
+**C1 reaffirmed.** The summary this prompt produces is an ephemeral prompt
+artifact (brief d wires the call); this step adds no call site and no
+`proposed_mutation` path — the prompt is plumbing only, never a canon-write
+vector.
+
+## CONVERSATION SUMMARY — budget-trigger, recompute, fail-soft insertion (BRIEF-0050-d, no schema change)
+
+TICKET-0050. Fills the summary slot briefs (a)-(c) left empty: when a
+conversation is over `word_budget` AND `summary_enabled`,
+`resolve_npc_message_list` (`conversation_window.py`) computes
+`older, _recent = split_verbatim_tail(...)`, summarizes `older` via the
+`conversation_summary` prompt, and inserts the result as a system note
+right after the behaviour+context system message (H1 shape intact).
+
+**F1 — recomputed on every over-budget turn, not cached.** C1 (ephemeral)
+means no persisted summary artifact exists to invalidate; the accepted
+cost is one extra LLM call per over-budget turn. Named deferral
+**D-0050-cache** (a persisted summary cache) is explicitly NOT done —
+future ticket if latency proves painful.
+
+**Fail-soft, not fail-closed.** `summarize_older_turns` catches
+`OllamaError` specifically, logs, and returns `""` -> `format_summary_note`
+returns `None` -> no note, but the turn is NEVER aborted: the NPC still
+answers on the cap-only baseline from brief (b). This is a prompt
+enrichment, not a canon gate, so degrading gracefully is the correct
+failure mode (unlike, say, `_apply_mutation`, where failure must be loud).
+
+**Orthogonal to `analyze_window`.** The summarizer never touches
+`conversation.last_analyzed_turn` and emits no `proposed_mutation` — it
+reads persisted `ConversationMessage` rows and writes nothing, structurally
+enforced (vacuous-proof) by `tooling/verify/checks/summary_not_persisted.py`.
+Tier-4 mutation analysis and this ephemeral prompt-compression layer are
+two independent consumers of the same history rows.
+
+**Model resolution stays inline.** `ollama_client.chat(messages,
+model=effective_model(template, _author_model()))` — the call is inline
+(not a pre-bound local `model` variable) so `prompt_registry.py`'s static
+AST wiring scan can verify it; `conversation_window.py` was added to that
+check's `WIRED_FILES`.
+
+## CONVERSATION WINDOW — config editing surface + replay measurement (BRIEF-0050-e, no schema change)
+
+TICKET-0050, closing brief. Two independent halves:
+
+**Editing surface (N2).** `GET`/`PATCH /api/conversation-window-config`
+(`cockpit/crud/prompts.py`, co-located per N2) resolve/write the ACTIVE
+world's row only — `_world_id(db)` is the same active-world accessor every
+other creator-CRUD route uses. `GET` on a fresh world returns the in-memory
+defaults object (1200/6/true) without creating a row; `PATCH` is a thin
+wrapper over the existing `upsert_conversation_window_config` writer,
+surfacing its `ValueError` (non-positive `word_budget`/`verbatim_turns`) as
+422. The Prompts-tab panel ("Fenêtre de conversation") posts each field
+individually — relational-only, no JSON blob (`json_ui_boundary` still
+passes). **Named deferral D-0050 stays OPEN**: this rides the prompts
+surface until a dedicated world-configuration surface exists.
+
+**Replay measurement (mini-RECON finding).** No pre-existing monkeypatched-
+Ollama *replay* harness was found reusable (the one precedent,
+`prompt_model_write.py`, stubs `ping()` for a model-list check, not `chat()`
+for a multi-turn dialogue) — `scripts/measure_conversation_window.py` is a
+small, self-contained harness built on the real call path
+(`conversation_window.build_npc_message_list` + `ollama_client.chat`)
+against a real local Ollama model (no stub), replaying the seeded pilot
+tavern scene (`char-player` vs `npc-maelis`) with a 10-line scripted
+small-talk fixture.
+
+**Finding: no differentiating signal.** Across all six (verbatim_turns,
+word_budget) cells in {2,4,6}x{800,1200}, and both `repeat_last_n` values in
+the K2 probe (256 vs 512), no near-duplicate NPC reply appeared over the
+10-turn fixture (`difflib.SequenceMatcher` ratio never crossed 0.5). Per
+Scope OUT ("absent a clear signal, leave them"), the script reports this
+explicitly rather than fabricating a preferred pair, and changes NOTHING:
+seeded defaults (word_budget=1200, verbatim_turns=6) and
+`ollama_client.py`'s `repeat_last_n=256` are both untouched. Read as a
+result, not a null test: even the smallest K (2) already prevented the
+collapse on this scripted small-talk scene, which is consistent with the
+K-verbatim cap doing its job (A2's anti-collision lever) — a longer or more
+repetition-provoking fixture would be needed to actually locate the
+saturation point TICKET-0050 originally described. Full table:
+`tooling/recon/RECON-0050-window-measurement.result.md`.
+
 ---
 
 *Co-built with Claude, June 2026.*

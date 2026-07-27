@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session as DbSession, select
 
+from ...conversation_window import load_conversation_window_config
 from ...db import get_session
 from ...entity_author import generate_npc_goals
 from ...gathering import close_open_memberships
@@ -58,6 +59,7 @@ from ...writes import (
     NPC_GOAL_PREREQUISITE_TYPES,
     PromptValidationError,
     detach_goal_agenda_link,
+    upsert_conversation_window_config,
     write_agenda,
     write_agenda_status,
     write_agenda_step,
@@ -355,3 +357,56 @@ def update_prompt_model(
     summary = _prompt_row_summary(row, db)
     summary["effective_model"] = effective_model(row, default_model)
     return summary
+
+
+def _conversation_window_config_dict(world_id: str, world_name: str, cfg) -> dict:
+    return {
+        "world_id": world_id,
+        "world_name": world_name,
+        "word_budget": cfg.word_budget,
+        "verbatim_turns": cfg.verbatim_turns,
+        "summary_enabled": cfg.summary_enabled,
+    }
+
+
+@router.get("/conversation-window-config")
+def get_conversation_window_config(db: DbSession = Depends(get_session)) -> dict:
+    """Active world's `conversation_window_config` (TICKET-0050, BRIEF-0050-e,
+    N2 — edited on this prompts surface beside `conversation_summary` until a
+    dedicated world-configuration surface exists, D-0050). Returns the
+    defaults object shape when no row exists yet — never creates one on a
+    read."""
+    world_id = _world_id(db)
+    world = db.get(World, world_id)
+    cfg = load_conversation_window_config(world_id, db)
+    return _conversation_window_config_dict(world_id, world.name, cfg)
+
+
+class ConversationWindowConfigBody(BaseModel):
+    word_budget: Optional[int] = None
+    verbatim_turns: Optional[int] = None
+    summary_enabled: Optional[bool] = None
+
+
+@router.patch("/conversation-window-config")
+def update_conversation_window_config(
+    body: ConversationWindowConfigBody, db: DbSession = Depends(get_session)
+) -> dict:
+    """Partial-update the active world's window config. Fail-closed (422) on
+    a non-positive `word_budget`/`verbatim_turns` — the single writer
+    (`upsert_conversation_window_config`) rejects before any write."""
+    world_id = _world_id(db)
+    world = db.get(World, world_id)
+    try:
+        cfg = upsert_conversation_window_config(
+            db,
+            world_id=world_id,
+            word_budget=body.word_budget,
+            verbatim_turns=body.verbatim_turns,
+            summary_enabled=body.summary_enabled,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(cfg)
+    return _conversation_window_config_dict(world_id, world.name, cfg)

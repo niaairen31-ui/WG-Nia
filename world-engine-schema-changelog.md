@@ -13,6 +13,18 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v1.89** — TICKET-0050, BRIEF-0050-a: `conversation_window_config` —
+  creator-tunable NPC dialogue context window, one row per world.
+  `id, world_id, word_budget, verbatim_turns, summary_enabled, updated_at`.
+  FK `world_id -> world.id`; UNIQUE index on `world_id`. Defaults
+  `word_budget=1200`, `verbatim_turns=6` (message rows, not exchanges),
+  `summary_enabled=1` (M1). Metadata-config category, same family as
+  `location_type_catalog`: no `change_history`, written ONLY via the
+  upsert-one `writes.upsert_conversation_window_config`. Absence of a row
+  is legal — the reader (`conversation_window.load_conversation_window_config`,
+  new module) applies in-memory defaults and never inserts on read. This
+  step ships the table, writer, and reader only; no prompt-assembly change
+  — see briefs (b)-(e).
 - **v1.88** — TICKET-0045, BRIEF-0045-a: `entity_trait` — materialized
   projection table for the trait registry (A1). Records which
   `entity_type` has checked which trait; the trait DEFINITION lives in

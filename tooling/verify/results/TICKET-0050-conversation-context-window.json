@@ -1,0 +1,22 @@
+{
+  "ticket": "TICKET-0050-conversation-context-window",
+  "when": "2026-07-27T17:47:53.532530+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "conversation_window_config.py",
+      "status": "PASS",
+      "msg": "PASS: conversation_window_config \u2014 table, columns, defaults (word_budget=1200, verbatim_turns=6, summary_enabled=1) and the unique index on world_id are all present in DDL"
+    },
+    {
+      "check": "conversation_summary_usage.py",
+      "status": "PASS",
+      "msg": "PASS: conversation_summary_usage \u2014 PROMPT_REGISTRY entry (default_model=_author_model, world_scoped=True) and pt-conversation-summary seeded with usage='conversation_summary'"
+    },
+    {
+      "check": "summary_not_persisted.py",
+      "status": "PASS",
+      "msg": "PASS: summary_not_persisted \u2014 conversation_window.py carries no canon-write token (C1: the summary is compute-only, never persisted)"
+    }
+  ]
+}
