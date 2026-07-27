@@ -9767,6 +9767,41 @@ artifact (brief d wires the call); this step adds no call site and no
 `proposed_mutation` path — the prompt is plumbing only, never a canon-write
 vector.
 
+## CONVERSATION SUMMARY — budget-trigger, recompute, fail-soft insertion (BRIEF-0050-d, no schema change)
+
+TICKET-0050. Fills the summary slot briefs (a)-(c) left empty: when a
+conversation is over `word_budget` AND `summary_enabled`,
+`resolve_npc_message_list` (`conversation_window.py`) computes
+`older, _recent = split_verbatim_tail(...)`, summarizes `older` via the
+`conversation_summary` prompt, and inserts the result as a system note
+right after the behaviour+context system message (H1 shape intact).
+
+**F1 — recomputed on every over-budget turn, not cached.** C1 (ephemeral)
+means no persisted summary artifact exists to invalidate; the accepted
+cost is one extra LLM call per over-budget turn. Named deferral
+**D-0050-cache** (a persisted summary cache) is explicitly NOT done —
+future ticket if latency proves painful.
+
+**Fail-soft, not fail-closed.** `summarize_older_turns` catches
+`OllamaError` specifically, logs, and returns `""` -> `format_summary_note`
+returns `None` -> no note, but the turn is NEVER aborted: the NPC still
+answers on the cap-only baseline from brief (b). This is a prompt
+enrichment, not a canon gate, so degrading gracefully is the correct
+failure mode (unlike, say, `_apply_mutation`, where failure must be loud).
+
+**Orthogonal to `analyze_window`.** The summarizer never touches
+`conversation.last_analyzed_turn` and emits no `proposed_mutation` — it
+reads persisted `ConversationMessage` rows and writes nothing, structurally
+enforced (vacuous-proof) by `tooling/verify/checks/summary_not_persisted.py`.
+Tier-4 mutation analysis and this ephemeral prompt-compression layer are
+two independent consumers of the same history rows.
+
+**Model resolution stays inline.** `ollama_client.chat(messages,
+model=effective_model(template, _author_model()))` — the call is inline
+(not a pre-bound local `model` variable) so `prompt_registry.py`'s static
+AST wiring scan can verify it; `conversation_window.py` was added to that
+check's `WIRED_FILES`.
+
 ---
 
 *Co-built with Claude, June 2026.*
