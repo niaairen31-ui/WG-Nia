@@ -1,8 +1,14 @@
 """Database engine and session management.
 
-The engine URL comes from the ``WORLD_ENGINE_DATABASE_URL`` environment
-variable and defaults to a local SQLite file. Switching to PostgreSQL/Supabase
-later means changing only that variable — no application code changes.
+``WORLD_ENGINE_ENV`` (``prod`` or ``test``) is the primary, fail-closed
+resolver for the engine URL: ``prod`` resolves to the local prod SQLite
+file, ``test`` to a separate local SQLite file under a ``test/`` directory.
+``WORLD_ENGINE_DATABASE_URL``, when set to a non-empty value, is an explicit
+override that takes precedence over ``WORLD_ENGINE_ENV`` and satisfies the
+fail-closed check on its own. There is no implicit default: if neither
+variable resolves, importing this module raises ``RuntimeError``. Switching
+to PostgreSQL/Supabase means setting ``WORLD_ENGINE_DATABASE_URL`` — no
+application code changes.
 
 On SQLite, DDL participates in the surrounding transaction: a CREATE TABLE
 emitted before a failed commit is rolled back with the rest. Transactional
@@ -27,11 +33,38 @@ except ImportError:  # pragma: no cover
     pass
 
 
-# Default to a single local SQLite file outside the git working tree, so a
-# workspace-clean (e.g. ``git clean -fdx``) can never take the carrier file.
-DEFAULT_DB_PATH = Path.home() / ".world_engine" / "world_engine.db"
-DEFAULT_DATABASE_URL = f"sqlite:///{DEFAULT_DB_PATH}"
-DATABASE_URL = os.getenv("WORLD_ENGINE_DATABASE_URL", DEFAULT_DATABASE_URL)
+# Prod and test each carry their own carrier file, outside the git working
+# tree, so a workspace-clean (e.g. ``git clean -fdx``) can never take either.
+_PROD_DB_PATH = Path.home() / ".world_engine" / "world_engine.db"
+_TEST_DB_PATH = Path.home() / ".world_engine" / "test" / "world_engine_test.db"
+
+
+def _resolve_database_url() -> str:
+    """Resolve the engine URL, fail-closed.
+
+    Explicit ``WORLD_ENGINE_DATABASE_URL`` wins outright (override). Else
+    ``WORLD_ENGINE_ENV`` must be exactly ``prod`` or ``test``. Any other
+    state (both unset, or an unrecognized ``WORLD_ENGINE_ENV`` value) raises
+    rather than silently defaulting to prod.
+    """
+    explicit_url = os.getenv("WORLD_ENGINE_DATABASE_URL")
+    if explicit_url:
+        return explicit_url
+
+    env = os.getenv("WORLD_ENGINE_ENV")
+    if env == "prod":
+        return f"sqlite:///{_PROD_DB_PATH}"
+    if env == "test":
+        return f"sqlite:///{_TEST_DB_PATH}"
+
+    raise RuntimeError(
+        "WORLD_ENGINE_ENV must be 'prod' or 'test' (or set "
+        "WORLD_ENGINE_DATABASE_URL explicitly). Refusing to start with no "
+        "resolved database."
+    )
+
+
+DATABASE_URL = _resolve_database_url()
 
 # SQLite needs check_same_thread disabled for use across threads (e.g. FastAPI).
 _connect_args = (

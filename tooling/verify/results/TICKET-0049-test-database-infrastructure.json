@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0049-test-database-infrastructure",
+  "when": "2026-07-27T12:27:03.710039+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "env_fail_closed.py",
+      "status": "PASS",
+      "msg": "PASS: env_fail_closed \u2014 db.py resolver has no implicit default and raises when unresolved"
+    },
+    {
+      "check": "env_guard.py",
+      "status": "PASS",
+      "msg": "PASS: env_guard \u2014 every non-allow-listed script guards the engine import"
+    }
+  ]
+}
