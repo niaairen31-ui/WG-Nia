@@ -2,7 +2,7 @@
 id: TICKET-0049
 title: Test database infrastructure (WORLD_ENGINE_ENV, seed_test, reset_test, env_guard)
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-27
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []          # no migration, no canon write, no destructive prod op
