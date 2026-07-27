@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## TICKET-0050 — 2026-07-27 (schema v1.89)
+
+NPC dialogue context window: a per-world `conversation_window_config`
+(word budget, K-verbatim turn cap, summary kill-switch) replaces the
+uncapped raw history block that made the 8b abliterated model re-emit a
+near-identical paragraph after ~8-10 turns. Above the word budget, the
+message list caps to the last K player/NPC turns and re-injects a compact
+scene tail; when `summary_enabled`, the dropped older turns are compressed
+via a new `conversation_summary` prompt usage and inserted as an ephemeral
+system note (never persisted — C1). All three fields are creator-editable
+on the Prompts tab, scoped to the active world. See
+`tooling/standards/ARCHITECTURE_DECISIONS.md` for the per-brief decisions
+and `tooling/recon/RECON-0050-window-measurement.result.md` for the replay
+measurement (no differentiating signal found on the pilot fixture at any
+tested (K, budget) pair — seeded defaults left unchanged).
+
 ## TICKET-0010 — 2026-07-04 (no schema change)
 
 CLAUDE.md rewritten to a law-only, budgeted file (1366 -> 467 lines) with a structural freshness contract (`tooling/verify/checks/claude_md_contract.py`); see `tooling/standards/ARCHITECTURE_DECISIONS.md`.

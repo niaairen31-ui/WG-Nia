@@ -9802,6 +9802,47 @@ model=effective_model(template, _author_model()))` — the call is inline
 AST wiring scan can verify it; `conversation_window.py` was added to that
 check's `WIRED_FILES`.
 
+## CONVERSATION WINDOW — config editing surface + replay measurement (BRIEF-0050-e, no schema change)
+
+TICKET-0050, closing brief. Two independent halves:
+
+**Editing surface (N2).** `GET`/`PATCH /api/conversation-window-config`
+(`cockpit/crud/prompts.py`, co-located per N2) resolve/write the ACTIVE
+world's row only — `_world_id(db)` is the same active-world accessor every
+other creator-CRUD route uses. `GET` on a fresh world returns the in-memory
+defaults object (1200/6/true) without creating a row; `PATCH` is a thin
+wrapper over the existing `upsert_conversation_window_config` writer,
+surfacing its `ValueError` (non-positive `word_budget`/`verbatim_turns`) as
+422. The Prompts-tab panel ("Fenêtre de conversation") posts each field
+individually — relational-only, no JSON blob (`json_ui_boundary` still
+passes). **Named deferral D-0050 stays OPEN**: this rides the prompts
+surface until a dedicated world-configuration surface exists.
+
+**Replay measurement (mini-RECON finding).** No pre-existing monkeypatched-
+Ollama *replay* harness was found reusable (the one precedent,
+`prompt_model_write.py`, stubs `ping()` for a model-list check, not `chat()`
+for a multi-turn dialogue) — `scripts/measure_conversation_window.py` is a
+small, self-contained harness built on the real call path
+(`conversation_window.build_npc_message_list` + `ollama_client.chat`)
+against a real local Ollama model (no stub), replaying the seeded pilot
+tavern scene (`char-player` vs `npc-maelis`) with a 10-line scripted
+small-talk fixture.
+
+**Finding: no differentiating signal.** Across all six (verbatim_turns,
+word_budget) cells in {2,4,6}x{800,1200}, and both `repeat_last_n` values in
+the K2 probe (256 vs 512), no near-duplicate NPC reply appeared over the
+10-turn fixture (`difflib.SequenceMatcher` ratio never crossed 0.5). Per
+Scope OUT ("absent a clear signal, leave them"), the script reports this
+explicitly rather than fabricating a preferred pair, and changes NOTHING:
+seeded defaults (word_budget=1200, verbatim_turns=6) and
+`ollama_client.py`'s `repeat_last_n=256` are both untouched. Read as a
+result, not a null test: even the smallest K (2) already prevented the
+collapse on this scripted small-talk scene, which is consistent with the
+K-verbatim cap doing its job (A2's anti-collision lever) — a longer or more
+repetition-provoking fixture would be needed to actually locate the
+saturation point TICKET-0050 originally described. Full table:
+`tooling/recon/RECON-0050-window-measurement.result.md`.
+
 ---
 
 *Co-built with Claude, June 2026.*

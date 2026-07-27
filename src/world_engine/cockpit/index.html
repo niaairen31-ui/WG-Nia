@@ -1492,6 +1492,18 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 
   <!-- ── Prompts sub-tab (BRIEF-0008-b) — read-only, one detail at a time ── -->
   <div id="creation-prompts" style="display:none">
+    <!-- Fenêtre de conversation (TICKET-0050, BRIEF-0050-e) — per-active-world
+         config, edited here (N2) beside conversation_summary until a
+         dedicated world-configuration surface exists (named deferral D-0050). -->
+    <div class="queue-panel" id="cw-config-panel">
+      <div class="panel-head">
+        <h2>Fenêtre de conversation</h2>
+        <button class="btn-icon" onclick="cwLoadConfig()" title="Rafraîchir">↻</button>
+      </div>
+      <div class="queue-body" id="cw-config-body">
+        <div class="empty"><span class="spin">⟳</span></div>
+      </div>
+    </div>
     <div class="queue-panel">
       <div class="panel-head">
         <h2>Prompts</h2>
@@ -5384,6 +5396,7 @@ async function promptsLoadList() {
   document.getElementById('prompts-detail-body').innerHTML =
     '<div class="empty">Sélectionnez un prompt dans la liste ci-dessus.</div>';
   promptsSelectedId = null;
+  cwLoadConfig();
   await _promptsFetchOllamaModels();
   try {
     const data = await api('/api/prompts');
@@ -5391,6 +5404,67 @@ async function promptsLoadList() {
     listEl.innerHTML = _promptsRenderList(promptsUsages);
   } catch (e) {
     listEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+/* ── Fenêtre de conversation (TICKET-0050, BRIEF-0050-e) ──────────────────
+ * Per-active-world word_budget / verbatim_turns / summary_enabled, edited
+ * on this prompts surface (N2) until a dedicated world-configuration
+ * surface exists (named deferral D-0050). Relational-only: each field is
+ * posted individually to PATCH /api/conversation-window-config — no JSON
+ * blob (json_ui_boundary). */
+let cwConfig = null;
+
+async function cwLoadConfig() {
+  const bodyEl = document.getElementById('cw-config-body');
+  bodyEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  try {
+    cwConfig = await api('/api/conversation-window-config');
+    bodyEl.innerHTML = _cwRenderConfig(cwConfig);
+  } catch (e) {
+    bodyEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function _cwRenderConfig(c) {
+  return `
+    <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
+      Monde actif : <b>${esc(c.world_name)}</b>
+    </div>
+    <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
+      <label style="display:flex; flex-direction:column; gap:2px; font-size:12px;">
+        Budget de mots
+        <input type="number" min="1" id="cw-word-budget" value="${c.word_budget}"
+               onchange="cwPatchField('word_budget', this.value)" style="width:100px;">
+      </label>
+      <label style="display:flex; flex-direction:column; gap:2px; font-size:12px;">
+        Tours verbatim (K)
+        <input type="number" min="1" id="cw-verbatim-turns" value="${c.verbatim_turns}"
+               onchange="cwPatchField('verbatim_turns', this.value)" style="width:100px;">
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; font-size:12px;">
+        <input type="checkbox" id="cw-summary-enabled" ${c.summary_enabled ? 'checked' : ''}
+               onchange="cwPatchField('summary_enabled', this.checked)">
+        Résumé activé
+      </label>
+    </div>
+    <div id="cw-config-error" style="color:#c33; font-size:12px; margin-top:6px;"></div>`;
+}
+
+async function cwPatchField(field, value) {
+  const errEl = document.getElementById('cw-config-error');
+  if (errEl) errEl.textContent = '';
+  const body = {};
+  body[field] = (field === 'summary_enabled') ? value : parseInt(value, 10);
+  try {
+    cwConfig = await api('/api/conversation-window-config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    document.getElementById('cw-config-body').innerHTML = _cwRenderConfig(cwConfig);
+  } catch (e) {
+    if (errEl) errEl.textContent = e.message;
   }
 }
 
