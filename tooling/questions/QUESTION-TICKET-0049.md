@@ -68,4 +68,11 @@ C. Retrofit all ~49 scripts now, in this ticket, with the same fail-closed
    entry) and touches operator scripts explicitly protected elsewhere
    (`rollback_quarantine.py` is invariant-critical, B1 rollback contract).
 ## Response
-
+A - allow-list all ~49 operator/migration scripts alongside seed_pilot.py.
+Confirmed 2026-07-27 (Nia): these scripts are not used anymore and won't
+create problems. env_guard.py allow-lists them all with the shared
+rationale, enforcing fail-closed only on the 6 scripts BRIEF-0049-d
+actually anticipated (test_context.py, seed_test.py, reset_test.py,
+test_ddl_atomicity.py, test_rollback_quarantine.py pass via their guards;
+seed_pilot.py + the ~49 operator/migration scripts allow-listed). Chain
+resumes at BRIEF-0049-d.
