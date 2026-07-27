@@ -2,13 +2,13 @@
 id: TICKET-0050
 title: Conversation context window — sliding summary, K-verbatim tail, scene re-injection
 type: feature
-status: brief
+status: live-gate
 created: 2026-07-27
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
 blast_radius: medium
 brief_ids: [BRIEF-0050-a, BRIEF-0050-b, BRIEF-0050-c, BRIEF-0050-d, BRIEF-0050-e]
-schema_version_touched: vX.YY  # Claude Code assigns; one migration adds conversation_window_config
+schema_version_touched: v1.89  # conversation_window_config (BRIEF-0050-a)
 retry_count: 0
 ---
 
