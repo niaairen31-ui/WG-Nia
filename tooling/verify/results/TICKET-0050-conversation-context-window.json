@@ -1,0 +1,22 @@
+{
+  "ticket": "TICKET-0050-conversation-context-window",
+  "when": "2026-07-27T16:49:41.564657+00:00",
+  "green": false,
+  "checks": [
+    {
+      "check": "conversation_window_config.py",
+      "status": "PASS",
+      "msg": "PASS: conversation_window_config \u2014 table, columns, defaults (word_budget=1200, verbatim_turns=6, summary_enabled=1) and the unique index on world_id are all present in DDL"
+    },
+    {
+      "check": "conversation_summary_usage.py",
+      "status": "MISSING",
+      "msg": "C:\\Users\\Utilisateur\\Documents\\World-genrator\\tooling\\verify\\checks\\conversation_summary_usage.py not found"
+    },
+    {
+      "check": "summary_not_persisted.py",
+      "status": "MISSING",
+      "msg": "C:\\Users\\Utilisateur\\Documents\\World-genrator\\tooling\\verify\\checks\\summary_not_persisted.py not found"
+    }
+  ]
+}

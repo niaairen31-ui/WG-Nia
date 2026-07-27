@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.88
+Current schema version: v1.89
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -920,6 +920,37 @@ CREATE TABLE conversation_message (
 -- Analysis reads only player + npc rows; mj rows are never fed to the model.
 -- For scene turns npc_reply="" → mini-transcript ends "[PNJ] " → analyzer
 -- returns [] (correct: no world-state change in a pure environment action).
+```
+
+-----
+
+### `conversation_window_config`
+
+Creator-tunable NPC dialogue context window (schema v1.89, TICKET-0050,
+BRIEF-0050-a). One row per world; absence is legal — the code reader
+(`conversation_window.load_conversation_window_config`) applies in-memory
+defaults and never inserts a row on read. Curated config, same family as
+`location_type_catalog`: no `change_history`, written ONLY via
+`writes.upsert_conversation_window_config` (upsert-one, never a
+`DELETE FROM conversation_window_config`).
+
+`word_budget` and `verbatim_turns` govern the sliding-summary NPC-dialogue
+window (brief b/d): `verbatim_turns` counts player/npc MESSAGE rows, not
+exchanges (6 = 3 exchanges). `summary_enabled` gates the sliding-summary
+recovery above budget; the K-verbatim cap and scene tail always apply
+regardless of this flag (M1 — enables a live A/B of summary vs cap-only).
+
+```sql
+CREATE TABLE conversation_window_config (
+  id              TEXT PRIMARY KEY,
+  world_id        TEXT NOT NULL REFERENCES world(id),
+  word_budget     INTEGER NOT NULL DEFAULT 1200,
+  verbatim_turns  INTEGER NOT NULL DEFAULT 6,
+  summary_enabled BOOLEAN NOT NULL DEFAULT 1,
+  updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_conversation_window_config_world
+  ON conversation_window_config(world_id);
 ```
 
 -----

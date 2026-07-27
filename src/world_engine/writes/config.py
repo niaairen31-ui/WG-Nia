@@ -29,11 +29,17 @@ none of these three functions were baselined.
   `change_history`), but NOT a full-replace: this is an upsert-one, never a
   `DELETE FROM location_type_catalog`. A decided classification is never
   overwritten with NULL.
+- `upsert_conversation_window_config(...)` : upsert-one of the one
+  `conversation_window_config` row per world (TICKET-0050, BRIEF-0050-a —
+  creator-tunable NPC dialogue context window). Same curated-config
+  discipline as `upsert_location_type`: no `change_history`, fetch-or-create,
+  partial update (only non-None fields applied).
 """
 
 from __future__ import annotations
 
 import math
+from datetime import UTC, datetime
 from typing import Optional
 
 from sqlalchemy import text
@@ -41,6 +47,7 @@ from sqlmodel import Session, select
 
 from ..models import (
     Character,
+    ConversationWindowConfig,
     Door,
     Entity,
     LocationSubculture,
@@ -393,6 +400,53 @@ def upsert_location_type(
     new_row = LocationTypeCatalog(
         world_id=world_id, name=name, classification=classification,
         default_width=default_width, default_height=default_height,
+    )
+    db.add(new_row)
+    return new_row
+
+
+def upsert_conversation_window_config(
+    db: Session,
+    *,
+    world_id: str,
+    word_budget: Optional[int] = None,
+    verbatim_turns: Optional[int] = None,
+    summary_enabled: Optional[bool] = None,
+) -> ConversationWindowConfig:
+    """Upsert the one `conversation_window_config` row for `world_id`.
+    Caller adds the returned row to the session and commits.
+
+    Fetch-or-create; applies only the non-None fields (partial update) — an
+    omitted field never overwrites the existing/default value. Rejects
+    `word_budget <= 0` and `verbatim_turns <= 0` fail-closed, before any
+    write. This is an upsert-ONE, NOT a full-replace (`upsert_location_type`
+    precedent): never `DELETE FROM conversation_window_config`.
+    """
+    if word_budget is not None and word_budget <= 0:
+        raise ValueError("upsert_conversation_window_config: word_budget must be > 0")
+    if verbatim_turns is not None and verbatim_turns <= 0:
+        raise ValueError("upsert_conversation_window_config: verbatim_turns must be > 0")
+
+    existing = db.exec(
+        select(ConversationWindowConfig).where(ConversationWindowConfig.world_id == world_id)
+    ).first()
+
+    if existing is not None:
+        if word_budget is not None:
+            existing.word_budget = word_budget
+        if verbatim_turns is not None:
+            existing.verbatim_turns = verbatim_turns
+        if summary_enabled is not None:
+            existing.summary_enabled = summary_enabled
+        existing.updated_at = datetime.now(UTC)
+        db.add(existing)
+        return existing
+
+    new_row = ConversationWindowConfig(
+        world_id=world_id,
+        **({"word_budget": word_budget} if word_budget is not None else {}),
+        **({"verbatim_turns": verbatim_turns} if verbatim_turns is not None else {}),
+        **({"summary_enabled": summary_enabled} if summary_enabled is not None else {}),
     )
     db.add(new_row)
     return new_row

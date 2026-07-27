@@ -9683,6 +9683,40 @@ tool), so the check still enforces fail-closed on every script BRIEF-0049-b/
 script added later — the allow-list is a closed, named exception set, not a
 silent bypass.
 
+## CONVERSATION WINDOW CONFIG — dedicated table, summary default-on, editing surface deferred (BRIEF-0050-a, schema v1.89)
+
+TICKET-0050 (conversation context window: sliding summary + K-verbatim tail
++ scene re-injection). This step lays the persisted, relational config every
+later brief reads: word budget, verbatim-turn count, summary kill-switch.
+
+**L1 — dedicated narrow relational table, not a key-value settings table.**
+No key-value config table exists in the engine (RECON-0050); the in-doctrine
+pattern for world-scoped curated config is a dedicated table plus an
+upsert-one chokepoint, same family as `location_type_catalog`
+(`writes.upsert_location_type` precedent) — not a generic settings blob,
+which would violate `json_ui_boundary` the moment the fields become
+creator-editable (brief e).
+
+**M1 — `summary_enabled` defaults TRUE.** The K-verbatim cap and scene tail
+always apply above budget regardless of this flag; the flag alone gates the
+sliding-summary recovery. Defaulting TRUE means every existing world gets
+the full behavior with no explicit opt-in, while still letting Nia flip it
+off per-world for a live A/B against the cap-only baseline (brief e).
+
+**Named deferral D-0050 — config editing surface.** The `word_budget` /
+`verbatim_turns` / `summary_enabled` fields are edited on the existing
+prompts surface, beside the `conversation_summary` template row (N2, ticket
+intake) — not a dedicated world-configuration surface, because none exists
+yet. Migrate this editing to a dedicated surface once one exists; not
+scoped to this ticket.
+
+This step ships the table (`conversation_window_config`), the writer
+(`writes.upsert_conversation_window_config`, upsert-one, no
+`change_history` — metadata-config category), and the reader
+(`conversation_window.load_conversation_window_config`, new module — G1,
+`play.py` has no line budget left to grow) ONLY. No prompt-assembly change,
+no creator UI, no trigger wiring — those are briefs (b)-(e).
+
 ---
 
 *Co-built with Claude, June 2026.*
