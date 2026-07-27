@@ -243,4 +243,11 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         call_sites=("src/world_engine/tick.py:run_world_tick",),
         default_model=_game_model,
     ),
+    "conversation_summary": PromptSpec(
+        surface="play",
+        world_scoped=True,
+        dry_run_capable=False,
+        call_sites=("src/world_engine/conversation_window.py:_load_summary_template",),
+        default_model=_author_model,
+    ),
 }

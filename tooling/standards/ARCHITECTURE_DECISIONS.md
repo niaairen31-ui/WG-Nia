@@ -9746,6 +9746,27 @@ config-read + scene-tail + message-list composition lives in
 to hold both the file's 1000-line cap and `_say_npc_generation`'s
 80-line cap.
 
+## CONVERSATION SUMMARY — prompt-usage plumbing, no call site yet (BRIEF-0050-c, no schema change)
+
+TICKET-0050. Ships the `conversation_summary` prompt usage's two halves
+together (registry + seed), per the standing invariant that every seeded
+usage carries a `PROMPT_REGISTRY` entry:
+
+- `PROMPT_REGISTRY["conversation_summary"]`: `surface="play"`,
+  `world_scoped=True`, `default_model=_author_model` (the authoring model,
+  `llama3.1:8b` — this is a compression tool, not the game-dialogue model),
+  `call_sites=("src/world_engine/conversation_window.py:_load_summary_template",)`
+  naming the loader brief (d) adds.
+- Seeded `prompt_template` row `pt-conversation-summary`, `world_id=None`,
+  `model=NULL` (creator override resolved at read time via
+  `effective_model`, same as every other usage), verbatim French compression
+  system prompt, `user_template="{transcript}"`.
+
+**C1 reaffirmed.** The summary this prompt produces is an ephemeral prompt
+artifact (brief d wires the call); this step adds no call site and no
+`proposed_mutation` path — the prompt is plumbing only, never a canon-write
+vector.
+
 ---
 
 *Co-built with Claude, June 2026.*
