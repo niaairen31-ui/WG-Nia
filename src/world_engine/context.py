@@ -538,6 +538,47 @@ def assemble_npc_context(
     )
 
 
+_SCENE_TAIL_LEAD = "[SCENE — etat courant, prioritaire sur l'historique ci-dessus]"
+
+
+def assemble_scene_tail(
+    npc_id: str,
+    location_id: str | None,
+    gathering_id: str | None,
+    player_condition: str,
+    session: Session,
+) -> str:
+    """Compact scene re-statement (TICKET-0050, BRIEF-0050-b, D2/H1):
+    re-injected after the verbatim window (`conversation_window.
+    build_npc_message_list`) so the model's last read is the present scene,
+    not a stale exchange — never a second full `assemble_npc_context`.
+    Reuses `_npc_context_setting` verbatim for location name + one-line
+    setting + the player-condition note it already embeds. The co-presence
+    line is a minimal inline read rather than `_npc_context_company` reuse:
+    that reader's `interlocutor_id` exclusion has no counterpart here — the
+    tail lists everyone present but the NPC itself, not one excluded pair.
+    """
+    lines = [_SCENE_TAIL_LEAD]
+    if location_id:
+        lines.append(_npc_context_setting(location_id, player_condition, session))
+    if gathering_id:
+        co_rows = session.exec(
+            select(GatheringMember, Entity)
+            .join(Entity, Entity.id == GatheringMember.entity_id)
+            .join(Character, Character.id == GatheringMember.entity_id)
+            .where(
+                GatheringMember.gathering_id == gathering_id,
+                GatheringMember.left_at.is_(None),
+                Entity.status == "active",
+                Character.vital_status == "alive",
+            )
+        ).all()
+        names = [e.name for _gm, e in co_rows if e.id != npc_id]
+        if names:
+            lines.append("Présent(e)s : " + ", ".join(names) + ".")
+    return "\n".join(lines)
+
+
 # -----------------------------------------------------------------------------
 # MJ context assembler — the player's perception boundary (schema v1.12,
 # scope D-b3)

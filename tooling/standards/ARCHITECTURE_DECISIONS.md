@@ -9717,6 +9717,35 @@ This step ships the table (`conversation_window_config`), the writer
 `play.py` has no line budget left to grow) ONLY. No prompt-assembly change,
 no creator UI, no trigger wiring — those are briefs (b)-(e).
 
+## CONVERSATION WINDOW — K-verbatim cap + scene-tail re-injection implemented (BRIEF-0050-b, no schema change)
+
+TICKET-0050. Implements D2 and H1 (intake), previously only decided:
+
+**D2 — scene context re-injected as a compact tail, not only at the head.**
+`context.assemble_scene_tail` (new function, same module as
+`assemble_npc_context` — its semantic home) re-states location + one-line
+setting + co-presence + player condition in <=~6 lines, appended as the
+LAST message before the model's turn — never a second full
+`assemble_npc_context`.
+
+**H1 — message-list shape implemented exactly:** `[behaviour+context
+system, summary note (unused, None, until brief d), *verbatim_K, scene
+tail]`, built by `conversation_window.build_npc_message_list`. The
+K-verbatim cap and scene tail apply on the `word_budget` condition ALONE —
+never gated on `summary_enabled` (that flag only controls the brief-d
+sliding-summary recovery layered on top; a degraded-but-bounded baseline
+ships now, independently live-testable, and already beats the pre-0050
+uncapped-history behavior).
+
+Below `word_budget`, behavior is byte-for-byte unchanged (full history,
+same system-prompt suffix mutations for `npc_reaction`/refusal). `play.py`
+and `context.py` both had no line budget left (RECON-0050); the
+config-read + scene-tail + message-list composition lives in
+`conversation_window.resolve_npc_message_list`, the single call site
+`cockpit/play.py::_say_npc_generation` uses — kept out of `play.py` itself
+to hold both the file's 1000-line cap and `_say_npc_generation`'s
+80-line cap.
+
 ---
 
 *Co-built with Claude, June 2026.*

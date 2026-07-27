@@ -29,6 +29,7 @@ from ..context import (
     format_inventory_line,
     format_item_list_for_interpretation,
 )
+from ..conversation_window import resolve_npc_message_list
 from ..db import engine
 from ..models import (
     Character,
@@ -574,21 +575,16 @@ def _say_npc_generation(
             responder_behaviour_version.system_prompt, responder_context
         )
 
-    npc_msg_list = [{"role": "system", "content": responder_system_prompt}, *ctx.npc_history]
+    npc_msg_list = resolve_npc_message_list(
+        world_id=ctx.world_id, npc_id=responder_id, location_id=ctx.conv.location_id,
+        gathering_id=ctx.conv.gathering_id, player_condition=ss_condition,
+        system_prompt=responder_system_prompt, npc_history=ctx.npc_history, db=db)
     if mode == ResponseMode.npc_reaction:
-        # Append a one-shot instruction so the NPC produces a brief
-        # wordless gesture rather than spoken dialogue.
-        npc_msg_list[0] = {
-            "role": "system",
-            "content": npc_msg_list[0]["content"] + _NPC_REACTION_INSTRUCTION,
-        }
+        # One-shot wordless-gesture instruction (no spoken dialogue).
+        npc_msg_list[0] = {"role": "system", "content": npc_msg_list[0]["content"] + _NPC_REACTION_INSTRUCTION}
     if refusal_instruction is not None:
-        # The player's gesture just failed (possession check) —
-        # the NPC reacts to what it witnessed (BRIEF-08 / D2a.1).
-        npc_msg_list[0] = {
-            "role": "system",
-            "content": npc_msg_list[0]["content"] + "\n\n" + _GESTE_RATE_INSTRUCTION,
-        }
+        # The player's gesture just failed (possession check, BRIEF-08 / D2a.1) — the NPC reacts to what it witnessed.
+        npc_msg_list[0] = {"role": "system", "content": npc_msg_list[0]["content"] + "\n\n" + _GESTE_RATE_INSTRUCTION}
 
     npc_chunks: list[str] = []
     npc_error: str | None = None
