@@ -9650,6 +9650,39 @@ no implicit default. `docs/launch-procedure.md` documents the operator-side
 export for prod and test. F1 (per TICKET-0049 intake): explicit URL >
 resolved ENV > refuse to start.
 
+## VERIFY — env_fail_closed + env_guard, KNOWN_OPERATOR_SCRIPT_ALLOW (BRIEF-0049-d, no schema change)
+
+TICKET-0049 (test database infrastructure, closing). Two new G1 checks make
+the ticket's promise structural rather than a `CLAUDE.md` convention:
+`tooling/verify/checks/env_fail_closed.py` statically proves (AST-only, no
+DB) that `db.py`'s resolver carries no `os.getenv(..., <default>)` shape
+anywhere in the module, that the unresolved path raises with "Refusing to
+start" in its message, and that the `"test"` branch resolves to a path
+distinct from `"prod"` containing a `test` segment.
+`tooling/verify/checks/env_guard.py` walks every `scripts/*.py` that
+imports `world_engine.db` and requires, lexically before that import, an
+explicit `os.environ[...]` set or a fail-closed
+`os.environ.get("WORLD_ENGINE_ENV")` + `sys.exit` guard — both vacuous-proof
+(zero files, or zero engine-importing files, is a FAILURE).
+
+**Escalation resolved (`tooling/questions/QUESTION-TICKET-0049.md`, D1-a/c).**
+BRIEF-0049-d's mini-RECON expected exactly one exception (`seed_pilot.py`);
+the actual `scripts/*.py` importing the engine numbered 55, not 6 — every
+`migrate_v1_*.py` (33), every `apply_ticket_NNNN_prompt_*.py` (10), plus
+`backup.py`, `init_db.py`, `talk.py`, `analyze_conversation.py`,
+`rollback_quarantine.py`, `seed_trait_keys.py`, and
+`preview_tick_context.py` import the engine with no per-script guard.
+Nia's call (2026-07-27, option A): allow-list all of them — these scripts
+are no longer in active use and pose no ongoing risk — rather than
+retrofitting ~49 scripts or narrowing the check's scope. `env_guard.py`'s
+`KNOWN_OPERATOR_SCRIPT_ALLOW` names every one explicitly, each with a
+one-line rationale (migration / one-shot ticket-apply / standing operator
+tool), so the check still enforces fail-closed on every script BRIEF-0049-b/
+-c actually targets (`seed_test.py`, `reset_test.py`, `test_context.py`,
+`test_ddl_atomicity.py`, `test_rollback_quarantine.py`) and on any new
+script added later — the allow-list is a closed, named exception set, not a
+silent bypass.
+
 ---
 
 *Co-built with Claude, June 2026.*

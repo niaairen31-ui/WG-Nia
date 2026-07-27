@@ -144,3 +144,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 9506 | DYNAMIC TAB FACTORY — runtime Creation tabs + page_contract mechanism assertion (BRIEF-0046-d, no schema change) | BRIEF-0046-d |  |
 | 9560 | DYNAMIC INSTANCE CRUD for custom ext_* + json_ui_boundary F1 volet (BRIEF-0046-e, no schema change) | BRIEF-0046-e |  |
 | 9635 | DB ENGINE — WORLD_ENGINE_ENV primary resolver, fail-closed (BRIEF-0049-a, no schema change) | BRIEF-0049-a |  |
+| 9653 | VERIFY — env_fail_closed + env_guard, KNOWN_OPERATOR_SCRIPT_ALLOW (BRIEF-0049-d, no schema change) | BRIEF-0049-d |  |

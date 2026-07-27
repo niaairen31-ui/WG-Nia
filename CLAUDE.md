@@ -459,8 +459,8 @@ WG-Nia/
 
 - **Install:** `python -m venv .venv`, activate, `pip install -r requirements.txt`.
 - **Database URL:** `WORLD_ENGINE_ENV=prod|test` resolves the SQLite file
-  (see `docs/launch-procedure.md`); `WORLD_ENGINE_DATABASE_URL` overrides.
-  Neither set => refuses to start, fail-closed.
+  (`docs/launch-procedure.md`); `WORLD_ENGINE_DATABASE_URL` overrides, else
+  refuses to start. Every test/seed script guards the env pre-import (`env_guard.py`).
 - **Initialize:** `python scripts/init_db.py` — idempotent.
 - **Seed:** `python scripts/seed_pilot.py` — Verkhaal world, NPCs,
   relations, knowledge, prompt templates; idempotent; `upsert_prompt_template`
