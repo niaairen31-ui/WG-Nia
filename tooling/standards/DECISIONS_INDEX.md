@@ -151,3 +151,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 9770 | CONVERSATION SUMMARY — budget-trigger, recompute, fail-soft insertion (BRIEF-0050-d, no schema change) | BRIEF-0050-d |  |
 | 9805 | CONVERSATION WINDOW — config editing surface + replay measurement (BRIEF-0050-e, no schema change) | BRIEF-0050-e |  |
 | 9846 | OBSERVED SCENE — socle and decision instrumentation (BRIEF-0051-a, schema v1.90) | BRIEF-0051-a | v1.90 |
+| 9918 | OBSERVED SCENE — worst-case-listener disclosure floor (BRIEF-0051-b, no schema change) | BRIEF-0051-b |  |

@@ -9915,6 +9915,45 @@ analysis), so their absence of use in this brief is not an oversight.
 from `[CANON_TABLES]` — never an entry in that section, which would
 misdeclare telemetry as canon.
 
+## OBSERVED SCENE — worst-case-listener disclosure floor (BRIEF-0051-b, no schema change)
+
+**E2.** `assemble_npc_context` derived ONE relation intensity and fed it to
+two different jobs: gating what the NPC may DISCLOSE, and colouring how it
+PERCEIVES the person in front of it. With a single interlocutor the
+conflation was harmless; with a plural audience (the normal case for
+observed scenes) it was a leak — an NPC trusting the addressee would
+disclose in front of an untrusted bystander standing right there.
+
+The fix splits the single value into two: `inter_intensity` (interlocutor
+relation, unchanged, still feeds perception) and `disclosure_intensity` (the
+MINIMUM relation intensity across every auditor present — the addressee
+plus a new `audience_ids` parameter — substituting `NEUTRAL_INTENSITY` where
+no relation row exists). Only `disclosure_intensity` reaches
+`_npc_context_speak`'s `share_threshold` gate.
+
+**Why perception stays keyed on the addressee.** Perception is about manner
+— how this NPC's tone reads to the person it is looking at — not about
+which facts are safe to say. Flattening it to the audience floor would make
+an NPC's warmth toward a trusted addressee visibly curdle merely because a
+stranger walked into the room, which is a manner regression this brief does
+not own.
+
+**Why an empty `audience_ids` raises rather than defaulting.** `None` means
+"single auditor, reproduces pre-v1.90 behaviour exactly" (the addressee is
+always in the auditor set). An empty list is never "nobody is listening" —
+it is a caller bug, and treating it as "disclose freely" is the exact
+failure this brief exists to prevent, so `assemble_npc_context` raises
+`ValueError` fail-closed instead.
+
+**Scope.** All five existing call sites (`play_initiative.py`,
+`play_physical.py`, `play.py`, `routes/prompts.py`, `routes/play.py`) keep
+passing nothing, so `audience_ids` defaults to `None` everywhere today and
+behaviour is bit-identical (asserted by
+`tooling/verify/checks/context_disclosure_floor.py`, Rule 3). The first real
+caller supplying a plural audience is BRIEF-0051-e's runner.
+`player_presence='silent'` counting as an auditor (H2) remains a named
+deferral — `_npc_context_company`'s player exclusion is untouched.
+
 ---
 
 *Co-built with Claude, June 2026.*
