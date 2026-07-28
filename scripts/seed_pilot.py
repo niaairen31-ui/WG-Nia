@@ -1527,6 +1527,54 @@ Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien d'autre 
              et motivé. En cas de doute, false.\
 """
 
+# Observation intent — per-NPC JSON call, one per present NPC per beat
+# (TICKET-0051, BRIEF-0051-d, C3). Answers ONLY for the NPC itself: never a
+# ranking, never a selection, never shown a rival's intent, never given a
+# relation-intensity threshold — that reasoning moved to code (D1). usage =
+# "observation_intent". world_id = NULL. Output:
+# {"act": false} or {"act": true, "urgency": <0-100>, "target": "<nom exact
+# ou vide>", "why": "<une phrase courte>"}. Variables: {location_name},
+# {present_names}, {transcript}.
+OBSERVATION_INTENT_SYSTEM_PROMPT = """\
+Tu incarnes un personnage dans une scène observée : plusieurs personnes \
+présentes agissent entre elles, sans qu'on s'adresse spécialement à toi. On \
+te donne ta fiche de contexte et ce qui vient de se passer. Ta seule tâche \
+: décider si TOI, tu as quelque chose à dire ou à faire MAINTENANT, et à \
+quel point cela presse pour toi — jamais si quelqu'un d'autre doit agir, \
+jamais un classement, jamais une comparaison avec qui que ce soit d'autre \
+que tu ne vois pas.
+
+RÈGLE ABSOLUE — NE RIEN INVENTER.
+Tu ne connais que ce qui figure dans ta fiche de contexte. N'invente aucun \
+fait, aucun nom, aucun événement absent de cette fiche.
+
+Si rien ne te pousse à intervenir maintenant, réponds :
+{"act": false}
+
+Si tu as quelque chose à dire ou à faire, réponds :
+{"act": true, "urgency": <0-100>, "target": "<nom exact d'une personne \
+présente, ou vide>", "why": "<une phrase courte>"}
+
+"urgency" mesure uniquement à quel point CE QUE TOI tu ressens presse.
+"target" est soit vide, soit le nom EXACT d'une personne présente listée \
+ci-dessous — jamais un nom absent de cette liste, jamais un nom inventé.
+
+Réponds UNIQUEMENT avec cet objet JSON valide sur une seule ligne, rien \
+d'autre.\
+"""
+
+OBSERVATION_INTENT_USER_TEMPLATE = """\
+Lieu : {location_name}
+
+Personnes présentes — noms exacts (utiliser uniquement ceux de cette liste) :
+{present_names}
+
+Ce qui vient de se passer dans la scène :
+{transcript}
+
+As-tu quelque chose à dire ou à faire maintenant ?\
+"""
+
 # NPC link agent — pair pass (TICKET-0036, BRIEF-0036-b). usage =
 # "npc_link_pair". world_id = NULL (single global template, like the other
 # authoring prompts). Calls go through link_author.run_pair, one call per
@@ -1684,6 +1732,22 @@ def seed(session: Session) -> None:
         system_prompt=NPC_INITIATIVE_ACT_SYSTEM_PROMPT,
         user_template="",   # not used — only system_prompt is consumed in app.py
         variables=[],
+        destination="local",
+    )
+
+    # ----- prompt template: observation intent (TICKET-0051, BRIEF-0051-d) --
+    # usage = "observation_intent". Per-present-NPC JSON call, one per beat
+    # (C3): the model answers only for itself, never a selection — code
+    # arbitrates (observation_engine.arbitrate). world_id = NULL.
+    upsert_prompt_template(
+        session,
+        "pt-observation-intent",
+        world_id=None,
+        name="Observation — intention spontanée d'un PNJ présent",
+        usage="observation_intent",
+        system_prompt=OBSERVATION_INTENT_SYSTEM_PROMPT,
+        user_template=OBSERVATION_INTENT_USER_TEMPLATE,
+        variables=["location_name", "present_names", "transcript"],
         destination="local",
     )
 

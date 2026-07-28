@@ -1383,7 +1383,8 @@ CREATE TABLE prompt_template (
                    -- overhearing_classification | mj_arbitration |
                    -- mj_establishment | entity_generation | region_manifest |
                    -- mj_gathering | mj_speaker_selection | mj_initiative |
-                   -- npc_initiative_act | world_generation | player_generation |
+                   -- npc_initiative_act | observation_intent |
+                   -- world_generation | player_generation |
                    -- skill_catalogue | other
   destination      TEXT DEFAULT 'local',
                    -- local | claude_api | both

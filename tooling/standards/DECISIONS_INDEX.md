@@ -153,3 +153,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 9846 | OBSERVED SCENE — socle and decision instrumentation (BRIEF-0051-a, schema v1.90) | BRIEF-0051-a | v1.90 |
 | 9918 | OBSERVED SCENE — worst-case-listener disclosure floor (BRIEF-0051-b, no schema change) | BRIEF-0051-b |  |
 | 9957 | OBSERVED SCENE — analyzer transcript seam (BRIEF-0051-c, no schema change) | BRIEF-0051-c |  |
+| 10086 | OBSERVED SCENE — intent and arbitration engine (BRIEF-0051-d, no schema change) | BRIEF-0051-d |  |

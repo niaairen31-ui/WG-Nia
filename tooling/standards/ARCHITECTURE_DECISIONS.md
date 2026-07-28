@@ -10083,6 +10083,123 @@ live-model diff would be noise, not signal) produced an empty diff for both
 `analyze_window` and `analyze_overhearing` except for the one authorized
 `payload["source"]` format change.
 
+## OBSERVED SCENE — intent and arbitration engine (BRIEF-0051-d, no schema change)
+
+**C3, model proposes / code judges.** One short JSON intent call PER present
+NPC per beat (`{act, urgency, target, why}`), never a single MJ call that
+picks an actor. The model answers ONLY for itself — never ranks, never sees
+a rival's intent, never told one NPC acts per beat. `observation_engine.py`
+ships two pure responsibilities: `request_intent` (one model call) and
+`arbitrate` (pure, no I/O, no model) — kept in separate functions so
+arbitration is independently testable with a hand-built `intents` list.
+
+**D1/O1, propensity moves from prompt to code.** `scripts/seed_pilot.py`'s
+`MJ_INITIATIVE_SYSTEM_PROMPT` (the PLAYED path, untouched by this brief)
+hard-codes a U-curve: "intensité < 40" and "intensité > 70" both raise the
+odds of taking initiative, so an NPC at 20 or at 85 always outranks one at
+50, invisibly and unadjustably. `pt-observation-intent`'s system prompt
+carries NO intensity threshold of any kind (asserted by
+`grep -n "40\|70\|intensit"` returning nothing against its body) — the
+model is never told relation magnitude matters. `arbitrate`'s
+`propensity_mode='flat'` (the DEFAULT) sets `propensity=1.0` for every
+candidate regardless of relation intensity; `'relation_weighted'` exists as
+the non-default second mode
+(`1.0 + 0.5 * (abs(intensity_toward_last_actor - 50) / 50)`, capped at a
+1.5× multiplier — k=0.5 is exactly that cap, since the intensity term
+already ranges [0, 1]). O1's rationale for shipping `flat` as default rather
+than damping the curve immediately: damping before measuring would leave
+cooldown, debt, and the curve itself indistinguishable as causes of any
+observed passivity — the A/B run (flat vs relation_weighted, same scene)
+is what decides, not a code default masquerading as the fix.
+
+**Signature gap, resolved additively.** The brief's `arbitrate` signature
+has no field carrying "how long ago did `last_actor_id` last act" or "this
+candidate's relation intensity toward `last_actor_id`" — both are required
+by D2's and O1's own rule text but have nowhere else to live given
+`IntentResult` is fixed to the model call's own output shape
+(`act`/`urgency`/`target_id`/`why`/`call_status`/`latency_ms`/
+`raw_response`). Resolved by adding two keyword-only parameters with
+defaults that reproduce the documented/tested behavior when omitted:
+`beats_since_last_act: int = 1` (D2's cooldown rule, `beats_since_last_act
+< cooldown_beats`, is then exactly the single-beat-ago case the Done-means
+criteria exercise) and `relation_intensities: dict[str, int] | None = None`
+(missing entries default to neutral 50, so an un-supplied map degrades
+`relation_weighted` to `flat`'s propensity=1.0 rather than raising). Neither
+changes `flat` mode's behavior, and both are additive to the brief's given
+positional signature — not a design decision, a plumbing completion.
+
+**D2, cooldown is a soft floor.** `cooldown_active = (npc_id ==
+last_actor_id and beats_since_last_act < cooldown_beats)`. A cooling
+candidate is excluded from the selection pool UNLESS every other candidate
+declined (`act=False`), in which case it may still be selected —
+`cooldown_active` stays `True` on that row regardless. `_observation_select`
+implements this as two ranked pools (non-cooling acting candidates first,
+falling back to the cooling one only when the first pool is empty), never a
+hard drop — a hard drop would let a single-candidate beat report a false
+`silence`.
+
+**D3, speaking debt.** `debt_score = debt_weight * (expected_share -
+actual_share)` where `expected_share = beats_elapsed / len(npc_ids)` and
+`actual_share = acted_counts[npc_id]`; positive means under-served. Folded
+into `final_score = urgency * propensity + debt_score` alongside D1's
+propensity — one linear score, no separate debt-vs-urgency tie-break stage.
+
+**D4, explicitly not taken.** No RNG anywhere in `observation_engine.py`
+(`grep -rn "random\|shuffle\|choice"` returns nothing). Ties break on lowest
+`acted_counts`, then stable `npc_ids` order — deterministic given the same
+inputs, so a re-run of the same intents/scores always selects the same
+candidate.
+
+**Parse-error vs decline, the defect this ticket exists to fix.**
+`play_initiative.py:508-510` (`_initiative_vote_call`) wraps its model call
+in a bare `except Exception`, collapsing a JSON parse failure, a network
+timeout, and a genuine model decline into the same `(False, None)` return —
+unobservable which one occurred. `request_intent` distinguishes all three by
+construction: `llm_parse.extract_object` (raises `LlmParseError`, unlike
+`extract_object_or_none` which swallows the distinction) drives
+`call_status='parse_error'`; `ollama_client.OllamaError.__cause__` is
+inspected for `TimeoutError` to set `'timeout'` vs `'error'` (`chat()`
+collapses every network failure into `OllamaError` — the cause chain,
+preserved by its own `raise ... from exc`, is the only place the original
+exception type survives); a well-formed `{"act": false}` sets `call_status
+='ok'`. Every path returns an `IntentResult` — never raises past
+`request_intent` — so a beat runner (BRIEF-0051-e) always gets a row to
+persist, matching `observation_intent`'s "always written" contract
+(BRIEF-0051-a).
+
+**Model never resolves ids.** The intent prompt shows each NPC the exact
+name roster of everyone else present; `target` in the model's JSON reply is
+a name, resolved to an entity id in code
+(`_observation_resolve_target`, exact case-insensitive match) — an
+unresolved or empty name is `None`, never guessed, never passed through as
+a string.
+
+**Disclosure floor reuse.** `request_intent` calls `assemble_npc_context`
+with the full `audience_ids` list from BRIEF-0051-b — one member is
+designated `interlocutor_id` to satisfy the existing required-positional
+parameter, the rest passed as `audience_ids`; `context.py`'s
+`_disclosure_intensity_floor` unions them back into one set before computing
+the floor, so which member plays which role has no effect on disclosure —
+it only picks who the cosmetic "how you see X" section describes.
+
+**Finding, not fixed here.** `pt-npc-initiative-act`'s `move` field
+instruction ("te lèves physiquement pour rejoindre le groupe DU JOUEUR")
+reads incorrectly in an observed scene: there is no player group to join
+when `player_presence='absent'`. Per this brief's Scope OUT
+(`play_initiative.py` untouched), this is reported, not edited — a
+consumer of the reused act template (BRIEF-0051-e or later) must either
+substitute a scene-appropriate instruction fragment or accept `move` as
+always-false-in-practice for observed beats.
+
+**Incidental fix.** `prompt_registry.py`'s `conversation_analysis` and
+`overhearing_classification` entries still pointed their `call_sites` at
+`analyzer.py:load_analysis_prompt`, stale since BRIEF-0051-c relocated the
+function to `analyzer_transcript.py` (the def moved; `analyzer.py` only
+imports the name now). Corrected as part of restoring a green full-tree
+`prompt_registry.py` check — unrelated to this brief's own feature work,
+found only because that check now runs `observation_intent`'s bijection
+alongside it.
+
 ---
 
 *Co-built with Claude, June 2026.*
