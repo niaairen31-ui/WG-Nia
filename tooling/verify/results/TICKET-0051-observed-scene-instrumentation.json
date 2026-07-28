@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0051-observed-scene-instrumentation",
+  "when": "2026-07-28T13:07:57.625481+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "observation_socle.py",
+      "status": "PASS",
+      "msg": "PASS: observation socle \u2014 5 tables inspected, 26 CHECK constraints asserted"
+    },
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v1.90'"
+    }
+  ]
+}

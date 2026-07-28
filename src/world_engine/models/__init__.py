@@ -19,15 +19,18 @@ Layout, by stratum:
                         account infrastructure — Nia's stratum escalation)
                         and SchemaMeta (static-plane schema version,
                         migration-only).
+    observation.py   — observed-scene instrumentation (ObservationRun and
+                        friends, TICKET-0051); telemetry, never canon —
+                        absent from canon_write_policy.txt's [CANON_TABLES].
 
 This module re-exports the ENTIRE former public surface of the flat
 `models.py` — every class, constant, and the two module functions
 (`_uuid`, `_created_ts`) — so every existing `from .models import X` /
 `from world_engine.models import X` in `src/` and `scripts/` resolves
-unchanged. Import order (canon, canon_faction, config, ephemeral, pipeline)
-keeps table registration on `SQLModel.metadata` deterministic; cross-stratum
-foreign keys (string table-name references) resolve regardless of file
-order.
+unchanged. Import order (canon, canon_faction, config, ephemeral, pipeline,
+observation) keeps table registration on `SQLModel.metadata` deterministic;
+cross-stratum foreign keys (string table-name references) resolve
+regardless of file order.
 """
 
 from __future__ import annotations
@@ -94,6 +97,13 @@ from .pipeline import (
     SchemaMeta,
     User,
 )
+from .observation import (
+    ObservationBeat,
+    ObservationIntent,
+    ObservationMutationLink,
+    ObservationRun,
+    ObservationRunTemplate,
+)
 
 __all__ = [
     "World",
@@ -148,4 +158,9 @@ __all__ = [
     "EntityTrait",
     "BASE_SKILL_DOMAINS",
     "ConversationWindowConfig",
+    "ObservationRun",
+    "ObservationRunTemplate",
+    "ObservationBeat",
+    "ObservationIntent",
+    "ObservationMutationLink",
 ]

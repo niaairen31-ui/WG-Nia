@@ -9843,6 +9843,78 @@ repetition-provoking fixture would be needed to actually locate the
 saturation point TICKET-0050 originally described. Full table:
 `tooling/recon/RECON-0050-window-measurement.result.md`.
 
+## OBSERVED SCENE — socle and decision instrumentation (BRIEF-0051-a, schema v1.90)
+
+TICKET-0051's first step: structure and write chokepoints only — no loop, no
+model call, no UI. A loop that ran before the decision tables existed would
+produce unmeasured runs that must be re-executed, so instrumentation is
+folded into the socle rather than deferred.
+
+**A3 (superseded A2).** Observed scenes get their OWN tables
+(`observation_*`), never `conversation`. RECON found `Conversation.player_id`
+`nullable=False` (`models/ephemeral.py:94`) with 49 read sites, several using
+it as a DEFAULT identity (`analyzer.py:258`, `analyzer.py:275`) — making it
+nullable would be disciplinary safety pushed onto 49 call sites, not a
+structural change. `analyze_window`/`analyze_overhearing` are still reused,
+by projecting beats into an in-memory transcript; no `conversation_message`
+row is ever written by an observed run (A3-adapter).
+
+**M1.** `observation_intent` deliberately carries NO `not_selected_reason`
+column. A candidate can be excluded by cooldown AND by debt AND by
+arbitration simultaneously; a single-valued reason would force a precedence
+and destroy the rest of the information. The COMPONENTS
+(`propensity`/`cooldown_active`/`debt_score`/`final_score`) are stored
+instead, and the reason is DERIVED at read time by documented precedence
+(`act=FALSE` -> no_intent; `cooldown_active` -> cooldown; `selected=FALSE,
+debt_score<0` -> debt; otherwise -> lost_arbitration) — reconstructible, not
+merely reported.
+
+**M2.** `observation_beat.outcome` is explicit (`acted`/`silence`/
+`degraded`/`event`), never inferred from `actor_id` being NULL. Conflating
+`silence` (every candidate declined — a datum) with `degraded` (every intent
+call failed — a bug) would let a JSON parse failure be misread as passivity,
+the exact confound this ticket exists to measure.
+
+**H2, closed vocabulary.** `player_presence` is `absent`/`silent`/`active`,
+not a boolean — a SILENT player is still an AUDITOR for disclosure gating
+(E2, BRIEF-0051-b) while an ABSENT one is not, unrepresentable with a
+boolean. Only `absent` is implemented; `write_observation_run` raises
+`ValueError` on `silent`/`active` rather than downgrading them silently.
+
+**F3, structural isolation.** Observed runs will produce `proposed_mutation`
+rows marked `proposed_by='observed_scene'` (constant `OBSERVED_PROPOSED_BY`,
+`observation_writes.py`) — isolated from the creator-facing queue by
+construction, not by a UI flag. `list_mutations`'s exclusion is NULL-safe
+(`proposed_by.is_(None) | proposed_by != OBSERVED_PROPOSED_BY`) — a bare
+`!=` would silently drop rows with a NULL `proposed_by`. Duplicate-detection
+paths (`_find_applied_duplicate*`) are untouched: they must keep seeing
+observed rows, or a re-run could double-propose. No producer exists yet in
+this brief — the filter guards an empty set, fail-closed before the window
+in which a run could pollute the queue ever opens.
+
+**L, reduced to attribution.** Bit-exact replay is abandoned — the world
+mutates under play (G1: runs execute against the live world DB, the pilot
+world retired). What is KEPT is attribution: `observation_run_template` pins
+each usage's template `id`+`version`, and `observation_run` pins
+`cooldown_beats`/`debt_weight`/`propensity_mode` per run rather than reading
+code constants, so two runs separated by a tuning pass stay comparable.
+`seed` and a world fingerprint are dropped — a sensor whose verdict is
+always "changed" does not inform.
+
+**Named deferral D-J1.** An LLM judge scoring line novelty/quality is
+deferred: putting a model inside the MEASUREMENT loop while isolating causes
+adds a confounder. Reactivation condition: once J2's deterministic metrics
+(BRIEF-0051-f) have shown their blind spots on passivity modes (b)/(c), not
+before.
+
+Five tables ship with no consumer yet — `latency_ms`/`raw_response` on
+`observation_intent` are explicitly declared to have a DIFFERENT reader (run
+feasibility and parse diagnosis) than the rest of the table (scene
+analysis), so their absence of use in this brief is not an oversight.
+`canon_write_policy.txt` gains a comment explaining the five tables' absence
+from `[CANON_TABLES]` — never an entry in that section, which would
+misdeclare telemetry as canon.
+
 ---
 
 *Co-built with Claude, June 2026.*
