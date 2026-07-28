@@ -7,7 +7,7 @@ created: 2026-07-27
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
 blast_radius: medium
-brief_ids: [BRIEF-0051-a, BRIEF-0051-b, BRIEF-0051-c, BRIEF-0051-d, BRIEF-0051-e, BRIEF-0051-f]
+brief_ids: [BRIEF-0051-a, BRIEF-0051-b, BRIEF-0051-c, BRIEF-0051-d, BRIEF-0051-e, BRIEF-0051-f, BRIEF-0051-g]
 schema_version_touched: v1.90
 retry_count: 0
 ---
@@ -81,18 +81,25 @@ Locked decisions:
 | **L (reduced)** | Bit-exact replay is abandoned (the world mutates under play; G1). What is KEPT is attribution: arbitration parameters and per-usage template `id` + `version` are pinned on the run, relationally, and are VISIBLE on the run detail surface. `seed` and the world fingerprint are dropped - a sensor whose verdict is always "changed" does not inform. |
 | **M (corrected)** | Three tables: run / beat / intent. Two corrections applied against the drafted shape: **M1** - `not_selected_reason` is NOT stored; the arbitration COMPONENTS are stored and the reason is derived by a documented precedence, so the judgment is reconstructible and not just its verdict. **M2** - `beat_outcome` is explicit; a null actor must never conflate "nobody wanted to act" (datum) with "all intent calls failed" (bug). |
 | **N** | `observation_` prefix throughout. `scene` already carries two meanings in this codebase (`conversation.scene_state`, `ResponseMode.scene`); a third would be ambiguous. |
+| **O1** | Propensity ships `flat` by DEFAULT: intensity plays no part, only the model-reported urgency. `relation_weighted` exists as the second mode but is not the default. Rationale: damping the U-curve immediately would fix the bias BEFORE measuring it, leaving cooldown / debt / curve indistinguishable as causes. The A/B run decides. |
+| **P1** | The observation surface is a TOP-LEVEL surface, sibling of Jouer and Creation - not a sub-surface of Play, not a separate port. |
+| **Q** | Metric set locked: acted-beat share per NPC (+ entropy), intent rate per NPC, selection rate given intent, silence rate, degraded rate, correlation between `abs(intensity - 50)` and act rate, n-gram overlap of each line against the prior N beats, proposals per run, latency p50/p95. All nine are derivable from the BRIEF-0051-a socle - verified, no retroactive schema change. |
+| **R1** | Observed runs reuse the SAME analysis judge as played scenes, via a transcript-shaped seam extracted into a new module. Forced by RECON: `analyze_window` (`analyzer.py:894`) and `analyze_overhearing` (`analyzer.py:679`) are conversation-bound by signature AND internals - `analyze_window` loads the `Conversation`, reads `ConversationMessage` rows and advances `conv.last_analyzed_turn`; `_overhearing_eligible_receivers` (`analyzer.py:443-456`) derives receivers from `conv.gathering_id` and `conv.player_id`. There is no transcript seam to adapt to. Rejected: a duplicate observation-side analyzer (two judges drift, and step 3's conclusions would stop describing the real game), and dropping observed proposals entirely (loses J2's "something happened" proxy and contradicts the visibility requirement). |
 | **D-J1** | **Named deferral.** LLM judge scoring line novelty/quality. Reason for deferral: putting a model inside the MEASUREMENT loop while isolating causes adds a confounder. Reactivation: once J2 has shown its blind spots on passivity modes (b) and (c), not before. |
 
 Brief sequence:
 
 - **-a** Socle: tables, write helpers, canon-policy note, verify check, migration.
 - **-b** E2: decouple disclosure intensity from interlocutor intensity in `context.py`.
-- **-c** Engine: per-NPC intent call, code-side arbitration D1+D2+D3, score components persisted.
-- **-d** Runner: bounded run, `beat_outcome`, quiescence stop, fail-closed readiness gate, F3 proposal production.
-- **-e** Cockpit: launch, transcript reading, MJ toggle, K2 event injection, run detail (pinned params + templates) and observed-proposal surface.
-- **-f** J2 metrics: export script and computation.
+- **-c** Analysis seam: extract a transcript-shaped core out of `analyzer.py` (R1).
+- **-d** Engine: per-NPC intent call, code-side arbitration D1+D2+D3, score components persisted.
+- **-e** Runner: bounded run, `beat_outcome`, quiescence stop, fail-closed readiness gate, F3 proposal production via the -c seam.
+- **-f** Cockpit: launch, transcript reading, MJ toggle, K2 event injection, run detail (pinned params + templates) and observed-proposal surface.
+- **-g** J2 metrics: export script and computation.
 
-`-b` is independent of `-a` and may land first.
+`-b` and `-c` are independent of `-a` and of each other; either may land first.
+`-c` touches a hot canon-adjacent path: commit before starting, isolated brief,
+full-tree verify after.
 
 ## Acceptance criteria
 
@@ -107,6 +114,7 @@ Brief sequence:
 - [ ] `tick.py`, `tick_context.py`, `tick_normalize.py` contain no reference to any `observation_*` identifier  -> verify/checks/observation_socle.py
 - [ ] Every intent call is recorded with a `call_status`, including failures - a failed run has intent rows, not missing ones  -> verify/checks/observation_socle.py
 - [ ] Schema version agreement holds at v1.90  -> verify/checks/schema_version_agreement.py
+- [ ] `analyzer_transcript.py` never reads a `Conversation`/`ConversationMessage`, never commits, and carries a refusable `AttributionContext`; `analyzer.py`'s wrapper signatures are unchanged and set `conversation_id` on every returned mutation  -> verify/checks/analyzer_seam.py
 - [ ] Full-tree verify passes (`function_length`, `module_budget`, `import_cycle`, `json_ui_boundary`, `single_canon_write`)
 
 ### Live  ->  human gate (Nia)

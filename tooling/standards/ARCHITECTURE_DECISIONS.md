@@ -9954,6 +9954,135 @@ caller supplying a plural audience is BRIEF-0051-e's runner.
 `player_presence='silent'` counting as an auditor (H2) remains a named
 deferral — `_npc_context_company`'s player exclusion is untouched.
 
+## OBSERVED SCENE — analyzer transcript seam (BRIEF-0051-c, no schema change)
+
+**R1.** `analyze_window` and `analyze_overhearing` (`analyzer.py`) were
+conversation-bound by signature AND internals — RECON found no
+transcript-shaped seam to adapt to. Executing the brief surfaced that the
+conversation binding ran deeper than the brief's own "expected to move" list
+assumed: three escalations (recorded as AMENDMENT 01/02/03 against
+BRIEF-0051-c) were needed before the seam's final shape was settled. Each is
+recorded here because the reasoning, not just the outcome, is what a future
+seam extraction should reuse.
+
+**Escalation 1 — identity attribution.** `_normalize_to_schema`'s payload
+builders read `conv.player_id`/`conv.npc_id` directly to attribute 5 of 8
+mutation types (`new_knowledge`, `relation_change`, `event_creation`,
+`resource_change`, `goal_change`). The brief's stated `analyze_transcript`
+signature had no parameter for either. Resolution: a refusable
+`AttributionContext(default_subject_id, default_counterparty_id)` — `None`
+means no default is available, and an item that needs a missing default is
+DROPPED and counted (`TranscriptAnalysis.dropped_unattributed` /
+`.dropped_by_type`), never attributed by guess. A run-level default was
+rejected outright: an observed run spans ~30 beats and 5 NPCs with no
+run-level counterparty (beat 12 may be Maelis addressing Reike, beat 19
+Senna addressing Maelis) — supplying one would let a fabricated
+`relation_change` reach the queue looking legitimate. Fail-closed drops carry
+real cost, stated up front rather than discovered later:
+`_build_payload_event_creation` populates `involved_entities` from both
+identities UNCONDITIONALLY (the model never supplies them explicitly), so an
+observed run — both defaults `None` at the window-analysis level — will drop
+EVERY `event_creation` proposal. This is correct (a 30-beat multi-NPC scene
+has no single involved pair to invent), not a defect, and BRIEF-0051-e must
+read a 100% `event_creation` drop rate as expected, not as evidence of a
+passive scene.
+
+**Distinguishing this from the `tick_normalize.py:757` precedent.** That
+precedent — world-tick proposals use a wholly separate normalizer rather
+than reusing `analyzer._normalize_to_schema` — is real and was respected,
+not overridden. It applies when the PROPOSAL VOCABULARY differs (the tick's
+closed contract is `goal_change | relation_change | new_knowledge | npc_move
+| agenda_step_change | agenda_creation`, entity-scoped, not
+conversation-scoped at all). Observation and the played path share the SAME
+vocabulary and the same judge; only the participant topology differs. Making
+the identity model an explicit, refusable input is not force-generalizing
+across a vocabulary boundary — it is removing an implicit conversation read
+from a judge that was already vocabulary-compatible.
+
+**Escalation 2 — `payload["source"]` duplicated `conversation_id`.**
+`_overhearing_mutation_for_receiver` embedded `conversation_id` a second
+time inside a payload string (`f"overheard:{conversation_id}:{speaker_id}"`)
+in addition to setting the `ProposedMutation.conversation_id` column. Ruling:
+this was not "a minor content drift accepted because nothing reads it" — it
+was a duplicated provenance record. The column is the structural copy; the
+wrapper (`analyzer.py`) populates it (also newly true for the window path's
+`_window_build_mutations`, a symmetric gap the census caught). The string
+copy is redundant once the column is guaranteed populated, and
+`speaker_id` — transcript-local, no column of its own — stays.
+`payload["source"]` reads `f"overheard:{speaker_id}"` for rows written from
+schema v1.90 onward; rows written before keep the pre-BRIEF-0051-c
+`f"overheard:{conversation_id}:{speaker_id}"` format (history is
+append-only, never migrated — see `world-engine-schema.md`).
+`tooling/verify/checks/analyzer_seam.py` Rule 9 confirms by AST that no
+dedup/lookup path anywhere in `src/` ever read the dropped segment — the
+only reader was the verbatim apply-time passthrough into
+`Knowledge.source` (`cockpit/mutations.py`), a data copy, not a decision.
+
+**Recorded, not acted on — provenance-as-structure candidate.**
+`proposed_mutation` now carries provenance four different ways:
+`proposed_by` (column), `conversation_id` (column),
+`observation_mutation_link` (table, BRIEF-0051-a), and `payload["source"]`
+(a formatted string inside a JSON blob) — the same category of defect as
+JSON-backed UI-visible data, provenance as ad hoc content instead of
+structure. The clean fix (a dedicated provenance column/table, payloads
+carrying only the semantic change) touches a canon table, the mutation
+application path, the Review Queue, and existing history — larger than
+TICKET-0051. Named here as a future ticket candidate; not begun, not
+partially prepared for.
+
+**Escalation 3 — mandatory coupling census.** Two couplings surfaced
+mid-flight, each after the previous one was declared resolved — evidence,
+not noise, that amending per-discovery was producing exactly the irregular
+design this ticket exists to avoid. A full report-only census of every
+`Conversation` attribute read, every conversation-derived value written into
+a `ProposedMutation`, and every conversation_id/gathering_id-keyed query in
+`analyzer.py` (A=15 transcript-local, B=3 already-columnar, C=6 genuine
+identity defaults, D=7 irreducibly conversation-bound, zero transitive
+coupling in `writes/`/`prompt_store`) settled the seam once, against the
+complete picture, rather than trickling out further amendments. Two
+classifications were corrected during that settlement: `location_name`
+(`conv.location_id` → `Entity.name`, used in overhearing rationale text) is
+Class A, not Class D — location is a property of the SCENE, not the
+conversation (an `observation_run` carries `location_id` natively too), so
+`analyze_overheard_lines` gained a `location_id` parameter the module
+resolves itself; and `_window_build_transcript` was kept in `analyzer.py`
+rather than moved, since `analyze_transcript` takes an already-built
+`transcript: str` — transcript CONSTRUCTION is the caller's job, which keeps
+`ConversationMessage` out of the seam module entirely rather than
+introducing an intermediate line type that exists only to launder a type.
+The exact transcript format (one line per turn, `"\n"`-joined,
+`f"[{'JOUEUR'|'PNJ'}] {content}"`) is documented as a contract in
+`analyzer_transcript.py`'s module docstring, since two callers now produce
+it independently (BRIEF-0051-e's observed-run caller will be the second).
+
+**D-0051-c-1 (sharpened).** Observed-transcript participant attribution: with
+both `AttributionContext` fields `None`, an observed run's proposal yield
+depends entirely on whether the analysis prompt names its participants
+explicitly per line. `dropped_by_type` on the first observed run is the
+first real measurement — `event_creation` is predicted at 100%. If other
+types are also high, the fix is teaching `pt-conversation-analysis` (left
+untouched by this brief) to name speaker/addressee per line, never
+reintroducing a run-level default, never relaxing the fail-closed rule.
+
+**Verification.** `tooling/verify/checks/analyzer_seam.py`: no
+`Conversation`/`ConversationMessage` coupling in `analyzer_transcript.py`
+(AST, narrow exception only for `payload["npc_id"]`-shaped string subscript
+keys — string literals used as candidate JSON key names, e.g. inside
+`_first_of(item, ..., "npc_id", ...)`, are correctly not flagged, since only
+true Python identifiers are scanned); no `.commit()` in the seam module;
+`analyze_window`/`analyze_overhearing` signatures unchanged; both modules
+within 40 functions / 1000 lines (`analyzer_transcript.py` 906 lines,
+`analyzer.py` 307 lines, at landing); fail-closed attribution demonstrated
+on both the window
+(`relation_change`) and overhearing (player-spoken with no player) paths;
+`conversation_id` non-null on every mutation both wrappers return; no
+dedup/lookup reader of `payload["source"]` outside the sanctioned
+passthrough. A before/after regression capture against the test DB (fixed,
+stubbed model output — live local-model sampling is not deterministic, so a
+live-model diff would be noise, not signal) produced an empty diff for both
+`analyze_window` and `analyze_overhearing` except for the one authorized
+`payload["source"]` format change.
+
 ---
 
 *Co-built with Claude, June 2026.*

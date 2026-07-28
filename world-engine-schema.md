@@ -1841,6 +1841,16 @@ CREATE UNIQUE INDEX idx_observation_mutation_link_unique
   ON observation_mutation_link(mutation_id);
 ```
 
+**`proposed_mutation.payload["source"]` format boundary (BRIEF-0051-c, no
+schema change).** The overhearing pass (`proposed_by = 'local_ai_overhearing'`)
+writes a `"source"` key inside `payload` for provenance. Rows written before
+schema v1.90 carry `overheard:{conversation_id}:{speaker_id}`; rows written
+from v1.90 onward carry `overheard:{speaker_id}` only — the
+`conversation_id` segment was a duplicate of the `conversation_id` column,
+which the caller now always populates (`analyzer.py`'s `analyze_window` /
+`analyze_overhearing`). History is append-only: existing rows are never
+migrated to the new format; a reader must not assume either shape.
+
 -----
 
 ## INDEXES

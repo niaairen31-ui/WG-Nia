@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0051-observed-scene-instrumentation",
-  "when": "2026-07-28T13:07:57.625481+00:00",
+  "when": "2026-07-28T20:32:34.855047+00:00",
   "green": true,
   "checks": [
     {
@@ -12,6 +12,11 @@
       "check": "schema_version_agreement.py",
       "status": "PASS",
       "msg": "PASS: code and doc agree on schema version 'v1.90'"
+    },
+    {
+      "check": "analyzer_seam.py",
+      "status": "PASS",
+      "msg": "PASS: analyzer_seam \u2014 analyzer_transcript.py is conversation-agnostic (no Conversation/ConversationMessage coupling, no commit), analyzer.py's wrapper signatures are unchanged, both modules are within budget, fail-closed attribution drops correctly on both paths, conversation_id is set by the wrapper on every returned mutation, and payload[\"source\"] has no dedup/lookup reader outside the sanctioned apply-time passthrough"
     }
   ]
 }
