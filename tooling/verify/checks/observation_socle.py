@@ -71,6 +71,7 @@ ALLOWED_MODULES = {
     "tooling/verify/checks/observation_socle.py",
     "tooling/verify/checks/observation_runner.py",
     "tooling/verify/checks/observation_surface.py",
+    "tooling/verify/checks/observation_metrics.py",
 }
 
 FAILURES: list[str] = []

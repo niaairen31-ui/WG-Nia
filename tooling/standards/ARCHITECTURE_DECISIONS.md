@@ -10465,4 +10465,101 @@ body.
 
 ---
 
+## OBSERVED SCENE — run metrics: deterministic instruments, J2 (BRIEF-0051-g, no schema change)
+
+**J2, enforced by AST, not by convention.** `scripts/observation_metrics.py`
+is read-only (opens the DB, computes, prints — no table, no cache, no
+column) and imports no local-model client. `tooling/verify/checks/
+observation_metrics.py`'s Rule 1 (no session-shaped `.add`/`.commit`/
+`.flush`/`.delete` call) and Rule 2 (no local-model-client import) make both
+claims mechanical rather than a docstring promise. D-J1, the LLM novelty
+judge, stays a named deferral: putting a model inside the measurement loop
+while isolating causes (this ticket's whole point) would add a confounder —
+reactivated once this tool has shown its blind spots on failure modes (b)
+and (c) below, not before.
+
+**Three failure modes, three distinguishing metrics.** A flat scene can be
+any one of these, and conflating them would misattribute the finding to the
+wrong fix:
+
+| Mode | Signature | Points at |
+|---|---|---|
+| (a) nobody wants to act | low intent rate (metric 3) | propensity/intent prompt |
+| (b) all want, nothing happens | high intent (3), low proposal yield (9) | dialogue prompt |
+| (c) they loop | high n-gram overlap (metric 8) | context/scene memory |
+
+Metric 6 (degraded rate) is reported separately and FIRST, before any other
+figure: a non-zero degraded rate means the intent calls themselves failed —
+a technical fault, not a datum about passivity — and every other metric on
+that run is suspect until it reads zero. `_print_human` prints the
+suspect-run warning before the Participation section, never after.
+
+**Entropy is normalised against the full present roster, not the support of
+NPCs who acted.** A single NPC capturing every beat is a degenerate
+distribution with entropy exactly 0 (well-defined), not an "undefined"
+value — the earlier draft normalised by `log2(len(shares))`, which returns
+`None` on a captured run (only one non-zero entry) instead of the near-0
+value the brief's Done-means demands. The fix: `normalized_entropy` divides
+by `log2(len(npc_ids))` — the full roster size — and sums `p*log2(p)` only
+over non-zero shares (the zero-share terms contribute 0 by the standard
+convention). `None` is now reserved for the genuinely undefined case: fewer
+than 2 present NPCs.
+
+**Spearman, not Pearson, and no scipy dependency.** With 5 NPCs the
+intensity/act-rate relationship is ordinal at best; a linear coefficient
+would overstate what the data supports. `spearman()` is implemented
+directly (average-rank ties, then Pearson over the ranks) rather than
+importing `scipy.stats.spearmanr` — CLAUDE.md: no new dependency without a
+decision, and `requirements.txt` carries neither `scipy` nor `numpy`. The
+coefficient is always printed WITH `n`, and the human output states plainly
+that `n=5` supports a direction, not a conclusion — the honesty is in the
+output, not just the docstring.
+
+**Per-NPC intensity has no run-level "reference" NPC — mean pairwise
+intensity is the documented substitute.** `relation` is pairwise; the
+ticket's originating hypothesis ("un personnage avec une intensité très
+faible ou très forte...") treats intensity as a per-character scalar, which
+a pairwise table does not directly carry. `_mean_pairwise_intensity`
+resolves this to the NPC's MEAN `relation.intensity` across every OTHER
+present NPC in the run — a documented choice, not a schema change: no
+snapshot column is added (mini-RECON item 2 confirmed `relation.intensity`
+carries no per-beat snapshot and a creator approving a proposal between the
+run and the metrics pass would shift the read; the interpretation guard
+states this precondition before any figure, rather than silently reporting
+a number that may already describe a different world state). The scan
+excludes `type='connects_to'` — location topology, never a social signal
+(the CLAUDE.md invariant on `connects_to` applies to every world-wide
+relation scan, and this is one).
+
+**`not_selected_reason` has exactly one implementation, and so does the
+reader chokepoint.** The script imports
+`observation_reads.derive_not_selected_reason` (BRIEF-0051-f) rather than
+re-deriving the precedence — Rule 5 asserts the import exists, which is a
+stronger guarantee than comparing two independently-written functions for
+textual agreement: there is only one function to drift. The same module
+gained five raw ORM accessors this brief (`get_run`/`list_beats`/
+`list_intents`/`list_run_templates`/`list_mutation_links`, alongside -f's
+JSON-shaped `list_runs`/`get_run_detail`/`get_run_proposals`) so that
+`scripts/observation_metrics.py` computes over real rows without ever
+naming an `Observation*` class itself — caught by `observation_socle.py`'s
+existing model-identifier allowlist (unchanged in shape since -a; this
+brief adds only the check file, `observation_metrics.py` itself needs no
+entry because it imports `observation_reads` functions, not the classes).
+
+**n-gram overlap: fixed n=4, window=5, containment not Jaccard.** Overlap of
+a line's n-grams against a PRIOR beat is `|current ∩ prior| / |current|`
+(containment, asked "how much of THIS line already existed"), maximised over
+the preceding `NGRAM_WINDOW` lined beats, then averaged across the run for
+the summary figure — reported per-beat AND as a run mean, per the brief.
+Event beats participate as lined beats (their text enters the window) since
+an injected event is part of what an NPC's line could be echoing.
+
+**Latency's different reader, honoured.** `observation_intent.latency_ms`
+is deliberately NOT mixed into the narrative metrics (participation/intent/
+health) — it is reported under "Evolution / feasibility" alongside proposal
+counts, the ticket's own declared reader for that column (does a 5-NPC/
+30-beat run stay tractable, not a scene-analysis question).
+
+---
+
 *Co-built with Claude, June 2026.*

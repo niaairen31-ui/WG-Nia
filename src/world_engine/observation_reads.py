@@ -1,10 +1,16 @@
-"""Read helpers for observation_* tables (TICKET-0051, BRIEF-0051-f).
+"""Read helpers for observation_* tables (TICKET-0051, BRIEF-0051-f/g).
 
 Parallel to `observation_writes.py`: writes go through that module, reads go
-through this one — `cockpit/routes/observation.py` never references an
+through this one — neither `cockpit/routes/observation.py` (BRIEF-0051-f)
+nor `scripts/observation_metrics.py` (BRIEF-0051-g) reference an
 `Observation*` model class directly, so the model-identifier allowlist in
 `observation_socle.py` stays meaningful for reads as well as writes (this
-module is the one addition to that allowlist this brief makes).
+module is the one non-runner addition to that allowlist). Two shapes are
+exposed: JSON-shaped dict builders (`list_runs`/`get_run_detail`/
+`get_run_proposals`) for the cockpit surface, and raw ORM accessors
+(`get_run`/`list_beats`/`list_intents`/`list_run_templates`/
+`list_mutation_links`) for a caller that computes over the rows itself
+(the metrics script) rather than serialising them.
 """
 
 from __future__ import annotations
@@ -48,6 +54,37 @@ def derive_not_selected_reason(intent: ObservationIntent) -> Optional[str]:
     if intent.debt_score < 0:
         return "debt"
     return "lost_arbitration"
+
+
+def get_run(run_id: str, db: Session) -> Optional[ObservationRun]:
+    """Raw ORM accessor (BRIEF-0051-g): the run row itself, for a caller
+    that needs its own columns (e.g. `scripts/observation_metrics.py`)
+    rather than the JSON-shaped `get_run_detail`."""
+    return db.get(ObservationRun, run_id)
+
+
+def list_beats(run_id: str, db: Session) -> list[ObservationBeat]:
+    """Raw ORM accessor (BRIEF-0051-g) — beat rows in `beat_index` order."""
+    return list(
+        db.exec(
+            select(ObservationBeat).where(ObservationBeat.run_id == run_id).order_by(ObservationBeat.beat_index)
+        ).all()
+    )
+
+
+def list_intents(run_id: str, db: Session) -> list[ObservationIntent]:
+    """Raw ORM accessor (BRIEF-0051-g) — every intent row for a run."""
+    return list(db.exec(select(ObservationIntent).where(ObservationIntent.run_id == run_id)).all())
+
+
+def list_run_templates(run_id: str, db: Session) -> list[ObservationRunTemplate]:
+    """Raw ORM accessor (BRIEF-0051-g) — the pinned template rows (L)."""
+    return list(db.exec(select(ObservationRunTemplate).where(ObservationRunTemplate.run_id == run_id)).all())
+
+
+def list_mutation_links(run_id: str, db: Session) -> list[ObservationMutationLink]:
+    """Raw ORM accessor (BRIEF-0051-g) — F3 provenance rows for a run."""
+    return list(db.exec(select(ObservationMutationLink).where(ObservationMutationLink.run_id == run_id)).all())
 
 
 def list_present_npcs(location_id: str, db: Session) -> list[dict]:
@@ -109,9 +146,7 @@ def list_runs(world_id: str, db: Session) -> list[dict]:
     ).all()
     result = []
     for run in runs:
-        beat_count = len(
-            db.exec(select(ObservationBeat.id).where(ObservationBeat.run_id == run.id)).all()
-        )
+        beat_count = len(list_beats(run.id, db))
         result.append({
             "id": run.id,
             "location_id": run.location_id,
@@ -126,18 +161,13 @@ def list_runs(world_id: str, db: Session) -> list[dict]:
 
 
 def get_run_detail(run_id: str, db: Session) -> Optional[dict]:
-    run = db.get(ObservationRun, run_id)
+    run = get_run(run_id, db)
     if run is None:
         return None
-    templates = db.exec(
-        select(ObservationRunTemplate).where(ObservationRunTemplate.run_id == run_id)
-    ).all()
-    beats = db.exec(
-        select(ObservationBeat).where(ObservationBeat.run_id == run_id).order_by(ObservationBeat.beat_index)
-    ).all()
+    templates = list_run_templates(run_id, db)
+    beats = list_beats(run_id, db)
     intents_by_beat: dict[str, list[ObservationIntent]] = {}
-    all_intents = db.exec(select(ObservationIntent).where(ObservationIntent.run_id == run_id)).all()
-    for intent in all_intents:
+    for intent in list_intents(run_id, db):
         intents_by_beat.setdefault(intent.beat_id, []).append(intent)
 
     return {
@@ -167,11 +197,8 @@ def get_run_detail(run_id: str, db: Session) -> Optional[dict]:
 def get_run_proposals(run_id: str, db: Session) -> list[dict]:
     """Reached ONLY via `observation_mutation_link` (F3 isolation) — never
     `list_mutations`, which structurally excludes these rows."""
-    links = db.exec(
-        select(ObservationMutationLink).where(ObservationMutationLink.run_id == run_id)
-    ).all()
     result = []
-    for link in links:
+    for link in list_mutation_links(run_id, db):
         mutation = db.get(ProposedMutation, link.mutation_id)
         if mutation is None:
             continue
