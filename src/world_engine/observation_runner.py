@@ -42,6 +42,7 @@ from .models import (
     Relation,
 )
 from .observation_engine import arbitrate, request_intent
+from .observation_window import resolve_observation_transcript
 from .observation_writes import (
     OBSERVED_PROPOSED_BY,
     close_observation_run,
@@ -281,10 +282,13 @@ def _acted_history(beats: list[ObservationBeat]) -> tuple[dict[str, int], Option
 
 
 def _intent_transcript(beats: list[ObservationBeat], db: Session) -> str:
-    """'Name : line' per acted beat, raw text for an injected event — the
-    informal, per-beat transcript fed to observation_intent's {transcript}
-    placeholder (distinct from the analysis-pass transcript's frozen
-    [PNJ]/[JOUEUR] contract, built separately in _analysis_transcript)."""
+    """'Name : line' per acted beat, raw text for an injected event.
+    TICKET-0052 (H1): its only remaining reader is the MJ narration call
+    (`_generate_mj_narration`) — the intent call and the act-line call now
+    resolve their transcript per NPC through `observation_window.
+    resolve_observation_transcript` instead. Distinct from the
+    analysis-pass transcript's frozen [PNJ]/[JOUEUR] contract, built
+    separately in `_analysis_transcript`."""
     names: dict[str, str] = {}
     lines: list[str] = []
     for b in beats:
@@ -430,9 +434,18 @@ def run_one_beat(run_id: str, db: Session) -> ObservationBeat:
     if intent_template is None:
         raise RuntimeError("run_one_beat: no active observation_intent prompt template")
 
+    # Windowed, PER NPC (G2): the intent call and the act-line call share this
+    # resolution — one per NPC per beat, never recomputed for the act line.
+    windowed_transcripts = {
+        npc_id: resolve_observation_transcript(
+            world_id=run.world_id, npc_id=npc_id, location_id=run.location_id,
+            beats=prior_beats, db=db,
+        )
+        for npc_id in npc_ids
+    }
     intents = [
         request_intent(
-            npc_id, [i for i in npc_ids if i != npc_id], transcript, run.location_id,
+            npc_id, [i for i in npc_ids if i != npc_id], windowed_transcripts[npc_id], run.location_id,
             intent_template, db, run.model, ollama_client.OLLAMA_HOST,
         )
         for npc_id in npc_ids
@@ -462,9 +475,13 @@ def run_one_beat(run_id: str, db: Session) -> ObservationBeat:
         selected_intent = intents[npc_ids.index(arb.selected_npc_id)]
         line = _generate_act_line(
             arb.selected_npc_id, selected_intent.target_id, npc_ids, run.location_id,
-            transcript, run.world_id, db, run.model,
+            windowed_transcripts[arb.selected_npc_id], run.world_id, db, run.model,
         )
         if run.mj_narration:
+            # H1 (TICKET-0052): the MJ narration deliberately keeps the RAW transcript.
+            # The played MJ narrator has no history at all (play_stream.py:51-54 sends
+            # [system, one user message]), so there is no MJ window to mirror. Named
+            # deferral D-0052-mj. Do not "fix" this by routing it through the seam.
             mj_text = _generate_mj_narration(
                 arb.selected_npc_id, line, run.location_id, transcript, run.world_id, db, run.model,
             )

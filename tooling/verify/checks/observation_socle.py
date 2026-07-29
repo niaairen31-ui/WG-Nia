@@ -67,6 +67,7 @@ ALLOWED_MODULES = {
     "src/world_engine/observation_writes.py",
     "src/world_engine/observation_runner.py",
     "src/world_engine/observation_reads.py",
+    "src/world_engine/observation_window.py",
     "scripts/migrate_v1_90_observation_socle.py",
     "tooling/verify/checks/observation_socle.py",
     "tooling/verify/checks/observation_runner.py",

@@ -110,8 +110,11 @@ def render_transcript(lines: list[TurnLine]) -> str:
     """Plain `{label} {content}` transcript, one line per entry — the
     labeling style at `cockpit/play.py:189-193`, generalized to carry any
     per-line label (TICKET-0052, I2). Replaces `_render_older_transcript`;
-    public so the observed lane can render its own lines through it. Pure."""
-    return "\n".join(f"{ln.label} {ln.content}" for ln in lines)
+    public so the observed lane can render its own lines through it. An
+    empty `label` (the observed lane's injected-event line, BRIEF-0052-b)
+    renders as bare `content`, no leading separator — the played lane's
+    labels are never empty, so this is unreachable there. Pure."""
+    return "\n".join((f"{ln.label} {ln.content}" if ln.label else ln.content) for ln in lines)
 
 
 _PLAYED_LABELS = {"user": "[Joueur]", "assistant": "[PNJ]"}

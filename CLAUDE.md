@@ -392,8 +392,8 @@ WG-Nia/
 │   ├── gathering.py         # initial NPC clustering into gatherings
 │   ├── ollama_client.py     # local Ollama HTTP client; think-stripping; ping()
 │   ├── analyzer*.py         # analyzer.py: conversation-bound wrapper, persists + advances last_analyzed_turn; analyzer_transcript.py: conversation-agnostic judging core -> un-persisted proposed_mutation rows, shared by played and observed scenes
-│   ├── resolution.py        # physical-action dice resolution (2d6 bands)
-│   ├── ledger.py            # ledger read helpers
+│   ├── observation_*.py     # observed-lane socle/engine/runner/reads/writes (TICKET-0051); observation_window.py resolves the per-NPC windowed transcript via context_window, MJ narration deliberately excluded (H1)
+│   ├── resolution.py, ledger.py  # physical-action dice resolution (2d6 bands); ledger read helpers
 │   ├── writes/               # shared canon-write helpers, split by canon domain; writes/__init__.py re-exports the whole surface; schema.py is the third structural-write authority (governed runtime-DDL writer for ext_* tables)
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
 │   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)
