@@ -10660,6 +10660,67 @@ content — the same shared code path the played lane already uses, just far
 more likely to fire on the observed lane's content mix; a model-selection
 question for a future decision, not a structural defect of this seam.
 
+## OBSERVATION MULTI-BEAT SEQUENCE — client-driven loop (BRIEF-0053-a, no schema change)
+
+**A1: the loop lives in the client, not behind a new batch route.**
+`observationRunBeats()` (`index.html`) drives `POST
+/api/observation/runs/{id}/step` X times — the exact single-beat path a
+manual "Un beat" click already takes. Rejected: a backend batch route
+(`POST /runs/{id}/steps {count}`), which would hold N x NPC model calls
+inside one synchronous HTTP request and contradict `routes/observation.py`'s
+own recorded finding that a bounded run can be ~150 model calls, too long
+for one request. Rejected: exposing `run_bounded` over HTTP — it has no
+count parameter and the same process-model objection applies. Zero backend
+diff results: `observation_runner.py` and `cockpit/routes/observation.py`
+are byte-identical to `main`.
+
+**D1/D3: "Interrompre" and "Arrêter" stay two distinct verbs.** Interrupting
+(`observationAbortSequence()`) leaves the run `running` and steppable — it
+only raises `obsSequenceAbort`, honoured between beats. Closing the run
+(`observationStopRun()`) also sets that same flag as its first statement, so
+killing a run mid-sequence exits the loop cleanly on the next iteration's
+status check instead of via a 422 from the now-non-`running` run.
+
+**D2: interruption is cooperative and never cancels an in-flight beat.**
+History is sacred — a cancelled request could abandon a beat whose
+`observation_beat`/`observation_intent` rows are already being written. The
+abort flag is only ever consulted before starting the next iteration
+(`index.html`, `observationRunBeats()`'s loop head); no `AbortController`,
+no request cancellation exists anywhere in the sequence.
+
+**E1: no client-side "beats remaining" arithmetic.** `max_beats` counts
+NPC-decision beats only, exempting injected events (`_regular_beat_count`,
+`observation_runner.py:253-256`) — a non-obvious rule that stays
+server-side. The client loop does not clamp X to any computed allowance; it
+simply stops the first time a step response reports `run.status !==
+'running'`, reading `stop_reason` off that same response rather than
+re-deriving why the run closed. `observation_surface.py`'s Rule 7d makes
+this a fail-closed gate: the literals `max_beats` and `quiescence` inside
+`observationRunBeats()`'s body are a FAILURE, not a lint warning.
+
+**F1: per-beat refresh excludes proposals.** `produce_run_proposals` runs
+once, after a run closes (`observation_runner.py:616-621`), so a per-beat
+`/proposals` GET during a sequence is guaranteed empty. `observationRefreshDetail`
+gained an opt-out parameter (`{ proposals = true } = {}`) rather than a
+duplicated "transcript only" function; the sequence calls it with
+`proposals:false` per beat and once more, with proposals, when it ends. All
+four pre-existing call sites keep their no-arg, default-true behaviour.
+
+**G1: re-entrancy blocked structurally, not by convention.** A module-level
+`obsSequenceRunning` flag refuses a second concurrent sequence, and
+`_obsSetSequenceUi()` disables the step/sequence/inject buttons for the
+duration — belt-and-braces alongside the flag check inside each handler.
+
+**Named deferrals opened:**
+- **D-0053-unattended** — no unattended/background run (close the tab, let
+  it finish server-side). Would require the async/batch design A1 rejected
+  plus a progress channel. Reactivate only for a measurement workstream
+  needing runs longer than a creator will sit through.
+- **D-0053-sequence-record** — the sequence is a UI gesture, persisted
+  nowhere; no reader exists for "these beats were requested as one batch"
+  (E2). Reactivate if metrics ever need to distinguish batched from
+  hand-stepped beats.
+
 ---
 
 *Co-built with Claude, June 2026.*

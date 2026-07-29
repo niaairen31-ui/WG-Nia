@@ -1569,10 +1569,14 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       <div id="obs-run-controls" style="display:none; margin-top:14px; border-top:1px solid var(--border); padding-top:10px">
         <span>Run en cours : <strong id="obs-active-run-status">—</strong></span>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px">
-          <button onclick="observationStepRun()">⏭ Un beat</button>
+          <button id="obs-step-btn" onclick="observationStepRun()">⏭ Un beat</button>
+          <label>Suite <input id="obs-beat-count" type="number" value="5" min="1" style="width:60px"></label>
+          <button id="obs-run-beats-btn" onclick="observationRunBeats()">⏩ Faire X beats</button>
+          <button id="obs-abort-btn" onclick="observationAbortSequence()" style="display:none">⏸ Interrompre</button>
+          <span id="obs-sequence-progress" class="target-ref"></span>
           <button onclick="observationStopRun()">⏹ Arrêter</button>
           <input id="obs-event-text" type="text" placeholder="Texte de l'événement injecté…" style="flex:1; min-width:200px">
-          <button onclick="observationInjectEvent()">⚡ Injecter</button>
+          <button id="obs-inject-btn" onclick="observationInjectEvent()">⚡ Injecter</button>
         </div>
       </div>
 
@@ -12077,6 +12081,8 @@ let obsInitialized  = false;
 let obsLocations     = [];
 let obsActiveRunId   = null; // the run this session just started/stepped
 let obsSelectedRunId = null; // the run shown in the detail panel (may differ)
+let obsSequenceRunning = false; // in-flight guard (G1) — one sequence per surface, ever
+let obsSequenceAbort   = false; // cooperative stop, honoured BETWEEN beats only (D2)
 
 const OBS_OUTCOME_LABEL = { acted: 'a agi', silence: 'silence', degraded: 'dégradé', event: 'événement' };
 
@@ -12160,6 +12166,7 @@ async function observationStartRun() {
 
 async function observationStepRun() {
   if (!obsActiveRunId) return;
+  if (obsSequenceRunning) return;
   try {
     const result = await api(`/api/observation/runs/${obsActiveRunId}/step`, { method: 'POST' });
     document.getElementById('obs-active-run-status').textContent = `${result.run.id} (${result.run.status})`;
@@ -12169,8 +12176,78 @@ async function observationStepRun() {
   }
 }
 
+/** Multi-beat sequence (TICKET-0053, A1): X consecutive beats driven from the
+ *  client, one POST /step per beat — the same single-beat path a manual click
+ *  takes. There is no backend loop route by design
+ *  (routes/observation.py:1-15); this function IS the client that docstring
+ *  describes, not a workaround for it. The stop rule is NOT re-derived here:
+ *  max_beats counts non-event beats only (observation_runner.py:253-256) and
+ *  that arithmetic stays server-side — the loop simply exits when the run
+ *  stops reporting status 'running'. Stops on the first of: X beats done, the
+ *  run leaving 'running', a step error, an interrupt. */
+async function observationRunBeats() {
+  if (!obsActiveRunId || obsSequenceRunning) return;
+  const parsed = parseInt(document.getElementById('obs-beat-count').value, 10);
+  const total = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+  const progressEl = document.getElementById('obs-sequence-progress');
+
+  obsSequenceRunning = true;
+  obsSequenceAbort = false;
+  _obsSetSequenceUi(true);
+
+  let executed = 0;
+  let note = '';
+  try {
+    for (let i = 0; i < total; i++) {
+      if (obsSequenceAbort) {
+        note = `interrompu après ${executed} beat(s)`;
+        break;
+      }
+      progressEl.textContent = `beat ${i + 1}/${total}…`;
+      let result;
+      try {
+        result = await api(`/api/observation/runs/${obsActiveRunId}/step`, { method: 'POST' });
+      } catch (e) {
+        document.getElementById('obs-launch-status').innerHTML = `<div class="r-err">${esc(e.message)}</div>`;
+        note = `arrêté sur erreur après ${executed} beat(s)`;
+        break;
+      }
+      executed++;
+      document.getElementById('obs-active-run-status').textContent = `${result.run.id} (${result.run.status})`;
+      await observationRefreshDetail({ proposals: false });
+      if (result.run.status !== 'running') {
+        note = `run fermé (${result.run.stop_reason || result.run.status}) après ${executed} beat(s)`;
+        break;
+      }
+    }
+  } finally {
+    obsSequenceRunning = false;
+    _obsSetSequenceUi(false);
+    progressEl.textContent = note || `${executed}/${total} beat(s)`;
+    await observationRefreshDetail();
+    await observationLoadRunList();
+  }
+}
+
+/** D2: raises the flag only. The beat in flight completes and persists — a
+ *  cancelled request would abandon a beat whose observation_beat and
+ *  observation_intent rows are already being written (history is sacred). */
+function observationAbortSequence() {
+  if (!obsSequenceRunning) return;
+  obsSequenceAbort = true;
+  document.getElementById('obs-sequence-progress').textContent = 'interruption après ce beat…';
+}
+
+function _obsSetSequenceUi(active) {
+  document.getElementById('obs-run-beats-btn').disabled = active;
+  document.getElementById('obs-step-btn').disabled = active;
+  document.getElementById('obs-inject-btn').disabled = active;
+  document.getElementById('obs-abort-btn').style.display = active ? '' : 'none';
+}
+
 async function observationStopRun() {
   if (!obsActiveRunId) return;
+  obsSequenceAbort = true; // D3: closing the run also ends any sequence — cleanly, not via a 422 next iteration.
   try {
     const run = await api(`/api/observation/runs/${obsActiveRunId}/stop`, { method: 'POST' });
     document.getElementById('obs-active-run-status').textContent = `${run.id} (${run.status})`;
@@ -12225,7 +12302,12 @@ async function observationSelectRun(runId) {
   await observationRefreshDetail();
 }
 
-async function observationRefreshDetail() {
+/** `proposals:false` is used per beat inside a sequence (TICKET-0053, F1):
+ *  produce_run_proposals runs ONCE after the run closes
+ *  (observation_runner.py:616-621), so polling /proposals per beat is a
+ *  guaranteed-empty GET. The sequence calls this once more, with proposals,
+ *  when it ends. */
+async function observationRefreshDetail({ proposals = true } = {}) {
   if (!obsSelectedRunId) return;
   const detailEl = document.getElementById('obs-run-detail-body');
   const transcriptEl = document.getElementById('obs-transcript-body');
@@ -12236,7 +12318,7 @@ async function observationRefreshDetail() {
   } catch (e) {
     detailEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
-  await _obsLoadProposals(obsSelectedRunId);
+  if (proposals) await _obsLoadProposals(obsSelectedRunId);
 }
 
 /** Run detail (L): the pinned arbitration parameters and, per usage, the

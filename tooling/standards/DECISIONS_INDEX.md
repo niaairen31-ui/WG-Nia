@@ -158,3 +158,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 10395 | OBSERVED SCENE — cockpit surface: top-level mode-tab, F3 read-only visibility (BRIEF-0051-f, no schema change) | BRIEF-0051-f |  |
 | 10482 | OBSERVED SCENE — run metrics: deterministic instruments, J2 (BRIEF-0051-g, no schema change) | BRIEF-0051-g |  |
 | 10579 | OBSERVATION CONTEXT WINDOW PARITY (BRIEF-0052-a, BRIEF-0052-b, BRIEF-0052-c, no schema change) | BRIEF-0052-a, BRIEF-0052-b, BRIEF-0052-c |  |
+| 10663 | OBSERVATION MULTI-BEAT SEQUENCE — client-driven loop (BRIEF-0053-a, no schema change) | BRIEF-0053-a |  |
