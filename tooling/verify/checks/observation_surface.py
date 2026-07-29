@@ -19,8 +19,12 @@ Rules:
   6. No route in cockpit/routes/observation.py writes an observation_* row
      directly (no Observation* identifier, no db.add(...) call at all) —
      every write there goes through observation_runner.py.
-  7. Vacuous-proof guard: fewer than 4 outcome literals or zero renderer
-     functions found is a FAILURE, not a pass.
+  7. observationRunBeats() (TICKET-0053) drives the multi-beat sequence
+     client-side, reusing the existing /step route, carrying the in-flight
+     guard/interrupt/closure-exit, never re-deriving the stop rule, and
+     cockpit/routes/observation.py declares no batch-step route.
+  8. Vacuous-proof guard: fewer than 4 renderer functions, fewer than 4
+     outcome literals, is a FAILURE, not a pass.
 """
 from __future__ import annotations
 
@@ -179,6 +183,40 @@ def check_rule6_no_direct_write() -> None:
             fail(f"Rule 6: {ROUTES_FILE.name} calls db.add(...) directly at line {node.lineno} — writes must go through the runner")
 
 
+# ── Rule 7 ────────────────────────────────────────────────────────────────
+
+
+def check_rule7_sequence_client_side(html: str) -> None:
+    global _renderer_functions_found
+    body = _braced_block(html, r"async function observationRunBeats\(\)\s*")
+    if not body:
+        fail("Rule 7a: observationRunBeats() function body not found")
+        return
+    _renderer_functions_found += 1
+
+    if "/step" not in body:
+        fail("Rule 7b: observationRunBeats() does not reuse the existing /step route")
+
+    for needle in ("obsSequenceRunning", "obsSequenceAbort", "!== 'running'"):
+        if needle not in body:
+            fail(f"Rule 7c: observationRunBeats() does not reference {needle!r}")
+
+    for forbidden in ("max_beats", "quiescence"):
+        if forbidden in body:
+            fail(f"Rule 7d: observationRunBeats() re-derives the stop rule — found {forbidden!r}")
+
+    routes_src = ROUTES_FILE.read_text(encoding="utf-8")
+    if '"/steps"' in routes_src or "'/steps'" in routes_src:
+        fail("Rule 7e: routes/observation.py declares a '/steps' path literal — batch route detected")
+    tree = ast.parse(routes_src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            for stmt in node.body:
+                if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                    if stmt.target.id in ("count", "n", "beats"):
+                        fail(f"Rule 7e: {node.name} declares a field named {stmt.target.id!r} — batch-count field detected")
+
+
 def main() -> int:
     if not INDEX_HTML.exists():
         fail(f"{INDEX_HTML} not found")
@@ -196,8 +234,9 @@ def main() -> int:
     check_rule4_run_detail_reader(html)
     check_rule5_json_ui_boundary()
     check_rule6_no_direct_write()
+    check_rule7_sequence_client_side(html)
 
-    if _renderer_functions_found < 3 or len(_outcome_literals_found) < 4:
+    if _renderer_functions_found < 4 or len(_outcome_literals_found) < 4:
         fail(
             f"Vacuous-proof guard: {_renderer_functions_found} renderer function(s), "
             f"{len(_outcome_literals_found)} outcome literal(s) collected"
