@@ -2,7 +2,7 @@
 id: TICKET-0053
 title: Observation multi-beat sequence - run X consecutive beats from the observation surface
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-29
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
