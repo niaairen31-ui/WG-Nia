@@ -10378,4 +10378,91 @@ completion.
 
 ---
 
+## OBSERVED SCENE — cockpit surface: top-level mode-tab, F3 read-only visibility (BRIEF-0051-f, no schema change)
+
+**P1, corrected: a mode-tab, never a Creation sub-tab.** The intake
+conversation described P1 as "a top-level tab in `TAB_KEYS`" — RECON showed
+that reading was wrong. `TAB_KEYS`/`CREATION_TABS`
+(`tooling/verify/checks/page_contract.py`, `index.html`) govern the
+**Creation** entity-CRUD sub-surfaces, each requiring a `primaryAction` and
+rendered through `showCreationSubTab`'s generic dispatcher. Observation is
+not an entity-CRUD surface and creates no entities. The decision itself (a
+top-level surface, sibling of Jouer and Création, not a sub-surface of Play,
+not a separate port) is unchanged — only the registry it lands in is
+corrected: a third `mode-tab` button (`#mode-tab-observation`, alongside the
+existing `#mode-tab-play`/`#mode-tab-creation`) calling
+`showObservationView()`, which mirrors `showPlayView()`/`showCreationView()`'s
+exact contract (show/hide the three top-level `.app-view` divs, toggle the
+three mode-tab buttons' `active` class, lazy-init once via an
+`obsInitialized` guard). `TAB_KEYS` and `CREATION_TABS` carry zero
+`observation` entry — asserted both directions by
+`tooling/verify/checks/observation_surface.py` (Rule 2).
+
+**Reads get their own chokepoint, mirroring writes.** `observation_socle.py`
+(BRIEF-0051-a) restricts the five `Observation*` model identifiers to a
+declared module allowlist — a rule written for writes, but its shape
+(model identifiers confined to named modules) applies just as well to reads.
+Rather than adding `cockpit/routes/observation.py` to that allowlist and
+letting route handlers touch `Observation*` classes directly, this brief
+ships `src/world_engine/observation_reads.py` — the read-side twin of
+`observation_writes.py` — and adds ONLY that one module to the allowlist.
+`cockpit/routes/observation.py` calls `observation_reads.list_runs` /
+`get_run_detail` / `get_run_proposals` / `list_present_npcs` and never
+references an `Observation*` class itself; `observation_surface.py`'s Rule 6
+asserts this by AST (zero `Observation*` `Name` references, zero `db.add(...)`
+calls in the routes module) — every write still reaches canon only through
+`observation_runner.py`.
+
+**`not_selected_reason` derivation lives in the reader, not the renderer.**
+`observation_reads.derive_not_selected_reason` implements the precedence
+documented in `world-engine-schema.md`'s `observation_intent` NOTE (M1:
+`act=False -> no_intent`, `cooldown_active -> cooldown`,
+`debt_score < 0 -> debt`, else `lost_arbitration`) once, server-side, and
+ships it as a `not_selected_reason` KEY in the JSON response — never a stored
+column. The transcript renderer labels it "raison (dérivée)" so a creator
+never mistakes a computed value for a persisted one.
+
+**Outcome visual distinction is a verified CSS claim, not a convention.**
+`.b-acted`/`.b-silence`/`.b-degraded`/`.b-event` are four badge classes with
+deliberately distant colors (green / muted-grey / red / purple) rather than
+shades of one hue — `degraded` must never look like `silence` at a glance,
+since that visual read IS the ticket's central measurement claim (a datum
+about passivity vs. a bug in the model call) in surface form.
+`observation_surface.py`'s Rule 3 asserts `.b-silence` and `.b-degraded`
+resolve to textually DIFFERENT class bodies, not merely that both class names
+exist somewhere in the stylesheet.
+
+**Run detail is the reader for the L columns.** `_obsRenderRunDetail`
+displays every pinned arbitration parameter (`cooldown_beats`, `debt_weight`,
+`propensity_mode`, `mj_narration`, `model`) and, per `observation_run_template`
+row, the usage/template_id/version triple — the one surface making two runs
+comparable, per L's reduced form (attribution, not replay). Each pinned
+template links into the existing Prompts tab (`observationOpenPrompt`:
+`showCreationView(); showCreationSubTab('prompts'); promptsLoadList().then(...
+promptsSelectDetail(templateId))`) rather than duplicating its editor —
+Scope OUT is explicit that this brief never edits a template.
+
+**F3 proposals: read-only, reached only through the link table.** The
+Observation surface's proposals region calls
+`GET /api/observation/runs/{id}/proposals`, which reads
+`observation_mutation_link` and never `/api/mutations` — isolation proven the
+same way BRIEF-0051-a proved it (a NULL-safe exclusion on the queue side),
+now with a positive reader on the other side so isolation is not invisibility.
+No approve/reject control exists here; whether an observed proposal should
+ever be promotable to canon is logged as an OPEN QUESTION, not answered by
+this brief.
+
+**Verified live (test world, real Ollama call).** A 2-NPC run against a
+minimal test-world location produced a genuine `silence` beat (both
+candidates' `observation_intent` rows carrying `call_status='ok'`,
+`act=False`) rendered with the correct badge and derived
+`not_selected_reason='no_intent'` on both candidates; the readiness gate's
+per-condition refusal (missing description/goal) rendered as named,
+itemized failures rather than a generic error, confirming the direct-`fetch`
+path used for `start_run` (bypassing the shared `api()` helper's lossy
+`Error(data.detail)` coercion) correctly surfaces a `{failures: [...]}` 422
+body.
+
+---
+
 *Co-built with Claude, June 2026.*

@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0051-observed-scene-instrumentation",
-  "when": "2026-07-29T13:03:27.773037+00:00",
+  "when": "2026-07-29T13:23:17.709240+00:00",
   "green": true,
   "checks": [
     {
@@ -22,6 +22,11 @@
       "check": "observation_runner.py",
       "status": "PASS",
       "msg": "PASS: observation_runner \u00e2\u20ac\u201d 2 beat(s) executed, 3 intent row(s) written across the fixtures"
+    },
+    {
+      "check": "observation_surface.py",
+      "status": "PASS",
+      "msg": "PASS: observation_surface \u00e2\u20ac\u201d 3 renderer function(s) verified, 4 outcome literal(s) collected"
     }
   ]
 }

@@ -1,16 +1,17 @@
-"""Observation-run routes (TICKET-0051, BRIEF-0051-e).
+"""Observation-run routes (TICKET-0051, BRIEF-0051-e/f).
 
-Four thin routes over `observation_runner.py` — parameter validation and a
-call into the runner, no business logic here. Per the mini-RECON's process-
-model finding: a bounded run can be ~150 model calls (5 NPCs x 30 beats),
-too long for one synchronous HTTP request, so there is no "run to
-completion" route. `start` only creates the run; the client (a future
-cockpit UI, BRIEF-0051-f, or a script) drives it forward by calling `step`
-repeatedly. `run_bounded` stays a Python-level entry point for scripts and
-the verify check.
+Four write-side routes over `observation_runner.py` (start / step / stop /
+inject-event) — parameter validation and a call into the runner, no business
+logic here. Per the mini-RECON's process-model finding: a bounded run can be
+~150 model calls (5 NPCs x 30 beats), too long for one synchronous HTTP
+request, so there is no "run to completion" route. `start` only creates the
+run; the client (the Observation cockpit surface, BRIEF-0051-f, or a script)
+drives it forward by calling `step` repeatedly. `run_bounded` stays a
+Python-level entry point for scripts and the verify check.
 
-Cockpit UI (index.html), transcript reading, and the observed-proposal
-surface are BRIEF-0051-f — out of scope here.
+Read-side routes (list/detail/proposals) call into `observation_reads.py`
+only — never an `Observation*` model class directly (BRIEF-0051-f), so this
+module needs no entry in `observation_socle.py`'s model-identifier allowlist.
 """
 
 from __future__ import annotations
@@ -21,9 +22,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
 
+from ... import observation_reads as _reads
 from ... import observation_runner as _runner
 from ... import ollama_client
 from ...db import get_session
+from .. import crud as _crud
 
 router = APIRouter()
 
@@ -93,3 +96,29 @@ def inject_observation_event(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"id": beat.id, "beat_index": beat.beat_index, "outcome": beat.outcome, "line": beat.line}
+
+
+# ── Read routes (BRIEF-0051-f) ───────────────────────────────────────────
+
+
+@router.get("/api/observation/locations/{location_id}/present-npcs")
+def list_observation_present_npcs(location_id: str, db: Session = Depends(get_session)) -> list[dict]:
+    return _reads.list_present_npcs(location_id, db)
+
+
+@router.get("/api/observation/runs")
+def list_observation_runs(db: Session = Depends(get_session)) -> list[dict]:
+    return _reads.list_runs(_crud._world_id(db), db)
+
+
+@router.get("/api/observation/runs/{run_id}")
+def get_observation_run(run_id: str, db: Session = Depends(get_session)) -> dict:
+    detail = _reads.get_run_detail(run_id, db)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"observation_run {run_id!r} not found")
+    return detail
+
+
+@router.get("/api/observation/runs/{run_id}/proposals")
+def get_observation_run_proposals(run_id: str, db: Session = Depends(get_session)) -> list[dict]:
+    return _reads.get_run_proposals(run_id, db)
