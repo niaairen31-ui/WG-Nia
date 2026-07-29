@@ -22,7 +22,7 @@ from .canon import _created_ts, _uuid
 #
 # One row per world. Curated config (location_type_catalog family): no
 # change_history, written ONLY via writes.upsert_conversation_window_config.
-# Absence of a row is legal — the reader (conversation_window.py) applies
+# Absence of a row is legal — the reader (context_window.py) applies
 # in-memory defaults and never writes on read.
 # -----------------------------------------------------------------------------
 class ConversationWindowConfig(SQLModel, table=True):

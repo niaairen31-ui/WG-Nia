@@ -1,5 +1,5 @@
-"""NPC dialogue context window — config + message-list assembly
-(TICKET-0050, BRIEF-0050-a/-b/-d).
+"""Sliding context window — shared seam for the played and observed lanes
+(TICKET-0050, BRIEF-0050-a/-b/-d; TICKET-0052, B1/I2).
 
 New module (G1, RECON-0050): `cockpit/play.py` has no line budget left, so
 the window/summary logic lands here instead of growing `play.py`.
@@ -7,9 +7,13 @@ BRIEF-0050-a shipped the config reader; BRIEF-0050-b adds the K-verbatim
 cap + scene-tail message-list builder (`build_npc_message_list`) and its
 single call site, `resolve_npc_message_list` (used by
 `cockpit/play.py::_say_npc_generation`). BRIEF-0050-c seeded the
-`conversation_summary` prompt usage; BRIEF-0050-d (this revision) fills the
-summary slot: `resolve_npc_message_list` now computes and inserts the
-sliding-summary note when the world is over budget AND `summary_enabled`.
+`conversation_summary` prompt usage; BRIEF-0050-d fills the summary slot:
+`resolve_npc_message_list` computes and inserts the sliding-summary note
+when the world is over budget AND `summary_enabled`. BRIEF-0052-a
+generalizes the module onto a lane-neutral line form (`TurnLine`) so the
+observed lane (TICKET-0051) can share the same seam instead of running its
+own uncapped transcript — the played lane's public entry points keep their
+exact `list[dict]` signatures and convert internally.
 
 `DEFAULT_WORD_BUDGET` / `DEFAULT_VERBATIM_TURNS` / `DEFAULT_SUMMARY_ENABLED`
 are the single source of truth shared, by comment cross-reference, with the
@@ -46,6 +50,25 @@ DEFAULT_SUMMARY_ENABLED = True
 
 
 @dataclass(frozen=True)
+class TurnLine:
+    """One line of prior scene, lane-neutral (TICKET-0052, I2).
+
+    `role`   -- the ollama role the played lane needs when rebuilding a
+                message list ("user" | "assistant").
+    `label`  -- the LITERAL prefix used when rendering this line into a
+                summarization transcript, separator included: "[Joueur]",
+                "[PNJ]", or an NPC name followed by " :". Carrying the
+                separator inside the label is what lets both lanes render
+                byte-identically through one function.
+    `content`-- the line text.
+    """
+
+    role: str
+    label: str
+    content: str
+
+
+@dataclass(frozen=True)
 class ConversationWindowDefaults:
     """In-memory stand-in for a missing `conversation_window_config` row.
     Carries the same three fields a real row would, read-only."""
@@ -69,19 +92,47 @@ def load_conversation_window_config(
     return ConversationWindowDefaults()
 
 
-def history_word_count(npc_history: list[dict]) -> int:
-    """Total whitespace-split word count over `content` across every
-    message dict — the same list built at `cockpit/play.py`'s
-    `_say_persist_and_build_history`. Pure, no DB."""
-    return sum(len(m.get("content", "").split()) for m in npc_history)
+def line_word_count(lines: list[TurnLine]) -> int:
+    """Total whitespace-split word count over `content` across every line.
+    Pure, no DB. Replaces `history_word_count`."""
+    return sum(len(ln.content.split()) for ln in lines)
 
 
-def split_verbatim_tail(npc_history: list[dict], k: int) -> tuple[list[dict], list[dict]]:
-    """(older, recent_k): `recent_k` is the last `k` messages (or the whole
+def split_verbatim_tail(lines: list[TurnLine], k: int) -> tuple[list[TurnLine], list[TurnLine]]:
+    """(older, recent_k): `recent_k` is the last `k` lines (or the whole
     list if shorter); `older` is the prefix. Pure."""
-    if len(npc_history) <= k:
-        return [], list(npc_history)
-    return npc_history[:-k], npc_history[-k:]
+    if len(lines) <= k:
+        return [], list(lines)
+    return lines[:-k], lines[-k:]
+
+
+def render_transcript(lines: list[TurnLine]) -> str:
+    """Plain `{label} {content}` transcript, one line per entry — the
+    labeling style at `cockpit/play.py:189-193`, generalized to carry any
+    per-line label (TICKET-0052, I2). Replaces `_render_older_transcript`;
+    public so the observed lane can render its own lines through it. Pure."""
+    return "\n".join(f"{ln.label} {ln.content}" for ln in lines)
+
+
+_PLAYED_LABELS = {"user": "[Joueur]", "assistant": "[PNJ]"}
+
+
+def _played_to_lines(npc_history: list[dict]) -> list[TurnLine]:
+    """Played-lane `list[dict]` -> `list[TurnLine]` (TICKET-0052, B1)."""
+    return [
+        TurnLine(
+            role=m.get("role", "assistant"),
+            label=_PLAYED_LABELS.get(m.get("role"), "[PNJ]"),
+            content=m.get("content", ""),
+        )
+        for m in npc_history
+    ]
+
+
+def _lines_to_played(lines: list[TurnLine]) -> list[dict]:
+    """`list[TurnLine]` -> played-lane `list[dict]`. Round-trips `role` and
+    `content` exactly; `label` is derived, never read back."""
+    return [{"role": ln.role, "content": ln.content} for ln in lines]
 
 
 def build_npc_message_list(
@@ -99,13 +150,18 @@ def build_npc_message_list(
     pre-0050 behavior); above it, only the last `verbatim_turns` rows go
     through — the K-cap + scene tail apply on the over-budget condition
     alone, independent of `summary_enabled`. `summary_note` stays unused
-    (None) until brief (d) fills the sliding-summary recovery in."""
+    (None) until brief (d) fills the sliding-summary recovery in.
+
+    Signature unchanged by TICKET-0052 (B1): converts to `TurnLine`
+    internally; this stays the played lane's own entry point, no new
+    public surface added here."""
     msgs: list[dict] = [{"role": "system", "content": system_prompt}]
     if summary_note is not None:
         msgs.append({"role": "system", "content": summary_note})
-    if history_word_count(npc_history) > word_budget:
-        _, recent = split_verbatim_tail(npc_history, verbatim_turns)
-        msgs.extend(recent)
+    lines = _played_to_lines(npc_history)
+    if line_word_count(lines) > word_budget:
+        _, recent = split_verbatim_tail(lines, verbatim_turns)
+        msgs.extend(_lines_to_played(recent))
     else:
         msgs.extend(npc_history)
     msgs.append({"role": "system", "content": scene_tail})
@@ -135,27 +191,18 @@ def _load_summary_template(world_id: str, db: Session) -> PromptTemplate:
     return templates[0]
 
 
-def _render_older_transcript(older: list[dict]) -> str:
-    """Plain `[Joueur]`/`[PNJ]` transcript of the dropped older turns — the
-    labeling style at `cockpit/play.py:189-193`, generic (this list carries
-    no per-NPC name, only the generic 'user'/'assistant' role). Pure."""
-    return "\n".join(
-        (f"[Joueur] {m['content']}" if m.get("role") == "user" else f"[PNJ] {m['content']}")
-        for m in older
-    )
-
-
-def summarize_older_turns(older: list[dict], world_id: str, db: Session) -> str:
+def summarize_older_lines(older: list[TurnLine], world_id: str, db: Session) -> str:
     """Compress `older` into a short factual summary via the
     `conversation_summary` prompt (BRIEF-0050-d). Empty `older` -> "" (no
     call). Fail-soft: any `OllamaError` is logged and swallowed to "" — a
     summary failure must never abort the turn (the NPC still answers with
-    the cap-only input); this is a prompt enrichment, not a canon gate."""
+    the cap-only input); this is a prompt enrichment, not a canon gate.
+    Replaces `summarize_older_turns`; operates on `TurnLine` (TICKET-0052)."""
     if not older:
         return ""
     template = _load_summary_template(world_id, db)
     version = current_prompt(db, template)
-    user_message = version.user_template.replace("{transcript}", _render_older_transcript(older))
+    user_message = version.user_template.replace("{transcript}", render_transcript(older))
     messages = [
         {"role": "system", "content": version.system_prompt},
         {"role": "user", "content": user_message},
@@ -200,9 +247,10 @@ def resolve_npc_message_list(
     cfg = load_conversation_window_config(world_id, db)
     scene_tail = assemble_scene_tail(npc_id, location_id, gathering_id, player_condition, db)
     summary_note = None
-    if cfg.summary_enabled and history_word_count(npc_history) > cfg.word_budget:
-        older, _recent = split_verbatim_tail(npc_history, cfg.verbatim_turns)
-        summary_note = format_summary_note(summarize_older_turns(older, world_id, db))
+    lines = _played_to_lines(npc_history)
+    if cfg.summary_enabled and line_word_count(lines) > cfg.word_budget:
+        older, _recent = split_verbatim_tail(lines, cfg.verbatim_turns)
+        summary_note = format_summary_note(summarize_older_lines(older, world_id, db))
     return build_npc_message_list(
         system_prompt=system_prompt, npc_history=npc_history, scene_tail=scene_tail,
         word_budget=cfg.word_budget, verbatim_turns=cfg.verbatim_turns,

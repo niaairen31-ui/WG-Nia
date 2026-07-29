@@ -3,7 +3,7 @@ dialogue context window, TICKET-0050, BRIEF-0050-a).
 
 Ships the table + unique index only: no seeding, no rows. Absence of a row
 is legal and handled by the reader's in-memory defaults
-(`conversation_window.load_conversation_window_config`) — "no structure
+(`context_window.load_conversation_window_config`) — "no structure
 without a reader" holds: the reader ships in this same brief.
 
 Two independent guards (table existence, index existence — v1.77 lesson,

@@ -387,7 +387,7 @@ WG-Nia/
 │   ├── schema_version.py    # code-side expected-version constant for the static schema, checked at cockpit boot
 │   ├── schema_reconcile.py  # physical-table reconciliation (C2 plane 2): static ∪ registered_runtime ∪ orphan-pattern accounting, boot guard + CLI
 │   ├── models/               # all SQLModel table classes (the schema), split by canon/canon_faction/ephemeral/pipeline stratum; models/__init__.py re-exports the whole surface
-│   ├── context.py           # NPC + MJ context assembly; structural exclusions; signposts
+│   ├── context*.py          # context.py: NPC + MJ context assembly, structural exclusions, signposts; context_window.py: sliding context window (config + message-list assembly), shared seam for the played and observed lanes, read + compute only
 │   ├── tick*.py             # world-tick: tick.py orchestrates, tick_context.py assembles, tick_normalize.py normalizes; call sites allowlisted by verify/checks/world_tick.py
 │   ├── gathering.py         # initial NPC clustering into gatherings
 │   ├── ollama_client.py     # local Ollama HTTP client; think-stripping; ping()

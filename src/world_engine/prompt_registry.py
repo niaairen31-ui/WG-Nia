@@ -261,7 +261,7 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         surface="play",
         world_scoped=True,
         dry_run_capable=False,
-        call_sites=("src/world_engine/conversation_window.py:_load_summary_template",),
+        call_sites=("src/world_engine/context_window.py:_load_summary_template",),
         default_model=_author_model,
     ),
 }

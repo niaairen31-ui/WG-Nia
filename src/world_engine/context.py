@@ -585,7 +585,7 @@ def assemble_scene_tail(
     session: Session,
 ) -> str:
     """Compact scene re-statement (TICKET-0050, BRIEF-0050-b, D2/H1):
-    re-injected after the verbatim window (`conversation_window.
+    re-injected after the verbatim window (`context_window.
     build_npc_message_list`) so the model's last read is the present scene,
     not a stale exchange — never a second full `assemble_npc_context`.
     Reuses `_npc_context_setting` verbatim for location name + one-line

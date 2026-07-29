@@ -2334,7 +2334,7 @@ Noms connus du monde : {roster_names}\
     # ----- prompt template: conversation summary compressor (TICKET-0050, ---
     # BRIEF-0050-c) — usage = "conversation_summary". world_id = NULL (per-
     # world override remains possible via the same PATCH route). Called by
-    # conversation_window.summarize_older_turns (BRIEF-0050-d) to compress
+    # context_window.summarize_older_lines (BRIEF-0050-d, BRIEF-0052-a) to compress
     # the dropped older turns of an over-budget NPC conversation into an
     # ephemeral prompt note (C1 — never persisted as canon). model=NULL:
     # effective_model resolves to the authoring model by default.
