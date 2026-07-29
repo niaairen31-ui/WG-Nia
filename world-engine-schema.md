@@ -1842,6 +1842,12 @@ CREATE UNIQUE INDEX idx_observation_mutation_link_unique
   ON observation_mutation_link(mutation_id);
 ```
 
+**Writer (BRIEF-0051-e, no schema change).** `observation_runner.py`'s
+`produce_run_proposals` is the first and only writer of this table (via
+`observation_writes.link_observation_mutation`): once per closed run, one
+row per proposal the -c seam returns over that run's transcript, `beat_id`
+left NULL (provenance is at the run grain here, not per-beat).
+
 **`proposed_mutation.payload["source"]` format boundary (BRIEF-0051-c, no
 schema change).** The overhearing pass (`proposed_by = 'local_ai_overhearing'`)
 writes a `"source"` key inside `payload` for provenance. Rows written before

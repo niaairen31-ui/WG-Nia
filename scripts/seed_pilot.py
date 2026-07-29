@@ -1575,6 +1575,39 @@ Ce qui vient de se passer dans la scène :
 As-tu quelque chose à dire ou à faire maintenant ?\
 """
 
+# Observation narration — optional MJ call after a selected beat's line
+# (TICKET-0051, BRIEF-0051-e, off by default). usage = "observation_narration".
+# No player exists in an observed scene, so unlike pt-mj-narration this never
+# frames a "player says" exchange — it narrates one PNJ's own line, given the
+# recent scene transcript. world_id = NULL.
+OBSERVATION_NARRATION_SYSTEM_PROMPT = """\
+Tu es le narrateur d'une scène observée : plusieurs personnages non-joueurs \
+agissent entre eux, sans joueur présent. Ta tâche : reformuler en prose \
+narrative légère, à la troisième personne, ce que le personnage vient de \
+faire ou dire.
+
+RÈGLE 1 — Si le personnage a parlé, cite sa réplique VERBATIM entre \
+guillemets français (« … »), sans rien couper ni résumer.
+RÈGLE 2 — Hors des guillemets, troisième personne uniquement.
+RÈGLE 3 — Cadrage minimal : un geste visible, un détail de décor. \
+N'invente aucun fait, lieu ou personnage absent du contexte fourni.
+
+FORMAT — Prose narrative en français, 2 à 3 phrases. Rien d'autre — pas de \
+JSON, pas de méta.\
+"""
+
+OBSERVATION_NARRATION_USER_TEMPLATE = """\
+Lieu : {location_name}
+
+Contexte récent de la scène :
+{transcript}
+
+{actor_name} vient de faire ceci :
+{line}
+
+Narration :\
+"""
+
 # NPC link agent — pair pass (TICKET-0036, BRIEF-0036-b). usage =
 # "npc_link_pair". world_id = NULL (single global template, like the other
 # authoring prompts). Calls go through link_author.run_pair, one call per
@@ -1748,6 +1781,22 @@ def seed(session: Session) -> None:
         system_prompt=OBSERVATION_INTENT_SYSTEM_PROMPT,
         user_template=OBSERVATION_INTENT_USER_TEMPLATE,
         variables=["location_name", "present_names", "transcript"],
+        destination="local",
+    )
+
+    # ----- prompt template: observation narration (TICKET-0051, BRIEF-0051-e)
+    # usage = "observation_narration". Optional MJ call made only when a run's
+    # mj_narration flag is on (off by default) — never frames a "player says"
+    # exchange, unlike pt-mj-narration. world_id = NULL.
+    upsert_prompt_template(
+        session,
+        "pt-observation-narration",
+        world_id=None,
+        name="Observation — narration MJ optionnelle d'une réplique",
+        usage="observation_narration",
+        system_prompt=OBSERVATION_NARRATION_SYSTEM_PROMPT,
+        user_template=OBSERVATION_NARRATION_USER_TEMPLATE,
+        variables=["location_name", "transcript", "actor_name", "line"],
         destination="local",
     )
 

@@ -131,6 +131,13 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         call_sites=("src/world_engine/observation_engine.py:request_intent",),
         default_model=_game_model,
     ),
+    "observation_narration": PromptSpec(
+        surface="play",
+        world_scoped=True,
+        dry_run_capable=False,
+        call_sites=("src/world_engine/observation_runner.py:_generate_mj_narration",),
+        default_model=_game_model,
+    ),
     "conversation_analysis": PromptSpec(
         surface="play",
         world_scoped=True,

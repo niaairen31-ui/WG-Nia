@@ -65,8 +65,10 @@ ALLOWED_MODULES = {
     "src/world_engine/models/observation.py",
     "src/world_engine/models/__init__.py",
     "src/world_engine/observation_writes.py",
+    "src/world_engine/observation_runner.py",
     "scripts/migrate_v1_90_observation_socle.py",
     "tooling/verify/checks/observation_socle.py",
+    "tooling/verify/checks/observation_runner.py",
 }
 
 FAILURES: list[str] = []

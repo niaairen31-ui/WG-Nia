@@ -52,6 +52,7 @@ from .routes import creator as _routes_creator
 from .routes import link_agent as _routes_link_agent
 from .routes import mutations as _routes_mutations
 from .routes import npc_agent as _routes_npc_agent
+from .routes import observation as _routes_observation
 from .routes import play as _routes_play
 from .routes import prompts as _routes_prompts
 from .routes import regions as _routes_regions
@@ -80,6 +81,7 @@ app.include_router(_routes_spatial.router)
 app.include_router(_routes_link_agent.router)
 app.include_router(_routes_npc_agent.router)
 app.include_router(_routes_room_batch.router)
+app.include_router(_routes_observation.router)
 
 
 def _purge_closed_batches(

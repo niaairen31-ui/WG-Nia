@@ -115,6 +115,7 @@ full-tree verify after.
 - [ ] Every intent call is recorded with a `call_status`, including failures - a failed run has intent rows, not missing ones  -> verify/checks/observation_socle.py
 - [ ] Schema version agreement holds at v1.90  -> verify/checks/schema_version_agreement.py
 - [ ] `analyzer_transcript.py` never reads a `Conversation`/`ConversationMessage`, never commits, and carries a refusable `AttributionContext`; `analyzer.py`'s wrapper signatures are unchanged and set `conversation_id` on every returned mutation  -> verify/checks/analyzer_seam.py
+- [ ] The observation runner writes only through `observation_writes.py`, never infers `outcome` from `actor_id` truthiness, produces `degraded` (not `silence`) when every intent call fails with a full intent-row set, refuses a readiness-gate failure with zero `observation_run` rows, writes zero `conversation`/`conversation_message` rows, isolates its proposals from `list_mutations` while linking them via `observation_mutation_link`, and never leaves a run `status='running'` after `run_bounded` returns (including on exception)  -> verify/checks/observation_runner.py
 - [ ] Full-tree verify passes (`function_length`, `module_budget`, `import_cycle`, `json_ui_boundary`, `single_canon_write`)
 
 ### Live  ->  human gate (Nia)

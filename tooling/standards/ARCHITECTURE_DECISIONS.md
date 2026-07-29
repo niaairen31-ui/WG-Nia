@@ -10202,4 +10202,180 @@ alongside it.
 
 ---
 
+## OBSERVED SCENE — runner: bounded run, readiness gate, F3 proposals (BRIEF-0051-e, no schema change)
+
+**B2 + B1, bounded run over real-time streaming.** `run_one_beat(run_id, db)`
+executes exactly one beat; `run_bounded(run_id, db)` loops it until a stop
+condition — one implementation, two entry points, matching the ticket's
+decision text verbatim. B3 (real-time streaming) was never a candidate here:
+the transcript is read cold, after the fact, by both the beat loop itself
+(`_intent_transcript`) and by F3's post-close analysis
+(`_analysis_transcript`); no SSE, no partial-line delivery. The mini-RECON's
+process-model finding (item 7) is why `start` is a separate route from
+`step`: a 30-beat/5-NPC run is ~150 model calls, too long for one
+synchronous HTTP request, so there is no "run to completion" HTTP route —
+`cockpit/routes/observation.py` exposes exactly the four routes the brief
+names (start / step / stop / inject-event); `run_bounded` stays a
+Python-level entry point for scripts and the verify check, called
+step-by-step by whatever drives the four routes (a future cockpit UI,
+BRIEF-0051-f, or a script).
+
+**Readiness gate, verbatim rationale (fail-closed, pre-write).**
+`check_run_readiness` carries this rationale in its docstring, unedited:
+
+> The gate exists because a flat scene has two very different causes: a
+> passive initiative system (what this ticket measures) and an
+> under-populated world (what it does not). Without the gate the first
+> finding of every run risks being misattributed to the engine. Refusing
+> loudly costs one message; a misattributed conclusion costs a redesign.
+
+The gate's five conditions (>=2 NPCs present, every present NPC has an
+active goal, every present NPC has a describable name+description, the
+location exists and belongs to the world, `player_presence == 'absent'`) are
+checked before any write; a non-empty failure list means zero
+`observation_run` rows (verify Rule 4). The brief's documented signature
+(`check_run_readiness(location_id, npc_ids, db)`) omits two identities two
+of its own five conditions cannot be checked without — `world_id` (for "the
+location belongs to the world") and `player_presence` (for the H2
+condition). Both were added as required keyword-only parameters, following
+BRIEF-0051-d's own precedent (`arbitrate`'s `beats_since_last_act` /
+`relation_intensities`) for completing an underspecified signature
+additively rather than guessing a workaround.
+
+**Roster is re-derived, never snapshotted.** `observation_run` carries no
+participant column. "Present NPCs" is recomputed at every beat from
+`Character.current_location_id == run.location_id` (mirrors
+`gathering.py`'s `_present_npcs`), not captured once at start. This ticket
+adds no NPC-movement mechanism, so the set is expected to be stable across a
+run; G1's "runs execute against the live world DB" accepts the consequence
+that an external edit to an NPC's location mid-run changes who gets the next
+beat's opportunity. Mini-RECON item 4 (gathering roster) concluded a run
+neither creates nor attaches to a `gathering` — presence is a physical-
+location fact, not gathering membership, so the B1 per-NPC-one-gathering
+invariant is never touched by this brief.
+
+**Three-way outcome, why `degraded` must not collapse into `silence`.**
+`_beat_outcome` is three explicit `return` statements — `selected_npc_id is
+not None` -> `'acted'`; `any(call_status == 'ok')` -> `'silence'`; else
+`'degraded'` — never a truthiness ternary on `actor_id` (verify Rule 2,
+AST-enforced). This is the ticket's central measurement claim in code form:
+a scene where every NPC's intent call timed out must never read as "the NPCs
+chose not to act" (a datum about the initiative system) when it is actually
+"the model was unreachable" (a bug/ops signal). Verify Rule 3 forces every
+intent call to fail and asserts `outcome == 'degraded'` with a full,
+non-empty `observation_intent` row set — the mechanical form of this claim.
+
+**K2, event injection.** `inject_event` writes one `observation_beat`
+(`outcome='event'`, `actor_id=None`) directly via `write_observation_beat`
+— no intent rows, no beat-allowance consumption (`_regular_beat_count`
+excludes `outcome='event'`; `_consecutive_non_acted` skips event rows
+entirely rather than resetting or counting them, since an injected event is
+creator narration, not an NPC declining to act). The mechanism is exactly
+"it becomes part of the transcript every subsequent NPC reads":
+`_intent_transcript` includes every beat with a non-null `line`, event or
+acted, in `beat_index` order.
+
+**Template pinning stays attribution, not a replay lock (L, reduced).**
+`_pin_templates` resolves and records each usage's `(template_id,
+version_number)` ONCE, at `start_run`, into `observation_run_template` — but
+every beat re-resolves the head template by usage and calls `current_prompt`
+for its latest text, exactly like BRIEF-0051-d's `request_intent`. This
+matches the ticket's L decision: bit-exact replay is abandoned (the world
+mutates under play), so pinning exists to make two runs comparable
+(“what was active when this run began”), not to lock beat 17 to the exact
+text beat 1 saw if a creator edits the template mid-run.
+
+**F3, once per run, after close — and its overhearing sub-pass.**
+`produce_run_proposals` is never called from the beat loop; it runs exactly
+once, from `_produce_proposals_quietly`, itself called from every path that
+reaches a terminal `close_observation_run` (`_apply_stop_conditions`'s
+max_beats/quiescence branches, `stop_run`'s creator_stop, and
+`_run_beat_safely`'s exception handler before it re-raises) — "after the run
+closes" is enforced structurally, not by caller discipline. A parse failure
+in the window pass is caught and logged, never allowed to undo the run's
+already-terminal status (`_produce_proposals_quietly` swallows any
+exception).
+
+The window sub-pass (`analyze_transcript`) runs once over the whole run,
+using the seam's frozen `[PNJ]`/`[JOUEUR]` transcript contract with every
+line labeled `[PNJ]` (no player exists) and `AttributionContext(None,
+None)` — R1's documented shape for a multi-NPC scene with no run-level
+counterparty. Event beats get a third label, `[ÉVÉNEMENT]`, not in the
+seam's frozen two-way contract: they are creator narration, not something a
+PNJ said, and excluding them entirely would drop causally relevant context
+(e.g. an injected fire that later motivates a `status_change`).
+
+The overhearing sub-pass (`analyze_overheard_lines`) is called once PER
+ACTED BEAT, not once for the whole run and not once per beat of the live
+loop — resolved this way after finding that `analyze_overheard_lines`'
+identity contract can only resolve a speaker via a SINGLE
+`AttributionContext.default_subject_id`, which a 30-beat/multi-NPC run has
+no run-level value for (beat 12's speaker and beat 19's speaker are
+different NPCs). Per-acted-beat scoping sidesteps this cleanly: each call's
+`AttributionContext(default_subject_id=beat.actor_id,
+default_counterparty_id=None)` is unambiguous, because the beat's actor IS
+that call's speaker by construction — never a guess, never a cross-beat
+default. `receiver_ids` is "every present NPC except the speaker" per the
+brief's own wording, with no player subtraction (H2 — there is no player).
+`speaker_line`/`listener_line` both receive the beat's own line (there is no
+distinct "reply" within a single-line beat, unlike a played turn's
+player-line/npc-reply pair) — a degenerate but safe input: even a
+misclassified `"speaker":"player"` from the model drops silently
+(`default_counterparty_id=None`), never misattributes. The brief's "once per
+run, not per beat" sentence is read as bounding the ANALYSIS PHASE to a
+single post-close pass (never interleaved into the live 30-beat loop, which
+is the multiplication it warns against) rather than bounding the sub-pass to
+exactly one call — a per-beat live analysis would have been the actual
+30x-multiplication the brief rejects; a per-acted-beat pass inside one
+already-single post-close phase is not.
+
+**F3 isolation.** Every mutation `analyze_transcript`/
+`analyze_overheard_lines` returns is retagged `proposed_by =
+OBSERVED_PROPOSED_BY` before persisting (overwriting the seam's own
+`local_ai_window`/`local_ai_overhearing` default) and linked via one
+`observation_mutation_link` row — the sole write authority for that tag and
+that join stays `observation_writes.py` (`link_observation_mutation`);
+`produce_run_proposals` never touches a canon table directly beyond the
+`ProposedMutation` insert itself, which is the same non-canon staging write
+`analyzer.py`'s window pass already performs today.
+
+**New template, `observation_narration` (mj_narration, off by default).**
+The brief names `pt-npc-initiative-act` for the line (step 5) but names no
+template for the optional MJ-narration call (step 7). Reusing the existing
+`player_narration` template verbatim was rejected: its user template's
+fixed prose ("Le joueur dit : {player_line}") is not a placeholder
+substitution problem, it is baked-in text asserting a player exists, which
+is false for every observed run by construction (`player_presence`
+implemented value is only `'absent'`). A new usage,
+`observation_narration` (`pt-observation-narration`, seeded in
+`scripts/seed_pilot.py`, registered in `prompt_registry.py`), was authored
+instead — same pattern BRIEF-0051-d used for `observation_intent` (a new
+model-facing prompt seeded alongside the code that calls it). Off by
+default (H2/ticket text); a run with `mj_narration=False` never resolves or
+calls this template at all — `_generate_mj_narration` is only reached when
+`run.mj_narration` is true AND a beat's `outcome == 'acted'`.
+
+**`move` finding from BRIEF-0051-d, resolved by omission.** -d flagged that
+`pt-npc-initiative-act`'s `move` field ("rejoindre le groupe DU JOUEUR")
+reads incorrectly with no player. `_generate_act_line` parses `act_text`
+only and never reads `move` — this ticket adds no NPC-movement mechanism for
+observed scenes, so the field is simply never consumed; the prompt's
+mis-worded instruction is inert here rather than fixed (fixing the shared
+template's wording is out of scope — `play_initiative.py` is untouched by
+this ticket).
+
+**`_run_beat_safely`, the exception safety net.** A run must never be left
+`status='running'` after the process returns "by any path" (verify Rule 7).
+`run_one_beat` itself stays a pure "execute exactly one beat" primitive with
+no exception handling; `_run_beat_safely` wraps it, closes the run
+`failed`/`'error'` on ANY exception (best-effort — a `ValueError` from
+`close_observation_run` on an already-terminal run is swallowed so the
+original exception is never masked), fires `_produce_proposals_quietly` over
+whatever transcript exists, then re-raises. Both `step_run` (single manual
+step) and `run_bounded`'s loop call this same wrapper — the safety net is
+identical whether a creator steps one beat at a time or lets a script run to
+completion.
+
+---
+
 *Co-built with Claude, June 2026.*
