@@ -5058,6 +5058,20 @@ return-visit delta narration/`visit` table (G2, next ticket); refactoring
   switch in the same moment) is narrow, and a full fix would mean teaching
   `promptsLoadList`/`showCreationSubTab` about a foreign tab's dirty state
   — out of this brief's single-file, minimal-surface intent.
+- **D-0052-shape — full prompt-shape parity for the observed lane**
+  (TICKET-0052, K1: a role-alternating message list instead of a single
+  `{transcript}` blob). Reactivate only after F1's measurement
+  (`scripts/observation_metrics.py`, `per_beat_overlap`) has isolated the
+  repetition cause, so the two changes are never confounded.
+- **D-0052-mj — the observed MJ narrator receives the full transcript while
+  the played MJ narrator receives none** (TICKET-0052, H1). Deliberately
+  unchanged. Reactivate if `mj_narration` ever becomes an input to a
+  measured path (today it is opt-in and display-only).
+- **D-0052-repetition — the beat-8 repetition onset itself** (TICKET-0052).
+  Fed by F1. `repeat_last_n=256` (`ollama_client.py:30`) was calibrated for
+  played turns (its own comment says "3-4 turns") and has never been
+  revisited for 25-35 word observed beats; a hypothesis for that
+  workstream, not a decision made here.
 
 Recorded here so each is revisited deliberately rather than forgotten:
 
@@ -10559,6 +10573,92 @@ is deliberately NOT mixed into the narrative metrics (participation/intent/
 health) — it is reported under "Evolution / feasibility" alongside proposal
 counts, the ticket's own declared reader for that column (does a 5-NPC/
 30-beat run stay tractable, not a scene-analysis question).
+
+---
+
+## OBSERVATION CONTEXT WINDOW PARITY (BRIEF-0052-a, BRIEF-0052-b, BRIEF-0052-c, no schema change)
+
+**B1/I2: a lane-neutral seam, forced by an existing docstring's own
+admission.** `conversation_window.py`'s primitives operated on `list[dict]`
+ollama messages, and `_render_older_transcript` labelled by `role` alone
+with a docstring stating the list "carries no per-NPC name" — true for the
+played lane (one player, one NPC voice) but false for the observed lane
+(several named NPCs, no player). Rather than have the observed lane import a
+conversation-named module, or duplicate the cap/summary logic under an
+`observation_` name, the module is renamed to `context_window.py` and its
+primitives moved onto a new `TurnLine(role, label, content)` dataclass:
+`label` carries the full literal prefix — separator included — so
+`render_transcript` renders any lane's lines byte-for-byte through one
+function. The played lane's public entry points (`build_npc_message_list`,
+`resolve_npc_message_list`) keep their exact `list[dict]` signatures and
+convert internally (`_played_to_lines`/`_lines_to_played`); the round-trip
+is asserted by `observation_window_parity.py`'s fixture check, not merely a
+docstring claim.
+
+**C1 + E1: one config row, word budget only, and an accepted dormancy.**
+`conversation_window_config` stays a single per-world row serving both
+lanes — no lane-specific column, no composite `OR beats > K` trigger. The
+observed lane's beats are short by design
+(`_NPC_INITIATIVE_ACT_FALLBACK` caps an act at "1 à 2 phrases", ~25-35
+words), so a default 30-beat run stays close to but under the 1200-word
+default budget — the compression branch is dormant there by design, not by
+oversight. Live measurement against a real production run (beat-by-beat
+cumulative word count of `_intent_transcript`) showed ~31 words at beat 0
+growing to ~812 by beat 19 (~41 words/beat average) — close enough to the
+1200 budget that a full 30-beat run sits near the edge, not comfortably
+under it; fidelity when the branch DOES fire, not how often it fires, was
+the stated objective (E1).
+
+**G2 coupled to J1: per-NPC resolution, because the scene tail cannot be
+shared.** `assemble_scene_tail` produces a result for ONE viewer (it embeds
+that NPC's own co-presence framing); a shared, beat-level transcript
+resolution could not feed it correctly for more than one NPC.
+`observation_window.beats_to_lines` therefore projects prior beats onto
+`TurnLine` from ONE NPC's point of view per call (`role='assistant'` for
+the viewer's own lines, `'user'` for everyone else's — currently unread
+under K2, populated for the deferred K1 shape-parity work), and
+`resolve_observation_transcript` is called once per present NPC per beat
+inside `run_one_beat`'s intent loop — accepted cost: N summary calls on an
+over-budget beat, verified live at N=3 for a 3-NPC location
+(`conversation_summary` call count captured during BRIEF-0052-c's live
+gate).
+
+**H1: the observed MJ narration deliberately keeps the raw transcript,
+because the played MJ has no history to mirror.**
+`_say_stream_mj_narration` (`play_stream.py:51-54`) sends the played MJ
+narrator exactly `[system, one user message]` — no window, no summary, no
+scene tail, ever. There is therefore no MJ window in the played lane to
+extend to the observed lane; `_generate_mj_narration` keeps calling
+`_intent_transcript` (full, unwindowed) rather than
+`resolve_observation_transcript`. What was a comment before this brief
+(`observation_runner.py`) is now `observation_window_parity.py`'s Rule 4: a
+structural, vacuous-proof assertion that `_generate_mj_narration` contains
+no reference to the windowed resolver and that no call site passes it one.
+
+**K2: prompt SHAPE parity deferred, deliberately, to keep the repetition
+measurement (F1) uncontaminated.** The observed prompts keep their existing
+single `{transcript}` blob (`observation_intent`/`npc_initiative_act`'s
+`user_template`); only the LINES composing that blob are windowed. Adopting
+the played lane's role-alternating message-list shape now would change
+model input structure for reasons unrelated to windowing, and would
+confound F1's ongoing measurement of the beat-8 repetition onset
+(`scripts/observation_metrics.py`, `per_beat_overlap`) — a ticket explicitly
+NOT attempting a repetition fix must not smuggle in a shape change that
+could itself move the repetition point. Named deferral: D-0052-shape.
+
+**Two findings surfaced by live verification, deliberately left unfixed
+(Scope OUT).** `assemble_scene_tail(npc_id, location_id, None, "", db)` —
+the correct J1 call, since an observed run carries no gathering and
+`player_presence` is always `'absent'` — renders a dangling
+`"...actuellement : ."` label: `_npc_context_setting`'s player-condition
+guard (`context.py`) tests `!= "unharmed"`, not truthiness, so an empty
+string still emits the label with nothing to fill it. `context.py` sits at
+979 of its 1000-line hard cap; fixing this is a follow-up, not this
+ticket. Separately, a live over-budget test showed the `conversation_summary`
+prompt (author model) refusing to summarize adult-themed observed-scene
+content — the same shared code path the played lane already uses, just far
+more likely to fire on the observed lane's content mix; a model-selection
+question for a future decision, not a structural defect of this seam.
 
 ---
 

@@ -376,6 +376,21 @@ def _generate_act_line(
     return raw.strip()
 
 
+def _resolve_windowed_transcripts(
+    run: ObservationRun, npc_ids: list[str], prior_beats: list[ObservationBeat], db: Session,
+) -> dict[str, str]:
+    """One `resolve_observation_transcript` call per present NPC per beat
+    (G2) — the intent call and the act-line call share this result, never
+    recomputed for the act line."""
+    return {
+        npc_id: resolve_observation_transcript(
+            world_id=run.world_id, npc_id=npc_id, location_id=run.location_id,
+            beats=prior_beats, db=db,
+        )
+        for npc_id in npc_ids
+    }
+
+
 def _generate_mj_narration(
     actor_id: str, line: str, location_id: str, transcript: str, world_id: str, db: Session, model: str,
 ) -> Optional[str]:
@@ -434,15 +449,7 @@ def run_one_beat(run_id: str, db: Session) -> ObservationBeat:
     if intent_template is None:
         raise RuntimeError("run_one_beat: no active observation_intent prompt template")
 
-    # Windowed, PER NPC (G2): the intent call and the act-line call share this
-    # resolution — one per NPC per beat, never recomputed for the act line.
-    windowed_transcripts = {
-        npc_id: resolve_observation_transcript(
-            world_id=run.world_id, npc_id=npc_id, location_id=run.location_id,
-            beats=prior_beats, db=db,
-        )
-        for npc_id in npc_ids
-    }
+    windowed_transcripts = _resolve_windowed_transcripts(run, npc_ids, prior_beats, db)
     intents = [
         request_intent(
             npc_id, [i for i in npc_ids if i != npc_id], windowed_transcripts[npc_id], run.location_id,
@@ -478,10 +485,8 @@ def run_one_beat(run_id: str, db: Session) -> ObservationBeat:
             windowed_transcripts[arb.selected_npc_id], run.world_id, db, run.model,
         )
         if run.mj_narration:
-            # H1 (TICKET-0052): the MJ narration deliberately keeps the RAW transcript.
-            # The played MJ narrator has no history at all (play_stream.py:51-54 sends
-            # [system, one user message]), so there is no MJ window to mirror. Named
-            # deferral D-0052-mj. Do not "fix" this by routing it through the seam.
+            # H1 (TICKET-0052, D-0052-mj): raw transcript on purpose — the played
+            # MJ narrator has no history at all (play_stream.py:51-54); nothing to mirror.
             mj_text = _generate_mj_narration(
                 arb.selected_npc_id, line, run.location_id, transcript, run.world_id, db, run.model,
             )
