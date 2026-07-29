@@ -2,7 +2,7 @@
 id: TICKET-0051
 title: Observed NPC scene - universal opportunity loop with decision instrumentation
 type: feature
-status: brief
+status: live-gate
 created: 2026-07-27
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
