@@ -150,3 +150,10 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 9749 | CONVERSATION SUMMARY — prompt-usage plumbing, no call site yet (BRIEF-0050-c, no schema change) | BRIEF-0050-c |  |
 | 9770 | CONVERSATION SUMMARY — budget-trigger, recompute, fail-soft insertion (BRIEF-0050-d, no schema change) | BRIEF-0050-d |  |
 | 9805 | CONVERSATION WINDOW — config editing surface + replay measurement (BRIEF-0050-e, no schema change) | BRIEF-0050-e |  |
+| 9846 | OBSERVED SCENE — socle and decision instrumentation (BRIEF-0051-a, schema v1.90) | BRIEF-0051-a | v1.90 |
+| 9918 | OBSERVED SCENE — worst-case-listener disclosure floor (BRIEF-0051-b, no schema change) | BRIEF-0051-b |  |
+| 9957 | OBSERVED SCENE — analyzer transcript seam (BRIEF-0051-c, no schema change) | BRIEF-0051-c |  |
+| 10086 | OBSERVED SCENE — intent and arbitration engine (BRIEF-0051-d, no schema change) | BRIEF-0051-d |  |
+| 10205 | OBSERVED SCENE — runner: bounded run, readiness gate, F3 proposals (BRIEF-0051-e, no schema change) | BRIEF-0051-e |  |
+| 10381 | OBSERVED SCENE — cockpit surface: top-level mode-tab, F3 read-only visibility (BRIEF-0051-f, no schema change) | BRIEF-0051-f |  |
+| 10468 | OBSERVED SCENE — run metrics: deterministic instruments, J2 (BRIEF-0051-g, no schema change) | BRIEF-0051-g |  |

@@ -311,7 +311,7 @@ def _npc_context_perceived(npc_id: str, session: Session) -> dict[str, Relation]
     return perceived
 
 
-def _npc_context_speak(npc_id: str, intensity: int, session: Session) -> str:
+def _npc_context_speak(npc_id: str, disclosure_intensity: int, session: Session) -> str:
     """----- 3. What this NPC may speak about (secret-excluded, relation-gated) -----"""
     knowledge = session.exec(
         select(Knowledge)
@@ -320,7 +320,7 @@ def _npc_context_speak(npc_id: str, intensity: int, session: Session) -> str:
     ).all()
     allowed = [
         k for k in knowledge
-        if not k.is_secret and intensity >= k.share_threshold
+        if not k.is_secret and disclosure_intensity >= k.share_threshold
     ]
     if allowed:
         speak_body = (
@@ -457,6 +457,41 @@ def _npc_context_pricing(npc_id: str, session: Session) -> str:
     return "\n".join(tariff_lines) + "\n\n"
 
 
+def _disclosure_intensity_floor(
+    interlocutor_id: str,
+    audience_ids: list[str] | None,
+    inter_intensity: int,
+    perceived: dict[str, Relation],
+) -> int:
+    """MIN, over every auditor present, of the speaking NPC's relation
+    intensity toward that auditor (NEUTRAL_INTENSITY where no relation row
+    exists). `None` reproduces the single-interlocutor case exactly (no MIN
+    needed — reuses `inter_intensity` already computed). An empty list is a
+    caller bug, never "disclose freely"."""
+    if audience_ids is None:
+        return inter_intensity
+    if not audience_ids:
+        raise ValueError("audience_ids must not be empty — use None for a single auditor")
+    auditor_ids = set(audience_ids) | {interlocutor_id}
+    return min(
+        inter_intensity if aid == interlocutor_id
+        else (perceived[aid].intensity if aid in perceived else NEUTRAL_INTENSITY)
+        for aid in auditor_ids
+    )
+
+
+# assemble_npc_context's `gathering_id` (multi-NPC scenes, schema v1.8 —
+# contract D1): when given, a "AVEC QUI TU TE TROUVES EN CE MOMENT" section
+# lists the NPC's current co-participants (active members of the same
+# gathering, excluding itself and the interlocutor) by name and *public*
+# description only — appearance and entity description, never knowledge or
+# relations. Simple co-presence, no relation-based modulation (that stays in
+# the perception section above; modulating who an NPC notices in a crowd by
+# relation warmth is a later refinement, not built now).
+#
+# `relevance_hint` (schema v1.12, prepared/inert): reserved for a future
+# relevance-selection stage that may only NARROW the security-scoped set
+# above, never widen it. Inert until context size measurably hurts.
 def assemble_npc_context(
     npc_id: str,
     interlocutor_id: str,
@@ -465,24 +500,22 @@ def assemble_npc_context(
     gathering_id: str | None = None,
     relevance_hint: str | None = None,
     player_condition: str = "unharmed",
+    audience_ids: list[str] | None = None,
 ) -> str:
     """Assemble the text briefing that drives this NPC's dialogue.
 
-    Secrets are excluded outright; non-secret knowledge is gated by the
-    NPC→interlocutor relation intensity against each row's share_threshold.
+    Secrets are excluded outright; non-secret knowledge is gated by a
+    disclosure intensity against each row's share_threshold (see
+    `audience_ids` below).
 
-    `gathering_id` (multi-NPC scenes, schema v1.8 — contract D1): when given,
-    a "AVEC QUI TU TE TROUVES EN CE MOMENT" section lists the NPC's current
-    co-participants (active members of the same gathering, excluding itself
-    and the interlocutor) by name and *public* description only — appearance
-    and entity description, never knowledge or relations. Simple co-presence,
-    no relation-based modulation (that stays in the perception section above;
-    modulating who an NPC notices in a crowd by relation warmth is a later
-    refinement, not built now).
-
-    `relevance_hint` (schema v1.12, prepared/inert): reserved for a future
-    relevance-selection stage that may only NARROW the security-scoped set
-    above, never widen it. Inert until context size measurably hurts.
+    audience_ids: every entity that can HEAR this NPC speak, beyond the
+    addressee. Disclosure is gated on the LOWEST relation intensity across the
+    whole audience (fail-closed), because a secret told to a trusted addressee
+    in front of a distrusted bystander is disclosed to the bystander too.
+    Perception stays keyed on the addressee alone — that is about manner, not
+    about facts. None means single-auditor and reproduces pre-v1.90 behaviour
+    exactly; an empty list raises, since "nobody is listening" is never a
+    reason to disclose more.
     """
     del relevance_hint  # reserved, inert (schema v1.12)
     npc_entity = session.get(Entity, npc_id)
@@ -493,18 +526,21 @@ def assemble_npc_context(
     inter_entity = session.get(Entity, interlocutor_id)
     inter_name = inter_entity.name if inter_entity else "un inconnu"
 
+    perceived = _npc_context_perceived(npc_id, session)
+    # NPC→interlocutor relation intensity drives perception (neutral if none).
+    inter_relation = perceived.get(interlocutor_id)
+    inter_intensity = inter_relation.intensity if inter_relation else NEUTRAL_INTENSITY
+    disclosure_intensity = _disclosure_intensity_floor(
+        interlocutor_id, audience_ids, inter_intensity, perceived
+    )
+
     identity = _npc_context_identity(npc_entity, npc_char)
     goals_section = _npc_context_goals(npc_id, session)
     setting = _npc_context_setting(location_id, player_condition, session)
 
-    perceived = _npc_context_perceived(npc_id, session)
-    # NPC→interlocutor relation intensity drives disclosure (neutral if none).
-    inter_relation = perceived.get(interlocutor_id)
-    intensity = inter_relation.intensity if inter_relation else NEUTRAL_INTENSITY
-
-    speak_body = _npc_context_speak(npc_id, intensity, session)
+    speak_body = _npc_context_speak(npc_id, disclosure_intensity, session)
     perception = _npc_context_perception(
-        npc_id, interlocutor_id, inter_name, inter_relation, intensity,
+        npc_id, interlocutor_id, inter_name, inter_relation, inter_intensity,
         location_id, perceived, session,
     )
     company = _npc_context_company(npc_id, interlocutor_id, gathering_id, session)

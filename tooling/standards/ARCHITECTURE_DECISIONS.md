@@ -9843,6 +9843,723 @@ repetition-provoking fixture would be needed to actually locate the
 saturation point TICKET-0050 originally described. Full table:
 `tooling/recon/RECON-0050-window-measurement.result.md`.
 
+## OBSERVED SCENE — socle and decision instrumentation (BRIEF-0051-a, schema v1.90)
+
+TICKET-0051's first step: structure and write chokepoints only — no loop, no
+model call, no UI. A loop that ran before the decision tables existed would
+produce unmeasured runs that must be re-executed, so instrumentation is
+folded into the socle rather than deferred.
+
+**A3 (superseded A2).** Observed scenes get their OWN tables
+(`observation_*`), never `conversation`. RECON found `Conversation.player_id`
+`nullable=False` (`models/ephemeral.py:94`) with 49 read sites, several using
+it as a DEFAULT identity (`analyzer.py:258`, `analyzer.py:275`) — making it
+nullable would be disciplinary safety pushed onto 49 call sites, not a
+structural change. `analyze_window`/`analyze_overhearing` are still reused,
+by projecting beats into an in-memory transcript; no `conversation_message`
+row is ever written by an observed run (A3-adapter).
+
+**M1.** `observation_intent` deliberately carries NO `not_selected_reason`
+column. A candidate can be excluded by cooldown AND by debt AND by
+arbitration simultaneously; a single-valued reason would force a precedence
+and destroy the rest of the information. The COMPONENTS
+(`propensity`/`cooldown_active`/`debt_score`/`final_score`) are stored
+instead, and the reason is DERIVED at read time by documented precedence
+(`act=FALSE` -> no_intent; `cooldown_active` -> cooldown; `selected=FALSE,
+debt_score<0` -> debt; otherwise -> lost_arbitration) — reconstructible, not
+merely reported.
+
+**M2.** `observation_beat.outcome` is explicit (`acted`/`silence`/
+`degraded`/`event`), never inferred from `actor_id` being NULL. Conflating
+`silence` (every candidate declined — a datum) with `degraded` (every intent
+call failed — a bug) would let a JSON parse failure be misread as passivity,
+the exact confound this ticket exists to measure.
+
+**H2, closed vocabulary.** `player_presence` is `absent`/`silent`/`active`,
+not a boolean — a SILENT player is still an AUDITOR for disclosure gating
+(E2, BRIEF-0051-b) while an ABSENT one is not, unrepresentable with a
+boolean. Only `absent` is implemented; `write_observation_run` raises
+`ValueError` on `silent`/`active` rather than downgrading them silently.
+
+**F3, structural isolation.** Observed runs will produce `proposed_mutation`
+rows marked `proposed_by='observed_scene'` (constant `OBSERVED_PROPOSED_BY`,
+`observation_writes.py`) — isolated from the creator-facing queue by
+construction, not by a UI flag. `list_mutations`'s exclusion is NULL-safe
+(`proposed_by.is_(None) | proposed_by != OBSERVED_PROPOSED_BY`) — a bare
+`!=` would silently drop rows with a NULL `proposed_by`. Duplicate-detection
+paths (`_find_applied_duplicate*`) are untouched: they must keep seeing
+observed rows, or a re-run could double-propose. No producer exists yet in
+this brief — the filter guards an empty set, fail-closed before the window
+in which a run could pollute the queue ever opens.
+
+**L, reduced to attribution.** Bit-exact replay is abandoned — the world
+mutates under play (G1: runs execute against the live world DB, the pilot
+world retired). What is KEPT is attribution: `observation_run_template` pins
+each usage's template `id`+`version`, and `observation_run` pins
+`cooldown_beats`/`debt_weight`/`propensity_mode` per run rather than reading
+code constants, so two runs separated by a tuning pass stay comparable.
+`seed` and a world fingerprint are dropped — a sensor whose verdict is
+always "changed" does not inform.
+
+**Named deferral D-J1.** An LLM judge scoring line novelty/quality is
+deferred: putting a model inside the MEASUREMENT loop while isolating causes
+adds a confounder. Reactivation condition: once J2's deterministic metrics
+(BRIEF-0051-f) have shown their blind spots on passivity modes (b)/(c), not
+before.
+
+Five tables ship with no consumer yet — `latency_ms`/`raw_response` on
+`observation_intent` are explicitly declared to have a DIFFERENT reader (run
+feasibility and parse diagnosis) than the rest of the table (scene
+analysis), so their absence of use in this brief is not an oversight.
+`canon_write_policy.txt` gains a comment explaining the five tables' absence
+from `[CANON_TABLES]` — never an entry in that section, which would
+misdeclare telemetry as canon.
+
+## OBSERVED SCENE — worst-case-listener disclosure floor (BRIEF-0051-b, no schema change)
+
+**E2.** `assemble_npc_context` derived ONE relation intensity and fed it to
+two different jobs: gating what the NPC may DISCLOSE, and colouring how it
+PERCEIVES the person in front of it. With a single interlocutor the
+conflation was harmless; with a plural audience (the normal case for
+observed scenes) it was a leak — an NPC trusting the addressee would
+disclose in front of an untrusted bystander standing right there.
+
+The fix splits the single value into two: `inter_intensity` (interlocutor
+relation, unchanged, still feeds perception) and `disclosure_intensity` (the
+MINIMUM relation intensity across every auditor present — the addressee
+plus a new `audience_ids` parameter — substituting `NEUTRAL_INTENSITY` where
+no relation row exists). Only `disclosure_intensity` reaches
+`_npc_context_speak`'s `share_threshold` gate.
+
+**Why perception stays keyed on the addressee.** Perception is about manner
+— how this NPC's tone reads to the person it is looking at — not about
+which facts are safe to say. Flattening it to the audience floor would make
+an NPC's warmth toward a trusted addressee visibly curdle merely because a
+stranger walked into the room, which is a manner regression this brief does
+not own.
+
+**Why an empty `audience_ids` raises rather than defaulting.** `None` means
+"single auditor, reproduces pre-v1.90 behaviour exactly" (the addressee is
+always in the auditor set). An empty list is never "nobody is listening" —
+it is a caller bug, and treating it as "disclose freely" is the exact
+failure this brief exists to prevent, so `assemble_npc_context` raises
+`ValueError` fail-closed instead.
+
+**Scope.** All five existing call sites (`play_initiative.py`,
+`play_physical.py`, `play.py`, `routes/prompts.py`, `routes/play.py`) keep
+passing nothing, so `audience_ids` defaults to `None` everywhere today and
+behaviour is bit-identical (asserted by
+`tooling/verify/checks/context_disclosure_floor.py`, Rule 3). The first real
+caller supplying a plural audience is BRIEF-0051-e's runner.
+`player_presence='silent'` counting as an auditor (H2) remains a named
+deferral — `_npc_context_company`'s player exclusion is untouched.
+
+## OBSERVED SCENE — analyzer transcript seam (BRIEF-0051-c, no schema change)
+
+**R1.** `analyze_window` and `analyze_overhearing` (`analyzer.py`) were
+conversation-bound by signature AND internals — RECON found no
+transcript-shaped seam to adapt to. Executing the brief surfaced that the
+conversation binding ran deeper than the brief's own "expected to move" list
+assumed: three escalations (recorded as AMENDMENT 01/02/03 against
+BRIEF-0051-c) were needed before the seam's final shape was settled. Each is
+recorded here because the reasoning, not just the outcome, is what a future
+seam extraction should reuse.
+
+**Escalation 1 — identity attribution.** `_normalize_to_schema`'s payload
+builders read `conv.player_id`/`conv.npc_id` directly to attribute 5 of 8
+mutation types (`new_knowledge`, `relation_change`, `event_creation`,
+`resource_change`, `goal_change`). The brief's stated `analyze_transcript`
+signature had no parameter for either. Resolution: a refusable
+`AttributionContext(default_subject_id, default_counterparty_id)` — `None`
+means no default is available, and an item that needs a missing default is
+DROPPED and counted (`TranscriptAnalysis.dropped_unattributed` /
+`.dropped_by_type`), never attributed by guess. A run-level default was
+rejected outright: an observed run spans ~30 beats and 5 NPCs with no
+run-level counterparty (beat 12 may be Maelis addressing Reike, beat 19
+Senna addressing Maelis) — supplying one would let a fabricated
+`relation_change` reach the queue looking legitimate. Fail-closed drops carry
+real cost, stated up front rather than discovered later:
+`_build_payload_event_creation` populates `involved_entities` from both
+identities UNCONDITIONALLY (the model never supplies them explicitly), so an
+observed run — both defaults `None` at the window-analysis level — will drop
+EVERY `event_creation` proposal. This is correct (a 30-beat multi-NPC scene
+has no single involved pair to invent), not a defect, and BRIEF-0051-e must
+read a 100% `event_creation` drop rate as expected, not as evidence of a
+passive scene.
+
+**Distinguishing this from the `tick_normalize.py:757` precedent.** That
+precedent — world-tick proposals use a wholly separate normalizer rather
+than reusing `analyzer._normalize_to_schema` — is real and was respected,
+not overridden. It applies when the PROPOSAL VOCABULARY differs (the tick's
+closed contract is `goal_change | relation_change | new_knowledge | npc_move
+| agenda_step_change | agenda_creation`, entity-scoped, not
+conversation-scoped at all). Observation and the played path share the SAME
+vocabulary and the same judge; only the participant topology differs. Making
+the identity model an explicit, refusable input is not force-generalizing
+across a vocabulary boundary — it is removing an implicit conversation read
+from a judge that was already vocabulary-compatible.
+
+**Escalation 2 — `payload["source"]` duplicated `conversation_id`.**
+`_overhearing_mutation_for_receiver` embedded `conversation_id` a second
+time inside a payload string (`f"overheard:{conversation_id}:{speaker_id}"`)
+in addition to setting the `ProposedMutation.conversation_id` column. Ruling:
+this was not "a minor content drift accepted because nothing reads it" — it
+was a duplicated provenance record. The column is the structural copy; the
+wrapper (`analyzer.py`) populates it (also newly true for the window path's
+`_window_build_mutations`, a symmetric gap the census caught). The string
+copy is redundant once the column is guaranteed populated, and
+`speaker_id` — transcript-local, no column of its own — stays.
+`payload["source"]` reads `f"overheard:{speaker_id}"` for rows written from
+schema v1.90 onward; rows written before keep the pre-BRIEF-0051-c
+`f"overheard:{conversation_id}:{speaker_id}"` format (history is
+append-only, never migrated — see `world-engine-schema.md`).
+`tooling/verify/checks/analyzer_seam.py` Rule 9 confirms by AST that no
+dedup/lookup path anywhere in `src/` ever read the dropped segment — the
+only reader was the verbatim apply-time passthrough into
+`Knowledge.source` (`cockpit/mutations.py`), a data copy, not a decision.
+
+**Recorded, not acted on — provenance-as-structure candidate.**
+`proposed_mutation` now carries provenance four different ways:
+`proposed_by` (column), `conversation_id` (column),
+`observation_mutation_link` (table, BRIEF-0051-a), and `payload["source"]`
+(a formatted string inside a JSON blob) — the same category of defect as
+JSON-backed UI-visible data, provenance as ad hoc content instead of
+structure. The clean fix (a dedicated provenance column/table, payloads
+carrying only the semantic change) touches a canon table, the mutation
+application path, the Review Queue, and existing history — larger than
+TICKET-0051. Named here as a future ticket candidate; not begun, not
+partially prepared for.
+
+**Escalation 3 — mandatory coupling census.** Two couplings surfaced
+mid-flight, each after the previous one was declared resolved — evidence,
+not noise, that amending per-discovery was producing exactly the irregular
+design this ticket exists to avoid. A full report-only census of every
+`Conversation` attribute read, every conversation-derived value written into
+a `ProposedMutation`, and every conversation_id/gathering_id-keyed query in
+`analyzer.py` (A=15 transcript-local, B=3 already-columnar, C=6 genuine
+identity defaults, D=7 irreducibly conversation-bound, zero transitive
+coupling in `writes/`/`prompt_store`) settled the seam once, against the
+complete picture, rather than trickling out further amendments. Two
+classifications were corrected during that settlement: `location_name`
+(`conv.location_id` → `Entity.name`, used in overhearing rationale text) is
+Class A, not Class D — location is a property of the SCENE, not the
+conversation (an `observation_run` carries `location_id` natively too), so
+`analyze_overheard_lines` gained a `location_id` parameter the module
+resolves itself; and `_window_build_transcript` was kept in `analyzer.py`
+rather than moved, since `analyze_transcript` takes an already-built
+`transcript: str` — transcript CONSTRUCTION is the caller's job, which keeps
+`ConversationMessage` out of the seam module entirely rather than
+introducing an intermediate line type that exists only to launder a type.
+The exact transcript format (one line per turn, `"\n"`-joined,
+`f"[{'JOUEUR'|'PNJ'}] {content}"`) is documented as a contract in
+`analyzer_transcript.py`'s module docstring, since two callers now produce
+it independently (BRIEF-0051-e's observed-run caller will be the second).
+
+**D-0051-c-1 (sharpened).** Observed-transcript participant attribution: with
+both `AttributionContext` fields `None`, an observed run's proposal yield
+depends entirely on whether the analysis prompt names its participants
+explicitly per line. `dropped_by_type` on the first observed run is the
+first real measurement — `event_creation` is predicted at 100%. If other
+types are also high, the fix is teaching `pt-conversation-analysis` (left
+untouched by this brief) to name speaker/addressee per line, never
+reintroducing a run-level default, never relaxing the fail-closed rule.
+
+**Verification.** `tooling/verify/checks/analyzer_seam.py`: no
+`Conversation`/`ConversationMessage` coupling in `analyzer_transcript.py`
+(AST, narrow exception only for `payload["npc_id"]`-shaped string subscript
+keys — string literals used as candidate JSON key names, e.g. inside
+`_first_of(item, ..., "npc_id", ...)`, are correctly not flagged, since only
+true Python identifiers are scanned); no `.commit()` in the seam module;
+`analyze_window`/`analyze_overhearing` signatures unchanged; both modules
+within 40 functions / 1000 lines (`analyzer_transcript.py` 906 lines,
+`analyzer.py` 307 lines, at landing); fail-closed attribution demonstrated
+on both the window
+(`relation_change`) and overhearing (player-spoken with no player) paths;
+`conversation_id` non-null on every mutation both wrappers return; no
+dedup/lookup reader of `payload["source"]` outside the sanctioned
+passthrough. A before/after regression capture against the test DB (fixed,
+stubbed model output — live local-model sampling is not deterministic, so a
+live-model diff would be noise, not signal) produced an empty diff for both
+`analyze_window` and `analyze_overhearing` except for the one authorized
+`payload["source"]` format change.
+
+## OBSERVED SCENE — intent and arbitration engine (BRIEF-0051-d, no schema change)
+
+**C3, model proposes / code judges.** One short JSON intent call PER present
+NPC per beat (`{act, urgency, target, why}`), never a single MJ call that
+picks an actor. The model answers ONLY for itself — never ranks, never sees
+a rival's intent, never told one NPC acts per beat. `observation_engine.py`
+ships two pure responsibilities: `request_intent` (one model call) and
+`arbitrate` (pure, no I/O, no model) — kept in separate functions so
+arbitration is independently testable with a hand-built `intents` list.
+
+**D1/O1, propensity moves from prompt to code.** `scripts/seed_pilot.py`'s
+`MJ_INITIATIVE_SYSTEM_PROMPT` (the PLAYED path, untouched by this brief)
+hard-codes a U-curve: "intensité < 40" and "intensité > 70" both raise the
+odds of taking initiative, so an NPC at 20 or at 85 always outranks one at
+50, invisibly and unadjustably. `pt-observation-intent`'s system prompt
+carries NO intensity threshold of any kind (asserted by
+`grep -n "40\|70\|intensit"` returning nothing against its body) — the
+model is never told relation magnitude matters. `arbitrate`'s
+`propensity_mode='flat'` (the DEFAULT) sets `propensity=1.0` for every
+candidate regardless of relation intensity; `'relation_weighted'` exists as
+the non-default second mode
+(`1.0 + 0.5 * (abs(intensity_toward_last_actor - 50) / 50)`, capped at a
+1.5× multiplier — k=0.5 is exactly that cap, since the intensity term
+already ranges [0, 1]). O1's rationale for shipping `flat` as default rather
+than damping the curve immediately: damping before measuring would leave
+cooldown, debt, and the curve itself indistinguishable as causes of any
+observed passivity — the A/B run (flat vs relation_weighted, same scene)
+is what decides, not a code default masquerading as the fix.
+
+**Signature gap, resolved additively.** The brief's `arbitrate` signature
+has no field carrying "how long ago did `last_actor_id` last act" or "this
+candidate's relation intensity toward `last_actor_id`" — both are required
+by D2's and O1's own rule text but have nowhere else to live given
+`IntentResult` is fixed to the model call's own output shape
+(`act`/`urgency`/`target_id`/`why`/`call_status`/`latency_ms`/
+`raw_response`). Resolved by adding two keyword-only parameters with
+defaults that reproduce the documented/tested behavior when omitted:
+`beats_since_last_act: int = 1` (D2's cooldown rule, `beats_since_last_act
+< cooldown_beats`, is then exactly the single-beat-ago case the Done-means
+criteria exercise) and `relation_intensities: dict[str, int] | None = None`
+(missing entries default to neutral 50, so an un-supplied map degrades
+`relation_weighted` to `flat`'s propensity=1.0 rather than raising). Neither
+changes `flat` mode's behavior, and both are additive to the brief's given
+positional signature — not a design decision, a plumbing completion.
+
+**D2, cooldown is a soft floor.** `cooldown_active = (npc_id ==
+last_actor_id and beats_since_last_act < cooldown_beats)`. A cooling
+candidate is excluded from the selection pool UNLESS every other candidate
+declined (`act=False`), in which case it may still be selected —
+`cooldown_active` stays `True` on that row regardless. `_observation_select`
+implements this as two ranked pools (non-cooling acting candidates first,
+falling back to the cooling one only when the first pool is empty), never a
+hard drop — a hard drop would let a single-candidate beat report a false
+`silence`.
+
+**D3, speaking debt.** `debt_score = debt_weight * (expected_share -
+actual_share)` where `expected_share = beats_elapsed / len(npc_ids)` and
+`actual_share = acted_counts[npc_id]`; positive means under-served. Folded
+into `final_score = urgency * propensity + debt_score` alongside D1's
+propensity — one linear score, no separate debt-vs-urgency tie-break stage.
+
+**D4, explicitly not taken.** No RNG anywhere in `observation_engine.py`
+(`grep -rn "random\|shuffle\|choice"` returns nothing). Ties break on lowest
+`acted_counts`, then stable `npc_ids` order — deterministic given the same
+inputs, so a re-run of the same intents/scores always selects the same
+candidate.
+
+**Parse-error vs decline, the defect this ticket exists to fix.**
+`play_initiative.py:508-510` (`_initiative_vote_call`) wraps its model call
+in a bare `except Exception`, collapsing a JSON parse failure, a network
+timeout, and a genuine model decline into the same `(False, None)` return —
+unobservable which one occurred. `request_intent` distinguishes all three by
+construction: `llm_parse.extract_object` (raises `LlmParseError`, unlike
+`extract_object_or_none` which swallows the distinction) drives
+`call_status='parse_error'`; `ollama_client.OllamaError.__cause__` is
+inspected for `TimeoutError` to set `'timeout'` vs `'error'` (`chat()`
+collapses every network failure into `OllamaError` — the cause chain,
+preserved by its own `raise ... from exc`, is the only place the original
+exception type survives); a well-formed `{"act": false}` sets `call_status
+='ok'`. Every path returns an `IntentResult` — never raises past
+`request_intent` — so a beat runner (BRIEF-0051-e) always gets a row to
+persist, matching `observation_intent`'s "always written" contract
+(BRIEF-0051-a).
+
+**Model never resolves ids.** The intent prompt shows each NPC the exact
+name roster of everyone else present; `target` in the model's JSON reply is
+a name, resolved to an entity id in code
+(`_observation_resolve_target`, exact case-insensitive match) — an
+unresolved or empty name is `None`, never guessed, never passed through as
+a string.
+
+**Disclosure floor reuse.** `request_intent` calls `assemble_npc_context`
+with the full `audience_ids` list from BRIEF-0051-b — one member is
+designated `interlocutor_id` to satisfy the existing required-positional
+parameter, the rest passed as `audience_ids`; `context.py`'s
+`_disclosure_intensity_floor` unions them back into one set before computing
+the floor, so which member plays which role has no effect on disclosure —
+it only picks who the cosmetic "how you see X" section describes.
+
+**Finding, not fixed here.** `pt-npc-initiative-act`'s `move` field
+instruction ("te lèves physiquement pour rejoindre le groupe DU JOUEUR")
+reads incorrectly in an observed scene: there is no player group to join
+when `player_presence='absent'`. Per this brief's Scope OUT
+(`play_initiative.py` untouched), this is reported, not edited — a
+consumer of the reused act template (BRIEF-0051-e or later) must either
+substitute a scene-appropriate instruction fragment or accept `move` as
+always-false-in-practice for observed beats.
+
+**Incidental fix.** `prompt_registry.py`'s `conversation_analysis` and
+`overhearing_classification` entries still pointed their `call_sites` at
+`analyzer.py:load_analysis_prompt`, stale since BRIEF-0051-c relocated the
+function to `analyzer_transcript.py` (the def moved; `analyzer.py` only
+imports the name now). Corrected as part of restoring a green full-tree
+`prompt_registry.py` check — unrelated to this brief's own feature work,
+found only because that check now runs `observation_intent`'s bijection
+alongside it.
+
+---
+
+## OBSERVED SCENE — runner: bounded run, readiness gate, F3 proposals (BRIEF-0051-e, no schema change)
+
+**B2 + B1, bounded run over real-time streaming.** `run_one_beat(run_id, db)`
+executes exactly one beat; `run_bounded(run_id, db)` loops it until a stop
+condition — one implementation, two entry points, matching the ticket's
+decision text verbatim. B3 (real-time streaming) was never a candidate here:
+the transcript is read cold, after the fact, by both the beat loop itself
+(`_intent_transcript`) and by F3's post-close analysis
+(`_analysis_transcript`); no SSE, no partial-line delivery. The mini-RECON's
+process-model finding (item 7) is why `start` is a separate route from
+`step`: a 30-beat/5-NPC run is ~150 model calls, too long for one
+synchronous HTTP request, so there is no "run to completion" HTTP route —
+`cockpit/routes/observation.py` exposes exactly the four routes the brief
+names (start / step / stop / inject-event); `run_bounded` stays a
+Python-level entry point for scripts and the verify check, called
+step-by-step by whatever drives the four routes (a future cockpit UI,
+BRIEF-0051-f, or a script).
+
+**Readiness gate, verbatim rationale (fail-closed, pre-write).**
+`check_run_readiness` carries this rationale in its docstring, unedited:
+
+> The gate exists because a flat scene has two very different causes: a
+> passive initiative system (what this ticket measures) and an
+> under-populated world (what it does not). Without the gate the first
+> finding of every run risks being misattributed to the engine. Refusing
+> loudly costs one message; a misattributed conclusion costs a redesign.
+
+The gate's five conditions (>=2 NPCs present, every present NPC has an
+active goal, every present NPC has a describable name+description, the
+location exists and belongs to the world, `player_presence == 'absent'`) are
+checked before any write; a non-empty failure list means zero
+`observation_run` rows (verify Rule 4). The brief's documented signature
+(`check_run_readiness(location_id, npc_ids, db)`) omits two identities two
+of its own five conditions cannot be checked without — `world_id` (for "the
+location belongs to the world") and `player_presence` (for the H2
+condition). Both were added as required keyword-only parameters, following
+BRIEF-0051-d's own precedent (`arbitrate`'s `beats_since_last_act` /
+`relation_intensities`) for completing an underspecified signature
+additively rather than guessing a workaround.
+
+**Roster is re-derived, never snapshotted.** `observation_run` carries no
+participant column. "Present NPCs" is recomputed at every beat from
+`Character.current_location_id == run.location_id` (mirrors
+`gathering.py`'s `_present_npcs`), not captured once at start. This ticket
+adds no NPC-movement mechanism, so the set is expected to be stable across a
+run; G1's "runs execute against the live world DB" accepts the consequence
+that an external edit to an NPC's location mid-run changes who gets the next
+beat's opportunity. Mini-RECON item 4 (gathering roster) concluded a run
+neither creates nor attaches to a `gathering` — presence is a physical-
+location fact, not gathering membership, so the B1 per-NPC-one-gathering
+invariant is never touched by this brief.
+
+**Three-way outcome, why `degraded` must not collapse into `silence`.**
+`_beat_outcome` is three explicit `return` statements — `selected_npc_id is
+not None` -> `'acted'`; `any(call_status == 'ok')` -> `'silence'`; else
+`'degraded'` — never a truthiness ternary on `actor_id` (verify Rule 2,
+AST-enforced). This is the ticket's central measurement claim in code form:
+a scene where every NPC's intent call timed out must never read as "the NPCs
+chose not to act" (a datum about the initiative system) when it is actually
+"the model was unreachable" (a bug/ops signal). Verify Rule 3 forces every
+intent call to fail and asserts `outcome == 'degraded'` with a full,
+non-empty `observation_intent` row set — the mechanical form of this claim.
+
+**K2, event injection.** `inject_event` writes one `observation_beat`
+(`outcome='event'`, `actor_id=None`) directly via `write_observation_beat`
+— no intent rows, no beat-allowance consumption (`_regular_beat_count`
+excludes `outcome='event'`; `_consecutive_non_acted` skips event rows
+entirely rather than resetting or counting them, since an injected event is
+creator narration, not an NPC declining to act). The mechanism is exactly
+"it becomes part of the transcript every subsequent NPC reads":
+`_intent_transcript` includes every beat with a non-null `line`, event or
+acted, in `beat_index` order.
+
+**Template pinning stays attribution, not a replay lock (L, reduced).**
+`_pin_templates` resolves and records each usage's `(template_id,
+version_number)` ONCE, at `start_run`, into `observation_run_template` — but
+every beat re-resolves the head template by usage and calls `current_prompt`
+for its latest text, exactly like BRIEF-0051-d's `request_intent`. This
+matches the ticket's L decision: bit-exact replay is abandoned (the world
+mutates under play), so pinning exists to make two runs comparable
+(“what was active when this run began”), not to lock beat 17 to the exact
+text beat 1 saw if a creator edits the template mid-run.
+
+**F3, once per run, after close — and its overhearing sub-pass.**
+`produce_run_proposals` is never called from the beat loop; it runs exactly
+once, from `_produce_proposals_quietly`, itself called from every path that
+reaches a terminal `close_observation_run` (`_apply_stop_conditions`'s
+max_beats/quiescence branches, `stop_run`'s creator_stop, and
+`_run_beat_safely`'s exception handler before it re-raises) — "after the run
+closes" is enforced structurally, not by caller discipline. A parse failure
+in the window pass is caught and logged, never allowed to undo the run's
+already-terminal status (`_produce_proposals_quietly` swallows any
+exception).
+
+The window sub-pass (`analyze_transcript`) runs once over the whole run,
+using the seam's frozen `[PNJ]`/`[JOUEUR]` transcript contract with every
+line labeled `[PNJ]` (no player exists) and `AttributionContext(None,
+None)` — R1's documented shape for a multi-NPC scene with no run-level
+counterparty. Event beats get a third label, `[ÉVÉNEMENT]`, not in the
+seam's frozen two-way contract: they are creator narration, not something a
+PNJ said, and excluding them entirely would drop causally relevant context
+(e.g. an injected fire that later motivates a `status_change`).
+
+The overhearing sub-pass (`analyze_overheard_lines`) is called once PER
+ACTED BEAT, not once for the whole run and not once per beat of the live
+loop — resolved this way after finding that `analyze_overheard_lines`'
+identity contract can only resolve a speaker via a SINGLE
+`AttributionContext.default_subject_id`, which a 30-beat/multi-NPC run has
+no run-level value for (beat 12's speaker and beat 19's speaker are
+different NPCs). Per-acted-beat scoping sidesteps this cleanly: each call's
+`AttributionContext(default_subject_id=beat.actor_id,
+default_counterparty_id=None)` is unambiguous, because the beat's actor IS
+that call's speaker by construction — never a guess, never a cross-beat
+default. `receiver_ids` is "every present NPC except the speaker" per the
+brief's own wording, with no player subtraction (H2 — there is no player).
+`speaker_line`/`listener_line` both receive the beat's own line (there is no
+distinct "reply" within a single-line beat, unlike a played turn's
+player-line/npc-reply pair) — a degenerate but safe input: even a
+misclassified `"speaker":"player"` from the model drops silently
+(`default_counterparty_id=None`), never misattributes. The brief's "once per
+run, not per beat" sentence is read as bounding the ANALYSIS PHASE to a
+single post-close pass (never interleaved into the live 30-beat loop, which
+is the multiplication it warns against) rather than bounding the sub-pass to
+exactly one call — a per-beat live analysis would have been the actual
+30x-multiplication the brief rejects; a per-acted-beat pass inside one
+already-single post-close phase is not.
+
+**F3 isolation.** Every mutation `analyze_transcript`/
+`analyze_overheard_lines` returns is retagged `proposed_by =
+OBSERVED_PROPOSED_BY` before persisting (overwriting the seam's own
+`local_ai_window`/`local_ai_overhearing` default) and linked via one
+`observation_mutation_link` row — the sole write authority for that tag and
+that join stays `observation_writes.py` (`link_observation_mutation`);
+`produce_run_proposals` never touches a canon table directly beyond the
+`ProposedMutation` insert itself, which is the same non-canon staging write
+`analyzer.py`'s window pass already performs today.
+
+**New template, `observation_narration` (mj_narration, off by default).**
+The brief names `pt-npc-initiative-act` for the line (step 5) but names no
+template for the optional MJ-narration call (step 7). Reusing the existing
+`player_narration` template verbatim was rejected: its user template's
+fixed prose ("Le joueur dit : {player_line}") is not a placeholder
+substitution problem, it is baked-in text asserting a player exists, which
+is false for every observed run by construction (`player_presence`
+implemented value is only `'absent'`). A new usage,
+`observation_narration` (`pt-observation-narration`, seeded in
+`scripts/seed_pilot.py`, registered in `prompt_registry.py`), was authored
+instead — same pattern BRIEF-0051-d used for `observation_intent` (a new
+model-facing prompt seeded alongside the code that calls it). Off by
+default (H2/ticket text); a run with `mj_narration=False` never resolves or
+calls this template at all — `_generate_mj_narration` is only reached when
+`run.mj_narration` is true AND a beat's `outcome == 'acted'`.
+
+**`move` finding from BRIEF-0051-d, resolved by omission.** -d flagged that
+`pt-npc-initiative-act`'s `move` field ("rejoindre le groupe DU JOUEUR")
+reads incorrectly with no player. `_generate_act_line` parses `act_text`
+only and never reads `move` — this ticket adds no NPC-movement mechanism for
+observed scenes, so the field is simply never consumed; the prompt's
+mis-worded instruction is inert here rather than fixed (fixing the shared
+template's wording is out of scope — `play_initiative.py` is untouched by
+this ticket).
+
+**`_run_beat_safely`, the exception safety net.** A run must never be left
+`status='running'` after the process returns "by any path" (verify Rule 7).
+`run_one_beat` itself stays a pure "execute exactly one beat" primitive with
+no exception handling; `_run_beat_safely` wraps it, closes the run
+`failed`/`'error'` on ANY exception (best-effort — a `ValueError` from
+`close_observation_run` on an already-terminal run is swallowed so the
+original exception is never masked), fires `_produce_proposals_quietly` over
+whatever transcript exists, then re-raises. Both `step_run` (single manual
+step) and `run_bounded`'s loop call this same wrapper — the safety net is
+identical whether a creator steps one beat at a time or lets a script run to
+completion.
+
+---
+
+## OBSERVED SCENE — cockpit surface: top-level mode-tab, F3 read-only visibility (BRIEF-0051-f, no schema change)
+
+**P1, corrected: a mode-tab, never a Creation sub-tab.** The intake
+conversation described P1 as "a top-level tab in `TAB_KEYS`" — RECON showed
+that reading was wrong. `TAB_KEYS`/`CREATION_TABS`
+(`tooling/verify/checks/page_contract.py`, `index.html`) govern the
+**Creation** entity-CRUD sub-surfaces, each requiring a `primaryAction` and
+rendered through `showCreationSubTab`'s generic dispatcher. Observation is
+not an entity-CRUD surface and creates no entities. The decision itself (a
+top-level surface, sibling of Jouer and Création, not a sub-surface of Play,
+not a separate port) is unchanged — only the registry it lands in is
+corrected: a third `mode-tab` button (`#mode-tab-observation`, alongside the
+existing `#mode-tab-play`/`#mode-tab-creation`) calling
+`showObservationView()`, which mirrors `showPlayView()`/`showCreationView()`'s
+exact contract (show/hide the three top-level `.app-view` divs, toggle the
+three mode-tab buttons' `active` class, lazy-init once via an
+`obsInitialized` guard). `TAB_KEYS` and `CREATION_TABS` carry zero
+`observation` entry — asserted both directions by
+`tooling/verify/checks/observation_surface.py` (Rule 2).
+
+**Reads get their own chokepoint, mirroring writes.** `observation_socle.py`
+(BRIEF-0051-a) restricts the five `Observation*` model identifiers to a
+declared module allowlist — a rule written for writes, but its shape
+(model identifiers confined to named modules) applies just as well to reads.
+Rather than adding `cockpit/routes/observation.py` to that allowlist and
+letting route handlers touch `Observation*` classes directly, this brief
+ships `src/world_engine/observation_reads.py` — the read-side twin of
+`observation_writes.py` — and adds ONLY that one module to the allowlist.
+`cockpit/routes/observation.py` calls `observation_reads.list_runs` /
+`get_run_detail` / `get_run_proposals` / `list_present_npcs` and never
+references an `Observation*` class itself; `observation_surface.py`'s Rule 6
+asserts this by AST (zero `Observation*` `Name` references, zero `db.add(...)`
+calls in the routes module) — every write still reaches canon only through
+`observation_runner.py`.
+
+**`not_selected_reason` derivation lives in the reader, not the renderer.**
+`observation_reads.derive_not_selected_reason` implements the precedence
+documented in `world-engine-schema.md`'s `observation_intent` NOTE (M1:
+`act=False -> no_intent`, `cooldown_active -> cooldown`,
+`debt_score < 0 -> debt`, else `lost_arbitration`) once, server-side, and
+ships it as a `not_selected_reason` KEY in the JSON response — never a stored
+column. The transcript renderer labels it "raison (dérivée)" so a creator
+never mistakes a computed value for a persisted one.
+
+**Outcome visual distinction is a verified CSS claim, not a convention.**
+`.b-acted`/`.b-silence`/`.b-degraded`/`.b-event` are four badge classes with
+deliberately distant colors (green / muted-grey / red / purple) rather than
+shades of one hue — `degraded` must never look like `silence` at a glance,
+since that visual read IS the ticket's central measurement claim (a datum
+about passivity vs. a bug in the model call) in surface form.
+`observation_surface.py`'s Rule 3 asserts `.b-silence` and `.b-degraded`
+resolve to textually DIFFERENT class bodies, not merely that both class names
+exist somewhere in the stylesheet.
+
+**Run detail is the reader for the L columns.** `_obsRenderRunDetail`
+displays every pinned arbitration parameter (`cooldown_beats`, `debt_weight`,
+`propensity_mode`, `mj_narration`, `model`) and, per `observation_run_template`
+row, the usage/template_id/version triple — the one surface making two runs
+comparable, per L's reduced form (attribution, not replay). Each pinned
+template links into the existing Prompts tab (`observationOpenPrompt`:
+`showCreationView(); showCreationSubTab('prompts'); promptsLoadList().then(...
+promptsSelectDetail(templateId))`) rather than duplicating its editor —
+Scope OUT is explicit that this brief never edits a template.
+
+**F3 proposals: read-only, reached only through the link table.** The
+Observation surface's proposals region calls
+`GET /api/observation/runs/{id}/proposals`, which reads
+`observation_mutation_link` and never `/api/mutations` — isolation proven the
+same way BRIEF-0051-a proved it (a NULL-safe exclusion on the queue side),
+now with a positive reader on the other side so isolation is not invisibility.
+No approve/reject control exists here; whether an observed proposal should
+ever be promotable to canon is logged as an OPEN QUESTION, not answered by
+this brief.
+
+**Verified live (test world, real Ollama call).** A 2-NPC run against a
+minimal test-world location produced a genuine `silence` beat (both
+candidates' `observation_intent` rows carrying `call_status='ok'`,
+`act=False`) rendered with the correct badge and derived
+`not_selected_reason='no_intent'` on both candidates; the readiness gate's
+per-condition refusal (missing description/goal) rendered as named,
+itemized failures rather than a generic error, confirming the direct-`fetch`
+path used for `start_run` (bypassing the shared `api()` helper's lossy
+`Error(data.detail)` coercion) correctly surfaces a `{failures: [...]}` 422
+body.
+
+---
+
+## OBSERVED SCENE — run metrics: deterministic instruments, J2 (BRIEF-0051-g, no schema change)
+
+**J2, enforced by AST, not by convention.** `scripts/observation_metrics.py`
+is read-only (opens the DB, computes, prints — no table, no cache, no
+column) and imports no local-model client. `tooling/verify/checks/
+observation_metrics.py`'s Rule 1 (no session-shaped `.add`/`.commit`/
+`.flush`/`.delete` call) and Rule 2 (no local-model-client import) make both
+claims mechanical rather than a docstring promise. D-J1, the LLM novelty
+judge, stays a named deferral: putting a model inside the measurement loop
+while isolating causes (this ticket's whole point) would add a confounder —
+reactivated once this tool has shown its blind spots on failure modes (b)
+and (c) below, not before.
+
+**Three failure modes, three distinguishing metrics.** A flat scene can be
+any one of these, and conflating them would misattribute the finding to the
+wrong fix:
+
+| Mode | Signature | Points at |
+|---|---|---|
+| (a) nobody wants to act | low intent rate (metric 3) | propensity/intent prompt |
+| (b) all want, nothing happens | high intent (3), low proposal yield (9) | dialogue prompt |
+| (c) they loop | high n-gram overlap (metric 8) | context/scene memory |
+
+Metric 6 (degraded rate) is reported separately and FIRST, before any other
+figure: a non-zero degraded rate means the intent calls themselves failed —
+a technical fault, not a datum about passivity — and every other metric on
+that run is suspect until it reads zero. `_print_human` prints the
+suspect-run warning before the Participation section, never after.
+
+**Entropy is normalised against the full present roster, not the support of
+NPCs who acted.** A single NPC capturing every beat is a degenerate
+distribution with entropy exactly 0 (well-defined), not an "undefined"
+value — the earlier draft normalised by `log2(len(shares))`, which returns
+`None` on a captured run (only one non-zero entry) instead of the near-0
+value the brief's Done-means demands. The fix: `normalized_entropy` divides
+by `log2(len(npc_ids))` — the full roster size — and sums `p*log2(p)` only
+over non-zero shares (the zero-share terms contribute 0 by the standard
+convention). `None` is now reserved for the genuinely undefined case: fewer
+than 2 present NPCs.
+
+**Spearman, not Pearson, and no scipy dependency.** With 5 NPCs the
+intensity/act-rate relationship is ordinal at best; a linear coefficient
+would overstate what the data supports. `spearman()` is implemented
+directly (average-rank ties, then Pearson over the ranks) rather than
+importing `scipy.stats.spearmanr` — CLAUDE.md: no new dependency without a
+decision, and `requirements.txt` carries neither `scipy` nor `numpy`. The
+coefficient is always printed WITH `n`, and the human output states plainly
+that `n=5` supports a direction, not a conclusion — the honesty is in the
+output, not just the docstring.
+
+**Per-NPC intensity has no run-level "reference" NPC — mean pairwise
+intensity is the documented substitute.** `relation` is pairwise; the
+ticket's originating hypothesis ("un personnage avec une intensité très
+faible ou très forte...") treats intensity as a per-character scalar, which
+a pairwise table does not directly carry. `_mean_pairwise_intensity`
+resolves this to the NPC's MEAN `relation.intensity` across every OTHER
+present NPC in the run — a documented choice, not a schema change: no
+snapshot column is added (mini-RECON item 2 confirmed `relation.intensity`
+carries no per-beat snapshot and a creator approving a proposal between the
+run and the metrics pass would shift the read; the interpretation guard
+states this precondition before any figure, rather than silently reporting
+a number that may already describe a different world state). The scan
+excludes `type='connects_to'` — location topology, never a social signal
+(the CLAUDE.md invariant on `connects_to` applies to every world-wide
+relation scan, and this is one).
+
+**`not_selected_reason` has exactly one implementation, and so does the
+reader chokepoint.** The script imports
+`observation_reads.derive_not_selected_reason` (BRIEF-0051-f) rather than
+re-deriving the precedence — Rule 5 asserts the import exists, which is a
+stronger guarantee than comparing two independently-written functions for
+textual agreement: there is only one function to drift. The same module
+gained five raw ORM accessors this brief (`get_run`/`list_beats`/
+`list_intents`/`list_run_templates`/`list_mutation_links`, alongside -f's
+JSON-shaped `list_runs`/`get_run_detail`/`get_run_proposals`) so that
+`scripts/observation_metrics.py` computes over real rows without ever
+naming an `Observation*` class itself — caught by `observation_socle.py`'s
+existing model-identifier allowlist (unchanged in shape since -a; this
+brief adds only the check file, `observation_metrics.py` itself needs no
+entry because it imports `observation_reads` functions, not the classes).
+
+**n-gram overlap: fixed n=4, window=5, containment not Jaccard.** Overlap of
+a line's n-grams against a PRIOR beat is `|current ∩ prior| / |current|`
+(containment, asked "how much of THIS line already existed"), maximised over
+the preceding `NGRAM_WINDOW` lined beats, then averaged across the run for
+the summary figure — reported per-beat AND as a run mean, per the brief.
+Event beats participate as lined beats (their text enters the window) since
+an injected event is part of what an NPC's line could be echoing.
+
+**Latency's different reader, honoured.** `observation_intent.latency_ms`
+is deliberately NOT mixed into the narrative metrics (participation/intent/
+health) — it is reported under "Evolution / feasibility" alongside proposal
+counts, the ticket's own declared reader for that column (does a 5-NPC/
+30-beat run stay tractable, not a scene-analysis question).
+
 ---
 
 *Co-built with Claude, June 2026.*

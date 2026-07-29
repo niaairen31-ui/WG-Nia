@@ -106,3 +106,12 @@ src/world_engine/cockpit/crud/locations.py::create_discoverable_detail     disco
 src/world_engine/cockpit/crud/locations.py::update_discoverable_detail     discoverable_detail
 src/world_engine/cockpit/crud/locations.py::delete_discoverable_detail     discoverable_detail
 src/world_engine/cockpit/crud/agendas.py::update_agenda_step             agenda_step
+
+# TICKET-0051, BRIEF-0051-a: observation_run, observation_run_template,
+# observation_beat, observation_intent and observation_mutation_link are
+# DELIBERATELY absent from [CANON_TABLES]. They are observation telemetry,
+# not durable world canon — same posture as gathering/conversation. Their
+# single write chokepoint is src/world_engine/observation_writes.py,
+# enforced by tooling/verify/checks/observation_socle.py rather than by this
+# file. An observed run reaches canon only through proposed_mutation under
+# creator approval.

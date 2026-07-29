@@ -391,7 +391,7 @@ WG-Nia/
 │   ├── tick*.py             # world-tick: tick.py orchestrates, tick_context.py assembles, tick_normalize.py normalizes; call sites allowlisted by verify/checks/world_tick.py
 │   ├── gathering.py         # initial NPC clustering into gatherings
 │   ├── ollama_client.py     # local Ollama HTTP client; think-stripping; ping()
-│   ├── analyzer.py          # window + overhearing analysis -> proposed_mutation rows
+│   ├── analyzer*.py         # analyzer.py: conversation-bound wrapper, persists + advances last_analyzed_turn; analyzer_transcript.py: conversation-agnostic judging core -> un-persisted proposed_mutation rows, shared by played and observed scenes
 │   ├── resolution.py        # physical-action dice resolution (2d6 bands)
 │   ├── ledger.py            # ledger read helpers
 │   ├── writes/               # shared canon-write helpers, split by canon domain; writes/__init__.py re-exports the whole surface; schema.py is the third structural-write authority (governed runtime-DDL writer for ext_* tables)

@@ -51,6 +51,7 @@ from ...context import (
     format_mj_context,
 )
 from ...db import engine, get_session
+from ...observation_writes import OBSERVED_PROPOSED_BY
 from ...models import (
     Agenda,
     BASE_SKILL_DOMAINS,
@@ -485,6 +486,13 @@ def list_mutations(
         select(ProposedMutation)
         .where(ProposedMutation.status == status)
         .where(ProposedMutation.world_id == _crud._world_id(db))
+        # F3: an observed-run proposal is structurally isolated from the
+        # creator-facing queue (BRIEF-0051-a). `!=` alone is WRONG here — a
+        # NULL proposed_by would compare to NULL and silently drop the row.
+        .where(
+            (ProposedMutation.proposed_by.is_(None))
+            | (ProposedMutation.proposed_by != OBSERVED_PROPOSED_BY)
+        )
         .order_by(ProposedMutation.proposed_at)
     ).all()
     result = []

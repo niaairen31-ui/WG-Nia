@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.89
+Current schema version: v1.90
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1383,7 +1383,8 @@ CREATE TABLE prompt_template (
                    -- overhearing_classification | mj_arbitration |
                    -- mj_establishment | entity_generation | region_manifest |
                    -- mj_gathering | mj_speaker_selection | mj_initiative |
-                   -- npc_initiative_act | world_generation | player_generation |
+                   -- npc_initiative_act | observation_intent |
+                   -- world_generation | player_generation |
                    -- skill_catalogue | other
   destination      TEXT DEFAULT 'local',
                    -- local | claude_api | both
@@ -1675,6 +1676,187 @@ CREATE TABLE npc_batch_row (
 );
 CREATE INDEX idx_npc_batch_row_batch ON npc_batch_row(batch_id);
 ```
+
+-----
+
+### `observation_run`
+
+Observed-scene instrumentation (schema v1.90, TICKET-0051, BRIEF-0051-a): a
+creator watches NPCs act among themselves rather than playing. Telemetry,
+never canon — absent from `canon_write_policy.txt`'s `[CANON_TABLES]`. The
+single write chokepoint is `observation_writes.py`; a lasting consequence of
+an observed run reaches the world only through `proposed_mutation` under
+creator approval, exactly like a played scene. Append-only except this
+table's own terminal `status`/`stop_reason`/`ended_at`, set exactly once by
+`close_observation_run`.
+
+```sql
+CREATE TABLE observation_run (
+  id                 TEXT PRIMARY KEY,
+  world_id           TEXT NOT NULL REFERENCES world(id),
+  location_id        TEXT NOT NULL REFERENCES entity(id),
+  gathering_id       TEXT REFERENCES gathering(id),
+  player_presence    TEXT NOT NULL DEFAULT 'absent',
+                                       -- absent | silent | active
+  max_beats          INTEGER NOT NULL,
+  quiescence_limit   INTEGER NOT NULL,
+  mj_narration       BOOLEAN NOT NULL DEFAULT FALSE,
+  cooldown_beats     INTEGER NOT NULL,
+  debt_weight        REAL NOT NULL,
+  propensity_mode    TEXT NOT NULL,     -- flat | relation_weighted
+  model              TEXT NOT NULL,
+  status             TEXT NOT NULL DEFAULT 'running',
+                                       -- running | completed | stopped | failed
+  stop_reason        TEXT,             -- max_beats | quiescence | creator_stop | error
+  started_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+  ended_at           DATETIME
+);
+CREATE INDEX idx_observation_run_world    ON observation_run(world_id);
+CREATE INDEX idx_observation_run_location ON observation_run(location_id);
+
+-- NOTE: player_presence is a closed vocabulary, not a boolean, because a
+--       SILENT player is still an AUDITOR for disclosure gating (E2) while
+--       an ABSENT one is not. Only 'absent' is implemented at v1.90;
+--       'silent' and 'active' are named deferrals (TICKET-0051, H2) and the
+--       runner refuses them explicitly rather than silently treating them
+--       as 'absent'.
+-- NOTE: cooldown_beats / debt_weight / propensity_mode are pinned PER RUN,
+--       not read from code constants, so that two runs separated by a tuning
+--       pass remain attributable. They are not a replay mechanism: the world
+--       mutates under play and bit-exact replay is out of scope by decision.
+```
+
+-----
+
+### `observation_run_template`
+
+Per-usage prompt pinning (L): which template `id` + `version` a run used for
+each prompt usage, so two runs separated by a template edit stay comparable.
+
+```sql
+CREATE TABLE observation_run_template (
+  id            TEXT PRIMARY KEY,
+  run_id        TEXT NOT NULL REFERENCES observation_run(id),
+  usage         TEXT NOT NULL,
+  template_id   TEXT NOT NULL,
+  version       INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX idx_observation_run_template_unique
+  ON observation_run_template(run_id, usage);
+```
+
+-----
+
+### `observation_beat`
+
+One row per beat of an observed run.
+
+```sql
+CREATE TABLE observation_beat (
+  id             TEXT PRIMARY KEY,
+  run_id         TEXT NOT NULL REFERENCES observation_run(id),
+  beat_index     INTEGER NOT NULL,
+  outcome        TEXT NOT NULL,        -- acted | silence | degraded | event
+  actor_id       TEXT REFERENCES entity(id),
+  line           TEXT,
+  mj_narration   TEXT,
+  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_observation_beat_unique
+  ON observation_beat(run_id, beat_index);
+
+-- NOTE: outcome is explicit and never inferred from actor_id being NULL.
+--       'silence'  = every candidate declined (a datum: passivity mode (a))
+--       'degraded' = every intent call failed (a bug, not a datum)
+--       'event'    = a creator-injected event line (no NPC actor)
+--       Conflating the first two would let a JSON parse failure be read as
+--       "the NPCs are passive" — the exact misreading this table exists to
+--       prevent.
+```
+
+-----
+
+### `observation_intent`
+
+One row per NPC per beat, ALWAYS written, including on a failed model call.
+
+```sql
+CREATE TABLE observation_intent (
+  id                TEXT PRIMARY KEY,
+  run_id            TEXT NOT NULL REFERENCES observation_run(id),
+  beat_id           TEXT NOT NULL REFERENCES observation_beat(id),
+  npc_id            TEXT NOT NULL REFERENCES entity(id),
+  act               BOOLEAN NOT NULL DEFAULT FALSE,
+  urgency           INTEGER,
+  target_id         TEXT REFERENCES entity(id),
+  why               TEXT,
+  propensity        REAL NOT NULL,
+  cooldown_active   BOOLEAN NOT NULL,
+  debt_score        REAL NOT NULL,
+  final_score       REAL NOT NULL,
+  selected          BOOLEAN NOT NULL DEFAULT FALSE,
+  call_status       TEXT NOT NULL,     -- ok | parse_error | timeout | error
+  latency_ms        INTEGER,
+  raw_response      TEXT,
+  created_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_observation_intent_unique
+  ON observation_intent(beat_id, npc_id);
+CREATE INDEX idx_observation_intent_run ON observation_intent(run_id);
+
+-- NOTE: there is deliberately NO not_selected_reason column. A candidate can
+--       be excluded by cooldown AND by debt AND by arbitration at once; a
+--       single-valued reason would force a precedence and destroy the rest of
+--       the information. The COMPONENTS are stored (propensity,
+--       cooldown_active, debt_score, final_score) and the reason is DERIVED
+--       at read time by a documented precedence:
+--         act = FALSE                       -> no_intent
+--         cooldown_active = TRUE            -> cooldown
+--         selected = FALSE, debt_score < 0  -> debt
+--         otherwise                         -> lost_arbitration
+--       The arbitration is therefore reconstructible, not merely reported.
+-- NOTE: a row is written for every candidate on every beat, including when
+--       the model call fails (call_status != 'ok'). A missing row is a bug,
+--       never a silent decline.
+-- NOTE: latency_ms and raw_response have a DIFFERENT reader from the rest of
+--       this table: run feasibility (does a 5-NPC / 30-beat run stay
+--       tractable) and parse diagnosis. They are not scene-analysis columns.
+```
+
+-----
+
+### `observation_mutation_link`
+
+Provenance without altering a canon table: joins a `proposed_mutation` back
+to the run/beat that produced it. `proposed_by = 'observed_scene'` on the
+`proposed_mutation` row carries the FILTER; this table carries the JOIN.
+
+```sql
+CREATE TABLE observation_mutation_link (
+  id            TEXT PRIMARY KEY,
+  run_id        TEXT NOT NULL REFERENCES observation_run(id),
+  beat_id       TEXT REFERENCES observation_beat(id),
+  mutation_id   TEXT NOT NULL REFERENCES proposed_mutation(id)
+);
+CREATE UNIQUE INDEX idx_observation_mutation_link_unique
+  ON observation_mutation_link(mutation_id);
+```
+
+**Writer (BRIEF-0051-e, no schema change).** `observation_runner.py`'s
+`produce_run_proposals` is the first and only writer of this table (via
+`observation_writes.link_observation_mutation`): once per closed run, one
+row per proposal the -c seam returns over that run's transcript, `beat_id`
+left NULL (provenance is at the run grain here, not per-beat).
+
+**`proposed_mutation.payload["source"]` format boundary (BRIEF-0051-c, no
+schema change).** The overhearing pass (`proposed_by = 'local_ai_overhearing'`)
+writes a `"source"` key inside `payload` for provenance. Rows written before
+schema v1.90 carry `overheard:{conversation_id}:{speaker_id}`; rows written
+from v1.90 onward carry `overheard:{speaker_id}` only — the
+`conversation_id` segment was a duplicate of the `conversation_id` column,
+which the caller now always populates (`analyzer.py`'s `analyze_window` /
+`analyze_overhearing`). History is append-only: existing rows are never
+migrated to the new format; a reader must not assume either shape.
 
 -----
 

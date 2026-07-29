@@ -13,6 +13,32 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v1.90** — TICKET-0051, BRIEF-0051-a: observation socle — five tables,
+  no writer call site yet beyond `observation_writes.py` (no loop, no model
+  call, no UI this brief). `observation_run` (`id, world_id, location_id,
+  gathering_id, player_presence, max_beats, quiescence_limit, mj_narration,
+  cooldown_beats, debt_weight, propensity_mode, model, status, stop_reason,
+  started_at, ended_at`; CHECK on `player_presence` (absent/silent/active,
+  only `absent` implemented — H2), `propensity_mode` (flat/relation_weighted),
+  `status` (running/completed/stopped/failed), `stop_reason`). Append-only
+  except its own one-way terminal transition (`close_observation_run`).
+  `observation_run_template` — per-usage prompt id/version pinning (L),
+  UNIQUE `(run_id, usage)`. `observation_beat` — one row per beat, explicit
+  `outcome` (acted/silence/degraded/event, CHECK) never inferred from
+  `actor_id`, UNIQUE `(run_id, beat_index)`. `observation_intent` — one row
+  per NPC per beat, ALWAYS written including on a failed call (`call_status`
+  CHECK: ok/parse_error/timeout/error), UNIQUE `(beat_id, npc_id)`;
+  deliberately NO `not_selected_reason` column (M1) — `propensity`,
+  `cooldown_active`, `debt_score`, `final_score` are stored and the reason is
+  derived at read time by documented precedence. `observation_mutation_link`
+  — provenance join back to `proposed_mutation` (never a column on that
+  canon table), UNIQUE `mutation_id`. None of the five tables are in
+  `canon_write_policy.txt`'s `[CANON_TABLES]` — observation telemetry, not
+  durable world canon; single write chokepoint
+  `src/world_engine/observation_writes.py`. `list_mutations` (the
+  creator-facing proposal queue) gained a NULL-safe exclusion of
+  `proposed_by = 'observed_scene'` rows — duplicate-detection paths are
+  untouched, and no producer exists yet (the filter is over an empty set).
 - **v1.89** — TICKET-0050, BRIEF-0050-a: `conversation_window_config` —
   creator-tunable NPC dialogue context window, one row per world.
   `id, world_id, word_budget, verbatim_turns, summary_enabled, updated_at`.
