@@ -387,13 +387,13 @@ WG-Nia/
 │   ├── schema_version.py    # code-side expected-version constant for the static schema, checked at cockpit boot
 │   ├── schema_reconcile.py  # physical-table reconciliation (C2 plane 2): static ∪ registered_runtime ∪ orphan-pattern accounting, boot guard + CLI
 │   ├── models/               # all SQLModel table classes (the schema), split by canon/canon_faction/ephemeral/pipeline stratum; models/__init__.py re-exports the whole surface
-│   ├── context.py           # NPC + MJ context assembly; structural exclusions; signposts
+│   ├── context*.py          # context.py: NPC + MJ context assembly, structural exclusions, signposts; context_window.py: sliding context window (config + message-list assembly), shared seam for the played and observed lanes, read + compute only
 │   ├── tick*.py             # world-tick: tick.py orchestrates, tick_context.py assembles, tick_normalize.py normalizes; call sites allowlisted by verify/checks/world_tick.py
 │   ├── gathering.py         # initial NPC clustering into gatherings
 │   ├── ollama_client.py     # local Ollama HTTP client; think-stripping; ping()
 │   ├── analyzer*.py         # analyzer.py: conversation-bound wrapper, persists + advances last_analyzed_turn; analyzer_transcript.py: conversation-agnostic judging core -> un-persisted proposed_mutation rows, shared by played and observed scenes
-│   ├── resolution.py        # physical-action dice resolution (2d6 bands)
-│   ├── ledger.py            # ledger read helpers
+│   ├── observation_*.py     # observed-lane socle/engine/runner/reads/writes (TICKET-0051); observation_window.py resolves the per-NPC windowed transcript via context_window, MJ narration deliberately excluded (H1); observation_window_parity.py (verify) makes both structural: single window implementation, MJ exclusion asserted, not just documented
+│   ├── resolution.py, ledger.py  # physical-action dice resolution (2d6 bands); ledger read helpers
 │   ├── writes/               # shared canon-write helpers, split by canon domain; writes/__init__.py re-exports the whole surface; schema.py is the third structural-write authority (governed runtime-DDL writer for ext_* tables)
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
 │   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)

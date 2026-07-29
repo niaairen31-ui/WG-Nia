@@ -77,7 +77,13 @@ INTERPRETATION_GUARD = (
     "pinned parameters and template versions match (shown below) and the world\n"
     "did not change materially between them. Bit-exact replay is out of scope by\n"
     "decision: the world mutates under play. A metric that differs between two\n"
-    "runs with different template versions says nothing about the arbitration."
+    "runs with different template versions says nothing about the arbitration.\n"
+    "\n"
+    "Fenetre de contexte : les runs anterieurs a TICKET-0052 ont ete produites SANS\n"
+    "fenetre glissante cote observation (transcript integral a chaque beat). Leurs\n"
+    "chiffres de repetition (metrique 8) constituent une baseline \"sans fenetre\" et\n"
+    "ne sont pas comparables terme a terme aux runs posterieures. Ils ne sont pas\n"
+    "rejoues (TICKET-0052, decision D)."
 )
 
 

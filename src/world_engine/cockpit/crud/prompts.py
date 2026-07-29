@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session as DbSession, select
 
-from ...conversation_window import load_conversation_window_config
+from ...context_window import load_conversation_window_config
 from ...db import get_session
 from ...entity_author import generate_npc_goals
 from ...gathering import close_open_memberships

@@ -29,7 +29,7 @@ from ..context import (
     format_inventory_line,
     format_item_list_for_interpretation,
 )
-from ..conversation_window import resolve_npc_message_list
+from ..context_window import resolve_npc_message_list
 from ..db import engine
 from ..models import (
     Character,

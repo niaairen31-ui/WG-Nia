@@ -8,7 +8,7 @@ multi-turn conversation replay (the codebase's Ollama stubbing precedent —
 `tooling/verify/checks/prompt_model_write.py` — monkeypatches `ping()` for a
 model-list check, not `chat()` for a dialogue replay). This script is a
 small, self-contained harness built on the SAME real call path production
-uses (`conversation_window.build_npc_message_list` +
+uses (`context_window.build_npc_message_list` +
 `ollama_client.chat`), against a real local Ollama model — it is
 measurement only and NEVER writes config or changes defaults on its own
 (Scope OUT).
@@ -51,7 +51,7 @@ import seed_pilot  # noqa: E402
 from sqlmodel import Session  # noqa: E402
 from world_engine import ollama_client  # noqa: E402
 from world_engine.context import assemble_npc_context, assemble_scene_tail  # noqa: E402
-from world_engine.conversation_window import build_npc_message_list  # noqa: E402
+from world_engine.context_window import build_npc_message_list  # noqa: E402
 from world_engine.db import create_db_and_tables, engine  # noqa: E402
 from world_engine.prompt_store import current_prompt  # noqa: E402
 

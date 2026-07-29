@@ -1,7 +1,9 @@
 """G1 check for TICKET-0050 (BRIEF-0050-d) — the conversation summary is
-never persisted (C1, standard idiom, vacuous-proof).
+never persisted (C1, standard idiom, vacuous-proof). TICKET-0052 (BRIEF-
+0052-a) renamed the module to `context_window.py`; the invariant it
+guards is unchanged.
 
-`conversation_window.py` is read + compute only: no function in it may
+`context_window.py` is read + compute only: no function in it may
 INSERT/UPDATE a `ConversationMessage` or any canon row. Grep-guard (module
 source text) for the write-shaped tokens that would indicate a persistence
 attempt. Vacuous-proof (negative direction): injecting a stub
@@ -14,7 +16,7 @@ import pathlib
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-MODULE = ROOT / "src" / "world_engine" / "conversation_window.py"
+MODULE = ROOT / "src" / "world_engine" / "context_window.py"
 
 FORBIDDEN_TOKENS = (
     "ConversationMessage(",
@@ -40,7 +42,7 @@ def check_module_is_clean() -> None:
         return
     hits = _scan(MODULE.read_text(encoding="utf-8"))
     for token in hits:
-        fail(f"conversation_window.py contains forbidden write token {token!r} — module must be read+compute only")
+        fail(f"context_window.py contains forbidden write token {token!r} — module must be read+compute only")
 
 
 def check_scan_actually_catches_a_write() -> None:
@@ -62,7 +64,7 @@ def main() -> int:
         return 1
 
     print(
-        "PASS: summary_not_persisted — conversation_window.py carries no "
+        "PASS: summary_not_persisted — context_window.py carries no "
         "canon-write token (C1: the summary is compute-only, never persisted)"
     )
     return 0

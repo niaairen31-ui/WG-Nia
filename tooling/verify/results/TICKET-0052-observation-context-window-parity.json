@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0052-observation-context-window-parity",
+  "when": "2026-07-29T19:51:15.117541+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "observation_window_parity.py",
+      "status": "PASS",
+      "msg": "PASS: observation_window_parity \u00e2\u20ac\u201d single window implementation, observed lane consumes the shared seam, MJ narration structurally excluded (H1), played-lane round-trip holds"
+    },
+    {
+      "check": "summary_not_persisted.py",
+      "status": "PASS",
+      "msg": "PASS: summary_not_persisted \u00e2\u20ac\u201d context_window.py carries no canon-write token (C1: the summary is compute-only, never persisted)"
+    }
+  ]
+}

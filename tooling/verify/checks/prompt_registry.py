@@ -36,7 +36,7 @@ WIRED_FILES = [
     SRC / "cockpit" / "play_physical.py",
     SRC / "cockpit" / "play_stream.py",
     SRC / "tick.py",
-    SRC / "conversation_window.py",
+    SRC / "context_window.py",
 ]
 
 # Exemption allowlist (by enclosing function name): the call path whose
