@@ -10721,6 +10721,36 @@ duration — belt-and-braces alongside the flag check inside each handler.
   (E2). Reactivate if metrics ever need to distinguish batched from
   hand-stepped beats.
 
+## FACTION ROSTER — server-side rank ordering (BRIEF-0054-a, no schema change)
+
+`GET /entities/{entity_id}/faction-roster` (`cockpit/crud/factions.py`) had
+no `order_by` at all; the rank already existed relationally
+(`faction_role.position`) but no reader consumed it. This step makes the
+roster route the single source of roster ordering.
+
+**A1: the server orders the roster.** Ordering is a structural property of
+this one route, not a JS convention any caller must reimplement — any
+future roster reader inherits it by calling the route; none re-sorts
+client-side.
+
+**B1: three ordered buckets with visible headers.** Declared roles by
+`faction_role.position` ascending, then roles borne by active members but
+not declared (alphabetical, casefold), then members with no role. Within
+one role: `is_primary` first, then `joined_at` ascending — the same static
+ordering `read_public_memberships` already uses (BRIEF-29).
+
+**Casefold, never SQL `lower()`.** `_roster_rank_index` matches role names
+via Python `.casefold()` — SQLite's `lower()`/`NOCASE` is ASCII-only and
+would mishandle accented French role names. Same rationale as
+`_resolve_role_change_role` (`cockpit/mutations.py`).
+
+**`_membership_dict` was deliberately left alone.** The two new response
+keys (`role_position`, `role_declared`) ship only through the new
+`_roster_dict` wrapper, scoped to the roster route. Adding them to
+`_membership_dict` would put an N+1 `faction_role` lookup on
+`list_entity_memberships` (the character sheet's "Appartenances" list) for
+no reader (E2).
+
 ---
 
 *Co-built with Claude, June 2026.*

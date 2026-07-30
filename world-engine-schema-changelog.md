@@ -13,6 +13,17 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **(no schema change — applicatif addendum)** — TICKET-0054, BRIEF-0054-a:
+  faction roster server-side rank ordering (decisions A1/B1). Read-only
+  step: `GET /entities/{id}/faction-roster` (`cockpit/crud/factions.py`)
+  now sorts its rows into three buckets — declared roles by
+  `faction_role.position` ascending, then roles borne by active members
+  but never declared (alphabetical, casefold), then members with no role;
+  within any bucket, `is_primary` first then oldest `joined_at`. Two new
+  read-only response keys, `role_position` and `role_declared`, ship on
+  this route only — `_membership_dict` (the character sheet's
+  "Appartenances" reader) is untouched. `faction_membership` and
+  `faction_role` are unchanged since v1.39 (TICKET-0024).
 - **v1.90** — TICKET-0051, BRIEF-0051-a: observation socle — five tables,
   no writer call site yet beyond `observation_writes.py` (no loop, no model
   call, no UI this brief). `observation_run` (`id, world_id, location_id,
