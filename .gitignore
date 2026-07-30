@@ -14,3 +14,9 @@ venv/
 *.db-shm
 *.sqlite
 *.sqlite3
+
+# Frontend toolchain (TICKET-0055). node_modules never enters the tree.
+# The BUILD OUTPUT under src/world_engine/cockpit/static/ IS committed on
+# purpose (E1): building at launch would fail open -- a stale or absent
+# build renders a blank page instead of refusing.
+frontend/node_modules/
