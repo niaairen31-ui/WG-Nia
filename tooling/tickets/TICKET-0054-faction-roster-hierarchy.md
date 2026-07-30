@@ -2,7 +2,7 @@
 id: TICKET-0054
 title: Faction roster - rank ordering, membership authoring, cross-tab navigation
 type: feature
-status: brief
+status: live-gate
 created: 2026-07-30
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write]
@@ -70,10 +70,10 @@ Locked as `A1, B1, C3, D2, E1, F2a`:
 
 - [ ] The roster route orders by `faction_role.position` and exposes
       `role_position`; the three-bucket order is asserted, not implied
-      -> `verify/checks/faction_roster_order.py`
+      -> verify/checks/faction_roster_order.py
 - [ ] Role capacity is read through one shared accessor called by BOTH the AI
       path and the two creator paths; no inline holder-counting loop remains
-      in either -> `verify/checks/role_capacity_chokepoint.py`
+      in either -> verify/checks/role_capacity_chokepoint.py
 - [ ] `role_closed_vocab.py` still passes unchanged (the AI path keeps its
       reject-message literals in `mutations.py`)
 - [ ] `single_canon_write.py`, `module_budget.py`, `function_length.py`,
