@@ -10879,6 +10879,92 @@ commented exception, not a precedent for hardcoding elsewhere.
 tabs, no strip, no per-entity state retention — explicitly out of scope and
 coupled to the pending `index.html` split decision.
 
+## FRONTEND BUILD FOUNDATION — Svelte/Vite toolchain, static serving, committed build (BRIEF-0055-a, BRIEF-0055-b, BRIEF-0055-c, BRIEF-0055-d, no schema change)
+
+**The no-build reversal (A1).** The target is a Svelte SPA owning `/`; the
+transition is necessarily island-shaped because `index.html`'s ~11k lines of
+JS are physically interleaved across surfaces and cannot be range-cut.
+Islands are the intermediate state, not an alternative target.
+
+**The Play boundary (B1).** Play stays vanilla-JS until its own rewrite.
+Factual correction of record: no HTMX ever existed in this project —
+`grep -c "hx-"` on `index.html` returns 0, and no `htmx` token exists
+anywhere under `src/` or `tooling/pipeline_cockpit/`. The prior `CLAUDE.md`
+line claiming an HTMX frontend was wrong independently of this ticket.
+
+**The legacy-mount registry, DEFERRED to TICKET-0056 (named deferral).** A1
+plus a permanently-vanilla Play requires an escape hatch inside the SPA; an
+escape hatch rots unless it is an enumerated, monotonically shrinking
+registry policed by a fail-closed check, reaching exactly one entry (Play)
+at TICKET-0061. Not built at 0055.
+
+**Serving topology (C1) and the rejection of C3.** `/static` mount; `GET /`
+untouched; `/shell` as the transitional beachhead and the seam TICKET-0056
+renames. C3 (extending the per-file vendor whitelist) is rejected because a
+whitelist cannot express content-hashed filenames without ceasing to be
+one. `app.py`'s "wait for a second vendored asset" deferral is resolved on
+different grounds, not by analogy — a build output is a whole asset FAMILY
+with content-hashed names, not a second individually-whitelistable file.
+
+**Cytoscape stays vendored (D3)**, external to the bundler; the graph-engine
+question is TICKET-0057's, deliberately not pre-empted here.
+
+**Committed build output (E1) and why.** Building at launch fails open — a
+stale or absent build renders a blank page. A committed artifact, a boot
+guard (`app.py`'s `_check_frontend_build_on_startup`), and
+`frontend_build_fresh.py` make both failure modes refusals instead. The
+canonical source-hash algorithm is specified once, in `BRIEF-0055-c`, and
+implemented twice against that text: `frontend/scripts/write-manifest.mjs`
+(writer, at build time) and `tooling/verify/checks/frontend_build_fresh.py`
+(reader, at verify time) — if the two implementations ever disagree, the
+check goes red on a fresh build, which is the correct failure direction.
+
+**Permission scope (F3).** `.claude/settings.json` gained exactly
+`Bash(npm ci:*)` and `Bash(npm run build:*)`, never a bare `npm install`, so
+"no new dependencies without a decision" is structural rather than
+instructional: the executor can build and reproduce the lockfile, and
+cannot add a package.
+
+**Node is a BUILD dependency, never a RUNTIME one (E1 corollary).** The
+output being committed, a normal prod launch requires no Node at all —
+`docs/launch-procedure.md`'s prod block stays valid on a machine with none
+installed. Toolchain versions observed during this ticket's execution:
+`node v24.18.0`, `npm 11.16.0`; `frontend/package.json` declares a matching
+`engines.node` field, declarative only (`engine-strict` deliberately off).
+Exposure, accepted for now: `frontend_build_fresh.py` compares SOURCES to
+the manifest, never output to anything, so a divergence caused by a
+different Node major on a future second build machine would pass unseen.
+The day a second build machine exists, pinning (`.nvmrc` plus a version
+manager) becomes a ticket of its own — not decided here.
+
+**Line-ending reproducibility (found at BRIEF-0055-c's red-test,
+escalated).** With `core.autocrlf=true` on the build machine, a plain `git
+checkout` of a frontend source file silently rewrote it to CRLF; `git
+status`/`git diff` showed nothing (git normalizes for its own comparison)
+while the byte-level source hash diverged, turning `frontend_build_fresh.py`
+red with zero real source change — and a fresh clone on a differently
+configured machine would reproduce the same false failure. Fixed
+structurally in the committed `.gitattributes`, extending the rule
+`src/world_engine/cockpit/vendor/* -text` already established for the
+vendored cytoscape file: `frontend/** text eol=lf` (hand-authored sources,
+diffs matter) and `src/world_engine/cockpit/static/** -text` (generated
+output, treated like vendor). Explicitly REJECTED: a per-machine
+`core.autocrlf` setting (uncommitted, protects no other machine), and
+normalizing line endings inside the hash algorithm itself (would leave the
+gate green while Vite still read CRLF sources and could emit divergent
+output — fail-open). `frontend_build_fresh.py` carries a diagnostic-only
+4-bis check that names this exact failure mode by message when it recurs,
+without ever letting the normalized comparison substitute for the primary
+one. Scope note: the `.gitattributes` rule covers only this ticket's paths;
+whether the repo wants a global `* text=auto eol=lf` is a separate
+governance question, not settled here.
+
+**The 3D guard rail, re-nailed.** No speculative character coordinates;
+"qui entend quoi" stays behind the single earshot accessor; 3D consumes
+what canon exposes and never dictates storage. The frontend rewrite is the
+moment of temptation to leak spatial shortcuts into the client — this
+invariant holds unchanged through the migration.
+
 ---
 
 *Co-built with Claude, June 2026.*

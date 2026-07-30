@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0055-frontend-build-serving-foundation",
-  "when": "2026-07-30T23:11:43.586485+00:00",
+  "when": "2026-07-30T23:27:23.954155+00:00",
   "green": true,
   "checks": [
     {

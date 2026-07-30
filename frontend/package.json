@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "version": "0.1.0",
+  "engines": {
+    "node": ">=24.18.0"
+  },
   "scripts": {
     "build": "vite build && node scripts/write-manifest.mjs",
     "dev": "vite"

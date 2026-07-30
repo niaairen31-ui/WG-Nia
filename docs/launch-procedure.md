@@ -16,6 +16,21 @@ python scripts/cockpit.py
 
 Resolves to `~/.world_engine/world_engine.db`.
 
+## Frontend build
+
+The frontend build output is committed under
+`src/world_engine/cockpit/static/`, so a normal prod launch needs no Node
+installed at all. Rebuild after any `frontend/` edit:
+
+```powershell
+cd frontend
+npm ci
+npm run build
+```
+
+The output under `src/world_engine/cockpit/static/` is committed; the
+cockpit refuses to start if it is missing.
+
 ## Test
 
 ```powershell
