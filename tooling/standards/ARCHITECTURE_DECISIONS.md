@@ -10751,6 +10751,45 @@ keys (`role_position`, `role_declared`) ship only through the new
 `list_entity_memberships` (the character sheet's "Appartenances" list) for
 no reader (E2).
 
+## FACTION MEMBERSHIP — creator role reassignment + capacity chokepoint (BRIEF-0054-b, no schema change)
+
+`faction_membership` is INSERT-only / close-only by construction (BRIEF-27):
+`write_membership` can never update `role`. Close+reopen for a role change
+existed exactly once, on the AI path (`cockpit/mutations.py`); the creator
+path could only add and close memberships, and `max_holders` was enforced
+only on the AI path via an inline counting loop.
+
+**D2: role change is a dedicated close+reopen route.** `POST
+/memberships/{id}/role` performs close then reopen inside one
+`_reassign_membership_role_core` (commit-free, same shape as
+`_open_membership_core`, BRIEF-35), preserving `cover_role` / `is_primary`
+/ `is_secret` — mirroring the AI path's existing shape
+(`mutations.py`'s `_apply_effect_role_change`) verbatim. A no-op
+reassignment (same role, any casing) writes nothing; a closed membership
+409s — a closed row is history and is never reassigned. The client never
+issues the underlying close+open writes itself.
+
+**E1: `max_holders` becomes fail-closed on the creator paths too.** New
+`writes/factions.py::role_capacity_state(db, faction_id, role_name) ->
+(active_holder_count, max_holders, canonical_name)` is the single
+accessor answering "how many hold this role and what is the limit",
+built on `active_role_counts` (moved verbatim from `crud/factions.py`'s
+`_active_role_counts`, now public because it has two importers). Both
+creator paths (open a membership, change a role) and the AI `role_change`
+effect now call it; a second counting loop reappearing anywhere is the
+regression `role_capacity_chokepoint.py` exists to catch. No `force`
+override flag — raising `max_holders` in the roles editor is the
+sanctioned escape hatch. An undeclared role stays unconstrained
+(BRIEF-31's creator "autre" escape hatch) — the creator/AI asymmetry on
+undeclared roles (K1 whole-rejects on the AI path, legal on the creator
+path) is deliberate, not an oversight, and is untouched by this step.
+
+**Message-preserving recabling.** `mutations.py`'s reject string
+(`"role_change: role {resolved_key} is full ({count}/{limit})"`) stays
+constructed in `mutations.py`, unmoved — `role_closed_vocab.py` scans that
+literal text and was not retargeted; only the holder-counting sub-block
+was replaced with a call to `role_capacity_state`.
+
 ---
 
 *Co-built with Claude, June 2026.*

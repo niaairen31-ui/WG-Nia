@@ -46,6 +46,8 @@ from .config import (
 from .events import write_event, write_event_update
 from .factions import (
     _validate_max_holders,
+    active_role_counts,
+    role_capacity_state,
     write_faction_role,
     write_membership,
 )

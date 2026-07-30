@@ -36,6 +36,14 @@ carved out of `write_faction_role` at this brief (R7) so the function fits
 the 80-line cap. `write_faction_role` itself owns every `db.add`/
 `db.delete` call on `FactionRole`, so `canon_write_policy.txt`'s
 `faction_role` site count doesn't change.
+
+- `active_role_counts` / `role_capacity_state` (TICKET-0054, BRIEF-0054-b):
+  the single chokepoint answering "how many hold this role and what is the
+  limit" — read-only, no writes. `active_role_counts` moved here verbatim
+  from `cockpit/crud/factions.py` (`_active_role_counts`), now public
+  because both the creator CRUD and the AI `role_change` effect
+  (`cockpit/mutations.py::_resolve_role_change_role`) import it via
+  `role_capacity_state`.
 """
 
 from __future__ import annotations
@@ -117,6 +125,45 @@ def _validate_max_holders(max_holders: Optional[int]) -> None:
         not isinstance(max_holders, int) or isinstance(max_holders, bool) or max_holders < 1
     ):
         raise ValueError("write_faction_role: max_holders must be null or an int >= 1")
+
+
+def active_role_counts(db: Session, faction_id: str) -> dict[str, int]:
+    """Casefold -> count of ACTIVE memberships bearing that true `role`.
+
+    Moved from `cockpit/crud/factions.py` (BRIEF-0054-b) — it now has two
+    importers (the creator CRUD and, via `role_capacity_state`, the AI
+    `role_change` effect), so it lives in the shared write layer.
+    """
+    holder_roles = db.exec(
+        select(FactionMembership.role)
+        .where(FactionMembership.faction_id == faction_id, FactionMembership.left_at.is_(None))
+    ).all()
+    counts: dict[str, int] = {}
+    for role_name in holder_roles:
+        if role_name:
+            folded = role_name.casefold()
+            counts[folded] = counts.get(folded, 0) + 1
+    return counts
+
+
+def role_capacity_state(
+    db: Session, *, faction_id: str, role_name: str
+) -> tuple[int, Optional[int], Optional[str]]:
+    """(active_holder_count, max_holders, canonical_name) for `role_name`
+    against this faction's declared `faction_role` vocabulary.
+
+    Matched in Python (`.casefold()`), not SQL `lower()` — SQLite's
+    NOCASE/lower() is ASCII-only and would mishandle accented French role
+    names. An undeclared role returns `(0, None, None)`. A declared role
+    with `max_holders IS NULL` returns `(count, None, r.name)` — unlimited.
+    Counting reuses `active_role_counts`; no second counting loop here.
+    """
+    roles = db.exec(select(FactionRole).where(FactionRole.faction_id == faction_id)).all()
+    declared = next((r for r in roles if r.name.casefold() == role_name.casefold()), None)
+    if declared is None:
+        return 0, None, None
+    count = active_role_counts(db, faction_id).get(declared.name.casefold(), 0)
+    return count, declared.max_holders, declared.name
 
 
 def _faction_role_next_position(db: Session, faction_id: str) -> int:

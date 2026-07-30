@@ -160,3 +160,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 10579 | OBSERVATION CONTEXT WINDOW PARITY (BRIEF-0052-a, BRIEF-0052-b, BRIEF-0052-c, no schema change) | BRIEF-0052-a, BRIEF-0052-b, BRIEF-0052-c |  |
 | 10663 | OBSERVATION MULTI-BEAT SEQUENCE — client-driven loop (BRIEF-0053-a, no schema change) | BRIEF-0053-a |  |
 | 10724 | FACTION ROSTER — server-side rank ordering (BRIEF-0054-a, no schema change) | BRIEF-0054-a |  |
+| 10754 | FACTION MEMBERSHIP — creator role reassignment + capacity chokepoint (BRIEF-0054-b, no schema change) | BRIEF-0054-b |  |

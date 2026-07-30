@@ -13,6 +13,24 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **(no schema change — applicatif addendum)** — TICKET-0054, BRIEF-0054-b:
+  faction membership creator-side role reassignment + capacity chokepoint
+  (decisions D2/E1). New `POST /memberships/{id}/role`
+  (`cockpit/crud/factions.py`): close + reopen the membership with the new
+  role, never an UPDATE (`faction_membership` stays INSERT-only /
+  close-only, BRIEF-27) — `cover_role`/`is_primary`/`is_secret` carried
+  over from the closed row; a no-op (same role, any casing) writes
+  nothing; a closed membership 409s. `max_holders` becomes fail-closed on
+  both creator paths (open a membership, reassign a role) via a new shared
+  `writes/factions.py::role_capacity_state` accessor (built on
+  `active_role_counts`, moved verbatim from `crud/factions.py`'s
+  `_active_role_counts` and made public); the AI `role_change` effect
+  (`cockpit/mutations.py`) now calls the same accessor instead of its own
+  inline counting loop, with byte-identical reject-message text
+  (`role_closed_vocab.py` passes unmodified). No `force` override —
+  raising `max_holders` in the roles editor is the sanctioned escape
+  hatch. `faction_membership` and `faction_role` are unchanged since v1.39
+  (TICKET-0024).
 - **(no schema change — applicatif addendum)** — TICKET-0054, BRIEF-0054-a:
   faction roster server-side rank ordering (decisions A1/B1). Read-only
   step: `GET /entities/{id}/faction-roster` (`cockpit/crud/factions.py`)
