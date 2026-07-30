@@ -2,12 +2,12 @@
 id: TICKET-0054
 title: Faction roster - rank ordering, membership authoring, cross-tab navigation
 type: feature
-status: live-gate
+status: exec
 created: 2026-07-30
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write]
 blast_radius: medium
-brief_ids: [BRIEF-0054-a, BRIEF-0054-b]
+brief_ids: [BRIEF-0054-a, BRIEF-0054-b, BRIEF-0054-c, BRIEF-0054-d]
 schema_version_touched: none
 retry_count: 0
 ---
