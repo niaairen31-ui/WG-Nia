@@ -51,6 +51,7 @@ from ..models import (
 from ..writes import (
     _find_relation_pair,
     knowledge_level_rank,
+    role_capacity_state,
     write_agenda,
     write_agenda_status,
     write_agenda_step,
@@ -221,19 +222,9 @@ def _resolve_role_change_role(
     )
     if declared is not None:
         resolved_key = declared.name
-        limit = declared.max_holders
-        if limit is not None:
-            holders = db.exec(
-                select(FactionMembership).where(
-                    FactionMembership.faction_id == faction_id,
-                    FactionMembership.left_at.is_(None),
-                )
-            ).all()
-            count = sum(
-                1 for m in holders if (m.role or "").casefold() == resolved_key.casefold()
-            )
-            if count >= limit:
-                return None, f"role_change: role {resolved_key} is full ({count}/{limit})"
+        count, limit, _ = role_capacity_state(db, faction_id=faction_id, role_name=resolved_key)
+        if limit is not None and count >= limit:
+            return None, f"role_change: role {resolved_key} is full ({count}/{limit})"
         return resolved_key, None
     if declare:
         # L2 declare-and-occupy: a role is never created without a holder —

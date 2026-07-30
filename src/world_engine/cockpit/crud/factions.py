@@ -56,7 +56,9 @@ from ...writes import (
     NPC_GOAL_HORIZONS,
     NPC_GOAL_PREREQUISITE_TYPES,
     PromptValidationError,
+    active_role_counts,
     detach_goal_agenda_link,
+    role_capacity_state,
     write_agenda,
     write_agenda_status,
     write_agenda_step,
@@ -106,6 +108,10 @@ class MembershipOpenBody(BaseModel):
     is_secret: bool = False
 
 
+class MembershipRoleChangeBody(BaseModel):
+    role: Optional[str] = None
+
+
 def _membership_dict(m: FactionMembership, db: DbSession) -> dict:
     member = db.get(Entity, m.entity_id)
     faction = db.get(Entity, m.faction_id)
@@ -143,20 +149,6 @@ def list_faction_roles(faction_id: str, db: DbSession = Depends(get_session)) ->
     return [{"name": r.name, "description": r.description} for r in roles]
 
 
-def _active_role_counts(db: DbSession, faction_id: str) -> dict[str, int]:
-    """Casefold -> count of ACTIVE memberships bearing that true `role`."""
-    holder_roles = db.exec(
-        select(FactionMembership.role)
-        .where(FactionMembership.faction_id == faction_id, FactionMembership.left_at.is_(None))
-    ).all()
-    counts: dict[str, int] = {}
-    for role_name in holder_roles:
-        if role_name:
-            folded = role_name.casefold()
-            counts[folded] = counts.get(folded, 0) + 1
-    return counts
-
-
 def _faction_role_dict(role: FactionRole, active_holder_count: int) -> dict:
     return {
         "id": role.id,
@@ -183,7 +175,7 @@ def list_faction_role_rows(faction_id: str, db: DbSession = Depends(get_session)
         .where(FactionRole.faction_id == faction_id)
         .order_by(FactionRole.position)
     ).all()
-    counts = _active_role_counts(db, faction_id)
+    counts = active_role_counts(db, faction_id)
     declared_casefold = {r.name.casefold() for r in roles}
     active_role_names = db.exec(
         select(FactionMembership.role)
@@ -218,7 +210,7 @@ def create_faction_role(
         db.rollback()
         raise HTTPException(422, str(exc))
     db.refresh(role)
-    return _faction_role_dict(role, _active_role_counts(db, faction_id).get(role.name.casefold(), 0))
+    return _faction_role_dict(role, active_role_counts(db, faction_id).get(role.name.casefold(), 0))
 
 
 @router.patch("/factions/{faction_id}/roles/reorder")
@@ -268,7 +260,7 @@ def update_faction_role(
         db.rollback()
         raise HTTPException(422, str(exc))
     db.refresh(role)
-    return _faction_role_dict(role, _active_role_counts(db, faction_id).get(role.name.casefold(), 0))
+    return _faction_role_dict(role, active_role_counts(db, faction_id).get(role.name.casefold(), 0))
 
 
 @router.delete("/factions/{faction_id}/roles/{role_id}")
@@ -309,6 +301,14 @@ def _open_membership_core(
     faction = db.get(Entity, body.faction_id)
     if faction is None or faction.type != "faction":
         raise HTTPException(422, f"{body.faction_id!r} is not a valid faction entity id")
+
+    role = (body.role or "").strip()
+    if role:
+        count, limit, canonical_name = role_capacity_state(
+            db, faction_id=body.faction_id, role_name=role
+        )
+        if limit is not None and count >= limit:
+            raise HTTPException(409, f"role {canonical_name} is full ({count}/{limit})")
 
     membership = write_membership(
         db,
@@ -355,9 +355,121 @@ def close_entity_membership(membership_id: str, db: DbSession = Depends(get_sess
     return _membership_dict(membership, db)
 
 
+def _reassign_membership_role_core(
+    membership_id: str, body: MembershipRoleChangeBody, db: DbSession
+) -> FactionMembership:
+    """Commit-free core of the role reassignment route (TICKET-0054,
+    BRIEF-0054-b, decision D2) — same shape as `_open_membership_core`
+    (BRIEF-35): flushes, not commits, so the partial-unique `IntegrityError`
+    surfaces deterministically at this call site.
+
+    Close + reopen, never an UPDATE — `faction_membership` is INSERT-only /
+    close-only by construction (BRIEF-27); `cover_role` / `is_primary` /
+    `is_secret` are carried over from the closed row, read BEFORE closing.
+    """
+    membership = db.get(FactionMembership, membership_id)
+    if membership is None:
+        raise HTTPException(404, f"faction_membership {membership_id!r} not found")
+    if membership.left_at is not None:
+        raise HTTPException(409, "cannot reassign a closed membership")
+
+    new_role = (body.role or "").strip() or None
+    if (new_role or "").casefold() == (membership.role or "").casefold():
+        return membership
+
+    if new_role is not None:
+        count, limit, canonical_name = role_capacity_state(
+            db, faction_id=membership.faction_id, role_name=new_role
+        )
+        if limit is not None and count >= limit:
+            raise HTTPException(409, f"role {canonical_name} is full ({count}/{limit})")
+
+    world_id, entity_id, faction_id = membership.world_id, membership.entity_id, membership.faction_id
+    cover_role, is_primary, is_secret = membership.cover_role, membership.is_primary, membership.is_secret
+    write_membership(db, mode="close", membership_id=membership.id)
+    membership = write_membership(
+        db, mode="open", world_id=world_id, entity_id=entity_id,
+        faction_id=faction_id, role=new_role, cover_role=cover_role,
+        is_primary=is_primary, is_secret=is_secret,
+    )
+    db.flush()
+    return membership
+
+
+@router.post("/memberships/{membership_id}/role")
+def reassign_membership_role(
+    membership_id: str, body: MembershipRoleChangeBody, db: DbSession = Depends(get_session)
+) -> dict:
+    try:
+        membership = _reassign_membership_role_core(membership_id, body, db)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            409,
+            "Membership conflicts with an existing active row — at most one "
+            "active primary per member, and no duplicate active membership "
+            "in the same faction. Close the existing membership first.",
+        )
+    db.refresh(membership)
+    return _membership_dict(membership, db)
+
+
+def _roster_rank_index(db: DbSession, faction_id: str) -> dict[str, int]:
+    """Casefold role name -> `faction_role.position`, this faction's declared vocabulary.
+
+    Matched in Python (`.casefold()`), not SQL `lower()` — SQLite's
+    NOCASE/lower() is ASCII-only and would mishandle accented French role
+    names.
+    """
+    roles = db.exec(
+        select(FactionRole)
+        .where(FactionRole.faction_id == faction_id)
+        .order_by(FactionRole.position)
+    ).all()
+    return {r.name.casefold(): r.position for r in roles}
+
+
+def _roster_sort_key(
+    m: FactionMembership, rank_index: dict[str, int]
+) -> tuple[int, int, str, int, str]:
+    """Three-bucket roster order (TICKET-0054, decision B1): declared roles by
+    position, then undeclared-but-borne roles alphabetically, then no role —
+    within any bucket, primary first then oldest `joined_at`."""
+    role = (m.role or "").strip()
+    primary_key = 0 if m.is_primary else 1
+    joined_key = _iso(m.joined_at) or ""
+    if not role:
+        return (2, 0, "", primary_key, joined_key)
+    folded = role.casefold()
+    if folded in rank_index:
+        return (0, rank_index[folded], "", primary_key, joined_key)
+    return (1, 0, folded, primary_key, joined_key)
+
+
+def _roster_dict(m: FactionMembership, db: DbSession, rank_index: dict[str, int]) -> dict:
+    """`_membership_dict` plus `role_position`/`role_declared` — roster-only
+    enrichment, never added to `_membership_dict` itself (E2)."""
+    role = (m.role or "").strip()
+    folded = role.casefold() if role else None
+    declared = folded in rank_index if folded else False
+    return {
+        **_membership_dict(m, db),
+        "role_position": rank_index[folded] if declared else None,
+        "role_declared": declared,
+    }
+
+
 @router.get("/entities/{entity_id}/faction-roster")
 def get_faction_roster(entity_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
     """Active members of a faction (faction sheet read-only roster).
+
+    Ordering (TICKET-0054, decision B1) is a property of this route, not of
+    its callers: declared roles by `faction_role.position` ascending, then
+    roles borne by active members but never declared (alphabetical, casefold),
+    then members with no role — and within any one role, `is_primary` first
+    then oldest `joined_at`. Any future roster reader inherits this order by
+    calling this route; none re-sorts client-side.
 
     Secret members ARE included, with their `is_secret` badge — the creator
     sees everything; the structural exclusion belongs to the future
@@ -368,4 +480,8 @@ def get_faction_roster(entity_id: str, db: DbSession = Depends(get_session)) -> 
         select(FactionMembership)
         .where(FactionMembership.faction_id == entity_id, FactionMembership.left_at.is_(None))
     ).all()
-    return [_membership_dict(m, db) for m in rows]
+    rank_index = _roster_rank_index(db, entity_id)
+    return [
+        _roster_dict(m, db, rank_index)
+        for m in sorted(rows, key=lambda m: _roster_sort_key(m, rank_index))
+    ]

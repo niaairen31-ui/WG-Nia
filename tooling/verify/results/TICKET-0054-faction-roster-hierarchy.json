@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0054-faction-roster-hierarchy",
+  "when": "2026-07-30T14:50:44.250744+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "faction_roster_order.py",
+      "status": "PASS",
+      "msg": "PASS: faction_roster_order \u2014 roster route sorts by declared role rank"
+    },
+    {
+      "check": "role_capacity_chokepoint.py",
+      "status": "PASS",
+      "msg": "PASS: role_capacity_chokepoint \u2014 one shared capacity accessor, called by both AI and creator paths"
+    }
+  ]
+}
