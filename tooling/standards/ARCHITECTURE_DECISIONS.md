@@ -10790,6 +10790,48 @@ constructed in `mutations.py`, unmoved — `role_closed_vocab.py` scans that
 literal text and was not retargeted; only the holder-counting sub-block
 was replaced with a call to `role_capacity_state`.
 
+## FACTION ROSTER — grouped panel + member authoring (BRIEF-0054-c, no schema change)
+
+The faction sheet's "Membres" section was a flat, inert list
+(`authorRenderFactionRoster`) even after BRIEF-0054-a shipped
+`role_position`/`role_declared` on the roster route — nothing rendered them.
+This step gives the roster its grouped panel and lets the creator add a
+member or change a member's role without leaving the faction sheet
+(decision C3). Frontend only: no route, no schema, no navigation (that is
+BRIEF-0054-d).
+
+**B1, client side: server orders, client groups.** `authorRenderFactionRoster`
+groups rows the server already returned in order into three zones — declared
+roles (by `authorFactionRolesLive`'s `position` order, including empty
+ranks), undeclared-but-borne roles (grouped by distinct `role`, in server
+arrival order — already alphabetised), then `Sans rôle`. Member order INSIDE
+a zone is never recomputed; the one client-side ordering read is
+`authorFactionRolesLive`'s array order for the HEADER list, because the
+roster route cannot describe a rank with zero members. `faction_roster_panel.py`
+tripwires a `.sort(` reappearing in the renderer.
+
+**One sequencing wrapper, not a merge.** `authorLoadFactionMembersPanel`
+awaits `authorLoadFactionRoles` before `authorLoadFactionRoster` — the
+grouped render needs the declared-role list in memory first. Both loaders
+keep their existing bodies and containers.
+
+**C3: one add-member form, reusing the existing route in reverse.**
+`authorAddFactionMember` posts to the same `POST /entities/{id}/memberships`
+the character-side form already uses, with `faction_id` fixed to the open
+faction — no new backend route. Inline role change
+(`authorMemberRoleEditStart`/`Submit`/`Cancel`) reuses BRIEF-0054-b's
+`POST /memberships/{id}/role` the same way. Both surface a 409 (full role,
+duplicate active membership) as readable `#author-status` text, unmodified —
+the client never pre-filters by occupancy.
+
+**Debt, deliberately accepted:** the inline role-edit `<select>` reuses the
+add-form's shared option list (`_factionRoleOptionsHtml`, including the
+always-present `autre` option) but — per the brief — carries none of the
+add-form's accompanying free-text row. Selecting `autre` inline submits the
+literal string `"__other__"` as the role. No creator-facing scenario in this
+step's "Done means" exercises that path; a future step should either drop
+`autre` from the inline select or give it its own text-entry affordance.
+
 ---
 
 *Co-built with Claude, June 2026.*

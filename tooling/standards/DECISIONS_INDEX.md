@@ -161,3 +161,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 10663 | OBSERVATION MULTI-BEAT SEQUENCE — client-driven loop (BRIEF-0053-a, no schema change) | BRIEF-0053-a |  |
 | 10724 | FACTION ROSTER — server-side rank ordering (BRIEF-0054-a, no schema change) | BRIEF-0054-a |  |
 | 10754 | FACTION MEMBERSHIP — creator role reassignment + capacity chokepoint (BRIEF-0054-b, no schema change) | BRIEF-0054-b |  |
+| 10793 | FACTION ROSTER — grouped panel + member authoring (BRIEF-0054-c, no schema change) | BRIEF-0054-c |  |

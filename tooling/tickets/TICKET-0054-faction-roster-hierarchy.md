@@ -74,6 +74,9 @@ Locked as `A1, B1, C3, D2, E1, F2a`:
 - [ ] Role capacity is read through one shared accessor called by BOTH the AI
       path and the two creator paths; no inline holder-counting loop remains
       in either -> verify/checks/role_capacity_chokepoint.py
+- [ ] The faction sheet's roster panel groups members into the three ordered
+      zones, loads roles before the roster, and the read-only title is gone
+      -> verify/checks/faction_roster_panel.py
 - [ ] `role_closed_vocab.py` still passes unchanged (the AI path keeps its
       reject-message literals in `mutations.py`)
 - [ ] `single_canon_write.py`, `module_budget.py`, `function_length.py`,
