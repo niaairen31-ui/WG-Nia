@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0054-faction-roster-hierarchy",
-  "when": "2026-07-30T15:23:24.825473+00:00",
+  "when": "2026-07-30T15:30:35.933869+00:00",
   "green": true,
   "checks": [
     {
@@ -17,6 +17,11 @@
       "check": "faction_roster_panel.py",
       "status": "PASS",
       "msg": "PASS: faction_roster_panel \u2014 grouped roster panel + member authoring wired correctly"
+    },
+    {
+      "check": "creation_return_nav.py",
+      "status": "PASS",
+      "msg": "PASS: creation_return_nav \u2014 single-slot return crumb wired correctly"
     }
   ]
 }

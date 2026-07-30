@@ -77,6 +77,9 @@ Locked as `A1, B1, C3, D2, E1, F2a`:
 - [ ] The faction sheet's roster panel groups members into the three ordered
       zones, loads roles before the roster, and the read-only title is gone
       -> verify/checks/faction_roster_panel.py
+- [ ] Cross-tab entity navigation keeps a single-slot return crumb, cleared
+      unconditionally on any tab change and re-set only after the
+      programmatic navigation actually lands -> verify/checks/creation_return_nav.py
 - [ ] `role_closed_vocab.py` still passes unchanged (the AI path keeps its
       reject-message literals in `mutations.py`)
 - [ ] `single_canon_write.py`, `module_budget.py`, `function_length.py`,

@@ -1363,6 +1363,8 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       <div class="transcript-panel" style="border-bottom:none">
         <div class="panel-head">
           <h2 id="author-sheet-title">Sélectionner une entité</h2>
+          <button class="btn-ghost" id="author-return-btn" onclick="creationReturnToOrigin()"
+                  style="display:none" title="Retour à l'entité d'origine"></button>
           <span class="author-status" id="author-status"></span>
           <button class="btn-send" id="author-save-btn" onclick="creationSaveDispatch()" style="display:none">Save</button>
           <button class="btn-end" id="author-delete-btn" onclick="authorDelete()" style="display:none">Delete</button>
@@ -1627,6 +1629,12 @@ let PLAYER_ID = null;
 
 let currentCreationSubTab = 'npc';
 let playerCharIds = new Set();  // IDs of player-character entities (from /api/skills/player-characters)
+
+/** Single-slot return crumb (TICKET-0054, decision F2a): where a
+ *  programmatic cross-tab entity navigation came FROM. Never a stack —
+ *  no reader needs a depth greater than one, and the day one does, this
+ *  becomes an array with no other change. Shape: {tabId, entityId}. */
+let creationReturnTo = null;
 
 /* ════════════════════════════════════════════════════════════════════════════
    Utilities
@@ -4154,6 +4162,7 @@ function _entityTabEnterReset() {
   document.getElementById('author-save-btn').style.display   = 'none';
   document.getElementById('author-delete-btn').style.display = 'none';
   document.getElementById('author-status').textContent       = '';
+  creationRenderReturnControl();
 }
 
 function _lieuxTabEnterReset() {
@@ -4456,6 +4465,11 @@ function showCreationSubTab(tab) {
   const entry = CREATION_TABS[tab];
   if (!entry) return;
   currentCreationSubTab = tab;
+  creationReturnTo = null;  // any tab change drops the crumb; the two
+                            // navigation helpers below re-set it AFTER
+                            // calling this, which is what makes a manual
+                            // sub-tab click clear it and a programmatic
+                            // navigation keep it.
 
   document.querySelectorAll('.creation-sub-tab').forEach(b => b.classList.remove('active'));
   const btn = document.getElementById('ctab-' + tab);
@@ -4515,6 +4529,7 @@ function renderCreationShell(entry) {
  *  BRIEF-0046-d) — a world switch must clear the previous world's runtime
  *  tabs, never leave a stale one live. */
 async function _creationRunWorldSwitchResets() {
+  creationReturnTo = null;
   Object.values(CREATION_TABS).forEach(entry => {
     if (entry.state && entry.state.onWorldSwitch) entry.state.onWorldSwitch();
   });
@@ -8905,14 +8920,15 @@ function _factionRoleOptionsHtml() {
 function _factionRosterRowHtml(m) {
   const editing = authorFactionRosterEditingId === m.id;
   const right = editing
-    ? `<select id="fmem-role-edit-${esc(m.id)}">${_factionRoleOptionsHtml()}</select>
-       <button class="btn-send" style="font-size:11px; padding:2px 8px" onclick="authorMemberRoleEditSubmit('${esc(m.id)}')">Valider</button>
-       <button class="btn-ghost" style="font-size:11px; padding:2px 8px" onclick="authorMemberRoleEditCancel()">Annuler</button>`
+    ? `<select id="fmem-role-edit-${esc(m.id)}" onclick="event.stopPropagation()">${_factionRoleOptionsHtml()}</select>
+       <button class="btn-send" style="font-size:11px; padding:2px 8px" onclick="event.stopPropagation(); authorMemberRoleEditSubmit('${esc(m.id)}')">Valider</button>
+       <button class="btn-ghost" style="font-size:11px; padding:2px 8px" onclick="event.stopPropagation(); authorMemberRoleEditCancel()">Annuler</button>`
     : `${m.is_primary ? '<span class="badge b-equipped">primaire</span>' : ''}
        ${m.is_secret ? '<span class="badge b-rejected">secret</span>' : ''}
-       <button class="btn-ghost" style="font-size:11px; padding:2px 8px" onclick="authorMemberRoleEditStart('${esc(m.id)}')">Changer</button>`;
+       <button class="btn-ghost" style="font-size:11px; padding:2px 8px" onclick="event.stopPropagation(); authorMemberRoleEditStart('${esc(m.id)}')">Changer</button>`;
   return `
-    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between;">
+    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between; cursor:pointer;"
+         ondblclick="creationOpenEntityFrom('${esc(m.entity_id)}', 'character')" title="Double-cliquer pour ouvrir la fiche">
       <span>${esc(m.entity_name)}${m.role ? ` — ${esc(m.role)}` : ''}${m.cover_role ? ` <em>(façade : ${esc(m.cover_role)})</em>` : ''}</span>
       <span style="display:flex; align-items:center; gap:8px;">${right}</span>
     </div>`;
@@ -9322,6 +9338,73 @@ async function authorSelectEntity(id) {
   } catch (e) {
     document.getElementById('author-main').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
+  creationRenderReturnControl();
+}
+
+/** Resolves the sub-tab that owns an entity (TICKET-0054, decision F2a).
+ *  npc and pj both declare type 'character'; playerCharIds is the
+ *  only discriminator the registry exposes, so this pair is resolved by
+ *  name here rather than by a registry lookup. Every other type resolves
+ *  through the registry — no other tab id is hardcoded. */
+function creationResolveEntityTab(entityId, entityType) {
+  if (entityType === 'character') {
+    return playerCharIds.has(entityId) ? 'pj' : 'npc';
+  }
+  const found = Object.entries(CREATION_TABS).find(
+    ([, entry]) => entry.archetype === 'entity' && entry.type === entityType
+  );
+  return found ? found[0] : null;
+}
+
+/** Cross-tab entity navigation (TICKET-0054, decision F2a) — opens an
+ *  entity's real, editable sheet in its own sub-tab, leaving a single-slot
+ *  return crumb. Fail-closed: aborts leaving no crumb if the target tab
+ *  never actually activated (showCreationSubTab can early-return into
+ *  creationInit() when the registry isn't loaded yet). */
+async function creationOpenEntityFrom(entityId, entityType) {
+  const tab = creationResolveEntityTab(entityId, entityType);
+  if (!tab) {
+    const statusEl = document.getElementById('author-status');
+    if (statusEl) {
+      statusEl.className = 'author-status err';
+      statusEl.textContent = 'Aucun onglet ne gère ce type d\'entité.';
+    }
+    return;
+  }
+  const origin = authorEntityId ? { tabId: currentCreationSubTab, entityId: authorEntityId } : null;
+  showCreationSubTab(tab);
+  if (currentCreationSubTab !== tab) return;
+  creationReturnTo = origin;
+  await authorSelectEntity(entityId);
+  creationRenderReturnControl();
+}
+
+/** Consumes the return crumb (TICKET-0054, decision F2a) — landing back on
+ *  the origin tab clears the crumb via showCreationSubTab, which is correct:
+ *  returning consumes it. */
+async function creationReturnToOrigin() {
+  const back = creationReturnTo;
+  if (!back) return;
+  showCreationSubTab(back.tabId);
+  if (currentCreationSubTab !== back.tabId) return;
+  await authorSelectEntity(back.entityId);
+  creationRenderReturnControl();
+}
+
+/** Toggles the sheet header's return control — every entity tab inherits
+ *  it (called from authorSelectEntity and _entityTabEnterReset), not just
+ *  factions. Hidden when creationReturnTo is null. */
+function creationRenderReturnControl() {
+  const btn = document.getElementById('author-return-btn');
+  if (!btn) return;
+  if (!creationReturnTo) {
+    btn.style.display = 'none';
+    return;
+  }
+  const origin = authorAllEntities.find(e => e.id === creationReturnTo.entityId);
+  const label = origin ? origin.name : ((CREATION_TABS[creationReturnTo.tabId] || {}).label || '');
+  btn.textContent = '← ' + esc(label);
+  btn.style.display = '';
 }
 
 /** Generic record selection (BRIEF-0021-a): the sheetRenderer-seam

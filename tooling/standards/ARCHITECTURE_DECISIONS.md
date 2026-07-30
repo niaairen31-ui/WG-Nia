@@ -10832,6 +10832,53 @@ literal string `"__other__"` as the role. No creator-facing scenario in this
 step's "Done means" exercises that path; a future step should either drop
 `autre` from the inline select or give it its own text-entry affordance.
 
+## CREATION NAVIGATION — single-slot return crumb (BRIEF-0054-d, no schema change)
+
+The Creation surface had no notion of "where a cross-tab navigation came
+from" — `showCreationSubTab` resets the selected entity on every tab change
+via `state.onTabEnter`. BRIEF-0054-c's grouped roster gave the faction sheet
+a reason to open a member's real sheet without losing the faction; this step
+adds that navigation plus a single return control, on the `<- Lieu`
+(`btn-scene`) house idiom.
+
+**F2a: one crumb, never a stack.** `creationReturnTo` holds `{tabId,
+entityId}` or `null` — no array, no depth. Faction -> NPC -> another faction
+leaves one crumb, the most recent; that is the decided behaviour, not a
+limitation. The day a second consumer needs depth, this becomes an array
+with no other change (no structure without a reader).
+
+**Structural over disciplinary: one unconditional clear plus call ordering,
+not a remembered-at-each-site discipline.** `showCreationSubTab` clears the
+crumb unconditionally, immediately after `currentCreationSubTab = tab;` —
+every tab activation, manual or programmatic, passes through here.
+`creationOpenEntityFrom` re-sets the crumb only AFTER calling
+`showCreationSubTab`, which is what makes a manual sub-tab click (no re-set
+follows) clear it while a programmatic navigation (re-set follows) keeps it.
+`creation_return_nav.py` tripwires the ordering: reversing the two lines
+inside `creationOpenEntityFrom` silently breaks the whole feature while
+looking correct, which is exactly the regression the check exists to catch.
+
+**Fail-closed over advisory.** Both `creationOpenEntityFrom` and
+`creationReturnToOrigin` verify `currentCreationSubTab === ` the target
+before touching the crumb or selecting an entity — `showCreationSubTab`
+early-returns into `creationInit()` when the registry isn't loaded yet, and
+in that case both helpers abort silently rather than leave a crumb pointing
+at a tab never reached.
+
+**The one documented hardcoded tab-id pair.** `creationResolveEntityTab`
+resolves every entity type through the `CREATION_TABS` registry
+(`archetype === 'entity'`, matching `type`) except `character`, split into
+`npc`/`pj` by `playerCharIds` — the registry has no other way to
+distinguish them, the same discriminator already used elsewhere in the
+file. This lives in the resolver, not inside `showCreationSubTab` or
+`_creationActivateTab`, so it does not trip `page_contract.py`'s
+no-tab-literal scan of those two bodies; it is a deliberate, singular,
+commented exception, not a precedent for hardcoding elsewhere.
+
+**F3 (multi-entity tab bar) stays refused.** No openable/closable entity
+tabs, no strip, no per-entity state retention — explicitly out of scope and
+coupled to the pending `index.html` split decision.
+
 ---
 
 *Co-built with Claude, June 2026.*
