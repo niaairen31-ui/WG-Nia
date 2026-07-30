@@ -1,1 +1,3 @@
 src/world_engine/cockpit/vendor/* -text
+frontend/**                        text eol=lf
+src/world_engine/cockpit/static/** -text

@@ -14,8 +14,8 @@ and `world-engine-schema-changelog.md` — never here.
 
 - Python, FastAPI, SQLModel, SQLite (Supabase/PostgreSQL migration path
   preserved via the env-var DB URL).
-- Frontend: single-page HTMX/vanilla-JS `cockpit/index.html`. No build step,
-  no new dependencies without a decision.
+- Frontend: vanilla-JS single-page `cockpit/index.html`, migrating to a
+  built Svelte app under `frontend/`; no new dependency without a decision.
 - Local models via Ollama; Claude API reserved for heavy lore-coherence work.
 - Runtime: Windows / PowerShell — `.venv\Scripts\Activate.ps1`,
   `$env:PYTHONPATH = "src"`.
@@ -55,7 +55,7 @@ and `world-engine-schema-changelog.md` — never here.
   registry, and a page's primary action exists only as its registry
   `primaryAction` (`tooling/verify/checks/page_contract.py` enforces). A
   slot may declare `display: 'on_demand'` to stay hidden and unloaded until its shell toggle is clicked (default `'always'`, today's behavior). Runtime-type tabs (TICKET-0046, BRIEF-0046-d) are injected ONLY by the single boot/refresh factory `_buildRuntimeCreationTabs()`/`refreshCreationTabs()` (`index.html`) as normal entity-archetype registry entries on the shared shell — never a hand-authored `#ctab-`; `page_contract` asserts that mechanism (factory defined + called from `creationInit`, no static `#ctab-` outside its frozen `TAB_KEYS`), never enumerates live types.
-- **The review tree** (`review*`, `index.html`) is a generic accept/reject component driven by a registered descriptor, never by consumer globals: a consumer calls `reviewRegister(key, descriptor)` and every DOM-reachable entry point takes that key as its first argument (inline `onclick` handlers are strings and cannot carry a closure). `reviewCascade` is PURE and re-attaches an orphan to `descriptor.fallbackParentId` — region passes its draft root, the room batch generator (TICKET-0042) passes its synthetic anchor; that fallback is never recomputed inside the component. No `review*` body may name `region`, and outside the component only `regionRenderAll`, `regionReviewDescriptor`, `regionRenderFactionsPanel`, `_sheetEntityOptions`, `batchRenderAll` and `batchReviewDescriptor` may name a `review*` symbol — both directions enforced fail-closed by `tooling/verify/checks/review_component.py`. `index.html` remains a single file with no build step; splitting it is a doctrine change, not a refactor.
+- **The review tree** (`review*`, `index.html`) is a generic accept/reject component driven by a registered descriptor, never by consumer globals: a consumer calls `reviewRegister(key, descriptor)` and every DOM-reachable entry point takes that key as its first argument (inline `onclick` handlers are strings and cannot carry a closure). `reviewCascade` is PURE and re-attaches an orphan to `descriptor.fallbackParentId` — region passes its draft root, the room batch generator (TICKET-0042) passes its synthetic anchor; that fallback is never recomputed inside the component. No `review*` body may name `region`, and outside the component only `regionRenderAll`, `regionReviewDescriptor`, `regionRenderFactionsPanel`, `_sheetEntityOptions`, `batchRenderAll` and `batchReviewDescriptor` may name a `review*` symbol — both directions enforced fail-closed by `tooling/verify/checks/review_component.py`. The frontend is mid-migration: `index.html` is the legacy vanilla-JS single-page surface, `frontend/` is the built Svelte app whose committed output under `cockpit/static/` must match its sources -- enforced fail-closed by `tooling/verify/checks/frontend_build_fresh.py`, and by a boot guard that refuses to serve an empty `static/`. Play stays vanilla-JS until its own rewrite. Rationale, target shape and the surface-migration chain live in `tooling/standards/ARCHITECTURE_DECISIONS.md`.
 
 ## Ticket pipeline (governance)
 
@@ -382,6 +382,7 @@ WG-Nia/
 │   ├── hooks/               # session-start, block-main-push, block-db-in-git (PowerShell)
 │   ├── skills/              # recon, brief, verify-authoring skills
 │   └── settings.json        # permissions allowlist
+├── frontend/                 # Svelte + Vite sources; npm run build writes the committed static/ output
 ├── src/world_engine/        # the importable package (PYTHONPATH=src)
 │   ├── db.py                # engine + session; URL from env var
 │   ├── schema_version.py    # code-side expected-version constant for the static schema, checked at cockpit boot
@@ -401,11 +402,12 @@ WG-Nia/
 │   ├── region_author.py     # region generation orchestrator (proposes names, no canon)
 │   ├── spatial_author.py    # Creation-side door materialization from live connects_to (TICKET-0039)
 │   ├── room_batch_author.py # Room batch orchestrator: Phase A manifest, Phase B fiches, Phase C coherence edges (TICKET-0042)
-│   └── cockpit/             # creator web UI (FastAPI + HTMX, port 8000, loopback)
+│   └── cockpit/             # creator web UI (FastAPI, port 8000, loopback)
 │       ├── app.py           # app factory + router mounting + fail-closed schema-version boot guard + link-batch retention purge (startup); routes/ holds the routers
 │       ├── play*.py         # say() decomposition: routing, physical branch, narration/initiative
 │       ├── crud/            # creator CRUD routes, split by domain (entities, relations, ...)
-│       ├── index.html       # single-page UI; CREATION_TABS registry + dispatcher
+│       ├── index.html       # legacy single-page UI; CREATION_TABS registry + dispatcher
+│       ├── static/          # committed built-frontend output (npm run build in frontend/); served at /static, boot-guarded
 │       └── vendor/          # vendored JS deps (cytoscape-*.min.js); one whitelisted GET route
 ├── scripts/
 │   ├── init_db.py           # create tables + indexes (idempotent)
@@ -477,22 +479,14 @@ WG-Nia/
   atomically. `--force` deletes *proposed* rows only, resets the cursor,
   re-analyzes the full transcript (reviewed rows are never deleted).
 - **World cockpit:** `python scripts/cockpit.py` -> http://127.0.0.1:8000,
-  loopback only; requires Ollama for all AI calls. Per turn: NPC reply is
-  generated internally (buffered), MJ narration streams to the player; both
-  persist (`speaker='npc'` canonical, `speaker='mj'` presentation); the raw
-  NPC line shows as a muted creator-audit annotation. Overhearing proposals
-  (`proposed_by='local_ai_overhearing'`) accumulate silently on `dialogue`
-  turns; no other `proposed_mutation` writes during a turn. Window analysis
-  fires automatically at scene boundaries (conversation close, player
-  leaving, gathering dissolution) or manually via **Analyze**; **Force** is
-  the debug path described above. Review proposals individually or via
-  checkbox batch (**Approve/Reject selected**,
-  `POST /api/mutations/batch-review`) — sequential, per row, through the
-  same `_apply_mutation`/unit-reject paths; stale rows are skipped.
-  **Voyager** (`POST /api/travel`) moves the player cleanly: window
-  analysis on, then close of, the open conversation and gathering
-  membership, then `current_location_id` update.
+  loopback only; requires Ollama for all AI calls. Turn mechanics, overhearing
+  accumulation, window-analysis triggers, batch review and Voyager ordering
+  are documented in `tooling/standards/ARCHITECTURE_DECISIONS.md`.
 - **Pipeline cockpit:** `python scripts/pipeline_cockpit.py` -> port 8100. Deposit flow dormant; artifacts are deposited manually.
+- **Frontend build:** `cd frontend`, `npm ci`, `npm run build` -> writes the
+  committed output under `src/world_engine/cockpit/static/`. The output is
+  versioned on purpose; rebuild and commit after any `frontend/` edit.
+  Node is needed to BUILD only -- a prod launch requires none.
 - **Verify:** `python tooling/verify/run.py` (or `/verify`) runs every check under `tooling/verify/checks/`.
 
 ---

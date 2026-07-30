@@ -163,3 +163,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 10754 | FACTION MEMBERSHIP — creator role reassignment + capacity chokepoint (BRIEF-0054-b, no schema change) | BRIEF-0054-b |  |
 | 10793 | FACTION ROSTER — grouped panel + member authoring (BRIEF-0054-c, no schema change) | BRIEF-0054-c |  |
 | 10835 | CREATION NAVIGATION — single-slot return crumb (BRIEF-0054-d, no schema change) | BRIEF-0054-d |  |
+| 10882 | FRONTEND BUILD FOUNDATION — Svelte/Vite toolchain, static serving, committed build (BRIEF-0055-a, BRIEF-0055-b, BRIEF-0055-c, BRIEF-0055-d, no schema change) | BRIEF-0055-a, BRIEF-0055-b, BRIEF-0055-c, BRIEF-0055-d |  |

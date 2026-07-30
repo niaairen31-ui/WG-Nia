@@ -1,8 +1,10 @@
 """Cockpit — local review web UI for World Engine.
 
-App factory, static/vendor serving, router mounting, and the NPC link and
-NPC group agents' startup retention purges (`purge_closed_link_batches`,
-TICKET-0036; `purge_closed_npc_batches`, TICKET-0037), both thin wrappers
+App factory, static/vendor serving (including the built-frontend static
+mount and the transitional `/shell` route, TICKET-0055), router mounting,
+and the NPC link and NPC group agents' startup retention purges
+(`purge_closed_link_batches`, TICKET-0036; `purge_closed_npc_batches`,
+TICKET-0037), both thin wrappers
 over the shared `_purge_closed_batches` helper. Every route
 handler lives in a domain module, split out of this file at TICKET-0027,
 BRIEF-0027-d (R5):
@@ -40,6 +42,7 @@ from typing import Type
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import delete, inspect
 from sqlmodel import Session, SQLModel, select
 
@@ -69,6 +72,14 @@ _log = logging.getLogger(__name__)
 _VENDOR_DIR = Path(__file__).parent / "vendor"
 _VENDOR_WHITELIST = {"cytoscape-3.34.0.min.js"}
 
+# Built frontend assets (TICKET-0055, C1). The deferral recorded above --
+# "no StaticFiles mount until a second vendored asset" -- is resolved here
+# on different grounds: a build output is a whole asset FAMILY with
+# content-hashed names, which a per-file whitelist cannot express without
+# ceasing to be a whitelist. The vendor whitelist below is unchanged and
+# keeps its own single entry.
+_STATIC_DIR = Path(__file__).parent / "static"
+
 app = FastAPI(title="World Engine Cockpit", docs_url=None, redoc_url=None)
 app.include_router(_crud.router)
 app.include_router(_routes_creator.router)
@@ -82,6 +93,8 @@ app.include_router(_routes_link_agent.router)
 app.include_router(_routes_npc_agent.router)
 app.include_router(_routes_room_batch.router)
 app.include_router(_routes_observation.router)
+
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 
 def _purge_closed_batches(
@@ -191,6 +204,20 @@ def _purge_closed_batches_on_startup() -> None:
         purge_closed_npc_batches(db)
 
 
+@app.on_event("startup")
+def _check_frontend_build_on_startup() -> None:
+    """Fail-closed boot guard (TICKET-0055, E1): the frontend build output
+    is committed, not built at launch, so its absence is corruption of the
+    working tree -- refuse to serve rather than mount an empty directory
+    and render a blank page."""
+    if not _STATIC_DIR.is_dir() or not any(_STATIC_DIR.glob("**/*.js")):
+        raise RuntimeError(
+            f"no built frontend assets under {_STATIC_DIR} -- run "
+            "`npm run build` in frontend/ (the output is committed; an "
+            "empty tree means a bad checkout, not a missing build step)."
+        )
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -203,3 +230,16 @@ def serve_vendor_file(filename: str) -> FileResponse:
     if filename not in _VENDOR_WHITELIST:
         raise HTTPException(status_code=404, detail=f"{filename!r} is not a vendored asset")
     return FileResponse(_VENDOR_DIR / filename, media_type="application/javascript")
+
+
+@app.get("/shell", response_class=HTMLResponse)
+def serve_shell() -> str:
+    """Transitional beachhead for the built frontend (TICKET-0055, C1).
+
+    `GET /` keeps serving the legacy single-file cockpit verbatim for the
+    whole of this ticket; this route is the seam TICKET-0056 renames to
+    `/` once the shell owns the surfaces. It exists so the toolchain can
+    be proven live without editing `index.html`, which nine structural
+    checks and one cross-branch byte-equality assertion depend on.
+    """
+    return (_STATIC_DIR / "index.html").read_text(encoding="utf-8")

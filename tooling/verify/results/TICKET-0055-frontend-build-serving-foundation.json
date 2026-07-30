@@ -1,0 +1,42 @@
+{
+  "ticket": "TICKET-0055-frontend-build-serving-foundation",
+  "when": "2026-07-30T23:27:23.954155+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u2014 6 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u2014 section whitelist, line budgets, archaeology ban, pointer freshness"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    },
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u2014 CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry"
+    },
+    {
+      "check": "relation_graph.py",
+      "status": "PASS",
+      "msg": "PASS: relation_graph \u2014 vendor route present, ego + global relation-graph endpoints read-only with structural connects_to/controls exclusion, write fetches confined to the sanctioned global-mode edge-panel writers, Lieux graph component untouched"
+    },
+    {
+      "check": "review_component.py",
+      "status": "PASS",
+      "msg": "PASS: review_component \u2014 6 rules evaluated, nine region* names gone, twelve review* generics singly-defined and region-blind, reviewCascade is a pure one-parameter function keyed on fallbackParentId, single region descriptor factory, boundary holds in both directions"
+    },
+    {
+      "check": "observation_surface.py",
+      "status": "PASS",
+      "msg": "PASS: observation_surface \u2014 4 renderer function(s) verified, 4 outcome literal(s) collected"
+    }
+  ]
+}
