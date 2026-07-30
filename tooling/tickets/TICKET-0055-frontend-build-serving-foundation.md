@@ -2,7 +2,7 @@
 id: TICKET-0055
 title: Frontend build + serving foundation (Svelte/Vite toolchain, static mount, build-freshness gate)
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-30
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
