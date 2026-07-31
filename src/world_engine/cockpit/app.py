@@ -225,6 +225,18 @@ def serve_ui() -> str:
     return _INDEX_HTML.read_text(encoding="utf-8")
 
 
+@app.get("/legacy", response_class=HTMLResponse)
+def serve_legacy() -> str:
+    """The legacy single-file cockpit, served verbatim (TICKET-0056, B1).
+
+    The shell hosts this document in ONE same-origin iframe; it also stays
+    directly reachable as an escape hatch. `index.html` is byte-untouched
+    by TICKET-0056 -- nine structural checks and `relation_graph.py`'s
+    Lieux-graph byte-equality assertion against `main` depend on it.
+    """
+    return _INDEX_HTML.read_text(encoding="utf-8")
+
+
 @app.get("/vendor/{filename}")
 def serve_vendor_file(filename: str) -> FileResponse:
     if filename not in _VENDOR_WHITELIST:
