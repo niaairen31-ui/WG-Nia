@@ -165,3 +165,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 10835 | CREATION NAVIGATION — single-slot return crumb (BRIEF-0054-d, no schema change) | BRIEF-0054-d |  |
 | 10882 | FRONTEND BUILD FOUNDATION — Svelte/Vite toolchain, static serving, committed build (BRIEF-0055-a, BRIEF-0055-b, BRIEF-0055-c, BRIEF-0055-d, no schema change) | BRIEF-0055-a, BRIEF-0055-b, BRIEF-0055-c, BRIEF-0055-d |  |
 | 10968 | COCKPIT SHELL — legacy-mount registry, iframe boundary, enumerated routing (BRIEF-0056-a, BRIEF-0056-b, BRIEF-0056-c, BRIEF-0056-d, no schema change) | BRIEF-0056-a, BRIEF-0056-b, BRIEF-0056-c, BRIEF-0056-d |  |
+| 11048 | GRAPH PRIMITIVE — one component, three consumers, a shrinking registry (BRIEF-0057-a, BRIEF-0057-b, BRIEF-0057-c, BRIEF-0057-d, BRIEF-0057-e, no schema change) | BRIEF-0057-a, BRIEF-0057-b, BRIEF-0057-c, BRIEF-0057-d, BRIEF-0057-e |  |

@@ -1,9 +1,10 @@
 <script>
   import Header from './Header.svelte';
   import LegacyFrame from './LegacyFrame.svelte';
-  import { hideLegacyHeader, showSurface, showCreationTab } from './legacy/bridge.js';
+  import { hideLegacyHeader, showSurface, showCreationTab, legacyDocument } from './legacy/bridge.js';
   import { serverState, refreshServerState } from './lib/serverState.svelte.js';
   import { onRoute } from './lib/router.js';
+  import { initGraphMount } from './graph/mount.js';
 
   let currentSurface = $state('play');
 
@@ -33,6 +34,7 @@
   // iframe's `load` event has fired.
   async function onLegacyReady() {
     hideLegacyHeader();
+    initGraphMount(legacyDocument());
     await refreshServerState();
     onRoute(applyRoute);
   }

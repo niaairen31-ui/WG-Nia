@@ -35,9 +35,15 @@ INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
 GONE = ["regionCascade", "regionIsAccepted", "regionToggleAccept",
         "regionRenderNotes", "regionRenderLocationNode", "regionRenderTree",
         "regionToggleLocGraph", "regionLocGraphData", "regionLocGraphRender"]
+# TICKET-0057, BRIEF-0057-c: reviewGraphRender is retired, not merely moved --
+# the review component no longer knows how a graph is drawn (that's the graph
+# primitive's job, reached via a `graph:slot`/`graph:invalidate` dispatch).
+# Same shape as GONE, kept separate because it names what THIS ticket retires
+# rather than the standing region-blindness baseline.
+RETIRED = ["reviewGraphRender"]
 GENERICS = ["reviewCascade", "reviewIsAccepted", "reviewToggleAccept",
             "reviewNotes", "reviewNode", "reviewTree", "reviewOpenSheet",
-            "reviewToggleGraph", "reviewGraphData", "reviewGraphRender",
+            "reviewToggleGraph", "reviewGraphData",
             "reviewRegister", "reviewDescriptor"]
 CONSUMER_ALLOW_LIST = ["regionRenderAll", "regionReviewDescriptor",
                        "regionRenderFactionsPanel", "_sheetEntityOptions",
@@ -87,6 +93,12 @@ def main() -> int:
     for name in GONE:
         if name in html:
             failures.append(f"rule1: {name!r} still present in index.html")
+
+    # Rule 1b — reviewGraphRender is retired (TICKET-0057), same shape as rule 1.
+    rules_evaluated += 1
+    for name in RETIRED:
+        if name in html:
+            failures.append(f"rule1b: {name!r} still present in index.html (retired by TICKET-0057)")
 
     # Rule 2 — each generic is defined exactly once.
     rules_evaluated += 1
@@ -161,8 +173,9 @@ def main() -> int:
         return 1
 
     print(f"PASS: review_component — {rules_evaluated} rules evaluated, "
-          "nine region* names gone, twelve review* generics singly-defined and "
-          "region-blind, reviewCascade is a pure one-parameter function keyed on "
+          "nine region* names gone, reviewGraphRender retired (TICKET-0057), "
+          "eleven review* generics singly-defined and region-blind, "
+          "reviewCascade is a pure one-parameter function keyed on "
           "fallbackParentId, single region descriptor factory, boundary holds "
           "in both directions")
     return 0
