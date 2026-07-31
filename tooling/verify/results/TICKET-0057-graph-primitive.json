@@ -1,0 +1,42 @@
+{
+  "ticket": "TICKET-0057-graph-primitive",
+  "when": "2026-07-31T12:00:17.259864+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "graph_primitive.py",
+      "status": "PASS",
+      "msg": "PASS: graph_primitive \u2014 21 retired token(s) confirmed absent, 1 registry entry(ies) within baseline, 1 entry(ies) with a live locus, 3 graph spec(s) validated"
+    },
+    {
+      "check": "relation_graph.py",
+      "status": "PASS",
+      "msg": "PASS: relation_graph \u2014 vendor route present, ego + global relation-graph endpoints read-only with structural connects_to/controls exclusion, write fetches confined to the sanctioned global-mode edge-panel writers"
+    },
+    {
+      "check": "review_component.py",
+      "status": "PASS",
+      "msg": "PASS: review_component \u2014 7 rules evaluated, nine region* names gone, reviewGraphRender retired (TICKET-0057), eleven review* generics singly-defined and region-blind, reviewCascade is a pure one-parameter function keyed on fallbackParentId, single region descriptor factory, boundary holds in both directions"
+    },
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u2014 CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry"
+    },
+    {
+      "check": "legacy_mount.py",
+      "status": "PASS",
+      "msg": "PASS: legacy_mount \u2014 3 mount(s) within baseline, 3 retiring ticket(s), 3 legacy fn(s) resolved, access confined to bridge, 1 frame src site, 5 shell route(s) agreed"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u2014 17 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    }
+  ]
+}
