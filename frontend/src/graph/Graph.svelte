@@ -12,10 +12,10 @@
      Booleans would have had to be invented in pairs nothing sets
      independently; a callback is evidenced by its consumer or it is absent.
 
-     No `<style>` block. This component renders INSIDE the legacy iframe
-     document, and Svelte's scoped CSS is injected into the shell's head,
-     where it would never reach. Styling is by SVG attributes referencing
-     the legacy CSS variables, plus legacy class names. */
+     No scoped style block. This component renders INSIDE the legacy
+     iframe document, and Svelte's scoped CSS is injected into the shell's
+     head, where it would never reach. Styling is by SVG attributes
+     referencing the legacy CSS variables, plus legacy class names. */
 
   let {
     nodes = [],
