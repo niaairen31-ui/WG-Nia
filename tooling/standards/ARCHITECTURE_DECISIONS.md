@@ -11045,6 +11045,84 @@ entry, `cockpit/index.html` the legacy surface, `cockpit/static/index.html`
 the build output); the rename touches all nine index-anchored checks, which
 that ticket retires anyway.
 
+## GRAPH PRIMITIVE — one component, three consumers, a shrinking registry (BRIEF-0057-a, BRIEF-0057-b, BRIEF-0057-c, BRIEF-0057-d, BRIEF-0057-e, no schema change)
+
+**There were three implementations, not two (RECON finding).** The
+workstream map named the Lieux SVG editor and the cytoscape relation graph.
+RECON found a third: `reviewGraphRender`, the pre-commit preview, with two
+consumers of its own (region and room batch). It already called
+`graphAutoPlace` from the Lieux implementation and then re-emitted its own
+SVG — placement shared, rendering diverged. That is what "plusieurs choses
+qui font la meme chose" looks like from the inside: not a decision to
+duplicate, a convergence abandoned halfway.
+
+**A1 — the pilot renders as an in-frame island, and why nothing else was
+constructible.** All four graph surfaces live in Creation, a legacy mount
+until TICKET-0059; TICKET-0056 deferred continuous route sync to
+TICKET-0058, so the shell cannot know which sub-tab is active. A shell-side
+graph pane was therefore not an option, and reordering after 0058 would have
+defeated the locked strategy of proving the primitive BEFORE broad migration
+while inflating 0058.
+
+**B3 — three consumers, not one.** A primitive with one consumer proves
+nothing; the second is what tests the contract. The two SVG implementations
+also carried no cytoscape dependency and no scoped-CSS problem. Accepted and
+recorded cost: the contract is frozen without ever exercising a force
+layout. `force` arrives with its consumer at TICKET-0058.
+
+**The contract, and why capability is a callback and not a boolean.**
+`onConnect` / `onDeleteEdge` / `onMoveNode` absent means the interaction is
+structurally off. Boolean axes (`editable`, `persistsPositions`) would have
+had to be invented in pairs that only one consumer sets, and never
+independently — an axis nobody varies is a lie in the contract and the
+first plank of a leaky union type.
+
+**G, and the axis that evaporated.** `graphAutoPlace` entered the primitive
+as its single placement strategy. It already handled both stored
+coordinates and null-coordinate fallback, so `placement` never became an
+axis at all: one strategy, data-driven branch. Recorded because it is the
+cleanest evidence that E1 was the right discipline — the axis the map
+proposed did not survive contact with the code.
+
+**D2 — the declaration site is the slot descriptor, not the trait
+registry. NAMED DEFERRAL: `graph_spec_for(entity_type)`.** `CREATION_TABS`
+slots and the review descriptor already had live readers and a structural
+assertion; `traits.py` had none — no entity type declares a graph today, so
+`graph_spec_for` would have been structure without a reader (E2). It is
+deferred, not dropped: the day a runtime entity type wants to declare a
+graph, that is a ticket with a real consumer.
+
+**C1 — the lock, and what a shrinking registry buys.** Modelled on
+TICKET-0056's legacy-mount registry. The guarantee is measurable during the
+transition — a counter that can only decrease — rather than promised for
+the end. Rule 5 (every entry must still describe real code) is what keeps
+rule 3 honest: the registry is forced to shrink when its code goes, instead
+of rotting into a stale list.
+
+**F — a guard that was fail-open, named.** `relation_graph.py`'s clause 5
+asserted the Lieux functions were byte-identical to `main` via `git show`.
+On a branch it bit; once merged, `main == HEAD` and it passed trivially
+forever. Recorded rather than quietly deleted, because the failure mode is
+general: any check comparing the working tree to `main` is a branch freeze,
+not an invariant. Replaced by `graph_primitive.py`, which holds after merge.
+
+**Zero dormant code, made structural.** The creator's constraint was that
+no converged implementation survive at close. It is enforced by the lock's
+rule 1 as raw-substring absence, any context — a commented-out body is
+dormant code. This matters more than usual here because `undefined_names.py`
+covers Python only: there is no automated safety net for a dangling JS
+reference in `index.html`.
+
+**Finding handed forward to TICKET-0060.** Observation renders no graph.
+Zero `<svg>` elements and zero graph calls in the thirteen `observation*`
+functions. TICKET-0060's open decision D-A is answered in advance: it is
+not a primitive consumer.
+
+**The 3D guard rail: cross-reference only.** TICKET-0055's entry nailed it
+and TICKET-0056 declined to restate it on the grounds that restating
+doctrine is how doctrine drifts. That reasoning holds here too.
+Cross-reference, do not restate.
+
 ---
 
 *Co-built with Claude, June 2026.*

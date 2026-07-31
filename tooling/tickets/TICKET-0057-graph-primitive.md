@@ -117,48 +117,48 @@ the contract, and rule 7 of the lock.
 
 ### Machine-checkable  ->  G1 deterministic gate
 
-- [ ] The 13 converged names (`graphAutoPlace`, `graphRender`,
+- [x] The 13 converged names (`graphAutoPlace`, `graphRender`,
       `graphNodeMD`, `_graphMouseMove`, `_graphMouseUp`, `_graphMoveSVGNode`,
       `graphNodeClick`, `graphEdgeClick`, `graphCanvasClick`,
       `graphCreateEdge`, `graphPersistPos`, `graphLoad`, `reviewGraphRender`)
       are absent from `index.html` as raw substrings, any context
       -> verify/checks/graph_primitive.py
-- [ ] The 4 constants (`GRAPH_W`, `GRAPH_H`, `NODE_R`, `DRAG_THRESHOLD`) and
+- [x] The 4 constants (`GRAPH_W`, `GRAPH_H`, `NODE_R`, `DRAG_THRESHOLD`) and
       4 globals (`graphData`, `graphSelectedNodeId`, `_graphDrag`,
       `_graphPlaced`) are absent from `index.html`
       -> verify/checks/graph_primitive.py
-- [ ] `frontend/src/graph/registry.js` parses non-empty, shrinks monotonically
+- [x] `frontend/src/graph/registry.js` parses non-empty, shrinks monotonically
       against `tooling/verify/baselines/graph_impls.baseline`, every entry
       declares `retiredBy` matching `^TICKET-\d{4}$`, and every entry's
       declared locus still physically contains its implementation
       -> verify/checks/graph_primitive.py
-- [ ] No `cytoscape(` construction and no graph `<svg>` emission anywhere
+- [x] No `cytoscape(` construction and no graph `<svg>` emission anywhere
       under `frontend/src/` outside `frontend/src/graph/`; inside
       `index.html`, `cytoscape(` occurs only within a baselined entry's
       functions -> verify/checks/graph_primitive.py
-- [ ] Every `graph: { ... }` spec in `index.html` sets only keys from the
+- [x] Every `graph: { ... }` spec in `index.html` sets only keys from the
       declared contract -> verify/checks/graph_primitive.py
-- [ ] `Graph.svelte` contains no `fetch(`, no `method: 'POST'|'PUT'|'DELETE'`,
+- [x] `Graph.svelte` contains no `fetch(`, no `method: 'POST'|'PUT'|'DELETE'`,
       and no `<style>` block -> verify/checks/graph_primitive.py
-- [ ] `graph_primitive.py` is vacuous-proof: missing file, empty scan, or
+- [x] `graph_primitive.py` is vacuous-proof: missing file, empty scan, or
       zero rules evaluated is a FAILURE -> self-asserting
-- [ ] `relation_graph.py` no longer contains `LIEUX_GRAPH_FUNCTIONS` or a
+- [x] `relation_graph.py` no longer contains `LIEUX_GRAPH_FUNCTIONS` or a
       `git show` call; its remaining clauses (vendor route, ego + global
       endpoints read-only with structural `connects_to`/`controls`
       exclusion, write fetches confined to the two sanctioned edge-panel
       writers) still pass -> verify/checks/relation_graph.py
-- [ ] `review_component.py` passes with `reviewGraphRender` retired from
+- [x] `review_component.py` passes with `reviewGraphRender` retired from
       GENERICS and asserted absent -> verify/checks/review_component.py
-- [ ] `page_contract.py` still asserts the Lieux slot declares
+- [x] `page_contract.py` still asserts the Lieux slot declares
       `display: 'on_demand'` -> verify/checks/page_contract.py
-- [ ] `legacy_mount.py` unchanged and green: `contentWindow` /
+- [x] `legacy_mount.py` unchanged and green: `contentWindow` /
       `legacy-frame` tokens still confined to `bridge.js` /
       `LegacyFrame.svelte` -> verify/checks/legacy_mount.py
-- [ ] `frontend_build_fresh.py` green on a fresh `npm run build`
+- [x] `frontend_build_fresh.py` green on a fresh `npm run build`
       -> verify/checks/frontend_build_fresh.py
-- [ ] `decisions_index.py` green after the new ARCHITECTURE_DECISIONS
+- [x] `decisions_index.py` green after the new ARCHITECTURE_DECISIONS
       section header -> verify/checks/decisions_index.py
-- [ ] Full-tree verify green (module budget, function length, import cycle,
+- [x] Full-tree verify green (module budget, function length, import cycle,
       no-print, json_ui_boundary included)
 
 ### Live  ->  human gate (Nia)

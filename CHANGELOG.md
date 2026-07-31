@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## TICKET-0057 — 2026-07-31 (no schema change)
+
+A reader of the cockpit will notice nothing: the Lieux adjacency map and
+both region/room-batch pre-commit graph previews render, drag, connect,
+and refresh exactly as before.
+
+Underneath, the three graph SVG implementations RECON found (the Lieux
+editor, and the pre-commit preview shared by region generation and the
+room batch generator) converge onto one component
+(`frontend/src/graph/Graph.svelte`), mounted as a shell-driven island
+inside the legacy iframe. Every remaining, not-yet-converged graph
+implementation is enumerated in a shrinking registry
+(`frontend/src/graph/registry.js`), and the whole convergence is enforced
+fail-closed by a new check (`tooling/verify/checks/graph_primitive.py`),
+replacing a prior guard that was fail-open once merged to `main`. See
+`tooling/standards/ARCHITECTURE_DECISIONS.md` for the per-brief decisions.
+
 ## TICKET-0050 — 2026-07-27 (schema v1.89)
 
 NPC dialogue context window: a per-world `conversation_window_config`
