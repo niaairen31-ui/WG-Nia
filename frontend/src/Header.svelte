@@ -1,14 +1,15 @@
 <script>
   import { serverState, refreshServerState } from './lib/serverState.svelte.js';
-  import { showSurface, activateWorldViaLegacy, openWorldCreate, openWorldDelete } from './legacy/bridge.js';
+  import { activateWorldViaLegacy, openWorldCreate, openWorldDelete } from './legacy/bridge.js';
+  import { navigate } from './lib/router.js';
 
-  // TICKET-0056 (BRIEF-0056-b): activeSurface is component state here;
-  // BRIEF-0056-c replaces this with the router as the single source of truth.
-  let { activeSurface = $bindable('play') } = $props();
+  // TICKET-0056 (BRIEF-0056-c): the router is the single source of truth for
+  // the active surface; App.svelte derives it from onRoute and passes it
+  // down here read-only.
+  let { activeSurface } = $props();
 
   function switchSurface(key) {
-    activeSurface = key;
-    showSurface(key);
+    navigate(key);
   }
 
   async function onWorldChange(event) {

@@ -4,7 +4,7 @@
 surfaces the built shell still hosts inside the same-origin iframe. This
 check is what turns that registry from a comment into a structural gate.
 No DB, stdlib only, same FAILURES/_report_and_exit/ROOT idiom as
-import_cycle.py. Six assertions, each vacuous-proof (a missing or empty
+import_cycle.py. Seven assertions, each vacuous-proof (a missing or empty
 input is a FAILURE, never a trivially satisfied comparison):
 
   1. Registry parses, non-empty.
@@ -14,9 +14,15 @@ input is a FAILURE, never a trivially satisfied comparison):
   5. Confinement: `contentWindow` / `legacy-frame` tokens occur only in
      legacy/bridge.js and LegacyFrame.svelte.
   6. Exactly one `src="/legacy"` assignment, zero `.src =` reassignments.
+  7. Shell-route vocabulary agreement (D-i(1), TICKET-0056 BRIEF-0056-c):
+     `_SHELL_ROUTES` in app.py (parsed by AST -- never by regex, same
+     discipline as single_canon_write.py) equals `SHELL_ROUTES` in
+     frontend/src/lib/router.js (parsed by regex over the array literal),
+     compared as ORDERED lists.
 """
 from __future__ import annotations
 
+import ast
 import re
 import sys
 from pathlib import Path
@@ -26,6 +32,8 @@ FRONTEND_SRC = ROOT / "frontend" / "src"
 REGISTRY_FILE = FRONTEND_SRC / "legacy" / "registry.js"
 BASELINE_FILE = ROOT / "tooling" / "verify" / "baselines" / "legacy_mounts.baseline"
 LEGACY_INDEX = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
+APP_PY = ROOT / "src" / "world_engine" / "cockpit" / "app.py"
+ROUTER_JS = FRONTEND_SRC / "lib" / "router.js"
 
 CONFINED_FILES = {
     FRONTEND_SRC / "legacy" / "bridge.js",
@@ -41,6 +49,8 @@ CONTENT_WINDOW_RE = re.compile(r"contentWindow")
 LEGACY_FRAME_RE = re.compile(r"legacy-frame")
 FRAME_SRC_RE = re.compile(r'src="/legacy"')
 SRC_ASSIGN_RE = re.compile(r"\.src\s*=")
+SHELL_ROUTES_JS_RE = re.compile(r"export const SHELL_ROUTES\s*=\s*\[(.*?)\]", re.DOTALL)
+STRING_LITERAL_RE = re.compile(r'"([^"]*)"')
 
 FAILURES: list[str] = []
 
@@ -57,7 +67,8 @@ def _report_and_exit(counts: dict | None = None) -> None:
     print(
         f"PASS: legacy_mount — {counts['mounts']} mount(s) within baseline, "
         f"{counts['retiring']} retiring ticket(s), {counts['fns']} legacy fn(s) resolved, "
-        f"access confined to bridge, {counts['src_sites']} frame src site"
+        f"access confined to bridge, {counts['src_sites']} frame src site, "
+        f"{counts['shell_routes']} shell route(s) agreed"
     )
     sys.exit(0)
 
@@ -166,6 +177,65 @@ def _check_single_src_site() -> int | None:
     return src_sites
 
 
+def _parse_app_shell_routes() -> list[str] | None:
+    if not APP_PY.is_file():
+        fail(f"{APP_PY} does not exist")
+        return None
+    text = APP_PY.read_text(encoding="utf-8")
+    try:
+        tree = ast.parse(text, filename=str(APP_PY))
+    except SyntaxError as exc:
+        fail(f"{APP_PY}: SyntaxError: {exc}")
+        return None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not (isinstance(target, ast.Name) and target.id == "_SHELL_ROUTES"):
+            continue
+        if not isinstance(node.value, (ast.Tuple, ast.List)):
+            continue
+        routes = [
+            elt.value
+            for elt in node.value.elts
+            if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+        ]
+        if routes:
+            return routes
+    fail(f"{APP_PY}: _SHELL_ROUTES assignment not found or empty")
+    return None
+
+
+def _parse_router_js_shell_routes() -> list[str] | None:
+    if not ROUTER_JS.is_file():
+        fail(f"{ROUTER_JS} does not exist")
+        return None
+    text = ROUTER_JS.read_text(encoding="utf-8")
+    match = SHELL_ROUTES_JS_RE.search(text)
+    if not match:
+        fail(f"{ROUTER_JS}: SHELL_ROUTES array literal not found")
+        return None
+    routes = STRING_LITERAL_RE.findall(match.group(1))
+    if not routes:
+        fail(f"{ROUTER_JS}: SHELL_ROUTES parsed to zero entries")
+        return None
+    return routes
+
+
+def _check_shell_route_agreement() -> int | None:
+    app_routes = _parse_app_shell_routes()
+    router_routes = _parse_router_js_shell_routes()
+    if app_routes is None or router_routes is None:
+        return None
+    if app_routes != router_routes:
+        fail(
+            f"shell route vocabulary diverges -- app.py has {app_routes} , "
+            f"router.js has {router_routes}"
+        )
+        return None
+    return len(app_routes)
+
+
 def main() -> None:
     entries = _parse_registry()
     if entries is None:
@@ -178,8 +248,15 @@ def main() -> None:
     fn_count = _check_show_fns(entries)
     confinement_ok = _check_confinement()
     src_sites = _check_single_src_site()
+    shell_route_count = _check_shell_route_agreement()
 
-    if FAILURES or not shrink_ok or not confinement_ok or src_sites is None:
+    if (
+        FAILURES
+        or not shrink_ok
+        or not confinement_ok
+        or src_sites is None
+        or shell_route_count is None
+    ):
         _report_and_exit()
         return
 
@@ -189,6 +266,7 @@ def main() -> None:
             "retiring": retiring_count,
             "fns": fn_count,
             "src_sites": src_sites,
+            "shell_routes": shell_route_count,
         }
     )
 
