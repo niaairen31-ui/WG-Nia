@@ -21,17 +21,46 @@ export function mountLegacy(frameEl) {
   });
 }
 
+function callLegacy(fnName, ...args) {
+  const win = legacyWindow();
+  const fn = win[fnName];
+  if (typeof fn !== 'function') {
+    throw new Error(`legacy/bridge: ${fnName} is not a function on the legacy window`);
+  }
+  return fn.apply(win, args);
+}
+
 export function showSurface(key) {
   const entry = LEGACY_MOUNTS[key];
   if (!entry) {
     throw new Error(`legacy/bridge: unknown surface key ${JSON.stringify(key)}`);
   }
-  const win = legacyWindow();
-  const fn = win[entry.showFn];
-  if (typeof fn !== 'function') {
-    throw new Error(`legacy/bridge: ${entry.showFn} is not a function on the legacy window`);
-  }
-  fn.call(win);
+  callLegacy(entry.showFn);
+}
+
+export async function activateWorldViaLegacy(worldId) {
+  await callLegacy('activateWorld', worldId);
+}
+
+export function openWorldCreate() {
+  callLegacy('worldCreateOpen');
+}
+
+export function openWorldDelete() {
+  callLegacy('worldDeleteOpen');
+}
+
+/* TICKET-0056: the legacy header is SUPPRESSED, not deleted -- index.html
+   is byte-untouched by this ticket. Injecting one scoped style into the
+   frame document is reversible, confined to this module, and covered by
+   legacy_mount.py's confinement assertion. */
+export function hideLegacyHeader() {
+  const doc = legacyWindow().document;
+  if (doc.getElementById('shell-injected')) return;
+  const style = doc.createElement('style');
+  style.id = 'shell-injected';
+  style.textContent = 'header { display: none !important; }';
+  doc.head.appendChild(style);
 }
 
 export function whenLegacyReady(predicate, { timeoutMs = 5000 } = {}) {

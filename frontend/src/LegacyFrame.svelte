@@ -2,10 +2,12 @@
   import { onMount } from 'svelte';
   import { mountLegacy } from './legacy/bridge.js';
 
+  let { onReady } = $props();
   let frameEl;
 
-  onMount(() => {
-    mountLegacy(frameEl);
+  onMount(async () => {
+    await mountLegacy(frameEl);
+    if (onReady) await onReady();
   });
 </script>
 
@@ -21,7 +23,10 @@
 <style>
   iframe {
     width: 100%;
-    height: 100vh;
+    /* TICKET-0056 (BRIEF-0056-b): the header's height lives ONCE, in
+       --header-height (set on the shell layout container in App.svelte) --
+       this calc() reads it rather than repeating the number. */
+    height: calc(100vh - var(--header-height));
     border: 0;
     display: block;
   }
