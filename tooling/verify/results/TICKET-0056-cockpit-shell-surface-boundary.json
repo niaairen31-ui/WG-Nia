@@ -1,0 +1,52 @@
+{
+  "ticket": "TICKET-0056-cockpit-shell-surface-boundary",
+  "when": "2026-07-31T01:36:04.837593+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "legacy_mount.py",
+      "status": "PASS",
+      "msg": "PASS: legacy_mount \u00e2\u20ac\u201d 3 mount(s) within baseline, 3 retiring ticket(s), 3 legacy fn(s) resolved, access confined to bridge, 1 frame src site, 5 shell route(s) agreed"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u00e2\u20ac\u201d 12 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u00e2\u20ac\u201d CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry"
+    },
+    {
+      "check": "relation_graph.py",
+      "status": "PASS",
+      "msg": "PASS: relation_graph \u00e2\u20ac\u201d vendor route present, ego + global relation-graph endpoints read-only with structural connects_to/controls exclusion, write fetches confined to the sanctioned global-mode edge-panel writers, Lieux graph component untouched"
+    },
+    {
+      "check": "review_component.py",
+      "status": "PASS",
+      "msg": "PASS: review_component \u00e2\u20ac\u201d 6 rules evaluated, nine region* names gone, twelve review* generics singly-defined and region-blind, reviewCascade is a pure one-parameter function keyed on fallbackParentId, single region descriptor factory, boundary holds in both directions"
+    },
+    {
+      "check": "observation_surface.py",
+      "status": "PASS",
+      "msg": "PASS: observation_surface \u00e2\u20ac\u201d 4 renderer function(s) verified, 4 outcome literal(s) collected"
+    },
+    {
+      "check": "creation_return_nav.py",
+      "status": "PASS",
+      "msg": "PASS: creation_return_nav \u00e2\u20ac\u201d single-slot return crumb wired correctly"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u00e2\u20ac\u201d section whitelist, line budgets, archaeology ban, pointer freshness"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    }
+  ]
+}

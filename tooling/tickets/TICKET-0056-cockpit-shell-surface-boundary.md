@@ -2,7 +2,7 @@
 id: TICKET-0056
 title: Cockpit shell + hard surface boundary (legacy-mount registry, iframe seam, shell routing)
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-30
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
