@@ -95,6 +95,25 @@ export async function showCreationTab(tabId) {
   callLegacy('showCreationSubTab', resolvedTab);
 }
 
+/* TICKET-0057. The graph primitive renders as an ISLAND inside the
+   legacy document (Creation is a legacy mount until TICKET-0059, and
+   TICKET-0056 deferred continuous route sync to TICKET-0058 -- the
+   shell cannot know which sub-tab is active, so a shell-side graph
+   pane is not constructible). This export hands out a node from the
+   legacy document; the `contentWindow` token stays confined to this
+   file, so legacy_mount.py assertion 5 is unchanged. */
+export function legacyContainer(id) {
+  const el = legacyWindow().document.getElementById(id);
+  if (!el) {
+    throw new Error(`legacy/bridge: no element #${id} in the legacy document`);
+  }
+  return el;
+}
+
+export function legacyDocument() {
+  return legacyWindow().document;
+}
+
 export function whenLegacyReady(predicate, { timeoutMs = 5000 } = {}) {
   const win = legacyWindow();
   return new Promise((resolve, reject) => {

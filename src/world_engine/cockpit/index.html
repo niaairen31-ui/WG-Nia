@@ -1273,19 +1273,11 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <button class="btn-send" id="creation-shell-action" style="display:none"></button>
   </div>
 
-  <!-- ── Lieux — Graph panel (BRIEF-15, schema v1.28) ── -->
-  <div id="creation-lieux-graph" style="display:none">
-    <div class="lieux-graph-head">
-      <span>Carte des lieux</span>
-      <button class="btn-icon" onclick="graphLoad()" title="Rafraîchir">↻</button>
-    </div>
-    <svg id="lieux-graph-svg" viewBox="0 0 960 480" width="100%" height="300"
-         style="display:block; background:var(--bg)"
-         onclick="graphCanvasClick(event)"></svg>
-    <p style="padding:4px 14px 6px; font-size:11px; color:var(--muted)">
-      Cliquez un nœud pour le sélectionner, puis un second pour le connecter. Glissez pour repositionner. Cliquez un lien pour le supprimer.
-    </p>
-  </div>
+  <!-- TICKET-0057: mount point for the graph primitive (island rendered
+       by the shell into this legacy document). Empty by construction --
+       chrome, canvas and help text all belong to Graph.svelte and its
+       Lieux consumer. -->
+  <div id="creation-lieux-graph" style="display:none"></div>
 
   <!-- ── Lieux — Room batch generator panel (TICKET-0042, BRIEF-0042-d).
        Outer wrapper participates in CREATION_TABS.lieux's containers
@@ -4125,7 +4117,15 @@ function _onDemandSlotToggle(slot) {
   if (el) el.style.display = st.open ? '' : 'none';
   if (st.open && !st.loaded) {
     st.loaded = true;
-    if (slot.loader) slot.loader();
+    if (slot.graph) {
+      // TICKET-0057: the graph primitive is a shell-mounted island; the
+      // legacy document only signals intent, it never loads or draws.
+      document.dispatchEvent(new CustomEvent('graph:slot', {
+        detail: { consumer: slot.graph.consumer, containerId: slot.containerId, open: true },
+      }));
+    } else if (slot.loader) {
+      slot.loader();
+    }
   }
   const entry = CREATION_TABS[currentCreationSubTab];
   if (entry) _renderOnDemandToggles(entry);
@@ -4206,7 +4206,6 @@ function _lieuxWorldReset() {
   lieuxBrowseParentId = null;
   lieuxBreadcrumb     = [];
   lieuxActiveOnly     = false;
-  graphData           = null;
   _onDemandSlotReset(CREATION_TABS.lieux);
   batchReset();
 }
@@ -4310,8 +4309,9 @@ const CREATION_TABS = {
     createPanel: () => authorRenderSheet({}, true, 'location'),
     primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
     showPendingCreations: true,
-    slots: [{ id: 'graph', containerId: 'creation-lieux-graph', loader: graphLoad, onSelect: null,
-              display: 'on_demand', toggleLabel: 'Voir le graphe' }],
+    slots: [{ id: 'graph', containerId: 'creation-lieux-graph', loader: null, onSelect: null,
+              display: 'on_demand', toggleLabel: 'Voir le graphe',
+              graph: { consumer: 'lieux' } }],
   },
   factions: {
     label: 'Factions',
@@ -6715,7 +6715,9 @@ async function regionCommit() {
   regionCommitResult = result;
   if (result.ok) {
     await authorLoadEntityList();
-    if (currentCreationSubTab === 'lieux') graphLoad();
+    if (currentCreationSubTab === 'lieux') {
+      document.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'lieux' } }));
+    }
   }
   regionRenderAll();
 }
@@ -7091,7 +7093,9 @@ async function batchCommit() {
   batchCommitResult = result;
   if (result.ok) {
     await authorLoadEntityList();
-    if (currentCreationSubTab === 'lieux') graphLoad();
+    if (currentCreationSubTab === 'lieux') {
+      document.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'lieux' } }));
+    }
   }
   batchRenderAll();
 }
@@ -9672,7 +9676,9 @@ async function _authorSaveSubmit(isNew, type, entityData, extData, statusEl) {
     authorRenderSheet(detail, false, detail.type);
     document.getElementById('author-status').className = 'author-status ok';
     document.getElementById('author-status').textContent = 'Saved.';
-    if (currentCreationSubTab === 'lieux') graphLoad();
+    if (currentCreationSubTab === 'lieux') {
+      document.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'lieux' } }));
+    }
   } catch (e) {
     statusEl.className = 'author-status err';
     statusEl.textContent = e.message;
@@ -10447,24 +10453,17 @@ async function skillSaveTier(skillId, tier) {
   }
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
-   Location graph — SVG adjacency editor (BRIEF-15, schema v1.28)
-   ════════════════════════════════════════════════════════════════════════════ */
-
-const GRAPH_W = 960;
-const GRAPH_H = 480;
+// TICKET-0057: removed by BRIEF-0057-c (still referenced by reviewGraphRender
+// below until that step retires it too).
 const NODE_R  = 20;
-const DRAG_THRESHOLD = 5;
 
-let graphData           = null;  // { nodes, edges } from /api/locations/graph
-let graphSelectedNodeId = null;
-let _graphDrag          = null;  // drag state object
-let _graphPlaced        = null;  // placed nodes with resolved x, y
-
+// TICKET-0057: removed by BRIEF-0057-c (still called by reviewGraphRender
+// below until that step retires it too).
 function graphAutoPlace(nodes) {
   // Null-coordinate nodes get a deterministic position on a circle (ordered by id).
+  const w = 960, h = 480; // TICKET-0057: canvas size, retired with this function by -c
   const nullIds = nodes.filter(n => n.coord_x == null).map(n => n.id).sort();
-  const cx = GRAPH_W / 2, cy = GRAPH_H / 2;
+  const cx = w / 2, cy = h / 2;
   const r  = Math.min(cx, cy) * 0.72;
   const count = nullIds.length;
   return nodes.map(n => {
@@ -10474,168 +10473,6 @@ function graphAutoPlace(nodes) {
     const angle = (2 * Math.PI * idx / count) - Math.PI / 2;
     return { ...n, x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
   });
-}
-
-function graphRender() {
-  const svg = document.getElementById('lieux-graph-svg');
-  if (!svg || !graphData) return;
-  _graphPlaced = graphAutoPlace(graphData.nodes);
-  const nodeMap = Object.fromEntries(_graphPlaced.map(n => [n.id, n]));
-
-  const edgesHTML = graphData.edges.map(e => {
-    const a = nodeMap[e.entity_a_id], b = nodeMap[e.entity_b_id];
-    if (!a || !b) return '';
-    return `<line data-eid="${esc(e.id)}"
-      x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}"
-      x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"
-      stroke="var(--muted)" stroke-width="2" stroke-linecap="round"
-      style="cursor:pointer" onclick="graphEdgeClick(event,'${esc(e.id)}')" />`;
-  }).join('');
-
-  const nodesHTML = _graphPlaced.map(n => {
-    const sel  = n.id === graphSelectedNodeId;
-    const fill = sel ? 'var(--accent)' : 'var(--card)';
-    const strk = sel ? 'var(--accent)' : 'var(--border)';
-    const sw   = sel ? 2.5 : 1.5;
-    return `<g data-nid="${esc(n.id)}" style="cursor:grab"
-        onmousedown="graphNodeMD(event,'${esc(n.id)}')">
-      <circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${NODE_R}"
-        fill="${fill}" stroke="${strk}" stroke-width="${sw}" />
-      <text x="${n.x.toFixed(1)}" y="${(n.y + NODE_R + 13).toFixed(1)}"
-        text-anchor="middle" fill="var(--text)" font-size="11"
-        style="pointer-events:none;user-select:none">${esc(n.name)}</text>
-    </g>`;
-  }).join('');
-
-  svg.innerHTML = edgesHTML + nodesHTML;
-}
-
-function graphNodeMD(e, nodeId) {
-  e.stopPropagation();
-  const svg  = document.getElementById('lieux-graph-svg');
-  const rect = svg.getBoundingClientRect();
-  const node = _graphPlaced && _graphPlaced.find(n => n.id === nodeId);
-  _graphDrag = {
-    nodeId,
-    clientX0: e.clientX, clientY0: e.clientY,
-    svgX0: node ? node.x : 0, svgY0: node ? node.y : 0,
-    scaleX: GRAPH_W / rect.width, scaleY: GRAPH_H / rect.height,
-    moved: false, curX: node ? node.x : 0, curY: node ? node.y : 0,
-  };
-  window.addEventListener('mousemove', _graphMouseMove, { passive: true });
-  window.addEventListener('mouseup', _graphMouseUp);
-}
-
-function _graphMouseMove(e) {
-  if (!_graphDrag) return;
-  const dx = e.clientX - _graphDrag.clientX0;
-  const dy = e.clientY - _graphDrag.clientY0;
-  if (!_graphDrag.moved && Math.hypot(dx, dy) > DRAG_THRESHOLD) _graphDrag.moved = true;
-  if (!_graphDrag.moved) return;
-  _graphDrag.curX = _graphDrag.svgX0 + dx * _graphDrag.scaleX;
-  _graphDrag.curY = _graphDrag.svgY0 + dy * _graphDrag.scaleY;
-  _graphMoveSVGNode(_graphDrag.nodeId, _graphDrag.curX, _graphDrag.curY);
-}
-
-function _graphMouseUp() {
-  window.removeEventListener('mousemove', _graphMouseMove);
-  window.removeEventListener('mouseup', _graphMouseUp);
-  if (!_graphDrag) return;
-  const { nodeId, moved, curX, curY } = _graphDrag;
-  _graphDrag = null;
-  if (moved) graphPersistPos(nodeId, curX, curY);
-  else       graphNodeClick(nodeId);
-}
-
-function _graphMoveSVGNode(nodeId, x, y) {
-  const svg = document.getElementById('lieux-graph-svg');
-  if (!svg) return;
-  const g = svg.querySelector(`[data-nid="${nodeId}"]`);
-  if (g) {
-    const c = g.querySelector('circle'), t = g.querySelector('text');
-    if (c) { c.setAttribute('cx', x.toFixed(1)); c.setAttribute('cy', y.toFixed(1)); }
-    if (t) { t.setAttribute('x', x.toFixed(1)); t.setAttribute('y', (y + NODE_R + 13).toFixed(1)); }
-  }
-  graphData.edges.forEach(edge => {
-    if (edge.entity_a_id !== nodeId && edge.entity_b_id !== nodeId) return;
-    const line = svg.querySelector(`[data-eid="${edge.id}"]`);
-    if (!line) return;
-    if (edge.entity_a_id === nodeId) { line.setAttribute('x1', x.toFixed(1)); line.setAttribute('y1', y.toFixed(1)); }
-    else                             { line.setAttribute('x2', x.toFixed(1)); line.setAttribute('y2', y.toFixed(1)); }
-  });
-}
-
-function graphNodeClick(nodeId) {
-  if (!graphSelectedNodeId) {
-    graphSelectedNodeId = nodeId;
-    graphRender();
-    return;
-  }
-  const A = graphSelectedNodeId;
-  graphSelectedNodeId = null;
-  if (A === nodeId) { graphRender(); return; }
-  // Undirected dedup: refuse to create B→A when A–B already exists.
-  const dup = graphData.edges.some(e =>
-    (e.entity_a_id === A && e.entity_b_id === nodeId) ||
-    (e.entity_a_id === nodeId && e.entity_b_id === A)
-  );
-  if (dup) { graphRender(); return; }
-  graphCreateEdge(A, nodeId);
-}
-
-function graphEdgeClick(e, edgeId) {
-  e.stopPropagation();
-  if (!confirm('Supprimer cette connexion ?')) return;
-  api(`/api/relations/${encodeURIComponent(edgeId)}`, { method: 'DELETE' })
-    .then(() => graphLoad())
-    .catch(err => console.error('graphEdgeClick:', err.message));
-}
-
-function graphCanvasClick(e) {
-  if (e.target === document.getElementById('lieux-graph-svg')) {
-    if (graphSelectedNodeId) { graphSelectedNodeId = null; graphRender(); }
-  }
-}
-
-async function graphCreateEdge(A, B) {
-  try {
-    await api(`/api/entities/${encodeURIComponent(A)}/relations`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ other_entity_id: B, type: 'connects_to' }),
-    });
-    await graphLoad();
-  } catch (err) { console.error('graphCreateEdge:', err.message); }
-}
-
-async function graphPersistPos(nodeId, x, y) {
-  // coord_x/coord_y are two scalar columns — no merge discipline needed
-  // (TICKET-0025, BRIEF-0025-b; was a JSON read-merge-write).
-  try {
-    const full = await api(`/api/entities/${encodeURIComponent(nodeId)}`);
-    const ext  = Object.assign({}, full.extension, { coord_x: Math.round(x), coord_y: Math.round(y) });
-    await api(`/api/entities/${encodeURIComponent(nodeId)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entity: full, extension: ext }),
-    });
-    // Update local caches so subsequent drags use the persisted position.
-    const node = graphData && graphData.nodes.find(n => n.id === nodeId);
-    if (node) { node.coord_x = Math.round(x); node.coord_y = Math.round(y); }
-    const placed = _graphPlaced && _graphPlaced.find(n => n.id === nodeId);
-    if (placed) { placed.x = Math.round(x); placed.y = Math.round(y); }
-  } catch (err) { console.error('graphPersistPos:', err.message); }
-}
-
-async function graphLoad() {
-  const svg = document.getElementById('lieux-graph-svg');
-  if (svg) svg.innerHTML = '<text x="480" y="240" text-anchor="middle" fill="var(--muted)" font-size="13">Chargement…</text>';
-  try {
-    graphData = await api('/api/locations/graph');
-    graphRender();
-  } catch (err) {
-    if (svg) svg.innerHTML = `<text x="480" y="240" text-anchor="middle" fill="var(--red)" font-size="12">${esc(err.message)}</text>`;
-  }
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
