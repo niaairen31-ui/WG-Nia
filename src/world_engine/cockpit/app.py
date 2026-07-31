@@ -1,7 +1,7 @@
 """Cockpit — local review web UI for World Engine.
 
 App factory, static/vendor serving (including the built-frontend static
-mount and the transitional `/shell` route, TICKET-0055), router mounting,
+mount and the enumerated shell route table, TICKET-0056), router mounting,
 and the NPC link and NPC group agents' startup retention purges
 (`purge_closed_link_batches`, TICKET-0036; `purge_closed_npc_batches`,
 TICKET-0037), both thin wrappers
@@ -220,8 +220,15 @@ def _check_frontend_build_on_startup() -> None:
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
-@app.get("/", response_class=HTMLResponse)
-def serve_ui() -> str:
+@app.get("/legacy", response_class=HTMLResponse)
+def serve_legacy() -> str:
+    """The legacy single-file cockpit, served verbatim (TICKET-0056, B1).
+
+    The shell hosts this document in ONE same-origin iframe; it also stays
+    directly reachable as an escape hatch. `index.html` is byte-untouched
+    by TICKET-0056 -- nine structural checks and `relation_graph.py`'s
+    Lieux-graph byte-equality assertion against `main` depend on it.
+    """
     return _INDEX_HTML.read_text(encoding="utf-8")
 
 
@@ -232,14 +239,29 @@ def serve_vendor_file(filename: str) -> FileResponse:
     return FileResponse(_VENDOR_DIR / filename, media_type="application/javascript")
 
 
-@app.get("/shell", response_class=HTMLResponse)
-def serve_shell() -> str:
-    """Transitional beachhead for the built frontend (TICKET-0055, C1).
+# TICKET-0056 (D3b). The shell's SURFACE vocabulary, enumerated. Never a
+# catch-all: the 151 API route literals do not carry "/api" in their text
+# (crud/_router.py declares prefix="/api" at mount time), so a
+# catch-all's exclusion list would be a convention, and a future router
+# included without that prefix would vanish into the shell silently. With
+# enumeration, GET /creaton is a real 404 and GET /api/entitie stays a
+# real 404.
+#
+# The server enumerates SURFACES only and never learns the sub-tab
+# vocabulary: {sub_tab} is opaque here and resolved client-side against
+# CREATION_TABS, so a runtime entity type (TICKET-0046) becomes
+# deep-linkable with no change to this file.
+#
+# This literal is mirrored by SHELL_ROUTES in frontend/src/lib/router.js;
+# tooling/verify/checks/legacy_mount.py asserts the two agree.
+_SHELL_ROUTES = ("/", "/play", "/creation", "/creation/{sub_tab}", "/observation")
 
-    `GET /` keeps serving the legacy single-file cockpit verbatim for the
-    whole of this ticket; this route is the seam TICKET-0056 renames to
-    `/` once the shell owns the surfaces. It exists so the toolchain can
-    be proven live without editing `index.html`, which nine structural
-    checks and one cross-branch byte-equality assertion depend on.
-    """
+
+def _serve_shell() -> str:
     return (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+
+for _shell_path in _SHELL_ROUTES:
+    app.add_api_route(
+        _shell_path, _serve_shell, methods=["GET"], response_class=HTMLResponse
+    )

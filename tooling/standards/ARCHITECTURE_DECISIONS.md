@@ -10965,6 +10965,86 @@ what canon exposes and never dictates storage. The frontend rewrite is the
 moment of temptation to leak spatial shortcuts into the client — this
 invariant holds unchanged through the migration.
 
+## COCKPIT SHELL — legacy-mount registry, iframe boundary, enumerated routing (BRIEF-0056-a, BRIEF-0056-b, BRIEF-0056-c, BRIEF-0056-d, no schema change)
+
+**The registry is three entries, not one (A2).** A single "monolith" entry
+cannot discharge TICKET-0055's deferral: it vanishes rather than shrinks, so
+the count stops being a measurable gate. `creation` is retired by
+TICKET-0059, `observation` by TICKET-0060, `play` survives to TICKET-0061
+and beyond, until its own rewrite.
+
+**One iframe, and `index.html` byte-untouched (B1).** The three views are
+`display:none` siblings over one global scope; "load only Play's JS" is not
+constructible. The iframe isolates JS and CSS by construction, so 319 inline
+handlers and 175 globals keep working with zero edits and the nine
+index-anchored checks stay green by non-event. B2 (same-document injection)
+rejected: it would merge 175 globals and 1039 lines of unscoped CSS into the
+new surface.
+
+**No `postMessage`: same-origin direct invocation, confined.** Shell and
+legacy share an origin, so surface switching is a direct call on the legacy
+window. Confinement is a check (`legacy_mount.py` assertion 5), not a
+convention: `contentWindow` / `legacy-frame` tokens may occur only in
+`frontend/src/legacy/bridge.js` and `LegacyFrame.svelte`.
+
+**The history trap, and why the frame `src` is written once.** An iframe
+navigation pushes onto the PARENT history stack; reassigning `src` to switch
+surfaces would make Back replay legacy boots instead of shell routes.
+Enforced by assertion 6 (exactly one `src="/legacy"` site, zero `.src =`
+reassignments), not by memory.
+
+**C3: the server stays the authority.** The shell delegates the whole
+world-switch cascade to the legacy `activateWorld()` rather than re-POSTing
+`/api/worlds/{id}/activate` itself, then mirrors `/api/bootstrap` +
+`/api/worlds` afterwards. Named contrast: the legacy `loadBootstrap()`
+swallows every error in `catch (_) {}`; the shell's mirror refuses visibly
+(a failed read sets a store `error` field and the shell renders a refusal
+band, never a silently-stale selector).
+
+**D3b and the death of the catch-all.** The measured fact that decides it:
+the 151 API route literals do not carry `/api` in their text
+(`crud/_router.py` declares the prefix at mount time), so a catch-all's
+exclusion list would be a convention with a silent failure mode — a future
+router included without the prefix would vanish into the shell. D2 (hash
+routing) is fail-open in the other direction: a typo'd hash can never be a
+404. Enumeration (`_SHELL_ROUTES` in `app.py`, mirrored by `SHELL_ROUTES` in
+`frontend/src/lib/router.js`, cross-checked by `legacy_mount.py` assertion 7)
+makes both a surface typo and an API typo real 404s.
+
+**The server never learns the tab vocabulary (D-ii).** `{sub_tab}` is opaque
+server-side and resolved against `CREATION_TABS` client-side, so a runtime
+entity type (TICKET-0046) is deep-linkable with no server change — the same
+rule `page_contract` already enforces on the tab mechanism generally. The
+`'npc'` fallback is reused from `activateWorld`, not invented. Executor's
+finding: `authorRegistry` and `CREATION_TABS` are `let`/`const` bindings at
+the legacy script's top level, never reflected as `window` properties
+(unlike a function declaration or `var`) — the deep-link resolver reads an
+equivalent DOM-only signal instead (`#creation-shell-title` populated,
+`#ctab-<key>` presence), same throw-on-timeout semantics, zero `index.html`
+edit.
+
+**The URL is authoritative on entry, not continuously synchronized.**
+Continuous sync would require the legacy document to call out to the shell,
+i.e. an edit to `index.html`, which this ticket refuses. **Named deferral,
+logged here:** continuous sync arrives with the Creation surface itself at
+TICKET-0058.
+
+**G1: no check re-homed.** Nothing structural moved. `relation_graph.py`'s
+Lieux-graph byte-equality assertion against `main` stays a live gate the
+next editor of those functions will meet.
+
+**Two records corrected.** (i) The map's "Play preserved as an HTMX island"
+is wrong — no HTMX ever existed, already established at TICKET-0055; Play is
+a vanilla-JS island. (ii) The 3D guard-rail is NOT restated in this entry:
+TICKET-0055's entry already re-nailed it, and restating doctrine is how
+doctrine drifts — cross-reference only.
+
+**Renaming `index.html` is deferred to TICKET-0061 (named deferral, logged
+here).** Three files now share the name (`frontend/index.html` the Vite
+entry, `cockpit/index.html` the legacy surface, `cockpit/static/index.html`
+the build output); the rename touches all nine index-anchored checks, which
+that ticket retires anyway.
+
 ---
 
 *Co-built with Claude, June 2026.*

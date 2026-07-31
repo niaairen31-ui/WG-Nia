@@ -14,8 +14,9 @@ and `world-engine-schema-changelog.md` — never here.
 
 - Python, FastAPI, SQLModel, SQLite (Supabase/PostgreSQL migration path
   preserved via the env-var DB URL).
-- Frontend: vanilla-JS single-page `cockpit/index.html`, migrating to a
-  built Svelte app under `frontend/`; no new dependency without a decision.
+- Frontend: the shell (built Svelte under `frontend/`) serves `/`; the
+  legacy vanilla-JS document is served at `/legacy` and hosted in one
+  governed iframe inside the shell; no new dependency without a decision.
 - Local models via Ollama; Claude API reserved for heavy lore-coherence work.
 - Runtime: Windows / PowerShell — `.venv\Scripts\Activate.ps1`,
   `$env:PYTHONPATH = "src"`.
@@ -55,7 +56,7 @@ and `world-engine-schema-changelog.md` — never here.
   registry, and a page's primary action exists only as its registry
   `primaryAction` (`tooling/verify/checks/page_contract.py` enforces). A
   slot may declare `display: 'on_demand'` to stay hidden and unloaded until its shell toggle is clicked (default `'always'`, today's behavior). Runtime-type tabs (TICKET-0046, BRIEF-0046-d) are injected ONLY by the single boot/refresh factory `_buildRuntimeCreationTabs()`/`refreshCreationTabs()` (`index.html`) as normal entity-archetype registry entries on the shared shell — never a hand-authored `#ctab-`; `page_contract` asserts that mechanism (factory defined + called from `creationInit`, no static `#ctab-` outside its frozen `TAB_KEYS`), never enumerates live types.
-- **The review tree** (`review*`, `index.html`) is a generic accept/reject component driven by a registered descriptor, never by consumer globals: a consumer calls `reviewRegister(key, descriptor)` and every DOM-reachable entry point takes that key as its first argument (inline `onclick` handlers are strings and cannot carry a closure). `reviewCascade` is PURE and re-attaches an orphan to `descriptor.fallbackParentId` — region passes its draft root, the room batch generator (TICKET-0042) passes its synthetic anchor; that fallback is never recomputed inside the component. No `review*` body may name `region`, and outside the component only `regionRenderAll`, `regionReviewDescriptor`, `regionRenderFactionsPanel`, `_sheetEntityOptions`, `batchRenderAll` and `batchReviewDescriptor` may name a `review*` symbol — both directions enforced fail-closed by `tooling/verify/checks/review_component.py`. The frontend is mid-migration: `index.html` is the legacy vanilla-JS single-page surface, `frontend/` is the built Svelte app whose committed output under `cockpit/static/` must match its sources -- enforced fail-closed by `tooling/verify/checks/frontend_build_fresh.py`, and by a boot guard that refuses to serve an empty `static/`. Play stays vanilla-JS until its own rewrite. Rationale, target shape and the surface-migration chain live in `tooling/standards/ARCHITECTURE_DECISIONS.md`.
+- **The review tree** (`review*`, `index.html`) is a generic accept/reject component driven by a registered descriptor, never by consumer globals: a consumer calls `reviewRegister(key, descriptor)` and every DOM-reachable entry point takes that key as its first argument (inline `onclick` handlers are strings and cannot carry a closure). `reviewCascade` is PURE and re-attaches an orphan to `descriptor.fallbackParentId` — region passes its draft root, the room batch generator (TICKET-0042) passes its synthetic anchor; that fallback is never recomputed inside the component. No `review*` body may name `region`, and outside the component only `regionRenderAll`, `regionReviewDescriptor`, `regionRenderFactionsPanel`, `_sheetEntityOptions`, `batchRenderAll` and `batchReviewDescriptor` may name a `review*` symbol — both directions enforced fail-closed by `tooling/verify/checks/review_component.py`. The frontend is mid-migration: legacy surfaces are an enumerated, monotonically shrinking registry (`frontend/src/legacy/registry.js`), legacy access is confined to `frontend/src/legacy/bridge.js`, and the shell route vocabulary is mirrored in `app.py` and `frontend/src/lib/router.js` -- all enforced fail-closed by `tooling/verify/checks/legacy_mount.py`. The committed build output under `cockpit/static/` must match its sources -- enforced fail-closed by `tooling/verify/checks/frontend_build_fresh.py`, and by a boot guard that refuses to serve an empty `static/`. Play stays vanilla-JS until its own rewrite. Rationale, target shape and the surface-migration chain live in `tooling/standards/ARCHITECTURE_DECISIONS.md`.
 
 ## Ticket pipeline (governance)
 
@@ -383,6 +384,7 @@ WG-Nia/
 │   ├── skills/              # recon, brief, verify-authoring skills
 │   └── settings.json        # permissions allowlist
 ├── frontend/                 # Svelte + Vite sources; npm run build writes the committed static/ output
+│   └── src/legacy/           # enumerated legacy-mount registry + the sole bridge module into the legacy iframe (TICKET-0056)
 ├── src/world_engine/        # the importable package (PYTHONPATH=src)
 │   ├── db.py                # engine + session; URL from env var
 │   ├── schema_version.py    # code-side expected-version constant for the static schema, checked at cockpit boot
@@ -406,7 +408,7 @@ WG-Nia/
 │       ├── app.py           # app factory + router mounting + fail-closed schema-version boot guard + link-batch retention purge (startup); routes/ holds the routers
 │       ├── play*.py         # say() decomposition: routing, physical branch, narration/initiative
 │       ├── crud/            # creator CRUD routes, split by domain (entities, relations, ...)
-│       ├── index.html       # legacy single-page UI; CREATION_TABS registry + dispatcher
+│       ├── index.html       # legacy single-page UI, served at /legacy and hosted in the shell's iframe; CREATION_TABS registry + dispatcher
 │       ├── static/          # committed built-frontend output (npm run build in frontend/); served at /static, boot-guarded
 │       └── vendor/          # vendored JS deps (cytoscape-*.min.js); one whitelisted GET route
 ├── scripts/

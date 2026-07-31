@@ -1,4 +1,4 @@
-import Beachhead from './Beachhead.svelte';
+import App from './App.svelte';
 import { mount } from 'svelte';
 
-mount(Beachhead, { target: document.getElementById('app') });
+mount(App, { target: document.getElementById('app') });
