@@ -114,6 +114,15 @@ export function legacyDocument() {
   return legacyWindow().document;
 }
 
+/* TICKET-0057. The review pre-commit preview derives its {nodes, edges}
+   from in-memory drafts already living in the legacy document -- no
+   fetch of its own. reviewGraphData is a plain function declaration, so
+   the existing callLegacy mechanism reaches it like any other legacy
+   entry point; no new confinement-relevant token is introduced. */
+export function reviewGraphData(key) {
+  return callLegacy('reviewGraphData', key);
+}
+
 export function whenLegacyReady(predicate, { timeoutMs = 5000 } = {}) {
   const win = legacyWindow();
   return new Promise((resolve, reject) => {

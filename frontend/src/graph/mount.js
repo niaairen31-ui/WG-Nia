@@ -14,8 +14,9 @@ import { mount as svelteMount, unmount as svelteUnmount } from 'svelte';
 import Graph from './Graph.svelte';
 import { legacyContainer } from '../legacy/bridge.js';
 import lieux from './consumers/lieux.js';
+import review from './consumers/review.js';
 
-const CONSUMERS = { lieux };
+const CONSUMERS = { lieux, review };
 
 const live = {}; // containerId -> { node, consumerKey, meta, instance }
 
@@ -92,9 +93,16 @@ export async function mountGraph(containerId, consumerKey, meta = {}) {
     if (existing.node === node) {
       throw new Error(`graph/mount: ${containerId} already has a live graph instance`);
     }
-    // The surrounding panel re-emitted its markup (BRIEF-0057-a M8) --
-    // the old DOM node, and the instance mounted into it, are already
-    // gone. Nothing to unmount; just discard the stale bookkeeping.
+    // The surrounding panel re-emitted its markup (BRIEF-0057-a M8) -- the
+    // old DOM node is already gone, but the Svelte instance mounted into
+    // it is not: torn down explicitly so it is never left orphaned.
+    if (existing.instance) {
+      try {
+        svelteUnmount(existing.instance);
+      } catch (_err) {
+        // Already-detached target; the instance is discarded regardless.
+      }
+    }
     delete live[containerId];
   }
   await renderInto(containerId, consumerKey, meta);

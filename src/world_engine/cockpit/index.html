@@ -6132,14 +6132,19 @@ async function promptsRunAssembledPreview(usage) {
  *                     anchor. THIS is the parameter TICKET-0041 exists for:
  *                     it must never be recomputed inside the component.
  *   reparentedLabel   badge text shown on a re-attached node
- *   graphSvgId        DOM id of the <svg> the graph draws into
  *   graphOpen         bool, graph pane currently open
+ *   graph             { consumer, mountId, extraEdges(acceptedIds, nodeById) }
+ *                     -- the graph primitive's declaration site for this
+ *                     descriptor (TICKET-0057). `mountId` is the id of a
+ *                     STABLE empty div the consumer re-emits on every
+ *                     render; the shell mounts the primitive into it.
+ *                     No descriptor names a drawing surface any more:
+ *                     the review component does not know how a graph is
+ *                     drawn.
  *   onToggleAccept(id)  consumer mutates its own accepted map
  *   onToggleGraph()     consumer mutates its own open flag
  *   onOpenSheet(id)     consumer opens its own full sheet
  *   onRender()          consumer re-renders itself fully
- *   graphExtraEdges(acceptedIds, nodeById) -> [{ id, entity_a_id,
- *                       entity_b_id, kind }]   (BRIEF-0041-b)
  * ────────────────────────────────────────────────────────────────────── */
 
 const REVIEW_DESCRIPTORS = {};
@@ -6241,35 +6246,9 @@ function reviewGraphData(key) {
   }
 
   const nodeById = new Map(d.nodes.map(n => [n.id, n]));
-  const extraEdges = d.graphExtraEdges(cascade.acceptedIds, nodeById);
+  const extraEdges = d.graph.extraEdges(cascade.acceptedIds, nodeById);
 
   return { nodes, edges: [...hierEdges, ...extraEdges] };
-}
-
-function reviewGraphRender(key) {
-  const d = reviewDescriptor(key);
-  const svg = document.getElementById(d.graphSvgId);
-  if (!svg) return;
-  const data = reviewGraphData(key);
-  const placed = graphAutoPlace(data.nodes);
-  const nodeMap = Object.fromEntries(placed.map(n => [n.id, n]));
-
-  const edgesHTML = data.edges.map(e => {
-    const a = nodeMap[e.entity_a_id], b = nodeMap[e.entity_b_id];
-    if (!a || !b) return '';
-    const dash = e.kind === 'connection' ? ' stroke-dasharray="4"' : '';
-    return `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"
-      stroke="var(--muted)" stroke-width="2" stroke-linecap="round"${dash} />`;
-  }).join('');
-
-  const nodesHTML = placed.map(n => `<g>
-      <circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${NODE_R}" fill="var(--card)" stroke="var(--border)" stroke-width="1.5" />
-      <text x="${n.x.toFixed(1)}" y="${(n.y + NODE_R + 13).toFixed(1)}"
-        text-anchor="middle" fill="var(--text)" font-size="11"
-        style="pointer-events:none;user-select:none">${esc(n.name)}</text>
-    </g>`).join('');
-
-  svg.innerHTML = edgesHTML + nodesHTML;
 }
 /* ── End review component ──────────────────────────────────────────────── */
 
@@ -6323,33 +6302,36 @@ function regionReviewDescriptor() {
     accepted: regionAccepted,
     fallbackParentId: (regionDraft.locations.find(l => l.parent_local_id == null) || {}).local_id || null,
     reparentedLabel: 'rattaché à la racine',
-    graphSvgId: 'region-lieux-graph-svg',
     graphOpen: regionLocGraphOpen,
     onToggleAccept: id => { regionAccepted[id] = !reviewIsAccepted('region', id); },
     onToggleGraph: () => { regionLocGraphOpen = !regionLocGraphOpen; },
     onOpenSheet: id => regionRenderSheet('location', id),
     onRender: regionRenderAll,
-    /** Pre-commit location graph adapter (C1, BRIEF-0033-d) — draft-fed, no IDs,
-     * read-only. Mirrors the intra-region half of _region_resolve_link_target
-     * (regions.py) for confirmed connection links: trim+lowercase name match,
-     * no DB fallback (nothing committed yet). */
-    graphExtraEdges: (acceptedIds, nodeById) => {
-      const accepted = regionDraft.locations.filter(l => acceptedIds.has(l.local_id));
-      const byName = new Map(accepted.map(l => [(l.result.draft.public.name || '').trim().toLowerCase(), l.local_id]));
-      const edges = [];
-      for (const l of accepted) {
-        const links = l.result.draft.secret.sensed_links || [];
-        links.forEach((link, idx) => {
-          if (link.kind !== 'connection') return;
-          if (!regionIsLinkConfirmed(regionLinkKey(l.local_id, idx))) return;
-          const targetName = (link.name || '').trim().toLowerCase();
-          if (!targetName) return;
-          const targetId = byName.get(targetName);
-          if (!targetId || targetId === l.local_id) return;
-          edges.push({ id: `c-${l.local_id}-${idx}`, entity_a_id: l.local_id, entity_b_id: targetId, kind: 'connection' });
-        });
-      }
-      return edges;
+    graph: {
+      consumer: 'review',
+      mountId: 'region-graph-mount',
+      /** Pre-commit location graph adapter (C1, BRIEF-0033-d) — draft-fed, no IDs,
+       * read-only. Mirrors the intra-region half of _region_resolve_link_target
+       * (regions.py) for confirmed connection links: trim+lowercase name match,
+       * no DB fallback (nothing committed yet). */
+      extraEdges: (acceptedIds, nodeById) => {
+        const accepted = regionDraft.locations.filter(l => acceptedIds.has(l.local_id));
+        const byName = new Map(accepted.map(l => [(l.result.draft.public.name || '').trim().toLowerCase(), l.local_id]));
+        const edges = [];
+        for (const l of accepted) {
+          const links = l.result.draft.secret.sensed_links || [];
+          links.forEach((link, idx) => {
+            if (link.kind !== 'connection') return;
+            if (!regionIsLinkConfirmed(regionLinkKey(l.local_id, idx))) return;
+            const targetName = (link.name || '').trim().toLowerCase();
+            if (!targetName) return;
+            const targetId = byName.get(targetName);
+            if (!targetId || targetId === l.local_id) return;
+            edges.push({ id: `c-${l.local_id}-${idx}`, entity_a_id: l.local_id, entity_b_id: targetId, kind: 'connection' });
+          });
+        }
+        return edges;
+      },
     },
   };
 }
@@ -6680,8 +6662,7 @@ function regionRenderAll() {
       <button class="btn-icon" onclick="reviewToggleGraph('region')">${regionLocGraphOpen ? 'Masquer le graphe des lieux' : 'Voir le graphe des lieux'}</button>
       <div id="region-lieux-graph" style="display:${regionLocGraphOpen ? 'block' : 'none'}; margin-top:8px;">
         <div class="lieux-graph-head"><span>Carte des lieux (aperçu pré-commit)</span></div>
-        <svg id="region-lieux-graph-svg" viewBox="0 0 960 480" width="100%" height="300"
-             style="display:block; background:var(--bg)"></svg>
+        <div id="region-graph-mount"></div>
       </div>
     </div>
     <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start">
@@ -6696,7 +6677,11 @@ function regionRenderAll() {
     </div>
     <div id="region-commit-status">${regionRenderCommitResult()}</div>
   `;
-  if (regionLocGraphOpen) reviewGraphRender('region');
+  if (regionLocGraphOpen) {
+    document.dispatchEvent(new CustomEvent('graph:slot', {
+      detail: { consumer: 'review', containerId: 'region-graph-mount', open: true, key: 'region' },
+    }));
+  }
 }
 
 async function regionCommit() {
@@ -7029,7 +7014,6 @@ function batchReviewDescriptor() {
     accepted: batchAccepted,
     fallbackParentId: batchAnchorId,
     reparentedLabel: 'rattaché à l\'ancre',
-    graphSvgId: 'batch-lieux-graph-svg',
     graphOpen: batchGraphOpen,
     onToggleAccept: id => {
       if (id === batchAnchorId) return; // Q1: non-toggleable
@@ -7038,11 +7022,15 @@ function batchReviewDescriptor() {
     onToggleGraph: () => { batchGraphOpen = !batchGraphOpen; },
     onOpenSheet: id => batchOpenSheet(id),
     onRender: batchRenderAll,
-    graphExtraEdges: (acceptedIds, nodeById) => {
-      const edges = (batchCoherence && batchCoherence.edges) || [];
-      return edges
-        .filter(e => batchConfirmedEdges[e.id] && acceptedIds.has(e.a_id) && acceptedIds.has(e.b_id))
-        .map(e => ({ id: e.id, entity_a_id: e.a_id, entity_b_id: e.b_id, kind: 'connection' }));
+    graph: {
+      consumer: 'review',
+      mountId: 'batch-graph-mount',
+      extraEdges: (acceptedIds, nodeById) => {
+        const edges = (batchCoherence && batchCoherence.edges) || [];
+        return edges
+          .filter(e => batchConfirmedEdges[e.id] && acceptedIds.has(e.a_id) && acceptedIds.has(e.b_id))
+          .map(e => ({ id: e.id, entity_a_id: e.a_id, entity_b_id: e.b_id, kind: 'connection' }));
+      },
     },
   };
 }
@@ -7143,8 +7131,7 @@ function batchRenderAll() {
       <button class="btn-icon" onclick="reviewToggleGraph('batch')">${batchGraphOpen ? 'Masquer le graphe' : 'Voir le graphe'}</button>
       <div id="batch-lieux-graph" style="display:${batchGraphOpen ? 'block' : 'none'}; margin-top:8px;">
         <div class="lieux-graph-head"><span>Carte du lot (aperçu pré-commit)</span></div>
-        <svg id="batch-lieux-graph-svg" viewBox="0 0 960 480" width="100%" height="300"
-             style="display:block; background:var(--bg)"></svg>
+        <div id="batch-graph-mount"></div>
       </div>
     </div>
     <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start">
@@ -7159,7 +7146,11 @@ function batchRenderAll() {
     </div>
     <div id="batch-commit-status">${batchRenderCommitResult()}</div>
   `;
-  if (batchGraphOpen) reviewGraphRender('batch');
+  if (batchGraphOpen) {
+    document.dispatchEvent(new CustomEvent('graph:slot', {
+      detail: { consumer: 'review', containerId: 'batch-graph-mount', open: true, key: 'batch' },
+    }));
+  }
 }
 
 function creationNewEntity() {
@@ -10451,28 +10442,6 @@ async function skillSaveTier(skillId, tier) {
     alert(e.message);
     skillSelectCharacter(skillCharacterId); // reload to discard the failed edit
   }
-}
-
-// TICKET-0057: removed by BRIEF-0057-c (still referenced by reviewGraphRender
-// below until that step retires it too).
-const NODE_R  = 20;
-
-// TICKET-0057: removed by BRIEF-0057-c (still called by reviewGraphRender
-// below until that step retires it too).
-function graphAutoPlace(nodes) {
-  // Null-coordinate nodes get a deterministic position on a circle (ordered by id).
-  const w = 960, h = 480; // TICKET-0057: canvas size, retired with this function by -c
-  const nullIds = nodes.filter(n => n.coord_x == null).map(n => n.id).sort();
-  const cx = w / 2, cy = h / 2;
-  const r  = Math.min(cx, cy) * 0.72;
-  const count = nullIds.length;
-  return nodes.map(n => {
-    if (n.coord_x != null) return { ...n, x: n.coord_x, y: n.coord_y };
-    const idx = nullIds.indexOf(n.id);
-    if (count === 1) return { ...n, x: cx, y: cy };
-    const angle = (2 * Math.PI * idx / count) - Math.PI / 2;
-    return { ...n, x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
-  });
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
