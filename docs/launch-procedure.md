@@ -31,6 +31,10 @@ npm run build
 The output under `src/world_engine/cockpit/static/` is committed; the
 cockpit refuses to start if it is missing.
 
+After launch, `http://127.0.0.1:8000/` serves the shell (built Svelte,
+hosting the legacy cockpit in one governed iframe). `http://127.0.0.1:8000/legacy`
+serves the legacy cockpit directly, as an escape hatch.
+
 ## Test
 
 ```powershell
