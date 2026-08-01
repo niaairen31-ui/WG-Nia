@@ -5,6 +5,7 @@
   import { serverState, refreshServerState } from './lib/serverState.svelte.js';
   import { onRoute } from './lib/router.js';
   import { initGraphMount } from './graph/mount.js';
+  import { initCreationMount } from './creation/mount.js';
 
   let currentSurface = $state('play');
 
@@ -35,6 +36,7 @@
   async function onLegacyReady() {
     hideLegacyHeader();
     initGraphMount(legacyDocument());
+    initCreationMount(legacyDocument());
     await refreshServerState();
     onRoute(applyRoute);
   }

@@ -4088,6 +4088,17 @@ async function spatialTalkTo(npcId) {
 //                 shows the container and fires loader, later clicks only
 //                 hide/show (no unload); state resets via onTabEnter/
 //                 onWorldSwitch.
+//   island:       { key } | undefined — when present, this tab's body is
+//                 a Svelte island (TICKET-0058). The legacy document
+//                 dispatches 'island:slot' and renders nothing itself;
+//                 the shell owns the panel. Declared in
+//                 frontend/src/creation/registry.js.
+//                 An entry declaring `island` MUST also declare
+//                 loader: null and state.onWorldSwitch: null. The shell
+//                 owns this tab's body; a legacy loader or world-switch
+//                 renderer would innerHTML over the mounted island
+//                 (RECON-0058-a M5). Island world-state resets are
+//                 driven by serverState, not by a legacy callback.
 // }
 // Every Création page is a registry entry. No page renders outside it.
 //
@@ -4371,9 +4382,10 @@ const CREATION_TABS = {
     label: 'Constructeur',
     archetype: 'bespoke',
     containers: ['creation-constructeur'],
-    loader: constructeurRender,
-    state: { onTabEnter: constructeurResetForm, onWorldSwitch: constructeurResetForm },
-    primaryAction: { label: 'Créer le type', handler: constructeurSubmit },
+    loader: null,
+    state: { onTabEnter: null, onWorldSwitch: null },
+    island: { key: 'constructeur' },
+    primaryAction: { label: 'Créer le type', handler: () => _islandPrimaryAction('constructeur') },
   },
   artefacts: {
     label: 'Artefacts',
@@ -4457,6 +4469,15 @@ function _creationActivateTab() {
   if (usesEditorShell) {
     (entry.listLoader || authorLoadEntityList)();
   }
+  // TICKET-0058 (BRIEF-0058-d): an island entry's body is rendered by a
+  // Svelte component, not by legacy code — the legacy document signals
+  // intent and renders nothing itself. Dispatched on EVERY activation,
+  // unconditionally, never behind a first-visit gate: frontend/src/
+  // creation/mount.js's own node-identity check is what makes a repeat
+  // dispatch idempotent (RECON-0058-a M5), not a guard here.
+  if (entry.island) {
+    document.dispatchEvent(new CustomEvent('island:slot', { detail: { key: entry.island.key, open: true } }));
+  }
   if (entry.loader) entry.loader();
   (entry.slots || []).forEach(s => { if (s.display !== 'on_demand' && s.loader) s.loader(); });
 
@@ -4536,6 +4557,16 @@ function renderCreationShell(entry) {
     actionEl.onclick = null;
     actionEl.style.display = 'none';
   }
+}
+
+/** Primary-action bridge for island tabs (TICKET-0058, BRIEF-0058-d). The
+ *  shell owns an island's panel, but the standard action band stays legacy
+ *  chrome (renderCreationShell above, unmodified) — so the band's click is
+ *  forwarded to the mounted component by key instead of calling a legacy
+ *  function directly. One generic helper serving every island, present or
+ *  future; per-tab variation lives in CREATION_TABS data, never here. */
+function _islandPrimaryAction(key) {
+  document.dispatchEvent(new CustomEvent('island:action', { detail: { key } }));
 }
 
 /** Runs every registry entry's world-switch reset (BRIEF-0005-a item 3, G1) —
@@ -7179,90 +7210,18 @@ function creationNewEntity() {
   entry.createPanel();
 }
 
-/* ── Constructeur — runtime entity-type creation (TICKET-0046, BRIEF-0046-c) ──
- * Palette is server-sourced (authorRegistry.checkable_traits) — never a
- * hardcoded trait list here, so a new trait added in traits.py appears
- * without a frontend edit. Success path ends at a confirmed create + a
- * refreshed authorRegistry; the created type's live sub-tab is BRIEF-0046-d
- * (refreshCreationTabs is forward-declared there — the guarded call below
- * lets this land first with no hard dependency). */
-
-let constructeurSlugTouched = false;
-
-function _constructeurSlugify(name) {
-  return name
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-}
-
-function constructeurOnNameInput() {
-  const nameEl = document.getElementById('constructeur-name');
-  const slugEl = document.getElementById('constructeur-slug');
-  if (!nameEl || !slugEl || constructeurSlugTouched) return;
-  slugEl.value = _constructeurSlugify(nameEl.value);
-}
-
-function constructeurOnSlugInput() {
-  constructeurSlugTouched = true;
-}
-
-function constructeurRender() {
-  const root = document.getElementById('creation-constructeur');
-  if (!root) return;
-  const traits = (authorRegistry && authorRegistry.checkable_traits) || [];
-  root.innerHTML = `
-    <div class="field-section" style="border:1px solid var(--border); border-radius:6px; padding:10px; max-width:480px;">
-      <div class="field-section-title">Nouveau type</div>
-      <div class="field-row">
-        <label>Nom</label>
-        <input type="text" id="constructeur-name" oninput="constructeurOnNameInput()">
-      </div>
-      <div class="field-row">
-        <label>Slug</label>
-        <input type="text" id="constructeur-slug" oninput="constructeurOnSlugInput()">
-      </div>
-      <div class="field-section-title" style="margin-top:10px">Traits</div>
-      ${traits.map(t => `
-        <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin:4px 0">
-          <input type="checkbox" class="constructeur-trait" value="${esc(t.key)}"> ${esc(t.label)}
-        </label>`).join('') || '<div class="empty">Aucun trait cochable.</div>'}
-      <div id="constructeur-status" class="author-status" style="margin-top:8px"></div>
-    </div>`;
-}
-
-async function constructeurSubmit() {
-  const nameEl   = document.getElementById('constructeur-name');
-  const slugEl   = document.getElementById('constructeur-slug');
-  const statusEl = document.getElementById('constructeur-status');
-  if (!nameEl || !slugEl || !statusEl) return;
-  const name = nameEl.value.trim();
-  const slug = slugEl.value.trim();
-  if (!name || !slug) {
-    statusEl.innerHTML = '<span style="color:var(--red)">Nom et slug requis.</span>';
-    return;
-  }
-  const trait_keys = Array.from(document.querySelectorAll('.constructeur-trait:checked')).map(el => el.value);
-  statusEl.innerHTML = '<span class="spin">⟳</span>';
-  try {
-    const result = await api('/api/entity-types', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, slug, trait_keys }),
-    });
-    authorRegistry = await api('/api/entity-types');
-    statusEl.innerHTML = `<span style="color:var(--green)">Type « ${esc(result.slug)} » créé (${esc(result.physical_table)}).</span>`;
-    if (typeof refreshCreationTabs === 'function') refreshCreationTabs();
-  } catch (e) {
-    statusEl.innerHTML = `<span style="color:var(--red)">Erreur : ${esc(e.message)}</span>`;
-  }
-}
-
-function constructeurResetForm() {
-  constructeurSlugTouched = false;
-  constructeurRender();
-}
+/* ── Constructeur — runtime entity-type creation (TICKET-0046, migrated to
+ * a Svelte island by TICKET-0058/BRIEF-0058-d) ──
+ * #creation-constructeur is now an empty mount container; the whole form,
+ * its own GET /api/entity-types fetch and its POST submit live in
+ * frontend/src/creation/Constructeur.svelte, mounted by
+ * frontend/src/creation/mount.js. The one thing that still crosses back
+ * into this document is the tab-bar refresh a successful create requires
+ * — the reverse direction the legacy->shell bridge does not offer, so the
+ * island dispatches this CustomEvent on itself instead of reaching in. */
+document.addEventListener('creation:refresh-tabs', () => {
+  if (typeof refreshCreationTabs === 'function') refreshCreationTabs();
+});
 
 /* ── Runtime Creation tabs — dynamic tab factory (TICKET-0046, BRIEF-0046-d) ──
  * The single producer of runtime (custom entity-type) Creation tabs: reads
