@@ -112,8 +112,8 @@ legacy -> shell signalling `graph:slot` already established.
       -> verify/checks/graph_primitive.py, relation_graph.py
 - [ ] Every Svelte island mounted into the legacy document is declared in
       `frontend/src/creation/registry.js` and reached through the single
-      `island:slot` channel; a second mount mechanism fails the check ->
-      verify/checks/creation_island.py
+      `island:slot` channel; a second mount mechanism fails the check
+      -> verify/checks/creation_island.py
 - [ ] `page_contract.py` asserts the tab mechanism against its new locus
       with every TAB_KEYS entry still covered; zero collected entries is a
       failure -> verify/checks/page_contract.py
