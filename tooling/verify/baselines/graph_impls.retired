@@ -6,3 +6,4 @@
 # graph_primitive.py's rule 5b reads it to prove the retired
 # implementation's code is permanently gone from its locus, not just
 # unregistered.
+relation_cytoscape|relGraph|src/world_engine/cockpit/index.html

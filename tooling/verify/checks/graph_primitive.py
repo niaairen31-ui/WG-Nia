@@ -13,11 +13,14 @@ no DB, no subprocess. Ten rules, each vacuous-proof — a missing file, an
 empty scan or a zero-length collection is a FAILURE, never a trivially
 satisfied comparison.
 
-  1. GONE — zero dormant code: 21 retired tokens absent from index.html,
-     any context, comments included. A converged implementation left
-     behind "just in case" is the exact failure this ticket exists to
-     prevent -- reviewGraphRender was born beside graphRender that way.
-     Raw-substring, any context: a commented-out body is dormant code.
+  1. GONE — zero dormant code: every retired token (GONE_PLAIN/GONE_WORD/
+     GONE_CASE_INSENSITIVE) absent from index.html, any context, comments
+     included. A converged implementation left behind "just in case" is
+     the exact failure this ticket exists to prevent -- reviewGraphRender
+     was born beside graphRender that way, and TICKET-0058 (BRIEF-0058-c)
+     grew the list again with the relGraph* cluster and its vendored
+     engine. Raw-substring, any context: a commented-out body is dormant
+     code.
   2. No `<svg` anywhere in index.html — the legacy document emits no SVG
      graph at all after -b/-c.
   3. `frontend/src/graph/registry.js` parses, monotone shrink against
@@ -75,8 +78,26 @@ GONE_PLAIN = [
     "graphCanvasClick", "graphCreateEdge", "graphPersistPos", "graphLoad",
     "reviewGraphRender", "graphData", "graphSelectedNodeId", "_graphDrag",
     "_graphPlaced",
+    # TICKET-0058 (BRIEF-0058-c): the fifteen relGraph* functions plus their
+    # underscore-prefixed helpers and module-level state, all converged
+    # onto the graph primitive (frontend/src/graph/consumers/relations.js).
+    "relGraphLoad", "relGraphOnSelect", "relGraphFetch", "relGraphFetchGlobal",
+    "relGraphToggleMode", "relGraphToggleLinkMode", "relGraphRenderCanvas",
+    "relGraphGlobalNodeTap", "relGraphGlobalNodeDblTap", "relGraphEdgeTap",
+    "relGraphBucketToggle", "relGraphRenderInfoCard", "relGraphOpenEdgePanel",
+    "relGraphSaveEdgePanel", "relGraphDeleteEdge",
+    "_relGraphBucket", "_relGraphRenderEmptyState", "_relGraphUpdateModeUI",
+    "_relGraphApplyBucketVisibility", "_relGraphReset",
+    "relGraphData", "relGraphCy", "relGraphBucketState", "relGraphMode",
+    "relGraphLinkArmed", "relGraphLinkSourceId", "_relGraphEdgePanelCtx",
+    "RELGRAPH_BUCKET_COLORS",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
+# TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from
+# index.html in ANY context (comments included) — case-insensitive, since
+# GONE_PLAIN is case-sensitive and a "Cytoscape"/"CYTOSCAPE" stray mention
+# would otherwise slip through it.
+GONE_CASE_INSENSITIVE = ["cytoscape"]
 
 ENTRY_RE = re.compile(
     r"(\w+):\s*Object\.freeze\(\{\s*"
@@ -149,7 +170,10 @@ def _rule1_gone(html: str) -> int:
     for token in GONE_WORD:
         if re.search(rf"\b{re.escape(token)}\b", html):
             fail(f"rule1: retired token {token!r} still present in index.html")
-    return len(GONE_PLAIN) + len(GONE_WORD)
+    for token in GONE_CASE_INSENSITIVE:
+        if token in html.lower():
+            fail(f"rule1: retired token {token!r} still present in index.html (case-insensitive)")
+    return len(GONE_PLAIN) + len(GONE_WORD) + len(GONE_CASE_INSENSITIVE)
 
 
 def _rule2_no_svg(html: str) -> bool:

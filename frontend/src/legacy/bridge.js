@@ -123,6 +123,15 @@ export function reviewGraphData(key) {
   return callLegacy('reviewGraphData', key);
 }
 
+/* TICKET-0058 (BRIEF-0058-c). The relations consumer's ego mode needs the
+   currently-selected NPC at load time, and `authorEntityId` is a bare
+   `let` -- never a `window` property (see showCreationTab's note above).
+   `authorGetSelectedEntityId` is the one-line function-declaration
+   accessor this reaches through; no other state crosses this seam. */
+export function getSelectedCharacterId() {
+  return callLegacy('authorGetSelectedEntityId');
+}
+
 export function whenLegacyReady(predicate, { timeoutMs = 5000 } = {}) {
   const win = legacyWindow();
   return new Promise((resolve, reject) => {

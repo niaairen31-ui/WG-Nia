@@ -40,8 +40,8 @@ import logging
 from pathlib import Path
 from typing import Type
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import delete, inspect
 from sqlmodel import Session, SQLModel, select
@@ -65,12 +65,6 @@ from .routes import spatial as _routes_spatial
 
 _INDEX_HTML = Path(__file__).parent / "index.html"
 _log = logging.getLogger(__name__)
-
-# Vendored JS dependencies (BRIEF-0023-a, H1): one whitelisted file per
-# entry, no StaticFiles mount — that generalization waits for a second
-# vendored asset.
-_VENDOR_DIR = Path(__file__).parent / "vendor"
-_VENDOR_WHITELIST = {"cytoscape-3.34.0.min.js"}
 
 # Built frontend assets (TICKET-0055, C1). The deferral recorded above --
 # "no StaticFiles mount until a second vendored asset" -- is resolved here
@@ -230,13 +224,6 @@ def serve_legacy() -> str:
     Lieux-graph byte-equality assertion against `main` depend on it.
     """
     return _INDEX_HTML.read_text(encoding="utf-8")
-
-
-@app.get("/vendor/{filename}")
-def serve_vendor_file(filename: str) -> FileResponse:
-    if filename not in _VENDOR_WHITELIST:
-        raise HTTPException(status_code=404, detail=f"{filename!r} is not a vendored asset")
-    return FileResponse(_VENDOR_DIR / filename, media_type="application/javascript")
 
 
 # TICKET-0056 (D3b). The shell's SURFACE vocabulary, enumerated. Never a

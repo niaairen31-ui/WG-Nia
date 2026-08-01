@@ -1,10 +1,17 @@
 """G1 check for TICKET-0023/BRIEF-0023-b, amended by TICKET-0033/BRIEF-0033-e
-— NPC relation ego + global graph.
+— NPC relation ego + global graph. Re-homed by TICKET-0058/BRIEF-0058-c: the
+graph itself converged onto the primitive (frontend/src/graph/Graph.svelte),
+so clauses 1 and 4 no longer have a legacy-document JS cluster to inspect —
+they now assert the OPPOSITE of what they used to, and against a different
+file.
 
 Asserts the machine-checkable acceptance criteria that route here:
-1. A vendored cytoscape file exists under cockpit/vendor/ and a GET route
-   serves it (BRIEF-0023-a groundwork, re-verified here as this is the
-   ticket's own gate).
+1. Amended by BRIEF-0058-c: no vendored graph engine exists under
+   cockpit/vendor/ (the directory itself is gone) and no `/vendor/{filename}`
+   route is registered in app.py — the engine converged onto the primitive's
+   own SVG renderer; a second engine sneaking back in is exactly what
+   graph_primitive.py's rule 6 (engine confinement) and this clause both
+   exist to catch, from two different angles.
 2. `GET /api/characters/{entity_id}/relation-graph` (ego) and
    `GET /api/relation-graph` (global, BRIEF-0033-e) are both registered in
    crud/relations.py, and both handler bodies contain no write call
@@ -12,18 +19,16 @@ Asserts the machine-checkable acceptance criteria that route here:
 3. Both handlers' relation queries exclude `type IN ('connects_to',
    'controls')` in the WHERE clause itself (G1 — structural, never
    post-filtered).
-4. Amended by BRIEF-0033-e's locked E1, rescoped by BRIEF-0043-a: the graph
-   fetch/render/display path (every relGraph* function except the two
-   sanctioned global-mode edge-panel writers) contains no write fetch. The
-   relGraph* JS section is collected by function name — every
-   `function relGraph\\w+(...) { ... }` in index.html, brace-balanced — not
-   a comment-anchored slice (that anchor pair drifted after TICKET-0041 to
-   also contain unrelated npcAgent*/linkAgent* functions). Any
-   POST/PUT/DELETE fetch anywhere in that collected set exists ONLY inside
-   `relGraphSaveEdgePanel`/`relGraphDeleteEdge`, and every fetch inside
-   those two targets ONLY the pre-existing sanctioned relation CRUD
-   endpoints (`/api/entities/{id}/relations`, `/api/relations/{id}`) — no
-   new write surface, ego mode stays permanently display-only.
+4. Re-homed by BRIEF-0058-c: the fetch/render/display path used to live in
+   index.html's relGraph* cluster; it now lives entirely in
+   frontend/src/graph/consumers/relations.js, the sole consumer with a
+   write capability for this graph (ego mode supplies none — permanently
+   display-only by callback absence, not by grep, per graph_primitive.py's
+   rule 7's confinement of the primitive itself). Every non-GET `fetch(`
+   in that one file targets only the pre-existing sanctioned relation CRUD
+   endpoints (`/api/entities/{id}/relations`, `/api/relations/{id}`); zero
+   collected fetches is a failure (a rule that passes on nothing finding
+   nothing is the flaw BRIEF-0058-b's vacuous-proof guards exist to catch).
 5. (Retired, TICKET-0057.) This check used to assert the Lieux graph
    component was byte-identical to `main` via `git show`. That guard
    was fail-open by construction: on a branch it bit, but once merged
@@ -44,40 +49,29 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 COCKPIT = ROOT / "src" / "world_engine" / "cockpit"
+CRUD_PY = COCKPIT / "crud" / "relations.py"
 CONTEXT_PY = ROOT / "src" / "world_engine" / "context.py"
 APP_PY = COCKPIT / "app.py"
-CRUD_PY = COCKPIT / "crud" / "relations.py"
-INDEX_HTML = COCKPIT / "index.html"
 VENDOR_DIR = COCKPIT / "vendor"
+RELATIONS_CONSUMER = ROOT / "frontend" / "src" / "graph" / "consumers" / "relations.js"
 
-
-def _braced_function(text: str, name: str) -> str:
-    """Return `function NAME(...) { ... }`'s full source, brace-balanced."""
-    m = re.search(rf"function {re.escape(name)}\([^)]*\)\s*\{{", text)
-    if not m:
-        return ""
-    start = text.find("{", m.end() - 1)
-    depth = 0
-    for i in range(start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return text[m.start():i + 1]
-    return ""
+SANCTIONED_URL_RE = re.compile(r"/api/(entities/\$\{[^}]*\}/relations|relations/\$\{[^}]*\})")
+# The consumer's own `api()` wrapper is the one place a raw `fetch(` call
+# exists; every write call site is `api(\`URL\`, { method: '...', ... })`,
+# so that is what this check inspects (mirrors the pre-BRIEF-0058-c check's
+# `api(\`...\`` scan over the legacy relGraph* writer bodies).
+WRITE_CALL_RE = re.compile(r"api\(\s*`([^`]*)`\s*,\s*\{[\s\S]*?method:\s*['\"](POST|PUT|DELETE)['\"]")
 
 
 def main() -> int:
     failures: list[str] = []
 
-    # 1. Vendored cytoscape file + serving route (BRIEF-0023-a).
-    vendor_files = list(VENDOR_DIR.glob("cytoscape*.min.js")) if VENDOR_DIR.is_dir() else []
-    if not vendor_files:
-        failures.append("no cytoscape*.min.js file found under cockpit/vendor/")
+    # 1. Amended BRIEF-0058-c: no vendored graph engine, no serving route.
+    if VENDOR_DIR.is_dir():
+        failures.append(f"{VENDOR_DIR} still exists — the vendored graph engine must be fully removed")
     app_src = APP_PY.read_text(encoding="utf-8") if APP_PY.exists() else ""
-    if not re.search(r"""@app\.get\(\s*["']/vendor/\{filename\}["']""", app_src):
-        failures.append("no GET /vendor/{filename} route registered in app.py")
+    if re.search(r"""@app\.get\(\s*["']/vendor/\{filename\}["']""", app_src):
+        failures.append("a GET /vendor/{filename} route is still registered in app.py")
 
     # 2 & 3. The relation-graph endpoints (ego + global): registered,
     # write-free, exclude connects_to/controls in their own WHERE clause —
@@ -140,40 +134,23 @@ def main() -> int:
                 "connects_to/controls in its WHERE clause (G1)"
             )
 
-    # 4. Amended by BRIEF-0033-e (locked E1): write fetches are confined to
-    # the two sanctioned global-mode edge-panel writers, and those writers
-    # call only the pre-existing sanctioned relation CRUD endpoints.
-    html_src = INDEX_HTML.read_text(encoding="utf-8") if INDEX_HTML.exists() else ""
-    relgraph_fn_names = sorted(set(re.findall(r"function\s+(relGraph\w+)\(", html_src)))
-    if not relgraph_fn_names:
-        failures.append("no relGraph\\w+ functions found in index.html")
+    # 4. Re-homed BRIEF-0058-c: every non-GET fetch in the relations
+    # consumer targets only the pre-existing sanctioned relation CRUD
+    # endpoints. Zero collected fetches is a failure — the consumer must
+    # actually have a write path for this rule to mean anything.
+    if not RELATIONS_CONSUMER.is_file():
+        failures.append(f"{RELATIONS_CONSUMER} does not exist")
     else:
-        relgraph_src = "\n".join(
-            _braced_function(html_src, name) for name in relgraph_fn_names
-        )
-        WRITE_FNS = ("relGraphSaveEdgePanel", "relGraphDeleteEdge")
-        SANCTIONED_URL_RE = re.compile(r"/api/(entities/\$\{[^}]*\}/relations|relations/\$\{[^}]*\})")
-
-        for fn in WRITE_FNS:
-            body = _braced_function(html_src, fn)
-            if not body:
-                failures.append(f"{fn}() not found (BRIEF-0033-e sanctioned writer missing)")
-                continue
-            for m in re.finditer(r"api\(\s*`([^`]*)`", body):
-                if not SANCTIONED_URL_RE.search(m.group(1)):
-                    failures.append(f"{fn}() calls an unsanctioned endpoint {m.group(1)!r}")
-
-        for method in ("POST", "PUT", "DELETE"):
-            total = len(re.findall(rf"""method:\s*['"]{method}['"]""", relgraph_src))
-            confined = sum(
-                len(re.findall(rf"""method:\s*['"]{method}['"]""", _braced_function(html_src, fn) or ""))
-                for fn in WRITE_FNS
+        consumer_src = RELATIONS_CONSUMER.read_text(encoding="utf-8")
+        write_calls = WRITE_CALL_RE.findall(consumer_src)
+        if not write_calls:
+            failures.append(
+                f"no POST/PUT/DELETE api(...) call found in {RELATIONS_CONSUMER} — "
+                "a rule that passes on nothing is the flaw this fixes"
             )
-            if total != confined:
-                failures.append(
-                    f"{total - confined} {method} fetch(es) found in relGraph* JS outside "
-                    f"{'/'.join(WRITE_FNS)} — the display/fetch path must stay read-only (E1)"
-                )
+        for url, _method in write_calls:
+            if not SANCTIONED_URL_RE.search(url):
+                failures.append(f"{RELATIONS_CONSUMER}: unsanctioned write endpoint {url!r}")
 
     if failures:
         for f in failures:
@@ -181,9 +158,9 @@ def main() -> int:
         return 1
 
     print(
-        "PASS: relation_graph — vendor route present, ego + global relation-graph "
-        "endpoints read-only with structural connects_to/controls exclusion, write "
-        "fetches confined to the sanctioned global-mode edge-panel writers"
+        "PASS: relation_graph — no vendored graph engine or /vendor route remains, ego + global "
+        "relation-graph endpoints read-only with structural connects_to/controls exclusion, write "
+        "fetches in the relations consumer confined to the sanctioned relation CRUD endpoints"
     )
     return 0
 
