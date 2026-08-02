@@ -69,6 +69,10 @@
       creationState.entities = entities;
       creationState.playerCharIds = new Set(pcs.map((p) => p.id));
       creationState.locationTree = locations;
+      // BRIEF-0058-f: Sheet.svelte's location_type field needs the same
+      // catalog this island already fetches -- mirrored into the shared
+      // store rather than a second /api/location-types call.
+      creationState.locationTypeCatalog = locationTypes;
       mode = creationState.activeTabKey === 'lieux' ? 'lieux' : 'flat';
       // Reverse bridge, extending the 'detail' payload precedent BRIEF-
       // 0058-d's Scope OUT reserved for "when they have a reader": many

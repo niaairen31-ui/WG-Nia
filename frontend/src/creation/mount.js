@@ -28,8 +28,9 @@ import { CREATION_ISLANDS } from './registry.js';
 import { creationState } from './state.svelte.js';
 import Constructeur from './Constructeur.svelte';
 import EntityList from './EntityList.svelte';
+import Sheet from './Sheet.svelte';
 
-const COMPONENTS = { constructeur: Constructeur, entityList: EntityList };
+const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet };
 
 const live = {}; // key -> { node, instance }
 

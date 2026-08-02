@@ -19,6 +19,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
+SHEET_SVELTE = ROOT / "frontend" / "src" / "creation" / "Sheet.svelte"
 
 FAILURES: list[str] = []
 _ASSERTIONS_EVALUATED = 0
@@ -77,25 +78,28 @@ def main() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
 
     # authorLoadFactionMembersPanel is defined, and the faction branch of the
-    # sheet renderer (authorRenderSheet) calls it.
+    # sheet renderer calls it. TICKET-0058 (BRIEF-0058-f): authorRenderSheet
+    # is gone — its "!isNew && type === 'faction'" tail call moved into
+    # frontend/src/creation/Sheet.svelte's own post-render $effect, reached
+    # via legacyCall (authorLoadFactionMembersPanel itself is untouched,
+    # still a plain index.html function — only its CALLER moved).
     panel_loader_body = _function_body(html, "authorLoadFactionMembersPanel")
     if not panel_loader_body:
         fail("authorLoadFactionMembersPanel(...) function body not found in index.html")
     else:
         _ASSERTIONS_EVALUATED += 1
-        sheet_body = _function_body(html, "authorRenderSheet")
-        if not sheet_body:
-            fail("authorRenderSheet(...) function body not found in index.html")
+        if not SHEET_SVELTE.exists():
+            fail(f"{SHEET_SVELTE} does not exist — the faction sheet tail moved there (BRIEF-0058-f)")
         else:
-            _ASSERTIONS_EVALUATED += 1
+            sheet_svelte_src = SHEET_SVELTE.read_text(encoding="utf-8")
             if not re.search(
-                r"if\s*\(\s*!isNew\s*&&\s*type\s*===\s*'faction'\s*\)\s*\{"
-                r"[^}]*authorLoadFactionMembersPanel\(",
-                sheet_body,
+                r"if\s*\(\s*type\s*===\s*'faction'\s*\)\s*\{"
+                r"[^}]*legacyCall\(\s*'authorLoadFactionMembersPanel'",
+                sheet_svelte_src,
             ):
                 fail(
-                    "authorRenderSheet's \"!isNew && type === 'faction'\" branch does not "
-                    "call authorLoadFactionMembersPanel(...)"
+                    f"{SHEET_SVELTE}: no \"type === 'faction'\" block calls "
+                    "legacyCall('authorLoadFactionMembersPanel', ...)"
                 )
 
         # authorLoadFactionMembersPanel awaits authorLoadFactionRoles BEFORE

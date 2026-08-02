@@ -1359,9 +1359,12 @@ button:not(:disabled):hover { filter: brightness(1.15); }
           <button class="btn-send" id="author-save-btn" onclick="creationSaveDispatch()" style="display:none">Save</button>
           <button class="btn-end" id="author-delete-btn" onclick="authorDelete()" style="display:none">Delete</button>
         </div>
-        <div class="author-main" id="author-main">
-          <div class="empty">Sélectionnez une entité depuis la liste, ou créez-en une nouvelle.</div>
-        </div>
+        <!-- TICKET-0058 (BRIEF-0058-f): the entitySheet island's mount point.
+             Empty by construction -- Svelte mount() appends, it never
+             clears a target's pre-existing children, so a static
+             placeholder here would sit beside the island's own DOM
+             forever. Sheet.svelte renders its own empty/loading/view state. -->
+        <div class="author-main" id="author-main"></div>
       </div>
 
       <!-- PJ Fiche — a declared slot on the pj registry entry (BRIEF-0005-b),
@@ -4069,10 +4072,16 @@ async function spatialTalkTo(npcId) {
 //                 then hands them to the island via 'creation:list-data'
 //                 (TICKET-0058, BRIEF-0058-e). Absent on every tab the
 //                 island renders generically off `type`/`entityFilter`.
-//   sheetRenderer: fn|null (null = authorRenderSheet; renders the
-//                 detail pane for a selected record of this tab)
-//   createPanel:  fn|null (null = no + Nouveau rendered; default =
-//                 () => authorRenderSheet({}, true, <type>))
+//   sheetRenderer: fn|undefined (undefined = the entitySheet island's own
+//                 core field engine, Sheet.svelte, BRIEF-0058-f; present =
+//                 a bespoke legacy renderer for a tab whose record isn't a
+//                 plain typed entity — intrigues/evenements — rendering
+//                 into #author-legacy-sheet-slot, the island's stable leaf)
+//   createPanel:  fn|null (null with primaryAction routed through
+//                 _islandPrimaryAction('entitySheet') = the island's own
+//                 create mode; non-null = a bespoke legacy create panel,
+//                 same #author-legacy-sheet-slot target — rule 11 pairs
+//                 this with primaryAction, never mixed)
 //   slots:        [{ id, containerId, loader, onSelect: fn|null,
 //                    onOpen: fn|null (on_demand only; fires once, right
 //                    before the first loader/graph:slot dispatch),
@@ -4191,17 +4200,14 @@ function _entityTabEnterReset() {
   authorEntityId   = null;
   authorEntityType = null;
   pendingCreationMutationId = null;
-  const titleEl = document.getElementById('author-sheet-title');
-  const mainEl  = document.getElementById('author-main');
-  if (titleEl) titleEl.textContent = 'Sélectionner une entité';
-  if (mainEl)  mainEl.innerHTML = '<div class="empty">Sélectionnez une entité depuis la liste, ou créez-en une nouvelle.</div>';
-  document.getElementById('author-save-btn').style.display   = 'none';
-  document.getElementById('author-delete-btn').style.display = 'none';
-  document.getElementById('author-status').textContent       = '';
   creationRenderReturnControl();
   // TICKET-0058 (BRIEF-0058-e): tells the entity-list island to drop its
   // active-row highlight — a fresh tab always starts unselected.
   document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
+  // TICKET-0058 (BRIEF-0058-f): #author-main is the entitySheet island's
+  // mount root now — title/save/delete/body reset moved into Sheet.svelte's
+  // own 'creation:sheet-reset' listener, which owns all four together.
+  document.dispatchEvent(new CustomEvent('creation:sheet-reset'));
 }
 
 function _lieuxTabEnterReset() {
@@ -4254,14 +4260,9 @@ function _registreWorldReset() { _registreEntitiesLoaded = false; }
 
 function _intriguesTabEnterReset() {
   creationSelectedRecordId = null;
-  const titleEl = document.getElementById('author-sheet-title');
-  const mainEl  = document.getElementById('author-main');
-  if (titleEl) titleEl.textContent = 'Sélectionner une intrigue';
-  if (mainEl)  mainEl.innerHTML = '<div class="empty">Sélectionnez une intrigue depuis la liste, ou créez-en une nouvelle.</div>';
-  document.getElementById('author-save-btn').style.display   = 'none';
-  document.getElementById('author-delete-btn').style.display = 'none';
-  document.getElementById('author-status').textContent       = '';
   document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
+  // TICKET-0058 (BRIEF-0058-f): see _entityTabEnterReset's identical note.
+  document.dispatchEvent(new CustomEvent('creation:sheet-reset'));
 }
 
 /** evenements' onTabEnter (BRIEF-0022-a item 6, G1 state contract) — resets
@@ -4275,16 +4276,34 @@ function _intriguesTabEnterReset() {
 function _evenementsTabEnterReset() {
   creationSelectedRecordId = null;
   evenementsInvolvedDraft = [];
-  const titleEl = document.getElementById('author-sheet-title');
-  const mainEl  = document.getElementById('author-main');
-  if (titleEl) titleEl.textContent = 'Sélectionner un événement';
-  if (mainEl)  mainEl.innerHTML = '<div class="empty">Sélectionnez un événement depuis la liste, ou créez-en un nouveau.</div>';
-  document.getElementById('author-save-btn').style.display   = 'none';
-  document.getElementById('author-delete-btn').style.display = 'none';
-  document.getElementById('author-status').textContent       = '';
   document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
+  // TICKET-0058 (BRIEF-0058-f): see _entityTabEnterReset's identical note.
+  document.dispatchEvent(new CustomEvent('creation:sheet-reset'));
 }
 
+/** BRIEF-0058-f (RECON-SUPPLEMENT-0058 -f section, item 1): the exact
+ *  surviving legacy callers that still reach the sheet-adjacent area, per
+ *  the RECON's enumeration -- kept legacy on purpose (brief -g/-h/-j
+ *  territory, or a genuinely separate endpoint), listed here rather than
+ *  scattered so a future reader doesn't have to re-derive the set:
+ *    renderEventSheet, evenementsRenderCreatePanel, evenementsSave,
+ *    evenementsSubmitCreate -- evenements' bespoke, still-legacy sheet;
+ *    reaches the ported field engine only through the 'creation:field-
+ *    render'/'creation:field-read' bridge (Sheet.svelte), via the small
+ *    _creationRenderField/_creationReadField wrappers below.
+ *    regionCommit, batchCommit -- their only sheet-adjacent dependency
+ *    (authorLoadEntityList) was already resolved by BRIEF-0058-e's
+ *    creationRefreshList(); neither calls the field engine directly.
+ *    _buildRuntimeCreationTabs -- its createPanel/primaryAction pair is
+ *    flipped to island-routed below, same as the four static core tabs.
+ *    generatePendingCreation -- dispatches 'creation:sheet-create' instead
+ *    of the deleted authorRenderSheet({}, true, entityType); its own
+ *    authorApply*Draft calls are unchanged (plain getElementById, which
+ *    finds Sheet.svelte's rendered fields exactly as it always found
+ *    authorRenderSheet's).
+ *    _factionRosterRowHtml, npcGoalsBackfillAll, pcCreateSubmit -- part of
+ *    the broader RECON-0058-a M4 author* closure but call no function this
+ *    brief retires; unchanged. */
 const CREATION_TABS = {
   npc: {
     label: 'NPC',
@@ -4292,11 +4311,11 @@ const CREATION_TABS = {
     containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: _npcTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && !playerCharIds.has(e.id)),
-    createPanel: () => authorRenderSheet({}, true, 'character'),
-    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
+    createPanel: null,
+    primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
     showPendingCreations: true,
     slots: [{ id: 'relgraph', containerId: 'creation-npc-relgraph', loader: null,
               onSelect: (id) => document.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'relations', meta: { id } } })),
@@ -4310,9 +4329,16 @@ const CREATION_TABS = {
     containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && playerCharIds.has(e.id)),
+    // pj's create flow (pjRenderCreatePanel) is bespoke, not the generic
+    // field engine (BRIEF-0058-f: pcCreateSubmit's own /api/characters/player
+    // endpoint, distinct from the generic /api/entities route) -- it stays
+    // legacy, rendering into #author-legacy-sheet-slot inside the now-
+    // mounted entitySheet island. Per rule 11's pairing, primaryAction and
+    // createPanel stay on the SAME (legacy) side; viewing an EXISTING pj
+    // still uses the ported core engine (pj has no sheetRenderer).
     createPanel: pjRenderCreatePanel,
     primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
     slots: [{ id: 'fiche', containerId: 'creation-pj-skill', loader: skillInit, onSelect: pjFicheOnSelect }],
@@ -4323,10 +4349,10 @@ const CREATION_TABS = {
     containers: ['creation-editor-area', 'batch-panel-wrap'],
     loader: null,
     state: { onTabEnter: _lieuxTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
     type: 'location',
-    createPanel: () => authorRenderSheet({}, true, 'location'),
-    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
+    createPanel: null,
+    primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
     showPendingCreations: true,
     slots: [{ id: 'graph', containerId: 'creation-lieux-graph', loader: null, onSelect: null,
               display: 'on_demand', toggleLabel: 'Voir le graphe',
@@ -4338,10 +4364,10 @@ const CREATION_TABS = {
     containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
     type: 'faction',
-    createPanel: () => authorRenderSheet({}, true, 'faction'),
-    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
+    createPanel: null,
+    primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
     showPendingCreations: true,
     slots: [],
   },
@@ -4351,10 +4377,10 @@ const CREATION_TABS = {
     containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
     type: 'item',
-    createPanel: () => authorRenderSheet({}, true, 'item'),
-    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
+    createPanel: null,
+    primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
     slots: [],
   },
   competences: {
@@ -4405,7 +4431,7 @@ const CREATION_TABS = {
     containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: _intriguesTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
     listLoader: loadAgendasList,
     sheetRenderer: renderAgendaSheet,
     createPanel: intriguesRenderCreatePanel,
@@ -4417,7 +4443,7 @@ const CREATION_TABS = {
     containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: _evenementsTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
     listLoader: loadEventsList,
     sheetRenderer: renderEventSheet,
     createPanel: evenementsRenderCreatePanel,
@@ -5010,7 +5036,10 @@ function renderAgendaSheet(agenda) {
       ${linkedGoals.map(l => _intriguesRenderLinkedGoal(l)).join('')}
     </div>`;
   }
-  document.getElementById('author-main').innerHTML = html;
+  // TICKET-0058 (BRIEF-0058-f): see pjRenderCreatePanel's identical note --
+  // authorSelectEntity/creationSelectRecord dispatch 'creation:sheet-legacy-
+  // active' before calling this (entry.sheetRenderer).
+  document.getElementById('author-legacy-sheet-slot').innerHTML = html;
 }
 
 /** Re-fetches the agenda list then re-renders the sheet for the same agenda
@@ -5077,7 +5106,10 @@ function intriguesRenderCreatePanel() {
   document.getElementById('author-save-btn').style.display = 'none';
   document.getElementById('author-delete-btn').style.display = 'none';
 
-  document.getElementById('author-main').innerHTML = `
+  // TICKET-0058 (BRIEF-0058-f): see pjRenderCreatePanel's identical note --
+  // creationNewEntity dispatches 'creation:sheet-legacy-active' before
+  // calling this (entry.createPanel).
+  document.getElementById('author-legacy-sheet-slot').innerHTML = `
     <div class="field-section" id="agenda-gen-panel" style="border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:12px;">
       <div class="field-section-title">Générer avec l'IA</div>
       <textarea id="agenda-gen-brief" rows="2" style="width:100%; resize:vertical"
@@ -5194,8 +5226,10 @@ async function intriguesSubmitCreate() {
  * the same ticket, its own create-panel AI assistant — BRIEF-0022-b). `event`
  * is not an `entity` row, so it is NOT a `_TYPE_FIELDS`/ENTITY_TYPE_REGISTRY
  * entry: `authorRegistry.event_fields` (server EVENT_FIELDS, mirrored) feeds
- * the same authorRenderField/authorReadField machinery used for
- * entity/relation/knowledge fields. Both writes route through
+ * the same field engine entity/relation/knowledge fields use, now ported to
+ * frontend/src/creation/fields.js/Field.svelte (BRIEF-0058-f) — reached here
+ * via the _creationRenderField/_creationReadField bridge, since this sheet
+ * itself stays legacy until brief -j. Both writes route through
  * /api/events (POST create, PUT update) — writes.write_event /
  * write_event_update server-side, the two sanctioned `event` canon-write
  * paths. No delete anywhere on this tab (C3): retraction is
@@ -5275,20 +5309,24 @@ function renderEventSheet(event) {
 
   let html = '<div class="field-section"><div class="field-section-title">Événement</div><div class="field-grid">';
   for (const field of authorRegistry.event_fields) {
-    html += authorRenderField(field, event[field.name], 'event-f');
+    html += _creationRenderField(field, event[field.name], 'event-f');
   }
   html += '</div></div>';
   html += `<div class="field-section"><div class="field-section-title">Entités impliquées</div>
     <div id="evenements-chip-block">${_evenementsRenderChips()}</div></div>`;
   html += `<div class="field-section"><span style="color:var(--muted); font-size:12px;">Enregistré : ${esc(event.recorded_at || '')}</span></div>`;
 
-  document.getElementById('author-main').innerHTML = html;
+  // TICKET-0058 (BRIEF-0058-f): see pjRenderCreatePanel's identical note --
+  // authorSelectEntity/creationSelectRecord dispatch 'creation:sheet-legacy-
+  // active' before calling this (entry.sheetRenderer).
+  document.getElementById('author-legacy-sheet-slot').innerHTML = html;
 }
 
 /** evenements' saveHandler (registered as CREATION_TABS.evenements.saveHandler,
- *  dispatched by creationSaveDispatch — never authorSave). Reads EVENT_FIELDS
- *  back via authorReadField, appends the synced chip draft as a flat id list,
- *  and PUTs to the selected event. Creation goes through
+ *  dispatched by creationSaveDispatch — never the entitySheet island's own
+ *  save). Reads EVENT_FIELDS back via _creationReadField (bridged onto the
+ *  ported field engine, BRIEF-0058-f), appends the synced chip draft as a
+ *  flat id list, and PUTs to the selected event. Creation goes through
  *  evenementsSubmitCreate instead (the create panel has no selected id yet). */
 async function evenementsSave() {
   const statusEl = document.getElementById('author-status');
@@ -5298,7 +5336,7 @@ async function evenementsSave() {
 
   const body = {};
   for (const field of authorRegistry.event_fields) {
-    body[field.name] = authorReadField(field, 'event-f');
+    body[field.name] = _creationReadField(field, 'event-f');
   }
   body.involved_entities = evenementsInvolvedDraft.map(c => c.id);
 
@@ -5343,7 +5381,7 @@ function evenementsRenderCreatePanel() {
     </div>`;
   html += '<div class="field-section"><div class="field-section-title">Nouvel événement</div><div class="field-grid">';
   for (const field of authorRegistry.event_fields) {
-    html += authorRenderField(field, undefined, 'event-f');
+    html += _creationRenderField(field, undefined, 'event-f');
   }
   html += '</div></div>';
   html += `<div class="field-section"><div class="field-section-title">Entités impliquées</div>
@@ -5353,7 +5391,10 @@ function evenementsRenderCreatePanel() {
     <span id="evenements-add-status" style="font-size:12px; color:var(--muted)"></span>
   </div>`;
 
-  document.getElementById('author-main').innerHTML = html;
+  // TICKET-0058 (BRIEF-0058-f): see pjRenderCreatePanel's identical note --
+  // creationNewEntity dispatches 'creation:sheet-legacy-active' before
+  // calling this (entry.createPanel).
+  document.getElementById('author-legacy-sheet-slot').innerHTML = html;
 }
 
 /** evenements' AI assistant (TICKET-0022, BRIEF-0022-b item 7) — pre-fills
@@ -5416,7 +5457,7 @@ async function evenementsSubmitCreate() {
   const body = {};
   try {
     for (const field of authorRegistry.event_fields) {
-      body[field.name] = authorReadField(field, 'event-f');
+      body[field.name] = _creationReadField(field, 'event-f');
     }
   } catch (e) {
     statusEl.textContent = e.message;
@@ -7177,15 +7218,33 @@ function batchRenderAll() {
   }
 }
 
+/** BRIEF-0058-f: only pj/intrigues/evenements still reach this (the four
+ *  core static tabs and every runtime type now route "+ Nouveau" straight
+ *  to _islandPrimaryAction('entitySheet') -- rule 11 pairing). Every
+ *  remaining caller has a bespoke createPanel that renders into
+ *  #author-legacy-sheet-slot, so the entitySheet island (already mounted at
+ *  #author-main for these three tabs) is told to switch out of the way
+ *  first -- flushSync inside the listener (Sheet.svelte) makes that node
+ *  exist before createPanel()'s own innerHTML write runs, synchronously,
+ *  right below. */
 function creationNewEntity() {
   if (!authorRegistry) return;
   const entry = CREATION_TABS[currentCreationSubTab];
   if (!entry || !entry.createPanel) return;
+  document.dispatchEvent(new CustomEvent('creation:sheet-legacy-active'));
+  _authorResetCreateDrafts();
+  entry.createPanel();
+}
+
+/** Shared by creationNewEntity (pj/intrigues/evenements' own "+ Nouveau")
+ *  and Sheet.svelte's primaryAction() (every core entity-archetype tab) --
+ *  factored out of creationNewEntity's own body (BRIEF-0058-f) so the two
+ *  paths can never drift apart. */
+function _authorResetCreateDrafts() {
   pendingDraftKnowledge = [];
   pendingDraftNotes     = [];
   pendingDraftGoals     = { long: '', shorts: ['', ''] };
   pendingCreationMutationId = null;
-  entry.createPanel();
 }
 
 /* ── Constructeur — runtime entity-type creation (TICKET-0046, migrated to
@@ -7233,10 +7292,10 @@ function _buildRuntimeCreationTabs() {
         containers: ['creation-editor-area'],
         loader: null,
         state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
-        islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
+        islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
         type: slug,
-        createPanel: () => authorRenderSheet({}, true, slug),
-        primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
+        createPanel: null,
+        primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
         slots: [],
       };
     }
@@ -7297,273 +7356,49 @@ document.addEventListener('creation:entities-loaded', (ev) => {
   authorLocationTypeCatalog = locationTypeCatalog;
 });
 
-/* ── Field rendering ─────────────────────────────────────────────────────── */
+/* ── Field rendering + entity sheet ──────────────────────────────────────────
+ * BRIEF-0058-f (TICKET-0058): authorRenderField/authorReadField/
+ * authorRenderSheet are gone — ported to frontend/src/creation/Field.svelte
+ * (real Svelte markup per field.kind, not a string generator) and
+ * frontend/src/creation/Sheet.svelte (the skeleton authorRenderSheet used
+ * to build), mounted into #author-main as the entitySheet island. Every
+ * sub-editor generator this skeleton called synchronously (authorRender-
+ * RolesEditor, authorRenderSubcultureEditor, authorRenderGeometryEditor,
+ * authorRenderDoorsEditor, authorRenderRelations(Form), authorRenderKnowledge
+ * (Form), authorRenderPendingKnowledge/Goals, authorRenderPricing,
+ * authorRenderMembershipForm, authorRenderGoalForm, authorRenderDiscDetailForm,
+ * authorRenderGeneratePanel) is UNCHANGED below — Sheet.svelte reaches each
+ * one via legacyCall (frontend/src/legacy/bridge.js), embedding the
+ * returned HTML string exactly where authorRenderSheet used to concatenate
+ * it. The async tail (authorLoadItems/Ledger/Memberships/Goals/
+ * FactionMembersPanel/DiscDetails, authorMembershipFactionChanged) is
+ * reached the same way, after Sheet.svelte's own DOM update flushes.
+ * evenements' still-legacy renderEventSheet/evenementsRenderCreatePanel/
+ * evenementsSave/evenementsSubmitCreate reach the ported field engine
+ * through _creationRenderField/_creationReadField below instead (the field
+ * engine itself has exactly one implementation; only its two remaining
+ * legacy CALLERS are bridged, not duplicated). */
 
-/** Render one field-spec as a labeled form control. Returns an HTML string. */
-function authorRenderField(field, value, idPrefix) {
-  if (value === undefined && field.default !== undefined) value = field.default;
-  const id = `${idPrefix}-${field.name}`;
-  const label = `${esc(field.label)}${field.required ? ' *' : ''}`;
-  switch (field.kind) {
-    case 'textarea':
-      return `<div class="field-row"><label for="${id}">${label}</label>
-        <textarea id="${id}" data-field="${esc(field.name)}" data-kind="textarea">${esc(value ?? '')}</textarea></div>`;
-    case 'json':
-      return `<div class="field-row"><label for="${id}">${label}</label>
-        <textarea id="${id}" data-field="${esc(field.name)}" data-kind="json" placeholder="null"
-          >${value != null ? esc(JSON.stringify(value, null, 2)) : ''}</textarea></div>`;
-    case 'bool':
-      return `<div class="field-row checkbox">
-        <input type="checkbox" id="${id}" data-field="${esc(field.name)}" data-kind="bool" ${value ? 'checked' : ''}>
-        <label for="${id}">${label}</label></div>`;
-    case 'number':
-      return `<div class="field-row"><label for="${id}">${label}</label>
-        <input type="number" id="${id}" data-field="${esc(field.name)}" data-kind="number"
-          ${field.min != null ? `min="${field.min}"` : ''} ${field.max != null ? `max="${field.max}"` : ''}
-          value="${value != null ? esc(value) : ''}"></div>`;
-    case 'select': {
-      const opts = (field.options || []).map(o =>
-        `<option value="${esc(o)}" ${o === value ? 'selected' : ''}>${esc(o === '' ? '—' : o)}</option>`
-      ).join('');
-      return `<div class="field-row"><label for="${id}">${label}</label>
-        <select id="${id}" data-field="${esc(field.name)}" data-kind="select">${opts}</select></div>`;
-    }
-    case 'datalist': {
-      const dlid = `${id}-dl`;
-      // TICKET-0039, BRIEF-0039-b: location_type sources its options from the
-      // classified registry (authorLocationTypeCatalog), not field.options —
-      // every other datalist field (relation type, faction_type) is unchanged.
-      // TICKET-0040, BRIEF-0040-c: a templated type's option carries a plain
-      // suffix ("room (interieur, 6 x 5 m)") via the option's text content —
-      // the option's value stays the bare name, so selection is unaffected.
-      const opts = field.name === 'location_type'
-        ? authorLocationTypeCatalog.map(r => `<option value="${esc(r.name)}">${esc(_authorLocationTypeOptionLabel(r))}</option>`).join('')
-        : (field.options || []).map(o => `<option value="${esc(o)}">`).join('');
-      const gabaritBtn = field.name === 'location_type'
-        ? ` <button type="button" class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick="_authorOpenTemplateModalFor('${id}')">Gabarit...</button>`
-        : '';
-      return `<div class="field-row"><label for="${id}">${label}</label>
-        <div style="display:flex; gap:6px; align-items:center">
-        <input type="text" id="${id}" data-field="${esc(field.name)}" data-kind="text" list="${dlid}" value="${esc(value ?? '')}" style="flex:1">${gabaritBtn}
-        </div>
-        <datalist id="${dlid}">${opts}</datalist></div>`;
-    }
-    case 'entity_ref': {
-      let candidates = authorAllEntities.filter(e => e.type === field.ref_type);
-      if (field.exclude_self && authorEntityId) {
-        candidates = candidates.filter(e => e.id !== authorEntityId);
-      }
-      const opts = ['<option value="">—</option>'].concat(
-        candidates.map(e => `<option value="${esc(e.id)}" ${e.id === value ? 'selected' : ''}>${esc(e.name)}</option>`)
-      ).join('');
-      // field.readonly: value still flows through authorReadField on save
-      // (a disabled <select> keeps its .value) — only the manual edit
-      // control is retired, not the underlying write path.
-      return `<div class="field-row"><label for="${id}">${label}</label>
-        <select id="${id}" data-field="${esc(field.name)}" data-kind="entity_ref" ${field.readonly ? 'disabled' : ''}>${opts}</select></div>`;
-    }
-    default: // text
-      return `<div class="field-row"><label for="${id}">${label}</label>
-        <input type="text" id="${id}" data-field="${esc(field.name)}" data-kind="text" value="${esc(value ?? '')}"></div>`;
-  }
+/** evenements' bridge onto Field.svelte's ported rendering (Sheet.svelte's
+ *  'creation:field-render' listener) — the synchronous request/response
+ *  CustomEvent RECON-SUPPLEMENT-0058's -f section calls for, generalising
+ *  the reverse-direction bridge BRIEF-0058-d established for
+ *  'creation:refresh-tabs'. */
+function _creationRenderField(field, value, idPrefix) {
+  const ev = new CustomEvent('creation:field-render', { detail: { field, value, idPrefix, html: null } });
+  document.dispatchEvent(ev);
+  return ev.detail.html;
 }
 
-/** Read a rendered field's current value back into JS, coerced per field.kind.
- *  Throws on invalid JSON in a "json"-kind field. */
-function authorReadField(field, idPrefix) {
-  const el = document.getElementById(`${idPrefix}-${field.name}`);
-  switch (field.kind) {
-    case 'bool':   return el.checked;
-    case 'number': return el.value === '' ? null : Number(el.value);
-    case 'json': {
-      const raw = el.value.trim();
-      return raw ? JSON.parse(raw) : null;
-    }
-    default: return el.value;
-  }
-}
-
-/* ── Entity sheet ─────────────────────────────────────────────────────────── */
-
-function authorRenderSheet(detail, isNew, type) {
-  authorEntityId   = isNew ? null : detail.id;
-  authorEntityType = type;
-
-  const titleEl = document.getElementById('author-sheet-title');
-  titleEl.textContent = isNew
-    ? `New ${authorRegistry.types[type].label}`
-    : `${detail.name} (${authorRegistry.types[type].label})`;
-
-  const statusEl = document.getElementById('author-status');
-  statusEl.className = 'author-status';
-  statusEl.textContent = '';
-  document.getElementById('author-save-btn').style.display = '';
-  document.getElementById('author-delete-btn').style.display = isNew ? 'none' : '';
-
-  const baseFields = authorRegistry.entity_base_fields;
-  const extFields  = authorRegistry.types[type].fields;
-
-  let html = '';
-
-  if (isNew && type === 'character' && currentCreationSubTab === 'npc') {
-    html += authorRenderGeneratePanel();
-  }
-  if (isNew && type === 'location' && currentCreationSubTab === 'lieux') {
-    html += authorRenderGeneratePanel();
-  }
-  if (isNew && type === 'faction' && currentCreationSubTab === 'factions') {
-    html += authorRenderGeneratePanel();
-  }
-
-  html += '<div class="field-section"><div class="field-section-title">Entity</div><div class="field-grid">';
-
-  if (isNew) {
-    const opts = authorRegistry.entity_types.map(t =>
-      `<option value="${esc(t)}" ${t === type ? 'selected' : ''}>${esc(authorRegistry.types[t].label)}</option>`
-    ).join('');
-    html += `<div class="field-row"><label for="author-f-type">Type *</label>
-      <select id="author-f-type" onchange="authorTypeChanged()">${opts}</select></div>`;
-  } else {
-    html += `<div class="field-row"><label>Type</label>
-      <input type="text" value="${esc(authorRegistry.types[type].label)}" disabled></div>`;
-  }
-
-  for (const field of baseFields) {
-    const value = isNew ? undefined : (field.name === 'metadata' ? detail.metadata : detail[field.name]);
-    html += authorRenderField(field, value, 'author-f');
-  }
-  html += '</div></div>';
-
-  html += `<div class="field-section"><div class="field-section-title">${esc(authorRegistry.types[type].label)}</div><div class="field-grid">`;
-  for (const field of extFields) {
-    const value = isNew ? undefined : (detail.extension ? detail.extension[field.name] : undefined);
-    html += authorRenderField(field, value, 'author-x');
-  }
-  html += '</div></div>';
-
-  if (type === 'faction') {
-    html += '<div class="field-section"><div class="field-section-title">Roles</div>';
-    if (isNew) {
-      authorFactionRolesDraft = [];
-      html += `<div id="author-roles">${authorRenderRolesEditor()}</div>`;
-    } else {
-      html += '<div id="author-roles"><div class="empty"><span class="spin">⟳</span></div></div>';
-    }
-    html += '</div>';
-  }
-
-  if (type === 'location') {
-    html += '<div class="field-section"><div class="field-section-title">Subculture</div>';
-    if (isNew) {
-      authorLocationSubcultureDraft = [];
-      html += `<div id="author-subculture">${authorRenderSubcultureEditor(true)}</div>`;
-    } else {
-      html += `<div id="author-subculture">${authorRenderSubcultureEditor(false, detail.subculture_rows)}</div>`;
-    }
-    html += '</div>';
-  }
-
-  if (!isNew && type === 'location') {
-    html += '<div class="field-section"><div class="field-section-title">Spatial geometry</div>';
-    html += `<div id="author-geometry">${authorRenderGeometryEditor(detail.geometry || { bounds_width: null, bounds_height: null, obstacles: [] })}</div>`;
-    html += '</div>';
-
-    html += '<div class="field-section"><div class="field-section-title">Portes</div>';
-    html += `<div id="author-doors">${authorRenderDoorsEditor(detail.relations, detail.doors)}</div>`;
-    html += '</div>';
-  }
-
-  if (!isNew) {
-    html += '<div class="field-section"><div class="field-section-title">Relations</div>';
-    html += `<div id="author-relations">${authorRenderRelations(detail.relations)}</div>`;
-    html += authorRenderRelationForm();
-    html += '</div>';
-
-    html += '<div class="field-section"><div class="field-section-title">Knowledge</div>';
-    html += `<div id="author-knowledge">${authorRenderKnowledge(detail.knowledge)}</div>`;
-    html += authorRenderKnowledgeForm();
-    html += '</div>';
-  }
-
-  if (isNew && type === 'character' && currentCreationSubTab === 'npc') {
-    html += '<div class="field-section"><div class="field-section-title">Knowledge (créé à l\'acceptation)</div>';
-    html += `<div id="author-pending-knowledge">${authorRenderPendingKnowledge()}</div>`;
-    html += '</div>';
-  }
-
-  if (isNew && type === 'character' && currentCreationSubTab === 'npc') {
-    html += '<div class="field-section"><div class="field-section-title">Objectifs (créés à l\'acceptation)</div>';
-    html += `<div id="author-pending-goals">${authorRenderPendingGoals()}</div>`;
-    html += '</div>';
-  }
-
-  if (!isNew && type === 'character') {
-    html += '<div class="field-section"><div class="field-section-title">Items</div>';
-    html += '<div id="author-items"><div class="empty"><span class="spin">⟳</span></div></div>';
-    html += '</div>';
-  }
-
-  if (!isNew && type === 'character') {
-    html += '<div class="field-section"><div class="field-section-title">Appartenances</div>';
-    html += '<div id="author-memberships"><div class="empty"><span class="spin">⟳</span></div></div>';
-    html += authorRenderMembershipForm();
-    html += '</div>';
-  }
-
-  if (!isNew && type === 'faction') {
-    html += '<div class="field-section"><div class="field-section-title">Membres</div>';
-    html += '<div id="author-faction-roster"><div class="empty"><span class="spin">⟳</span></div></div>';
-    html += '</div>';
-  }
-
-  if (!isNew && (type === 'character' || type === 'faction')) {
-    html += '<div class="field-section"><div class="field-section-title">Solde</div>';
-    html += '<div id="author-ledger"><div class="empty"><span class="spin">⟳</span></div></div>';
-    html += '</div>';
-  }
-
-  if (!isNew && type === 'character' && currentCreationSubTab === 'npc') {
-    html += '<div class="field-section"><div class="field-section-title">Tarifs</div>';
-    html += `<div id="author-pricing">${authorRenderPricing(detail)}</div>`;
-    html += '</div>';
-  }
-
-  if (!isNew && type === 'character' && currentCreationSubTab === 'npc') {
-    html += '<div class="field-section">';
-    html += '<div class="field-section-title" style="display:flex; align-items:center; justify-content:space-between;">'
-      + 'Objectifs'
-      + `<button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick="authorBackfillGoals('${esc(detail.id)}')">Générer les buts</button>`
-      + '</div>';
-    html += '<div id="author-goals"><div class="empty"><span class="spin">⟳</span></div></div>';
-    html += authorRenderGoalForm();
-    html += '</div>';
-  }
-
-  if (!isNew && type === 'location') {
-    html += '<div class="field-section"><div class="field-section-title">Discoverable Details</div>';
-    html += '<div id="author-disc-list"><div class="empty"><span class="spin">⟳</span></div></div>';
-    html += authorRenderDiscDetailForm(detail.id, detail.world_id);
-    html += '</div>';
-  }
-
-  document.getElementById('author-main').innerHTML = html;
-
-  if (!isNew && type === 'character') {
-    authorLoadItems(detail.id);
-    authorLoadLedger(detail.id);
-    authorLoadMemberships(detail.id);
-    authorMembershipFactionChanged();
-  }
-  if (!isNew && type === 'character' && currentCreationSubTab === 'npc') {
-    authorLoadGoals(detail.id);
-  }
-  if (!isNew && type === 'faction') {
-    authorLoadLedger(detail.id);
-    authorLoadFactionMembersPanel(detail.id);
-  }
-  if (!isNew && type === 'location') {
-    authorLoadDiscDetails(detail.id);
-  }
+/** evenements' bridge onto fields.js's readFieldValue (Sheet.svelte's
+ *  'creation:field-read' listener) — re-throws synchronously on invalid
+ *  JSON, preserving authorReadField's exact try/catch contract for its
+ *  remaining callers (evenementsSave, evenementsSubmitCreate). */
+function _creationReadField(field, idPrefix) {
+  const ev = new CustomEvent('creation:field-read', { detail: { field, idPrefix, value: undefined, error: null } });
+  document.dispatchEvent(ev);
+  if (ev.detail.error) throw new Error(ev.detail.error);
+  return ev.detail.value;
 }
 
 /* ── AI entity-authoring assistant (BRIEF-24) — draft generator panel ──────
@@ -7794,7 +7629,11 @@ async function generatePendingCreation(mutationId) {
   }
 
   pendingCreationMutationId = mutationId;
-  authorRenderSheet({}, true, result.entity_type);
+  // TICKET-0058 (BRIEF-0058-f): flushSync inside Sheet.svelte's listener
+  // guarantees author-f-name/author-x-* et al. exist before the
+  // authorApply*Draft call right below runs its own synchronous
+  // getElementById writes.
+  document.dispatchEvent(new CustomEvent('creation:sheet-create', { detail: { type: result.entity_type } }));
   if (result.entity_type === 'location') {
     authorApplyLocationDraft(result);
   } else if (result.entity_type === 'faction') {
@@ -7957,7 +7796,7 @@ async function authorPriceListMutate(mutateFn) {
     mutateFn(priceList);
     const body = JSON.stringify({ prices: priceList });
     const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}/prices`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
-    authorRenderSheet(detail, false, detail.type);
+    _authorRefreshSheet(detail);
     document.getElementById('author-status').className = 'author-status ok';
     document.getElementById('author-status').textContent = 'Tarifs mis à jour.';
   } catch (e) {
@@ -8058,7 +7897,7 @@ async function authorSaveSubcultureRowsData(rows) {
   try {
     const body = JSON.stringify({ rows: clean });
     const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}/subculture`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
-    authorRenderSheet(detail, false, detail.type);
+    _authorRefreshSheet(detail);
     document.getElementById('author-status').className = 'author-status ok';
     document.getElementById('author-status').textContent = 'Subculture mise à jour.';
   } catch (e) {
@@ -8171,7 +8010,7 @@ async function authorSaveGeometry() {
   try {
     const body = JSON.stringify({ bounds_width, bounds_height, obstacles });
     const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}/geometry`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
-    authorRenderSheet(detail, false, detail.type);
+    _authorRefreshSheet(detail);
     document.getElementById('author-status').className = 'author-status ok';
     document.getElementById('author-status').textContent = 'Géométrie mise à jour.';
   } catch (e) {
@@ -8260,7 +8099,7 @@ async function authorSaveDoors() {
   try {
     const body = JSON.stringify({ doors: _readDoorsFromDom() });
     const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}/doors`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
-    authorRenderSheet(detail, false, detail.type);
+    _authorRefreshSheet(detail);
     document.getElementById('author-status').className = 'author-status ok';
     document.getElementById('author-status').textContent = 'Portes mises à jour.';
   } catch (e) {
@@ -9115,34 +8954,64 @@ async function authorSaveDiscDetail(detailId, locationId) {
 }
 
 /** Re-render the sheet for a new entity when the type selector changes. */
-function authorTypeChanged() {
-  const type = document.getElementById('author-f-type').value;
-  pendingDraftKnowledge = [];
-  pendingDraftNotes     = [];
-  pendingDraftGoals     = { long: '', shorts: ['', ''] };
-  authorRenderSheet({}, true, type);
-}
-
-function authorNewEntity() {
-  const type = document.getElementById('author-new-type').value;
-  authorRenderSheet({}, true, type);
-}
-
+/** BRIEF-0058-f: fetches the same detail row as always; #author-main is the
+ *  entitySheet island's mount root now, so the spinner/error/render steps
+ *  that used to write into it directly instead dispatch to Sheet.svelte.
+ *  An entry with a bespoke sheetRenderer (intrigues/evenements) is told to
+ *  switch the island into 'legacy' mode first (flushSync inside the
+ *  listener guarantees #author-legacy-sheet-slot exists before
+ *  entry.sheetRenderer's own innerHTML write runs, synchronously, right
+ *  below) — every other entry (core types) dispatches 'creation:sheet-
+ *  detail' instead, which Sheet.svelte renders with the ported field
+ *  engine. authorEntityId/authorEntityType stay set here (not inside
+ *  Sheet.svelte, which cannot reach these bare `let` bindings) — every
+ *  other legacy reader (authorGetSelectedEntityId, authorDelete,
+ *  authorPriceListMutate, ...) still resolves them here, unchanged. */
 async function authorSelectEntity(id) {
-  document.getElementById('author-main').innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
+  document.dispatchEvent(new CustomEvent('creation:sheet-loading'));
   try {
     const detail = await api(`/api/entities/${encodeURIComponent(id)}`);
+    authorEntityId   = id;
+    authorEntityType = detail.type;
     const entry = CREATION_TABS[currentCreationSubTab];
-    (entry && entry.sheetRenderer || authorRenderSheet)(detail, false, detail.type);
+    if (entry && entry.sheetRenderer) {
+      document.dispatchEvent(new CustomEvent('creation:sheet-legacy-active'));
+      entry.sheetRenderer(detail);
+    } else {
+      document.dispatchEvent(new CustomEvent('creation:sheet-detail', { detail: { detail, type: detail.type } }));
+    }
     // TICKET-0058 (BRIEF-0058-e): the entity-list island re-renders its own
     // active-row highlight reactively off this, in place of the deleted
     // authorRenderEntityList() call.
     document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: id, recordId: null } }));
     (entry ? entry.slots || [] : []).forEach(s => { if (s.onSelect) s.onSelect(id); });
   } catch (e) {
-    document.getElementById('author-main').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    document.dispatchEvent(new CustomEvent('creation:sheet-error', { detail: { message: e.message } }));
   }
   creationRenderReturnControl();
+}
+
+/** Sets the legacy-side selection globals other readers (authorDelete,
+ *  authorGetSelectedEntityId, authorPriceListMutate's own follow-up calls,
+ *  ...) still resolve — called by Sheet.svelte via legacyCall right after a
+ *  successful save, mirroring what authorRenderSheet's own first line
+ *  (`authorEntityId = isNew ? null : detail.id; authorEntityType = type;`)
+ *  always did. */
+function _authorNotifySaved(id, type) {
+  authorEntityId   = id;
+  authorEntityType = type;
+}
+
+/** Refreshes the entitySheet island with a freshly-fetched detail row —
+ *  replaces the sub-editors' (brief -g, unmigrated) former direct
+ *  authorRenderSheet(detail, false, detail.type) call after their own PUT
+ *  (authorPriceListMutate, authorSaveSubcultureRowsData, authorSaveGeometry,
+ *  authorSaveDoors). Also updates authorEntityId/Type, since these callers
+ *  never go through authorSelectEntity. */
+function _authorRefreshSheet(detail) {
+  authorEntityId   = detail.id;
+  authorEntityType = detail.type;
+  document.dispatchEvent(new CustomEvent('creation:sheet-detail', { detail: { detail, type: detail.type } }));
 }
 
 /** Resolves the sub-tab that owns an entity (TICKET-0054, decision F2a).
@@ -9216,12 +9085,16 @@ function creationRenderReturnControl() {
  *  rows already carry full data — no per-row fetch. Resolves the same
  *  renderer seam, then re-renders the tab's list so the clicked row shows
  *  selected (creationSelectedRecordId is the authorEntityId equivalent for
- *  these tabs). One renderer seam, two data shapes, no second dispatcher. */
+ *  these tabs). One renderer seam, two data shapes, no second dispatcher.
+ *  Every registered caller (intrigues, evenements) declares a sheetRenderer
+ *  — BRIEF-0058-f drops the `|| authorRenderSheet` fallback along with the
+ *  function it pointed at; a tab without one has nothing to fall back to. */
 function creationSelectRecord(tabId, record) {
   const entry = CREATION_TABS[tabId];
-  if (!entry) return;
+  if (!entry || !entry.sheetRenderer) return;
   creationSelectedRecordId = record.id;
-  (entry.sheetRenderer || authorRenderSheet)(record);
+  document.dispatchEvent(new CustomEvent('creation:sheet-legacy-active'));
+  entry.sheetRenderer(record);
   // TICKET-0058 (BRIEF-0058-e): the entity-list island re-renders its own
   // active-row highlight reactively off this, in place of the deleted
   // entry.listRenderer() call (renderIntriguesListRows/renderEvenementsListRows).
@@ -9230,60 +9103,18 @@ function creationSelectRecord(tabId, record) {
 
 /** Generic save-button dispatch (TICKET-0022, BRIEF-0022-a item 8): the
  *  static #author-save-btn is shared by every archetype:'entity' tab, but
- *  `authorSave` is entity-only (writes through ENTITY_TYPE_REGISTRY) and
- *  must not learn about non-entity rows. A registry entry may declare its
- *  own `saveHandler` (the sheetRenderer/listLoader/createPanel seam,
- *  extended) — falls back to `authorSave` when absent, so every
- *  entity-archetype tab keeps working unchanged. */
+ *  the core field engine (now Sheet.svelte) must not learn about non-entity
+ *  rows. A registry entry may declare its own `saveHandler` (evenements'
+ *  own /api/events PUT) — every other entry falls through to the mounted
+ *  entitySheet island's own save, via the same 'island:action'-style
+ *  reverse dispatch _islandPrimaryAction already established for the
+ *  primary-action band (BRIEF-0058-d), just under the 'creation:sheet-save'
+ *  name since this is a distinct control (the persistent header Save
+ *  button), not the "+ Nouveau" band. */
 function creationSaveDispatch() {
   const entry = CREATION_TABS[currentCreationSubTab];
-  const handler = (entry && entry.saveHandler) || authorSave;
-  handler();
-}
-
-async function authorSave() {
-  const statusEl = document.getElementById('author-status');
-  statusEl.className = 'author-status';
-  statusEl.textContent = 'Saving…';
-
-  const isNew = authorEntityId === null;
-  const type = isNew ? document.getElementById('author-f-type').value : authorEntityType;
-
-  const entityData = {};
-  const extData = {};
-  try {
-    for (const field of authorRegistry.entity_base_fields) {
-      entityData[field.name] = authorReadField(field, 'author-f');
-    }
-    for (const field of authorRegistry.types[type].fields) {
-      extData[field.name] = authorReadField(field, 'author-x');
-    }
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = `Invalid JSON: ${e.message}`;
-    return;
-  }
-  if (isNew) entityData.type = type;
-
-  // TICKET-0039, BRIEF-0039-b: a location save is gated on its CHOSEN
-  // location_type being classified (interior/exterior) — a type absent from
-  // the catalog, or present with classification === null, must prompt once
-  // before the save proceeds. Already-classified types save with no prompt.
-  if (type === 'location') {
-    const chosenType = (extData.location_type || '').trim();
-    if (chosenType) {
-      const folded = chosenType.toLowerCase();
-      const catalogRow = authorLocationTypeCatalog.find(r => r.name.toLowerCase() === folded);
-      if (!catalogRow || catalogRow.classification == null) {
-        _authorPromptLocationTypeClassification(chosenType, () => {
-          _authorSaveSubmit(isNew, type, entityData, extData, statusEl);
-        });
-        return;
-      }
-    }
-  }
-
-  await _authorSaveSubmit(isNew, type, entityData, extData, statusEl);
+  if (entry && entry.saveHandler) { entry.saveHandler(); return; }
+  document.dispatchEvent(new CustomEvent('creation:sheet-save'));
 }
 
 /** Plain-suffix label for a location_type datalist option (TICKET-0040,
@@ -9368,124 +9199,72 @@ async function _authorClassifyLocationType(typeName, classification, onClassifie
   }
 }
 
-/** The actual entity write + dependent-draft POSTs, split out of authorSave
- *  (TICKET-0039, BRIEF-0039-b) so the location_type classification prompt can
- *  gate it without duplicating the submission logic. */
-async function _authorSaveSubmit(isNew, type, entityData, extData, statusEl) {
-  // TICKET-0024, BRIEF-0024-d: for a NEW faction, roles drafted before the
-  // entity exists are held in authorFactionRolesDraft and POSTed to the
-  // faction_role create route right after creation (below) — never merged
-  // into entityData.metadata (faction_role has its own dedicated routes,
-  // never the generic entity PUT). An EXISTING faction's roles editor is
-  // already live/API-backed (authorLoadFactionRoles) and untouched here.
-  const rolesToCreate = (isNew && type === 'faction') ? (() => {
-    _syncFactionRolesFromDom();
-    return authorFactionRolesDraft
-      .map(r => ({ name: (r.name || '').trim(), description: r.description || null, max_holders: r.limit ?? null }))
-      .filter(r => r.name);
-  })() : [];
+/** BRIEF-0058-f: _authorSaveSubmit's entity-write + dependent-draft-POST
+ *  orchestration moved into Sheet.svelte's submitEntity (a faithful port —
+ *  same endpoints, same order, same conditions). What COULDN'T move is the
+ *  draft state itself: authorFactionRolesDraft/authorLocationSubcultureDraft/
+ *  pendingDraftKnowledge/pendingDraftGoals/pendingCreationMutationId are
+ *  legacy globals owned by the (unmigrated, brief -g/-h) sub-editors and
+ *  AI-draft panel. These six small functions are the exact inline snippets
+ *  _authorSaveSubmit used to run itself, extracted so Sheet.svelte can
+ *  reach them via legacyCall instead of a bare variable read it has no
+ *  access to — none of them change what the snippet did.
+ *
+ *  TICKET-0024, BRIEF-0024-d / TICKET-0025, BRIEF-0025-b: roles/subculture
+ *  rows drafted before the entity exists are held in
+ *  authorFactionRolesDraft/authorLocationSubcultureDraft and POSTed/PUT
+ *  right after creation — never merged into entityData(.metadata). An
+ *  EXISTING faction's/location's editor is already live/API-backed
+ *  (authorLoadFactionRoles / the Tarifs-editor discipline) and untouched
+ *  here. */
+function _authorFactionRolesDraftForCreate() {
+  _syncFactionRolesFromDom();
+  return authorFactionRolesDraft
+    .map(r => ({ name: (r.name || '').trim(), description: r.description || null, max_holders: r.limit ?? null }))
+    .filter(r => r.name);
+}
 
-  // TICKET-0025, BRIEF-0025-b: for a NEW location, subculture rows drafted
-  // before the entity exists are held in authorLocationSubcultureDraft and
-  // PUT to the subculture route right after creation — never merged into
-  // entityData (location_subculture has its own dedicated route).
-  const subcultureRowsToCreate = (isNew && type === 'location') ? (() => {
-    _syncSubcultureDraftFromDom();
-    return authorLocationSubcultureDraft.filter(r => (r.key || '').trim());
-  })() : [];
+function _authorSubcultureDraftForCreate() {
+  _syncSubcultureDraftFromDom();
+  return authorLocationSubcultureDraft.filter(r => (r.key || '').trim());
+}
 
-  // BRIEF-24: knowledge rows proposed by the AI draft generator are held in
-  // memory until now — read their current (possibly edited) values before
-  // the entity is created, since they're posted through the EXISTING
-  // knowledge CRUD endpoint right after, not written by this function.
-  const knowledgeToCreate = (isNew && type === 'character') ? _syncPendingKnowledgeFromDom() : [];
+function _authorGetPendingCreationMutationId() {
+  return pendingCreationMutationId;
+}
 
-  // BRIEF-0013-b (L1): goals drafted alongside the character are held in
-  // memory the same way — read now, POSTed through the EXISTING 0013-a
-  // goals endpoint right after the entity is created.
-  const goalsToCreate = (isNew && type === 'character') ? _syncPendingGoalsFromDom() : [];
+/** Two-stage entity creation (BRIEF-0019-a): called once the create POST
+ *  that carried mutation_id has succeeded. */
+function _authorConsumePendingCreationMutationId() {
+  pendingCreationMutationId = null;
+  loadPendingCreations();
+}
 
-  try {
-    const body = JSON.stringify({
-      entity: entityData,
-      extension: extData,
-      // Two-stage entity creation (BRIEF-0019-a): carried only on a NEW
-      // create, only when the form was pre-filled from a pending germ.
-      ...(isNew && pendingCreationMutationId ? { mutation_id: pendingCreationMutationId } : {}),
-    });
-    let detail = isNew
-      ? await api('/api/entities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
-      : await api(`/api/entities/${encodeURIComponent(authorEntityId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
+/** Runs unconditionally after ANY successful create (Sheet.svelte's
+ *  submitEntity) — clearing a draft that was never populated for this
+ *  create (e.g. resetting the subculture draft on a faction create) is a
+ *  no-op, exactly as harmless as the original's per-type conditional
+ *  clears. */
+function _authorClearCreateDrafts() {
+  authorFactionRolesDraft = [];
+  authorLocationSubcultureDraft = [];
+  pendingDraftKnowledge = [];
+  pendingDraftNotes = [];
+  pendingDraftGoals = { long: '', shorts: ['', ''] };
+}
 
-    if (isNew && knowledgeToCreate.length) {
-      for (const row of knowledgeToCreate) {
-        await api(`/api/entities/${encodeURIComponent(detail.id)}/knowledge`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            subject: row.subject,
-            level: row.level,
-            source: null,
-            share_threshold: 50,
-            is_incorrect: false,
-            is_secret: true,
-            content: row.content,
-          }),
-        });
-      }
-      pendingDraftKnowledge = [];
-      pendingDraftNotes = [];
-      detail = await api(`/api/entities/${encodeURIComponent(detail.id)}`);
-    }
+/** The roles/subculture editor's "fresh draft" entry points for CREATE mode
+ *  — authorRenderSheet always cleared the draft before rendering it for a
+ *  NEW faction/location, so a repeat "+ Nouveau" never carries over a prior
+ *  abandoned attempt. */
+function _authorNewRolesEditor() {
+  authorFactionRolesDraft = [];
+  return authorRenderRolesEditor();
+}
 
-    if (isNew && goalsToCreate.length) {
-      for (const goal of goalsToCreate) {
-        await api(`/api/entities/${encodeURIComponent(detail.id)}/goals`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(goal),
-        });
-      }
-      pendingDraftGoals = { long: '', shorts: ['', ''] };
-    }
-
-    if (isNew && rolesToCreate.length) {
-      for (const row of rolesToCreate) {
-        await api(`/api/factions/${encodeURIComponent(detail.id)}/roles`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(row),
-        });
-      }
-      authorFactionRolesDraft = [];
-    }
-
-    if (isNew && subcultureRowsToCreate.length) {
-      await api(`/api/entities/${encodeURIComponent(detail.id)}/subculture`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: subcultureRowsToCreate }),
-      });
-      authorLocationSubcultureDraft = [];
-      detail = await api(`/api/entities/${encodeURIComponent(detail.id)}`);
-    }
-
-    if (isNew && pendingCreationMutationId) {
-      pendingCreationMutationId = null;
-      loadPendingCreations();
-    }
-
-    creationRefreshList(); // TICKET-0058 (BRIEF-0058-e): see regionCommit's identical comment
-    authorRenderSheet(detail, false, detail.type);
-    document.getElementById('author-status').className = 'author-status ok';
-    document.getElementById('author-status').textContent = 'Saved.';
-    if (currentCreationSubTab === 'lieux') {
-      document.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'lieux' } }));
-    }
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = e.message;
-  }
+function _authorNewSubcultureEditor() {
+  authorLocationSubcultureDraft = [];
+  return authorRenderSubcultureEditor(true);
 }
 
 async function authorDelete() {
@@ -10085,7 +9864,11 @@ function pjRenderCreatePanel() {
   document.getElementById('author-delete-btn').style.display = 'none';
   document.getElementById('author-status').textContent       = '';
 
-  document.getElementById('author-main').innerHTML = `
+  // TICKET-0058 (BRIEF-0058-f): #author-main is the entitySheet island's
+  // mount root now; this bespoke panel renders into the stable legacy leaf
+  // Sheet.svelte always keeps present for it (creationNewEntity dispatches
+  // 'creation:sheet-legacy-active' just before calling this).
+  document.getElementById('author-legacy-sheet-slot').innerHTML = `
     <div class="field-section" style="margin:0; padding:10px 14px">
       <div class="field-row" style="margin:0">
         <label>Concept (pour l'assistant)</label>

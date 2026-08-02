@@ -50,4 +50,26 @@ export const CREATION_ISLANDS = Object.freeze({
       'renderEvenementsListRows',
     ],
   }),
+  // BRIEF-0058-f: #author-main's mount point -- the second 'islands' entry
+  // onto the same seven CREATION_TABS entries entityList already declares
+  // (npc/pj/lieux/factions/objets/intrigues/evenements) plus every runtime
+  // type. Sheet.svelte owns the container unconditionally (a stable leaf
+  // inside it, #author-legacy-sheet-slot, is what pj's create panel and
+  // intrigues'/evenements' bespoke sheetRenderer still render into -- see
+  // Sheet.svelte's own header comment); only the CORE field engine
+  // (authorRenderSheet/authorRenderField/authorReadField/_authorSaveSubmit)
+  // is actually retired here.
+  entitySheet: Object.freeze({
+    containerId: 'author-main',
+    component: 'Sheet.svelte',
+    migratedBy: 'TICKET-0058',
+    retiredPrefixes: [
+      'authorRenderSheet',
+      'authorRenderField',
+      'authorReadField',
+      '_authorSaveSubmit',
+      'authorTypeChanged',
+      'authorNewEntity',
+    ],
+  }),
 });

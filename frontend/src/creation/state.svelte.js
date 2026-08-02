@@ -17,17 +17,34 @@
    Every field here has a named reader in this ticket's commits (E2):
    activeTabKey/entityListActivationTick/selectedEntityId/selectedRecordId/
    entities/playerCharIds/locationTree/agendas/events are all read by
-   EntityList.svelte (BRIEF-0058-e); a future brief mounting a second
-   island onto this container (the sheet, brief -f) reads the same store
-   rather than inventing one. */
+   EntityList.svelte (BRIEF-0058-e); Sheet.svelte (BRIEF-0058-f) reads the
+   same store rather than inventing a second one -- entities/playerCharIds/
+   locationTypeCatalog feed entity_ref/location_type field candidates,
+   activeTabKey resolves the create-mode type.
+
+   BRIEF-0058-f additions: locationTypeCatalog (EntityList's own
+   /api/location-types fetch, mirrored here the same way entities/
+   locationTree already are, so Field.svelte doesn't need a second fetch)
+   and the sheetMode/sheetDetail/sheetIsNew/sheetType/sheetErrorMessage
+   quintet, which Sheet.svelte owns exclusively (set by its own
+   'creation:sheet-*' listeners and its exported primaryAction/saveSheet,
+   never written from outside that component). */
 export const creationState = $state({
   activeTabKey: null,
   entityListActivationTick: 0,
   entities: [],
   playerCharIds: new Set(),
   locationTree: [],
+  locationTypeCatalog: [],
   agendas: [],
   events: [],
   selectedEntityId: null,
   selectedRecordId: null,
+  // 'empty' | 'loading' | 'view' | 'error' | 'legacy' -- 'create' is a
+  // sub-case of 'view' carrying sheetIsNew: true (same skeleton, blank data).
+  sheetMode: 'empty',
+  sheetDetail: null,
+  sheetIsNew: false,
+  sheetType: null,
+  sheetErrorMessage: '',
 });

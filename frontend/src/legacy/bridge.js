@@ -162,6 +162,20 @@ export function triggerNpcGoalsBackfill() {
   return callLegacy('npcGoalsBackfillAll');
 }
 
+/* TICKET-0058 (BRIEF-0058-f). Generic passthrough for the sheet's still-legacy
+   sub-editor generators (roles/subculture/geometry/doors/relations/knowledge/
+   pending-knowledge/pending-goals/pricing/membership-form/disc-detail-form/
+   goal-form/generate-panel — all Scope OUT, brief -g/-h) and loaders
+   (authorLoadItems/Ledger/Memberships/Goals/FactionMembersPanel/DiscDetails,
+   authorMembershipFactionChanged) Sheet.svelte calls after rendering its own
+   skeleton — exactly the tail authorRenderSheet used to run inline, just
+   invoked from across the shell/legacy boundary instead of in the same
+   function body. Every one of these stays a plain, unmigrated legacy
+   function; nothing about their own behavior changes. */
+export function legacyCall(fnName, ...args) {
+  return callLegacy(fnName, ...args);
+}
+
 export function whenLegacyReady(predicate, { timeoutMs = 5000 } = {}) {
   const win = legacyWindow();
   return new Promise((resolve, reject) => {
