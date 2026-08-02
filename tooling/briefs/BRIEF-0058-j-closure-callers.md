@@ -52,9 +52,13 @@ be removed. That removal is the observable proof that the closure is closed.
 
 7. **Report the residual.** List, in the commit message and in the result
    handed to Nia, every `CREATION_TABS` entry still rendering from the
-   legacy document. The expectation is exactly `competences`, `registre`
-   and `prompts`, plus the link agent and world CRUD. Any other name is a
-   finding: the closure was mis-measured and TICKET-0059's scope changes.
+   legacy document. **Correction (ticket-level, superseding this
+   paragraph): the expectation is exactly FIVE — `competences`, `registre`,
+   `prompts`, `artefacts` and `queue`** (both confirmed outside the `author*`
+   closure and outside the container-occupancy migration surface; see
+   TICKET-0058.md's intake correction and RECON-0058-a M4c), plus the link
+   agent and world CRUD. Any other name is a finding: the closure was
+   mis-measured and TICKET-0059's scope changes.
 
 ## Scope OUT
 

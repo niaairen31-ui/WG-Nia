@@ -132,6 +132,36 @@ export function getSelectedCharacterId() {
   return callLegacy('authorGetSelectedEntityId');
 }
 
+/* TICKET-0058 (BRIEF-0058-e). The entity-list island's row click needs to
+   trigger the still-legacy detail/sheet render (authorSelectEntity renders
+   into #author-main, out of scope until brief -f) or the still-legacy
+   record-selection dispatcher (creationSelectRecord, Intrigues/Evenements).
+   Both are plain function declarations on the legacy window, reached the
+   same way getSelectedCharacterId already reaches authorGetSelectedEntityId. */
+export function selectEntity(id) {
+  return callLegacy('authorSelectEntity', id);
+}
+
+export function selectRecord(tabId, record) {
+  return callLegacy('creationSelectRecord', tabId, record);
+}
+
+/* Lieux' "Générer un lot ici" button (ported off renderLieuxBrowse) opens
+   the still-legacy room-batch panel; batchOpenPanel stays legacy (brief -f
+   scopes the sheet, not the batch generator). */
+export function openBatchPanel(parentId, anchorName) {
+  return callLegacy('batchOpenPanel', parentId, anchorName);
+}
+
+/* NPC's "Générer les buts manquants" secondary control (BRIEF-0013-b) stays
+   a legacy call until brief -j migrates npcGoalsBackfillAll itself — same
+   reverse-bridge posture Constructeur.svelte already established for
+   'creation:refresh-tabs', just reached via callLegacy instead of a
+   CustomEvent since this is a plain, argument-free, legacy-owned action. */
+export function triggerNpcGoalsBackfill() {
+  return callLegacy('npcGoalsBackfillAll');
+}
+
 export function whenLegacyReady(predicate, { timeoutMs = 5000 } = {}) {
   const win = legacyWindow();
   return new Promise((resolve, reject) => {

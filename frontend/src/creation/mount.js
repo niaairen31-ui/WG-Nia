@@ -25,9 +25,11 @@
 import { mount as svelteMount, unmount as svelteUnmount } from 'svelte';
 import { legacyContainer } from '../legacy/bridge.js';
 import { CREATION_ISLANDS } from './registry.js';
+import { creationState } from './state.svelte.js';
 import Constructeur from './Constructeur.svelte';
+import EntityList from './EntityList.svelte';
 
-const COMPONENTS = { constructeur: Constructeur };
+const COMPONENTS = { constructeur: Constructeur, entityList: EntityList };
 
 const live = {}; // key -> { node, instance }
 
@@ -91,8 +93,22 @@ export function unmountIsland(key) {
    no function installed on the legacy window. */
 export function initCreationMount(legacyDoc) {
   legacyDoc.addEventListener('island:slot', (ev) => {
-    const { key, open } = ev.detail;
+    const { key, open, tabKey } = ev.detail;
     if (!open) return;
+    // BRIEF-0058-e: 'entityList' is one component shared by seven
+    // CREATION_TABS entries; tabKey is the only way it learns which of
+    // them just activated. Mirrored here (not inside mountIsland, which
+    // several islands share) so every island:slot dispatch keeps the
+    // store's mirror of the legacy document's own decision current,
+    // whether or not that key's mount is a no-op this time. creation_
+    // island.py rule 8 confines 'island:slot' listening to this file
+    // alone, so EntityList.svelte reacts to these store fields instead
+    // of listening for the event itself; the tick increments on every
+    // 'entityList' activation so a same-key repeat (e.g. re-entering a
+    // tab) still triggers a refetch, matching the old per-activation
+    // authorLoadEntityList cadence.
+    if (tabKey !== undefined) creationState.activeTabKey = tabKey;
+    if (key === 'entityList') creationState.entityListActivationTick += 1;
     try {
       mountIsland(key);
     } catch (err) {

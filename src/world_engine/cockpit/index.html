@@ -1327,11 +1327,14 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     <aside class="sidebar">
       <div class="sidebar-head">
         <span id="creation-list-label">NPC</span>
-        <button class="btn-icon" onclick="authorLoadEntityList()" title="Rafraîchir">↻</button>
+        <button class="btn-icon" onclick="creationRefreshList()" title="Rafraîchir">↻</button>
       </div>
-      <div class="conv-list" id="author-entity-list">
-        <div class="empty"><span class="spin">⟳</span></div>
-      </div>
+      <!-- TICKET-0058 (BRIEF-0058-e): the entityList island's mount point.
+           Empty by construction — Svelte mount() appends, it never clears
+           a target's pre-existing children, so a static placeholder here
+           would sit beside the island's own DOM forever. The island
+           renders its own loading state. -->
+      <div class="conv-list" id="author-entity-list"></div>
     </aside>
 
     <div class="right-col">
@@ -3243,23 +3246,19 @@ function authorGetSelectedEntityId() { return authorEntityId; }
 // is ever visible at a time, so one shared id is enough (no second dispatcher).
 let creationSelectedRecordId = null;
 
-/* Lieux hierarchy browse (BRIEF-51, no schema change) — read-only
- * GET /api/locations tree + client view-state only (no server persistence). */
+/* Lieux hierarchy browse state (BRIEF-51) moved to frontend/src/creation/
+ * EntityList.svelte (TICKET-0058, BRIEF-0058-e), component-local — nothing
+ * outside that island reads it any more, so LOCATION_TYPE_ORDER/
+ * LOCATION_TYPE_LABELS and the browse position (lieuxBrowseParentId/
+ * lieuxBreadcrumb/lieuxActiveOnly) are gone from here. authorLocationTree
+ * and authorLocationTypeCatalog stay: other still-legacy readers (the
+ * field engine's location_type classification, location-type option
+ * lists) depend on them; the island now populates both via
+ * 'creation:entities-loaded' instead of authorLoadEntityList. */
 let authorLocationTree = [];     // [{id, name, parent_location_id, location_type, status}, ...]
-// LOCATION_TYPE_ORDER stays the browse-tree bucket order (display only, not
-// the vocabulary — TICKET-0039, BRIEF-0039-b). The type picker's own source
-// of truth is authorLocationTypeCatalog (GET /api/location-types).
-const LOCATION_TYPE_ORDER = ['city', 'district', 'building', 'room', 'natural', 'underground', 'other'];
 // [{name, classification: "interior"|"exterior"|null}, ...] for the active
-// world — refreshed by authorLoadEntityList; backs the location_type datalist.
+// world — refreshed by the entityList island; backs the location_type datalist.
 let authorLocationTypeCatalog = [];
-const LOCATION_TYPE_LABELS = {
-  city: 'Villes', district: 'Quartiers', building: 'Bâtiments', room: 'Pièces',
-  natural: 'Lieux naturels', underground: 'Souterrains', other: 'Autres',
-};
-let lieuxBrowseParentId = null;  // current node id; null = root
-let lieuxBreadcrumb     = [];    // [{id, name}, ...] root → current
-let lieuxActiveOnly     = false; // "Actifs seulement" toggle (F2 default off)
 
 /* AI entity-authoring assistant (BRIEF-24) — draft state for the in-creation
  * NPC form. The entity doesn't exist yet, so secret.knowledge rows are held
@@ -4064,8 +4063,12 @@ async function spatialTalkTo(npcId) {
 //   state:        { onTabEnter: fn|null, onWorldSwitch: fn|null }
 //                 each fn resets ALL state this tab owns for that event
 //   // entity archetype only:
-//   listLoader:   fn (default authorLoadEntityList)
-//   listRenderer: fn|null (null = flat list; lieux = renderLieuxBrowse)
+//   listLoader:   fn|undefined — ONLY for a tab whose list isn't the
+//                 default flat/lieux shape the entityList island already
+//                 renders (Intrigues/Evenements): fetches and caches rows,
+//                 then hands them to the island via 'creation:list-data'
+//                 (TICKET-0058, BRIEF-0058-e). Absent on every tab the
+//                 island renders generically off `type`/`entityFilter`.
 //   sheetRenderer: fn|null (null = authorRenderSheet; renders the
 //                 detail pane for a selected record of this tab)
 //   createPanel:  fn|null (null = no + Nouveau rendered; default =
@@ -4088,17 +4091,29 @@ async function spatialTalkTo(npcId) {
 //                 shows the container and fires loader, later clicks only
 //                 hide/show (no unload); state resets via onTabEnter/
 //                 onWorldSwitch.
-//   island:       { key } | undefined — when present, this tab's body is
-//                 a Svelte island (TICKET-0058). The legacy document
-//                 dispatches 'island:slot' and renders nothing itself;
-//                 the shell owns the panel. Declared in
-//                 frontend/src/creation/registry.js.
-//                 An entry declaring `island` MUST also declare
-//                 loader: null and state.onWorldSwitch: null. The shell
-//                 owns this tab's body; a legacy loader or world-switch
-//                 renderer would innerHTML over the mounted island
-//                 (RECON-0058-a M5). Island world-state resets are
-//                 driven by serverState, not by a legacy callback.
+//   islands:      [{ key, containerId }, ...] | undefined — each entry a
+//                 mount point inside this tab whose content is a Svelte
+//                 island (TICKET-0058, amended BRIEF-0058-e). The legacy
+//                 document dispatches 'island:slot' per entry and renders
+//                 nothing at that containerId itself; the shell owns it.
+//                 Declared in frontend/src/creation/registry.js. A
+//                 registry key may be shared by MULTIPLE entries when one
+//                 component serves several tabs through one container
+//                 (the entity-list sidebar does, across all seven entity
+//                 tabs) — many-to-many, never a second renderer for the
+//                 same node.
+//                 An entry declaring a non-empty `islands` MUST also
+//                 declare loader: null and state.onWorldSwitch: null. A
+//                 legacy loader or world-switch renderer targeting an
+//                 island's OWN containerId would innerHTML over it
+//                 (RECON-0058-a M5); that state's reset is driven by
+//                 serverState in the mounted component, not a legacy
+//                 callback. A tab may be island for ONE containerId and
+//                 legacy for another (e.g. the list migrated, the sheet
+//                 not yet) — `islands` and a legacy `createPanel`/
+//                 `listRenderer` are not mutually exclusive; only
+//                 `primaryAction` and `createPanel` must stay paired on
+//                 the same side (creation_island.py rule 11).
 // }
 // Every Création page is a registry entry. No page renders outside it.
 //
@@ -4109,9 +4124,9 @@ async function spatialTalkTo(npcId) {
 //   entry's own data, never a tab-id check. Artefacts is registered as
 //   `archetype: 'entity'` (BRIEF-0005-a item 7) but keeps its own container
 //   and its own `loader`, so it opts out of that shell.
-// - `type`/`entityFilter` on an entity entry drive the default flat-list
-//   renderer's row selection from `authorAllEntities` (ignored when
-//   `listRenderer` is set, e.g. lieux's `renderLieuxBrowse`).
+// - `type`/`entityFilter` on an entity entry drive the entityList island's
+//   default flat-list row selection (ignored for lieux, which the island
+//   renders hierarchically, and for a tab declaring `listLoader`).
 /** On-demand slot state (BRIEF-0023-a, F1) — tracks open/loaded per
  *  on_demand slot container, keyed by containerId. Reset exclusively by the
  *  owning tab's onTabEnter/onWorldSwitch (never by re-activation alone). */
@@ -4184,21 +4199,15 @@ function _entityTabEnterReset() {
   document.getElementById('author-delete-btn').style.display = 'none';
   document.getElementById('author-status').textContent       = '';
   creationRenderReturnControl();
+  // TICKET-0058 (BRIEF-0058-e): tells the entity-list island to drop its
+  // active-row highlight — a fresh tab always starts unselected.
+  document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
 }
 
 function _lieuxTabEnterReset() {
   _entityTabEnterReset();
-  lieuxBrowseParentId = null;
-  lieuxBreadcrumb = [];
   _onDemandSlotReset(CREATION_TABS.lieux);
   batchReset();
-}
-
-/* Shared authorAllEntities/playerCharIds cache — used by every entity tab
-   that filters the same fetched list (BRIEF-0005-a item 3, G1). */
-function _entityListWorldReset() {
-  authorAllEntities = [];
-  playerCharIds = new Set();
 }
 
 function _npcTabEnterReset() {
@@ -4208,39 +4217,26 @@ function _npcTabEnterReset() {
   linkAgentReset();
 }
 
-function _npcWorldReset() {
-  _entityListWorldReset();
-  pendingDraftKnowledge = [];
-  pendingDraftNotes     = [];
-  pendingDraftGoals     = { long: '', shorts: ['', ''] };
-  _onDemandSlotReset(CREATION_TABS.npc);
-  npcAgentReset();
-  linkAgentReset();
-}
-
-function _pjWorldReset() {
-  _entityListWorldReset();
-  skillCharacters  = null;
-  pcDraftKnowledge = [];
-}
-
-function _lieuxWorldReset() {
-  _entityListWorldReset();
-  lieuxBrowseParentId = null;
-  lieuxBreadcrumb     = [];
-  lieuxActiveOnly     = false;
-  _onDemandSlotReset(CREATION_TABS.lieux);
-  batchReset();
-}
-
-function _factionsWorldReset() {
-  _entityListWorldReset();
-  authorFactionRolesDraft = [];
-  authorFactionRolesLive = [];
-  authorFactionRolesUndeclared = [];
-  authorFactionRosterRows = [];
-  authorFactionRosterEditingId = null;
-}
+// TICKET-0058 (BRIEF-0058-e): _npcWorldReset/_pjWorldReset/_lieuxWorldReset/
+// _factionsWorldReset/_entityListWorldReset/_intriguesWorldReset/
+// _evenementsWorldReset are gone — all seven entity tabs now declare
+// 'islands' for #author-entity-list (creation_island.py rule 9 forces
+// state.onWorldSwitch: null on each). Their entity-list-owning state
+// (authorAllEntities/playerCharIds/lieux browse position/intriguesAgendas/
+// evenementsEvents) moved into frontend/src/creation/state.svelte.js and
+// the EntityList island's own component-local state, reset on
+// serverState.worldId change rather than a legacy callback. The two of
+// the seven that also did DOM work beyond the entity list itself
+// (_npcWorldReset's on-demand-slot hide, _lieuxWorldReset's on-demand-slot
+// + batch-panel hide) are preserved below by calling npcAgentReset/
+// linkAgentReset/batchReset directly from the generic world-switch runner
+// — unconditionally, exactly as they always ran, just no longer nested
+// inside a per-tab callback that no longer exists. pendingDraft*/
+// authorFactionRoles* (pj/factions' non-list state) are re-populated by
+// _creationRunWorldSwitchResets' own re-activation of the current tab
+// (activateWorld already calls showCreationSubTab after the resets) and
+// are not re-derived here — a narrower, deliberate gap (report only:
+// neither did DOM work).
 
 function _competencesWorldReset() { competencesDraft = []; }
 
@@ -4265,17 +4261,17 @@ function _intriguesTabEnterReset() {
   document.getElementById('author-save-btn').style.display   = 'none';
   document.getElementById('author-delete-btn').style.display = 'none';
   document.getElementById('author-status').textContent       = '';
+  document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
 }
 
-function _intriguesWorldReset() {
-  intriguesAgendas = [];
-  creationSelectedRecordId = null;
-}
-
-/** evenements' onTabEnter/onWorldSwitch (BRIEF-0022-a item 6, G1 state
- *  contract) — resets ALL state this tab owns: selection, chip draft, and
- *  (world switch) the cached event list. Mirrors _intriguesTabEnterReset /
- *  _intriguesWorldReset verbatim. */
+/** evenements' onTabEnter (BRIEF-0022-a item 6, G1 state contract) — resets
+ *  ALL state this tab owns: selection and chip draft. Mirrors
+ *  _intriguesTabEnterReset verbatim. Its onWorldSwitch counterpart
+ *  (_evenementsWorldReset, cached event list) is gone with intrigues'
+ *  (TICKET-0058, BRIEF-0058-e) — evenements now declares 'islands' for
+ *  #author-entity-list too; the cached list lives in
+ *  frontend/src/creation/state.svelte.js, refetched by entry.listLoader on
+ *  every activation exactly as before. */
 function _evenementsTabEnterReset() {
   creationSelectedRecordId = null;
   evenementsInvolvedDraft = [];
@@ -4286,12 +4282,7 @@ function _evenementsTabEnterReset() {
   document.getElementById('author-save-btn').style.display   = 'none';
   document.getElementById('author-delete-btn').style.display = 'none';
   document.getElementById('author-status').textContent       = '';
-}
-
-function _evenementsWorldReset() {
-  evenementsEvents = [];
-  evenementsInvolvedDraft = [];
-  creationSelectedRecordId = null;
+  document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
 }
 
 const CREATION_TABS = {
@@ -4300,7 +4291,8 @@ const CREATION_TABS = {
     archetype: 'entity',
     containers: ['creation-editor-area'],
     loader: null,
-    state: { onTabEnter: _npcTabEnterReset, onWorldSwitch: _npcWorldReset },
+    state: { onTabEnter: _npcTabEnterReset, onWorldSwitch: null },
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && !playerCharIds.has(e.id)),
     createPanel: () => authorRenderSheet({}, true, 'character'),
@@ -4317,7 +4309,8 @@ const CREATION_TABS = {
     archetype: 'entity',
     containers: ['creation-editor-area'],
     loader: null,
-    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _pjWorldReset },
+    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && playerCharIds.has(e.id)),
     createPanel: pjRenderCreatePanel,
@@ -4329,9 +4322,9 @@ const CREATION_TABS = {
     archetype: 'entity',
     containers: ['creation-editor-area', 'batch-panel-wrap'],
     loader: null,
-    state: { onTabEnter: _lieuxTabEnterReset, onWorldSwitch: _lieuxWorldReset },
+    state: { onTabEnter: _lieuxTabEnterReset, onWorldSwitch: null },
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
     type: 'location',
-    listRenderer: renderLieuxBrowse,
     createPanel: () => authorRenderSheet({}, true, 'location'),
     primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
     showPendingCreations: true,
@@ -4344,7 +4337,8 @@ const CREATION_TABS = {
     archetype: 'entity',
     containers: ['creation-editor-area'],
     loader: null,
-    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _factionsWorldReset },
+    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
     type: 'faction',
     createPanel: () => authorRenderSheet({}, true, 'faction'),
     primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
@@ -4356,7 +4350,8 @@ const CREATION_TABS = {
     archetype: 'entity',
     containers: ['creation-editor-area'],
     loader: null,
-    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _entityListWorldReset },
+    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
     type: 'item',
     createPanel: () => authorRenderSheet({}, true, 'item'),
     primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
@@ -4384,7 +4379,7 @@ const CREATION_TABS = {
     containers: ['creation-constructeur'],
     loader: null,
     state: { onTabEnter: null, onWorldSwitch: null },
-    island: { key: 'constructeur' },
+    islands: [{ key: 'constructeur', containerId: 'creation-constructeur' }],
     primaryAction: { label: 'Créer le type', handler: () => _islandPrimaryAction('constructeur') },
   },
   artefacts: {
@@ -4409,9 +4404,9 @@ const CREATION_TABS = {
     archetype: 'entity',
     containers: ['creation-editor-area'],
     loader: null,
-    state: { onTabEnter: _intriguesTabEnterReset, onWorldSwitch: _intriguesWorldReset },
+    state: { onTabEnter: _intriguesTabEnterReset, onWorldSwitch: null },
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
     listLoader: loadAgendasList,
-    listRenderer: renderIntriguesListRows,
     sheetRenderer: renderAgendaSheet,
     createPanel: intriguesRenderCreatePanel,
     primaryAction: { label: '+ Nouvelle intrigue', handler: creationNewEntity },
@@ -4421,9 +4416,9 @@ const CREATION_TABS = {
     archetype: 'entity',
     containers: ['creation-editor-area'],
     loader: null,
-    state: { onTabEnter: _evenementsTabEnterReset, onWorldSwitch: _evenementsWorldReset },
+    state: { onTabEnter: _evenementsTabEnterReset, onWorldSwitch: null },
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
     listLoader: loadEventsList,
-    listRenderer: renderEvenementsListRows,
     sheetRenderer: renderEventSheet,
     createPanel: evenementsRenderCreatePanel,
     saveHandler: evenementsSave,
@@ -4448,6 +4443,31 @@ const CREATION_TABS = {
   },
 };
 
+/** Dispatches every 'islands' entry the currently active tab declares, plus
+ *  (for an editor-shell entity tab not yet fully islanded off its own
+ *  listLoader — Intrigues/Evenements, TICKET-0058/BRIEF-0058-e) the legacy
+ *  list fetch, which pushes its rows to the mounted island via
+ *  'creation:list-data' rather than rendering DOM itself. Extracted out of
+ *  _creationActivateTab so the sidebar's own "↻ Rafraîchir" button can
+ *  re-run exactly this — a shape check on the entry's own data, never a
+ *  tab-id branch (page_contract.py forbids tab-id literals in either
+ *  function). */
+function creationRefreshList() {
+  const entry = CREATION_TABS[currentCreationSubTab];
+  if (!entry) return;
+  // TICKET-0058 (BRIEF-0058-d, amended -e): an island entry's declared
+  // containerId is rendered by a Svelte component, not by legacy code —
+  // the legacy document signals intent and renders nothing itself there.
+  // Dispatched on EVERY activation, unconditionally, never behind a
+  // first-visit gate: frontend/src/creation/mount.js's own node-identity
+  // check is what makes a repeat dispatch idempotent (RECON-0058-a M5),
+  // not a guard here.
+  (entry.islands || []).forEach(isl => {
+    document.dispatchEvent(new CustomEvent('island:slot', { detail: { key: isl.key, open: true, tabKey: currentCreationSubTab } }));
+  });
+  if (entry.listLoader) entry.listLoader();
+}
+
 /** Runs a registry entry's activation work — the single path used by BOTH
  *  showCreationSubTab and creationInit's first-ever activation, so the
  *  shell/label render exactly once, however the tab was reached: renders the
@@ -4466,18 +4486,7 @@ function _creationActivateTab() {
   if (labelEl && usesEditorShell) labelEl.textContent = entry.label || '';
   renderCreationShell(entry);
 
-  if (usesEditorShell) {
-    (entry.listLoader || authorLoadEntityList)();
-  }
-  // TICKET-0058 (BRIEF-0058-d): an island entry's body is rendered by a
-  // Svelte component, not by legacy code — the legacy document signals
-  // intent and renders nothing itself. Dispatched on EVERY activation,
-  // unconditionally, never behind a first-visit gate: frontend/src/
-  // creation/mount.js's own node-identity check is what makes a repeat
-  // dispatch idempotent (RECON-0058-a M5), not a guard here.
-  if (entry.island) {
-    document.dispatchEvent(new CustomEvent('island:slot', { detail: { key: entry.island.key, open: true } }));
-  }
+  creationRefreshList();
   if (entry.loader) entry.loader();
   (entry.slots || []).forEach(s => { if (s.display !== 'on_demand' && s.loader) s.loader(); });
 
@@ -4579,6 +4588,15 @@ async function _creationRunWorldSwitchResets() {
   Object.values(CREATION_TABS).forEach(entry => {
     if (entry.state && entry.state.onWorldSwitch) entry.state.onWorldSwitch();
   });
+  // TICKET-0058 (BRIEF-0058-e): npc's and lieux's onWorldSwitch are gone
+  // (see the comment above _lieuxTabEnterReset) but the DOM work they used
+  // to do beyond the entity list itself — hiding the NPC/link-agent panels
+  // and the room-batch panel on a world switch — still belongs here,
+  // called unconditionally exactly as it always ran, just no longer
+  // nested inside a per-tab callback.
+  npcAgentReset();
+  linkAgentReset();
+  batchReset();
   if (authorRegistry) await refreshCreationTabs();
 }
 
@@ -4903,42 +4921,19 @@ async function _intriguesPopulateOwnerSelect() {
   } catch (_) { /* left with just the placeholder option */ }
 }
 
-/** intrigues' listLoader (BRIEF-0021-a item 4) — fetches the unchanged
- *  /api/agendas endpoint, caches rows, hands them to the shared list
- *  container via the shape-checked entry.listRenderer path. */
+/** intrigues' listLoader (BRIEF-0021-a item 4; DOM rendering moved to
+ *  frontend/src/creation/EntityList.svelte by TICKET-0058/BRIEF-0058-e) —
+ *  fetches the unchanged /api/agendas endpoint, caches rows for other
+ *  still-legacy readers (_intriguesRefreshSelection), and pushes them to
+ *  the mounted island via 'creation:list-data'. */
 async function loadAgendasList() {
-  const listEl = document.getElementById('author-entity-list');
-  if (listEl) listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
   try {
     intriguesAgendas = await api('/api/agendas');
   } catch (e) {
-    if (listEl) listEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    console.error('loadAgendasList:', e.message);
     return;
   }
-  creationRenderEntityList();
-}
-
-/** intrigues' listRenderer — ordering is the API's (active first, newest
- *  first); never re-sorted client-side. */
-function renderIntriguesListRows(agendas) {
-  agendas = agendas || intriguesAgendas;
-  const listEl = document.getElementById('author-entity-list');
-  if (!listEl) return;
-  if (!agendas.length) { listEl.innerHTML = '<div class="empty">Aucune intrigue.</div>'; return; }
-  listEl.innerHTML = agendas.map((a, i) => {
-    const ownerBadge = a.owner_type === 'character'
-      ? `<span class="badge b-other" title="Intrigue personnelle">personnelle</span>`
-      : `<span class="badge b-other" title="Intrigue de faction">faction</span>`;
-    return `
-    <div class="author-list-item ${a.id === creationSelectedRecordId ? 'active' : ''}"
-         onclick="creationSelectRecord('intrigues', intriguesAgendas[${i}])">
-      <div class="ali-name">${esc(a.title)}</div>
-      <div class="ali-meta">
-        <span style="color:var(--muted)">${esc(a.owner_name)}</span> ${ownerBadge}
-        <span class="badge b-${esc(a.status)}">${esc(a.status)}</span>
-      </div>
-    </div>`;
-  }).join('');
+  document.dispatchEvent(new CustomEvent('creation:list-data', { detail: { key: 'agendas', rows: intriguesAgendas } }));
 }
 
 function _intriguesRenderStep(s) {
@@ -5212,40 +5207,18 @@ let evenementsInvolvedDraft = [];   // [{id, name}] — H2 chip editor draft
 
 /** evenements' listLoader (BRIEF-0022-a item 5) — fetches /api/events,
  *  caches rows, hands them to the shared list container. */
+/** evenements' listLoader (F1; DOM rendering moved to frontend/src/creation/
+ *  EntityList.svelte by TICKET-0058/BRIEF-0058-e) — fetches the unchanged
+ *  /api/events endpoint, caches rows for other still-legacy readers, and
+ *  pushes them to the mounted island via 'creation:list-data'. */
 async function loadEventsList() {
-  const listEl = document.getElementById('author-entity-list');
-  if (listEl) listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
   try {
     evenementsEvents = await api('/api/events');
   } catch (e) {
-    if (listEl) listEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    console.error('loadEventsList:', e.message);
     return;
   }
-  creationRenderEntityList();
-}
-
-/** evenements' listRenderer (F1) — flat, API order (recorded_at DESC)
- *  preserved, never re-sorted client-side. */
-function renderEvenementsListRows(events) {
-  events = events || evenementsEvents;
-  const listEl = document.getElementById('author-entity-list');
-  if (!listEl) return;
-  if (!events.length) { listEl.innerHTML = '<div class="empty">Aucun événement.</div>'; return; }
-  listEl.innerHTML = events.map((e, i) => {
-    const locHtml = e.location_name
-      ? esc(e.location_name)
-      : '<span style="color:var(--muted)">&laquo; sans lieu &raquo;</span>';
-    return `
-    <div class="author-list-item ${e.id === creationSelectedRecordId ? 'active' : ''}"
-         onclick="creationSelectRecord('evenements', evenementsEvents[${i}])">
-      <div class="ali-name">${esc(e.title)}</div>
-      <div class="ali-meta">
-        ${locHtml}
-        <span class="badge b-other">${esc(e.type_label || '')}</span>
-        <span class="badge b-${esc(e.knowledge_status)}">${esc(e.knowledge_status)}</span>
-      </div>
-    </div>`;
-  }).join('');
+  document.dispatchEvent(new CustomEvent('creation:list-data', { detail: { key: 'events', rows: evenementsEvents } }));
 }
 
 /** Chip editor for involved_entities (H2 — Nia does not author JSON): one
@@ -6745,7 +6718,11 @@ async function regionCommit() {
   }
   regionCommitResult = result;
   if (result.ok) {
-    await authorLoadEntityList();
+    // TICKET-0058 (BRIEF-0058-e): authorLoadEntityList is gone; the entity
+    // list now lives in the entityList island, refreshed the same way its
+    // own "↻" button does. Fire-and-forget — nothing below reads
+    // authorAllEntities synchronously off this call.
+    creationRefreshList();
     if (currentCreationSubTab === 'lieux') {
       document.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'lieux' } }));
     }
@@ -7126,7 +7103,8 @@ async function batchCommit() {
   }
   batchCommitResult = result;
   if (result.ok) {
-    await authorLoadEntityList();
+    // TICKET-0058 (BRIEF-0058-e): see regionCommit's identical comment.
+    creationRefreshList();
     if (currentCreationSubTab === 'lieux') {
       document.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'lieux' } }));
     }
@@ -7254,7 +7232,8 @@ function _buildRuntimeCreationTabs() {
         archetype: 'entity',
         containers: ['creation-editor-area'],
         loader: null,
-        state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: _entityListWorldReset },
+        state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
+        islands: [{ key: 'entityList', containerId: 'author-entity-list' }],
         type: slug,
         createPanel: () => authorRenderSheet({}, true, slug),
         primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
@@ -7283,7 +7262,13 @@ async function creationInit() {
   try {
     authorRegistry = await api('/api/entity-types');
   } catch (e) {
-    document.getElementById('author-entity-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    // TICKET-0058 (BRIEF-0058-e): #author-entity-list is a Svelte-owned
+    // mount target from this brief onward (the entityList island); a
+    // legacy innerHTML there would orphan it (RECON-0058-a M5). The
+    // mounted component owns its own error state — a boot failure here
+    // has nothing else to report into, so it logs and lets the island's
+    // OWN /api/entity-types-adjacent fetches surface their own failures.
+    console.error('creationInit:', e.message);
     return;
   }
   _buildRuntimeCreationTabs();
@@ -7291,179 +7276,26 @@ async function creationInit() {
 }
 
 /* ── Entity list (sidebar) ───────────────────────────────────────────────── */
-
-function creationRenderEntityList() {
-  const listEl = document.getElementById('author-entity-list');
-  if (!listEl) return;
-  const entry = CREATION_TABS[currentCreationSubTab];
-  if (!entry || !entry.containers.includes('creation-editor-area')) return;
-  if (entry.listRenderer) { entry.listRenderer(); return; }
-
-  const entities = entry.entityFilter
-    ? entry.entityFilter(authorAllEntities)
-    : authorAllEntities.filter(e => e.type === entry.type);
-
-  // BRIEF-0013-b (G2/P2): unscoped backfill, NPC list only. Not a competing
-  // primaryAction (still exactly one per the standard shell) — a secondary,
-  // in-body utility control, same footing as any other per-tab body content.
-  const backfillHtml = currentCreationSubTab === 'npc' ? `
-    <div class="row-card" style="margin-bottom:8px;">
-      <button class="btn-ghost" style="font-size:12px; width:100%;" onclick="npcGoalsBackfillAll()">Générer les buts manquants</button>
-      <div id="npc-goals-backfill-status" style="font-size:11px; color:var(--muted); margin-top:4px;"></div>
-    </div>
-  ` : '';
-
-  if (!entities.length) {
-    listEl.innerHTML = backfillHtml + '<div class="empty">Aucune entité.</div>';
-    return;
-  }
-  listEl.innerHTML = backfillHtml + entities.map(e => `
-    <div class="author-list-item ${e.id === authorEntityId ? 'active' : ''} ${e.status === 'inactive' ? 'inactive' : ''}"
-         onclick="authorSelectEntity('${esc(e.id)}')">
-      <div class="ali-name">${esc(e.name)}</div>
-      <div class="ali-meta">${esc(e.type)} · ${esc(e.status)}</div>
-    </div>
-  `).join('');
-}
-
-function authorRenderEntityList() {
-  creationRenderEntityList();
-}
-
-/* ── Lieux hierarchy browse (BRIEF-51) ───────────────────────────────────── */
-
-function lieuxHasActiveDescendant(nodeId, visited) {
-  visited = visited || new Set();
-  if (visited.has(nodeId)) return false;
-  visited.add(nodeId);
-  const children = authorLocationTree.filter(l => l.parent_location_id === nodeId);
-  for (const child of children) {
-    if (child.status === 'active') return true;
-    if (lieuxHasActiveDescendant(child.id, visited)) return true;
-  }
-  return false;
-}
-
-function lieuxChildrenOf(parentId) {
-  const knownIds = new Set(authorLocationTree.map(l => l.id));
-  let children;
-  if (parentId == null) {
-    children = authorLocationTree.filter(l => !l.parent_location_id || !knownIds.has(l.parent_location_id));
-  } else {
-    children = authorLocationTree.filter(l => l.parent_location_id === parentId);
-  }
-  if (lieuxActiveOnly) {
-    children = children.filter(l => l.status === 'active' || lieuxHasActiveDescendant(l.id));
-  }
-  return children;
-}
-
-function lieuxDescend(id, name) {
-  lieuxBreadcrumb.push({ id, name });
-  lieuxBrowseParentId = id;
-  renderLieuxBrowse();
-}
-
-function lieuxJumpTo(index) {
-  if (index < 0) {
-    lieuxBrowseParentId = null;
-    lieuxBreadcrumb = [];
-  } else {
-    lieuxBreadcrumb = lieuxBreadcrumb.slice(0, index + 1);
-    lieuxBrowseParentId = lieuxBreadcrumb[lieuxBreadcrumb.length - 1].id;
-  }
-  renderLieuxBrowse();
-}
-
-function lieuxToggleActiveOnly() {
-  lieuxActiveOnly = !lieuxActiveOnly;
-  renderLieuxBrowse();
-}
-
-function renderLieuxBrowse() {
-  const listEl = document.getElementById('author-entity-list');
-  if (!listEl) return;
-
-  const breadcrumbHtml = [
-    `<span class="lb-seg ${lieuxBrowseParentId == null ? 'lb-current' : ''}" onclick="lieuxJumpTo(-1)">Racine</span>`,
-    ...lieuxBreadcrumb.map((seg, i) => {
-      const isCurrent = i === lieuxBreadcrumb.length - 1;
-      return `<span class="lb-sep">›</span><span class="lb-seg ${isCurrent ? 'lb-current' : ''}" onclick="lieuxJumpTo(${i})">${esc(seg.name)}</span>`;
-    }),
-  ].join('');
-
-  const anchorName = lieuxBreadcrumb.length ? lieuxBreadcrumb[lieuxBreadcrumb.length - 1].name : '';
-  const batchBtnHtml = lieuxBrowseParentId != null
-    ? `<button class="btn-icon" onclick="batchOpenPanel('${esc(lieuxBrowseParentId)}', '${esc(anchorName)}')">Générer un lot ici</button>`
-    : `<button class="btn-icon" disabled title="Descends dans un lieu pour l'utiliser comme ancre">Générer un lot ici</button>`;
-
-  const headHtml = `
-    <div class="lieux-browse-head">
-      <label class="field-row checkbox">
-        <input type="checkbox" id="lieux-active-only" ${lieuxActiveOnly ? 'checked' : ''} onchange="lieuxToggleActiveOnly()">
-        <span style="font-size:12px">Actifs seulement</span>
-      </label>
-      <div class="lieux-breadcrumb">${breadcrumbHtml}</div>
-      ${batchBtnHtml}
-    </div>
-  `;
-
-  const children = lieuxChildrenOf(lieuxBrowseParentId);
-
-  if (!children.length) {
-    listEl.innerHTML = headHtml + '<div class="empty">Aucun lieu.</div>';
-    return;
-  }
-
-  const buckets = {};
-  for (const loc of children) {
-    const key = LOCATION_TYPE_ORDER.includes(loc.location_type) ? loc.location_type : 'other';
-    (buckets[key] = buckets[key] || []).push(loc);
-  }
-
-  const bucketsHtml = LOCATION_TYPE_ORDER.filter(t => buckets[t] && buckets[t].length).map(t => {
-    const nodes = buckets[t].slice().sort((a, b) => a.name.localeCompare(b.name));
-    const rowsHtml = nodes.map(loc => {
-      const childCount = lieuxChildrenOf(loc.id).length;
-      const dimmed = loc.status !== 'active';
-      const pill = dimmed ? `<span class="lieux-status-pill">${esc(loc.status)}</span>` : '';
-      const descend = childCount > 0
-        ? `<button class="lieux-descend-btn" onclick="lieuxDescend('${esc(loc.id)}', '${esc(loc.name)}')">${childCount} enfant${childCount > 1 ? 's' : ''} ›</button>`
-        : '';
-      return `
-        <div class="lieux-node-row ${dimmed ? 'dimmed' : ''}">
-          <button class="ali-name-btn" onclick="authorSelectEntity('${esc(loc.id)}')">${esc(loc.name)}</button>
-          ${pill}
-          ${descend}
-        </div>
-      `;
-    }).join('');
-    return `<div class="lieux-bucket-head">${esc(LOCATION_TYPE_LABELS[t])}</div>${rowsHtml}`;
-  }).join('');
-
-  listEl.innerHTML = headHtml + bucketsHtml;
-}
-
-async function authorLoadEntityList() {
-  const listEl = document.getElementById('author-entity-list');
-  if (listEl) listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
-  try {
-    const [entities, pcs, locations, locationTypes] = await Promise.all([
-      api('/api/entities'),
-      api('/api/skills/player-characters').catch(() => []),
-      api('/api/locations').catch(() => []),
-      api('/api/location-types').catch(() => []),
-    ]);
-    authorAllEntities = entities;
-    playerCharIds = new Set(pcs.map(p => p.id));
-    authorLocationTree = locations;
-    authorLocationTypeCatalog = locationTypes;
-  } catch (e) {
-    if (listEl) listEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-    return;
-  }
-  creationRenderEntityList();
-}
+// TICKET-0058 (BRIEF-0058-e): creationRenderEntityList/authorRenderEntityList
+// /authorLoadEntityList and the Lieux hierarchy-browse helpers (BRIEF-51)
+// are gone — ported to frontend/src/creation/EntityList.svelte, the single
+// island mounted into #author-entity-list for every entity-archetype tab
+// (npc/pj/lieux/factions/objets/intrigues/evenements/runtime types). The
+// island fetches its own copy of /api/entities + /api/skills/player-
+// characters + /api/locations + /api/location-types and pushes it back
+// here via 'creation:entities-loaded' — still-legacy consumers below
+// (entity_ref field pickers, the Evenements chip editor, faction roster
+// candidates, location-type classification, creationRenderReturnControl,
+// creationResolveEntityTab...) keep reading authorAllEntities/
+// playerCharIds/authorLocationTree/authorLocationTypeCatalog exactly as
+// before; only their populator moved.
+document.addEventListener('creation:entities-loaded', (ev) => {
+  const { entities, playerCharIds: pcIds, locationTree, locationTypeCatalog } = ev.detail;
+  authorAllEntities = entities;
+  playerCharIds = new Set(pcIds);
+  authorLocationTree = locationTree;
+  authorLocationTypeCatalog = locationTypeCatalog;
+});
 
 /* ── Field rendering ─────────────────────────────────────────────────────── */
 
@@ -9302,7 +9134,10 @@ async function authorSelectEntity(id) {
     const detail = await api(`/api/entities/${encodeURIComponent(id)}`);
     const entry = CREATION_TABS[currentCreationSubTab];
     (entry && entry.sheetRenderer || authorRenderSheet)(detail, false, detail.type);
-    authorRenderEntityList();
+    // TICKET-0058 (BRIEF-0058-e): the entity-list island re-renders its own
+    // active-row highlight reactively off this, in place of the deleted
+    // authorRenderEntityList() call.
+    document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: id, recordId: null } }));
     (entry ? entry.slots || [] : []).forEach(s => { if (s.onSelect) s.onSelect(id); });
   } catch (e) {
     document.getElementById('author-main').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
@@ -9387,7 +9222,10 @@ function creationSelectRecord(tabId, record) {
   if (!entry) return;
   creationSelectedRecordId = record.id;
   (entry.sheetRenderer || authorRenderSheet)(record);
-  if (entry.listRenderer) entry.listRenderer();
+  // TICKET-0058 (BRIEF-0058-e): the entity-list island re-renders its own
+  // active-row highlight reactively off this, in place of the deleted
+  // entry.listRenderer() call (renderIntriguesListRows/renderEvenementsListRows).
+  document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: record.id } }));
 }
 
 /** Generic save-button dispatch (TICKET-0022, BRIEF-0022-a item 8): the
@@ -9637,7 +9475,7 @@ async function _authorSaveSubmit(isNew, type, entityData, extData, statusEl) {
       loadPendingCreations();
     }
 
-    await authorLoadEntityList();
+    creationRefreshList(); // TICKET-0058 (BRIEF-0058-e): see regionCommit's identical comment
     authorRenderSheet(detail, false, detail.type);
     document.getElementById('author-status').className = 'author-status ok';
     document.getElementById('author-status').textContent = 'Saved.';
@@ -9656,7 +9494,7 @@ async function authorDelete() {
   const statusEl = document.getElementById('author-status');
   try {
     await api(`/api/entities/${encodeURIComponent(authorEntityId)}/delete`, { method: 'POST' });
-    await authorLoadEntityList();
+    creationRefreshList(); // TICKET-0058 (BRIEF-0058-e): see regionCommit's identical comment
     await authorSelectEntity(authorEntityId);
     statusEl.className = 'author-status ok';
     statusEl.textContent = 'Marked inactive.';
@@ -10063,7 +9901,8 @@ async function authorSetGoalStatus(id, status) {
 /* ── Goal backfill (schema v1.69, BRIEF-0013-b, G2/P2) ────────────────────
  * Fills per-horizon deficits only — never rewrites a satisfied NPC. Two
  * entry points share the one endpoint: the per-NPC sheet button below, and
- * the unscoped list-wide button in creationRenderEntityList(). */
+ * the unscoped list-wide button in frontend/src/creation/EntityList.svelte
+ * (TICKET-0058, BRIEF-0058-e), reached via npcGoalsBackfillAll(). */
 
 async function authorBackfillGoals(entityId) {
   const statusEl = document.getElementById('author-status');
@@ -10213,7 +10052,7 @@ async function pcCreateSubmit() {
     await loadPlayerName();
     skillCharacters = null;
     await skillLoadCharacters();
-    authorLoadEntityList();
+    creationRefreshList(); // TICKET-0058 (BRIEF-0058-e): see regionCommit's identical comment
   } catch (e) {
     statusEl.className = 'author-status err';
     statusEl.textContent = e.message;
@@ -10449,9 +10288,10 @@ let npcAgentFailedRun      = null;  // {message} on a real generation failure �
 let npcAgentCommitResult   = null;  // last commit's result text — survives the post-commit repaint
 let npcAgentLinkHandoffMsg = null;  // J1 handoff outcome (409 banner) — never retried automatically
 
-/** Resets ALL NPC-agent state — called directly by _npcTabEnterReset/
- *  _npcWorldReset (tab re-entry / world switch, same contract as
- *  linkAgentReset). Setting
+/** Resets ALL NPC-agent state — called directly by _npcTabEnterReset (tab
+ *  re-entry) and _creationRunWorldSwitchResets (world switch, TICKET-0058/
+ *  BRIEF-0058-e moved this call out of the now-deleted _npcWorldReset;
+ *  same contract as linkAgentReset). Setting
  *  npcAgentLoopRunning = false also stops any in-flight run loop on its
  *  next iteration check, so a world switch mid-run cannot keep hammering
  *  run-next for a batch that is no longer in view. */
@@ -10935,9 +10775,10 @@ let linkAgentCommitResult = null;  // last commit's result text — survives the
                                     // since linkAgentLoadBatch's reload would
                                     // otherwise wipe a DOM-only message)
 
-/** Resets ALL link-agent state — called directly by _npcTabEnterReset/
- *  _npcWorldReset (tab re-entry / world switch, same contract as
- *  npcAgentReset). Setting
+/** Resets ALL link-agent state — called directly by _npcTabEnterReset (tab
+ *  re-entry) and _creationRunWorldSwitchResets (world switch, TICKET-0058/
+ *  BRIEF-0058-e moved this call out of the now-deleted _npcWorldReset;
+ *  same contract as npcAgentReset). Setting
  *  linkAgentLoopRunning = false also stops any in-flight run loop on its
  *  next iteration check, so a world switch mid-run cannot keep hammering
  *  run-next for a batch that is no longer in view. */

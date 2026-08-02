@@ -61,17 +61,31 @@ not a new direction of control.
    check greps still lives in `index.html`: `CREATION_TABS`
    (`index.html:4274`), `showCreationSubTab`, `_creationActivateTab`,
    `_buildRuntimeCreationTabs` (`7263`), `creationInit` (`7308`) and the
-   `#ctab-` markup rule. Nothing moved, so nothing is re-anchored. Add ONE
-   assertion, which the migration made meaningful: every `CREATION_TABS`
-   entry either declares `island: { key }` or renders from legacy code, and
-   never both - an entry that declares an island while still naming a
-   legacy `createPanel`/`listRenderer` is a half-migration with two
-   renderers, and must fail. Zero entries collected on either side of that
-   partition is a failure.
+   `#ctab-` markup rule. Nothing moved, so nothing is re-anchored.
+
+   **Correction (BRIEF-0058-e amendment).** The singular `island: { key }`
+   field, and the "island XOR legacy, never both" partition this item
+   originally specified, are WITHDRAWN — false by design once a container
+   holds more than one mount point migrating across separate briefs
+   (`#creation-editor-area` holds both `#author-entity-list`, migrated by
+   -e, and `#author-main`, migrated by this ticket's later brief). The
+   field is now a LIST, `islands: [{ key, containerId }, ...]`, and a
+   registry key may be declared by MULTIPLE entries (many-to-many, not a
+   bijection) — `creation_island.py` already carries this as of -e, rules 5
+   and 9. Do not re-add a partition assertion to `page_contract.py`; either
+   assert `creation_island.py` rule 11's pairing (an entry's
+   `primaryAction` and `createPanel` must be on the same side — both
+   legacy, or both routed through the mounted component) at this new
+   locus, or defer to `creation_island.py` and say so explicitly in this
+   check's own docstring rather than duplicating the assertion.
 
 6. **Record the count.** Extend `page_contract.py`'s pass line to report how
-   many entries are islands and how many are legacy, so the residual is
-   visible in every verify run until TICKET-0059 closes it.
+   many `CREATION_TABS` entries have migrated at least one mount point
+   (declare a non-empty `islands`) versus how many render entirely from
+   legacy code, so the residual is visible in every verify run until
+   TICKET-0059 closes it — counted per ENTRY, not per mount point (an
+   entry with both a migrated list and a still-legacy sheet counts once,
+   on the "islands" side).
 
 ## Scope OUT
 
