@@ -7342,20 +7342,21 @@ document.addEventListener('creation:entities-loaded', (ev) => {
  * (real Svelte markup per field.kind, not a string generator) and
  * frontend/src/creation/Sheet.svelte (the skeleton authorRenderSheet used
  * to build), mounted into #author-main as the entitySheet island.
- * BRIEF-0058-g family a/b converged geometry/doors/the Lieux create-save
- * flow and faction roles/memberships/roster onto their own components
- * (GeometryEditor/DoorsEditor/RolesEditor/RoleRow/FactionRoster/
- * MembershipsPanel.svelte, locationType.js/factionPanel.svelte.js) --
+ * BRIEF-0058-g family a/b/c converged geometry/doors/the Lieux create-save
+ * flow, faction roles/memberships/roster, and Tarifs/subculture onto their
+ * own components (GeometryEditor/DoorsEditor/RolesEditor/RoleRow/
+ * FactionRoster/MembershipsPanel/PricingEditor/SubcultureEditor.svelte,
+ * locationType.js/factionPanel.svelte.js/subcultureDraft.svelte.js) --
  * Sheet.svelte mounts those directly now, no legacyCall involved. What
  * remains a sub-editor generator this skeleton calls synchronously
- * (authorRenderSubcultureEditor, authorRenderRelations(Form),
- * authorRenderKnowledge(Form), authorRenderPendingKnowledge/Goals,
- * authorRenderPricing, authorRenderGoalForm, authorRenderDiscDetailForm,
- * authorRenderGeneratePanel) is UNCHANGED below — Sheet.svelte reaches each
- * one via legacyCall (frontend/src/legacy/bridge.js), embedding the
- * returned HTML string exactly where authorRenderSheet used to concatenate
- * it. The async tail (authorLoadItems/Ledger/Goals/DiscDetails) is reached
- * the same way, after Sheet.svelte's own DOM update flushes; the faction
+ * (authorRenderRelations(Form), authorRenderKnowledge(Form),
+ * authorRenderPendingKnowledge/Goals, authorRenderGoalForm,
+ * authorRenderDiscDetailForm, authorRenderGeneratePanel) is UNCHANGED
+ * below — Sheet.svelte reaches each one via legacyCall
+ * (frontend/src/legacy/bridge.js), embedding the returned HTML string
+ * exactly where authorRenderSheet used to concatenate it. The async tail
+ * (authorLoadItems/Ledger/Goals/DiscDetails) is reached the same way,
+ * after Sheet.svelte's own DOM update flushes; the faction
  * roles+roster load (was authorLoadFactionMembersPanel) is a plain
  * loadFactionMembersPanel import instead (family b).
  * evenements' still-legacy renderEventSheet/evenementsRenderCreatePanel/
@@ -7507,13 +7508,12 @@ function authorApplyLocationDraft(result) {
   setVal('author-x-location_type', draft.public.location_type);
   setVal('author-x-access_level', draft.public.access_level || '');
 
-  authorLocationSubcultureDraft = Object.entries(draft.public.subculture || {})
+  const rows = Object.entries(draft.public.subculture || {})
     .map(([key, value]) => ({ key, value: String(value), is_hidden: false }));
   if (draft.secret.subculture_hidden) {
-    authorLocationSubcultureDraft.push({ key: 'hidden', value: draft.secret.subculture_hidden, is_hidden: true });
+    rows.push({ key: 'hidden', value: draft.secret.subculture_hidden, is_hidden: true });
   }
-  const subcultureEl = document.getElementById('author-subculture');
-  if (subcultureEl) subcultureEl.innerHTML = authorRenderSubcultureEditor(true);
+  document.dispatchEvent(new CustomEvent('creation:apply-subculture-draft', { detail: { rows } }));
 
   const notes = [...(result.notes || [])];
   for (const link of (draft.secret.sensed_links || [])) {
@@ -7723,174 +7723,15 @@ function _syncPendingGoalsFromDom() {
   return entries;
 }
 
-/* ── Tarifs editor (BRIEF-20, relationalized TICKET-0025, BRIEF-0025-a) ──
- * `npc_price` rows, full-replace via PUT /api/entities/{id}/prices — no
- * proposed_mutation, no change_history (curated config, faction_role
- * family). */
-
-function authorRenderPricing(detail) {
-  const priceList = detail.prices || {};
-  const tags = Object.keys(priceList);
-  const rows = tags.length
-    ? tags.map(tag => `
-      <div class="field-row" data-tag="${esc(tag)}" style="flex-direction:row; gap:8px; align-items:center; margin-bottom:6px">
-        <span style="flex:1">${esc(tag)}</span>
-        <input type="number" class="author-price-amt" value="${esc(priceList[tag])}" style="width:90px">
-        <button class="btn-icon" onclick="authorSavePriceEntry(this)" title="Enregistrer">💾</button>
-        <button class="btn-icon" onclick="authorDeletePriceEntry(this)" title="Supprimer">✕</button>
-      </div>`).join('')
-    : '<div class="empty">Aucun tarif.</div>';
-
-  return `<div id="author-pricing-rows">${rows}</div>
-    <div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-top:8px">
-      <input type="text" id="author-price-new-tag" placeholder="tag (ex : biere)" style="flex:1">
-      <input type="number" id="author-price-new-amount" placeholder="montant" style="width:90px">
-      <button class="btn-send" onclick="authorAddPriceEntry()">+ Ajouter</button>
-    </div>`;
-}
-
-function authorSavePriceEntry(btn) {
-  const row = btn.closest('[data-tag]');
-  const tag = row.dataset.tag;
-  const amount = Number(row.querySelector('.author-price-amt').value);
-  if (!Number.isFinite(amount)) { alert('Montant invalide'); return; }
-  authorPriceListMutate(pl => { pl[tag] = amount; });
-}
-
-function authorDeletePriceEntry(btn) {
-  const row = btn.closest('[data-tag]');
-  authorPriceListMutate(pl => { delete pl[row.dataset.tag]; });
-}
-
-function authorAddPriceEntry() {
-  const tagEl = document.getElementById('author-price-new-tag');
-  const amtEl = document.getElementById('author-price-new-amount');
-  const tag = tagEl.value.trim();
-  const amount = Number(amtEl.value);
-  if (!tag) { alert('Tag requis'); return; }
-  if (!Number.isFinite(amount)) { alert('Montant invalide'); return; }
-  authorPriceListMutate(pl => { pl[tag] = amount; });
-}
-
-/** Full-replace `npc_price` rows: GET fresh, mutate the {tag: amount} dict,
- *  PUT the complete dict to /api/entities/{id}/prices. */
-async function authorPriceListMutate(mutateFn) {
-  const statusEl = document.getElementById('author-status');
-  try {
-    const fresh = await api(`/api/entities/${encodeURIComponent(authorEntityId)}`);
-    const priceList = { ...(fresh.prices || {}) };
-    mutateFn(priceList);
-    const body = JSON.stringify({ prices: priceList });
-    const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}/prices`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
-    _authorRefreshSheet(detail);
-    document.getElementById('author-status').className = 'author-status ok';
-    document.getElementById('author-status').textContent = 'Tarifs mis à jour.';
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = e.message;
-  }
-}
-
-/* ── Location subculture editor (TICKET-0025, BRIEF-0025-b) —
- * `location_subculture` rows, full-replace via PUT /api/entities/{id}/subculture.
- * For a NEW location (not yet created), rows are held in
- * authorLocationSubcultureDraft and batch-written by authorSaveEntity right
- * after creation (same discipline as authorFactionRolesDraft). For an
- * EXISTING location, "Enregistrer" syncs the visible rows from the DOM and
- * PUTs the complete array immediately (same discipline as the Tarifs
- * editor); removing a row saves right away. */
-
-let authorLocationSubcultureDraft = [];
-
-function authorRenderSubcultureEditor(isNew, rows) {
-  const source = isNew ? authorLocationSubcultureDraft : (rows || []);
-  const rowsHtml = source.map((r, i) => `
-    <div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-bottom:6px">
-      <input type="text" id="subculture-key-${i}" value="${esc(r.key || '')}" placeholder="clé (ex : values)" style="flex:1">
-      <input type="text" id="subculture-value-${i}" value="${esc(r.value || '')}" placeholder="valeur" style="flex:2">
-      <label style="display:flex; align-items:center; gap:4px; font-size:12px">
-        <input type="checkbox" id="subculture-hidden-${i}" ${r.is_hidden ? 'checked' : ''}> caché
-      </label>
-      <button class="btn-icon" onclick="authorRemoveSubcultureRow(${isNew}, ${i})" title="Supprimer">✕</button>
-    </div>`).join('');
-  return `<div id="author-subculture-rows">${rowsHtml || '<div class="empty">Aucune entrée.</div>'}</div>
-    <div class="row-card-actions" style="margin-top:6px; gap:8px">
-      <button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick="authorAddSubcultureRow(${isNew})">+ Ajouter</button>
-      <button class="btn-send" onclick="authorSaveSubcultureRows(${isNew})">💾 Enregistrer</button>
-    </div>`;
-}
-
-function _syncSubcultureDraftFromDom() {
-  authorLocationSubcultureDraft.forEach((r, i) => {
-    const keyEl = document.getElementById(`subculture-key-${i}`);
-    const valueEl = document.getElementById(`subculture-value-${i}`);
-    const hiddenEl = document.getElementById(`subculture-hidden-${i}`);
-    if (keyEl) r.key = keyEl.value;
-    if (valueEl) r.value = valueEl.value;
-    if (hiddenEl) r.is_hidden = hiddenEl.checked;
-  });
-}
-
-function _readSubcultureRowsFromDom() {
-  const rows = [];
-  document.querySelectorAll('#author-subculture-rows [id^="subculture-key-"]').forEach((keyEl) => {
-    const i = keyEl.id.replace('subculture-key-', '');
-    rows.push({
-      key: keyEl.value,
-      value: (document.getElementById(`subculture-value-${i}`) || {}).value || '',
-      is_hidden: (document.getElementById(`subculture-hidden-${i}`) || {}).checked || false,
-    });
-  });
-  return rows;
-}
-
-function authorAddSubcultureRow(isNew) {
-  if (isNew) {
-    _syncSubcultureDraftFromDom();
-    authorLocationSubcultureDraft.push({ key: '', value: '', is_hidden: false });
-    document.getElementById('author-subculture').innerHTML = authorRenderSubcultureEditor(true);
-  } else {
-    const rows = _readSubcultureRowsFromDom();
-    rows.push({ key: '', value: '', is_hidden: false });
-    document.getElementById('author-subculture').innerHTML = authorRenderSubcultureEditor(false, rows);
-  }
-}
-
-function authorRemoveSubcultureRow(isNew, i) {
-  if (isNew) {
-    _syncSubcultureDraftFromDom();
-    authorLocationSubcultureDraft.splice(i, 1);
-    document.getElementById('author-subculture').innerHTML = authorRenderSubcultureEditor(true);
-  } else {
-    const rows = _readSubcultureRowsFromDom();
-    rows.splice(i, 1);
-    authorSaveSubcultureRowsData(rows);
-  }
-}
-
-function authorSaveSubcultureRows(isNew) {
-  if (isNew) {
-    _syncSubcultureDraftFromDom();
-    document.getElementById('author-subculture').innerHTML = authorRenderSubcultureEditor(true);
-    return;
-  }
-  authorSaveSubcultureRowsData(_readSubcultureRowsFromDom());
-}
-
-async function authorSaveSubcultureRowsData(rows) {
-  const statusEl = document.getElementById('author-status');
-  const clean = rows.filter(r => (r.key || '').trim());
-  try {
-    const body = JSON.stringify({ rows: clean });
-    const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}/subculture`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
-    _authorRefreshSheet(detail);
-    document.getElementById('author-status').className = 'author-status ok';
-    document.getElementById('author-status').textContent = 'Subculture mise à jour.';
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = e.message;
-  }
-}
+/* Tarifs (npc_price) and location subculture editors (BRIEF-20/TICKET-0025)
+ * moved to frontend/src/creation/PricingEditor.svelte and
+ * SubcultureEditor.svelte + subcultureDraft.svelte.js (TICKET-0058,
+ * BRIEF-0058-g family c) -- authorRenderPricing/authorSavePriceEntry/
+ * authorDeletePriceEntry/authorAddPriceEntry/authorPriceListMutate/
+ * authorRenderSubcultureEditor/authorAddSubcultureRow/
+ * authorRemoveSubcultureRow/authorSaveSubcultureRows/
+ * authorSaveSubcultureRowsData are gone; same PUT endpoints, same
+ * full-replace discipline. */
 
 /* Location spatial geometry + doors editors (TICKET-0029/0034) moved to
  * frontend/src/creation/GeometryEditor.svelte and DoorsEditor.svelte
@@ -8202,8 +8043,8 @@ async function authorSaveDiscDetail(detailId, locationId) {
  *  detail' instead, which Sheet.svelte renders with the ported field
  *  engine. authorEntityId/authorEntityType stay set here (not inside
  *  Sheet.svelte, which cannot reach these bare `let` bindings) — every
- *  other legacy reader (authorGetSelectedEntityId, authorDelete,
- *  authorPriceListMutate, ...) still resolves them here, unchanged. */
+ *  other legacy reader (authorGetSelectedEntityId, authorDelete, ...)
+ *  still resolves them here, unchanged. */
 async function authorSelectEntity(id) {
   document.dispatchEvent(new CustomEvent('creation:sheet-loading'));
   try {
@@ -8229,26 +8070,13 @@ async function authorSelectEntity(id) {
 }
 
 /** Sets the legacy-side selection globals other readers (authorDelete,
- *  authorGetSelectedEntityId, authorPriceListMutate's own follow-up calls,
- *  ...) still resolve — called by Sheet.svelte via legacyCall right after a
- *  successful save, mirroring what authorRenderSheet's own first line
- *  (`authorEntityId = isNew ? null : detail.id; authorEntityType = type;`)
- *  always did. */
+ *  authorGetSelectedEntityId, ...) still resolve — called by Sheet.svelte
+ *  via legacyCall right after a successful save, mirroring what
+ *  authorRenderSheet's own first line (`authorEntityId = isNew ? null :
+ *  detail.id; authorEntityType = type;`) always did. */
 function _authorNotifySaved(id, type) {
   authorEntityId   = id;
   authorEntityType = type;
-}
-
-/** Refreshes the entitySheet island with a freshly-fetched detail row —
- *  replaces the sub-editors' (brief -g, unmigrated) former direct
- *  authorRenderSheet(detail, false, detail.type) call after their own PUT
- *  (authorPriceListMutate, authorSaveSubcultureRowsData, authorSaveGeometry,
- *  authorSaveDoors). Also updates authorEntityId/Type, since these callers
- *  never go through authorSelectEntity. */
-function _authorRefreshSheet(detail) {
-  authorEntityId   = detail.id;
-  authorEntityType = detail.type;
-  document.dispatchEvent(new CustomEvent('creation:sheet-detail', { detail: { detail, type: detail.type } }));
 }
 
 /** Resolves the sub-tab that owns an entity (TICKET-0054, decision F2a).
@@ -8375,27 +8203,16 @@ function _creationOpenLocationTypeModal(fieldId) {
 /** BRIEF-0058-f: _authorSaveSubmit's entity-write + dependent-draft-POST
  *  orchestration moved into Sheet.svelte's submitEntity (a faithful port —
  *  same endpoints, same order, same conditions). What COULDN'T move is the
- *  draft state itself: authorLocationSubcultureDraft/pendingDraftKnowledge/
- *  pendingDraftGoals/pendingCreationMutationId are legacy globals owned by
- *  the (unmigrated, brief -h) subculture sub-editor and AI-draft panel --
- *  the faction-roles draft moved to factionPanel.svelte.js's draftRoles
- *  (BRIEF-0058-g family b), read directly by Sheet.svelte's submitEntity via
- *  draftRolesForCreate(), no legacyCall needed for that one any more. These
- *  small functions are the exact inline snippets _authorSaveSubmit used to
- *  run itself, extracted so Sheet.svelte can reach them via legacyCall
- *  instead of a bare variable read it has no access to — none of them
- *  change what the snippet did.
- *
- *  TICKET-0025, BRIEF-0025-b: subculture rows drafted before the entity
- *  exists are held in authorLocationSubcultureDraft and POSTed/PUT right
- *  after creation — never merged into entityData(.metadata). An EXISTING
- *  location's editor is already live/API-backed (the Tarifs-editor
- *  discipline) and untouched here. */
-function _authorSubcultureDraftForCreate() {
-  _syncSubcultureDraftFromDom();
-  return authorLocationSubcultureDraft.filter(r => (r.key || '').trim());
-}
-
+ *  draft state itself: pendingDraftKnowledge/pendingDraftGoals/
+ *  pendingCreationMutationId are legacy globals owned by the (unmigrated,
+ *  brief -h) AI-draft panel -- the faction-roles draft moved to
+ *  factionPanel.svelte.js's draftRoles (family b) and the subculture draft
+ *  to subcultureDraft.svelte.js (family c), both read directly by
+ *  Sheet.svelte's submitEntity, no legacyCall needed for either any more.
+ *  These small functions are the exact inline snippets _authorSaveSubmit
+ *  used to run itself, extracted so Sheet.svelte can reach them via
+ *  legacyCall instead of a bare variable read it has no access to — none of
+ *  them change what the snippet did. */
 function _authorGetPendingCreationMutationId() {
   return pendingCreationMutationId;
 }
@@ -8413,20 +8230,9 @@ function _authorConsumePendingCreationMutationId() {
  *  no-op, exactly as harmless as the original's per-type conditional
  *  clears. */
 function _authorClearCreateDrafts() {
-  authorLocationSubcultureDraft = [];
   pendingDraftKnowledge = [];
   pendingDraftNotes = [];
   pendingDraftGoals = { long: '', shorts: ['', ''] };
-}
-
-/** The subculture editor's "fresh draft" entry point for CREATE mode --
- *  authorRenderSheet always cleared the draft before rendering it for a NEW
- *  location, so a repeat "+ Nouveau" never carries over a prior abandoned
- *  attempt. RolesEditor.svelte's own construction does the same for
- *  factionPanelState.draftRoles now (BRIEF-0058-g family b). */
-function _authorNewSubcultureEditor() {
-  authorLocationSubcultureDraft = [];
-  return authorRenderSubcultureEditor(true);
 }
 
 async function authorDelete() {

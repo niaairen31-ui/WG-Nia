@@ -60,6 +60,9 @@
   import FactionRoster from './FactionRoster.svelte';
   import MembershipsPanel from './MembershipsPanel.svelte';
   import { loadFactionMembersPanel, draftRolesForCreate, resetDraftRoles, factionPanelState } from './factionPanel.svelte.js';
+  import { subcultureDraftState, subcultureDraftForCreate, resetSubcultureDraft } from './subcultureDraft.svelte.js';
+  import SubcultureEditor from './SubcultureEditor.svelte';
+  import PricingEditor from './PricingEditor.svelte';
 
   let { legacyDoc } = $props();
 
@@ -147,6 +150,7 @@
   export function primaryAction() {
     legacyCall('_authorResetCreateDrafts');
     resetDraftRoles();
+    resetSubcultureDraft();
     enterCreateMode(resolveTypeForTab(creationState.activeTabKey));
   }
 
@@ -242,6 +246,12 @@
   // M5) -- BRIEF-0058-g family b.
   legacyDoc.addEventListener('creation:apply-faction-roles-draft', (ev) => {
     factionPanelState.draftRoles = ev.detail.rows;
+  });
+
+  // authorApplyLocationDraft's equivalent for subcultureDraftState.rows --
+  // same idiom, BRIEF-0058-g family c.
+  legacyDoc.addEventListener('creation:apply-subculture-draft', (ev) => {
+    subcultureDraftState.rows = ev.detail.rows;
   });
 
   // Sibling header chrome (title/status/save/delete) lives OUTSIDE
@@ -351,7 +361,7 @@
   async function submitEntity(isNewSave, type, entityData, extData) {
     const statusEl = legacyDoc.getElementById('author-status');
     const rolesToCreate = (isNewSave && type === 'faction') ? draftRolesForCreate() : [];
-    const subcultureRowsToCreate = (isNewSave && type === 'location') ? legacyCall('_authorSubcultureDraftForCreate') : [];
+    const subcultureRowsToCreate = (isNewSave && type === 'location') ? subcultureDraftForCreate() : [];
     const knowledgeToCreate = (isNewSave && type === 'character') ? legacyCall('_syncPendingKnowledgeFromDom') : [];
     const goalsToCreate = (isNewSave && type === 'character') ? legacyCall('_syncPendingGoalsFromDom') : [];
     const mutationId = isNewSave ? legacyCall('_authorGetPendingCreationMutationId') : null;
@@ -409,6 +419,7 @@
       if (isNewSave) {
         legacyCall('_authorClearCreateDrafts');
         resetDraftRoles();
+        resetSubcultureDraft();
       }
 
       legacyCall('creationRefreshList');
@@ -499,11 +510,10 @@
 
       {#if type === 'location'}
         <div class="field-section"><div class="field-section-title">Subculture</div>
-          {#if isNew}
-            <div id="author-subculture">{@html legacyCall('_authorNewSubcultureEditor')}</div>
-          {:else}
-            <div id="author-subculture">{@html legacyCall('authorRenderSubcultureEditor', false, detail.subculture_rows)}</div>
-          {/if}
+          <div id="author-subculture">
+            <SubcultureEditor {isNew} entityId={isNew ? null : detail.id} rows={isNew ? null : detail.subculture_rows}
+              {legacyDoc} onSaved={(d) => flushSync(() => enterViewMode(d, d.type))} />
+          </div>
         </div>
       {/if}
 
@@ -565,7 +575,7 @@
 
       {#if !isNew && type === 'character' && tabKey === 'npc'}
         <div class="field-section"><div class="field-section-title">Tarifs</div>
-          <div id="author-pricing">{@html legacyCall('authorRenderPricing', detail)}</div>
+          <PricingEditor entityId={detail.id} prices={detail.prices} {legacyDoc} onSaved={(d) => flushSync(() => enterViewMode(d, d.type))} />
         </div>
       {/if}
 

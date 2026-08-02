@@ -117,6 +117,18 @@ export const CREATION_ISLANDS = Object.freeze({
       'authorMemberRoleEditSubmit',
       'authorLoadMemberships',
       'authorRenderMemberships',
+      // BRIEF-0058-g family c: Tarifs (npc_price) + location subculture --
+      // ported to PricingEditor.svelte/SubcultureEditor.svelte/
+      // subcultureDraft.svelte.js.
+      'authorRenderPricing',
+      'authorSavePriceEntry',
+      'authorDeletePriceEntry',
+      'authorAddPriceEntry',
+      'authorPriceListMutate',
+      'authorRenderSubcultureEditor',
+      'authorAddSubcultureRow',
+      'authorRemoveSubcultureRow',
+      'authorSaveSubcultureRows',
     ],
   }),
 });
