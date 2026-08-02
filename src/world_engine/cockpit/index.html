@@ -6886,13 +6886,13 @@ function batchManifestParentOptions(i) {
 
 /** Phase A manifest editor: per-row name / one-liner / location_type
  *  (catalog datalist + Gabarit… affordance, reused verbatim from
- *  _authorOpenTemplateModalFor) / parent_room select, add/remove rows. */
+ *  _creationOpenLocationTypeModal) / parent_room select, add/remove rows. */
 function batchRenderManifestTable() {
   const rows = (batchManifest.rooms || []).map((r, i) => {
     const typeInputId = `batch-type-${i}`;
     const typeDlId = `${typeInputId}-dl`;
     const typeOpts = (authorLocationTypeCatalog || [])
-      .map(row => `<option value="${esc(row.name)}">${esc(_authorLocationTypeOptionLabel(row))}</option>`).join('');
+      .map(row => `<option value="${esc(row.name)}">${esc(_creationLocationTypeLabel(row))}</option>`).join('');
     return `
     <div class="row-card">
       <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap">
@@ -6904,7 +6904,7 @@ function batchRenderManifestTable() {
             <input type="text" id="${typeInputId}" list="${typeDlId}" value="${esc(r.location_type || '')}" style="flex:1"
               oninput="batchManifest.rooms[${i}].location_type = this.value">
             <button type="button" class="btn-ghost" style="font-size:12px; padding:3px 8px"
-              onclick="_authorOpenTemplateModalFor('${typeInputId}')">Gabarit...</button>
+              onclick="_creationOpenLocationTypeModal('${typeInputId}')">Gabarit...</button>
           </div>
           <datalist id="${typeDlId}">${typeOpts}</datalist></div>
         <div class="field-row" style="min-width:160px"><label>Parent</label>
@@ -7906,212 +7906,15 @@ async function authorSaveSubcultureRowsData(rows) {
   }
 }
 
-/* ── Location spatial geometry editor (TICKET-0029, BRIEF-0029-a) —
- * `obstacle`/`obstacle_vertex` full-replace via PUT /api/entities/{id}/geometry.
- * v1 authoring surface is numeric rect rows only (graphical editor deferred,
- * D'2). Existing locations only (Tarifs-editor discipline — no isNew draft).
- * Incoming vertex lists that are exactly 4 corners of an axis-aligned
- * rectangle (server's clockwise-from-top-left convention) render as an
- * editable rect row; any other polygon renders read-only and round-trips
- * its vertices unchanged on save. */
+/* Location spatial geometry + doors editors (TICKET-0029/0034) moved to
+ * frontend/src/creation/GeometryEditor.svelte and DoorsEditor.svelte
+ * (TICKET-0058, BRIEF-0058-g family a) -- authorRenderGeometryEditor/
+ * authorRenderGeometryEditorFromItems/authorGeometryDetectItem/
+ * authorAddGeometryRow/authorRemoveGeometryRow/authorSaveGeometry/
+ * authorRenderDoorsEditor/authorRenderDoorsEditorFromState/authorSaveDoors/
+ * authorRemoveOrphanDoor are gone; Sheet.svelte mounts both components
+ * directly, same PUT endpoints, same unit conventions. */
 
-let authorLocationGeometryItems = [];
-
-function authorGeometryDetectItem(vertices) {
-  if (Array.isArray(vertices) && vertices.length === 4) {
-    const [p0, p1, p2, p3] = vertices;
-    if (p0[1] === p1[1] && p1[0] === p2[0] && p2[1] === p3[1] && p3[0] === p0[0]
-        && p1[0] > p0[0] && p2[1] > p1[1]) {
-      return { kind: 'rect', x: p0[0], y: p0[1], width: p1[0] - p0[0], height: p2[1] - p1[1] };
-    }
-  }
-  return { kind: 'polygon', vertices };
-}
-
-function authorRenderGeometryEditor(geometry) {
-  authorLocationGeometryItems = (geometry.obstacles || []).map(o => authorGeometryDetectItem(o.vertices));
-  return authorRenderGeometryEditorFromItems(geometry.bounds_width, geometry.bounds_height);
-}
-
-function authorRenderGeometryEditorFromItems(boundsWidth, boundsHeight) {
-  const rowsHtml = authorLocationGeometryItems.map((item, i) => {
-    if (item.kind === 'rect') {
-      return `<div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-bottom:6px">
-        <input type="number" step="any" id="geom-rect-x-${i}" value="${item.x}" placeholder="x" style="flex:1">
-        <input type="number" step="any" id="geom-rect-y-${i}" value="${item.y}" placeholder="y" style="flex:1">
-        <input type="number" step="any" id="geom-rect-w-${i}" value="${item.width}" placeholder="largeur" style="flex:1">
-        <input type="number" step="any" id="geom-rect-h-${i}" value="${item.height}" placeholder="hauteur" style="flex:1">
-        <button class="btn-icon" onclick="authorRemoveGeometryRow(${i})" title="Supprimer">✕</button>
-      </div>`;
-    }
-    return `<div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-bottom:6px">
-      <span style="flex:1">polygone (${item.vertices.length} sommets)</span>
-      <button class="btn-icon" onclick="authorRemoveGeometryRow(${i})" title="Supprimer">✕</button>
-    </div>`;
-  }).join('');
-
-  return `
-    <div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-bottom:8px">
-      <label style="flex:1">Largeur (bounds_width)</label>
-      <input type="number" step="any" id="geom-bounds-width" value="${boundsWidth ?? ''}" style="flex:1">
-      <label style="flex:1">Hauteur (bounds_height)</label>
-      <input type="number" step="any" id="geom-bounds-height" value="${boundsHeight ?? ''}" style="flex:1">
-    </div>
-    <div id="author-geometry-rows">${rowsHtml || '<div class="empty">Aucun obstacle.</div>'}</div>
-    <div class="row-card-actions" style="margin-top:6px; gap:8px">
-      <button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick="authorAddGeometryRow()">+ Ajouter un bloc</button>
-      <button class="btn-send" onclick="authorSaveGeometry()">💾 Enregistrer</button>
-    </div>`;
-}
-
-function _syncGeometryItemsFromDom() {
-  authorLocationGeometryItems.forEach((item, i) => {
-    if (item.kind !== 'rect') return;
-    const xEl = document.getElementById(`geom-rect-x-${i}`);
-    const yEl = document.getElementById(`geom-rect-y-${i}`);
-    const wEl = document.getElementById(`geom-rect-w-${i}`);
-    const hEl = document.getElementById(`geom-rect-h-${i}`);
-    if (xEl) item.x = parseFloat(xEl.value) || 0;
-    if (yEl) item.y = parseFloat(yEl.value) || 0;
-    if (wEl) item.width = parseFloat(wEl.value) || 0;
-    if (hEl) item.height = parseFloat(hEl.value) || 0;
-  });
-}
-
-function _currentGeometryBoundsFromDom() {
-  const widthEl = document.getElementById('geom-bounds-width');
-  const heightEl = document.getElementById('geom-bounds-height');
-  return { width: widthEl ? widthEl.value : '', height: heightEl ? heightEl.value : '' };
-}
-
-function authorAddGeometryRow() {
-  _syncGeometryItemsFromDom();
-  authorLocationGeometryItems.push({ kind: 'rect', x: 0, y: 0, width: 0, height: 0 });
-  const bounds = _currentGeometryBoundsFromDom();
-  document.getElementById('author-geometry').innerHTML = authorRenderGeometryEditorFromItems(bounds.width, bounds.height);
-}
-
-function authorRemoveGeometryRow(i) {
-  _syncGeometryItemsFromDom();
-  authorLocationGeometryItems.splice(i, 1);
-  const bounds = _currentGeometryBoundsFromDom();
-  document.getElementById('author-geometry').innerHTML = authorRenderGeometryEditorFromItems(bounds.width, bounds.height);
-}
-
-async function authorSaveGeometry() {
-  _syncGeometryItemsFromDom();
-  const statusEl = document.getElementById('author-status');
-  const bounds = _currentGeometryBoundsFromDom();
-  const bounds_width = bounds.width === '' ? null : parseFloat(bounds.width);
-  const bounds_height = bounds.height === '' ? null : parseFloat(bounds.height);
-  const obstacles = authorLocationGeometryItems.map(item =>
-    item.kind === 'rect' ? { rect: [item.x, item.y, item.width, item.height] } : { vertices: item.vertices }
-  );
-  try {
-    const body = JSON.stringify({ bounds_width, bounds_height, obstacles });
-    const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}/geometry`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
-    _authorRefreshSheet(detail);
-    document.getElementById('author-status').className = 'author-status ok';
-    document.getElementById('author-status').textContent = 'Géométrie mise à jour.';
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = e.message;
-  }
-}
-
-/* ── Location doors editor (TICKET-0034, BRIEF-0034-a) — `door` full-replace
- * via PUT /api/entities/{id}/doors. Row set is driven by the location's
- * connects_to neighbours (from detail.relations), not free text: blank x or
- * y on a neighbour row = no door toward it (the row is simply not sent).
- * Existing locations only (Tarifs-editor / geometry-editor discipline, no
- * isNew draft). Orphan rows (edge_live: false — the connects_to edge died
- * after authoring) render read-only above the neighbour rows; removing one
- * saves immediately (subculture-row-delete precedent) — full-replace drops
- * every orphan from the sent payload by construction, since an orphan's
- * target is never a live neighbour. */
-
-let authorLocationDoorsNeighbours = [];
-let authorLocationDoorsOrphans = [];
-let authorLocationDoorsValues = {};
-
-function authorRenderDoorsEditor(relations, doors) {
-  authorLocationDoorsNeighbours = (relations || [])
-    .filter(r => r.type === 'connects_to')
-    .map(r => ({ id: r.other_entity_id, name: r.other_entity_name }));
-  authorLocationDoorsOrphans = (doors || []).filter(d => !d.edge_live);
-
-  const doorsByTarget = {};
-  (doors || []).forEach(d => { doorsByTarget[d.target_location_id] = d; });
-  authorLocationDoorsValues = {};
-  authorLocationDoorsNeighbours.forEach(n => {
-    const d = doorsByTarget[n.id];
-    authorLocationDoorsValues[n.id] = { x: d ? d.x : '', y: d ? d.y : '' };
-  });
-
-  return authorRenderDoorsEditorFromState();
-}
-
-function authorRenderDoorsEditorFromState() {
-  let html = '';
-  if (authorLocationDoorsOrphans.length) {
-    html += authorLocationDoorsOrphans.map(d => `<div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-bottom:6px; opacity:0.75">
-      <span style="flex:1">⚠ lien connects_to absent — cette porte est ignorée en jeu. Supprimez-la ou recréez le lien. (${esc(d.target_name)})</span>
-      <button class="btn-icon" onclick="authorRemoveOrphanDoor('${esc(d.id)}')" title="Supprimer">✕</button>
-    </div>`).join('');
-  }
-
-  if (authorLocationDoorsNeighbours.length === 0) {
-    html += '<div class="empty">Aucun lieu adjacent — créez une relation connects_to d\'abord.</div>';
-    return html;
-  }
-
-  const rowsHtml = authorLocationDoorsNeighbours.map(n => {
-    const v = authorLocationDoorsValues[n.id] || { x: '', y: '' };
-    return `<div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-bottom:6px">
-      <span style="flex:1">${esc(n.name)}</span>
-      <input type="number" step="any" id="door-x-${esc(n.id)}" value="${v.x}" placeholder="x" style="flex:1">
-      <input type="number" step="any" id="door-y-${esc(n.id)}" value="${v.y}" placeholder="y" style="flex:1">
-    </div>`;
-  }).join('');
-
-  html += `<div id="author-doors-rows">${rowsHtml}</div>`;
-  html += `<div class="row-card-actions" style="margin-top:6px; gap:8px">
-    <button class="btn-send" onclick="authorSaveDoors()">💾 Enregistrer</button>
-  </div>`;
-  return html;
-}
-
-function _readDoorsFromDom() {
-  const doors = [];
-  authorLocationDoorsNeighbours.forEach(n => {
-    const xEl = document.getElementById(`door-x-${n.id}`);
-    const yEl = document.getElementById(`door-y-${n.id}`);
-    const xVal = xEl ? xEl.value : '';
-    const yVal = yEl ? yEl.value : '';
-    if (xVal === '' || yVal === '') return;
-    doors.push({ target_location_id: n.id, x: parseFloat(xVal), y: parseFloat(yVal) });
-  });
-  return doors;
-}
-
-async function authorSaveDoors() {
-  const statusEl = document.getElementById('author-status');
-  try {
-    const body = JSON.stringify({ doors: _readDoorsFromDom() });
-    const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}/doors`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
-    _authorRefreshSheet(detail);
-    document.getElementById('author-status').className = 'author-status ok';
-    document.getElementById('author-status').textContent = 'Portes mises à jour.';
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = e.message;
-  }
-}
-
-function authorRemoveOrphanDoor(id) {
-  authorLocationDoorsOrphans = authorLocationDoorsOrphans.filter(d => d.id !== id);
-  authorSaveDoors();
-}
 
 /** Read-only "Solde" block on a character sheet (schema v1.31, BRIEF-18).
  *  Write path is the global Registre tab (POST /api/ledger) — this block
@@ -9117,86 +8920,22 @@ function creationSaveDispatch() {
   document.dispatchEvent(new CustomEvent('creation:sheet-save'));
 }
 
-/** Plain-suffix label for a location_type datalist option (TICKET-0040,
- *  BRIEF-0040-c): "name (interieur, 6 x 5 m)" when a size template is set,
- *  bare name otherwise. */
-function _authorLocationTypeOptionLabel(row) {
-  if (row.default_width == null || row.default_height == null) return row.name;
-  const classLabel = row.classification === 'interior' ? 'interieur'
-    : row.classification === 'exterior' ? 'exterieur' : (row.classification || '?');
-  return `${row.name} (${classLabel}, ${row.default_width} x ${row.default_height} m)`;
+/** The Lieux create/save flow (_authorLocationTypeOptionLabel/
+ *  _authorOpenTemplateModalFor/_authorPromptLocationTypeClassification/
+ *  _authorClassifyLocationType) moved to frontend/src/creation/locationType.js
+ *  (TICKET-0058, BRIEF-0058-g family a); Field.svelte and Sheet.svelte call
+ *  it directly. The room-batch generator below (batchRenderManifestTable,
+ *  still legacy until brief -j) reaches the same ported helpers through
+ *  this tiny reverse-bridge pair — same idiom as _creationRenderField/
+ *  _creationReadField (see the field-rendering section above). */
+function _creationLocationTypeLabel(row) {
+  const ev = new CustomEvent('creation:location-type-label', { detail: { row, label: null } });
+  document.dispatchEvent(ev);
+  return ev.detail.label;
 }
 
-/** Gabarit... button handler beside the location_type field (TICKET-0040,
- *  BRIEF-0040-c): opens the same classification/template modal for whatever
- *  string the field currently holds, with no onClassified follow-up — this
- *  is a standalone template-authoring affordance, not a save gate. */
-function _authorOpenTemplateModalFor(fieldId) {
-  const inputEl = document.getElementById(fieldId);
-  const typeName = (inputEl ? inputEl.value : '').trim();
-  if (!typeName) return;
-  _authorPromptLocationTypeClassification(typeName, () => {});
-}
-
-/** Two-button Interieur/Exterieur prompt for a never-classified location_type
- *  (TICKET-0039, BRIEF-0039-b), plus two optional default-size inputs
- *  (TICKET-0040, BRIEF-0040-c), pre-filled from the catalog entry when
- *  present. Persists the choice via POST /api/location-types, refreshes the
- *  cached catalog, then runs `onClassified` to resume the save that
- *  triggered the prompt (or a no-op for the standalone Gabarit... button). */
-function _authorPromptLocationTypeClassification(typeName, onClassified) {
-  const folded = typeName.trim().toLowerCase();
-  const catalogRow = authorLocationTypeCatalog.find(r => r.name.toLowerCase() === folded);
-  const prefWidth = catalogRow && catalogRow.default_width != null ? catalogRow.default_width : '';
-  const prefHeight = catalogRow && catalogRow.default_height != null ? catalogRow.default_height : '';
-  genericModalOpen('Classification du type de lieu', `
-    <p>Le type « ${esc(typeName)} » n'est pas encore classifié. Ce lieu est-il
-    intérieur ou extérieur ? Ce choix est mémorisé pour les prochains lieux de
-    ce type.</p>
-    <div class="row-card-actions" style="margin-top:10px">
-      <button class="btn-send" id="loctype-classify-interior">Interieur</button>
-      <button class="btn-send" id="loctype-classify-exterior">Exterieur</button>
-    </div>
-    <div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-top:10px">
-      <label style="flex:1">Largeur par défaut (m)</label>
-      <input type="number" step="any" id="loctype-classify-width" value="${prefWidth}" style="flex:1">
-      <label style="flex:1">Hauteur par défaut (m)</label>
-      <input type="number" step="any" id="loctype-classify-height" value="${prefHeight}" style="flex:1">
-    </div>
-    <div id="loctype-classify-status" style="color:var(--red); margin-top:6px"></div>
-  `, { dismissOnBackdrop: false });
-  document.getElementById('loctype-classify-interior').onclick =
-    () => _authorClassifyLocationType(typeName, 'interior', onClassified);
-  document.getElementById('loctype-classify-exterior').onclick =
-    () => _authorClassifyLocationType(typeName, 'exterior', onClassified);
-}
-
-async function _authorClassifyLocationType(typeName, classification, onClassified) {
-  const statusEl = document.getElementById('loctype-classify-status');
-  const widthVal = (document.getElementById('loctype-classify-width').value || '').trim();
-  const heightVal = (document.getElementById('loctype-classify-height').value || '').trim();
-  if ((widthVal === '') !== (heightVal === '')) {
-    statusEl.textContent = 'Renseigne les deux dimensions, ou aucune.';
-    return;
-  }
-  statusEl.textContent = '…';
-  try {
-    const body = { name: typeName, classification };
-    if (widthVal !== '') {
-      body.default_width = parseFloat(widthVal);
-      body.default_height = parseFloat(heightVal);
-    }
-    await api('/api/location-types', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    authorLocationTypeCatalog = await api('/api/location-types');
-    genericModalClose();
-    await onClassified();
-  } catch (e) {
-    statusEl.textContent = e.message;
-  }
+function _creationOpenLocationTypeModal(fieldId) {
+  document.dispatchEvent(new CustomEvent('creation:open-location-type-modal', { detail: { fieldId } }));
 }
 
 /** BRIEF-0058-f: _authorSaveSubmit's entity-write + dependent-draft-POST

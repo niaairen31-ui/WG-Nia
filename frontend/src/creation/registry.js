@@ -70,6 +70,21 @@ export const CREATION_ISLANDS = Object.freeze({
       '_authorSaveSubmit',
       'authorTypeChanged',
       'authorNewEntity',
+      // BRIEF-0058-g family a: geometry + doors sub-editors, and the Lieux
+      // create/save flow -- ported to GeometryEditor.svelte/DoorsEditor.svelte/
+      // locationType.js, mounted/called from this same #author-main island.
+      'authorGeometryDetectItem',
+      'authorRenderGeometryEditor',
+      'authorAddGeometryRow',
+      'authorRemoveGeometryRow',
+      'authorSaveGeometry',
+      'authorRenderDoorsEditor',
+      'authorSaveDoors',
+      'authorRemoveOrphanDoor',
+      '_authorLocationTypeOptionLabel',
+      '_authorOpenTemplateModalFor',
+      '_authorPromptLocationTypeClassification',
+      '_authorClassifyLocationType',
     ],
   }),
 });

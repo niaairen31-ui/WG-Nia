@@ -52,7 +52,10 @@
   import { serverState } from '../lib/serverState.svelte.js';
   import { legacyCall } from '../legacy/bridge.js';
   import { renderFieldHtml, readFieldValue } from './fields.js';
+  import { locationTypeOptionLabel, openTemplateModalFor, promptLocationTypeClassification } from './locationType.js';
   import Field from './Field.svelte';
+  import GeometryEditor from './GeometryEditor.svelte';
+  import DoorsEditor from './DoorsEditor.svelte';
 
   let { legacyDoc } = $props();
 
@@ -216,6 +219,16 @@
     }
   });
 
+  // The room-batch generator (batchRenderManifestTable, index.html, still
+  // legacy until brief -j) reaches the ported location-type helpers the
+  // same reverse-bridge way -- BRIEF-0058-g family a.
+  legacyDoc.addEventListener('creation:location-type-label', (ev) => {
+    ev.detail.label = locationTypeOptionLabel(ev.detail.row);
+  });
+  legacyDoc.addEventListener('creation:open-location-type-modal', (ev) => {
+    openTemplateModalFor(legacyDoc, ev.detail.fieldId, () => {});
+  });
+
   // Sibling header chrome (title/status/save/delete) lives OUTSIDE
   // #author-main -- authorRenderSheet always reached out to it too. Only
   // touched for 'empty'/'view': 'loading'/'error' leave it exactly as
@@ -307,7 +320,7 @@
         const folded = chosenType.toLowerCase();
         const catalogRow = creationState.locationTypeCatalog.find((r) => r.name.toLowerCase() === folded);
         if (!catalogRow || catalogRow.classification == null) {
-          legacyCall('_authorPromptLocationTypeClassification', chosenType, () => submitEntity(isNewSave, type, entityData, extData));
+          promptLocationTypeClassification(legacyDoc, chosenType, () => submitEntity(isNewSave, type, entityData, extData));
           return;
         }
       }
@@ -412,6 +425,7 @@
     entities: creationState.entities,
     locationTypeCatalog: creationState.locationTypeCatalog,
     entityId: isNew ? null : (detail && detail.id),
+    legacyDoc,
   });
   const showGeneratePanel = $derived(isNew && (
     (type === 'character' && tabKey === 'npc')
@@ -485,10 +499,16 @@
 
       {#if !isNew && type === 'location'}
         <div class="field-section"><div class="field-section-title">Spatial geometry</div>
-          <div id="author-geometry">{@html legacyCall('authorRenderGeometryEditor', detail.geometry || { bounds_width: null, bounds_height: null, obstacles: [] })}</div>
+          <div id="author-geometry">
+            <GeometryEditor entityId={detail.id} geometry={detail.geometry || { bounds_width: null, bounds_height: null, obstacles: [] }}
+              {legacyDoc} onSaved={(d) => flushSync(() => enterViewMode(d, d.type))} />
+          </div>
         </div>
         <div class="field-section"><div class="field-section-title">Portes</div>
-          <div id="author-doors">{@html legacyCall('authorRenderDoorsEditor', detail.relations, detail.doors)}</div>
+          <div id="author-doors">
+            <DoorsEditor entityId={detail.id} relations={detail.relations} doors={detail.doors}
+              {legacyDoc} onSaved={(d) => flushSync(() => enterViewMode(d, d.type))} />
+          </div>
         </div>
       {/if}
 

@@ -7,16 +7,17 @@
      save time via legacyDoc.getElementById) rather than two-way bound --
      this is a port, not a redesign of the field engine's state model.
 
-     The two kinds that reach legacy code (location_type's catalog options
-     and its "Gabarit..." button) call the SAME still-legacy functions the
-     original inline handlers called (_authorLocationTypeOptionLabel,
-     _authorOpenTemplateModalFor) via the generic legacyCall bridge --
-     those functions stay legacy (brief -g's Lieux create/save flow
-     family), unchanged.
+     location_type's catalog-option label and its "Gabarit..." button
+     (BRIEF-0058-g, family a) call the ported locationType.js helpers
+     directly -- the same Lieux create/save flow the original inline
+     handlers reached via _authorLocationTypeOptionLabel/
+     _authorOpenTemplateModalFor, now real imports instead of a legacyCall
+     bridge. openTemplateModalFor still needs `ctx.legacyDoc` (the modal it
+     opens, and the field it reads back, both live in the legacy document).
 
      No scoped <style> block: like every other Creation island, this
      renders inside the legacy iframe document. */
-  import { legacyCall } from '../legacy/bridge.js';
+  import { locationTypeOptionLabel, openTemplateModalFor } from './locationType.js';
 
   let { field, value, idPrefix, ctx } = $props();
 
@@ -57,13 +58,13 @@
       <input type="text" {id} data-field={field.name} data-kind="text" list={dlid} value={resolvedValue ?? ''} style="flex:1">
       {#if field.name === 'location_type'}
         <button type="button" class="btn-ghost" style="font-size:12px; padding:3px 8px"
-          onclick={() => legacyCall('_authorOpenTemplateModalFor', id)}>Gabarit...</button>
+          onclick={() => openTemplateModalFor(ctx.legacyDoc, id, () => {})}>Gabarit...</button>
       {/if}
     </div>
     <datalist id={dlid}>
       {#if field.name === 'location_type'}
         {#each (ctx.locationTypeCatalog || []) as r (r.name)}
-          <option value={r.name}>{legacyCall('_authorLocationTypeOptionLabel', r)}</option>
+          <option value={r.name}>{locationTypeOptionLabel(r)}</option>
         {/each}
       {:else}
         {#each (field.options || []) as o (o)}

@@ -14,7 +14,7 @@
    reads/renders lives in the LEGACY document, whether the element was
    created by Field.svelte (mounted there, TICKET-0056) or by evenements'
    own innerHTML write. */
-function esc(s) {
+export function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
