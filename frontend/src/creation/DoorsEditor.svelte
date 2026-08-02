@@ -16,7 +16,9 @@
 
      _readDoorsFromDom becomes real Svelte state (bind:value) per
      RECON-SUPPLEMENT-0058 -g item 2, rather than a DOM re-scrape at save
-     time. */
+     time. Number inputs bound via bind:value coerce to a number (or
+     undefined when cleared), not a string -- x/y are compared against
+     null/undefined, never against ''. */
   let { entityId, relations, doors, legacyDoc, onSaved } = $props();
 
   let neighbours = $state([]);
@@ -34,7 +36,7 @@
     const next = {};
     neighbours.forEach((n) => {
       const d = doorsByTarget[n.id];
-      next[n.id] = { x: d ? d.x : '', y: d ? d.y : '' };
+      next[n.id] = { x: d ? d.x : null, y: d ? d.y : null };
     });
     values = next;
   }
@@ -45,9 +47,9 @@
     const statusEl = legacyDoc.getElementById('author-status');
     const doorsPayload = [];
     neighbours.forEach((n) => {
-      const v = values[n.id] || { x: '', y: '' };
-      if (v.x === '' || v.y === '') return;
-      doorsPayload.push({ target_location_id: n.id, x: parseFloat(v.x), y: parseFloat(v.y) });
+      const v = values[n.id] || { x: null, y: null };
+      if (v.x == null || v.y == null) return;
+      doorsPayload.push({ target_location_id: n.id, x: v.x, y: v.y });
     });
     try {
       const res = await fetch(`/api/entities/${encodeURIComponent(entityId)}/doors`, {

@@ -15,6 +15,11 @@
      item stays display-only (vertex count) with a remove affordance --
      same as the legacy editor, no new authoring capability for polygons.
 
+     Number inputs bound via bind:value coerce to a number (or undefined
+     when cleared), not a string -- boundsWidth/boundsHeight and each rect's
+     x/y/width/height are compared against null/undefined, never against
+     '' the way a DOM-string read would be.
+
      PUT /api/entities/{id}/geometry is the same sanctioned endpoint
      (geometry_unit.py/placement_unit.py are backend-only and untouched).
      On success, `onSaved(detail)` hands the fresh entity detail back to
@@ -25,8 +30,8 @@
   let { entityId, geometry, legacyDoc, onSaved } = $props();
 
   let items = $state([]);
-  let boundsWidth = $state('');
-  let boundsHeight = $state('');
+  let boundsWidth = $state(null);
+  let boundsHeight = $state(null);
 
   function detectItem(vertices) {
     if (Array.isArray(vertices) && vertices.length === 4) {
@@ -41,8 +46,8 @@
 
   function resetFromGeometry(g) {
     items = (g?.obstacles || []).map((o) => detectItem(o.vertices));
-    boundsWidth = g?.bounds_width ?? '';
-    boundsHeight = g?.bounds_height ?? '';
+    boundsWidth = g?.bounds_width ?? null;
+    boundsHeight = g?.bounds_height ?? null;
   }
 
   $effect(() => { resetFromGeometry(geometry); });
@@ -57,10 +62,10 @@
 
   async function save() {
     const statusEl = legacyDoc.getElementById('author-status');
-    const bw = boundsWidth === '' ? null : parseFloat(boundsWidth);
-    const bh = boundsHeight === '' ? null : parseFloat(boundsHeight);
+    const bw = boundsWidth ?? null;
+    const bh = boundsHeight ?? null;
     const obstacles = items.map((item) =>
-      item.kind === 'rect' ? { rect: [item.x, item.y, item.width, item.height] } : { vertices: item.vertices }
+      item.kind === 'rect' ? { rect: [item.x ?? 0, item.y ?? 0, item.width ?? 0, item.height ?? 0] } : { vertices: item.vertices }
     );
     try {
       const res = await fetch(`/api/entities/${encodeURIComponent(entityId)}/geometry`, {
