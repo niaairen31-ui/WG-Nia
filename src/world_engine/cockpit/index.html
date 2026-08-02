@@ -3263,20 +3263,16 @@ let authorLocationTree = [];     // [{id, name, parent_location_id, location_typ
 // world — refreshed by the entityList island; backs the location_type datalist.
 let authorLocationTypeCatalog = [];
 
-/* AI entity-authoring assistant (BRIEF-24) — draft state for the in-creation
- * NPC form. The entity doesn't exist yet, so secret.knowledge rows are held
- * here in memory (pendingDraftKnowledge) and only POSTed to
- * /api/entities/{id}/knowledge after the creator accepts (authorSave creates
- * the entity first). One-shot: a second "Générer" click discards this state
- * and starts over (F2 conversational refine is explicitly deferred). */
-let pendingDraftKnowledge = [];
-let pendingDraftNotes     = [];
-
-/* AI goal generator (BRIEF-0013-b) — same in-creation-form idiom as
- * pendingDraftKnowledge above: the entity doesn't exist yet, so the drafted
- * goals are held here and only POSTed to /api/entities/{id}/goals (0013-a
- * endpoint) after authorSave creates the entity. */
-let pendingDraftGoals = { long: '', shorts: ['', ''] };
+/* AI entity-authoring assistant (BRIEF-24) — pendingDraftNotes is the
+ * AI-generate panel's own "Notes de l'assistant" state (authorRenderGenNotes/
+ * #entity-gen-notes, brief -h, untouched). pendingDraftKnowledge/
+ * pendingDraftGoals (secret.knowledge rows / BRIEF-0013-b goals, held
+ * in-memory until the entity is created) moved to
+ * frontend/src/creation/pendingDrafts.svelte.js (TICKET-0058, BRIEF-0058-g
+ * family e) -- PendingKnowledgeEditor.svelte/PendingGoalsEditor.svelte own
+ * them now. One-shot: a second "Générer" click discards this state and
+ * starts over (F2 conversational refine is explicitly deferred). */
+let pendingDraftNotes = [];
 
 /* Two-stage entity creation (TICKET-0019, BRIEF-0019-a) — set when the
    create form was pre-filled from a "Générer la fiche" click on a pending
@@ -7221,9 +7217,7 @@ function creationNewEntity() {
  *  factored out of creationNewEntity's own body (BRIEF-0058-f) so the two
  *  paths can never drift apart. */
 function _authorResetCreateDrafts() {
-  pendingDraftKnowledge = [];
   pendingDraftNotes     = [];
-  pendingDraftGoals     = { long: '', shorts: ['', ''] };
   pendingCreationMutationId = null;
 }
 
@@ -7342,16 +7336,17 @@ document.addEventListener('creation:entities-loaded', (ev) => {
  * (real Svelte markup per field.kind, not a string generator) and
  * frontend/src/creation/Sheet.svelte (the skeleton authorRenderSheet used
  * to build), mounted into #author-main as the entitySheet island.
- * BRIEF-0058-g family a/b/c/d converged geometry/doors/the Lieux create-save
- * flow, faction roles/memberships/roster, Tarifs/subculture, and the
- * read-only ledger+items sections onto their own components
- * (GeometryEditor/DoorsEditor/RolesEditor/RoleRow/FactionRoster/
- * MembershipsPanel/PricingEditor/SubcultureEditor/LedgerPanel/
- * ItemsPanel.svelte, locationType.js/factionPanel.svelte.js/
- * subcultureDraft.svelte.js) -- Sheet.svelte mounts those directly now, no
- * legacyCall involved. What remains a sub-editor generator this skeleton
- * calls synchronously (authorRenderRelations(Form), authorRenderKnowledge
- * (Form), authorRenderPendingKnowledge/Goals, authorRenderGoalForm,
+ * BRIEF-0058-g family a/b/c/d/e converged geometry/doors/the Lieux
+ * create-save flow, faction roles/memberships/roster, Tarifs/subculture,
+ * the read-only ledger+items sections, and the pending knowledge/goals
+ * draft panels onto their own components (GeometryEditor/DoorsEditor/
+ * RolesEditor/RoleRow/FactionRoster/MembershipsPanel/PricingEditor/
+ * SubcultureEditor/LedgerPanel/ItemsPanel/PendingKnowledgeEditor/
+ * PendingGoalsEditor.svelte, locationType.js/factionPanel.svelte.js/
+ * subcultureDraft.svelte.js/pendingDrafts.svelte.js) -- Sheet.svelte mounts
+ * those directly now, no legacyCall involved. What remains a sub-editor
+ * generator this skeleton calls synchronously (authorRenderRelations(Form),
+ * authorRenderKnowledge(Form), authorRenderGoalForm,
  * authorRenderDiscDetailForm, authorRenderGeneratePanel) is UNCHANGED
  * below — Sheet.svelte reaches each one via legacyCall
  * (frontend/src/legacy/bridge.js), embedding the returned HTML string
@@ -7393,8 +7388,9 @@ function _creationReadField(field, idPrefix) {
  * creator edits the pre-filled form freely; accepting goes through the
  * EXISTING create control (authorSave below) and the EXISTING knowledge
  * CRUD endpoint — no new write code. One-shot (F2 conversational refine is
- * out of scope): a second "Générer" click discards pendingDraftKnowledge/
- * pendingDraftNotes and starts over. */
+ * out of scope): a second "Générer" click discards the pending
+ * knowledge/goals draft (pendingDrafts.svelte.js) and pendingDraftNotes,
+ * starting over. */
 
 function authorRenderGeneratePanel() {
   return `
@@ -7468,26 +7464,27 @@ function authorApplyCharacterDraft(result) {
   const secretsEl = document.getElementById('author-x-secrets');
   if (secretsEl) secretsEl.value = draft.secret.creator_meta != null ? JSON.stringify(draft.secret.creator_meta) : '';
 
-  pendingDraftKnowledge = (draft.secret.knowledge || []).map(k => ({ ...k }));
   pendingDraftNotes = [...(result.notes || [])];
   for (const sw of (draft.secret.shared_with || [])) {
     pendingDraftNotes.push(`Pourrait être partagé avec ${sw.with}${sw.note ? ' — ' + sw.note : ''}`);
   }
 
-  const pkEl = document.getElementById('author-pending-knowledge');
-  if (pkEl) pkEl.innerHTML = authorRenderPendingKnowledge();
-
-  // BRIEF-0013-b (L1): goals drafted alongside the character, held the same
-  // way as pendingDraftKnowledge above, POSTed via the 0013-a goals endpoint
-  // right after the entity is created (authorSave).
+  // BRIEF-0013-b (L1): goals drafted alongside the character, POSTed via the
+  // 0013-a goals endpoint right after the entity is created (authorSave).
+  // Knowledge + goals both moved to pendingDrafts.svelte.js (BRIEF-0058-g
+  // family e) -- PendingKnowledgeEditor.svelte/PendingGoalsEditor.svelte now
+  // own #author-pending-knowledge/#author-pending-goals reactively, so this
+  // reaches them through a reverse-bridge event instead of a direct
+  // variable write + innerHTML (which would tear the mounted components
+  // out, RECON-0058-a M5).
   const goals = draft.public.goals;
   const shorts = (goals && Array.isArray(goals.shorts)) ? goals.shorts : [];
-  pendingDraftGoals = {
-    long: (goals && goals.long) || '',
-    shorts: [shorts[0] || '', shorts[1] || ''],
-  };
-  const pgEl = document.getElementById('author-pending-goals');
-  if (pgEl) pgEl.innerHTML = authorRenderPendingGoals();
+  document.dispatchEvent(new CustomEvent('creation:apply-pending-drafts', {
+    detail: {
+      knowledge: (draft.secret.knowledge || []).map(k => ({ ...k })),
+      goals: { long: (goals && goals.long) || '', shorts: [shorts[0] || '', shorts[1] || ''] },
+    },
+  }));
 
   authorRenderGenNotes(pendingDraftNotes);
 }
@@ -7640,89 +7637,13 @@ function authorRenderGenNotes(notes) {
     : '';
 }
 
-function authorRenderPendingKnowledge() {
-  if (!pendingDraftKnowledge.length) return '<div class="empty">Aucun savoir secret proposé.</div>';
-  const levels = authorRegistry.knowledge_fields.find(f => f.name === 'level').options;
-  return '<div class="row-table">' + pendingDraftKnowledge.map((k, i) => `
-    <div class="row-card">
-      <div class="field-grid">
-        <div class="field-row"><label>Subject</label><input type="text" id="pk-subj-${i}" value="${esc(k.subject)}"></div>
-        <div class="field-row"><label>Level</label>
-          <select id="pk-level-${i}">
-            ${levels.map(l => `<option value="${l}" ${l === k.level ? 'selected' : ''}>${l}</option>`).join('')}
-          </select></div>
-        <div class="field-row checkbox">
-          <input type="checkbox" id="pk-secret-${i}" checked disabled>
-          <label for="pk-secret-${i}">Secret (forcé)</label></div>
-        <div class="field-row span-2"><label>Content</label><textarea id="pk-content-${i}">${esc(k.content)}</textarea></div>
-      </div>
-      <div class="row-card-actions">
-        <button class="btn-end" onclick="authorRemovePendingKnowledge(${i})">Delete</button>
-      </div>
-    </div>
-  `).join('') + '</div>';
-}
-
-function authorRemovePendingKnowledge(i) {
-  _syncPendingKnowledgeFromDom();
-  pendingDraftKnowledge.splice(i, 1);
-  document.getElementById('author-pending-knowledge').innerHTML = authorRenderPendingKnowledge();
-}
-
-/** Reads the pending-knowledge inputs' current values back into
- *  pendingDraftKnowledge (no per-row save button, unlike the post-creation
- *  knowledge editor — values are read once, at accept time). Returns the
- *  rows that still have both a subject and content. */
-function _syncPendingKnowledgeFromDom() {
-  pendingDraftKnowledge.forEach((k, i) => {
-    const subjEl    = document.getElementById(`pk-subj-${i}`);
-    const levelEl   = document.getElementById(`pk-level-${i}`);
-    const contentEl = document.getElementById(`pk-content-${i}`);
-    if (subjEl)    k.subject = subjEl.value;
-    if (levelEl)   k.level   = levelEl.value;
-    if (contentEl) k.content = contentEl.value;
-  });
-  return pendingDraftKnowledge.filter(k => k.subject && k.content);
-}
-
-/* ── Pending goals (BRIEF-0013-b, L1) — same in-creation-form idiom as
- * pendingDraftKnowledge: 1 long + 2 short textareas, each clearable (an
- * empty textarea is simply not created). No per-row remove control needed —
- * the slots are fixed (M2 cardinality), not a dynamic list. */
-function authorRenderPendingGoals() {
-  const g = pendingDraftGoals;
-  return `
-    <div class="row-card">
-      <div class="field-grid">
-        <div class="field-row span-2"><label>Long terme</label><textarea id="pg-long">${esc(g.long)}</textarea></div>
-        <div class="field-row span-2"><label>Court terme 1</label><textarea id="pg-short-0">${esc(g.shorts[0] || '')}</textarea></div>
-        <div class="field-row span-2"><label>Court terme 2</label><textarea id="pg-short-1">${esc(g.shorts[1] || '')}</textarea></div>
-      </div>
-    </div>
-  `;
-}
-
-/** Reads the pending-goals textareas' current values back into
- *  pendingDraftGoals, then returns the {description, horizon} entries whose
- *  textarea isn't blank — the shape `authorSave` POSTs to the 0013-a goals
- *  endpoint right after the entity is created. */
-function _syncPendingGoalsFromDom() {
-  const longEl = document.getElementById('pg-long');
-  const s0El = document.getElementById('pg-short-0');
-  const s1El = document.getElementById('pg-short-1');
-  if (longEl) pendingDraftGoals.long = longEl.value;
-  if (s0El) pendingDraftGoals.shorts[0] = s0El.value;
-  if (s1El) pendingDraftGoals.shorts[1] = s1El.value;
-
-  const entries = [];
-  if (pendingDraftGoals.long.trim()) {
-    entries.push({ description: pendingDraftGoals.long.trim(), horizon: 'long' });
-  }
-  for (const s of pendingDraftGoals.shorts) {
-    if (s && s.trim()) entries.push({ description: s.trim(), horizon: 'short' });
-  }
-  return entries;
-}
+/* Pending knowledge/goals draft panels (BRIEF-24/BRIEF-0013-b) moved to
+ * frontend/src/creation/PendingKnowledgeEditor.svelte and
+ * PendingGoalsEditor.svelte + pendingDrafts.svelte.js (TICKET-0058,
+ * BRIEF-0058-g family e) -- authorRenderPendingKnowledge/
+ * authorRemovePendingKnowledge/authorRenderPendingGoals are gone.
+ * authorRenderGenNotes above is untouched (the AI-generate panel's own
+ * notes block, brief -h). */
 
 /* Tarifs (npc_price) and location subculture editors (BRIEF-20/TICKET-0025)
  * moved to frontend/src/creation/PricingEditor.svelte and
@@ -8153,17 +8074,17 @@ function _creationOpenLocationTypeModal(fieldId) {
 
 /** BRIEF-0058-f: _authorSaveSubmit's entity-write + dependent-draft-POST
  *  orchestration moved into Sheet.svelte's submitEntity (a faithful port —
- *  same endpoints, same order, same conditions). What COULDN'T move is the
- *  draft state itself: pendingDraftKnowledge/pendingDraftGoals/
- *  pendingCreationMutationId are legacy globals owned by the (unmigrated,
+ *  same endpoints, same order, same conditions). What COULDN'T move is
+ *  pendingCreationMutationId, a legacy global owned by the (unmigrated,
  *  brief -h) AI-draft panel -- the faction-roles draft moved to
- *  factionPanel.svelte.js's draftRoles (family b) and the subculture draft
- *  to subcultureDraft.svelte.js (family c), both read directly by
- *  Sheet.svelte's submitEntity, no legacyCall needed for either any more.
- *  These small functions are the exact inline snippets _authorSaveSubmit
- *  used to run itself, extracted so Sheet.svelte can reach them via
- *  legacyCall instead of a bare variable read it has no access to — none of
- *  them change what the snippet did. */
+ *  factionPanel.svelte.js's draftRoles (family b), the subculture draft to
+ *  subcultureDraft.svelte.js (family c), and the pending knowledge/goals
+ *  drafts to pendingDrafts.svelte.js (family e), all read directly by
+ *  Sheet.svelte's submitEntity, no legacyCall needed for any of them any
+ *  more. This small function is the exact inline snippet _authorSaveSubmit
+ *  used to run itself, extracted so Sheet.svelte can reach it via legacyCall
+ *  instead of a bare variable read it has no access to — it doesn't change
+ *  what the snippet did. */
 function _authorGetPendingCreationMutationId() {
   return pendingCreationMutationId;
 }
@@ -8181,9 +8102,7 @@ function _authorConsumePendingCreationMutationId() {
  *  no-op, exactly as harmless as the original's per-type conditional
  *  clears. */
 function _authorClearCreateDrafts() {
-  pendingDraftKnowledge = [];
   pendingDraftNotes = [];
-  pendingDraftGoals = { long: '', shorts: ['', ''] };
 }
 
 async function authorDelete() {

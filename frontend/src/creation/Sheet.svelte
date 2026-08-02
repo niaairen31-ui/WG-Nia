@@ -65,6 +65,9 @@
   import PricingEditor from './PricingEditor.svelte';
   import LedgerPanel from './LedgerPanel.svelte';
   import ItemsPanel from './ItemsPanel.svelte';
+  import { pendingDraftsState, resetPendingDrafts, knowledgeForCreate, goalsForCreate } from './pendingDrafts.svelte.js';
+  import PendingKnowledgeEditor from './PendingKnowledgeEditor.svelte';
+  import PendingGoalsEditor from './PendingGoalsEditor.svelte';
 
   let { legacyDoc } = $props();
 
@@ -153,6 +156,7 @@
     legacyCall('_authorResetCreateDrafts');
     resetDraftRoles();
     resetSubcultureDraft();
+    resetPendingDrafts();
     enterCreateMode(resolveTypeForTab(creationState.activeTabKey));
   }
 
@@ -254,6 +258,15 @@
   // same idiom, BRIEF-0058-g family c.
   legacyDoc.addEventListener('creation:apply-subculture-draft', (ev) => {
     subcultureDraftState.rows = ev.detail.rows;
+  });
+
+  // authorApplyCharacterDraft's equivalent for pendingDraftsState -- same
+  // idiom, BRIEF-0058-g family e. pendingDraftNotes stays a separate legacy
+  // global (the AI-generate panel's own notes block, brief -h) and isn't
+  // carried by this event.
+  legacyDoc.addEventListener('creation:apply-pending-drafts', (ev) => {
+    pendingDraftsState.knowledge = ev.detail.knowledge;
+    pendingDraftsState.goals = ev.detail.goals;
   });
 
   // Sibling header chrome (title/status/save/delete) lives OUTSIDE
@@ -359,8 +372,8 @@
     const statusEl = legacyDoc.getElementById('author-status');
     const rolesToCreate = (isNewSave && type === 'faction') ? draftRolesForCreate() : [];
     const subcultureRowsToCreate = (isNewSave && type === 'location') ? subcultureDraftForCreate() : [];
-    const knowledgeToCreate = (isNewSave && type === 'character') ? legacyCall('_syncPendingKnowledgeFromDom') : [];
-    const goalsToCreate = (isNewSave && type === 'character') ? legacyCall('_syncPendingGoalsFromDom') : [];
+    const knowledgeToCreate = (isNewSave && type === 'character') ? knowledgeForCreate() : [];
+    const goalsToCreate = (isNewSave && type === 'character') ? goalsForCreate() : [];
     const mutationId = isNewSave ? legacyCall('_authorGetPendingCreationMutationId') : null;
 
     try {
@@ -417,6 +430,7 @@
         legacyCall('_authorClearCreateDrafts');
         resetDraftRoles();
         resetSubcultureDraft();
+        resetPendingDrafts();
       }
 
       legacyCall('creationRefreshList');
@@ -542,10 +556,12 @@
 
       {#if isNew && type === 'character' && tabKey === 'npc'}
         <div class="field-section"><div class="field-section-title">Knowledge (créé à l'acceptation)</div>
-          <div id="author-pending-knowledge">{@html legacyCall('authorRenderPendingKnowledge')}</div>
+          <div id="author-pending-knowledge">
+            <PendingKnowledgeEditor levelOptions={registry.knowledge_fields.find((f) => f.name === 'level').options} />
+          </div>
         </div>
         <div class="field-section"><div class="field-section-title">Objectifs (créés à l'acceptation)</div>
-          <div id="author-pending-goals">{@html legacyCall('authorRenderPendingGoals')}</div>
+          <div id="author-pending-goals"><PendingGoalsEditor /></div>
         </div>
       {/if}
 
