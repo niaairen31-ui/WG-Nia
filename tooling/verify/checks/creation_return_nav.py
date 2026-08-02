@@ -7,6 +7,13 @@ Collects by function name via a brace-balanced slice (`page_contract.py`'s
 `_braced_block` idiom), never by comment-anchored section slice — a
 comment-anchored slice goes stale as the file is edited (TICKET-0043 lesson).
 
+Retargeted (TICKET-0058, BRIEF-0058-g family b): authorRenderFactionRoster/
+_factionRosterRowHtml moved off index.html onto
+frontend/src/creation/FactionRoster.svelte — same class of anchor move
+faction_roster_panel.py's own retargeting already covers; the ondblclick
+assertion now scans that file's source text directly instead of a
+brace-balanced function body (a .svelte file isn't JS function syntax).
+
 Vacuous-proof guard, mandatory: a missing file, or zero assertions actually
 evaluated because a named function could not be located, is a FAILURE — this
 check must never report PASS having silently skipped its own assertions.
@@ -19,6 +26,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
+FACTION_ROSTER_SVELTE = ROOT / "frontend" / "src" / "creation" / "FactionRoster.svelte"
 
 FAILURES: list[str] = []
 _ASSERTIONS_EVALUATED = 0
@@ -141,14 +149,15 @@ def main() -> None:
     if re.search(r"creationReturnTo\.push\(", html):
         fail("creationReturnTo is .push(ed onto somewhere — it must stay a single slot, never a stack")
 
-    # authorRenderFactionRoster contains ondblclick.
-    roster_body = _function_body(html, "authorRenderFactionRoster")
-    if not roster_body:
-        fail("authorRenderFactionRoster(...) function body not found in index.html")
+    # FactionRoster.svelte (was authorRenderFactionRoster/_factionRosterRowHtml)
+    # contains ondblclick.
+    if not FACTION_ROSTER_SVELTE.exists():
+        fail(f"{FACTION_ROSTER_SVELTE} does not exist — scan is broken, not the repo clean")
     else:
         _ASSERTIONS_EVALUATED += 1
-        if "ondblclick" not in roster_body and "ondblclick" not in _function_body(html, "_factionRosterRowHtml"):
-            fail("authorRenderFactionRoster (or its row helper) does not contain 'ondblclick'")
+        roster_svelte_src = FACTION_ROSTER_SVELTE.read_text(encoding="utf-8")
+        if "ondblclick" not in roster_svelte_src:
+            fail(f"{FACTION_ROSTER_SVELTE} does not contain 'ondblclick'")
 
     _report_and_exit()
 
