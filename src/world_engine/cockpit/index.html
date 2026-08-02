@@ -3286,32 +3286,12 @@ let pendingDraftGoals = { long: '', shorts: ['', ''] };
    germ. */
 let pendingCreationMutationId = null;
 
-/* Faction roles editor draft, NEW-faction case only (TICKET-0024,
- * BRIEF-0024-d — corrective, replaces the disconnected metadata.roles list
- * + role_capacities map with one `faction_role` table). While creating a
- * faction the entity doesn't exist yet, so drafted rows {name, description,
- * limit} are held here and POSTed to the faction_role create route right
- * after authorSave creates the entity — same in-creation-form idiom as
- * pendingDraftKnowledge/pendingDraftGoals above. An EXISTING faction's
- * roles editor is live/API-backed instead (authorFactionRolesLive,
- * authorLoadFactionRoles) and never touches this array. */
-let authorFactionRolesDraft = [];
-
-/* Faction roles editor state, EXISTING-faction case (TICKET-0024,
- * BRIEF-0024-d) — the `faction_role` rows for the open faction sheet, plus
- * the undeclared-active-roles hint list. Loaded fresh by
- * authorLoadFactionRoles on every sheet open; each row edit/rename/delete/
- * reorder hits its own route immediately (no batching, no generic entity
- * PUT involvement). */
-let authorFactionRolesLive = [];
-let authorFactionRolesUndeclared = [];
-
-/* Roster panel state (TICKET-0054, BRIEF-0054-c): last-fetched roster rows,
- * held so Annuler can re-render the grouped panel without a refetch, and the
- * single membership id currently in inline role-edit mode (null = none —
- * only one row edits at a time). */
-let authorFactionRosterRows = [];
-let authorFactionRosterEditingId = null;
+/* Faction roles/roster editor state (draft + live + undeclared + roster
+ * rows/editing-id) moved to frontend/src/creation/factionPanel.svelte.js's
+ * factionPanelState (TICKET-0058, BRIEF-0058-g family b) -- these five
+ * legacy globals are gone. authorApplyFactionDraft (AI faction-draft
+ * pre-fill, brief -h, still legacy) reaches the new draft state through the
+ * 'creation:apply-faction-roles-draft' reverse-bridge event instead. */
 
 /* Last-loaded goals for the open NPC sheet (TICKET-0024, BRIEF-0024-a) —
  * lets the prerequisite add/remove controls read a goal's current
@@ -7361,18 +7341,23 @@ document.addEventListener('creation:entities-loaded', (ev) => {
  * authorRenderSheet are gone — ported to frontend/src/creation/Field.svelte
  * (real Svelte markup per field.kind, not a string generator) and
  * frontend/src/creation/Sheet.svelte (the skeleton authorRenderSheet used
- * to build), mounted into #author-main as the entitySheet island. Every
- * sub-editor generator this skeleton called synchronously (authorRender-
- * RolesEditor, authorRenderSubcultureEditor, authorRenderGeometryEditor,
- * authorRenderDoorsEditor, authorRenderRelations(Form), authorRenderKnowledge
- * (Form), authorRenderPendingKnowledge/Goals, authorRenderPricing,
- * authorRenderMembershipForm, authorRenderGoalForm, authorRenderDiscDetailForm,
+ * to build), mounted into #author-main as the entitySheet island.
+ * BRIEF-0058-g family a/b converged geometry/doors/the Lieux create-save
+ * flow and faction roles/memberships/roster onto their own components
+ * (GeometryEditor/DoorsEditor/RolesEditor/RoleRow/FactionRoster/
+ * MembershipsPanel.svelte, locationType.js/factionPanel.svelte.js) --
+ * Sheet.svelte mounts those directly now, no legacyCall involved. What
+ * remains a sub-editor generator this skeleton calls synchronously
+ * (authorRenderSubcultureEditor, authorRenderRelations(Form),
+ * authorRenderKnowledge(Form), authorRenderPendingKnowledge/Goals,
+ * authorRenderPricing, authorRenderGoalForm, authorRenderDiscDetailForm,
  * authorRenderGeneratePanel) is UNCHANGED below — Sheet.svelte reaches each
  * one via legacyCall (frontend/src/legacy/bridge.js), embedding the
  * returned HTML string exactly where authorRenderSheet used to concatenate
- * it. The async tail (authorLoadItems/Ledger/Memberships/Goals/
- * FactionMembersPanel/DiscDetails, authorMembershipFactionChanged) is
- * reached the same way, after Sheet.svelte's own DOM update flushes.
+ * it. The async tail (authorLoadItems/Ledger/Goals/DiscDetails) is reached
+ * the same way, after Sheet.svelte's own DOM update flushes; the faction
+ * roles+roster load (was authorLoadFactionMembersPanel) is a plain
+ * loadFactionMembersPanel import instead (family b).
  * evenements' still-legacy renderEventSheet/evenementsRenderCreatePanel/
  * evenementsSave/evenementsSubmitCreate reach the ported field engine
  * through _creationRenderField/_creationReadField below instead (the field
@@ -7542,11 +7527,12 @@ function authorApplyLocationDraft(result) {
 }
 
 /* ── Faction draft pre-fill (BRIEF-32) ──────────────────────────────────────
- * roles flow into authorFactionRolesDraft (the same in-memory array the
- * NEW-faction roles editor reads/writes, TICKET-0024/BRIEF-0024-d) and are
- * POSTed to the faction_role create route by authorSave right after the
- * entity is created — no new write code. magic_knowledge_level, scope, and
- * parent_faction_id are never set (stay at form defaults). */
+ * roles flow into factionPanelState.draftRoles (BRIEF-0058-g family b moved
+ * the in-memory array the NEW-faction roles editor reads/writes into
+ * RolesEditor.svelte's own module) and are POSTed to the faction_role create
+ * route by Sheet.svelte's submitEntity right after the entity is created —
+ * no new write code. magic_knowledge_level, scope, and parent_faction_id are
+ * never set (stay at form defaults). */
 function authorApplyFactionDraft(result) {
   const draft = result.draft;
   const setVal = (id, value) => { const el = document.getElementById(id); if (el) el.value = value ?? ''; };
@@ -7560,9 +7546,9 @@ function authorApplyFactionDraft(result) {
   setVal('author-x-internal_tensions', draft.secret.internal_tensions);
   setVal('author-x-goals', draft.secret.goals);
 
-  authorFactionRolesDraft = (draft.public.roles || []).map(r => ({ name: r.name || '', description: r.description || '', limit: null }));
-  const rolesEl = document.getElementById('author-roles');
-  if (rolesEl) rolesEl.innerHTML = authorRenderRolesEditor();
+  document.dispatchEvent(new CustomEvent('creation:apply-faction-roles-draft', {
+    detail: { rows: (draft.public.roles || []).map(r => ({ name: r.name || '', description: r.description || '', limit: null })) },
+  }));
 
   pendingDraftNotes = [...(result.notes || [])];
   authorRenderGenNotes(pendingDraftNotes);
@@ -7973,571 +7959,19 @@ function authorRenderItems(items) {
   `).join('') + '</div>';
 }
 
-/* ── Faction membership (schema v1.39, BRIEF-27) ──────────────────────────
- * Creator-CRUD only, INSERT-only / close-only: there is no "edit" control —
- * a role/primary change is close + re-add (authorCloseMembership then
- * authorAddMembership), the closed-row sequence IS the history. */
-
-async function authorLoadMemberships(entityId) {
-  const el = document.getElementById('author-memberships');
-  if (!el) return;
-  try {
-    const rows = await api(`/api/entities/${encodeURIComponent(entityId)}/memberships`);
-    el.innerHTML = authorRenderMemberships(rows);
-  } catch (e) {
-    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-  }
-}
-
-function authorRenderMemberships(rows) {
-  if (!rows || rows.length === 0) return '<div class="empty">No active memberships.</div>';
-  return '<div class="row-table">' + rows.map(m => `
-    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between;">
-      <span>${esc(m.faction_name)}${m.role ? ` — ${esc(m.role)}` : ''}${m.cover_role ? ` <em>(façade : ${esc(m.cover_role)})</em>` : ''}</span>
-      <span style="display:flex; align-items:center; gap:8px;">
-        ${m.is_primary ? '<span class="badge b-equipped">primaire</span>' : ''}
-        ${m.is_secret ? '<span class="badge b-rejected">secret</span>' : ''}
-        <button class="btn-end" style="font-size:12px; padding:3px 8px"
-          onclick="authorCloseMembership('${esc(m.id)}')">Close</button>
-      </span>
-    </div>
-  `).join('') + '</div>';
-}
-
-/* ── Faction roles editor, NEW-faction draft (TICKET-0024, BRIEF-0024-d —
- * corrective, replaces the BRIEF-31 metadata.roles editor + the
- * BRIEF-0024-a role_capacities editor with one `faction_role`-backed UI).
- * While creating a faction the entity doesn't exist yet, so drafted rows
- * {name, description, limit} live in authorFactionRolesDraft, synced from
- * the DOM before any mutation, and are POSTed to the faction_role create
- * route by authorSave right after the entity is created (no merge into the
- * generic entity PUT payload — faction_role is never part of it). */
-
-function authorRenderRolesEditor() {
-  const rows = authorFactionRolesDraft.map((r, i) => `
-    <div class="row-card" style="flex-direction:row; gap:8px; align-items:center;">
-      <input type="number" min="1" step="1" id="role-limit-${i}" placeholder="Limite" style="width:90px"
-        value="${r.limit === null || r.limit === undefined ? '' : esc(String(r.limit))}">
-      <input type="text" id="role-name-${i}" placeholder="Rôle" value="${esc(r.name || '')}" style="flex:1">
-      <input type="text" id="role-desc-${i}" placeholder="Description" value="${esc(r.description || '')}" style="flex:2">
-      <button class="btn-icon" onclick="authorMoveRoleRow(${i}, -1)" title="Monter" ${i === 0 ? 'disabled' : ''}>↑</button>
-      <button class="btn-icon" onclick="authorMoveRoleRow(${i}, 1)" title="Descendre" ${i === authorFactionRolesDraft.length - 1 ? 'disabled' : ''}>↓</button>
-      <button class="btn-icon" onclick="authorRemoveRoleRow(${i})" title="Supprimer">✕</button>
-    </div>`).join('');
-  return `<div id="author-roles-rows">${rows || '<div class="empty">Aucun rôle.</div>'}</div>
-    <div style="font-size:11px; color:var(--muted); margin:4px 0;">Limite | Rôle | Description — vide = illimité</div>
-    <div class="row-card-actions" style="margin-top:6px">
-      <button class="btn-send" onclick="authorAddRoleRow()">+ Add role</button>
-    </div>`;
-}
-
-function _syncFactionRolesFromDom() {
-  authorFactionRolesDraft.forEach((r, i) => {
-    const limitEl = document.getElementById(`role-limit-${i}`);
-    const nameEl = document.getElementById(`role-name-${i}`);
-    const descEl = document.getElementById(`role-desc-${i}`);
-    if (limitEl) r.limit = limitEl.value.trim() === '' ? null : Number(limitEl.value);
-    if (nameEl) r.name = nameEl.value;
-    if (descEl) r.description = descEl.value;
-  });
-}
-
-function authorAddRoleRow() {
-  _syncFactionRolesFromDom();
-  authorFactionRolesDraft.push({ name: '', description: '', limit: null });
-  document.getElementById('author-roles').innerHTML = authorRenderRolesEditor();
-}
-
-function authorRemoveRoleRow(i) {
-  _syncFactionRolesFromDom();
-  authorFactionRolesDraft.splice(i, 1);
-  document.getElementById('author-roles').innerHTML = authorRenderRolesEditor();
-}
-
-function authorMoveRoleRow(i, dir) {
-  _syncFactionRolesFromDom();
-  const j = i + dir;
-  if (j < 0 || j >= authorFactionRolesDraft.length) return;
-  [authorFactionRolesDraft[i], authorFactionRolesDraft[j]] = [authorFactionRolesDraft[j], authorFactionRolesDraft[i]];
-  document.getElementById('author-roles').innerHTML = authorRenderRolesEditor();
-}
-
-/* ── Faction roles editor, EXISTING faction (TICKET-0024, BRIEF-0024-d) ───
- * `faction_role` rows, one dedicated route per action — GET list, POST
- * create, PATCH update/rename, DELETE, PATCH reorder — never the generic
- * entity PUT (only writes.write_faction_role may touch this table). Each
- * row edit/rename/delete/reorder commits immediately; there is no batched
- * Save. Renaming a role held by active members shows a confirm naming the
- * count before the write (T1 realignment). Undeclared-borne roles — a true
- * `role` on an ACTIVE membership matching no declared row — render as a
- * dim hint with a one-click "+ déclarer" (zero writes until clicked). */
-
-/** Sequencing wrapper (TICKET-0054, BRIEF-0054-c): the grouped roster render
- *  needs the declared-role list (authorFactionRolesLive) in memory BEFORE it
- *  runs, so roles load first. Both loaders keep their own containers and
- *  bodies unchanged — this is ordering only, never a merge. */
-async function authorLoadFactionMembersPanel(entityId) {
-  await authorLoadFactionRoles(entityId);
-  await authorLoadFactionRoster(entityId);
-}
-
-async function authorLoadFactionRoles(factionId) {
-  const el = document.getElementById('author-roles');
-  if (!el) return;
-  try {
-    const data = await api(`/api/factions/${encodeURIComponent(factionId)}/roles`);
-    authorFactionRolesLive = data.roles || [];
-    authorFactionRolesUndeclared = data.undeclared_active_roles || [];
-    el.innerHTML = authorRenderExistingRolesEditor();
-  } catch (e) {
-    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-  }
-}
-
-function authorRenderExistingRolesEditor() {
-  const rows = authorFactionRolesLive.map((r, i) => `
-    <div class="row-card" style="flex-direction:row; gap:8px; align-items:center;">
-      <input type="number" min="1" step="1" id="role-limit-${i}" placeholder="Limite" style="width:90px"
-        value="${r.max_holders === null || r.max_holders === undefined ? '' : esc(String(r.max_holders))}"
-        onchange="authorUpdateFactionRole('${esc(authorEntityId)}', ${i})">
-      <input type="text" id="role-name-${i}" placeholder="Rôle" value="${esc(r.name || '')}" style="flex:1"
-        onchange="authorRenameFactionRole('${esc(authorEntityId)}', ${i})">
-      <input type="text" id="role-desc-${i}" placeholder="Description" value="${esc(r.description || '')}" style="flex:2"
-        onchange="authorUpdateFactionRole('${esc(authorEntityId)}', ${i})">
-      <button class="btn-icon" onclick="authorMoveFactionRole('${esc(authorEntityId)}', ${i}, -1)" title="Monter" ${i === 0 ? 'disabled' : ''}>↑</button>
-      <button class="btn-icon" onclick="authorMoveFactionRole('${esc(authorEntityId)}', ${i}, 1)" title="Descendre" ${i === authorFactionRolesLive.length - 1 ? 'disabled' : ''}>↓</button>
-      <button class="btn-icon" onclick="authorDeleteFactionRole('${esc(authorEntityId)}', '${esc(r.id)}')" title="Supprimer">✕</button>
-    </div>`).join('');
-
-  const undeclared = authorFactionRolesUndeclared.map(name => `
-    <div class="row-card" style="flex-direction:row; gap:8px; align-items:center; opacity:0.6;">
-      <span style="flex:1">${esc(name)}</span>
-      <span style="font-size:11px;">non déclaré</span>
-      <button class="btn-send" onclick="authorDeclareFactionRole('${esc(authorEntityId)}', '${esc(name)}')">+ déclarer</button>
-    </div>`).join('');
-
-  return `<div id="author-roles-rows">${rows || '<div class="empty">Aucun rôle.</div>'}</div>
-    ${undeclared ? `<div id="author-roles-undeclared" style="margin-top:6px">${undeclared}</div>` : ''}
-    <div style="font-size:11px; color:var(--muted); margin:6px 0;">Limite | Rôle | Description — vide = illimité</div>
-    <div class="row-card" style="flex-direction:row; gap:8px; align-items:center;">
-      <input type="number" min="1" step="1" id="role-new-limit" placeholder="Limite" style="width:90px">
-      <input type="text" id="role-new-name" placeholder="Nom" style="flex:1">
-      <input type="text" id="role-new-desc" placeholder="Description" style="flex:2">
-      <button class="btn-send" onclick="authorCreateFactionRole('${esc(authorEntityId)}')">+ Add role</button>
-    </div>
-    <span id="author-roles-status" class="author-status"></span>`;
-}
-
-function _factionRoleLimitValue(elId) {
-  const el = document.getElementById(elId);
-  if (!el) return null;
-  return el.value.trim() === '' ? null : Number(el.value);
-}
-
-function _factionRoleStatusError(message) {
-  const s = document.getElementById('author-roles-status');
-  if (s) { s.className = 'author-status err'; s.textContent = message; }
-}
-
-async function authorCreateFactionRole(factionId) {
-  const name = (document.getElementById('role-new-name').value || '').trim();
-  if (!name) return;
-  const description = document.getElementById('role-new-desc').value || null;
-  const max_holders = _factionRoleLimitValue('role-new-limit');
-  try {
-    await api(`/api/factions/${encodeURIComponent(factionId)}/roles`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description, max_holders }),
-    });
-    await authorLoadFactionRoles(factionId);
-  } catch (e) {
-    _factionRoleStatusError(e.message);
-  }
-}
-
-async function authorUpdateFactionRole(factionId, i) {
-  const row = authorFactionRolesLive[i];
-  if (!row) return;
-  const description = document.getElementById(`role-desc-${i}`).value || null;
-  const max_holders = _factionRoleLimitValue(`role-limit-${i}`);
-  try {
-    await api(`/api/factions/${encodeURIComponent(factionId)}/roles/${encodeURIComponent(row.id)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description, max_holders }),
-    });
-    await authorLoadFactionRoles(factionId);
-  } catch (e) {
-    _factionRoleStatusError(e.message);
-  }
-}
-
-async function authorRenameFactionRole(factionId, i) {
-  const row = authorFactionRolesLive[i];
-  if (!row) return;
-  const nameEl = document.getElementById(`role-name-${i}`);
-  const newName = (nameEl.value || '').trim();
-  if (!newName || newName === row.name) { nameEl.value = row.name; return; }
-  const count = row.active_holder_count || 0;
-  if (count > 0) {
-    const ok = confirm(
-      `Renommer "${row.name}" en "${newName}" ? ${count} membre(s) actif(s) tenant ce rôle seront ` +
-      `réalignés (fermeture + réouverture de leur adhésion ; l'historique est conservé). Continuer ?`
-    );
-    if (!ok) { nameEl.value = row.name; return; }
-  }
-  // The PATCH route always applies description/max_holders alongside a
-  // rename (one row, one full-state write) — send the current DOM values,
-  // not just the new name, or the rename would blank them out.
-  const description = document.getElementById(`role-desc-${i}`).value || null;
-  const max_holders = _factionRoleLimitValue(`role-limit-${i}`);
-  try {
-    await api(`/api/factions/${encodeURIComponent(factionId)}/roles/${encodeURIComponent(row.id)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newName, description, max_holders }),
-    });
-    await authorLoadFactionRoles(factionId);
-  } catch (e) {
-    nameEl.value = row.name;
-    _factionRoleStatusError(e.message);
-  }
-}
-
-async function authorMoveFactionRole(factionId, i, dir) {
-  const j = i + dir;
-  if (j < 0 || j >= authorFactionRolesLive.length) return;
-  const ids = authorFactionRolesLive.map(r => r.id);
-  [ids[i], ids[j]] = [ids[j], ids[i]];
-  try {
-    await api(`/api/factions/${encodeURIComponent(factionId)}/roles/reorder`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role_ids: ids }),
-    });
-    await authorLoadFactionRoles(factionId);
-  } catch (e) {
-    _factionRoleStatusError(e.message);
-  }
-}
-
-async function authorDeleteFactionRole(factionId, roleId) {
-  if (!confirm('Delete this role?')) return;
-  try {
-    await api(`/api/factions/${encodeURIComponent(factionId)}/roles/${encodeURIComponent(roleId)}`, { method: 'DELETE' });
-    await authorLoadFactionRoles(factionId);
-  } catch (e) {
-    _factionRoleStatusError(e.message);
-  }
-}
-
-async function authorDeclareFactionRole(factionId, name) {
-  try {
-    await api(`/api/factions/${encodeURIComponent(factionId)}/roles`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description: null, max_holders: null }),
-    });
-    await authorLoadFactionRoles(factionId);
-  } catch (e) {
-    _factionRoleStatusError(e.message);
-  }
-}
-
-function authorRenderMembershipForm() {
-  const candidates = authorAllEntities.filter(e => e.type === 'faction');
-  const opts = candidates.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
-  return `
-    <div class="row-card">
-      <div class="field-grid">
-        <div class="field-row"><label>Faction *</label>
-          <select id="mem-new-faction" onchange="authorMembershipFactionChanged()">${opts}</select></div>
-        <div class="field-row"><label>Role</label>
-          <select id="mem-new-role-select" onchange="authorMembershipRoleSelectChanged()"></select></div>
-        <div class="field-row" id="mem-new-role-other-row" style="display:none">
-          <label>Role (autre)</label><input type="text" id="mem-new-role"></div>
-        <div class="field-row"><label>Cover role (façade)</label><input type="text" id="mem-new-cover-role"></div>
-        <div class="field-row checkbox"><input type="checkbox" id="mem-new-primary"><label for="mem-new-primary">Primaire</label></div>
-        <div class="field-row checkbox"><input type="checkbox" id="mem-new-secret"><label for="mem-new-secret">Secret</label></div>
-      </div>
-      <div class="row-card-actions">
-        <button class="btn-send" onclick="authorAddMembership()">Add membership</button>
-      </div>
-    </div>
-  `;
-}
-
-/** Role picker (BRIEF-31, schema v1.42, decision F1): repopulates
- *  #mem-new-role-select from the selected faction's curated `roles`
- *  (GET /api/entities/{id}/roles — public vocabulary, names only, stored
- *  order) plus an always-present "autre" option. No faction selected, or a
- *  faction with no roles, degrades to "autre" only (decision 3.4). */
-async function authorMembershipFactionChanged() {
-  const factionEl = document.getElementById('mem-new-faction');
-  const selectEl  = document.getElementById('mem-new-role-select');
-  if (!factionEl || !selectEl) return;
-  const factionId = factionEl.value;
-  let roles = [];
-  if (factionId) {
-    try {
-      roles = await api(`/api/entities/${encodeURIComponent(factionId)}/roles`);
-    } catch (e) {
-      roles = [];
-    }
-  }
-  const opts = roles.map(r => `<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('');
-  selectEl.innerHTML = opts + '<option value="__other__">autre</option>';
-  authorMembershipRoleSelectChanged();
-}
-
-function authorMembershipRoleSelectChanged() {
-  const selectEl = document.getElementById('mem-new-role-select');
-  const otherRow = document.getElementById('mem-new-role-other-row');
-  if (!selectEl || !otherRow) return;
-  otherRow.style.display = selectEl.value === '__other__' ? '' : 'none';
-}
-
-async function authorAddMembership() {
-  const statusEl = document.getElementById('author-status');
-  const roleSelectEl = document.getElementById('mem-new-role-select');
-  const role = (!roleSelectEl || roleSelectEl.value === '__other__')
-    ? (document.getElementById('mem-new-role').value || null)
-    : roleSelectEl.value;
-  const body = JSON.stringify({
-    faction_id:  document.getElementById('mem-new-faction').value,
-    role:        role,
-    cover_role:  document.getElementById('mem-new-cover-role').value || null,
-    is_primary: document.getElementById('mem-new-primary').checked,
-    is_secret:  document.getElementById('mem-new-secret').checked,
-  });
-  try {
-    await api(`/api/entities/${encodeURIComponent(authorEntityId)}/memberships`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
-    });
-    await authorLoadMemberships(authorEntityId);
-    statusEl.className = 'author-status ok';
-    statusEl.textContent = 'Saved.';
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = e.message;
-  }
-}
-
-async function authorCloseMembership(id) {
-  if (!confirm('Close this membership?')) return;
-  const statusEl = document.getElementById('author-status');
-  try {
-    await api(`/api/memberships/${encodeURIComponent(id)}/close`, { method: 'POST' });
-    await authorLoadMemberships(authorEntityId);
-    statusEl.className = 'author-status ok';
-    statusEl.textContent = 'Saved.';
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = e.message;
-  }
-}
-
-async function authorLoadFactionRoster(entityId) {
-  const el = document.getElementById('author-faction-roster');
-  if (!el) return;
-  try {
-    const rows = await api(`/api/entities/${encodeURIComponent(entityId)}/faction-roster`);
-    authorFactionRosterRows = rows || [];
-    authorFactionRosterEditingId = null;
-    el.innerHTML = authorRenderFactionRoster(authorFactionRosterRows) + authorRenderFactionMemberAddForm(authorFactionRosterRows);
-  } catch (e) {
-    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-  }
-}
-
-/** Shared role <option> list (TICKET-0054, BRIEF-0054-c) — reused by the
- *  add-member form's select and the inline role-edit select, so the
- *  vocabulary never drifts between the two. `(aucun)` first, then the
- *  faction's declared roles, then the always-present `autre`. */
-function _factionRoleOptionsHtml() {
-  const roleOpts = authorFactionRolesLive.map(r => `<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('');
-  return `<option value="">(aucun)</option>${roleOpts}<option value="__other__">autre</option>`;
-}
-
-function _factionRosterRowHtml(m) {
-  const editing = authorFactionRosterEditingId === m.id;
-  const right = editing
-    ? `<select id="fmem-role-edit-${esc(m.id)}" onclick="event.stopPropagation()">${_factionRoleOptionsHtml()}</select>
-       <button class="btn-send" style="font-size:11px; padding:2px 8px" onclick="event.stopPropagation(); authorMemberRoleEditSubmit('${esc(m.id)}')">Valider</button>
-       <button class="btn-ghost" style="font-size:11px; padding:2px 8px" onclick="event.stopPropagation(); authorMemberRoleEditCancel()">Annuler</button>`
-    : `${m.is_primary ? '<span class="badge b-equipped">primaire</span>' : ''}
-       ${m.is_secret ? '<span class="badge b-rejected">secret</span>' : ''}
-       <button class="btn-ghost" style="font-size:11px; padding:2px 8px" onclick="event.stopPropagation(); authorMemberRoleEditStart('${esc(m.id)}')">Changer</button>`;
-  return `
-    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between; cursor:pointer;"
-         ondblclick="creationOpenEntityFrom('${esc(m.entity_id)}', 'character')" title="Double-cliquer pour ouvrir la fiche">
-      <span>${esc(m.entity_name)}${m.role ? ` — ${esc(m.role)}` : ''}${m.cover_role ? ` <em>(façade : ${esc(m.cover_role)})</em>` : ''}</span>
-      <span style="display:flex; align-items:center; gap:8px;">${right}</span>
-    </div>`;
-}
-
-/** Three-bucket grouped render (TICKET-0054, decision B1). Member order
- *  INSIDE a zone is exactly the order the server returned — this function
- *  groups, it never sorts (the roster route owns order, decision A1). */
-function authorRenderFactionRoster(rows) {
-  rows = rows || [];
-
-  const zone1 = authorFactionRolesLive.map(role => {
-    const members = rows.filter(m => m.role_declared && m.role_position === role.position);
-    const limit = (role.max_holders === null || role.max_holders === undefined) ? '∞' : String(role.max_holders);
-    const body = members.length
-      ? '<div class="row-table">' + members.map(m => _factionRosterRowHtml(m)).join('') + '</div>'
-      : '<div class="empty">Aucun membre.</div>';
-    return `
-      <div class="field-section-title" style="display:flex; align-items:center; justify-content:space-between;">
-        <span>${esc(role.name)} <span style="font-size:11px; color:var(--muted)">(${role.active_holder_count}/${limit})</span></span>
-        <button class="btn-icon" onclick="authorFactionMemberAddPrefill('${esc(role.name)}')" title="Ajouter dans ce rôle">+</button>
-      </div>
-      ${body}`;
-  }).join('');
-
-  const undeclaredNames = [];
-  const seenUndeclared = new Set();
-  for (const m of rows) {
-    const role = (m.role || '').trim();
-    if (!m.role_declared && role && !seenUndeclared.has(role)) {
-      seenUndeclared.add(role);
-      undeclaredNames.push(role);
-    }
-  }
-  const zone2 = undeclaredNames.map(name => {
-    const members = rows.filter(m => !m.role_declared && (m.role || '').trim() === name);
-    const body = '<div class="row-table">' + members.map(m => _factionRosterRowHtml(m)).join('') + '</div>';
-    return `
-      <div class="field-section-title" style="display:flex; align-items:center; justify-content:space-between;">
-        <span>${esc(name)} <span class="badge" style="font-size:10px;">non déclaré</span></span>
-        <button class="btn-send" onclick="authorDeclareFactionRole('${esc(authorEntityId)}', '${esc(name)}').then(() => authorLoadFactionMembersPanel('${esc(authorEntityId)}'))">Déclarer</button>
-      </div>
-      ${body}`;
-  }).join('');
-
-  const noRole = rows.filter(m => !(m.role || '').trim());
-  const zone3 = noRole.length
-    ? `<div class="field-section-title">Sans rôle</div><div class="row-table">${noRole.map(m => _factionRosterRowHtml(m)).join('')}</div>`
-    : '';
-
-  return zone1 + zone2 + zone3;
-}
-
-/** Add-member form (TICKET-0054, decision C3) — one instance at the foot of
- *  the roster. Same shape as authorRenderMembershipForm minus the faction
- *  select (the faction is authorEntityId, fixed). */
-function authorRenderFactionMemberAddForm(rows) {
-  const activeIds = new Set((rows || []).map(m => m.entity_id));
-  const candidates = authorAllEntities.filter(e => e.type === 'character' && !activeIds.has(e.id));
-  const opts = candidates.length
-    ? candidates.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('')
-    : '<option value="">Aucun candidat</option>';
-  return `
-    <div class="row-card">
-      <div class="field-grid">
-        <div class="field-row"><label>Membre *</label>
-          <select id="fmem-new-entity" ${candidates.length ? '' : 'disabled'}>${opts}</select></div>
-        <div class="field-row"><label>Role</label>
-          <select id="fmem-new-role-select" onchange="authorFactionMemberRoleSelectChanged()">${_factionRoleOptionsHtml()}</select></div>
-        <div class="field-row" id="fmem-new-role-other-row" style="display:none">
-          <label>Role (autre)</label><input type="text" id="fmem-new-role"></div>
-        <div class="field-row"><label>Cover role (façade)</label><input type="text" id="fmem-new-cover-role"></div>
-        <div class="field-row checkbox"><input type="checkbox" id="fmem-new-primary"><label for="fmem-new-primary">Primaire</label></div>
-        <div class="field-row checkbox"><input type="checkbox" id="fmem-new-secret"><label for="fmem-new-secret">Secret</label></div>
-      </div>
-      <div class="row-card-actions">
-        <button class="btn-send" onclick="authorAddFactionMember()">Ajouter le membre</button>
-      </div>
-    </div>
-  `;
-}
-
-function authorFactionMemberRoleSelectChanged() {
-  const selectEl = document.getElementById('fmem-new-role-select');
-  const otherRow = document.getElementById('fmem-new-role-other-row');
-  if (!selectEl || !otherRow) return;
-  otherRow.style.display = selectEl.value === '__other__' ? '' : 'none';
-}
-
-function authorFactionMemberAddPrefill(roleName) {
-  const selectEl = document.getElementById('fmem-new-role-select');
-  const otherRow = document.getElementById('fmem-new-role-other-row');
-  const otherInput = document.getElementById('fmem-new-role');
-  if (!selectEl) return;
-  const hasOption = Array.from(selectEl.options).some(o => o.value === roleName);
-  if (hasOption) {
-    selectEl.value = roleName;
-    if (otherRow) otherRow.style.display = 'none';
-  } else {
-    selectEl.value = '__other__';
-    if (otherRow) otherRow.style.display = '';
-    if (otherInput) otherInput.value = roleName;
-  }
-  const entityEl = document.getElementById('fmem-new-entity');
-  if (entityEl) entityEl.focus();
-}
-
-async function authorAddFactionMember() {
-  const statusEl = document.getElementById('author-status');
-  const entityEl = document.getElementById('fmem-new-entity');
-  const selectedEntityId = entityEl ? entityEl.value : '';
-  const roleSelectEl = document.getElementById('fmem-new-role-select');
-  const role = (!roleSelectEl || roleSelectEl.value === '__other__')
-    ? (document.getElementById('fmem-new-role').value || null)
-    : (roleSelectEl.value || null);
-  const body = JSON.stringify({
-    faction_id: authorEntityId,
-    role: role,
-    cover_role: document.getElementById('fmem-new-cover-role').value || null,
-    is_primary: document.getElementById('fmem-new-primary').checked,
-    is_secret: document.getElementById('fmem-new-secret').checked,
-  });
-  try {
-    await api(`/api/entities/${encodeURIComponent(selectedEntityId)}/memberships`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
-    });
-    await authorLoadFactionMembersPanel(authorEntityId);
-    statusEl.className = 'author-status ok';
-    statusEl.textContent = 'Saved.';
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = e.message;
-  }
-}
-
-/** Inline role change (TICKET-0054, decision D2 client side) — at most one
- *  row edits at a time; starting a second edit cancels the first because
- *  authorFactionRosterEditingId is a single slot, not a set. */
-function authorMemberRoleEditStart(membershipId) {
-  authorFactionRosterEditingId = membershipId;
-  const el = document.getElementById('author-faction-roster');
-  if (el) el.innerHTML = authorRenderFactionRoster(authorFactionRosterRows) + authorRenderFactionMemberAddForm(authorFactionRosterRows);
-}
-
-function authorMemberRoleEditCancel() {
-  authorFactionRosterEditingId = null;
-  const el = document.getElementById('author-faction-roster');
-  if (el) el.innerHTML = authorRenderFactionRoster(authorFactionRosterRows) + authorRenderFactionMemberAddForm(authorFactionRosterRows);
-}
-
-async function authorMemberRoleEditSubmit(membershipId) {
-  const statusEl = document.getElementById('author-status');
-  const selectEl = document.getElementById(`fmem-role-edit-${membershipId}`);
-  const role = selectEl ? (selectEl.value || null) : null;
-  try {
-    await api(`/api/memberships/${encodeURIComponent(membershipId)}/role`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }),
-    });
-    await authorLoadFactionMembersPanel(authorEntityId);
-    statusEl.className = 'author-status ok';
-    statusEl.textContent = 'Saved.';
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = e.message;
-  }
-}
+/* Faction memberships, roles, and roster (schema v1.39/TICKET-0024/
+ * TICKET-0054) moved to frontend/src/creation/{MembershipsPanel,RolesEditor,
+ * RoleRow,FactionRoster}.svelte + factionPanel.svelte.js (TICKET-0058,
+ * BRIEF-0058-g family b) -- authorLoadMemberships/authorRenderMemberships/
+ * authorRenderRolesEditor/authorLoadFactionMembersPanel/authorLoadFactionRoles/
+ * authorRenderExistingRolesEditor/authorCreateFactionRole..
+ * authorDeclareFactionRole/authorRenderMembershipForm/authorMembershipFactionChanged/
+ * authorMembershipRoleSelectChanged/authorAddMembership/authorCloseMembership/
+ * authorLoadFactionRoster/_factionRoleOptionsHtml/_factionRosterRowHtml/
+ * authorRenderFactionRoster/authorRenderFactionMemberAddForm/
+ * authorFactionMemberRoleSelectChanged/authorFactionMemberAddPrefill/
+ * authorAddFactionMember/authorMemberRoleEditStart/Cancel/Submit are gone;
+ * same endpoints, same immediate-commit-per-row discipline. */
 
 /* ── Discoverable details (location sheet, BRIEF-13) ────────────────────── */
 
@@ -8941,28 +8375,22 @@ function _creationOpenLocationTypeModal(fieldId) {
 /** BRIEF-0058-f: _authorSaveSubmit's entity-write + dependent-draft-POST
  *  orchestration moved into Sheet.svelte's submitEntity (a faithful port —
  *  same endpoints, same order, same conditions). What COULDN'T move is the
- *  draft state itself: authorFactionRolesDraft/authorLocationSubcultureDraft/
- *  pendingDraftKnowledge/pendingDraftGoals/pendingCreationMutationId are
- *  legacy globals owned by the (unmigrated, brief -g/-h) sub-editors and
- *  AI-draft panel. These six small functions are the exact inline snippets
- *  _authorSaveSubmit used to run itself, extracted so Sheet.svelte can
- *  reach them via legacyCall instead of a bare variable read it has no
- *  access to — none of them change what the snippet did.
+ *  draft state itself: authorLocationSubcultureDraft/pendingDraftKnowledge/
+ *  pendingDraftGoals/pendingCreationMutationId are legacy globals owned by
+ *  the (unmigrated, brief -h) subculture sub-editor and AI-draft panel --
+ *  the faction-roles draft moved to factionPanel.svelte.js's draftRoles
+ *  (BRIEF-0058-g family b), read directly by Sheet.svelte's submitEntity via
+ *  draftRolesForCreate(), no legacyCall needed for that one any more. These
+ *  small functions are the exact inline snippets _authorSaveSubmit used to
+ *  run itself, extracted so Sheet.svelte can reach them via legacyCall
+ *  instead of a bare variable read it has no access to — none of them
+ *  change what the snippet did.
  *
- *  TICKET-0024, BRIEF-0024-d / TICKET-0025, BRIEF-0025-b: roles/subculture
- *  rows drafted before the entity exists are held in
- *  authorFactionRolesDraft/authorLocationSubcultureDraft and POSTed/PUT
- *  right after creation — never merged into entityData(.metadata). An
- *  EXISTING faction's/location's editor is already live/API-backed
- *  (authorLoadFactionRoles / the Tarifs-editor discipline) and untouched
- *  here. */
-function _authorFactionRolesDraftForCreate() {
-  _syncFactionRolesFromDom();
-  return authorFactionRolesDraft
-    .map(r => ({ name: (r.name || '').trim(), description: r.description || null, max_holders: r.limit ?? null }))
-    .filter(r => r.name);
-}
-
+ *  TICKET-0025, BRIEF-0025-b: subculture rows drafted before the entity
+ *  exists are held in authorLocationSubcultureDraft and POSTed/PUT right
+ *  after creation — never merged into entityData(.metadata). An EXISTING
+ *  location's editor is already live/API-backed (the Tarifs-editor
+ *  discipline) and untouched here. */
 function _authorSubcultureDraftForCreate() {
   _syncSubcultureDraftFromDom();
   return authorLocationSubcultureDraft.filter(r => (r.key || '').trim());
@@ -8985,22 +8413,17 @@ function _authorConsumePendingCreationMutationId() {
  *  no-op, exactly as harmless as the original's per-type conditional
  *  clears. */
 function _authorClearCreateDrafts() {
-  authorFactionRolesDraft = [];
   authorLocationSubcultureDraft = [];
   pendingDraftKnowledge = [];
   pendingDraftNotes = [];
   pendingDraftGoals = { long: '', shorts: ['', ''] };
 }
 
-/** The roles/subculture editor's "fresh draft" entry points for CREATE mode
- *  — authorRenderSheet always cleared the draft before rendering it for a
- *  NEW faction/location, so a repeat "+ Nouveau" never carries over a prior
- *  abandoned attempt. */
-function _authorNewRolesEditor() {
-  authorFactionRolesDraft = [];
-  return authorRenderRolesEditor();
-}
-
+/** The subculture editor's "fresh draft" entry point for CREATE mode --
+ *  authorRenderSheet always cleared the draft before rendering it for a NEW
+ *  location, so a repeat "+ Nouveau" never carries over a prior abandoned
+ *  attempt. RolesEditor.svelte's own construction does the same for
+ *  factionPanelState.draftRoles now (BRIEF-0058-g family b). */
 function _authorNewSubcultureEditor() {
   authorLocationSubcultureDraft = [];
   return authorRenderSubcultureEditor(true);

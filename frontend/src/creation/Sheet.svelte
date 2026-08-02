@@ -56,6 +56,10 @@
   import Field from './Field.svelte';
   import GeometryEditor from './GeometryEditor.svelte';
   import DoorsEditor from './DoorsEditor.svelte';
+  import RolesEditor from './RolesEditor.svelte';
+  import FactionRoster from './FactionRoster.svelte';
+  import MembershipsPanel from './MembershipsPanel.svelte';
+  import { loadFactionMembersPanel, draftRolesForCreate, resetDraftRoles, factionPanelState } from './factionPanel.svelte.js';
 
   let { legacyDoc } = $props();
 
@@ -142,6 +146,7 @@
    *  brief), via the same legacy helper so the two paths never drift. */
   export function primaryAction() {
     legacyCall('_authorResetCreateDrafts');
+    resetDraftRoles();
     enterCreateMode(resolveTypeForTab(creationState.activeTabKey));
   }
 
@@ -229,6 +234,16 @@
     openTemplateModalFor(legacyDoc, ev.detail.fieldId, () => {});
   });
 
+  // The AI faction-draft pre-fill (authorApplyFactionDraft, index.html,
+  // still legacy -- brief -h) writes its proposed roles into
+  // factionPanelState.draftRoles through this same reverse-bridge idiom,
+  // since RolesEditor.svelte now owns #author-roles reactively and a raw
+  // innerHTML write there would tear the mounted component out (RECON-0058-a
+  // M5) -- BRIEF-0058-g family b.
+  legacyDoc.addEventListener('creation:apply-faction-roles-draft', (ev) => {
+    factionPanelState.draftRoles = ev.detail.rows;
+  });
+
   // Sibling header chrome (title/status/save/delete) lives OUTSIDE
   // #author-main -- authorRenderSheet always reached out to it too. Only
   // touched for 'empty'/'view': 'loading'/'error' leave it exactly as
@@ -277,15 +292,13 @@
       if (type === 'character') {
         legacyCall('authorLoadItems', detail.id);
         legacyCall('authorLoadLedger', detail.id);
-        legacyCall('authorLoadMemberships', detail.id);
-        legacyCall('authorMembershipFactionChanged');
       }
       if (type === 'character' && creationState.activeTabKey === 'npc') {
         legacyCall('authorLoadGoals', detail.id);
       }
       if (type === 'faction') {
         legacyCall('authorLoadLedger', detail.id);
-        legacyCall('authorLoadFactionMembersPanel', detail.id);
+        loadFactionMembersPanel(detail.id);
       }
       if (type === 'location') {
         legacyCall('authorLoadDiscDetails', detail.id);
@@ -337,7 +350,7 @@
    *  were read in place before. */
   async function submitEntity(isNewSave, type, entityData, extData) {
     const statusEl = legacyDoc.getElementById('author-status');
-    const rolesToCreate = (isNewSave && type === 'faction') ? legacyCall('_authorFactionRolesDraftForCreate') : [];
+    const rolesToCreate = (isNewSave && type === 'faction') ? draftRolesForCreate() : [];
     const subcultureRowsToCreate = (isNewSave && type === 'location') ? legacyCall('_authorSubcultureDraftForCreate') : [];
     const knowledgeToCreate = (isNewSave && type === 'character') ? legacyCall('_syncPendingKnowledgeFromDom') : [];
     const goalsToCreate = (isNewSave && type === 'character') ? legacyCall('_syncPendingGoalsFromDom') : [];
@@ -395,6 +408,7 @@
       }
       if (isNewSave) {
         legacyCall('_authorClearCreateDrafts');
+        resetDraftRoles();
       }
 
       legacyCall('creationRefreshList');
@@ -479,11 +493,7 @@
 
       {#if type === 'faction'}
         <div class="field-section"><div class="field-section-title">Roles</div>
-          {#if isNew}
-            <div id="author-roles">{@html legacyCall('_authorNewRolesEditor')}</div>
-          {:else}
-            <div id="author-roles"><div class="empty"><span class="spin">⟳</span></div></div>
-          {/if}
+          <div id="author-roles"><RolesEditor {isNew} factionId={isNew ? null : detail.id} /></div>
         </div>
       {/if}
 
@@ -537,14 +547,13 @@
           <div id="author-items"><div class="empty"><span class="spin">⟳</span></div></div>
         </div>
         <div class="field-section"><div class="field-section-title">Appartenances</div>
-          <div id="author-memberships"><div class="empty"><span class="spin">⟳</span></div></div>
-          {@html legacyCall('authorRenderMembershipForm')}
+          <MembershipsPanel entityId={detail.id} {legacyDoc} />
         </div>
       {/if}
 
       {#if !isNew && type === 'faction'}
         <div class="field-section"><div class="field-section-title">Membres</div>
-          <div id="author-faction-roster"><div class="empty"><span class="spin">⟳</span></div></div>
+          <div id="author-faction-roster"><FactionRoster factionId={detail.id} /></div>
         </div>
       {/if}
 
