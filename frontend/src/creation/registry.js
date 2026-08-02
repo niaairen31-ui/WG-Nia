@@ -129,6 +129,13 @@ export const CREATION_ISLANDS = Object.freeze({
       'authorAddSubcultureRow',
       'authorRemoveSubcultureRow',
       'authorSaveSubcultureRows',
+      // BRIEF-0058-g family d: read-only ledger + items sections -- ported
+      // to LedgerPanel.svelte/ItemsPanel.svelte. authorAddLedgerEntry
+      // belongs to the untouched Registre tab, not this island.
+      'authorLoadLedger',
+      'authorRenderLedger',
+      'authorLoadItems',
+      'authorRenderItems',
     ],
   }),
 });

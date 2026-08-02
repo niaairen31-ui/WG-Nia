@@ -7342,23 +7342,24 @@ document.addEventListener('creation:entities-loaded', (ev) => {
  * (real Svelte markup per field.kind, not a string generator) and
  * frontend/src/creation/Sheet.svelte (the skeleton authorRenderSheet used
  * to build), mounted into #author-main as the entitySheet island.
- * BRIEF-0058-g family a/b/c converged geometry/doors/the Lieux create-save
- * flow, faction roles/memberships/roster, and Tarifs/subculture onto their
- * own components (GeometryEditor/DoorsEditor/RolesEditor/RoleRow/
- * FactionRoster/MembershipsPanel/PricingEditor/SubcultureEditor.svelte,
- * locationType.js/factionPanel.svelte.js/subcultureDraft.svelte.js) --
- * Sheet.svelte mounts those directly now, no legacyCall involved. What
- * remains a sub-editor generator this skeleton calls synchronously
- * (authorRenderRelations(Form), authorRenderKnowledge(Form),
- * authorRenderPendingKnowledge/Goals, authorRenderGoalForm,
+ * BRIEF-0058-g family a/b/c/d converged geometry/doors/the Lieux create-save
+ * flow, faction roles/memberships/roster, Tarifs/subculture, and the
+ * read-only ledger+items sections onto their own components
+ * (GeometryEditor/DoorsEditor/RolesEditor/RoleRow/FactionRoster/
+ * MembershipsPanel/PricingEditor/SubcultureEditor/LedgerPanel/
+ * ItemsPanel.svelte, locationType.js/factionPanel.svelte.js/
+ * subcultureDraft.svelte.js) -- Sheet.svelte mounts those directly now, no
+ * legacyCall involved. What remains a sub-editor generator this skeleton
+ * calls synchronously (authorRenderRelations(Form), authorRenderKnowledge
+ * (Form), authorRenderPendingKnowledge/Goals, authorRenderGoalForm,
  * authorRenderDiscDetailForm, authorRenderGeneratePanel) is UNCHANGED
  * below — Sheet.svelte reaches each one via legacyCall
  * (frontend/src/legacy/bridge.js), embedding the returned HTML string
  * exactly where authorRenderSheet used to concatenate it. The async tail
- * (authorLoadItems/Ledger/Goals/DiscDetails) is reached the same way,
- * after Sheet.svelte's own DOM update flushes; the faction
- * roles+roster load (was authorLoadFactionMembersPanel) is a plain
- * loadFactionMembersPanel import instead (family b).
+ * (authorLoadGoals/DiscDetails) is reached the same way, after Sheet.svelte's
+ * own DOM update flushes; the faction roles+roster load (was
+ * authorLoadFactionMembersPanel) is a plain loadFactionMembersPanel import
+ * instead (family b).
  * evenements' still-legacy renderEventSheet/evenementsRenderCreatePanel/
  * evenementsSave/evenementsSubmitCreate reach the ported field engine
  * through _creationRenderField/_creationReadField below instead (the field
@@ -7743,62 +7744,12 @@ function _syncPendingGoalsFromDom() {
  * directly, same PUT endpoints, same unit conventions. */
 
 
-/** Read-only "Solde" block on a character sheet (schema v1.31, BRIEF-18).
- *  Write path is the global Registre tab (POST /api/ledger) — this block
- *  only reads GET /api/entities/{id}/ledger. */
-async function authorLoadLedger(entityId) {
-  const el = document.getElementById('author-ledger');
-  if (!el) return;
-  try {
-    const data = await api(`/api/entities/${encodeURIComponent(entityId)}/ledger`);
-    el.innerHTML = authorRenderLedger(data);
-  } catch (e) {
-    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-  }
-}
-
-function authorRenderLedger(data) {
-  const balanceColor = data.balance >= 0 ? 'var(--accent)' : 'var(--danger, #c44)';
-  let html = `<div style="font-size:20px; font-weight:700; color:${balanceColor}; margin-bottom:8px;">${data.balance}</div>`;
-  if (!data.entries || data.entries.length === 0) {
-    html += '<div class="empty">Aucune ligne pour cette entité.</div>';
-    return html;
-  }
-  html += '<div class="row-table">' + data.entries.map(e => `
-    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;">
-      <span style="color:var(--muted); font-size:12px;">${esc(fmtDate(e.created_at))}</span>
-      <span style="font-weight:700; color:${e.amount >= 0 ? 'var(--accent)' : 'var(--danger, #c44)'};">${e.amount >= 0 ? '+' : ''}${e.amount}</span>
-      <span style="font-size:12px; flex:1; min-width:120px;">${esc(e.reason || '')}</span>
-      <span class="badge b-other">${esc(e.source_type || '')}</span>
-    </div>
-  `).join('') + '</div>';
-  return html;
-}
-
-/** Read-only "Items" section on a character sheet (single write path: entity flow). */
-async function authorLoadItems(entityId) {
-  const el = document.getElementById('author-items');
-  if (!el) return;
-  try {
-    const items = await api(`/api/entities/${encodeURIComponent(entityId)}/items`);
-    el.innerHTML = authorRenderItems(items);
-  } catch (e) {
-    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-  }
-}
-
-function authorRenderItems(items) {
-  if (!items || items.length === 0) return '<div class="empty">No items.</div>';
-  return '<div class="row-table">' + items.map(it => `
-    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between;">
-      <span>${esc(it.name)}</span>
-      <span style="display:flex; align-items:center; gap:8px;">
-        <span style="color:var(--muted); font-size:12px;">${esc(it.condition)}</span>
-        <span class="badge ${it.equipped ? 'b-equipped' : 'b-stowed'}">${it.equipped ? 'equipped' : 'stowed'}</span>
-      </span>
-    </div>
-  `).join('') + '</div>';
-}
+/* The read-only "Solde" (ledger) and "Items" sheet sections moved to
+ * frontend/src/creation/LedgerPanel.svelte and ItemsPanel.svelte
+ * (TICKET-0058, BRIEF-0058-g family d) -- authorLoadLedger/authorRenderLedger/
+ * authorLoadItems/authorRenderItems are gone; same read-only GET endpoints.
+ * authorAddLedgerEntry (Registre tab's own add-form, a different legacy
+ * surface this ticket doesn't touch) is untouched, below. */
 
 /* Faction memberships, roles, and roster (schema v1.39/TICKET-0024/
  * TICKET-0054) moved to frontend/src/creation/{MembershipsPanel,RolesEditor,

@@ -63,6 +63,8 @@
   import { subcultureDraftState, subcultureDraftForCreate, resetSubcultureDraft } from './subcultureDraft.svelte.js';
   import SubcultureEditor from './SubcultureEditor.svelte';
   import PricingEditor from './PricingEditor.svelte';
+  import LedgerPanel from './LedgerPanel.svelte';
+  import ItemsPanel from './ItemsPanel.svelte';
 
   let { legacyDoc } = $props();
 
@@ -299,15 +301,10 @@
     if (!detail || !detail.id) return;
     (async () => {
       await tick();
-      if (type === 'character') {
-        legacyCall('authorLoadItems', detail.id);
-        legacyCall('authorLoadLedger', detail.id);
-      }
       if (type === 'character' && creationState.activeTabKey === 'npc') {
         legacyCall('authorLoadGoals', detail.id);
       }
       if (type === 'faction') {
-        legacyCall('authorLoadLedger', detail.id);
         loadFactionMembersPanel(detail.id);
       }
       if (type === 'location') {
@@ -554,7 +551,7 @@
 
       {#if !isNew && type === 'character'}
         <div class="field-section"><div class="field-section-title">Items</div>
-          <div id="author-items"><div class="empty"><span class="spin">⟳</span></div></div>
+          <div id="author-items"><ItemsPanel entityId={detail.id} /></div>
         </div>
         <div class="field-section"><div class="field-section-title">Appartenances</div>
           <MembershipsPanel entityId={detail.id} {legacyDoc} />
@@ -569,7 +566,7 @@
 
       {#if !isNew && (type === 'character' || type === 'faction')}
         <div class="field-section"><div class="field-section-title">Solde</div>
-          <div id="author-ledger"><div class="empty"><span class="spin">⟳</span></div></div>
+          <div id="author-ledger"><LedgerPanel entityId={detail.id} /></div>
         </div>
       {/if}
 
