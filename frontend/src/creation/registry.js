@@ -159,6 +159,16 @@ export const CREATION_ISLANDS = Object.freeze({
       '_evenementsRenderChips',
       'loadEventsList',
       'renderEventSheet',
+      // BRIEF-0059-c: relations in-context editor -- ported to
+      // RelationsEditor.svelte, sharing sheetRequest.svelte.js with the
+      // knowledge editor below.
+      'authorRenderRelations',
+      'authorRenderRelationForm',
+      'authorAddRelation',
+      'authorUpdateRelation',
+      'authorDeleteRelation',
+      'authorRelationRequest',
+      'RELATION_DIRECTIONS',
     ],
   }),
   // BRIEF-0058-i (per RECON-SUPPLEMENT-0058's re-scope): region generation

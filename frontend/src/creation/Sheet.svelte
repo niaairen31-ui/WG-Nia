@@ -78,6 +78,7 @@
   import GeneratePanel from './GeneratePanel.svelte';
   import { resetEventDraft, eventDraftState } from './eventDraft.svelte.js';
   import Evenements from './Evenements.svelte';
+  import RelationsEditor from './RelationsEditor.svelte';
 
   let { legacyDoc } = $props();
 
@@ -586,8 +587,9 @@
 
       {#if !isNew}
         <div class="field-section"><div class="field-section-title">Relations</div>
-          <div id="author-relations">{@html legacyCall('authorRenderRelations', detail.relations)}</div>
-          {@html legacyCall('authorRenderRelationForm')}
+          <RelationsEditor relations={detail.relations} entityId={detail.id} entities={creationState.entities}
+            typeOptions={registry.relation_fields.find((f) => f.name === 'type').options || []}
+            {legacyDoc} onSaved={(d) => flushSync(() => enterViewMode(d, d.type))} />
         </div>
         <div class="field-section"><div class="field-section-title">Knowledge</div>
           <div id="author-knowledge">{@html legacyCall('authorRenderKnowledge', detail.knowledge)}</div>

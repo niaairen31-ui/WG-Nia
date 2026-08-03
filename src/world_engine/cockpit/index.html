@@ -6039,9 +6039,9 @@ document.addEventListener('creation:entities-loaded', (ev) => {
  * those directly now, no legacyCall involved. BRIEF-0058-h converged the
  * AI-generate draft panel the same way (GeneratePanel.svelte +
  * generatePanel.svelte.js). What remains a sub-editor generator this
- * skeleton calls synchronously (authorRenderRelations(Form),
- * authorRenderKnowledge(Form), authorRenderGoalForm,
- * authorRenderDiscDetailForm) is UNCHANGED below — Sheet.svelte reaches
+ * skeleton calls synchronously (authorRenderKnowledge(Form),
+ * authorRenderGoalForm, authorRenderDiscDetailForm) is UNCHANGED below —
+ * Sheet.svelte reaches
  * each one via legacyCall (frontend/src/legacy/bridge.js), embedding the
  * returned HTML string exactly where authorRenderSheet used to concatenate
  * it. The async tail
@@ -6054,7 +6054,10 @@ document.addEventListener('creation:entities-loaded', (ev) => {
  * tab. The 'creation:field-render'/'creation:field-read' reverse bridge
  * this section used to describe (_creationRenderField/_creationReadField)
  * is gone with it — the field engine has exactly one implementation and,
- * as of this brief, exactly one calling convention. */
+ * as of this brief, exactly one calling convention.
+ * BRIEF-0059-c (TICKET-0059): the relations in-context editor converged
+ * onto RelationsEditor.svelte, sharing sheetRequest.svelte.js with the
+ * knowledge editor below it. */
 
 /* AI entity-authoring assistant (BRIEF-24) — draft generator panel and its
  * per-type draft pre-fill (was authorRenderGeneratePanel/authorGenerateEntity/
@@ -6599,115 +6602,6 @@ async function authorDelete() {
     await authorSelectEntity(authorEntityId);
     statusEl.className = 'author-status ok';
     statusEl.textContent = 'Marked inactive.';
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = e.message;
-  }
-}
-
-/* ── Relations panel (in-context editor) ─────────────────────────────────── */
-
-function authorRenderRelations(relations) {
-  if (!relations || relations.length === 0) return '<div class="empty">No relations.</div>';
-  return '<div class="row-table">' + relations.map(r => `
-    <div class="row-card">
-      <div class="field-grid">
-        <div class="field-row"><label>With</label>
-          <input type="text" value="${esc(r.other_entity_name)} (${esc(r.other_entity_type)})" disabled></div>
-        <div class="field-row"><label>Type</label>
-          <input type="text" id="rel-type-${esc(r.id)}" value="${esc(r.type)}"></div>
-        <div class="field-row"><label>Direction</label>
-          <select id="rel-dir-${esc(r.id)}">
-            ${RELATION_DIRECTIONS.map(d => `<option value="${d}" ${d === r.direction ? 'selected' : ''}>${d}</option>`).join('')}
-          </select></div>
-        <div class="field-row"><label>Intensity (1-100)</label>
-          <input type="number" id="rel-int-${esc(r.id)}" min="1" max="100" value="${r.intensity}"></div>
-        <div class="field-row checkbox">
-          <input type="checkbox" id="rel-vis-${esc(r.id)}" ${r.visible_to_b ? 'checked' : ''}>
-          <label for="rel-vis-${esc(r.id)}">Visible to B</label></div>
-        <div class="field-row span-2"><label>Notes</label>
-          <textarea id="rel-notes-${esc(r.id)}">${esc(r.notes ?? '')}</textarea></div>
-      </div>
-      <div class="row-card-actions">
-        <button class="btn-ghost" onclick="authorUpdateRelation('${esc(r.id)}')">Save</button>
-        <button class="btn-end" onclick="authorDeleteRelation('${esc(r.id)}')">Delete</button>
-      </div>
-    </div>
-  `).join('') + '</div>';
-}
-
-const RELATION_DIRECTIONS = ['mutual', 'a_to_b', 'b_to_a'];
-
-function authorRenderRelationForm() {
-  const candidates = authorAllEntities.filter(e => e.id !== authorEntityId);
-  const opts = candidates.map(e => `<option value="${esc(e.id)}">${esc(e.name)} (${esc(e.type)})</option>`).join('');
-  const typeOptions = authorRegistry.relation_fields.find(f => f.name === 'type').options || [];
-  const typeOpts = typeOptions.map(o => `<option value="${esc(o)}">`).join('');
-  return `
-    <div class="row-card">
-      <div class="field-grid">
-        <div class="field-row"><label>With</label><select id="rel-new-other">${opts}</select></div>
-        <div class="field-row"><label>Type *</label>
-          <input type="text" id="rel-new-type" list="rel-new-type-dl">
-          <datalist id="rel-new-type-dl">${typeOpts}</datalist></div>
-        <div class="field-row"><label>Direction</label>
-          <select id="rel-new-dir">
-            ${RELATION_DIRECTIONS.map(d => `<option value="${d}" ${d === 'mutual' ? 'selected' : ''}>${d}</option>`).join('')}
-          </select></div>
-        <div class="field-row"><label>Intensity (1-100)</label>
-          <input type="number" id="rel-new-int" min="1" max="100" value="50"></div>
-        <div class="field-row checkbox">
-          <input type="checkbox" id="rel-new-vis" checked><label for="rel-new-vis">Visible to B</label></div>
-        <div class="field-row span-2"><label>Notes</label><textarea id="rel-new-notes"></textarea></div>
-      </div>
-      <div class="row-card-actions">
-        <button class="btn-send" onclick="authorAddRelation()">Add relation</button>
-      </div>
-    </div>
-  `;
-}
-
-async function authorAddRelation() {
-  const body = JSON.stringify({
-    other_entity_id: document.getElementById('rel-new-other').value,
-    type:            document.getElementById('rel-new-type').value,
-    direction:       document.getElementById('rel-new-dir').value,
-    intensity:       Number(document.getElementById('rel-new-int').value),
-    visible_to_b:    document.getElementById('rel-new-vis').checked,
-    notes:           document.getElementById('rel-new-notes').value || null,
-  });
-  await authorRelationRequest(`/api/entities/${encodeURIComponent(authorEntityId)}/relations`, 'POST', body);
-}
-
-async function authorUpdateRelation(id) {
-  const body = JSON.stringify({
-    type:         document.getElementById(`rel-type-${id}`).value,
-    direction:    document.getElementById(`rel-dir-${id}`).value,
-    intensity:    Number(document.getElementById(`rel-int-${id}`).value),
-    visible_to_b: document.getElementById(`rel-vis-${id}`).checked,
-    notes:        document.getElementById(`rel-notes-${id}`).value || null,
-  });
-  await authorRelationRequest(`/api/relations/${encodeURIComponent(id)}`, 'PUT', body);
-}
-
-async function authorDeleteRelation(id) {
-  if (!confirm('Permanently delete this relation?')) return;
-  await authorRelationRequest(`/api/relations/${encodeURIComponent(id)}`, 'DELETE', null);
-}
-
-async function authorRelationRequest(path, method, body) {
-  const statusEl = document.getElementById('author-status');
-  try {
-    const opts = { method };
-    if (body !== null) {
-      opts.headers = { 'Content-Type': 'application/json' };
-      opts.body = body;
-    }
-    await api(path, opts);
-    const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}`);
-    document.getElementById('author-relations').innerHTML = authorRenderRelations(detail.relations);
-    statusEl.className = 'author-status ok';
-    statusEl.textContent = 'Saved.';
   } catch (e) {
     statusEl.className = 'author-status err';
     statusEl.textContent = e.message;
