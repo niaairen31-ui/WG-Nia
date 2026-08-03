@@ -169,6 +169,15 @@ export const CREATION_ISLANDS = Object.freeze({
       'authorDeleteRelation',
       'authorRelationRequest',
       'RELATION_DIRECTIONS',
+      // BRIEF-0059-c: knowledge in-context editor -- ported to
+      // KnowledgeEditor.svelte, sharing sheetRequest.svelte.js with the
+      // relations editor above.
+      'authorRenderKnowledge',
+      'authorRenderKnowledgeForm',
+      'authorAddKnowledge',
+      'authorUpdateKnowledge',
+      'authorDeleteKnowledge',
+      'authorKnowledgeRequest',
     ],
   }),
   // BRIEF-0058-i (per RECON-SUPPLEMENT-0058's re-scope): region generation

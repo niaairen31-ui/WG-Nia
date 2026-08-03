@@ -79,6 +79,7 @@
   import { resetEventDraft, eventDraftState } from './eventDraft.svelte.js';
   import Evenements from './Evenements.svelte';
   import RelationsEditor from './RelationsEditor.svelte';
+  import KnowledgeEditor from './KnowledgeEditor.svelte';
 
   let { legacyDoc } = $props();
 
@@ -592,8 +593,9 @@
             {legacyDoc} onSaved={(d) => flushSync(() => enterViewMode(d, d.type))} />
         </div>
         <div class="field-section"><div class="field-section-title">Knowledge</div>
-          <div id="author-knowledge">{@html legacyCall('authorRenderKnowledge', detail.knowledge)}</div>
-          {@html legacyCall('authorRenderKnowledgeForm')}
+          <KnowledgeEditor knowledge={detail.knowledge} entityId={detail.id}
+            levelOptions={registry.knowledge_fields.find((f) => f.name === 'level').options}
+            {legacyDoc} onSaved={(d) => flushSync(() => enterViewMode(d, d.type))} />
         </div>
       {/if}
 

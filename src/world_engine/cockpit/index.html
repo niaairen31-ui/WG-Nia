@@ -6039,9 +6039,8 @@ document.addEventListener('creation:entities-loaded', (ev) => {
  * those directly now, no legacyCall involved. BRIEF-0058-h converged the
  * AI-generate draft panel the same way (GeneratePanel.svelte +
  * generatePanel.svelte.js). What remains a sub-editor generator this
- * skeleton calls synchronously (authorRenderKnowledge(Form),
- * authorRenderGoalForm, authorRenderDiscDetailForm) is UNCHANGED below —
- * Sheet.svelte reaches
+ * skeleton calls synchronously (authorRenderGoalForm,
+ * authorRenderDiscDetailForm) is UNCHANGED below — Sheet.svelte reaches
  * each one via legacyCall (frontend/src/legacy/bridge.js), embedding the
  * returned HTML string exactly where authorRenderSheet used to concatenate
  * it. The async tail
@@ -6055,9 +6054,9 @@ document.addEventListener('creation:entities-loaded', (ev) => {
  * this section used to describe (_creationRenderField/_creationReadField)
  * is gone with it — the field engine has exactly one implementation and,
  * as of this brief, exactly one calling convention.
- * BRIEF-0059-c (TICKET-0059): the relations in-context editor converged
- * onto RelationsEditor.svelte, sharing sheetRequest.svelte.js with the
- * knowledge editor below it. */
+ * BRIEF-0059-c (TICKET-0059): the relations and knowledge in-context
+ * editors converged onto RelationsEditor.svelte/KnowledgeEditor.svelte,
+ * sharing sheetRequest.svelte.js. */
 
 /* AI entity-authoring assistant (BRIEF-24) — draft generator panel and its
  * per-type draft pre-fill (was authorRenderGeneratePanel/authorGenerateEntity/
@@ -6602,109 +6601,6 @@ async function authorDelete() {
     await authorSelectEntity(authorEntityId);
     statusEl.className = 'author-status ok';
     statusEl.textContent = 'Marked inactive.';
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = e.message;
-  }
-}
-
-/* ── Knowledge panel (in-context editor) ─────────────────────────────────── */
-
-function authorRenderKnowledge(knowledge) {
-  if (!knowledge || knowledge.length === 0) return '<div class="empty">No knowledge entries.</div>';
-  const levels = authorRegistry.knowledge_fields.find(f => f.name === 'level').options;
-  return '<div class="row-table">' + knowledge.map(k => `
-    <div class="row-card">
-      <div class="field-grid">
-        <div class="field-row"><label>Subject</label><input type="text" id="kn-subj-${esc(k.id)}" value="${esc(k.subject)}"></div>
-        <div class="field-row"><label>Level</label>
-          <select id="kn-level-${esc(k.id)}">
-            ${levels.map(l => `<option value="${l}" ${l === k.level ? 'selected' : ''}>${l}</option>`).join('')}
-          </select></div>
-        <div class="field-row"><label>Source</label><input type="text" id="kn-src-${esc(k.id)}" value="${esc(k.source ?? '')}"></div>
-        <div class="field-row"><label>Share threshold (1-100)</label>
-          <input type="number" id="kn-share-${esc(k.id)}" min="1" max="100" value="${k.share_threshold}"></div>
-        <div class="field-row checkbox">
-          <input type="checkbox" id="kn-incorrect-${esc(k.id)}" ${k.is_incorrect ? 'checked' : ''}>
-          <label for="kn-incorrect-${esc(k.id)}">Incorrect</label></div>
-        <div class="field-row checkbox">
-          <input type="checkbox" id="kn-secret-${esc(k.id)}" ${k.is_secret ? 'checked' : ''}>
-          <label for="kn-secret-${esc(k.id)}">Secret</label></div>
-        <div class="field-row span-2"><label>Content</label><textarea id="kn-content-${esc(k.id)}">${esc(k.content ?? '')}</textarea></div>
-      </div>
-      <div class="row-card-actions">
-        <button class="btn-ghost" onclick="authorUpdateKnowledge('${esc(k.id)}')">Save</button>
-        <button class="btn-end" onclick="authorDeleteKnowledge('${esc(k.id)}')">Delete</button>
-      </div>
-    </div>
-  `).join('') + '</div>';
-}
-
-function authorRenderKnowledgeForm() {
-  const levels = authorRegistry.knowledge_fields.find(f => f.name === 'level').options;
-  return `
-    <div class="row-card">
-      <div class="field-grid">
-        <div class="field-row"><label>Subject *</label><input type="text" id="kn-new-subj"></div>
-        <div class="field-row"><label>Level *</label>
-          <select id="kn-new-level">${levels.map(l => `<option value="${l}" ${l === 'rumor' ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-        <div class="field-row"><label>Source</label><input type="text" id="kn-new-src"></div>
-        <div class="field-row"><label>Share threshold (1-100)</label><input type="number" id="kn-new-share" min="1" max="100" value="50"></div>
-        <div class="field-row checkbox"><input type="checkbox" id="kn-new-incorrect"><label for="kn-new-incorrect">Incorrect</label></div>
-        <div class="field-row checkbox"><input type="checkbox" id="kn-new-secret"><label for="kn-new-secret">Secret</label></div>
-        <div class="field-row span-2"><label>Content</label><textarea id="kn-new-content"></textarea></div>
-      </div>
-      <div class="row-card-actions">
-        <button class="btn-send" onclick="authorAddKnowledge()">Add knowledge</button>
-      </div>
-    </div>
-  `;
-}
-
-async function authorAddKnowledge() {
-  const body = JSON.stringify({
-    subject:         document.getElementById('kn-new-subj').value,
-    level:           document.getElementById('kn-new-level').value,
-    source:          document.getElementById('kn-new-src').value || null,
-    share_threshold: Number(document.getElementById('kn-new-share').value),
-    is_incorrect:    document.getElementById('kn-new-incorrect').checked,
-    is_secret:       document.getElementById('kn-new-secret').checked,
-    content:         document.getElementById('kn-new-content').value || null,
-  });
-  await authorKnowledgeRequest(`/api/entities/${encodeURIComponent(authorEntityId)}/knowledge`, 'POST', body);
-}
-
-async function authorUpdateKnowledge(id) {
-  const body = JSON.stringify({
-    subject:         document.getElementById(`kn-subj-${id}`).value,
-    level:           document.getElementById(`kn-level-${id}`).value,
-    source:          document.getElementById(`kn-src-${id}`).value || null,
-    share_threshold: Number(document.getElementById(`kn-share-${id}`).value),
-    is_incorrect:    document.getElementById(`kn-incorrect-${id}`).checked,
-    is_secret:       document.getElementById(`kn-secret-${id}`).checked,
-    content:         document.getElementById(`kn-content-${id}`).value || null,
-  });
-  await authorKnowledgeRequest(`/api/knowledge/${encodeURIComponent(id)}`, 'PUT', body);
-}
-
-async function authorDeleteKnowledge(id) {
-  if (!confirm('Permanently delete this knowledge entry?')) return;
-  await authorKnowledgeRequest(`/api/knowledge/${encodeURIComponent(id)}`, 'DELETE', null);
-}
-
-async function authorKnowledgeRequest(path, method, body) {
-  const statusEl = document.getElementById('author-status');
-  try {
-    const opts = { method };
-    if (body !== null) {
-      opts.headers = { 'Content-Type': 'application/json' };
-      opts.body = body;
-    }
-    await api(path, opts);
-    const detail = await api(`/api/entities/${encodeURIComponent(authorEntityId)}`);
-    document.getElementById('author-knowledge').innerHTML = authorRenderKnowledge(detail.knowledge);
-    statusEl.className = 'author-status ok';
-    statusEl.textContent = 'Saved.';
   } catch (e) {
     statusEl.className = 'author-status err';
     statusEl.textContent = e.message;
