@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0058-creation-spine-migration",
-  "when": "2026-08-03T17:21:09.656623+00:00",
+  "when": "2026-08-03T17:22:56.729140+00:00",
   "green": true,
   "checks": [
     {

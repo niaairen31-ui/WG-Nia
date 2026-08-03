@@ -2,7 +2,7 @@
 id: TICKET-0058
 title: Creation surface - entity-authoring spine migration
 type: feature
-status: exec
+status: live-gate
 created: 2026-07-31
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
