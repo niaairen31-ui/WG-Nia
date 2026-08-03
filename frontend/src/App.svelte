@@ -3,18 +3,18 @@
   import LegacyFrame from './LegacyFrame.svelte';
   import { hideLegacyHeader, showSurface, showCreationTab, legacyDocument } from './legacy/bridge.js';
   import { serverState, refreshServerState } from './lib/serverState.svelte.js';
-  import { onRoute } from './lib/router.js';
+  import { onRoute, replace } from './lib/router.js';
   import { initGraphMount } from './graph/mount.js';
   import { initCreationMount } from './creation/mount.js';
 
   let currentSurface = $state('play');
 
-  /* TICKET-0056: the URL is authoritative on ENTRY, not continuously
-     synchronized. A sub-tab clicked inside the legacy frame does not
-     rewrite the address bar -- doing so would require the legacy document
-     to call out to the shell, i.e. an edit to index.html, which this ticket
-     refuses. Continuous sync arrives with the Creation surface itself
-     (TICKET-0058). */
+  /* TICKET-0058 (BRIEF-0058-k): continuous sync now holds. The legacy
+     document dispatches 'route:subtab' after showCreationSubTab actually
+     changes the active tab; onLegacySubtabRoute below mirrors that into
+     the address bar via replace() (no pushState, no popstate) -- it never
+     calls back into showCreationTab, which would re-enter the legacy
+     document from a signal it just emitted itself. */
   async function applyRoute({ surface, subTab }) {
     currentSurface = surface;
     try {
@@ -28,6 +28,15 @@
     }
   }
 
+  // TICKET-0058 (BRIEF-0058-k): the legacy document is the sub-tab
+  // authority; the shell only mirrors. One direction of control, matching
+  // graph:slot/island:slot -- no function is installed on the legacy
+  // window for this.
+  function onLegacySubtabRoute({ detail }) {
+    currentSurface = 'creation';
+    replace('creation', detail.tab);
+  }
+
   // TICKET-0056 (BRIEF-0056-b): on legacy load -- suppress the legacy header
   // (byte-untouched index.html, style injected via the bridge), then mirror
   // server state, then wire the shell to the router. mountLegacy itself
@@ -37,6 +46,7 @@
     hideLegacyHeader();
     initGraphMount(legacyDocument());
     initCreationMount(legacyDocument());
+    legacyDocument().addEventListener('route:subtab', onLegacySubtabRoute);
     await refreshServerState();
     onRoute(applyRoute);
   }

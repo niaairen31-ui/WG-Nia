@@ -4520,9 +4520,17 @@ function showCreationSubTab(tab) {
 
   if (prev !== tab && entry.state.onTabEnter) entry.state.onTabEnter();
 
-  if (usesEditorShell && !authorRegistry) { creationInit(); return; }
+  if (usesEditorShell && !authorRegistry) {
+    creationInit();
+  } else {
+    _creationActivateTab();
+  }
 
-  _creationActivateTab();
+  // TICKET-0058 (BRIEF-0058-k): the shell mirrors the active sub-tab into
+  // the URL via this one-way signal — the legacy document never touches
+  // history or reads location itself (RECON-0058-a; the graph:slot/
+  // island:slot channel is the same one-way shape, this is a third use).
+  document.dispatchEvent(new CustomEvent('route:subtab', { detail: { tab } }));
 }
 
 /** Standard shell band (BRIEF-0005-c) — the entry's title, plus its

@@ -32,6 +32,17 @@ export function navigate(surface, subTab) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+// TICKET-0058 (BRIEF-0058-k). replaceState, never pushState, and no
+// popstate dispatch -- both load-bearing: (1) a pushState per sub-tab
+// click would make Back walk backwards through sub-tabs one at a time
+// instead of leaving Creation; (2) dispatching popstate would re-enter
+// applyRoute and drive the legacy document from a signal it just emitted
+// itself, an infinite mirror loop.
+export function replace(surface, subTab) {
+  const path = surface === "creation" && subTab ? `/creation/${subTab}` : `/${surface}`;
+  history.replaceState({}, "", path);
+}
+
 export function onRoute(handler) {
   const invoke = () => handler(parse(location.pathname));
   window.addEventListener("popstate", invoke);

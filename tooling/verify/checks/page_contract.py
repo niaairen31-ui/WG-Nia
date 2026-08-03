@@ -1,5 +1,14 @@
 """G1 check for TICKET-0005 (BRIEF-0005-a/b/c) — Création page-contract
 structural gate. Exit 0 on pass, 1 on failure; prints one line per failure.
+
+TICKET-0058/BRIEF-0058-k: under A1 every target this check greps still
+lives in index.html (nothing has moved, so nothing is re-anchored here).
+The withdrawn singular `island: { key }` field and its "island XOR legacy"
+partition (BRIEF-0058-e amendment) are not re-asserted in this file — the
+pairing that replaced it (an entry's `primaryAction` and `createPanel` must
+be on the same side) is `creation_island.py` rule 11's job, not duplicated
+here. This check only counts the migrated/legacy split (below) so the
+residual is visible in every verify run until TICKET-0059 closes it.
 """
 import pathlib
 import re
@@ -83,6 +92,42 @@ def _slot_by_container(entry_src: str, container_id: str) -> str:
         if re.search(rf"""containerId\s*:\s*['"]{re.escape(container_id)}['"]""", obj):
             return obj
     return ""
+
+
+def _registry_keys(registry_src: str) -> list[str]:
+    """Every top-level CREATION_TABS key, in source order — walks entry by
+    balanced-brace entry so a nested key never gets mistaken for a sibling."""
+    keys = []
+    idx = 0
+    n = len(registry_src)
+    key_re = re.compile(r"(\w+)\s*:\s*\{")
+    while idx < n:
+        m = key_re.search(registry_src, idx)
+        if not m:
+            break
+        keys.append(m.group(1))
+        brace_start = registry_src.find("{", m.end() - 1)
+        depth = 0
+        end = brace_start
+        for i in range(brace_start, n):
+            if registry_src[i] == "{":
+                depth += 1
+            elif registry_src[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        idx = end + 1
+    return keys
+
+
+def _has_nonempty_islands(entry_src: str) -> bool:
+    """True if this entry declares a non-empty `islands: [...]` list."""
+    m = re.search(r"islands\s*:\s*\[", entry_src)
+    if not m:
+        return False
+    block = _bracket_block(entry_src, m.end() - 1)
+    return bool(block[1:-1].strip())
 
 
 def main() -> int:
@@ -260,10 +305,23 @@ def main() -> int:
             print(f"FAIL: {f}")
         return 1
 
+    migrated_count = 0
+    legacy_count = 0
+    if registry_src:
+        for key in _registry_keys(registry_src):
+            entry_src = _entry_block(registry_src, key)
+            if _has_nonempty_islands(entry_src):
+                migrated_count += 1
+            else:
+                legacy_count += 1
+
     print(
         "PASS: page_contract — CREATION_TABS registry, generic dispatcher, "
         "no duplicate Lieux create button, PJ on the entity archetype, "
-        "standard shell + primaryAction on every entry"
+        "standard shell + primaryAction on every entry; "
+        f"{migrated_count} of {migrated_count + legacy_count} CREATION_TABS "
+        f"entries have migrated at least one mount point, {legacy_count} "
+        "still render entirely from legacy code (TICKET-0059 residual)"
     )
     return 0
 
