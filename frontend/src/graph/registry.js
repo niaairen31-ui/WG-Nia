@@ -7,12 +7,11 @@
    stops being a claim and becomes a measured fact.
 
    Modelled on frontend/src/legacy/registry.js (TICKET-0056), which is the
-   same shape solving the same problem one level up. */
-export const GRAPH_IMPLS = Object.freeze({
-  relation_cytoscape: Object.freeze({
-    engine: 'cytoscape',
-    locus: 'src/world_engine/cockpit/index.html',
-    fnPrefix: 'relGraph',
-    retiredBy: 'TICKET-0058',
-  }),
-});
+   same shape solving the same problem one level up.
+
+   TICKET-0058 (BRIEF-0058-c): the last entry, `relation_cytoscape`,
+   converged onto the primitive here -- GRAPH_IMPLS is now permanently
+   empty. Its retirement is recorded, append-only, in
+   tooling/verify/baselines/graph_impls.retired; graph_primitive.py's rule
+   5b proves its code stays gone, forever, not just unregistered. */
+export const GRAPH_IMPLS = Object.freeze({});

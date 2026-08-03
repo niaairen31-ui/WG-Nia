@@ -114,13 +114,44 @@ export function legacyDocument() {
   return legacyWindow().document;
 }
 
-/* TICKET-0057. The review pre-commit preview derives its {nodes, edges}
-   from in-memory drafts already living in the legacy document -- no
-   fetch of its own. reviewGraphData is a plain function declaration, so
-   the existing callLegacy mechanism reaches it like any other legacy
-   entry point; no new confinement-relevant token is introduced. */
-export function reviewGraphData(key) {
-  return callLegacy('reviewGraphData', key);
+/* TICKET-0058 (BRIEF-0058-c). The relations consumer's ego mode needs the
+   currently-selected NPC at load time, and `authorEntityId` is a bare
+   `let` -- never a `window` property (see showCreationTab's note above).
+   `authorGetSelectedEntityId` is the one-line function-declaration
+   accessor this reaches through; no other state crosses this seam. */
+export function getSelectedCharacterId() {
+  return callLegacy('authorGetSelectedEntityId');
+}
+
+/* TICKET-0058 (BRIEF-0058-e). The entity-list island's row click needs to
+   trigger authorSelectEntity (entity rows) or creationSelectRecord
+   (non-entity record rows: intrigues, evenements) -- both stay legacy
+   dispatchers by design (A1 keeps the tab mechanism legacy for this
+   ticket), routing to either a still-legacy sheetRenderer (intrigues) or a
+   'creation:sheet-detail'/'creation:record-detail' dispatch Sheet.svelte
+   renders natively. Both are plain function declarations on the legacy
+   window, reached the same way getSelectedCharacterId already reaches
+   authorGetSelectedEntityId. */
+export function selectEntity(id) {
+  return callLegacy('authorSelectEntity', id);
+}
+
+export function selectRecord(tabId, record) {
+  return callLegacy('creationSelectRecord', tabId, record);
+}
+
+/* TICKET-0058 (BRIEF-0058-f). Generic passthrough for the sheet's still-legacy
+   sub-editor generators (roles/subculture/geometry/doors/relations/knowledge/
+   pending-knowledge/pending-goals/pricing/membership-form/disc-detail-form/
+   goal-form/generate-panel — all Scope OUT, brief -g/-h) and loaders
+   (authorLoadItems/Ledger/Memberships/Goals/FactionMembersPanel/DiscDetails,
+   authorMembershipFactionChanged) Sheet.svelte calls after rendering its own
+   skeleton — exactly the tail authorRenderSheet used to run inline, just
+   invoked from across the shell/legacy boundary instead of in the same
+   function body. Every one of these stays a plain, unmigrated legacy
+   function; nothing about their own behavior changes. */
+export function legacyCall(fnName, ...args) {
+  return callLegacy(fnName, ...args);
 }
 
 export function whenLegacyReady(predicate, { timeoutMs = 5000 } = {}) {

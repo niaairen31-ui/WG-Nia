@@ -1,0 +1,9 @@
+# TICKET-0058 (BRIEF-0058-b). Append-only record of every graph
+# implementation ever retired from frontend/src/graph/registry.js's
+# GRAPH_IMPLS: one line per retired key, `<key>|<fnPrefix>|<locus>`. A key
+# enters this file in the same commit that removes it from registry.js,
+# and is never removed or edited afterward — tooling/verify/checks/
+# graph_primitive.py's rule 5b reads it to prove the retired
+# implementation's code is permanently gone from its locus, not just
+# unregistered.
+relation_cytoscape|relGraph|src/world_engine/cockpit/index.html
