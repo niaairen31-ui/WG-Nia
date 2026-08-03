@@ -150,6 +150,15 @@ export const CREATION_ISLANDS = Object.freeze({
       'authorApplyLocationDraft',
       'authorApplyFactionDraft',
       'authorRenderGenNotes',
+      // BRIEF-0058-j: evenements -- the last bespoke, still-legacy sheet --
+      // converges onto Evenements.svelte/eventDraft.svelte.js, reached
+      // through this same #author-main island (a tabKey === 'evenements'
+      // gate, not a registry-types-by-type lookup: `event` carries no
+      // ENTITY_TYPE_REGISTRY row).
+      'evenements',
+      '_evenementsRenderChips',
+      'loadEventsList',
+      'renderEventSheet',
     ],
   }),
   // BRIEF-0058-i (per RECON-SUPPLEMENT-0058's re-scope): region generation
@@ -157,12 +166,26 @@ export const CREATION_ISLANDS = Object.freeze({
   // parallel sheet editor -- ported wholesale to Region.svelte, alongside
   // the generic review-tree component itself (frontend/src/creation/review/
   // registry.js + Review.svelte). The room batch generator (lieux tab)
-  // stays legacy and keeps using the same review component through the
-  // legacy-window bridge until BRIEF-0058-j.
+  // converged the same way in BRIEF-0058-j (below) -- both consumers reach
+  // the shared review component through Review.svelte now, never the
+  // legacy-window bridge (retired).
   region: Object.freeze({
     containerId: 'creation-region',
     component: 'Region.svelte',
     migratedBy: 'TICKET-0058',
     retiredPrefixes: ['region', '_region', '_sheetField', '_sheetListSection', '_sheetEntityOptions'],
+  }),
+  // BRIEF-0058-j (per RECON-SUPPLEMENT-0058's re-scope): the room batch
+  // generator -- manifest checkpoint, draft review/commit -- ported
+  // wholesale to RoomBatch.svelte/roomBatch.svelte.js, the review
+  // component's second consumer. Lives inside the `lieux` tab's own
+  // #batch-panel-wrap container (declared alongside creation-editor-area in
+  // CREATION_TABS.lieux.containers), mounted on every 'lieux' activation but
+  // rendering nothing until EntityList.svelte's "Générer un lot ici" opens it.
+  batch: Object.freeze({
+    containerId: 'batch-panel-wrap',
+    component: 'RoomBatch.svelte',
+    migratedBy: 'TICKET-0058',
+    retiredPrefixes: ['batch', '_batchNodeName'],
   }),
 });

@@ -25,24 +25,31 @@
      same whether the div was created by an innerHTML write or by Svelte --
      both are real nodes in the same legacy document.
 
-     Two tabs (`intrigues`, `evenements`) and one mode (`pj`'s create panel)
-     never used authorRenderSheet at all -- they have their own bespoke,
-     hand-rolled sheetRenderer/createPanel (renderAgendaSheet, renderEventSheet
-     + evenementsRenderCreatePanel, pjRenderCreatePanel). Per RECON-SUPPLEMENT-
-     0058's -f section, evenements stays bridged until brief -j (it depends on
-     the field engine too -- see the 'creation:field-render'/'creation:field-
-     read' listeners below); the other two are simply unmigrated legacy code
-     that still needs somewhere safe to render inside this island's own mount
-     root without tearing Svelte's DOM out from under it (RECON-0058-a M5).
-     The answer is the SAME "stable leaf, legacy free to mutate its
-     innerHTML" idiom the sub-editor placeholders already rely on, just
-     sized to the whole container: #author-legacy-sheet-slot is an
-     UNCONDITIONALLY rendered sibling of #author-core-sheet (never created/
-     destroyed by an {#if}, only display:toggled), so a legacy renderer
-     that targets it right after a synchronous 'creation:sheet-legacy-active'
-     dispatch always finds it there -- no dependency on Svelte's own update
-     timing (flushSync makes the toggle itself synchronous too, belt and
-     braces).
+     One tab (`intrigues`) and one mode (`pj`'s create panel) never used
+     authorRenderSheet at all -- they have their own bespoke, hand-rolled
+     sheetRenderer/createPanel (renderAgendaSheet, pjRenderCreatePanel) and
+     stay unmigrated legacy code that still needs somewhere safe to render
+     inside this island's own mount root without tearing Svelte's DOM out
+     from under it (RECON-0058-a M5). The answer is the SAME "stable leaf,
+     legacy free to mutate its innerHTML" idiom the sub-editor placeholders
+     already rely on, just sized to the whole container:
+     #author-legacy-sheet-slot is an UNCONDITIONALLY rendered sibling of
+     #author-core-sheet (never created/destroyed by an {#if}, only
+     display:toggled), so a legacy renderer that targets it right after a
+     synchronous 'creation:sheet-legacy-active' dispatch always finds it
+     there -- no dependency on Svelte's own update timing (flushSync makes
+     the toggle itself synchronous too, belt and braces).
+
+     `evenements` converged onto real Svelte state (TICKET-0058, BRIEF-0058-j,
+     per RECON-SUPPLEMENT-0058's -j re-scope): it is not an entity-archetype
+     tab (`event` carries no ENTITY_TYPE_REGISTRY row), so it renders via its
+     own <Evenements> component, gated on `tabKey === 'evenements'` rather
+     than a `registry.types[type]` lookup, and saves through its own
+     saveEventSheet -- /api/events, never /api/entities. The reverse-
+     direction 'creation:field-render'/'creation:field-read' bridge brief -f
+     stood up for its still-legacy renderer is gone with it: <Evenements>
+     reaches Field.svelte/fields.js by plain import, the same way every
+     other tab already does.
 
      No scoped <style> block: like every other Creation island, this
      renders inside the legacy iframe document. */
@@ -50,8 +57,8 @@
   import { creationState } from './state.svelte.js';
   import { serverState } from '../lib/serverState.svelte.js';
   import { legacyCall } from '../legacy/bridge.js';
-  import { renderFieldHtml, readFieldValue } from './fields.js';
-  import { locationTypeOptionLabel, openTemplateModalFor, promptLocationTypeClassification } from './locationType.js';
+  import { readFieldValue } from './fields.js';
+  import { promptLocationTypeClassification } from './locationType.js';
   import Field from './Field.svelte';
   import GeometryEditor from './GeometryEditor.svelte';
   import DoorsEditor from './DoorsEditor.svelte';
@@ -69,6 +76,8 @@
   import PendingGoalsEditor from './PendingGoalsEditor.svelte';
   import { resetGeneratePanel, applyGeneratedDraft } from './generatePanel.svelte.js';
   import GeneratePanel from './GeneratePanel.svelte';
+  import { resetEventDraft, eventDraftState } from './eventDraft.svelte.js';
+  import Evenements from './Evenements.svelte';
 
   let { legacyDoc } = $props();
 
@@ -148,17 +157,19 @@
 
   /** Called by mount.js's _islandPrimaryAction('entitySheet') when the
    *  standard shell action band ("+ Nouveau") is clicked for a CORE
-   *  entity-archetype tab -- pj/intrigues/evenements never route here
-   *  (rule 11 pairing keeps their primaryAction legacy, paired with their
-   *  own bespoke createPanel). Mirrors creationNewEntity's own draft reset
-   *  (the plain "+ Nouveau" idiom every entity tab shared before this
-   *  brief), via the same legacy helper so the two paths never drift. */
+   *  entity-archetype tab OR evenements (BRIEF-0058-j: evenements is
+   *  island-routed too now) -- pj/intrigues never route here (rule 11
+   *  pairing keeps their primaryAction legacy, paired with their own
+   *  bespoke createPanel). Mirrors creationNewEntity's own draft reset (the
+   *  plain "+ Nouveau" idiom every entity tab shared before this brief),
+   *  via the same legacy helper so the two paths never drift. */
   export function primaryAction() {
     legacyCall('_authorResetCreateDrafts');
     resetDraftRoles();
     resetSubcultureDraft();
     resetPendingDrafts();
     resetGeneratePanel();
+    resetEventDraft();
     enterCreateMode(resolveTypeForTab(creationState.activeTabKey));
   }
 
@@ -202,50 +213,29 @@
     flushSync(() => { enterCreateMode(ev.detail.type); });
   });
 
-  // pj's createPanel, intrigues'/evenements' createPanel+sheetRenderer --
-  // all still legacy (rule 11 pairing keeps them off the island-routed
-  // primaryAction) -- dispatch this immediately before rendering their own
-  // markup into #author-legacy-sheet-slot, so that node exists under
-  // "legacy" display before their innerHTML write. creationNewEntity does
-  // this for the create-panel path; authorSelectEntity does it for
-  // entry.sheetRenderer (intrigues/evenements' view path).
+  // pj's createPanel, intrigues' createPanel+sheetRenderer -- both still
+  // legacy (rule 11 pairing keeps them off the island-routed primaryAction)
+  // -- dispatch this immediately before rendering their own markup into
+  // #author-legacy-sheet-slot, so that node exists under "legacy" display
+  // before their innerHTML write. creationNewEntity does this for the
+  // create-panel path; authorSelectEntity does it for entry.sheetRenderer
+  // (intrigues' view path).
   legacyDoc.addEventListener('creation:sheet-legacy-active', () => {
     flushSync(() => { creationState.sheetMode = 'legacy'; });
   });
 
+  // creationSelectRecord dispatches this for a non-entity, non-legacy
+  // record tab -- evenements is the one caller since BRIEF-0058-j (intrigues
+  // still has a bespoke sheetRenderer and never reaches here). Mirrors
+  // 'creation:sheet-detail' exactly, just keyed by tabId instead of a
+  // fetched entity's own .type.
+  legacyDoc.addEventListener('creation:record-detail', (ev) => {
+    flushSync(() => { enterViewMode(ev.detail.record, ev.detail.tabId); });
+  });
+
   // #author-save-btn's onclick (creationSaveDispatch) dispatches this for
-  // every tab with no saveHandler of its own -- evenements keeps its own
-  // saveHandler (evenementsSave), never reaching here.
+  // every tab with no saveHandler of its own.
   legacyDoc.addEventListener('creation:sheet-save', () => { saveSheet(); });
-
-  // evenements' still-legacy renderEventSheet/evenementsRenderCreatePanel/
-  // evenementsSave/evenementsSubmitCreate reach the ported field engine
-  // through these two events (via the small _creationRenderField/
-  // _creationReadField wrappers in index.html) instead of the deleted
-  // authorRenderField/authorReadField -- the "reverse-direction CustomEvent"
-  // RECON-SUPPLEMENT-0058's -f section calls for. Both are synchronous:
-  // dispatchEvent() doesn't return until this listener has set detail.html
-  // (or detail.value/detail.error).
-  legacyDoc.addEventListener('creation:field-render', (ev) => {
-    ev.detail.html = renderFieldHtml(ev.detail.field, ev.detail.value, ev.detail.idPrefix, { entities: creationState.entities });
-  });
-  legacyDoc.addEventListener('creation:field-read', (ev) => {
-    try {
-      ev.detail.value = readFieldValue(legacyDoc, ev.detail.field, ev.detail.idPrefix);
-    } catch (err) {
-      ev.detail.error = err.message;
-    }
-  });
-
-  // The room-batch generator (batchRenderManifestTable, index.html, still
-  // legacy until brief -j) reaches the ported location-type helpers the
-  // same reverse-bridge way -- BRIEF-0058-g family a.
-  legacyDoc.addEventListener('creation:location-type-label', (ev) => {
-    ev.detail.label = locationTypeOptionLabel(ev.detail.row);
-  });
-  legacyDoc.addEventListener('creation:open-location-type-modal', (ev) => {
-    openTemplateModalFor(legacyDoc, ev.detail.fieldId, () => {});
-  });
 
   // generatePendingCreation (index.html, still legacy -- germ realization,
   // "Créations en attente", is out of this brief's scope) reaches the ported
@@ -262,7 +252,7 @@
   // #author-main -- authorRenderSheet always reached out to it too. Only
   // touched for 'empty'/'view': 'loading'/'error' leave it exactly as
   // authorSelectEntity's spinner/catch branches always did (untouched),
-  // and 'legacy' is legacy code's own job (renderEventSheet et al. already
+  // and 'legacy' is legacy code's own job (renderAgendaSheet et al. already
   // set these themselves, unchanged).
   $effect(() => {
     const mode = creationState.sheetMode;
@@ -278,18 +268,32 @@
       if (deleteBtn) deleteBtn.style.display = 'none';
       return;
     }
+    const isNewSheet = creationState.sheetIsNew;
+    // evenements (BRIEF-0058-j): `event` carries no ENTITY_TYPE_REGISTRY
+    // row, so there is no typeInfo.label to read -- title comes straight
+    // off the record, delete never shows (C3, no event delete surface
+    // exists), and save is hidden on create (the inline "+ Créer
+    // l'événement" button is the create-time submit, matching every other
+    // bespoke createPanel's own posture).
+    if (creationState.activeTabKey === 'evenements') {
+      if (titleEl) titleEl.textContent = isNewSheet ? 'Nouvel événement' : (creationState.sheetDetail.title || '');
+      if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = ''; }
+      if (saveBtn) saveBtn.style.display = isNewSheet ? 'none' : '';
+      if (deleteBtn) deleteBtn.style.display = 'none';
+      return;
+    }
     if (!registry) return;
     const type = creationState.sheetType;
     const typeInfo = registry.types[type];
     if (!typeInfo) return;
     if (titleEl) {
-      titleEl.textContent = creationState.sheetIsNew
+      titleEl.textContent = isNewSheet
         ? `New ${typeInfo.label}`
         : `${creationState.sheetDetail.name} (${typeInfo.label})`;
     }
     if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = ''; }
     if (saveBtn) saveBtn.style.display = '';
-    if (deleteBtn) deleteBtn.style.display = creationState.sheetIsNew ? 'none' : '';
+    if (deleteBtn) deleteBtn.style.display = isNewSheet ? 'none' : '';
   });
 
   // The tail authorRenderSheet always ran inline after building its HTML --
@@ -316,6 +320,7 @@
   });
 
   async function saveSheet() {
+    if (creationState.activeTabKey === 'evenements') { await saveEventSheet(); return; }
     if (!registry) return;
     const statusEl = legacyDoc.getElementById('author-status');
     const isNewSave = creationState.sheetIsNew;
@@ -349,6 +354,50 @@
     }
 
     await submitEntity(isNewSave, type, entityData, extData);
+  }
+
+  /** evenements' save (BRIEF-0058-j) -- one function for both the header
+   *  Save button (view mode, PUT) and <Evenements>'s own inline "+ Créer
+   *  l'événement" button (create mode, POST), unlike the legacy pair
+   *  evenementsSave/evenementsSubmitCreate: the two only ever differed in
+   *  HTTP verb/target and a title-required check, both expressed here as
+   *  one isNewSave branch, same posture as submitEntity above. No delete
+   *  path exists (C3) and no dependent-draft POSTs are needed (event has
+   *  none). */
+  async function saveEventSheet() {
+    if (!registry) return;
+    const statusEl = legacyDoc.getElementById('author-status');
+    const isNewSave = creationState.sheetIsNew;
+
+    const body = {};
+    try {
+      for (const field of registry.event_fields) {
+        body[field.name] = readFieldValue(legacyDoc, field, 'event-f');
+      }
+    } catch (e) {
+      if (statusEl) { statusEl.className = 'author-status err'; statusEl.textContent = `Invalid: ${e.message}`; }
+      return;
+    }
+    if (isNewSave && (!body.title || !body.title.trim())) {
+      if (statusEl) { statusEl.className = 'author-status err'; statusEl.textContent = 'Titre requis.'; }
+      return;
+    }
+    body.involved_entities = eventDraftState.involved.map((c) => c.id);
+
+    if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = isNewSave ? '…' : 'Saving…'; }
+    try {
+      const saved = isNewSave
+        ? await api('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        : await api(`/api/events/${encodeURIComponent(creationState.sheetDetail.id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+      legacyCall('creationRefreshList');
+      flushSync(() => { enterViewMode(saved, 'evenements'); });
+      legacyDoc.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: saved.id } }));
+      const st = legacyDoc.getElementById('author-status');
+      if (st) { st.className = 'author-status ok'; st.textContent = 'Saved.'; }
+    } catch (e) {
+      if (statusEl) { statusEl.className = 'author-status err'; statusEl.textContent = e.message; }
+    }
   }
 
   /** The actual write + dependent-draft POSTs -- ported _authorSaveSubmit
@@ -473,6 +522,9 @@
   {:else if mode === 'view'}
     {#if !registry}
       <div class="empty"><span class="spin">⟳</span></div>
+    {:else if tabKey === 'evenements'}
+      <Evenements {legacyDoc} {isNew} event={detail} entities={creationState.entities}
+        eventFields={registry.event_fields} onSave={saveSheet} />
     {:else}
       {#if showGeneratePanel}
         <GeneratePanel {legacyDoc} {type} />

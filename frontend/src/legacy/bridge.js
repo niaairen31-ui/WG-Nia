@@ -114,15 +114,6 @@ export function legacyDocument() {
   return legacyWindow().document;
 }
 
-/* TICKET-0057. The review pre-commit preview derives its {nodes, edges}
-   from in-memory drafts already living in the legacy document -- no
-   fetch of its own. reviewGraphData is a plain function declaration, so
-   the existing callLegacy mechanism reaches it like any other legacy
-   entry point; no new confinement-relevant token is introduced. */
-export function reviewGraphData(key) {
-  return callLegacy('reviewGraphData', key);
-}
-
 /* TICKET-0058 (BRIEF-0058-c). The relations consumer's ego mode needs the
    currently-selected NPC at load time, and `authorEntityId` is a bare
    `let` -- never a `window` property (see showCreationTab's note above).
@@ -133,33 +124,20 @@ export function getSelectedCharacterId() {
 }
 
 /* TICKET-0058 (BRIEF-0058-e). The entity-list island's row click needs to
-   trigger the still-legacy detail/sheet render (authorSelectEntity renders
-   into #author-main, out of scope until brief -f) or the still-legacy
-   record-selection dispatcher (creationSelectRecord, Intrigues/Evenements).
-   Both are plain function declarations on the legacy window, reached the
-   same way getSelectedCharacterId already reaches authorGetSelectedEntityId. */
+   trigger authorSelectEntity (entity rows) or creationSelectRecord
+   (non-entity record rows: intrigues, evenements) -- both stay legacy
+   dispatchers by design (A1 keeps the tab mechanism legacy for this
+   ticket), routing to either a still-legacy sheetRenderer (intrigues) or a
+   'creation:sheet-detail'/'creation:record-detail' dispatch Sheet.svelte
+   renders natively. Both are plain function declarations on the legacy
+   window, reached the same way getSelectedCharacterId already reaches
+   authorGetSelectedEntityId. */
 export function selectEntity(id) {
   return callLegacy('authorSelectEntity', id);
 }
 
 export function selectRecord(tabId, record) {
   return callLegacy('creationSelectRecord', tabId, record);
-}
-
-/* Lieux' "Générer un lot ici" button (ported off renderLieuxBrowse) opens
-   the still-legacy room-batch panel; batchOpenPanel stays legacy (brief -f
-   scopes the sheet, not the batch generator). */
-export function openBatchPanel(parentId, anchorName) {
-  return callLegacy('batchOpenPanel', parentId, anchorName);
-}
-
-/* NPC's "Générer les buts manquants" secondary control (BRIEF-0013-b) stays
-   a legacy call until brief -j migrates npcGoalsBackfillAll itself — same
-   reverse-bridge posture Constructeur.svelte already established for
-   'creation:refresh-tabs', just reached via callLegacy instead of a
-   CustomEvent since this is a plain, argument-free, legacy-owned action. */
-export function triggerNpcGoalsBackfill() {
-  return callLegacy('npcGoalsBackfillAll');
 }
 
 /* TICKET-0058 (BRIEF-0058-f). Generic passthrough for the sheet's still-legacy

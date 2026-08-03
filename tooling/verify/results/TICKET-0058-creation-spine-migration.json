@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0058-creation-spine-migration",
-  "when": "2026-08-03T15:35:57.056447+00:00",
+  "when": "2026-08-03T16:39:41.583636+00:00",
   "green": true,
   "checks": [
     {
@@ -16,7 +16,7 @@
     {
       "check": "creation_island.py",
       "status": "PASS",
-      "msg": "PASS: creation_island \u2014 4 island(s) registered, 4 retired legacy prefix set(s) confirmed gone, 2 event channel(s) confined, 11 island primaryAction(s) wired"
+      "msg": "PASS: creation_island \u2014 5 island(s) registered, 5 retired legacy prefix set(s) confirmed gone, 2 event channel(s) confined, 11 island primaryAction(s) wired"
     },
     {
       "check": "page_contract.py",
@@ -26,12 +26,12 @@
     {
       "check": "review_component.py",
       "status": "PASS",
-      "msg": "PASS: review_component \u2014 8 rules evaluated, nine region* names and reviewGraphRender gone across every locus, eleven review* generics singly-defined in review/registry.js and region-blind, reviewCascade is a pure one-parameter function keyed on fallbackParentId, single region descriptor factory in Region.svelte, boundary holds in index.html (legacy batch consumer) and via the Svelte import graph (Region.svelte/Review.svelte/mount.js)"
+      "msg": "PASS: review_component \u2014 8 rules evaluated, nine region* names, reviewGraphRender and the retired string-render half all gone across every locus, four review* generics singly-defined in review/registry.js and consumer-blind, reviewCascade is a pure one-parameter function keyed on fallbackParentId, single descriptor factory per Svelte consumer (Region.svelte/RoomBatch.svelte), boundary holds in index.html (zero legacy consumers) and via the Svelte import graph"
     },
     {
       "check": "review_root_fallback.py",
       "status": "PASS",
-      "msg": "PASS: review_root_fallback \u2014 reviewTree()'s roots filter uses cascade.effectiveParent, not a bare n.parentId == null check"
+      "msg": "PASS: review_root_fallback \u2014 Review.svelte's roots filter uses cascade.effectiveParent, not a bare n.parentId == null check"
     },
     {
       "check": "creation_return_nav.py",
@@ -56,7 +56,7 @@
     {
       "check": "frontend_build_fresh.py",
       "status": "PASS",
-      "msg": "PASS: frontend_build_fresh \u2014 47 source file(s), 1 output asset(s), manifest hash matches"
+      "msg": "PASS: frontend_build_fresh \u2014 51 source file(s), 1 output asset(s), manifest hash matches"
     }
   ]
 }

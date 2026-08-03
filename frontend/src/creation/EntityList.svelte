@@ -15,22 +15,33 @@
      whichever tab's rendering got here first, regardless of which tab
      wrote it.
 
-     The SHEET stays entirely legacy (#author-main, brief -f): a row click
-     never renders detail here, it calls back into the still-legacy
-     authorSelectEntity/creationSelectRecord via legacy/bridge.js, exactly
-     as those functions already work today -- only the caller moved.
+     The SHEET stays entirely legacy for `intrigues` and `pj`'s create mode
+     (#author-main, brief -f) -- a row click for those still calls back into
+     authorSelectEntity/creationSelectRecord via legacy/bridge.js, exactly as
+     those functions already work today, only the caller moved. `evenements`
+     converged onto real Svelte state (BRIEF-0058-j): its list is fetched by
+     this component directly (loadEvents, mirroring loadGenericEntities --
+     no more 'creation:list-data' push from a legacy loadEventsList, which is
+     gone), and its row click still reaches Sheet.svelte through
+     creationSelectRecord (unchanged call), which now dispatches
+     'creation:record-detail' instead of calling a bespoke sheetRenderer.
+     "Générer un lot ici" and "Générer les buts manquants" (BRIEF-0058-j)
+     reach the room-batch island and the goals-backfill endpoint by plain
+     import/fetch now too -- neither is a legacy function any more, so
+     legacy/bridge.js's openBatchPanel/triggerNpcGoalsBackfill are gone.
 
      No scoped <style> block: like Graph.svelte and Constructeur.svelte,
      this renders inside the legacy iframe document, where Svelte's
      shell-injected scoped CSS never reaches. Markup reuses the legacy
      document's own classes/CSS vars. */
   import { creationState } from './state.svelte.js';
-  import { selectEntity, selectRecord, openBatchPanel, triggerNpcGoalsBackfill } from '../legacy/bridge.js';
+  import { selectEntity, selectRecord } from '../legacy/bridge.js';
+  import { openRoomBatch } from './roomBatch.svelte.js';
 
   let { legacyDoc } = $props();
 
   const GENERIC_TYPE_BY_TAB = { npc: 'character', pj: 'character', lieux: 'location', factions: 'faction', objets: 'item' };
-  const CUSTOM_LIST_KEY_BY_TAB = { intrigues: 'agendas', evenements: 'events' };
+  const CUSTOM_LIST_KEY_BY_TAB = { intrigues: 'agendas' };
   const LOCATION_TYPE_ORDER = ['city', 'district', 'building', 'room', 'natural', 'underground', 'other'];
   const LOCATION_TYPE_LABELS = {
     city: 'Villes', district: 'Quartiers', building: 'Bâtiments', room: 'Pièces',
@@ -42,11 +53,10 @@
   let recordsReady = $state(false);
   let previousTabKey = null;
 
-  // Lieux browse view-state -- component-local (unlike entities/agendas/
-  // events, nothing outside this island reads it once renderLieuxBrowse
-  // and its helpers are gone; the room-batch "Générer un lot ici" trigger
-  // reaches the still-legacy batchOpenPanel through the bridge instead of
-  // reading a legacy global).
+  // Lieux browse view-state -- component-local (unlike entities/agendas,
+  // nothing outside this island reads it once renderLieuxBrowse and its
+  // helpers are gone; the room-batch "Générer un lot ici" trigger reaches
+  // the room-batch island's own store directly, BRIEF-0058-j).
   let lieuxParentId = $state(null);
   let lieuxBreadcrumb = $state([]);
   let lieuxActiveOnly = $state(false);
@@ -75,11 +85,10 @@
       creationState.locationTypeCatalog = locationTypes;
       mode = creationState.activeTabKey === 'lieux' ? 'lieux' : 'flat';
       // Reverse bridge, extending the 'detail' payload precedent BRIEF-
-      // 0058-d's Scope OUT reserved for "when they have a reader": many
-      // still-legacy consumers (the field engine's entity_ref pickers,
-      // the Evenements chip editor, faction roster candidates,
-      // location-type classification, creationRenderReturnControl...)
-      // read authorAllEntities/playerCharIds/authorLocationTree/
+      // 0058-d's Scope OUT reserved for "when they have a reader": still-
+      // legacy consumers (faction roster candidates, location-type
+      // classification, creationRenderReturnControl...) read
+      // authorAllEntities/playerCharIds/authorLocationTree/
       // authorLocationTypeCatalog directly. authorLoadEntityList, their
       // sole populator, is deleted by this brief -- this keeps them fed.
       legacyDoc.dispatchEvent(new CustomEvent('creation:entities-loaded', {
@@ -96,15 +105,36 @@
     }
   }
 
+  /** evenements' own list fetch (BRIEF-0058-j) -- mirrors loadGenericEntities'
+   *  shape (self-fetched, pushed into creationState) rather than waiting on
+   *  a legacy listLoader's 'creation:list-data' push; the now-deleted
+   *  loadEventsList did the identical fetch, just from index.html. */
+  async function loadEvents() {
+    recordsReady = false;
+    mode = 'record';
+    try {
+      creationState.events = await api('/api/events');
+    } catch (err) {
+      errorMessage = err.message;
+      mode = 'error';
+      return;
+    }
+    recordsReady = true;
+  }
+
   function activateTab(tabKey) {
     const isNewActivation = tabKey !== previousTabKey;
     previousTabKey = tabKey;
+    if (tabKey === 'evenements') {
+      loadEvents();
+      return;
+    }
     if (tabKey in CUSTOM_LIST_KEY_BY_TAB) {
       if (isNewActivation) recordsReady = false;
       mode = 'record';
       // Data arrives via 'creation:list-data' -- entry.listLoader() (kept
-      // legacy: loadAgendasList/loadEventsList) still runs from
-      // _creationActivateTab on every activation, unchanged cadence.
+      // legacy: loadAgendasList) still runs from _creationActivateTab on
+      // every activation, unchanged cadence.
       return;
     }
     if (tabKey === 'lieux' && isNewActivation) {
@@ -131,7 +161,6 @@
   legacyDoc.addEventListener('creation:list-data', (ev) => {
     const { key, rows } = ev.detail;
     if (key === 'agendas') creationState.agendas = rows;
-    else if (key === 'events') creationState.events = rows;
     recordsReady = true;
   });
 
@@ -141,6 +170,31 @@
 
   function onSelectRecord(record) {
     selectRecord(creationState.activeTabKey, record);
+  }
+
+  /** "Générer les buts manquants" (BRIEF-0013-b, ported off npcGoalsBackfillAll
+   *  by BRIEF-0058-j) -- a plain fetch now, not a legacy-window call. If an
+   *  NPC sheet is currently open, its goals list needs to refresh too; that
+   *  refresh lives in Sheet.svelte (the one place that already owns the
+   *  goals panel's load), reached the same one-bus way every other
+   *  Svelte-to-Svelte signal on this document already is. */
+  let npcGoalsBackfillStatus = $state('');
+
+  async function backfillNpcGoals() {
+    npcGoalsBackfillStatus = 'Génération…';
+    try {
+      const res = await fetch('/api/npc-goals/backfill', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+      });
+      const result = await res.json().catch(() => ({ detail: res.statusText }));
+      if (!res.ok) throw new Error(result.detail || JSON.stringify(result));
+      npcGoalsBackfillStatus = `Traités : ${result.processed} · déjà complets : ${result.skipped_complete} · `
+        + `écrits (long/court) : ${result.written.long}/${result.written.short}`
+        + (result.failures.length ? ` · échecs : ${result.failures.length}` : '');
+      legacyDoc.dispatchEvent(new CustomEvent('creation:goals-backfilled'));
+    } catch (e) {
+      npcGoalsBackfillStatus = e.message;
+    }
   }
 
   function genericRows() {
@@ -213,8 +267,8 @@
 {:else if mode === 'flat'}
   {#if creationState.activeTabKey === 'npc'}
     <div class="row-card" style="margin-bottom:8px;">
-      <button class="btn-ghost" style="font-size:12px; width:100%;" onclick={() => triggerNpcGoalsBackfill()}>Générer les buts manquants</button>
-      <div id="npc-goals-backfill-status" style="font-size:11px; color:var(--muted); margin-top:4px;"></div>
+      <button class="btn-ghost" style="font-size:12px; width:100%;" onclick={backfillNpcGoals}>Générer les buts manquants</button>
+      <div style="font-size:11px; color:var(--muted); margin-top:4px;">{npcGoalsBackfillStatus}</div>
     </div>
   {/if}
   {#if genericRows().length === 0}
@@ -242,7 +296,7 @@
       {/each}
     </div>
     {#if lieuxParentId != null}
-      <button class="btn-icon" onclick={() => openBatchPanel(lieuxParentId, lieuxBreadcrumb[lieuxBreadcrumb.length - 1]?.name || '')}>Générer un lot ici</button>
+      <button class="btn-icon" onclick={() => openRoomBatch(lieuxParentId, lieuxBreadcrumb[lieuxBreadcrumb.length - 1]?.name || '')}>Générer un lot ici</button>
     {:else}
       <button class="btn-icon" disabled title="Descends dans un lieu pour l'utiliser comme ancre">Générer un lot ici</button>
     {/if}

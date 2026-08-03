@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="utf-8">
@@ -1281,21 +1281,14 @@ button:not(:disabled):hover { filter: brightness(1.15); }
        Lieux consumer. -->
   <div id="creation-lieux-graph" style="display:none"></div>
 
-  <!-- ── Lieux — Room batch generator panel (TICKET-0042, BRIEF-0042-d).
-       Outer wrapper participates in CREATION_TABS.lieux's containers
-       hide/show loop (so it disappears when leaving the Lieux tab); the
-       inner #batch-panel is independently opened/closed by
-       batchOpenPanel/batchClosePanel, so it stays hidden by default even
-       while the Lieux tab itself is active. ── -->
-  <div id="batch-panel-wrap">
-    <div id="batch-panel" style="display:none">
-      <div class="lieux-graph-head">
-        <span>Génération de lot — <span id="batch-anchor-label"></span></span>
-        <button class="btn-icon" onclick="batchClosePanel()">Fermer</button>
-      </div>
-      <div id="batch-root" style="padding:10px 14px; max-height:600px; overflow-y:auto"></div>
-    </div>
-  </div>
+  <!-- ── Lieux — Room batch generator panel (TICKET-0042, converged onto
+       Svelte by TICKET-0058/BRIEF-0058-j). Empty by construction — the
+       whole panel (open/closed state included) belongs to
+       frontend/src/creation/RoomBatch.svelte, mounted here as the `batch`
+       island; this wrapper only participates in CREATION_TABS.lieux's
+       containers hide/show loop so it disappears when leaving the Lieux
+       tab. ── -->
+  <div id="batch-panel-wrap"></div>
 
   <!-- ── NPC — Relation ego/global graph panel (BRIEF-0023-b, BRIEF-0033-e;
        migrated onto the graph primitive, TICKET-0058/BRIEF-0058-c). The
@@ -4187,10 +4180,15 @@ function _entityTabEnterReset() {
   document.dispatchEvent(new CustomEvent('creation:sheet-reset'));
 }
 
+/** BRIEF-0058-j: any open room-batch panel closes on leaving/re-entering
+ *  Lieux, same as it always did (batchReset() used to run inline here) --
+ *  RoomBatch.svelte owns that state now, so this fires a plain notification
+ *  CustomEvent instead, the same 'creation:sheet-reset' idiom every other
+ *  xTabEnterReset already uses to tell its own island to reset itself. */
 function _lieuxTabEnterReset() {
   _entityTabEnterReset();
   _onDemandSlotReset(CREATION_TABS.lieux);
-  batchReset();
+  document.dispatchEvent(new CustomEvent('creation:batch-reset'));
 }
 
 function _npcTabEnterReset() {
@@ -4233,45 +4231,32 @@ function _intriguesTabEnterReset() {
 }
 
 /** evenements' onTabEnter (BRIEF-0022-a item 6, G1 state contract) — resets
- *  ALL state this tab owns: selection and chip draft. Mirrors
- *  _intriguesTabEnterReset verbatim. Its onWorldSwitch counterpart
- *  (_evenementsWorldReset, cached event list) is gone with intrigues'
- *  (TICKET-0058, BRIEF-0058-e) — evenements now declares 'islands' for
- *  #author-entity-list too; the cached list lives in
- *  frontend/src/creation/state.svelte.js, refetched by entry.listLoader on
- *  every activation exactly as before. */
+ *  the one piece of state this tab owns at the legacy boundary: selection.
+ *  Mirrors _intriguesTabEnterReset verbatim. The chip draft reset
+ *  (evenementsInvolvedDraft) is gone with the rest of evenements' bespoke
+ *  sheet (TICKET-0058, BRIEF-0058-j) — Evenements.svelte resets its own
+ *  draft reactively off the 'creation:sheet-reset' dispatch below, via
+ *  Sheet.svelte's existing listener, not a legacy global. */
 function _evenementsTabEnterReset() {
   creationSelectedRecordId = null;
-  evenementsInvolvedDraft = [];
   document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
   // TICKET-0058 (BRIEF-0058-f): see _entityTabEnterReset's identical note.
   document.dispatchEvent(new CustomEvent('creation:sheet-reset'));
 }
 
-/** BRIEF-0058-f (RECON-SUPPLEMENT-0058 -f section, item 1): the exact
- *  surviving legacy callers that still reach the sheet-adjacent area, per
- *  the RECON's enumeration -- kept legacy on purpose (brief -g/-h/-j
- *  territory, or a genuinely separate endpoint), listed here rather than
- *  scattered so a future reader doesn't have to re-derive the set:
- *    renderEventSheet, evenementsRenderCreatePanel, evenementsSave,
- *    evenementsSubmitCreate -- evenements' bespoke, still-legacy sheet;
- *    reaches the ported field engine only through the 'creation:field-
- *    render'/'creation:field-read' bridge (Sheet.svelte), via the small
- *    _creationRenderField/_creationReadField wrappers below.
- *    batchCommit -- its only sheet-adjacent dependency (authorLoadEntityList)
- *    was already resolved by BRIEF-0058-e's creationRefreshList(); it never
- *    called the field engine directly. (regionCommit, listed here through
- *    BRIEF-0058-h, was ported off this document by BRIEF-0058-i.)
- *    _buildRuntimeCreationTabs -- its createPanel/primaryAction pair is
- *    flipped to island-routed below, same as the four static core tabs.
- *    generatePendingCreation -- dispatches 'creation:sheet-create' instead
- *    of the deleted authorRenderSheet({}, true, entityType); its own
- *    authorApply*Draft calls were retired by BRIEF-0058-h, so it now
- *    dispatches 'creation:apply-generated-draft' too (Sheet.svelte reaches
- *    the ported applyGeneratedDraft, same reverse-bridge idiom).
- *    _factionRosterRowHtml, npcGoalsBackfillAll, pcCreateSubmit -- part of
- *    the broader RECON-0058-a M4 author* closure but call no function this
- *    brief retires; unchanged. */
+/** BRIEF-0058-j closed the RECON-0058-a M4 author* call closure: every
+ *  legacy caller the earlier briefs' own comments tracked here
+ *  (renderEventSheet/evenementsRenderCreatePanel/evenementsSave/
+ *  evenementsSubmitCreate, batchCommit and the rest of the room-batch
+ *  generator) is gone, ported alongside what it called. Two names from
+ *  that same M4 closure call no migrated function and were never bridged:
+ *  `_factionRosterRowHtml`/`npcGoalsBackfillAll` (both retired by their own
+ *  briefs -g/-j regardless) and `pcCreateSubmit`, which never called
+ *  anything but the boundary-layer creationRefreshList() (confirmed
+ *  unchanged here). generatePendingCreation still dispatches
+ *  'creation:sheet-create'/'creation:apply-generated-draft'
+ *  (BRIEF-0058-h) — its own germ-realization flow is TICKET-0059
+ *  territory, not this ticket's closure. */
 const CREATION_TABS = {
   npc: {
     label: 'NPC',
@@ -4317,7 +4302,7 @@ const CREATION_TABS = {
     containers: ['creation-editor-area', 'batch-panel-wrap'],
     loader: null,
     state: { onTabEnter: _lieuxTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'batch', containerId: 'batch-panel-wrap' }],
     type: 'location',
     createPanel: null,
     primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
@@ -4413,11 +4398,8 @@ const CREATION_TABS = {
     loader: null,
     state: { onTabEnter: _evenementsTabEnterReset, onWorldSwitch: null },
     islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
-    listLoader: loadEventsList,
-    sheetRenderer: renderEventSheet,
-    createPanel: evenementsRenderCreatePanel,
-    saveHandler: evenementsSave,
-    primaryAction: { label: '+ Nouvel événement', handler: creationNewEntity },
+    createPanel: null,
+    primaryAction: { label: '+ Nouvel événement', handler: () => _islandPrimaryAction('entitySheet') },
   },
   queue: {
     label: 'Review Queue',
@@ -4586,12 +4568,13 @@ async function _creationRunWorldSwitchResets() {
   // TICKET-0058 (BRIEF-0058-e): npc's and lieux's onWorldSwitch are gone
   // (see the comment above _lieuxTabEnterReset) but the DOM work they used
   // to do beyond the entity list itself — hiding the NPC/link-agent panels
-  // and the room-batch panel on a world switch — still belongs here,
-  // called unconditionally exactly as it always ran, just no longer
-  // nested inside a per-tab callback.
+  // on a world switch — still belongs here, called unconditionally exactly
+  // as it always ran, just no longer nested inside a per-tab callback. The
+  // room-batch panel's own world-switch reset is gone too (BRIEF-0058-j):
+  // RoomBatch.svelte resets itself reactively off serverState.worldId, the
+  // same -d rule every other island entry follows.
   npcAgentReset();
   linkAgentReset();
-  batchReset();
   if (authorRegistry) await refreshCreationTabs();
 }
 
@@ -5190,264 +5173,19 @@ async function intriguesSubmitCreate() {
   }
 }
 
-/* ── Événements (TICKET-0022, BRIEF-0022-a) ──────────────────────────────────
- * Third non-entity reader of the sheetRenderer seam (after `agenda` and, in
- * the same ticket, its own create-panel AI assistant — BRIEF-0022-b). `event`
- * is not an `entity` row, so it is NOT a `_TYPE_FIELDS`/ENTITY_TYPE_REGISTRY
- * entry: `authorRegistry.event_fields` (server EVENT_FIELDS, mirrored) feeds
- * the same field engine entity/relation/knowledge fields use, now ported to
- * frontend/src/creation/fields.js/Field.svelte (BRIEF-0058-f) — reached here
- * via the _creationRenderField/_creationReadField bridge, since this sheet
- * itself stays legacy until brief -j. Both writes route through
- * /api/events (POST create, PUT update) — writes.write_event /
- * write_event_update server-side, the two sanctioned `event` canon-write
- * paths. No delete anywhere on this tab (C3): retraction is
- * knowledge_status = 'secret'. #event-gen-panel ships empty here;
- * BRIEF-0022-b fills it. */
-
-let evenementsEvents = [];          // cached /api/events response, list-pane + lookup source
-let evenementsInvolvedDraft = [];   // [{id, name}] — H2 chip editor draft
-
-/** evenements' listLoader (BRIEF-0022-a item 5) — fetches /api/events,
- *  caches rows, hands them to the shared list container. */
-/** evenements' listLoader (F1; DOM rendering moved to frontend/src/creation/
- *  EntityList.svelte by TICKET-0058/BRIEF-0058-e) — fetches the unchanged
- *  /api/events endpoint, caches rows for other still-legacy readers, and
- *  pushes them to the mounted island via 'creation:list-data'. */
-async function loadEventsList() {
-  try {
-    evenementsEvents = await api('/api/events');
-  } catch (e) {
-    console.error('loadEventsList:', e.message);
-    return;
-  }
-  document.dispatchEvent(new CustomEvent('creation:list-data', { detail: { key: 'events', rows: evenementsEvents } }));
-}
-
-/** Chip editor for involved_entities (H2 — Nia does not author JSON): one
- *  chip per {id, name} in evenementsInvolvedDraft, a ✕ to remove, and an
- *  entity_ref-style <select> over authorAllEntities to add. Renders directly
- *  from the draft — there is no per-chip editable text to sync from the DOM
- *  (unlike authorFactionRolesDraft's name/description rows), so add/remove
- *  mutate the draft and re-render in one step. Serialized to the API as the
- *  flat id list (evenementsInvolvedDraft.map(c => c.id)), never the
- *  {id,name} objects — the stored column shape stays a flat list of ids
- *  (tick.py:614, analyzer.py:329 already produce/consume that shape). */
-function _evenementsRenderChips() {
-  const chips = evenementsInvolvedDraft.map((c, i) => `
-    <span class="badge b-other" style="display:inline-flex; align-items:center; gap:5px; margin:2px">
-      ${c.name ? esc(c.name) : `&laquo; entité inconnue &raquo; (${esc((c.id || '').slice(0, 8))})`}
-      <button class="btn-icon" style="padding:0 2px" title="Retirer" onclick="evenementsRemoveChip(${i})">✕</button>
-    </span>`).join('');
-  const candidates = authorAllEntities.filter(e => !evenementsInvolvedDraft.some(c => c.id === e.id));
-  const opts = ['<option value="">— ajouter une entité —</option>'].concat(
-    candidates.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`)
-  ).join('');
-  return `
-    <div id="evenements-chips">${chips || '<div class="empty">Aucune entité impliquée.</div>'}</div>
-    <select id="evenements-chip-add" onchange="evenementsAddChip()">${opts}</select>`;
-}
-
-function evenementsAddChip() {
-  const sel = document.getElementById('evenements-chip-add');
-  if (!sel || !sel.value) return;
-  const entity = authorAllEntities.find(e => e.id === sel.value);
-  if (!entity) return;
-  evenementsInvolvedDraft.push({ id: entity.id, name: entity.name });
-  document.getElementById('evenements-chip-block').innerHTML = _evenementsRenderChips();
-}
-
-function evenementsRemoveChip(i) {
-  evenementsInvolvedDraft.splice(i, 1);
-  document.getElementById('evenements-chip-block').innerHTML = _evenementsRenderChips();
-}
-
-/** evenements' sheetRenderer (BRIEF-0022-a item 8) — detail pane: EVENT_FIELDS
- *  scalars through the shared field machinery, then the chip block, then
- *  recorded_at read-only. Shows save, hides delete unconditionally (C3 — no
- *  event is ever deleted). Saving dispatches to evenementsSave ->
- *  PUT /api/events/{id}, never authorSave (entity-only). */
-function renderEventSheet(event) {
-  creationSelectedRecordId = event.id;
-  evenementsInvolvedDraft = (event.involved_entities || []).map(c => ({ id: c.id, name: c.name }));
-
-  document.getElementById('author-sheet-title').textContent = event.title;
-  document.getElementById('author-status').textContent = '';
-  document.getElementById('author-save-btn').style.display = '';
-  document.getElementById('author-delete-btn').style.display = 'none';
-
-  let html = '<div class="field-section"><div class="field-section-title">Événement</div><div class="field-grid">';
-  for (const field of authorRegistry.event_fields) {
-    html += _creationRenderField(field, event[field.name], 'event-f');
-  }
-  html += '</div></div>';
-  html += `<div class="field-section"><div class="field-section-title">Entités impliquées</div>
-    <div id="evenements-chip-block">${_evenementsRenderChips()}</div></div>`;
-  html += `<div class="field-section"><span style="color:var(--muted); font-size:12px;">Enregistré : ${esc(event.recorded_at || '')}</span></div>`;
-
-  // TICKET-0058 (BRIEF-0058-f): see pjRenderCreatePanel's identical note --
-  // authorSelectEntity/creationSelectRecord dispatch 'creation:sheet-legacy-
-  // active' before calling this (entry.sheetRenderer).
-  document.getElementById('author-legacy-sheet-slot').innerHTML = html;
-}
-
-/** evenements' saveHandler (registered as CREATION_TABS.evenements.saveHandler,
- *  dispatched by creationSaveDispatch — never the entitySheet island's own
- *  save). Reads EVENT_FIELDS back via _creationReadField (bridged onto the
- *  ported field engine, BRIEF-0058-f), appends the synced chip draft as a
- *  flat id list, and PUTs to the selected event. Creation goes through
- *  evenementsSubmitCreate instead (the create panel has no selected id yet). */
-async function evenementsSave() {
-  const statusEl = document.getElementById('author-status');
-  if (!creationSelectedRecordId) return; // creation uses evenementsSubmitCreate
-  statusEl.className = 'author-status';
-  statusEl.textContent = 'Saving…';
-
-  const body = {};
-  for (const field of authorRegistry.event_fields) {
-    body[field.name] = _creationReadField(field, 'event-f');
-  }
-  body.involved_entities = evenementsInvolvedDraft.map(c => c.id);
-
-  try {
-    await api(`/api/events/${encodeURIComponent(creationSelectedRecordId)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    await loadEventsList();
-    const event = evenementsEvents.find(e => e.id === creationSelectedRecordId);
-    if (event) renderEventSheet(event);
-    statusEl.className = 'author-status ok';
-    statusEl.textContent = 'Saved.';
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = e.message;
-  }
-}
-
-/** evenements' createPanel (BRIEF-0022-a item 9) — same fields, empty, with
- *  knowledge_status pre-set to 'secret' and an empty chip list.
- *  #event-gen-panel ships empty; BRIEF-0022-b fills it. */
-function evenementsRenderCreatePanel() {
-  creationSelectedRecordId = null;
-  evenementsInvolvedDraft = [];
-  document.getElementById('author-sheet-title').textContent = 'Nouvel événement';
-  document.getElementById('author-status').textContent = '';
-  document.getElementById('author-save-btn').style.display = 'none';
-  document.getElementById('author-delete-btn').style.display = 'none';
-
-  let html = `
-    <div class="field-section" id="event-gen-panel" style="border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:12px;">
-      <div class="field-section-title">Générer avec l'IA</div>
-      <textarea id="event-gen-brief" rows="2" style="width:100%; resize:vertical"
-        placeholder="Une phrase, ex. : « Une crue emporte le pont du quartier bas pendant la nuit »"></textarea>
-      <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
-        <button class="btn-send" onclick="evenementsGenerateDraft()">Générer</button>
-        <span id="event-gen-status" style="font-size:12px; color:var(--muted)"></span>
-      </div>
-      <div id="event-gen-notes"></div>
-    </div>`;
-  html += '<div class="field-section"><div class="field-section-title">Nouvel événement</div><div class="field-grid">';
-  for (const field of authorRegistry.event_fields) {
-    html += _creationRenderField(field, undefined, 'event-f');
-  }
-  html += '</div></div>';
-  html += `<div class="field-section"><div class="field-section-title">Entités impliquées</div>
-    <div id="evenements-chip-block">${_evenementsRenderChips()}</div></div>`;
-  html += `<div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
-    <button class="btn-send" onclick="evenementsSubmitCreate()">+ Créer l'événement</button>
-    <span id="evenements-add-status" style="font-size:12px; color:var(--muted)"></span>
-  </div>`;
-
-  // TICKET-0058 (BRIEF-0058-f): see pjRenderCreatePanel's identical note --
-  // creationNewEntity dispatches 'creation:sheet-legacy-active' before
-  // calling this (entry.createPanel).
-  document.getElementById('author-legacy-sheet-slot').innerHTML = html;
-}
-
-/** evenements' AI assistant (TICKET-0022, BRIEF-0022-b item 7) — pre-fills
- *  the create shell (title, description, type, location, involved-entity
- *  chips) via POST /api/events/generate; writes no canon, one-shot (F2
- *  precedent — mirrors intriguesGenerateDraft): a second click overwrites
- *  the fields with the new draft. Never touches the knowledge_status
- *  select, which stays at its 'secret' default. The currently selected
- *  location_id (if the creator already chose one) is sent as an
- *  authoritative pre-selection — it wins outright over the model's own
- *  location proposal server-side. */
-async function evenementsGenerateDraft() {
-  const statusEl = document.getElementById('event-gen-status');
-  const brief = document.getElementById('event-gen-brief').value.trim();
-  if (!brief) { statusEl.textContent = 'Intention requise.'; return; }
-
-  const locationId = document.getElementById('event-f-location_id').value || null;
-
-  statusEl.textContent = 'Génération…';
-  let result;
-  try {
-    result = await api('/api/events/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ brief, location_id: locationId }),
-    });
-  } catch (e) {
-    statusEl.textContent = e.message;
-    return;
-  }
-
-  if (!result || result.ok === false) {
-    statusEl.textContent = (result && result.error) || 'Échec de la génération.';
-    return; // form untouched
-  }
-
-  document.getElementById('event-f-title').value = result.title || '';
-  document.getElementById('event-f-description').value = result.description || '';
-  document.getElementById('event-f-type').value = result.type || '';
-  if (result.location_id) document.getElementById('event-f-location_id').value = result.location_id;
-
-  evenementsInvolvedDraft = (result.involved_entities || []).map(id => {
-    const entity = authorAllEntities.find(e => e.id === id);
-    return { id, name: entity ? entity.name : null };
-  });
-  document.getElementById('evenements-chip-block').innerHTML = _evenementsRenderChips();
-
-  const notesEl = document.getElementById('event-gen-notes');
-  notesEl.innerHTML = (result.notes && result.notes.length)
-    ? '<div class="field-section-title" style="margin-top:8px">Notes de l&#39;assistant</div><div class="row-table">'
-      + result.notes.map(n => `<div class="row-card" style="font-size:12px; color:var(--muted)">${esc(n)}</div>`).join('')
-      + '</div>'
-    : '';
-
-  statusEl.textContent = "Brouillon généré — relisez et éditez avant d'accepter.";
-}
-
-async function evenementsSubmitCreate() {
-  const statusEl = document.getElementById('evenements-add-status');
-  const body = {};
-  try {
-    for (const field of authorRegistry.event_fields) {
-      body[field.name] = _creationReadField(field, 'event-f');
-    }
-  } catch (e) {
-    statusEl.textContent = e.message;
-    return;
-  }
-  if (!body.title || !body.title.trim()) { statusEl.textContent = 'Titre requis.'; return; }
-  body.involved_entities = evenementsInvolvedDraft.map(c => c.id);
-
-  statusEl.textContent = '…';
-  try {
-    const event = await api('/api/events', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    await loadEventsList();
-    creationSelectRecord('evenements', event);
-  } catch (e) {
-    statusEl.textContent = e.message;
-  }
-}
+/* ── Événements (TICKET-0022, converged onto Svelte by TICKET-0058/
+ * BRIEF-0058-j) ──────────────────────────────────────────────────────────
+ * The list, sheet, create panel, chip editor and AI draft assistant all
+ * moved to frontend/src/creation/Evenements.svelte + eventDraft.svelte.js,
+ * mounted by Sheet.svelte (#author-main, the entitySheet island) whenever
+ * currentCreationSubTab === 'evenements'. `event` is not an `entity` row,
+ * so it was never a `_TYPE_FIELDS`/ENTITY_TYPE_REGISTRY entry:
+ * `authorRegistry.event_fields` (server EVENT_FIELDS) is read as
+ * Sheet.svelte's own `registry.event_fields` (same GET /api/entity-types
+ * response), fed straight into <Field>, no bridge. Both writes still route
+ * through /api/events (POST create, PUT update) — writes.write_event /
+ * write_event_update server-side, unchanged. No delete anywhere on this
+ * tab (C3): retraction is knowledge_status = 'secret'. */
 
 const CREATION_ARTEFACTS_NOTICE =
   '<p style="font-style:italic; color:var(--muted); margin-bottom:16px">' +
@@ -6129,459 +5867,24 @@ async function promptsRunAssembledPreview(usage) {
   }
 }
 
-/* ════════════════════════════════════════════════════════════════════════
-   Room batch generator (TICKET-0042, BRIEF-0042-d) — anchored on a Lieux
-   browse node ("Générer un lot ici"), NOT the region* globals (a batch and
-   a region can never be live at once, but separate state keeps the two
-   consumers independent — the same S-norme reason TICKET-0041's generic
-   review component exists). Everything here is client-held until the
-   atomic commit route (BRIEF-0042-e); no draft/manifest is persisted
-   server-side.
-   ════════════════════════════════════════════════════════════════════════ */
+/* == Room batch generator (TICKET-0042, converged onto Svelte by
+   TICKET-0058/BRIEF-0058-j) ==================================================
+   Manifest checkpoint, draft review/commit and the review component's
+   second consumer all moved to frontend/src/creation/RoomBatch.svelte +
+   roomBatch.svelte.js, mounted into #batch-panel-wrap (declared in
+   CREATION_TABS.lieux.containers/islands) whenever the Lieux tab is
+   active. EntityList.svelte's "Generer un lot ici" button opens it via a
+   plain import (roomBatch.svelte.js's openRoomBatch), not this document.
+   Everything stays client-held until the atomic commit route
+   (BRIEF-0042-e); no draft/manifest is persisted server-side.
+   ============================================================================ */
 
-let batchAnchorId       = null;
-let batchAnchorName     = null;
-let batchCount          = 8;
-let batchManifest       = null;   // {rooms: [{name, one_liner, location_type, parent_room}]}
-let batchManifestAnchor = null;   // anchor block returned by /manifest (name/location_type/description/…)
-let batchManifestNotes  = [];
-let batchManifestSkipped = [];
-let batchDrafts         = null;   // {rooms: [{local_id, name, parent_room, result:{draft, notes}}], skipped, notes}
-let batchCoherence      = null;   // {edges: [{id, a_id, b_id, a_local, b_local, reason}], unresolved, notes}
-let batchAccepted       = {};
-let batchConfirmedEdges = {};
-let batchGraphOpen      = false;
-let batchCommitResult   = null;
-
-function batchReset() {
-  batchAnchorId        = null;
-  batchAnchorName      = null;
-  batchCount           = 8;
-  batchManifest        = null;
-  batchManifestAnchor  = null;
-  batchManifestNotes   = [];
-  batchManifestSkipped = [];
-  batchDrafts          = null;
-  batchCoherence       = null;
-  batchAccepted        = {};
-  batchConfirmedEdges  = {};
-  batchGraphOpen       = false;
-  batchCommitResult    = null;
-  const panelEl = document.getElementById('batch-panel');
-  if (panelEl) panelEl.style.display = 'none';
-}
-
-function batchOpenPanel(anchorId, anchorName) {
-  batchReset();
-  batchAnchorId = anchorId;
-  batchAnchorName = anchorName;
-  const panelEl = document.getElementById('batch-panel');
-  if (panelEl) panelEl.style.display = '';
-  const labelEl = document.getElementById('batch-anchor-label');
-  if (labelEl) labelEl.textContent = anchorName;
-  batchRenderAll();
-}
-
-function batchClosePanel() {
-  batchReset();
-}
-
-async function batchGenerateManifest() {
-  const statusEl = document.getElementById('batch-gen-status');
-  if (statusEl) statusEl.textContent = 'Génération du manifeste… (peut prendre un moment)';
-  let result;
-  try {
-    result = await api('/api/room-batch/manifest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ anchor_id: batchAnchorId, count: batchCount }),
-    });
-  } catch (e) {
-    if (statusEl) statusEl.textContent = e.message;
-    return;
-  }
-  if (!result || result.ok === false) {
-    if (statusEl) statusEl.textContent = (result && result.error) || 'Échec de la génération.';
-    return;
-  }
-  batchManifest        = result.manifest;
-  batchManifestAnchor  = result.anchor;
-  batchManifestNotes   = result.notes || [];
-  batchManifestSkipped = result.skipped || [];
-  batchDrafts          = null;
-  batchCoherence       = null;
-  batchAccepted        = {};
-  batchConfirmedEdges  = {};
-  batchRenderAll();
-}
-
-function batchManifestAddRow() {
-  batchManifest.rooms.push({ name: '', one_liner: '', location_type: '', parent_room: null });
-  batchRenderAll();
-}
-
-function batchManifestRemoveRow(i) {
-  batchManifest.rooms.splice(i, 1);
-  batchRenderAll();
-}
-
-/** Parent select options for manifest row i: the anchor (empty value) plus
- *  every OTHER manifest room name (BRIEF-0042-d item 3). Mirrors
- *  regionManifestOptions' "inject the stale value as its own option"
- *  fallback if a referenced name was since renamed/removed. */
-function batchManifestParentOptions(i) {
-  const names = batchManifest.rooms.filter((_, j) => j !== i).map(r => r.name);
-  const current = batchManifest.rooms[i].parent_room;
-  const opts = [`<option value=""${current ? '' : ' selected'}>${esc(batchAnchorName)} (ancre)</option>`];
-  let found = !current;
-  for (const name of names) {
-    if (name === current) found = true;
-    opts.push(`<option value="${esc(name)}"${name === current ? ' selected' : ''}>${esc(name)}</option>`);
-  }
-  if (current && !found) opts.push(`<option value="${esc(current)}" selected>${esc(current)}</option>`);
-  return opts.join('');
-}
-
-/** Phase A manifest editor: per-row name / one-liner / location_type
- *  (catalog datalist + Gabarit… affordance, reused verbatim from
- *  _creationOpenLocationTypeModal) / parent_room select, add/remove rows. */
-function batchRenderManifestTable() {
-  const rows = (batchManifest.rooms || []).map((r, i) => {
-    const typeInputId = `batch-type-${i}`;
-    const typeDlId = `${typeInputId}-dl`;
-    const typeOpts = (authorLocationTypeCatalog || [])
-      .map(row => `<option value="${esc(row.name)}">${esc(_creationLocationTypeLabel(row))}</option>`).join('');
-    return `
-    <div class="row-card">
-      <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap">
-        <div class="field-row" style="flex:1; min-width:140px"><label>Nom</label>
-          <input type="text" value="${esc(r.name)}" placeholder="Nom de la pièce"
-            oninput="batchManifest.rooms[${i}].name = this.value"></div>
-        <div class="field-row" style="min-width:200px"><label>Type</label>
-          <div style="display:flex; gap:6px; align-items:center">
-            <input type="text" id="${typeInputId}" list="${typeDlId}" value="${esc(r.location_type || '')}" style="flex:1"
-              oninput="batchManifest.rooms[${i}].location_type = this.value">
-            <button type="button" class="btn-ghost" style="font-size:12px; padding:3px 8px"
-              onclick="_creationOpenLocationTypeModal('${typeInputId}')">Gabarit...</button>
-          </div>
-          <datalist id="${typeDlId}">${typeOpts}</datalist></div>
-        <div class="field-row" style="min-width:160px"><label>Parent</label>
-          <select onchange="batchManifest.rooms[${i}].parent_room = this.value || null">
-            ${batchManifestParentOptions(i)}
-          </select></div>
-        <button class="btn-icon" title="Retirer" onclick="batchManifestRemoveRow(${i})">x</button>
-      </div>
-      <textarea rows="2" style="width:100%; resize:vertical" placeholder="Accroche en une ligne"
-        oninput="batchManifest.rooms[${i}].one_liner = this.value">${esc(r.one_liner || '')}</textarea>
-    </div>`;
-  }).join('');
-
-  const notes = [...(batchManifestNotes || []), ...(batchManifestSkipped || []).map(s =>
-    `${s.stage || ''} · ${s.name || '?'} — ${s.reason || ''}`)];
-
-  return `
-    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap">
-      <button class="btn-icon" onclick="batchManifestAddRow()">+ Ajouter une pièce</button>
-      <button class="btn-send" onclick="batchGenerateDrafts()" style="margin-left:auto">Générer les fiches</button>
-    </div>
-    ${notes.length ? `<div class="field-section" style="border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:10px;">
-      <div class="field-section-title">Notes de génération du manifeste</div>
-      ${notes.map(n => `<div style="font-size:11px; color:var(--muted)">${esc(n)}</div>`).join('')}
-    </div>` : ''}
-    <div class="row-table">${rows}</div>
-    <div id="batch-draft-status" style="font-size:12px; color:var(--muted); margin-top:8px"></div>
-  `;
-}
-
-async function batchGenerateDrafts() {
-  const statusEl = document.getElementById('batch-draft-status');
-  const isNameless = (r) => !((r.name || '').trim());
-  const rooms = (batchManifest.rooms || []).filter(r => !isNameless(r));
-  if (!rooms.length) {
-    if (statusEl) statusEl.textContent = 'Au moins une pièce nommée est requise.';
-    return;
-  }
-
-  if (statusEl) statusEl.textContent = 'Génération des fiches… (peut prendre un moment)';
-  let result;
-  try {
-    result = await api('/api/room-batch/draft', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ manifest: { rooms }, anchor: batchManifestAnchor }),
-    });
-  } catch (e) {
-    if (statusEl) statusEl.textContent = e.message;
-    return;
-  }
-  if (!result || result.ok === false) {
-    if (statusEl) statusEl.textContent = (result && result.error) || 'Échec de la génération.';
-    return;
-  }
-  batchDrafts = result;
-  batchAccepted = {};
-  for (const r of result.rooms) batchAccepted[r.local_id] = true;
-  batchAccepted[batchAnchorId] = true;
-  batchCoherence = null;
-  batchConfirmedEdges = {};
-  batchRenderAll();
-}
-
-async function batchRunCoherence() {
-  const statusEl = document.getElementById('batch-coherence-status');
-  if (statusEl) statusEl.textContent = 'Passe de cohérence…';
-  let result;
-  try {
-    result = await api('/api/room-batch/coherence', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ manifest: batchManifest, drafts: batchDrafts, anchor: batchManifestAnchor }),
-    });
-  } catch (e) {
-    if (statusEl) statusEl.textContent = e.message;
-    return;
-  }
-  batchCoherence = result;
-  batchConfirmedEdges = {};
-  batchRenderAll();
-}
-
-function _batchNodeName(id) {
-  if (id === batchAnchorId) return batchAnchorName;
-  const room = ((batchDrafts && batchDrafts.rooms) || []).find(r => r.local_id === id);
-  if (room) return room.name;
-  const loc = (authorLocationTree || []).find(l => l.id === id);
-  return loc ? loc.name : id;
-}
-
-function batchToggleEdgeConfirm(edgeId) {
-  batchConfirmedEdges[edgeId] = !batchConfirmedEdges[edgeId];
-  batchRenderAll();
-}
-
-/** Confirm/discard toggle per supplementary edge, default UNCONFIRMED
- *  (opt-in, mirroring region's sensed_links toggles — the inverse default
- *  of the review tree's accept/reject above). */
-function batchRenderEdgesPanel() {
-  if (!batchCoherence) return '<div class="empty">Passe de cohérence non lancée.</div>';
-  const edges = batchCoherence.edges || [];
-  const unresolved = batchCoherence.unresolved || [];
-  const notes = batchCoherence.notes || [];
-
-  const edgesHtml = edges.length ? edges.map(e => {
-    const confirmed = !!batchConfirmedEdges[e.id];
-    return `
-      <div style="display:flex; align-items:center; gap:6px; font-size:11px; ${confirmed ? '' : 'color:var(--muted)'}">
-        <button class="btn-icon" onclick="batchToggleEdgeConfirm('${esc(e.id)}')">${confirmed ? '✓ Confirmé' : 'Confirmer'}</button>
-        <span>${esc(_batchNodeName(e.a_id))} <-> ${esc(_batchNodeName(e.b_id))}${e.reason ? ' — ' + esc(e.reason) : ''}</span>
-      </div>`;
-  }).join('') : '<div class="empty">Aucune arête supplémentaire proposée.</div>';
-
-  const unresolvedHtml = unresolved.length ? `<div style="margin-top:8px">${unresolved.map(u =>
-    `<div style="font-size:11px; color:var(--muted)">· ${esc(u.a)} <-> ${esc(u.b)} — ${esc(u.reason || '')}</div>`
-  ).join('')}</div>` : '';
-  const notesHtml = notes.length ? `<div style="margin-top:8px">${notes.map(n =>
-    `<div style="font-size:11px; color:var(--muted)">· ${esc(n)}</div>`
-  ).join('')}</div>` : '';
-
-  return edgesHtml + unresolvedHtml + notesHtml;
-}
-
-function batchOpenSheet(id) {
-  if (id === batchAnchorId) {
-    genericModalOpen(batchAnchorName, `<div style="font-size:12px; color:var(--muted)">
-      ${esc((batchManifestAnchor && batchManifestAnchor.description) || '')}</div>`);
-    return;
-  }
-  const room = ((batchDrafts && batchDrafts.rooms) || []).find(r => r.local_id === id);
-  if (!room) return;
-  const pub = room.result.draft.public;
-  genericModalOpen(room.name, `
-    <div style="font-size:12px; color:var(--muted)">${esc(pub.location_type || '')}</div>
-    <div style="margin-top:8px">${esc(pub.description || '')}</div>
-  `);
-}
-
-/** Builds the review descriptor for the batch's room tree (TICKET-0041).
- *  The single site that reads batchDrafts/batchAccepted to build a
- *  descriptor. The anchor is a SYNTHETIC, always-accepted, non-toggleable
- *  root (Q1) — O1's distinct root and the "everything reaches the anchor"
- *  tree fall out with no change to the shared component core. */
-function batchReviewDescriptor() {
-  const draftRooms = (batchDrafts && batchDrafts.rooms) || [];
-
-  if (batchAccepted[batchAnchorId] === undefined) batchAccepted[batchAnchorId] = true;
-
-  const nodes = [
-    { id: batchAnchorId, name: batchAnchorName, subtitle: '(ancre)', parentId: null,
-      description: '', notes: [], extras: '', __anchor: true },
-    ...draftRooms.map(r => {
-      const pub = r.result.draft.public;
-      const parentRoom = r.parent_room ? draftRooms.find(o => o.name === r.parent_room) : null;
-      return {
-        id: r.local_id,
-        name: r.name,
-        subtitle: pub.location_type || '',
-        parentId: parentRoom ? parentRoom.local_id : batchAnchorId,
-        description: pub.description,
-        notes: r.result.notes || [],
-        extras: '',
-      };
-    }),
-  ];
-
-  return {
-    key: 'batch',
-    nodes,
-    accepted: batchAccepted,
-    fallbackParentId: batchAnchorId,
-    reparentedLabel: 'rattaché à l\'ancre',
-    graphOpen: batchGraphOpen,
-    onToggleAccept: id => {
-      if (id === batchAnchorId) return; // Q1: non-toggleable
-      batchAccepted[id] = !reviewIsAccepted('batch', id);
-    },
-    onToggleGraph: () => { batchGraphOpen = !batchGraphOpen; },
-    onOpenSheet: id => batchOpenSheet(id),
-    onRender: batchRenderAll,
-    graph: {
-      consumer: 'review',
-      mountId: 'batch-graph-mount',
-      extraEdges: (acceptedIds, nodeById) => {
-        const edges = (batchCoherence && batchCoherence.edges) || [];
-        return edges
-          .filter(e => batchConfirmedEdges[e.id] && acceptedIds.has(e.a_id) && acceptedIds.has(e.b_id))
-          .map(e => ({ id: e.id, entity_a_id: e.a_id, entity_b_id: e.b_id, kind: 'connection' }));
-      },
-    },
-  };
-}
-
-function batchRenderCommitResult() {
-  if (!batchCommitResult) return '';
-  if (!batchCommitResult.ok) {
-    return `<div class="field-section" style="border:1px solid var(--red); border-radius:6px; padding:10px; margin-top:12px;">
-      <div class="field-section-title" style="color:var(--red)">Échec du commit — aucun changement n'a été appliqué</div>
-      <div style="font-size:12px">${esc(batchCommitResult.error || '')}</div>
-    </div>`;
-  }
-  const rooms = (batchCommitResult.committed && batchCommitResult.committed.rooms) || [];
-  const unresolved = batchCommitResult.unresolved || [];
-  const notes = batchCommitResult.notes || [];
-  return `<div class="field-section" style="border:1px solid var(--green); border-radius:6px; padding:10px; margin-top:12px;">
-    <div class="field-section-title" style="color:var(--green)">Lot commité</div>
-    <div style="font-size:12px">${rooms.length} pièce(s) créée(s), ${batchCommitResult.edges_written || 0} arête(s) écrite(s).</div>
-    ${unresolved.length ? `<div style="font-size:11px; color:var(--muted); margin-top:4px">
-      ${unresolved.map(u => `· ${esc(u.reason || '')}`).join('<br>')}
-    </div>` : ''}
-    ${notes.length ? `<div style="font-size:11px; color:var(--yellow); margin-top:4px">
-      ${notes.map(n => `· ${esc(n)}`).join('<br>')}
-    </div>` : ''}
-  </div>`;
-}
-
-async function batchCommit() {
-  const statusEl = document.getElementById('batch-commit-status');
-  if (statusEl) statusEl.innerHTML = '<div class="empty"><span class="spin">⟳</span> Commit en cours…</div>';
-  const rooms = (batchDrafts.rooms || []).map(r => (
-    { local_id: r.local_id, name: r.name, parent_room: r.parent_room, result: r.result }
-  ));
-  const edges = (batchCoherence && batchCoherence.edges) || [];
-  let result;
-  try {
-    result = await api('/api/room-batch/commit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        anchor_id: batchAnchorId, rooms, accepted: batchAccepted,
-        edges, confirmed_edges: batchConfirmedEdges,
-      }),
-    });
-  } catch (e) {
-    result = { ok: false, error: e.message };
-  }
-  batchCommitResult = result;
-  if (result.ok) {
-    // TICKET-0058 (BRIEF-0058-e): see regionCommit's identical comment.
-    creationRefreshList();
-    if (currentCreationSubTab === 'lieux') {
-      document.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'lieux' } }));
-    }
-  }
-  batchRenderAll();
-}
-
-function batchRenderAll() {
-  const root = document.getElementById('batch-root');
-  if (!root) return;
-
-  if (!batchManifest) {
-    root.innerHTML = `
-      <div class="field-section" style="border:1px solid var(--border); border-radius:6px; padding:10px;">
-        <div class="field-section-title">Générer le manifeste</div>
-        <div class="field-row" style="max-width:160px"><label>Nombre de pièces</label>
-          <input type="number" min="3" max="25" value="${batchCount}"
-            oninput="batchCount = Math.max(3, Math.min(25, Number(this.value) || 3))"></div>
-        <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
-          <button class="btn-send" onclick="batchGenerateManifest()">Générer le manifeste</button>
-          <span id="batch-gen-status" style="font-size:12px; color:var(--muted)"></span>
-        </div>
-      </div>`;
-    return;
-  }
-
-  if (!batchDrafts) {
-    root.innerHTML = batchRenderManifestTable();
-    return;
-  }
-
-  const descriptor = batchReviewDescriptor();
-  reviewRegister('batch', descriptor);
-  const cascade = reviewCascade(descriptor);
-  const skipped = batchDrafts.skipped || [];
-
-  root.innerHTML = `
-    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap">
-      <button class="btn-icon" onclick="batchRunCoherence()">Passe de cohérence</button>
-      <span id="batch-coherence-status" style="font-size:12px; color:var(--muted)"></span>
-      <button class="btn-send" onclick="batchCommit()" style="margin-left:auto">Commiter le lot</button>
-    </div>
-    ${skipped.length ? `<div class="field-section" style="border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:10px;">
-      <div class="field-section-title">Écartées à la génération</div>
-      ${skipped.map(s => `<div style="font-size:11px; color:var(--muted)">${esc(s.name)} — ${esc(s.reason || '')}</div>`).join('')}
-    </div>` : ''}
-    <div style="margin-bottom:10px">
-      <button class="btn-icon" onclick="reviewToggleGraph('batch')">${batchGraphOpen ? 'Masquer le graphe' : 'Voir le graphe'}</button>
-      <div id="batch-lieux-graph" style="display:${batchGraphOpen ? 'block' : 'none'}; margin-top:8px;">
-        <div class="lieux-graph-head"><span>Carte du lot (aperçu pré-commit)</span></div>
-        <div id="batch-graph-mount"></div>
-      </div>
-    </div>
-    <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start">
-      <div style="flex:2; min-width:320px">
-        <div class="field-section-title">Pièces</div>
-        ${reviewTree('batch', cascade)}
-      </div>
-      <div style="flex:1; min-width:240px">
-        <div class="field-section-title">Arêtes supplémentaires</div>
-        ${batchRenderEdgesPanel()}
-      </div>
-    </div>
-    <div id="batch-commit-status">${batchRenderCommitResult()}</div>
-  `;
-  if (batchGraphOpen) {
-    document.dispatchEvent(new CustomEvent('graph:slot', {
-      detail: { consumer: 'review', containerId: 'batch-graph-mount', open: true, key: 'batch' },
-    }));
-  }
-}
-
-/** BRIEF-0058-f: only pj/intrigues/evenements still reach this (the four
- *  core static tabs and every runtime type now route "+ Nouveau" straight
- *  to _islandPrimaryAction('entitySheet') -- rule 11 pairing). Every
+/** BRIEF-0058-j: only pj/intrigues still reach this now (evenements routes
+ *  "+ Nouveau" through _islandPrimaryAction('entitySheet') too, same as the
+ *  four core static tabs and every runtime type -- rule 11 pairing). Every
  *  remaining caller has a bespoke createPanel that renders into
  *  #author-legacy-sheet-slot, so the entitySheet island (already mounted at
- *  #author-main for these three tabs) is told to switch out of the way
+ *  #author-main for these two tabs) is told to switch out of the way
  *  first -- flushSync inside the listener (Sheet.svelte) makes that node
  *  exist before createPanel()'s own innerHTML write runs, synchronously,
  *  right below. */
@@ -6738,33 +6041,12 @@ document.addEventListener('creation:entities-loaded', (ev) => {
  * own DOM update flushes; the faction roles+roster load (was
  * authorLoadFactionMembersPanel) is a plain loadFactionMembersPanel import
  * instead (family b).
- * evenements' still-legacy renderEventSheet/evenementsRenderCreatePanel/
- * evenementsSave/evenementsSubmitCreate reach the ported field engine
- * through _creationRenderField/_creationReadField below instead (the field
- * engine itself has exactly one implementation; only its two remaining
- * legacy CALLERS are bridged, not duplicated). */
-
-/** evenements' bridge onto Field.svelte's ported rendering (Sheet.svelte's
- *  'creation:field-render' listener) — the synchronous request/response
- *  CustomEvent RECON-SUPPLEMENT-0058's -f section calls for, generalising
- *  the reverse-direction bridge BRIEF-0058-d established for
- *  'creation:refresh-tabs'. */
-function _creationRenderField(field, value, idPrefix) {
-  const ev = new CustomEvent('creation:field-render', { detail: { field, value, idPrefix, html: null } });
-  document.dispatchEvent(ev);
-  return ev.detail.html;
-}
-
-/** evenements' bridge onto fields.js's readFieldValue (Sheet.svelte's
- *  'creation:field-read' listener) — re-throws synchronously on invalid
- *  JSON, preserving authorReadField's exact try/catch contract for its
- *  remaining callers (evenementsSave, evenementsSubmitCreate). */
-function _creationReadField(field, idPrefix) {
-  const ev = new CustomEvent('creation:field-read', { detail: { field, idPrefix, value: undefined, error: null } });
-  document.dispatchEvent(ev);
-  if (ev.detail.error) throw new Error(ev.detail.error);
-  return ev.detail.value;
-}
+ * evenements converged onto Evenements.svelte (TICKET-0058, BRIEF-0058-j):
+ * it reaches Field.svelte/fields.js by plain import now, like every other
+ * tab. The 'creation:field-render'/'creation:field-read' reverse bridge
+ * this section used to describe (_creationRenderField/_creationReadField)
+ * is gone with it — the field engine has exactly one implementation and,
+ * as of this brief, exactly one calling convention. */
 
 /* AI entity-authoring assistant (BRIEF-24) — draft generator panel and its
  * per-type draft pre-fill (was authorRenderGeneratePanel/authorGenerateEntity/
@@ -7231,19 +6513,24 @@ function creationRenderReturnControl() {
 
 /** Generic record selection (BRIEF-0021-a): the sheetRenderer-seam
  *  counterpart of authorSelectEntity for non-entity list+detail tabs whose
- *  rows already carry full data — no per-row fetch. Resolves the same
- *  renderer seam, then re-renders the tab's list so the clicked row shows
- *  selected (creationSelectedRecordId is the authorEntityId equivalent for
- *  these tabs). One renderer seam, two data shapes, no second dispatcher.
- *  Every registered caller (intrigues, evenements) declares a sheetRenderer
- *  — BRIEF-0058-f drops the `|| authorRenderSheet` fallback along with the
- *  function it pointed at; a tab without one has nothing to fall back to. */
+ *  rows already carry full data — no per-row fetch. A registered caller
+ *  either declares a bespoke sheetRenderer (intrigues — stays legacy) or
+ *  doesn't (evenements, since BRIEF-0058-j), in which case this dispatches
+ *  'creation:record-detail' for Sheet.svelte to render natively — the same
+ *  if/else shape authorSelectEntity already uses for 'creation:sheet-detail'
+ *  vs. a bespoke sheetRenderer. Either way, the tab's list re-renders so the
+ *  clicked row shows selected (creationSelectedRecordId is the
+ *  authorEntityId equivalent for these tabs). */
 function creationSelectRecord(tabId, record) {
   const entry = CREATION_TABS[tabId];
-  if (!entry || !entry.sheetRenderer) return;
+  if (!entry) return;
   creationSelectedRecordId = record.id;
-  document.dispatchEvent(new CustomEvent('creation:sheet-legacy-active'));
-  entry.sheetRenderer(record);
+  if (entry.sheetRenderer) {
+    document.dispatchEvent(new CustomEvent('creation:sheet-legacy-active'));
+    entry.sheetRenderer(record);
+  } else {
+    document.dispatchEvent(new CustomEvent('creation:record-detail', { detail: { record, tabId } }));
+  }
   // TICKET-0058 (BRIEF-0058-e): the entity-list island re-renders its own
   // active-row highlight reactively off this, in place of the deleted
   // entry.listRenderer() call (renderIntriguesListRows/renderEvenementsListRows).
@@ -7253,35 +6540,19 @@ function creationSelectRecord(tabId, record) {
 /** Generic save-button dispatch (TICKET-0022, BRIEF-0022-a item 8): the
  *  static #author-save-btn is shared by every archetype:'entity' tab, but
  *  the core field engine (now Sheet.svelte) must not learn about non-entity
- *  rows. A registry entry may declare its own `saveHandler` (evenements'
- *  own /api/events PUT) — every other entry falls through to the mounted
- *  entitySheet island's own save, via the same 'island:action'-style
- *  reverse dispatch _islandPrimaryAction already established for the
- *  primary-action band (BRIEF-0058-d), just under the 'creation:sheet-save'
- *  name since this is a distinct control (the persistent header Save
- *  button), not the "+ Nouveau" band. */
+ *  rows. A registry entry may declare its own `saveHandler` — every entry
+ *  without one (every current entry, since BRIEF-0058-j: evenements' own
+ *  saveHandler is gone, its save routes through the mounted entitySheet
+ *  island the same as every other tab now) falls through to the island's
+ *  own save, via the same 'island:action'-style reverse dispatch
+ *  _islandPrimaryAction already established for the primary-action band
+ *  (BRIEF-0058-d), just under the 'creation:sheet-save' name since this is
+ *  a distinct control (the persistent header Save button), not the
+ *  "+ Nouveau" band. */
 function creationSaveDispatch() {
   const entry = CREATION_TABS[currentCreationSubTab];
   if (entry && entry.saveHandler) { entry.saveHandler(); return; }
   document.dispatchEvent(new CustomEvent('creation:sheet-save'));
-}
-
-/** The Lieux create/save flow (_authorLocationTypeOptionLabel/
- *  _authorOpenTemplateModalFor/_authorPromptLocationTypeClassification/
- *  _authorClassifyLocationType) moved to frontend/src/creation/locationType.js
- *  (TICKET-0058, BRIEF-0058-g family a); Field.svelte and Sheet.svelte call
- *  it directly. The room-batch generator below (batchRenderManifestTable,
- *  still legacy until brief -j) reaches the same ported helpers through
- *  this tiny reverse-bridge pair — same idiom as _creationRenderField/
- *  _creationReadField (see the field-rendering section above). */
-function _creationLocationTypeLabel(row) {
-  const ev = new CustomEvent('creation:location-type-label', { detail: { row, label: null } });
-  document.dispatchEvent(ev);
-  return ev.detail.label;
-}
-
-function _creationOpenLocationTypeModal(fieldId) {
-  document.dispatchEvent(new CustomEvent('creation:open-location-type-modal', { detail: { fieldId } }));
 }
 
 /** BRIEF-0058-f: _authorSaveSubmit's entity-write + dependent-draft-POST
@@ -7724,7 +6995,8 @@ async function authorSetGoalStatus(id, status) {
  * Fills per-horizon deficits only — never rewrites a satisfied NPC. Two
  * entry points share the one endpoint: the per-NPC sheet button below, and
  * the unscoped list-wide button in frontend/src/creation/EntityList.svelte
- * (TICKET-0058, BRIEF-0058-e), reached via npcGoalsBackfillAll(). */
+ * (backfillNpcGoals, ported off npcGoalsBackfillAll by TICKET-0058/
+ * BRIEF-0058-j — a plain fetch now, not a legacy function). */
 
 async function authorBackfillGoals(entityId) {
   const statusEl = document.getElementById('author-status');
@@ -7743,27 +7015,18 @@ async function authorBackfillGoals(entityId) {
   }
 }
 
-async function npcGoalsBackfillAll() {
-  const statusEl = document.getElementById('npc-goals-backfill-status');
-  if (statusEl) statusEl.textContent = 'Génération…';
-  try {
-    const result = await api('/api/npc-goals/backfill', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    if (statusEl) {
-      statusEl.textContent = `Traités : ${result.processed} · déjà complets : ${result.skipped_complete} · `
-        + `écrits (long/court) : ${result.written.long}/${result.written.short}`
-        + (result.failures.length ? ` · échecs : ${result.failures.length}` : '');
-    }
-    if (authorEntityId && authorEntityType === 'character' && currentCreationSubTab === 'npc') {
-      authorLoadGoals(authorEntityId);
-    }
-  } catch (e) {
-    if (statusEl) statusEl.textContent = e.message;
+/** EntityList.svelte's backfillNpcGoals fires this after its own
+ *  /api/npc-goals/backfill call succeeds -- Svelte notifying legacy of a
+ *  fact (the same direction 'creation:refresh-tabs' already uses), not a
+ *  reverse bridge: if an NPC sheet happens to be open, its goals list needs
+ *  the same refresh authorLoadGoals always gave it, and authorEntityId/
+ *  authorEntityType/currentCreationSubTab are legacy-only bare `let`
+ *  bindings Sheet.svelte cannot read directly. */
+document.addEventListener('creation:goals-backfilled', () => {
+  if (authorEntityId && authorEntityType === 'character' && currentCreationSubTab === 'npc') {
+    authorLoadGoals(authorEntityId);
   }
-}
+});
 
 async function authorGoalRequest(path, method, body) {
   const statusEl = document.getElementById('author-status');

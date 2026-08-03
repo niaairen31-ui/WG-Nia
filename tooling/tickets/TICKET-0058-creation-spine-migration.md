@@ -109,7 +109,8 @@ legacy -> shell signalling `graph:slot` already established.
       tokens are absent in any context, comments included
       -> verify/checks/graph_primitive.py
 - [ ] No vendored cytoscape asset and no route serving one
-      -> verify/checks/graph_primitive.py, relation_graph.py
+      -> verify/checks/graph_primitive.py
+      -> verify/checks/relation_graph.py
 - [ ] Every Svelte island mounted into the legacy document is declared in
       `frontend/src/creation/registry.js` and reached through the single
       `island:slot` channel; a second mount mechanism fails the check
@@ -118,10 +119,12 @@ legacy -> shell signalling `graph:slot` already established.
       with every TAB_KEYS entry still covered; zero collected entries is a
       failure -> verify/checks/page_contract.py
 - [ ] The review component's registry/cascade guarantee holds at its new
-      locus -> verify/checks/review_component.py, review_root_fallback.py
+      locus -> verify/checks/review_component.py
+      -> verify/checks/review_root_fallback.py
 - [ ] Return-navigation, event tab and faction roster guarantees hold at
-      their new loci -> verify/checks/creation_return_nav.py,
-      event_tab.py, faction_roster_panel.py
+      their new loci -> verify/checks/creation_return_nav.py
+      -> verify/checks/event_tab.py
+      -> verify/checks/faction_roster_panel.py
 - [ ] `legacy_mount.py` still passes with `creation` present in the
       registry (this ticket does not retire it)
       -> verify/checks/legacy_mount.py

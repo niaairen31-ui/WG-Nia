@@ -13,13 +13,13 @@
    both still reach genericModalOpen/genericModalClose via legacyCall, since
    that generic modal utility is used well beyond Creation and stays legacy.
 
-   The room-batch generator (batchRenderManifestTable, index.html) still
-   needs the option-label formatter and the template-modal trigger -- it is
-   NOT migrated by this brief (brief -j). It reaches both through a tiny
-   reverse-bridge CustomEvent pair Sheet.svelte listens for
-   ('creation:location-type-label' / 'creation:open-location-type-modal'),
-   the same idiom BRIEF-0058-f established for evenements'
-   'creation:field-render'/'creation:field-read'. */
+   The room batch generator (frontend/src/creation/RoomBatch.svelte,
+   BRIEF-0058-j) also needs the option-label formatter and the
+   template-modal trigger for its own manifest rows -- it imports both
+   directly now, the same way Field.svelte already does; the reverse-bridge
+   CustomEvent pair ('creation:location-type-label' /
+   'creation:open-location-type-modal') BRIEF-0058-g family a stood up for
+   its still-legacy predecessor is gone with it. */
 import { creationState } from './state.svelte.js';
 import { legacyCall } from '../legacy/bridge.js';
 import { esc } from './fields.js';

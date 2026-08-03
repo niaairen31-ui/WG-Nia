@@ -1,21 +1,21 @@
 <script>
-  /* TICKET-0058 (BRIEF-0058-i). Svelte-native presentational half of the
-     generic review-tree component (TICKET-0041) -- the reactive counterpart
-     to review/registry.js's string-building reviewNode/reviewTree, which
-     stays in place for the room batch generator (still legacy until
-     BRIEF-0058-j). Both share the exact same reviewCascade -- one pure
-     function, two render strategies, never two cascade implementations.
+  /* TICKET-0058 (BRIEF-0058-i, sole rendering half since BRIEF-0058-j). The
+     generic review-tree component's (TICKET-0041) Svelte-native render:
+     both consumers, Region.svelte and RoomBatch.svelte, drive their tree
+     through this component now -- the string-building render half that
+     used to serve the room batch generator's legacy render is retired
+     (BRIEF-0058-j), superseded, not duplicated. reviewCascade (review/
+     registry.js) is still the one pure fallback-resolution function both
+     consumers share via this component.
 
-     Knows nothing about the world model: a consumer (Region.svelte) builds
-     a descriptor and hands it here. `extra` is an optional per-node snippet
-     replacing the old string-based `node.extras` field -- a real Svelte
-     snippet can carry its own event handlers (region's sensed-link confirm
-     toggles), which a pre-rendered HTML string never could once this
-     renders inside the shell's own reactivity instead of a legacy
-     innerHTML write.
+     Knows nothing about the world model: a consumer builds a descriptor and
+     hands it here. `extra` is an optional per-node snippet for
+     consumer-owned per-node UI (region's sensed-link confirm toggles) -- a
+     real Svelte snippet can carry its own event handlers, which the old
+     string-based `node.extras` field never could.
 
      No scoped <style> block: this mounts inside the legacy iframe document
-     (via Region.svelte's own mount target), where Svelte's shell-injected
+     (via its consumer's own mount target), where Svelte's shell-injected
      scoped CSS never reaches -- markup reuses the legacy document's own
      .review-node/.review-children/.review-rejected classes and CSS vars,
      same posture as Constructeur.svelte and the graph primitive. */
@@ -34,7 +34,7 @@
     return map;
   });
   // BRIEF-0033-c: render every top-level node, not just the first found, so
-  // a reparented-to-root node stays visible (same fix reviewTree carries).
+  // a reparented-to-root node stays visible (TICKET-0043's root-fallback fix).
   const roots = $derived(descriptor.nodes.filter(n => cascade.effectiveParent[n.id] == null));
 
   function isAccepted(id) {
