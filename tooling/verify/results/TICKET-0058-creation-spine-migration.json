@@ -1,0 +1,62 @@
+{
+  "ticket": "TICKET-0058-creation-spine-migration",
+  "when": "2026-08-03T15:35:57.056447+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "graph_primitive.py",
+      "status": "PASS",
+      "msg": "PASS: graph_primitive \u2014 50 retired token(s) confirmed absent, 0 registry entry(ies) within baseline, 0 entry(ies) with a live locus, 5 graph spec(s) validated, 0 live graph impl(s), 1 retired graph impl(s) proven absent"
+    },
+    {
+      "check": "relation_graph.py",
+      "status": "PASS",
+      "msg": "PASS: relation_graph \u2014 no vendored graph engine or /vendor route remains, ego + global relation-graph endpoints read-only with structural connects_to/controls exclusion, write fetches in the relations consumer confined to the sanctioned relation CRUD endpoints"
+    },
+    {
+      "check": "creation_island.py",
+      "status": "PASS",
+      "msg": "PASS: creation_island \u2014 4 island(s) registered, 4 retired legacy prefix set(s) confirmed gone, 2 event channel(s) confined, 11 island primaryAction(s) wired"
+    },
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u2014 CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry"
+    },
+    {
+      "check": "review_component.py",
+      "status": "PASS",
+      "msg": "PASS: review_component \u2014 8 rules evaluated, nine region* names and reviewGraphRender gone across every locus, eleven review* generics singly-defined in review/registry.js and region-blind, reviewCascade is a pure one-parameter function keyed on fallbackParentId, single region descriptor factory in Region.svelte, boundary holds in index.html (legacy batch consumer) and via the Svelte import graph (Region.svelte/Review.svelte/mount.js)"
+    },
+    {
+      "check": "review_root_fallback.py",
+      "status": "PASS",
+      "msg": "PASS: review_root_fallback \u2014 reviewTree()'s roots filter uses cascade.effectiveParent, not a bare n.parentId == null check"
+    },
+    {
+      "check": "creation_return_nav.py",
+      "status": "PASS",
+      "msg": "PASS: creation_return_nav \u2014 single-slot return crumb wired correctly"
+    },
+    {
+      "check": "event_tab.py",
+      "status": "PASS",
+      "msg": "PASS: event_tab \u2014 no event-delete surface exists, Event.occurred_at governs no order_by"
+    },
+    {
+      "check": "faction_roster_panel.py",
+      "status": "PASS",
+      "msg": "PASS: faction_roster_panel \u2014 grouped roster panel + member authoring wired correctly"
+    },
+    {
+      "check": "legacy_mount.py",
+      "status": "PASS",
+      "msg": "PASS: legacy_mount \u2014 3 mount(s) within baseline, 3 retiring ticket(s), 3 legacy fn(s) resolved, access confined to bridge, 1 frame src site, 5 shell route(s) agreed"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u2014 47 source file(s), 1 output asset(s), manifest hash matches"
+    }
+  ]
+}

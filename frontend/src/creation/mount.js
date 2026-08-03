@@ -26,11 +26,13 @@ import { mount as svelteMount, unmount as svelteUnmount } from 'svelte';
 import { legacyContainer } from '../legacy/bridge.js';
 import { CREATION_ISLANDS } from './registry.js';
 import { creationState } from './state.svelte.js';
+import { installLegacyReviewBridge } from './review/registry.js';
 import Constructeur from './Constructeur.svelte';
 import EntityList from './EntityList.svelte';
 import Sheet from './Sheet.svelte';
+import Region from './Region.svelte';
 
-const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet };
+const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet, region: Region };
 
 const live = {}; // key -> { node, instance }
 
@@ -93,6 +95,13 @@ export function unmountIsland(key) {
 /* The legacy -> shell signal, both directions of it: one listener each,
    no function installed on the legacy window. */
 export function initCreationMount(legacyDoc) {
+  // BRIEF-0058-i: the room batch generator (lieux tab) is still legacy and
+  // calls reviewRegister/reviewCascade/reviewTree/... as bare globals --
+  // this installs review/registry.js's own functions onto the legacy
+  // window so that keeps working unchanged, one implementation reachable
+  // from both realms, until BRIEF-0058-j removes the bridge.
+  installLegacyReviewBridge(legacyDoc.defaultView);
+
   legacyDoc.addEventListener('island:slot', (ev) => {
     const { key, open, tabKey } = ev.detail;
     if (!open) return;

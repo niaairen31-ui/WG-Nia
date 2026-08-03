@@ -152,4 +152,17 @@ export const CREATION_ISLANDS = Object.freeze({
       'authorRenderGenNotes',
     ],
   }),
+  // BRIEF-0058-i (per RECON-SUPPLEMENT-0058's re-scope): region generation
+  // -- brief form, manifest checkpoint, draft review/commit, and its own
+  // parallel sheet editor -- ported wholesale to Region.svelte, alongside
+  // the generic review-tree component itself (frontend/src/creation/review/
+  // registry.js + Review.svelte). The room batch generator (lieux tab)
+  // stays legacy and keeps using the same review component through the
+  // legacy-window bridge until BRIEF-0058-j.
+  region: Object.freeze({
+    containerId: 'creation-region',
+    component: 'Region.svelte',
+    migratedBy: 'TICKET-0058',
+    retiredPrefixes: ['region', '_region', '_sheetField', '_sheetListSection', '_sheetEntityOptions'],
+  }),
 });

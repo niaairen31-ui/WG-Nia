@@ -1,6 +1,13 @@
 """G1 regression guard for TICKET-0043/BRIEF-0043-c's review-tree root-fallback fix.
 
-`reviewTree` (index.html) builds `childrenByParent` from `cascade.effectiveParent`
+Re-homed by BRIEF-0058-i: `reviewTree` moved off index.html onto
+frontend/src/creation/review/registry.js (the review component's string-
+render half, kept for the room batch generator's continued legacy use
+until BRIEF-0058-j) -- this check follows it there. The guarantee itself
+(the fix, and what regresses it) is unchanged.
+
+`reviewTree` (frontend/src/creation/review/registry.js) builds
+`childrenByParent` from `cascade.effectiveParent`
 (the fallback-aware map `reviewCascade` computes — a rejected root's children
 fall back to `null`, i.e. top-level, when their fallback target is also
 rejected) but used to filter its `roots` list from the raw, non-fallback-aware
@@ -24,7 +31,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
+REGISTRY_FILE = ROOT / "frontend" / "src" / "creation" / "review" / "registry.js"
 
 
 def _braced_function(text: str, name: str) -> str:
@@ -47,10 +54,10 @@ def _braced_function(text: str, name: str) -> str:
 def main() -> int:
     failures: list[str] = []
 
-    html_src = INDEX_HTML.read_text(encoding="utf-8") if INDEX_HTML.exists() else ""
-    review_tree_src = _braced_function(html_src, "reviewTree")
+    registry_src = REGISTRY_FILE.read_text(encoding="utf-8") if REGISTRY_FILE.exists() else ""
+    review_tree_src = _braced_function(registry_src, "reviewTree")
     if not review_tree_src:
-        failures.append("reviewTree() not found in index.html")
+        failures.append(f"reviewTree() not found in {REGISTRY_FILE}")
     else:
         roots_line_m = re.search(r"const roots = .*?;", review_tree_src)
         if not roots_line_m:

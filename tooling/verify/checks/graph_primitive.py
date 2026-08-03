@@ -53,9 +53,14 @@ satisfied comparison.
      the legacy iframe document; Svelte injects scoped CSS into the
      SHELL's head, where it never reaches the frame. A <style> block here
      is CSS that silently does nothing.
-  9. Closed contract vocabulary: every `graph: { ... }` spec in
-     index.html sets only consumer/mountId/extraEdges. Zero specs
-     collected is a failure — the rule must not pass by finding nothing.
+  9. Closed contract vocabulary: every `graph: { ... }` spec sets only
+     consumer/mountId/extraEdges. Amended by BRIEF-0058-i: a descriptor's
+     `graph` spec can now live in index.html (region's stayed there through
+     BRIEF-0058-h; the room batch generator's still does, until BRIEF-0058-j)
+     OR under frontend/src/creation/ (region's own spec, moved onto
+     Region.svelte by BRIEF-0058-i) -- this rule collects from both loci and
+     sums them. Zero specs collected across BOTH is a failure — the rule
+     must not pass by finding nothing.
 """
 from __future__ import annotations
 
@@ -416,33 +421,48 @@ def _top_level_keys(body: str) -> set[str]:
     return keys
 
 
-def _rule9_closed_vocab(html: str) -> int:
+def _rule9_closed_vocab_locus(text: str, locus: Path) -> int:
     allowed = {"consumer", "mountId", "extraEdges"}
     count = 0
-    for m in GRAPH_SPEC_RE.finditer(html):
+    for m in GRAPH_SPEC_RE.finditer(text):
         start = m.end() - 1
         depth = 0
         end = None
-        for i in range(start, len(html)):
-            if html[i] == "{":
+        for i in range(start, len(text)):
+            if text[i] == "{":
                 depth += 1
-            elif html[i] == "}":
+            elif text[i] == "}":
                 depth -= 1
                 if depth == 0:
                     end = i
                     break
         if end is None:
-            fail("rule9: a 'graph: {' spec has unbalanced braces")
+            fail(f"rule9: a 'graph: {{' spec in {locus} has unbalanced braces")
             continue
-        body = html[start + 1:end]
+        body = text[start + 1:end]
         extra = _top_level_keys(body) - allowed
         if extra:
-            fail(f"rule9: graph spec sets non-contract key(s) {sorted(extra)} — closed vocabulary is "
-                 f"{sorted(allowed)}")
+            fail(f"rule9: graph spec in {locus} sets non-contract key(s) {sorted(extra)} — closed "
+                 f"vocabulary is {sorted(allowed)}")
             continue
         count += 1
+    return count
+
+
+def _rule9_closed_vocab(html: str) -> int:
+    # BRIEF-0058-i: collect from index.html (batch's spec, still legacy) AND
+    # frontend/src/creation/ (region's spec, moved onto Region.svelte) —
+    # zero collected across BOTH loci is the failure, not zero in either one.
+    count = _rule9_closed_vocab_locus(html, INDEX_HTML)
+    if FRONTEND_SRC.is_dir():
+        for path in sorted(FRONTEND_SRC.rglob("*")):
+            if not path.is_file() or path == INDEX_HTML:
+                continue
+            text = path.read_text(encoding="utf-8")
+            count += _rule9_closed_vocab_locus(text, path)
     if count == 0:
-        fail("rule9: zero 'graph: {...}' specs collected — a rule that passes on nothing is the flaw this fixes")
+        fail("rule9: zero 'graph: {...}' specs collected across index.html and frontend/src/creation/ "
+             "— a rule that passes on nothing is the flaw this fixes")
     return count
 
 
