@@ -178,6 +178,25 @@ export const CREATION_ISLANDS = Object.freeze({
       'authorUpdateKnowledge',
       'authorDeleteKnowledge',
       'authorKnowledgeRequest',
+      // BRIEF-0059-d: goals in-context editor -- ported to
+      // GoalsEditor.svelte/goalsPanel.svelte.js, reusing sheetRequest.svelte.js.
+      // _goalPrereqRawList (index.html) is not author*-prefixed but is
+      // exclusively used by this family (RECON-0059-a M2 / SUPPLEMENT
+      // Amendment 8) -- named here so rule 7 still proves it gone.
+      'authorLoadGoals',
+      'authorRenderGoals',
+      'authorRenderGoalPrerequisites',
+      '_goalPrereqRawList',
+      'authorAddGoalPrerequisite',
+      'authorRemoveGoalPrerequisite',
+      'authorSetGoalPrerequisites',
+      'authorAttachGoalLink',
+      'authorDetachGoalLink',
+      'authorRenderGoalForm',
+      'authorAddGoal',
+      'authorSetGoalStatus',
+      'authorBackfillGoals',
+      'authorGoalRequest',
     ],
   }),
   // BRIEF-0058-i (per RECON-SUPPLEMENT-0058's re-scope): region generation

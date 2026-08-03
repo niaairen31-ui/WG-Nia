@@ -9,7 +9,7 @@
 
      RELATION_DIRECTIONS is a closed, frozen vocabulary -- never re-derived
      from the registry, never free text. */
-  import { sheetRequest } from './sheetRequest.svelte.js';
+  import { sheetRequest, api } from './sheetRequest.svelte.js';
 
   const RELATION_DIRECTIONS = ['mutual', 'a_to_b', 'b_to_a'];
 
@@ -44,6 +44,10 @@
     }
   });
 
+  async function reloadEntity() {
+    onSaved(await api(`/api/entities/${encodeURIComponent(entityId)}`));
+  }
+
   async function saveRow(row) {
     const body = JSON.stringify({
       type: row.type,
@@ -52,12 +56,12 @@
       visible_to_b: row.visible_to_b,
       notes: row.notes || null,
     });
-    await sheetRequest(legacyDoc, entityId, `/api/relations/${encodeURIComponent(row.id)}`, 'PUT', body, onSaved);
+    await sheetRequest(legacyDoc, `/api/relations/${encodeURIComponent(row.id)}`, 'PUT', body, reloadEntity);
   }
 
   async function deleteRow(id) {
     if (!confirm('Permanently delete this relation?')) return;
-    await sheetRequest(legacyDoc, entityId, `/api/relations/${encodeURIComponent(id)}`, 'DELETE', null, onSaved);
+    await sheetRequest(legacyDoc, `/api/relations/${encodeURIComponent(id)}`, 'DELETE', null, reloadEntity);
   }
 
   async function addRow() {
@@ -69,8 +73,8 @@
       visible_to_b: newVisibleToB,
       notes: newNotes || null,
     });
-    const detail = await sheetRequest(legacyDoc, entityId, `/api/entities/${encodeURIComponent(entityId)}/relations`, 'POST', body, onSaved);
-    if (detail) {
+    const ok = await sheetRequest(legacyDoc, `/api/entities/${encodeURIComponent(entityId)}/relations`, 'POST', body, reloadEntity);
+    if (ok) {
       newType = '';
       newDirection = 'mutual';
       newIntensity = 50;

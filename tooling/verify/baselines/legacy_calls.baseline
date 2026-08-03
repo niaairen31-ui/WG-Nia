@@ -12,11 +12,8 @@ frontend/src/creation/Sheet.svelte::_authorConsumePendingCreationMutationId::TIC
 frontend/src/creation/Sheet.svelte::_authorGetPendingCreationMutationId::TICKET-0059
 frontend/src/creation/Sheet.svelte::_authorNotifySaved::TICKET-0059
 frontend/src/creation/Sheet.svelte::_authorResetCreateDrafts::TICKET-0059
-frontend/src/creation/Sheet.svelte::authorBackfillGoals::TICKET-0059
 frontend/src/creation/Sheet.svelte::authorLoadDiscDetails::TICKET-0059
-frontend/src/creation/Sheet.svelte::authorLoadGoals::TICKET-0059
 frontend/src/creation/Sheet.svelte::authorRenderDiscDetailForm::TICKET-0059
-frontend/src/creation/Sheet.svelte::authorRenderGoalForm::TICKET-0059
 frontend/src/creation/Sheet.svelte::creationRefreshList::TICKET-0059
 frontend/src/creation/Sheet.svelte::creationRefreshList::TICKET-0059
 frontend/src/creation/locationType.js::genericModalClose::TICKET-0059

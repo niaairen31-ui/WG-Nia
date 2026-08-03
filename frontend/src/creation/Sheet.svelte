@@ -80,6 +80,8 @@
   import Evenements from './Evenements.svelte';
   import RelationsEditor from './RelationsEditor.svelte';
   import KnowledgeEditor from './KnowledgeEditor.svelte';
+  import GoalsEditor from './GoalsEditor.svelte';
+  import { backfillGoals } from './goalsPanel.svelte.js';
 
   let { legacyDoc } = $props();
 
@@ -309,9 +311,6 @@
     if (!detail || !detail.id) return;
     (async () => {
       await tick();
-      if (type === 'character' && creationState.activeTabKey === 'npc') {
-        legacyCall('authorLoadGoals', detail.id);
-      }
       if (type === 'faction') {
         loadFactionMembersPanel(detail.id);
       }
@@ -641,10 +640,9 @@
         <div class="field-section">
           <div class="field-section-title" style="display:flex; align-items:center; justify-content:space-between;">
             Objectifs
-            <button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick={() => legacyCall('authorBackfillGoals', detail.id)}>Générer les buts</button>
+            <button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick={() => backfillGoals(legacyDoc, detail.id)}>Générer les buts</button>
           </div>
-          <div id="author-goals"><div class="empty"><span class="spin">⟳</span></div></div>
-          {@html legacyCall('authorRenderGoalForm')}
+          <GoalsEditor entityId={detail.id} {legacyDoc} />
         </div>
       {/if}
 

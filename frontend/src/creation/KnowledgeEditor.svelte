@@ -5,7 +5,7 @@
      (index.html, now deleted). Same request/refresh/status cycle as
      RelationsEditor, via the shared sheetRequest.svelte.js this brief also
      introduces. */
-  import { sheetRequest } from './sheetRequest.svelte.js';
+  import { sheetRequest, api } from './sheetRequest.svelte.js';
 
   let { knowledge, entityId, levelOptions, legacyDoc, onSaved } = $props();
 
@@ -31,6 +31,10 @@
   let newSecret = $state(false);
   let newContent = $state('');
 
+  async function reloadEntity() {
+    onSaved(await api(`/api/entities/${encodeURIComponent(entityId)}`));
+  }
+
   async function saveRow(row) {
     const body = JSON.stringify({
       subject: row.subject,
@@ -41,12 +45,12 @@
       is_secret: row.is_secret,
       content: row.content || null,
     });
-    await sheetRequest(legacyDoc, entityId, `/api/knowledge/${encodeURIComponent(row.id)}`, 'PUT', body, onSaved);
+    await sheetRequest(legacyDoc, `/api/knowledge/${encodeURIComponent(row.id)}`, 'PUT', body, reloadEntity);
   }
 
   async function deleteRow(id) {
     if (!confirm('Permanently delete this knowledge entry?')) return;
-    await sheetRequest(legacyDoc, entityId, `/api/knowledge/${encodeURIComponent(id)}`, 'DELETE', null, onSaved);
+    await sheetRequest(legacyDoc, `/api/knowledge/${encodeURIComponent(id)}`, 'DELETE', null, reloadEntity);
   }
 
   async function addRow() {
@@ -59,8 +63,8 @@
       is_secret: newSecret,
       content: newContent || null,
     });
-    const detail = await sheetRequest(legacyDoc, entityId, `/api/entities/${encodeURIComponent(entityId)}/knowledge`, 'POST', body, onSaved);
-    if (detail) {
+    const ok = await sheetRequest(legacyDoc, `/api/entities/${encodeURIComponent(entityId)}/knowledge`, 'POST', body, reloadEntity);
+    if (ok) {
       newSubject = '';
       newLevel = 'rumor';
       newSource = '';

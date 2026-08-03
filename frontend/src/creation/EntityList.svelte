@@ -175,9 +175,9 @@
   /** "Générer les buts manquants" (BRIEF-0013-b, ported off npcGoalsBackfillAll
    *  by BRIEF-0058-j) -- a plain fetch now, not a legacy-window call. If an
    *  NPC sheet is currently open, its goals list needs to refresh too; that
-   *  refresh lives in Sheet.svelte (the one place that already owns the
-   *  goals panel's load), reached the same one-bus way every other
-   *  Svelte-to-Svelte signal on this document already is. */
+   *  refresh lives in GoalsEditor.svelte (BRIEF-0059-d, the one place that
+   *  now owns the goals panel's load), reached the same one-bus way every
+   *  other Svelte-to-Svelte signal on this document already is. */
   let npcGoalsBackfillStatus = $state('');
 
   async function backfillNpcGoals() {
