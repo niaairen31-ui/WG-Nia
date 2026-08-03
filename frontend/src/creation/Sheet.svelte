@@ -82,6 +82,7 @@
   import KnowledgeEditor from './KnowledgeEditor.svelte';
   import GoalsEditor from './GoalsEditor.svelte';
   import { backfillGoals } from './goalsPanel.svelte.js';
+  import DiscDetailsEditor from './DiscDetailsEditor.svelte';
 
   let { legacyDoc } = $props();
 
@@ -313,9 +314,6 @@
       await tick();
       if (type === 'faction') {
         loadFactionMembersPanel(detail.id);
-      }
-      if (type === 'location') {
-        legacyCall('authorLoadDiscDetails', detail.id);
       }
     })();
   });
@@ -648,8 +646,7 @@
 
       {#if !isNew && type === 'location'}
         <div class="field-section"><div class="field-section-title">Discoverable Details</div>
-          <div id="author-disc-list"><div class="empty"><span class="spin">⟳</span></div></div>
-          {@html legacyCall('authorRenderDiscDetailForm', detail.id, detail.world_id)}
+          <DiscDetailsEditor entityId={detail.id} worldId={detail.world_id} />
         </div>
       {/if}
     {/if}

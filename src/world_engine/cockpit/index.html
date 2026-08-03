@@ -6033,14 +6033,9 @@ document.addEventListener('creation:entities-loaded', (ev) => {
  * subcultureDraft.svelte.js/pendingDrafts.svelte.js) -- Sheet.svelte mounts
  * those directly now, no legacyCall involved. BRIEF-0058-h converged the
  * AI-generate draft panel the same way (GeneratePanel.svelte +
- * generatePanel.svelte.js). What remains a sub-editor generator this
- * skeleton calls synchronously (authorRenderDiscDetailForm) is UNCHANGED
- * below — Sheet.svelte reaches it via legacyCall (frontend/src/legacy/
- * bridge.js), embedding the returned HTML string exactly where
- * authorRenderSheet used to concatenate it. The async tail (authorLoadDiscDetails)
- * is reached the same way, after Sheet.svelte's own DOM update flushes; the
- * faction roles+roster load (was authorLoadFactionMembersPanel) is a plain
- * loadFactionMembersPanel import instead (family b).
+ * generatePanel.svelte.js). The faction roles+roster load (was
+ * authorLoadFactionMembersPanel) is a plain loadFactionMembersPanel import
+ * (family b), still reached from the same post-DOM-flush async tail.
  * evenements converged onto Evenements.svelte (TICKET-0058, BRIEF-0058-j):
  * it reaches Field.svelte/fields.js by plain import now, like every other
  * tab. The 'creation:field-render'/'creation:field-read' reverse bridge
@@ -6050,10 +6045,13 @@ document.addEventListener('creation:entities-loaded', (ev) => {
  * BRIEF-0059-c (TICKET-0059): the relations and knowledge in-context
  * editors converged onto RelationsEditor.svelte/KnowledgeEditor.svelte,
  * sharing sheetRequest.svelte.js.
- * BRIEF-0059-d (TICKET-0059): the goals in-context editor converged onto
- * GoalsEditor.svelte/goalsPanel.svelte.js, reusing the same shared helper
- * (parameterized onto a caller-supplied reload closure to fit goals'
- * different refetch target). */
+ * BRIEF-0059-d (TICKET-0059): the goals and discoverable-details in-context
+ * editors converged onto GoalsEditor.svelte/goalsPanel.svelte.js and
+ * DiscDetailsEditor.svelte -- goals reuses sheetRequest.svelte.js
+ * (parameterized onto a caller-supplied reload closure to fit its
+ * different refetch target); disc-details never touched the shared
+ * #author-status line, so it stays self-contained. No sub-editor
+ * generator remains reached via legacyCall from this skeleton. */
 
 /* AI entity-authoring assistant (BRIEF-24) — draft generator panel and its
  * per-type draft pre-fill (was authorRenderGeneratePanel/authorGenerateEntity/
@@ -6186,223 +6184,6 @@ async function generatePendingCreation(mutationId) {
  * authorFactionMemberRoleSelectChanged/authorFactionMemberAddPrefill/
  * authorAddFactionMember/authorMemberRoleEditStart/Cancel/Submit are gone;
  * same endpoints, same immediate-commit-per-row discipline. */
-
-/* ── Discoverable details (location sheet, BRIEF-13) ────────────────────── */
-
-async function authorLoadDiscDetails(locationId) {
-  const el = document.getElementById('author-disc-list');
-  if (!el) return;
-  try {
-    const rows = await api(`/api/locations/${encodeURIComponent(locationId)}/discoverable-details`);
-    el.innerHTML = authorRenderDiscDetails(rows, locationId);
-  } catch (e) {
-    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-  }
-}
-
-function authorRenderDiscDetails(rows, locationId) {
-  if (!rows || rows.length === 0) return '<div class="empty">No discoverable details seeded yet.</div>';
-  // Cluster-native display (schema v1.30, BRIEF-17, decision C1): rows sharing
-  // a signpost_group render together under a group header; ungrouped rows
-  // render individually, as before.
-  const groups = new Map();
-  const ungrouped = [];
-  for (const d of rows) {
-    if (d.signpost_group) {
-      if (!groups.has(d.signpost_group)) groups.set(d.signpost_group, []);
-      groups.get(d.signpost_group).push(d);
-    } else {
-      ungrouped.push(d);
-    }
-  }
-  let html = '';
-  for (const [group, groupRows] of groups) {
-    const ambientCount = groupRows.filter(d => d.access_level === 'ambient').length;
-    const hiddenCount  = groupRows.filter(d => d.access_level === 'hidden').length;
-    html += `<div class="signpost-group" style="border:1px solid var(--border); border-radius:6px; margin-bottom:10px; padding:8px;">`;
-    html += `<div style="font-weight:700; font-size:12px; color:var(--muted); margin-bottom:6px;">`
-          + `${esc(group)} : ${ambientCount} ambient panel${ambientCount === 1 ? '' : 's'} + ${hiddenCount} hidden content${hiddenCount === 1 ? '' : 's'}</div>`;
-    html += '<div class="row-table">' + groupRows.map(d => authorRenderDiscDetailRow(d, locationId)).join('') + '</div>';
-    html += '</div>';
-  }
-  if (ungrouped.length) {
-    html += '<div class="row-table">' + ungrouped.map(d => authorRenderDiscDetailRow(d, locationId)).join('') + '</div>';
-  }
-  return html;
-}
-
-function authorRenderDiscDetailRow(d, locationId) {
-  return `
-    <div class="row-card" id="disc-row-${esc(d.id)}">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-        <span style="font-weight:600">${esc(d.subject)}</span>
-        <span style="display:flex; align-items:center; gap:6px;">
-          <span class="badge b-other">${esc(d.access_level)}</span>
-          <span class="badge ${d.discovered ? 'b-equipped' : 'b-stowed'}">${d.discovered ? 'discovered' : 'hidden'}</span>
-          <span style="color:var(--muted); font-size:12px;">threshold ${d.discovery_threshold}</span>
-        </span>
-      </div>
-      <div style="color:var(--text); font-size:13px; margin:4px 0 6px; white-space:pre-wrap;">${esc(d.content)}</div>
-      <div style="display:flex; gap:6px; flex-wrap:wrap;">
-        <button class="btn-ghost" style="font-size:12px"
-          onclick="authorEditDiscDetail('${esc(d.id)}','${esc(locationId)}')">Edit</button>
-        <button class="btn-end" style="font-size:12px; padding:3px 8px"
-          onclick="authorDeleteDiscDetail('${esc(d.id)}','${esc(locationId)}')">Delete</button>
-        ${d.discovered ? `<button class="btn-ghost" style="font-size:12px"
-          onclick="authorResetDiscDetail('${esc(d.id)}','${esc(locationId)}')">Reset discovered</button>` : ''}
-      </div>
-    </div>
-  `;
-}
-
-function authorRenderDiscDetailForm(locationId, worldId) {
-  return `
-  <div class="field-section" id="disc-add-form" style="border-top:1px solid var(--border); margin-top:8px; padding-top:8px;">
-    <div class="field-grid">
-      <div class="field-row">
-        <label for="disc-f-subject">Subject *</label>
-        <input type="text" id="disc-f-subject" placeholder="e.g. lettre_innomee">
-      </div>
-      <div class="field-row" style="grid-column:1/-1">
-        <label for="disc-f-content">Content *</label>
-        <textarea id="disc-f-content" rows="3" placeholder="What the player discovers…" style="resize:vertical"></textarea>
-      </div>
-      <div class="field-row">
-        <label for="disc-f-access">Access level</label>
-        <select id="disc-f-access">
-          <option value="hidden">hidden</option>
-          <option value="ambient">ambient (dormant)</option>
-        </select>
-      </div>
-      <div class="field-row">
-        <label for="disc-f-threshold">discovery_threshold (0–12, dormant)</label>
-        <input type="number" id="disc-f-threshold" value="0" min="0" max="12">
-      </div>
-      <div class="field-row">
-        <label for="disc-f-signpost">signpost_group (optional)</label>
-        <input type="text" id="disc-f-signpost" placeholder="e.g. papiers_bureau">
-      </div>
-    </div>
-    <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
-      <button class="btn-send" onclick="authorAddDiscDetail('${esc(locationId)}','${esc(worldId)}')">+ Add detail</button>
-      <span id="disc-add-status" style="font-size:12px; color:var(--muted)"></span>
-    </div>
-  </div>`;
-}
-
-async function authorAddDiscDetail(locationId, worldId) {
-  const subject   = document.getElementById('disc-f-subject').value.trim();
-  const content   = document.getElementById('disc-f-content').value.trim();
-  const accessLvl = document.getElementById('disc-f-access').value;
-  const threshold = parseInt(document.getElementById('disc-f-threshold').value, 10) || 0;
-  const signpostGroup = document.getElementById('disc-f-signpost').value.trim() || null;
-  const statusEl  = document.getElementById('disc-add-status');
-  if (!subject || !content) { statusEl.textContent = 'Subject and content required.'; return; }
-  statusEl.textContent = '…';
-  try {
-    await api(`/api/locations/${encodeURIComponent(locationId)}/discoverable-details`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        world_id: worldId, subject, content, access_level: accessLvl,
-        discovery_threshold: threshold, signpost_group: signpostGroup,
-      }),
-    });
-    document.getElementById('disc-f-subject').value = '';
-    document.getElementById('disc-f-content').value = '';
-    document.getElementById('disc-f-threshold').value = '0';
-    document.getElementById('disc-f-signpost').value = '';
-    statusEl.textContent = 'Added.';
-    authorLoadDiscDetails(locationId);
-  } catch (e) {
-    statusEl.textContent = e.message;
-  }
-}
-
-async function authorDeleteDiscDetail(detailId, locationId) {
-  if (!confirm('Delete this discoverable detail?')) return;
-  try {
-    await api(`/api/discoverable-details/${encodeURIComponent(detailId)}`, { method: 'DELETE' });
-    authorLoadDiscDetails(locationId);
-  } catch (e) {
-    alert(e.message);
-  }
-}
-
-async function authorResetDiscDetail(detailId, locationId) {
-  try {
-    await api(`/api/discoverable-details/${encodeURIComponent(detailId)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ discovered: false }),
-    });
-    authorLoadDiscDetails(locationId);
-  } catch (e) {
-    alert(e.message);
-  }
-}
-
-async function authorEditDiscDetail(detailId, locationId) {
-  const rowEl = document.getElementById(`disc-row-${detailId}`);
-  if (!rowEl) return;
-  try {
-    const rows = await api(`/api/locations/${encodeURIComponent(locationId)}/discoverable-details`);
-    const d = rows.find(r => r.id === detailId);
-    if (!d) return;
-    rowEl.innerHTML = `
-      <div class="field-grid" style="margin-bottom:6px">
-        <div class="field-row"><label>Subject</label>
-          <input type="text" id="disc-edit-subject-${esc(d.id)}" value="${esc(d.subject)}"></div>
-        <div class="field-row" style="grid-column:1/-1"><label>Content</label>
-          <textarea id="disc-edit-content-${esc(d.id)}" rows="3" style="resize:vertical">${esc(d.content)}</textarea></div>
-        <div class="field-row"><label>Access level</label>
-          <select id="disc-edit-access-${esc(d.id)}">
-            <option value="hidden" ${d.access_level==='hidden'?'selected':''}>hidden</option>
-            <option value="ambient" ${d.access_level==='ambient'?'selected':''}>ambient (dormant)</option>
-          </select></div>
-        <div class="field-row"><label>Threshold (0–12)</label>
-          <input type="number" id="disc-edit-threshold-${esc(d.id)}" value="${d.discovery_threshold}" min="0" max="12"></div>
-        <div class="field-row"><label>signpost_group (optional)</label>
-          <input type="text" id="disc-edit-signpost-${esc(d.id)}" value="${esc(d.signpost_group || '')}" placeholder="e.g. papiers_bureau"></div>
-      </div>
-      <div style="display:flex; gap:6px; align-items:center;">
-        <button class="btn-send" style="font-size:12px"
-          onclick="authorSaveDiscDetail('${esc(d.id)}','${esc(locationId)}')">Save</button>
-        <button class="btn-ghost" style="font-size:12px"
-          onclick="authorLoadDiscDetails('${esc(locationId)}')">Cancel</button>
-        <span id="disc-edit-status-${esc(d.id)}" style="font-size:12px; color:var(--muted)"></span>
-      </div>`;
-  } catch (e) {
-    alert(e.message);
-  }
-}
-
-async function authorSaveDiscDetail(detailId, locationId) {
-  const subject   = document.getElementById(`disc-edit-subject-${detailId}`).value.trim();
-  const content   = document.getElementById(`disc-edit-content-${detailId}`).value.trim();
-  const accessLvl = document.getElementById(`disc-edit-access-${detailId}`).value;
-  const threshold = parseInt(document.getElementById(`disc-edit-threshold-${detailId}`).value, 10) || 0;
-  const signpostRaw = document.getElementById(`disc-edit-signpost-${detailId}`).value.trim();
-  const statusEl  = document.getElementById(`disc-edit-status-${detailId}`);
-  if (!subject || !content) { statusEl.textContent = 'Subject and content required.'; return; }
-  statusEl.textContent = '…';
-  try {
-    const body = { subject, content, access_level: accessLvl, discovery_threshold: threshold };
-    if (signpostRaw) {
-      body.signpost_group = signpostRaw;
-    } else {
-      body.clear_signpost_group = true;
-    }
-    await api(`/api/discoverable-details/${encodeURIComponent(detailId)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    authorLoadDiscDetails(locationId);
-  } catch (e) {
-    statusEl.textContent = e.message;
-  }
-}
 
 /** Re-render the sheet for a new entity when the type selector changes. */
 /** BRIEF-0058-f: fetches the same detail row as always; #author-main is the

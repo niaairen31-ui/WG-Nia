@@ -197,6 +197,18 @@ export const CREATION_ISLANDS = Object.freeze({
       'authorSetGoalStatus',
       'authorBackfillGoals',
       'authorGoalRequest',
+      // BRIEF-0059-d: discoverable-details in-context editor -- ported to
+      // DiscDetailsEditor.svelte (self-contained, never touched the shared
+      // #author-status line, so no sheetRequest.svelte.js dependency).
+      'authorLoadDiscDetails',
+      'authorRenderDiscDetails',
+      'authorRenderDiscDetailRow',
+      'authorRenderDiscDetailForm',
+      'authorAddDiscDetail',
+      'authorDeleteDiscDetail',
+      'authorResetDiscDetail',
+      'authorEditDiscDetail',
+      'authorSaveDiscDetail',
     ],
   }),
   // BRIEF-0058-i (per RECON-SUPPLEMENT-0058's re-scope): region generation
