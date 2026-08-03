@@ -11125,4 +11125,169 @@ Cross-reference, do not restate.
 
 ---
 
+## CREATION SPINE — island seam, graph convergence, closure-driven scope (BRIEF-0058-a, BRIEF-0058-b, BRIEF-0058-c, BRIEF-0058-d, BRIEF-0058-e, BRIEF-0058-f, BRIEF-0058-g, BRIEF-0058-h, BRIEF-0058-i, BRIEF-0058-j, BRIEF-0058-k, BRIEF-0058-l, no schema change)
+
+**A1 — the seam runs legacy-hosts-Svelte, and why nothing else was
+constructible.** A migrated Creation surface mounts as a Svelte island
+inside the legacy container it already owns, signalled by a CustomEvent —
+the exact mechanism TICKET-0057 proved with `graph:slot`. The alternative,
+shell-owned Creation chrome, was rejected: it would have put a Svelte tab
+bar and the legacy tab bar in the tree simultaneously for two tickets, with
+a synchronization contract between them — two authorities over one fact,
+the failure mode this whole workstream exists to end. It was also not
+constructible without defeating a standing registry:
+`frontend/src/legacy/registry.js` already declared
+`creation: { retiredBy: 'TICKET-0059' }` before this ticket started.
+
+**B2 — measured wrong twice, and corrected in flight both times. This is
+the ticket's most transferable lesson.** Intake assumed the migration
+surface was eleven `CREATION_TABS` keys, by label. RECON-0058-a's M4
+measured the real `author*` call closure and found only eight —
+`artefacts`, `intrigues`, and `queue` never call or are called by
+`author*` code, three independent ways each. That measurement was itself
+incomplete: `intrigues` never calls `author*`, but its registry entry
+writes into `#author-entity-list`/`#author-main`, the exact nodes the
+entity-list and sheet briefs turn into mount points. A call-graph rule
+alone missed a real coupling — occupying a container a Svelte island is
+about to own is a dependency, even with zero function calls in either
+direction. RECON-SUPPLEMENT-0058 restated the rule as **call closure UNION
+container occupancy, with the generic dispatcher
+(`_creationActivateTab`/`showCreationSubTab`/`renderCreationShell`/
+`_onDemandSlotToggle*`/`_renderOnDemandToggles`) as a BOUNDARY, never a
+member** — those five functions are shared by every `CREATION_TABS` entry,
+including the three that stay legacy, and no brief may move them under A1.
+The final, measured migration surface is **nine** keys: `npc`, `pj`,
+`lieux`, `factions`, `objets`, `intrigues`, `evenements`, `region`,
+`constructeur`. The residual, confirmed by brief -j's closure-sealing pass,
+is **five** legacy tabs: `competences`, `registre`, `prompts`, `artefacts`,
+`queue` — all five go to TICKET-0059. `markCardDone`, `spatialTalkTo`, and
+`evenementsRemoveChip` were M4 false positives (apparent `author*` call
+sites that were actually inside a comment block); they were never in
+scope.
+
+**The Review Queue never used the review component — corrected here.**
+The workstream map assumed the Review Queue tab was a `review*` consumer.
+`reviewRegister` has exactly two real call sites, `region` and the room
+batch generator (`batch`); the queue's loader and its whole
+proposed-mutation section carry zero `author*` and zero review-component
+references. The queue was never in this ticket's closure under any reading
+of B2; it goes to TICKET-0059 alongside `artefacts`.
+
+**C2 — one renderer, not two behind one API, and the cost paid on
+purpose.** The relation graph converges onto `Graph.svelte`; the vendored
+`cytoscape-3.34.0.min.js` (435 KB) and its `/vendor` route are deleted, and
+`frontend/src/graph/registry.js` is now permanently empty. Ego/global
+modes, the four strength buckets, zoom/pan, double-tap recentring and the
+create/edit edge panel were reimplemented against the primitive's
+contract, not carried across. The one DROP candidate RECON-0058-a flagged
+— `relGraphGlobalNodeDblTap`, a cosmetic, non-persisted "followed" node
+enlargement in global mode only — was dropped; ego-mode double-tap-to-
+recenter is a different behaviour and was ported. The force-layout
+parameters are measured, not guessed: RECON-0058-a M1 ran a plain,
+library-free force simulation (Coulomb repulsion + spring attraction +
+centring, fixed 300 iterations) against the pilot's real graph (`|V|=7,
+|E|=8`) and found it legible (no node overlap, 1 of 8 edges crossing) in
+under 1 ms; at 10x synthetic scale (`|V|=70, |E|=80`) wall-clock time stays
+under 20 ms (~100x headroom below the 2000 ms escalation gate) but
+legibility degrades under the primitive's fixed, non-zoomable 960×480
+viewBox — a headroom ceiling for a future large-world graph, not a
+blocker at the pilot's current scale. The substrate itself changed:
+cytoscape painted to a `<canvas>`; the primitive paints SVG DOM.
+
+**D1 — the shape of the amended lock.** The graph registry parsing zero
+entries is no longer, by itself, a failure. `graph_primitive.py`'s rule
+changed direction: from "each declared implementation is present at its
+locus" to "each baselined implementation (`baseline - live`) is proven
+ABSENT from its locus, via the append-only `graph_impls.retired` record" —
+`graph_impls.retired` is now the load-bearing half of the guarantee, not
+the shrinking `GRAPH_IMPLS` export. The registry is empty and stays empty:
+a second graph engine is constructible today only by defeating this
+fail-closed check.
+
+**E1 discharged.** The TICKET-0056 named deferral — continuous route sync
+— landed at brief -k. `showCreationSubTab` dispatches a one-way
+`route:subtab` CustomEvent after the active tab actually changes; the
+shell mirrors it into the address bar via `router.js`'s `replace()`
+(`history.replaceState`, no `popstate` re-entry, so Back leaves Creation in
+one step and the legacy document is never re-entered) — the same
+one-way legacy-to-shell signalling `graph:slot` already established, no
+new direction of control.
+
+**M5's refutation, and the structural answer — not a remount
+convention.** RECON-0058-a M5 found that a Svelte island mounted as a
+plain child of a legacy container does NOT survive a sub-tab switch away
+and back, nor a world switch: `_creationActivateTab` and
+`_creationRunWorldSwitchResets` both unconditionally re-run a live legacy
+`loader`/`onWorldSwitch` renderer, which `innerHTML`s over the mounted
+island. The RECON result's own suggested fix — remount from inside the
+legacy renderer on every call — was rejected as the fix for the PROBE, not
+the product: it would have kept a destructive legacy renderer alive
+permanently and made the mount's survival a matter of call-site
+discipline. The structural answer instead: an entry declaring `island`
+MUST also declare `loader: null` and `state.onWorldSwitch: null` — the
+shell owns that tab's body outright, and there is no legacy renderer left
+to destroy anything. World-state resets move into the Svelte component,
+driven by `serverState.worldId` directly (the server is the authority on
+the active world, TICKET-0056 C3) rather than a legacy callback telling the
+island to reset. `creation_island.py` enforces both halves of this rule —
+one entry declaring `island` without `loader: null`/`onWorldSwitch: null`
+is a failure, and the `island:slot` dispatch itself must be unconditional,
+never gated behind a first-time/loaded flag.
+
+**The island registry GROWS.** Unlike `frontend/src/legacy/registry.js`
+and `frontend/src/graph/registry.js` — both monotonically SHRINKING lists
+of what remains legacy — `frontend/src/creation/registry.js` is a record
+of what has MOVED: one entry per migrated surface, never removed once
+added. A later reader must not apply a shrink-only rule to it; growth is
+the correct, intended shape of this particular registry.
+
+**Every check re-homed, and where.** No guard lapsed between commits.
+`graph_primitive.py` (BRIEF-0058-b/-c) — amended semantics above, its
+locus is now `frontend/src/graph/consumers/relations.js` for the live
+relation engine. `relation_graph.py` (BRIEF-0058-c) — re-homed onto the
+same consumer; its prior byte-identical-to-`main` clause (a fail-open
+branch-freeze, not an invariant, as TICKET-0057's entry already named) is
+gone with it. `creation_island.py` (BRIEF-0058-d) — new, asserts the
+island seam and the loader/onWorldSwitch partition. `page_contract.py`
+(BRIEF-0058-e..-k) — asserts the `CREATION_TABS` mechanism against its new
+locus, reporting the islands/legacy migration split on every pass; the
+loader/onWorldSwitch partition rule lives in `creation_island.py`, not
+duplicated here. `review_component.py` / `review_root_fallback.py`
+(BRIEF-0058-i/-j) — re-homed onto `frontend/src/creation/review/
+registry.js` plus its two Svelte consumers, `Region.svelte` and
+`RoomBatch.svelte`; the component's now-unused string-render half
+(`reviewNode`/`reviewTree`/`reviewOpenSheet`/`reviewToggleGraph`/
+`reviewIsAccepted`/`reviewToggleAccept`/`reviewNotes`) was retired at -j,
+shrinking the governed surface to the four generics with a real reader.
+`creation_return_nav.py` — re-homed onto `FactionRoster.svelte` (a
+same-family follow-up after brief -g). `event_tab.py` (BRIEF-0058-j) —
+re-homed onto `Evenements.svelte`. `faction_roster_panel.py`
+(BRIEF-0058-g) — re-homed onto `FactionRoster.svelte`. `legacy_mount.py`
+still passes with `creation` present in the registry — this ticket does
+not retire it. `frontend_build_fresh.py` still passes against the larger
+committed build.
+
+**Region's parallel field renderer — a named, unresolved convergence
+candidate.** `region` carries its own field-rendering family
+(`_sheetListSection`/`_regionSheetNode`/`_sheetFieldInput`/
+`_sheetFieldTextarea`/`_sheetEntityOptions`/`_regionSheetRolesHtml`/
+`_regionSheetAddRole`/`RemoveRole`/`MoveRole`/`regionRenderSheet`),
+distinct from the migrated `authorRenderField`/`Field.svelte` engine — a
+genuine "plusieurs choses qui font la meme chose" candidate. RECON-
+SUPPLEMENT-0058 directed report-only: it was not converged in this ticket
+and no ticket has been opened for it.
+
+**What is still deferred, by name.** `graph_spec_for(entity_type)`
+(TICKET-0057 D2) — still no reader; no runtime entity type declares a
+graph today. The `index.html` rename — TICKET-0061. The link agent and
+`npcAgent*`/`linkAgent*` — TICKET-0059; RECON-0058-a M8 confirmed they sit
+outside the `author*` closure entirely, in their own sibling DOM panels,
+with exactly one coupling point (`linkAgentCommit`'s post-commit refresh,
+now retargeted at the primitive's `graph:invalidate` event instead of the
+deleted `relGraphFetchGlobal`/`relGraphFetch`). The 3D guard rail —
+cross-reference only, per TICKET-0055/-0056/-0057's own discipline;
+restating doctrine is how doctrine drifts.
+
+---
+
 *Co-built with Claude, June 2026.*
