@@ -12,9 +12,8 @@
      back, save via the existing creator-CRUD endpoint. Every sub-editor
      that hangs off the sheet (roles/subculture/geometry/doors/relations/
      knowledge/pending-knowledge/pending-goals/items/memberships/faction-
-     roster/ledger/pricing/goals/disc-details -- brief -g) and the AI
-     draft-generate panel (brief -h) stay legacy, unmigrated: this
-     component renders the SAME placeholder skeleton authorRenderSheet
+     roster/ledger/pricing/goals/disc-details -- brief -g) stays legacy,
+     unmigrated: this component renders the SAME placeholder skeleton authorRenderSheet
      always did (an empty spinner div for an async-loaded panel, or an
      immediate {@html} call into the still-legacy synchronous HTML
      generator for an inline one) and, after its own DOM update flushes,
@@ -59,15 +58,17 @@
   import RolesEditor from './RolesEditor.svelte';
   import FactionRoster from './FactionRoster.svelte';
   import MembershipsPanel from './MembershipsPanel.svelte';
-  import { loadFactionMembersPanel, draftRolesForCreate, resetDraftRoles, factionPanelState } from './factionPanel.svelte.js';
-  import { subcultureDraftState, subcultureDraftForCreate, resetSubcultureDraft } from './subcultureDraft.svelte.js';
+  import { loadFactionMembersPanel, draftRolesForCreate, resetDraftRoles } from './factionPanel.svelte.js';
+  import { subcultureDraftForCreate, resetSubcultureDraft } from './subcultureDraft.svelte.js';
   import SubcultureEditor from './SubcultureEditor.svelte';
   import PricingEditor from './PricingEditor.svelte';
   import LedgerPanel from './LedgerPanel.svelte';
   import ItemsPanel from './ItemsPanel.svelte';
-  import { pendingDraftsState, resetPendingDrafts, knowledgeForCreate, goalsForCreate } from './pendingDrafts.svelte.js';
+  import { resetPendingDrafts, knowledgeForCreate, goalsForCreate } from './pendingDrafts.svelte.js';
   import PendingKnowledgeEditor from './PendingKnowledgeEditor.svelte';
   import PendingGoalsEditor from './PendingGoalsEditor.svelte';
+  import { resetGeneratePanel, applyGeneratedDraft } from './generatePanel.svelte.js';
+  import GeneratePanel from './GeneratePanel.svelte';
 
   let { legacyDoc } = $props();
 
@@ -157,6 +158,7 @@
     resetDraftRoles();
     resetSubcultureDraft();
     resetPendingDrafts();
+    resetGeneratePanel();
     enterCreateMode(resolveTypeForTab(creationState.activeTabKey));
   }
 
@@ -194,7 +196,8 @@
   // button, still legacy) dispatches this instead of the deleted
   // authorRenderSheet({}, true, entityType) -- flushSync so the DOM this
   // creates (author-f-name et al.) exists before generatePendingCreation's
-  // own synchronous authorApply*Draft(result) call right after.
+  // 'creation:apply-generated-draft' dispatch right after (BRIEF-0058-h,
+  // below).
   legacyDoc.addEventListener('creation:sheet-create', (ev) => {
     flushSync(() => { enterCreateMode(ev.detail.type); });
   });
@@ -244,29 +247,15 @@
     openTemplateModalFor(legacyDoc, ev.detail.fieldId, () => {});
   });
 
-  // The AI faction-draft pre-fill (authorApplyFactionDraft, index.html,
-  // still legacy -- brief -h) writes its proposed roles into
-  // factionPanelState.draftRoles through this same reverse-bridge idiom,
-  // since RolesEditor.svelte now owns #author-roles reactively and a raw
-  // innerHTML write there would tear the mounted component out (RECON-0058-a
-  // M5) -- BRIEF-0058-g family b.
-  legacyDoc.addEventListener('creation:apply-faction-roles-draft', (ev) => {
-    factionPanelState.draftRoles = ev.detail.rows;
-  });
-
-  // authorApplyLocationDraft's equivalent for subcultureDraftState.rows --
-  // same idiom, BRIEF-0058-g family c.
-  legacyDoc.addEventListener('creation:apply-subculture-draft', (ev) => {
-    subcultureDraftState.rows = ev.detail.rows;
-  });
-
-  // authorApplyCharacterDraft's equivalent for pendingDraftsState -- same
-  // idiom, BRIEF-0058-g family e. pendingDraftNotes stays a separate legacy
-  // global (the AI-generate panel's own notes block, brief -h) and isn't
-  // carried by this event.
-  legacyDoc.addEventListener('creation:apply-pending-drafts', (ev) => {
-    pendingDraftsState.knowledge = ev.detail.knowledge;
-    pendingDraftsState.goals = ev.detail.goals;
+  // generatePendingCreation (index.html, still legacy -- germ realization,
+  // "Créations en attente", is out of this brief's scope) reaches the ported
+  // applyGeneratedDraft this same reverse-bridge way, dispatched right after
+  // 'creation:sheet-create' (above) has flushSync'd the create-mode DOM into
+  // existence -- BRIEF-0058-h. This is the ONE apply implementation for both
+  // callers: GeneratePanel.svelte's own "Générer" click reaches it via a
+  // plain import instead, no event needed, since it already runs as real JS.
+  legacyDoc.addEventListener('creation:apply-generated-draft', (ev) => {
+    applyGeneratedDraft(legacyDoc, ev.detail.entityType, ev.detail.result);
   });
 
   // Sibling header chrome (title/status/save/delete) lives OUTSIDE
@@ -427,7 +416,7 @@
         legacyCall('_authorConsumePendingCreationMutationId');
       }
       if (isNewSave) {
-        legacyCall('_authorClearCreateDrafts');
+        resetGeneratePanel();
         resetDraftRoles();
         resetSubcultureDraft();
         resetPendingDrafts();
@@ -486,7 +475,7 @@
       <div class="empty"><span class="spin">⟳</span></div>
     {:else}
       {#if showGeneratePanel}
-        {@html legacyCall('authorRenderGeneratePanel')}
+        <GeneratePanel {legacyDoc} {type} />
       {/if}
 
       <div class="field-section"><div class="field-section-title">Entity</div><div class="field-grid">

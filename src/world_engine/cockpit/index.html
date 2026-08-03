@@ -3263,16 +3263,17 @@ let authorLocationTree = [];     // [{id, name, parent_location_id, location_typ
 // world — refreshed by the entityList island; backs the location_type datalist.
 let authorLocationTypeCatalog = [];
 
-/* AI entity-authoring assistant (BRIEF-24) — pendingDraftNotes is the
- * AI-generate panel's own "Notes de l'assistant" state (authorRenderGenNotes/
- * #entity-gen-notes, brief -h, untouched). pendingDraftKnowledge/
+/* AI entity-authoring assistant (BRIEF-24) — pendingDraftKnowledge/
  * pendingDraftGoals (secret.knowledge rows / BRIEF-0013-b goals, held
  * in-memory until the entity is created) moved to
  * frontend/src/creation/pendingDrafts.svelte.js (TICKET-0058, BRIEF-0058-g
  * family e) -- PendingKnowledgeEditor.svelte/PendingGoalsEditor.svelte own
- * them now. One-shot: a second "Générer" click discards this state and
- * starts over (F2 conversational refine is explicitly deferred). */
-let pendingDraftNotes = [];
+ * them now. pendingDraftNotes (the AI-generate panel's own "Notes de
+ * l'assistant" state) moved to generatePanelState
+ * (frontend/src/creation/generatePanel.svelte.js, TICKET-0058, BRIEF-0058-h)
+ * -- this legacy global is gone. One-shot: a second "Générer" click
+ * discards the draft state and starts over (F2 conversational refine is
+ * explicitly deferred). */
 
 /* Two-stage entity creation (TICKET-0019, BRIEF-0019-a) — set when the
    create form was pre-filled from a "Générer la fiche" click on a pending
@@ -3285,9 +3286,10 @@ let pendingCreationMutationId = null;
 /* Faction roles/roster editor state (draft + live + undeclared + roster
  * rows/editing-id) moved to frontend/src/creation/factionPanel.svelte.js's
  * factionPanelState (TICKET-0058, BRIEF-0058-g family b) -- these five
- * legacy globals are gone. authorApplyFactionDraft (AI faction-draft
- * pre-fill, brief -h, still legacy) reaches the new draft state through the
- * 'creation:apply-faction-roles-draft' reverse-bridge event instead. */
+ * legacy globals are gone. The AI faction-draft pre-fill (was
+ * authorApplyFactionDraft, TICKET-0058, BRIEF-0058-h) writes
+ * factionPanelState.draftRoles directly now too -- see
+ * frontend/src/creation/generatePanel.svelte.js. */
 
 /* Last-loaded goals for the open NPC sheet (TICKET-0024, BRIEF-0024-a) —
  * lets the prerequisite add/remove controls read a goal's current
@@ -4274,9 +4276,9 @@ function _evenementsTabEnterReset() {
  *    flipped to island-routed below, same as the four static core tabs.
  *    generatePendingCreation -- dispatches 'creation:sheet-create' instead
  *    of the deleted authorRenderSheet({}, true, entityType); its own
- *    authorApply*Draft calls are unchanged (plain getElementById, which
- *    finds Sheet.svelte's rendered fields exactly as it always found
- *    authorRenderSheet's).
+ *    authorApply*Draft calls were retired by BRIEF-0058-h, so it now
+ *    dispatches 'creation:apply-generated-draft' too (Sheet.svelte reaches
+ *    the ported applyGeneratedDraft, same reverse-bridge idiom).
  *    _factionRosterRowHtml, npcGoalsBackfillAll, pcCreateSubmit -- part of
  *    the broader RECON-0058-a M4 author* closure but call no function this
  *    brief retires; unchanged. */
@@ -7217,7 +7219,6 @@ function creationNewEntity() {
  *  factored out of creationNewEntity's own body (BRIEF-0058-f) so the two
  *  paths can never drift apart. */
 function _authorResetCreateDrafts() {
-  pendingDraftNotes     = [];
   pendingCreationMutationId = null;
 }
 
@@ -7344,13 +7345,15 @@ document.addEventListener('creation:entities-loaded', (ev) => {
  * SubcultureEditor/LedgerPanel/ItemsPanel/PendingKnowledgeEditor/
  * PendingGoalsEditor.svelte, locationType.js/factionPanel.svelte.js/
  * subcultureDraft.svelte.js/pendingDrafts.svelte.js) -- Sheet.svelte mounts
- * those directly now, no legacyCall involved. What remains a sub-editor
- * generator this skeleton calls synchronously (authorRenderRelations(Form),
+ * those directly now, no legacyCall involved. BRIEF-0058-h converged the
+ * AI-generate draft panel the same way (GeneratePanel.svelte +
+ * generatePanel.svelte.js). What remains a sub-editor generator this
+ * skeleton calls synchronously (authorRenderRelations(Form),
  * authorRenderKnowledge(Form), authorRenderGoalForm,
- * authorRenderDiscDetailForm, authorRenderGeneratePanel) is UNCHANGED
- * below — Sheet.svelte reaches each one via legacyCall
- * (frontend/src/legacy/bridge.js), embedding the returned HTML string
- * exactly where authorRenderSheet used to concatenate it. The async tail
+ * authorRenderDiscDetailForm) is UNCHANGED below — Sheet.svelte reaches
+ * each one via legacyCall (frontend/src/legacy/bridge.js), embedding the
+ * returned HTML string exactly where authorRenderSheet used to concatenate
+ * it. The async tail
  * (authorLoadGoals/DiscDetails) is reached the same way, after Sheet.svelte's
  * own DOM update flushes; the faction roles+roster load (was
  * authorLoadFactionMembersPanel) is a plain loadFactionMembersPanel import
@@ -7383,174 +7386,15 @@ function _creationReadField(field, idPrefix) {
   return ev.detail.value;
 }
 
-/* ── AI entity-authoring assistant (BRIEF-24) — draft generator panel ──────
- * POST /api/entities/generate writes no canon (entity_author.py). The
- * creator edits the pre-filled form freely; accepting goes through the
- * EXISTING create control (authorSave below) and the EXISTING knowledge
- * CRUD endpoint — no new write code. One-shot (F2 conversational refine is
- * out of scope): a second "Générer" click discards the pending
- * knowledge/goals draft (pendingDrafts.svelte.js) and pendingDraftNotes,
- * starting over. */
-
-function authorRenderGeneratePanel() {
-  return `
-    <div class="field-section" id="entity-gen-panel" style="border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:12px;">
-      <div class="field-section-title">Générer avec l'IA</div>
-      <textarea id="entity-gen-brief" rows="2" style="width:100%; resize:vertical"
-        placeholder="Intention en une phrase, ex. : « Un ancien soldat devenu aubergiste, bourru, qui en sait trop sur la disparition du marchand Aldric »"></textarea>
-      <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
-        <button class="btn-send" onclick="authorGenerateEntity()">Générer</button>
-        <span id="entity-gen-status" style="font-size:12px; color:var(--muted)"></span>
-      </div>
-      <div id="entity-gen-notes"></div>
-    </div>`;
-}
-
-async function authorGenerateEntity() {
-  const briefEl  = document.getElementById('entity-gen-brief');
-  const statusEl = document.getElementById('entity-gen-status');
-  const brief = briefEl.value.trim();
-  if (!brief) { statusEl.textContent = 'Intention requise.'; return; }
-
-  const entityType = currentCreationSubTab === 'lieux' ? 'location'
-    : currentCreationSubTab === 'factions' ? 'faction'
-    : 'character';
-
-  statusEl.textContent = 'Génération…';
-  let result;
-  try {
-    result = await api('/api/entities/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entity_type: entityType, brief }),
-    });
-  } catch (e) {
-    statusEl.textContent = e.message;
-    return;
-  }
-
-  if (!result || result.ok === false) {
-    statusEl.textContent = (result && result.error) || 'Échec de la génération.';
-    return; // form untouched
-  }
-
-  statusEl.textContent = "Brouillon généré — relisez et éditez avant d'accepter.";
-
-  if (entityType === 'location') {
-    authorApplyLocationDraft(result);
-  } else if (entityType === 'faction') {
-    authorApplyFactionDraft(result);
-  } else {
-    authorApplyCharacterDraft(result);
-  }
-}
-
-function authorApplyCharacterDraft(result) {
-  const draft = result.draft;
-  const setVal = (id, value) => { const el = document.getElementById(id); if (el) el.value = value ?? ''; };
-
-  setVal('author-f-name', draft.public.name);
-  setVal('author-f-description', draft.public.description);
-
-  setVal('author-x-physical_tier', draft.public.physical_tier);
-
-  setVal('author-x-appearance', draft.public.appearance);
-  setVal('author-x-backstory', draft.public.backstory);
-  setVal('author-x-aversion', draft.public.aversion);
-
-  const factionEl = document.getElementById('author-x-faction_id');
-  if (factionEl) factionEl.value = draft.public.faction_id || '';
-
-  const secretsEl = document.getElementById('author-x-secrets');
-  if (secretsEl) secretsEl.value = draft.secret.creator_meta != null ? JSON.stringify(draft.secret.creator_meta) : '';
-
-  pendingDraftNotes = [...(result.notes || [])];
-  for (const sw of (draft.secret.shared_with || [])) {
-    pendingDraftNotes.push(`Pourrait être partagé avec ${sw.with}${sw.note ? ' — ' + sw.note : ''}`);
-  }
-
-  // BRIEF-0013-b (L1): goals drafted alongside the character, POSTed via the
-  // 0013-a goals endpoint right after the entity is created (authorSave).
-  // Knowledge + goals both moved to pendingDrafts.svelte.js (BRIEF-0058-g
-  // family e) -- PendingKnowledgeEditor.svelte/PendingGoalsEditor.svelte now
-  // own #author-pending-knowledge/#author-pending-goals reactively, so this
-  // reaches them through a reverse-bridge event instead of a direct
-  // variable write + innerHTML (which would tear the mounted components
-  // out, RECON-0058-a M5).
-  const goals = draft.public.goals;
-  const shorts = (goals && Array.isArray(goals.shorts)) ? goals.shorts : [];
-  document.dispatchEvent(new CustomEvent('creation:apply-pending-drafts', {
-    detail: {
-      knowledge: (draft.secret.knowledge || []).map(k => ({ ...k })),
-      goals: { long: (goals && goals.long) || '', shorts: [shorts[0] || '', shorts[1] || ''] },
-    },
-  }));
-
-  authorRenderGenNotes(pendingDraftNotes);
-}
-
-/* ── Location draft pre-fill (BRIEF-25) ─────────────────────────────────────
- * B1: the merge of allow-listed public subculture keys + the secret
- * "hidden" key happens HERE, in code, from the two segregated draft fields
- * (draft.public.subculture / draft.secret.subculture_hidden) — never from a
- * single field the model controls directly. magic_status is never set
- * (stays default); coordinates is never touched. sensed_links and the full
- * subculture (public + hidden) are rendered read-only in the notes block so
- * the creator can review the hidden content before accepting. */
-function authorApplyLocationDraft(result) {
-  const draft = result.draft;
-  const setVal = (id, value) => { const el = document.getElementById(id); if (el) el.value = value ?? ''; };
-
-  setVal('author-f-name', draft.public.name);
-  setVal('author-f-description', draft.public.description);
-  setVal('author-x-location_type', draft.public.location_type);
-  setVal('author-x-access_level', draft.public.access_level || '');
-
-  const rows = Object.entries(draft.public.subculture || {})
-    .map(([key, value]) => ({ key, value: String(value), is_hidden: false }));
-  if (draft.secret.subculture_hidden) {
-    rows.push({ key: 'hidden', value: draft.secret.subculture_hidden, is_hidden: true });
-  }
-  document.dispatchEvent(new CustomEvent('creation:apply-subculture-draft', { detail: { rows } }));
-
-  const notes = [...(result.notes || [])];
-  for (const link of (draft.secret.sensed_links || [])) {
-    notes.push(`Lien perçu (${link.kind}) : ${link.name}${link.note ? ' — ' + link.note : ''}`);
-  }
-  if (draft.secret.subculture_hidden) {
-    notes.push(`Subculture cachée proposée : ${draft.secret.subculture_hidden}`);
-  }
-  pendingDraftNotes = notes;
-  authorRenderGenNotes(notes);
-}
-
-/* ── Faction draft pre-fill (BRIEF-32) ──────────────────────────────────────
- * roles flow into factionPanelState.draftRoles (BRIEF-0058-g family b moved
- * the in-memory array the NEW-faction roles editor reads/writes into
- * RolesEditor.svelte's own module) and are POSTed to the faction_role create
- * route by Sheet.svelte's submitEntity right after the entity is created —
- * no new write code. magic_knowledge_level, scope, and parent_faction_id are
- * never set (stay at form defaults). */
-function authorApplyFactionDraft(result) {
-  const draft = result.draft;
-  const setVal = (id, value) => { const el = document.getElementById(id); if (el) el.value = value ?? ''; };
-
-  setVal('author-f-name', draft.public.name);
-  setVal('author-f-description', draft.public.description);
-  setVal('author-x-faction_type', draft.public.faction_type);
-  setVal('author-x-philosophy', draft.public.philosophy);
-  setVal('author-x-internal_structure', draft.public.internal_structure);
-  setVal('author-x-aversion', draft.public.aversion);
-  setVal('author-x-internal_tensions', draft.secret.internal_tensions);
-  setVal('author-x-goals', draft.secret.goals);
-
-  document.dispatchEvent(new CustomEvent('creation:apply-faction-roles-draft', {
-    detail: { rows: (draft.public.roles || []).map(r => ({ name: r.name || '', description: r.description || '', limit: null })) },
-  }));
-
-  pendingDraftNotes = [...(result.notes || [])];
-  authorRenderGenNotes(pendingDraftNotes);
-}
+/* AI entity-authoring assistant (BRIEF-24) — draft generator panel and its
+ * per-type draft pre-fill (was authorRenderGeneratePanel/authorGenerateEntity/
+ * authorApplyCharacterDraft/authorApplyLocationDraft/authorApplyFactionDraft)
+ * moved to frontend/src/creation/GeneratePanel.svelte +
+ * generatePanel.svelte.js (TICKET-0058, BRIEF-0058-h) -- mounted by
+ * Sheet.svelte for a NEW character/location/faction sheet. The one
+ * remaining legacy caller of the apply step, generatePendingCreation below,
+ * reaches it via the 'creation:apply-generated-draft' reverse-bridge event
+ * (Sheet.svelte). */
 
 /* ── Créations en attente (TICKET-0019, BRIEF-0019-a) ───────────────────────
  * Strip above the create form on the npc/lieux/factions tabs (registry field
@@ -7615,35 +7459,23 @@ async function generatePendingCreation(mutationId) {
   pendingCreationMutationId = mutationId;
   // TICKET-0058 (BRIEF-0058-f): flushSync inside Sheet.svelte's listener
   // guarantees author-f-name/author-x-* et al. exist before the
-  // authorApply*Draft call right below runs its own synchronous
-  // getElementById writes.
+  // 'creation:apply-generated-draft' dispatch right below runs its own
+  // synchronous getElementById writes (BRIEF-0058-h: applyGeneratedDraft,
+  // reached through Sheet.svelte's reverse-bridge listener, replaces the
+  // three authorApply*Draft calls this used to make directly).
   document.dispatchEvent(new CustomEvent('creation:sheet-create', { detail: { type: result.entity_type } }));
-  if (result.entity_type === 'location') {
-    authorApplyLocationDraft(result);
-  } else if (result.entity_type === 'faction') {
-    authorApplyFactionDraft(result);
-  } else {
-    authorApplyCharacterDraft(result);
-  }
-}
-
-function authorRenderGenNotes(notes) {
-  const notesEl = document.getElementById('entity-gen-notes');
-  if (!notesEl) return;
-  notesEl.innerHTML = notes.length
-    ? '<div class="field-section-title" style="margin-top:8px">Notes de l&#39;assistant</div><div class="row-table">'
-      + notes.map(n => `<div class="row-card" style="font-size:12px; color:var(--muted)">${esc(n)}</div>`).join('')
-      + '</div>'
-    : '';
+  document.dispatchEvent(new CustomEvent('creation:apply-generated-draft', {
+    detail: { entityType: result.entity_type, result },
+  }));
 }
 
 /* Pending knowledge/goals draft panels (BRIEF-24/BRIEF-0013-b) moved to
  * frontend/src/creation/PendingKnowledgeEditor.svelte and
  * PendingGoalsEditor.svelte + pendingDrafts.svelte.js (TICKET-0058,
  * BRIEF-0058-g family e) -- authorRenderPendingKnowledge/
- * authorRemovePendingKnowledge/authorRenderPendingGoals are gone.
- * authorRenderGenNotes above is untouched (the AI-generate panel's own
- * notes block, brief -h). */
+ * authorRemovePendingKnowledge/authorRenderPendingGoals are gone. The
+ * AI-generate panel's own notes block (was authorRenderGenNotes) moved to
+ * generatePanelState (TICKET-0058, BRIEF-0058-h) -- gone too. */
 
 /* Tarifs (npc_price) and location subculture editors (BRIEF-20/TICKET-0025)
  * moved to frontend/src/creation/PricingEditor.svelte and
@@ -8075,11 +7907,13 @@ function _creationOpenLocationTypeModal(fieldId) {
 /** BRIEF-0058-f: _authorSaveSubmit's entity-write + dependent-draft-POST
  *  orchestration moved into Sheet.svelte's submitEntity (a faithful port —
  *  same endpoints, same order, same conditions). What COULDN'T move is
- *  pendingCreationMutationId, a legacy global owned by the (unmigrated,
- *  brief -h) AI-draft panel -- the faction-roles draft moved to
- *  factionPanel.svelte.js's draftRoles (family b), the subculture draft to
- *  subcultureDraft.svelte.js (family c), and the pending knowledge/goals
- *  drafts to pendingDrafts.svelte.js (family e), all read directly by
+ *  pendingCreationMutationId, a legacy global owned by the still-legacy
+ *  "Créations en attente" germ-realization flow (generatePendingCreation) —
+ *  the faction-roles draft moved to factionPanel.svelte.js's draftRoles
+ *  (family b), the subculture draft to subcultureDraft.svelte.js
+ *  (family c), the pending knowledge/goals drafts to pendingDrafts.svelte.js
+ *  (family e), and the AI-generate panel's own draft state to
+ *  generatePanel.svelte.js (BRIEF-0058-h), all read directly by
  *  Sheet.svelte's submitEntity, no legacyCall needed for any of them any
  *  more. This small function is the exact inline snippet _authorSaveSubmit
  *  used to run itself, extracted so Sheet.svelte can reach it via legacyCall
@@ -8094,15 +7928,6 @@ function _authorGetPendingCreationMutationId() {
 function _authorConsumePendingCreationMutationId() {
   pendingCreationMutationId = null;
   loadPendingCreations();
-}
-
-/** Runs unconditionally after ANY successful create (Sheet.svelte's
- *  submitEntity) — clearing a draft that was never populated for this
- *  create (e.g. resetting the subculture draft on a faction create) is a
- *  no-op, exactly as harmless as the original's per-type conditional
- *  clears. */
-function _authorClearCreateDrafts() {
-  pendingDraftNotes = [];
 }
 
 async function authorDelete() {

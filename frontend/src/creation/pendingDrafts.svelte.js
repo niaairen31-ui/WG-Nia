@@ -4,13 +4,14 @@
    now deleted). Read directly by Sheet.svelte's submitEntity via
    knowledgeForCreate()/goalsForCreate() at creation time.
 
-   pendingDraftNotes stays a separate, untouched legacy global: it belongs
-   to the AI-generate panel's own "Notes de l'assistant" block
-   (authorRenderGenNotes/#entity-gen-notes), the generate/draft path Scope
-   OUT reserves for brief -h -- out of this family's scope despite
-   appearing in the brief's family list (an M7 approximation bleeding two
-   unrelated "notes"/"pending" concepts together), reported rather than
-   acted on. */
+   pendingDraftNotes stayed a separate, untouched legacy global at the time
+   this family landed: it belonged to the AI-generate panel's own "Notes de
+   l'assistant" block (authorRenderGenNotes/#entity-gen-notes), the
+   generate/draft path Scope OUT reserved for brief -h -- out of this
+   family's scope despite appearing in the brief's family list (an M7
+   approximation bleeding two unrelated "notes"/"pending" concepts
+   together), reported rather than acted on at the time. Brief -h has since
+   ported it to generatePanelState (generatePanel.svelte.js). */
 export const pendingDraftsState = $state({
   knowledge: [],
   goals: { long: '', shorts: ['', ''] },

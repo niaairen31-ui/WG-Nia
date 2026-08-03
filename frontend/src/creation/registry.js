@@ -138,11 +138,18 @@ export const CREATION_ISLANDS = Object.freeze({
       'authorRenderItems',
       // BRIEF-0058-g family e: pending knowledge/goals draft panels --
       // ported to PendingKnowledgeEditor.svelte/PendingGoalsEditor.svelte/
-      // pendingDrafts.svelte.js. authorRenderGenNotes stays legacy (the
-      // AI-generate panel's own notes block, brief -h).
+      // pendingDrafts.svelte.js.
       'authorRenderPendingKnowledge',
       'authorRemovePendingKnowledge',
       'authorRenderPendingGoals',
+      // BRIEF-0058-h: the AI-generate draft panel -- ported to
+      // GeneratePanel.svelte/generatePanel.svelte.js.
+      'authorRenderGeneratePanel',
+      'authorGenerateEntity',
+      'authorApplyCharacterDraft',
+      'authorApplyLocationDraft',
+      'authorApplyFactionDraft',
+      'authorRenderGenNotes',
     ],
   }),
 });
