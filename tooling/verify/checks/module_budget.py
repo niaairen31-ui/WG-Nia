@@ -1,4 +1,5 @@
-"""G1 check: module budget (TICKET-0027 R5, BRIEF-0027-a).
+"""G1 check: module budget (TICKET-0027 R5, BRIEF-0027-a; frontend rule
+added TICKET-0059, BRIEF-0059-b, Amendment 6).
 
 AST-based: every module under `src/` stays within 40 top-level functions
 + methods (module-level function defs and methods on module-level classes;
@@ -16,7 +17,16 @@ No permanent exemptions: a doctrinal registry module legitimately growing
 past the cap is the intended tripwire forcing a split — the failing check
 IS the mechanism, not a bug to route around.
 
-No DB, stdlib `ast` only.
+A second, separate rule (frontend_line_budget) covers `frontend/src/**/
+*.svelte` and `frontend/src/**/*.js`: the same 1000-line ceiling (R5),
+line-count only (no AST, no function-count dimension — Svelte files
+aren't Python). No exemption mechanism for this rule: every file is under
+the cap as of TICKET-0059, so there is nothing to grandfather. A glob
+collecting zero frontend files is a FAILURE, not a pass — the same
+vacuous-proof guard as the Python rule's zero-.py-files case.
+
+No DB, stdlib `ast` only (the frontend rule adds no dependency — it is a
+line count).
 """
 from __future__ import annotations
 
@@ -27,9 +37,11 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
+FRONTEND_SRC = ROOT / "frontend" / "src"
 BASELINE_FILE = ROOT / "tooling" / "verify" / "baselines" / "module_budget.json"
 MAX_FUNCTIONS = 40
 MAX_LINES = 1000
+FRONTEND_MAX_LINES = 1000
 
 FAILURES: list[str] = []
 
@@ -38,7 +50,7 @@ def fail(msg: str) -> None:
     FAILURES.append(msg)
 
 
-def _report_and_exit() -> None:
+def _report_and_exit(frontend_count: int | None = None) -> None:
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -46,6 +58,7 @@ def _report_and_exit() -> None:
     print(
         "PASS: module_budget — every module over 40 functions or 1000 lines "
         "is baselined at or below its recorded values"
+        + (f"; {frontend_count} frontend file(s) within the 1000-line cap" if frontend_count is not None else "")
     )
     sys.exit(0)
 
@@ -89,6 +102,28 @@ def _load_baseline() -> "dict[str, tuple[int, int]] | None":
     return baseline
 
 
+def _check_frontend_line_budget() -> int | None:
+    """rule: frontend_line_budget. No AST, no baseline, no exemption —
+    line count only, over frontend/src/**/*.svelte and **/*.js."""
+    if not FRONTEND_SRC.is_dir():
+        fail(f"frontend_line_budget: {FRONTEND_SRC} is not a directory")
+        return None
+    frontend_files = sorted(
+        p for p in FRONTEND_SRC.rglob("*") if p.is_file() and p.suffix in (".svelte", ".js")
+    )
+    if not frontend_files:
+        fail("frontend_line_budget: zero .svelte/.js files found under frontend/src/ — vacuous scan")
+        return None
+
+    for path in frontend_files:
+        lines = len(path.read_text(encoding="utf-8").splitlines())
+        if lines > FRONTEND_MAX_LINES:
+            rel = path.relative_to(ROOT).as_posix()
+            fail(f"frontend_line_budget: {rel} is {lines} lines, past the {FRONTEND_MAX_LINES}-line cap")
+
+    return len(frontend_files)
+
+
 def main() -> None:
     baseline = _load_baseline()
     if baseline is None:
@@ -129,7 +164,9 @@ def main() -> None:
         if lines > base_lines:
             fail(f"{rel} grew to {lines} lines, past its baselined {base_lines}")
 
-    _report_and_exit()
+    frontend_count = _check_frontend_line_budget()
+
+    _report_and_exit(frontend_count)
 
 
 if __name__ == "__main__":
