@@ -32,8 +32,9 @@ import Sheet from './Sheet.svelte';
 import Region from './Region.svelte';
 import RoomBatch from './RoomBatch.svelte';
 import NpcAgent from './NpcAgent.svelte';
+import LinkAgent from './LinkAgent.svelte';
 
-const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet, region: Region, batch: RoomBatch, npcAgent: NpcAgent };
+const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet, region: Region, batch: RoomBatch, npcAgent: NpcAgent, linkAgent: LinkAgent };
 
 const live = {}; // key -> { node, instance }
 

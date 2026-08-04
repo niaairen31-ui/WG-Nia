@@ -298,4 +298,29 @@ export const CREATION_ISLANDS = Object.freeze({
       '_npcAgentPaintReview',
     ],
   }),
+  // BRIEF-0059-g: the NPC link agent panel -- ported to LinkAgent.svelte/
+  // linkAgent.svelte.js, LocationTree.svelte's second consumer (checkbox +
+  // ancestor-inheritance row, per Amendment 1's row-snippet seam). Landed
+  // across two commits (linkAgent.svelte.js's own header explains the
+  // split); this list grows again in commit 2 with the run-loop/review/
+  // coherence functions' identifiers, the same shape npcAgent's own
+  // retiredPrefixes grew across BRIEF-0059-f. linkAgentToggle/linkAgentOpen
+  // are the two survivors (chrome, not migrated) and are deliberately
+  // absent here.
+  linkAgent: Object.freeze({
+    containerId: 'linkagent-panel',
+    component: 'LinkAgent.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      'linkAgentReset',
+      'linkAgentCheckOpenBatch',
+      'linkAgentRenderLauncher',
+      '_linkAgentIsChecked',
+      '_linkAgentTreeHtml',
+      'linkAgentToggleLocation',
+      '_linkAgentPaintLauncher',
+      'linkAgentPreviewRoster',
+      'linkAgentLaunch',
+    ],
+  }),
 });

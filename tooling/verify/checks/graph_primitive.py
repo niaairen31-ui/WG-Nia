@@ -122,6 +122,15 @@ GONE_PLAIN = [
     "npcAgentOpenBatchId", "npcAgentPreview", "npcAgentBatch",
     "npcAgentRows", "npcAgentLoopRunning", "npcAgentFailedRun",
     "npcAgentCommitResult", "npcAgentLinkHandoffMsg",
+    # TICKET-0059 (BRIEF-0059-g commit 1): the link agent launcher's nine
+    # functions, converged onto frontend/src/creation/LinkAgent.svelte +
+    # linkAgent.svelte.js (LocationTree.svelte's second consumer), plus the
+    # three launcher-only state variables that became fully unreferenced
+    # once those functions were gone.
+    "linkAgentReset", "linkAgentCheckOpenBatch", "linkAgentRenderLauncher",
+    "_linkAgentIsChecked", "_linkAgentTreeHtml", "linkAgentToggleLocation",
+    "_linkAgentPaintLauncher", "linkAgentPreviewRoster", "linkAgentLaunch",
+    "linkAgentLocations", "linkAgentCheckedRoots", "linkAgentPreview",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from

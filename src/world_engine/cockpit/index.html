@@ -1307,8 +1307,9 @@ button:not(:disabled):hover { filter: brightness(1.15); }
          frontend/src/creation/NpcAgent.svelte island (TICKET-0059,
          BRIEF-0059-f); empty/hidden until "Agent PNJ" is clicked ── -->
     <div id="npcagent-panel" style="display:none; border-bottom:1px solid var(--border); padding:10px 14px; max-height:460px; overflow-y:auto"></div>
-    <!-- ── NPC link agent panel (BRIEF-0036-d) — content rendered entirely
-         by linkAgent* JS below; empty/hidden until "Agent liens" is clicked ── -->
+    <!-- ── NPC link agent panel (BRIEF-0036-d) — content rendered by the
+         frontend/src/creation/LinkAgent.svelte island (TICKET-0059,
+         BRIEF-0059-g); empty/hidden until "Agent liens" is clicked ── -->
     <div id="linkagent-panel" style="display:none; border-bottom:1px solid var(--border); padding:10px 14px; max-height:460px; overflow-y:auto"></div>
     <!-- ── The graph island's own mount point (TICKET-0057) — empty by
          construction; chrome, canvas, info-card and edge panel all belong
@@ -4205,7 +4206,9 @@ function _npcTabEnterReset() {
   // -- NpcAgent.svelte's own legacyDoc listener resets itself, the same
   // 'creation:batch-reset' idiom RoomBatch.svelte already established.
   document.dispatchEvent(new CustomEvent('creation:npcagent-reset'));
-  linkAgentReset();
+  // TICKET-0059 (BRIEF-0059-g commit 1): same conversion, link agent's
+  // side -- LinkAgent.svelte's own legacyDoc listener resets itself now.
+  document.dispatchEvent(new CustomEvent('creation:linkagent-reset'));
 }
 
 // TICKET-0058 (BRIEF-0058-e): _npcWorldReset/_pjWorldReset/_lieuxWorldReset/
@@ -4216,15 +4219,14 @@ function _npcTabEnterReset() {
 // (authorAllEntities/playerCharIds/lieux browse position/intriguesAgendas/
 // evenementsEvents) moved into frontend/src/creation/state.svelte.js and
 // the EntityList island's own component-local state, reset on
-// serverState.worldId change rather than a legacy callback. The one of
-// the seven that still does DOM work beyond the entity list itself
-// (_npcWorldReset's on-demand-slot hide, for link agent's own panel) is
-// preserved below by calling linkAgentReset directly from the generic
-// world-switch runner — unconditionally, exactly as it always ran, just no
-// longer nested inside a per-tab callback that no longer exists. The NPC
-// agent panel and the room-batch panel both reset themselves reactively
-// off serverState.worldId now (BRIEF-0058-j, BRIEF-0059-f commit 2), the
-// -d rule every migrated island entry follows. pendingDraft*/
+// serverState.worldId change rather than a legacy callback. The DOM work
+// the seventh (npc) used to do beyond the entity list itself
+// (_npcWorldReset's on-demand-slot hide, for the two agent panels) no
+// longer needs a direct call here at all: the NPC agent panel and the
+// room-batch panel already reset themselves reactively off
+// serverState.worldId (BRIEF-0058-j, BRIEF-0059-f commit 2), and
+// BRIEF-0059-g commit 1 moves the link agent panel onto the identical
+// pattern — the -d rule every migrated island entry follows. pendingDraft*/
 // authorFactionRoles* (pj/factions' non-list state) are re-populated by
 // _creationRunWorldSwitchResets' own re-activation of the current tab
 // (activateWorld already calls showCreationSubTab after the resets) and
@@ -4276,7 +4278,7 @@ const CREATION_TABS = {
     containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: _npcTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'npcAgent', containerId: 'npcagent-panel' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'npcAgent', containerId: 'npcagent-panel' }, { key: 'linkAgent', containerId: 'linkagent-panel' }],
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && !playerCharIds.has(e.id)),
     createPanel: null,
@@ -4284,11 +4286,12 @@ const CREATION_TABS = {
     showPendingCreations: true,
     slots: [{ id: 'relgraph', containerId: 'creation-npc-relgraph', loader: null,
               onSelect: (id) => document.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'relations', meta: { id } } })),
-              // TICKET-0059 (BRIEF-0059-f commit 2): the NPC half of this
-              // open-batch check is dropped -- NpcAgent.svelte performs the
-              // equivalent check itself, on mount, instead of waiting for
-              // this on_demand slot's first open.
-              onOpen: () => { linkAgentCheckOpenBatch(); },
+              // TICKET-0059 (BRIEF-0059-g commit 1): the link agent's own
+              // open-batch check drops out too -- LinkAgent.svelte performs
+              // it itself on mount now, same as NpcAgent.svelte already
+              // does (BRIEF-0059-f commit 2). Both halves of this onOpen are
+              // gone, so the handler itself goes (item 7).
+              onOpen: null,
               display: 'on_demand', toggleLabel: 'Voir le graphe',
               graph: { consumer: 'relations', mountId: 'relgraph-mount' } }],
   },
@@ -4594,11 +4597,12 @@ async function _creationRunWorldSwitchResets() {
   // agent's panel still needs on a world switch belongs here, called
   // unconditionally exactly as it always ran, just no longer nested inside
   // a per-tab callback. The room-batch panel's own world-switch reset is
-  // gone too (BRIEF-0058-j), and TICKET-0059 (BRIEF-0059-f commit 2) moves
+  // gone too (BRIEF-0058-j), and TICKET-0059 (BRIEF-0059-f commit 2) moved
   // the NPC agent panel onto the same pattern: NpcAgent.svelte resets
   // itself reactively off serverState.worldId, the same -d rule every
-  // other island entry follows.
-  linkAgentReset();
+  // other island entry follows. BRIEF-0059-g commit 1 moves the link agent
+  // panel onto the identical pattern -- LinkAgent.svelte's own
+  // serverState.worldId effect, no direct call left here at all.
   if (authorRegistry) await refreshCreationTabs();
 }
 
@@ -5953,6 +5957,13 @@ document.addEventListener('creation:npcagent-badge', (ev) => {
   if (badgeEl) badgeEl.style.display = ev.detail.open ? '' : 'none';
 });
 
+/* TICKET-0059 (BRIEF-0059-g commit 1). Same idiom, link agent's badge --
+ * see the comment above 'creation:npcagent-badge'. */
+document.addEventListener('creation:linkagent-badge', (ev) => {
+  const badgeEl = document.getElementById('linkagent-badge');
+  if (badgeEl) badgeEl.style.display = ev.detail.open ? '' : 'none';
+});
+
 /* ── Runtime Creation tabs — dynamic tab factory (TICKET-0046, BRIEF-0046-d) ──
  * The single producer of runtime (custom entity-type) Creation tabs: reads
  * authorRegistry.runtime_types (world-scoped, from GET /api/entity-types) and
@@ -6719,15 +6730,15 @@ function npcAgentToggle() {
 /* ════════════════════════════════════════════════════════════════════════════
    NPC link agent panel (BRIEF-0036-d) — attaches to the relgraph panel head;
    drives the 0036-a/b/c backend (staging, pair-pass, coherence, commit).
-   Sequential client-side fetch loop only (no SSE/websocket, Scope OUT);
-   server state is the only state (no client-side persistence, Scope OUT).
+   TICKET-0059 (BRIEF-0059-g commit 1) ported the launcher half (root
+   picker, preview, launch) to frontend/src/creation/LinkAgent.svelte +
+   linkAgent.svelte.js — see those files' own header comments for the full
+   list of what moved and why. The state below and the review-phase
+   functions further down stay here until commit 2 ports them too.
    ════════════════════════════════════════════════════════════════════════════ */
 
 let linkAgentOpen         = false;
-let linkAgentOpenBatchId  = null;  // set by linkAgentCheckOpenBatch — drives the badge + reopen path
-let linkAgentLocations    = [];    // flat [{id, name, parent_location_id, ...}], fetched fresh on open
-let linkAgentCheckedRoots = new Set(); // location ids the USER explicitly clicked (S1 — sent as root_location_ids)
-let linkAgentPreview      = null;  // last /preview response
+let linkAgentOpenBatchId  = null;  // set by the island's own open-batch check (badge) and by the review-phase load below (its own reopen path)
 let linkAgentBatch        = null;  // current batch object
 let linkAgentRows         = [];    // current batch rows
 let linkAgentNpcNames     = {};    // id -> name, resolved via /preview over the batch's own root_location_ids
@@ -6739,169 +6750,14 @@ let linkAgentCommitResult = null;  // last commit's result text — survives the
                                     // since linkAgentLoadBatch's reload would
                                     // otherwise wipe a DOM-only message)
 
-/** Resets ALL link-agent state — called directly by _npcTabEnterReset (tab
- *  re-entry) and _creationRunWorldSwitchResets (world switch, TICKET-0058/
- *  BRIEF-0058-e moved this call out of the now-deleted _npcWorldReset; the
- *  NPC agent panel followed the same contract until TICKET-0059
- *  (BRIEF-0059-f commit 2) moved it onto the reactive serverState.worldId
- *  pattern instead). Setting
- *  linkAgentLoopRunning = false also stops any in-flight run loop on its
- *  next iteration check, so a world switch mid-run cannot keep hammering
- *  run-next for a batch that is no longer in view. */
-function linkAgentReset() {
-  linkAgentOpen = false;
-  linkAgentOpenBatchId = null;
-  linkAgentLocations = [];
-  linkAgentCheckedRoots = new Set();
-  linkAgentPreview = null;
-  linkAgentBatch = null;
-  linkAgentRows = [];
-  linkAgentNpcNames = {};
-  linkAgentLoopRunning = false;
-  linkAgentFailedPair = null;
-  linkAgentCommitResult = null;
-  const panelEl = document.getElementById('linkagent-panel');
-  if (panelEl) { panelEl.style.display = 'none'; panelEl.innerHTML = ''; }
-  const badgeEl = document.getElementById('linkagent-badge');
-  if (badgeEl) badgeEl.style.display = 'none';
-}
-
-/** GET /api/link-batches -> badge dot on "Agent liens" if this world has an
- *  open batch (reopen path, item 6). Called from the npc 'relgraph' slot's
- *  onOpen every time the on_demand slot first fires. */
-async function linkAgentCheckOpenBatch() {
-  const badgeEl = document.getElementById('linkagent-badge');
-  try {
-    const data = await api('/api/link-batches');
-    const open = (data.batches || []).find(b => b.status === 'open');
-    linkAgentOpenBatchId = open ? open.id : null;
-  } catch {
-    linkAgentOpenBatchId = null;
-  }
-  if (badgeEl) badgeEl.style.display = linkAgentOpenBatchId ? '' : 'none';
-}
-
-/** Launcher toggle. Opens directly on the review surface of the open batch
- *  if there is one (reopen path), else the location-picker launcher. */
+/** Launcher toggle — now a pure display flip. The island mounted at
+ *  #linkagent-panel does the equivalent of the old "load the open batch,
+ *  else render the launcher" branch itself, on mount/reset, instead of
+ *  here (TICKET-0059, BRIEF-0059-g commit 1, item 5). */
 function linkAgentToggle() {
   linkAgentOpen = !linkAgentOpen;
   const panelEl = document.getElementById('linkagent-panel');
-  if (!panelEl) return;
-  panelEl.style.display = linkAgentOpen ? '' : 'none';
-  if (!linkAgentOpen) return;
-  if (linkAgentOpenBatchId) linkAgentLoadBatch(linkAgentOpenBatchId);
-  else linkAgentRenderLauncher();
-}
-
-/* ── Launcher: location multi-select + preview + launch ──────────────────── */
-
-async function linkAgentRenderLauncher() {
-  const panelEl = document.getElementById('linkagent-panel');
-  if (!panelEl) return;
-  panelEl.innerHTML = '<div class="empty"><span class="spin">⟳</span> Chargement des lieux…</div>';
-  try {
-    linkAgentLocations = await api('/api/locations');
-  } catch (e) {
-    panelEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-    return;
-  }
-  linkAgentCheckedRoots = new Set();
-  linkAgentPreview = null;
-  linkAgentCommitResult = null;
-  _linkAgentPaintLauncher();
-}
-
-/** A node is visually checked if the user clicked it directly, or clicked
- *  any ancestor (S1 visual mirror) — but only directly-clicked ids are
- *  ever sent as root_location_ids; server-side expansion stays authoritative. */
-function _linkAgentIsChecked(locId) {
-  if (linkAgentCheckedRoots.has(locId)) return true;
-  const byId = new Map(linkAgentLocations.map(l => [l.id, l]));
-  let current = byId.get(locId);
-  while (current && current.parent_location_id) {
-    if (linkAgentCheckedRoots.has(current.parent_location_id)) return true;
-    current = byId.get(current.parent_location_id);
-  }
-  return false;
-}
-
-function _linkAgentTreeHtml(parentId) {
-  const known = new Set(linkAgentLocations.map(l => l.id));
-  const children = linkAgentLocations
-    .filter(l => (parentId == null ? (!l.parent_location_id || !known.has(l.parent_location_id)) : l.parent_location_id === parentId))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  if (!children.length) return '';
-  return children.map(l => `
-    <div class="linkagent-loc-node">
-      <label><input type="checkbox" ${_linkAgentIsChecked(l.id) ? 'checked' : ''}
-        onchange="linkAgentToggleLocation('${esc(l.id)}', this.checked)"> ${esc(l.name)}</label>
-      <div class="linkagent-loc-children">${_linkAgentTreeHtml(l.id)}</div>
-    </div>`).join('');
-}
-
-function linkAgentToggleLocation(locId, checked) {
-  if (checked) linkAgentCheckedRoots.add(locId);
-  else linkAgentCheckedRoots.delete(locId);
-  linkAgentPreview = null;
-  _linkAgentPaintLauncher();
-}
-
-function _linkAgentPaintLauncher() {
-  const panelEl = document.getElementById('linkagent-panel');
-  if (!panelEl) return;
-  const previewHtml = linkAgentPreview
-    ? `<div style="margin-top:8px">${linkAgentPreview.npcs.length} PNJ, ${linkAgentPreview.pair_count} paires, ${linkAgentPreview.pair_count} appels au modèle<br>
-       <span style="color:var(--muted); font-size:11px">${linkAgentPreview.npcs.map(n => esc(n.name)).join(', ') || '(aucun)'}</span></div>`
-    : '';
-  panelEl.innerHTML = `
-    <div style="font-weight:600; margin-bottom:6px">Agent liens — sélection des lieux</div>
-    <div>${_linkAgentTreeHtml(null) || '<div class="empty">Aucun lieu.</div>'}</div>
-    ${previewHtml}
-    <div style="margin-top:10px; display:flex; gap:6px">
-      <button class="btn-icon" onclick="linkAgentPreviewRoster()">Prévisualiser</button>
-      <button class="btn-icon" id="linkagent-launch-btn" ${linkAgentPreview ? '' : 'disabled'} onclick="linkAgentLaunch()">Lancer</button>
-    </div>
-    <div id="linkagent-launch-error" style="color:var(--red); margin-top:6px"></div>
-  `;
-}
-
-async function linkAgentPreviewRoster() {
-  const errEl = document.getElementById('linkagent-launch-error');
-  try {
-    linkAgentPreview = await api('/api/link-batches/preview', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ root_location_ids: Array.from(linkAgentCheckedRoots) }),
-    });
-    if (errEl) errEl.textContent = '';
-  } catch (e) {
-    linkAgentPreview = null;
-    if (errEl) errEl.textContent = e.message;
-  }
-  _linkAgentPaintLauncher();
-}
-
-/** "Lancer" both opens the batch AND starts the run loop (brief item 1+2
- *  are one click) — the loop runs unawaited so progress paints live. */
-async function linkAgentLaunch() {
-  const errEl = document.getElementById('linkagent-launch-error');
-  try {
-    const batch = await api('/api/link-batches', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ root_location_ids: Array.from(linkAgentCheckedRoots) }),
-    });
-    linkAgentOpenBatchId = batch.id;
-    const badgeEl = document.getElementById('linkagent-badge');
-    if (badgeEl) badgeEl.style.display = '';
-    await linkAgentLoadBatch(batch.id);
-    linkAgentRunLoop();
-  } catch (e) {
-    if (errEl && e.message && e.message.includes('already open')) {
-      errEl.innerHTML = 'Un lot est déjà ouvert. ' +
-        '<button class="btn-icon" onclick="linkAgentCheckOpenBatch().then(() => linkAgentLoadBatch(linkAgentOpenBatchId))">Ouvrir le lot existant</button>';
-    } else if (errEl) {
-      errEl.textContent = e.message;
-    }
-  }
+  if (panelEl) panelEl.style.display = linkAgentOpen ? '' : 'none';
 }
 
 /* ── Run loop: sequential fetch of run-next until {done:true} ─────────────── */
