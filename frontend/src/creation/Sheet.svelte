@@ -58,7 +58,7 @@
   import { serverState } from '../lib/serverState.svelte.js';
   import { legacyCall } from '../legacy/bridge.js';
   import { readFieldValue } from './fields.js';
-  import { promptLocationTypeClassification } from './locationType.js';
+  import LocationTypeModal from './LocationTypeModal.svelte';
   import Field from './Field.svelte';
   import GeometryEditor from './GeometryEditor.svelte';
   import DoorsEditor from './DoorsEditor.svelte';
@@ -86,6 +86,13 @@
   import { resetCreateDrafts, getPendingCreationMutationId, consumePendingCreationMutationId, setPendingCreationMutationId, notifySaved, selectEntity, deleteEntity } from './sheetState.svelte.js';
 
   let { legacyDoc } = $props();
+
+  // TICKET-0059 (BRIEF-0059-h commit 1, lock O1): the automatic save-time
+  // classification gate below is one of LocationTypeModal.svelte's three
+  // independent instances (locationType.js's own header explains the
+  // split) -- this one is not tied to any button, only saveSheet's own
+  // uncatalogued-type check.
+  let locTypeModal;
 
   const GENERIC_TYPE_BY_TAB = { npc: 'character', pj: 'character', lieux: 'location', factions: 'faction', objets: 'item' };
   const EMPTY_BODY_BY_TAB = {
@@ -358,7 +365,7 @@
         const folded = chosenType.toLowerCase();
         const catalogRow = creationState.locationTypeCatalog.find((r) => r.name.toLowerCase() === folded);
         if (!catalogRow || catalogRow.classification == null) {
-          promptLocationTypeClassification(legacyDoc, chosenType, () => submitEntity(isNewSave, type, entityData, extData));
+          locTypeModal.openFor(chosenType, () => submitEntity(isNewSave, type, entityData, extData));
           return;
         }
       }
@@ -697,3 +704,4 @@
   {/if}
 </div>
 <div id="author-legacy-sheet-slot" style={mode === 'legacy' ? '' : 'display:none'}></div>
+<LocationTypeModal bind:this={locTypeModal} {legacyDoc} />

@@ -29,12 +29,19 @@
   import { serverState } from '../lib/serverState.svelte.js';
   import { creationState } from './state.svelte.js';
   import { legacyCall } from '../legacy/bridge.js';
-  import { locationTypeOptionLabel, openTemplateModalFor } from './locationType.js';
+  import { locationTypeOptionLabel } from './locationType.js';
+  import LocationTypeModal from './LocationTypeModal.svelte';
   import { reviewRegister } from './review/registry.js';
   import Review from './Review.svelte';
   import { roomBatchState, resetRoomBatch } from './roomBatch.svelte.js';
 
   let { legacyDoc } = $props();
+
+  // TICKET-0059 (BRIEF-0059-h commit 1, lock O1): the classification prompt
+  // is LocationTypeModal.svelte now; this row's own input is two-way bound
+  // (bind:value={r.location_type} below), so it reads the typed name
+  // directly instead of locationType.js's readLocationTypeName DOM read.
+  let locTypeModal;
 
   async function api(path, opts = {}) {
     const res = await fetch(path, opts);
@@ -270,6 +277,7 @@
     <span>Génération de lot — {roomBatchState.anchorName}</span>
     <button class="btn-icon" onclick={resetRoomBatch}>Fermer</button>
   </div>
+  <LocationTypeModal bind:this={locTypeModal} {legacyDoc} />
   <div style="padding:10px 14px; max-height:600px; overflow-y:auto">
     {#if !roomBatchState.manifest}
       <div class="field-section" style="border:1px solid var(--border); border-radius:6px; padding:10px;">
@@ -307,7 +315,7 @@
                 <div style="display:flex; gap:6px; align-items:center">
                   <input type="text" id={typeInputId} list={typeDlId} bind:value={r.location_type} style="flex:1">
                   <button type="button" class="btn-ghost" style="font-size:12px; padding:3px 8px"
-                    onclick={() => openTemplateModalFor(legacyDoc, typeInputId, () => {})}>Gabarit...</button>
+                    onclick={() => { const name = (r.location_type || '').trim(); if (name) locTypeModal.openFor(name, () => {}); }}>Gabarit...</button>
                 </div>
                 <datalist id={typeDlId}>
                   {#each (creationState.locationTypeCatalog || []) as row (row.name)}

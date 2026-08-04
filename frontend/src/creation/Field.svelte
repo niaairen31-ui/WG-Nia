@@ -12,12 +12,15 @@
      directly -- the same Lieux create/save flow the original inline
      handlers reached via _authorLocationTypeOptionLabel/
      _authorOpenTemplateModalFor, now real imports instead of a legacyCall
-     bridge. openTemplateModalFor still needs `ctx.legacyDoc` (the modal it
-     opens, and the field it reads back, both live in the legacy document).
+     bridge. readLocationTypeName still needs `ctx.legacyDoc` (the field it
+     reads back is uncontrolled, live in the legacy document).
 
-     No scoped <style> block: like every other Creation island, this
-     renders inside the legacy iframe document. */
-  import { locationTypeOptionLabel, openTemplateModalFor } from './locationType.js';
+     TICKET-0059 (BRIEF-0059-h commit 1, lock O1): the classification
+     prompt itself is LocationTypeModal.svelte now (locationType.js's own
+     header explains the split) -- this component owns one local instance,
+     rendered only when it actually has a location_type datalist to drive. */
+  import { locationTypeOptionLabel, readLocationTypeName } from './locationType.js';
+  import LocationTypeModal from './LocationTypeModal.svelte';
 
   let { field, value, idPrefix, ctx } = $props();
 
@@ -25,6 +28,13 @@
   const dlid = $derived(`${id}-dl`);
   const label = $derived(`${field.label}${field.required ? ' *' : ''}`);
   const resolvedValue = $derived(value === undefined && field.default !== undefined ? field.default : value);
+
+  let locTypeModal;
+
+  function openGabarit() {
+    const name = readLocationTypeName(ctx.legacyDoc, id);
+    if (name) locTypeModal.openFor(name, () => {});
+  }
 </script>
 
 {#if field.kind === 'textarea'}
@@ -58,7 +68,7 @@
       <input type="text" {id} data-field={field.name} data-kind="text" list={dlid} value={resolvedValue ?? ''} style="flex:1">
       {#if field.name === 'location_type'}
         <button type="button" class="btn-ghost" style="font-size:12px; padding:3px 8px"
-          onclick={() => openTemplateModalFor(ctx.legacyDoc, id, () => {})}>Gabarit...</button>
+          onclick={openGabarit}>Gabarit...</button>
       {/if}
     </div>
     <datalist id={dlid}>
@@ -72,6 +82,9 @@
         {/each}
       {/if}
     </datalist>
+    {#if field.name === 'location_type'}
+      <LocationTypeModal bind:this={locTypeModal} legacyDoc={ctx.legacyDoc} />
+    {/if}
   </div>
 {:else if field.kind === 'entity_ref'}
   {@const candidates = (ctx.entities || []).filter((e) => e.type === field.ref_type && !(field.exclude_self && ctx.entityId && e.id === ctx.entityId))}
