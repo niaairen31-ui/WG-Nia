@@ -11290,4 +11290,70 @@ restating doctrine is how doctrine drifts.
 
 ---
 
+## DOORS EDITOR EFFECT CYCLE — pure derivations are $derived, not $state (BRIEF-0062-a, no schema change)
+
+`DoorsEditor.svelte`'s `neighbours` and `orphans` were `$state`, seeded by
+a `resetFromProps` function called from a single `$effect`. That function
+assigned `neighbours` and then read it (`.forEach`) later in the same
+body. On mount the write was untracked (not yet a dependency) and the
+read made it one; on every subsequent run — triggered by any relation or
+door prop change — the write now redirtied an established dependency
+with a fresh array (new reference every time, so equality never held),
+rescheduling the effect forever. Svelte threw `effect_update_depth_exceeded`
+during the flush, which aborted the whole flush — the reason
+`RelationsEditor`, `KnowledgeEditor` and `DiscDetailsEditor`, siblings in
+the same `Sheet.svelte` render pass, silently stopped repainting even
+though their own mutations had already persisted on the backend
+(TICKET-0062's field report).
+
+**The fix removes the cycle by construction, not by reordering.**
+`neighbours` and `orphans` are pure derivations of props (`relations`,
+`doors`) — they were never state to begin with. Converting them to
+`$derived` means there is nothing to write inside the seeding effect
+except `values` (genuinely stateful: seeded from the derivations, then
+edited via `bind:value`), and `values` is never read back inside that
+same effect body. Rejected: reordering the assignments so the reads come
+first — fixes the symptom, leaves three bindings that were never state.
+Rejected: wrapping the read in `untrack()` — hides a cycle rather than
+removing one.
+
+**The seeding effect had to become `$effect.pre`, not a plain `$effect`
+— a finding beyond the brief's original spec, made during live
+verification.** With a plain `$effect`, `$derived neighbours` can observe
+a new prop (e.g. a fresh `connects_to` relation) before the plain effect
+— which runs after the DOM commit — has populated `values[n.id]`, so the
+template's `bind:value={values[n.id].x}` reads through a not-yet-existing
+entry and throws (`Cannot read properties of undefined (reading 'x')`).
+`$effect.pre` runs before the DOM patch, closing that window. Retested
+live after the change: no crash, no stale door coordinates, Relations/
+Knowledge/Portes all repaint correctly on a location with a `connects_to`
+neighbour.
+
+**Structural guard: `effect_self_write.py`.** The general rule —
+inside a `$effect` (or `$effect.pre`) body, a `$state` binding that is
+assigned in that body must not be read (`.`/`[` access) afterwards in
+the same body, with local functions called from the body inlined one
+level deep — is enforced fail-closed across every `.svelte` file under
+`frontend/src/`. Deliberately narrow: a bare identifier reference isn't
+a "read" for this rule, and only reads *after* the first assignment
+count — `RelationsEditor.svelte`'s `newOther` effect reads that binding
+first and assigns it later under a converging guard, and must keep
+passing. Verified against both trees: one finding
+(`DoorsEditor.svelte`/`neighbours`) before this fix, zero after.
+
+Two related defects surfaced during live verification and are
+explicitly NOT fixed here (recorded for a follow-up ticket):
+`GeometryEditor` receives a fresh object literal (`detail.geometry ||
+{...}`) whenever `detail.geometry` is falsy, so its effect re-runs on
+unrelated parent updates; and `DoorsEditor`'s `values` reseeds from
+`doors` on every prop change, so a concurrent `onSaved` can discard an
+in-flight or just-saved x/y entry — concretely observed after a
+geometry save, whose response carries no `doors` key. Backend data was
+confirmed intact via direct API read in both cases; this is a display
+staleness, not data loss, and fixing it means touching `Sheet.svelte`
+and/or the geometry endpoint's response shape, both out of this brief's
+scope.
+
+---
+
 *Co-built with Claude, June 2026.*

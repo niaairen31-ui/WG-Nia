@@ -132,21 +132,28 @@ Both are recorded for a follow-up ticket; neither is in scope here.
 
 ### Machine-checkable  ->  G1 deterministic gate
 
-- [ ] `effect_self_write.py` exists, is fail-closed, and reports zero
+- [x] `effect_self_write.py` exists, is fail-closed, and reports zero
       findings on the fixed tree  ->  verify/checks/effect_self_write.py
-- [ ] The check fails when its scan collects zero `.svelte` files, or parses
+- [x] The check fails when its scan collects zero `.svelte` files, or parses
       zero `$effect` bodies — the vacuity guard is on the SCAN, not on the
       finding count, since zero findings is the goal state here  ->
       verify/checks/effect_self_write.py
-- [ ] Re-introducing the assign-then-read pattern in any `.svelte` file under
+- [x] Re-introducing the assign-then-read pattern in any `.svelte` file under
       `frontend/src/` makes the check exit non-zero  ->
       verify/checks/effect_self_write.py
-- [ ] `DoorsEditor.svelte` declares no `$state` binding that is assigned
+- [x] `DoorsEditor.svelte` declares no `$state` binding that is assigned
       inside an `$effect` body and read later in that body
-- [ ] `npm run build` output is fresh  ->  verify/checks/frontend_build_fresh.py
-- [ ] `python tooling/verify/run.py` exits 0
+- [x] `npm run build` output is fresh  ->  verify/checks/frontend_build_fresh.py
+- [x] `python tooling/verify/run.py` exits 0
 
 ### Live  ->  human gate (Nia)
+
+Pre-verified via browser automation against the test DB during exec
+(see BRIEF-0062-a commit 1's message for the full session): relations/
+knowledge/Portes repaint correctly on a location with a `connects_to`
+neighbour, the character-sheet control case is unaffected, geometry
+still saves. Left unchecked below — this section is Nia's own gate,
+not something exec checks off on her behalf.
 
 - [ ] Devtools console shows `effect_update_depth_exceeded` on the
       unmodified tree when adding a relation to an existing location, and
