@@ -8,12 +8,9 @@ frontend/src/creation/EntityList.svelte::creationSelectRecord::TICKET-0059
 frontend/src/creation/FactionRoster.svelte::creationOpenEntityFrom::TICKET-0059
 frontend/src/creation/Region.svelte::creationRefreshList::TICKET-0059
 frontend/src/creation/RoomBatch.svelte::creationRefreshList::TICKET-0059
-frontend/src/creation/Sheet.svelte::_authorConsumePendingCreationMutationId::TICKET-0059
-frontend/src/creation/Sheet.svelte::_authorGetPendingCreationMutationId::TICKET-0059
-frontend/src/creation/Sheet.svelte::_authorNotifySaved::TICKET-0059
-frontend/src/creation/Sheet.svelte::_authorResetCreateDrafts::TICKET-0059
 frontend/src/creation/Sheet.svelte::creationRefreshList::TICKET-0059
 frontend/src/creation/Sheet.svelte::creationRefreshList::TICKET-0059
+frontend/src/creation/Sheet.svelte::loadPendingCreations::TICKET-0059
 frontend/src/creation/locationType.js::genericModalClose::TICKET-0059
 frontend/src/creation/locationType.js::genericModalOpen::TICKET-0059
 frontend/src/graph/consumers/relations.js::authorGetSelectedEntityId::TICKET-0059

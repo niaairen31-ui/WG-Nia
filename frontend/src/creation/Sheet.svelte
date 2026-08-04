@@ -83,6 +83,7 @@
   import GoalsEditor from './GoalsEditor.svelte';
   import { backfillGoals } from './goalsPanel.svelte.js';
   import DiscDetailsEditor from './DiscDetailsEditor.svelte';
+  import { resetCreateDrafts, getPendingCreationMutationId, consumePendingCreationMutationId, setPendingCreationMutationId, notifySaved } from './sheetState.svelte.js';
 
   let { legacyDoc } = $props();
 
@@ -169,7 +170,7 @@
    *  plain "+ Nouveau" idiom every entity tab shared before this brief),
    *  via the same legacy helper so the two paths never drift. */
   export function primaryAction() {
-    legacyCall('_authorResetCreateDrafts');
+    resetCreateDrafts();
     resetDraftRoles();
     resetSubcultureDraft();
     resetPendingDrafts();
@@ -179,6 +180,7 @@
   }
 
   legacyDoc.addEventListener('creation:sheet-reset', () => {
+    resetCreateDrafts();
     flushSync(() => {
       creationState.sheetMode = 'empty';
       creationState.sheetDetail = null;
@@ -216,6 +218,10 @@
   // below).
   legacyDoc.addEventListener('creation:sheet-create', (ev) => {
     flushSync(() => { enterCreateMode(ev.detail.type); });
+    // generatePendingCreation (still legacy, germ realization) carries the
+    // pending mutation id in this same event's detail now -- a bare `let`
+    // can't be written from across the legacy boundary any more.
+    if (ev.detail.mutationId) setPendingCreationMutationId(ev.detail.mutationId);
   });
 
   // pj's createPanel, intrigues' createPanel+sheetRenderer -- both still
@@ -241,6 +247,13 @@
   // #author-save-btn's onclick (creationSaveDispatch) dispatches this for
   // every tab with no saveHandler of its own.
   legacyDoc.addEventListener('creation:sheet-save', () => { saveSheet(); });
+
+  // creationNewEntity (pj/intrigues' own "+ Nouveau", still legacy) used to
+  // call _authorResetCreateDrafts() directly; that function is now
+  // resetCreateDrafts() in sheetState.svelte.js, unreachable from across the
+  // legacy boundary as a bare call -- this is the reverse-bridge dispatch it
+  // fires instead (BRIEF-0059-e).
+  legacyDoc.addEventListener('creation:reset-create-drafts', () => { resetCreateDrafts(); });
 
   // generatePendingCreation (index.html, still legacy -- germ realization,
   // "Créations en attente", is out of this brief's scope) reaches the ported
@@ -411,7 +424,7 @@
     const subcultureRowsToCreate = (isNewSave && type === 'location') ? subcultureDraftForCreate() : [];
     const knowledgeToCreate = (isNewSave && type === 'character') ? knowledgeForCreate() : [];
     const goalsToCreate = (isNewSave && type === 'character') ? goalsForCreate() : [];
-    const mutationId = isNewSave ? legacyCall('_authorGetPendingCreationMutationId') : null;
+    const mutationId = isNewSave ? getPendingCreationMutationId() : null;
 
     try {
       const body = JSON.stringify({
@@ -461,7 +474,13 @@
       }
 
       if (isNewSave && mutationId) {
-        legacyCall('_authorConsumePendingCreationMutationId');
+        // TICKET-0059 (BRIEF-0059-e): the original _authorConsumePendingCreationMutationId
+        // did both halves as one legacyCall; the id-clear half is ported
+        // (consumePendingCreationMutationId above), but the germ-realization
+        // list's own refresh (loadPendingCreations) is still legacy -- a
+        // new, baselined bridge-reach site, same order as before.
+        consumePendingCreationMutationId();
+        legacyCall('loadPendingCreations');
       }
       if (isNewSave) {
         resetGeneratePanel();
@@ -471,7 +490,7 @@
       }
 
       legacyCall('creationRefreshList');
-      legacyCall('_authorNotifySaved', detail.id, detail.type);
+      notifySaved(legacyDoc, detail.id);
       // flushSync: the header-sync $effect below clears #author-status on
       // every 'view' render (matching authorRenderSheet's own unconditional
       // reset) -- without this, its microtask-scheduled run would fire

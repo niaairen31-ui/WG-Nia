@@ -209,6 +209,16 @@ export const CREATION_ISLANDS = Object.freeze({
       'authorResetDiscDetail',
       'authorEditDiscDetail',
       'authorSaveDiscDetail',
+      // BRIEF-0059-e commit 1: entity-sheet state ownership, create-draft +
+      // pending-mutation lifecycle -- ported to sheetState.svelte.js.
+      // authorSelectEntity/authorGetSelectedEntityId (commit 2) and
+      // authorDelete (commit 3) are added in their own commits, each
+      // independently passing rule 7 (Invariants: fail-closed guards never
+      // lapse between this brief's three commits).
+      '_authorResetCreateDrafts',
+      '_authorGetPendingCreationMutationId',
+      '_authorConsumePendingCreationMutationId',
+      '_authorNotifySaved',
     ],
   }),
   // BRIEF-0058-i (per RECON-SUPPLEMENT-0058's re-scope): region generation

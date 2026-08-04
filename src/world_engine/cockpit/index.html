@@ -3267,13 +3267,14 @@ let authorLocationTypeCatalog = [];
  * discards the draft state and starts over (F2 conversational refine is
  * explicitly deferred). */
 
-/* Two-stage entity creation (TICKET-0019, BRIEF-0019-a) — set when the
-   create form was pre-filled from a "Générer la fiche" click on a pending
-   germ; carried as EntityWriteBody.mutation_id on the next authorSave so
+/* Two-stage entity creation (TICKET-0019, BRIEF-0019-a) — pendingCreationMutationId
+   moved to frontend/src/creation/sheetState.svelte.js (TICKET-0059, BRIEF-0059-e):
+   set when the create form was pre-filled from a "Générer la fiche" click on a
+   pending germ, carried as EntityWriteBody.mutation_id on the next save so
    crud.py's create_entity can flip the germ to applied. Reset on any tab
    switch or manual "+ Nouveau" so a stray create never links to a stale
-   germ. */
-let pendingCreationMutationId = null;
+   germ — generatePendingCreation (below) still SETS it, now via the
+   'creation:sheet-create' event's own detail instead of a direct write. */
 
 /* Faction roles/roster editor state (draft + live + undeclared + roster
  * rows/editing-id) moved to frontend/src/creation/factionPanel.svelte.js's
@@ -4164,7 +4165,6 @@ function _renderOnDemandToggles(entry) {
 function _entityTabEnterReset() {
   authorEntityId   = null;
   authorEntityType = null;
-  pendingCreationMutationId = null;
   creationRenderReturnControl();
   // TICKET-0058 (BRIEF-0058-e): tells the entity-list island to drop its
   // active-row highlight — a fresh tab always starts unselected.
@@ -5896,16 +5896,13 @@ function creationNewEntity() {
   const entry = CREATION_TABS[currentCreationSubTab];
   if (!entry || !entry.createPanel) return;
   document.dispatchEvent(new CustomEvent('creation:sheet-legacy-active'));
-  _authorResetCreateDrafts();
+  // TICKET-0059 (BRIEF-0059-e): _authorResetCreateDrafts moved into
+  // frontend/src/creation/sheetState.svelte.js's resetCreateDrafts() --
+  // a bare function call can't reach it across the legacy boundary any
+  // more, so this becomes a dispatch Sheet.svelte listens for, same idiom
+  // as every other legacy->shell signal.
+  document.dispatchEvent(new CustomEvent('creation:reset-create-drafts'));
   entry.createPanel();
-}
-
-/** Shared by creationNewEntity (pj/intrigues/evenements' own "+ Nouveau")
- *  and Sheet.svelte's primaryAction() (every core entity-archetype tab) --
- *  factored out of creationNewEntity's own body (BRIEF-0058-f) so the two
- *  paths can never drift apart. */
-function _authorResetCreateDrafts() {
-  pendingCreationMutationId = null;
 }
 
 /* ── Constructeur — runtime entity-type creation (TICKET-0046, migrated to
@@ -6123,14 +6120,16 @@ async function generatePendingCreation(mutationId) {
     return;
   }
 
-  pendingCreationMutationId = mutationId;
   // TICKET-0058 (BRIEF-0058-f): flushSync inside Sheet.svelte's listener
   // guarantees author-f-name/author-x-* et al. exist before the
   // 'creation:apply-generated-draft' dispatch right below runs its own
   // synchronous getElementById writes (BRIEF-0058-h: applyGeneratedDraft,
   // reached through Sheet.svelte's reverse-bridge listener, replaces the
   // three authorApply*Draft calls this used to make directly).
-  document.dispatchEvent(new CustomEvent('creation:sheet-create', { detail: { type: result.entity_type } }));
+  // TICKET-0059 (BRIEF-0059-e): mutationId rides in this same event's
+  // detail now -- pendingCreationMutationId is a Svelte module `$state`
+  // (sheetState.svelte.js) this legacy code can no longer write directly.
+  document.dispatchEvent(new CustomEvent('creation:sheet-create', { detail: { type: result.entity_type, mutationId } }));
   document.dispatchEvent(new CustomEvent('creation:apply-generated-draft', {
     detail: { entityType: result.entity_type, result },
   }));
@@ -6223,15 +6222,10 @@ async function authorSelectEntity(id) {
   creationRenderReturnControl();
 }
 
-/** Sets the legacy-side selection globals other readers (authorDelete,
- *  authorGetSelectedEntityId, ...) still resolve — called by Sheet.svelte
- *  via legacyCall right after a successful save, mirroring what
- *  authorRenderSheet's own first line (`authorEntityId = isNew ? null :
- *  detail.id; authorEntityType = type;`) always did. */
-function _authorNotifySaved(id, type) {
-  authorEntityId   = id;
-  authorEntityType = type;
-}
+/* TICKET-0059 (BRIEF-0059-e): _authorNotifySaved moved into
+ * frontend/src/creation/sheetState.svelte.js as notifySaved(legacyDoc, id) --
+ * authorEntityType (its other half) had zero readers anywhere in the tree
+ * and is dropped, not ported. */
 
 /** Resolves the sub-tab that owns an entity (TICKET-0054, decision F2a).
  *  npc and pj both declare type 'character'; playerCharIds is the
@@ -6343,31 +6337,14 @@ function creationSaveDispatch() {
   document.dispatchEvent(new CustomEvent('creation:sheet-save'));
 }
 
-/** BRIEF-0058-f: _authorSaveSubmit's entity-write + dependent-draft-POST
- *  orchestration moved into Sheet.svelte's submitEntity (a faithful port —
- *  same endpoints, same order, same conditions). What COULDN'T move is
- *  pendingCreationMutationId, a legacy global owned by the still-legacy
- *  "Créations en attente" germ-realization flow (generatePendingCreation) —
- *  the faction-roles draft moved to factionPanel.svelte.js's draftRoles
- *  (family b), the subculture draft to subcultureDraft.svelte.js
- *  (family c), the pending knowledge/goals drafts to pendingDrafts.svelte.js
- *  (family e), and the AI-generate panel's own draft state to
- *  generatePanel.svelte.js (BRIEF-0058-h), all read directly by
- *  Sheet.svelte's submitEntity, no legacyCall needed for any of them any
- *  more. This small function is the exact inline snippet _authorSaveSubmit
- *  used to run itself, extracted so Sheet.svelte can reach it via legacyCall
- *  instead of a bare variable read it has no access to — it doesn't change
- *  what the snippet did. */
-function _authorGetPendingCreationMutationId() {
-  return pendingCreationMutationId;
-}
-
-/** Two-stage entity creation (BRIEF-0019-a): called once the create POST
- *  that carried mutation_id has succeeded. */
-function _authorConsumePendingCreationMutationId() {
-  pendingCreationMutationId = null;
-  loadPendingCreations();
-}
+/* TICKET-0059 (BRIEF-0059-e): _authorGetPendingCreationMutationId and
+ * _authorConsumePendingCreationMutationId moved into
+ * frontend/src/creation/sheetState.svelte.js as getPendingCreationMutationId/
+ * consumePendingCreationMutationId — Sheet.svelte's submitEntity reads/clears
+ * pendingCreationMutationId directly now, no legacyCall needed. The
+ * consume step's OTHER half, loadPendingCreations() (this still-legacy
+ * germ-realization list's own refresh), stays a legacyCall from Sheet.svelte,
+ * right after, same order the original single function always ran it in. */
 
 async function authorDelete() {
   if (!authorEntityId) return;
