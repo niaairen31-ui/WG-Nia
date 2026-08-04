@@ -1,34 +1,46 @@
 /* TICKET-0059 (BRIEF-0059-f). The NPC group agent's non-render logic --
    was the npcAgentOpenBatchId/npcAgentLocations/npcAgentSelectedRoot/
-   npcAgentPreview/npcAgentGroupBrief/npcAgentLines module-level `let`s plus
-   npcAgentReset/npcAgentCheckOpenBatch/npcAgentRenderLauncher/
-   npcAgentSelectRoot/npcAgentPreviewRoot/npcAgentAddLine/npcAgentRemoveLine/
-   npcAgentEditLine/_npcAgentLineTotal/npcAgentLaunch (index.html, deleted in
-   this same commit). `_npcAgentTreeHtml` is NOT ported -- LocationTree.svelte
+   npcAgentPreview/npcAgentGroupBrief/npcAgentLines/npcAgentBatch/npcAgentRows/
+   npcAgentLoopRunning/npcAgentFailedRun/npcAgentCommitResult/
+   npcAgentLinkHandoffMsg module-level `let`s plus every npcAgent* function
+   except npcAgentToggle (index.html, all deleted across this brief's
+   commits 2-3). `_npcAgentTreeHtml` was never ported -- LocationTree.svelte
    (commit 1) replaces it outright. `_npcAgentLineRowHtml`/
-   `_npcAgentPaintLauncher` are not ported either: Svelte's own declarative
+   `_npcAgentPaintLauncher`/`_npcAgentRowHtml`/`_npcAgentGroupHtml`/
+   `_npcAgentPaintReview` are not ported either: Svelte's own declarative
    markup (NpcAgent.svelte) replaces the innerHTML-painting they did.
 
    Grown across this brief's two remaining commits rather than authored
    whole (sheetState.svelte.js's own precedent, TICKET-0059 BRIEF-0059-e):
-   this commit (2) adds the launcher's state and functions only. Commit 3
-   adds npcAgentState.batch/rows/loopRunning/failedRun/commitResult/
-   linkHandoffMsg plus the run-loop/review functions that operate on them.
+   commit 2 added the launcher's state and functions. This commit (3) adds
+   the run-loop/review state (batch/rows/loopRunning/failedRun/
+   commitResult/linkHandoffMsg) and the functions that operate on it, and
+   wires launch()/reopenExisting() (both already present) onto loadBatch()
+   so a freshly launched or reopened batch reaches the review surface --
+   commit 2's own documented gap, closed here.
 
-   One consequence of that split: launch() below sets npcAgentState.openBatchId
-   on success but does NOT yet move the panel onto a review surface --
-   npcAgentLoadBatch doesn't exist until commit 3. Between these two commits
-   (both landing in this same brief execution) a freshly launched batch's
-   review stays unreachable through the UI; commit 3 closes that gap by
-   wiring loadBatch(batch.id) onto this same success path. Not a permanent
-   half-feature -- the brief's own commit split, made explicit here so a
-   future reader isn't left to infer it.
+   generateLinks()'s J1 handoff is this module's one remaining reach into
+   the still-legacy link agent (Scope OUT: linkAgent's 27 functions are
+   untouched by this brief). A Svelte module cannot assign a `let` binding
+   declared in index.html's top-level script -- it isn't a `window`
+   property (frontend/src/legacy/bridge.js's own comment) -- so setting
+   `linkAgentOpen = true` the way the original inline code did is not
+   reachable directly. legacyCall('linkAgentToggle')/legacyCall(
+   'linkAgentLoadBatch', ...) -- both EXISTING, unmodified link-agent
+   functions -- reproduce the same net effect (open the panel if it isn't
+   already, then load the fresh batch) without touching a single line
+   inside linkAgent's own 27. legacyContainer reads the panel's current
+   display style directly (a plain DOM read, not a bridge-reach site) so
+   the toggle call only fires when the panel is actually closed -- calling
+   linkAgentToggle unconditionally would CLOSE an already-open panel
+   (it flips, it does not set).
 
    State is module-level (not NpcAgent.svelte-local) for the same reason
    RoomBatch's roomBatchState is: TICKET-0059's BRIEF-0059-f doesn't need a
    second reader today, but keeping the shape consistent with every other
    migrated Creation panel (roomBatch.svelte.js, sheetState.svelte.js) beats
    a one-off local-state exception. */
+import { legacyCall, legacyContainer } from '../legacy/bridge.js';
 
 export const npcAgentState = $state({
   loading: false,
@@ -41,6 +53,12 @@ export const npcAgentState = $state({
   lines: [],
   launchError: '',
   launchErrorReopen: false,
+  batch: null,
+  rows: [],
+  loopRunning: false,
+  failedRun: null,
+  commitResult: null,
+  linkHandoffMsg: null,
 });
 
 export function resetNpcAgent() {
@@ -54,6 +72,12 @@ export function resetNpcAgent() {
   npcAgentState.lines = [];
   npcAgentState.launchError = '';
   npcAgentState.launchErrorReopen = false;
+  npcAgentState.batch = null;
+  npcAgentState.rows = [];
+  npcAgentState.loopRunning = false;
+  npcAgentState.failedRun = null;
+  npcAgentState.commitResult = null;
+  npcAgentState.linkHandoffMsg = null;
 }
 
 async function api(path, opts = {}) {
@@ -144,9 +168,7 @@ export async function launch() {
         lines: npcAgentState.lines,
       }),
     });
-    npcAgentState.openBatchId = batch.id;
-    // Commit 3 wires npcAgentLoadBatch(batch.id)'s replacement onto this
-    // same success path, moving the panel onto the review surface.
+    await loadBatch(batch.id);
   } catch (e) {
     if (e.message && e.message.includes('already open')) {
       npcAgentState.launchError = 'Un lot est déjà ouvert.';
@@ -157,10 +179,184 @@ export async function launch() {
   }
 }
 
-/** The launcher's half of index.html's inline reopen button
- *  (`npcAgentCheckOpenBatch().then(() => npcAgentLoadBatch(npcAgentOpenBatchId))`)
- *  -- the loadBatch half lands in commit 3, which extends this function
- *  rather than adding a second reopen path. */
+/** index.html's inline reopen button
+ *  (`npcAgentCheckOpenBatch().then(() => npcAgentLoadBatch(npcAgentOpenBatchId))`),
+ *  now that loadBatch exists. */
 export async function reopenExisting() {
   await checkOpenBatch();
+  if (npcAgentState.openBatchId) await loadBatch(npcAgentState.openBatchId);
+}
+
+/* ── Run driver: "Suivant" (one unit) / "Tout générer" (loop until 409/error) ── */
+
+/** run-next's response is just {line_index, name, npcs_done, npcs_total} --
+ *  the newly staged row itself isn't in it, so every successful call
+ *  re-fetches batch+rows (GET, not the heavier loadBatch which also
+ *  re-fetches /preview) before the reactive repaint, or the review list
+ *  would never show the row that was just generated. */
+async function refreshRows() {
+  const data = await api(`/api/npc-batches/${encodeURIComponent(npcAgentState.batch.id)}`);
+  npcAgentState.batch = data.batch;
+  npcAgentState.rows = data.rows;
+}
+
+export async function runOne() {
+  try {
+    await api(`/api/npc-batches/${encodeURIComponent(npcAgentState.batch.id)}/run-next`, { method: 'POST' });
+    npcAgentState.failedRun = null;
+    await refreshRows();
+  } catch (e) {
+    if (e.message && e.message.includes('already fully generated')) {
+      await loadBatch(npcAgentState.batch.id);
+      return;
+    }
+    npcAgentState.failedRun = { message: e.message };
+  }
+}
+
+export async function runLoop() {
+  if (!npcAgentState.batch || npcAgentState.loopRunning) return;
+  npcAgentState.loopRunning = true;
+  npcAgentState.failedRun = null;
+  while (npcAgentState.loopRunning) {
+    try {
+      await api(`/api/npc-batches/${encodeURIComponent(npcAgentState.batch.id)}/run-next`, { method: 'POST' });
+    } catch (e) {
+      npcAgentState.loopRunning = false;
+      if (e.message && e.message.includes('already fully generated')) {
+        await loadBatch(npcAgentState.batch.id);
+      } else {
+        npcAgentState.failedRun = { message: e.message };
+      }
+      return;
+    }
+    await refreshRows();
+  }
+}
+
+export function pause() {
+  npcAgentState.loopRunning = false;
+}
+
+export function retryRun() {
+  npcAgentState.failedRun = null;
+  runLoop();
+}
+
+/* ── Review surface: GET /api/npc-batches/{id}, grouped by line_index ────── */
+
+export async function loadBatch(batchId) {
+  npcAgentState.loading = true;
+  npcAgentState.loadError = '';
+  try {
+    const data = await api(`/api/npc-batches/${encodeURIComponent(batchId)}`);
+    npcAgentState.batch = data.batch;
+    npcAgentState.rows = data.rows;
+    npcAgentState.openBatchId = npcAgentState.batch.status === 'open' ? npcAgentState.batch.id : null;
+    // Faction/location names for the review selects aren't stored on the
+    // batch/rows -- re-derive via /preview over the batch's OWN
+    // root_location_id, same precedent as linkAgentLoadBatch's name lookup.
+    try {
+      npcAgentState.preview = await api(`/api/npc-batches/preview?root_location_id=${encodeURIComponent(npcAgentState.batch.scope.root_location_id)}`);
+    } catch { npcAgentState.preview = null; }
+  } catch (e) {
+    npcAgentState.loading = false;
+    npcAgentState.loadError = e.message;
+    return;
+  }
+  npcAgentState.loading = false;
+}
+
+/** index.html's _npcAgentGroupRows -- returns [lineIndex, rows[]] pairs in
+ *  first-seen order (a Map preserves insertion order; NpcAgent.svelte
+ *  iterates the array form directly). */
+export function groupRows(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    if (!groups.has(row.line_index)) groups.set(row.line_index, []);
+    groups.get(row.line_index).push(row);
+  }
+  return Array.from(groups.entries());
+}
+
+/** index.html's _npcAgentGroupHtml's own description lookup, split out of
+ *  the (retired) paint function. */
+export function groupDescription(batch, lineIndex) {
+  const line = ((batch.scope && batch.scope.lines) || [])[lineIndex];
+  return line ? line.description : `ligne ${lineIndex}`;
+}
+
+export async function editField(rowId, field, value) {
+  try {
+    const row = await api(`/api/npc-batches/${encodeURIComponent(npcAgentState.batch.id)}/rows/${encodeURIComponent(rowId)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload_patch: { [field]: value } }),
+    });
+    const idx = npcAgentState.rows.findIndex((r) => r.id === rowId);
+    if (idx !== -1) npcAgentState.rows[idx] = row;
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+export async function toggleReject(rowId, currentlyRejected) {
+  try {
+    const row = await api(`/api/npc-batches/${encodeURIComponent(npcAgentState.batch.id)}/rows/${encodeURIComponent(rowId)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ row_status: currentlyRejected ? 'proposed' : 'rejected' }),
+    });
+    const idx = npcAgentState.rows.findIndex((r) => r.id === rowId);
+    if (idx !== -1) npcAgentState.rows[idx] = row;
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+/* ── Commit + J1 handoff to the link agent ────────────────────────────────── */
+
+export async function commit() {
+  try {
+    const result = await api(`/api/npc-batches/${encodeURIComponent(npcAgentState.batch.id)}/commit`, { method: 'POST' });
+    npcAgentState.commitResult = `${result.committed.length} PNJ committé(s)` +
+      (result.skipped.length ? `, ${result.skipped.length} ignoré(s)` : '');
+    npcAgentState.linkHandoffMsg = null;
+    await loadBatch(npcAgentState.batch.id);
+  } catch (e) {
+    npcAgentState.commitResult = e.message;
+  }
+}
+
+export async function abandon() {
+  if (!confirm('Abandonner ce lot de PNJ ?')) return;
+  try {
+    await api(`/api/npc-batches/${encodeURIComponent(npcAgentState.batch.id)}/abandon`, { method: 'POST' });
+    await loadBatch(npcAgentState.batch.id);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+/** J1 handoff: calls the EXISTING link agent creation route with this
+ *  batch's own root_location_id, then opens the link agent panel on the
+ *  fresh batch (linkAgentLoadBatch -- the roster then includes both the new
+ *  NPCs and pre-existing residents of the root, F1 skips canon pairs). A
+ *  409 (a link batch is already open) surfaces as a plain warning banner
+ *  and is never retried automatically. See this file's header for why the
+ *  handoff crosses the legacy bridge instead of writing linkAgent's state
+ *  directly. */
+export async function generateLinks() {
+  npcAgentState.linkHandoffMsg = null;
+  try {
+    const batch = await api('/api/link-batches', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ root_location_ids: [npcAgentState.batch.scope.root_location_id] }),
+    });
+    npcAgentState.linkHandoffMsg = null;
+    if (legacyContainer('linkagent-panel').style.display === 'none') {
+      legacyCall('linkAgentToggle');
+    }
+    await legacyCall('linkAgentLoadBatch', batch.id);
+  } catch (e) {
+    npcAgentState.linkHandoffMsg = e.message;
+  }
 }

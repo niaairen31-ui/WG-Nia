@@ -109,6 +109,19 @@ GONE_PLAIN = [
     "npcAgentLaunch",
     "npcAgentLocations", "npcAgentSelectedRoot", "npcAgentGroupBrief",
     "npcAgentLines",
+    # TICKET-0059 (BRIEF-0059-f commit 3): the NPC agent's run-loop/review
+    # functions, converged onto the same island, plus the review-only state
+    # variables that became fully unreferenced once those functions were
+    # gone. npcAgentOpen/npcAgentToggle are the two survivors (chrome) and
+    # stay off this list.
+    "_npcAgentRefreshRows", "npcAgentRunOne", "npcAgentRunLoop",
+    "npcAgentPause", "npcAgentRetryRun", "npcAgentLoadBatch",
+    "_npcAgentGroupRows", "_npcAgentRowHtml", "_npcAgentGroupHtml",
+    "npcAgentEditField", "npcAgentToggleReject", "npcAgentCommit",
+    "npcAgentAbandon", "npcAgentGenerateLinks", "_npcAgentPaintReview",
+    "npcAgentOpenBatchId", "npcAgentPreview", "npcAgentBatch",
+    "npcAgentRows", "npcAgentLoopRunning", "npcAgentFailedRun",
+    "npcAgentCommitResult", "npcAgentLinkHandoffMsg",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from

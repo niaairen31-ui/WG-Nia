@@ -13,3 +13,5 @@ frontend/src/creation/Sheet.svelte::creationRefreshList::TICKET-0059
 frontend/src/creation/Sheet.svelte::loadPendingCreations::TICKET-0059
 frontend/src/creation/locationType.js::genericModalClose::TICKET-0059
 frontend/src/creation/locationType.js::genericModalOpen::TICKET-0059
+frontend/src/creation/npcAgent.svelte.js::linkAgentLoadBatch::TICKET-0059
+frontend/src/creation/npcAgent.svelte.js::linkAgentToggle::TICKET-0059

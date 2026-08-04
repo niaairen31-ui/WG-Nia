@@ -257,11 +257,12 @@ export const CREATION_ISLANDS = Object.freeze({
     retiredPrefixes: ['batch', '_batchNodeName'],
   }),
   // BRIEF-0059-f: the NPC group agent panel -- ported to NpcAgent.svelte/
-  // npcAgent.svelte.js, LocationTree.svelte's first consumer. Split across
-  // two commits (npcAgent.svelte.js's own header explains the split); this
-  // list grows again in commit 3 with the run-loop/review functions'
+  // npcAgent.svelte.js, LocationTree.svelte's first consumer. Landed across
+  // two commits (npcAgent.svelte.js's own header explains the split);
+  // commit 3 grew this list with the run-loop/review functions'
   // identifiers, the same way entitySheet's own retiredPrefixes grew across
-  // BRIEF-0059-e's three commits.
+  // BRIEF-0059-e's three commits. npcAgentToggle/npcAgentOpen are the two
+  // survivors (chrome, not migrated) and are deliberately absent here.
   npcAgent: Object.freeze({
     containerId: 'npcagent-panel',
     component: 'NpcAgent.svelte',
@@ -280,6 +281,21 @@ export const CREATION_ISLANDS = Object.freeze({
       '_npcAgentLineRowHtml',
       '_npcAgentPaintLauncher',
       'npcAgentLaunch',
+      '_npcAgentRefreshRows',
+      'npcAgentRunOne',
+      'npcAgentRunLoop',
+      'npcAgentPause',
+      'npcAgentRetryRun',
+      'npcAgentLoadBatch',
+      '_npcAgentGroupRows',
+      '_npcAgentRowHtml',
+      '_npcAgentGroupHtml',
+      'npcAgentEditField',
+      'npcAgentToggleReject',
+      'npcAgentCommit',
+      'npcAgentAbandon',
+      'npcAgentGenerateLinks',
+      '_npcAgentPaintReview',
     ],
   }),
 });
