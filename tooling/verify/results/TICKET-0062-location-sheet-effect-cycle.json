@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0062-location-sheet-effect-cycle",
+  "when": "2026-08-04T14:34:03.901841+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "effect_self_write.py",
+      "status": "PASS",
+      "msg": "PASS: effect_self_write \u2014 29 .svelte file(s), 25 $effect bod(y/ies), 109 $state binding(s) scanned, zero assign-then-read findings"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u2014 57 source file(s), 1 output asset(s), manifest hash matches"
+    }
+  ]
+}
