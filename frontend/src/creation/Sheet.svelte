@@ -78,6 +78,11 @@
   import GeneratePanel from './GeneratePanel.svelte';
   import { resetEventDraft, eventDraftState } from './eventDraft.svelte.js';
   import Evenements from './Evenements.svelte';
+  import RelationsEditor from './RelationsEditor.svelte';
+  import KnowledgeEditor from './KnowledgeEditor.svelte';
+  import GoalsEditor from './GoalsEditor.svelte';
+  import { backfillGoals } from './goalsPanel.svelte.js';
+  import DiscDetailsEditor from './DiscDetailsEditor.svelte';
 
   let { legacyDoc } = $props();
 
@@ -307,14 +312,8 @@
     if (!detail || !detail.id) return;
     (async () => {
       await tick();
-      if (type === 'character' && creationState.activeTabKey === 'npc') {
-        legacyCall('authorLoadGoals', detail.id);
-      }
       if (type === 'faction') {
         loadFactionMembersPanel(detail.id);
-      }
-      if (type === 'location') {
-        legacyCall('authorLoadDiscDetails', detail.id);
       }
     })();
   });
@@ -586,12 +585,14 @@
 
       {#if !isNew}
         <div class="field-section"><div class="field-section-title">Relations</div>
-          <div id="author-relations">{@html legacyCall('authorRenderRelations', detail.relations)}</div>
-          {@html legacyCall('authorRenderRelationForm')}
+          <RelationsEditor relations={detail.relations} entityId={detail.id} entities={creationState.entities}
+            typeOptions={registry.relation_fields.find((f) => f.name === 'type').options || []}
+            {legacyDoc} onSaved={(d) => flushSync(() => enterViewMode(d, d.type))} />
         </div>
         <div class="field-section"><div class="field-section-title">Knowledge</div>
-          <div id="author-knowledge">{@html legacyCall('authorRenderKnowledge', detail.knowledge)}</div>
-          {@html legacyCall('authorRenderKnowledgeForm')}
+          <KnowledgeEditor knowledge={detail.knowledge} entityId={detail.id}
+            levelOptions={registry.knowledge_fields.find((f) => f.name === 'level').options}
+            {legacyDoc} onSaved={(d) => flushSync(() => enterViewMode(d, d.type))} />
         </div>
       {/if}
 
@@ -637,17 +638,15 @@
         <div class="field-section">
           <div class="field-section-title" style="display:flex; align-items:center; justify-content:space-between;">
             Objectifs
-            <button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick={() => legacyCall('authorBackfillGoals', detail.id)}>Générer les buts</button>
+            <button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick={() => backfillGoals(legacyDoc, detail.id)}>Générer les buts</button>
           </div>
-          <div id="author-goals"><div class="empty"><span class="spin">⟳</span></div></div>
-          {@html legacyCall('authorRenderGoalForm')}
+          <GoalsEditor entityId={detail.id} {legacyDoc} />
         </div>
       {/if}
 
       {#if !isNew && type === 'location'}
         <div class="field-section"><div class="field-section-title">Discoverable Details</div>
-          <div id="author-disc-list"><div class="empty"><span class="spin">⟳</span></div></div>
-          {@html legacyCall('authorRenderDiscDetailForm', detail.id, detail.world_id)}
+          <DiscDetailsEditor entityId={detail.id} worldId={detail.world_id} />
         </div>
       {/if}
     {/if}

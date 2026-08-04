@@ -159,6 +159,56 @@ export const CREATION_ISLANDS = Object.freeze({
       '_evenementsRenderChips',
       'loadEventsList',
       'renderEventSheet',
+      // BRIEF-0059-c: relations in-context editor -- ported to
+      // RelationsEditor.svelte, sharing sheetRequest.svelte.js with the
+      // knowledge editor below.
+      'authorRenderRelations',
+      'authorRenderRelationForm',
+      'authorAddRelation',
+      'authorUpdateRelation',
+      'authorDeleteRelation',
+      'authorRelationRequest',
+      'RELATION_DIRECTIONS',
+      // BRIEF-0059-c: knowledge in-context editor -- ported to
+      // KnowledgeEditor.svelte, sharing sheetRequest.svelte.js with the
+      // relations editor above.
+      'authorRenderKnowledge',
+      'authorRenderKnowledgeForm',
+      'authorAddKnowledge',
+      'authorUpdateKnowledge',
+      'authorDeleteKnowledge',
+      'authorKnowledgeRequest',
+      // BRIEF-0059-d: goals in-context editor -- ported to
+      // GoalsEditor.svelte/goalsPanel.svelte.js, reusing sheetRequest.svelte.js.
+      // _goalPrereqRawList (index.html) is not author*-prefixed but is
+      // exclusively used by this family (RECON-0059-a M2 / SUPPLEMENT
+      // Amendment 8) -- named here so rule 7 still proves it gone.
+      'authorLoadGoals',
+      'authorRenderGoals',
+      'authorRenderGoalPrerequisites',
+      '_goalPrereqRawList',
+      'authorAddGoalPrerequisite',
+      'authorRemoveGoalPrerequisite',
+      'authorSetGoalPrerequisites',
+      'authorAttachGoalLink',
+      'authorDetachGoalLink',
+      'authorRenderGoalForm',
+      'authorAddGoal',
+      'authorSetGoalStatus',
+      'authorBackfillGoals',
+      'authorGoalRequest',
+      // BRIEF-0059-d: discoverable-details in-context editor -- ported to
+      // DiscDetailsEditor.svelte (self-contained, never touched the shared
+      // #author-status line, so no sheetRequest.svelte.js dependency).
+      'authorLoadDiscDetails',
+      'authorRenderDiscDetails',
+      'authorRenderDiscDetailRow',
+      'authorRenderDiscDetailForm',
+      'authorAddDiscDetail',
+      'authorDeleteDiscDetail',
+      'authorResetDiscDetail',
+      'authorEditDiscDetail',
+      'authorSaveDiscDetail',
     ],
   }),
   // BRIEF-0058-i (per RECON-SUPPLEMENT-0058's re-scope): region generation
