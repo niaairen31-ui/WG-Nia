@@ -2,12 +2,12 @@
 id: TICKET-0059
 title: Creation periphery migration and legacy mount retirement
 type: feature
-status: exec   # briefs a-d executed and merged to main via PR #79; -e onward pending
+status: exec   # briefs a-d merged to main via PR #79; e-g executed this PR; -h onward pending
 created: 2026-08-03
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
 blast_radius: large
-brief_ids: [BRIEF-0059-a, BRIEF-0059-b, BRIEF-0059-c, BRIEF-0059-d, BRIEF-0059-e]
+brief_ids: [BRIEF-0059-a, BRIEF-0059-b, BRIEF-0059-c, BRIEF-0059-d, BRIEF-0059-e, BRIEF-0059-f, BRIEF-0059-g]
 schema_version_touched:
 retry_count: 0
 ---
