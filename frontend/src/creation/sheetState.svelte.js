@@ -130,3 +130,12 @@ export async function selectEntity(legacyDoc, id) {
 export function getSelectedEntityId() {
   return creationState.selectedEntityId;
 }
+
+/** index.html's authorDelete soft-delete POST, ported -- same endpoint, same
+ *  confirmation gate (kept in Sheet.svelte, the caller, since `confirm()`
+ *  and the status-line write are DOM/UI concerns the old function also mixed
+ *  in). Sheet.svelte re-selects the entity right after, same as
+ *  authorDelete's own `await authorSelectEntity(authorEntityId);` tail. */
+export async function deleteEntity(id) {
+  await api(`/api/entities/${encodeURIComponent(id)}/delete`, { method: 'POST' });
+}

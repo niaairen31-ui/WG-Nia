@@ -220,9 +220,13 @@ export const CREATION_ISLANDS = Object.freeze({
       '_authorConsumePendingCreationMutationId',
       '_authorNotifySaved',
       // BRIEF-0059-e commit 2: selection -- ported to sheetState.svelte.js's
-      // selectEntity/getSelectedEntityId. authorDelete (commit 3) follows.
+      // selectEntity/getSelectedEntityId.
       'authorSelectEntity',
       'authorGetSelectedEntityId',
+      // BRIEF-0059-e commit 3: soft delete -- ported to Sheet.svelte's
+      // deleteSheetEntity/sheetState.svelte.js's deleteEntity; the delete
+      // button moved out of the static legacy header into the component.
+      'authorDelete',
     ],
   }),
   // BRIEF-0058-i (per RECON-SUPPLEMENT-0058's re-scope): region generation

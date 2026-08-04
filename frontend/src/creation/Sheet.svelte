@@ -83,7 +83,7 @@
   import GoalsEditor from './GoalsEditor.svelte';
   import { backfillGoals } from './goalsPanel.svelte.js';
   import DiscDetailsEditor from './DiscDetailsEditor.svelte';
-  import { resetCreateDrafts, getPendingCreationMutationId, consumePendingCreationMutationId, setPendingCreationMutationId, notifySaved, selectEntity } from './sheetState.svelte.js';
+  import { resetCreateDrafts, getPendingCreationMutationId, consumePendingCreationMutationId, setPendingCreationMutationId, notifySaved, selectEntity, deleteEntity } from './sheetState.svelte.js';
 
   let { legacyDoc } = $props();
 
@@ -265,38 +265,39 @@
     applyGeneratedDraft(legacyDoc, ev.detail.entityType, ev.detail.result);
   });
 
-  // Sibling header chrome (title/status/save/delete) lives OUTSIDE
-  // #author-main -- authorRenderSheet always reached out to it too. Only
-  // touched for 'empty'/'view': 'loading'/'error' leave it exactly as
-  // authorSelectEntity's spinner/catch branches always did (untouched),
-  // and 'legacy' is legacy code's own job (renderAgendaSheet et al. already
-  // set these themselves, unchanged).
+  // Sibling header chrome (title/status/save) lives OUTSIDE #author-main --
+  // authorRenderSheet always reached out to it too. Delete is no longer
+  // part of this header band (TICKET-0059, BRIEF-0059-e): it moved into
+  // this component's own template, rendered/hidden declaratively off the
+  // same isNew/type conditions this effect used to imperatively toggle it
+  // with. Only touched for 'empty'/'view': 'loading'/'error' leave it
+  // exactly as the old loader's spinner/catch branches always did
+  // (untouched), and 'legacy' is legacy code's own job (renderAgendaSheet
+  // et al. already set these themselves, unchanged).
   $effect(() => {
     const mode = creationState.sheetMode;
     if (mode !== 'empty' && mode !== 'view') return;
     const titleEl = legacyDoc.getElementById('author-sheet-title');
     const statusEl = legacyDoc.getElementById('author-status');
     const saveBtn = legacyDoc.getElementById('author-save-btn');
-    const deleteBtn = legacyDoc.getElementById('author-delete-btn');
     if (mode === 'empty') {
       if (titleEl) titleEl.textContent = EMPTY_TITLE_BY_TAB[creationState.activeTabKey] || 'Sélectionner une entité';
       if (statusEl) statusEl.textContent = '';
       if (saveBtn) saveBtn.style.display = 'none';
-      if (deleteBtn) deleteBtn.style.display = 'none';
       return;
     }
     const isNewSheet = creationState.sheetIsNew;
     // evenements (BRIEF-0058-j): `event` carries no ENTITY_TYPE_REGISTRY
     // row, so there is no typeInfo.label to read -- title comes straight
-    // off the record, delete never shows (C3, no event delete surface
-    // exists), and save is hidden on create (the inline "+ Créer
+    // off the record, and save is hidden on create (the inline "+ Créer
     // l'événement" button is the create-time submit, matching every other
-    // bespoke createPanel's own posture).
+    // bespoke createPanel's own posture). Delete never shows for events (C3,
+    // no event delete surface exists) -- by construction, since the
+    // template's delete button lives outside this branch entirely.
     if (creationState.activeTabKey === 'evenements') {
       if (titleEl) titleEl.textContent = isNewSheet ? 'Nouvel événement' : (creationState.sheetDetail.title || '');
       if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = ''; }
       if (saveBtn) saveBtn.style.display = isNewSheet ? 'none' : '';
-      if (deleteBtn) deleteBtn.style.display = 'none';
       return;
     }
     if (!registry) return;
@@ -310,7 +311,6 @@
     }
     if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = ''; }
     if (saveBtn) saveBtn.style.display = '';
-    if (deleteBtn) deleteBtn.style.display = isNewSheet ? 'none' : '';
   });
 
   // The tail authorRenderSheet always ran inline after building its HTML --
@@ -507,6 +507,26 @@
     }
   }
 
+  /** index.html's authorDelete, ported (TICKET-0059, BRIEF-0059-e): a soft
+   *  delete via the same POST /api/entities/{id}/delete endpoint, same
+   *  confirmation text verbatim, same creationRefreshList + re-select
+   *  sequence. The confirmation text stays unchanged -- history is sacred
+   *  (relations/knowledge are preserved, and this is reversible). */
+  async function deleteSheetEntity() {
+    if (!creationState.sheetDetail || !creationState.sheetDetail.id) return;
+    if (!confirm('Set this entity to inactive (soft delete)? Relations and knowledge are preserved, and this is reversible.')) return;
+    const id = creationState.sheetDetail.id;
+    const statusEl = legacyDoc.getElementById('author-status');
+    try {
+      await deleteEntity(id);
+      legacyCall('creationRefreshList'); // TICKET-0058 (BRIEF-0058-e): see regionCommit's identical comment; a third baselined call site (this island already had two)
+      await selectEntity(legacyDoc, id);
+      if (statusEl) { statusEl.className = 'author-status ok'; statusEl.textContent = 'Marked inactive.'; }
+    } catch (e) {
+      if (statusEl) { statusEl.className = 'author-status err'; statusEl.textContent = e.message; }
+    }
+  }
+
   const mode = $derived(creationState.sheetMode);
   const isNew = $derived(creationState.sheetIsNew);
   const type = $derived(creationState.sheetType);
@@ -543,6 +563,12 @@
       <Evenements {legacyDoc} {isNew} event={detail} entities={creationState.entities}
         eventFields={registry.event_fields} onSave={saveSheet} />
     {:else}
+      {#if !isNew}
+        <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">
+          <button class="btn-end" id="author-delete-btn" onclick={deleteSheetEntity}>Delete</button>
+        </div>
+      {/if}
+
       {#if showGeneratePanel}
         <GeneratePanel {legacyDoc} {type} />
       {/if}
