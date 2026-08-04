@@ -219,6 +219,10 @@ export const CREATION_ISLANDS = Object.freeze({
       '_authorGetPendingCreationMutationId',
       '_authorConsumePendingCreationMutationId',
       '_authorNotifySaved',
+      // BRIEF-0059-e commit 2: selection -- ported to sheetState.svelte.js's
+      // selectEntity/getSelectedEntityId. authorDelete (commit 3) follows.
+      'authorSelectEntity',
+      'authorGetSelectedEntityId',
     ],
   }),
   // BRIEF-0058-i (per RECON-SUPPLEMENT-0058's re-scope): region generation

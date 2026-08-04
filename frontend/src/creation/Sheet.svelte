@@ -83,7 +83,7 @@
   import GoalsEditor from './GoalsEditor.svelte';
   import { backfillGoals } from './goalsPanel.svelte.js';
   import DiscDetailsEditor from './DiscDetailsEditor.svelte';
-  import { resetCreateDrafts, getPendingCreationMutationId, consumePendingCreationMutationId, setPendingCreationMutationId, notifySaved } from './sheetState.svelte.js';
+  import { resetCreateDrafts, getPendingCreationMutationId, consumePendingCreationMutationId, setPendingCreationMutationId, notifySaved, selectEntity } from './sheetState.svelte.js';
 
   let { legacyDoc } = $props();
 
@@ -189,25 +189,24 @@
     });
   });
 
-  legacyDoc.addEventListener('creation:sheet-loading', () => {
-    creationState.sheetMode = 'loading';
-  });
-
-  legacyDoc.addEventListener('creation:sheet-error', (ev) => {
-    flushSync(() => {
-      creationState.sheetMode = 'error';
-      creationState.sheetErrorMessage = ev.detail.message;
-    });
-  });
-
-  // authorSelectEntity dispatches this on fetch success for every tab whose
-  // registry entry has no bespoke sheetRenderer (i.e. every core type);
   // authorPriceListMutate/authorSaveSubcultureRowsData/authorSaveGeometry/
-  // authorSaveDoors (brief -g sub-editors, unmigrated) dispatch the same
-  // event to refresh the sheet with their own PUT response, replacing their
-  // former direct authorRenderSheet(detail, false, detail.type) call.
+  // authorSaveDoors (brief -g sub-editors, unmigrated) dispatch this to
+  // refresh the sheet with their own PUT response, replacing their former
+  // direct authorRenderSheet(detail, false, detail.type) call.
   legacyDoc.addEventListener('creation:sheet-detail', (ev) => {
     flushSync(() => { enterViewMode(ev.detail.detail, ev.detail.type); });
+  });
+
+  // TICKET-0059 (BRIEF-0059-e): the entity sheet's own loader,
+  // sheetState.svelte.js's selectEntity, writes creationState directly
+  // instead of round-tripping through 'creation:sheet-loading'/'creation:
+  // sheet-error' -- those two existed only for authorSelectEntity to
+  // dispatch-then-listen back into this same island, which is pointless now
+  // that the loader itself is Svelte. This is the reverse-bridge counterpart
+  // for the two still-legacy callers (creationOpenEntityFrom,
+  // creationReturnToOrigin) that can't reach selectEntity by import.
+  legacyDoc.addEventListener('creation:select-entity', (ev) => {
+    selectEntity(legacyDoc, ev.detail.id);
   });
 
   // generatePendingCreation (the "Créations en attente" card's generate
@@ -229,7 +228,7 @@
   // -- dispatch this immediately before rendering their own markup into
   // #author-legacy-sheet-slot, so that node exists under "legacy" display
   // before their innerHTML write. creationNewEntity does this for the
-  // create-panel path; authorSelectEntity does it for entry.sheetRenderer
+  // create-panel path; creationSelectRecord does it for entry.sheetRenderer
   // (intrigues' view path).
   legacyDoc.addEventListener('creation:sheet-legacy-active', () => {
     flushSync(() => { creationState.sheetMode = 'legacy'; });

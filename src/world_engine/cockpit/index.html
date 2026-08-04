@@ -3226,19 +3226,24 @@ function markCardDone(id, newStatus) {
 let authorRegistry    = null;  // cached /api/entity-types response
 let authorAllEntities = [];    // flat list, used for entity_ref pickers and relation targets
 let authorTypeFilter  = '';    // '' = all types
-let authorEntityId    = null;  // currently displayed entity id, or null when creating
-let authorEntityType  = null;  // type of the entity currently displayed
 
-/** TICKET-0058 (BRIEF-0058-c). `authorEntityId` is a bare `let` -- never a
- *  `window` property -- so the shell's relations graph consumer (which
- *  reads legacy state only through frontend/src/legacy/bridge.js) needs a
- *  plain function-declaration accessor to reach it at all. */
-function authorGetSelectedEntityId() { return authorEntityId; }
+/* TICKET-0059 (BRIEF-0059-e): authorEntityId/authorEntityType and
+ * authorGetSelectedEntityId are gone -- the entity sheet's own selection
+ * moved to frontend/src/creation/sheetState.svelte.js (selectEntity/
+ * getSelectedEntityId), the one authority for it now. creationSelectedEntityId
+ * below is NOT a second authority for that fact: it is a passive mirror,
+ * kept in sync by the 'creation:selection' listener a few functions down,
+ * that exists ONLY because creationOpenEntityFrom/creationReturnToOrigin
+ * (chrome, Scope OUT of this brief, still legacy until -l) cannot import a
+ * Svelte module and need a synchronous read of "what's currently selected"
+ * to build their own return-crumb. It dies with them at -l. */
+let creationSelectedEntityId = null;
 
 // Generic selected-record id (BRIEF-0021-a) — the sheetRenderer-seam
-// counterpart of authorEntityId, for non-entity list+detail tabs (Intrigues)
-// whose rows carry full data already, no per-row fetch. Only one such tab
-// is ever visible at a time, so one shared id is enough (no second dispatcher).
+// counterpart of creationSelectedEntityId, for non-entity list+detail tabs
+// (Intrigues) whose rows carry full data already, no per-row fetch. Only one
+// such tab is ever visible at a time, so one shared id is enough (no second
+// dispatcher).
 let creationSelectedRecordId = null;
 
 /* Lieux hierarchy browse state (BRIEF-51) moved to frontend/src/creation/
@@ -4163,11 +4168,12 @@ function _renderOnDemandToggles(entry) {
 }
 
 function _entityTabEnterReset() {
-  authorEntityId   = null;
-  authorEntityType = null;
   creationRenderReturnControl();
   // TICKET-0058 (BRIEF-0058-e): tells the entity-list island to drop its
   // active-row highlight — a fresh tab always starts unselected.
+  // TICKET-0059 (BRIEF-0059-e): also the sole update path for
+  // creationSelectedEntityId now (the 'creation:selection' listener below
+  // mirrors every dispatch of this event, this one included).
   document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
   // TICKET-0058 (BRIEF-0058-f): #author-main is the entitySheet island's
   // mount root now — title/save/delete/body reset moved into Sheet.svelte's
@@ -4992,8 +4998,8 @@ function renderAgendaSheet(agenda) {
     </div>`;
   }
   // TICKET-0058 (BRIEF-0058-f): see pjRenderCreatePanel's identical note --
-  // authorSelectEntity/creationSelectRecord dispatch 'creation:sheet-legacy-
-  // active' before calling this (entry.sheetRenderer).
+  // creationSelectRecord dispatches 'creation:sheet-legacy-active' before
+  // calling this (entry.sheetRenderer).
   document.getElementById('author-legacy-sheet-slot').innerHTML = html;
 }
 
@@ -6186,46 +6192,36 @@ async function generatePendingCreation(mutationId) {
 
 /** Re-render the sheet for a new entity when the type selector changes. */
 /** BRIEF-0058-f: fetches the same detail row as always; #author-main is the
- *  entitySheet island's mount root now, so the spinner/error/render steps
- *  that used to write into it directly instead dispatch to Sheet.svelte.
- *  An entry with a bespoke sheetRenderer (intrigues/evenements) is told to
- *  switch the island into 'legacy' mode first (flushSync inside the
- *  listener guarantees #author-legacy-sheet-slot exists before
- *  entry.sheetRenderer's own innerHTML write runs, synchronously, right
- *  below) — every other entry (core types) dispatches 'creation:sheet-
- *  detail' instead, which Sheet.svelte renders with the ported field
- *  engine. authorEntityId/authorEntityType stay set here (not inside
- *  Sheet.svelte, which cannot reach these bare `let` bindings) — every
- *  other legacy reader (authorGetSelectedEntityId, authorDelete, ...)
- *  still resolves them here, unchanged. */
-async function authorSelectEntity(id) {
-  document.dispatchEvent(new CustomEvent('creation:sheet-loading'));
-  try {
-    const detail = await api(`/api/entities/${encodeURIComponent(id)}`);
-    authorEntityId   = id;
-    authorEntityType = detail.type;
-    const entry = CREATION_TABS[currentCreationSubTab];
-    if (entry && entry.sheetRenderer) {
-      document.dispatchEvent(new CustomEvent('creation:sheet-legacy-active'));
-      entry.sheetRenderer(detail);
-    } else {
-      document.dispatchEvent(new CustomEvent('creation:sheet-detail', { detail: { detail, type: detail.type } }));
-    }
-    // TICKET-0058 (BRIEF-0058-e): the entity-list island re-renders its own
-    // active-row highlight reactively off this, in place of the deleted
-    // authorRenderEntityList() call.
-    document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: id, recordId: null } }));
-    (entry ? entry.slots || [] : []).forEach(s => { if (s.onSelect) s.onSelect(id); });
-  } catch (e) {
-    document.dispatchEvent(new CustomEvent('creation:sheet-error', { detail: { message: e.message } }));
-  }
-  creationRenderReturnControl();
-}
+ *  entitySheet island's mount root now — the spinner/error/render steps
+ *  moved into frontend/src/creation/sheetState.svelte.js's selectEntity
+ *  (TICKET-0059, BRIEF-0059-e), a plain Svelte-to-Svelte call from
+ *  EntityList.svelte's own row click. authorSelectEntity itself is gone;
+ *  what's left here is the listener below, reacting to the SAME
+ *  'creation:selection' dispatch selectEntity still fires on legacyDoc --
+ *  it used to be inline in authorSelectEntity's own body, now it's the
+ *  reverse-bridge side of that same fact for the readers that haven't
+ *  migrated yet. */
 
 /* TICKET-0059 (BRIEF-0059-e): _authorNotifySaved moved into
  * frontend/src/creation/sheetState.svelte.js as notifySaved(legacyDoc, id) --
  * authorEntityType (its other half) had zero readers anywhere in the tree
  * and is dropped, not ported. */
+
+/** Mirrors creationSelectedEntityId off every 'creation:selection' dispatch
+ *  (selectEntity, creationSelectRecord, the *TabEnterReset family) and, for
+ *  an actual entity pick (entityId non-null — a record-based pick like
+ *  creationSelectRecord's never triggered this work either, before this
+ *  brief), re-runs the two side effects authorSelectEntity used to run
+ *  inline: notifying the active tab's own slots (e.g. npc's relgraph slot
+ *  invalidating the relations graph so ego mode re-centres) and refreshing
+ *  the return-crumb control. TICKET-0059 (BRIEF-0059-e). */
+document.addEventListener('creation:selection', (ev) => {
+  creationSelectedEntityId = ev.detail.entityId ?? null;
+  if (creationSelectedEntityId == null) return;
+  const entry = CREATION_TABS[currentCreationSubTab];
+  (entry ? entry.slots || [] : []).forEach(s => { if (s.onSelect) s.onSelect(creationSelectedEntityId); });
+  creationRenderReturnControl();
+});
 
 /** Resolves the sub-tab that owns an entity (TICKET-0054, decision F2a).
  *  npc and pj both declare type 'character'; playerCharIds is the
@@ -6257,11 +6253,18 @@ async function creationOpenEntityFrom(entityId, entityType) {
     }
     return;
   }
-  const origin = authorEntityId ? { tabId: currentCreationSubTab, entityId: authorEntityId } : null;
+  const origin = creationSelectedEntityId ? { tabId: currentCreationSubTab, entityId: creationSelectedEntityId } : null;
   showCreationSubTab(tab);
   if (currentCreationSubTab !== tab) return;
   creationReturnTo = origin;
-  await authorSelectEntity(entityId);
+  // TICKET-0059 (BRIEF-0059-e): authorSelectEntity is gone -- the sheet's
+  // own loader is Svelte now (sheetState.svelte.js's selectEntity), reached
+  // from this still-legacy chrome function via the same reverse-bridge
+  // dispatch Sheet.svelte's 'creation:select-entity' listener picks up. Not
+  // awaited (the fetch it triggers is async); the explicit
+  // creationRenderReturnControl() call right below already covers the
+  // visible refresh this function needs, same as before.
+  document.dispatchEvent(new CustomEvent('creation:select-entity', { detail: { id: entityId } }));
   creationRenderReturnControl();
 }
 
@@ -6273,12 +6276,14 @@ async function creationReturnToOrigin() {
   if (!back) return;
   showCreationSubTab(back.tabId);
   if (currentCreationSubTab !== back.tabId) return;
-  await authorSelectEntity(back.entityId);
+  // TICKET-0059 (BRIEF-0059-e): see creationOpenEntityFrom's identical note.
+  document.dispatchEvent(new CustomEvent('creation:select-entity', { detail: { id: back.entityId } }));
   creationRenderReturnControl();
 }
 
 /** Toggles the sheet header's return control — every entity tab inherits
- *  it (called from authorSelectEntity and _entityTabEnterReset), not just
+ *  it (called from the 'creation:selection' listener above and
+ *  _entityTabEnterReset), not just
  *  factions. Hidden when creationReturnTo is null. */
 function creationRenderReturnControl() {
   const btn = document.getElementById('author-return-btn');
@@ -6294,15 +6299,15 @@ function creationRenderReturnControl() {
 }
 
 /** Generic record selection (BRIEF-0021-a): the sheetRenderer-seam
- *  counterpart of authorSelectEntity for non-entity list+detail tabs whose
- *  rows already carry full data — no per-row fetch. A registered caller
- *  either declares a bespoke sheetRenderer (intrigues — stays legacy) or
- *  doesn't (evenements, since BRIEF-0058-j), in which case this dispatches
- *  'creation:record-detail' for Sheet.svelte to render natively — the same
- *  if/else shape authorSelectEntity already uses for 'creation:sheet-detail'
- *  vs. a bespoke sheetRenderer. Either way, the tab's list re-renders so the
- *  clicked row shows selected (creationSelectedRecordId is the
- *  authorEntityId equivalent for these tabs). */
+ *  counterpart of sheetState.svelte.js's selectEntity (TICKET-0059,
+ *  BRIEF-0059-e) for non-entity list+detail tabs whose rows already carry
+ *  full data — no per-row fetch. A registered caller either declares a
+ *  bespoke sheetRenderer (intrigues — stays legacy) or doesn't (evenements,
+ *  since BRIEF-0058-j), in which case this dispatches 'creation:record-detail'
+ *  for Sheet.svelte to render natively — the same if/else shape a bespoke
+ *  sheetRenderer takes there. Either way, the tab's list re-renders so the
+ *  clicked row shows selected (creationSelectedRecordId is
+ *  creationSelectedEntityId's equivalent for these tabs). */
 function creationSelectRecord(tabId, record) {
   const entry = CREATION_TABS[tabId];
   if (!entry) return;
@@ -6480,8 +6485,7 @@ let pcDraftKnowledge = [];
  *  #pj-create-block collapsed panel; a fresh click always starts blank,
  *  matching every other entity type's new-entity form. */
 function pjRenderCreatePanel() {
-  authorEntityId   = null;
-  authorEntityType = 'character';
+  creationSelectedEntityId = null;
   pcDraftKnowledge = [];
 
   const titleEl = document.getElementById('author-sheet-title');
