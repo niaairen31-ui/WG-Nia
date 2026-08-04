@@ -21,27 +21,33 @@
      null/undefined, never against ''. */
   let { entityId, relations, doors, legacyDoc, onSaved } = $props();
 
-  let neighbours = $state([]);
-  let orphans = $state([]);
+  // TICKET-0062. neighbours and orphans are pure derivations of props, not
+  // state. They were $state, and resetFromProps assigned `neighbours` and
+  // then read it inside the same $effect body -- once `neighbours` became a
+  // dependency of that effect, every run rescheduled the effect with a
+  // fresh array, so it never converged and Svelte threw
+  // effect_update_depth_exceeded during the flush. That throw aborted the
+  // whole flush, which is why sibling editors on the location sheet
+  // (Relations, Knowledge, Discoverable details) silently stopped
+  // repainting. Only `values` is state here: it is seeded from props and
+  // then edited by the user.
+  let neighbours = $derived((relations || [])
+    .filter((r) => r.type === 'connects_to')
+    .map((r) => ({ id: r.other_entity_id, name: r.other_entity_name })));
+  let orphans = $derived((doors || []).filter((d) => !d.edge_live));
+
   let values = $state({});
 
-  function resetFromProps(rels, doorRows) {
-    neighbours = (rels || [])
-      .filter((r) => r.type === 'connects_to')
-      .map((r) => ({ id: r.other_entity_id, name: r.other_entity_name }));
-    orphans = (doorRows || []).filter((d) => !d.edge_live);
-
+  $effect.pre(() => {
     const doorsByTarget = {};
-    (doorRows || []).forEach((d) => { doorsByTarget[d.target_location_id] = d; });
+    (doors || []).forEach((d) => { doorsByTarget[d.target_location_id] = d; });
     const next = {};
     neighbours.forEach((n) => {
       const d = doorsByTarget[n.id];
       next[n.id] = { x: d ? d.x : null, y: d ? d.y : null };
     });
     values = next;
-  }
-
-  $effect(() => { resetFromProps(relations, doors); });
+  });
 
   async function save() {
     const statusEl = legacyDoc.getElementById('author-status');
@@ -66,8 +72,7 @@
     }
   }
 
-  function removeOrphan(id) {
-    orphans = orphans.filter((d) => d.id !== id);
+  function removeOrphan() {
     save();
   }
 </script>
@@ -76,7 +81,7 @@
   {#each orphans as d (d.id)}
     <div class="field-row" style="flex-direction:row; gap:8px; align-items:center; margin-bottom:6px; opacity:0.75">
       <span style="flex:1">⚠ lien connects_to absent — cette porte est ignorée en jeu. Supprimez-la ou recréez le lien. ({d.target_name})</span>
-      <button class="btn-icon" onclick={() => removeOrphan(d.id)} title="Supprimer">✕</button>
+      <button class="btn-icon" onclick={removeOrphan} title="Supprimer">✕</button>
     </div>
   {/each}
 {/if}
