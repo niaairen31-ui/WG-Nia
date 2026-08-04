@@ -2,7 +2,7 @@
 id: TICKET-0062
 title: Location sheet effect cycle — async state updates do not paint
 type: bug
-status: verify   # green; rides on ticket/0059's PR/live-gate (K1/K2) -- no dedicated PR
+status: live-gate   # PR #80 (from ticket/0059 branch, per K1/K2) awaits Nia's play-test
 created: 2026-08-03
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
