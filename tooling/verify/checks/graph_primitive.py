@@ -146,6 +146,9 @@ GONE_PLAIN = [
     "linkAgentOpenBatchId", "linkAgentBatch", "linkAgentRows",
     "linkAgentNpcNames", "linkAgentLoopRunning", "linkAgentFailedPair",
     "linkAgentCommitResult",
+    # TICKET-0059 (BRIEF-0059-h commit 2): the Artefacts tab, converged onto
+    # frontend/src/creation/Artefacts.svelte.
+    "loadCreationArtefacts", "CREATION_ARTEFACTS_NOTICE",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from

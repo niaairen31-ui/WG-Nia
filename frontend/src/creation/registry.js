@@ -306,6 +306,16 @@ export const CREATION_ISLANDS = Object.freeze({
   // functions' identifiers, the same shape npcAgent's own retiredPrefixes
   // grew across BRIEF-0059-f. linkAgentToggle/linkAgentOpen are the two
   // survivors (chrome, not migrated) and are deliberately absent here.
+  // BRIEF-0059-h commit 2: the Artefacts tab -- ported wholesale to
+  // Artefacts.svelte, following region's own "archetype: 'bespoke' with an
+  // island slot" precedent exactly. Read-only, one function, no legacyCall
+  // sites to prune.
+  artefacts: Object.freeze({
+    containerId: 'creation-artefacts',
+    component: 'Artefacts.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: ['loadCreationArtefacts', 'CREATION_ARTEFACTS_NOTICE'],
+  }),
   linkAgent: Object.freeze({
     containerId: 'linkagent-panel',
     component: 'LinkAgent.svelte',

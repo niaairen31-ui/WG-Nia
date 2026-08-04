@@ -1395,12 +1395,10 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     </div><!-- .right-col -->
   </div><!-- #creation-editor-area -->
 
-  <!-- ── Artefacts sub-tab ── -->
-  <div id="creation-artefacts" style="display:none">
-    <div id="creation-artefacts-list">
-      <div class="empty"><span class="spin">⟳</span></div>
-    </div>
-  </div><!-- #creation-artefacts -->
+  <!-- ── Artefacts sub-tab (TICKET-0059, BRIEF-0059-h) — Svelte island: read-only
+       list, empty by construction (Svelte mount() appends, it never clears a
+       target's children) ── -->
+  <div id="creation-artefacts" style="display:none"></div><!-- #creation-artefacts -->
 
   <!-- ── Compétences sub-tab (BRIEF-56) — world-scoped custom skill catalogue ── -->
   <div id="creation-competences" style="display:none">
@@ -4394,8 +4392,9 @@ const CREATION_TABS = {
     label: 'Artefacts',
     archetype: 'entity', // degenerate: no create control, own container/loader (BRIEF-0005-a item 7)
     containers: ['creation-artefacts'],
-    loader: loadCreationArtefacts,
+    loader: null,
     state: { onTabEnter: null, onWorldSwitch: null },
+    islands: [{ key: 'artefacts', containerId: 'creation-artefacts' }],
     createPanel: null,
     primaryAction: null, // enabling artifact creation later = filling this in
   },
@@ -5226,31 +5225,6 @@ async function intriguesSubmitCreate() {
  * through /api/events (POST create, PUT update) — writes.write_event /
  * write_event_update server-side, unchanged. No delete anywhere on this
  * tab (C3): retraction is knowledge_status = 'secret'. */
-
-const CREATION_ARTEFACTS_NOTICE =
-  '<p style="font-style:italic; color:var(--muted); margin-bottom:16px">' +
-  "La création et l'édition d'artefacts arriveront dans une étape ultérieure (support backend requis)." +
-  '</p>';
-
-async function loadCreationArtefacts() {
-  const listEl = document.getElementById('creation-artefacts-list');
-  listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
-  try {
-    const rows = await api('/api/entities?type=artifact');
-    if (!rows || !rows.length) {
-      listEl.innerHTML = CREATION_ARTEFACTS_NOTICE + '<div class="empty">Aucun artefact dans la base.</div>';
-      return;
-    }
-    listEl.innerHTML = CREATION_ARTEFACTS_NOTICE + '<div class="row-table">' + rows.map(a => `
-      <div class="row-card">
-        <div style="font-weight:600">${esc(a.name)}</div>
-        ${a.description ? `<div style="font-size:12px; color:var(--muted); white-space:pre-wrap">${esc(a.description)}</div>` : ''}
-        <div style="font-size:11px; color:var(--muted)">${esc(a.status || '')}</div>
-      </div>`).join('') + '</div>';
-  } catch (_) {
-    listEl.innerHTML = CREATION_ARTEFACTS_NOTICE + '<div class="empty">Aucun artefact disponible.</div>';
-  }
-}
 
 /* ── Prompts (BRIEF-0008-b) — read-only master list + one detail at a time ──
  * promptsUsages holds GET /api/prompts's raw response (no template bodies —
