@@ -83,6 +83,7 @@
   import GoalsEditor from './GoalsEditor.svelte';
   import { backfillGoals } from './goalsPanel.svelte.js';
   import DiscDetailsEditor from './DiscDetailsEditor.svelte';
+  import { resetCreateDrafts, getPendingCreationMutationId, consumePendingCreationMutationId, setPendingCreationMutationId, notifySaved, selectEntity, deleteEntity } from './sheetState.svelte.js';
 
   let { legacyDoc } = $props();
 
@@ -169,7 +170,7 @@
    *  plain "+ Nouveau" idiom every entity tab shared before this brief),
    *  via the same legacy helper so the two paths never drift. */
   export function primaryAction() {
-    legacyCall('_authorResetCreateDrafts');
+    resetCreateDrafts();
     resetDraftRoles();
     resetSubcultureDraft();
     resetPendingDrafts();
@@ -179,6 +180,7 @@
   }
 
   legacyDoc.addEventListener('creation:sheet-reset', () => {
+    resetCreateDrafts();
     flushSync(() => {
       creationState.sheetMode = 'empty';
       creationState.sheetDetail = null;
@@ -187,25 +189,24 @@
     });
   });
 
-  legacyDoc.addEventListener('creation:sheet-loading', () => {
-    creationState.sheetMode = 'loading';
-  });
-
-  legacyDoc.addEventListener('creation:sheet-error', (ev) => {
-    flushSync(() => {
-      creationState.sheetMode = 'error';
-      creationState.sheetErrorMessage = ev.detail.message;
-    });
-  });
-
-  // authorSelectEntity dispatches this on fetch success for every tab whose
-  // registry entry has no bespoke sheetRenderer (i.e. every core type);
   // authorPriceListMutate/authorSaveSubcultureRowsData/authorSaveGeometry/
-  // authorSaveDoors (brief -g sub-editors, unmigrated) dispatch the same
-  // event to refresh the sheet with their own PUT response, replacing their
-  // former direct authorRenderSheet(detail, false, detail.type) call.
+  // authorSaveDoors (brief -g sub-editors, unmigrated) dispatch this to
+  // refresh the sheet with their own PUT response, replacing their former
+  // direct authorRenderSheet(detail, false, detail.type) call.
   legacyDoc.addEventListener('creation:sheet-detail', (ev) => {
     flushSync(() => { enterViewMode(ev.detail.detail, ev.detail.type); });
+  });
+
+  // TICKET-0059 (BRIEF-0059-e): the entity sheet's own loader,
+  // sheetState.svelte.js's selectEntity, writes creationState directly
+  // instead of round-tripping through 'creation:sheet-loading'/'creation:
+  // sheet-error' -- those two existed only for authorSelectEntity to
+  // dispatch-then-listen back into this same island, which is pointless now
+  // that the loader itself is Svelte. This is the reverse-bridge counterpart
+  // for the two still-legacy callers (creationOpenEntityFrom,
+  // creationReturnToOrigin) that can't reach selectEntity by import.
+  legacyDoc.addEventListener('creation:select-entity', (ev) => {
+    selectEntity(legacyDoc, ev.detail.id);
   });
 
   // generatePendingCreation (the "Créations en attente" card's generate
@@ -216,6 +217,10 @@
   // below).
   legacyDoc.addEventListener('creation:sheet-create', (ev) => {
     flushSync(() => { enterCreateMode(ev.detail.type); });
+    // generatePendingCreation (still legacy, germ realization) carries the
+    // pending mutation id in this same event's detail now -- a bare `let`
+    // can't be written from across the legacy boundary any more.
+    if (ev.detail.mutationId) setPendingCreationMutationId(ev.detail.mutationId);
   });
 
   // pj's createPanel, intrigues' createPanel+sheetRenderer -- both still
@@ -223,7 +228,7 @@
   // -- dispatch this immediately before rendering their own markup into
   // #author-legacy-sheet-slot, so that node exists under "legacy" display
   // before their innerHTML write. creationNewEntity does this for the
-  // create-panel path; authorSelectEntity does it for entry.sheetRenderer
+  // create-panel path; creationSelectRecord does it for entry.sheetRenderer
   // (intrigues' view path).
   legacyDoc.addEventListener('creation:sheet-legacy-active', () => {
     flushSync(() => { creationState.sheetMode = 'legacy'; });
@@ -242,6 +247,13 @@
   // every tab with no saveHandler of its own.
   legacyDoc.addEventListener('creation:sheet-save', () => { saveSheet(); });
 
+  // creationNewEntity (pj/intrigues' own "+ Nouveau", still legacy) used to
+  // call _authorResetCreateDrafts() directly; that function is now
+  // resetCreateDrafts() in sheetState.svelte.js, unreachable from across the
+  // legacy boundary as a bare call -- this is the reverse-bridge dispatch it
+  // fires instead (BRIEF-0059-e).
+  legacyDoc.addEventListener('creation:reset-create-drafts', () => { resetCreateDrafts(); });
+
   // generatePendingCreation (index.html, still legacy -- germ realization,
   // "Créations en attente", is out of this brief's scope) reaches the ported
   // applyGeneratedDraft this same reverse-bridge way, dispatched right after
@@ -253,38 +265,39 @@
     applyGeneratedDraft(legacyDoc, ev.detail.entityType, ev.detail.result);
   });
 
-  // Sibling header chrome (title/status/save/delete) lives OUTSIDE
-  // #author-main -- authorRenderSheet always reached out to it too. Only
-  // touched for 'empty'/'view': 'loading'/'error' leave it exactly as
-  // authorSelectEntity's spinner/catch branches always did (untouched),
-  // and 'legacy' is legacy code's own job (renderAgendaSheet et al. already
-  // set these themselves, unchanged).
+  // Sibling header chrome (title/status/save) lives OUTSIDE #author-main --
+  // authorRenderSheet always reached out to it too. Delete is no longer
+  // part of this header band (TICKET-0059, BRIEF-0059-e): it moved into
+  // this component's own template, rendered/hidden declaratively off the
+  // same isNew/type conditions this effect used to imperatively toggle it
+  // with. Only touched for 'empty'/'view': 'loading'/'error' leave it
+  // exactly as the old loader's spinner/catch branches always did
+  // (untouched), and 'legacy' is legacy code's own job (renderAgendaSheet
+  // et al. already set these themselves, unchanged).
   $effect(() => {
     const mode = creationState.sheetMode;
     if (mode !== 'empty' && mode !== 'view') return;
     const titleEl = legacyDoc.getElementById('author-sheet-title');
     const statusEl = legacyDoc.getElementById('author-status');
     const saveBtn = legacyDoc.getElementById('author-save-btn');
-    const deleteBtn = legacyDoc.getElementById('author-delete-btn');
     if (mode === 'empty') {
       if (titleEl) titleEl.textContent = EMPTY_TITLE_BY_TAB[creationState.activeTabKey] || 'Sélectionner une entité';
       if (statusEl) statusEl.textContent = '';
       if (saveBtn) saveBtn.style.display = 'none';
-      if (deleteBtn) deleteBtn.style.display = 'none';
       return;
     }
     const isNewSheet = creationState.sheetIsNew;
     // evenements (BRIEF-0058-j): `event` carries no ENTITY_TYPE_REGISTRY
     // row, so there is no typeInfo.label to read -- title comes straight
-    // off the record, delete never shows (C3, no event delete surface
-    // exists), and save is hidden on create (the inline "+ Créer
+    // off the record, and save is hidden on create (the inline "+ Créer
     // l'événement" button is the create-time submit, matching every other
-    // bespoke createPanel's own posture).
+    // bespoke createPanel's own posture). Delete never shows for events (C3,
+    // no event delete surface exists) -- by construction, since the
+    // template's delete button lives outside this branch entirely.
     if (creationState.activeTabKey === 'evenements') {
       if (titleEl) titleEl.textContent = isNewSheet ? 'Nouvel événement' : (creationState.sheetDetail.title || '');
       if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = ''; }
       if (saveBtn) saveBtn.style.display = isNewSheet ? 'none' : '';
-      if (deleteBtn) deleteBtn.style.display = 'none';
       return;
     }
     if (!registry) return;
@@ -298,7 +311,6 @@
     }
     if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = ''; }
     if (saveBtn) saveBtn.style.display = '';
-    if (deleteBtn) deleteBtn.style.display = isNewSheet ? 'none' : '';
   });
 
   // The tail authorRenderSheet always ran inline after building its HTML --
@@ -411,7 +423,7 @@
     const subcultureRowsToCreate = (isNewSave && type === 'location') ? subcultureDraftForCreate() : [];
     const knowledgeToCreate = (isNewSave && type === 'character') ? knowledgeForCreate() : [];
     const goalsToCreate = (isNewSave && type === 'character') ? goalsForCreate() : [];
-    const mutationId = isNewSave ? legacyCall('_authorGetPendingCreationMutationId') : null;
+    const mutationId = isNewSave ? getPendingCreationMutationId() : null;
 
     try {
       const body = JSON.stringify({
@@ -461,7 +473,13 @@
       }
 
       if (isNewSave && mutationId) {
-        legacyCall('_authorConsumePendingCreationMutationId');
+        // TICKET-0059 (BRIEF-0059-e): the original _authorConsumePendingCreationMutationId
+        // did both halves as one legacyCall; the id-clear half is ported
+        // (consumePendingCreationMutationId above), but the germ-realization
+        // list's own refresh (loadPendingCreations) is still legacy -- a
+        // new, baselined bridge-reach site, same order as before.
+        consumePendingCreationMutationId();
+        legacyCall('loadPendingCreations');
       }
       if (isNewSave) {
         resetGeneratePanel();
@@ -471,7 +489,7 @@
       }
 
       legacyCall('creationRefreshList');
-      legacyCall('_authorNotifySaved', detail.id, detail.type);
+      notifySaved(legacyDoc, detail.id);
       // flushSync: the header-sync $effect below clears #author-status on
       // every 'view' render (matching authorRenderSheet's own unconditional
       // reset) -- without this, its microtask-scheduled run would fire
@@ -484,6 +502,26 @@
       if (creationState.activeTabKey === 'lieux') {
         legacyDoc.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'lieux' } }));
       }
+    } catch (e) {
+      if (statusEl) { statusEl.className = 'author-status err'; statusEl.textContent = e.message; }
+    }
+  }
+
+  /** index.html's authorDelete, ported (TICKET-0059, BRIEF-0059-e): a soft
+   *  delete via the same POST /api/entities/{id}/delete endpoint, same
+   *  confirmation text verbatim, same creationRefreshList + re-select
+   *  sequence. The confirmation text stays unchanged -- history is sacred
+   *  (relations/knowledge are preserved, and this is reversible). */
+  async function deleteSheetEntity() {
+    if (!creationState.sheetDetail || !creationState.sheetDetail.id) return;
+    if (!confirm('Set this entity to inactive (soft delete)? Relations and knowledge are preserved, and this is reversible.')) return;
+    const id = creationState.sheetDetail.id;
+    const statusEl = legacyDoc.getElementById('author-status');
+    try {
+      await deleteEntity(id);
+      legacyCall('creationRefreshList'); // TICKET-0058 (BRIEF-0058-e): see regionCommit's identical comment; a third baselined call site (this island already had two)
+      await selectEntity(legacyDoc, id);
+      if (statusEl) { statusEl.className = 'author-status ok'; statusEl.textContent = 'Marked inactive.'; }
     } catch (e) {
       if (statusEl) { statusEl.className = 'author-status err'; statusEl.textContent = e.message; }
     }
@@ -525,6 +563,12 @@
       <Evenements {legacyDoc} {isNew} event={detail} entities={creationState.entities}
         eventFields={registry.event_fields} onSave={saveSheet} />
     {:else}
+      {#if !isNew}
+        <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">
+          <button class="btn-end" id="author-delete-btn" onclick={deleteSheetEntity}>Delete</button>
+        </div>
+      {/if}
+
       {#if showGeneratePanel}
         <GeneratePanel {legacyDoc} {type} />
       {/if}

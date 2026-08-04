@@ -209,6 +209,24 @@ export const CREATION_ISLANDS = Object.freeze({
       'authorResetDiscDetail',
       'authorEditDiscDetail',
       'authorSaveDiscDetail',
+      // BRIEF-0059-e commit 1: entity-sheet state ownership, create-draft +
+      // pending-mutation lifecycle -- ported to sheetState.svelte.js.
+      // authorSelectEntity/authorGetSelectedEntityId (commit 2) and
+      // authorDelete (commit 3) are added in their own commits, each
+      // independently passing rule 7 (Invariants: fail-closed guards never
+      // lapse between this brief's three commits).
+      '_authorResetCreateDrafts',
+      '_authorGetPendingCreationMutationId',
+      '_authorConsumePendingCreationMutationId',
+      '_authorNotifySaved',
+      // BRIEF-0059-e commit 2: selection -- ported to sheetState.svelte.js's
+      // selectEntity/getSelectedEntityId.
+      'authorSelectEntity',
+      'authorGetSelectedEntityId',
+      // BRIEF-0059-e commit 3: soft delete -- ported to Sheet.svelte's
+      // deleteSheetEntity/sheetState.svelte.js's deleteEntity; the delete
+      // button moved out of the static legacy header into the component.
+      'authorDelete',
     ],
   }),
   // BRIEF-0058-i (per RECON-SUPPLEMENT-0058's re-scope): region generation
@@ -237,5 +255,88 @@ export const CREATION_ISLANDS = Object.freeze({
     component: 'RoomBatch.svelte',
     migratedBy: 'TICKET-0058',
     retiredPrefixes: ['batch', '_batchNodeName'],
+  }),
+  // BRIEF-0059-f: the NPC group agent panel -- ported to NpcAgent.svelte/
+  // npcAgent.svelte.js, LocationTree.svelte's first consumer. Landed across
+  // two commits (npcAgent.svelte.js's own header explains the split);
+  // commit 3 grew this list with the run-loop/review functions'
+  // identifiers, the same way entitySheet's own retiredPrefixes grew across
+  // BRIEF-0059-e's three commits. npcAgentToggle/npcAgentOpen are the two
+  // survivors (chrome, not migrated) and are deliberately absent here.
+  npcAgent: Object.freeze({
+    containerId: 'npcagent-panel',
+    component: 'NpcAgent.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      'npcAgentReset',
+      'npcAgentCheckOpenBatch',
+      'npcAgentRenderLauncher',
+      '_npcAgentTreeHtml',
+      'npcAgentSelectRoot',
+      'npcAgentPreviewRoot',
+      'npcAgentAddLine',
+      'npcAgentRemoveLine',
+      'npcAgentEditLine',
+      '_npcAgentLineTotal',
+      '_npcAgentLineRowHtml',
+      '_npcAgentPaintLauncher',
+      'npcAgentLaunch',
+      '_npcAgentRefreshRows',
+      'npcAgentRunOne',
+      'npcAgentRunLoop',
+      'npcAgentPause',
+      'npcAgentRetryRun',
+      'npcAgentLoadBatch',
+      '_npcAgentGroupRows',
+      '_npcAgentRowHtml',
+      '_npcAgentGroupHtml',
+      'npcAgentEditField',
+      'npcAgentToggleReject',
+      'npcAgentCommit',
+      'npcAgentAbandon',
+      'npcAgentGenerateLinks',
+      '_npcAgentPaintReview',
+    ],
+  }),
+  // BRIEF-0059-g: the NPC link agent panel -- ported to LinkAgent.svelte/
+  // linkAgent.svelte.js, LocationTree.svelte's second consumer (checkbox +
+  // ancestor-inheritance row, per Amendment 1's row-snippet seam). Landed
+  // across two commits (linkAgent.svelte.js's own header explains the
+  // split); commit 2 grew this list with the run-loop/review/coherence
+  // functions' identifiers, the same shape npcAgent's own retiredPrefixes
+  // grew across BRIEF-0059-f. linkAgentToggle/linkAgentOpen are the two
+  // survivors (chrome, not migrated) and are deliberately absent here.
+  linkAgent: Object.freeze({
+    containerId: 'linkagent-panel',
+    component: 'LinkAgent.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      'linkAgentReset',
+      'linkAgentCheckOpenBatch',
+      'linkAgentRenderLauncher',
+      '_linkAgentIsChecked',
+      '_linkAgentTreeHtml',
+      'linkAgentToggleLocation',
+      '_linkAgentPaintLauncher',
+      'linkAgentPreviewRoster',
+      'linkAgentLaunch',
+      'linkAgentRunLoop',
+      'linkAgentPause',
+      'linkAgentRetry',
+      'linkAgentLoadBatch',
+      '_linkAgentNpcName',
+      '_linkAgentGroupRows',
+      '_linkAgentRelationRowHtml',
+      '_linkAgentKnowledgeRowHtml',
+      '_linkAgentNoLinksRowHtml',
+      '_linkAgentPairGroupHtml',
+      'linkAgentEditField',
+      'linkAgentToggleReject',
+      '_linkAgentFindingHtml',
+      'linkAgentRunCoherence',
+      'linkAgentApplyFinding',
+      'linkAgentCommit',
+      '_linkAgentPaintReview',
+    ],
   }),
 });

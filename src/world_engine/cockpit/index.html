@@ -997,7 +997,16 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   letter-spacing: 0.5px; color: var(--muted);
 }
 /* ── NPC link agent panel (BRIEF-0036-d) + NPC group agent panel
-   (BRIEF-0037-c) — the latter reuses every .linkagent-* class wholesale. ── */
+   (BRIEF-0037-c) — the latter reuses every .linkagent-* class wholesale.
+   Both consumers are frontend/src/creation/ Svelte islands now
+   (LinkAgent.svelte + NpcAgent.svelte, TICKET-0059), but this block stays
+   HERE rather than moving into either component: they render inside the
+   legacy iframe document, where Svelte's shell-injected scoped CSS never
+   reaches (LocationTree.svelte's own header comment; same constraint
+   graph_primitive.py rule 8 enforces on Graph.svelte). A <style> block
+   moved into either component would be inert the moment this copy is
+   deleted. Retires at -l, when Creation stops living in a legacy iframe
+   and a real scoped <style> becomes possible (BRIEF-0059-g, item 8). ── */
 #linkagent-badge, #npcagent-badge { color: var(--accent); font-size: 10px; margin-left: 2px; }
 .linkagent-loc-node { margin: 2px 0; font-size: 12px; text-transform: none; letter-spacing: normal; font-weight: 400; color: var(--text); }
 .linkagent-loc-children { margin-left: 18px; border-left: 1px dashed var(--border); padding-left: 10px; }
@@ -1303,11 +1312,13 @@ button:not(:disabled):hover { filter: brightness(1.15); }
       <button class="btn-icon" id="npcagent-launcher-btn" onclick="npcAgentToggle()">Agent PNJ<span id="npcagent-badge" style="display:none">●</span></button>
       <button class="btn-icon" id="linkagent-launcher-btn" onclick="linkAgentToggle()">Agent liens<span id="linkagent-badge" style="display:none">●</span></button>
     </div>
-    <!-- ── NPC group agent panel (BRIEF-0037-c) — content rendered entirely
-         by npcAgent* JS below; empty/hidden until "Agent PNJ" is clicked ── -->
+    <!-- ── NPC group agent panel (BRIEF-0037-c) — content rendered by the
+         frontend/src/creation/NpcAgent.svelte island (TICKET-0059,
+         BRIEF-0059-f); empty/hidden until "Agent PNJ" is clicked ── -->
     <div id="npcagent-panel" style="display:none; border-bottom:1px solid var(--border); padding:10px 14px; max-height:460px; overflow-y:auto"></div>
-    <!-- ── NPC link agent panel (BRIEF-0036-d) — content rendered entirely
-         by linkAgent* JS below; empty/hidden until "Agent liens" is clicked ── -->
+    <!-- ── NPC link agent panel (BRIEF-0036-d) — content rendered by the
+         frontend/src/creation/LinkAgent.svelte island (TICKET-0059,
+         BRIEF-0059-g); empty/hidden until "Agent liens" is clicked ── -->
     <div id="linkagent-panel" style="display:none; border-bottom:1px solid var(--border); padding:10px 14px; max-height:460px; overflow-y:auto"></div>
     <!-- ── The graph island's own mount point (TICKET-0057) — empty by
          construction; chrome, canvas, info-card and edge panel all belong
@@ -1350,8 +1361,11 @@ button:not(:disabled):hover { filter: brightness(1.15); }
                   style="display:none" title="Retour à l'entité d'origine"></button>
           <span class="author-status" id="author-status"></span>
           <button class="btn-send" id="author-save-btn" onclick="creationSaveDispatch()" style="display:none">Save</button>
-          <button class="btn-end" id="author-delete-btn" onclick="authorDelete()" style="display:none">Delete</button>
         </div>
+        <!-- TICKET-0059 (BRIEF-0059-e): #author-delete-btn moved into
+             Sheet.svelte's own template (frontend/src/creation/Sheet.svelte)
+             -- the header band shrinks from three buttons to two; delete is
+             no longer chrome-owned static markup. -->
         <!-- TICKET-0058 (BRIEF-0058-f): the entitySheet island's mount point.
              Empty by construction -- Svelte mount() appends, it never
              clears a target's pre-existing children, so a static
@@ -3226,19 +3240,25 @@ function markCardDone(id, newStatus) {
 let authorRegistry    = null;  // cached /api/entity-types response
 let authorAllEntities = [];    // flat list, used for entity_ref pickers and relation targets
 let authorTypeFilter  = '';    // '' = all types
-let authorEntityId    = null;  // currently displayed entity id, or null when creating
-let authorEntityType  = null;  // type of the entity currently displayed
 
-/** TICKET-0058 (BRIEF-0058-c). `authorEntityId` is a bare `let` -- never a
- *  `window` property -- so the shell's relations graph consumer (which
- *  reads legacy state only through frontend/src/legacy/bridge.js) needs a
- *  plain function-declaration accessor to reach it at all. */
-function authorGetSelectedEntityId() { return authorEntityId; }
+/* TICKET-0059 (BRIEF-0059-e): the two bare `let`s this island's selected-
+ * entity id/type used to live in, and their one-line window accessor, are
+ * gone -- the entity sheet's own selection moved to
+ * frontend/src/creation/sheetState.svelte.js (selectEntity/
+ * getSelectedEntityId), the one authority for it now. creationSelectedEntityId
+ * below is NOT a second authority for that fact: it is a passive mirror,
+ * kept in sync by the 'creation:selection' listener a few functions down,
+ * that exists ONLY because creationOpenEntityFrom/creationReturnToOrigin
+ * (chrome, Scope OUT of this brief, still legacy until -l) cannot import a
+ * Svelte module and need a synchronous read of "what's currently selected"
+ * to build their own return-crumb. It dies with them at -l. */
+let creationSelectedEntityId = null;
 
 // Generic selected-record id (BRIEF-0021-a) — the sheetRenderer-seam
-// counterpart of authorEntityId, for non-entity list+detail tabs (Intrigues)
-// whose rows carry full data already, no per-row fetch. Only one such tab
-// is ever visible at a time, so one shared id is enough (no second dispatcher).
+// counterpart of creationSelectedEntityId, for non-entity list+detail tabs
+// (Intrigues) whose rows carry full data already, no per-row fetch. Only one
+// such tab is ever visible at a time, so one shared id is enough (no second
+// dispatcher).
 let creationSelectedRecordId = null;
 
 /* Lieux hierarchy browse state (BRIEF-51) moved to frontend/src/creation/
@@ -3267,13 +3287,14 @@ let authorLocationTypeCatalog = [];
  * discards the draft state and starts over (F2 conversational refine is
  * explicitly deferred). */
 
-/* Two-stage entity creation (TICKET-0019, BRIEF-0019-a) — set when the
-   create form was pre-filled from a "Générer la fiche" click on a pending
-   germ; carried as EntityWriteBody.mutation_id on the next authorSave so
+/* Two-stage entity creation (TICKET-0019, BRIEF-0019-a) — pendingCreationMutationId
+   moved to frontend/src/creation/sheetState.svelte.js (TICKET-0059, BRIEF-0059-e):
+   set when the create form was pre-filled from a "Générer la fiche" click on a
+   pending germ, carried as EntityWriteBody.mutation_id on the next save so
    crud.py's create_entity can flip the germ to applied. Reset on any tab
    switch or manual "+ Nouveau" so a stray create never links to a stale
-   germ. */
-let pendingCreationMutationId = null;
+   germ — generatePendingCreation (below) still SETS it, now via the
+   'creation:sheet-create' event's own detail instead of a direct write. */
 
 /* Faction roles/roster editor state (draft + live + undeclared + roster
  * rows/editing-id) moved to frontend/src/creation/factionPanel.svelte.js's
@@ -4162,12 +4183,12 @@ function _renderOnDemandToggles(entry) {
 }
 
 function _entityTabEnterReset() {
-  authorEntityId   = null;
-  authorEntityType = null;
-  pendingCreationMutationId = null;
   creationRenderReturnControl();
   // TICKET-0058 (BRIEF-0058-e): tells the entity-list island to drop its
   // active-row highlight — a fresh tab always starts unselected.
+  // TICKET-0059 (BRIEF-0059-e): also the sole update path for
+  // creationSelectedEntityId now (the 'creation:selection' listener below
+  // mirrors every dispatch of this event, this one included).
   document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
   // TICKET-0058 (BRIEF-0058-f): #author-main is the entitySheet island's
   // mount root now — title/save/delete/body reset moved into Sheet.svelte's
@@ -4189,8 +4210,14 @@ function _lieuxTabEnterReset() {
 function _npcTabEnterReset() {
   _entityTabEnterReset();
   _onDemandSlotReset(CREATION_TABS.npc);
-  npcAgentReset();
-  linkAgentReset();
+  // TICKET-0059 (BRIEF-0059-f commit 2): the direct reset call this tab
+  // used to make on the (now Svelte) NPC agent panel is a CustomEvent now
+  // -- NpcAgent.svelte's own legacyDoc listener resets itself, the same
+  // 'creation:batch-reset' idiom RoomBatch.svelte already established.
+  document.dispatchEvent(new CustomEvent('creation:npcagent-reset'));
+  // TICKET-0059 (BRIEF-0059-g commit 1): same conversion, link agent's
+  // side -- LinkAgent.svelte's own legacyDoc listener resets itself now.
+  document.dispatchEvent(new CustomEvent('creation:linkagent-reset'));
 }
 
 // TICKET-0058 (BRIEF-0058-e): _npcWorldReset/_pjWorldReset/_lieuxWorldReset/
@@ -4201,13 +4228,14 @@ function _npcTabEnterReset() {
 // (authorAllEntities/playerCharIds/lieux browse position/intriguesAgendas/
 // evenementsEvents) moved into frontend/src/creation/state.svelte.js and
 // the EntityList island's own component-local state, reset on
-// serverState.worldId change rather than a legacy callback. The two of
-// the seven that also did DOM work beyond the entity list itself
-// (_npcWorldReset's on-demand-slot hide, _lieuxWorldReset's on-demand-slot
-// + batch-panel hide) are preserved below by calling npcAgentReset/
-// linkAgentReset/batchReset directly from the generic world-switch runner
-// — unconditionally, exactly as they always ran, just no longer nested
-// inside a per-tab callback that no longer exists. pendingDraft*/
+// serverState.worldId change rather than a legacy callback. The DOM work
+// the seventh (npc) used to do beyond the entity list itself
+// (_npcWorldReset's on-demand-slot hide, for the two agent panels) no
+// longer needs a direct call here at all: the NPC agent panel and the
+// room-batch panel already reset themselves reactively off
+// serverState.worldId (BRIEF-0058-j, BRIEF-0059-f commit 2), and
+// BRIEF-0059-g commit 1 moves the link agent panel onto the identical
+// pattern — the -d rule every migrated island entry follows. pendingDraft*/
 // authorFactionRoles* (pj/factions' non-list state) are re-populated by
 // _creationRunWorldSwitchResets' own re-activation of the current tab
 // (activateWorld already calls showCreationSubTab after the resets) and
@@ -4259,7 +4287,7 @@ const CREATION_TABS = {
     containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: _npcTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'npcAgent', containerId: 'npcagent-panel' }, { key: 'linkAgent', containerId: 'linkagent-panel' }],
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && !playerCharIds.has(e.id)),
     createPanel: null,
@@ -4267,7 +4295,12 @@ const CREATION_TABS = {
     showPendingCreations: true,
     slots: [{ id: 'relgraph', containerId: 'creation-npc-relgraph', loader: null,
               onSelect: (id) => document.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'relations', meta: { id } } })),
-              onOpen: () => { npcAgentCheckOpenBatch(); linkAgentCheckOpenBatch(); },
+              // TICKET-0059 (BRIEF-0059-g commit 1): the link agent's own
+              // open-batch check drops out too -- LinkAgent.svelte performs
+              // it itself on mount now, same as NpcAgent.svelte already
+              // does (BRIEF-0059-f commit 2). Both halves of this onOpen are
+              // gone, so the handler itself goes (item 7).
+              onOpen: null,
               display: 'on_demand', toggleLabel: 'Voir le graphe',
               graph: { consumer: 'relations', mountId: 'relgraph-mount' } }],
   },
@@ -4569,15 +4602,16 @@ async function _creationRunWorldSwitchResets() {
     if (entry.state && entry.state.onWorldSwitch) entry.state.onWorldSwitch();
   });
   // TICKET-0058 (BRIEF-0058-e): npc's and lieux's onWorldSwitch are gone
-  // (see the comment above _lieuxTabEnterReset) but the DOM work they used
-  // to do beyond the entity list itself — hiding the NPC/link-agent panels
-  // on a world switch — still belongs here, called unconditionally exactly
-  // as it always ran, just no longer nested inside a per-tab callback. The
-  // room-batch panel's own world-switch reset is gone too (BRIEF-0058-j):
-  // RoomBatch.svelte resets itself reactively off serverState.worldId, the
-  // same -d rule every other island entry follows.
-  npcAgentReset();
-  linkAgentReset();
+  // (see the comment above _lieuxTabEnterReset) but the DOM work link
+  // agent's panel still needs on a world switch belongs here, called
+  // unconditionally exactly as it always ran, just no longer nested inside
+  // a per-tab callback. The room-batch panel's own world-switch reset is
+  // gone too (BRIEF-0058-j), and TICKET-0059 (BRIEF-0059-f commit 2) moved
+  // the NPC agent panel onto the same pattern: NpcAgent.svelte resets
+  // itself reactively off serverState.worldId, the same -d rule every
+  // other island entry follows. BRIEF-0059-g commit 1 moves the link agent
+  // panel onto the identical pattern -- LinkAgent.svelte's own
+  // serverState.worldId effect, no direct call left here at all.
   if (authorRegistry) await refreshCreationTabs();
 }
 
@@ -4962,7 +4996,9 @@ function renderAgendaSheet(agenda) {
   document.getElementById('author-sheet-title').textContent = agenda.title;
   document.getElementById('author-status').textContent = '';
   document.getElementById('author-save-btn').style.display = 'none';
-  document.getElementById('author-delete-btn').style.display = 'none';
+  // TICKET-0059 (BRIEF-0059-e): #author-delete-btn no longer exists in the
+  // legacy document -- it moved into Sheet.svelte's own template, which
+  // this legacy renderer never touches (mode 'legacy' skips it entirely).
 
   const ownerBadge = agenda.owner_type === 'character'
     ? `<span class="badge b-other" title="Intrigue personnelle">personnelle</span>`
@@ -4992,8 +5028,8 @@ function renderAgendaSheet(agenda) {
     </div>`;
   }
   // TICKET-0058 (BRIEF-0058-f): see pjRenderCreatePanel's identical note --
-  // authorSelectEntity/creationSelectRecord dispatch 'creation:sheet-legacy-
-  // active' before calling this (entry.sheetRenderer).
+  // creationSelectRecord dispatches 'creation:sheet-legacy-active' before
+  // calling this (entry.sheetRenderer).
   document.getElementById('author-legacy-sheet-slot').innerHTML = html;
 }
 
@@ -5059,7 +5095,8 @@ function intriguesRenderCreatePanel() {
   document.getElementById('author-sheet-title').textContent = 'Nouvelle intrigue';
   document.getElementById('author-status').textContent = '';
   document.getElementById('author-save-btn').style.display = 'none';
-  document.getElementById('author-delete-btn').style.display = 'none';
+  // TICKET-0059 (BRIEF-0059-e): see renderAgendaSheet's identical note --
+  // #author-delete-btn no longer exists in the legacy document.
 
   // TICKET-0058 (BRIEF-0058-f): see pjRenderCreatePanel's identical note --
   // creationNewEntity dispatches 'creation:sheet-legacy-active' before
@@ -5896,16 +5933,13 @@ function creationNewEntity() {
   const entry = CREATION_TABS[currentCreationSubTab];
   if (!entry || !entry.createPanel) return;
   document.dispatchEvent(new CustomEvent('creation:sheet-legacy-active'));
-  _authorResetCreateDrafts();
+  // TICKET-0059 (BRIEF-0059-e): the create-draft reset this used to call
+  // directly moved to frontend/src/creation/sheetState.svelte.js's
+  // resetCreateDrafts() -- a bare function call can't reach it across the
+  // legacy boundary any more, so this becomes a dispatch Sheet.svelte
+  // listens for, same idiom as every other legacy->shell signal.
+  document.dispatchEvent(new CustomEvent('creation:reset-create-drafts'));
   entry.createPanel();
-}
-
-/** Shared by creationNewEntity (pj/intrigues/evenements' own "+ Nouveau")
- *  and Sheet.svelte's primaryAction() (every core entity-archetype tab) --
- *  factored out of creationNewEntity's own body (BRIEF-0058-f) so the two
- *  paths can never drift apart. */
-function _authorResetCreateDrafts() {
-  pendingCreationMutationId = null;
 }
 
 /* ── Constructeur — runtime entity-type creation (TICKET-0046, migrated to
@@ -5919,6 +5953,24 @@ function _authorResetCreateDrafts() {
  * island dispatches this CustomEvent on itself instead of reaching in. */
 document.addEventListener('creation:refresh-tabs', () => {
   if (typeof refreshCreationTabs === 'function') refreshCreationTabs();
+});
+
+/* TICKET-0059 (BRIEF-0059-f commit 2). The #npcagent-badge dot lives in
+ * this document's own chrome (outside NpcAgent.svelte's #npcagent-panel
+ * mount root), so the island cannot just re-render it -- it signals this
+ * document instead, the same reverse-bridge idiom 'creation:refresh-tabs'
+ * established above. mount.js stays out of per-island relays like this
+ * one (its own header comment). */
+document.addEventListener('creation:npcagent-badge', (ev) => {
+  const badgeEl = document.getElementById('npcagent-badge');
+  if (badgeEl) badgeEl.style.display = ev.detail.open ? '' : 'none';
+});
+
+/* TICKET-0059 (BRIEF-0059-g commit 1). Same idiom, link agent's badge --
+ * see the comment above 'creation:npcagent-badge'. */
+document.addEventListener('creation:linkagent-badge', (ev) => {
+  const badgeEl = document.getElementById('linkagent-badge');
+  if (badgeEl) badgeEl.style.display = ev.detail.open ? '' : 'none';
 });
 
 /* ── Runtime Creation tabs — dynamic tab factory (TICKET-0046, BRIEF-0046-d) ──
@@ -6123,14 +6175,16 @@ async function generatePendingCreation(mutationId) {
     return;
   }
 
-  pendingCreationMutationId = mutationId;
   // TICKET-0058 (BRIEF-0058-f): flushSync inside Sheet.svelte's listener
   // guarantees author-f-name/author-x-* et al. exist before the
   // 'creation:apply-generated-draft' dispatch right below runs its own
   // synchronous getElementById writes (BRIEF-0058-h: applyGeneratedDraft,
   // reached through Sheet.svelte's reverse-bridge listener, replaces the
   // three authorApply*Draft calls this used to make directly).
-  document.dispatchEvent(new CustomEvent('creation:sheet-create', { detail: { type: result.entity_type } }));
+  // TICKET-0059 (BRIEF-0059-e): mutationId rides in this same event's
+  // detail now -- pendingCreationMutationId is a Svelte module `$state`
+  // (sheetState.svelte.js) this legacy code can no longer write directly.
+  document.dispatchEvent(new CustomEvent('creation:sheet-create', { detail: { type: result.entity_type, mutationId } }));
   document.dispatchEvent(new CustomEvent('creation:apply-generated-draft', {
     detail: { entityType: result.entity_type, result },
   }));
@@ -6147,9 +6201,8 @@ async function generatePendingCreation(mutationId) {
 /* Tarifs (npc_price) and location subculture editors (BRIEF-20/TICKET-0025)
  * moved to frontend/src/creation/PricingEditor.svelte and
  * SubcultureEditor.svelte + subcultureDraft.svelte.js (TICKET-0058,
- * BRIEF-0058-g family c) -- authorRenderPricing/authorSavePriceEntry/
- * authorDeletePriceEntry/authorAddPriceEntry/authorPriceListMutate/
- * authorRenderSubcultureEditor/authorAddSubcultureRow/
+ * BRIEF-0058-g family c) -- the pricing render/save/add/delete/list-mutate
+ * helpers and authorRenderSubcultureEditor/authorAddSubcultureRow/
  * authorRemoveSubcultureRow/authorSaveSubcultureRows/
  * authorSaveSubcultureRowsData are gone; same PUT endpoints, same
  * full-replace discipline. */
@@ -6185,53 +6238,37 @@ async function generatePendingCreation(mutationId) {
  * authorAddFactionMember/authorMemberRoleEditStart/Cancel/Submit are gone;
  * same endpoints, same immediate-commit-per-row discipline. */
 
-/** Re-render the sheet for a new entity when the type selector changes. */
-/** BRIEF-0058-f: fetches the same detail row as always; #author-main is the
- *  entitySheet island's mount root now, so the spinner/error/render steps
- *  that used to write into it directly instead dispatch to Sheet.svelte.
- *  An entry with a bespoke sheetRenderer (intrigues/evenements) is told to
- *  switch the island into 'legacy' mode first (flushSync inside the
- *  listener guarantees #author-legacy-sheet-slot exists before
- *  entry.sheetRenderer's own innerHTML write runs, synchronously, right
- *  below) — every other entry (core types) dispatches 'creation:sheet-
- *  detail' instead, which Sheet.svelte renders with the ported field
- *  engine. authorEntityId/authorEntityType stay set here (not inside
- *  Sheet.svelte, which cannot reach these bare `let` bindings) — every
- *  other legacy reader (authorGetSelectedEntityId, authorDelete, ...)
- *  still resolves them here, unchanged. */
-async function authorSelectEntity(id) {
-  document.dispatchEvent(new CustomEvent('creation:sheet-loading'));
-  try {
-    const detail = await api(`/api/entities/${encodeURIComponent(id)}`);
-    authorEntityId   = id;
-    authorEntityType = detail.type;
-    const entry = CREATION_TABS[currentCreationSubTab];
-    if (entry && entry.sheetRenderer) {
-      document.dispatchEvent(new CustomEvent('creation:sheet-legacy-active'));
-      entry.sheetRenderer(detail);
-    } else {
-      document.dispatchEvent(new CustomEvent('creation:sheet-detail', { detail: { detail, type: detail.type } }));
-    }
-    // TICKET-0058 (BRIEF-0058-e): the entity-list island re-renders its own
-    // active-row highlight reactively off this, in place of the deleted
-    // authorRenderEntityList() call.
-    document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: id, recordId: null } }));
-    (entry ? entry.slots || [] : []).forEach(s => { if (s.onSelect) s.onSelect(id); });
-  } catch (e) {
-    document.dispatchEvent(new CustomEvent('creation:sheet-error', { detail: { message: e.message } }));
-  }
-  creationRenderReturnControl();
-}
+/** BRIEF-0058-f: the sheet's own loader -- fetches the same detail row as
+ *  always; #author-main is the entitySheet island's mount root now, so the
+ *  spinner/error/render steps moved into frontend/src/creation/
+ *  sheetState.svelte.js's selectEntity (TICKET-0059, BRIEF-0059-e), a plain
+ *  Svelte-to-Svelte call from EntityList.svelte's own row click -- the
+ *  legacy loader this island had is fully gone; what's left here is the
+ *  listener below, reacting to the SAME 'creation:selection' dispatch
+ *  selectEntity still fires on legacyDoc. It used to be inline in that
+ *  loader's own body, now it's the reverse-bridge side of that same fact
+ *  for the readers that haven't migrated yet. */
 
-/** Sets the legacy-side selection globals other readers (authorDelete,
- *  authorGetSelectedEntityId, ...) still resolve — called by Sheet.svelte
- *  via legacyCall right after a successful save, mirroring what
- *  authorRenderSheet's own first line (`authorEntityId = isNew ? null :
- *  detail.id; authorEntityType = type;`) always did. */
-function _authorNotifySaved(id, type) {
-  authorEntityId   = id;
-  authorEntityType = type;
-}
+/* TICKET-0059 (BRIEF-0059-e): the post-save selection-notify helper moved
+ * into frontend/src/creation/sheetState.svelte.js as notifySaved(legacyDoc,
+ * id) -- authorEntityType (its other half) had zero readers anywhere in
+ * the tree and is dropped, not ported. */
+
+/** Mirrors creationSelectedEntityId off every 'creation:selection' dispatch
+ *  (selectEntity, creationSelectRecord, the *TabEnterReset family) and, for
+ *  an actual entity pick (entityId non-null — a record-based pick like
+ *  creationSelectRecord's never triggered this work either, before this
+ *  brief), re-runs the two side effects the old entity-sheet loader used to
+ *  run inline: notifying the active tab's own slots (e.g. npc's relgraph
+ *  slot invalidating the relations graph so ego mode re-centres) and
+ *  refreshing the return-crumb control. TICKET-0059 (BRIEF-0059-e). */
+document.addEventListener('creation:selection', (ev) => {
+  creationSelectedEntityId = ev.detail.entityId ?? null;
+  if (creationSelectedEntityId == null) return;
+  const entry = CREATION_TABS[currentCreationSubTab];
+  (entry ? entry.slots || [] : []).forEach(s => { if (s.onSelect) s.onSelect(creationSelectedEntityId); });
+  creationRenderReturnControl();
+});
 
 /** Resolves the sub-tab that owns an entity (TICKET-0054, decision F2a).
  *  npc and pj both declare type 'character'; playerCharIds is the
@@ -6263,11 +6300,18 @@ async function creationOpenEntityFrom(entityId, entityType) {
     }
     return;
   }
-  const origin = authorEntityId ? { tabId: currentCreationSubTab, entityId: authorEntityId } : null;
+  const origin = creationSelectedEntityId ? { tabId: currentCreationSubTab, entityId: creationSelectedEntityId } : null;
   showCreationSubTab(tab);
   if (currentCreationSubTab !== tab) return;
   creationReturnTo = origin;
-  await authorSelectEntity(entityId);
+  // TICKET-0059 (BRIEF-0059-e): the sheet's own loader is Svelte now
+  // (sheetState.svelte.js's selectEntity), reached
+  // from this still-legacy chrome function via the same reverse-bridge
+  // dispatch Sheet.svelte's 'creation:select-entity' listener picks up. Not
+  // awaited (the fetch it triggers is async); the explicit
+  // creationRenderReturnControl() call right below already covers the
+  // visible refresh this function needs, same as before.
+  document.dispatchEvent(new CustomEvent('creation:select-entity', { detail: { id: entityId } }));
   creationRenderReturnControl();
 }
 
@@ -6279,12 +6323,14 @@ async function creationReturnToOrigin() {
   if (!back) return;
   showCreationSubTab(back.tabId);
   if (currentCreationSubTab !== back.tabId) return;
-  await authorSelectEntity(back.entityId);
+  // TICKET-0059 (BRIEF-0059-e): see creationOpenEntityFrom's identical note.
+  document.dispatchEvent(new CustomEvent('creation:select-entity', { detail: { id: back.entityId } }));
   creationRenderReturnControl();
 }
 
 /** Toggles the sheet header's return control — every entity tab inherits
- *  it (called from authorSelectEntity and _entityTabEnterReset), not just
+ *  it (called from the 'creation:selection' listener above and
+ *  _entityTabEnterReset), not just
  *  factions. Hidden when creationReturnTo is null. */
 function creationRenderReturnControl() {
   const btn = document.getElementById('author-return-btn');
@@ -6300,15 +6346,15 @@ function creationRenderReturnControl() {
 }
 
 /** Generic record selection (BRIEF-0021-a): the sheetRenderer-seam
- *  counterpart of authorSelectEntity for non-entity list+detail tabs whose
- *  rows already carry full data — no per-row fetch. A registered caller
- *  either declares a bespoke sheetRenderer (intrigues — stays legacy) or
- *  doesn't (evenements, since BRIEF-0058-j), in which case this dispatches
- *  'creation:record-detail' for Sheet.svelte to render natively — the same
- *  if/else shape authorSelectEntity already uses for 'creation:sheet-detail'
- *  vs. a bespoke sheetRenderer. Either way, the tab's list re-renders so the
- *  clicked row shows selected (creationSelectedRecordId is the
- *  authorEntityId equivalent for these tabs). */
+ *  counterpart of sheetState.svelte.js's selectEntity (TICKET-0059,
+ *  BRIEF-0059-e) for non-entity list+detail tabs whose rows already carry
+ *  full data — no per-row fetch. A registered caller either declares a
+ *  bespoke sheetRenderer (intrigues — stays legacy) or doesn't (evenements,
+ *  since BRIEF-0058-j), in which case this dispatches 'creation:record-detail'
+ *  for Sheet.svelte to render natively — the same if/else shape a bespoke
+ *  sheetRenderer takes there. Either way, the tab's list re-renders so the
+ *  clicked row shows selected (creationSelectedRecordId is
+ *  creationSelectedEntityId's equivalent for these tabs). */
 function creationSelectRecord(tabId, record) {
   const entry = CREATION_TABS[tabId];
   if (!entry) return;
@@ -6343,47 +6389,22 @@ function creationSaveDispatch() {
   document.dispatchEvent(new CustomEvent('creation:sheet-save'));
 }
 
-/** BRIEF-0058-f: _authorSaveSubmit's entity-write + dependent-draft-POST
- *  orchestration moved into Sheet.svelte's submitEntity (a faithful port —
- *  same endpoints, same order, same conditions). What COULDN'T move is
- *  pendingCreationMutationId, a legacy global owned by the still-legacy
- *  "Créations en attente" germ-realization flow (generatePendingCreation) —
- *  the faction-roles draft moved to factionPanel.svelte.js's draftRoles
- *  (family b), the subculture draft to subcultureDraft.svelte.js
- *  (family c), the pending knowledge/goals drafts to pendingDrafts.svelte.js
- *  (family e), and the AI-generate panel's own draft state to
- *  generatePanel.svelte.js (BRIEF-0058-h), all read directly by
- *  Sheet.svelte's submitEntity, no legacyCall needed for any of them any
- *  more. This small function is the exact inline snippet _authorSaveSubmit
- *  used to run itself, extracted so Sheet.svelte can reach it via legacyCall
- *  instead of a bare variable read it has no access to — it doesn't change
- *  what the snippet did. */
-function _authorGetPendingCreationMutationId() {
-  return pendingCreationMutationId;
-}
+/* TICKET-0059 (BRIEF-0059-e): _authorGetPendingCreationMutationId and
+ * _authorConsumePendingCreationMutationId moved into
+ * frontend/src/creation/sheetState.svelte.js as getPendingCreationMutationId/
+ * consumePendingCreationMutationId — Sheet.svelte's submitEntity reads/clears
+ * pendingCreationMutationId directly now, no legacyCall needed. The
+ * consume step's OTHER half, loadPendingCreations() (this still-legacy
+ * germ-realization list's own refresh), stays a legacyCall from Sheet.svelte,
+ * right after, same order the original single function always ran it in. */
 
-/** Two-stage entity creation (BRIEF-0019-a): called once the create POST
- *  that carried mutation_id has succeeded. */
-function _authorConsumePendingCreationMutationId() {
-  pendingCreationMutationId = null;
-  loadPendingCreations();
-}
-
-async function authorDelete() {
-  if (!authorEntityId) return;
-  if (!confirm('Set this entity to inactive (soft delete)? Relations and knowledge are preserved, and this is reversible.')) return;
-  const statusEl = document.getElementById('author-status');
-  try {
-    await api(`/api/entities/${encodeURIComponent(authorEntityId)}/delete`, { method: 'POST' });
-    creationRefreshList(); // TICKET-0058 (BRIEF-0058-e): see regionCommit's identical comment
-    await authorSelectEntity(authorEntityId);
-    statusEl.className = 'author-status ok';
-    statusEl.textContent = 'Marked inactive.';
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = e.message;
-  }
-}
+/* TICKET-0059 (BRIEF-0059-e): the soft-delete handler this island's header
+ * button used to call moved into Sheet.svelte as deleteSheetEntity(),
+ * calling sheetState.svelte.js's deleteEntity(id) for
+ * the POST itself -- same endpoint, same confirmation text verbatim, same
+ * creationRefreshList + re-select sequence. The static #author-delete-btn
+ * this used to be wired to (index.html, header band) is gone with it;
+ * Sheet.svelte's own template renders the button now. */
 
 /* ════════════════════════════════════════════════════════════════════════════
    Fiche — player skill sheet (BRIEF-10, schema v1.22)
@@ -6503,14 +6524,14 @@ let pcDraftKnowledge = [];
  *  #pj-create-block collapsed panel; a fresh click always starts blank,
  *  matching every other entity type's new-entity form. */
 function pjRenderCreatePanel() {
-  authorEntityId   = null;
-  authorEntityType = 'character';
+  creationSelectedEntityId = null;
   pcDraftKnowledge = [];
 
   const titleEl = document.getElementById('author-sheet-title');
   if (titleEl) titleEl.textContent = 'Créer un personnage joueur';
   document.getElementById('author-save-btn').style.display   = 'none';
-  document.getElementById('author-delete-btn').style.display = 'none';
+  // TICKET-0059 (BRIEF-0059-e): see renderAgendaSheet's identical note --
+  // #author-delete-btn no longer exists in the legacy document.
   document.getElementById('author-status').textContent       = '';
 
   // TICKET-0058 (BRIEF-0058-f): #author-main is the entitySheet island's
@@ -6565,8 +6586,8 @@ function pjRenderCreatePanel() {
 }
 
 /** The pj entry's Fiche slot onSelect (BRIEF-0005-b) — replaces the former
- *  hardcoded pj-only branch inside authorSelectEntity: syncs the Fiche
- *  dropdown to the clicked character and loads its sheet. */
+ *  hardcoded pj-only branch inside the sheet's own entity-select loader:
+ *  syncs the Fiche dropdown to the clicked character and loads its sheet. */
 function pjFicheOnSelect(id) {
   const sel = document.getElementById('skill-character-select');
   if (sel) sel.value = id;
@@ -6700,958 +6721,36 @@ async function skillSaveTier(skillId, tier) {
 /* ════════════════════════════════════════════════════════════════════════════
    NPC group agent panel (BRIEF-0037-c) — attaches to the relgraph panel head,
    sibling of the link agent panel below (same header, "Agent PNJ" precedes
-   "Agent liens" — the region -> NPC -> liens pipeline order). Drives the
-   0037-a/b/c backend (staging, generation run, review, commit + J1 handoff).
-   Sequential client-side fetch loop only; server state is the only state.
-   Reuses every `.linkagent-*` CSS class wholesale (no new stylesheet block).
+   "Agent liens" — the region -> NPC -> liens pipeline order). TICKET-0059
+   (BRIEF-0059-f) ported the whole panel to frontend/src/creation/
+   NpcAgent.svelte + npcAgent.svelte.js — see those files' own header
+   comments for the full history. Only the display-flip toggle survives
+   here as chrome; the badge and panel content are the island's now.
    ════════════════════════════════════════════════════════════════════════════ */
 
-let npcAgentOpen           = false;
-let npcAgentOpenBatchId    = null;  // set by npcAgentCheckOpenBatch — drives the badge + reopen path
-let npcAgentLocations      = [];    // flat [{id, name, parent_location_id, ...}], fetched fresh on open
-let npcAgentSelectedRoot   = null;  // single root_location_id (C1/S1 — intra-region v1, radio not checkbox)
-let npcAgentPreview        = null;  // last /preview response {expanded_location_ids, locations, factions}
-let npcAgentGroupBrief     = '';    // launcher's free-prose group brief
-let npcAgentLines          = [];    // draft line editor state [{count, description, faction_id, location_id}]
-let npcAgentBatch          = null;  // current batch object
-let npcAgentRows           = [];    // current batch rows
-let npcAgentLoopRunning    = false; // Pause/"Tout générer" toggle for the run loop
-let npcAgentFailedRun      = null;  // {message} on a real generation failure — drives "Réessayer"
-let npcAgentCommitResult   = null;  // last commit's result text — survives the post-commit repaint
-let npcAgentLinkHandoffMsg = null;  // J1 handoff outcome (409 banner) — never retried automatically
+let npcAgentOpen = false;
 
-/** Resets ALL NPC-agent state — called directly by _npcTabEnterReset (tab
- *  re-entry) and _creationRunWorldSwitchResets (world switch, TICKET-0058/
- *  BRIEF-0058-e moved this call out of the now-deleted _npcWorldReset;
- *  same contract as linkAgentReset). Setting
- *  npcAgentLoopRunning = false also stops any in-flight run loop on its
- *  next iteration check, so a world switch mid-run cannot keep hammering
- *  run-next for a batch that is no longer in view. */
-function npcAgentReset() {
-  npcAgentOpen = false;
-  npcAgentOpenBatchId = null;
-  npcAgentLocations = [];
-  npcAgentSelectedRoot = null;
-  npcAgentPreview = null;
-  npcAgentGroupBrief = '';
-  npcAgentLines = [];
-  npcAgentBatch = null;
-  npcAgentRows = [];
-  npcAgentLoopRunning = false;
-  npcAgentFailedRun = null;
-  npcAgentCommitResult = null;
-  npcAgentLinkHandoffMsg = null;
-  const panelEl = document.getElementById('npcagent-panel');
-  if (panelEl) { panelEl.style.display = 'none'; panelEl.innerHTML = ''; }
-  const badgeEl = document.getElementById('npcagent-badge');
-  if (badgeEl) badgeEl.style.display = 'none';
-}
-
-/** GET /api/npc-batches -> badge dot on "Agent PNJ" if this world has an
- *  open batch (reopen path). Called from the npc 'relgraph' slot's
- *  onOpen, every time the on_demand slot first fires (linkAgentCheckOpenBatch
- *  precedent). */
-async function npcAgentCheckOpenBatch() {
-  const badgeEl = document.getElementById('npcagent-badge');
-  try {
-    const data = await api('/api/npc-batches');
-    const open = (data.batches || []).find(b => b.status === 'open');
-    npcAgentOpenBatchId = open ? open.id : null;
-  } catch {
-    npcAgentOpenBatchId = null;
-  }
-  if (badgeEl) badgeEl.style.display = npcAgentOpenBatchId ? '' : 'none';
-}
-
-/** Launcher toggle. Opens directly on the review surface of the open batch
- *  if there is one (reopen path), else the root-picker launcher. */
 function npcAgentToggle() {
   npcAgentOpen = !npcAgentOpen;
   const panelEl = document.getElementById('npcagent-panel');
-  if (!panelEl) return;
-  panelEl.style.display = npcAgentOpen ? '' : 'none';
-  if (!npcAgentOpen) return;
-  if (npcAgentOpenBatchId) npcAgentLoadBatch(npcAgentOpenBatchId);
-  else npcAgentRenderLauncher();
-}
-
-/* ── Launcher: single-root location tree + group brief + line editor ─────── */
-
-async function npcAgentRenderLauncher() {
-  const panelEl = document.getElementById('npcagent-panel');
-  if (!panelEl) return;
-  panelEl.innerHTML = '<div class="empty"><span class="spin">⟳</span> Chargement des lieux…</div>';
-  try {
-    npcAgentLocations = await api('/api/locations');
-  } catch (e) {
-    panelEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-    return;
-  }
-  npcAgentSelectedRoot = null;
-  npcAgentPreview = null;
-  npcAgentGroupBrief = '';
-  npcAgentLines = [{ count: 1, description: '', faction_id: null, location_id: null }];
-  npcAgentCommitResult = null;
-  _npcAgentPaintLauncher();
-}
-
-function _npcAgentTreeHtml(parentId) {
-  const known = new Set(npcAgentLocations.map(l => l.id));
-  const children = npcAgentLocations
-    .filter(l => (parentId == null ? (!l.parent_location_id || !known.has(l.parent_location_id)) : l.parent_location_id === parentId))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  if (!children.length) return '';
-  return children.map(l => `
-    <div class="linkagent-loc-node">
-      <label><input type="radio" name="npcagent-root" ${npcAgentSelectedRoot === l.id ? 'checked' : ''}
-        onchange="npcAgentSelectRoot('${esc(l.id)}')"> ${esc(l.name)}</label>
-      <div class="linkagent-loc-children">${_npcAgentTreeHtml(l.id)}</div>
-    </div>`).join('');
-}
-
-function npcAgentSelectRoot(locId) {
-  npcAgentSelectedRoot = locId;
-  npcAgentPreview = null;
-  _npcAgentPaintLauncher();
-}
-
-async function npcAgentPreviewRoot() {
-  const errEl = document.getElementById('npcagent-launch-error');
-  try {
-    npcAgentPreview = await api(`/api/npc-batches/preview?root_location_id=${encodeURIComponent(npcAgentSelectedRoot)}`);
-    if (errEl) errEl.textContent = '';
-  } catch (e) {
-    npcAgentPreview = null;
-    if (errEl) errEl.textContent = e.message;
-  }
-  _npcAgentPaintLauncher();
-}
-
-function npcAgentAddLine() {
-  npcAgentLines.push({ count: 1, description: '', faction_id: null, location_id: null });
-  _npcAgentPaintLauncher();
-}
-
-function npcAgentRemoveLine(i) {
-  npcAgentLines.splice(i, 1);
-  _npcAgentPaintLauncher();
-}
-
-function npcAgentEditLine(i, field, value) {
-  npcAgentLines[i][field] = value;
-  _npcAgentPaintLauncher();
-}
-
-function _npcAgentLineTotal() {
-  return npcAgentLines.reduce((sum, l) => sum + (Number(l.count) || 0), 0);
-}
-
-function _npcAgentLineRowHtml(line, i) {
-  const factionOpts = (npcAgentPreview ? npcAgentPreview.factions : []).map(f =>
-    `<option value="${esc(f.id)}" ${line.faction_id === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('');
-  const locationOpts = (npcAgentPreview ? npcAgentPreview.locations : []).map(l =>
-    `<option value="${esc(l.id)}" ${line.location_id === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
-  return `
-    <div class="linkagent-row">
-      <input type="number" min="1" style="width:52px" value="${line.count}"
-        onchange="npcAgentEditLine(${i}, 'count', Number(this.value))">
-      <input type="text" placeholder="description" style="flex:1; min-width:140px" value="${esc(line.description || '')}"
-        onchange="npcAgentEditLine(${i}, 'description', this.value)">
-      <select onchange="npcAgentEditLine(${i}, 'faction_id', this.value || null)">
-        <option value="">(aucune)</option>${factionOpts}
-      </select>
-      <select onchange="npcAgentEditLine(${i}, 'location_id', this.value || null)">
-        <option value="">(modèle)</option>${locationOpts}
-      </select>
-      <button class="btn-icon" onclick="npcAgentRemoveLine(${i})">Retirer</button>
-    </div>`;
-}
-
-function _npcAgentPaintLauncher() {
-  const panelEl = document.getElementById('npcagent-panel');
-  if (!panelEl) return;
-  const previewHtml = npcAgentPreview
-    ? `<div style="margin-top:8px; font-size:11px; color:var(--muted)">${npcAgentPreview.locations.length} lieu(x), ${npcAgentPreview.factions.length} faction(s) dans la zone</div>`
-    : '';
-  const linesHtml = npcAgentPreview
-    ? npcAgentLines.map((l, i) => _npcAgentLineRowHtml(l, i)).join('')
-    : '<div class="empty">Sélectionnez une racine puis prévisualisez pour éditer les lignes.</div>';
-  panelEl.innerHTML = `
-    <div style="font-weight:600; margin-bottom:6px">Agent PNJ — sélection de la racine</div>
-    <div>${_npcAgentTreeHtml(null) || '<div class="empty">Aucun lieu.</div>'}</div>
-    ${previewHtml}
-    <div style="margin-top:10px">
-      <button class="btn-icon" ${npcAgentSelectedRoot ? '' : 'disabled'} onclick="npcAgentPreviewRoot()">Prévisualiser</button>
-    </div>
-    <div style="margin-top:10px; font-weight:600">Brief du groupe</div>
-    <textarea id="npcagent-group-brief" rows="2" style="width:100%; resize:vertical"
-      oninput="npcAgentGroupBrief = this.value">${esc(npcAgentGroupBrief)}</textarea>
-    <div style="margin-top:8px">${linesHtml}</div>
-    ${npcAgentPreview ? `<button class="btn-icon" onclick="npcAgentAddLine()">+ Ligne</button>` : ''}
-    <div style="margin-top:8px">Total : ${_npcAgentLineTotal()} PNJ</div>
-    <div style="margin-top:10px">
-      <button class="btn-icon" id="npcagent-launch-btn" ${npcAgentPreview ? '' : 'disabled'} onclick="npcAgentLaunch()">Lancer</button>
-    </div>
-    <div id="npcagent-launch-error" style="color:var(--red); margin-top:6px"></div>
-  `;
-}
-
-async function npcAgentLaunch() {
-  const errEl = document.getElementById('npcagent-launch-error');
-  try {
-    const batch = await api('/api/npc-batches', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        root_location_id: npcAgentSelectedRoot,
-        group_brief: npcAgentGroupBrief,
-        lines: npcAgentLines,
-      }),
-    });
-    npcAgentOpenBatchId = batch.id;
-    const badgeEl = document.getElementById('npcagent-badge');
-    if (badgeEl) badgeEl.style.display = '';
-    await npcAgentLoadBatch(batch.id);
-  } catch (e) {
-    if (errEl && e.message && e.message.includes('already open')) {
-      errEl.innerHTML = 'Un lot est déjà ouvert. ' +
-        '<button class="btn-icon" onclick="npcAgentCheckOpenBatch().then(() => npcAgentLoadBatch(npcAgentOpenBatchId))">Ouvrir le lot existant</button>';
-    } else if (errEl) {
-      errEl.textContent = e.message;
-    }
-  }
-}
-
-/* ── Run driver: "Suivant" (one unit) / "Tout générer" (loop until 409/error) ── */
-
-/** run-next's response is just {line_index, name, npcs_done, npcs_total} —
- *  the newly staged row itself isn't in it, so every successful call
- *  re-fetches batch+rows (GET, not the heavier npcAgentLoadBatch which
- *  also re-fetches /preview) before repainting, or the review list would
- *  never show the row that was just generated. */
-async function _npcAgentRefreshRows() {
-  const data = await api(`/api/npc-batches/${encodeURIComponent(npcAgentBatch.id)}`);
-  npcAgentBatch = data.batch;
-  npcAgentRows = data.rows;
-}
-
-async function npcAgentRunOne() {
-  try {
-    await api(`/api/npc-batches/${encodeURIComponent(npcAgentBatch.id)}/run-next`, { method: 'POST' });
-    npcAgentFailedRun = null;
-    await _npcAgentRefreshRows();
-  } catch (e) {
-    if (e.message && e.message.includes('already fully generated')) {
-      await npcAgentLoadBatch(npcAgentBatch.id);
-      return;
-    }
-    npcAgentFailedRun = { message: e.message };
-  }
-  _npcAgentPaintReview();
-}
-
-async function npcAgentRunLoop() {
-  if (!npcAgentBatch || npcAgentLoopRunning) return;
-  npcAgentLoopRunning = true;
-  npcAgentFailedRun = null;
-  _npcAgentPaintReview();
-  while (npcAgentLoopRunning) {
-    try {
-      await api(`/api/npc-batches/${encodeURIComponent(npcAgentBatch.id)}/run-next`, { method: 'POST' });
-    } catch (e) {
-      npcAgentLoopRunning = false;
-      if (e.message && e.message.includes('already fully generated')) {
-        await npcAgentLoadBatch(npcAgentBatch.id);
-      } else {
-        npcAgentFailedRun = { message: e.message };
-        _npcAgentPaintReview();
-      }
-      return;
-    }
-    await _npcAgentRefreshRows();
-    _npcAgentPaintReview();
-  }
-}
-
-function npcAgentPause() {
-  npcAgentLoopRunning = false;
-  _npcAgentPaintReview();
-}
-
-function npcAgentRetryRun() {
-  npcAgentFailedRun = null;
-  npcAgentRunLoop();
-}
-
-/* ── Review surface: GET /api/npc-batches/{id}, grouped by line_index ────── */
-
-async function npcAgentLoadBatch(batchId) {
-  const panelEl = document.getElementById('npcagent-panel');
-  if (panelEl) panelEl.innerHTML = '<div class="empty"><span class="spin">⟳</span> Chargement du lot…</div>';
-  try {
-    const data = await api(`/api/npc-batches/${encodeURIComponent(batchId)}`);
-    npcAgentBatch = data.batch;
-    npcAgentRows = data.rows;
-    npcAgentOpenBatchId = npcAgentBatch.status === 'open' ? npcAgentBatch.id : null;
-    const badgeEl = document.getElementById('npcagent-badge');
-    if (badgeEl) badgeEl.style.display = npcAgentOpenBatchId ? '' : 'none';
-    // Faction/location names for the review selects aren't stored on the
-    // batch/rows — re-derive via /preview over the batch's OWN
-    // root_location_id, same precedent as linkAgentLoadBatch's name lookup.
-    try {
-      npcAgentPreview = await api(`/api/npc-batches/preview?root_location_id=${encodeURIComponent(npcAgentBatch.scope.root_location_id)}`);
-    } catch { npcAgentPreview = null; }
-  } catch (e) {
-    if (panelEl) panelEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-    return;
-  }
-  _npcAgentPaintReview();
-}
-
-function _npcAgentGroupRows() {
-  const groups = new Map();
-  for (const row of npcAgentRows) {
-    if (!groups.has(row.line_index)) groups.set(row.line_index, []);
-    groups.get(row.line_index).push(row);
-  }
-  return groups;
-}
-
-function _npcAgentRowHtml(row) {
-  const pub = (row.payload.draft && row.payload.draft.public) || {};
-  const goals = row.payload.goals || {};
-  const notes = row.payload.notes || [];
-  const rejected = row.row_status === 'rejected';
-  const factionOpts = (npcAgentPreview ? npcAgentPreview.factions : []).map(f =>
-    `<option value="${esc(f.id)}" ${pub.faction_id === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('');
-  const locationOpts = (npcAgentPreview ? npcAgentPreview.locations : []).map(l =>
-    `<option value="${esc(l.id)}" ${row.payload.location_id === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
-  const notesHtml = notes.length
-    ? `<div style="color:var(--muted); font-size:11px; margin-top:2px">${notes.map(n => esc(n)).join(' · ')}</div>` : '';
-  return `
-    <div class="linkagent-row ${rejected ? 'rejected' : ''}" style="flex-direction:column; align-items:stretch">
-      <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center">
-        <input type="text" style="width:140px" value="${esc(pub.name || '')}" ${rejected ? 'disabled' : ''}
-          onchange="npcAgentEditField('${esc(row.id)}', 'name', this.value)">
-        <input type="text" placeholder="description" style="flex:1; min-width:140px" value="${esc(pub.description || '')}" ${rejected ? 'disabled' : ''}
-          onchange="npcAgentEditField('${esc(row.id)}', 'description', this.value)">
-        <input type="number" min="-1" max="2" title="physical_tier" style="width:52px" value="${pub.physical_tier ?? ''}" ${rejected ? 'disabled' : ''}
-          onchange="npcAgentEditField('${esc(row.id)}', 'physical_tier', Number(this.value))">
-        <select ${rejected ? 'disabled' : ''} onchange="npcAgentEditField('${esc(row.id)}', 'faction_id', this.value || null)">
-          <option value="">(aucune)</option>${factionOpts}
-        </select>
-        <select ${rejected ? 'disabled' : ''} onchange="npcAgentEditField('${esc(row.id)}', 'location_id', this.value || null)">
-          ${locationOpts}
-        </select>
-        <button class="btn-icon" onclick="npcAgentToggleReject('${esc(row.id)}', ${rejected})">${rejected ? 'Rétablir' : 'Rejeter'}</button>
-      </div>
-      <div style="display:flex; gap:6px; margin-top:4px">
-        <input type="text" placeholder="objectif long" style="flex:1" value="${esc(goals.long || '')}" ${rejected ? 'disabled' : ''}
-          onchange="npcAgentEditField('${esc(row.id)}', 'goals.long', this.value)">
-        <input type="text" placeholder="objectifs courts (séparés par ;)" style="flex:1" value="${esc((goals.shorts || []).join('; '))}" ${rejected ? 'disabled' : ''}
-          onchange="npcAgentEditField('${esc(row.id)}', 'goals.shorts', this.value.split(';').map(s => s.trim()).filter(Boolean))">
-      </div>
-      ${notesHtml}
-    </div>`;
-}
-
-function _npcAgentGroupHtml(lineIndex, rows) {
-  const line = ((npcAgentBatch.scope && npcAgentBatch.scope.lines) || [])[lineIndex];
-  const desc = line ? line.description : `ligne ${lineIndex}`;
-  const rowsHtml = rows.map(r => _npcAgentRowHtml(r)).join('');
-  return `<div class="linkagent-pair-group">
-    <div style="font-weight:600; font-size:12px">${esc(desc)}</div>
-    ${rowsHtml}
-  </div>`;
-}
-
-async function npcAgentEditField(rowId, field, value) {
-  try {
-    const row = await api(`/api/npc-batches/${encodeURIComponent(npcAgentBatch.id)}/rows/${encodeURIComponent(rowId)}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payload_patch: { [field]: value } }),
-    });
-    const idx = npcAgentRows.findIndex(r => r.id === rowId);
-    if (idx !== -1) npcAgentRows[idx] = row;
-  } catch (e) {
-    alert(e.message);
-  }
-  _npcAgentPaintReview();
-}
-
-async function npcAgentToggleReject(rowId, currentlyRejected) {
-  try {
-    const row = await api(`/api/npc-batches/${encodeURIComponent(npcAgentBatch.id)}/rows/${encodeURIComponent(rowId)}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ row_status: currentlyRejected ? 'proposed' : 'rejected' }),
-    });
-    const idx = npcAgentRows.findIndex(r => r.id === rowId);
-    if (idx !== -1) npcAgentRows[idx] = row;
-  } catch (e) {
-    alert(e.message);
-  }
-  _npcAgentPaintReview();
-}
-
-/* ── Commit + J1 handoff to the link agent ────────────────────────────────── */
-
-async function npcAgentCommit() {
-  try {
-    const result = await api(`/api/npc-batches/${encodeURIComponent(npcAgentBatch.id)}/commit`, { method: 'POST' });
-    npcAgentCommitResult = `${result.committed.length} PNJ committé(s)` +
-      (result.skipped.length ? `, ${result.skipped.length} ignoré(s)` : '');
-    npcAgentLinkHandoffMsg = null;
-    await npcAgentLoadBatch(npcAgentBatch.id);
-  } catch (e) {
-    npcAgentCommitResult = e.message;
-    _npcAgentPaintReview();
-  }
-}
-
-async function npcAgentAbandon() {
-  if (!confirm('Abandonner ce lot de PNJ ?')) return;
-  try {
-    await api(`/api/npc-batches/${encodeURIComponent(npcAgentBatch.id)}/abandon`, { method: 'POST' });
-    await npcAgentLoadBatch(npcAgentBatch.id);
-  } catch (e) {
-    alert(e.message);
-  }
-}
-
-/** J1 handoff: calls the EXISTING link agent creation route with this
- *  batch's own root_location_id, then opens the link agent panel on the
- *  fresh batch (linkAgentLoadBatch — the roster then includes both the new
- *  NPCs and pre-existing residents of the root, F1 skips canon pairs). A
- *  409 (a link batch is already open) surfaces as a plain warning banner
- *  and is never retried automatically. */
-async function npcAgentGenerateLinks() {
-  try {
-    const batch = await api('/api/link-batches', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ root_location_ids: [npcAgentBatch.scope.root_location_id] }),
-    });
-    npcAgentLinkHandoffMsg = null;
-    linkAgentOpenBatchId = batch.id;
-    linkAgentOpen = true;
-    const linkPanelEl = document.getElementById('linkagent-panel');
-    if (linkPanelEl) linkPanelEl.style.display = '';
-    const linkBadgeEl = document.getElementById('linkagent-badge');
-    if (linkBadgeEl) linkBadgeEl.style.display = '';
-    await linkAgentLoadBatch(batch.id);
-  } catch (e) {
-    npcAgentLinkHandoffMsg = e.message;
-    _npcAgentPaintReview();
-  }
-}
-
-function _npcAgentPaintReview() {
-  const panelEl = document.getElementById('npcagent-panel');
-  if (!panelEl || !npcAgentBatch) return;
-  const b = npcAgentBatch;
-  const isOpen = b.status === 'open';
-  const groups = _npcAgentGroupRows();
-  const groupsHtml = Array.from(groups.entries()).map(([li, rows]) => _npcAgentGroupHtml(li, rows)).join('')
-    || '<div class="empty">Aucun PNJ généré pour l’instant.</div>';
-
-  const progressHtml = isOpen
-    ? `<div>PNJ ${b.npcs_done}/${b.npcs_total}
-        <button class="btn-icon" onclick="npcAgentRunOne()" ${b.npcs_done >= b.npcs_total ? 'disabled' : ''}>Suivant</button>
-        ${npcAgentLoopRunning
-          ? '<button class="btn-icon" onclick="npcAgentPause()">Pause</button>'
-          : (b.npcs_done < b.npcs_total ? '<button class="btn-icon" onclick="npcAgentRunLoop()">Tout générer</button>' : '')}
-      </div>
-      ${npcAgentFailedRun ? `<div style="color:var(--red)">Échec : ${esc(npcAgentFailedRun.message)}
-        <button class="btn-icon" onclick="npcAgentRetryRun()">Réessayer</button></div>` : ''}`
-    : `<div style="color:var(--muted)">Lot ${esc(b.status)}.</div>`;
-
-  const canCommit = isOpen && b.npcs_done === b.npcs_total;
-  const handoffHtml = b.status === 'committed'
-    ? `<div style="margin-top:8px">
-         <button class="btn-icon" onclick="npcAgentGenerateLinks()">Générer les liens pour ce groupe</button>
-       </div>
-       ${npcAgentLinkHandoffMsg ? `<div class="linkagent-warn-banner">${esc(npcAgentLinkHandoffMsg)}</div>` : ''}`
-    : '';
-
-  panelEl.innerHTML = `
-    <div style="font-weight:600; margin-bottom:6px">Agent PNJ — lot ${esc(b.id.slice(0, 8))}</div>
-    ${progressHtml}
-    <div style="margin-top:10px">${groupsHtml}</div>
-    <div style="margin-top:14px; display:flex; gap:6px; align-items:center">
-      <button class="btn-icon" ${canCommit ? '' : 'disabled'} onclick="npcAgentCommit()">Committer le lot</button>
-      ${isOpen ? '<button class="btn-icon" onclick="npcAgentAbandon()">Abandonner</button>' : ''}
-    </div>
-    <div id="npcagent-commit-result" style="margin-top:8px">${esc(npcAgentCommitResult || '')}</div>
-    ${handoffHtml}
-  `;
+  if (panelEl) panelEl.style.display = npcAgentOpen ? '' : 'none';
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   NPC link agent panel (BRIEF-0036-d) — attaches to the relgraph panel head;
-   drives the 0036-a/b/c backend (staging, pair-pass, coherence, commit).
-   Sequential client-side fetch loop only (no SSE/websocket, Scope OUT);
-   server state is the only state (no client-side persistence, Scope OUT).
+   NPC link agent panel (BRIEF-0036-d) — attaches to the relgraph panel head,
+   sibling of the NPC group agent panel above. TICKET-0059 (BRIEF-0059-g)
+   ported the whole panel to frontend/src/creation/LinkAgent.svelte +
+   linkAgent.svelte.js — see those files' own header comments for the full
+   history. Only the display-flip toggle survives here as chrome; the badge
+   and panel content are the island's now.
    ════════════════════════════════════════════════════════════════════════════ */
 
-let linkAgentOpen         = false;
-let linkAgentOpenBatchId  = null;  // set by linkAgentCheckOpenBatch — drives the badge + reopen path
-let linkAgentLocations    = [];    // flat [{id, name, parent_location_id, ...}], fetched fresh on open
-let linkAgentCheckedRoots = new Set(); // location ids the USER explicitly clicked (S1 — sent as root_location_ids)
-let linkAgentPreview      = null;  // last /preview response
-let linkAgentBatch        = null;  // current batch object
-let linkAgentRows         = [];    // current batch rows
-let linkAgentNpcNames     = {};    // id -> name, resolved via /preview over the batch's own root_location_ids
-let linkAgentLoopRunning  = false; // Pause/Reprendre toggle for the run loop
-let linkAgentFailedPair   = null;  // {message} on a 502 — drives "Réessayer"
-let linkAgentCommitResult = null;  // last commit's result text — survives the
-                                    // post-commit repaint (_linkAgentPaintReview
-                                    // rebuilds #linkagent-commit-result from this,
-                                    // since linkAgentLoadBatch's reload would
-                                    // otherwise wipe a DOM-only message)
+let linkAgentOpen = false;
 
-/** Resets ALL link-agent state — called directly by _npcTabEnterReset (tab
- *  re-entry) and _creationRunWorldSwitchResets (world switch, TICKET-0058/
- *  BRIEF-0058-e moved this call out of the now-deleted _npcWorldReset;
- *  same contract as npcAgentReset). Setting
- *  linkAgentLoopRunning = false also stops any in-flight run loop on its
- *  next iteration check, so a world switch mid-run cannot keep hammering
- *  run-next for a batch that is no longer in view. */
-function linkAgentReset() {
-  linkAgentOpen = false;
-  linkAgentOpenBatchId = null;
-  linkAgentLocations = [];
-  linkAgentCheckedRoots = new Set();
-  linkAgentPreview = null;
-  linkAgentBatch = null;
-  linkAgentRows = [];
-  linkAgentNpcNames = {};
-  linkAgentLoopRunning = false;
-  linkAgentFailedPair = null;
-  linkAgentCommitResult = null;
-  const panelEl = document.getElementById('linkagent-panel');
-  if (panelEl) { panelEl.style.display = 'none'; panelEl.innerHTML = ''; }
-  const badgeEl = document.getElementById('linkagent-badge');
-  if (badgeEl) badgeEl.style.display = 'none';
-}
-
-/** GET /api/link-batches -> badge dot on "Agent liens" if this world has an
- *  open batch (reopen path, item 6). Called from the npc 'relgraph' slot's
- *  onOpen every time the on_demand slot first fires. */
-async function linkAgentCheckOpenBatch() {
-  const badgeEl = document.getElementById('linkagent-badge');
-  try {
-    const data = await api('/api/link-batches');
-    const open = (data.batches || []).find(b => b.status === 'open');
-    linkAgentOpenBatchId = open ? open.id : null;
-  } catch {
-    linkAgentOpenBatchId = null;
-  }
-  if (badgeEl) badgeEl.style.display = linkAgentOpenBatchId ? '' : 'none';
-}
-
-/** Launcher toggle. Opens directly on the review surface of the open batch
- *  if there is one (reopen path), else the location-picker launcher. */
 function linkAgentToggle() {
   linkAgentOpen = !linkAgentOpen;
   const panelEl = document.getElementById('linkagent-panel');
-  if (!panelEl) return;
-  panelEl.style.display = linkAgentOpen ? '' : 'none';
-  if (!linkAgentOpen) return;
-  if (linkAgentOpenBatchId) linkAgentLoadBatch(linkAgentOpenBatchId);
-  else linkAgentRenderLauncher();
-}
-
-/* ── Launcher: location multi-select + preview + launch ──────────────────── */
-
-async function linkAgentRenderLauncher() {
-  const panelEl = document.getElementById('linkagent-panel');
-  if (!panelEl) return;
-  panelEl.innerHTML = '<div class="empty"><span class="spin">⟳</span> Chargement des lieux…</div>';
-  try {
-    linkAgentLocations = await api('/api/locations');
-  } catch (e) {
-    panelEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-    return;
-  }
-  linkAgentCheckedRoots = new Set();
-  linkAgentPreview = null;
-  linkAgentCommitResult = null;
-  _linkAgentPaintLauncher();
-}
-
-/** A node is visually checked if the user clicked it directly, or clicked
- *  any ancestor (S1 visual mirror) — but only directly-clicked ids are
- *  ever sent as root_location_ids; server-side expansion stays authoritative. */
-function _linkAgentIsChecked(locId) {
-  if (linkAgentCheckedRoots.has(locId)) return true;
-  const byId = new Map(linkAgentLocations.map(l => [l.id, l]));
-  let current = byId.get(locId);
-  while (current && current.parent_location_id) {
-    if (linkAgentCheckedRoots.has(current.parent_location_id)) return true;
-    current = byId.get(current.parent_location_id);
-  }
-  return false;
-}
-
-function _linkAgentTreeHtml(parentId) {
-  const known = new Set(linkAgentLocations.map(l => l.id));
-  const children = linkAgentLocations
-    .filter(l => (parentId == null ? (!l.parent_location_id || !known.has(l.parent_location_id)) : l.parent_location_id === parentId))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  if (!children.length) return '';
-  return children.map(l => `
-    <div class="linkagent-loc-node">
-      <label><input type="checkbox" ${_linkAgentIsChecked(l.id) ? 'checked' : ''}
-        onchange="linkAgentToggleLocation('${esc(l.id)}', this.checked)"> ${esc(l.name)}</label>
-      <div class="linkagent-loc-children">${_linkAgentTreeHtml(l.id)}</div>
-    </div>`).join('');
-}
-
-function linkAgentToggleLocation(locId, checked) {
-  if (checked) linkAgentCheckedRoots.add(locId);
-  else linkAgentCheckedRoots.delete(locId);
-  linkAgentPreview = null;
-  _linkAgentPaintLauncher();
-}
-
-function _linkAgentPaintLauncher() {
-  const panelEl = document.getElementById('linkagent-panel');
-  if (!panelEl) return;
-  const previewHtml = linkAgentPreview
-    ? `<div style="margin-top:8px">${linkAgentPreview.npcs.length} PNJ, ${linkAgentPreview.pair_count} paires, ${linkAgentPreview.pair_count} appels au modèle<br>
-       <span style="color:var(--muted); font-size:11px">${linkAgentPreview.npcs.map(n => esc(n.name)).join(', ') || '(aucun)'}</span></div>`
-    : '';
-  panelEl.innerHTML = `
-    <div style="font-weight:600; margin-bottom:6px">Agent liens — sélection des lieux</div>
-    <div>${_linkAgentTreeHtml(null) || '<div class="empty">Aucun lieu.</div>'}</div>
-    ${previewHtml}
-    <div style="margin-top:10px; display:flex; gap:6px">
-      <button class="btn-icon" onclick="linkAgentPreviewRoster()">Prévisualiser</button>
-      <button class="btn-icon" id="linkagent-launch-btn" ${linkAgentPreview ? '' : 'disabled'} onclick="linkAgentLaunch()">Lancer</button>
-    </div>
-    <div id="linkagent-launch-error" style="color:var(--red); margin-top:6px"></div>
-  `;
-}
-
-async function linkAgentPreviewRoster() {
-  const errEl = document.getElementById('linkagent-launch-error');
-  try {
-    linkAgentPreview = await api('/api/link-batches/preview', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ root_location_ids: Array.from(linkAgentCheckedRoots) }),
-    });
-    if (errEl) errEl.textContent = '';
-  } catch (e) {
-    linkAgentPreview = null;
-    if (errEl) errEl.textContent = e.message;
-  }
-  _linkAgentPaintLauncher();
-}
-
-/** "Lancer" both opens the batch AND starts the run loop (brief item 1+2
- *  are one click) — the loop runs unawaited so progress paints live. */
-async function linkAgentLaunch() {
-  const errEl = document.getElementById('linkagent-launch-error');
-  try {
-    const batch = await api('/api/link-batches', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ root_location_ids: Array.from(linkAgentCheckedRoots) }),
-    });
-    linkAgentOpenBatchId = batch.id;
-    const badgeEl = document.getElementById('linkagent-badge');
-    if (badgeEl) badgeEl.style.display = '';
-    await linkAgentLoadBatch(batch.id);
-    linkAgentRunLoop();
-  } catch (e) {
-    if (errEl && e.message && e.message.includes('already open')) {
-      errEl.innerHTML = 'Un lot est déjà ouvert. ' +
-        '<button class="btn-icon" onclick="linkAgentCheckOpenBatch().then(() => linkAgentLoadBatch(linkAgentOpenBatchId))">Ouvrir le lot existant</button>';
-    } else if (errEl) {
-      errEl.textContent = e.message;
-    }
-  }
-}
-
-/* ── Run loop: sequential fetch of run-next until {done:true} ─────────────── */
-
-async function linkAgentRunLoop() {
-  if (!linkAgentBatch || linkAgentLoopRunning) return;
-  linkAgentLoopRunning = true;
-  linkAgentFailedPair = null;
-  _linkAgentPaintReview();
-  while (linkAgentLoopRunning) {
-    let result;
-    try {
-      result = await api(`/api/link-batches/${encodeURIComponent(linkAgentBatch.id)}/run-next`, { method: 'POST' });
-    } catch (e) {
-      linkAgentLoopRunning = false;
-      linkAgentFailedPair = { message: e.message };
-      _linkAgentPaintReview();
-      return;
-    }
-    if (result.done) {
-      linkAgentLoopRunning = false;
-      await linkAgentLoadBatch(linkAgentBatch.id);
-      return;
-    }
-    linkAgentBatch.pairs_done = result.pairs_done;
-    _linkAgentPaintReview();
-  }
-}
-
-function linkAgentPause() {
-  linkAgentLoopRunning = false;
-  _linkAgentPaintReview();
-}
-
-function linkAgentRetry() {
-  linkAgentFailedPair = null;
-  linkAgentRunLoop();
-}
-
-/* ── Review surface: GET /api/link-batches/{id}, grouped by pair ─────────── */
-
-async function linkAgentLoadBatch(batchId) {
-  const panelEl = document.getElementById('linkagent-panel');
-  if (panelEl) panelEl.innerHTML = '<div class="empty"><span class="spin">⟳</span> Chargement du lot…</div>';
-  try {
-    const data = await api(`/api/link-batches/${encodeURIComponent(batchId)}`);
-    linkAgentBatch = data.batch;
-    linkAgentRows = data.rows;
-    linkAgentOpenBatchId = linkAgentBatch.status === 'open' ? linkAgentBatch.id : null;
-    const badgeEl = document.getElementById('linkagent-badge');
-    if (badgeEl) badgeEl.style.display = linkAgentOpenBatchId ? '' : 'none';
-    // Names aren't stored on the batch/rows — re-derive via /preview over
-    // the batch's OWN root_location_ids rather than adding a new endpoint.
-    const rootIds = (linkAgentBatch.scope && linkAgentBatch.scope.root_location_ids) || [];
-    try {
-      const preview = await api('/api/link-batches/preview', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ root_location_ids: rootIds }),
-      });
-      linkAgentNpcNames = {};
-      preview.npcs.forEach(n => { linkAgentNpcNames[n.id] = n.name; });
-    } catch { linkAgentNpcNames = {}; }
-  } catch (e) {
-    if (panelEl) panelEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-    return;
-  }
-  _linkAgentPaintReview();
-}
-
-function _linkAgentNpcName(id) { return linkAgentNpcNames[id] || id; }
-
-function _linkAgentGroupRows() {
-  const groups = new Map();
-  for (const row of linkAgentRows) {
-    const key = row.pair_a_id + '::' + row.pair_b_id;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(row);
-  }
-  return groups;
-}
-
-/** Relation "type" is a free-text input, not a <select>, deliberately —
- *  same precedent as the relations graph consumer's edge form: the vocab
- *  lives ONLY server-side (_LINK_RELATION_TYPES in link_author.py) and
- *  PATCH re-validates it. */
-function _linkAgentRelationRowHtml(row) {
-  const p = row.payload;
-  const rejected = row.row_status === 'rejected';
-  const dirOpt = v => `<option value="${v}"${p.direction === v ? ' selected' : ''}>${v}</option>`;
-  return `
-    <div class="linkagent-row ${rejected ? 'rejected' : ''}">
-      <span class="badge b-other">relation</span>
-      <input type="text" placeholder="type" style="width:110px" value="${esc(p.type || '')}" ${rejected ? 'disabled' : ''}
-        onchange="linkAgentEditField('${esc(row.id)}', 'type', this.value)">
-      <select ${rejected ? 'disabled' : ''} onchange="linkAgentEditField('${esc(row.id)}', 'direction', this.value)">
-        ${dirOpt('mutual')}${dirOpt('a_to_b')}${dirOpt('b_to_a')}
-      </select>
-      <input type="number" min="1" max="100" style="width:52px" value="${p.value}" ${rejected ? 'disabled' : ''}
-        onchange="linkAgentEditField('${esc(row.id)}', 'value', Number(this.value))">
-      <label style="font-size:11px"><input type="checkbox" ${p.visible_to_b ? 'checked' : ''} ${rejected ? 'disabled' : ''}
-        onchange="linkAgentEditField('${esc(row.id)}', 'visible_to_b', this.checked)"> visible à B</label>
-      <input type="text" placeholder="notes" style="flex:1; min-width:100px" value="${esc(p.notes || '')}" ${rejected ? 'disabled' : ''}
-        onchange="linkAgentEditField('${esc(row.id)}', 'notes', this.value)">
-      <button class="btn-icon" onclick="linkAgentToggleReject('${esc(row.id)}', ${rejected})">${rejected ? 'Rétablir' : 'Rejeter'}</button>
-    </div>`;
-}
-
-function _linkAgentKnowledgeRowHtml(row) {
-  const p = row.payload;
-  const rejected = row.row_status === 'rejected';
-  const aboutId = (p.subject || '').replace(/^npc:/, '');
-  return `
-    <div class="linkagent-row ${rejected ? 'rejected' : ''}">
-      <span class="badge b-other">knowledge</span>
-      <span style="font-size:11px; color:var(--muted)">${esc(_linkAgentNpcName(p.entity_id))} à propos de ${esc(_linkAgentNpcName(aboutId))}</span>
-      <input type="text" placeholder="niveau" style="width:110px" value="${esc(p.level || '')}" ${rejected ? 'disabled' : ''}
-        onchange="linkAgentEditField('${esc(row.id)}', 'level', this.value)">
-      <input type="text" placeholder="contenu" style="flex:1; min-width:120px" value="${esc(p.content || '')}" ${rejected ? 'disabled' : ''}
-        onchange="linkAgentEditField('${esc(row.id)}', 'content', this.value)">
-      <input type="text" placeholder="source" style="width:100px" value="${esc(p.source || '')}" ${rejected ? 'disabled' : ''}
-        onchange="linkAgentEditField('${esc(row.id)}', 'source', this.value)">
-      <input type="number" min="1" max="100" style="width:52px" title="share_threshold" value="${p.share_threshold}" ${rejected ? 'disabled' : ''}
-        onchange="linkAgentEditField('${esc(row.id)}', 'share_threshold', Number(this.value))">
-      <label style="font-size:11px"><input type="checkbox" ${p.is_incorrect ? 'checked' : ''} ${rejected ? 'disabled' : ''}
-        onchange="linkAgentEditField('${esc(row.id)}', 'is_incorrect', this.checked)"> incorrect</label>
-      <label style="font-size:11px"><input type="checkbox" ${p.is_secret ? 'checked' : ''} ${rejected ? 'disabled' : ''}
-        onchange="linkAgentEditField('${esc(row.id)}', 'is_secret', this.checked)"> secret</label>
-      <button class="btn-icon" onclick="linkAgentToggleReject('${esc(row.id)}', ${rejected})">${rejected ? 'Rétablir' : 'Rejeter'}</button>
-    </div>`;
-}
-
-function _linkAgentNoLinksRowHtml(row) {
-  const rejected = row.row_status === 'rejected';
-  return `<div class="linkagent-row ${rejected ? 'rejected' : ''}" style="color:var(--muted); font-style:italic">
-    Aucun lien proposé
-    <button class="btn-icon" onclick="linkAgentToggleReject('${esc(row.id)}', ${rejected})">${rejected ? 'Rétablir' : 'Rejeter'}</button>
-  </div>`;
-}
-
-function _linkAgentPairGroupHtml(key, rows) {
-  const [aId, bId] = key.split('::');
-  const rowsHtml = rows.map(r => {
-    if (r.kind === 'relation') return _linkAgentRelationRowHtml(r);
-    if (r.kind === 'knowledge') return _linkAgentKnowledgeRowHtml(r);
-    return _linkAgentNoLinksRowHtml(r);
-  }).join('');
-  return `<div class="linkagent-pair-group">
-    <div style="font-weight:600; font-size:12px">${esc(_linkAgentNpcName(aId))} — ${esc(_linkAgentNpcName(bId))}</div>
-    ${rowsHtml}
-  </div>`;
-}
-
-async function linkAgentEditField(rowId, field, value) {
-  try {
-    const row = await api(`/api/link-batches/${encodeURIComponent(linkAgentBatch.id)}/rows/${encodeURIComponent(rowId)}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payload: { [field]: value } }),
-    });
-    const idx = linkAgentRows.findIndex(r => r.id === rowId);
-    if (idx !== -1) linkAgentRows[idx] = row;
-  } catch (e) {
-    alert(e.message);
-  }
-  _linkAgentPaintReview();
-}
-
-async function linkAgentToggleReject(rowId, currentlyRejected) {
-  try {
-    const row = await api(`/api/link-batches/${encodeURIComponent(linkAgentBatch.id)}/rows/${encodeURIComponent(rowId)}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ row_status: currentlyRejected ? 'proposed' : 'rejected' }),
-    });
-    const idx = linkAgentRows.findIndex(r => r.id === rowId);
-    if (idx !== -1) linkAgentRows[idx] = row;
-  } catch (e) {
-    alert(e.message);
-  }
-  _linkAgentPaintReview();
-}
-
-/* ── Coherence block + commit ──────────────────────────────────────────── */
-
-function _linkAgentFindingHtml(finding, index) {
-  const rejected = finding.validation === 'rejected';
-  const applied = !!finding.applied_at;
-  const targetTxt = finding.target ? `${finding.target.scope}:${(finding.target.id || '').slice(0, 8)}` : '';
-  const canonBadge = (finding.target && finding.target.scope === 'canon' && applied) ? '<span class="badge b-approved">canon modifié</span>' : '';
-  return `
-    <div class="linkagent-finding ${rejected ? 'finding-rejected' : ''}">
-      <div><span class="badge b-other">${esc(finding.source)}</span> <span style="font-size:11px; color:var(--muted)">${esc(targetTxt)}</span>
-        ${applied ? '<span class="badge b-applied">appliqué</span>' : ''}${canonBadge}</div>
-      <div style="margin-top:4px">${esc(finding.problem || '')}</div>
-      ${finding.rationale ? `<div style="color:var(--muted); font-size:11px; margin-top:2px">${esc(finding.rationale)}</div>` : ''}
-      ${rejected ? `<div style="color:var(--red); font-size:11px; margin-top:4px">rejeté : ${esc(finding.validation_reason || '')}</div>` : ''}
-      ${(finding.validation === 'valid' && finding.patch != null && !applied) ? `<button class="btn-icon" style="margin-top:6px" onclick="linkAgentApplyFinding(${index})">Appliquer</button>` : ''}
-    </div>`;
-}
-
-async function linkAgentRunCoherence() {
-  try {
-    const result = await api(`/api/link-batches/${encodeURIComponent(linkAgentBatch.id)}/coherence`, { method: 'POST' });
-    linkAgentBatch.coherence_status = result.coherence_status;
-    linkAgentBatch.coherence_findings = result.findings;
-  } catch (e) {
-    alert(e.message);
-  }
-  _linkAgentPaintReview();
-}
-
-/** A finding whose patch targets a STAGED row mutates that row's payload —
- *  reload the batch so the pair group shows the patched value; a CANON
- *  patch only flips this finding's own applied_at/badge, no row refresh. */
-async function linkAgentApplyFinding(index) {
-  try {
-    const finding = await api(`/api/link-batches/${encodeURIComponent(linkAgentBatch.id)}/findings/${index}/apply`, { method: 'POST' });
-    if (finding.target && finding.target.scope === 'staged') {
-      await linkAgentLoadBatch(linkAgentBatch.id);
-      return;
-    }
-    const findings = linkAgentBatch.coherence_findings.slice();
-    findings[index] = finding;
-    linkAgentBatch.coherence_findings = findings;
-  } catch (e) {
-    alert(e.message);
-  }
-  _linkAgentPaintReview();
-}
-
-async function linkAgentCommit() {
-  try {
-    const result = await api(`/api/link-batches/${encodeURIComponent(linkAgentBatch.id)}/commit`, { method: 'POST' });
-    linkAgentCommitResult = `${result.committed.length} lien(s) committé(s)` +
-      (result.skipped.length ? `, ${result.skipped.length} ignoré(s) (conflit)` : '');
-    await linkAgentLoadBatch(linkAgentBatch.id);
-    // TICKET-0058 (BRIEF-0058-c, M8): the graph's own reload entry point is
-    // now the relations consumer's graph:invalidate seam, not a direct call
-    // -- refreshes only if the relgraph panel is currently open/mounted.
-    document.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'relations' } }));
-  } catch (e) {
-    linkAgentCommitResult = e.message;
-    _linkAgentPaintReview();
-  }
-}
-
-function _linkAgentPaintReview() {
-  const panelEl = document.getElementById('linkagent-panel');
-  if (!panelEl || !linkAgentBatch) return;
-  const b = linkAgentBatch;
-  const isOpen = b.status === 'open';
-  const groups = _linkAgentGroupRows();
-  const pairsHtml = Array.from(groups.entries()).map(([key, rows]) => _linkAgentPairGroupHtml(key, rows)).join('')
-    || '<div class="empty">Aucune paire traitée pour l’instant.</div>';
-
-  const progressHtml = isOpen
-    ? `<div>paire ${b.pairs_done}/${b.pairs_total}
-        ${linkAgentLoopRunning
-          ? '<button class="btn-icon" onclick="linkAgentPause()">Pause</button>'
-          : (b.pairs_done < b.pairs_total ? '<button class="btn-icon" onclick="linkAgentRunLoop()">Reprendre</button>' : '')}
-      </div>
-      ${linkAgentFailedPair ? `<div style="color:var(--red)">Échec : ${esc(linkAgentFailedPair.message)}
-        <button class="btn-icon" onclick="linkAgentRetry()">Réessayer</button></div>` : ''}`
-    : `<div style="color:var(--muted)">Lot ${esc(b.status)}.</div>`;
-
-  const findings = b.coherence_findings || [];
-  const findingsHtml = findings.length ? findings.map((f, i) => _linkAgentFindingHtml(f, i)).join('')
-    : '<div class="empty">Aucun résultat de cohérence pour l’instant.</div>';
-  const truncatedBanner = b.coherence_status === 'partial'
-    ? '<div class="linkagent-warn-banner">Graphe canon tronqué — passe partielle</div>' : '';
-  const canCommit = isOpen && (b.coherence_status === 'ran' || b.coherence_status === 'partial');
-
-  panelEl.innerHTML = `
-    <div style="font-weight:600; margin-bottom:6px">Agent liens — lot ${esc(b.id.slice(0, 8))}</div>
-    ${progressHtml}
-    <div style="margin-top:10px">${pairsHtml}</div>
-    <div style="margin-top:14px; font-weight:600">Passe de cohérence
-      ${isOpen ? '<button class="btn-icon" onclick="linkAgentRunCoherence()">Lancer</button>' : ''}
-    </div>
-    ${truncatedBanner}
-    <div>${findingsHtml}</div>
-    <div style="margin-top:14px">
-      <button class="btn-icon" ${canCommit ? '' : 'disabled'} onclick="linkAgentCommit()">Committer le lot</button>
-    </div>
-    <div id="linkagent-commit-result" style="margin-top:8px">${esc(linkAgentCommitResult || '')}</div>
-  `;
+  if (panelEl) panelEl.style.display = linkAgentOpen ? '' : 'none';
 }
 
 /* ════════════════════════════════════════════════════════════════════════════

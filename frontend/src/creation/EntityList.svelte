@@ -15,11 +15,14 @@
      whichever tab's rendering got here first, regardless of which tab
      wrote it.
 
-     The SHEET stays entirely legacy for `intrigues` and `pj`'s create mode
-     (#author-main, brief -f) -- a row click for those still calls back into
-     authorSelectEntity/creationSelectRecord via legacy/bridge.js, exactly as
-     those functions already work today, only the caller moved. `evenements`
-     converged onto real Svelte state (BRIEF-0058-j): its list is fetched by
+     The SHEET stays entirely legacy for `intrigues`'s own rows and `pj`'s
+     create mode (#author-main, brief -f) -- a record row click still calls
+     back into creationSelectRecord via legacy/bridge.js, unchanged. An
+     ENTITY row click no longer bridges into legacy at all (TICKET-0059,
+     BRIEF-0059-e): authorSelectEntity converged onto
+     frontend/src/creation/sheetState.svelte.js's selectEntity, a plain
+     Svelte-to-Svelte import. `evenements` converged onto real Svelte state
+     (BRIEF-0058-j): its list is fetched by
      this component directly (loadEvents, mirroring loadGenericEntities --
      no more 'creation:list-data' push from a legacy loadEventsList, which is
      gone), and its row click still reaches Sheet.svelte through
@@ -35,7 +38,8 @@
      shell-injected scoped CSS never reaches. Markup reuses the legacy
      document's own classes/CSS vars. */
   import { creationState } from './state.svelte.js';
-  import { selectEntity, selectRecord } from '../legacy/bridge.js';
+  import { selectRecord } from '../legacy/bridge.js';
+  import { selectEntity } from './sheetState.svelte.js';
   import { openRoomBatch } from './roomBatch.svelte.js';
 
   let { legacyDoc } = $props();
@@ -165,7 +169,7 @@
   });
 
   function onSelectEntity(id) {
-    selectEntity(id);
+    selectEntity(legacyDoc, id);
   }
 
   function onSelectRecord(record) {

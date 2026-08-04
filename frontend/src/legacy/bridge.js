@@ -114,28 +114,16 @@ export function legacyDocument() {
   return legacyWindow().document;
 }
 
-/* TICKET-0058 (BRIEF-0058-c). The relations consumer's ego mode needs the
-   currently-selected NPC at load time, and `authorEntityId` is a bare
-   `let` -- never a `window` property (see showCreationTab's note above).
-   `authorGetSelectedEntityId` is the one-line function-declaration
-   accessor this reaches through; no other state crosses this seam. */
-export function getSelectedCharacterId() {
-  return callLegacy('authorGetSelectedEntityId');
-}
-
 /* TICKET-0058 (BRIEF-0058-e). The entity-list island's row click needs to
-   trigger authorSelectEntity (entity rows) or creationSelectRecord
-   (non-entity record rows: intrigues, evenements) -- both stay legacy
-   dispatchers by design (A1 keeps the tab mechanism legacy for this
-   ticket), routing to either a still-legacy sheetRenderer (intrigues) or a
-   'creation:sheet-detail'/'creation:record-detail' dispatch Sheet.svelte
-   renders natively. Both are plain function declarations on the legacy
-   window, reached the same way getSelectedCharacterId already reaches
-   authorGetSelectedEntityId. */
-export function selectEntity(id) {
-  return callLegacy('authorSelectEntity', id);
-}
-
+   trigger creationSelectRecord (non-entity record rows: intrigues,
+   evenements) -- stays a legacy dispatcher by design (A1 keeps the tab
+   mechanism legacy for this ticket), routing to either a still-legacy
+   sheetRenderer (intrigues) or a 'creation:record-detail' dispatch
+   Sheet.svelte renders natively. An entity row's own selectEntity
+   (TICKET-0058, BRIEF-0058-e) and the relations graph consumer's
+   getSelectedCharacterId (BRIEF-0058-c) both converged onto
+   frontend/src/creation/sheetState.svelte.js (TICKET-0059, BRIEF-0059-e) --
+   plain Svelte-to-Svelte imports now, no legacy window involved. */
 export function selectRecord(tabId, record) {
   return callLegacy('creationSelectRecord', tabId, record);
 }

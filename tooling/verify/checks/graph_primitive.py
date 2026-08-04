@@ -96,6 +96,56 @@ GONE_PLAIN = [
     "relGraphData", "relGraphCy", "relGraphBucketState", "relGraphMode",
     "relGraphLinkArmed", "relGraphLinkSourceId", "_relGraphEdgePanelCtx",
     "RELGRAPH_BUCKET_COLORS",
+    # TICKET-0059 (BRIEF-0059-f commit 2): the NPC agent launcher's twelve
+    # functions plus its tree renderer, converged onto
+    # frontend/src/creation/NpcAgent.svelte + npcAgent.svelte.js
+    # (LocationTree.svelte's first consumer), plus the four launcher-only
+    # state variables that became fully unreferenced once those functions
+    # were gone.
+    "npcAgentReset", "npcAgentCheckOpenBatch", "npcAgentRenderLauncher",
+    "_npcAgentTreeHtml", "npcAgentSelectRoot", "npcAgentPreviewRoot",
+    "npcAgentAddLine", "npcAgentRemoveLine", "npcAgentEditLine",
+    "_npcAgentLineTotal", "_npcAgentLineRowHtml", "_npcAgentPaintLauncher",
+    "npcAgentLaunch",
+    "npcAgentLocations", "npcAgentSelectedRoot", "npcAgentGroupBrief",
+    "npcAgentLines",
+    # TICKET-0059 (BRIEF-0059-f commit 3): the NPC agent's run-loop/review
+    # functions, converged onto the same island, plus the review-only state
+    # variables that became fully unreferenced once those functions were
+    # gone. npcAgentOpen/npcAgentToggle are the two survivors (chrome) and
+    # stay off this list.
+    "_npcAgentRefreshRows", "npcAgentRunOne", "npcAgentRunLoop",
+    "npcAgentPause", "npcAgentRetryRun", "npcAgentLoadBatch",
+    "_npcAgentGroupRows", "_npcAgentRowHtml", "_npcAgentGroupHtml",
+    "npcAgentEditField", "npcAgentToggleReject", "npcAgentCommit",
+    "npcAgentAbandon", "npcAgentGenerateLinks", "_npcAgentPaintReview",
+    "npcAgentOpenBatchId", "npcAgentPreview", "npcAgentBatch",
+    "npcAgentRows", "npcAgentLoopRunning", "npcAgentFailedRun",
+    "npcAgentCommitResult", "npcAgentLinkHandoffMsg",
+    # TICKET-0059 (BRIEF-0059-g commit 1): the link agent launcher's nine
+    # functions, converged onto frontend/src/creation/LinkAgent.svelte +
+    # linkAgent.svelte.js (LocationTree.svelte's second consumer), plus the
+    # three launcher-only state variables that became fully unreferenced
+    # once those functions were gone.
+    "linkAgentReset", "linkAgentCheckOpenBatch", "linkAgentRenderLauncher",
+    "_linkAgentIsChecked", "_linkAgentTreeHtml", "linkAgentToggleLocation",
+    "_linkAgentPaintLauncher", "linkAgentPreviewRoster", "linkAgentLaunch",
+    "linkAgentLocations", "linkAgentCheckedRoots", "linkAgentPreview",
+    # TICKET-0059 (BRIEF-0059-g commit 2): the link agent's run-loop/review/
+    # coherence functions, converged onto the same island, plus the
+    # review-only state variables that became fully unreferenced once those
+    # functions were gone. linkAgentOpen/linkAgentToggle are the two
+    # survivors (chrome) and stay off this list.
+    "linkAgentRunLoop", "linkAgentPause", "linkAgentRetry",
+    "linkAgentLoadBatch", "_linkAgentNpcName", "_linkAgentGroupRows",
+    "_linkAgentRelationRowHtml", "_linkAgentKnowledgeRowHtml",
+    "_linkAgentNoLinksRowHtml", "_linkAgentPairGroupHtml",
+    "linkAgentEditField", "linkAgentToggleReject", "_linkAgentFindingHtml",
+    "linkAgentRunCoherence", "linkAgentApplyFinding", "linkAgentCommit",
+    "_linkAgentPaintReview",
+    "linkAgentOpenBatchId", "linkAgentBatch", "linkAgentRows",
+    "linkAgentNpcNames", "linkAgentLoopRunning", "linkAgentFailedPair",
+    "linkAgentCommitResult",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from

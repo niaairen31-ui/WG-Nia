@@ -17,8 +17,13 @@
    display-only by callback absence (capabilities(meta), not a boolean),
    matching relation_graph.py's amended clause 4. Global mode's "Lier"
    arm is itself a meta flag (`armed`), not module state, so it resets to
-   off on every remount just like the old code's mode-switch/tab-reset did. */
-import { getSelectedCharacterId } from '../../legacy/bridge.js';
+   off on every remount just like the old code's mode-switch/tab-reset did.
+
+   Ego mode's centerId (below) read the legacy window through legacy/bridge.js's
+   getSelectedCharacterId() until TICKET-0059 (BRIEF-0059-e) ported the
+   entity sheet's own selection into frontend/src/creation/sheetState.svelte.js
+   -- a plain Svelte-to-Svelte import replaces the bridge call. */
+import { getSelectedEntityId } from '../../creation/sheetState.svelte.js';
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
@@ -211,7 +216,7 @@ export default {
     if (meta.mode === 'global') {
       raw = await api('/api/relation-graph');
     } else {
-      centerId = meta.id || await getSelectedCharacterId();
+      centerId = meta.id || getSelectedEntityId();
       if (!centerId) {
         lastData = { nodes: [], edges: [], mode: 'ego', centerId: null };
         return { nodes: [], edges: [] };
