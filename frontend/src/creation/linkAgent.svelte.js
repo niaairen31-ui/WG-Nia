@@ -11,11 +11,19 @@
 
    Grown across this brief's two commits rather than authored whole
    (npcAgent.svelte.js's own precedent, TICKET-0059 BRIEF-0059-f): commit 1
-   (this state) adds the launcher's state and functions. Commit 2 adds the
+   added the launcher's state and functions. This commit (2) adds the
    run-loop/review/coherence state and the functions that operate on it, and
    rewires launch()/reopenExisting() onto loadBatch() so a freshly launched
-   or reopened batch reaches the review surface -- this commit's own
-   documented gap, closed there.
+   or reopened batch reaches the review surface -- commit 1's own documented
+   gap, closed here.
+
+   The run loop's termination protocol is preserved exactly as the legacy
+   linkAgentRunLoop wrote it: it reads `result.done` and updates
+   `linkAgentState.batch.pairs_done` per iteration, never the error-string
+   protocol npcAgent's own run driver uses. BRIEF-0059-f named that
+   divergence a backend-contract difference and a deliberate deferral; this
+   commit does not touch npcAgent's loop, and this loop is not touched to
+   match it.
 
    The checked-set stays a `Set`, per the brief's own item 2: a `$state`
    Set's mutations aren't guaranteed visible in Svelte 5 unless the whole
@@ -148,12 +156,9 @@ export async function previewRoster() {
   }
 }
 
-/** "Lancer" both opens the batch AND starts the run loop in the original --
- *  commit 2 wires the run loop back on once runLoop()/loadBatch() exist
- *  here; until then this only marks the batch open (same gap
- *  npcAgent.svelte.js's launch() documented across BRIEF-0059-f's commits
- *  2-3), so the badge and reopen path are correct even though the review
- *  surface doesn't render yet. */
+/** "Lancer" both opens the batch AND starts the run loop (brief item 1+2
+ *  are one click) -- the loop runs unawaited so progress paints live,
+ *  exactly as the legacy linkAgentLaunch did. */
 export async function launch() {
   linkAgentState.launchError = '';
   linkAgentState.launchErrorReopen = false;
@@ -163,8 +168,8 @@ export async function launch() {
       body: JSON.stringify({ root_location_ids: Array.from(linkAgentState.checkedRoots) }),
     });
     linkAgentState.openBatchId = batch.id;
-    // Commit 2 wires loadBatch(batch.id) + runLoop() onto this same
-    // success path, moving the panel onto the review surface.
+    await loadBatch(batch.id);
+    runLoop();
   } catch (e) {
     if (e.message && e.message.includes('already open')) {
       linkAgentState.launchError = 'Un lot est déjà ouvert.';
@@ -175,11 +180,165 @@ export async function launch() {
   }
 }
 
-/** The launcher's half of index.html's inline reopen button
- *  (`linkAgentCheckOpenBatch().then(() => linkAgentLoadBatch(linkAgentOpenBatchId))`)
- *  -- the loadBatch half lands in commit 2, which extends this function
- *  rather than adding a second reopen path (npcAgent.svelte.js's
- *  reopenExisting precedent). */
+/** index.html's inline reopen button
+ *  (`linkAgentCheckOpenBatch().then(() => linkAgentLoadBatch(linkAgentOpenBatchId))`),
+ *  now that loadBatch exists (commit 1's own documented gap). */
 export async function reopenExisting() {
   await checkOpenBatch();
+  if (linkAgentState.openBatchId) await loadBatch(linkAgentState.openBatchId);
+}
+
+/* ── Run loop: sequential fetch of run-next until {done:true} ─────────────── */
+
+export async function runLoop() {
+  if (!linkAgentState.batch || linkAgentState.loopRunning) return;
+  linkAgentState.loopRunning = true;
+  linkAgentState.failedPair = null;
+  while (linkAgentState.loopRunning) {
+    let result;
+    try {
+      result = await api(`/api/link-batches/${encodeURIComponent(linkAgentState.batch.id)}/run-next`, { method: 'POST' });
+    } catch (e) {
+      linkAgentState.loopRunning = false;
+      linkAgentState.failedPair = { message: e.message };
+      return;
+    }
+    if (result.done) {
+      linkAgentState.loopRunning = false;
+      await loadBatch(linkAgentState.batch.id);
+      return;
+    }
+    linkAgentState.batch.pairs_done = result.pairs_done;
+  }
+}
+
+export function pause() {
+  linkAgentState.loopRunning = false;
+}
+
+export function retry() {
+  linkAgentState.failedPair = null;
+  runLoop();
+}
+
+/* ── Review surface: GET /api/link-batches/{id}, grouped by pair ─────────── */
+
+export async function loadBatch(batchId) {
+  linkAgentState.loading = true;
+  linkAgentState.loadError = '';
+  try {
+    const data = await api(`/api/link-batches/${encodeURIComponent(batchId)}`);
+    linkAgentState.batch = data.batch;
+    linkAgentState.rows = data.rows;
+    linkAgentState.openBatchId = linkAgentState.batch.status === 'open' ? linkAgentState.batch.id : null;
+    // Names aren't stored on the batch/rows -- re-derive via /preview over
+    // the batch's OWN root_location_ids rather than adding a new endpoint.
+    const rootIds = (linkAgentState.batch.scope && linkAgentState.batch.scope.root_location_ids) || [];
+    try {
+      const preview = await api('/api/link-batches/preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ root_location_ids: rootIds }),
+      });
+      const names = {};
+      preview.npcs.forEach((n) => { names[n.id] = n.name; });
+      linkAgentState.npcNames = names;
+    } catch { linkAgentState.npcNames = {}; }
+  } catch (e) {
+    linkAgentState.loading = false;
+    linkAgentState.loadError = e.message;
+    return;
+  }
+  linkAgentState.loading = false;
+}
+
+export function npcName(id) {
+  return linkAgentState.npcNames[id] || id;
+}
+
+/** index.html's _linkAgentGroupRows -- returns [key, rows[]] pairs in
+ *  first-seen order (a Map preserves insertion order; LinkAgent.svelte
+ *  iterates the array form directly, npcAgent.svelte.js's groupRows
+ *  precedent). `key` is `pair_a_id::pair_b_id`, unpacked by the consumer. */
+export function groupRows(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = `${row.pair_a_id}::${row.pair_b_id}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return Array.from(groups.entries());
+}
+
+export async function editField(rowId, field, value) {
+  try {
+    const row = await api(`/api/link-batches/${encodeURIComponent(linkAgentState.batch.id)}/rows/${encodeURIComponent(rowId)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload: { [field]: value } }),
+    });
+    const idx = linkAgentState.rows.findIndex((r) => r.id === rowId);
+    if (idx !== -1) linkAgentState.rows[idx] = row;
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+export async function toggleReject(rowId, currentlyRejected) {
+  try {
+    const row = await api(`/api/link-batches/${encodeURIComponent(linkAgentState.batch.id)}/rows/${encodeURIComponent(rowId)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ row_status: currentlyRejected ? 'proposed' : 'rejected' }),
+    });
+    const idx = linkAgentState.rows.findIndex((r) => r.id === rowId);
+    if (idx !== -1) linkAgentState.rows[idx] = row;
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+/* ── Coherence block + commit ──────────────────────────────────────────── */
+
+export async function runCoherence() {
+  try {
+    const result = await api(`/api/link-batches/${encodeURIComponent(linkAgentState.batch.id)}/coherence`, { method: 'POST' });
+    linkAgentState.batch.coherence_status = result.coherence_status;
+    linkAgentState.batch.coherence_findings = result.findings;
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+/** A finding whose patch targets a STAGED row mutates that row's payload --
+ *  reload the batch so the pair group shows the patched value; a CANON
+ *  patch only flips this finding's own applied_at/badge, no row refresh. */
+export async function applyFinding(index) {
+  try {
+    const finding = await api(`/api/link-batches/${encodeURIComponent(linkAgentState.batch.id)}/findings/${index}/apply`, { method: 'POST' });
+    if (finding.target && finding.target.scope === 'staged') {
+      await loadBatch(linkAgentState.batch.id);
+      return;
+    }
+    const findings = linkAgentState.batch.coherence_findings.slice();
+    findings[index] = finding;
+    linkAgentState.batch.coherence_findings = findings;
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+/** `legacyDoc` is a parameter, not an import -- see this file's header. */
+export async function commit(legacyDoc) {
+  try {
+    const result = await api(`/api/link-batches/${encodeURIComponent(linkAgentState.batch.id)}/commit`, { method: 'POST' });
+    linkAgentState.commitResult = `${result.committed.length} lien(s) committé(s)` +
+      (result.skipped.length ? `, ${result.skipped.length} ignoré(s) (conflit)` : '');
+    await loadBatch(linkAgentState.batch.id);
+    // TICKET-0058 (BRIEF-0058-c, M8): the graph's own reload entry point is
+    // the relations consumer's graph:invalidate seam -- dispatched on
+    // legacyDoc since graph/mount.js's listener lives inside the legacy
+    // iframe document (RoomBatch.svelte/Sheet.svelte's own precedent for a
+    // Creation island triggering this seam).
+    legacyDoc.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'relations' } }));
+  } catch (e) {
+    linkAgentState.commitResult = e.message;
+  }
 }

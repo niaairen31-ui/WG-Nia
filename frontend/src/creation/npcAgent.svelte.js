@@ -20,20 +20,24 @@
    commit 2's own documented gap, closed here.
 
    generateLinks()'s J1 handoff is this module's one remaining reach into
-   the still-legacy link agent (Scope OUT: linkAgent's 27 functions are
-   untouched by this brief). A Svelte module cannot assign a `let` binding
-   declared in index.html's top-level script -- it isn't a `window`
-   property (frontend/src/legacy/bridge.js's own comment) -- so setting
-   `linkAgentOpen = true` the way the original inline code did is not
-   reachable directly. legacyCall('linkAgentToggle')/legacyCall(
-   'linkAgentLoadBatch', ...) -- both EXISTING, unmodified link-agent
-   functions -- reproduce the same net effect (open the panel if it isn't
-   already, then load the fresh batch) without touching a single line
-   inside linkAgent's own 27. legacyContainer reads the panel's current
-   display style directly (a plain DOM read, not a bridge-reach site) so
-   the toggle call only fires when the panel is actually closed -- calling
-   linkAgentToggle unconditionally would CLOSE an already-open panel
-   (it flips, it does not set).
+   the link agent. At the time this comment was first written (BRIEF-0059-f
+   commit 3), linkAgentLoadBatch was still a legacy global and a Svelte
+   module cannot assign a `let` binding declared in index.html's top-level
+   script -- it isn't a `window` property (frontend/src/legacy/bridge.js's
+   own comment) -- so the handoff went through legacyCall('linkAgentToggle')/
+   legacyCall('linkAgentLoadBatch', ...). BRIEF-0059-g commit 2 ported
+   linkAgentLoadBatch to frontend/src/creation/linkAgent.svelte.js's
+   loadBatch export, so the load half of the handoff is now a plain
+   Svelte-to-Svelte import -- bridge.js's own selectRecord/
+   getSelectedCharacterId comment already names this as the expected end
+   state once both sides of a legacy bridge-reach converge. The toggle half
+   stays a legacyCall: linkAgentToggle is chrome (retires at -l), so opening
+   the panel still means flipping the still-legacy button's own state.
+   legacyContainer reads the panel's current display style directly (a
+   plain DOM read, not a bridge-reach site) so the toggle call only fires
+   when the panel is actually closed -- calling linkAgentToggle
+   unconditionally would CLOSE an already-open panel (it flips, it does not
+   set).
 
    State is module-level (not NpcAgent.svelte-local) for the same reason
    RoomBatch's roomBatchState is: TICKET-0059's BRIEF-0059-f doesn't need a
@@ -41,6 +45,7 @@
    migrated Creation panel (roomBatch.svelte.js, sheetState.svelte.js) beats
    a one-off local-state exception. */
 import { legacyCall, legacyContainer } from '../legacy/bridge.js';
+import { loadBatch as loadLinkBatch } from './linkAgent.svelte.js';
 
 export const npcAgentState = $state({
   loading: false,
@@ -338,12 +343,12 @@ export async function abandon() {
 
 /** J1 handoff: calls the EXISTING link agent creation route with this
  *  batch's own root_location_id, then opens the link agent panel on the
- *  fresh batch (linkAgentLoadBatch -- the roster then includes both the new
+ *  fresh batch (loadLinkBatch -- the roster then includes both the new
  *  NPCs and pre-existing residents of the root, F1 skips canon pairs). A
  *  409 (a link batch is already open) surfaces as a plain warning banner
  *  and is never retried automatically. See this file's header for why the
- *  handoff crosses the legacy bridge instead of writing linkAgent's state
- *  directly. */
+ *  panel-open half still crosses the legacy bridge (chrome, linkAgentToggle)
+ *  while the load half is now a direct Svelte-to-Svelte call. */
 export async function generateLinks() {
   npcAgentState.linkHandoffMsg = null;
   try {
@@ -355,7 +360,7 @@ export async function generateLinks() {
     if (legacyContainer('linkagent-panel').style.display === 'none') {
       legacyCall('linkAgentToggle');
     }
-    await legacyCall('linkAgentLoadBatch', batch.id);
+    await loadLinkBatch(batch.id);
   } catch (e) {
     npcAgentState.linkHandoffMsg = e.message;
   }

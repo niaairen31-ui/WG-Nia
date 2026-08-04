@@ -131,6 +131,21 @@ GONE_PLAIN = [
     "_linkAgentIsChecked", "_linkAgentTreeHtml", "linkAgentToggleLocation",
     "_linkAgentPaintLauncher", "linkAgentPreviewRoster", "linkAgentLaunch",
     "linkAgentLocations", "linkAgentCheckedRoots", "linkAgentPreview",
+    # TICKET-0059 (BRIEF-0059-g commit 2): the link agent's run-loop/review/
+    # coherence functions, converged onto the same island, plus the
+    # review-only state variables that became fully unreferenced once those
+    # functions were gone. linkAgentOpen/linkAgentToggle are the two
+    # survivors (chrome) and stay off this list.
+    "linkAgentRunLoop", "linkAgentPause", "linkAgentRetry",
+    "linkAgentLoadBatch", "_linkAgentNpcName", "_linkAgentGroupRows",
+    "_linkAgentRelationRowHtml", "_linkAgentKnowledgeRowHtml",
+    "_linkAgentNoLinksRowHtml", "_linkAgentPairGroupHtml",
+    "linkAgentEditField", "linkAgentToggleReject", "_linkAgentFindingHtml",
+    "linkAgentRunCoherence", "linkAgentApplyFinding", "linkAgentCommit",
+    "_linkAgentPaintReview",
+    "linkAgentOpenBatchId", "linkAgentBatch", "linkAgentRows",
+    "linkAgentNpcNames", "linkAgentLoopRunning", "linkAgentFailedPair",
+    "linkAgentCommitResult",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from

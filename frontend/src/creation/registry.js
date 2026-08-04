@@ -302,11 +302,10 @@ export const CREATION_ISLANDS = Object.freeze({
   // linkAgent.svelte.js, LocationTree.svelte's second consumer (checkbox +
   // ancestor-inheritance row, per Amendment 1's row-snippet seam). Landed
   // across two commits (linkAgent.svelte.js's own header explains the
-  // split); this list grows again in commit 2 with the run-loop/review/
-  // coherence functions' identifiers, the same shape npcAgent's own
-  // retiredPrefixes grew across BRIEF-0059-f. linkAgentToggle/linkAgentOpen
-  // are the two survivors (chrome, not migrated) and are deliberately
-  // absent here.
+  // split); commit 2 grew this list with the run-loop/review/coherence
+  // functions' identifiers, the same shape npcAgent's own retiredPrefixes
+  // grew across BRIEF-0059-f. linkAgentToggle/linkAgentOpen are the two
+  // survivors (chrome, not migrated) and are deliberately absent here.
   linkAgent: Object.freeze({
     containerId: 'linkagent-panel',
     component: 'LinkAgent.svelte',
@@ -321,6 +320,23 @@ export const CREATION_ISLANDS = Object.freeze({
       '_linkAgentPaintLauncher',
       'linkAgentPreviewRoster',
       'linkAgentLaunch',
+      'linkAgentRunLoop',
+      'linkAgentPause',
+      'linkAgentRetry',
+      'linkAgentLoadBatch',
+      '_linkAgentNpcName',
+      '_linkAgentGroupRows',
+      '_linkAgentRelationRowHtml',
+      '_linkAgentKnowledgeRowHtml',
+      '_linkAgentNoLinksRowHtml',
+      '_linkAgentPairGroupHtml',
+      'linkAgentEditField',
+      'linkAgentToggleReject',
+      '_linkAgentFindingHtml',
+      'linkAgentRunCoherence',
+      'linkAgentApplyFinding',
+      'linkAgentCommit',
+      '_linkAgentPaintReview',
     ],
   }),
 });
