@@ -4199,7 +4199,11 @@ function _lieuxTabEnterReset() {
 function _npcTabEnterReset() {
   _entityTabEnterReset();
   _onDemandSlotReset(CREATION_TABS.npc);
-  npcAgentReset();
+  // TICKET-0059 (BRIEF-0059-f commit 2): the direct reset call this tab
+  // used to make on the (now Svelte) NPC agent panel is a CustomEvent now
+  // -- NpcAgent.svelte's own legacyDoc listener resets itself, the same
+  // 'creation:batch-reset' idiom RoomBatch.svelte already established.
+  document.dispatchEvent(new CustomEvent('creation:npcagent-reset'));
   linkAgentReset();
 }
 
@@ -4211,13 +4215,15 @@ function _npcTabEnterReset() {
 // (authorAllEntities/playerCharIds/lieux browse position/intriguesAgendas/
 // evenementsEvents) moved into frontend/src/creation/state.svelte.js and
 // the EntityList island's own component-local state, reset on
-// serverState.worldId change rather than a legacy callback. The two of
-// the seven that also did DOM work beyond the entity list itself
-// (_npcWorldReset's on-demand-slot hide, _lieuxWorldReset's on-demand-slot
-// + batch-panel hide) are preserved below by calling npcAgentReset/
-// linkAgentReset/batchReset directly from the generic world-switch runner
-// — unconditionally, exactly as they always ran, just no longer nested
-// inside a per-tab callback that no longer exists. pendingDraft*/
+// serverState.worldId change rather than a legacy callback. The one of
+// the seven that still does DOM work beyond the entity list itself
+// (_npcWorldReset's on-demand-slot hide, for link agent's own panel) is
+// preserved below by calling linkAgentReset directly from the generic
+// world-switch runner — unconditionally, exactly as it always ran, just no
+// longer nested inside a per-tab callback that no longer exists. The NPC
+// agent panel and the room-batch panel both reset themselves reactively
+// off serverState.worldId now (BRIEF-0058-j, BRIEF-0059-f commit 2), the
+// -d rule every migrated island entry follows. pendingDraft*/
 // authorFactionRoles* (pj/factions' non-list state) are re-populated by
 // _creationRunWorldSwitchResets' own re-activation of the current tab
 // (activateWorld already calls showCreationSubTab after the resets) and
@@ -4269,7 +4275,7 @@ const CREATION_TABS = {
     containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: _npcTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'npcAgent', containerId: 'npcagent-panel' }],
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && !playerCharIds.has(e.id)),
     createPanel: null,
@@ -4277,7 +4283,11 @@ const CREATION_TABS = {
     showPendingCreations: true,
     slots: [{ id: 'relgraph', containerId: 'creation-npc-relgraph', loader: null,
               onSelect: (id) => document.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'relations', meta: { id } } })),
-              onOpen: () => { npcAgentCheckOpenBatch(); linkAgentCheckOpenBatch(); },
+              // TICKET-0059 (BRIEF-0059-f commit 2): the NPC half of this
+              // open-batch check is dropped -- NpcAgent.svelte performs the
+              // equivalent check itself, on mount, instead of waiting for
+              // this on_demand slot's first open.
+              onOpen: () => { linkAgentCheckOpenBatch(); },
               display: 'on_demand', toggleLabel: 'Voir le graphe',
               graph: { consumer: 'relations', mountId: 'relgraph-mount' } }],
   },
@@ -4579,14 +4589,14 @@ async function _creationRunWorldSwitchResets() {
     if (entry.state && entry.state.onWorldSwitch) entry.state.onWorldSwitch();
   });
   // TICKET-0058 (BRIEF-0058-e): npc's and lieux's onWorldSwitch are gone
-  // (see the comment above _lieuxTabEnterReset) but the DOM work they used
-  // to do beyond the entity list itself — hiding the NPC/link-agent panels
-  // on a world switch — still belongs here, called unconditionally exactly
-  // as it always ran, just no longer nested inside a per-tab callback. The
-  // room-batch panel's own world-switch reset is gone too (BRIEF-0058-j):
-  // RoomBatch.svelte resets itself reactively off serverState.worldId, the
-  // same -d rule every other island entry follows.
-  npcAgentReset();
+  // (see the comment above _lieuxTabEnterReset) but the DOM work link
+  // agent's panel still needs on a world switch belongs here, called
+  // unconditionally exactly as it always ran, just no longer nested inside
+  // a per-tab callback. The room-batch panel's own world-switch reset is
+  // gone too (BRIEF-0058-j), and TICKET-0059 (BRIEF-0059-f commit 2) moves
+  // the NPC agent panel onto the same pattern: NpcAgent.svelte resets
+  // itself reactively off serverState.worldId, the same -d rule every
+  // other island entry follows.
   linkAgentReset();
   if (authorRegistry) await refreshCreationTabs();
 }
@@ -5931,6 +5941,17 @@ document.addEventListener('creation:refresh-tabs', () => {
   if (typeof refreshCreationTabs === 'function') refreshCreationTabs();
 });
 
+/* TICKET-0059 (BRIEF-0059-f commit 2). The #npcagent-badge dot lives in
+ * this document's own chrome (outside NpcAgent.svelte's #npcagent-panel
+ * mount root), so the island cannot just re-render it -- it signals this
+ * document instead, the same reverse-bridge idiom 'creation:refresh-tabs'
+ * established above. mount.js stays out of per-island relays like this
+ * one (its own header comment). */
+document.addEventListener('creation:npcagent-badge', (ev) => {
+  const badgeEl = document.getElementById('npcagent-badge');
+  if (badgeEl) badgeEl.style.display = ev.detail.open ? '' : 'none';
+});
+
 /* ── Runtime Creation tabs — dynamic tab factory (TICKET-0046, BRIEF-0046-d) ──
  * The single producer of runtime (custom entity-type) Creation tabs: reads
  * authorRegistry.runtime_types (world-scoped, from GET /api/entity-types) and
@@ -6681,17 +6702,17 @@ async function skillSaveTier(skillId, tier) {
    sibling of the link agent panel below (same header, "Agent PNJ" precedes
    "Agent liens" — the region -> NPC -> liens pipeline order). Drives the
    0037-a/b/c backend (staging, generation run, review, commit + J1 handoff).
-   Sequential client-side fetch loop only; server state is the only state.
-   Reuses every `.linkagent-*` CSS class wholesale (no new stylesheet block).
+   TICKET-0059 (BRIEF-0059-f commit 2): the launcher half (root picker,
+   group-brief textarea, line editor) moved to frontend/src/creation/
+   NpcAgent.svelte + npcAgent.svelte.js — see those files' own header
+   comments for the full list of what moved and why. The state below and
+   the review-phase functions further down stay here until commit 3 ports
+   them too.
    ════════════════════════════════════════════════════════════════════════════ */
 
 let npcAgentOpen           = false;
-let npcAgentOpenBatchId    = null;  // set by npcAgentCheckOpenBatch — drives the badge + reopen path
-let npcAgentLocations      = [];    // flat [{id, name, parent_location_id, ...}], fetched fresh on open
-let npcAgentSelectedRoot   = null;  // single root_location_id (C1/S1 — intra-region v1, radio not checkbox)
-let npcAgentPreview        = null;  // last /preview response {expanded_location_ids, locations, factions}
-let npcAgentGroupBrief     = '';    // launcher's free-prose group brief
-let npcAgentLines          = [];    // draft line editor state [{count, description, faction_id, location_id}]
+let npcAgentOpenBatchId    = null;  // set by the island's own open-batch check (badge) and by the review-phase load below (its own reopen path)
+let npcAgentPreview        = null;  // last /preview response {expanded_location_ids, locations, factions} — review-phase only now
 let npcAgentBatch          = null;  // current batch object
 let npcAgentRows           = [];    // current batch rows
 let npcAgentLoopRunning    = false; // Pause/"Tout générer" toggle for the run loop
@@ -6699,205 +6720,14 @@ let npcAgentFailedRun      = null;  // {message} on a real generation failure �
 let npcAgentCommitResult   = null;  // last commit's result text — survives the post-commit repaint
 let npcAgentLinkHandoffMsg = null;  // J1 handoff outcome (409 banner) — never retried automatically
 
-/** Resets ALL NPC-agent state — called directly by _npcTabEnterReset (tab
- *  re-entry) and _creationRunWorldSwitchResets (world switch, TICKET-0058/
- *  BRIEF-0058-e moved this call out of the now-deleted _npcWorldReset;
- *  same contract as linkAgentReset). Setting
- *  npcAgentLoopRunning = false also stops any in-flight run loop on its
- *  next iteration check, so a world switch mid-run cannot keep hammering
- *  run-next for a batch that is no longer in view. */
-function npcAgentReset() {
-  npcAgentOpen = false;
-  npcAgentOpenBatchId = null;
-  npcAgentLocations = [];
-  npcAgentSelectedRoot = null;
-  npcAgentPreview = null;
-  npcAgentGroupBrief = '';
-  npcAgentLines = [];
-  npcAgentBatch = null;
-  npcAgentRows = [];
-  npcAgentLoopRunning = false;
-  npcAgentFailedRun = null;
-  npcAgentCommitResult = null;
-  npcAgentLinkHandoffMsg = null;
-  const panelEl = document.getElementById('npcagent-panel');
-  if (panelEl) { panelEl.style.display = 'none'; panelEl.innerHTML = ''; }
-  const badgeEl = document.getElementById('npcagent-badge');
-  if (badgeEl) badgeEl.style.display = 'none';
-}
-
-/** GET /api/npc-batches -> badge dot on "Agent PNJ" if this world has an
- *  open batch (reopen path). Called from the npc 'relgraph' slot's
- *  onOpen, every time the on_demand slot first fires (linkAgentCheckOpenBatch
- *  precedent). */
-async function npcAgentCheckOpenBatch() {
-  const badgeEl = document.getElementById('npcagent-badge');
-  try {
-    const data = await api('/api/npc-batches');
-    const open = (data.batches || []).find(b => b.status === 'open');
-    npcAgentOpenBatchId = open ? open.id : null;
-  } catch {
-    npcAgentOpenBatchId = null;
-  }
-  if (badgeEl) badgeEl.style.display = npcAgentOpenBatchId ? '' : 'none';
-}
-
-/** Launcher toggle. Opens directly on the review surface of the open batch
- *  if there is one (reopen path), else the root-picker launcher. */
+/** Launcher toggle — now a pure display flip. The island mounted at
+ *  #npcagent-panel does the equivalent of the old "load the open batch,
+ *  else render the launcher" branch itself, on mount/reset, instead of
+ *  here (TICKET-0059, BRIEF-0059-f commit 2, item 5). */
 function npcAgentToggle() {
   npcAgentOpen = !npcAgentOpen;
   const panelEl = document.getElementById('npcagent-panel');
-  if (!panelEl) return;
-  panelEl.style.display = npcAgentOpen ? '' : 'none';
-  if (!npcAgentOpen) return;
-  if (npcAgentOpenBatchId) npcAgentLoadBatch(npcAgentOpenBatchId);
-  else npcAgentRenderLauncher();
-}
-
-/* ── Launcher: single-root location tree + group brief + line editor ─────── */
-
-async function npcAgentRenderLauncher() {
-  const panelEl = document.getElementById('npcagent-panel');
-  if (!panelEl) return;
-  panelEl.innerHTML = '<div class="empty"><span class="spin">⟳</span> Chargement des lieux…</div>';
-  try {
-    npcAgentLocations = await api('/api/locations');
-  } catch (e) {
-    panelEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-    return;
-  }
-  npcAgentSelectedRoot = null;
-  npcAgentPreview = null;
-  npcAgentGroupBrief = '';
-  npcAgentLines = [{ count: 1, description: '', faction_id: null, location_id: null }];
-  npcAgentCommitResult = null;
-  _npcAgentPaintLauncher();
-}
-
-function _npcAgentTreeHtml(parentId) {
-  const known = new Set(npcAgentLocations.map(l => l.id));
-  const children = npcAgentLocations
-    .filter(l => (parentId == null ? (!l.parent_location_id || !known.has(l.parent_location_id)) : l.parent_location_id === parentId))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  if (!children.length) return '';
-  return children.map(l => `
-    <div class="linkagent-loc-node">
-      <label><input type="radio" name="npcagent-root" ${npcAgentSelectedRoot === l.id ? 'checked' : ''}
-        onchange="npcAgentSelectRoot('${esc(l.id)}')"> ${esc(l.name)}</label>
-      <div class="linkagent-loc-children">${_npcAgentTreeHtml(l.id)}</div>
-    </div>`).join('');
-}
-
-function npcAgentSelectRoot(locId) {
-  npcAgentSelectedRoot = locId;
-  npcAgentPreview = null;
-  _npcAgentPaintLauncher();
-}
-
-async function npcAgentPreviewRoot() {
-  const errEl = document.getElementById('npcagent-launch-error');
-  try {
-    npcAgentPreview = await api(`/api/npc-batches/preview?root_location_id=${encodeURIComponent(npcAgentSelectedRoot)}`);
-    if (errEl) errEl.textContent = '';
-  } catch (e) {
-    npcAgentPreview = null;
-    if (errEl) errEl.textContent = e.message;
-  }
-  _npcAgentPaintLauncher();
-}
-
-function npcAgentAddLine() {
-  npcAgentLines.push({ count: 1, description: '', faction_id: null, location_id: null });
-  _npcAgentPaintLauncher();
-}
-
-function npcAgentRemoveLine(i) {
-  npcAgentLines.splice(i, 1);
-  _npcAgentPaintLauncher();
-}
-
-function npcAgentEditLine(i, field, value) {
-  npcAgentLines[i][field] = value;
-  _npcAgentPaintLauncher();
-}
-
-function _npcAgentLineTotal() {
-  return npcAgentLines.reduce((sum, l) => sum + (Number(l.count) || 0), 0);
-}
-
-function _npcAgentLineRowHtml(line, i) {
-  const factionOpts = (npcAgentPreview ? npcAgentPreview.factions : []).map(f =>
-    `<option value="${esc(f.id)}" ${line.faction_id === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('');
-  const locationOpts = (npcAgentPreview ? npcAgentPreview.locations : []).map(l =>
-    `<option value="${esc(l.id)}" ${line.location_id === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
-  return `
-    <div class="linkagent-row">
-      <input type="number" min="1" style="width:52px" value="${line.count}"
-        onchange="npcAgentEditLine(${i}, 'count', Number(this.value))">
-      <input type="text" placeholder="description" style="flex:1; min-width:140px" value="${esc(line.description || '')}"
-        onchange="npcAgentEditLine(${i}, 'description', this.value)">
-      <select onchange="npcAgentEditLine(${i}, 'faction_id', this.value || null)">
-        <option value="">(aucune)</option>${factionOpts}
-      </select>
-      <select onchange="npcAgentEditLine(${i}, 'location_id', this.value || null)">
-        <option value="">(modèle)</option>${locationOpts}
-      </select>
-      <button class="btn-icon" onclick="npcAgentRemoveLine(${i})">Retirer</button>
-    </div>`;
-}
-
-function _npcAgentPaintLauncher() {
-  const panelEl = document.getElementById('npcagent-panel');
-  if (!panelEl) return;
-  const previewHtml = npcAgentPreview
-    ? `<div style="margin-top:8px; font-size:11px; color:var(--muted)">${npcAgentPreview.locations.length} lieu(x), ${npcAgentPreview.factions.length} faction(s) dans la zone</div>`
-    : '';
-  const linesHtml = npcAgentPreview
-    ? npcAgentLines.map((l, i) => _npcAgentLineRowHtml(l, i)).join('')
-    : '<div class="empty">Sélectionnez une racine puis prévisualisez pour éditer les lignes.</div>';
-  panelEl.innerHTML = `
-    <div style="font-weight:600; margin-bottom:6px">Agent PNJ — sélection de la racine</div>
-    <div>${_npcAgentTreeHtml(null) || '<div class="empty">Aucun lieu.</div>'}</div>
-    ${previewHtml}
-    <div style="margin-top:10px">
-      <button class="btn-icon" ${npcAgentSelectedRoot ? '' : 'disabled'} onclick="npcAgentPreviewRoot()">Prévisualiser</button>
-    </div>
-    <div style="margin-top:10px; font-weight:600">Brief du groupe</div>
-    <textarea id="npcagent-group-brief" rows="2" style="width:100%; resize:vertical"
-      oninput="npcAgentGroupBrief = this.value">${esc(npcAgentGroupBrief)}</textarea>
-    <div style="margin-top:8px">${linesHtml}</div>
-    ${npcAgentPreview ? `<button class="btn-icon" onclick="npcAgentAddLine()">+ Ligne</button>` : ''}
-    <div style="margin-top:8px">Total : ${_npcAgentLineTotal()} PNJ</div>
-    <div style="margin-top:10px">
-      <button class="btn-icon" id="npcagent-launch-btn" ${npcAgentPreview ? '' : 'disabled'} onclick="npcAgentLaunch()">Lancer</button>
-    </div>
-    <div id="npcagent-launch-error" style="color:var(--red); margin-top:6px"></div>
-  `;
-}
-
-async function npcAgentLaunch() {
-  const errEl = document.getElementById('npcagent-launch-error');
-  try {
-    const batch = await api('/api/npc-batches', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        root_location_id: npcAgentSelectedRoot,
-        group_brief: npcAgentGroupBrief,
-        lines: npcAgentLines,
-      }),
-    });
-    npcAgentOpenBatchId = batch.id;
-    const badgeEl = document.getElementById('npcagent-badge');
-    if (badgeEl) badgeEl.style.display = '';
-    await npcAgentLoadBatch(batch.id);
-  } catch (e) {
-    if (errEl && e.message && e.message.includes('already open')) {
-      errEl.innerHTML = 'Un lot est déjà ouvert. ' +
-        '<button class="btn-icon" onclick="npcAgentCheckOpenBatch().then(() => npcAgentLoadBatch(npcAgentOpenBatchId))">Ouvrir le lot existant</button>';
-    } else if (errEl) {
-      errEl.textContent = e.message;
-    }
-  }
+  if (panelEl) panelEl.style.display = npcAgentOpen ? '' : 'none';
 }
 
 /* ── Run driver: "Suivant" (one unit) / "Tout générer" (loop until 409/error) ── */
@@ -7188,8 +7018,10 @@ let linkAgentCommitResult = null;  // last commit's result text — survives the
 
 /** Resets ALL link-agent state — called directly by _npcTabEnterReset (tab
  *  re-entry) and _creationRunWorldSwitchResets (world switch, TICKET-0058/
- *  BRIEF-0058-e moved this call out of the now-deleted _npcWorldReset;
- *  same contract as npcAgentReset). Setting
+ *  BRIEF-0058-e moved this call out of the now-deleted _npcWorldReset; the
+ *  NPC agent panel followed the same contract until TICKET-0059
+ *  (BRIEF-0059-f commit 2) moved it onto the reactive serverState.worldId
+ *  pattern instead). Setting
  *  linkAgentLoopRunning = false also stops any in-flight run loop on its
  *  next iteration check, so a world switch mid-run cannot keep hammering
  *  run-next for a batch that is no longer in view. */

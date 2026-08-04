@@ -96,6 +96,19 @@ GONE_PLAIN = [
     "relGraphData", "relGraphCy", "relGraphBucketState", "relGraphMode",
     "relGraphLinkArmed", "relGraphLinkSourceId", "_relGraphEdgePanelCtx",
     "RELGRAPH_BUCKET_COLORS",
+    # TICKET-0059 (BRIEF-0059-f commit 2): the NPC agent launcher's twelve
+    # functions plus its tree renderer, converged onto
+    # frontend/src/creation/NpcAgent.svelte + npcAgent.svelte.js
+    # (LocationTree.svelte's first consumer), plus the four launcher-only
+    # state variables that became fully unreferenced once those functions
+    # were gone.
+    "npcAgentReset", "npcAgentCheckOpenBatch", "npcAgentRenderLauncher",
+    "_npcAgentTreeHtml", "npcAgentSelectRoot", "npcAgentPreviewRoot",
+    "npcAgentAddLine", "npcAgentRemoveLine", "npcAgentEditLine",
+    "_npcAgentLineTotal", "_npcAgentLineRowHtml", "_npcAgentPaintLauncher",
+    "npcAgentLaunch",
+    "npcAgentLocations", "npcAgentSelectedRoot", "npcAgentGroupBrief",
+    "npcAgentLines",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from

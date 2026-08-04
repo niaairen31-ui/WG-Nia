@@ -256,4 +256,30 @@ export const CREATION_ISLANDS = Object.freeze({
     migratedBy: 'TICKET-0058',
     retiredPrefixes: ['batch', '_batchNodeName'],
   }),
+  // BRIEF-0059-f: the NPC group agent panel -- ported to NpcAgent.svelte/
+  // npcAgent.svelte.js, LocationTree.svelte's first consumer. Split across
+  // two commits (npcAgent.svelte.js's own header explains the split); this
+  // list grows again in commit 3 with the run-loop/review functions'
+  // identifiers, the same way entitySheet's own retiredPrefixes grew across
+  // BRIEF-0059-e's three commits.
+  npcAgent: Object.freeze({
+    containerId: 'npcagent-panel',
+    component: 'NpcAgent.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      'npcAgentReset',
+      'npcAgentCheckOpenBatch',
+      'npcAgentRenderLauncher',
+      '_npcAgentTreeHtml',
+      'npcAgentSelectRoot',
+      'npcAgentPreviewRoot',
+      'npcAgentAddLine',
+      'npcAgentRemoveLine',
+      'npcAgentEditLine',
+      '_npcAgentLineTotal',
+      '_npcAgentLineRowHtml',
+      '_npcAgentPaintLauncher',
+      'npcAgentLaunch',
+    ],
+  }),
 });
