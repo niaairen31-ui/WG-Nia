@@ -35,8 +35,9 @@ import NpcAgent from './NpcAgent.svelte';
 import LinkAgent from './LinkAgent.svelte';
 import Artefacts from './Artefacts.svelte';
 import Competences from './Competences.svelte';
+import Registre from './Registre.svelte';
 
-const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet, region: Region, batch: RoomBatch, npcAgent: NpcAgent, linkAgent: LinkAgent, artefacts: Artefacts, competences: Competences };
+const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet, region: Region, batch: RoomBatch, npcAgent: NpcAgent, linkAgent: LinkAgent, artefacts: Artefacts, competences: Competences, registre: Registre };
 
 const live = {}; // key -> { node, instance }
 

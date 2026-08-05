@@ -9,6 +9,12 @@ pairing that replaced it (an entry's `primaryAction` and `createPanel` must
 be on the same side) is `creation_island.py` rule 11's job, not duplicated
 here. This check only counts the migrated/legacy split (below) so the
 residual is visible in every verify run until TICKET-0059 closes it.
+
+TICKET-0059 (BRIEF-0059-h commit 4): the registre-add-form assertion
+re-anchors onto Registre.svelte's own initial state once that markup moves
+off index.html — the first target this check re-homes mid-ticket rather
+than at `-l`, since BRIEF-0005-c's invariant (collapsed by default) still
+needs a home the moment the legacy markup it used to check is gone.
 """
 import pathlib
 import re
@@ -16,6 +22,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
+REGISTRE_SVELTE = ROOT / "frontend" / "src" / "creation" / "Registre.svelte"
 
 TAB_KEYS = [
     "npc", "pj", "lieux", "factions", "objets",
@@ -257,10 +264,17 @@ def main() -> int:
             "(the registry's primaryAction label); an in-body control must not exist (BRIEF-0005-c)"
         )
 
-    if 'id="registre-add-form" hidden' not in html:
+    # TICKET-0059 (BRIEF-0059-h commit 4): the add-form moved off static
+    # markup onto Registre.svelte's own {#if addFormOpen} — collapsed by
+    # construction (the node doesn't exist until toggled) is a STRONGER
+    # form of BRIEF-0005-c's "collapsed by default" than the legacy
+    # `hidden` attribute ever was; the assertion re-anchors onto the
+    # component's own initial state instead of index.html markup.
+    registre_svelte = REGISTRE_SVELTE.read_text(encoding="utf-8") if REGISTRE_SVELTE.is_file() else ""
+    if "addFormOpen = $state(false)" not in registre_svelte:
         failures.append(
-            "#registre-add-form is not collapsed by default in static markup "
-            "(expected the 'hidden' attribute — BRIEF-0005-c)"
+            f"{REGISTRE_SVELTE} does not initialize addFormOpen to false — "
+            "the add-form must be collapsed by default (BRIEF-0005-c)"
         )
 
     # TICKET-0021/BRIEF-0021-a: Intrigues migrated onto the entity archetype's

@@ -158,6 +158,11 @@ GONE_PLAIN = [
     "_competencesRenderTable", "competencesSaveRow",
     "competencesDeleteOpen", "competencesDeleteConfirm",
     "competencesDraft", "COMPETENCES_DOMAINS",
+    # TICKET-0059 (BRIEF-0059-h commit 4): the Registre tab, converged onto
+    # frontend/src/creation/Registre.svelte.
+    "_registreWorldReset", "_registrePopulateEntityFilter",
+    "authorAddLedgerEntry", "registreToggleAddForm", "loadRegistre",
+    "_registreRenderTable", "_registreEntitiesLoaded",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from

@@ -333,6 +333,21 @@ export const CREATION_ISLANDS = Object.freeze({
       'COMPETENCES_DOMAINS',
     ],
   }),
+  // BRIEF-0059-h commit 4: the Registre (global ledger) tab -- ported
+  // wholesale to Registre.svelte. authorAddLedgerEntry closes here, not
+  // with the entity sheet's own read-only LedgerPanel.svelte (RECON-0059-a
+  // M2 / SUPPLEMENT Amendment 8: its sole caller is this tab's own
+  // add-form button).
+  registre: Object.freeze({
+    containerId: 'creation-registre',
+    component: 'Registre.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      '_registreWorldReset', '_registrePopulateEntityFilter',
+      'authorAddLedgerEntry', 'registreToggleAddForm', 'loadRegistre',
+      '_registreRenderTable', '_registreEntitiesLoaded',
+    ],
+  }),
   linkAgent: Object.freeze({
     containerId: 'linkagent-panel',
     component: 'LinkAgent.svelte',
