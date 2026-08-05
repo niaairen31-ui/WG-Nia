@@ -1432,33 +1432,9 @@ button:not(:disabled):hover { filter: brightness(1.15); }
     </div>
   </div><!-- #creation-queue -->
 
-  <!-- ── Prompts sub-tab (BRIEF-0008-b) — read-only, one detail at a time ── -->
-  <div id="creation-prompts" style="display:none">
-    <!-- Fenêtre de conversation (TICKET-0050, BRIEF-0050-e) — per-active-world
-         config, edited here (N2) beside conversation_summary until a
-         dedicated world-configuration surface exists (named deferral D-0050). -->
-    <div class="queue-panel" id="cw-config-panel">
-      <div class="panel-head">
-        <h2>Fenêtre de conversation</h2>
-        <button class="btn-icon" onclick="cwLoadConfig()" title="Rafraîchir">↻</button>
-      </div>
-      <div class="queue-body" id="cw-config-body">
-        <div class="empty"><span class="spin">⟳</span></div>
-      </div>
-    </div>
-    <div class="queue-panel">
-      <div class="panel-head">
-        <h2>Prompts</h2>
-        <button class="btn-icon" onclick="promptsLoadList()" title="Rafraîchir">↻</button>
-      </div>
-      <div class="queue-body">
-        <div id="prompts-list-body"><div class="empty"><span class="spin">⟳</span></div></div>
-        <div id="prompts-detail-body" style="border-top:1px solid var(--border); padding-top:12px;">
-          <div class="empty">Sélectionnez un prompt dans la liste ci-dessus.</div>
-        </div>
-      </div>
-    </div>
-  </div><!-- #creation-prompts -->
+  <!-- ── Prompts sub-tab (TICKET-0059, BRIEF-0059-i) — Svelte island: prompt
+       management + the parked D-0050 conversation-window config panel ── -->
+  <div id="creation-prompts" style="display:none"></div><!-- #creation-prompts -->
 
 </div><!-- #creation-view -->
 
@@ -4373,8 +4349,9 @@ const CREATION_TABS = {
     label: 'Prompts',
     archetype: 'bespoke',
     containers: ['creation-prompts'],
-    loader: promptsLoadList,
-    state: { onTabEnter: null, onWorldSwitch: _promptsWorldReset },
+    loader: null,
+    state: { onTabEnter: null, onWorldSwitch: null },
+    islands: [{ key: 'prompts', containerId: 'creation-prompts' }],
     primaryAction: null, // read-only, creator management surface (BRIEF-0008-b)
   },
 };
@@ -4902,303 +4879,20 @@ function _promptsConfirmDiscard() {
   return !promptsEditDirty || confirm('Unsaved prompt edit will be lost — continue?');
 }
 
-/** Resets all edit/history client state (BRIEF-0011-b) — called on every
- *  prompt selection and on world-switch reset, after the X1 dirty guard. */
-function _promptsResetEditState() {
-  promptsEditMode = false;
-  promptsEditDirty = false;
-  promptsEditDraftSystem = '';
-  promptsEditDraftUser = '';
-  promptsEditDraftNote = '';
-  promptsSaveError = null;
-  promptsHistoryExpanded = false;
-  promptsHistoryVersions = null;
-  promptsHistoryError = null;
-  promptsHistorySelectedVersion = null;
-  promptsHistoryVersionDetail = null;
-  promptsRestoreError = null;
-}
-
-function _promptsWorldReset() {
-  if (!_promptsConfirmDiscard()) return;
-  promptsUsages = [];
-  promptsSelectedId = null;
-  promptsOllamaModels = null;
-  promptsOllamaError = null;
-  promptsCurrentDetail = null;
-  _promptsResetEditState();
-}
-
-async function _promptsFetchOllamaModels() {
-  try {
-    const data = await api('/api/ollama/models');
-    promptsOllamaModels = data.models || [];
-    promptsOllamaError = null;
-  } catch (e) {
-    promptsOllamaModels = null;
-    promptsOllamaError = e.message;
-  }
-}
-
-async function promptsLoadList() {
-  const listEl = document.getElementById('prompts-list-body');
-  listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
-  document.getElementById('prompts-detail-body').innerHTML =
-    '<div class="empty">Sélectionnez un prompt dans la liste ci-dessus.</div>';
-  promptsSelectedId = null;
-  cwLoadConfig();
-  await _promptsFetchOllamaModels();
-  try {
-    const data = await api('/api/prompts');
-    promptsUsages = data.usages || [];
-    listEl.innerHTML = _promptsRenderList(promptsUsages);
-  } catch (e) {
-    listEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-  }
-}
-
-/* ── Fenêtre de conversation (TICKET-0050, BRIEF-0050-e) ──────────────────
- * Per-active-world word_budget / verbatim_turns / summary_enabled, edited
- * on this prompts surface (N2) until a dedicated world-configuration
- * surface exists (named deferral D-0050). Relational-only: each field is
- * posted individually to PATCH /api/conversation-window-config — no JSON
- * blob (json_ui_boundary). */
-let cwConfig = null;
-
-async function cwLoadConfig() {
-  const bodyEl = document.getElementById('cw-config-body');
-  bodyEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
-  try {
-    cwConfig = await api('/api/conversation-window-config');
-    bodyEl.innerHTML = _cwRenderConfig(cwConfig);
-  } catch (e) {
-    bodyEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-  }
-}
-
-function _cwRenderConfig(c) {
-  return `
-    <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
-      Monde actif : <b>${esc(c.world_name)}</b>
-    </div>
-    <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
-      <label style="display:flex; flex-direction:column; gap:2px; font-size:12px;">
-        Budget de mots
-        <input type="number" min="1" id="cw-word-budget" value="${c.word_budget}"
-               onchange="cwPatchField('word_budget', this.value)" style="width:100px;">
-      </label>
-      <label style="display:flex; flex-direction:column; gap:2px; font-size:12px;">
-        Tours verbatim (K)
-        <input type="number" min="1" id="cw-verbatim-turns" value="${c.verbatim_turns}"
-               onchange="cwPatchField('verbatim_turns', this.value)" style="width:100px;">
-      </label>
-      <label style="display:flex; align-items:center; gap:6px; font-size:12px;">
-        <input type="checkbox" id="cw-summary-enabled" ${c.summary_enabled ? 'checked' : ''}
-               onchange="cwPatchField('summary_enabled', this.checked)">
-        Résumé activé
-      </label>
-    </div>
-    <div id="cw-config-error" style="color:#c33; font-size:12px; margin-top:6px;"></div>`;
-}
-
-async function cwPatchField(field, value) {
-  const errEl = document.getElementById('cw-config-error');
-  if (errEl) errEl.textContent = '';
-  const body = {};
-  body[field] = (field === 'summary_enabled') ? value : parseInt(value, 10);
-  try {
-    cwConfig = await api('/api/conversation-window-config', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    document.getElementById('cw-config-body').innerHTML = _cwRenderConfig(cwConfig);
-  } catch (e) {
-    if (errEl) errEl.textContent = e.message;
-  }
-}
-
-function _promptsRenderList(usages) {
-  if (!usages.length) return '<div class="empty">Aucun prompt enregistré.</div>';
-  const bySurface = { play: [], authoring: [] };
-  usages.forEach(u => (bySurface[u.surface] || bySurface.authoring).push(u));
-  const section = (title, group) => {
-    if (!group.length) return '';
-    return `<div class="field-section-title" style="margin-top:10px">${esc(title)}</div>`
-      + '<div class="row-table">' + group.map(u => _promptsRenderUsageCard(u)).join('') + '</div>';
-  };
-  return section('Play', bySurface.play) + section('Création', bySurface.authoring);
-}
-
-function _promptsRenderUsageCard(u) {
-  const rows = (u.rows || []).map(r => `
-    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between;
-                                  flex-wrap:wrap; gap:6px; cursor:pointer; ${r.id === promptsSelectedId ? 'border-color:var(--accent)' : ''}"
-         onclick="promptsSelectDetail('${r.id}')">
-      <span style="font-weight:600; min-width:140px;">${esc(r.name)}</span>
-      <span class="badge b-other">v${r.version}</span>
-      <span class="badge ${r.is_active ? 'b-other' : ''}" style="${r.is_active ? '' : 'opacity:.5'}">${r.is_active ? 'actif' : 'inactif'}</span>
-      <span class="badge b-other">${r.world_id ? 'monde' : 'global'}</span>
-      ${r.id === u.effective_id ? '<span class="badge b-other" style="border-color:var(--accent); color:var(--accent)">effectif</span>' : ''}
-      ${r.model ? `<span class="badge b-other" title="override">${esc(r.model)}</span>` : ''}
-      ${r.model && promptsOllamaModels && !promptsOllamaModels.includes(r.model)
-        ? '<span class="badge b-other" style="border-color:#c33; color:#c33;" title="Ce modèle n\'est plus installé dans Ollama">⚠ modèle absent</span>'
-        : ''}
-    </div>`).join('');
-  return `
-    <div class="row-card" style="gap:6px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;">
-        <span style="font-weight:700;">${esc(u.usage)}</span>
-        <span class="badge b-other" title="Modèle effectif pour le monde actif">${esc(u.effective_model || '—')}</span>
-      </div>
-      <div class="row-table">${rows}</div>
-    </div>`;
-}
-
-/** {token} scan — regex-only, no eval; used both for highlighting and for
- * declared/actual variable drift detection (display-only, per Scope IN 4). */
-function _promptsExtractTokens(text) {
-  const found = new Set();
-  (text || '').replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (_m, name) => { found.add(name); return _m; });
-  return found;
-}
-
-function _promptsHighlightTokens(text) {
-  return esc(text || '').replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, '<mark>{$1}</mark>');
-}
-
-async function promptsSelectDetail(promptId) {
-  if (!_promptsConfirmDiscard()) return;
-  _promptsResetEditState();
-  promptsSelectedId = promptId;
-  document.getElementById('prompts-list-body').innerHTML = _promptsRenderList(promptsUsages);
-  const detailEl = document.getElementById('prompts-detail-body');
-  detailEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
-  await _promptsFetchOllamaModels();
-  try {
-    const d = await api(`/api/prompts/${promptId}`);
-    promptsCurrentDetail = d;
-    detailEl.innerHTML = _promptsRenderDetail(d);
-    if (d.dry_run_capable) _promptsPopulateEntitySelectors();
-    detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  } catch (e) {
-    detailEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-  }
-}
-
-/** Model selector for the detail panel (BRIEF-0009-a). Falls back to a
- * read-only display when the live list is unreachable (503) — no empty
- * dropdown, no silent degradation. */
-function _promptsRenderModelSelector(d) {
-  if (promptsOllamaError) {
-    return `
-      <div class="empty" style="text-align:left; border:1px solid var(--border); border-radius:var(--radius); padding:8px; margin-bottom:8px; color:#c33;">
-        ⚠ ${esc(promptsOllamaError)}
-      </div>
-      <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
-        modèle effectif : <b>${esc(d.effective_model)}</b>${d.model ? ` (override : ${esc(d.model)})` : ''}
-      </div>`;
-  }
-  const models = promptsOllamaModels || [];
-  const absent = !!d.model && !models.includes(d.model);
-  const options = [
-    `<option value="" ${d.model ? '' : 'selected'}>Défaut (${esc(d.default_model || '—')})</option>`,
-    ...models.map(m => `<option value="${esc(m)}" ${d.model === m ? 'selected' : ''}>${esc(m)}</option>`),
-  ];
-  if (absent) {
-    options.push(`<option value="${esc(d.model)}" selected disabled>⚠ ${esc(d.model)} (absent)</option>`);
-  }
-  return `
-    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-      <select id="prompts-model-select" onchange="promptsChangeModel('${d.id}', this.value)">
-        ${options.join('')}
-      </select>
-      ${absent ? '<span class="badge b-other" style="border-color:#c33; color:#c33;">⚠ modèle absent</span>' : ''}
-      <span id="prompts-model-error" style="color:#c33; font-size:12px;"></span>
-    </div>
-    <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
-      modèle effectif : <b>${esc(d.effective_model)}</b>
-    </div>`;
-}
-
-/** PATCH model override for the currently-shown detail row, then re-render
- * from the response alone (no refetch of the full detail — C3). */
-async function promptsChangeModel(promptId, value) {
-  const errEl = document.getElementById('prompts-model-error');
-  const selectEl = document.getElementById('prompts-model-select');
-  const prevValue = promptsCurrentDetail && promptsCurrentDetail.model ? promptsCurrentDetail.model : '';
-  try {
-    const updated = await api(`/api/prompts/${promptId}/model`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: value === '' ? null : value }),
-    });
-    if (promptsCurrentDetail && promptsCurrentDetail.id === promptId) {
-      promptsCurrentDetail.model = updated.model;
-      promptsCurrentDetail.effective_model = updated.effective_model;
-      document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
-      if (promptsCurrentDetail.dry_run_capable) _promptsPopulateEntitySelectors();
-    }
-    for (const u of promptsUsages) {
-      const row = (u.rows || []).find(r => r.id === promptId);
-      if (row) row.model = updated.model;
-    }
-    document.getElementById('prompts-list-body').innerHTML = _promptsRenderList(promptsUsages);
-  } catch (e) {
-    if (errEl) errEl.textContent = e.message;
-    if (selectEl) selectEl.value = prevValue;
-  }
-}
-
-function _promptsRenderDetail(d) {
-  const callSites = (d.call_sites || []).map(s => `<li><code>${esc(s)}</code></li>`).join('');
-  const previewPanel = d.dry_run_capable ? _promptsRenderPreviewPanel(d.usage) : '';
-
-  let driftHtml = '';
-  if (!promptsEditMode) {
-    const declared = new Set(Array.isArray(d.variables) ? d.variables : []);
-    const actual = new Set([..._promptsExtractTokens(d.system_prompt), ..._promptsExtractTokens(d.user_template)]);
-    const missingFromDeclared = [...actual].filter(t => !declared.has(t));
-    const missingFromText = [...declared].filter(t => !actual.has(t));
-    driftHtml = (missingFromDeclared.length || missingFromText.length) ? `
-      <div class="empty" style="text-align:left; border:1px solid var(--border); border-radius:var(--radius); padding:8px;">
-        ${missingFromDeclared.length ? `<div>Présents dans le texte, absents de <code>variables</code> : ${missingFromDeclared.map(esc).join(', ')}</div>` : ''}
-        ${missingFromText.length ? `<div>Déclarés dans <code>variables</code>, absents du texte : ${missingFromText.map(esc).join(', ')}</div>` : ''}
-      </div>` : '';
-  }
-
-  return `
-    <div class="field-section-title">${esc(d.name)} <span style="font-weight:400; color:var(--muted)">(${esc(d.usage)})</span></div>
-    <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
-      v${d.version} · ${d.is_active ? 'actif' : 'inactif'} · ${d.world_id ? 'monde' : 'global'} ·
-      ${d.is_effective ? '<b style="color:var(--accent)">effectif</b>' : `masqué par ${shortId(d.shadowed_by)}`}
-    </div>
-    <div class="field-section-title">Modèle</div>
-    ${_promptsRenderModelSelector(d)}
-    <div class="field-section-title">Call sites</div>
-    <ul style="margin:0 0 10px 18px; font-size:12px;">${callSites}</ul>
-    ${promptsEditMode ? _promptsRenderEditBodies(d) : _promptsRenderReadBodies(d)}
-    ${driftHtml}
-    ${_promptsRenderHistorySection(d)}
-    ${previewPanel}
-  `;
-}
-
-/** Read-state bodies (U1) — unchanged visual output from BRIEF-0008-b, plus
- *  the Edit entry point next to the System prompt heading. */
-function _promptsRenderReadBodies(d) {
-  return `
-    <div style="display:flex; align-items:center; justify-content:space-between;">
-      <div class="field-section-title" style="margin:0">System prompt</div>
-      <button class="btn-send" onclick="promptsEnterEditMode()">Éditer</button>
-    </div>
-    <pre style="white-space:pre-wrap; font-size:12px; background:var(--card); border:1px solid var(--border);
-                border-radius:var(--radius); padding:8px; max-height:220px; overflow-y:auto;">${_promptsHighlightTokens(d.system_prompt)}</pre>
-    <div class="field-section-title">User template</div>
-    <pre style="white-space:pre-wrap; font-size:12px; background:var(--card); border:1px solid var(--border);
-                border-radius:var(--radius); padding:8px; max-height:220px; overflow-y:auto;">${_promptsHighlightTokens(d.user_template)}</pre>
-  `;
-}
+/* BRIEF-0059-i commit 1: the world-reset/edit-state-reset pair, the Ollama
+ * model fetch, the list loader, the list/usage-card renderers, the detail
+ * selector, the model-selector renderer and its change handler, and the
+ * read-only body renderer, plus the parked D-0050 conversation-window
+ * config panel's load/render/patch trio, all ported to
+ * frontend/src/creation/Prompts.svelte + prompts.svelte.js +
+ * ConversationWindowConfig.svelte and deleted here (graph_primitive.py's
+ * GONE_PLAIN tracks the retired names; not repeated here so this comment
+ * itself doesn't reintroduce them). The detail renderer stays below for
+ * now -- its remaining callers are edit-mode and history functions, commit
+ * 2/3 territory -- along with the token-scan/highlight pair the detail
+ * renderer's still-live callers still reach. All of it is unreachable now
+ * that #creation-prompts mounts the Svelte island instead of this markup;
+ * each piece is deleted in the commit that ports it. */
 
 /** Edit-state bodies (U1) — same pane, two textareas over the client-held
  *  drafts (never the server's `d.system_prompt`/`d.user_template` directly,
@@ -6866,10 +6560,20 @@ function _obsRenderRunDetail(run) {
   `;
 }
 
+/** BRIEF-0059-i cross-surface touch: this was the Observation lane's
+ *  (TICKET-0051) only caller into the Prompts tab's now-retired list-load
+ *  and detail-select functions. Ported to a one-way CustomEvent (same
+ *  shape as mount.js's island:slot/island:action) carrying an intent, not
+ *  a command -- Prompts.svelte applies it once its own list load resolves,
+ *  so the ordering dependency the old .then() encoded moves to the
+ *  listener instead of disappearing. showCreationSubTab('prompts') already
+ *  mounts the island (which loads its own list); no cross-seam loader call
+ *  is needed here. Nothing else in observation* is touched -- that
+ *  cluster is TICKET-0060's. */
 function observationOpenPrompt(templateId) {
   showCreationView();
   showCreationSubTab('prompts');
-  promptsLoadList().then(() => promptsSelectDetail(templateId));
+  document.dispatchEvent(new CustomEvent('creation:open-prompt', { detail: { templateId } }));
 }
 
 /** Transcript (Done means): 'acted'/'silence'/'degraded'/'event' visually

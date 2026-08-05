@@ -348,6 +348,23 @@ export const CREATION_ISLANDS = Object.freeze({
       '_registreRenderTable', '_registreEntitiesLoaded',
     ],
   }),
+  // BRIEF-0059-i commit 1: the Prompts tab -- ported to Prompts.svelte +
+  // prompts.svelte.js, plus ConversationWindowConfig.svelte as its child
+  // (parked D-0050 conversation-window config panel, lock I1). Commit 1
+  // covers list/detail/model-selector/cw-config; edit mode (commit 2) and
+  // history/preview (commit 3) grow this list further.
+  prompts: Object.freeze({
+    containerId: 'creation-prompts',
+    component: 'Prompts.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      '_promptsFetchOllamaModels', 'promptsLoadList', '_promptsRenderList',
+      '_promptsRenderUsageCard', '_promptsExtractTokens', '_promptsHighlightTokens',
+      'promptsSelectDetail', '_promptsRenderModelSelector', 'promptsChangeModel',
+      '_promptsRenderDetail', '_promptsRenderReadBodies',
+      'cwLoadConfig', '_cwRenderConfig', 'cwPatchField',
+    ],
+  }),
   linkAgent: Object.freeze({
     containerId: 'linkagent-panel',
     component: 'LinkAgent.svelte',

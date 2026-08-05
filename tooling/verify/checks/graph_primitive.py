@@ -163,6 +163,21 @@ GONE_PLAIN = [
     "_registreWorldReset", "_registrePopulateEntityFilter",
     "authorAddLedgerEntry", "registreToggleAddForm", "loadRegistre",
     "_registreRenderTable", "_registreEntitiesLoaded",
+    # TICKET-0059 (BRIEF-0059-i commit 1): the Prompts tab's world-reset/
+    # edit-state-reset pair, its Ollama model fetch, its list loader, its
+    # usage-card renderer, its detail selector, its model-selector renderer
+    # and change handler, its read-only body renderer, and the parked
+    # D-0050 conversation-window panel's load/render/patch trio, converged
+    # onto frontend/src/creation/Prompts.svelte + prompts.svelte.js +
+    # ConversationWindowConfig.svelte. _promptsRenderList/_promptsRenderDetail/
+    # _promptsExtractTokens/_promptsHighlightTokens stay off this list for
+    # now -- each still has a live (if unreachable) caller among the
+    # not-yet-ported edit-mode/history functions; commit 2/3 add them once
+    # those callers are gone too.
+    "_promptsResetEditState", "_promptsWorldReset", "_promptsFetchOllamaModels",
+    "promptsLoadList", "_promptsRenderUsageCard", "promptsSelectDetail",
+    "cwLoadConfig", "_cwRenderConfig", "cwPatchField",
+    "_promptsRenderModelSelector", "promptsChangeModel", "_promptsRenderReadBodies",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from
