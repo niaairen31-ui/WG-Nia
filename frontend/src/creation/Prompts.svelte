@@ -1,5 +1,5 @@
 <script>
-  /* TICKET-0059 (BRIEF-0059-i, commits 1-2 so far). Faithful port of the
+  /* TICKET-0059 (BRIEF-0059-i, all three commits). Faithful port of the
      Prompts tab -- prompts.svelte.js's own header lists the ported
      functions. Rendering + the dirty-guard call sites live here;
      prompts.svelte.js holds the non-render state and API calls.
@@ -36,11 +36,20 @@
      legacy shape exactly -- and matching this tree's ACTUAL call sites,
      not the brief's prose (which named three more; verified false against
      this codebase, see prompts.svelte.js's header). changeModel and the
-     history functions (commit 3) never called the guard here and don't
-     gain it now -- a faithful port reproduces the code, not a summary of
+     history functions never called the guard in the legacy code and don't
+     gain it here -- a faithful port reproduces the code, not a summary of
      it. Since applyPendingOpen (below) routes through the same
      selectDetail/onSelectPrompt path, the Observation-lane cross-link
      inherits the guard for free.
+
+     History (V1) stays lazy: historyVersions is null (not fetched) until
+     the "Historique" row is first expanded, cached until a save/restore
+     invalidates it. The preview panel's entity selectors are fetched via
+     an $effect keyed on promptsState.currentDetail (`untrack`-wrapped for
+     everything past that one deliberate read -- see the same lesson
+     worldReset's own effect already paid for above; reading
+     creationState.playerCharIds unwrapped here would make THIS effect
+     re-fire on an unrelated tab's entity-list refresh).
 
      Cross-surface touch (BRIEF-0059-i, not otherwise in scope): the
      Observation lane's (TICKET-0051) observationOpenPrompt used to call
@@ -52,10 +61,13 @@
      renders inside the legacy iframe document. */
   import { untrack } from 'svelte';
   import { serverState } from '../lib/serverState.svelte.js';
+  import { creationState } from './state.svelte.js';
   import ConversationWindowConfig from './ConversationWindowConfig.svelte';
   import {
     promptsState, loadList, worldReset, selectDetail, changeModel, extractTokens, highlightSegments,
     enterEditMode, cancelEdit, editInput, saveEdit, undeclaredTokens,
+    toggleHistory, selectHistoryVersion, restoreVersion,
+    fetchPreviewEntities, runAssembledPreview,
   } from './prompts.svelte.js';
 
   let { legacyDoc } = $props();
@@ -153,6 +165,40 @@
     };
   }
 
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+    } catch {
+      return iso;
+    }
+  }
+
+  let previewEntities = $state({ npcs: [], pcs: [] });
+  let previewPcId = $state('');
+  let previewNpcId = $state('');
+  let previewOutput = $state(null); // null | { error } | { body }
+  let previewLoading = $state(false);
+
+  $effect(() => {
+    const d = promptsState.currentDetail;
+    untrack(() => {
+      previewPcId = '';
+      previewNpcId = '';
+      previewOutput = null;
+      if (d && d.dry_run_capable) {
+        fetchPreviewEntities(creationState.playerCharIds).then((r) => { previewEntities = r; });
+      } else {
+        previewEntities = { npcs: [], pcs: [] };
+      }
+    });
+  });
+
+  async function onRunPreview(usage) {
+    previewLoading = true;
+    previewOutput = await runAssembledPreview(usage, previewPcId, previewNpcId);
+    previewLoading = false;
+  }
 </script>
 
 <ConversationWindowConfig bind:this={cwRef} />
@@ -302,6 +348,105 @@
               {/if}
             </div>
           {/if}
+        {/if}
+
+        <div class="field-section-title" style="margin-top:14px; display:flex; align-items:center; justify-content:space-between; cursor:pointer;"
+             onclick={() => toggleHistory(d.id)}>
+          <span>Historique</span>
+          <span style="font-weight:400; color:var(--muted); font-size:12px;">{promptsState.historyExpanded ? 'Masquer' : 'Afficher'}</span>
+        </div>
+        {#if promptsState.historyExpanded}
+          {#if promptsState.historyError}
+            <div class="empty" style="color:#c33;">{promptsState.historyError}</div>
+          {:else if !promptsState.historyVersions}
+            <div class="empty"><span class="spin">⟳</span></div>
+          {:else if promptsState.historyVersions.length === 0}
+            <div class="empty">Aucune version.</div>
+          {:else}
+            <div class="row-table" style="margin-top:6px;">
+              {#each promptsState.historyVersions as v}
+                <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px; cursor:pointer;
+                                              {v.version_number === promptsState.historySelectedVersion ? 'border-color:var(--accent)' : ''}"
+                     onclick={() => selectHistoryVersion(d.id, v.version_number)}>
+                  <span class="badge b-other">v{v.version_number}</span>
+                  <span style="color:var(--muted); font-size:12px;">{fmtDate(v.created_at)}</span>
+                  <span style="font-size:12px; flex:1;">{v.note || ''}</span>
+                  {#if v.is_current}
+                    <span class="badge b-other" style="border-color:var(--accent); color:var(--accent)">current</span>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+            {#if promptsState.historySelectedVersion != null}
+              {#if !promptsState.historyVersionDetail}
+                {#if promptsState.restoreError}
+                  <div class="empty" style="color:#c33;">{promptsState.restoreError}</div>
+                {:else}
+                  <div class="empty"><span class="spin">⟳</span></div>
+                {/if}
+              {:else}
+                {@const v = promptsState.historyVersionDetail}
+                {@const nextVersion = d.version + 1}
+                <div style="border-top:1px solid var(--border); margin-top:8px; padding-top:8px;">
+                  <div class="field-section-title">v{v.version_number} · {fmtDate(v.created_at)}{v.note ? ` · ${v.note}` : ''}</div>
+                  <pre style="white-space:pre-wrap; font-size:12px; background:var(--card); border:1px solid var(--border);
+                              border-radius:var(--radius); padding:8px; max-height:180px; overflow-y:auto;">{#each highlightSegments(v.system_prompt) as seg}{#if seg.isToken}<mark>{seg.text}</mark>{:else}{seg.text}{/if}{/each}</pre>
+                  <pre style="white-space:pre-wrap; font-size:12px; background:var(--card); border:1px solid var(--border);
+                              border-radius:var(--radius); padding:8px; max-height:180px; overflow-y:auto;">{#each highlightSegments(v.user_template) as seg}{#if seg.isToken}<mark>{seg.text}</mark>{:else}{seg.text}{/if}{/each}</pre>
+                  {#if !v.is_current}
+                    <button class="btn-send" onclick={() => restoreVersion(d.id, v.version_number)}>Restore v{v.version_number} as new v{nextVersion}</button>
+                  {/if}
+                  {#if promptsState.restoreError}
+                    <div style="color:#c33; font-size:12px; margin-top:6px;">{promptsState.restoreError}</div>
+                  {/if}
+                </div>
+              {/if}
+            {/if}
+          {/if}
+        {/if}
+
+        {#if d.dry_run_capable}
+          <div class="field-section-title" style="margin-top:10px">Preview assemblée</div>
+          <div class="field-grid">
+            {#if d.usage === 'npc_dialogue'}
+              <div class="field-row">
+                <label for="prompts-preview-npc">NPC</label>
+                <select id="prompts-preview-npc" bind:value={previewNpcId}>
+                  <option value="">—</option>
+                  {#each previewEntities.npcs as e}<option value={e.id}>{e.name}</option>{/each}
+                </select>
+              </div>
+              <div class="field-row">
+                <label for="prompts-preview-pc">Interlocuteur (PJ)</label>
+                <select id="prompts-preview-pc" bind:value={previewPcId}>
+                  <option value="">—</option>
+                  {#each previewEntities.pcs as e}<option value={e.id}>{e.name}</option>{/each}
+                </select>
+              </div>
+            {:else if d.usage === 'player_narration'}
+              <div class="field-row">
+                <label for="prompts-preview-pc">Personnage joueur</label>
+                <select id="prompts-preview-pc" bind:value={previewPcId}>
+                  <option value="">—</option>
+                  {#each previewEntities.pcs as e}<option value={e.id}>{e.name}</option>{/each}
+                </select>
+              </div>
+            {/if}
+          </div>
+          <div style="margin:8px 0;">
+            <button class="btn-send" onclick={() => onRunPreview(d.usage)}>Preview assemblée</button>
+          </div>
+          <div>
+            {#if previewLoading}
+              <div class="empty"><span class="spin">⟳</span></div>
+            {:else if previewOutput?.error}
+              <div class="empty">{previewOutput.error}</div>
+            {:else if previewOutput?.body}
+              <pre style="white-space:pre-wrap; font-size:12px; background:var(--card);
+                border:1px solid var(--border); border-radius:var(--radius); padding:8px;
+                max-height:340px; overflow-y:auto;">{previewOutput.body}</pre>
+            {/if}
+          </div>
         {/if}
       {/if}
     </div>

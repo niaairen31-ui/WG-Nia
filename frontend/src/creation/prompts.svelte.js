@@ -29,7 +29,22 @@
    promptsToggleHistory, promptsSelectHistoryVersion and
    promptsRestoreVersion never called the guard in this codebase; this
    port does not add it to them -- a faithful port reproduces what the
-   code does, not what a brief's summary implied it does. */
+   code does, not what a brief's summary implied it does.
+
+   Commit 3 ports: _promptsRenderHistorySection (folded into
+   Prompts.svelte's template -- no separate render function; see
+   toggleHistory below), promptsToggleHistory (as toggleHistory),
+   _promptsLoadHistory (as loadHistory), promptsSelectHistoryVersion (as
+   selectHistoryVersion), promptsRestoreVersion (as restoreVersion),
+   _promptsPopulateEntitySelectors (as fetchPreviewEntities, returning
+   data instead of mutating <select> DOM directly), and
+   promptsRunAssembledPreview (as runAssembledPreview). Laziness preserved
+   exactly: historyVersions stays null (not fetched) until first
+   expansion; toggleHistory only calls loadHistory when historyVersions is
+   still null, never on every expand. saveEdit/refreshDetail are extended
+   here to invalidate/reload an open history list, matching the legacy
+   promptsSaveEdit/_promptsRefreshDetail's full behaviour now that history
+   state exists. */
 export const promptsState = $state({
   usages: [],
   selectedId: null,
@@ -51,6 +66,14 @@ export const promptsState = $state({
   editDraftUser: '',
   editDraftNote: '',
   saveError: null,
+  // History section (V1) -- collapsed + unfetched by default; lazy on
+  // first expansion, cached until a save/restore invalidates it.
+  historyExpanded: false,
+  historyVersions: null, // null = not fetched yet
+  historyError: null,
+  historySelectedVersion: null,
+  historyVersionDetail: null,
+  restoreError: null,
 });
 
 async function api(path, options) {
@@ -65,9 +88,9 @@ export function confirmDiscard() {
   return !promptsState.editDirty || confirm('Unsaved prompt edit will be lost — continue?');
 }
 
-/** Resets edit client state (BRIEF-0011-b) -- called on every prompt
- *  selection and on world-switch reset, after the X1 dirty guard. Commit 3
- *  extends this further with history-state fields once they exist. */
+/** Resets edit + history client state (BRIEF-0011-b/V1) -- called on
+ *  every prompt selection and on world-switch reset, after the X1 dirty
+ *  guard. */
 export function resetEditState() {
   promptsState.editMode = false;
   promptsState.editDirty = false;
@@ -75,6 +98,12 @@ export function resetEditState() {
   promptsState.editDraftUser = '';
   promptsState.editDraftNote = '';
   promptsState.saveError = null;
+  promptsState.historyExpanded = false;
+  promptsState.historyVersions = null;
+  promptsState.historyError = null;
+  promptsState.historySelectedVersion = null;
+  promptsState.historyVersionDetail = null;
+  promptsState.restoreError = null;
 }
 
 /** World-switch reset. Unlike the legacy version (which only cleared
@@ -213,16 +242,19 @@ export async function saveEdit(promptId) {
     promptsState.editMode = false;
     promptsState.editDirty = false;
     promptsState.saveError = null;
+    promptsState.historySelectedVersion = null;
+    promptsState.historyVersionDetail = null;
+    promptsState.historyVersions = null;
     await refreshDetail(promptId);
   } catch (e) {
     promptsState.saveError = e.message;
   }
 }
 
-/** Post-write refresh (save or restore) -- refetches the head and
- *  re-syncs the list row's version, then re-renders once. Never a
- *  locally-patched draft standing in for the server's canonical read.
- *  Commit 3 extends this to also refresh an open history list. */
+/** Post-write refresh (save or restore) -- refetches the head, and the
+ *  version list too if History is open, then re-syncs the list row's
+ *  version. Never a locally-patched draft standing in for the server's
+ *  canonical read. */
 export async function refreshDetail(promptId) {
   try {
     promptsState.currentDetail = await api(`/api/prompts/${promptId}`);
@@ -230,9 +262,102 @@ export async function refreshDetail(promptId) {
     promptsState.detailError = e.message;
     return;
   }
+  if (promptsState.historyExpanded) {
+    await loadHistory(promptId);
+  }
   for (const u of promptsState.usages) {
     const row = (u.rows || []).find((r) => r.id === promptId);
     if (row) row.version = promptsState.currentDetail.version;
+  }
+}
+
+/* ── History section (V1) ────────────────────────────────────────────────
+ * Lazy: GET .../versions fires only on first expansion, never for a prompt
+ * whose history stays collapsed. Cached until a save/restore invalidates
+ * it (both null out historyVersions before refreshing). */
+
+export async function toggleHistory(promptId) {
+  promptsState.historyExpanded = !promptsState.historyExpanded;
+  if (!promptsState.historyExpanded) {
+    promptsState.historySelectedVersion = null;
+    promptsState.historyVersionDetail = null;
+    return;
+  }
+  if (!promptsState.historyVersions) {
+    await loadHistory(promptId);
+  }
+}
+
+export async function loadHistory(promptId) {
+  promptsState.historyError = null;
+  try {
+    const data = await api(`/api/prompts/${promptId}/versions`);
+    promptsState.historyVersions = data.versions || [];
+  } catch (e) {
+    promptsState.historyVersions = null;
+    promptsState.historyError = e.message;
+  }
+}
+
+export async function selectHistoryVersion(promptId, versionNumber) {
+  promptsState.historySelectedVersion = versionNumber;
+  promptsState.historyVersionDetail = null;
+  promptsState.restoreError = null;
+  try {
+    promptsState.historyVersionDetail = await api(`/api/prompts/${promptId}/versions/${versionNumber}`);
+  } catch (e) {
+    promptsState.historyVersionDetail = null;
+    promptsState.restoreError = e.message;
+  }
+}
+
+/** Restores by writing a NEW version (append-only), never rewriting
+ *  history -- see the POST endpoint this calls. */
+export async function restoreVersion(promptId, versionNumber) {
+  promptsState.restoreError = null;
+  try {
+    await api(`/api/prompts/${promptId}/versions/${versionNumber}/restore`, { method: 'POST' });
+    promptsState.historySelectedVersion = null;
+    promptsState.historyVersionDetail = null;
+    promptsState.historyVersions = null;
+    await refreshDetail(promptId);
+  } catch (e) {
+    promptsState.restoreError = e.message;
+  }
+}
+
+/* ── Assembled preview (dry_run_capable usages only) ────────────────────── */
+
+/** Fetches character entities and splits them into npc/pc buckets by
+ *  playerCharIds -- returns data instead of mutating <select> DOM
+ *  directly (Prompts.svelte renders the options). Failure swallowed
+ *  silently, same as the legacy version: selectors stay empty, the
+ *  preview button will just 400. */
+export async function fetchPreviewEntities(playerCharIds) {
+  try {
+    const entities = await api('/api/entities?type=character');
+    return {
+      npcs: entities.filter((e) => !playerCharIds.has(e.id)),
+      pcs: entities.filter((e) => playerCharIds.has(e.id)),
+    };
+  } catch (_e) {
+    return { npcs: [], pcs: [] };
+  }
+}
+
+export async function runAssembledPreview(usage, pcId, npcId) {
+  if (!pcId) return { error: 'Choisissez un personnage joueur.' };
+  if (usage === 'npc_dialogue' && !npcId) return { error: 'Choisissez un NPC.' };
+  const params = new URLSearchParams({ pc_id: pcId });
+  if (usage === 'npc_dialogue') params.set('npc_id', npcId);
+  try {
+    const data = await api(`/api/prompts/preview/${usage}?${params.toString()}`);
+    const body = usage === 'npc_dialogue'
+      ? data.system_prompt
+      : `${data.system_prompt}\n\n=== CONTEXTE MJ ASSEMBLÉ ===\n${data.mj_context_rendered}`;
+    return { body };
+  } catch (e) {
+    return { error: e.message };
   }
 }
 

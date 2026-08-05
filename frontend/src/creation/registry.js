@@ -368,6 +368,12 @@ export const CREATION_ISLANDS = Object.freeze({
       '_promptsConfirmDiscard', '_promptsRenderEditBodies', 'promptsEnterEditMode',
       'promptsCancelEdit', 'promptsEditInput', '_promptsUpdateEditHint',
       'promptsSaveEdit', '_promptsRefreshDetail',
+      // BRIEF-0059-i commit 3 (final): history + assembled preview.
+      '_promptsRenderHistorySection', 'promptsToggleHistory', '_promptsLoadHistory',
+      '_promptsRenderHistoryList', 'promptsSelectHistoryVersion',
+      '_promptsRenderHistoryVersionDetail', 'promptsRestoreVersion',
+      '_promptsRenderPreviewPanel', '_promptsPopulateEntitySelectors',
+      'promptsRunAssembledPreview',
     ],
   }),
   linkAgent: Object.freeze({

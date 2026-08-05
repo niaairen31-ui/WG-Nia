@@ -191,6 +191,23 @@ GONE_PLAIN = [
     "_promptsConfirmDiscard", "_promptsRenderEditBodies", "promptsEnterEditMode",
     "promptsCancelEdit", "promptsEditInput", "_promptsUpdateEditHint",
     "promptsSaveEdit", "_promptsExtractTokens",
+    # TICKET-0059 (BRIEF-0059-i commit 3, final): the history section
+    # (render, toggle, load, list-render, version-select, version-detail-
+    # render, restore) and the assembled-preview functions (panel render,
+    # entity-selector populate, run), converged onto the same
+    # Prompts.svelte + prompts.svelte.js. Also closing out the deferred
+    # names from commits 1/2, now that their last remaining (unreachable)
+    # callers are gone too: _promptsRefreshDetail (promptsRestoreVersion),
+    # _promptsRenderList/_promptsRenderDetail/_promptsHighlightTokens
+    # (the history/preview functions removed in this same commit). Every
+    # promptsX/cwX module-level `let` is gone as well -- the whole Prompts
+    # module in index.html is retired.
+    "_promptsRenderHistorySection", "promptsToggleHistory", "_promptsLoadHistory",
+    "_promptsRenderHistoryList", "promptsSelectHistoryVersion",
+    "_promptsRenderHistoryVersionDetail", "promptsRestoreVersion",
+    "_promptsRenderPreviewPanel", "_promptsPopulateEntitySelectors",
+    "promptsRunAssembledPreview", "_promptsRefreshDetail", "_promptsRenderList",
+    "_promptsRenderDetail", "_promptsHighlightTokens",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from
