@@ -306,6 +306,76 @@ export const CREATION_ISLANDS = Object.freeze({
   // functions' identifiers, the same shape npcAgent's own retiredPrefixes
   // grew across BRIEF-0059-f. linkAgentToggle/linkAgentOpen are the two
   // survivors (chrome, not migrated) and are deliberately absent here.
+  // BRIEF-0059-h commit 2: the Artefacts tab -- ported wholesale to
+  // Artefacts.svelte, following region's own "archetype: 'bespoke' with an
+  // island slot" precedent exactly. Read-only, one function, no legacyCall
+  // sites to prune.
+  artefacts: Object.freeze({
+    containerId: 'creation-artefacts',
+    component: 'Artefacts.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: ['loadCreationArtefacts', 'CREATION_ARTEFACTS_NOTICE'],
+  }),
+  // BRIEF-0059-h commit 3: the Compétences tab -- ported to
+  // Competences.svelte + competences.svelte.js, Modal.svelte's second
+  // consumer (delete-confirmation dialog, lock O1).
+  competences: Object.freeze({
+    containerId: 'creation-competences',
+    component: 'Competences.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      '_competencesWorldReset', 'competencesGenerateDraft',
+      '_competencesDomainOptions', 'competencesRenderDraft',
+      'competencesDiscardDraftRow', 'competencesAcceptDraftRow',
+      'competencesAddManualRow', 'competencesLoadList',
+      '_competencesRenderTable', 'competencesSaveRow',
+      'competencesDeleteOpen', 'competencesDeleteConfirm',
+      'COMPETENCES_DOMAINS',
+    ],
+  }),
+  // BRIEF-0059-h commit 4: the Registre (global ledger) tab -- ported
+  // wholesale to Registre.svelte. authorAddLedgerEntry closes here, not
+  // with the entity sheet's own read-only LedgerPanel.svelte (RECON-0059-a
+  // M2 / SUPPLEMENT Amendment 8: its sole caller is this tab's own
+  // add-form button).
+  registre: Object.freeze({
+    containerId: 'creation-registre',
+    component: 'Registre.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      '_registreWorldReset', '_registrePopulateEntityFilter',
+      'authorAddLedgerEntry', 'registreToggleAddForm', 'loadRegistre',
+      '_registreRenderTable', '_registreEntitiesLoaded',
+    ],
+  }),
+  // BRIEF-0059-i commit 1: the Prompts tab -- ported to Prompts.svelte +
+  // prompts.svelte.js, plus ConversationWindowConfig.svelte as its child
+  // (parked D-0050 conversation-window config panel, lock I1). Commit 1
+  // covers list/detail/model-selector/cw-config; edit mode (commit 2) and
+  // history/preview (commit 3) grow this list further.
+  prompts: Object.freeze({
+    containerId: 'creation-prompts',
+    component: 'Prompts.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      '_promptsResetEditState', '_promptsWorldReset', '_promptsFetchOllamaModels',
+      'promptsLoadList', '_promptsRenderList',
+      '_promptsRenderUsageCard', '_promptsExtractTokens', '_promptsHighlightTokens',
+      'promptsSelectDetail', '_promptsRenderModelSelector', 'promptsChangeModel',
+      '_promptsRenderDetail', '_promptsRenderReadBodies',
+      'cwLoadConfig', '_cwRenderConfig', 'cwPatchField',
+      // BRIEF-0059-i commit 2: edit mode.
+      '_promptsConfirmDiscard', '_promptsRenderEditBodies', 'promptsEnterEditMode',
+      'promptsCancelEdit', 'promptsEditInput', '_promptsUpdateEditHint',
+      'promptsSaveEdit', '_promptsRefreshDetail',
+      // BRIEF-0059-i commit 3 (final): history + assembled preview.
+      '_promptsRenderHistorySection', 'promptsToggleHistory', '_promptsLoadHistory',
+      '_promptsRenderHistoryList', 'promptsSelectHistoryVersion',
+      '_promptsRenderHistoryVersionDetail', 'promptsRestoreVersion',
+      '_promptsRenderPreviewPanel', '_promptsPopulateEntitySelectors',
+      'promptsRunAssembledPreview',
+    ],
+  }),
   linkAgent: Object.freeze({
     containerId: 'linkagent-panel',
     component: 'LinkAgent.svelte',

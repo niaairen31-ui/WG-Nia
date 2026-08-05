@@ -146,6 +146,68 @@ GONE_PLAIN = [
     "linkAgentOpenBatchId", "linkAgentBatch", "linkAgentRows",
     "linkAgentNpcNames", "linkAgentLoopRunning", "linkAgentFailedPair",
     "linkAgentCommitResult",
+    # TICKET-0059 (BRIEF-0059-h commit 2): the Artefacts tab, converged onto
+    # frontend/src/creation/Artefacts.svelte.
+    "loadCreationArtefacts", "CREATION_ARTEFACTS_NOTICE",
+    # TICKET-0059 (BRIEF-0059-h commit 3): the Compétences tab, converged
+    # onto frontend/src/creation/Competences.svelte + competences.svelte.js.
+    "_competencesWorldReset", "competencesGenerateDraft",
+    "_competencesDomainOptions", "competencesRenderDraft",
+    "competencesDiscardDraftRow", "competencesAcceptDraftRow",
+    "competencesAddManualRow", "competencesLoadList",
+    "_competencesRenderTable", "competencesSaveRow",
+    "competencesDeleteOpen", "competencesDeleteConfirm",
+    "competencesDraft", "COMPETENCES_DOMAINS",
+    # TICKET-0059 (BRIEF-0059-h commit 4): the Registre tab, converged onto
+    # frontend/src/creation/Registre.svelte.
+    "_registreWorldReset", "_registrePopulateEntityFilter",
+    "authorAddLedgerEntry", "registreToggleAddForm", "loadRegistre",
+    "_registreRenderTable", "_registreEntitiesLoaded",
+    # TICKET-0059 (BRIEF-0059-i commit 1): the Prompts tab's world-reset/
+    # edit-state-reset pair, its Ollama model fetch, its list loader, its
+    # usage-card renderer, its detail selector, its model-selector renderer
+    # and change handler, its read-only body renderer, and the parked
+    # D-0050 conversation-window panel's load/render/patch trio, converged
+    # onto frontend/src/creation/Prompts.svelte + prompts.svelte.js +
+    # ConversationWindowConfig.svelte. _promptsRenderList/_promptsRenderDetail/
+    # _promptsExtractTokens/_promptsHighlightTokens stay off this list for
+    # now -- each still has a live (if unreachable) caller among the
+    # not-yet-ported edit-mode/history functions; commit 2/3 add them once
+    # those callers are gone too.
+    "_promptsResetEditState", "_promptsWorldReset", "_promptsFetchOllamaModels",
+    "promptsLoadList", "_promptsRenderUsageCard", "promptsSelectDetail",
+    "cwLoadConfig", "_cwRenderConfig", "cwPatchField",
+    "_promptsRenderModelSelector", "promptsChangeModel", "_promptsRenderReadBodies",
+    # TICKET-0059 (BRIEF-0059-i commit 2): the shared X1 dirty guard, the
+    # edit-mode body renderer and its enter/cancel/input handlers, the
+    # token-scan (also the drift-detection reader, now that
+    # _promptsRenderDetail's own copy is already gone), and save, converged
+    # onto the same Prompts.svelte + prompts.svelte.js. _promptsRefreshDetail
+    # stays off this list -- promptsRestoreVersion (commit 3) still calls
+    # it; commit 3 adds it once that caller is gone too.
+    # _promptsRenderList/_promptsRenderDetail/_promptsHighlightTokens are
+    # unaffected by this commit and stay off for the same reason as commit
+    # 1's note above.
+    "_promptsConfirmDiscard", "_promptsRenderEditBodies", "promptsEnterEditMode",
+    "promptsCancelEdit", "promptsEditInput", "_promptsUpdateEditHint",
+    "promptsSaveEdit", "_promptsExtractTokens",
+    # TICKET-0059 (BRIEF-0059-i commit 3, final): the history section
+    # (render, toggle, load, list-render, version-select, version-detail-
+    # render, restore) and the assembled-preview functions (panel render,
+    # entity-selector populate, run), converged onto the same
+    # Prompts.svelte + prompts.svelte.js. Also closing out the deferred
+    # names from commits 1/2, now that their last remaining (unreachable)
+    # callers are gone too: _promptsRefreshDetail (promptsRestoreVersion),
+    # _promptsRenderList/_promptsRenderDetail/_promptsHighlightTokens
+    # (the history/preview functions removed in this same commit). Every
+    # promptsX/cwX module-level `let` is gone as well -- the whole Prompts
+    # module in index.html is retired.
+    "_promptsRenderHistorySection", "promptsToggleHistory", "_promptsLoadHistory",
+    "_promptsRenderHistoryList", "promptsSelectHistoryVersion",
+    "_promptsRenderHistoryVersionDetail", "promptsRestoreVersion",
+    "_promptsRenderPreviewPanel", "_promptsPopulateEntitySelectors",
+    "promptsRunAssembledPreview", "_promptsRefreshDetail", "_promptsRenderList",
+    "_promptsRenderDetail", "_promptsHighlightTokens",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from
