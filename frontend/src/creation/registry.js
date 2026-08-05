@@ -316,6 +316,23 @@ export const CREATION_ISLANDS = Object.freeze({
     migratedBy: 'TICKET-0059',
     retiredPrefixes: ['loadCreationArtefacts', 'CREATION_ARTEFACTS_NOTICE'],
   }),
+  // BRIEF-0059-h commit 3: the Compétences tab -- ported to
+  // Competences.svelte + competences.svelte.js, Modal.svelte's second
+  // consumer (delete-confirmation dialog, lock O1).
+  competences: Object.freeze({
+    containerId: 'creation-competences',
+    component: 'Competences.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      '_competencesWorldReset', 'competencesGenerateDraft',
+      '_competencesDomainOptions', 'competencesRenderDraft',
+      'competencesDiscardDraftRow', 'competencesAcceptDraftRow',
+      'competencesAddManualRow', 'competencesLoadList',
+      '_competencesRenderTable', 'competencesSaveRow',
+      'competencesDeleteOpen', 'competencesDeleteConfirm',
+      'COMPETENCES_DOMAINS',
+    ],
+  }),
   linkAgent: Object.freeze({
     containerId: 'linkagent-panel',
     component: 'LinkAgent.svelte',

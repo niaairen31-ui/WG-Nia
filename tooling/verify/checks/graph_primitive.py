@@ -149,6 +149,15 @@ GONE_PLAIN = [
     # TICKET-0059 (BRIEF-0059-h commit 2): the Artefacts tab, converged onto
     # frontend/src/creation/Artefacts.svelte.
     "loadCreationArtefacts", "CREATION_ARTEFACTS_NOTICE",
+    # TICKET-0059 (BRIEF-0059-h commit 3): the Compétences tab, converged
+    # onto frontend/src/creation/Competences.svelte + competences.svelte.js.
+    "_competencesWorldReset", "competencesGenerateDraft",
+    "_competencesDomainOptions", "competencesRenderDraft",
+    "competencesDiscardDraftRow", "competencesAcceptDraftRow",
+    "competencesAddManualRow", "competencesLoadList",
+    "_competencesRenderTable", "competencesSaveRow",
+    "competencesDeleteOpen", "competencesDeleteConfirm",
+    "competencesDraft", "COMPETENCES_DOMAINS",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from
