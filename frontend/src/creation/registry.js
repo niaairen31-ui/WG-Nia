@@ -358,11 +358,16 @@ export const CREATION_ISLANDS = Object.freeze({
     component: 'Prompts.svelte',
     migratedBy: 'TICKET-0059',
     retiredPrefixes: [
-      '_promptsFetchOllamaModels', 'promptsLoadList', '_promptsRenderList',
+      '_promptsResetEditState', '_promptsWorldReset', '_promptsFetchOllamaModels',
+      'promptsLoadList', '_promptsRenderList',
       '_promptsRenderUsageCard', '_promptsExtractTokens', '_promptsHighlightTokens',
       'promptsSelectDetail', '_promptsRenderModelSelector', 'promptsChangeModel',
       '_promptsRenderDetail', '_promptsRenderReadBodies',
       'cwLoadConfig', '_cwRenderConfig', 'cwPatchField',
+      // BRIEF-0059-i commit 2: edit mode.
+      '_promptsConfirmDiscard', '_promptsRenderEditBodies', 'promptsEnterEditMode',
+      'promptsCancelEdit', 'promptsEditInput', '_promptsUpdateEditHint',
+      'promptsSaveEdit', '_promptsRefreshDetail',
     ],
   }),
   linkAgent: Object.freeze({

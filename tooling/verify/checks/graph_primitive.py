@@ -178,6 +178,19 @@ GONE_PLAIN = [
     "promptsLoadList", "_promptsRenderUsageCard", "promptsSelectDetail",
     "cwLoadConfig", "_cwRenderConfig", "cwPatchField",
     "_promptsRenderModelSelector", "promptsChangeModel", "_promptsRenderReadBodies",
+    # TICKET-0059 (BRIEF-0059-i commit 2): the shared X1 dirty guard, the
+    # edit-mode body renderer and its enter/cancel/input handlers, the
+    # token-scan (also the drift-detection reader, now that
+    # _promptsRenderDetail's own copy is already gone), and save, converged
+    # onto the same Prompts.svelte + prompts.svelte.js. _promptsRefreshDetail
+    # stays off this list -- promptsRestoreVersion (commit 3) still calls
+    # it; commit 3 adds it once that caller is gone too.
+    # _promptsRenderList/_promptsRenderDetail/_promptsHighlightTokens are
+    # unaffected by this commit and stay off for the same reason as commit
+    # 1's note above.
+    "_promptsConfirmDiscard", "_promptsRenderEditBodies", "promptsEnterEditMode",
+    "promptsCancelEdit", "promptsEditInput", "_promptsUpdateEditHint",
+    "promptsSaveEdit", "_promptsExtractTokens",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from

@@ -4874,145 +4874,21 @@ let promptsHistorySelectedVersion = null;
 let promptsHistoryVersionDetail = null;
 let promptsRestoreError = null;
 
-/** Shared X1 dirty guard — true if it's safe to discard the current edit. */
-function _promptsConfirmDiscard() {
-  return !promptsEditDirty || confirm('Unsaved prompt edit will be lost — continue?');
-}
-
 /* BRIEF-0059-i commit 1: the world-reset/edit-state-reset pair, the Ollama
  * model fetch, the list loader, the list/usage-card renderers, the detail
  * selector, the model-selector renderer and its change handler, and the
  * read-only body renderer, plus the parked D-0050 conversation-window
- * config panel's load/render/patch trio, all ported to
+ * config panel's load/render/patch trio; commit 2: the shared dirty guard,
+ * the edit-mode body renderer and its enter/cancel/input handlers, save,
+ * and the post-write detail refresh -- all ported to
  * frontend/src/creation/Prompts.svelte + prompts.svelte.js +
  * ConversationWindowConfig.svelte and deleted here (graph_primitive.py's
  * GONE_PLAIN tracks the retired names; not repeated here so this comment
- * itself doesn't reintroduce them). The detail renderer stays below for
- * now -- its remaining callers are edit-mode and history functions, commit
- * 2/3 territory -- along with the token-scan/highlight pair the detail
- * renderer's still-live callers still reach. All of it is unreachable now
- * that #creation-prompts mounts the Svelte island instead of this markup;
- * each piece is deleted in the commit that ports it. */
-
-/** Edit-state bodies (U1) — same pane, two textareas over the client-held
- *  drafts (never the server's `d.system_prompt`/`d.user_template` directly,
- *  so a mid-edit re-render — e.g. a model-selector change — never clobbers
- *  in-progress text). The placeholder hint is advisory only (C1 stays the
- *  sole authority); Save/Cancel sit under the note field. */
-function _promptsRenderEditBodies(d) {
-  return `
-    <div style="display:flex; align-items:center; justify-content:space-between;">
-      <div class="field-section-title" style="margin:0">System prompt</div>
-    </div>
-    <textarea id="prompts-edit-system" rows="8" style="width:100%; font-size:12px; font-family:monospace;"
-      oninput="promptsEditInput('system', this.value)">${esc(promptsEditDraftSystem)}</textarea>
-    <div class="field-section-title">User template</div>
-    <textarea id="prompts-edit-user" rows="8" style="width:100%; font-size:12px; font-family:monospace;"
-      oninput="promptsEditInput('user', this.value)">${esc(promptsEditDraftUser)}</textarea>
-    <div class="field-row" style="margin-top:8px;">
-      <label for="prompts-edit-note">Note (optionnel)</label>
-      <input type="text" id="prompts-edit-note" value="${esc(promptsEditDraftNote)}"
-        oninput="promptsEditInput('note', this.value)">
-    </div>
-    <div id="prompts-edit-hint" style="color:#c33; font-size:12px; margin-top:4px; display:none;"></div>
-    ${promptsSaveError ? `<div style="color:#c33; font-size:12px; margin-top:6px;">${esc(promptsSaveError)}</div>` : ''}
-    <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
-      <button class="btn-send" onclick="promptsSaveEdit('${d.id}')">Enregistrer</button>
-      <button class="btn-end" onclick="promptsCancelEdit()">Annuler</button>
-    </div>
-  `;
-}
-
-function promptsEnterEditMode() {
-  if (!promptsCurrentDetail) return;
-  promptsEditMode = true;
-  promptsEditDirty = false;
-  promptsEditDraftSystem = promptsCurrentDetail.system_prompt;
-  promptsEditDraftUser = promptsCurrentDetail.user_template;
-  promptsEditDraftNote = '';
-  promptsSaveError = null;
-  document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
-}
-
-function promptsCancelEdit() {
-  if (!_promptsConfirmDiscard()) return;
-  promptsEditMode = false;
-  promptsEditDirty = false;
-  promptsSaveError = null;
-  document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
-}
-
-/** Draft input handler — updates client state (never left to the DOM alone,
- *  so drafts survive an incidental full-pane re-render) and refreshes the
- *  advisory placeholder hint (Scope IN 2 — never blocks Save). */
-function promptsEditInput(field, value) {
-  if (field === 'system') promptsEditDraftSystem = value;
-  else if (field === 'user') promptsEditDraftUser = value;
-  else if (field === 'note') promptsEditDraftNote = value;
-  promptsEditDirty = true;
-  _promptsUpdateEditHint();
-}
-
-function _promptsUpdateEditHint() {
-  const hintEl = document.getElementById('prompts-edit-hint');
-  if (!hintEl || !promptsCurrentDetail) return;
-  const declared = new Set(Array.isArray(promptsCurrentDetail.variables) ? promptsCurrentDetail.variables : []);
-  const tokens = new Set([..._promptsExtractTokens(promptsEditDraftSystem), ..._promptsExtractTokens(promptsEditDraftUser)]);
-  const undeclared = [...tokens].filter(t => !declared.has(t));
-  hintEl.style.display = undeclared.length ? '' : 'none';
-  hintEl.textContent = undeclared.length ? `Sera rejeté : ${undeclared.map(t => '{' + t + '}').join(', ')}` : '';
-}
-
-/** Save (C1 is the sole authoritative gate; this call may 422). On success,
- *  never patch `promptsCurrentDetail` locally — refetch through the server
- *  (fidelity doctrine, same as the model PATCH handler), which also picks
- *  up the new version number for free. On failure, stay in edit mode with
- *  drafts intact and the server's message rendered inline. */
-async function promptsSaveEdit(promptId) {
-  try {
-    await api(`/api/prompts/${promptId}/text`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        system_prompt: promptsEditDraftSystem,
-        user_template: promptsEditDraftUser,
-        note: promptsEditDraftNote.trim() || undefined,
-      }),
-    });
-    promptsEditMode = false;
-    promptsEditDirty = false;
-    promptsSaveError = null;
-    promptsHistorySelectedVersion = null;
-    promptsHistoryVersionDetail = null;
-    promptsHistoryVersions = null;
-    await _promptsRefreshDetail(promptId);
-  } catch (e) {
-    promptsSaveError = e.message;
-    document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
-  }
-}
-
-/** Post-write refresh (save or restore) — refetches the head, and the
- *  version list too if History is open, then re-renders once. Never a
- *  locally-patched draft standing in for the server's canonical read. */
-async function _promptsRefreshDetail(promptId) {
-  try {
-    promptsCurrentDetail = await api(`/api/prompts/${promptId}`);
-  } catch (e) {
-    document.getElementById('prompts-detail-body').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-    return;
-  }
-  if (promptsHistoryExpanded) {
-    await _promptsLoadHistory(promptId);
-  } else {
-    document.getElementById('prompts-detail-body').innerHTML = _promptsRenderDetail(promptsCurrentDetail);
-  }
-  for (const u of promptsUsages) {
-    const row = (u.rows || []).find(r => r.id === promptId);
-    if (row) row.version = promptsCurrentDetail.version;
-  }
-  document.getElementById('prompts-list-body').innerHTML = _promptsRenderList(promptsUsages);
-}
+ * itself doesn't reintroduce them). Still below: the history and preview
+ * functions (commit 3 territory) and the token-scan/highlight pair they
+ * still reach. All of it is unreachable now that #creation-prompts mounts
+ * the Svelte island instead of this markup; each piece is deleted in the
+ * commit that ports it. */
 
 /* ── History section (V1) ────────────────────────────────────────────────
  * Lazy: GET .../versions fires only on first expansion, never for a prompt

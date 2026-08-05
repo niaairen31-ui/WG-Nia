@@ -1,8 +1,9 @@
 <script>
-  /* TICKET-0059 (BRIEF-0059-i commit 1). Faithful port of the Prompts tab --
-     prompts.svelte.js's own header lists the ported functions. Rendering +
-     the dirty-guard call sites live here; prompts.svelte.js holds the
-     non-render state and API calls. ConversationWindowConfig.svelte is a
+  /* TICKET-0059 (BRIEF-0059-i, commits 1-2 so far). Faithful port of the
+     Prompts tab -- prompts.svelte.js's own header lists the ported
+     functions. Rendering + the dirty-guard call sites live here;
+     prompts.svelte.js holds the non-render state and API calls.
+     ConversationWindowConfig.svelte is a
      CHILD of this component (one island per container, lock I1) -- its
      `#cw-config-panel` renders above the Prompts panel, same position as
      the legacy markup, and its loadConfig() is called from this
@@ -26,8 +27,20 @@
 
      No draft-persistence doctrine (index.html's former module comment,
      BRIEF-0011-b): nothing on this surface writes to storage, and nothing
-     survives a reload or a prompt/world switch -- commit 2 carries this
-     forward into the edit-mode state it introduces.
+     survives a reload or a prompt/world switch -- the edit-mode drafts
+     commit 2 introduces are plain $state in prompts.svelte.js, never
+     persisted, cleared by resetEditState on every prompt/world switch.
+
+     The X1 dirty guard (confirmDiscard) lives inside worldReset/
+     selectDetail/cancelEdit themselves (prompts.svelte.js), matching the
+     legacy shape exactly -- and matching this tree's ACTUAL call sites,
+     not the brief's prose (which named three more; verified false against
+     this codebase, see prompts.svelte.js's header). changeModel and the
+     history functions (commit 3) never called the guard here and don't
+     gain it now -- a faithful port reproduces the code, not a summary of
+     it. Since applyPendingOpen (below) routes through the same
+     selectDetail/onSelectPrompt path, the Observation-lane cross-link
+     inherits the guard for free.
 
      Cross-surface touch (BRIEF-0059-i, not otherwise in scope): the
      Observation lane's (TICKET-0051) observationOpenPrompt used to call
@@ -37,10 +50,12 @@
 
      No scoped <style> block: like every other Creation island, this
      renders inside the legacy iframe document. */
+  import { untrack } from 'svelte';
   import { serverState } from '../lib/serverState.svelte.js';
   import ConversationWindowConfig from './ConversationWindowConfig.svelte';
   import {
     promptsState, loadList, worldReset, selectDetail, changeModel, extractTokens, highlightSegments,
+    enterEditMode, cancelEdit, editInput, saveEdit, undeclaredTokens,
   } from './prompts.svelte.js';
 
   let { legacyDoc } = $props();
@@ -86,9 +101,19 @@
     applyPendingOpen();
   }
 
+  // untrack is load-bearing, not decorative: worldReset() calls
+  // confirmDiscard(), which reads promptsState.editDirty synchronously
+  // before its first await. Svelte's effect dependency tracking captures
+  // ANY $state read that happens synchronously during an effect's run,
+  // through arbitrarily deep synchronous call chains -- so without
+  // untrack, this effect would ALSO subscribe to editDirty. saveEdit and
+  // cancelEdit both write editDirty = false on success, which would then
+  // re-fire this effect and re-run worldReset -> loadList, wiping
+  // selectedId/currentDetail right after a save or cancel. Caught live:
+  // saving an edit reset the whole pane to "no prompt selected".
   $effect(() => {
     void serverState.worldId;
-    doWorldReset();
+    untrack(doWorldReset);
   });
 
   $effect(() => {
@@ -103,10 +128,6 @@
     return !!model && !!promptsState.ollamaModels && !promptsState.ollamaModels.includes(model);
   }
 
-  // The pending-open path (applyPendingOpen) also routes through this same
-  // function -- once commit 2 adds the X1 dirty guard to selectDetail, the
-  // Observation-lane cross-link inherits it automatically, with nothing to
-  // bypass, per the same principle as every other selectDetail call site.
   async function onSelectPrompt(promptId) {
     await selectDetail(promptId);
     detailBodyEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -131,6 +152,7 @@
       missingFromText: [...declared].filter((t) => !actual.has(t)),
     };
   }
+
 </script>
 
 <ConversationWindowConfig bind:this={cwRef} />
@@ -233,23 +255,53 @@
         <ul style="margin:0 0 10px 18px; font-size:12px;">
           {#each (d.call_sites || []) as s}<li><code>{s}</code></li>{/each}
         </ul>
-        <div style="display:flex; align-items:center; justify-content:space-between;">
-          <div class="field-section-title" style="margin:0">System prompt</div>
-        </div>
-        <pre style="white-space:pre-wrap; font-size:12px; background:var(--card); border:1px solid var(--border);
-                    border-radius:var(--radius); padding:8px; max-height:220px; overflow-y:auto;">{#each highlightSegments(d.system_prompt) as seg}{#if seg.isToken}<mark>{seg.text}</mark>{:else}{seg.text}{/if}{/each}</pre>
-        <div class="field-section-title">User template</div>
-        <pre style="white-space:pre-wrap; font-size:12px; background:var(--card); border:1px solid var(--border);
-                    border-radius:var(--radius); padding:8px; max-height:220px; overflow-y:auto;">{#each highlightSegments(d.user_template) as seg}{#if seg.isToken}<mark>{seg.text}</mark>{:else}{seg.text}{/if}{/each}</pre>
-        {#if drift.missingFromDeclared.length || drift.missingFromText.length}
-          <div class="empty" style="text-align:left; border:1px solid var(--border); border-radius:var(--radius); padding:8px;">
-            {#if drift.missingFromDeclared.length}
-              <div>Présents dans le texte, absents de <code>variables</code> : {drift.missingFromDeclared.join(', ')}</div>
-            {/if}
-            {#if drift.missingFromText.length}
-              <div>Déclarés dans <code>variables</code>, absents du texte : {drift.missingFromText.join(', ')}</div>
-            {/if}
+        {#if promptsState.editMode}
+          {@const undeclared = undeclaredTokens(d, promptsState.editDraftSystem, promptsState.editDraftUser)}
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <div class="field-section-title" style="margin:0">System prompt</div>
           </div>
+          <textarea rows="8" style="width:100%; font-size:12px; font-family:monospace;"
+            value={promptsState.editDraftSystem}
+            oninput={(e) => editInput('system', e.target.value)}></textarea>
+          <div class="field-section-title">User template</div>
+          <textarea rows="8" style="width:100%; font-size:12px; font-family:monospace;"
+            value={promptsState.editDraftUser}
+            oninput={(e) => editInput('user', e.target.value)}></textarea>
+          <div class="field-row" style="margin-top:8px;">
+            <label for="prompts-edit-note">Note (optionnel)</label>
+            <input type="text" id="prompts-edit-note" value={promptsState.editDraftNote}
+              oninput={(e) => editInput('note', e.target.value)}>
+          </div>
+          {#if undeclared.length}
+            <div style="color:#c33; font-size:12px; margin-top:4px;">Sera rejeté : {undeclared.map((t) => '{' + t + '}').join(', ')}</div>
+          {/if}
+          {#if promptsState.saveError}
+            <div style="color:#c33; font-size:12px; margin-top:6px;">{promptsState.saveError}</div>
+          {/if}
+          <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+            <button class="btn-send" onclick={() => saveEdit(d.id)}>Enregistrer</button>
+            <button class="btn-end" onclick={cancelEdit}>Annuler</button>
+          </div>
+        {:else}
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <div class="field-section-title" style="margin:0">System prompt</div>
+            <button class="btn-send" onclick={enterEditMode}>Éditer</button>
+          </div>
+          <pre style="white-space:pre-wrap; font-size:12px; background:var(--card); border:1px solid var(--border);
+                      border-radius:var(--radius); padding:8px; max-height:220px; overflow-y:auto;">{#each highlightSegments(d.system_prompt) as seg}{#if seg.isToken}<mark>{seg.text}</mark>{:else}{seg.text}{/if}{/each}</pre>
+          <div class="field-section-title">User template</div>
+          <pre style="white-space:pre-wrap; font-size:12px; background:var(--card); border:1px solid var(--border);
+                      border-radius:var(--radius); padding:8px; max-height:220px; overflow-y:auto;">{#each highlightSegments(d.user_template) as seg}{#if seg.isToken}<mark>{seg.text}</mark>{:else}{seg.text}{/if}{/each}</pre>
+          {#if drift.missingFromDeclared.length || drift.missingFromText.length}
+            <div class="empty" style="text-align:left; border:1px solid var(--border); border-radius:var(--radius); padding:8px;">
+              {#if drift.missingFromDeclared.length}
+                <div>Présents dans le texte, absents de <code>variables</code> : {drift.missingFromDeclared.join(', ')}</div>
+              {/if}
+              {#if drift.missingFromText.length}
+                <div>Déclarés dans <code>variables</code>, absents du texte : {drift.missingFromText.join(', ')}</div>
+              {/if}
+            </div>
+          {/if}
         {/if}
       {/if}
     </div>

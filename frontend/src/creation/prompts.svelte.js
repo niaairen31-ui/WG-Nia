@@ -13,15 +13,23 @@
    _promptsHighlightTokens (the latter ported as a segment list, not an
    {@html} string -- see Prompts.svelte's header).
 
-   _promptsConfirmDiscard is a COMMIT 2 port (it guards a dirty edit, and
-   edit mode doesn't exist until commit 2 adds it) -- worldReset/
-   selectDetail/changeModel do NOT call a guard yet, matching the brief's
-   own account of commit 2's job: retrofit the guard onto each of these
-   three call sites once _promptsConfirmDiscard exists. resetEditState is
-   correspondingly a no-op for now -- there is no edit/history state yet to
-   clear; commit 2 and commit 3 each extend it as they add their own
-   fields, the same incremental-growth shape sheetState.svelte.js followed
-   across BRIEF-0059-e's three commits. */
+   Commit 2 ports: _promptsConfirmDiscard (as confirmDiscard),
+   promptsEnterEditMode (as enterEditMode), promptsCancelEdit (as
+   cancelEdit), promptsEditInput (as editInput), promptsSaveEdit (as
+   saveEdit), _promptsRefreshDetail (as refreshDetail), plus
+   undeclaredTokens backing _promptsUpdateEditHint (a pure computation
+   here, not a DOM-mutating function -- Prompts.svelte reads it directly
+   in the template instead of an imperative hint-element update).
+   resetEditState now actually resets something.
+
+   _promptsConfirmDiscard's real call sites, verified against this tree's
+   pre-port index.html (NOT the brief's prose, which named three more that
+   the actual code never had): _promptsWorldReset, promptsSelectDetail,
+   promptsCancelEdit -- three, not six. promptsChangeModel,
+   promptsToggleHistory, promptsSelectHistoryVersion and
+   promptsRestoreVersion never called the guard in this codebase; this
+   port does not add it to them -- a faithful port reproduces what the
+   code does, not what a brief's summary implied it does. */
 export const promptsState = $state({
   usages: [],
   selectedId: null,
@@ -34,6 +42,15 @@ export const promptsState = $state({
   currentDetail: null,
   detailError: '',
   modelError: '',
+  // Edit mode (BRIEF-0011-b) -- client-side draft state only; nothing
+  // survives a reload or a prompt/world switch (no-draft-persistence
+  // doctrine).
+  editMode: false,
+  editDirty: false,
+  editDraftSystem: '',
+  editDraftUser: '',
+  editDraftNote: '',
+  saveError: null,
 });
 
 async function api(path, options) {
@@ -43,8 +60,21 @@ async function api(path, options) {
   return data;
 }
 
-/** No-op in commit 1 -- see the module header. */
+/** Shared X1 dirty guard -- true if it's safe to discard the current edit. */
+export function confirmDiscard() {
+  return !promptsState.editDirty || confirm('Unsaved prompt edit will be lost — continue?');
+}
+
+/** Resets edit client state (BRIEF-0011-b) -- called on every prompt
+ *  selection and on world-switch reset, after the X1 dirty guard. Commit 3
+ *  extends this further with history-state fields once they exist. */
 export function resetEditState() {
+  promptsState.editMode = false;
+  promptsState.editDirty = false;
+  promptsState.editDraftSystem = '';
+  promptsState.editDraftUser = '';
+  promptsState.editDraftNote = '';
+  promptsState.saveError = null;
 }
 
 /** World-switch reset. Unlike the legacy version (which only cleared
@@ -55,6 +85,7 @@ export function resetEditState() {
  *  selectedId/currentDetail and does the fetches; this adds the two fields
  *  loadList doesn't touch. */
 export async function worldReset(onCwReload) {
+  if (!confirmDiscard()) return;
   promptsState.ollamaModels = null;
   promptsState.ollamaError = null;
   resetEditState();
@@ -91,6 +122,8 @@ export async function loadList(onCwReload) {
 }
 
 export async function selectDetail(promptId) {
+  if (!confirmDiscard()) return;
+  resetEditState();
   promptsState.selectedId = promptId;
   promptsState.currentDetail = null;
   promptsState.detailError = '';
@@ -121,6 +154,85 @@ export async function changeModel(promptId, value) {
   for (const u of promptsState.usages) {
     const row = (u.rows || []).find((r) => r.id === promptId);
     if (row) row.model = updated.model;
+  }
+}
+
+export function enterEditMode() {
+  if (!promptsState.currentDetail) return;
+  promptsState.editMode = true;
+  promptsState.editDirty = false;
+  promptsState.editDraftSystem = promptsState.currentDetail.system_prompt;
+  promptsState.editDraftUser = promptsState.currentDetail.user_template;
+  promptsState.editDraftNote = '';
+  promptsState.saveError = null;
+}
+
+export function cancelEdit() {
+  if (!confirmDiscard()) return;
+  promptsState.editMode = false;
+  promptsState.editDirty = false;
+  promptsState.saveError = null;
+}
+
+/** Draft input handler -- updates client state (never left to the DOM
+ *  alone, so drafts survive an incidental full-pane re-render). The
+ *  advisory undeclared-token hint (Scope IN 2 -- never blocks Save) is
+ *  computed by undeclaredTokens() below, read directly by the template
+ *  instead of imperatively pushed into a hint element. */
+export function editInput(field, value) {
+  if (field === 'system') promptsState.editDraftSystem = value;
+  else if (field === 'user') promptsState.editDraftUser = value;
+  else if (field === 'note') promptsState.editDraftNote = value;
+  promptsState.editDirty = true;
+}
+
+export function undeclaredTokens(detail, draftSystem, draftUser) {
+  if (!detail) return [];
+  const declared = new Set(Array.isArray(detail.variables) ? detail.variables : []);
+  const tokens = new Set([...extractTokens(draftSystem), ...extractTokens(draftUser)]);
+  return [...tokens].filter((t) => !declared.has(t));
+}
+
+/** Save (C1 is the sole authoritative gate; this call may 422). On success,
+ *  never patch `currentDetail` locally -- refetch through the server
+ *  (fidelity doctrine, same as the model PATCH handler), which also picks
+ *  up the new version number for free. On failure, stay in edit mode with
+ *  drafts intact and the server's message set in promptsState.saveError
+ *  for the caller to render inline. */
+export async function saveEdit(promptId) {
+  try {
+    await api(`/api/prompts/${promptId}/text`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_prompt: promptsState.editDraftSystem,
+        user_template: promptsState.editDraftUser,
+        note: promptsState.editDraftNote.trim() || undefined,
+      }),
+    });
+    promptsState.editMode = false;
+    promptsState.editDirty = false;
+    promptsState.saveError = null;
+    await refreshDetail(promptId);
+  } catch (e) {
+    promptsState.saveError = e.message;
+  }
+}
+
+/** Post-write refresh (save or restore) -- refetches the head and
+ *  re-syncs the list row's version, then re-renders once. Never a
+ *  locally-patched draft standing in for the server's canonical read.
+ *  Commit 3 extends this to also refresh an open history list. */
+export async function refreshDetail(promptId) {
+  try {
+    promptsState.currentDetail = await api(`/api/prompts/${promptId}`);
+  } catch (e) {
+    promptsState.detailError = e.message;
+    return;
+  }
+  for (const u of promptsState.usages) {
+    const row = (u.rows || []).find((r) => r.id === promptId);
+    if (row) row.version = promptsState.currentDetail.version;
   }
 }
 
