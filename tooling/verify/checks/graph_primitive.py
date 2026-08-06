@@ -208,18 +208,18 @@ GONE_PLAIN = [
     "_promptsRenderPreviewPanel", "_promptsPopulateEntitySelectors",
     "promptsRunAssembledPreview", "_promptsRefreshDetail", "_promptsRenderList",
     "_promptsRenderDetail", "_promptsHighlightTokens",
-    # TICKET-0059 (BRIEF-0059-j commit 1): intrigues' list fetch and
-    # bespoke sheet (fetch, detail rendering, step/link row renderers,
-    # status/step/link mutations), converged onto frontend/src/creation/
-    # Intrigues.svelte + intrigues.svelte.js. _intriguesPopulateOwnerSelect
-    # stays off this list -- intriguesRenderCreatePanel (commit 2) is still
-    # its only caller. _intriguesTabEnterReset also stays off this list --
+    # TICKET-0059 (BRIEF-0059-j): intrigues -- list fetch, bespoke sheet
+    # (fetch, detail rendering, step/link row renderers, status/step/link
+    # mutations, commit 1) and create panel + AI draft assistant (commit 2),
+    # converged onto frontend/src/creation/Intrigues.svelte +
+    # intrigues.svelte.js. _intriguesTabEnterReset stays off this list --
     # it is chrome-callback shaped (state.onTabEnter) and survives
     # unmigrated, the same way its twin _evenementsTabEnterReset did.
     "loadAgendasList", "renderAgendaSheet", "_intriguesRenderStep",
     "_intriguesRenderLinkedGoal", "_intriguesRefreshSelection",
     "intriguesSetAgendaStatus", "intriguesDetachLink", "intriguesStepStatus",
-    "intriguesAgendas",
+    "intriguesAgendas", "_intriguesPopulateOwnerSelect",
+    "intriguesRenderCreatePanel", "intriguesGenerateDraft", "intriguesSubmitCreate",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from

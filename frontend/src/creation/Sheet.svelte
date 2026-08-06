@@ -40,15 +40,16 @@
      (flushSync makes the toggle itself synchronous too, belt and braces).
 
      `intrigues` used to have its own bespoke, hand-rolled sheetRenderer
-     (renderAgendaSheet) the same shape as pj's createPanel above; it
-     converged onto real Svelte state (TICKET-0059, BRIEF-0059-j commit 1),
-     the same way evenements did -- <Intrigues> renders via a
-     tabKey === 'intrigues' gate (`agenda` carries no ENTITY_TYPE_REGISTRY
-     row either), and its mutations (status/step/link) write
+     (renderAgendaSheet) and createPanel (intriguesRenderCreatePanel), the
+     same shape as pj's createPanel above; it fully converged onto real
+     Svelte state (TICKET-0059, BRIEF-0059-j), the same way evenements
+     did -- <Intrigues> renders via a tabKey === 'intrigues' gate (`agenda`
+     carries no ENTITY_TYPE_REGISTRY row either) for BOTH view and create
+     mode, and its mutations (status/step/link/create) write
      creationState.sheetDetail directly from intrigues.svelte.js rather
-     than round-tripping through this component. Its createPanel
-     (intriguesRenderCreatePanel) stays legacy until this brief's next
-     commit.
+     than round-tripping through this component. Unlike pj, its
+     primaryAction is now island-routed too (this component's own exported
+     primaryAction() below).
 
      `evenements` converged onto real Svelte state (TICKET-0058, BRIEF-0058-j,
      per RECON-SUPPLEMENT-0058's -j re-scope): it is not an entity-archetype
@@ -180,13 +181,13 @@
   }
 
   /** Called by mount.js's _islandPrimaryAction('entitySheet') when the
-   *  standard shell action band ("+ Nouveau") is clicked for a CORE
-   *  entity-archetype tab OR evenements (BRIEF-0058-j: evenements is
-   *  island-routed too now) -- pj/intrigues never route here (rule 11
-   *  pairing keeps their primaryAction legacy, paired with their own
-   *  bespoke createPanel). Mirrors creationNewEntity's own draft reset (the
-   *  plain "+ Nouveau" idiom every entity tab shared before this brief),
-   *  via the same legacy helper so the two paths never drift. */
+   *  standard shell action band ("+ Nouveau"/"+ Nouvelle intrigue") is
+   *  clicked for a CORE entity-archetype tab, evenements (BRIEF-0058-j) or
+   *  intrigues (BRIEF-0059-j) -- pj alone never routes here (rule 11
+   *  pairing keeps its primaryAction legacy, paired with its own bespoke
+   *  createPanel). Mirrors creationNewEntity's own draft reset (the plain
+   *  "+ Nouveau" idiom every entity tab shared before this brief), via the
+   *  same legacy helper so the two paths never drift. */
   export function primaryAction() {
     resetCreateDrafts();
     resetDraftRoles();
@@ -241,22 +242,22 @@
     if (ev.detail.mutationId) setPendingCreationMutationId(ev.detail.mutationId);
   });
 
-  // pj's createPanel, intrigues' createPanel+sheetRenderer -- both still
-  // legacy (rule 11 pairing keeps them off the island-routed primaryAction)
-  // -- dispatch this immediately before rendering their own markup into
+  // pj's createPanel -- the one survivor, still legacy (rule 11 pairing
+  // keeps it off the island-routed primaryAction) -- dispatches this
+  // immediately before rendering its own markup into
   // #author-legacy-sheet-slot, so that node exists under "legacy" display
-  // before their innerHTML write. creationNewEntity does this for the
-  // create-panel path; creationSelectRecord does it for entry.sheetRenderer
-  // (intrigues' view path).
+  // before its innerHTML write. creationNewEntity does this for pj's
+  // create-panel path; nothing else reaches this event any more since
+  // intrigues converged (BRIEF-0059-j).
   legacyDoc.addEventListener('creation:sheet-legacy-active', () => {
     flushSync(() => { creationState.sheetMode = 'legacy'; });
   });
 
   // creationSelectRecord dispatches this for a non-entity, non-legacy
-  // record tab -- evenements is the one caller since BRIEF-0058-j (intrigues
-  // still has a bespoke sheetRenderer and never reaches here). Mirrors
-  // 'creation:sheet-detail' exactly, just keyed by tabId instead of a
-  // fetched entity's own .type.
+  // record tab -- evenements (BRIEF-0058-j) and intrigues (BRIEF-0059-j)
+  // both reach it now that neither declares a bespoke sheetRenderer.
+  // Mirrors 'creation:sheet-detail' exactly, just keyed by tabId instead of
+  // a fetched entity's own .type.
   legacyDoc.addEventListener('creation:record-detail', (ev) => {
     flushSync(() => { enterViewMode(ev.detail.record, ev.detail.tabId); });
   });
@@ -265,7 +266,7 @@
   // every tab with no saveHandler of its own.
   legacyDoc.addEventListener('creation:sheet-save', () => { saveSheet(); });
 
-  // creationNewEntity (pj/intrigues' own "+ Nouveau", still legacy) used to
+  // creationNewEntity (pj's own "+ Nouveau", still legacy) used to
   // call _authorResetCreateDrafts() directly; that function is now
   // resetCreateDrafts() in sheetState.svelte.js, unreachable from across the
   // legacy boundary as a bare call -- this is the reverse-bridge dispatch it
@@ -318,14 +319,16 @@
       if (saveBtn) saveBtn.style.display = isNewSheet ? 'none' : '';
       return;
     }
-    // intrigues (BRIEF-0059-j commit 1): `agenda` carries no
-    // ENTITY_TYPE_REGISTRY row either -- title comes straight off the
-    // record. No save button ever: the API surface is frozen to status
-    // transitions and link detach (unchanged from the legacy
-    // renderAgendaSheet's own doc comment); create mode isn't reachable
-    // through this island yet (createPanel stays legacy until commit 2).
+    // intrigues (BRIEF-0059-j): `agenda` carries no ENTITY_TYPE_REGISTRY row
+    // either -- title comes straight off the record on create too (matching
+    // intriguesRenderCreatePanel's own former literal). No save button ever,
+    // view or create: the API surface is frozen to status transitions and
+    // link detach in view mode (unchanged from the legacy renderAgendaSheet's
+    // own doc comment), and create mode is a POST via <Intrigues>'s own
+    // inline "+ Créer l'intrigue" button, the same posture evenements' own
+    // create mode takes.
     if (creationState.activeTabKey === 'intrigues') {
-      if (titleEl) titleEl.textContent = isNewSheet ? '' : (creationState.sheetDetail.title || '');
+      if (titleEl) titleEl.textContent = isNewSheet ? 'Nouvelle intrigue' : (creationState.sheetDetail.title || '');
       if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = ''; }
       if (saveBtn) saveBtn.style.display = 'none';
       return;
@@ -593,7 +596,7 @@
       <Evenements {legacyDoc} {isNew} event={detail} entities={creationState.entities}
         eventFields={registry.event_fields} onSave={saveSheet} />
     {:else if tabKey === 'intrigues'}
-      <Intrigues agenda={detail} />
+      <Intrigues {isNew} agenda={detail} />
     {:else}
       {#if !isNew}
         <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">

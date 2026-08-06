@@ -4321,14 +4321,15 @@ const CREATION_TABS = {
     loader: null,
     state: { onTabEnter: _intriguesTabEnterReset, onWorldSwitch: null },
     islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
-    // TICKET-0059 (BRIEF-0059-j commit 1): list + sheet converged onto
-    // Intrigues.svelte/intrigues.svelte.js, the same way evenements'
-    // listLoader/sheetRenderer went null in BRIEF-0058-j. createPanel
-    // stays legacy (rule 11 pairing) until this brief's next commit.
+    // TICKET-0059 (BRIEF-0059-j): fully converged onto Intrigues.svelte/
+    // intrigues.svelte.js -- list + sheet (commit 1), create panel (commit
+    // 2, this change): createPanel goes null and primaryAction routes
+    // through _islandPrimaryAction('entitySheet'), the SAME side per rule
+    // 11, mirroring every other island-routed entity tab.
     listLoader: null,
     sheetRenderer: null,
-    createPanel: intriguesRenderCreatePanel,
-    primaryAction: { label: '+ Nouvelle intrigue', handler: creationNewEntity },
+    createPanel: null,
+    primaryAction: { label: '+ Nouvelle intrigue', handler: () => _islandPrimaryAction('entitySheet') },
   },
   evenements: {
     label: 'Événements',
@@ -4529,173 +4530,13 @@ async function _creationRunWorldSwitchResets() {
 
 /* ── Intrigues (TICKET-0018/BRIEF-0018-a; entity-sheet shell TICKET-0021/
  * BRIEF-0021-a) ─────────────────────────────────────────────────────────────
- * List + sheet (fetch, detail rendering, status/step/link mutations)
- * converged onto frontend/src/creation/Intrigues.svelte + intrigues.svelte.js
- * (TICKET-0059, BRIEF-0059-j commit 1), reached through the entitySheet
- * island via a tabKey === 'intrigues' gate, the same way evenements
- * converged in BRIEF-0058-j. Only the create panel below remains legacy
- * (createPanel stays paired with a legacy primaryAction per rule 11, until
- * this brief's next commit); it still writes through /api/agendas +
- * /api/agenda-steps (writes.py helpers server-side) — the SAME canon-write
- * paths the tick's proposals use via _apply_mutation. */
-
-// TICKET-0059 (BRIEF-0059-j commit 1): _intriguesPopulateOwnerSelect stays
-// legacy for one more commit -- its only caller, intriguesRenderCreatePanel
-// below, is still legacy too (rule 11 keeps createPanel and primaryAction
-// on the same side); porting the callee alone here would leave the
-// still-live create panel calling a deleted global. Both move together in
-// this brief's next commit. intrigues.svelte.js's populateOwnerOptions is
-// the ported target the next commit's create panel will call instead.
-async function _intriguesPopulateOwnerSelect() {
-  const sel = document.getElementById('intrigues-f-owner');
-  if (!sel) return;
-  try {
-    const [factions, characters] = await Promise.all([
-      api('/api/entities?type=faction'),
-      api('/api/entities?type=character'),
-    ]);
-    const factionOpts = factions.filter(e => e.status === 'active')
-      .map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
-    const characterOpts = characters.filter(e => e.status === 'active')
-      .map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
-    sel.innerHTML = '<option value="">—</option>'
-      + (factionOpts ? `<optgroup label="Factions">${factionOpts}</optgroup>` : '')
-      + (characterOpts ? `<optgroup label="Personnages (intrigue personnelle)">${characterOpts}</optgroup>` : '');
-  } catch (_) { /* left with just the placeholder option */ }
-}
-
-/** intrigues' createPanel (BRIEF-0021-a item 7) — the PJ/NPC create-form
- *  idiom: rendered into the shared detail pane. #agenda-gen-panel ships
- *  empty here; BRIEF-0021-b fills it. Element ids are kept identical to the
- *  pre-migration form so intriguesSubmitCreate needs no id changes. */
-function intriguesRenderCreatePanel() {
-  creationSelectedRecordId = null;
-  document.getElementById('author-sheet-title').textContent = 'Nouvelle intrigue';
-  document.getElementById('author-status').textContent = '';
-  document.getElementById('author-save-btn').style.display = 'none';
-  // TICKET-0059 (BRIEF-0059-e): #author-delete-btn no longer exists in the
-  // legacy document -- it moved into Sheet.svelte's own template.
-
-  // TICKET-0058 (BRIEF-0058-f): see pjRenderCreatePanel's identical note --
-  // creationNewEntity dispatches 'creation:sheet-legacy-active' before
-  // calling this (entry.createPanel).
-  document.getElementById('author-legacy-sheet-slot').innerHTML = `
-    <div class="field-section" id="agenda-gen-panel" style="border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:12px;">
-      <div class="field-section-title">Générer avec l'IA</div>
-      <textarea id="agenda-gen-brief" rows="2" style="width:100%; resize:vertical"
-        placeholder="Intention en une phrase, ex. : « La Guilde du Sel veut prendre le contrôle du port sans que le Magistrat ne s'en aperçoive »"></textarea>
-      <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
-        <button class="btn-send" onclick="intriguesGenerateDraft()">Générer</button>
-        <span id="agenda-gen-status" style="font-size:12px; color:var(--muted)"></span>
-      </div>
-      <div id="agenda-gen-notes"></div>
-    </div>
-    <div class="field-section">
-      <div class="field-section-title">Nouvelle intrigue</div>
-      <div class="field-grid">
-        <div class="field-row">
-          <label for="intrigues-f-owner">Propriétaire (faction ou personnage) *</label>
-          <select id="intrigues-f-owner"><option value="">—</option></select>
-        </div>
-        <div class="field-row" style="grid-column:1/-1">
-          <label for="intrigues-f-title">Titre *</label>
-          <input type="text" id="intrigues-f-title" placeholder="ex : Le complot du sel">
-        </div>
-      </div>
-      <div class="field-section-title" style="margin-top:8px">Étapes (2 à 5, dans l'ordre)</div>
-      <div class="field-grid">
-        <div class="field-row" style="grid-column:1/-1"><label>Étape 1 * (objectif)</label><input type="text" id="intrigues-f-step-0"></div>
-        <div class="field-row" style="grid-column:1/-1"><label>Étape 2 * (objectif)</label><input type="text" id="intrigues-f-step-1"></div>
-        <div class="field-row" style="grid-column:1/-1"><label>Étape 3 (optionnel)</label><input type="text" id="intrigues-f-step-2"></div>
-        <div class="field-row" style="grid-column:1/-1"><label>Étape 4 (optionnel)</label><input type="text" id="intrigues-f-step-3"></div>
-        <div class="field-row" style="grid-column:1/-1"><label>Étape 5 (optionnel)</label><input type="text" id="intrigues-f-step-4"></div>
-      </div>
-      <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
-        <button class="btn-send" onclick="intriguesSubmitCreate()">+ Créer l'intrigue</button>
-        <span id="intrigues-add-status" style="font-size:12px; color:var(--muted)"></span>
-      </div>
-    </div>`;
-  _intriguesPopulateOwnerSelect();
-}
-
-/** intrigues' AI assistant (BRIEF-0021-b item 5) — pre-fills the shell
- *  (title + up to 5 steps) via POST /api/agendas/generate; writes no
- *  canon, one-shot (F2 precedent): a second click overwrites the fields
- *  with the new draft. */
-async function intriguesGenerateDraft() {
-  const statusEl = document.getElementById('agenda-gen-status');
-  const ownerId  = document.getElementById('intrigues-f-owner').value;
-  const brief    = document.getElementById('agenda-gen-brief').value.trim();
-
-  if (!ownerId) { statusEl.textContent = 'Propriétaire requis.'; return; }
-  if (!brief)   { statusEl.textContent = 'Intention requise.'; return; }
-
-  statusEl.textContent = 'Génération…';
-  let result;
-  try {
-    result = await api('/api/agendas/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ owner_entity_id: ownerId, brief }),
-    });
-  } catch (e) {
-    statusEl.textContent = e.message;
-    return;
-  }
-
-  if (!result || result.ok === false) {
-    statusEl.textContent = (result && result.error) || 'Échec de la génération.';
-    return; // form untouched
-  }
-
-  document.getElementById('intrigues-f-title').value = result.title || '';
-  const steps = result.steps || [];
-  [0, 1, 2, 3, 4].forEach(i => {
-    document.getElementById(`intrigues-f-step-${i}`).value = steps[i] || '';
-  });
-
-  const notesEl = document.getElementById('agenda-gen-notes');
-  notesEl.innerHTML = (result.notes && result.notes.length)
-    ? '<div class="field-section-title" style="margin-top:8px">Notes de l&#39;assistant</div><div class="row-table">'
-      + result.notes.map(n => `<div class="row-card" style="font-size:12px; color:var(--muted)">${esc(n)}</div>`).join('')
-      + '</div>'
-    : '';
-
-  statusEl.textContent = "Brouillon généré — relisez et éditez avant d'accepter.";
-}
-
-async function intriguesSubmitCreate() {
-  const statusEl = document.getElementById('intrigues-add-status');
-  const ownerId  = document.getElementById('intrigues-f-owner').value;
-  const title    = document.getElementById('intrigues-f-title').value.trim();
-  const steps    = [0, 1, 2, 3, 4]
-    .map(i => document.getElementById(`intrigues-f-step-${i}`).value.trim())
-    .filter(v => v)
-    .map(objective => ({ objective }));
-
-  if (!ownerId) { statusEl.textContent = 'Propriétaire requis.'; return; }
-  if (!title)   { statusEl.textContent = 'Titre requis.'; return; }
-  if (steps.length < 2 || steps.length > 5) { statusEl.textContent = 'Entre 2 et 5 étapes requises.'; return; }
-
-  statusEl.textContent = '…';
-  try {
-    const agenda = await api('/api/agendas', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ owner_entity_id: ownerId, title, steps }),
-    });
-    // TICKET-0059 (BRIEF-0059-j commit 1): the direct list-fetch await this
-    // used to make is gone (its legacy target is retired) -- the
-    // entity-list island's own tick-driven refetch (mount.js's
-    // entityListActivationTick, the same idiom pcCreateSubmit/regionCommit/
-    // room-batch commit already rely on) re-runs Intrigues' own list load
-    // via this dispatch.
-    creationRefreshList();
-    creationSelectRecord('intrigues', agenda);
-  } catch (e) {
-    statusEl.textContent = e.message;
-  }
-}
+ * Fully converged onto frontend/src/creation/Intrigues.svelte +
+ * intrigues.svelte.js (TICKET-0059, BRIEF-0059-j): list, sheet (commit 1)
+ * and create panel + AI draft assistant (commit 2), reached through the
+ * entitySheet island via a tabKey === 'intrigues' gate, the same way
+ * evenements converged in BRIEF-0058-j. All writes still go through
+ * /api/agendas + /api/agenda-steps (writes.py helpers server-side) — the
+ * SAME canon-write paths the tick's proposals use via _apply_mutation. */
 
 /* ── Événements (TICKET-0022, converged onto Svelte by TICKET-0058/
  * BRIEF-0058-j) ──────────────────────────────────────────────────────────
