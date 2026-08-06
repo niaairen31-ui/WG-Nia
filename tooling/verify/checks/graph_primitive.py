@@ -252,6 +252,15 @@ GONE_PLAIN = [
     # commit removes doBatchAction too.
     "renderCard", "_renderResourceChangeLegs", "_renderAgendaProvenanceSummary",
     "doApprove", "doReject", "showResult", "lockCard", "unlockCard", "markCardDone",
+    # TICKET-0059 (BRIEF-0059-k commit 3, final): the Review Queue's batch
+    # bar -- renderBatchBar/getSelectedMutationIds/toggleSelectAll/
+    # updateBatchBar/hideBatchVerdict/showBatchVerdict/doBatchAction --
+    # converged onto frontend/src/creation/QueueBatchBar.svelte/
+    # queue.svelte.js. loadQueue, held back from this list at commits 1-2
+    # because doBatchAction's own call to it kept the plain string
+    # present, is added here too now that doBatchAction is gone.
+    "loadQueue", "renderBatchBar", "getSelectedMutationIds", "toggleSelectAll",
+    "updateBatchBar", "hideBatchVerdict", "showBatchVerdict", "doBatchAction",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from

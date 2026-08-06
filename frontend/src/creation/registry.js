@@ -490,4 +490,22 @@ export const CREATION_ISLANDS = Object.freeze({
       'doApprove', 'doReject', 'showResult', 'lockCard', 'unlockCard', 'markCardDone',
     ],
   }),
+  // BRIEF-0059-k commit 3 (final): the Review Queue's batch bar --
+  // renderBatchBar/getSelectedMutationIds/toggleSelectAll/updateBatchBar/
+  // hideBatchVerdict/showBatchVerdict/doBatchAction -- ported to
+  // QueueBatchBar.svelte/queue.svelte.js. Mounts into
+  // #creation-shell-batch-bar, rendered by QueueFilters.svelte's own
+  // template (not legacy markup, so it stays the last child of
+  // #creation-shell-extra); the verdict banner itself renders in
+  // Queue.svelte, reading the same queueState.batchVerdict this bar
+  // writes.
+  queueBatchBar: Object.freeze({
+    containerId: 'creation-shell-batch-bar',
+    component: 'QueueBatchBar.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      'renderBatchBar', 'getSelectedMutationIds', 'toggleSelectAll', 'updateBatchBar',
+      'hideBatchVerdict', 'showBatchVerdict', 'doBatchAction',
+    ],
+  }),
 });

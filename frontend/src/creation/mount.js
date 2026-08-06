@@ -41,8 +41,9 @@ import Prompts from './Prompts.svelte';
 import PjSkillFiche from './PjSkillFiche.svelte';
 import QueueFilters from './QueueFilters.svelte';
 import Queue from './Queue.svelte';
+import QueueBatchBar from './QueueBatchBar.svelte';
 
-const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet, region: Region, batch: RoomBatch, npcAgent: NpcAgent, linkAgent: LinkAgent, artefacts: Artefacts, competences: Competences, registre: Registre, prompts: Prompts, pjSkillFiche: PjSkillFiche, queueFilters: QueueFilters, queue: Queue };
+const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet, region: Region, batch: RoomBatch, npcAgent: NpcAgent, linkAgent: LinkAgent, artefacts: Artefacts, competences: Competences, registre: Registre, prompts: Prompts, pjSkillFiche: PjSkillFiche, queueFilters: QueueFilters, queue: Queue, queueBatchBar: QueueBatchBar };
 
 const live = {}; // key -> { node, instance }
 

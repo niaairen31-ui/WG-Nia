@@ -160,11 +160,3 @@
   </select>
   <span class="analyze-status" id="tick-status" style="color:{tickStatusColor}">{tickStatus}</span>
 </div>
-<!-- BRIEF-0005-c: the batch bar's own mount point, rendered by this
-     component (not legacy markup) so it stays the LAST child of
-     #creation-shell-extra -- Svelte's mount() only ever appends, so a
-     pre-existing static sibling here would land ABOVE the filter bar /
-     tick controls instead of below them. Filled by Queue.svelte
-     (commit 2, still an imperative innerHTML write) then by
-     QueueBatchBar.svelte (commit 3) once it exists as its own island. -->
-<div id="creation-shell-batch-bar"></div>

@@ -1238,19 +1238,20 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   <!-- ── Standard shell band (BRIEF-0005-c) — one header band above every
        Création page: the entry's label (title) plus, iff it declares a
        primaryAction, exactly one button in this same fixed position on all
-       ten tabs. #creation-shell-extra is Review Queue's filter bar +
-       tick-controls + batch-bar mount point — a one-off relocation, not a
-       generic shell concept (hidden on every other tab via the ordinary
-       slot mechanism). Empty by construction (TICKET-0059, BRIEF-0059-k
-       commit 1) — Svelte mount() appends, it never clears a target's
-       pre-existing children, so a static placeholder here would sit
-       beside the island's own DOM forever; QueueFilters.svelte renders
-       the filter bar, the world-tick controls AND the batch bar's own
-       #creation-shell-batch-bar mount point (in that order, so a later
-       append never lands above earlier content). -->
+       ten tabs. #creation-shell-extra (filter bar + tick-controls) and
+       #creation-shell-batch-bar are Review Queue's mount points — a
+       one-off relocation, not a generic shell concept (hidden on every
+       other tab via the ordinary slot mechanism; both are declared slots
+       on CREATION_TABS.queue so the generic show/hide loop covers them —
+       creation_island.py rule 4 requires every island containerId to be a
+       real static element id here, so neither can be nested inside the
+       other's own island-rendered DOM). Both empty by construction
+       (TICKET-0059, BRIEF-0059-k) — Svelte mount() appends, it never
+       clears a target's pre-existing children. -->
   <div class="panel-head" id="creation-shell-band">
     <h2 id="creation-shell-title"></h2>
     <div id="creation-shell-extra" style="display:none"></div><!-- #creation-shell-extra -->
+    <div id="creation-shell-batch-bar" style="display:none"></div><!-- #creation-shell-batch-bar -->
     <!-- On-demand slot toggles (BRIEF-0023-a, F1) — one button per slot the
          active entry declares display:'on_demand'; same fixed shell
          position on every tab, mirroring primaryAction. -->
@@ -2537,111 +2538,6 @@ async function analyzeConv(force) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   Review queue
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/** Toolbar shown above the "proposed" queue: select all/none + batch actions.
- *  TICKET-0059 (BRIEF-0059-k commit 2): the queue-body render step that used
- *  to invoke this is gone -- this function (and the rest of the batch
- *  cluster below it) is dead code until commit 3 replaces it with
- *  QueueBatchBar.svelte. */
-function renderBatchBar() {
-  return `
-<div class="batch-bar" id="batch-bar">
-  <label>
-    <input type="checkbox" id="batch-select-all-cb" onchange="toggleSelectAll(this)">
-    Select all / none
-  </label>
-  <span class="batch-count" id="batch-count">0 selected</span>
-  <div class="batch-actions">
-    <button class="btn-approve" id="batch-approve-btn" onclick="doBatchAction('approve')" disabled>✓ Approve selected</button>
-    <button class="btn-reject" id="batch-reject-btn" onclick="doBatchAction('reject')" disabled>✗ Reject selected</button>
-  </div>
-</div>`;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   Batch review
-   ════════════════════════════════════════════════════════════════════════════ */
-
-function getSelectedMutationIds() {
-  return Array.from(document.querySelectorAll('.row-select:checked'))
-    .map(cb => cb.dataset.id);
-}
-
-/** "Select all / none" toggle — acts on the currently displayed proposed rows. */
-function toggleSelectAll(masterCb) {
-  document.querySelectorAll('.row-select').forEach(cb => {
-    cb.checked = masterCb.checked;
-  });
-  updateBatchBar();
-}
-
-/** Sync the batch button states + counter + master checkbox with the current selection. */
-function updateBatchBar() {
-  const checkboxes = document.querySelectorAll('.row-select');
-  const checked    = document.querySelectorAll('.row-select:checked');
-  const count      = checked.length;
-
-  const countEl = document.getElementById('batch-count');
-  if (countEl) countEl.textContent = count + ' selected';
-
-  const apEl = document.getElementById('batch-approve-btn');
-  const rjEl = document.getElementById('batch-reject-btn');
-  if (apEl) apEl.disabled = (count === 0);
-  if (rjEl) rjEl.disabled = (count === 0);
-
-  const masterCb = document.getElementById('batch-select-all-cb');
-  if (masterCb) {
-    masterCb.checked = checkboxes.length > 0 && count === checkboxes.length;
-    masterCb.indeterminate = count > 0 && count < checkboxes.length;
-  }
-}
-
-function hideBatchVerdict() {
-  const el = document.getElementById('batch-verdict');
-  if (el) { el.style.display = 'none'; el.className = 'batch-verdict'; el.textContent = ''; }
-}
-
-function showBatchVerdict(cls, msg) {
-  const el = document.getElementById('batch-verdict');
-  if (!el) return;
-  el.className = 'batch-verdict' + (cls ? ' r-' + cls : '');
-  el.textContent = msg;
-  el.style.display = '';
-}
-
-/** Approve / reject the selected proposed mutations as one batch. */
-async function doBatchAction(action) {
-  const ids = getSelectedMutationIds();
-  if (!ids.length) return;
-
-  const apEl = document.getElementById('batch-approve-btn');
-  const rjEl = document.getElementById('batch-reject-btn');
-  if (apEl) apEl.disabled = true;
-  if (rjEl) rjEl.disabled = true;
-  showBatchVerdict('', '⟳ Processing batch…');
-
-  try {
-    const data = await api('/api/mutations/batch-review', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, mutation_ids: ids }),
-    });
-
-    const msg = (action === 'approve')
-      ? `${data.applied} applied, ${data.needs_attention} needs attention, ${data.skipped} skipped`
-      : `${data.rejected} rejected, ${data.skipped} skipped`;
-    showBatchVerdict('ok', '✓ ' + msg);
-  } catch (e) {
-    showBatchVerdict('err', '✗ ' + e.message);
-  } finally {
-    // Refresh so row statuses (and the proposed list) are current.
-    await loadQueue();
-  }
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
    Author CRUD (Master tool) — direct canonical writes, creator-mode-only
    ════════════════════════════════════════════════════════════════════════════ */
 
@@ -3852,15 +3748,19 @@ const CREATION_TABS = {
     loader: null,
     state: { onTabEnter: null, onWorldSwitch: null },
     primaryAction: null, // append-only by design — rows never created here
-    // TICKET-0059 (BRIEF-0059-k commit 1): the 'filters' slot's own loader
-    // is gone -- QueueFilters.svelte resets itself off serverState.worldId
-    // (the -d rule every migrated island follows) instead. The slot
-    // descriptor survives (containerId drives this container's own
-    // show/hide, unrelated to the island mechanism) with loader: null.
-    slots: [{ id: 'filters', containerId: 'creation-shell-extra', loader: null, onSelect: null }],
+    // TICKET-0059 (BRIEF-0059-k): both slot loaders are gone -- their
+    // islands reset themselves off serverState.worldId (the -d rule every
+    // migrated island follows) instead. Both descriptors survive
+    // (containerId drives each container's own show/hide via the generic
+    // slot mechanism, unrelated to the island mechanism) with loader: null.
+    slots: [
+      { id: 'filters', containerId: 'creation-shell-extra', loader: null, onSelect: null },
+      { id: 'batchBar', containerId: 'creation-shell-batch-bar', loader: null, onSelect: null },
+    ],
     islands: [
       { key: 'queueFilters', containerId: 'creation-shell-extra' },
       { key: 'queue', containerId: 'creation-queue' },
+      { key: 'queueBatchBar', containerId: 'creation-shell-batch-bar' },
     ],
   },
   prompts: {

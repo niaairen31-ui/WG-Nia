@@ -1,4 +1,4 @@
-/* TICKET-0059 (BRIEF-0059-k, commits 1-2). Module-level rune store shared by
+/* TICKET-0059 (BRIEF-0059-k, commits 1-3). Module-level rune store shared by
    the Review Queue's three separate mount points -- QueueFilters.svelte
    (#creation-shell-extra: filter bar + world-tick controls, commit 1),
    Queue.svelte (#creation-queue: card list + batch verdict, commit 2) and
@@ -10,8 +10,8 @@
 
    Faithful port of setFilter/setFilterByName/_loadMutationEntityNames/
    _mutationEntityName/_loadMutationAgendaNames/_mutationAgendaName
-   (index.html, now deleted). loadQueue/renderCard and the batch cluster
-   land here in commits 2 and 3.
+   (commit 1), loadQueue/approveMutation/rejectMutation (commit 2), and
+   toggleSelectAll/doBatchAction (commit 3) -- all index.html, now deleted.
 
    Cross-surface note (found during execution, not named in RECON-0059-a
    M5 or this brief -- the second such gap after observationOpenPrompt):
@@ -47,6 +47,7 @@ export const queueState = $state({
   loading: true,
   loadError: '',
   selectedIds: new Set(),
+  batchVerdict: null, // {cls, msg} | null
 });
 
 async function api(path, options) {
@@ -64,6 +65,7 @@ export function shortId(id) { return id ? id.slice(0, 8) + '…' : ''; }
  *  setFilter/setFilterByName + loadQueue() pairing. */
 export function setFilter(status) {
   queueState.currentFilter = status;
+  queueState.batchVerdict = null;
   queueState.reloadToken += 1;
 }
 
@@ -184,4 +186,46 @@ export async function rejectMutation(id, creatorNotes) {
   });
   markMutationDone(id, 'rejected');
   return { cls: 'ok', msg: '✓ Rejected. World state unchanged.' };
+}
+
+/* TICKET-0059 (BRIEF-0059-k commit 3). Faithful port of toggleSelectAll's
+   intent (index.html, now deleted) -- "select all" acts on the currently
+   displayed proposed rows only, matching the original's own
+   `.row-select` (never a reviewed row's checkbox, since those don't
+   exist). QueueBatchBar.svelte derives selectableIds from
+   queueState.mutations and passes it in, rather than this module deriving
+   it itself -- the mutation list's shape (which rows are selectable) is
+   the batch bar's own $derived read, not a second copy of that logic here. */
+export function toggleSelectAll(checked, selectableIds) {
+  queueState.selectedIds = checked ? new Set(selectableIds) : new Set();
+}
+
+/** Approve / reject the selected proposed mutations as one batch --
+ *  faithful port of doBatchAction (index.html, now deleted). The verdict
+ *  banner is shared state (queueState.batchVerdict) because it renders in
+ *  Queue.svelte's #creation-queue while the buttons that trigger it live
+ *  in QueueBatchBar.svelte's #creation-shell-batch-bar -- the same
+ *  cross-container reasoning this module's header describes for
+ *  currentFilter. */
+export async function doBatchAction(action) {
+  const ids = Array.from(queueState.selectedIds);
+  if (!ids.length) return;
+
+  queueState.batchVerdict = { cls: '', msg: '⟳ Processing batch…' };
+  try {
+    const data = await api('/api/mutations/batch-review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, mutation_ids: ids }),
+    });
+    const msg = (action === 'approve')
+      ? `${data.applied} applied, ${data.needs_attention} needs attention, ${data.skipped} skipped`
+      : `${data.rejected} rejected, ${data.skipped} skipped`;
+    queueState.batchVerdict = { cls: 'ok', msg: '✓ ' + msg };
+  } catch (e) {
+    queueState.batchVerdict = { cls: 'err', msg: '✗ ' + e.message };
+  } finally {
+    // Refresh so row statuses (and the proposed list) are current.
+    await loadQueue();
+  }
 }
