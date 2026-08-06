@@ -2,7 +2,7 @@
 id: TICKET-0063
 title: Cockpit stylesheet partition — one shared sheet, two documents
 type: feature
-status: exec
+status: live-gate
 created: 2026-08-06
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
