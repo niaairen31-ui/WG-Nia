@@ -39,6 +39,13 @@ SRC = ROOT / "src"
 INDEX_HTML = SRC / "world_engine" / "cockpit" / "index.html"
 ROUTES_FILE = SRC / "world_engine" / "cockpit" / "routes" / "observation.py"
 PAGE_CONTRACT = ROOT / "tooling" / "verify" / "checks" / "page_contract.py"
+# TICKET-0063 (BRIEF-0063-a) moved the Badges section -- .b-silence and
+# .b-degraded included -- out of index.html's inline <style> into
+# shared.css (both Observation's own markup and Creation islands consume
+# it; stylesheet_partition.py rule2 guarantees it lives in exactly one of
+# the three destinations). Rule 3 below scans this file too so the check
+# keeps finding the CSS wherever the partition currently puts it.
+SHARED_CSS = ROOT / "frontend" / "public" / "shared.css"
 
 FAILURES: list[str] = []
 _outcome_literals_found: set[str] = set()
@@ -131,8 +138,11 @@ def check_rule3_outcome_distinction(html: str) -> None:
     if "b-${esc(b.outcome)}" not in body and "b-${esc(" not in body:
         fail("Rule 3: _obsRenderTranscript does not derive its badge class from beat.outcome")
 
-    silence_css = _braced_block(html, r"\.b-silence\s*")
-    degraded_css = _braced_block(html, r"\.b-degraded\s*")
+    css_text = html
+    if SHARED_CSS.is_file():
+        css_text += "\n" + SHARED_CSS.read_text(encoding="utf-8")
+    silence_css = _braced_block(css_text, r"\.b-silence\s*")
+    degraded_css = _braced_block(css_text, r"\.b-degraded\s*")
     if not silence_css or not degraded_css:
         fail("Rule 3: .b-silence or .b-degraded CSS class not found")
     elif silence_css == degraded_css:
