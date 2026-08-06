@@ -25,20 +25,30 @@
      same whether the div was created by an innerHTML write or by Svelte --
      both are real nodes in the same legacy document.
 
-     One tab (`intrigues`) and one mode (`pj`'s create panel) never used
-     authorRenderSheet at all -- they have their own bespoke, hand-rolled
-     sheetRenderer/createPanel (renderAgendaSheet, pjRenderCreatePanel) and
-     stay unmigrated legacy code that still needs somewhere safe to render
-     inside this island's own mount root without tearing Svelte's DOM out
-     from under it (RECON-0058-a M5). The answer is the SAME "stable leaf,
-     legacy free to mutate its innerHTML" idiom the sub-editor placeholders
-     already rely on, just sized to the whole container:
-     #author-legacy-sheet-slot is an UNCONDITIONALLY rendered sibling of
-     #author-core-sheet (never created/destroyed by an {#if}, only
-     display:toggled), so a legacy renderer that targets it right after a
-     synchronous 'creation:sheet-legacy-active' dispatch always finds it
-     there -- no dependency on Svelte's own update timing (flushSync makes
-     the toggle itself synchronous too, belt and braces).
+     One mode (`pj`'s create panel) never used authorRenderSheet at all --
+     it has its own bespoke, hand-rolled createPanel (pjRenderCreatePanel)
+     and stays unmigrated legacy code that still needs somewhere safe to
+     render inside this island's own mount root without tearing Svelte's
+     DOM out from under it (RECON-0058-a M5). The answer is the SAME
+     "stable leaf, legacy free to mutate its innerHTML" idiom the
+     sub-editor placeholders already rely on, just sized to the whole
+     container: #author-legacy-sheet-slot is an UNCONDITIONALLY rendered
+     sibling of #author-core-sheet (never created/destroyed by an {#if},
+     only display:toggled), so a legacy renderer that targets it right
+     after a synchronous 'creation:sheet-legacy-active' dispatch always
+     finds it there -- no dependency on Svelte's own update timing
+     (flushSync makes the toggle itself synchronous too, belt and braces).
+
+     `intrigues` used to have its own bespoke, hand-rolled sheetRenderer
+     (renderAgendaSheet) the same shape as pj's createPanel above; it
+     converged onto real Svelte state (TICKET-0059, BRIEF-0059-j commit 1),
+     the same way evenements did -- <Intrigues> renders via a
+     tabKey === 'intrigues' gate (`agenda` carries no ENTITY_TYPE_REGISTRY
+     row either), and its mutations (status/step/link) write
+     creationState.sheetDetail directly from intrigues.svelte.js rather
+     than round-tripping through this component. Its createPanel
+     (intriguesRenderCreatePanel) stays legacy until this brief's next
+     commit.
 
      `evenements` converged onto real Svelte state (TICKET-0058, BRIEF-0058-j,
      per RECON-SUPPLEMENT-0058's -j re-scope): it is not an entity-archetype
@@ -78,6 +88,7 @@
   import GeneratePanel from './GeneratePanel.svelte';
   import { resetEventDraft, eventDraftState } from './eventDraft.svelte.js';
   import Evenements from './Evenements.svelte';
+  import Intrigues from './Intrigues.svelte';
   import RelationsEditor from './RelationsEditor.svelte';
   import KnowledgeEditor from './KnowledgeEditor.svelte';
   import GoalsEditor from './GoalsEditor.svelte';
@@ -305,6 +316,18 @@
       if (titleEl) titleEl.textContent = isNewSheet ? 'Nouvel événement' : (creationState.sheetDetail.title || '');
       if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = ''; }
       if (saveBtn) saveBtn.style.display = isNewSheet ? 'none' : '';
+      return;
+    }
+    // intrigues (BRIEF-0059-j commit 1): `agenda` carries no
+    // ENTITY_TYPE_REGISTRY row either -- title comes straight off the
+    // record. No save button ever: the API surface is frozen to status
+    // transitions and link detach (unchanged from the legacy
+    // renderAgendaSheet's own doc comment); create mode isn't reachable
+    // through this island yet (createPanel stays legacy until commit 2).
+    if (creationState.activeTabKey === 'intrigues') {
+      if (titleEl) titleEl.textContent = isNewSheet ? '' : (creationState.sheetDetail.title || '');
+      if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = ''; }
+      if (saveBtn) saveBtn.style.display = 'none';
       return;
     }
     if (!registry) return;
@@ -569,6 +592,8 @@
     {:else if tabKey === 'evenements'}
       <Evenements {legacyDoc} {isNew} event={detail} entities={creationState.entities}
         eventFields={registry.event_fields} onSave={saveSheet} />
+    {:else if tabKey === 'intrigues'}
+      <Intrigues agenda={detail} />
     {:else}
       {#if !isNew}
         <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">

@@ -227,6 +227,22 @@ export const CREATION_ISLANDS = Object.freeze({
       // deleteSheetEntity/sheetState.svelte.js's deleteEntity; the delete
       // button moved out of the static legacy header into the component.
       'authorDelete',
+      // BRIEF-0059-j commit 1: intrigues' list fetch and bespoke sheet --
+      // converged onto Intrigues.svelte/intrigues.svelte.js, reached
+      // through this same #author-main island (a tabKey === 'intrigues'
+      // gate, mirroring evenements' own convergence exactly). loadAgendasList
+      // (the list fetch) is grouped here rather than under entityList, the
+      // same placement loadEventsList already took. _intriguesPopulateOwnerSelect
+      // stays off this list for now -- intriguesRenderCreatePanel (commit 2)
+      // is still its only caller; both move together next commit.
+      'loadAgendasList',
+      'renderAgendaSheet',
+      '_intriguesRenderStep',
+      '_intriguesRenderLinkedGoal',
+      '_intriguesRefreshSelection',
+      'intriguesSetAgendaStatus',
+      'intriguesDetachLink',
+      'intriguesStepStatus',
     ],
   }),
   // BRIEF-0058-i (per RECON-SUPPLEMENT-0058's re-scope): region generation

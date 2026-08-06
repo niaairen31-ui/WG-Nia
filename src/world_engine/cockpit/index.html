@@ -4133,7 +4133,7 @@ function _npcTabEnterReset() {
 // _evenementsWorldReset are gone — all seven entity tabs now declare
 // 'islands' for #author-entity-list (creation_island.py rule 9 forces
 // state.onWorldSwitch: null on each). Their entity-list-owning state
-// (authorAllEntities/playerCharIds/lieux browse position/intriguesAgendas/
+// (authorAllEntities/playerCharIds/lieux browse position/agendas/
 // evenementsEvents) moved into frontend/src/creation/state.svelte.js and
 // the EntityList island's own component-local state, reset on
 // serverState.worldId change rather than a legacy callback. The DOM work
@@ -4321,8 +4321,12 @@ const CREATION_TABS = {
     loader: null,
     state: { onTabEnter: _intriguesTabEnterReset, onWorldSwitch: null },
     islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
-    listLoader: loadAgendasList,
-    sheetRenderer: renderAgendaSheet,
+    // TICKET-0059 (BRIEF-0059-j commit 1): list + sheet converged onto
+    // Intrigues.svelte/intrigues.svelte.js, the same way evenements'
+    // listLoader/sheetRenderer went null in BRIEF-0058-j. createPanel
+    // stays legacy (rule 11 pairing) until this brief's next commit.
+    listLoader: null,
+    sheetRenderer: null,
     createPanel: intriguesRenderCreatePanel,
     primaryAction: { label: '+ Nouvelle intrigue', handler: creationNewEntity },
   },
@@ -4525,14 +4529,23 @@ async function _creationRunWorldSwitchResets() {
 
 /* ── Intrigues (TICKET-0018/BRIEF-0018-a; entity-sheet shell TICKET-0021/
  * BRIEF-0021-a) ─────────────────────────────────────────────────────────────
- * Agendas are not `entity` rows, so this tab rides the entity archetype's
- * shared list+detail shell via the sheetRenderer seam rather than the
- * `_TYPE_FIELDS` path. All writes still go through /api/agendas +
+ * List + sheet (fetch, detail rendering, status/step/link mutations)
+ * converged onto frontend/src/creation/Intrigues.svelte + intrigues.svelte.js
+ * (TICKET-0059, BRIEF-0059-j commit 1), reached through the entitySheet
+ * island via a tabKey === 'intrigues' gate, the same way evenements
+ * converged in BRIEF-0058-j. Only the create panel below remains legacy
+ * (createPanel stays paired with a legacy primaryAction per rule 11, until
+ * this brief's next commit); it still writes through /api/agendas +
  * /api/agenda-steps (writes.py helpers server-side) — the SAME canon-write
  * paths the tick's proposals use via _apply_mutation. */
 
-let intriguesAgendas = [];  // cached /api/agendas response, list-pane + lookup source
-
+// TICKET-0059 (BRIEF-0059-j commit 1): _intriguesPopulateOwnerSelect stays
+// legacy for one more commit -- its only caller, intriguesRenderCreatePanel
+// below, is still legacy too (rule 11 keeps createPanel and primaryAction
+// on the same side); porting the callee alone here would leave the
+// still-live create panel calling a deleted global. Both move together in
+// this brief's next commit. intrigues.svelte.js's populateOwnerOptions is
+// the ported target the next commit's create panel will call instead.
 async function _intriguesPopulateOwnerSelect() {
   const sel = document.getElementById('intrigues-f-owner');
   if (!sel) return;
@@ -4551,156 +4564,6 @@ async function _intriguesPopulateOwnerSelect() {
   } catch (_) { /* left with just the placeholder option */ }
 }
 
-/** intrigues' listLoader (BRIEF-0021-a item 4; DOM rendering moved to
- *  frontend/src/creation/EntityList.svelte by TICKET-0058/BRIEF-0058-e) —
- *  fetches the unchanged /api/agendas endpoint, caches rows for other
- *  still-legacy readers (_intriguesRefreshSelection), and pushes them to
- *  the mounted island via 'creation:list-data'. */
-async function loadAgendasList() {
-  try {
-    intriguesAgendas = await api('/api/agendas');
-  } catch (e) {
-    console.error('loadAgendasList:', e.message);
-    return;
-  }
-  document.dispatchEvent(new CustomEvent('creation:list-data', { detail: { key: 'agendas', rows: intriguesAgendas } }));
-}
-
-function _intriguesRenderStep(s) {
-  const traceHtml   = s.visibility_trace ? `<div style="font-size:11px; color:var(--muted);">trace : ${esc(s.visibility_trace)}</div>` : '';
-  const outcomeHtml = s.outcome ? `<div style="font-size:11px; color:var(--muted);">résultat : ${esc(s.outcome)}</div>` : '';
-  let actions = '';
-  if (s.status === 'active') {
-    actions = `
-      <button class="btn-icon" title="Terminer l'étape" onclick="intriguesStepStatus('${s.id}','completed')">✓</button>
-      <button class="btn-icon" title="Échouer l'étape" onclick="intriguesStepStatus('${s.id}','failed')">✗</button>`;
-  } else if (s.status === 'pending') {
-    actions = `<button class="btn-icon" title="Activer l'étape" onclick="intriguesStepStatus('${s.id}','active')">▶</button>`;
-  }
-  return `
-    <div class="row-card" style="flex-direction:row; align-items:flex-start; justify-content:space-between; gap:6px; margin:4px 0;">
-      <div style="flex:1; min-width:160px;">
-        <span style="font-size:12px; color:var(--muted);">#${s.step_order}</span>
-        <span>${esc(s.objective)}</span>
-        ${traceHtml}${outcomeHtml}
-      </div>
-      <span class="badge b-${esc(s.status)}">${esc(s.status)}</span>
-      <div>${actions}</div>
-    </div>`;
-}
-
-function _intriguesRenderLinkedGoal(l) {
-  return `
-    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between; gap:6px; margin:4px 0;">
-      <span style="flex:1; min-width:160px;">
-        ${esc(l.goal_description)}
-        <span style="font-size:11px; color:var(--muted);"> — ${esc(l.npc_name)}</span>
-        <span class="badge ${l.goal_status !== 'active' ? 'b-rejected' : 'b-equipped'}">${esc(l.goal_status)}</span>
-      </span>
-      <button class="btn-icon" title="Détacher (réversible — le lien peut être rattaché plus tard)" onclick="intriguesDetachLink('${esc(l.link_id)}')">✕</button>
-    </div>`;
-}
-
-/** intrigues' sheetRenderer (BRIEF-0021-a item 6) — detail pane carrying
- *  today's full capability set: header (title, owner, status + actions),
- *  steps, linked goals. No save/delete — the API surface is frozen to
- *  status transitions and link detach. */
-function renderAgendaSheet(agenda) {
-  creationSelectedRecordId = agenda.id;
-
-  document.getElementById('author-sheet-title').textContent = agenda.title;
-  document.getElementById('author-status').textContent = '';
-  document.getElementById('author-save-btn').style.display = 'none';
-  // TICKET-0059 (BRIEF-0059-e): #author-delete-btn no longer exists in the
-  // legacy document -- it moved into Sheet.svelte's own template, which
-  // this legacy renderer never touches (mode 'legacy' skips it entirely).
-
-  const ownerBadge = agenda.owner_type === 'character'
-    ? `<span class="badge b-other" title="Intrigue personnelle">personnelle</span>`
-    : `<span class="badge b-other" title="Intrigue de faction">faction</span>`;
-  const linkedGoals = agenda.linked_goals || [];
-
-  let html = `
-    <div class="field-section">
-      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
-        <div><strong>${esc(agenda.title)}</strong> ${ownerBadge} <span style="color:var(--muted); font-size:12px;">(${esc(agenda.owner_name)})</span></div>
-        <div style="display:flex; gap:6px; align-items:center;">
-          <span class="badge b-${esc(agenda.status)}">${esc(agenda.status)}</span>
-          ${agenda.status === 'active' ? `<button class="btn-icon" title="Abandonner l'intrigue" onclick="intriguesSetAgendaStatus('${agenda.id}','abandoned',${linkedGoals.length})">⏸</button>` : ''}
-          ${(agenda.status === 'abandoned' || agenda.status === 'failed') ? `<button class="btn-icon" title="Réactiver l'intrigue" onclick="intriguesSetAgendaStatus('${agenda.id}','active',0)">▶</button>` : ''}
-        </div>
-      </div>
-    </div>
-    <div class="field-section">
-      <div class="field-section-title">Étapes</div>
-      ${agenda.steps.map(s => _intriguesRenderStep(s)).join('')}
-    </div>`;
-  if (linkedGoals.length > 0) {
-    html += `
-    <div class="field-section">
-      <div class="field-section-title">Objectifs liés (${linkedGoals.length})</div>
-      ${linkedGoals.map(l => _intriguesRenderLinkedGoal(l)).join('')}
-    </div>`;
-  }
-  // TICKET-0058 (BRIEF-0058-f): see pjRenderCreatePanel's identical note --
-  // creationSelectRecord dispatches 'creation:sheet-legacy-active' before
-  // calling this (entry.sheetRenderer).
-  document.getElementById('author-legacy-sheet-slot').innerHTML = html;
-}
-
-/** Re-fetches the agenda list then re-renders the sheet for the same agenda
- *  id with fresh data, keeping selection — the common tail of every status/
- *  step/link mutation below. */
-async function _intriguesRefreshSelection(agendaId) {
-  await loadAgendasList();
-  const agenda = intriguesAgendas.find(a => a.id === agendaId);
-  if (agenda) creationSelectRecord('intrigues', agenda);
-}
-
-async function intriguesSetAgendaStatus(agendaId, status, linkedGoalCount) {
-  if (status !== 'active' && linkedGoalCount > 0) {
-    const ok = confirm(
-      `Cette intrigue a ${linkedGoalCount} objectif(s) lié(s). La fermer transitionnera ` +
-      `(complété/abandonné) chaque objectif dont c'est le DERNIER lien actif — un objectif ` +
-      `qui sert aussi une autre intrigue encore active survit. Continuer ?`
-    );
-    if (!ok) return;
-  }
-  try {
-    await api(`/api/agendas/${agendaId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    });
-    await _intriguesRefreshSelection(agendaId);
-  } catch (e) {
-    alert(e.message);
-  }
-}
-
-async function intriguesDetachLink(linkId) {
-  if (!confirm("Détacher ce lien ? Réversible : vous pourrez le rattacher plus tard.")) return;
-  try {
-    await api(`/api/goal-agenda-links/${encodeURIComponent(linkId)}/detach`, { method: 'POST' });
-    await _intriguesRefreshSelection(creationSelectedRecordId);
-  } catch (e) {
-    alert(e.message);
-  }
-}
-
-async function intriguesStepStatus(stepId, status) {
-  try {
-    await api(`/api/agenda-steps/${stepId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    });
-    await _intriguesRefreshSelection(creationSelectedRecordId);
-  } catch (e) {
-    alert(e.message);
-  }
-}
-
 /** intrigues' createPanel (BRIEF-0021-a item 7) — the PJ/NPC create-form
  *  idiom: rendered into the shared detail pane. #agenda-gen-panel ships
  *  empty here; BRIEF-0021-b fills it. Element ids are kept identical to the
@@ -4710,8 +4573,8 @@ function intriguesRenderCreatePanel() {
   document.getElementById('author-sheet-title').textContent = 'Nouvelle intrigue';
   document.getElementById('author-status').textContent = '';
   document.getElementById('author-save-btn').style.display = 'none';
-  // TICKET-0059 (BRIEF-0059-e): see renderAgendaSheet's identical note --
-  // #author-delete-btn no longer exists in the legacy document.
+  // TICKET-0059 (BRIEF-0059-e): #author-delete-btn no longer exists in the
+  // legacy document -- it moved into Sheet.svelte's own template.
 
   // TICKET-0058 (BRIEF-0058-f): see pjRenderCreatePanel's identical note --
   // creationNewEntity dispatches 'creation:sheet-legacy-active' before
@@ -4821,7 +4684,13 @@ async function intriguesSubmitCreate() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ owner_entity_id: ownerId, title, steps }),
     });
-    await loadAgendasList();
+    // TICKET-0059 (BRIEF-0059-j commit 1): the direct list-fetch await this
+    // used to make is gone (its legacy target is retired) -- the
+    // entity-list island's own tick-driven refetch (mount.js's
+    // entityListActivationTick, the same idiom pcCreateSubmit/regionCommit/
+    // room-batch commit already rely on) re-runs Intrigues' own list load
+    // via this dispatch.
+    creationRefreshList();
     creationSelectRecord('intrigues', agenda);
   } catch (e) {
     statusEl.textContent = e.message;
@@ -5293,12 +5162,14 @@ function creationRenderReturnControl() {
  *  counterpart of sheetState.svelte.js's selectEntity (TICKET-0059,
  *  BRIEF-0059-e) for non-entity list+detail tabs whose rows already carry
  *  full data — no per-row fetch. A registered caller either declares a
- *  bespoke sheetRenderer (intrigues — stays legacy) or doesn't (evenements,
- *  since BRIEF-0058-j), in which case this dispatches 'creation:record-detail'
- *  for Sheet.svelte to render natively — the same if/else shape a bespoke
- *  sheetRenderer takes there. Either way, the tab's list re-renders so the
- *  clicked row shows selected (creationSelectedRecordId is
- *  creationSelectedEntityId's equivalent for these tabs). */
+ *  bespoke sheetRenderer (none currently do — intrigues converged onto
+ *  Sheet.svelte too, BRIEF-0059-j commit 1) or doesn't (evenements, since
+ *  BRIEF-0058-j; intrigues, since this same commit), in which case this
+ *  dispatches 'creation:record-detail' for Sheet.svelte to render natively
+ *  — the generic seam a future bespoke sheetRenderer would still take.
+ *  Either way, the tab's list re-renders so the clicked row shows selected
+ *  (creationSelectedRecordId is creationSelectedEntityId's equivalent for
+ *  these tabs). */
 function creationSelectRecord(tabId, record) {
   const entry = CREATION_TABS[tabId];
   if (!entry) return;
@@ -5474,8 +5345,8 @@ function pjRenderCreatePanel() {
   const titleEl = document.getElementById('author-sheet-title');
   if (titleEl) titleEl.textContent = 'Créer un personnage joueur';
   document.getElementById('author-save-btn').style.display   = 'none';
-  // TICKET-0059 (BRIEF-0059-e): see renderAgendaSheet's identical note --
-  // #author-delete-btn no longer exists in the legacy document.
+  // TICKET-0059 (BRIEF-0059-e): #author-delete-btn no longer exists in the
+  // legacy document -- it moved into Sheet.svelte's own template.
   document.getElementById('author-status').textContent       = '';
 
   // TICKET-0058 (BRIEF-0058-f): #author-main is the entitySheet island's
