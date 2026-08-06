@@ -11354,6 +11354,86 @@ staleness, not data loss, and fixing it means touching `Sheet.svelte`
 and/or the geometry endpoint's response shape, both out of this brief's
 scope.
 
+## COCKPIT STYLESHEET PARTITION — one shared sheet, two documents (BRIEF-0063-a, no schema change)
+
+Creation's entire visual layer — buttons, cards, badges, the `:root`
+design tokens — lived in one ~1050-line `<style>` block inside
+`cockpit/index.html`, shared by Play/Observation/Creation alike. Once
+Creation mounts outside the legacy iframe (BRIEF-0059-l), nothing in that
+inline block reaches it — a finding escalated during BRIEF-0059-l's own
+reconnaissance (RECON confirmed it: not a fraction lost, all of it,
+tokens included, and no check in the tree would have noticed).
+
+**Three destinations, not two.** `frontend/public/shared.css` — the layer
+both surviving documents (`frontend/index.html`, `cockpit/index.html`)
+need — and `frontend/public/creation.css` — Creation-only, linked by both
+documents while Creation still renders inside the legacy iframe, until
+BRIEF-0059-l deletes the legacy `<link>` and nothing else. What's left
+inline in `cockpit/index.html` is Play plus the legacy document's own
+chrome (header, mode tabs, the `.app-view` wrappers) — never duplicated,
+never needed by `frontend/index.html`, so never extracted. Cascade order
+is made moot by a check, not reasoned about: `stylesheet_partition.py`
+forbids any selector from appearing in more than one of the three
+destinations, so if none does, load order cannot decide a conflict.
+
+**The selector audit corrected the planning hypothesis on two points**
+(`RECON-0063-a-selector-audit.md`), both load-bearing enough to record
+here rather than only in the brief artifact:
+
+- **Header and Mode tabs stay inline, not shared.css.**
+  `frontend/src/Header.svelte` already fully reimplements both with its
+  own scoped `<style>` — independent, hardcoded colors, not even the
+  shared `var(--*)` tokens. No Creation island renders a `<header>` or
+  `.mode-tab` element. `frontend/index.html` has zero dependency on
+  `cockpit/index.html`'s copy, on any timeline — the shell's header is
+  permanently a different implementation. The governing test isn't
+  "is this Creation-flavored," it's "does a Creation island's own
+  generated markup, or something it inherits, reference this rule" —
+  page-chrome selectors that exist solely in `cockpit/index.html`'s own
+  hand-written body fail that test even though they're not Play, either.
+- **Generic modal moved to shared.css, not creation.css.** The world
+  create/delete modal (`Header.svelte`'s "+ Monde" / "🗑 Monde", visible
+  on every surface, not Creation-scoped) renders into the legacy
+  document's `#generic-modal-backdrop` via `worldCreateOpen`/
+  `worldDeleteOpen` — reachable, and required to render correctly, while
+  Play or Observation is the active surface. Leaving `.modal-backdrop` in
+  creation.css would work today (creation.css is linked from both
+  documents "for now") but silently break the day BRIEF-0059-l drops
+  `cockpit/index.html`'s creation.css `<link>` — Play and Observation
+  never stop living in that document. shared.css is linked
+  unconditionally in both documents forever; `Modal.svelte` (the one
+  genuine Creation-island consumer) is unaffected either way.
+
+**Asset shape: unhashed, in `publicDir`.** `static/assets/index-*.css` is
+content-hashed by Vite; a `<link>` in `cockpit/index.html` (a Python-served
+template, not a Vite entry) would break on every rebuild. Both sheets live
+in `frontend/public/`, copied verbatim by Vite's `publicDir` mechanism,
+referenced by absolute path (`/static/shared.css`) so `base: '/static/'`
+never rewrites them.
+
+**rule5 binds the creation.css `<link>`'s lifetime to `LEGACY_MOUNTS`,
+structurally, not by discipline.** `cockpit/index.html` links
+`/static/creation.css` if and only if `frontend/src/legacy/registry.js`'s
+`LEGACY_MOUNTS` still declares `creation`; both directions FAIL. This is
+what makes BRIEF-0059-l's single deleted `<link>` a required edit rather
+than a remembered one — the same shape as `legacy_call.py`'s rule7 tying a
+bridge-reach baseline's survival to the same `LEGACY_MOUNTS` declaration.
+
+**Named deferral: D-0063-scoped-component-styles.** `creation.css`'s rules
+are NOT moved into per-component scoped `<style>` blocks in this ticket —
+this brief runs *before* BRIEF-0059-l, so Creation still renders inside
+the iframe, where a scoped style would be inert the moment it was written
+(Svelte's shell-injected scoped CSS never reaches that document; several
+islands already document this constraint in their own header comments).
+Reactivate after TICKET-0061, when no document outside the shell consumes
+these rules.
+
+**Pre-existing, not introduced here, reported only:** two dead rules in
+Author view (`.author-type-tabs`, `.author-new-row`, zero markup consumers
+anywhere in the tree) moved verbatim rather than deleted (a stylesheet
+extraction is not the place for that cleanup); `.scene-gathering-card`
+reads `var(--surface)`, never declared in the `:root` token block.
+
 ---
 
 *Co-built with Claude, June 2026.*
