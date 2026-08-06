@@ -220,6 +220,11 @@ GONE_PLAIN = [
     "intriguesSetAgendaStatus", "intriguesDetachLink", "intriguesStepStatus",
     "intriguesAgendas", "_intriguesPopulateOwnerSelect",
     "intriguesRenderCreatePanel", "intriguesGenerateDraft", "intriguesSubmitCreate",
+    # TICKET-0059 (BRIEF-0059-j commit 3): pj's create flow, converged onto
+    # frontend/src/creation/PjCreatePanel.svelte. The Fiche slot functions
+    # (skillInit et al.) stay off this list -- commit 4's own target.
+    "pjRenderCreatePanel", "pcCreateLoadLocations", "pcCreateSubmit",
+    "pcRenderDraftKnowledge", "pcGenerateDraft", "pcApplyDraft", "pcDraftKnowledge",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from

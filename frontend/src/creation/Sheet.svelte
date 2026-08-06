@@ -90,6 +90,7 @@
   import { resetEventDraft, eventDraftState } from './eventDraft.svelte.js';
   import Evenements from './Evenements.svelte';
   import Intrigues from './Intrigues.svelte';
+  import PjCreatePanel from './PjCreatePanel.svelte';
   import RelationsEditor from './RelationsEditor.svelte';
   import KnowledgeEditor from './KnowledgeEditor.svelte';
   import GoalsEditor from './GoalsEditor.svelte';
@@ -182,12 +183,14 @@
 
   /** Called by mount.js's _islandPrimaryAction('entitySheet') when the
    *  standard shell action band ("+ Nouveau"/"+ Nouvelle intrigue") is
-   *  clicked for a CORE entity-archetype tab, evenements (BRIEF-0058-j) or
-   *  intrigues (BRIEF-0059-j) -- pj alone never routes here (rule 11
-   *  pairing keeps its primaryAction legacy, paired with its own bespoke
-   *  createPanel). Mirrors creationNewEntity's own draft reset (the plain
-   *  "+ Nouveau" idiom every entity tab shared before this brief), via the
-   *  same legacy helper so the two paths never drift. */
+   *  clicked -- every entity-archetype tab routes here now, including pj
+   *  (BRIEF-0059-j commit 3: pj's createPanel goes null too, rule 11) and
+   *  intrigues (BRIEF-0059-j commit 2). enterCreateMode below still just
+   *  sets sheetType/sheetIsNew generically; pj's own bespoke create markup
+   *  is a template-level gate on tabKey + isNew (PjCreatePanel), not a
+   *  branch in this function. Mirrors creationNewEntity's own draft reset
+   *  (the plain "+ Nouveau" idiom every entity tab shared before this
+   *  brief), via the same legacy helper so the two paths never drift. */
   export function primaryAction() {
     resetCreateDrafts();
     resetDraftRoles();
@@ -242,13 +245,13 @@
     if (ev.detail.mutationId) setPendingCreationMutationId(ev.detail.mutationId);
   });
 
-  // pj's createPanel -- the one survivor, still legacy (rule 11 pairing
-  // keeps it off the island-routed primaryAction) -- dispatches this
-  // immediately before rendering its own markup into
-  // #author-legacy-sheet-slot, so that node exists under "legacy" display
-  // before its innerHTML write. creationNewEntity does this for pj's
-  // create-panel path; nothing else reaches this event any more since
-  // intrigues converged (BRIEF-0059-j).
+  // Every entry's createPanel is null now (pj was the last, BRIEF-0059-j
+  // commit 3) -- creationNewEntity's own guard (`if (!entry.createPanel)
+  // return`) makes its dispatch of this event permanently unreachable, so
+  // this listener is presently dormant. Left in place rather than removed:
+  // creationNewEntity itself is chrome (Scope OUT this ticket), and its
+  // final deletion -- which would make this listener provably dead, not
+  // just unreached -- belongs to the chrome-inversion brief (-l).
   legacyDoc.addEventListener('creation:sheet-legacy-active', () => {
     flushSync(() => { creationState.sheetMode = 'legacy'; });
   });
@@ -329,6 +332,18 @@
     // create mode takes.
     if (creationState.activeTabKey === 'intrigues') {
       if (titleEl) titleEl.textContent = isNewSheet ? 'Nouvelle intrigue' : (creationState.sheetDetail.title || '');
+      if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = ''; }
+      if (saveBtn) saveBtn.style.display = 'none';
+      return;
+    }
+    // pj's create mode (BRIEF-0059-j commit 3): the literal title
+    // pjRenderCreatePanel always used, matching intrigues'/evenements' own
+    // create-mode literals above -- no save button, <PjCreatePanel>'s own
+    // inline "Créer" button is the submit. Viewing an EXISTING pj (isNewSheet
+    // false) falls through to the generic branch below unchanged -- pj has
+    // no bespoke sheetRenderer, only this bespoke createPanel.
+    if (creationState.activeTabKey === 'pj' && isNewSheet) {
+      if (titleEl) titleEl.textContent = 'Créer un personnage joueur';
       if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = ''; }
       if (saveBtn) saveBtn.style.display = 'none';
       return;
@@ -597,6 +612,8 @@
         eventFields={registry.event_fields} onSave={saveSheet} />
     {:else if tabKey === 'intrigues'}
       <Intrigues {isNew} agenda={detail} />
+    {:else if tabKey === 'pj' && isNew}
+      <PjCreatePanel {legacyDoc} />
     {:else}
       {#if !isNew}
         <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">

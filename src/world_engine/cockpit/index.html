@@ -1376,8 +1376,10 @@ button:not(:disabled):hover { filter: brightness(1.15); }
 
       <!-- PJ Fiche — a declared slot on the pj registry entry (BRIEF-0005-b),
            rendered by default on tab activation, outside the create gate.
-           The create form itself lives in #author-main via pjRenderCreatePanel,
-           the same detail region every other entity type's + Nouveau uses. -->
+           The create form itself lives in #author-main via PjCreatePanel.svelte
+           (TICKET-0059, BRIEF-0059-j commit 3), the same detail region every
+           other entity type's + Nouveau uses. This slot's own markup stays
+           legacy until this brief's next commit (skill-fiche port). -->
       <div id="creation-pj-skill" style="display:none">
         <div class="panel-head" style="flex-shrink:0; border-top:2px solid var(--border)">
           <h2 style="font-size:12px">Fiche de compétences</h2>
@@ -4178,10 +4180,10 @@ function _evenementsTabEnterReset() {
  *  generator) is gone, ported alongside what it called. Two names from
  *  that same M4 closure call no migrated function and were never bridged:
  *  `_factionRosterRowHtml`/`npcGoalsBackfillAll` (both retired by their own
- *  briefs -g/-j regardless) and `pcCreateSubmit`, which never called
- *  anything but the boundary-layer creationRefreshList() (confirmed
- *  unchanged here). generatePendingCreation still dispatches
- *  'creation:sheet-create'/'creation:apply-generated-draft'
+ *  briefs -g/-j regardless) and the pj create-submit path (itself retired
+ *  by TICKET-0059, BRIEF-0059-j commit 3), which never called anything but
+ *  the boundary-layer creationRefreshList(). generatePendingCreation still
+ *  dispatches 'creation:sheet-create'/'creation:apply-generated-draft'
  *  (BRIEF-0058-h) — its own germ-realization flow is TICKET-0059
  *  territory, not this ticket's closure. */
 const CREATION_TABS = {
@@ -4217,15 +4219,12 @@ const CREATION_TABS = {
     islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && playerCharIds.has(e.id)),
-    // pj's create flow (pjRenderCreatePanel) is bespoke, not the generic
-    // field engine (BRIEF-0058-f: pcCreateSubmit's own /api/characters/player
-    // endpoint, distinct from the generic /api/entities route) -- it stays
-    // legacy, rendering into #author-legacy-sheet-slot inside the now-
-    // mounted entitySheet island. Per rule 11's pairing, primaryAction and
-    // createPanel stay on the SAME (legacy) side; viewing an EXISTING pj
-    // still uses the ported core engine (pj has no sheetRenderer).
-    createPanel: pjRenderCreatePanel,
-    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
+    // pj's create flow converged onto PjCreatePanel.svelte (TICKET-0059,
+    // BRIEF-0059-j commit 3) -- the bespoke /api/characters/player endpoint
+    // (distinct from the generic /api/entities route) survives the port
+    // unchanged; the legacy panel rendering it does not.
+    createPanel: null,
+    primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
     slots: [{ id: 'fiche', containerId: 'creation-pj-skill', loader: skillInit, onSelect: pjFicheOnSelect }],
   },
   lieux: {
@@ -5082,165 +5081,6 @@ async function skillInit() {
   await skillLoadCharacters();
 }
 
-/* ── Create-PC path (BRIEF-46) ─────────────────────────────────────────────
- * Minimal form: name + starting-location dropdown, scoped to the active
- * world (WORLD_ID, resolved by loadBootstrap()). On submit, POST
- * /api/characters/player then re-call GET /api/bootstrap so the UI picks
- * up the new resolved PC. */
-
-async function pcCreateLoadLocations() {
-  const sel = document.getElementById('pc-create-location');
-  if (!sel) return;
-  const prevValue = sel.value;
-  try {
-    await loadBootstrap(); // re-resolve WORLD_ID — may have changed via the world selector
-    const entities = await api('/api/entities?type=location');
-    const locations = entities.filter(e => e.world_id === WORLD_ID && e.status !== 'inactive');
-    sel.innerHTML = '<option value="">— choisir —</option>' +
-      locations.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('');
-    if (locations.some(l => l.id === prevValue)) sel.value = prevValue;
-  } catch (e) {
-    sel.innerHTML = '<option value="">(erreur de chargement)</option>';
-  }
-}
-
-async function pcCreateSubmit() {
-  const statusEl = document.getElementById('pc-create-status');
-  const nameEl = document.getElementById('pc-create-name');
-  const locEl = document.getElementById('pc-create-location');
-  const name = nameEl.value.trim();
-  const locationId = locEl.value;
-
-  statusEl.className = 'author-status';
-  if (!name) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = 'Le nom est requis.';
-    return;
-  }
-  if (!locationId) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = 'Choisissez un lieu de départ.';
-    return;
-  }
-
-  statusEl.textContent = 'Création…';
-  try {
-    const result = await api('/api/characters/player', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name,
-        current_location_id: locationId,
-        description: document.getElementById('pc-create-description').value.trim() || null,
-        appearance: document.getElementById('pc-create-appearance').value.trim() || null,
-        backstory: document.getElementById('pc-create-backstory').value.trim() || null,
-        knowledge: pcDraftKnowledge,
-      }),
-    });
-    if (!result.ok) {
-      statusEl.className = 'author-status err';
-      statusEl.textContent = result.error || 'Échec de la création.';
-      return;
-    }
-    statusEl.className = 'author-status';
-    statusEl.textContent = 'Personnage créé.';
-    nameEl.value = '';
-    locEl.value = '';
-    document.getElementById('pc-create-description').value = '';
-    document.getElementById('pc-create-appearance').value = '';
-    document.getElementById('pc-create-backstory').value = '';
-    document.getElementById('pc-generate-brief').value = '';
-    document.getElementById('pc-generate-notes').innerHTML = '';
-    pcDraftKnowledge = [];
-    pcRenderDraftKnowledge();
-    await loadBootstrap();
-    await loadPlayerName();
-    skillCharacters = null;
-    await skillLoadCharacters();
-    creationRefreshList(); // TICKET-0058 (BRIEF-0058-e): see regionCommit's identical comment
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = e.message;
-  }
-}
-
-/* ── PC creation assistant (BRIEF-52) ──────────────────────────────────────
- * Concept -> POST /api/characters/player/generate -> pre-fills the SAME
- * pc-create-* prose fields above; accept is still pcCreateSubmit()
- * unchanged. knowledge[] is read-only in the draft (I1) — rendered into
- * #pc-draft-knowledge, edited post-creation on the Fiche. Regenerating
- * simply re-runs this and overwrites the fields/knowledge in place — no
- * separate discard step (mirrors the world-bible generator). */
-
-let pcDraftKnowledge = [];
-
-/** PJ's createPanel (BRIEF-0005-b): renders the create form — unchanged
- *  fields/AI-draft control/submit path — into #author-main, the SAME detail
- *  region every other entity type's + Nouveau uses. Replaces the former
- *  #pj-create-block collapsed panel; a fresh click always starts blank,
- *  matching every other entity type's new-entity form. */
-function pjRenderCreatePanel() {
-  creationSelectedEntityId = null;
-  pcDraftKnowledge = [];
-
-  const titleEl = document.getElementById('author-sheet-title');
-  if (titleEl) titleEl.textContent = 'Créer un personnage joueur';
-  document.getElementById('author-save-btn').style.display   = 'none';
-  // TICKET-0059 (BRIEF-0059-e): #author-delete-btn no longer exists in the
-  // legacy document -- it moved into Sheet.svelte's own template.
-  document.getElementById('author-status').textContent       = '';
-
-  // TICKET-0058 (BRIEF-0058-f): #author-main is the entitySheet island's
-  // mount root now; this bespoke panel renders into the stable legacy leaf
-  // Sheet.svelte always keeps present for it (creationNewEntity dispatches
-  // 'creation:sheet-legacy-active' just before calling this).
-  document.getElementById('author-legacy-sheet-slot').innerHTML = `
-    <div class="field-section" style="margin:0; padding:10px 14px">
-      <div class="field-row" style="margin:0">
-        <label>Concept (pour l'assistant)</label>
-        <textarea id="pc-generate-brief" rows="2" placeholder="Ex. une ancienne contrebandière qui a tout quitté pour..."></textarea>
-      </div>
-      <div style="display:flex; gap:10px; align-items:center; margin-top:6px">
-        <button class="btn-send" onclick="pcGenerateDraft()">Générer le brouillon</button>
-        <span class="author-status" id="pc-generate-status"></span>
-      </div>
-      <div id="pc-generate-notes"></div>
-    </div>
-    <div class="field-section" style="margin:0; padding:10px 14px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">
-      <div class="field-row" style="margin:0; min-width:180px">
-        <label>Nom</label>
-        <input type="text" id="pc-create-name" placeholder="Nom du personnage">
-      </div>
-      <div class="field-row" style="margin:0; min-width:200px">
-        <label>Lieu de départ</label>
-        <select id="pc-create-location"><option value="">— choisir —</option></select>
-      </div>
-      <button class="btn-send" onclick="pcCreateSubmit()">Créer</button>
-      <span class="author-status" id="pc-create-status"></span>
-    </div>
-    <div class="field-section" style="margin:0; padding:0 14px 10px">
-      <div class="field-row" style="margin:0 0 6px 0">
-        <label>Description (publique)</label>
-        <textarea id="pc-create-description" rows="2" placeholder="Ce qu'autrui perçoit au premier regard"></textarea>
-      </div>
-      <div class="field-row" style="margin:0 0 6px 0">
-        <label>Apparence</label>
-        <textarea id="pc-create-appearance" rows="2" placeholder="Référence du joueur"></textarea>
-      </div>
-      <div class="field-row" style="margin:0 0 6px 0">
-        <label>Histoire personnelle</label>
-        <textarea id="pc-create-backstory" rows="3" placeholder="Référence du joueur"></textarea>
-      </div>
-      <div class="field-row" style="margin:0">
-        <label>Savoirs proposés (lecture seule — éditables après création via la Fiche)</label>
-        <div id="pc-draft-knowledge" style="font-size:12px; color:var(--muted)"></div>
-      </div>
-    </div>
-  `;
-  pcCreateLoadLocations();
-  pcRenderDraftKnowledge();
-}
-
 /** The pj entry's Fiche slot onSelect (BRIEF-0005-b) — replaces the former
  *  hardcoded pj-only branch inside the sheet's own entity-select loader:
  *  syncs the Fiche dropdown to the clicked character and loads its sheet. */
@@ -5248,48 +5088,6 @@ function pjFicheOnSelect(id) {
   const sel = document.getElementById('skill-character-select');
   if (sel) sel.value = id;
   skillSelectCharacter(id);
-}
-
-function pcRenderDraftKnowledge() {
-  const el = document.getElementById('pc-draft-knowledge');
-  if (!el) return;
-  if (!pcDraftKnowledge.length) {
-    el.textContent = '(aucun)';
-    return;
-  }
-  el.innerHTML = pcDraftKnowledge
-    .map(k => `<div>${esc(k.subject)} (${esc(k.level)}) : ${esc(k.content)}</div>`)
-    .join('');
-}
-
-async function pcGenerateDraft() {
-  const briefEl = document.getElementById('pc-generate-brief');
-  const statusEl = document.getElementById('pc-generate-status');
-  const brief = briefEl.value.trim();
-  if (!brief) { statusEl.textContent = 'Concept requis.'; return; }
-  statusEl.textContent = 'Génération…';
-  try {
-    const result = await api('/api/characters/player/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ brief }),
-    });
-    if (!result.ok) { statusEl.textContent = result.error; return; }
-    pcApplyDraft(result.draft);
-    statusEl.textContent = 'Brouillon généré — relisez et éditez avant de créer.';
-  } catch (err) {
-    statusEl.textContent = err.message;
-  }
-}
-
-function pcApplyDraft(draft) {
-  const setVal = (id, value) => { const el = document.getElementById(id); if (el) el.value = value ?? ''; };
-  setVal('pc-create-name', draft.name);
-  setVal('pc-create-description', draft.description);
-  setVal('pc-create-appearance', draft.appearance);
-  setVal('pc-create-backstory', draft.backstory);
-  pcDraftKnowledge = draft.knowledge || [];
-  pcRenderDraftKnowledge();
 }
 
 async function skillLoadCharacters() {

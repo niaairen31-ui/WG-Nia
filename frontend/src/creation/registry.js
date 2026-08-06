@@ -248,6 +248,19 @@ export const CREATION_ISLANDS = Object.freeze({
       'intriguesRenderCreatePanel',
       'intriguesGenerateDraft',
       'intriguesSubmitCreate',
+      // BRIEF-0059-j commit 3: the pj tab's create flow -- ported to
+      // PjCreatePanel.svelte, reached the same way (a tabKey/isNew gate,
+      // alongside the generic branch the pj tab's own VIEW mode still
+      // uses). The bespoke player-character-create endpoint survives
+      // unchanged; only the legacy panel rendering it is gone. The Fiche
+      // slot (skillInit and its family) stays legacy until this brief's
+      // next commit.
+      'pjRenderCreatePanel',
+      'pcCreateLoadLocations',
+      'pcCreateSubmit',
+      'pcRenderDraftKnowledge',
+      'pcGenerateDraft',
+      'pcApplyDraft',
     ],
   }),
   // BRIEF-0058-i (per RECON-SUPPLEMENT-0058's re-scope): region generation
