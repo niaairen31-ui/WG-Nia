@@ -231,6 +231,17 @@ GONE_PLAIN = [
     "skillInit", "skillLoadCharacters", "skillSelectCharacter", "skillRender",
     "skillSaveTier", "pjFicheOnSelect", "SKILL_DOMAIN_LABELS", "SKILL_TIER_LABELS",
     "skillCharacters", "skillCharacterId", "skillRows",
+    # TICKET-0059 (BRIEF-0059-k commit 1): the Review Queue's 'filters' slot
+    # -- filter bar + world-tick controls -- converged onto
+    # frontend/src/creation/QueueFilters.svelte/queue.svelte.js. The
+    # mutation-name-cache functions (_loadMutationEntityNames et al.), also
+    # ported to queue.svelte.js this commit, stay off this list until
+    # commit 2: their only callers (loadQueue/renderCard and the two
+    # summary helpers) are commit 2's own target, so the plain strings are
+    # still textually present (as dangling calls) until that commit
+    # removes them too.
+    "setFilter", "setFilterByName", "loadTickControls", "tickScopeTypeChanged",
+    "runWorldTick",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from

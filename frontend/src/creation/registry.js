@@ -458,4 +458,21 @@ export const CREATION_ISLANDS = Object.freeze({
       'skillSaveTier', 'pjFicheOnSelect', 'SKILL_DOMAIN_LABELS', 'SKILL_TIER_LABELS',
     ],
   }),
+  // BRIEF-0059-k commit 1: the Review Queue's 'filters' slot -- filter bar
+  // (setFilter/setFilterByName) + world-tick controls
+  // (loadTickControls/tickScopeTypeChanged/runWorldTick) -- ported to
+  // QueueFilters.svelte/queue.svelte.js. Both rendered into the same
+  // #creation-shell-extra slot in the legacy markup, so both move
+  // together. The queue body (commit 2) and batch bar (commit 3) are
+  // separate mount points, added to this registry in their own commits.
+  queueFilters: Object.freeze({
+    containerId: 'creation-shell-extra',
+    component: 'QueueFilters.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      'setFilter', 'setFilterByName', '_loadMutationEntityNames', '_mutationEntityName',
+      '_loadMutationAgendaNames', '_mutationAgendaName',
+      'loadTickControls', 'tickScopeTypeChanged', 'runWorldTick',
+    ],
+  }),
 });

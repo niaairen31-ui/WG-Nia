@@ -26,6 +26,7 @@ import { mount as svelteMount, unmount as svelteUnmount } from 'svelte';
 import { legacyContainer } from '../legacy/bridge.js';
 import { CREATION_ISLANDS } from './registry.js';
 import { creationState } from './state.svelte.js';
+import { setFilter } from './queue.svelte.js';
 import Constructeur from './Constructeur.svelte';
 import EntityList from './EntityList.svelte';
 import Sheet from './Sheet.svelte';
@@ -38,8 +39,9 @@ import Competences from './Competences.svelte';
 import Registre from './Registre.svelte';
 import Prompts from './Prompts.svelte';
 import PjSkillFiche from './PjSkillFiche.svelte';
+import QueueFilters from './QueueFilters.svelte';
 
-const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet, region: Region, batch: RoomBatch, npcAgent: NpcAgent, linkAgent: LinkAgent, artefacts: Artefacts, competences: Competences, registre: Registre, prompts: Prompts, pjSkillFiche: PjSkillFiche };
+const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet, region: Region, batch: RoomBatch, npcAgent: NpcAgent, linkAgent: LinkAgent, artefacts: Artefacts, competences: Competences, registre: Registre, prompts: Prompts, pjSkillFiche: PjSkillFiche, queueFilters: QueueFilters };
 
 const live = {}; // key -> { node, instance }
 
@@ -102,6 +104,17 @@ export function unmountIsland(key) {
 /* The legacy -> shell signal, both directions of it: one listener each,
    no function installed on the legacy window. */
 export function initCreationMount(legacyDoc) {
+  // BRIEF-0059-k: Play's analyzeConv states a fact ('mutations:proposed')
+  // instead of commanding the Review Queue's own filter (setFilterByName/
+  // loadQueue, both retired by this brief). Registered here, not inside
+  // queue.svelte.js, because that module is evaluated at app boot -- before
+  // legacyDoc exists -- while this function only runs once the legacy
+  // iframe has actually loaded (App.svelte's onLegacyReady), the same
+  // timing island:slot/island:action already rely on.
+  legacyDoc.addEventListener('mutations:proposed', () => {
+    setFilter('proposed');
+  });
+
   legacyDoc.addEventListener('island:slot', (ev) => {
     const { key, open, tabKey } = ev.detail;
     if (!open) return;

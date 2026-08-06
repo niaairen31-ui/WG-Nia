@@ -1239,44 +1239,18 @@ button:not(:disabled):hover { filter: brightness(1.15); }
        Création page: the entry's label (title) plus, iff it declares a
        primaryAction, exactly one button in this same fixed position on all
        ten tabs. #creation-shell-extra is Review Queue's filter bar +
-       batch-bar mount point — a one-off relocation, not a generic shell
-       concept (hidden on every other tab via the ordinary slot mechanism). -->
+       tick-controls + batch-bar mount point — a one-off relocation, not a
+       generic shell concept (hidden on every other tab via the ordinary
+       slot mechanism). Empty by construction (TICKET-0059, BRIEF-0059-k
+       commit 1) — Svelte mount() appends, it never clears a target's
+       pre-existing children, so a static placeholder here would sit
+       beside the island's own DOM forever; QueueFilters.svelte renders
+       the filter bar, the world-tick controls AND the batch bar's own
+       #creation-shell-batch-bar mount point (in that order, so a later
+       append never lands above earlier content). -->
   <div class="panel-head" id="creation-shell-band">
     <h2 id="creation-shell-title"></h2>
-    <div id="creation-shell-extra" style="display:none">
-      <div class="filter-bar" id="filter-bar">
-        <button class="f-btn active" data-s="proposed"  onclick="setFilter(this,'proposed')">Proposed</button>
-        <button class="f-btn"        data-s="approved"  onclick="setFilter(this,'approved')"
-                title="Proposals that were approved but could not be applied to canon (apply error, unhandled type, or duplicate block). Needs creator attention.">⚠ Needs attention</button>
-        <button class="f-btn"        data-s="applied"   onclick="setFilter(this,'applied')">Applied</button>
-        <button class="f-btn"        data-s="rejected"  onclick="setFilter(this,'rejected')">Rejected</button>
-      </div>
-      <!-- ── World tick controls (TICKET-0014/BRIEF-0014-b, I1/J1/M3) ──
-           Manual, scoped off-screen NPC advancement. Lands in this same
-           slot as the filter bar — a second row via flex-basis:100%, not a
-           new registry entry (this tab's rows are still append-only via
-           /api/world-tick -> proposed_mutation, never created directly here). -->
-      <div class="tick-controls" id="tick-controls"
-           style="flex-basis:100%; display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; padding-top:8px; border-top:1px solid var(--border);">
-        <button class="btn-send" id="btn-world-tick" onclick="runWorldTick()">Faire avancer le monde</button>
-        <select id="tick-scope-type" onchange="tickScopeTypeChanged()" title="Portée du tick">
-          <option value="npcs">PNJ(s)</option>
-          <option value="location">Lieu</option>
-          <option value="faction">Faction</option>
-        </select>
-        <select id="tick-scope-npcs" multiple size="4" style="min-width:180px;"
-                title="Ctrl/Cmd+clic pour sélectionner plusieurs PNJ"></select>
-        <select id="tick-scope-location" style="display:none; min-width:180px;"></select>
-        <select id="tick-scope-faction" style="display:none; min-width:180px;"></select>
-        <select id="tick-interval" title="Intervalle écoulé">
-          <option value="quelques heures">quelques heures</option>
-          <option value="quelques jours">quelques jours</option>
-          <option value="quelques semaines">quelques semaines</option>
-        </select>
-        <span class="analyze-status" id="tick-status"></span>
-      </div>
-      <div id="creation-shell-batch-bar"></div>
-    </div>
+    <div id="creation-shell-extra" style="display:none"></div><!-- #creation-shell-extra -->
     <!-- On-demand slot toggles (BRIEF-0023-a, F1) — one button per slot the
          active entry declares display:'on_demand'; same fixed shell
          position on every tab, mirroring primaryAction. -->
@@ -2555,10 +2529,14 @@ async function analyzeConv(force) {
       status.textContent = '— nothing new to analyze';
     } else {
       status.textContent = `✓ ${n} proposal${n !== 1 ? 's' : ''} written`;
+      // BRIEF-0059-k: the Review Queue is now a Svelte island; Play states
+      // a fact instead of reaching into the queue's own filter state
+      // directly (the two legacy globals this used to call are gone).
+      // The queue's own store (frontend/src/creation/queue.svelte.js)
+      // listens for this and decides to show the proposed filter -- Play
+      // no longer knows the Review Queue has filters at all.
+      document.dispatchEvent(new CustomEvent('mutations:proposed', { detail: { count: n } }));
     }
-    // Switch to proposed tab and reload the queue so new proposals are visible.
-    setFilterByName('proposed');
-    await loadQueue();
   } catch (e) {
     status.style.color = 'var(--red)';
     status.textContent = '✗ ' + e.message;
@@ -2569,156 +2547,8 @@ async function analyzeConv(force) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   World tick (TICKET-0014, BRIEF-0014-b) — manual, scoped off-screen NPC
-   advancement. Scope selectors populate from the entity-list APIs the
-   Création view already calls (BRIEF-0005-a precedent): /api/entities,
-   /api/skills/player-characters (NPC/PC split, same as CREATION_TABS.npc's
-   entityFilter), /api/locations, /api/entities?type=faction.
-   ════════════════════════════════════════════════════════════════════════════ */
-
-async function loadTickControls() {
-  const status = document.getElementById('tick-status');
-  try {
-    const [entities, pcs, locations, factions] = await Promise.all([
-      api('/api/entities?type=character'),
-      api('/api/skills/player-characters').catch(() => []),
-      api('/api/locations').catch(() => []),
-      api('/api/entities?type=faction').catch(() => []),
-    ]);
-    const pcIds = new Set(pcs.map(p => p.id));
-    const npcs = entities.filter(e => e.type === 'character' && !pcIds.has(e.id));
-
-    const npcSel = document.getElementById('tick-scope-npcs');
-    if (npcSel) npcSel.innerHTML = npcs.map(n => `<option value="${esc(n.id)}">${esc(n.name)}</option>`).join('');
-
-    const locSel = document.getElementById('tick-scope-location');
-    if (locSel) locSel.innerHTML = locations.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('');
-
-    const facSel = document.getElementById('tick-scope-faction');
-    if (facSel) facSel.innerHTML = factions.map(f => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
-
-    tickScopeTypeChanged();
-  } catch (e) {
-    if (status) { status.style.color = 'var(--red)'; status.textContent = 'Erreur de chargement des cibles : ' + e.message; }
-  }
-}
-
-function tickScopeTypeChanged() {
-  const type = document.getElementById('tick-scope-type').value;
-  document.getElementById('tick-scope-npcs').style.display    = (type === 'npcs')     ? '' : 'none';
-  document.getElementById('tick-scope-location').style.display = (type === 'location') ? '' : 'none';
-  document.getElementById('tick-scope-faction').style.display  = (type === 'faction')  ? '' : 'none';
-}
-
-async function runWorldTick() {
-  const btn      = document.getElementById('btn-world-tick');
-  const status   = document.getElementById('tick-status');
-  const scopeType = document.getElementById('tick-scope-type').value;
-  const interval  = document.getElementById('tick-interval').value;
-
-  const body = { scope_type: scopeType, interval };
-  if (scopeType === 'npcs') {
-    const sel = document.getElementById('tick-scope-npcs');
-    body.npc_ids = Array.from(sel.selectedOptions).map(o => o.value);
-    if (!body.npc_ids.length) {
-      status.style.color = 'var(--red)'; status.textContent = 'Sélectionnez au moins un PNJ.';
-      return;
-    }
-  } else {
-    const sel = document.getElementById(scopeType === 'location' ? 'tick-scope-location' : 'tick-scope-faction');
-    body.scope_id = sel.value;
-    if (!body.scope_id) {
-      status.style.color = 'var(--red)'; status.textContent = 'Sélectionnez une cible.';
-      return;
-    }
-  }
-
-  btn.disabled = true;
-  status.style.color = 'var(--muted)';
-  status.textContent = '⟳ Le monde avance…';
-  try {
-    const data = await api('/api/world-tick', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const npcNotes = (data.npcs || [])
-      .filter(n => (n.notes && n.notes.length) || n.dropped)
-      .map(n => `${n.name}: ${n.proposed} proposé(s), ${n.dropped} écarté(s)` +
-        (n.notes && n.notes.length ? ' — ' + n.notes.join('; ') : ''));
-    status.style.color = 'var(--text)';
-    status.textContent = `✓ ${data.total_proposed} propositions (tick ${String(data.tick_id).slice(0, 4)})` +
-      (npcNotes.length ? ' — ' + npcNotes.join(' | ') : '');
-    setFilterByName('proposed');
-    await loadQueue();
-  } catch (e) {
-    status.style.color = 'var(--red)';
-    status.textContent = '✗ ' + e.message;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
    Review queue
    ════════════════════════════════════════════════════════════════════════════ */
-
-function setFilter(btn, status) {
-  document.querySelectorAll('.f-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  currentFilter = status;
-  hideBatchVerdict();
-  loadQueue();
-}
-
-function setFilterByName(status) {
-  const btn = document.querySelector(`.f-btn[data-s="${status}"]`);
-  if (btn) {
-    document.querySelectorAll('.f-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentFilter = status;
-  }
-}
-
-/* Lazy entity id → name cache, used to render resource_change's money/
-   knowledge legs in human-readable form (BRIEF-19). Loaded once. */
-let _mutationEntityNames = null;
-
-async function _loadMutationEntityNames() {
-  if (_mutationEntityNames) return;
-  try {
-    const rows = await api('/api/entities');
-    _mutationEntityNames = new Map(rows.map(e => [e.id, e.name]));
-  } catch (_) {
-    _mutationEntityNames = new Map();
-  }
-}
-
-function _mutationEntityName(id) {
-  if (!id) return '';
-  if (_mutationEntityNames && _mutationEntityNames.has(id)) return _mutationEntityNames.get(id);
-  return shortId(id);
-}
-
-/* Lazy agenda id -> title cache (TICKET-0020, BRIEF-0020-c) — mirrors
-   _mutationEntityNames, for resolving agenda_delegation's agenda_id. */
-let _mutationAgendaNames = null;
-
-async function _loadMutationAgendaNames() {
-  if (_mutationAgendaNames) return;
-  try {
-    const rows = await api('/api/agendas');
-    _mutationAgendaNames = new Map(rows.map(a => [a.id, a.title]));
-  } catch (_) {
-    _mutationAgendaNames = new Map();
-  }
-}
-
-function _mutationAgendaName(id) {
-  if (!id) return '';
-  if (_mutationAgendaNames && _mutationAgendaNames.has(id)) return _mutationAgendaNames.get(id);
-  return shortId(id);
-}
 
 async function loadQueue() {
   const body = document.getElementById('queue-body');
@@ -4342,7 +4172,13 @@ const CREATION_TABS = {
     loader: loadQueue,
     state: { onTabEnter: null, onWorldSwitch: null },
     primaryAction: null, // append-only by design — rows never created here
-    slots: [{ id: 'filters', containerId: 'creation-shell-extra', loader: loadTickControls, onSelect: null }],
+    // TICKET-0059 (BRIEF-0059-k commit 1): the 'filters' slot's own loader
+    // is gone -- QueueFilters.svelte resets itself off serverState.worldId
+    // (the -d rule every migrated island follows) instead. The slot
+    // descriptor survives (containerId drives this container's own
+    // show/hide, unrelated to the island mechanism) with loader: null.
+    slots: [{ id: 'filters', containerId: 'creation-shell-extra', loader: null, onSelect: null }],
+    islands: [{ key: 'queueFilters', containerId: 'creation-shell-extra' }],
   },
   prompts: {
     label: 'Prompts',
