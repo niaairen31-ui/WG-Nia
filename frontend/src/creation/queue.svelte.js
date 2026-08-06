@@ -1,4 +1,4 @@
-/* TICKET-0059 (BRIEF-0059-k commit 1). Module-level rune store shared by
+/* TICKET-0059 (BRIEF-0059-k, commits 1-2). Module-level rune store shared by
    the Review Queue's three separate mount points -- QueueFilters.svelte
    (#creation-shell-extra: filter bar + world-tick controls, commit 1),
    Queue.svelte (#creation-queue: card list + batch verdict, commit 2) and
@@ -43,6 +43,10 @@
 export const queueState = $state({
   currentFilter: 'proposed',
   reloadToken: 0,
+  mutations: [],
+  loading: true,
+  loadError: '',
+  selectedIds: new Set(),
 });
 
 async function api(path, options) {
@@ -103,4 +107,81 @@ export function mutationAgendaName(id) {
   if (!id) return '';
   if (_mutationAgendaNames && _mutationAgendaNames.has(id)) return _mutationAgendaNames.get(id);
   return shortId(id);
+}
+
+/* TICKET-0059 (BRIEF-0059-k commit 2). Faithful port of loadQueue's fetch
+   half (index.html, now deleted) -- the render half (renderCard and its
+   helpers) lives in Queue.svelte/QueueCard.svelte, reading queueState.mutations
+   directly rather than being handed a rendered string. selectedIds resets
+   on every load, matching the original: a fresh #queue-body innerHTML
+   rewrite always discarded the previous DOM's checkboxes too. */
+export async function loadQueue() {
+  queueState.loading = true;
+  queueState.loadError = '';
+  queueState.selectedIds = new Set();
+  try {
+    await Promise.all([loadMutationEntityNames(), loadMutationAgendaNames()]);
+    queueState.mutations = await api('/api/mutations?status=' + queueState.currentFilter);
+  } catch (e) {
+    queueState.loadError = e.message;
+    queueState.mutations = [];
+  } finally {
+    queueState.loading = false;
+  }
+}
+
+export function toggleSelected(id, checked) {
+  const next = new Set(queueState.selectedIds);
+  if (checked) next.add(id); else next.delete(id);
+  queueState.selectedIds = next;
+}
+
+/** Update card visual state after an approve/reject completes -- faithful
+ *  port of markCardDone's INTENT (status flips, card leaves 'proposed'),
+ *  achieved by replacing the one changed row in queueState.mutations
+ *  rather than querying/mutating DOM. Unchanged rows keep their object
+ *  identity, so Svelte's keyed #each never remounts their QueueCard. */
+function markMutationDone(id, newStatus) {
+  queueState.mutations = queueState.mutations.map((m) => (m.id === id ? { ...m, status: newStatus } : m));
+  if (queueState.selectedIds.has(id)) {
+    const next = new Set(queueState.selectedIds);
+    next.delete(id);
+    queueState.selectedIds = next;
+  }
+}
+
+/* Faithful port of doApprove's request half (index.html, now deleted) --
+   QueueCard.svelte owns the JSON-validation pre-check, the lock/unlock
+   and the result-message display (its own local state, one card's own
+   concern); this function owns the request + the shared mutation-list
+   update every card's result depends on. */
+export async function approveMutation(id, payloadStr, creatorNotes) {
+  const data = await api('/api/mutations/' + id + '/approve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ payload: payloadStr, creator_notes: creatorNotes || null }),
+  });
+  let cls, msg, newStatus;
+  if (data.status === 'applied') {
+    cls = 'ok'; msg = '✓ Applied to canon.'; newStatus = 'applied';
+  } else if (data.status === 'already_applied') {
+    cls = 'warn'; msg = '⚠ Already applied.'; newStatus = 'applied';
+  } else {
+    // 'approved' -- reviewed but not applied; error stored server-side.
+    cls = 'warn';
+    msg = '⚠ Saved as "approved" (not applied to canon):\n' + (data.error || '');
+    newStatus = 'approved';
+  }
+  markMutationDone(id, newStatus);
+  return { cls, msg };
+}
+
+export async function rejectMutation(id, creatorNotes) {
+  await api('/api/mutations/' + id + '/reject', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ creator_notes: creatorNotes || null }),
+  });
+  markMutationDone(id, 'rejected');
+  return { cls: 'ok', msg: '✓ Rejected. World state unchanged.' };
 }

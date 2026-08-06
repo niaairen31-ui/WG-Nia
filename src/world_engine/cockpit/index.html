@@ -1384,19 +1384,10 @@ button:not(:disabled):hover { filter: brightness(1.15); }
        children) ── -->
   <div id="creation-registre" style="display:none"></div><!-- #creation-registre -->
 
-  <!-- ── Review Queue sub-tab ── -->
-  <div id="creation-queue" style="display:none">
-    <div class="queue-panel">
-      <div class="panel-head">
-        <h2>Review Queue</h2>
-        <button class="btn-icon" onclick="loadQueue()" title="Rafraîchir">↻</button>
-      </div>
-      <div class="batch-verdict" id="batch-verdict" style="display:none"></div>
-      <div class="queue-body" id="queue-body">
-        <div class="empty"><span class="spin">⟳</span></div>
-      </div>
-    </div>
-  </div><!-- #creation-queue -->
+  <!-- ── Review Queue sub-tab (TICKET-0059, BRIEF-0059-k commit 2) — Svelte
+       island: empty by construction (Svelte mount() appends, it never
+       clears a target's children) ── -->
+  <div id="creation-queue" style="display:none"></div><!-- #creation-queue -->
 
   <!-- ── Prompts sub-tab (TICKET-0059, BRIEF-0059-i) — Svelte island: prompt
        management + the parked D-0050 conversation-window config panel ── -->
@@ -1489,7 +1480,6 @@ button:not(:disabled):hover { filter: brightness(1.15); }
    ════════════════════════════════════════════════════════════════════════════ */
 let currentConvId    = null;
 let currentConvData  = null;   // full detail object from the server
-let currentFilter    = 'proposed';
 let _streamingActive = false;  // true while an NPC reply is in flight
 
 // Resolved play context (BRIEF-45) — populated by loadBootstrap() before any
@@ -2550,36 +2540,11 @@ async function analyzeConv(force) {
    Review queue
    ════════════════════════════════════════════════════════════════════════════ */
 
-async function loadQueue() {
-  const body = document.getElementById('queue-body');
-  // BRIEF-0005-c: the batch bar mounts in the shell band's #creation-shell-extra
-  // (moved out of #queue-body — markup relocation only, same renderBatchBar()).
-  const batchSlot = document.getElementById('creation-shell-batch-bar');
-  try {
-    await Promise.all([_loadMutationEntityNames(), _loadMutationAgendaNames()]);
-    const mutations = await api('/api/mutations?status=' + currentFilter);
-    if (!mutations.length) {
-      if (batchSlot) batchSlot.innerHTML = '';
-      // "approved" (Needs attention) being empty is the healthy, expected state.
-      if (currentFilter === 'approved') {
-        body.innerHTML =
-          '<div class="empty-ok">✓ Empty — no apply errors or duplicate blocks.' +
-          '<br>This is the normal, healthy state.</div>';
-      } else {
-        body.innerHTML = `<div class="empty">No "${esc(currentFilter)}" proposals.</div>`;
-      }
-      return;
-    }
-    const showBatchBar = currentFilter === 'proposed';
-    if (batchSlot) batchSlot.innerHTML = showBatchBar ? renderBatchBar() : '';
-    body.innerHTML = mutations.map(renderCard).join('');
-    if (showBatchBar) updateBatchBar();
-  } catch (e) {
-    body.innerHTML = `<div class="empty" style="color:var(--red)">Error: ${esc(e.message)}</div>`;
-  }
-}
-
-/** Toolbar shown above the "proposed" queue: select all/none + batch actions. */
+/** Toolbar shown above the "proposed" queue: select all/none + batch actions.
+ *  TICKET-0059 (BRIEF-0059-k commit 2): the queue-body render step that used
+ *  to invoke this is gone -- this function (and the rest of the batch
+ *  cluster below it) is dead code until commit 3 replaces it with
+ *  QueueBatchBar.svelte. */
 function renderBatchBar() {
   return `
 <div class="batch-bar" id="batch-bar">
@@ -2593,241 +2558,6 @@ function renderBatchBar() {
     <button class="btn-reject" id="batch-reject-btn" onclick="doBatchAction('reject')" disabled>✗ Reject selected</button>
   </div>
 </div>`;
-}
-
-/** Human-readable money + optional knowledge leg for a resource_change card
- *  (BRIEF-19) — the creator sees what is being granted before approving.
- *  Returns '' for every other mutation_type. */
-function _renderResourceChangeLegs(m) {
-  if (m.mutation_type !== 'resource_change') return '';
-  const p = m.payload || {};
-  const amount = Number(p.amount);
-  const amountTxt = isNaN(amount) ? String(p.amount) : (amount >= 0 ? '+' : '') + amount;
-  const amountColor = amount < 0 ? 'var(--danger, #c44)' : 'var(--accent)';
-
-  const moneyLine = `
-    <div class="row-card" style="flex-direction:row; align-items:center; gap:10px; flex-wrap:wrap;">
-      <span style="font-weight:600;">${esc(_mutationEntityName(p.entity_id))}</span>
-      <span style="font-weight:700; color:${amountColor};">${esc(amountTxt)}</span>
-      ${p.counterparty_id ? `<span style="color:var(--muted); font-size:12px;">↔ ${esc(_mutationEntityName(p.counterparty_id))}</span>` : ''}
-      ${p.reason ? `<span style="font-size:12px;">${esc(p.reason)}</span>` : ''}
-    </div>`;
-
-  const k = p.knowledge;
-  const knowledgeLine = (k && typeof k === 'object')
-    ? `
-    <div class="row-card" style="flex-direction:row; align-items:center; gap:10px; flex-wrap:wrap;">
-      <span class="badge b-new_knowledge">knowledge</span>
-      <span style="font-weight:600;">${esc(_mutationEntityName(k.entity_id))}</span>
-      <span style="color:var(--muted); font-size:12px;">${esc(k.subject || '')} · ${esc(k.level || '')}</span>
-      ${k.content ? `<span style="font-size:12px;">${esc(k.content)}</span>` : ''}
-    </div>`
-    : '';
-
-  return `<div class="card-fields" style="margin-bottom:8px;">
-    <div class="field-label">Money leg</div>
-    ${moneyLine}
-    ${knowledgeLine ? `<div class="field-label" style="margin-top:6px;">Knowledge leg</div>${knowledgeLine}` : ''}
-  </div>`;
-}
-
-/** Human-readable summary for agenda_delegation (ids resolved to names) and
- *  agenda_creation (owner name resolved — per-NPC or faction alike),
- *  TICKET-0020/BRIEF-0020-c. Same treatment level as resource_change's legs
- *  above: a small resolved-names block ABOVE the raw JSON payload, which
- *  stays visible/editable underneath as it does for every mutation_type.
- *  Returns '' for every other mutation_type. */
-function _renderAgendaProvenanceSummary(m) {
-  const p = m.payload || {};
-  if (m.mutation_type === 'agenda_delegation') {
-    return `
-    <div class="card-fields" style="margin-bottom:8px;">
-      <div class="field-label">Délégation</div>
-      <div class="row-card" style="flex-direction:row; align-items:center; gap:10px; flex-wrap:wrap;">
-        <span style="font-weight:600;">${esc(_mutationEntityName(p.npc_id))}</span>
-        <span style="font-size:12px; color:var(--muted);">${esc(p.horizon || '')}</span>
-        <span>${esc(p.goal || '')}</span>
-        <span style="font-size:12px; color:var(--muted);">sert : « ${esc(_mutationAgendaName(p.agenda_id))} »</span>
-      </div>
-    </div>`;
-  }
-  if (m.mutation_type === 'agenda_creation') {
-    return `
-    <div class="card-fields" style="margin-bottom:8px;">
-      <div class="field-label">Propriétaire</div>
-      <div class="row-card" style="flex-direction:row; align-items:center; gap:10px; flex-wrap:wrap;">
-        <span style="font-weight:600;">${esc(_mutationEntityName(p.owner_entity_id))}</span>
-        <span>${esc(p.title || '')}</span>
-      </div>
-    </div>`;
-  }
-  return '';
-}
-
-function renderCard(m) {
-  const editable   = (m.status === 'proposed');
-  const payloadStr = JSON.stringify(m.payload, null, 2);
-
-  const targetTxt = [m.target_table, m.target_id ? shortId(m.target_id) : null]
-    .filter(Boolean).join(' · ');
-
-  const sourceRef = m.conversation_id
-    ? `conv:${shortId(m.conversation_id)}`
-    : m.pass_play_id
-      ? `pass-play:${shortId(m.pass_play_id)}`
-      : '';
-
-  // "approved" status = approved but NOT applied to canon.
-  // creator_notes holds the stored reason (apply error or duplicate block).
-  const applyErrorBlock = (m.status === 'approved' && m.creator_notes)
-    ? `<div class="card-apply-error"><strong>⚠ Could not apply to canon — needs attention:</strong>${esc(m.creator_notes)}</div>`
-    : '';
-
-  // Duplicate-risk banner: the backend sets applied_duplicate when a logically
-  // equivalent mutation was already applied for this conversation.
-  const dupBlock = m.applied_duplicate
-    ? `<div class="card-dup-warn"><strong>⚠ Duplicate risk — approving will be blocked:</strong>${esc(m.applied_duplicate)}</div>`
-    : '';
-
-  // Checkboxes are rendered ONLY for selectable rows (status='proposed') —
-  // reviewed rows (applied/approved/rejected) get no checkbox.
-  const checkbox = (m.status === 'proposed')
-    ? `<input type="checkbox" class="row-select" data-id="${esc(m.id)}" onchange="updateBatchBar()">`
-    : '';
-
-  const resourceLegsBlock = _renderResourceChangeLegs(m);
-  const agendaSummaryBlock = _renderAgendaProvenanceSummary(m);
-
-  // World-tick badges (TICKET-0014/BRIEF-0014-b, P1 + Z3): a grouping label
-  // for every row of the same invocation, and a distinct warning badge when
-  // the proposal's content is derived from a [SECRET] briefing item —
-  // independent of is_secret, which is the receiving NPC's own disposition.
-  const tickBadge = (m.source_type === 'world_tick' && m.tick_id)
-    ? `<span class="badge b-tick" title="tick ${esc(m.tick_id)}">TICK ·${esc(m.tick_id.slice(0, 4))}</span>`
-    : '';
-  const secretDerivedBadge = (m.payload && m.payload.secret_derived === true)
-    ? `<span class="badge b-secret-derived">dérivé d'un secret</span>`
-    : '';
-
-  return `
-<div class="card s-${esc(m.status)}" id="card-${esc(m.id)}">
-  <div class="card-head">
-    ${checkbox}
-    <span class="badge b-${esc(m.mutation_type)}">${esc(m.mutation_type)}</span>
-    ${targetTxt ? `<span class="target-ref">${esc(targetTxt)}</span>` : ''}
-    <span class="badge b-${esc(m.status)}">${esc(m.status)}</span>
-    ${tickBadge}${secretDerivedBadge}
-    ${sourceRef ? `<span class="target-ref">${esc(sourceRef)}</span>` : ''}
-    <span class="ts">${fmtDate(m.proposed_at)}</span>
-  </div>
-
-  ${applyErrorBlock}${dupBlock}
-
-  <div class="card-rationale">${esc(m.rationale || '(no rationale provided)')}</div>
-
-  ${resourceLegsBlock}${agendaSummaryBlock}
-
-  <div class="card-fields">
-    <div>
-      <div class="field-label">Payload</div>
-      <textarea class="payload" id="pl-${esc(m.id)}" rows="5"
-        spellcheck="false"${editable ? '' : ' readonly'}>${esc(payloadStr)}</textarea>
-    </div>
-    <div>
-      <div class="field-label">Creator notes</div>
-      <input class="notes" type="text" id="nt-${esc(m.id)}"
-        value="${esc(m.creator_notes || '')}"
-        placeholder="${editable ? 'optional note…' : ''}"
-        ${editable ? '' : 'readonly'}>
-    </div>
-  </div>
-
-  ${editable ? `
-  <div class="card-actions" id="ca-${esc(m.id)}">
-    <button class="btn-approve" id="bap-${esc(m.id)}"
-            onclick="doApprove('${esc(m.id)}')">✓ Approve</button>
-    <button class="btn-reject"  id="brj-${esc(m.id)}"
-            onclick="doReject('${esc(m.id)}')">✗ Reject</button>
-  </div>` : ''}
-
-  <div class="card-result" id="cr-${esc(m.id)}"></div>
-</div>`;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   Approve
-   ════════════════════════════════════════════════════════════════════════════ */
-
-async function doApprove(id) {
-  const plEl  = document.getElementById('pl-' + id);
-  const ntEl  = document.getElementById('nt-' + id);
-  const crEl  = document.getElementById('cr-' + id);
-  const bapEl = document.getElementById('bap-' + id);
-  const brjEl = document.getElementById('brj-' + id);
-
-  // Validate JSON before sending — saves a round trip.
-  const payloadStr = plEl ? plEl.value : null;
-  if (payloadStr) {
-    try { JSON.parse(payloadStr); }
-    catch (e) { showResult(crEl, 'err', 'Invalid JSON in payload: ' + e.message); return; }
-  }
-
-  lockCard(bapEl, brjEl);
-  showResult(crEl, '', '⟳ Applying to canon…');
-
-  try {
-    const data = await api('/api/mutations/' + id + '/approve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        payload:       payloadStr,
-        creator_notes: ntEl ? ntEl.value || null : null,
-      }),
-    });
-
-    if (data.status === 'applied') {
-      showResult(crEl, 'ok', '✓ Applied to canon.');
-      markCardDone(id, 'applied');
-    } else if (data.status === 'already_applied') {
-      showResult(crEl, 'warn', '⚠ Already applied.');
-      markCardDone(id, 'applied');
-    } else {
-      // 'approved' — reviewed but not applied; error stored server-side.
-      showResult(crEl, 'warn',
-        '⚠ Saved as "approved" (not applied to canon):\n' + (data.error || ''));
-      markCardDone(id, 'approved');
-    }
-  } catch (e) {
-    showResult(crEl, 'err', '✗ ' + e.message);
-    unlockCard(bapEl, brjEl);
-  }
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   Reject
-   ════════════════════════════════════════════════════════════════════════════ */
-
-async function doReject(id) {
-  const ntEl  = document.getElementById('nt-' + id);
-  const crEl  = document.getElementById('cr-' + id);
-  const bapEl = document.getElementById('bap-' + id);
-  const brjEl = document.getElementById('brj-' + id);
-
-  lockCard(bapEl, brjEl);
-  showResult(crEl, '', '⟳ Rejecting…');
-
-  try {
-    await api('/api/mutations/' + id + '/reject', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ creator_notes: ntEl ? ntEl.value || null : null }),
-    });
-    showResult(crEl, 'ok', '✓ Rejected. World state unchanged.');
-    markCardDone(id, 'rejected');
-  } catch (e) {
-    showResult(crEl, 'err', '✗ ' + e.message);
-    unlockCard(bapEl, brjEl);
-  }
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -2909,58 +2639,6 @@ async function doBatchAction(action) {
     // Refresh so row statuses (and the proposed list) are current.
     await loadQueue();
   }
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   Card helpers
-   ════════════════════════════════════════════════════════════════════════════ */
-
-function showResult(el, cls, msg) {
-  if (!el) return;
-  el.className = 'card-result show' + (cls ? ' r-' + cls : '');
-  el.textContent = msg;
-}
-
-function lockCard(bap, brj) {
-  if (bap) bap.disabled = true;
-  if (brj) brj.disabled = true;
-}
-
-function unlockCard(bap, brj) {
-  if (bap) bap.disabled = false;
-  if (brj) brj.disabled = false;
-}
-
-/** Update card visual state after an approve / reject action completes. */
-function markCardDone(id, newStatus) {
-  const card = document.getElementById('card-' + id);
-  if (!card) return;
-
-  // Swap the status colour class on the card border.
-  card.className = card.className.replace(/s-\w+/, 's-' + newStatus);
-
-  // Swap the status badge text + class.
-  const badge = card.querySelector('.b-proposed, .b-approved');
-  if (badge) {
-    badge.className = 'badge b-' + newStatus;
-    badge.textContent = newStatus;
-  }
-
-  // Hide action buttons — card is no longer actionable.
-  const actions = document.getElementById('ca-' + id);
-  if (actions) actions.style.display = 'none';
-
-  // Make fields read-only.
-  const pl = card.querySelector('.payload');
-  if (pl) pl.readOnly = true;
-  const nt = card.querySelector('.notes');
-  if (nt) nt.readOnly = true;
-
-  // Row is no longer 'proposed' — drop its batch checkbox and refresh the
-  // batch bar (count / select-all state may have changed).
-  const cb = card.querySelector('.row-select');
-  if (cb) cb.remove();
-  updateBatchBar();
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -4169,7 +3847,9 @@ const CREATION_TABS = {
     label: 'Review Queue',
     archetype: 'bespoke',
     containers: ['creation-queue'],
-    loader: loadQueue,
+    // TICKET-0059 (BRIEF-0059-k commit 2): loader is gone -- Queue.svelte
+    // resets itself off serverState.worldId (the -d rule) instead.
+    loader: null,
     state: { onTabEnter: null, onWorldSwitch: null },
     primaryAction: null, // append-only by design — rows never created here
     // TICKET-0059 (BRIEF-0059-k commit 1): the 'filters' slot's own loader
@@ -4178,7 +3858,10 @@ const CREATION_TABS = {
     // descriptor survives (containerId drives this container's own
     // show/hide, unrelated to the island mechanism) with loader: null.
     slots: [{ id: 'filters', containerId: 'creation-shell-extra', loader: null, onSelect: null }],
-    islands: [{ key: 'queueFilters', containerId: 'creation-shell-extra' }],
+    islands: [
+      { key: 'queueFilters', containerId: 'creation-shell-extra' },
+      { key: 'queue', containerId: 'creation-queue' },
+    ],
   },
   prompts: {
     label: 'Prompts',

@@ -475,4 +475,19 @@ export const CREATION_ISLANDS = Object.freeze({
       'loadTickControls', 'tickScopeTypeChanged', 'runWorldTick',
     ],
   }),
+  // BRIEF-0059-k commit 2: the Review Queue's card list -- loadQueue's
+  // render half, renderCard and every card-rendering helper it reaches --
+  // ported to Queue.svelte/QueueCard.svelte/queue.svelte.js. The batch
+  // cluster (renderBatchBar/toggleSelectAll/updateBatchBar/doBatchAction
+  // and friends) is commit 3's own target; it goes dead code this commit
+  // (its only caller, loadQueue, is gone) and is retired in that commit.
+  queue: Object.freeze({
+    containerId: 'creation-queue',
+    component: 'Queue.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      'loadQueue', 'renderCard', '_renderResourceChangeLegs', '_renderAgendaProvenanceSummary',
+      'doApprove', 'doReject', 'showResult', 'lockCard', 'unlockCard', 'markCardDone',
+    ],
+  }),
 });

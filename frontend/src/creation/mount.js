@@ -40,8 +40,9 @@ import Registre from './Registre.svelte';
 import Prompts from './Prompts.svelte';
 import PjSkillFiche from './PjSkillFiche.svelte';
 import QueueFilters from './QueueFilters.svelte';
+import Queue from './Queue.svelte';
 
-const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet, region: Region, batch: RoomBatch, npcAgent: NpcAgent, linkAgent: LinkAgent, artefacts: Artefacts, competences: Competences, registre: Registre, prompts: Prompts, pjSkillFiche: PjSkillFiche, queueFilters: QueueFilters };
+const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet, region: Region, batch: RoomBatch, npcAgent: NpcAgent, linkAgent: LinkAgent, artefacts: Artefacts, competences: Competences, registre: Registre, prompts: Prompts, pjSkillFiche: PjSkillFiche, queueFilters: QueueFilters, queue: Queue };
 
 const live = {}; // key -> { node, instance }
 

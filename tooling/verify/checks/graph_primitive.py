@@ -242,6 +242,16 @@ GONE_PLAIN = [
     # removes them too.
     "setFilter", "setFilterByName", "loadTickControls", "tickScopeTypeChanged",
     "runWorldTick",
+    # TICKET-0059 (BRIEF-0059-k commit 2): the Review Queue's card list --
+    # renderCard and every card-rendering helper it reaches, plus
+    # doApprove/doReject/showResult/lockCard/unlockCard/markCardDone --
+    # converged onto frontend/src/creation/Queue.svelte/QueueCard.svelte/
+    # queue.svelte.js. loadQueue itself stays off this list until commit 3:
+    # doBatchAction (commit 3's own target) still calls it, so the plain
+    # string is still textually present (as a dangling call) until that
+    # commit removes doBatchAction too.
+    "renderCard", "_renderResourceChangeLegs", "_renderAgendaProvenanceSummary",
+    "doApprove", "doReject", "showResult", "lockCard", "unlockCard", "markCardDone",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from
