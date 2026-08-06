@@ -225,6 +225,12 @@ GONE_PLAIN = [
     # (skillInit et al.) stay off this list -- commit 4's own target.
     "pjRenderCreatePanel", "pcCreateLoadLocations", "pcCreateSubmit",
     "pcRenderDraftKnowledge", "pcGenerateDraft", "pcApplyDraft", "pcDraftKnowledge",
+    # TICKET-0059 (BRIEF-0059-j commit 4, final): the pj tab's Fiche
+    # (player skill sheet) slot, converged onto
+    # frontend/src/creation/PjSkillFiche.svelte.
+    "skillInit", "skillLoadCharacters", "skillSelectCharacter", "skillRender",
+    "skillSaveTier", "pjFicheOnSelect", "SKILL_DOMAIN_LABELS", "SKILL_TIER_LABELS",
+    "skillCharacters", "skillCharacterId", "skillRows",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from

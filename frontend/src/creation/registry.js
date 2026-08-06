@@ -443,4 +443,19 @@ export const CREATION_ISLANDS = Object.freeze({
       '_linkAgentPaintReview',
     ],
   }),
+  // BRIEF-0059-j commit 4 (final): the pj tab's Fiche (player skill sheet)
+  // slot -- ported to PjSkillFiche.svelte. The 'fiche' slot descriptor on
+  // CREATION_TABS.pj survives with loader/onSelect both null; this island
+  // fetches its own character list on mount/world-switch and reacts to
+  // creationState.selectedEntityId directly instead of a legacy onSelect
+  // callback.
+  pjSkillFiche: Object.freeze({
+    containerId: 'creation-pj-skill',
+    component: 'PjSkillFiche.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      'skillInit', 'skillLoadCharacters', 'skillSelectCharacter', 'skillRender',
+      'skillSaveTier', 'pjFicheOnSelect', 'SKILL_DOMAIN_LABELS', 'SKILL_TIER_LABELS',
+    ],
+  }),
 });

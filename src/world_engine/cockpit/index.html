@@ -1378,22 +1378,12 @@ button:not(:disabled):hover { filter: brightness(1.15); }
            rendered by default on tab activation, outside the create gate.
            The create form itself lives in #author-main via PjCreatePanel.svelte
            (TICKET-0059, BRIEF-0059-j commit 3), the same detail region every
-           other entity type's + Nouveau uses. This slot's own markup stays
-           legacy until this brief's next commit (skill-fiche port). -->
-      <div id="creation-pj-skill" style="display:none">
-        <div class="panel-head" style="flex-shrink:0; border-top:2px solid var(--border)">
-          <h2 style="font-size:12px">Fiche de compétences</h2>
-          <select id="skill-character-select" onchange="skillSelectCharacter(this.value)"></select>
-          <label class="field-row checkbox" style="margin:0">
-            <input type="checkbox" id="skill-player-mode" onchange="skillRender()">
-            <span style="font-size:12px">Mode joueur</span>
-          </label>
-          <button class="btn-icon" onclick="skillLoadCharacters()" title="Rafraîchir">↻</button>
-        </div>
-        <div class="author-main" id="skill-main" style="overflow-y:auto">
-          <div class="empty">Sélectionnez un personnage joueur.</div>
-        </div>
-      </div>
+           other entity type's + Nouveau uses. This slot's own markup
+           converged onto PjSkillFiche.svelte (BRIEF-0059-j commit 4, final)
+           -- empty by construction, same as every other island's container
+           (svelte mount() appends, never clears a target's pre-existing
+           children). -->
+      <div id="creation-pj-skill" style="display:none"></div>
     </div><!-- .right-col -->
   </div><!-- #creation-editor-area -->
 
@@ -4216,7 +4206,7 @@ const CREATION_TABS = {
     containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'pjSkillFiche', containerId: 'creation-pj-skill' }],
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && playerCharIds.has(e.id)),
     // pj's create flow converged onto PjCreatePanel.svelte (TICKET-0059,
@@ -4225,7 +4215,12 @@ const CREATION_TABS = {
     // unchanged; the legacy panel rendering it does not.
     createPanel: null,
     primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
-    slots: [{ id: 'fiche', containerId: 'creation-pj-skill', loader: skillInit, onSelect: pjFicheOnSelect }],
+    // The Fiche slot converged onto PjSkillFiche.svelte too (BRIEF-0059-j
+    // commit 4, final): loader/onSelect both null, mounted via the
+    // 'pjSkillFiche' island entry above instead -- the descriptor itself
+    // stays, only for the display show/hide toggle every non-on_demand
+    // slot already gets in showCreationSubTab.
+    slots: [{ id: 'fiche', containerId: 'creation-pj-skill', loader: null, onSelect: null }],
   },
   lieux: {
     label: 'Lieux',
@@ -5062,107 +5057,14 @@ function creationSaveDispatch() {
  * Sheet.svelte's own template renders the button now. */
 
 /* ════════════════════════════════════════════════════════════════════════════
-   Fiche — player skill sheet (BRIEF-10, schema v1.22)
-   ════════════════════════════════════════════════════════════════════════════ */
-
-const SKILL_DOMAIN_LABELS = {
-  physical: 'Physical', agility: 'Agility',
-  perception: 'Perception', composure: 'Composure',
-};
-const SKILL_TIER_LABELS = {
-  '-1': '-1 · Weak', '0': '0 · Average', '1': '+1 · Trained', '2': '+2 · Exceptional',
-};
-
-let skillCharacters  = null;  // cached /api/skills/player-characters response
-let skillCharacterId = null;  // currently selected player character
-let skillRows        = [];    // current sheet rows
-
-async function skillInit() {
-  await skillLoadCharacters();
-}
-
-/** The pj entry's Fiche slot onSelect (BRIEF-0005-b) — replaces the former
- *  hardcoded pj-only branch inside the sheet's own entity-select loader:
- *  syncs the Fiche dropdown to the clicked character and loads its sheet. */
-function pjFicheOnSelect(id) {
-  const sel = document.getElementById('skill-character-select');
-  if (sel) sel.value = id;
-  skillSelectCharacter(id);
-}
-
-async function skillLoadCharacters() {
-  const sel = document.getElementById('skill-character-select');
-  try {
-    skillCharacters = await api('/api/skills/player-characters');
-  } catch (e) {
-    document.getElementById('skill-main').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-    return;
-  }
-  sel.innerHTML = skillCharacters.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
-  if (skillCharacters.length === 0) {
-    document.getElementById('skill-main').innerHTML = '<div class="empty">No player characters yet.</div>';
-    return;
-  }
-  if (!skillCharacterId || !skillCharacters.some(c => c.id === skillCharacterId)) {
-    skillCharacterId = skillCharacters[0].id;
-  }
-  sel.value = skillCharacterId;
-  await skillSelectCharacter(skillCharacterId);
-}
-
-async function skillSelectCharacter(characterId) {
-  skillCharacterId = characterId;
-  const mainEl = document.getElementById('skill-main');
-  mainEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
-  try {
-    skillRows = await api(`/api/skills?character_id=${encodeURIComponent(characterId)}`);
-  } catch (e) {
-    mainEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-    return;
-  }
-  skillRender();
-}
-
-function skillRender() {
-  const mainEl = document.getElementById('skill-main');
-  if (!skillRows.length) {
-    mainEl.innerHTML = '<div class="empty">No skill rows for this character.</div>';
-    return;
-  }
-  const playerMode = document.getElementById('skill-player-mode').checked;
-  mainEl.innerHTML = '<div class="field-section"><div class="field-grid">' +
-    skillRows.map(s => {
-      const baseName = SKILL_DOMAIN_LABELS[s.domain] || s.domain;
-      const labelHtml = s.definition_name
-        ? `${esc(s.definition_name)}<br><small style="font-weight:normal;color:var(--muted)">${esc(baseName)}</small>`
-        : esc(baseName);
-      if (playerMode) {
-        return `<div class="field-row"><label>${labelHtml}</label>
-          <input type="text" value="${esc(SKILL_TIER_LABELS[String(s.tier)] || s.tier)}" disabled></div>`;
-      }
-      const opts = [-1, 0, 1, 2].map(t =>
-        `<option value="${t}" ${t === s.tier ? 'selected' : ''}>${esc(SKILL_TIER_LABELS[String(t)])}</option>`
-      ).join('');
-      return `<div class="field-row"><label>${labelHtml}</label>
-        <select onchange="skillSaveTier('${esc(s.id)}', this.value)">${opts}</select></div>`;
-    }).join('') +
-    '</div></div>';
-}
-
-async function skillSaveTier(skillId, tier) {
-  try {
-    const updated = await api(`/api/skills/${encodeURIComponent(skillId)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tier: Number(tier) }),
-    });
-    const idx = skillRows.findIndex(s => s.id === skillId);
-    if (idx !== -1) skillRows[idx] = updated;
-  } catch (e) {
-    alert(e.message);
-    skillSelectCharacter(skillCharacterId); // reload to discard the failed edit
-  }
-}
+   Fiche — player skill sheet (BRIEF-10, schema v1.22; converged onto Svelte
+   by TICKET-0059, BRIEF-0059-j commit 4, final)
+   ════════════════════════════════════════════════════════════════════════════
+   The whole Fiche slot -- character list, per-character skill rows,
+   player-mode toggle, tier edits -- moved to
+   frontend/src/creation/PjSkillFiche.svelte, mounted into
+   #creation-pj-skill via the 'pjSkillFiche' island entry on CREATION_TABS.pj.
+   Nothing legacy-side renders this panel any more. */
 
 /* TICKET-0058 (BRIEF-0058-c). The fifteen NPC-relation-graph functions
    that used to live here (a vendored graph-engine cluster) converged onto
