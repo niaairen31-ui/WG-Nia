@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0063-cockpit-stylesheet-partition",
+  "when": "2026-08-06T18:29:37.590799+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "stylesheet_partition.py",
+      "status": "PASS",
+      "msg": "PASS: stylesheet_partition \u2014 307 top-level selector(s) across shared.css/creation.css/inline, zero duplicates"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u2014 72 source file(s), 1 output asset(s), manifest hash matches"
+    }
+  ]
+}

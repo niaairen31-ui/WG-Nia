@@ -1,0 +1,198 @@
+/* TICKET-0063 (BRIEF-0063-a). The layer the shell document and the legacy
+   document BOTH need. Moved, not copied, out of cockpit/index.html's
+   inline <style>: stylesheet_partition.py forbids any selector from
+   appearing in more than one of shared.css, creation.css and that inline
+   block, so there is exactly one definition of every rule and load order
+   cannot decide a conflict. Plain CSS in publicDir, copied unhashed by
+   Vite, because cockpit/index.html cannot link a content-hashed asset. */
+
+/* ── Reset ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+
+/* ── Design tokens ───────────────────────────────────────────────────────── */
+:root {
+  --bg:        #0d1117;
+  --panel:     #161b22;
+  --card:      #21262d;
+  --border:    #30363d;
+  --text:      #c9d1d9;
+  --muted:     #8b949e;
+  --accent:    #58a6ff;
+  --green:     #3fb950;
+  --yellow:    #d29922;
+  --red:       #f85149;
+  --radius:    6px;
+  --mono:      "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Queue panel ─────────────────────────────────────────────────────────── */
+.queue-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.queue-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.filter-bar { display: flex; gap: 4px; }
+.f-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
+}
+.f-btn:hover  { color: var(--text); border-color: var(--muted); }
+.f-btn.active { background: var(--card); color: var(--text); border-color: var(--accent); }
+
+/* ── Badges ──────────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* mutation_type colours */
+.b-relation_change   { background:#0d2138; color:#79c0ff; border:1px solid #1f6feb; }
+.b-new_knowledge     { background:#0d2c12; color:#7ee787; border:1px solid #238636; }
+.b-knowledge_change  { background:#0d2c12; color:#7ee787; border:1px solid #1a7f37; }
+.b-status_change     { background:#271a00; color:#ffa657; border:1px solid #9e6a03; }
+.b-event_creation    { background:#1e1130; color:#d2a8ff; border:1px solid #6e40c9; }
+.b-entity_creation   { background:#1e1130; color:#d2a8ff; border:1px solid #6e40c9; }
+.b-resource_change   { background:#271a00; color:#ffa657; border:1px solid #9e6a03; }
+.b-other             { background:#1c2128; color:var(--muted); border:1px solid var(--border); }
+/* world-tick badges (TICKET-0014/BRIEF-0014-b) */
+.b-tick            { background:#1c2128; color:var(--muted); border:1px solid var(--border); }
+.b-secret-derived  { background:#2b1d00; color:var(--yellow); border:1px solid #9e6a03; }
+/* status colours */
+.b-proposed { background:#2b1d00; color:var(--yellow); border:1px solid #9e6a03; }
+.b-applied  { background:#0d2c12; color:var(--green);  border:1px solid #238636; }
+.b-rejected { background:#2a0e10; color:var(--red);    border:1px solid #b62324; }
+.b-approved { background:#0d1f38; color:var(--accent); border:1px solid #1f6feb; }
+/* conversation status */
+.b-open   { background:#0d2c12; color:var(--green); }
+.b-closed { background:#1c2128; color:var(--muted); }
+/* item equip status */
+.b-equipped { background:#0d2c12; color:var(--green); border:1px solid #238636; }
+.b-stowed   { background:#1c2128; color:var(--muted); border:1px solid var(--border); }
+/* event.knowledge_status (TICKET-0022) */
+.b-secret    { background:#2b1d00; color:var(--yellow); border:1px solid #9e6a03; }
+.b-public    { background:#0d2c12; color:var(--green);  border:1px solid #238636; }
+.b-confirmed { background:#0d1f38; color:var(--accent);  border:1px solid #1f6feb; }
+/* observation_beat.outcome (TICKET-0051, BRIEF-0051-f) — 'degraded' must
+   never look like 'silence': the visual distinction IS the ticket's central
+   measurement claim (a datum vs. a bug), so these four are deliberately far
+   apart rather than shades of the same hue. */
+.b-acted    { background:#0d2c12; color:var(--green);  border:1px solid #238636; }
+.b-silence  { background:#1c2128; color:var(--muted);   border:1px solid var(--border); }
+.b-degraded { background:#2a0e10; color:var(--red);     border:1px solid #b62324; }
+.b-event    { background:#1e1130; color:#d2a8ff;        border:1px solid #6e40c9; }
+
+.target-ref { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+button {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 13px;
+  border-radius: var(--radius);
+  border: 1px solid;
+  transition: filter 0.1s;
+}
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button:not(:disabled):hover { filter: brightness(1.15); }
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text);
+  padding: 4px 11px;
+  font-size: 12px;
+}
+.btn-icon {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  padding: 4px 8px;
+  font-size: 15px;
+  line-height: 1;
+}
+.btn-icon:hover { color: var(--text) !important; filter: none !important; }
+.btn-approve {
+  background: #12261e;
+  border-color: #238636;
+  color: var(--green);
+  font-weight: 600;
+}
+.btn-reject {
+  background: #2a0e10;
+  border-color: #b62324;
+  color: var(--red);
+  font-weight: 600;
+}
+
+/* ── Empty / info states ─────────────────────────────────────────────────── */
+.empty    { color: var(--muted);  font-style: italic; text-align: center; padding: 28px 16px; }
+/* Used for the "Needs attention" tab when empty — green = healthy */
+.empty-ok { color: var(--green); font-style: italic; text-align: center; padding: 28px 16px; }
+.spin  { display: inline-block; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Generic modal (BRIEF-41) — reusable overlay, body swapped per use ──────── */
+/* TICKET-0063 (BRIEF-0063-a): moved here rather than to creation.css. The
+   world create/delete modal (Header.svelte's "+ Monde"/"🗑 Monde", always
+   visible regardless of active surface) renders into this same element
+   inside the legacy document (cockpit/index.html's #generic-modal-backdrop)
+   and must stay styled after BRIEF-0059-l drops cockpit/index.html's
+   creation.css <link> — Play and Observation never stop living in that
+   document. See RECON-0063-a-selector-audit.md, correction 3. */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.modal-backdrop.hidden { display: none; }
+.modal-container {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  width: 560px; max-width: 90vw; max-height: 84vh;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.modal-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+}
+.modal-header .modal-title { font-weight: 600; font-size: 14px; }
+.modal-close { margin-left: auto; background: none; border: none; color: var(--muted);
+  font-size: 18px; line-height: 1; cursor: pointer; padding: 2px 6px; }
+.modal-close:hover { color: var(--text); }
+.modal-body { padding: 14px 16px; overflow-y: auto; flex: 1; }
