@@ -28,7 +28,46 @@
    and the sheetMode/sheetDetail/sheetIsNew/sheetType/sheetErrorMessage
    quintet, which Sheet.svelte owns exclusively (set by its own
    'creation:sheet-*' listeners and its exported primaryAction/saveSheet,
-   never written from outside that component). */
+   never written from outside that component).
+
+   TICKET-0059 (BRIEF-0059-l commit 1) additions, now that Creation.svelte
+   drives the chrome directly instead of index.html: tabsVersion (bumped by
+   tabs.js's refreshCreationTabs/_buildRuntimeCreationTabs so the tab bar's
+   {#each} — reading CREATION_TABS, a plain mutable object this store
+   cannot see into on its own — recomputes on a runtime type's arrival or
+   departure) and onDemandSlotState (BRIEF-0023-a's per on_demand-slot
+   open/loaded map, moved off the legacy `let onDemandSlotState = {}`
+   module global so Creation.svelte's shell-band toggles react to it). Both
+   read AND written from tabs.js as well as Creation.svelte -- mutating a
+   nested property of this $state root still notifies regardless of which
+   module performs the write, the same guarantee factionPanelState and
+   subcultureDraftState already rely on.
+
+   Also added: authorRegistry (the legacy `let authorRegistry` module
+   global, now the one copy -- GET /api/entity-types response, read by
+   tabs.js's whole chrome cluster and by the legacy-side world-delete
+   reverse-bridge listener), creationReturnTo (the legacy `let
+   creationReturnTo` module global -- the single-slot return-crumb {tabId,
+   entityId} | null), and npcAgentBadgeOpen/linkAgentBadgeOpen (mirrors of
+   the 'creation:npcagent-badge'/'creation:linkagent-badge' events
+   NpcAgent.svelte/LinkAgent.svelte dispatch on themselves -- Creation.svelte's
+   template binds the two launcher badges to these instead of an imperative
+   getElementById toggle, now that the badge markup is its own).
+
+   npcAgentOpen/linkAgentOpen (BRIEF-0059-l amendment, the legacyContainer
+   exposure): the two NPC-panel launcher toggle booleans, ported into
+   Creation.svelte's chrome (npcAgentToggle/linkAgentToggle) alongside the
+   #npcagent-panel/#linkagent-panel markup they show/hide -- moved onto
+   this shared store rather than kept Creation.svelte-local specifically so
+   npcAgent.svelte.js's generateLinks() can request the link agent panel
+   open (`if (!creationState.linkAgentOpen) creationState.linkAgentOpen =
+   true;`) as ordinary parent-owned state, never reaching into a sibling
+   component's internals or reintroducing an event bus.
+
+   pendingCreations/pendingCreationsLoading/pendingCreationsError: the
+   Créations en attente strip's data (loadPendingCreations, tabs.js),
+   rendered by Creation.svelte's own {#each} instead of the legacy
+   renderPendingCreationCard HTML-string generator. */
 export const creationState = $state({
   activeTabKey: null,
   entityListActivationTick: 0,
@@ -40,6 +79,9 @@ export const creationState = $state({
   events: [],
   selectedEntityId: null,
   selectedRecordId: null,
+  pendingCreations: [],
+  pendingCreationsLoading: false,
+  pendingCreationsError: '',
   // 'empty' | 'loading' | 'view' | 'error' | 'legacy' -- 'create' is a
   // sub-case of 'view' carrying sheetIsNew: true (same skeleton, blank data).
   sheetMode: 'empty',
@@ -47,4 +89,12 @@ export const creationState = $state({
   sheetIsNew: false,
   sheetType: null,
   sheetErrorMessage: '',
+  npcAgentOpen: false,
+  linkAgentOpen: false,
+  tabsVersion: 0,
+  onDemandSlotState: {},
+  authorRegistry: null,
+  creationReturnTo: null,
+  npcAgentBadgeOpen: false,
+  linkAgentBadgeOpen: false,
 });

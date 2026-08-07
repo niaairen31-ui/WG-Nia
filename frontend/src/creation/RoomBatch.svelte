@@ -28,7 +28,7 @@
      renders inside the legacy iframe document. */
   import { serverState } from '../lib/serverState.svelte.js';
   import { creationState } from './state.svelte.js';
-  import { legacyCall } from '../legacy/bridge.js';
+  import { creationRefreshList } from './tabs.js';
   import { locationTypeOptionLabel } from './locationType.js';
   import LocationTypeModal from './LocationTypeModal.svelte';
   import { reviewRegister } from './review/registry.js';
@@ -250,7 +250,7 @@
     commitPending = false;
     roomBatchState.commitResult = result;
     if (result.ok) {
-      legacyCall('creationRefreshList');
+      creationRefreshList();
       if (creationState.activeTabKey === 'lieux') {
         legacyDoc.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'lieux' } }));
       }

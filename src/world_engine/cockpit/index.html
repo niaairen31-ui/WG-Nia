@@ -520,7 +520,6 @@ header .local-badge {
     <button class="mode-tab"        id="mode-tab-creation"    onclick="showCreationView()">Création</button>
     <button class="mode-tab"        id="mode-tab-observation" onclick="showObservationView()">Observation</button>
   </div>
-  <select id="world-selector" onchange="activateWorld(this.value)" title="Monde actif"></select>
   <button class="btn-icon" onclick="worldCreateOpen()" title="Créer un nouveau monde">+ Monde</button>
   <button class="btn-icon" onclick="worldDeleteOpen()" title="Supprimer le monde sélectionné">🗑 Monde</button>
   <span class="local-badge">127.0.0.1 · local only</span>
@@ -689,45 +688,20 @@ header .local-badge {
   <!-- ── Standard shell band (BRIEF-0005-c) — one header band above every
        Création page: the entry's label (title) plus, iff it declares a
        primaryAction, exactly one button in this same fixed position on all
-       ten tabs. #creation-shell-extra is Review Queue's filter bar +
-       batch-bar mount point — a one-off relocation, not a generic shell
-       concept (hidden on every other tab via the ordinary slot mechanism). -->
+       ten tabs. #creation-shell-extra (filter bar + tick-controls) and
+       #creation-shell-batch-bar are Review Queue's mount points — a
+       one-off relocation, not a generic shell concept (hidden on every
+       other tab via the ordinary slot mechanism; both are declared slots
+       on CREATION_TABS.queue so the generic show/hide loop covers them —
+       creation_island.py rule 4 requires every island containerId to be a
+       real static element id here, so neither can be nested inside the
+       other's own island-rendered DOM). Both empty by construction
+       (TICKET-0059, BRIEF-0059-k) — Svelte mount() appends, it never
+       clears a target's pre-existing children. -->
   <div class="panel-head" id="creation-shell-band">
     <h2 id="creation-shell-title"></h2>
-    <div id="creation-shell-extra" style="display:none">
-      <div class="filter-bar" id="filter-bar">
-        <button class="f-btn active" data-s="proposed"  onclick="setFilter(this,'proposed')">Proposed</button>
-        <button class="f-btn"        data-s="approved"  onclick="setFilter(this,'approved')"
-                title="Proposals that were approved but could not be applied to canon (apply error, unhandled type, or duplicate block). Needs creator attention.">⚠ Needs attention</button>
-        <button class="f-btn"        data-s="applied"   onclick="setFilter(this,'applied')">Applied</button>
-        <button class="f-btn"        data-s="rejected"  onclick="setFilter(this,'rejected')">Rejected</button>
-      </div>
-      <!-- ── World tick controls (TICKET-0014/BRIEF-0014-b, I1/J1/M3) ──
-           Manual, scoped off-screen NPC advancement. Lands in this same
-           slot as the filter bar — a second row via flex-basis:100%, not a
-           new registry entry (this tab's rows are still append-only via
-           /api/world-tick -> proposed_mutation, never created directly here). -->
-      <div class="tick-controls" id="tick-controls"
-           style="flex-basis:100%; display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; padding-top:8px; border-top:1px solid var(--border);">
-        <button class="btn-send" id="btn-world-tick" onclick="runWorldTick()">Faire avancer le monde</button>
-        <select id="tick-scope-type" onchange="tickScopeTypeChanged()" title="Portée du tick">
-          <option value="npcs">PNJ(s)</option>
-          <option value="location">Lieu</option>
-          <option value="faction">Faction</option>
-        </select>
-        <select id="tick-scope-npcs" multiple size="4" style="min-width:180px;"
-                title="Ctrl/Cmd+clic pour sélectionner plusieurs PNJ"></select>
-        <select id="tick-scope-location" style="display:none; min-width:180px;"></select>
-        <select id="tick-scope-faction" style="display:none; min-width:180px;"></select>
-        <select id="tick-interval" title="Intervalle écoulé">
-          <option value="quelques heures">quelques heures</option>
-          <option value="quelques jours">quelques jours</option>
-          <option value="quelques semaines">quelques semaines</option>
-        </select>
-        <span class="analyze-status" id="tick-status"></span>
-      </div>
-      <div id="creation-shell-batch-bar"></div>
-    </div>
+    <div id="creation-shell-extra" style="display:none"></div><!-- #creation-shell-extra -->
+    <div id="creation-shell-batch-bar" style="display:none"></div><!-- #creation-shell-batch-bar -->
     <!-- On-demand slot toggles (BRIEF-0023-a, F1) — one button per slot the
          active entry declares display:'on_demand'; same fixed shell
          position on every tab, mirroring primaryAction. -->
@@ -827,22 +801,14 @@ header .local-badge {
 
       <!-- PJ Fiche — a declared slot on the pj registry entry (BRIEF-0005-b),
            rendered by default on tab activation, outside the create gate.
-           The create form itself lives in #author-main via pjRenderCreatePanel,
-           the same detail region every other entity type's + Nouveau uses. -->
-      <div id="creation-pj-skill" style="display:none">
-        <div class="panel-head" style="flex-shrink:0; border-top:2px solid var(--border)">
-          <h2 style="font-size:12px">Fiche de compétences</h2>
-          <select id="skill-character-select" onchange="skillSelectCharacter(this.value)"></select>
-          <label class="field-row checkbox" style="margin:0">
-            <input type="checkbox" id="skill-player-mode" onchange="skillRender()">
-            <span style="font-size:12px">Mode joueur</span>
-          </label>
-          <button class="btn-icon" onclick="skillLoadCharacters()" title="Rafraîchir">↻</button>
-        </div>
-        <div class="author-main" id="skill-main" style="overflow-y:auto">
-          <div class="empty">Sélectionnez un personnage joueur.</div>
-        </div>
-      </div>
+           The create form itself lives in #author-main via PjCreatePanel.svelte
+           (TICKET-0059, BRIEF-0059-j commit 3), the same detail region every
+           other entity type's + Nouveau uses. This slot's own markup
+           converged onto PjSkillFiche.svelte (BRIEF-0059-j commit 4, final)
+           -- empty by construction, same as every other island's container
+           (svelte mount() appends, never clears a target's pre-existing
+           children). -->
+      <div id="creation-pj-skill" style="display:none"></div>
     </div><!-- .right-col -->
   </div><!-- #creation-editor-area -->
 
@@ -869,19 +835,10 @@ header .local-badge {
        children) ── -->
   <div id="creation-registre" style="display:none"></div><!-- #creation-registre -->
 
-  <!-- ── Review Queue sub-tab ── -->
-  <div id="creation-queue" style="display:none">
-    <div class="queue-panel">
-      <div class="panel-head">
-        <h2>Review Queue</h2>
-        <button class="btn-icon" onclick="loadQueue()" title="Rafraîchir">↻</button>
-      </div>
-      <div class="batch-verdict" id="batch-verdict" style="display:none"></div>
-      <div class="queue-body" id="queue-body">
-        <div class="empty"><span class="spin">⟳</span></div>
-      </div>
-    </div>
-  </div><!-- #creation-queue -->
+  <!-- ── Review Queue sub-tab (TICKET-0059, BRIEF-0059-k commit 2) — Svelte
+       island: empty by construction (Svelte mount() appends, it never
+       clears a target's children) ── -->
+  <div id="creation-queue" style="display:none"></div><!-- #creation-queue -->
 
   <!-- ── Prompts sub-tab (TICKET-0059, BRIEF-0059-i) — Svelte island: prompt
        management + the parked D-0050 conversation-window config panel ── -->
@@ -974,22 +931,12 @@ header .local-badge {
    ════════════════════════════════════════════════════════════════════════════ */
 let currentConvId    = null;
 let currentConvData  = null;   // full detail object from the server
-let currentFilter    = 'proposed';
 let _streamingActive = false;  // true while an NPC reply is in flight
 
 // Resolved play context (BRIEF-45) — populated by loadBootstrap() before any
 // other init call; never the literal "char-player".
 let WORLD_ID  = null;
 let PLAYER_ID = null;
-
-let currentCreationSubTab = 'npc';
-let playerCharIds = new Set();  // IDs of player-character entities (from /api/skills/player-characters)
-
-/** Single-slot return crumb (TICKET-0054, decision F2a): where a
- *  programmatic cross-tab entity navigation came FROM. Never a stack —
- *  no reader needs a depth greater than one, and the day one does, this
- *  becomes an array with no other change. Shape: {tabId, entityId}. */
-let creationReturnTo = null;
 
 /* ════════════════════════════════════════════════════════════════════════════
    Utilities
@@ -2014,10 +1961,14 @@ async function analyzeConv(force) {
       status.textContent = '— nothing new to analyze';
     } else {
       status.textContent = `✓ ${n} proposal${n !== 1 ? 's' : ''} written`;
+      // BRIEF-0059-k: the Review Queue is now a Svelte island; Play states
+      // a fact instead of reaching into the queue's own filter state
+      // directly (the two legacy globals this used to call are gone).
+      // The queue's own store (frontend/src/creation/queue.svelte.js)
+      // listens for this and decides to show the proposed filter -- Play
+      // no longer knows the Review Queue has filters at all.
+      document.dispatchEvent(new CustomEvent('mutations:proposed', { detail: { count: n } }));
     }
-    // Switch to proposed tab and reload the queue so new proposals are visible.
-    setFilterByName('proposed');
-    await loadQueue();
   } catch (e) {
     status.style.color = 'var(--red)';
     status.textContent = '✗ ' + e.message;
@@ -2028,611 +1979,22 @@ async function analyzeConv(force) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   World tick (TICKET-0014, BRIEF-0014-b) — manual, scoped off-screen NPC
-   advancement. Scope selectors populate from the entity-list APIs the
-   Création view already calls (BRIEF-0005-a precedent): /api/entities,
-   /api/skills/player-characters (NPC/PC split, same as CREATION_TABS.npc's
-   entityFilter), /api/locations, /api/entities?type=faction.
-   ════════════════════════════════════════════════════════════════════════════ */
-
-async function loadTickControls() {
-  const status = document.getElementById('tick-status');
-  try {
-    const [entities, pcs, locations, factions] = await Promise.all([
-      api('/api/entities?type=character'),
-      api('/api/skills/player-characters').catch(() => []),
-      api('/api/locations').catch(() => []),
-      api('/api/entities?type=faction').catch(() => []),
-    ]);
-    const pcIds = new Set(pcs.map(p => p.id));
-    const npcs = entities.filter(e => e.type === 'character' && !pcIds.has(e.id));
-
-    const npcSel = document.getElementById('tick-scope-npcs');
-    if (npcSel) npcSel.innerHTML = npcs.map(n => `<option value="${esc(n.id)}">${esc(n.name)}</option>`).join('');
-
-    const locSel = document.getElementById('tick-scope-location');
-    if (locSel) locSel.innerHTML = locations.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('');
-
-    const facSel = document.getElementById('tick-scope-faction');
-    if (facSel) facSel.innerHTML = factions.map(f => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
-
-    tickScopeTypeChanged();
-  } catch (e) {
-    if (status) { status.style.color = 'var(--red)'; status.textContent = 'Erreur de chargement des cibles : ' + e.message; }
-  }
-}
-
-function tickScopeTypeChanged() {
-  const type = document.getElementById('tick-scope-type').value;
-  document.getElementById('tick-scope-npcs').style.display    = (type === 'npcs')     ? '' : 'none';
-  document.getElementById('tick-scope-location').style.display = (type === 'location') ? '' : 'none';
-  document.getElementById('tick-scope-faction').style.display  = (type === 'faction')  ? '' : 'none';
-}
-
-async function runWorldTick() {
-  const btn      = document.getElementById('btn-world-tick');
-  const status   = document.getElementById('tick-status');
-  const scopeType = document.getElementById('tick-scope-type').value;
-  const interval  = document.getElementById('tick-interval').value;
-
-  const body = { scope_type: scopeType, interval };
-  if (scopeType === 'npcs') {
-    const sel = document.getElementById('tick-scope-npcs');
-    body.npc_ids = Array.from(sel.selectedOptions).map(o => o.value);
-    if (!body.npc_ids.length) {
-      status.style.color = 'var(--red)'; status.textContent = 'Sélectionnez au moins un PNJ.';
-      return;
-    }
-  } else {
-    const sel = document.getElementById(scopeType === 'location' ? 'tick-scope-location' : 'tick-scope-faction');
-    body.scope_id = sel.value;
-    if (!body.scope_id) {
-      status.style.color = 'var(--red)'; status.textContent = 'Sélectionnez une cible.';
-      return;
-    }
-  }
-
-  btn.disabled = true;
-  status.style.color = 'var(--muted)';
-  status.textContent = '⟳ Le monde avance…';
-  try {
-    const data = await api('/api/world-tick', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const npcNotes = (data.npcs || [])
-      .filter(n => (n.notes && n.notes.length) || n.dropped)
-      .map(n => `${n.name}: ${n.proposed} proposé(s), ${n.dropped} écarté(s)` +
-        (n.notes && n.notes.length ? ' — ' + n.notes.join('; ') : ''));
-    status.style.color = 'var(--text)';
-    status.textContent = `✓ ${data.total_proposed} propositions (tick ${String(data.tick_id).slice(0, 4)})` +
-      (npcNotes.length ? ' — ' + npcNotes.join(' | ') : '');
-    setFilterByName('proposed');
-    await loadQueue();
-  } catch (e) {
-    status.style.color = 'var(--red)';
-    status.textContent = '✗ ' + e.message;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   Review queue
-   ════════════════════════════════════════════════════════════════════════════ */
-
-function setFilter(btn, status) {
-  document.querySelectorAll('.f-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  currentFilter = status;
-  hideBatchVerdict();
-  loadQueue();
-}
-
-function setFilterByName(status) {
-  const btn = document.querySelector(`.f-btn[data-s="${status}"]`);
-  if (btn) {
-    document.querySelectorAll('.f-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentFilter = status;
-  }
-}
-
-/* Lazy entity id → name cache, used to render resource_change's money/
-   knowledge legs in human-readable form (BRIEF-19). Loaded once. */
-let _mutationEntityNames = null;
-
-async function _loadMutationEntityNames() {
-  if (_mutationEntityNames) return;
-  try {
-    const rows = await api('/api/entities');
-    _mutationEntityNames = new Map(rows.map(e => [e.id, e.name]));
-  } catch (_) {
-    _mutationEntityNames = new Map();
-  }
-}
-
-function _mutationEntityName(id) {
-  if (!id) return '';
-  if (_mutationEntityNames && _mutationEntityNames.has(id)) return _mutationEntityNames.get(id);
-  return shortId(id);
-}
-
-/* Lazy agenda id -> title cache (TICKET-0020, BRIEF-0020-c) — mirrors
-   _mutationEntityNames, for resolving agenda_delegation's agenda_id. */
-let _mutationAgendaNames = null;
-
-async function _loadMutationAgendaNames() {
-  if (_mutationAgendaNames) return;
-  try {
-    const rows = await api('/api/agendas');
-    _mutationAgendaNames = new Map(rows.map(a => [a.id, a.title]));
-  } catch (_) {
-    _mutationAgendaNames = new Map();
-  }
-}
-
-function _mutationAgendaName(id) {
-  if (!id) return '';
-  if (_mutationAgendaNames && _mutationAgendaNames.has(id)) return _mutationAgendaNames.get(id);
-  return shortId(id);
-}
-
-async function loadQueue() {
-  const body = document.getElementById('queue-body');
-  // BRIEF-0005-c: the batch bar mounts in the shell band's #creation-shell-extra
-  // (moved out of #queue-body — markup relocation only, same renderBatchBar()).
-  const batchSlot = document.getElementById('creation-shell-batch-bar');
-  try {
-    await Promise.all([_loadMutationEntityNames(), _loadMutationAgendaNames()]);
-    const mutations = await api('/api/mutations?status=' + currentFilter);
-    if (!mutations.length) {
-      if (batchSlot) batchSlot.innerHTML = '';
-      // "approved" (Needs attention) being empty is the healthy, expected state.
-      if (currentFilter === 'approved') {
-        body.innerHTML =
-          '<div class="empty-ok">✓ Empty — no apply errors or duplicate blocks.' +
-          '<br>This is the normal, healthy state.</div>';
-      } else {
-        body.innerHTML = `<div class="empty">No "${esc(currentFilter)}" proposals.</div>`;
-      }
-      return;
-    }
-    const showBatchBar = currentFilter === 'proposed';
-    if (batchSlot) batchSlot.innerHTML = showBatchBar ? renderBatchBar() : '';
-    body.innerHTML = mutations.map(renderCard).join('');
-    if (showBatchBar) updateBatchBar();
-  } catch (e) {
-    body.innerHTML = `<div class="empty" style="color:var(--red)">Error: ${esc(e.message)}</div>`;
-  }
-}
-
-/** Toolbar shown above the "proposed" queue: select all/none + batch actions. */
-function renderBatchBar() {
-  return `
-<div class="batch-bar" id="batch-bar">
-  <label>
-    <input type="checkbox" id="batch-select-all-cb" onchange="toggleSelectAll(this)">
-    Select all / none
-  </label>
-  <span class="batch-count" id="batch-count">0 selected</span>
-  <div class="batch-actions">
-    <button class="btn-approve" id="batch-approve-btn" onclick="doBatchAction('approve')" disabled>✓ Approve selected</button>
-    <button class="btn-reject" id="batch-reject-btn" onclick="doBatchAction('reject')" disabled>✗ Reject selected</button>
-  </div>
-</div>`;
-}
-
-/** Human-readable money + optional knowledge leg for a resource_change card
- *  (BRIEF-19) — the creator sees what is being granted before approving.
- *  Returns '' for every other mutation_type. */
-function _renderResourceChangeLegs(m) {
-  if (m.mutation_type !== 'resource_change') return '';
-  const p = m.payload || {};
-  const amount = Number(p.amount);
-  const amountTxt = isNaN(amount) ? String(p.amount) : (amount >= 0 ? '+' : '') + amount;
-  const amountColor = amount < 0 ? 'var(--danger, #c44)' : 'var(--accent)';
-
-  const moneyLine = `
-    <div class="row-card" style="flex-direction:row; align-items:center; gap:10px; flex-wrap:wrap;">
-      <span style="font-weight:600;">${esc(_mutationEntityName(p.entity_id))}</span>
-      <span style="font-weight:700; color:${amountColor};">${esc(amountTxt)}</span>
-      ${p.counterparty_id ? `<span style="color:var(--muted); font-size:12px;">↔ ${esc(_mutationEntityName(p.counterparty_id))}</span>` : ''}
-      ${p.reason ? `<span style="font-size:12px;">${esc(p.reason)}</span>` : ''}
-    </div>`;
-
-  const k = p.knowledge;
-  const knowledgeLine = (k && typeof k === 'object')
-    ? `
-    <div class="row-card" style="flex-direction:row; align-items:center; gap:10px; flex-wrap:wrap;">
-      <span class="badge b-new_knowledge">knowledge</span>
-      <span style="font-weight:600;">${esc(_mutationEntityName(k.entity_id))}</span>
-      <span style="color:var(--muted); font-size:12px;">${esc(k.subject || '')} · ${esc(k.level || '')}</span>
-      ${k.content ? `<span style="font-size:12px;">${esc(k.content)}</span>` : ''}
-    </div>`
-    : '';
-
-  return `<div class="card-fields" style="margin-bottom:8px;">
-    <div class="field-label">Money leg</div>
-    ${moneyLine}
-    ${knowledgeLine ? `<div class="field-label" style="margin-top:6px;">Knowledge leg</div>${knowledgeLine}` : ''}
-  </div>`;
-}
-
-/** Human-readable summary for agenda_delegation (ids resolved to names) and
- *  agenda_creation (owner name resolved — per-NPC or faction alike),
- *  TICKET-0020/BRIEF-0020-c. Same treatment level as resource_change's legs
- *  above: a small resolved-names block ABOVE the raw JSON payload, which
- *  stays visible/editable underneath as it does for every mutation_type.
- *  Returns '' for every other mutation_type. */
-function _renderAgendaProvenanceSummary(m) {
-  const p = m.payload || {};
-  if (m.mutation_type === 'agenda_delegation') {
-    return `
-    <div class="card-fields" style="margin-bottom:8px;">
-      <div class="field-label">Délégation</div>
-      <div class="row-card" style="flex-direction:row; align-items:center; gap:10px; flex-wrap:wrap;">
-        <span style="font-weight:600;">${esc(_mutationEntityName(p.npc_id))}</span>
-        <span style="font-size:12px; color:var(--muted);">${esc(p.horizon || '')}</span>
-        <span>${esc(p.goal || '')}</span>
-        <span style="font-size:12px; color:var(--muted);">sert : « ${esc(_mutationAgendaName(p.agenda_id))} »</span>
-      </div>
-    </div>`;
-  }
-  if (m.mutation_type === 'agenda_creation') {
-    return `
-    <div class="card-fields" style="margin-bottom:8px;">
-      <div class="field-label">Propriétaire</div>
-      <div class="row-card" style="flex-direction:row; align-items:center; gap:10px; flex-wrap:wrap;">
-        <span style="font-weight:600;">${esc(_mutationEntityName(p.owner_entity_id))}</span>
-        <span>${esc(p.title || '')}</span>
-      </div>
-    </div>`;
-  }
-  return '';
-}
-
-function renderCard(m) {
-  const editable   = (m.status === 'proposed');
-  const payloadStr = JSON.stringify(m.payload, null, 2);
-
-  const targetTxt = [m.target_table, m.target_id ? shortId(m.target_id) : null]
-    .filter(Boolean).join(' · ');
-
-  const sourceRef = m.conversation_id
-    ? `conv:${shortId(m.conversation_id)}`
-    : m.pass_play_id
-      ? `pass-play:${shortId(m.pass_play_id)}`
-      : '';
-
-  // "approved" status = approved but NOT applied to canon.
-  // creator_notes holds the stored reason (apply error or duplicate block).
-  const applyErrorBlock = (m.status === 'approved' && m.creator_notes)
-    ? `<div class="card-apply-error"><strong>⚠ Could not apply to canon — needs attention:</strong>${esc(m.creator_notes)}</div>`
-    : '';
-
-  // Duplicate-risk banner: the backend sets applied_duplicate when a logically
-  // equivalent mutation was already applied for this conversation.
-  const dupBlock = m.applied_duplicate
-    ? `<div class="card-dup-warn"><strong>⚠ Duplicate risk — approving will be blocked:</strong>${esc(m.applied_duplicate)}</div>`
-    : '';
-
-  // Checkboxes are rendered ONLY for selectable rows (status='proposed') —
-  // reviewed rows (applied/approved/rejected) get no checkbox.
-  const checkbox = (m.status === 'proposed')
-    ? `<input type="checkbox" class="row-select" data-id="${esc(m.id)}" onchange="updateBatchBar()">`
-    : '';
-
-  const resourceLegsBlock = _renderResourceChangeLegs(m);
-  const agendaSummaryBlock = _renderAgendaProvenanceSummary(m);
-
-  // World-tick badges (TICKET-0014/BRIEF-0014-b, P1 + Z3): a grouping label
-  // for every row of the same invocation, and a distinct warning badge when
-  // the proposal's content is derived from a [SECRET] briefing item —
-  // independent of is_secret, which is the receiving NPC's own disposition.
-  const tickBadge = (m.source_type === 'world_tick' && m.tick_id)
-    ? `<span class="badge b-tick" title="tick ${esc(m.tick_id)}">TICK ·${esc(m.tick_id.slice(0, 4))}</span>`
-    : '';
-  const secretDerivedBadge = (m.payload && m.payload.secret_derived === true)
-    ? `<span class="badge b-secret-derived">dérivé d'un secret</span>`
-    : '';
-
-  return `
-<div class="card s-${esc(m.status)}" id="card-${esc(m.id)}">
-  <div class="card-head">
-    ${checkbox}
-    <span class="badge b-${esc(m.mutation_type)}">${esc(m.mutation_type)}</span>
-    ${targetTxt ? `<span class="target-ref">${esc(targetTxt)}</span>` : ''}
-    <span class="badge b-${esc(m.status)}">${esc(m.status)}</span>
-    ${tickBadge}${secretDerivedBadge}
-    ${sourceRef ? `<span class="target-ref">${esc(sourceRef)}</span>` : ''}
-    <span class="ts">${fmtDate(m.proposed_at)}</span>
-  </div>
-
-  ${applyErrorBlock}${dupBlock}
-
-  <div class="card-rationale">${esc(m.rationale || '(no rationale provided)')}</div>
-
-  ${resourceLegsBlock}${agendaSummaryBlock}
-
-  <div class="card-fields">
-    <div>
-      <div class="field-label">Payload</div>
-      <textarea class="payload" id="pl-${esc(m.id)}" rows="5"
-        spellcheck="false"${editable ? '' : ' readonly'}>${esc(payloadStr)}</textarea>
-    </div>
-    <div>
-      <div class="field-label">Creator notes</div>
-      <input class="notes" type="text" id="nt-${esc(m.id)}"
-        value="${esc(m.creator_notes || '')}"
-        placeholder="${editable ? 'optional note…' : ''}"
-        ${editable ? '' : 'readonly'}>
-    </div>
-  </div>
-
-  ${editable ? `
-  <div class="card-actions" id="ca-${esc(m.id)}">
-    <button class="btn-approve" id="bap-${esc(m.id)}"
-            onclick="doApprove('${esc(m.id)}')">✓ Approve</button>
-    <button class="btn-reject"  id="brj-${esc(m.id)}"
-            onclick="doReject('${esc(m.id)}')">✗ Reject</button>
-  </div>` : ''}
-
-  <div class="card-result" id="cr-${esc(m.id)}"></div>
-</div>`;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   Approve
-   ════════════════════════════════════════════════════════════════════════════ */
-
-async function doApprove(id) {
-  const plEl  = document.getElementById('pl-' + id);
-  const ntEl  = document.getElementById('nt-' + id);
-  const crEl  = document.getElementById('cr-' + id);
-  const bapEl = document.getElementById('bap-' + id);
-  const brjEl = document.getElementById('brj-' + id);
-
-  // Validate JSON before sending — saves a round trip.
-  const payloadStr = plEl ? plEl.value : null;
-  if (payloadStr) {
-    try { JSON.parse(payloadStr); }
-    catch (e) { showResult(crEl, 'err', 'Invalid JSON in payload: ' + e.message); return; }
-  }
-
-  lockCard(bapEl, brjEl);
-  showResult(crEl, '', '⟳ Applying to canon…');
-
-  try {
-    const data = await api('/api/mutations/' + id + '/approve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        payload:       payloadStr,
-        creator_notes: ntEl ? ntEl.value || null : null,
-      }),
-    });
-
-    if (data.status === 'applied') {
-      showResult(crEl, 'ok', '✓ Applied to canon.');
-      markCardDone(id, 'applied');
-    } else if (data.status === 'already_applied') {
-      showResult(crEl, 'warn', '⚠ Already applied.');
-      markCardDone(id, 'applied');
-    } else {
-      // 'approved' — reviewed but not applied; error stored server-side.
-      showResult(crEl, 'warn',
-        '⚠ Saved as "approved" (not applied to canon):\n' + (data.error || ''));
-      markCardDone(id, 'approved');
-    }
-  } catch (e) {
-    showResult(crEl, 'err', '✗ ' + e.message);
-    unlockCard(bapEl, brjEl);
-  }
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   Reject
-   ════════════════════════════════════════════════════════════════════════════ */
-
-async function doReject(id) {
-  const ntEl  = document.getElementById('nt-' + id);
-  const crEl  = document.getElementById('cr-' + id);
-  const bapEl = document.getElementById('bap-' + id);
-  const brjEl = document.getElementById('brj-' + id);
-
-  lockCard(bapEl, brjEl);
-  showResult(crEl, '', '⟳ Rejecting…');
-
-  try {
-    await api('/api/mutations/' + id + '/reject', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ creator_notes: ntEl ? ntEl.value || null : null }),
-    });
-    showResult(crEl, 'ok', '✓ Rejected. World state unchanged.');
-    markCardDone(id, 'rejected');
-  } catch (e) {
-    showResult(crEl, 'err', '✗ ' + e.message);
-    unlockCard(bapEl, brjEl);
-  }
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   Batch review
-   ════════════════════════════════════════════════════════════════════════════ */
-
-function getSelectedMutationIds() {
-  return Array.from(document.querySelectorAll('.row-select:checked'))
-    .map(cb => cb.dataset.id);
-}
-
-/** "Select all / none" toggle — acts on the currently displayed proposed rows. */
-function toggleSelectAll(masterCb) {
-  document.querySelectorAll('.row-select').forEach(cb => {
-    cb.checked = masterCb.checked;
-  });
-  updateBatchBar();
-}
-
-/** Sync the batch button states + counter + master checkbox with the current selection. */
-function updateBatchBar() {
-  const checkboxes = document.querySelectorAll('.row-select');
-  const checked    = document.querySelectorAll('.row-select:checked');
-  const count      = checked.length;
-
-  const countEl = document.getElementById('batch-count');
-  if (countEl) countEl.textContent = count + ' selected';
-
-  const apEl = document.getElementById('batch-approve-btn');
-  const rjEl = document.getElementById('batch-reject-btn');
-  if (apEl) apEl.disabled = (count === 0);
-  if (rjEl) rjEl.disabled = (count === 0);
-
-  const masterCb = document.getElementById('batch-select-all-cb');
-  if (masterCb) {
-    masterCb.checked = checkboxes.length > 0 && count === checkboxes.length;
-    masterCb.indeterminate = count > 0 && count < checkboxes.length;
-  }
-}
-
-function hideBatchVerdict() {
-  const el = document.getElementById('batch-verdict');
-  if (el) { el.style.display = 'none'; el.className = 'batch-verdict'; el.textContent = ''; }
-}
-
-function showBatchVerdict(cls, msg) {
-  const el = document.getElementById('batch-verdict');
-  if (!el) return;
-  el.className = 'batch-verdict' + (cls ? ' r-' + cls : '');
-  el.textContent = msg;
-  el.style.display = '';
-}
-
-/** Approve / reject the selected proposed mutations as one batch. */
-async function doBatchAction(action) {
-  const ids = getSelectedMutationIds();
-  if (!ids.length) return;
-
-  const apEl = document.getElementById('batch-approve-btn');
-  const rjEl = document.getElementById('batch-reject-btn');
-  if (apEl) apEl.disabled = true;
-  if (rjEl) rjEl.disabled = true;
-  showBatchVerdict('', '⟳ Processing batch…');
-
-  try {
-    const data = await api('/api/mutations/batch-review', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, mutation_ids: ids }),
-    });
-
-    const msg = (action === 'approve')
-      ? `${data.applied} applied, ${data.needs_attention} needs attention, ${data.skipped} skipped`
-      : `${data.rejected} rejected, ${data.skipped} skipped`;
-    showBatchVerdict('ok', '✓ ' + msg);
-  } catch (e) {
-    showBatchVerdict('err', '✗ ' + e.message);
-  } finally {
-    // Refresh so row statuses (and the proposed list) are current.
-    await loadQueue();
-  }
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   Card helpers
-   ════════════════════════════════════════════════════════════════════════════ */
-
-function showResult(el, cls, msg) {
-  if (!el) return;
-  el.className = 'card-result show' + (cls ? ' r-' + cls : '');
-  el.textContent = msg;
-}
-
-function lockCard(bap, brj) {
-  if (bap) bap.disabled = true;
-  if (brj) brj.disabled = true;
-}
-
-function unlockCard(bap, brj) {
-  if (bap) bap.disabled = false;
-  if (brj) brj.disabled = false;
-}
-
-/** Update card visual state after an approve / reject action completes. */
-function markCardDone(id, newStatus) {
-  const card = document.getElementById('card-' + id);
-  if (!card) return;
-
-  // Swap the status colour class on the card border.
-  card.className = card.className.replace(/s-\w+/, 's-' + newStatus);
-
-  // Swap the status badge text + class.
-  const badge = card.querySelector('.b-proposed, .b-approved');
-  if (badge) {
-    badge.className = 'badge b-' + newStatus;
-    badge.textContent = newStatus;
-  }
-
-  // Hide action buttons — card is no longer actionable.
-  const actions = document.getElementById('ca-' + id);
-  if (actions) actions.style.display = 'none';
-
-  // Make fields read-only.
-  const pl = card.querySelector('.payload');
-  if (pl) pl.readOnly = true;
-  const nt = card.querySelector('.notes');
-  if (nt) nt.readOnly = true;
-
-  // Row is no longer 'proposed' — drop its batch checkbox and refresh the
-  // batch bar (count / select-all state may have changed).
-  const cb = card.querySelector('.row-select');
-  if (cb) cb.remove();
-  updateBatchBar();
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
    Author CRUD (Master tool) — direct canonical writes, creator-mode-only
    ════════════════════════════════════════════════════════════════════════════ */
 
-let authorRegistry    = null;  // cached /api/entity-types response
-let authorAllEntities = [];    // flat list, used for entity_ref pickers and relation targets
 let authorTypeFilter  = '';    // '' = all types
 
-/* TICKET-0059 (BRIEF-0059-e): the two bare `let`s this island's selected-
- * entity id/type used to live in, and their one-line window accessor, are
- * gone -- the entity sheet's own selection moved to
- * frontend/src/creation/sheetState.svelte.js (selectEntity/
- * getSelectedEntityId), the one authority for it now. creationSelectedEntityId
- * below is NOT a second authority for that fact: it is a passive mirror,
- * kept in sync by the 'creation:selection' listener a few functions down,
- * that exists ONLY because creationOpenEntityFrom/creationReturnToOrigin
- * (chrome, Scope OUT of this brief, still legacy until -l) cannot import a
- * Svelte module and need a synchronous read of "what's currently selected"
- * to build their own return-crumb. It dies with them at -l. */
-let creationSelectedEntityId = null;
-
-// Generic selected-record id (BRIEF-0021-a) — the sheetRenderer-seam
-// counterpart of creationSelectedEntityId, for non-entity list+detail tabs
-// (Intrigues) whose rows carry full data already, no per-row fetch. Only one
-// such tab is ever visible at a time, so one shared id is enough (no second
-// dispatcher).
-let creationSelectedRecordId = null;
-
-/* Lieux hierarchy browse state (BRIEF-51) moved to frontend/src/creation/
- * EntityList.svelte (TICKET-0058, BRIEF-0058-e), component-local — nothing
- * outside that island reads it any more, so LOCATION_TYPE_ORDER/
- * LOCATION_TYPE_LABELS and the browse position (lieuxBrowseParentId/
- * lieuxBreadcrumb/lieuxActiveOnly) are gone from here. authorLocationTree
- * and authorLocationTypeCatalog stay: other still-legacy readers (the
- * field engine's location_type classification, location-type option
- * lists) depend on them; the island now populates both via
- * 'creation:entities-loaded' instead of authorLoadEntityList. */
-let authorLocationTree = [];     // [{id, name, parent_location_id, location_type, status}, ...]
-// [{name, classification: "interior"|"exterior"|null}, ...] for the active
-// world — refreshed by the entityList island; backs the location_type datalist.
-let authorLocationTypeCatalog = [];
+/* TICKET-0059 (BRIEF-0059-l commit 1). authorRegistry/authorAllEntities/
+ * creationSelectedEntityId/creationSelectedRecordId/authorLocationTree/
+ * authorLocationTypeCatalog and the 'creation:entities-loaded' listener
+ * that populated them are gone: their sole remaining readers (chrome --
+ * CREATION_TABS, creationOpenEntityFrom/creationReturnToOrigin/
+ * creationRenderReturnControl/creationResolveEntityTab, npc/pj's
+ * entityFilter closures) all moved to frontend/src/creation/tabs.js, which
+ * reads creationState.authorRegistry/entities/playerCharIds/locationTree/
+ * locationTypeCatalog directly -- EntityList.svelte already wrote all six
+ * there itself (state.svelte.js), so this was a passive mirror kept in
+ * sync for a legacy-only readership that no longer exists. */
 
 /* AI entity-authoring assistant (BRIEF-24) — pendingDraftKnowledge/
  * pendingDraftGoals (secret.knowledge rows / BRIEF-0013-b goals, held
@@ -2674,14 +2036,21 @@ function showPlayView() {
   document.getElementById('mode-tab-observation').classList.remove('active');
 }
 
+// TICKET-0059 (BRIEF-0059-l commit 1): unreachable from the shell now --
+// App.svelte drives Creation.svelte directly (item 2) and never calls
+// showSurface('creation'); the mode-tab button that used to call this
+// lives inside the suppressed legacy <header> (hideLegacyHeader()). Kept,
+// not deleted: legacy_mount.py rule 4 requires LEGACY_MOUNTS.creation's
+// declared showFn to exist as a top-level function here until this
+// mount retires (commit 4) -- its body is trimmed to what still resolves
+// in this document (#creation-view moved into Creation.svelte's own
+// template, so this function no longer touches it).
 function showCreationView() {
   document.getElementById('play-view').style.display = 'none';
-  document.getElementById('creation-view').style.display = '';
   document.getElementById('observation-view').style.display = 'none';
   document.getElementById('mode-tab-play').classList.remove('active');
   document.getElementById('mode-tab-creation').classList.add('active');
   document.getElementById('mode-tab-observation').classList.remove('active');
-  if (!authorRegistry) creationInit();
 }
 
 /* ── Observation view (TICKET-0051, BRIEF-0051-f) ──────────────────────────
@@ -3403,224 +2772,20 @@ async function spatialTalkTo(npcId) {
 
 /* ── Création sub-tabs ───────────────────────────────────────────────────── */
 
-// CREATION_TABS entry contract (TICKET-0005):
-// { label:        string, tab title shown in the shell header
-//   archetype:    'entity' | 'bespoke'
-//   containers:   [element ids to show when active; all others hidden]
-//   loader:       function called on activation
-//   state:        { onTabEnter: fn|null, onWorldSwitch: fn|null }
-//                 each fn resets ALL state this tab owns for that event
-//   // entity archetype only:
-//   listLoader:   fn|undefined — ONLY for a tab whose list isn't the
-//                 default flat/lieux shape the entityList island already
-//                 renders (Intrigues/Evenements): fetches and caches rows,
-//                 then hands them to the island via 'creation:list-data'
-//                 (TICKET-0058, BRIEF-0058-e). Absent on every tab the
-//                 island renders generically off `type`/`entityFilter`.
-//   sheetRenderer: fn|undefined (undefined = the entitySheet island's own
-//                 core field engine, Sheet.svelte, BRIEF-0058-f; present =
-//                 a bespoke legacy renderer for a tab whose record isn't a
-//                 plain typed entity — intrigues/evenements — rendering
-//                 into #author-legacy-sheet-slot, the island's stable leaf)
-//   createPanel:  fn|null (null with primaryAction routed through
-//                 _islandPrimaryAction('entitySheet') = the island's own
-//                 create mode; non-null = a bespoke legacy create panel,
-//                 same #author-legacy-sheet-slot target — rule 11 pairs
-//                 this with primaryAction, never mixed)
-//   slots:        [{ id, containerId, loader, onSelect: fn|null,
-//                    onOpen: fn|null (on_demand only; fires once, right
-//                    before the first loader/graph:slot dispatch),
-//                    display: 'always'|'on_demand' (default 'always'),
-//                    toggleLabel: string (on_demand only; default
-//                    'Voir le graphe'),
-//                    graph: { consumer: string, mountId: string|undefined }
-//                    (TICKET-0057/0058) — a shell-mounted graph island;
-//                    mountId defaults to containerId (lieux) but may name a
-//                    narrower child element (npc) when containerId also
-//                    hosts other, non-graph chrome that must survive the
-//                    graph's own mount/remount cycle untouched }]
-//                 'on_demand' (BRIEF-0023-a, F1): container stays hidden and
-//                 loader does not fire on tab activation; the standard shell
-//                 renders one toggle button per on_demand slot; first click
-//                 shows the container and fires loader, later clicks only
-//                 hide/show (no unload); state resets via onTabEnter/
-//                 onWorldSwitch.
-//   islands:      [{ key, containerId }, ...] | undefined — each entry a
-//                 mount point inside this tab whose content is a Svelte
-//                 island (TICKET-0058, amended BRIEF-0058-e). The legacy
-//                 document dispatches 'island:slot' per entry and renders
-//                 nothing at that containerId itself; the shell owns it.
-//                 Declared in frontend/src/creation/registry.js. A
-//                 registry key may be shared by MULTIPLE entries when one
-//                 component serves several tabs through one container
-//                 (the entity-list sidebar does, across all seven entity
-//                 tabs) — many-to-many, never a second renderer for the
-//                 same node.
-//                 An entry declaring a non-empty `islands` MUST also
-//                 declare loader: null and state.onWorldSwitch: null. A
-//                 legacy loader or world-switch renderer targeting an
-//                 island's OWN containerId would innerHTML over it
-//                 (RECON-0058-a M5); that state's reset is driven by
-//                 serverState in the mounted component, not a legacy
-//                 callback. A tab may be island for ONE containerId and
-//                 legacy for another (e.g. the list migrated, the sheet
-//                 not yet) — `islands` and a legacy `createPanel`/
-//                 `listRenderer` are not mutually exclusive; only
-//                 `primaryAction` and `createPanel` must stay paired on
-//                 the same side (creation_island.py rule 11).
-// }
-// Every Création page is a registry entry. No page renders outside it.
-//
-// Implementation notes (not part of the contract above):
-// - An entity entry only receives the shared list+detail shell (the
-//   "+ Nouveau" row, the list label, #author-entity-list/#author-main) when
-//   its `containers` includes 'creation-editor-area' — a shape check on the
-//   entry's own data, never a tab-id check. Artefacts is registered as
-//   `archetype: 'entity'` (BRIEF-0005-a item 7) but keeps its own container
-//   and its own `loader`, so it opts out of that shell.
-// - `type`/`entityFilter` on an entity entry drive the entityList island's
-//   default flat-list row selection (ignored for lieux, which the island
-//   renders hierarchically, and for a tab declaring `listLoader`).
-/** On-demand slot state (BRIEF-0023-a, F1) — tracks open/loaded per
- *  on_demand slot container, keyed by containerId. Reset exclusively by the
- *  owning tab's onTabEnter/onWorldSwitch (never by re-activation alone). */
-let onDemandSlotState = {};
-
-function _onDemandSlotReset(entry) {
-  (entry.slots || []).forEach(s => {
-    if (s.display !== 'on_demand') return;
-    onDemandSlotState[s.containerId] = { open: false, loaded: false };
-    const el = document.getElementById(s.containerId);
-    if (el) el.style.display = 'none';
-  });
-}
-
-function _onDemandSlotToggle(slot) {
-  const st = onDemandSlotState[slot.containerId]
-    || (onDemandSlotState[slot.containerId] = { open: false, loaded: false });
-  st.open = !st.open;
-  const el = document.getElementById(slot.containerId);
-  if (el) el.style.display = st.open ? '' : 'none';
-  if (st.open && !st.loaded) {
-    st.loaded = true;
-    if (slot.onOpen) slot.onOpen();
-    if (slot.graph) {
-      // TICKET-0057/0058: the graph primitive is a shell-mounted island;
-      // the legacy document only signals intent, it never loads or draws.
-      // mountId lets the graph mount into a child of containerId, so
-      // sibling chrome (the npc slot's Agent PNJ/liens panels) survives
-      // the graph's own mount/remount cycle untouched.
-      document.dispatchEvent(new CustomEvent('graph:slot', {
-        detail: { consumer: slot.graph.consumer, containerId: slot.graph.mountId || slot.containerId, open: true },
-      }));
-    } else if (slot.loader) {
-      slot.loader();
-    }
-  }
-  const entry = CREATION_TABS[currentCreationSubTab];
-  if (entry) _renderOnDemandToggles(entry);
-}
-
-function _onDemandSlotToggleById(containerId) {
-  const entry = CREATION_TABS[currentCreationSubTab];
-  if (!entry) return;
-  const slot = (entry.slots || []).find(s => s.containerId === containerId);
-  if (slot) _onDemandSlotToggle(slot);
-}
-
-/** Renders one toggle button per on_demand slot in the standard shell band,
- *  same fixed position on every tab (mirrors the primaryAction posture). */
-function _renderOnDemandToggles(entry) {
-  const wrapEl = document.getElementById('creation-shell-toggles');
-  if (!wrapEl) return;
-  const onDemandSlots = (entry.slots || []).filter(s => s.display === 'on_demand');
-  wrapEl.innerHTML = onDemandSlots.map(s => {
-    const st = onDemandSlotState[s.containerId] || { open: false };
-    const label = st.open ? 'Masquer le graphe' : (s.toggleLabel || 'Voir le graphe');
-    return `<button class="btn-icon" onclick="_onDemandSlotToggleById('${esc(s.containerId)}')">${esc(label)}</button>`;
-  }).join('');
-}
-
-function _entityTabEnterReset() {
-  creationRenderReturnControl();
-  // TICKET-0058 (BRIEF-0058-e): tells the entity-list island to drop its
-  // active-row highlight — a fresh tab always starts unselected.
-  // TICKET-0059 (BRIEF-0059-e): also the sole update path for
-  // creationSelectedEntityId now (the 'creation:selection' listener below
-  // mirrors every dispatch of this event, this one included).
-  document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
-  // TICKET-0058 (BRIEF-0058-f): #author-main is the entitySheet island's
-  // mount root now — title/save/delete/body reset moved into Sheet.svelte's
-  // own 'creation:sheet-reset' listener, which owns all four together.
-  document.dispatchEvent(new CustomEvent('creation:sheet-reset'));
-}
-
-/** BRIEF-0058-j: any open room-batch panel closes on leaving/re-entering
- *  Lieux, same as it always did (batchReset() used to run inline here) --
- *  RoomBatch.svelte owns that state now, so this fires a plain notification
- *  CustomEvent instead, the same 'creation:sheet-reset' idiom every other
- *  xTabEnterReset already uses to tell its own island to reset itself. */
-function _lieuxTabEnterReset() {
-  _entityTabEnterReset();
-  _onDemandSlotReset(CREATION_TABS.lieux);
-  document.dispatchEvent(new CustomEvent('creation:batch-reset'));
-}
-
-function _npcTabEnterReset() {
-  _entityTabEnterReset();
-  _onDemandSlotReset(CREATION_TABS.npc);
-  // TICKET-0059 (BRIEF-0059-f commit 2): the direct reset call this tab
-  // used to make on the (now Svelte) NPC agent panel is a CustomEvent now
-  // -- NpcAgent.svelte's own legacyDoc listener resets itself, the same
-  // 'creation:batch-reset' idiom RoomBatch.svelte already established.
-  document.dispatchEvent(new CustomEvent('creation:npcagent-reset'));
-  // TICKET-0059 (BRIEF-0059-g commit 1): same conversion, link agent's
-  // side -- LinkAgent.svelte's own legacyDoc listener resets itself now.
-  document.dispatchEvent(new CustomEvent('creation:linkagent-reset'));
-}
-
-// TICKET-0058 (BRIEF-0058-e): _npcWorldReset/_pjWorldReset/_lieuxWorldReset/
-// _factionsWorldReset/_entityListWorldReset/_intriguesWorldReset/
-// _evenementsWorldReset are gone — all seven entity tabs now declare
-// 'islands' for #author-entity-list (creation_island.py rule 9 forces
-// state.onWorldSwitch: null on each). Their entity-list-owning state
-// (authorAllEntities/playerCharIds/lieux browse position/intriguesAgendas/
-// evenementsEvents) moved into frontend/src/creation/state.svelte.js and
-// the EntityList island's own component-local state, reset on
-// serverState.worldId change rather than a legacy callback. The DOM work
-// the seventh (npc) used to do beyond the entity list itself
-// (_npcWorldReset's on-demand-slot hide, for the two agent panels) no
-// longer needs a direct call here at all: the NPC agent panel and the
-// room-batch panel already reset themselves reactively off
-// serverState.worldId (BRIEF-0058-j, BRIEF-0059-f commit 2), and
-// BRIEF-0059-g commit 1 moves the link agent panel onto the identical
-// pattern — the -d rule every migrated island entry follows. pendingDraft*/
-// authorFactionRoles* (pj/factions' non-list state) are re-populated by
-// _creationRunWorldSwitchResets' own re-activation of the current tab
-// (activateWorld already calls showCreationSubTab after the resets) and
-// are not re-derived here — a narrower, deliberate gap (report only:
-// neither did DOM work).
-
-function _intriguesTabEnterReset() {
-  creationSelectedRecordId = null;
-  document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
-  // TICKET-0058 (BRIEF-0058-f): see _entityTabEnterReset's identical note.
-  document.dispatchEvent(new CustomEvent('creation:sheet-reset'));
-}
-
-/** evenements' onTabEnter (BRIEF-0022-a item 6, G1 state contract) — resets
- *  the one piece of state this tab owns at the legacy boundary: selection.
- *  Mirrors _intriguesTabEnterReset verbatim. The chip draft reset
- *  (evenementsInvolvedDraft) is gone with the rest of evenements' bespoke
- *  sheet (TICKET-0058, BRIEF-0058-j) — Evenements.svelte resets its own
- *  draft reactively off the 'creation:sheet-reset' dispatch below, via
- *  Sheet.svelte's existing listener, not a legacy global. */
-function _evenementsTabEnterReset() {
-  creationSelectedRecordId = null;
-  document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
-  // TICKET-0058 (BRIEF-0058-f): see _entityTabEnterReset's identical note.
-  document.dispatchEvent(new CustomEvent('creation:sheet-reset'));
-}
+// TICKET-0059 (BRIEF-0059-l commit 1, D1). The CREATION_TABS registry, its
+// entry contract, the on-demand slot machinery (onDemandSlotState/
+// _onDemandSlotReset/_onDemandSlotToggle/_onDemandSlotToggleById/
+// _renderOnDemandToggles), and the five onTabEnter resets
+// (_entityTabEnterReset/_lieuxTabEnterReset/_npcTabEnterReset/
+// _intriguesTabEnterReset/_evenementsTabEnterReset) are gone -- ported to
+// frontend/src/creation/tabs.js, whose own header comment carries the
+// entry contract now (verbatim) and the full account of what changed:
+// container visibility is a pure function (containerVisible)
+// Creation.svelte's template calls per container instead of this code
+// writing style.display; the on-demand toggle buttons and the shell
+// band's title/primaryAction are template expressions there too, not a
+// function that writes them once on activation; and
+// _creationRunWorldSwitchResets does not port at all (measured vacuous).
 
 /** BRIEF-0058-j closed the RECON-0058-a M4 author* call closure: every
  *  legacy caller the earlier briefs' own comments tracked here
@@ -3629,655 +2794,28 @@ function _evenementsTabEnterReset() {
  *  generator) is gone, ported alongside what it called. Two names from
  *  that same M4 closure call no migrated function and were never bridged:
  *  `_factionRosterRowHtml`/`npcGoalsBackfillAll` (both retired by their own
- *  briefs -g/-j regardless) and `pcCreateSubmit`, which never called
- *  anything but the boundary-layer creationRefreshList() (confirmed
- *  unchanged here). generatePendingCreation still dispatches
- *  'creation:sheet-create'/'creation:apply-generated-draft'
+ *  briefs -g/-j regardless) and the pj create-submit path (itself retired
+ *  by TICKET-0059, BRIEF-0059-j commit 3), which never called anything but
+ *  the boundary-layer creationRefreshList(). generatePendingCreation still
+ *  dispatches 'creation:sheet-create'/'creation:apply-generated-draft'
  *  (BRIEF-0058-h) — its own germ-realization flow is TICKET-0059
  *  territory, not this ticket's closure. */
-const CREATION_TABS = {
-  npc: {
-    label: 'NPC',
-    archetype: 'entity',
-    containers: ['creation-editor-area'],
-    loader: null,
-    state: { onTabEnter: _npcTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'npcAgent', containerId: 'npcagent-panel' }, { key: 'linkAgent', containerId: 'linkagent-panel' }],
-    type: 'character',
-    entityFilter: (entities) => entities.filter(e => e.type === 'character' && !playerCharIds.has(e.id)),
-    createPanel: null,
-    primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
-    showPendingCreations: true,
-    slots: [{ id: 'relgraph', containerId: 'creation-npc-relgraph', loader: null,
-              onSelect: (id) => document.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'relations', meta: { id } } })),
-              // TICKET-0059 (BRIEF-0059-g commit 1): the link agent's own
-              // open-batch check drops out too -- LinkAgent.svelte performs
-              // it itself on mount now, same as NpcAgent.svelte already
-              // does (BRIEF-0059-f commit 2). Both halves of this onOpen are
-              // gone, so the handler itself goes (item 7).
-              onOpen: null,
-              display: 'on_demand', toggleLabel: 'Voir le graphe',
-              graph: { consumer: 'relations', mountId: 'relgraph-mount' } }],
-  },
-  pj: {
-    label: 'Personnages joueurs',
-    archetype: 'entity',
-    containers: ['creation-editor-area'],
-    loader: null,
-    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
-    type: 'character',
-    entityFilter: (entities) => entities.filter(e => e.type === 'character' && playerCharIds.has(e.id)),
-    // pj's create flow (pjRenderCreatePanel) is bespoke, not the generic
-    // field engine (BRIEF-0058-f: pcCreateSubmit's own /api/characters/player
-    // endpoint, distinct from the generic /api/entities route) -- it stays
-    // legacy, rendering into #author-legacy-sheet-slot inside the now-
-    // mounted entitySheet island. Per rule 11's pairing, primaryAction and
-    // createPanel stay on the SAME (legacy) side; viewing an EXISTING pj
-    // still uses the ported core engine (pj has no sheetRenderer).
-    createPanel: pjRenderCreatePanel,
-    primaryAction: { label: '+ Nouveau', handler: creationNewEntity },
-    slots: [{ id: 'fiche', containerId: 'creation-pj-skill', loader: skillInit, onSelect: pjFicheOnSelect }],
-  },
-  lieux: {
-    label: 'Lieux',
-    archetype: 'entity',
-    containers: ['creation-editor-area', 'batch-panel-wrap'],
-    loader: null,
-    state: { onTabEnter: _lieuxTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'batch', containerId: 'batch-panel-wrap' }],
-    type: 'location',
-    createPanel: null,
-    primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
-    showPendingCreations: true,
-    slots: [{ id: 'graph', containerId: 'creation-lieux-graph', loader: null, onSelect: null,
-              display: 'on_demand', toggleLabel: 'Voir le graphe',
-              graph: { consumer: 'lieux' } }],
-  },
-  factions: {
-    label: 'Factions',
-    archetype: 'entity',
-    containers: ['creation-editor-area'],
-    loader: null,
-    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
-    type: 'faction',
-    createPanel: null,
-    primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
-    showPendingCreations: true,
-    slots: [],
-  },
-  objets: {
-    label: 'Objets',
-    archetype: 'entity',
-    containers: ['creation-editor-area'],
-    loader: null,
-    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
-    type: 'item',
-    createPanel: null,
-    primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
-    slots: [],
-  },
-  competences: {
-    label: 'Compétences',
-    archetype: 'bespoke',
-    containers: ['creation-competences'],
-    loader: null,
-    state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'competences', containerId: 'creation-competences' }],
-    primaryAction: { label: '+ Ajouter une compétence', handler: () => _islandPrimaryAction('competences') },
-  },
-  region: {
-    label: 'Région',
-    archetype: 'bespoke',
-    containers: ['creation-region'],
-    loader: null,
-    state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'region', containerId: 'creation-region' }],
-    primaryAction: { label: 'Nouvelle région', handler: () => _islandPrimaryAction('region') },
-  },
-  constructeur: {
-    label: 'Constructeur',
-    archetype: 'bespoke',
-    containers: ['creation-constructeur'],
-    loader: null,
-    state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'constructeur', containerId: 'creation-constructeur' }],
-    primaryAction: { label: 'Créer le type', handler: () => _islandPrimaryAction('constructeur') },
-  },
-  artefacts: {
-    label: 'Artefacts',
-    archetype: 'entity', // degenerate: no create control, own container/loader (BRIEF-0005-a item 7)
-    containers: ['creation-artefacts'],
-    loader: null,
-    state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'artefacts', containerId: 'creation-artefacts' }],
-    createPanel: null,
-    primaryAction: null, // enabling artifact creation later = filling this in
-  },
-  registre: {
-    label: 'Registre',
-    archetype: 'bespoke',
-    containers: ['creation-registre'],
-    loader: null,
-    state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'registre', containerId: 'creation-registre' }],
-    primaryAction: { label: '+ Nouvelle entrée', handler: () => _islandPrimaryAction('registre') },
-  },
-  intrigues: {
-    label: 'Intrigues',
-    archetype: 'entity',
-    containers: ['creation-editor-area'],
-    loader: null,
-    state: { onTabEnter: _intriguesTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
-    listLoader: loadAgendasList,
-    sheetRenderer: renderAgendaSheet,
-    createPanel: intriguesRenderCreatePanel,
-    primaryAction: { label: '+ Nouvelle intrigue', handler: creationNewEntity },
-  },
-  evenements: {
-    label: 'Événements',
-    archetype: 'entity',
-    containers: ['creation-editor-area'],
-    loader: null,
-    state: { onTabEnter: _evenementsTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
-    createPanel: null,
-    primaryAction: { label: '+ Nouvel événement', handler: () => _islandPrimaryAction('entitySheet') },
-  },
-  queue: {
-    label: 'Review Queue',
-    archetype: 'bespoke',
-    containers: ['creation-queue'],
-    loader: loadQueue,
-    state: { onTabEnter: null, onWorldSwitch: null },
-    primaryAction: null, // append-only by design — rows never created here
-    slots: [{ id: 'filters', containerId: 'creation-shell-extra', loader: loadTickControls, onSelect: null }],
-  },
-  prompts: {
-    label: 'Prompts',
-    archetype: 'bespoke',
-    containers: ['creation-prompts'],
-    loader: null,
-    state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'prompts', containerId: 'creation-prompts' }],
-    primaryAction: null, // read-only, creator management surface (BRIEF-0008-b)
-  },
-};
-
-/** Dispatches every 'islands' entry the currently active tab declares, plus
- *  (for an editor-shell entity tab not yet fully islanded off its own
- *  listLoader — Intrigues/Evenements, TICKET-0058/BRIEF-0058-e) the legacy
- *  list fetch, which pushes its rows to the mounted island via
- *  'creation:list-data' rather than rendering DOM itself. Extracted out of
- *  _creationActivateTab so the sidebar's own "↻ Rafraîchir" button can
- *  re-run exactly this — a shape check on the entry's own data, never a
- *  tab-id branch (page_contract.py forbids tab-id literals in either
- *  function). */
-function creationRefreshList() {
-  const entry = CREATION_TABS[currentCreationSubTab];
-  if (!entry) return;
-  // TICKET-0058 (BRIEF-0058-d, amended -e): an island entry's declared
-  // containerId is rendered by a Svelte component, not by legacy code —
-  // the legacy document signals intent and renders nothing itself there.
-  // Dispatched on EVERY activation, unconditionally, never behind a
-  // first-visit gate: frontend/src/creation/mount.js's own node-identity
-  // check is what makes a repeat dispatch idempotent (RECON-0058-a M5),
-  // not a guard here.
-  (entry.islands || []).forEach(isl => {
-    document.dispatchEvent(new CustomEvent('island:slot', { detail: { key: isl.key, open: true, tabKey: currentCreationSubTab } }));
-  });
-  if (entry.listLoader) entry.listLoader();
-}
-
-/** Runs a registry entry's activation work — the single path used by BOTH
- *  showCreationSubTab and creationInit's first-ever activation, so the
- *  shell/label render exactly once, however the tab was reached: renders the
- *  standard shell + sidebar label, then (entity archetype) loads its list
- *  via the shared shell before the entry's own loader; declared slots' own
- *  loaders always run last, regardless of archetype (TICKET-0014/BRIEF-0014-b:
- *  Review Queue's bespoke entry needed its 'filters' slot's loader to fire
- *  too — this was previously entity-archetype-only because no bespoke slot
- *  had ever declared a real loader before). */
-function _creationActivateTab() {
-  const entry = CREATION_TABS[currentCreationSubTab];
-  if (!entry) return;
-  const usesEditorShell = entry.containers.includes('creation-editor-area');
-
-  const labelEl = document.getElementById('creation-list-label');
-  if (labelEl && usesEditorShell) labelEl.textContent = entry.label || '';
-  renderCreationShell(entry);
-
-  creationRefreshList();
-  if (entry.loader) entry.loader();
-  (entry.slots || []).forEach(s => { if (s.display !== 'on_demand' && s.loader) s.loader(); });
-
-  // Créations en attente strip (BRIEF-0019-a) — a registry field, not a
-  // tab-id branch: any entry may opt in by declaring showPendingCreations.
-  const pendingStripEl = document.getElementById('creation-pending-strip');
-  if (pendingStripEl) {
-    if (entry.showPendingCreations) {
-      pendingStripEl.style.display = '';
-      loadPendingCreations();
-    } else {
-      pendingStripEl.style.display = 'none';
-    }
-  }
-}
-
-/** Generic dispatcher (TICKET-0005): every tab's visibility, reset, and load
- *  behavior comes from its CREATION_TABS entry — no tab-id literals here. */
-function showCreationSubTab(tab) {
-  const prev = currentCreationSubTab;
-  const entry = CREATION_TABS[tab];
-  if (!entry) return;
-  currentCreationSubTab = tab;
-  creationReturnTo = null;  // any tab change drops the crumb; the two
-                            // navigation helpers below re-set it AFTER
-                            // calling this, which is what makes a manual
-                            // sub-tab click clear it and a programmatic
-                            // navigation keep it.
-
-  document.querySelectorAll('.creation-sub-tab').forEach(b => b.classList.remove('active'));
-  const btn = document.getElementById('ctab-' + tab);
-  if (btn) btn.classList.add('active');
-
-  const allContainerIds = new Set();
-  Object.values(CREATION_TABS).forEach(e => {
-    e.containers.forEach(id => allContainerIds.add(id));
-    (e.slots || []).forEach(s => allContainerIds.add(s.containerId));
-  });
-  allContainerIds.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
-  });
-  entry.containers.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = '';
-  });
-  (entry.slots || []).forEach(s => {
-    if (s.display === 'on_demand') return; // stays hidden until its toggle is clicked (F1)
-    const el = document.getElementById(s.containerId);
-    if (el) el.style.display = '';
-  });
-
-  const usesEditorShell = entry.containers.includes('creation-editor-area');
-
-  if (prev !== tab && entry.state.onTabEnter) entry.state.onTabEnter();
-
-  if (usesEditorShell && !authorRegistry) {
-    creationInit();
-  } else {
-    _creationActivateTab();
-  }
-
-  // TICKET-0058 (BRIEF-0058-k): the shell mirrors the active sub-tab into
-  // the URL via this one-way signal — the legacy document never touches
-  // history or reads location itself (RECON-0058-a; the graph:slot/
-  // island:slot channel is the same one-way shape, this is a third use).
-  document.dispatchEvent(new CustomEvent('route:subtab', { detail: { tab } }));
-}
-
-/** Standard shell band (BRIEF-0005-c) — the entry's title, plus its
- *  primaryAction button in the same fixed position on every one of the ten
- *  tabs. `createPanel` still decides WHAT + Nouveau renders; `primaryAction`
- *  alone decides WHETHER a button shows and where its click goes. */
-function renderCreationShell(entry) {
-  const titleEl = document.getElementById('creation-shell-title');
-  if (titleEl) titleEl.textContent = entry.label || '';
-  _renderOnDemandToggles(entry);
-  const actionEl = document.getElementById('creation-shell-action');
-  if (!actionEl) return;
-  if (entry.primaryAction) {
-    actionEl.textContent = entry.primaryAction.label;
-    actionEl.onclick = entry.primaryAction.handler;
-    actionEl.style.display = '';
-  } else {
-    actionEl.onclick = null;
-    actionEl.style.display = 'none';
-  }
-}
-
-/** Primary-action bridge for island tabs (TICKET-0058, BRIEF-0058-d). The
- *  shell owns an island's panel, but the standard action band stays legacy
- *  chrome (renderCreationShell above, unmodified) — so the band's click is
- *  forwarded to the mounted component by key instead of calling a legacy
- *  function directly. One generic helper serving every island, present or
- *  future; per-tab variation lives in CREATION_TABS data, never here. */
-function _islandPrimaryAction(key) {
-  document.dispatchEvent(new CustomEvent('island:action', { detail: { key } }));
-}
-
-/** Runs every registry entry's world-switch reset (BRIEF-0005-a item 3, G1) —
- *  called by activateWorld() and worldDeleteConfirm(), never per-tab. Also
- *  refreshes runtime Creation tabs for the newly active world (TICKET-0046,
- *  BRIEF-0046-d) — a world switch must clear the previous world's runtime
- *  tabs, never leave a stale one live. */
-async function _creationRunWorldSwitchResets() {
-  creationReturnTo = null;
-  Object.values(CREATION_TABS).forEach(entry => {
-    if (entry.state && entry.state.onWorldSwitch) entry.state.onWorldSwitch();
-  });
-  // TICKET-0058 (BRIEF-0058-e): npc's and lieux's onWorldSwitch are gone
-  // (see the comment above _lieuxTabEnterReset) but the DOM work link
-  // agent's panel still needs on a world switch belongs here, called
-  // unconditionally exactly as it always ran, just no longer nested inside
-  // a per-tab callback. The room-batch panel's own world-switch reset is
-  // gone too (BRIEF-0058-j), and TICKET-0059 (BRIEF-0059-f commit 2) moved
-  // the NPC agent panel onto the same pattern: NpcAgent.svelte resets
-  // itself reactively off serverState.worldId, the same -d rule every
-  // other island entry follows. BRIEF-0059-g commit 1 moves the link agent
-  // panel onto the identical pattern -- LinkAgent.svelte's own
-  // serverState.worldId effect, no direct call left here at all.
-  if (authorRegistry) await refreshCreationTabs();
-}
-
+// TICKET-0059 (BRIEF-0059-l commit 1). CREATION_TABS, creationRefreshList,
+// _creationActivateTab, showCreationSubTab, renderCreationShell and
+// _islandPrimaryAction are gone -- ported to frontend/src/creation/tabs.js
+// (data verbatim; the functions adapted to no longer touch DOM directly --
+// Creation.svelte's template does, and triggerPrimaryAction/activateIsland
+// (mount.js) replace the island:action/island:slot dispatches). See
+// tabs.js's own header comment for the full account.
 /* ── Intrigues (TICKET-0018/BRIEF-0018-a; entity-sheet shell TICKET-0021/
  * BRIEF-0021-a) ─────────────────────────────────────────────────────────────
- * Agendas are not `entity` rows, so this tab rides the entity archetype's
- * shared list+detail shell via the sheetRenderer seam rather than the
- * `_TYPE_FIELDS` path. All writes still go through /api/agendas +
- * /api/agenda-steps (writes.py helpers server-side) — the SAME canon-write
- * paths the tick's proposals use via _apply_mutation. */
-
-let intriguesAgendas = [];  // cached /api/agendas response, list-pane + lookup source
-
-async function _intriguesPopulateOwnerSelect() {
-  const sel = document.getElementById('intrigues-f-owner');
-  if (!sel) return;
-  try {
-    const [factions, characters] = await Promise.all([
-      api('/api/entities?type=faction'),
-      api('/api/entities?type=character'),
-    ]);
-    const factionOpts = factions.filter(e => e.status === 'active')
-      .map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
-    const characterOpts = characters.filter(e => e.status === 'active')
-      .map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
-    sel.innerHTML = '<option value="">—</option>'
-      + (factionOpts ? `<optgroup label="Factions">${factionOpts}</optgroup>` : '')
-      + (characterOpts ? `<optgroup label="Personnages (intrigue personnelle)">${characterOpts}</optgroup>` : '');
-  } catch (_) { /* left with just the placeholder option */ }
-}
-
-/** intrigues' listLoader (BRIEF-0021-a item 4; DOM rendering moved to
- *  frontend/src/creation/EntityList.svelte by TICKET-0058/BRIEF-0058-e) —
- *  fetches the unchanged /api/agendas endpoint, caches rows for other
- *  still-legacy readers (_intriguesRefreshSelection), and pushes them to
- *  the mounted island via 'creation:list-data'. */
-async function loadAgendasList() {
-  try {
-    intriguesAgendas = await api('/api/agendas');
-  } catch (e) {
-    console.error('loadAgendasList:', e.message);
-    return;
-  }
-  document.dispatchEvent(new CustomEvent('creation:list-data', { detail: { key: 'agendas', rows: intriguesAgendas } }));
-}
-
-function _intriguesRenderStep(s) {
-  const traceHtml   = s.visibility_trace ? `<div style="font-size:11px; color:var(--muted);">trace : ${esc(s.visibility_trace)}</div>` : '';
-  const outcomeHtml = s.outcome ? `<div style="font-size:11px; color:var(--muted);">résultat : ${esc(s.outcome)}</div>` : '';
-  let actions = '';
-  if (s.status === 'active') {
-    actions = `
-      <button class="btn-icon" title="Terminer l'étape" onclick="intriguesStepStatus('${s.id}','completed')">✓</button>
-      <button class="btn-icon" title="Échouer l'étape" onclick="intriguesStepStatus('${s.id}','failed')">✗</button>`;
-  } else if (s.status === 'pending') {
-    actions = `<button class="btn-icon" title="Activer l'étape" onclick="intriguesStepStatus('${s.id}','active')">▶</button>`;
-  }
-  return `
-    <div class="row-card" style="flex-direction:row; align-items:flex-start; justify-content:space-between; gap:6px; margin:4px 0;">
-      <div style="flex:1; min-width:160px;">
-        <span style="font-size:12px; color:var(--muted);">#${s.step_order}</span>
-        <span>${esc(s.objective)}</span>
-        ${traceHtml}${outcomeHtml}
-      </div>
-      <span class="badge b-${esc(s.status)}">${esc(s.status)}</span>
-      <div>${actions}</div>
-    </div>`;
-}
-
-function _intriguesRenderLinkedGoal(l) {
-  return `
-    <div class="row-card" style="flex-direction:row; align-items:center; justify-content:space-between; gap:6px; margin:4px 0;">
-      <span style="flex:1; min-width:160px;">
-        ${esc(l.goal_description)}
-        <span style="font-size:11px; color:var(--muted);"> — ${esc(l.npc_name)}</span>
-        <span class="badge ${l.goal_status !== 'active' ? 'b-rejected' : 'b-equipped'}">${esc(l.goal_status)}</span>
-      </span>
-      <button class="btn-icon" title="Détacher (réversible — le lien peut être rattaché plus tard)" onclick="intriguesDetachLink('${esc(l.link_id)}')">✕</button>
-    </div>`;
-}
-
-/** intrigues' sheetRenderer (BRIEF-0021-a item 6) — detail pane carrying
- *  today's full capability set: header (title, owner, status + actions),
- *  steps, linked goals. No save/delete — the API surface is frozen to
- *  status transitions and link detach. */
-function renderAgendaSheet(agenda) {
-  creationSelectedRecordId = agenda.id;
-
-  document.getElementById('author-sheet-title').textContent = agenda.title;
-  document.getElementById('author-status').textContent = '';
-  document.getElementById('author-save-btn').style.display = 'none';
-  // TICKET-0059 (BRIEF-0059-e): #author-delete-btn no longer exists in the
-  // legacy document -- it moved into Sheet.svelte's own template, which
-  // this legacy renderer never touches (mode 'legacy' skips it entirely).
-
-  const ownerBadge = agenda.owner_type === 'character'
-    ? `<span class="badge b-other" title="Intrigue personnelle">personnelle</span>`
-    : `<span class="badge b-other" title="Intrigue de faction">faction</span>`;
-  const linkedGoals = agenda.linked_goals || [];
-
-  let html = `
-    <div class="field-section">
-      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
-        <div><strong>${esc(agenda.title)}</strong> ${ownerBadge} <span style="color:var(--muted); font-size:12px;">(${esc(agenda.owner_name)})</span></div>
-        <div style="display:flex; gap:6px; align-items:center;">
-          <span class="badge b-${esc(agenda.status)}">${esc(agenda.status)}</span>
-          ${agenda.status === 'active' ? `<button class="btn-icon" title="Abandonner l'intrigue" onclick="intriguesSetAgendaStatus('${agenda.id}','abandoned',${linkedGoals.length})">⏸</button>` : ''}
-          ${(agenda.status === 'abandoned' || agenda.status === 'failed') ? `<button class="btn-icon" title="Réactiver l'intrigue" onclick="intriguesSetAgendaStatus('${agenda.id}','active',0)">▶</button>` : ''}
-        </div>
-      </div>
-    </div>
-    <div class="field-section">
-      <div class="field-section-title">Étapes</div>
-      ${agenda.steps.map(s => _intriguesRenderStep(s)).join('')}
-    </div>`;
-  if (linkedGoals.length > 0) {
-    html += `
-    <div class="field-section">
-      <div class="field-section-title">Objectifs liés (${linkedGoals.length})</div>
-      ${linkedGoals.map(l => _intriguesRenderLinkedGoal(l)).join('')}
-    </div>`;
-  }
-  // TICKET-0058 (BRIEF-0058-f): see pjRenderCreatePanel's identical note --
-  // creationSelectRecord dispatches 'creation:sheet-legacy-active' before
-  // calling this (entry.sheetRenderer).
-  document.getElementById('author-legacy-sheet-slot').innerHTML = html;
-}
-
-/** Re-fetches the agenda list then re-renders the sheet for the same agenda
- *  id with fresh data, keeping selection — the common tail of every status/
- *  step/link mutation below. */
-async function _intriguesRefreshSelection(agendaId) {
-  await loadAgendasList();
-  const agenda = intriguesAgendas.find(a => a.id === agendaId);
-  if (agenda) creationSelectRecord('intrigues', agenda);
-}
-
-async function intriguesSetAgendaStatus(agendaId, status, linkedGoalCount) {
-  if (status !== 'active' && linkedGoalCount > 0) {
-    const ok = confirm(
-      `Cette intrigue a ${linkedGoalCount} objectif(s) lié(s). La fermer transitionnera ` +
-      `(complété/abandonné) chaque objectif dont c'est le DERNIER lien actif — un objectif ` +
-      `qui sert aussi une autre intrigue encore active survit. Continuer ?`
-    );
-    if (!ok) return;
-  }
-  try {
-    await api(`/api/agendas/${agendaId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    });
-    await _intriguesRefreshSelection(agendaId);
-  } catch (e) {
-    alert(e.message);
-  }
-}
-
-async function intriguesDetachLink(linkId) {
-  if (!confirm("Détacher ce lien ? Réversible : vous pourrez le rattacher plus tard.")) return;
-  try {
-    await api(`/api/goal-agenda-links/${encodeURIComponent(linkId)}/detach`, { method: 'POST' });
-    await _intriguesRefreshSelection(creationSelectedRecordId);
-  } catch (e) {
-    alert(e.message);
-  }
-}
-
-async function intriguesStepStatus(stepId, status) {
-  try {
-    await api(`/api/agenda-steps/${stepId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    });
-    await _intriguesRefreshSelection(creationSelectedRecordId);
-  } catch (e) {
-    alert(e.message);
-  }
-}
-
-/** intrigues' createPanel (BRIEF-0021-a item 7) — the PJ/NPC create-form
- *  idiom: rendered into the shared detail pane. #agenda-gen-panel ships
- *  empty here; BRIEF-0021-b fills it. Element ids are kept identical to the
- *  pre-migration form so intriguesSubmitCreate needs no id changes. */
-function intriguesRenderCreatePanel() {
-  creationSelectedRecordId = null;
-  document.getElementById('author-sheet-title').textContent = 'Nouvelle intrigue';
-  document.getElementById('author-status').textContent = '';
-  document.getElementById('author-save-btn').style.display = 'none';
-  // TICKET-0059 (BRIEF-0059-e): see renderAgendaSheet's identical note --
-  // #author-delete-btn no longer exists in the legacy document.
-
-  // TICKET-0058 (BRIEF-0058-f): see pjRenderCreatePanel's identical note --
-  // creationNewEntity dispatches 'creation:sheet-legacy-active' before
-  // calling this (entry.createPanel).
-  document.getElementById('author-legacy-sheet-slot').innerHTML = `
-    <div class="field-section" id="agenda-gen-panel" style="border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:12px;">
-      <div class="field-section-title">Générer avec l'IA</div>
-      <textarea id="agenda-gen-brief" rows="2" style="width:100%; resize:vertical"
-        placeholder="Intention en une phrase, ex. : « La Guilde du Sel veut prendre le contrôle du port sans que le Magistrat ne s'en aperçoive »"></textarea>
-      <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
-        <button class="btn-send" onclick="intriguesGenerateDraft()">Générer</button>
-        <span id="agenda-gen-status" style="font-size:12px; color:var(--muted)"></span>
-      </div>
-      <div id="agenda-gen-notes"></div>
-    </div>
-    <div class="field-section">
-      <div class="field-section-title">Nouvelle intrigue</div>
-      <div class="field-grid">
-        <div class="field-row">
-          <label for="intrigues-f-owner">Propriétaire (faction ou personnage) *</label>
-          <select id="intrigues-f-owner"><option value="">—</option></select>
-        </div>
-        <div class="field-row" style="grid-column:1/-1">
-          <label for="intrigues-f-title">Titre *</label>
-          <input type="text" id="intrigues-f-title" placeholder="ex : Le complot du sel">
-        </div>
-      </div>
-      <div class="field-section-title" style="margin-top:8px">Étapes (2 à 5, dans l'ordre)</div>
-      <div class="field-grid">
-        <div class="field-row" style="grid-column:1/-1"><label>Étape 1 * (objectif)</label><input type="text" id="intrigues-f-step-0"></div>
-        <div class="field-row" style="grid-column:1/-1"><label>Étape 2 * (objectif)</label><input type="text" id="intrigues-f-step-1"></div>
-        <div class="field-row" style="grid-column:1/-1"><label>Étape 3 (optionnel)</label><input type="text" id="intrigues-f-step-2"></div>
-        <div class="field-row" style="grid-column:1/-1"><label>Étape 4 (optionnel)</label><input type="text" id="intrigues-f-step-3"></div>
-        <div class="field-row" style="grid-column:1/-1"><label>Étape 5 (optionnel)</label><input type="text" id="intrigues-f-step-4"></div>
-      </div>
-      <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
-        <button class="btn-send" onclick="intriguesSubmitCreate()">+ Créer l'intrigue</button>
-        <span id="intrigues-add-status" style="font-size:12px; color:var(--muted)"></span>
-      </div>
-    </div>`;
-  _intriguesPopulateOwnerSelect();
-}
-
-/** intrigues' AI assistant (BRIEF-0021-b item 5) — pre-fills the shell
- *  (title + up to 5 steps) via POST /api/agendas/generate; writes no
- *  canon, one-shot (F2 precedent): a second click overwrites the fields
- *  with the new draft. */
-async function intriguesGenerateDraft() {
-  const statusEl = document.getElementById('agenda-gen-status');
-  const ownerId  = document.getElementById('intrigues-f-owner').value;
-  const brief    = document.getElementById('agenda-gen-brief').value.trim();
-
-  if (!ownerId) { statusEl.textContent = 'Propriétaire requis.'; return; }
-  if (!brief)   { statusEl.textContent = 'Intention requise.'; return; }
-
-  statusEl.textContent = 'Génération…';
-  let result;
-  try {
-    result = await api('/api/agendas/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ owner_entity_id: ownerId, brief }),
-    });
-  } catch (e) {
-    statusEl.textContent = e.message;
-    return;
-  }
-
-  if (!result || result.ok === false) {
-    statusEl.textContent = (result && result.error) || 'Échec de la génération.';
-    return; // form untouched
-  }
-
-  document.getElementById('intrigues-f-title').value = result.title || '';
-  const steps = result.steps || [];
-  [0, 1, 2, 3, 4].forEach(i => {
-    document.getElementById(`intrigues-f-step-${i}`).value = steps[i] || '';
-  });
-
-  const notesEl = document.getElementById('agenda-gen-notes');
-  notesEl.innerHTML = (result.notes && result.notes.length)
-    ? '<div class="field-section-title" style="margin-top:8px">Notes de l&#39;assistant</div><div class="row-table">'
-      + result.notes.map(n => `<div class="row-card" style="font-size:12px; color:var(--muted)">${esc(n)}</div>`).join('')
-      + '</div>'
-    : '';
-
-  statusEl.textContent = "Brouillon généré — relisez et éditez avant d'accepter.";
-}
-
-async function intriguesSubmitCreate() {
-  const statusEl = document.getElementById('intrigues-add-status');
-  const ownerId  = document.getElementById('intrigues-f-owner').value;
-  const title    = document.getElementById('intrigues-f-title').value.trim();
-  const steps    = [0, 1, 2, 3, 4]
-    .map(i => document.getElementById(`intrigues-f-step-${i}`).value.trim())
-    .filter(v => v)
-    .map(objective => ({ objective }));
-
-  if (!ownerId) { statusEl.textContent = 'Propriétaire requis.'; return; }
-  if (!title)   { statusEl.textContent = 'Titre requis.'; return; }
-  if (steps.length < 2 || steps.length > 5) { statusEl.textContent = 'Entre 2 et 5 étapes requises.'; return; }
-
-  statusEl.textContent = '…';
-  try {
-    const agenda = await api('/api/agendas', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ owner_entity_id: ownerId, title, steps }),
-    });
-    await loadAgendasList();
-    creationSelectRecord('intrigues', agenda);
-  } catch (e) {
-    statusEl.textContent = e.message;
-  }
-}
+ * Fully converged onto frontend/src/creation/Intrigues.svelte +
+ * intrigues.svelte.js (TICKET-0059, BRIEF-0059-j): list, sheet (commit 1)
+ * and create panel + AI draft assistant (commit 2), reached through the
+ * entitySheet island via a tabKey === 'intrigues' gate, the same way
+ * evenements converged in BRIEF-0058-j. All writes still go through
+ * /api/agendas + /api/agenda-steps (writes.py helpers server-side) — the
+ * SAME canon-write paths the tick's proposals use via _apply_mutation. */
 
 /* ── Événements (TICKET-0022, converged onto Svelte by TICKET-0058/
  * BRIEF-0058-j) ──────────────────────────────────────────────────────────
@@ -4321,33 +2859,15 @@ async function intriguesSubmitCreate() {
  *  #author-main for these two tabs) is told to switch out of the way
  *  first -- flushSync inside the listener (Sheet.svelte) makes that node
  *  exist before createPanel()'s own innerHTML write runs, synchronously,
- *  right below. */
-function creationNewEntity() {
-  if (!authorRegistry) return;
-  const entry = CREATION_TABS[currentCreationSubTab];
-  if (!entry || !entry.createPanel) return;
-  document.dispatchEvent(new CustomEvent('creation:sheet-legacy-active'));
-  // TICKET-0059 (BRIEF-0059-e): the create-draft reset this used to call
-  // directly moved to frontend/src/creation/sheetState.svelte.js's
-  // resetCreateDrafts() -- a bare function call can't reach it across the
-  // legacy boundary any more, so this becomes a dispatch Sheet.svelte
-  // listens for, same idiom as every other legacy->shell signal.
-  document.dispatchEvent(new CustomEvent('creation:reset-create-drafts'));
-  entry.createPanel();
-}
-
-/* ── Constructeur — runtime entity-type creation (TICKET-0046, migrated to
- * a Svelte island by TICKET-0058/BRIEF-0058-d) ──
- * #creation-constructeur is now an empty mount container; the whole form,
- * its own GET /api/entity-types fetch and its POST submit live in
- * frontend/src/creation/Constructeur.svelte, mounted by
- * frontend/src/creation/mount.js. The one thing that still crosses back
- * into this document is the tab-bar refresh a successful create requires
- * — the reverse direction the legacy->shell bridge does not offer, so the
- * island dispatches this CustomEvent on itself instead of reaching in. */
-document.addEventListener('creation:refresh-tabs', () => {
-  if (typeof refreshCreationTabs === 'function') refreshCreationTabs();
-});
+ *  right below. TICKET-0059 (BRIEF-0059-l commit 1): creationNewEntity is
+ *  gone from this document -- ported to tabs.js (RECON-0059-a M6 chrome
+ *  inventory names it; kept there even though every current entry's
+ *  createPanel is null, same "future bespoke createPanel" reasoning as
+ *  index.html always carried it under). Constructeur.svelte's own
+ *  'creation:refresh-tabs' self-dispatch (unchanged -- #creation-constructeur
+ *  is still an empty mount container, mounted by frontend/src/creation/
+ *  mount.js) is now listened for in tabs.js's initCreationChrome, same
+ *  document, no longer a cross-document reverse-bridge. */
 
 /* TICKET-0059 (BRIEF-0059-f commit 2). The #npcagent-badge dot lives in
  * this document's own chrome (outside NpcAgent.svelte's #npcagent-panel
@@ -4367,101 +2887,18 @@ document.addEventListener('creation:linkagent-badge', (ev) => {
   if (badgeEl) badgeEl.style.display = ev.detail.open ? '' : 'none';
 });
 
-/* ── Runtime Creation tabs — dynamic tab factory (TICKET-0046, BRIEF-0046-d) ──
- * The single producer of runtime (custom entity-type) Creation tabs: reads
- * authorRegistry.runtime_types (world-scoped, from GET /api/entity-types) and
- * injects one entity-archetype CREATION_TABS entry + one #ctab-<slug> button
- * per active runtime type onto the shared creation-editor-area shell — no new
- * container, no per-type hand authoring, no dispatcher branch. Idempotent and
- * world-scoped: a slug previously injected but no longer live (retired type,
- * or a world switch) is removed via the tracked _runtimeCreationSlugs set —
- * static entries/buttons are never touched. */
-let _runtimeCreationSlugs = new Set();
-
-function _buildRuntimeCreationTabs() {
-  const liveSlugs = new Set((authorRegistry && authorRegistry.runtime_types) || []);
-  const tabBar = document.querySelector('.creation-sub-tab-bar');
-
-  for (const slug of Array.from(_runtimeCreationSlugs)) {
-    if (liveSlugs.has(slug)) continue;
-    delete CREATION_TABS[slug];
-    const btn = document.getElementById('ctab-' + slug);
-    if (btn) btn.remove();
-    _runtimeCreationSlugs.delete(slug);
-  }
-
-  for (const slug of liveSlugs) {
-    const typeInfo = (authorRegistry.types && authorRegistry.types[slug]) || { label: slug };
-    if (!CREATION_TABS[slug]) {
-      CREATION_TABS[slug] = {
-        label: typeInfo.label,
-        archetype: 'entity',
-        containers: ['creation-editor-area'],
-        loader: null,
-        state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
-        islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
-        type: slug,
-        createPanel: null,
-        primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
-        slots: [],
-      };
-    }
-    if (tabBar && !document.getElementById('ctab-' + slug)) {
-      tabBar.insertAdjacentHTML('beforeend',
-        `<button class="creation-sub-tab" id="ctab-${esc(slug)}" onclick="showCreationSubTab('${slug}')">${esc(typeInfo.label)}</button>`);
-    }
-    _runtimeCreationSlugs.add(slug);
-  }
-}
-
-/** Re-fetches authorRegistry then rebuilds runtime tabs — the hook 0046-c
- *  calls after a successful type create; also run on world switch via
- *  _creationRunWorldSwitchResets(). */
-async function refreshCreationTabs() {
-  authorRegistry = await api('/api/entity-types');
-  _buildRuntimeCreationTabs();
-}
-
-/* ── Création bootstrap ──────────────────────────────────────────────────── */
-
-async function creationInit() {
-  try {
-    authorRegistry = await api('/api/entity-types');
-  } catch (e) {
-    // TICKET-0058 (BRIEF-0058-e): #author-entity-list is a Svelte-owned
-    // mount target from this brief onward (the entityList island); a
-    // legacy innerHTML there would orphan it (RECON-0058-a M5). The
-    // mounted component owns its own error state — a boot failure here
-    // has nothing else to report into, so it logs and lets the island's
-    // OWN /api/entity-types-adjacent fetches surface their own failures.
-    console.error('creationInit:', e.message);
-    return;
-  }
-  _buildRuntimeCreationTabs();
-  _creationActivateTab();
-}
-
-/* ── Entity list (sidebar) ───────────────────────────────────────────────── */
-// TICKET-0058 (BRIEF-0058-e): creationRenderEntityList/authorRenderEntityList
-// /authorLoadEntityList and the Lieux hierarchy-browse helpers (BRIEF-51)
-// are gone — ported to frontend/src/creation/EntityList.svelte, the single
-// island mounted into #author-entity-list for every entity-archetype tab
-// (npc/pj/lieux/factions/objets/intrigues/evenements/runtime types). The
-// island fetches its own copy of /api/entities + /api/skills/player-
-// characters + /api/locations + /api/location-types and pushes it back
-// here via 'creation:entities-loaded' — still-legacy consumers below
-// (entity_ref field pickers, the Evenements chip editor, faction roster
-// candidates, location-type classification, creationRenderReturnControl,
-// creationResolveEntityTab...) keep reading authorAllEntities/
-// playerCharIds/authorLocationTree/authorLocationTypeCatalog exactly as
-// before; only their populator moved.
-document.addEventListener('creation:entities-loaded', (ev) => {
-  const { entities, playerCharIds: pcIds, locationTree, locationTypeCatalog } = ev.detail;
-  authorAllEntities = entities;
-  playerCharIds = new Set(pcIds);
-  authorLocationTree = locationTree;
-  authorLocationTypeCatalog = locationTypeCatalog;
-});
+// TICKET-0059 (BRIEF-0059-l commit 1). The runtime tab factory
+// (_runtimeCreationSlugs/_buildRuntimeCreationTabs/refreshCreationTabs),
+// creationInit, and the 'creation:entities-loaded' listener are gone --
+// ported to frontend/src/creation/tabs.js/state.svelte.js. The factory no
+// longer touches the tab-bar DOM directly (no more insertAdjacentHTML with
+// an inline onclick string, which cannot resolve a module-scoped import as
+// a window global): Creation.svelte's tab-bar {#each} renders one button
+// per CREATION_TABS key reactively, keyed off creationState.tabsVersion.
+// EntityList.svelte already wrote entities/playerCharIds/locationTree/
+// locationTypeCatalog onto creationState directly (state.svelte.js) --
+// this listener was a passive mirror onto legacy globals for a legacy-only
+// readership that has now moved with it.
 
 /* ── Field rendering + entity sheet ──────────────────────────────────────────
  * BRIEF-0058-f (TICKET-0058): authorRenderField/authorReadField/
@@ -4516,73 +2953,13 @@ document.addEventListener('creation:entities-loaded', (ev) => {
  * path; authorSave posts the carried mutation_id so crud.py's create_entity
  * performs the realization flip. */
 
-async function loadPendingCreations() {
-  const listEl = document.getElementById('creation-pending-list');
-  if (!listEl) return;
-  const entry = CREATION_TABS[currentCreationSubTab];
-  if (!entry || !entry.type) { listEl.innerHTML = ''; return; }
-
-  listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
-  let items;
-  try {
-    items = await api('/api/creations/pending');
-  } catch (e) {
-    listEl.innerHTML = `<div class="empty" style="color:var(--red)">Erreur : ${esc(e.message)}</div>`;
-    return;
-  }
-
-  // A germ with no valid entity_type has no home tab — shown everywhere,
-  // visible-not-realizable (RECON F6), rather than silently dropped.
-  const filtered = items.filter(it => it.entity_type === entry.type || !it.entity_type);
-  listEl.innerHTML = filtered.length
-    ? filtered.map(renderPendingCreationCard).join('')
-    : '<div class="empty">Aucune création en attente.</div>';
-}
-
-function renderPendingCreationCard(item) {
-  const sourceLabel = item.source === 'tick' ? 'TICK' : 'CONVERSATION';
-  const typeOk = !!item.entity_type;
-  return `
-    <div class="row-card">
-      <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px">
-        <strong>${esc(item.name || '(sans nom)')}</strong>
-        <span class="badge b-other" style="font-size:10px">${sourceLabel}</span>
-      </div>
-      ${item.concept ? `<div style="font-size:12px; color:var(--muted)">${esc(item.concept)}</div>` : ''}
-      ${!typeOk ? '<span class="badge b-other" style="font-size:10px; border-color:var(--red); color:var(--red)">type inconnu</span>' : ''}
-      <div class="row-card-actions">
-        ${typeOk ? `<button class="btn-send" onclick="generatePendingCreation('${esc(item.mutation_id)}')">Générer la fiche</button>` : ''}
-      </div>
-    </div>`;
-}
-
-async function generatePendingCreation(mutationId) {
-  let result;
-  try {
-    result = await api(`/api/creations/${encodeURIComponent(mutationId)}/generate`, { method: 'POST' });
-  } catch (e) {
-    alert(e.message);
-    return;
-  }
-  if (!result || result.ok === false) {
-    alert((result && result.error) || 'Échec de la génération.');
-    return;
-  }
-
-  // TICKET-0058 (BRIEF-0058-f): flushSync inside Sheet.svelte's listener
-  // guarantees author-f-name/author-x-* et al. exist before the
-  // 'creation:apply-generated-draft' dispatch right below runs its own
-  // synchronous getElementById writes (BRIEF-0058-h: applyGeneratedDraft,
-  // reached through Sheet.svelte's reverse-bridge listener, replaces the
-  // three authorApply*Draft calls this used to make directly).
-  // TICKET-0059 (BRIEF-0059-e): mutationId rides in this same event's
-  // detail now -- pendingCreationMutationId is a Svelte module `$state`
-  // (sheetState.svelte.js) this legacy code can no longer write directly.
-  document.dispatchEvent(new CustomEvent('creation:sheet-create', { detail: { type: result.entity_type, mutationId } }));
-  document.dispatchEvent(new CustomEvent('creation:apply-generated-draft', {
-    detail: { entityType: result.entity_type, result },
-  }));
-}
+// TICKET-0059 (BRIEF-0059-l commit 1). loadPendingCreations/
+// renderPendingCreationCard/generatePendingCreation are gone -- ported to
+// frontend/src/creation/tabs.js (data now, not HTML strings:
+// creationState.pendingCreations/pendingCreationsLoading/
+// pendingCreationsError, rendered by Creation.svelte's own {#each} --
+// renderPendingCreationCard's inline onclick="generatePendingCreation(...)"
+// could not resolve a module-scoped import as a window global).
 
 /* Pending knowledge/goals draft panels (BRIEF-24/BRIEF-0013-b) moved to
  * frontend/src/creation/PendingKnowledgeEditor.svelte and
@@ -4649,461 +3026,27 @@ async function generatePendingCreation(mutationId) {
  * id) -- authorEntityType (its other half) had zero readers anywhere in
  * the tree and is dropped, not ported. */
 
-/** Mirrors creationSelectedEntityId off every 'creation:selection' dispatch
- *  (selectEntity, creationSelectRecord, the *TabEnterReset family) and, for
- *  an actual entity pick (entityId non-null — a record-based pick like
- *  creationSelectRecord's never triggered this work either, before this
- *  brief), re-runs the two side effects the old entity-sheet loader used to
- *  run inline: notifying the active tab's own slots (e.g. npc's relgraph
- *  slot invalidating the relations graph so ego mode re-centres) and
- *  refreshing the return-crumb control. TICKET-0059 (BRIEF-0059-e). */
-document.addEventListener('creation:selection', (ev) => {
-  creationSelectedEntityId = ev.detail.entityId ?? null;
-  if (creationSelectedEntityId == null) return;
-  const entry = CREATION_TABS[currentCreationSubTab];
-  (entry ? entry.slots || [] : []).forEach(s => { if (s.onSelect) s.onSelect(creationSelectedEntityId); });
-  creationRenderReturnControl();
-});
-
-/** Resolves the sub-tab that owns an entity (TICKET-0054, decision F2a).
- *  npc and pj both declare type 'character'; playerCharIds is the
- *  only discriminator the registry exposes, so this pair is resolved by
- *  name here rather than by a registry lookup. Every other type resolves
- *  through the registry — no other tab id is hardcoded. */
-function creationResolveEntityTab(entityId, entityType) {
-  if (entityType === 'character') {
-    return playerCharIds.has(entityId) ? 'pj' : 'npc';
-  }
-  const found = Object.entries(CREATION_TABS).find(
-    ([, entry]) => entry.archetype === 'entity' && entry.type === entityType
-  );
-  return found ? found[0] : null;
-}
-
-/** Cross-tab entity navigation (TICKET-0054, decision F2a) — opens an
- *  entity's real, editable sheet in its own sub-tab, leaving a single-slot
- *  return crumb. Fail-closed: aborts leaving no crumb if the target tab
- *  never actually activated (showCreationSubTab can early-return into
- *  creationInit() when the registry isn't loaded yet). */
-async function creationOpenEntityFrom(entityId, entityType) {
-  const tab = creationResolveEntityTab(entityId, entityType);
-  if (!tab) {
-    const statusEl = document.getElementById('author-status');
-    if (statusEl) {
-      statusEl.className = 'author-status err';
-      statusEl.textContent = 'Aucun onglet ne gère ce type d\'entité.';
-    }
-    return;
-  }
-  const origin = creationSelectedEntityId ? { tabId: currentCreationSubTab, entityId: creationSelectedEntityId } : null;
-  showCreationSubTab(tab);
-  if (currentCreationSubTab !== tab) return;
-  creationReturnTo = origin;
-  // TICKET-0059 (BRIEF-0059-e): the sheet's own loader is Svelte now
-  // (sheetState.svelte.js's selectEntity), reached
-  // from this still-legacy chrome function via the same reverse-bridge
-  // dispatch Sheet.svelte's 'creation:select-entity' listener picks up. Not
-  // awaited (the fetch it triggers is async); the explicit
-  // creationRenderReturnControl() call right below already covers the
-  // visible refresh this function needs, same as before.
-  document.dispatchEvent(new CustomEvent('creation:select-entity', { detail: { id: entityId } }));
-  creationRenderReturnControl();
-}
-
-/** Consumes the return crumb (TICKET-0054, decision F2a) — landing back on
- *  the origin tab clears the crumb via showCreationSubTab, which is correct:
- *  returning consumes it. */
-async function creationReturnToOrigin() {
-  const back = creationReturnTo;
-  if (!back) return;
-  showCreationSubTab(back.tabId);
-  if (currentCreationSubTab !== back.tabId) return;
-  // TICKET-0059 (BRIEF-0059-e): see creationOpenEntityFrom's identical note.
-  document.dispatchEvent(new CustomEvent('creation:select-entity', { detail: { id: back.entityId } }));
-  creationRenderReturnControl();
-}
-
-/** Toggles the sheet header's return control — every entity tab inherits
- *  it (called from the 'creation:selection' listener above and
- *  _entityTabEnterReset), not just
- *  factions. Hidden when creationReturnTo is null. */
-function creationRenderReturnControl() {
-  const btn = document.getElementById('author-return-btn');
-  if (!btn) return;
-  if (!creationReturnTo) {
-    btn.style.display = 'none';
-    return;
-  }
-  const origin = authorAllEntities.find(e => e.id === creationReturnTo.entityId);
-  const label = origin ? origin.name : ((CREATION_TABS[creationReturnTo.tabId] || {}).label || '');
-  btn.textContent = '← ' + esc(label);
-  btn.style.display = '';
-}
-
-/** Generic record selection (BRIEF-0021-a): the sheetRenderer-seam
- *  counterpart of sheetState.svelte.js's selectEntity (TICKET-0059,
- *  BRIEF-0059-e) for non-entity list+detail tabs whose rows already carry
- *  full data — no per-row fetch. A registered caller either declares a
- *  bespoke sheetRenderer (intrigues — stays legacy) or doesn't (evenements,
- *  since BRIEF-0058-j), in which case this dispatches 'creation:record-detail'
- *  for Sheet.svelte to render natively — the same if/else shape a bespoke
- *  sheetRenderer takes there. Either way, the tab's list re-renders so the
- *  clicked row shows selected (creationSelectedRecordId is
- *  creationSelectedEntityId's equivalent for these tabs). */
-function creationSelectRecord(tabId, record) {
-  const entry = CREATION_TABS[tabId];
-  if (!entry) return;
-  creationSelectedRecordId = record.id;
-  if (entry.sheetRenderer) {
-    document.dispatchEvent(new CustomEvent('creation:sheet-legacy-active'));
-    entry.sheetRenderer(record);
-  } else {
-    document.dispatchEvent(new CustomEvent('creation:record-detail', { detail: { record, tabId } }));
-  }
-  // TICKET-0058 (BRIEF-0058-e): the entity-list island re-renders its own
-  // active-row highlight reactively off this, in place of the deleted
-  // entry.listRenderer() call (renderIntriguesListRows/renderEvenementsListRows).
-  document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: record.id } }));
-}
-
-/** Generic save-button dispatch (TICKET-0022, BRIEF-0022-a item 8): the
- *  static #author-save-btn is shared by every archetype:'entity' tab, but
- *  the core field engine (now Sheet.svelte) must not learn about non-entity
- *  rows. A registry entry may declare its own `saveHandler` — every entry
- *  without one (every current entry, since BRIEF-0058-j: evenements' own
- *  saveHandler is gone, its save routes through the mounted entitySheet
- *  island the same as every other tab now) falls through to the island's
- *  own save, via the same 'island:action'-style reverse dispatch
- *  _islandPrimaryAction already established for the primary-action band
- *  (BRIEF-0058-d), just under the 'creation:sheet-save' name since this is
- *  a distinct control (the persistent header Save button), not the
- *  "+ Nouveau" band. */
-function creationSaveDispatch() {
-  const entry = CREATION_TABS[currentCreationSubTab];
-  if (entry && entry.saveHandler) { entry.saveHandler(); return; }
-  document.dispatchEvent(new CustomEvent('creation:sheet-save'));
-}
-
-/* TICKET-0059 (BRIEF-0059-e): _authorGetPendingCreationMutationId and
- * _authorConsumePendingCreationMutationId moved into
- * frontend/src/creation/sheetState.svelte.js as getPendingCreationMutationId/
- * consumePendingCreationMutationId — Sheet.svelte's submitEntity reads/clears
- * pendingCreationMutationId directly now, no legacyCall needed. The
- * consume step's OTHER half, loadPendingCreations() (this still-legacy
- * germ-realization list's own refresh), stays a legacyCall from Sheet.svelte,
- * right after, same order the original single function always ran it in. */
-
-/* TICKET-0059 (BRIEF-0059-e): the soft-delete handler this island's header
- * button used to call moved into Sheet.svelte as deleteSheetEntity(),
- * calling sheetState.svelte.js's deleteEntity(id) for
- * the POST itself -- same endpoint, same confirmation text verbatim, same
- * creationRefreshList + re-select sequence. The static #author-delete-btn
- * this used to be wired to (index.html, header band) is gone with it;
- * Sheet.svelte's own template renders the button now. */
+// TICKET-0059 (BRIEF-0059-l commit 1). The 'creation:selection' listener,
+// creationResolveEntityTab, creationOpenEntityFrom, creationReturnToOrigin,
+// creationRenderReturnControl, creationSelectRecord and
+// creationSaveDispatch are all gone -- ported to frontend/src/creation/
+// tabs.js. Sheet.svelte/EntityList.svelte/FactionRoster.svelte/
+// Region.svelte/RoomBatch.svelte now import these as plain functions
+// instead of reaching them through legacyCall (legacy_calls.baseline
+// pruned to match). creationRenderReturnControl doesn't port as a separate
+// imperative DOM function: the return-crumb button's label/visibility is a
+// template expression in Creation.svelte, derived from
+// creationState.creationReturnTo + creationState.entities + CREATION_TABS.
 
 /* ════════════════════════════════════════════════════════════════════════════
-   Fiche — player skill sheet (BRIEF-10, schema v1.22)
-   ════════════════════════════════════════════════════════════════════════════ */
-
-const SKILL_DOMAIN_LABELS = {
-  physical: 'Physical', agility: 'Agility',
-  perception: 'Perception', composure: 'Composure',
-};
-const SKILL_TIER_LABELS = {
-  '-1': '-1 · Weak', '0': '0 · Average', '1': '+1 · Trained', '2': '+2 · Exceptional',
-};
-
-let skillCharacters  = null;  // cached /api/skills/player-characters response
-let skillCharacterId = null;  // currently selected player character
-let skillRows        = [];    // current sheet rows
-
-async function skillInit() {
-  await skillLoadCharacters();
-}
-
-/* ── Create-PC path (BRIEF-46) ─────────────────────────────────────────────
- * Minimal form: name + starting-location dropdown, scoped to the active
- * world (WORLD_ID, resolved by loadBootstrap()). On submit, POST
- * /api/characters/player then re-call GET /api/bootstrap so the UI picks
- * up the new resolved PC. */
-
-async function pcCreateLoadLocations() {
-  const sel = document.getElementById('pc-create-location');
-  if (!sel) return;
-  const prevValue = sel.value;
-  try {
-    await loadBootstrap(); // re-resolve WORLD_ID — may have changed via the world selector
-    const entities = await api('/api/entities?type=location');
-    const locations = entities.filter(e => e.world_id === WORLD_ID && e.status !== 'inactive');
-    sel.innerHTML = '<option value="">— choisir —</option>' +
-      locations.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('');
-    if (locations.some(l => l.id === prevValue)) sel.value = prevValue;
-  } catch (e) {
-    sel.innerHTML = '<option value="">(erreur de chargement)</option>';
-  }
-}
-
-async function pcCreateSubmit() {
-  const statusEl = document.getElementById('pc-create-status');
-  const nameEl = document.getElementById('pc-create-name');
-  const locEl = document.getElementById('pc-create-location');
-  const name = nameEl.value.trim();
-  const locationId = locEl.value;
-
-  statusEl.className = 'author-status';
-  if (!name) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = 'Le nom est requis.';
-    return;
-  }
-  if (!locationId) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = 'Choisissez un lieu de départ.';
-    return;
-  }
-
-  statusEl.textContent = 'Création…';
-  try {
-    const result = await api('/api/characters/player', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name,
-        current_location_id: locationId,
-        description: document.getElementById('pc-create-description').value.trim() || null,
-        appearance: document.getElementById('pc-create-appearance').value.trim() || null,
-        backstory: document.getElementById('pc-create-backstory').value.trim() || null,
-        knowledge: pcDraftKnowledge,
-      }),
-    });
-    if (!result.ok) {
-      statusEl.className = 'author-status err';
-      statusEl.textContent = result.error || 'Échec de la création.';
-      return;
-    }
-    statusEl.className = 'author-status';
-    statusEl.textContent = 'Personnage créé.';
-    nameEl.value = '';
-    locEl.value = '';
-    document.getElementById('pc-create-description').value = '';
-    document.getElementById('pc-create-appearance').value = '';
-    document.getElementById('pc-create-backstory').value = '';
-    document.getElementById('pc-generate-brief').value = '';
-    document.getElementById('pc-generate-notes').innerHTML = '';
-    pcDraftKnowledge = [];
-    pcRenderDraftKnowledge();
-    await loadBootstrap();
-    await loadPlayerName();
-    skillCharacters = null;
-    await skillLoadCharacters();
-    creationRefreshList(); // TICKET-0058 (BRIEF-0058-e): see regionCommit's identical comment
-  } catch (e) {
-    statusEl.className = 'author-status err';
-    statusEl.textContent = e.message;
-  }
-}
-
-/* ── PC creation assistant (BRIEF-52) ──────────────────────────────────────
- * Concept -> POST /api/characters/player/generate -> pre-fills the SAME
- * pc-create-* prose fields above; accept is still pcCreateSubmit()
- * unchanged. knowledge[] is read-only in the draft (I1) — rendered into
- * #pc-draft-knowledge, edited post-creation on the Fiche. Regenerating
- * simply re-runs this and overwrites the fields/knowledge in place — no
- * separate discard step (mirrors the world-bible generator). */
-
-let pcDraftKnowledge = [];
-
-/** PJ's createPanel (BRIEF-0005-b): renders the create form — unchanged
- *  fields/AI-draft control/submit path — into #author-main, the SAME detail
- *  region every other entity type's + Nouveau uses. Replaces the former
- *  #pj-create-block collapsed panel; a fresh click always starts blank,
- *  matching every other entity type's new-entity form. */
-function pjRenderCreatePanel() {
-  creationSelectedEntityId = null;
-  pcDraftKnowledge = [];
-
-  const titleEl = document.getElementById('author-sheet-title');
-  if (titleEl) titleEl.textContent = 'Créer un personnage joueur';
-  document.getElementById('author-save-btn').style.display   = 'none';
-  // TICKET-0059 (BRIEF-0059-e): see renderAgendaSheet's identical note --
-  // #author-delete-btn no longer exists in the legacy document.
-  document.getElementById('author-status').textContent       = '';
-
-  // TICKET-0058 (BRIEF-0058-f): #author-main is the entitySheet island's
-  // mount root now; this bespoke panel renders into the stable legacy leaf
-  // Sheet.svelte always keeps present for it (creationNewEntity dispatches
-  // 'creation:sheet-legacy-active' just before calling this).
-  document.getElementById('author-legacy-sheet-slot').innerHTML = `
-    <div class="field-section" style="margin:0; padding:10px 14px">
-      <div class="field-row" style="margin:0">
-        <label>Concept (pour l'assistant)</label>
-        <textarea id="pc-generate-brief" rows="2" placeholder="Ex. une ancienne contrebandière qui a tout quitté pour..."></textarea>
-      </div>
-      <div style="display:flex; gap:10px; align-items:center; margin-top:6px">
-        <button class="btn-send" onclick="pcGenerateDraft()">Générer le brouillon</button>
-        <span class="author-status" id="pc-generate-status"></span>
-      </div>
-      <div id="pc-generate-notes"></div>
-    </div>
-    <div class="field-section" style="margin:0; padding:10px 14px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">
-      <div class="field-row" style="margin:0; min-width:180px">
-        <label>Nom</label>
-        <input type="text" id="pc-create-name" placeholder="Nom du personnage">
-      </div>
-      <div class="field-row" style="margin:0; min-width:200px">
-        <label>Lieu de départ</label>
-        <select id="pc-create-location"><option value="">— choisir —</option></select>
-      </div>
-      <button class="btn-send" onclick="pcCreateSubmit()">Créer</button>
-      <span class="author-status" id="pc-create-status"></span>
-    </div>
-    <div class="field-section" style="margin:0; padding:0 14px 10px">
-      <div class="field-row" style="margin:0 0 6px 0">
-        <label>Description (publique)</label>
-        <textarea id="pc-create-description" rows="2" placeholder="Ce qu'autrui perçoit au premier regard"></textarea>
-      </div>
-      <div class="field-row" style="margin:0 0 6px 0">
-        <label>Apparence</label>
-        <textarea id="pc-create-appearance" rows="2" placeholder="Référence du joueur"></textarea>
-      </div>
-      <div class="field-row" style="margin:0 0 6px 0">
-        <label>Histoire personnelle</label>
-        <textarea id="pc-create-backstory" rows="3" placeholder="Référence du joueur"></textarea>
-      </div>
-      <div class="field-row" style="margin:0">
-        <label>Savoirs proposés (lecture seule — éditables après création via la Fiche)</label>
-        <div id="pc-draft-knowledge" style="font-size:12px; color:var(--muted)"></div>
-      </div>
-    </div>
-  `;
-  pcCreateLoadLocations();
-  pcRenderDraftKnowledge();
-}
-
-/** The pj entry's Fiche slot onSelect (BRIEF-0005-b) — replaces the former
- *  hardcoded pj-only branch inside the sheet's own entity-select loader:
- *  syncs the Fiche dropdown to the clicked character and loads its sheet. */
-function pjFicheOnSelect(id) {
-  const sel = document.getElementById('skill-character-select');
-  if (sel) sel.value = id;
-  skillSelectCharacter(id);
-}
-
-function pcRenderDraftKnowledge() {
-  const el = document.getElementById('pc-draft-knowledge');
-  if (!el) return;
-  if (!pcDraftKnowledge.length) {
-    el.textContent = '(aucun)';
-    return;
-  }
-  el.innerHTML = pcDraftKnowledge
-    .map(k => `<div>${esc(k.subject)} (${esc(k.level)}) : ${esc(k.content)}</div>`)
-    .join('');
-}
-
-async function pcGenerateDraft() {
-  const briefEl = document.getElementById('pc-generate-brief');
-  const statusEl = document.getElementById('pc-generate-status');
-  const brief = briefEl.value.trim();
-  if (!brief) { statusEl.textContent = 'Concept requis.'; return; }
-  statusEl.textContent = 'Génération…';
-  try {
-    const result = await api('/api/characters/player/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ brief }),
-    });
-    if (!result.ok) { statusEl.textContent = result.error; return; }
-    pcApplyDraft(result.draft);
-    statusEl.textContent = 'Brouillon généré — relisez et éditez avant de créer.';
-  } catch (err) {
-    statusEl.textContent = err.message;
-  }
-}
-
-function pcApplyDraft(draft) {
-  const setVal = (id, value) => { const el = document.getElementById(id); if (el) el.value = value ?? ''; };
-  setVal('pc-create-name', draft.name);
-  setVal('pc-create-description', draft.description);
-  setVal('pc-create-appearance', draft.appearance);
-  setVal('pc-create-backstory', draft.backstory);
-  pcDraftKnowledge = draft.knowledge || [];
-  pcRenderDraftKnowledge();
-}
-
-async function skillLoadCharacters() {
-  const sel = document.getElementById('skill-character-select');
-  try {
-    skillCharacters = await api('/api/skills/player-characters');
-  } catch (e) {
-    document.getElementById('skill-main').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-    return;
-  }
-  sel.innerHTML = skillCharacters.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
-  if (skillCharacters.length === 0) {
-    document.getElementById('skill-main').innerHTML = '<div class="empty">No player characters yet.</div>';
-    return;
-  }
-  if (!skillCharacterId || !skillCharacters.some(c => c.id === skillCharacterId)) {
-    skillCharacterId = skillCharacters[0].id;
-  }
-  sel.value = skillCharacterId;
-  await skillSelectCharacter(skillCharacterId);
-}
-
-async function skillSelectCharacter(characterId) {
-  skillCharacterId = characterId;
-  const mainEl = document.getElementById('skill-main');
-  mainEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
-  try {
-    skillRows = await api(`/api/skills?character_id=${encodeURIComponent(characterId)}`);
-  } catch (e) {
-    mainEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-    return;
-  }
-  skillRender();
-}
-
-function skillRender() {
-  const mainEl = document.getElementById('skill-main');
-  if (!skillRows.length) {
-    mainEl.innerHTML = '<div class="empty">No skill rows for this character.</div>';
-    return;
-  }
-  const playerMode = document.getElementById('skill-player-mode').checked;
-  mainEl.innerHTML = '<div class="field-section"><div class="field-grid">' +
-    skillRows.map(s => {
-      const baseName = SKILL_DOMAIN_LABELS[s.domain] || s.domain;
-      const labelHtml = s.definition_name
-        ? `${esc(s.definition_name)}<br><small style="font-weight:normal;color:var(--muted)">${esc(baseName)}</small>`
-        : esc(baseName);
-      if (playerMode) {
-        return `<div class="field-row"><label>${labelHtml}</label>
-          <input type="text" value="${esc(SKILL_TIER_LABELS[String(s.tier)] || s.tier)}" disabled></div>`;
-      }
-      const opts = [-1, 0, 1, 2].map(t =>
-        `<option value="${t}" ${t === s.tier ? 'selected' : ''}>${esc(SKILL_TIER_LABELS[String(t)])}</option>`
-      ).join('');
-      return `<div class="field-row"><label>${labelHtml}</label>
-        <select onchange="skillSaveTier('${esc(s.id)}', this.value)">${opts}</select></div>`;
-    }).join('') +
-    '</div></div>';
-}
-
-async function skillSaveTier(skillId, tier) {
-  try {
-    const updated = await api(`/api/skills/${encodeURIComponent(skillId)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tier: Number(tier) }),
-    });
-    const idx = skillRows.findIndex(s => s.id === skillId);
-    if (idx !== -1) skillRows[idx] = updated;
-  } catch (e) {
-    alert(e.message);
-    skillSelectCharacter(skillCharacterId); // reload to discard the failed edit
-  }
-}
+   Fiche — player skill sheet (BRIEF-10, schema v1.22; converged onto Svelte
+   by TICKET-0059, BRIEF-0059-j commit 4, final)
+   ════════════════════════════════════════════════════════════════════════════
+   The whole Fiche slot -- character list, per-character skill rows,
+   player-mode toggle, tier edits -- moved to
+   frontend/src/creation/PjSkillFiche.svelte, mounted into
+   #creation-pj-skill via the 'pjSkillFiche' island entry on CREATION_TABS.pj.
+   Nothing legacy-side renders this panel any more. */
 
 /* TICKET-0058 (BRIEF-0058-c). The fifteen NPC-relation-graph functions
    that used to live here (a vendored graph-engine cluster) converged onto
@@ -5114,39 +3057,20 @@ async function skillSaveTier(skillId, tier) {
 
 
 /* ════════════════════════════════════════════════════════════════════════════
-   NPC group agent panel (BRIEF-0037-c) — attaches to the relgraph panel head,
-   sibling of the link agent panel below (same header, "Agent PNJ" precedes
-   "Agent liens" — the region -> NPC -> liens pipeline order). TICKET-0059
-   (BRIEF-0059-f) ported the whole panel to frontend/src/creation/
-   NpcAgent.svelte + npcAgent.svelte.js — see those files' own header
-   comments for the full history. Only the display-flip toggle survives
-   here as chrome; the badge and panel content are the island's now.
+   NPC group agent panel (BRIEF-0037-c) / NPC link agent panel (BRIEF-0036-d)
+   — TICKET-0059 (BRIEF-0059-f/-g) ported both panels to frontend/src/
+   creation/NpcAgent.svelte+npcAgent.svelte.js and LinkAgent.svelte+
+   linkAgent.svelte.js. The two display-flip toggles that survived here as
+   chrome (npcAgentToggle/linkAgentToggle) are gone too now (BRIEF-0059-l
+   amendment, "the legacyContainer exposure"): their #npcagent-panel/
+   #linkagent-panel markup moved into Creation.svelte's own template the
+   moment the npc tab's chrome did (commit 1, not this brief's originally
+   -scheduled commit 4) -- npcAgent.svelte.js's generateLinks() reached
+   #linkagent-panel through legacyContainer/legacyCall, which broke the
+   instant that markup left this document. Both toggles are
+   creationState.npcAgentOpen/linkAgentOpen writes now, owned by
+   Creation.svelte; nothing legacy-side renders either panel any more.
    ════════════════════════════════════════════════════════════════════════════ */
-
-let npcAgentOpen = false;
-
-function npcAgentToggle() {
-  npcAgentOpen = !npcAgentOpen;
-  const panelEl = document.getElementById('npcagent-panel');
-  if (panelEl) panelEl.style.display = npcAgentOpen ? '' : 'none';
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   NPC link agent panel (BRIEF-0036-d) — attaches to the relgraph panel head,
-   sibling of the NPC group agent panel above. TICKET-0059 (BRIEF-0059-g)
-   ported the whole panel to frontend/src/creation/LinkAgent.svelte +
-   linkAgent.svelte.js — see those files' own header comments for the full
-   history. Only the display-flip toggle survives here as chrome; the badge
-   and panel content are the island's now.
-   ════════════════════════════════════════════════════════════════════════════ */
-
-let linkAgentOpen = false;
-
-function linkAgentToggle() {
-  linkAgentOpen = !linkAgentOpen;
-  const panelEl = document.getElementById('linkagent-panel');
-  if (panelEl) panelEl.style.display = linkAgentOpen ? '' : 'none';
-}
 
 /* ════════════════════════════════════════════════════════════════════════════
    Generic modal (BRIEF-41) — reusable overlay, body swapped per use
@@ -5190,38 +3114,18 @@ async function loadWorldSelector() {
   } catch (_) {}
 }
 
-async function activateWorld(worldId) {
-  let activated = false;
-  try {
-    const res = await api(`/api/worlds/${worldId}/activate`, { method: 'POST' });
-    if (res.ok) {
-      activated = true;
-    } else {
-      alert(`Échec de l'activation du monde : ${res.error}`);
-    }
-  } catch (err) {
-    alert(`Échec de l'activation du monde : ${err.message}`);
-  }
-  await loadWorldSelector();
-  if (!activated) return;
-
-  // Invalidate every tab's world-scoped state so no stale other-world row
-  // survives the switch (BRIEF-47 creation-world-scoping, widened to every
-  // registry entry's declared reset by BRIEF-0005-a G1).
-  await _creationRunWorldSwitchResets();
-
-  const creationView = document.getElementById('creation-view');
-  if (creationView && creationView.style.display !== 'none') {
-    if (authorRegistry) {
-      // The active tab may have been a runtime type that just got removed
-      // by refreshCreationTabs (world-scoped) — fall back to npc so the
-      // switch always lands on a live entry (BRIEF-0046-d).
-      showCreationSubTab(CREATION_TABS[currentCreationSubTab] ? currentCreationSubTab : 'npc');
-    } else {
-      creationInit();
-    }
-  }
-}
+// TICKET-0059 (BRIEF-0059-l commit 1, amendment). activateWorld is gone --
+// ported to frontend/src/creation/tabs.js's activateWorldCascade, called
+// directly from Header.svelte's onWorldChange (no legacy bridge hop). The
+// legacy #world-selector <select> this function used to update lived only
+// inside the suppressed legacy <header> (hideLegacyHeader()) and had no
+// other reader -- deleted alongside it (see the markup below and Header.
+// svelte, which renders its own <select> from serverState.worlds). Amends
+// TICKET-0056's own "the cascade moves WITH [Creation]" plan (Header.svelte
+// header comment) -- this ports one brief earlier than TICKET-0056 assumed,
+// since activateWorld's OTHER calls (CREATION_TABS/showCreationSubTab/
+// creationInit) already move at this same commit regardless of the
+// selector question.
 
 /** BRIEF-44 (B2): minimal create-world form — name + description +
  *  fundamental_laws, both optional. On success the new world is already
@@ -5352,15 +3256,15 @@ async function worldDeleteConfirm(worldId) {
     }
     await loadWorldSelector();
     await loadBootstrap();
-    await _creationRunWorldSwitchResets();
-    const creationView = document.getElementById('creation-view');
-    if (creationView && creationView.style.display !== 'none') {
-      if (authorRegistry) {
-        showCreationSubTab(CREATION_TABS[currentCreationSubTab] ? currentCreationSubTab : 'npc');
-      } else {
-        creationInit();
-      }
-    }
+    // TICKET-0059 (BRIEF-0059-l commit 1). _creationRunWorldSwitchResets is
+    // gone (vacuous -- every onWorldSwitch in CREATION_TABS is null) and
+    // CREATION_TABS/showCreationSubTab/creationInit no longer exist in this
+    // document. This reverse-bridge dispatch (the same idiom
+    // 'route:subtab'/'creation:refresh-tabs' already used cross-document
+    // before this brief) reaches tabs.js's handleWorldChanged, the same
+    // cascade tail activateWorldCascade uses. Retires when this function
+    // itself ports off the legacy window (commit 3).
+    document.dispatchEvent(new CustomEvent('creation:world-changed'));
     await loadScene();
     await loadPlayerName();
   } catch (err) {
@@ -5649,18 +3553,23 @@ function _obsRenderRunDetail(run) {
 
 /** BRIEF-0059-i cross-surface touch: this was the Observation lane's
  *  (TICKET-0051) only caller into the Prompts tab's now-retired list-load
- *  and detail-select functions. Ported to a one-way CustomEvent (same
- *  shape as mount.js's island:slot/island:action) carrying an intent, not
- *  a command -- Prompts.svelte applies it once its own list load resolves,
- *  so the ordering dependency the old .then() encoded moves to the
- *  listener instead of disappearing. showCreationSubTab('prompts') already
- *  mounts the island (which loads its own list); no cross-seam loader call
- *  is needed here. Nothing else in observation* is touched -- that
- *  cluster is TICKET-0060's. */
+ *  and detail-select functions. Ported to a one-way CustomEvent carrying an
+ *  intent, not a command -- Prompts.svelte applies it once its own list
+ *  load resolves.
+ *
+ *  TICKET-0059 (BRIEF-0059-l commit 1): showCreationView/showCreationSubTab
+ *  no longer live in this document (Creation is shell-side now), and
+ *  Prompts.svelte's own 'creation:open-prompt' listener is on the SHELL's
+ *  document (its legacyDoc prop, via mount.js, which now resolves to that
+ *  document) -- a dispatch on THIS document would never reach it. This
+ *  dispatches a reverse-bridge event instead (the same idiom 'route:subtab'/
+ *  'creation:refresh-tabs'/'creation:world-changed' already use
+ *  cross-document); App.svelte's onLegacyReady listens for it and does the
+ *  surface switch + sub-tab activation + re-dispatch on its own document.
+ *  Nothing else in observation* is touched -- that cluster is
+ *  TICKET-0060's. */
 function observationOpenPrompt(templateId) {
-  showCreationView();
-  showCreationSubTab('prompts');
-  document.dispatchEvent(new CustomEvent('creation:open-prompt', { detail: { templateId } }));
+  document.dispatchEvent(new CustomEvent('observation:open-prompt', { detail: { templateId } }));
 }
 
 /** Transcript (Done means): 'acted'/'silence'/'degraded'/'event' visually

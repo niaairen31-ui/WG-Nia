@@ -37,7 +37,7 @@
      island, this renders inside the legacy iframe document. */
   import { tick } from 'svelte';
   import { serverState } from '../lib/serverState.svelte.js';
-  import { legacyCall } from '../legacy/bridge.js';
+  import { creationRefreshList } from './tabs.js';
   import { reviewRegister } from './review/registry.js';
   import Review from './Review.svelte';
 
@@ -308,7 +308,7 @@
       // TICKET-0058: authorLoadEntityList is gone; the entity list now
       // lives in the entityList island, refreshed the same way its own
       // "↻" button does. Fire-and-forget.
-      legacyCall('creationRefreshList');
+      creationRefreshList();
     }
   }
 

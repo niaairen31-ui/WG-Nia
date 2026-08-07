@@ -15,37 +15,50 @@
      whichever tab's rendering got here first, regardless of which tab
      wrote it.
 
-     The SHEET stays entirely legacy for `intrigues`'s own rows and `pj`'s
-     create mode (#author-main, brief -f) -- a record row click still calls
-     back into creationSelectRecord via legacy/bridge.js, unchanged. An
-     ENTITY row click no longer bridges into legacy at all (TICKET-0059,
-     BRIEF-0059-e): authorSelectEntity converged onto
-     frontend/src/creation/sheetState.svelte.js's selectEntity, a plain
+     The SHEET stays entirely legacy for `pj`'s create mode (#author-main,
+     brief -f) -- unchanged. An ENTITY row click no longer bridges into
+     legacy at all (TICKET-0059, BRIEF-0059-e): authorSelectEntity converged
+     onto frontend/src/creation/sheetState.svelte.js's selectEntity, a plain
      Svelte-to-Svelte import. `evenements` converged onto real Svelte state
-     (BRIEF-0058-j): its list is fetched by
-     this component directly (loadEvents, mirroring loadGenericEntities --
-     no more 'creation:list-data' push from a legacy loadEventsList, which is
-     gone), and its row click still reaches Sheet.svelte through
-     creationSelectRecord (unchanged call), which now dispatches
-     'creation:record-detail' instead of calling a bespoke sheetRenderer.
-     "Générer un lot ici" and "Générer les buts manquants" (BRIEF-0058-j)
-     reach the room-batch island and the goals-backfill endpoint by plain
-     import/fetch now too -- neither is a legacy function any more, so
-     legacy/bridge.js's openBatchPanel/triggerNpcGoalsBackfill are gone.
+     (BRIEF-0058-j): its list is fetched by this component directly
+     (loadEvents, mirroring loadGenericEntities -- no more 'creation:list-data'
+     push from a legacy loadEventsList, which is gone), and its row click
+     still reaches Sheet.svelte through creationSelectRecord (unchanged
+     call), which now dispatches 'creation:record-detail' instead of calling
+     a bespoke sheetRenderer. `intrigues` converged the same way (TICKET-0059,
+     BRIEF-0059-j commit 1): loadAgendaRecords calls intrigues.svelte.js's
+     loadAgendas (self-fetched, assigned into creationState.agendas) in
+     place of the legacy listLoader + 'creation:list-data' push
+     (loadAgendasList, now deleted); its row click reaches Sheet.svelte the
+     identical way evenements' does. "Générer un lot ici" and "Générer les
+     buts manquants" (BRIEF-0058-j) reach the room-batch island and the
+     goals-backfill endpoint by plain import/fetch now too -- neither is a
+     legacy function any more, so legacy/bridge.js's openBatchPanel/
+     triggerNpcGoalsBackfill are gone.
 
      No scoped <style> block: like Graph.svelte and Constructeur.svelte,
      this renders inside the legacy iframe document, where Svelte's
      shell-injected scoped CSS never reaches. Markup reuses the legacy
-     document's own classes/CSS vars. */
+     document's own classes/CSS vars.
+
+     TICKET-0059 (BRIEF-0059-j commit 1): intrigues converged onto real
+     Svelte state the same way evenements did (BRIEF-0058-j) -- its list is
+     now fetched by this component directly (loadAgendaRecords, mirroring
+     loadEvents), no more 'creation:list-data' push from a legacy
+     loadAgendasList, which is gone. Its row click still reaches
+     Sheet.svelte through creationSelectRecord, now a plain Svelte-to-Svelte
+     import (BRIEF-0059-l commit 1: creationSelectRecord ported off the
+     legacy window into tabs.js, alongside the rest of Creation's chrome),
+     which still dispatches 'creation:record-detail' too. */
   import { creationState } from './state.svelte.js';
-  import { selectRecord } from '../legacy/bridge.js';
+  import { creationSelectRecord } from './tabs.js';
   import { selectEntity } from './sheetState.svelte.js';
   import { openRoomBatch } from './roomBatch.svelte.js';
+  import { loadAgendas } from './intrigues.svelte.js';
 
   let { legacyDoc } = $props();
 
   const GENERIC_TYPE_BY_TAB = { npc: 'character', pj: 'character', lieux: 'location', factions: 'faction', objets: 'item' };
-  const CUSTOM_LIST_KEY_BY_TAB = { intrigues: 'agendas' };
   const LOCATION_TYPE_ORDER = ['city', 'district', 'building', 'room', 'natural', 'underground', 'other'];
   const LOCATION_TYPE_LABELS = {
     city: 'Villes', district: 'Quartiers', building: 'Bâtiments', room: 'Pièces',
@@ -126,6 +139,23 @@
     recordsReady = true;
   }
 
+  /** intrigues' own list fetch (BRIEF-0059-j commit 1) -- same shape as
+   *  loadEvents above; loadAgendas (intrigues.svelte.js) assigns straight
+   *  into creationState.agendas, replacing the legacy listLoader +
+   *  'creation:list-data' push (loadAgendasList, now deleted). */
+  async function loadAgendaRecords() {
+    recordsReady = false;
+    mode = 'record';
+    try {
+      await loadAgendas();
+    } catch (err) {
+      errorMessage = err.message;
+      mode = 'error';
+      return;
+    }
+    recordsReady = true;
+  }
+
   function activateTab(tabKey) {
     const isNewActivation = tabKey !== previousTabKey;
     previousTabKey = tabKey;
@@ -133,12 +163,8 @@
       loadEvents();
       return;
     }
-    if (tabKey in CUSTOM_LIST_KEY_BY_TAB) {
-      if (isNewActivation) recordsReady = false;
-      mode = 'record';
-      // Data arrives via 'creation:list-data' -- entry.listLoader() (kept
-      // legacy: loadAgendasList) still runs from _creationActivateTab on
-      // every activation, unchanged cadence.
+    if (tabKey === 'intrigues') {
+      loadAgendaRecords();
       return;
     }
     if (tabKey === 'lieux' && isNewActivation) {
@@ -162,18 +188,12 @@
     creationState.selectedRecordId = ev.detail.recordId ?? null;
   });
 
-  legacyDoc.addEventListener('creation:list-data', (ev) => {
-    const { key, rows } = ev.detail;
-    if (key === 'agendas') creationState.agendas = rows;
-    recordsReady = true;
-  });
-
   function onSelectEntity(id) {
     selectEntity(legacyDoc, id);
   }
 
   function onSelectRecord(record) {
-    selectRecord(creationState.activeTabKey, record);
+    creationSelectRecord(creationState.activeTabKey, record);
   }
 
   /** "Générer les buts manquants" (BRIEF-0013-b, ported off npcGoalsBackfillAll

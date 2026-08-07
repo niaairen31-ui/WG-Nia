@@ -227,6 +227,40 @@ export const CREATION_ISLANDS = Object.freeze({
       // deleteSheetEntity/sheetState.svelte.js's deleteEntity; the delete
       // button moved out of the static legacy header into the component.
       'authorDelete',
+      // BRIEF-0059-j: intrigues -- fully converged onto Intrigues.svelte/
+      // intrigues.svelte.js, reached through this same #author-main island
+      // (a tabKey === 'intrigues' gate, mirroring evenements' own
+      // convergence exactly). loadAgendasList (the list fetch) is grouped
+      // here rather than under entityList, the same placement
+      // loadEventsList already took. Commit 1: list + view sheet.
+      'loadAgendasList',
+      'renderAgendaSheet',
+      '_intriguesRenderStep',
+      '_intriguesRenderLinkedGoal',
+      '_intriguesRefreshSelection',
+      'intriguesSetAgendaStatus',
+      'intriguesDetachLink',
+      'intriguesStepStatus',
+      // Commit 2: create panel + AI draft assistant, landing alongside
+      // createPanel going null / primaryAction going island-routed on
+      // CREATION_TABS.intrigues (rule 11).
+      '_intriguesPopulateOwnerSelect',
+      'intriguesRenderCreatePanel',
+      'intriguesGenerateDraft',
+      'intriguesSubmitCreate',
+      // BRIEF-0059-j commit 3: the pj tab's create flow -- ported to
+      // PjCreatePanel.svelte, reached the same way (a tabKey/isNew gate,
+      // alongside the generic branch the pj tab's own VIEW mode still
+      // uses). The bespoke player-character-create endpoint survives
+      // unchanged; only the legacy panel rendering it is gone. The Fiche
+      // slot (skillInit and its family) stays legacy until this brief's
+      // next commit.
+      'pjRenderCreatePanel',
+      'pcCreateLoadLocations',
+      'pcCreateSubmit',
+      'pcRenderDraftKnowledge',
+      'pcGenerateDraft',
+      'pcApplyDraft',
     ],
   }),
   // BRIEF-0058-i (per RECON-SUPPLEMENT-0058's re-scope): region generation
@@ -407,6 +441,71 @@ export const CREATION_ISLANDS = Object.freeze({
       'linkAgentApplyFinding',
       'linkAgentCommit',
       '_linkAgentPaintReview',
+    ],
+  }),
+  // BRIEF-0059-j commit 4 (final): the pj tab's Fiche (player skill sheet)
+  // slot -- ported to PjSkillFiche.svelte. The 'fiche' slot descriptor on
+  // CREATION_TABS.pj survives with loader/onSelect both null; this island
+  // fetches its own character list on mount/world-switch and reacts to
+  // creationState.selectedEntityId directly instead of a legacy onSelect
+  // callback.
+  pjSkillFiche: Object.freeze({
+    containerId: 'creation-pj-skill',
+    component: 'PjSkillFiche.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      'skillInit', 'skillLoadCharacters', 'skillSelectCharacter', 'skillRender',
+      'skillSaveTier', 'pjFicheOnSelect', 'SKILL_DOMAIN_LABELS', 'SKILL_TIER_LABELS',
+    ],
+  }),
+  // BRIEF-0059-k commit 1: the Review Queue's 'filters' slot -- filter bar
+  // (setFilter/setFilterByName) + world-tick controls
+  // (loadTickControls/tickScopeTypeChanged/runWorldTick) -- ported to
+  // QueueFilters.svelte/queue.svelte.js. Both rendered into the same
+  // #creation-shell-extra slot in the legacy markup, so both move
+  // together. The queue body (commit 2) and batch bar (commit 3) are
+  // separate mount points, added to this registry in their own commits.
+  queueFilters: Object.freeze({
+    containerId: 'creation-shell-extra',
+    component: 'QueueFilters.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      'setFilter', 'setFilterByName', '_loadMutationEntityNames', '_mutationEntityName',
+      '_loadMutationAgendaNames', '_mutationAgendaName',
+      'loadTickControls', 'tickScopeTypeChanged', 'runWorldTick',
+    ],
+  }),
+  // BRIEF-0059-k commit 2: the Review Queue's card list -- loadQueue's
+  // render half, renderCard and every card-rendering helper it reaches --
+  // ported to Queue.svelte/QueueCard.svelte/queue.svelte.js. The batch
+  // cluster (renderBatchBar/toggleSelectAll/updateBatchBar/doBatchAction
+  // and friends) is commit 3's own target; it goes dead code this commit
+  // (its only caller, loadQueue, is gone) and is retired in that commit.
+  queue: Object.freeze({
+    containerId: 'creation-queue',
+    component: 'Queue.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      'loadQueue', 'renderCard', '_renderResourceChangeLegs', '_renderAgendaProvenanceSummary',
+      'doApprove', 'doReject', 'showResult', 'lockCard', 'unlockCard', 'markCardDone',
+    ],
+  }),
+  // BRIEF-0059-k commit 3 (final): the Review Queue's batch bar --
+  // renderBatchBar/getSelectedMutationIds/toggleSelectAll/updateBatchBar/
+  // hideBatchVerdict/showBatchVerdict/doBatchAction -- ported to
+  // QueueBatchBar.svelte/queue.svelte.js. Mounts into
+  // #creation-shell-batch-bar, rendered by QueueFilters.svelte's own
+  // template (not legacy markup, so it stays the last child of
+  // #creation-shell-extra); the verdict banner itself renders in
+  // Queue.svelte, reading the same queueState.batchVerdict this bar
+  // writes.
+  queueBatchBar: Object.freeze({
+    containerId: 'creation-shell-batch-bar',
+    component: 'QueueBatchBar.svelte',
+    migratedBy: 'TICKET-0059',
+    retiredPrefixes: [
+      'renderBatchBar', 'getSelectedMutationIds', 'toggleSelectAll', 'updateBatchBar',
+      'hideBatchVerdict', 'showBatchVerdict', 'doBatchAction',
     ],
   }),
 });

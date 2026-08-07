@@ -3,29 +3,30 @@
    arbitrary Creation panels, so briefs -e..-j have one way to mount and
    only one.
 
-   Two one-way signals, both legacy -> shell, no function installed on the
-   legacy window:
-     'island:slot'   -- legacy activated a tab whose body is an island;
-                        mount (or reconcile) it.
-     'island:action' -- the legacy shell's standard primary-action band was
-                        clicked; forward the click to the mounted
-                        component's own exported primaryAction().
-   The one exception, component -> legacy (a mounted island telling legacy
-   its own tab bar needs refreshing) is NOT this file's concern -- it is a
-   component-owned CustomEvent on the legacy document itself (see
-   Constructeur.svelte's `legacyDoc` prop and index.html's listener),
-   because generalising THIS file to relay it would be exactly the
-   "shared island base class" the brief scopes out.
+   TICKET-0059 (BRIEF-0059-l commit 1, item 5). Creation stopped living in
+   the legacy iframe: its containers are children of Creation.svelte's own
+   template now, in the SAME document this module runs in, so 'island:slot'
+   / 'island:action' are no longer a cross-document signal -- they are
+   ordinary same-document function calls. `activateIsland`/
+   `triggerPrimaryAction` below replace both dispatches; nothing here talks
+   to itself across an event bus any more. Container resolution moved from
+   `legacyContainer(id)` (the iframe document) to `document.getElementById(id)`
+   (this module's own global `document`, which IS the shell document Creation
+   .svelte renders into).
+
+   `mutations:proposed` is the one signal that stays cross-document
+   (initCreationMount(legacyDoc) below): it originates in Play, which is
+   still legacy.
 
    frontend/src/creation/registry.js is the DATA this file's containerId
    resolution is checked against; the actual component classes are
    imported here -- the one file (besides graph/mount.js, a distinct,
    already-established mechanism) permitted to call svelteMount/unmount on
-   a legacy-document target for a Creation island. */
+   a Creation island. */
 import { mount as svelteMount, unmount as svelteUnmount } from 'svelte';
-import { legacyContainer } from '../legacy/bridge.js';
 import { CREATION_ISLANDS } from './registry.js';
 import { creationState } from './state.svelte.js';
+import { setFilter } from './queue.svelte.js';
 import Constructeur from './Constructeur.svelte';
 import EntityList from './EntityList.svelte';
 import Sheet from './Sheet.svelte';
@@ -37,8 +38,12 @@ import Artefacts from './Artefacts.svelte';
 import Competences from './Competences.svelte';
 import Registre from './Registre.svelte';
 import Prompts from './Prompts.svelte';
+import PjSkillFiche from './PjSkillFiche.svelte';
+import QueueFilters from './QueueFilters.svelte';
+import Queue from './Queue.svelte';
+import QueueBatchBar from './QueueBatchBar.svelte';
 
-const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet, region: Region, batch: RoomBatch, npcAgent: NpcAgent, linkAgent: LinkAgent, artefacts: Artefacts, competences: Competences, registre: Registre, prompts: Prompts };
+const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet, region: Region, batch: RoomBatch, npcAgent: NpcAgent, linkAgent: LinkAgent, artefacts: Artefacts, competences: Competences, registre: Registre, prompts: Prompts, pjSkillFiche: PjSkillFiche, queueFilters: QueueFilters, queue: Queue, queueBatchBar: QueueBatchBar };
 
 const live = {}; // key -> { node, instance }
 
@@ -66,7 +71,10 @@ export function mountIsland(key) {
   if (!entry || !Component) {
     throw new Error(`creation/mount: unknown island ${JSON.stringify(key)}`);
   }
-  const node = legacyContainer(entry.containerId);
+  const node = document.getElementById(entry.containerId);
+  if (!node) {
+    throw new Error(`creation/mount: no element #${entry.containerId} in the document`);
+  }
   const existing = live[key];
   if (existing && existing.node === node) {
     return;
@@ -98,49 +106,58 @@ export function unmountIsland(key) {
   delete live[key];
 }
 
-/* The legacy -> shell signal, both directions of it: one listener each,
-   no function installed on the legacy window. */
-export function initCreationMount(legacyDoc) {
-  legacyDoc.addEventListener('island:slot', (ev) => {
-    const { key, open, tabKey } = ev.detail;
-    if (!open) return;
-    // BRIEF-0058-e: 'entityList' is one component shared by seven
-    // CREATION_TABS entries; tabKey is the only way it learns which of
-    // them just activated. Mirrored here (not inside mountIsland, which
-    // several islands share) so every island:slot dispatch keeps the
-    // store's mirror of the legacy document's own decision current,
-    // whether or not that key's mount is a no-op this time. creation_
-    // island.py rule 8 confines 'island:slot' listening to this file
-    // alone, so EntityList.svelte reacts to these store fields instead
-    // of listening for the event itself; the tick increments on every
-    // 'entityList' activation so a same-key repeat (e.g. re-entering a
-    // tab) still triggers a refetch, matching the old per-activation
-    // authorLoadEntityList cadence.
-    if (tabKey !== undefined) creationState.activeTabKey = tabKey;
-    if (key === 'entityList') creationState.entityListActivationTick += 1;
-    try {
-      mountIsland(key);
-    } catch (err) {
-      console.error('creation/mount:', err.message);
-    }
-  });
+/** Replaces the old 'island:slot' dispatch (BRIEF-0059-l item 5): mirrors
+ *  the activation into creationState the same way the event listener used
+ *  to, then mounts. 'entityList' is one component shared by seven
+ *  CREATION_TABS entries; tabKey is the only way it learns which of them
+ *  just activated -- mirrored here (not inside mountIsland, which several
+ *  islands share) so every activation keeps the store's mirror of the
+ *  active tab current, whether or not that key's mount is a no-op this
+ *  time. The tick increments on EVERY 'entityList' activation so a
+ *  same-key repeat (e.g. re-entering a tab) still triggers a refetch,
+ *  matching the old per-activation authorLoadEntityList cadence. */
+export function activateIsland(key, tabKey) {
+  if (tabKey !== undefined) creationState.activeTabKey = tabKey;
+  if (key === 'entityList') creationState.entityListActivationTick += 1;
+  try {
+    mountIsland(key);
+  } catch (err) {
+    console.error('creation/mount:', err.message);
+  }
+}
 
-  legacyDoc.addEventListener('island:action', (ev) => {
-    const { key } = ev.detail;
-    const existing = live[key];
-    if (existing && typeof existing.instance.primaryAction === 'function') {
-      existing.instance.primaryAction();
-      return;
-    }
-    const msg = `creation/mount: island:action fired for ${JSON.stringify(key)} with no mounted primaryAction()`;
-    console.error(msg);
-    const entry = CREATION_ISLANDS[key];
-    if (!entry) return;
-    try {
-      legacyContainer(entry.containerId).innerHTML =
-        `<p style="padding:12px; color:var(--red); font-size:12px;">${escapeHtml(msg)}</p>`;
-    } catch (_err) {
-      // Container itself missing; nothing to render the refusal into.
-    }
+/** Replaces the old 'island:action' dispatch (BRIEF-0059-l item 5): the
+ *  standard shell band's primaryAction button forwards its click to the
+ *  mounted component's own exported primaryAction(), by direct call. */
+export function triggerPrimaryAction(key) {
+  const existing = live[key];
+  if (existing && typeof existing.instance.primaryAction === 'function') {
+    existing.instance.primaryAction();
+    return;
+  }
+  const msg = `creation/mount: triggerPrimaryAction fired for ${JSON.stringify(key)} with no mounted primaryAction()`;
+  console.error(msg);
+  const entry = CREATION_ISLANDS[key];
+  if (!entry) return;
+  try {
+    document.getElementById(entry.containerId).innerHTML =
+      `<p style="padding:12px; color:var(--red); font-size:12px;">${escapeHtml(msg)}</p>`;
+  } catch (_err) {
+    // Container itself missing; nothing to render the refusal into.
+  }
+}
+
+/* The one remaining legacy -> shell signal: 'mutations:proposed' still
+   crosses the iframe boundary because Play, its source, is still legacy
+   (BRIEF-0059-k). */
+export function initCreationMount(legacyDoc) {
+  // BRIEF-0059-k: Play's analyzeConv states a fact ('mutations:proposed')
+  // instead of commanding the Review Queue's own filter (setFilterByName/
+  // loadQueue, both retired by this brief). Registered here, not inside
+  // queue.svelte.js, because that module is evaluated at app boot -- before
+  // legacyDoc exists -- while this function only runs once the legacy
+  // iframe has actually loaded (App.svelte's onLegacyReady).
+  legacyDoc.addEventListener('mutations:proposed', () => {
+    setFilter('proposed');
   });
 }

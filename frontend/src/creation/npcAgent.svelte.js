@@ -27,24 +27,29 @@
    own comment) -- so the handoff went through legacyCall('linkAgentToggle')/
    legacyCall('linkAgentLoadBatch', ...). BRIEF-0059-g commit 2 ported
    linkAgentLoadBatch to frontend/src/creation/linkAgent.svelte.js's
-   loadBatch export, so the load half of the handoff is now a plain
-   Svelte-to-Svelte import -- bridge.js's own selectRecord/
-   getSelectedCharacterId comment already names this as the expected end
-   state once both sides of a legacy bridge-reach converge. The toggle half
-   stays a legacyCall: linkAgentToggle is chrome (retires at -l), so opening
-   the panel still means flipping the still-legacy button's own state.
-   legacyContainer reads the panel's current display style directly (a
-   plain DOM read, not a bridge-reach site) so the toggle call only fires
-   when the panel is actually closed -- calling linkAgentToggle
-   unconditionally would CLOSE an already-open panel (it flips, it does not
-   set).
+   loadBatch export, so the load half of the handoff became a plain
+   Svelte-to-Svelte import.
+
+   BRIEF-0059-l amendment (the legacyContainer exposure). The toggle half
+   used to stay a legacyCall/legacyContainer pair on the reasoning that
+   linkAgentToggle was chrome retiring at -l -- but legacyContainer reached
+   into the LEGACY document for #linkagent-panel, and that element moves
+   into Creation.svelte's own template the moment the npc tab's chrome
+   does (this brief's commit 1, not the commit 4 the toggle itself was
+   originally scheduled for). legacyContainer/legacyCall are gone from
+   this file: the open/closed flag is creationState.linkAgentOpen (state.
+   svelte.js), owned by Creation.svelte's own npcAgentToggle/linkAgentToggle
+   now, and this module only ever SETS it (never toggles), matching the
+   old "only fires when the panel is actually closed" guard -- setting
+   `true` unconditionally can never close an already-open panel, so no
+   read-then-branch is even needed any more.
 
    State is module-level (not NpcAgent.svelte-local) for the same reason
    RoomBatch's roomBatchState is: TICKET-0059's BRIEF-0059-f doesn't need a
    second reader today, but keeping the shape consistent with every other
    migrated Creation panel (roomBatch.svelte.js, sheetState.svelte.js) beats
    a one-off local-state exception. */
-import { legacyCall, legacyContainer } from '../legacy/bridge.js';
+import { creationState } from './state.svelte.js';
 import { loadBatch as loadLinkBatch } from './linkAgent.svelte.js';
 
 export const npcAgentState = $state({
@@ -346,9 +351,9 @@ export async function abandon() {
  *  fresh batch (loadLinkBatch -- the roster then includes both the new
  *  NPCs and pre-existing residents of the root, F1 skips canon pairs). A
  *  409 (a link batch is already open) surfaces as a plain warning banner
- *  and is never retried automatically. See this file's header for why the
- *  panel-open half still crosses the legacy bridge (chrome, linkAgentToggle)
- *  while the load half is now a direct Svelte-to-Svelte call. */
+ *  and is never retried automatically. The panel-open half is a plain
+ *  creationState write now (BRIEF-0059-l amendment, this file's header) --
+ *  SET, never toggle, so an already-open panel never closes. */
 export async function generateLinks() {
   npcAgentState.linkHandoffMsg = null;
   try {
@@ -357,9 +362,7 @@ export async function generateLinks() {
       body: JSON.stringify({ root_location_ids: [npcAgentState.batch.scope.root_location_id] }),
     });
     npcAgentState.linkHandoffMsg = null;
-    if (legacyContainer('linkagent-panel').style.display === 'none') {
-      legacyCall('linkAgentToggle');
-    }
+    creationState.linkAgentOpen = true;
     await loadLinkBatch(batch.id);
   } catch (e) {
     npcAgentState.linkHandoffMsg = e.message;

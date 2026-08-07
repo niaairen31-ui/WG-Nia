@@ -1,6 +1,7 @@
 <script>
   import { serverState, refreshServerState } from './lib/serverState.svelte.js';
-  import { activateWorldViaLegacy, openWorldCreate, openWorldDelete } from './legacy/bridge.js';
+  import { openWorldCreate, openWorldDelete } from './legacy/bridge.js';
+  import { activateWorldCascade } from './creation/tabs.js';
   import { navigate } from './lib/router.js';
 
   // TICKET-0056 (BRIEF-0056-c): the router is the single source of truth for
@@ -14,14 +15,14 @@
 
   async function onWorldChange(event) {
     const id = event.target.value;
-    /* TICKET-0056 (C3). The shell does NOT own the world-switch cascade. It
-       delegates to the legacy activateWorld(), which is the single place that
-       knows every world-scoped reset (_creationRunWorldSwitchResets), then
-       re-reads the server. Duplicating the POST here would create a second
-       writer for one server-side fact. When Creation migrates (TICKET-0058/59),
-       the cascade moves WITH it -- it is not re-derived here in advance. */
-    await activateWorldViaLegacy(id);
-    await refreshServerState();
+    /* TICKET-0056 (C3) planned this move explicitly: "When Creation
+       migrates (TICKET-0058/59), the cascade moves WITH it -- it is not
+       re-derived here in advance." TICKET-0059 (BRIEF-0059-l commit 1) is
+       that migration -- activateWorldCascade (frontend/src/creation/tabs.js)
+       is the single writer (POST /api/worlds/{id}/activate) plus the
+       world-scoped resets, replacing the legacy activateWorld() this used
+       to delegate to via the bridge. */
+    await activateWorldCascade(id, refreshServerState);
   }
 </script>
 

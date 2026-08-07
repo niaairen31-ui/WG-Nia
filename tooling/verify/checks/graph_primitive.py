@@ -208,6 +208,59 @@ GONE_PLAIN = [
     "_promptsRenderPreviewPanel", "_promptsPopulateEntitySelectors",
     "promptsRunAssembledPreview", "_promptsRefreshDetail", "_promptsRenderList",
     "_promptsRenderDetail", "_promptsHighlightTokens",
+    # TICKET-0059 (BRIEF-0059-j): intrigues -- list fetch, bespoke sheet
+    # (fetch, detail rendering, step/link row renderers, status/step/link
+    # mutations, commit 1) and create panel + AI draft assistant (commit 2),
+    # converged onto frontend/src/creation/Intrigues.svelte +
+    # intrigues.svelte.js. _intriguesTabEnterReset stays off this list --
+    # it is chrome-callback shaped (state.onTabEnter) and survives
+    # unmigrated, the same way its twin _evenementsTabEnterReset did.
+    "loadAgendasList", "renderAgendaSheet", "_intriguesRenderStep",
+    "_intriguesRenderLinkedGoal", "_intriguesRefreshSelection",
+    "intriguesSetAgendaStatus", "intriguesDetachLink", "intriguesStepStatus",
+    "intriguesAgendas", "_intriguesPopulateOwnerSelect",
+    "intriguesRenderCreatePanel", "intriguesGenerateDraft", "intriguesSubmitCreate",
+    # TICKET-0059 (BRIEF-0059-j commit 3): pj's create flow, converged onto
+    # frontend/src/creation/PjCreatePanel.svelte. The Fiche slot functions
+    # (skillInit et al.) stay off this list -- commit 4's own target.
+    "pjRenderCreatePanel", "pcCreateLoadLocations", "pcCreateSubmit",
+    "pcRenderDraftKnowledge", "pcGenerateDraft", "pcApplyDraft", "pcDraftKnowledge",
+    # TICKET-0059 (BRIEF-0059-j commit 4, final): the pj tab's Fiche
+    # (player skill sheet) slot, converged onto
+    # frontend/src/creation/PjSkillFiche.svelte.
+    "skillInit", "skillLoadCharacters", "skillSelectCharacter", "skillRender",
+    "skillSaveTier", "pjFicheOnSelect", "SKILL_DOMAIN_LABELS", "SKILL_TIER_LABELS",
+    "skillCharacters", "skillCharacterId", "skillRows",
+    # TICKET-0059 (BRIEF-0059-k commit 1): the Review Queue's 'filters' slot
+    # -- filter bar + world-tick controls -- converged onto
+    # frontend/src/creation/QueueFilters.svelte/queue.svelte.js. The
+    # mutation-name-cache functions (_loadMutationEntityNames et al.), also
+    # ported to queue.svelte.js this commit, stay off this list until
+    # commit 2: their only callers (loadQueue/renderCard and the two
+    # summary helpers) are commit 2's own target, so the plain strings are
+    # still textually present (as dangling calls) until that commit
+    # removes them too.
+    "setFilter", "setFilterByName", "loadTickControls", "tickScopeTypeChanged",
+    "runWorldTick",
+    # TICKET-0059 (BRIEF-0059-k commit 2): the Review Queue's card list --
+    # renderCard and every card-rendering helper it reaches, plus
+    # doApprove/doReject/showResult/lockCard/unlockCard/markCardDone --
+    # converged onto frontend/src/creation/Queue.svelte/QueueCard.svelte/
+    # queue.svelte.js. loadQueue itself stays off this list until commit 3:
+    # doBatchAction (commit 3's own target) still calls it, so the plain
+    # string is still textually present (as a dangling call) until that
+    # commit removes doBatchAction too.
+    "renderCard", "_renderResourceChangeLegs", "_renderAgendaProvenanceSummary",
+    "doApprove", "doReject", "showResult", "lockCard", "unlockCard", "markCardDone",
+    # TICKET-0059 (BRIEF-0059-k commit 3, final): the Review Queue's batch
+    # bar -- renderBatchBar/getSelectedMutationIds/toggleSelectAll/
+    # updateBatchBar/hideBatchVerdict/showBatchVerdict/doBatchAction --
+    # converged onto frontend/src/creation/QueueBatchBar.svelte/
+    # queue.svelte.js. loadQueue, held back from this list at commits 1-2
+    # because doBatchAction's own call to it kept the plain string
+    # present, is added here too now that doBatchAction is gone.
+    "loadQueue", "renderBatchBar", "getSelectedMutationIds", "toggleSelectAll",
+    "updateBatchBar", "hideBatchVerdict", "showBatchVerdict", "doBatchAction",
 ]
 GONE_WORD = ["GRAPH_W", "GRAPH_H", "NODE_R", "DRAG_THRESHOLD"]
 # TICKET-0058 (BRIEF-0058-c): the vendored engine itself must be gone from

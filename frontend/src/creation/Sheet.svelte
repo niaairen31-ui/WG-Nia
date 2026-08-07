@@ -25,20 +25,31 @@
      same whether the div was created by an innerHTML write or by Svelte --
      both are real nodes in the same legacy document.
 
-     One tab (`intrigues`) and one mode (`pj`'s create panel) never used
-     authorRenderSheet at all -- they have their own bespoke, hand-rolled
-     sheetRenderer/createPanel (renderAgendaSheet, pjRenderCreatePanel) and
-     stay unmigrated legacy code that still needs somewhere safe to render
-     inside this island's own mount root without tearing Svelte's DOM out
-     from under it (RECON-0058-a M5). The answer is the SAME "stable leaf,
-     legacy free to mutate its innerHTML" idiom the sub-editor placeholders
-     already rely on, just sized to the whole container:
-     #author-legacy-sheet-slot is an UNCONDITIONALLY rendered sibling of
-     #author-core-sheet (never created/destroyed by an {#if}, only
-     display:toggled), so a legacy renderer that targets it right after a
-     synchronous 'creation:sheet-legacy-active' dispatch always finds it
-     there -- no dependency on Svelte's own update timing (flushSync makes
-     the toggle itself synchronous too, belt and braces).
+     One mode (`pj`'s create panel) never used authorRenderSheet at all --
+     it has its own bespoke, hand-rolled createPanel (pjRenderCreatePanel)
+     and stays unmigrated legacy code that still needs somewhere safe to
+     render inside this island's own mount root without tearing Svelte's
+     DOM out from under it (RECON-0058-a M5). The answer is the SAME
+     "stable leaf, legacy free to mutate its innerHTML" idiom the
+     sub-editor placeholders already rely on, just sized to the whole
+     container: #author-legacy-sheet-slot is an UNCONDITIONALLY rendered
+     sibling of #author-core-sheet (never created/destroyed by an {#if},
+     only display:toggled), so a legacy renderer that targets it right
+     after a synchronous 'creation:sheet-legacy-active' dispatch always
+     finds it there -- no dependency on Svelte's own update timing
+     (flushSync makes the toggle itself synchronous too, belt and braces).
+
+     `intrigues` used to have its own bespoke, hand-rolled sheetRenderer
+     (renderAgendaSheet) and createPanel (intriguesRenderCreatePanel), the
+     same shape as pj's createPanel above; it fully converged onto real
+     Svelte state (TICKET-0059, BRIEF-0059-j), the same way evenements
+     did -- <Intrigues> renders via a tabKey === 'intrigues' gate (`agenda`
+     carries no ENTITY_TYPE_REGISTRY row either) for BOTH view and create
+     mode, and its mutations (status/step/link/create) write
+     creationState.sheetDetail directly from intrigues.svelte.js rather
+     than round-tripping through this component. Unlike pj, its
+     primaryAction is now island-routed too (this component's own exported
+     primaryAction() below).
 
      `evenements` converged onto real Svelte state (TICKET-0058, BRIEF-0058-j,
      per RECON-SUPPLEMENT-0058's -j re-scope): it is not an entity-archetype
@@ -56,7 +67,7 @@
   import { flushSync, tick } from 'svelte';
   import { creationState } from './state.svelte.js';
   import { serverState } from '../lib/serverState.svelte.js';
-  import { legacyCall } from '../legacy/bridge.js';
+  import { creationRefreshList, loadPendingCreations } from './tabs.js';
   import { readFieldValue } from './fields.js';
   import LocationTypeModal from './LocationTypeModal.svelte';
   import Field from './Field.svelte';
@@ -78,6 +89,8 @@
   import GeneratePanel from './GeneratePanel.svelte';
   import { resetEventDraft, eventDraftState } from './eventDraft.svelte.js';
   import Evenements from './Evenements.svelte';
+  import Intrigues from './Intrigues.svelte';
+  import PjCreatePanel from './PjCreatePanel.svelte';
   import RelationsEditor from './RelationsEditor.svelte';
   import KnowledgeEditor from './KnowledgeEditor.svelte';
   import GoalsEditor from './GoalsEditor.svelte';
@@ -169,13 +182,15 @@
   }
 
   /** Called by mount.js's _islandPrimaryAction('entitySheet') when the
-   *  standard shell action band ("+ Nouveau") is clicked for a CORE
-   *  entity-archetype tab OR evenements (BRIEF-0058-j: evenements is
-   *  island-routed too now) -- pj/intrigues never route here (rule 11
-   *  pairing keeps their primaryAction legacy, paired with their own
-   *  bespoke createPanel). Mirrors creationNewEntity's own draft reset (the
-   *  plain "+ Nouveau" idiom every entity tab shared before this brief),
-   *  via the same legacy helper so the two paths never drift. */
+   *  standard shell action band ("+ Nouveau"/"+ Nouvelle intrigue") is
+   *  clicked -- every entity-archetype tab routes here now, including pj
+   *  (BRIEF-0059-j commit 3: pj's createPanel goes null too, rule 11) and
+   *  intrigues (BRIEF-0059-j commit 2). enterCreateMode below still just
+   *  sets sheetType/sheetIsNew generically; pj's own bespoke create markup
+   *  is a template-level gate on tabKey + isNew (PjCreatePanel), not a
+   *  branch in this function. Mirrors creationNewEntity's own draft reset
+   *  (the plain "+ Nouveau" idiom every entity tab shared before this
+   *  brief), via the same legacy helper so the two paths never drift. */
   export function primaryAction() {
     resetCreateDrafts();
     resetDraftRoles();
@@ -230,22 +245,22 @@
     if (ev.detail.mutationId) setPendingCreationMutationId(ev.detail.mutationId);
   });
 
-  // pj's createPanel, intrigues' createPanel+sheetRenderer -- both still
-  // legacy (rule 11 pairing keeps them off the island-routed primaryAction)
-  // -- dispatch this immediately before rendering their own markup into
-  // #author-legacy-sheet-slot, so that node exists under "legacy" display
-  // before their innerHTML write. creationNewEntity does this for the
-  // create-panel path; creationSelectRecord does it for entry.sheetRenderer
-  // (intrigues' view path).
+  // Every entry's createPanel is null now (pj was the last, BRIEF-0059-j
+  // commit 3) -- creationNewEntity's own guard (`if (!entry.createPanel)
+  // return`) makes its dispatch of this event permanently unreachable, so
+  // this listener is presently dormant. Left in place rather than removed:
+  // creationNewEntity itself is chrome (Scope OUT this ticket), and its
+  // final deletion -- which would make this listener provably dead, not
+  // just unreached -- belongs to the chrome-inversion brief (-l).
   legacyDoc.addEventListener('creation:sheet-legacy-active', () => {
     flushSync(() => { creationState.sheetMode = 'legacy'; });
   });
 
   // creationSelectRecord dispatches this for a non-entity, non-legacy
-  // record tab -- evenements is the one caller since BRIEF-0058-j (intrigues
-  // still has a bespoke sheetRenderer and never reaches here). Mirrors
-  // 'creation:sheet-detail' exactly, just keyed by tabId instead of a
-  // fetched entity's own .type.
+  // record tab -- evenements (BRIEF-0058-j) and intrigues (BRIEF-0059-j)
+  // both reach it now that neither declares a bespoke sheetRenderer.
+  // Mirrors 'creation:sheet-detail' exactly, just keyed by tabId instead of
+  // a fetched entity's own .type.
   legacyDoc.addEventListener('creation:record-detail', (ev) => {
     flushSync(() => { enterViewMode(ev.detail.record, ev.detail.tabId); });
   });
@@ -254,7 +269,7 @@
   // every tab with no saveHandler of its own.
   legacyDoc.addEventListener('creation:sheet-save', () => { saveSheet(); });
 
-  // creationNewEntity (pj/intrigues' own "+ Nouveau", still legacy) used to
+  // creationNewEntity (pj's own "+ Nouveau", still legacy) used to
   // call _authorResetCreateDrafts() directly; that function is now
   // resetCreateDrafts() in sheetState.svelte.js, unreachable from across the
   // legacy boundary as a bare call -- this is the reverse-bridge dispatch it
@@ -305,6 +320,32 @@
       if (titleEl) titleEl.textContent = isNewSheet ? 'Nouvel événement' : (creationState.sheetDetail.title || '');
       if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = ''; }
       if (saveBtn) saveBtn.style.display = isNewSheet ? 'none' : '';
+      return;
+    }
+    // intrigues (BRIEF-0059-j): `agenda` carries no ENTITY_TYPE_REGISTRY row
+    // either -- title comes straight off the record on create too (matching
+    // intriguesRenderCreatePanel's own former literal). No save button ever,
+    // view or create: the API surface is frozen to status transitions and
+    // link detach in view mode (unchanged from the legacy renderAgendaSheet's
+    // own doc comment), and create mode is a POST via <Intrigues>'s own
+    // inline "+ Créer l'intrigue" button, the same posture evenements' own
+    // create mode takes.
+    if (creationState.activeTabKey === 'intrigues') {
+      if (titleEl) titleEl.textContent = isNewSheet ? 'Nouvelle intrigue' : (creationState.sheetDetail.title || '');
+      if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = ''; }
+      if (saveBtn) saveBtn.style.display = 'none';
+      return;
+    }
+    // pj's create mode (BRIEF-0059-j commit 3): the literal title
+    // pjRenderCreatePanel always used, matching intrigues'/evenements' own
+    // create-mode literals above -- no save button, <PjCreatePanel>'s own
+    // inline "Créer" button is the submit. Viewing an EXISTING pj (isNewSheet
+    // false) falls through to the generic branch below unchanged -- pj has
+    // no bespoke sheetRenderer, only this bespoke createPanel.
+    if (creationState.activeTabKey === 'pj' && isNewSheet) {
+      if (titleEl) titleEl.textContent = 'Créer un personnage joueur';
+      if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = ''; }
+      if (saveBtn) saveBtn.style.display = 'none';
       return;
     }
     if (!registry) return;
@@ -408,7 +449,7 @@
         ? await api('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         : await api(`/api/events/${encodeURIComponent(creationState.sheetDetail.id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-      legacyCall('creationRefreshList');
+      creationRefreshList();
       flushSync(() => { enterViewMode(saved, 'evenements'); });
       legacyDoc.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: saved.id } }));
       const st = legacyDoc.getElementById('author-status');
@@ -486,7 +527,7 @@
         // list's own refresh (loadPendingCreations) is still legacy -- a
         // new, baselined bridge-reach site, same order as before.
         consumePendingCreationMutationId();
-        legacyCall('loadPendingCreations');
+        loadPendingCreations();
       }
       if (isNewSave) {
         resetGeneratePanel();
@@ -495,7 +536,7 @@
         resetPendingDrafts();
       }
 
-      legacyCall('creationRefreshList');
+      creationRefreshList();
       notifySaved(legacyDoc, detail.id);
       // flushSync: the header-sync $effect below clears #author-status on
       // every 'view' render (matching authorRenderSheet's own unconditional
@@ -526,7 +567,7 @@
     const statusEl = legacyDoc.getElementById('author-status');
     try {
       await deleteEntity(id);
-      legacyCall('creationRefreshList'); // TICKET-0058 (BRIEF-0058-e): see regionCommit's identical comment; a third baselined call site (this island already had two)
+      creationRefreshList(); // TICKET-0058 (BRIEF-0058-e): see regionCommit's identical comment; a third baselined call site (this island already had two, now a plain import, BRIEF-0059-l commit 1)
       await selectEntity(legacyDoc, id);
       if (statusEl) { statusEl.className = 'author-status ok'; statusEl.textContent = 'Marked inactive.'; }
     } catch (e) {
@@ -569,6 +610,10 @@
     {:else if tabKey === 'evenements'}
       <Evenements {legacyDoc} {isNew} event={detail} entities={creationState.entities}
         eventFields={registry.event_fields} onSave={saveSheet} />
+    {:else if tabKey === 'intrigues'}
+      <Intrigues {isNew} agenda={detail} />
+    {:else if tabKey === 'pj' && isNew}
+      <PjCreatePanel {legacyDoc} />
     {:else}
       {#if !isNew}
         <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">

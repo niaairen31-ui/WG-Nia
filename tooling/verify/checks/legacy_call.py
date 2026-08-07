@@ -16,7 +16,7 @@ baseline record in the same commit. Closing without pruning leaves a
 `stale:` line; pruning without closing FAILS rule4 on the next run.
 Neither direction drifts silently.
 
-Eight rules, each named in its own failure message:
+Nine rules, each named in its own failure message:
 
   rule1 (scan is real)              -- vacuous-proof file collection.
   rule2 (surface is derived)        -- reaching exports parsed out of
@@ -41,6 +41,24 @@ Eight rules, each named in its own failure message:
                                         declares `creation`.
   rule8 (ticket vocabulary)         -- every baseline retiredBy field
                                         matches ^TICKET-\\d{4}$.
+  rule9 (mount-door confinement)    -- TICKET-0059 (BRIEF-0059-l amendment).
+                                        `legacyContainer` importable only by
+                                        frontend/src/creation/mount.js and
+                                        frontend/src/graph/mount.js;
+                                        `legacyDocument` importable only by
+                                        those two plus frontend/src/App.svelte.
+                                        SUPPLEMENT-0059 Amendment 2 excluded
+                                        both names from rule2/rule3's census
+                                        on the reasoning that the coupling was
+                                        "already governed by creation_island.py
+                                        and legacy_mount.py" -- a full door
+                                        census (this ticket) found neither
+                                        check mentions either name, and one
+                                        real violation (npcAgent.svelte.js
+                                        reaching linkAgent's own DOM through
+                                        the mount door). This rule is the
+                                        missing guard, landed in the same
+                                        commit as the violation's fix.
 
 No DB, stdlib only, same FAILURES/_report_and_exit/ROOT idiom as
 legacy_mount.py.
@@ -69,6 +87,14 @@ IMPORT_LINE_RE = re.compile(
 LEGACY_CALL_CALL_RE = re.compile(r"\blegacyCall\s*\(")
 LEGACY_CALL_STRING_ARG_RE = re.compile(r"\blegacyCall\s*\(\s*(['\"])((?:(?!\1).)*)\1")
 MOUNTS_CREATION_RE = re.compile(r"^\s*creation:\s*Object\.freeze\(", re.MULTILINE)
+
+GRAPH_MOUNT_FILE = FRONTEND_SRC / "graph" / "mount.js"
+CREATION_MOUNT_FILE = FRONTEND_SRC / "creation" / "mount.js"
+APP_SVELTE_FILE = FRONTEND_SRC / "App.svelte"
+MOUNT_DOOR_ALLOWED = {
+    "legacyContainer": {CREATION_MOUNT_FILE, GRAPH_MOUNT_FILE},
+    "legacyDocument": {CREATION_MOUNT_FILE, GRAPH_MOUNT_FILE, APP_SVELTE_FILE},
+}
 
 FAILURES: list[str] = []
 
@@ -320,6 +346,43 @@ def _check_confinement() -> None:
             fail("rule6: legacyCall is not exported")
 
 
+def _check_mount_door_confinement(files: list[Path]) -> int:
+    """rule9: legacyContainer/legacyDocument importable only by the
+    sanctioned mount-seam files (plus App.svelte for legacyDocument).
+    Vacuity-proof: zero importers found for a name (even among the
+    allowed set) is a broken scan, not a pass -- these two names are
+    used by the mount seam today, so a clean scan always finds at least
+    one importer of each."""
+    confined = 0
+    for name, allowed in MOUNT_DOOR_ALLOWED.items():
+        import_re = re.compile(
+            rf"import\s*\{{[^}}]*\b{re.escape(name)}\b[^}}]*\}}\s*from\s*"
+            r"""['"][^'"]*legacy/bridge(\.js)?['"]"""
+        )
+        importers: set[Path] = set()
+        for path in files:
+            if path == BRIDGE_FILE:
+                continue
+            text = _strip_comments(path.read_text(encoding="utf-8"))
+            if import_re.search(text):
+                importers.add(path)
+        if not importers:
+            fail(f"rule9: zero importer(s) of {name!r} found -- broken scan, not a pass")
+            continue
+        ok = True
+        for path in sorted(importers):
+            if path not in allowed:
+                allowed_list = ", ".join(sorted(p.relative_to(ROOT).as_posix() for p in allowed))
+                fail(
+                    f"rule9: {path.relative_to(ROOT).as_posix()} imports {name!r} from "
+                    f"legacy/bridge.js -- confined to {allowed_list}"
+                )
+                ok = False
+        if ok:
+            confined += 1
+    return confined
+
+
 def main() -> None:
     files = _collect_frontend_files()
     reaching = _derive_reaching_surface() if not FAILURES else {}
@@ -333,6 +396,11 @@ def main() -> None:
     _check_subset_and_shrink(observed, baseline)
     _check_terminal_ordering(baseline)
     _check_confinement()
+    door_confined = _check_mount_door_confinement(files)
+
+    if door_confined != len(MOUNT_DOOR_ALLOWED):
+        _report_and_exit()
+        return
 
     _report_and_exit(
         {

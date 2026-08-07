@@ -1,14 +1,3 @@
-frontend/src/App.svelte::showCreationSubTab::TICKET-0059
 frontend/src/App.svelte::showFn::TICKET-0061
-frontend/src/Header.svelte::activateWorld::TICKET-0061
 frontend/src/Header.svelte::worldCreateOpen::TICKET-0059
 frontend/src/Header.svelte::worldDeleteOpen::TICKET-0059
-frontend/src/creation/EntityList.svelte::creationSelectRecord::TICKET-0059
-frontend/src/creation/FactionRoster.svelte::creationOpenEntityFrom::TICKET-0059
-frontend/src/creation/Region.svelte::creationRefreshList::TICKET-0059
-frontend/src/creation/RoomBatch.svelte::creationRefreshList::TICKET-0059
-frontend/src/creation/Sheet.svelte::creationRefreshList::TICKET-0059
-frontend/src/creation/Sheet.svelte::creationRefreshList::TICKET-0059
-frontend/src/creation/Sheet.svelte::creationRefreshList::TICKET-0059
-frontend/src/creation/Sheet.svelte::loadPendingCreations::TICKET-0059
-frontend/src/creation/npcAgent.svelte.js::linkAgentToggle::TICKET-0059
