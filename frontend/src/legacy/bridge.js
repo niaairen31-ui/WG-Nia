@@ -38,10 +38,6 @@ export function showSurface(key) {
   callLegacy(entry.showFn);
 }
 
-export async function activateWorldViaLegacy(worldId) {
-  await callLegacy('activateWorld', worldId);
-}
-
 export function openWorldCreate() {
   callLegacy('worldCreateOpen');
 }
@@ -61,38 +57,6 @@ export function hideLegacyHeader() {
   style.id = 'shell-injected';
   style.textContent = 'header { display: none !important; }';
   doc.head.appendChild(style);
-}
-
-/* TICKET-0056 (D-ii). showCreationSubTab() early-returns into
-   creationInit() when the Creation registry is not loaded yet
-   (ARCHITECTURE_DECISIONS, TICKET-0054), so a cold deep-link fired before
-   the legacy boot completes would silently do nothing. Hence the bounded
-   wait -- and a THROW on timeout, never a resolve-anyway. The unknown-tab
-   fallback to 'npc' is not new: it is the same fallback activateWorld()
-   already uses when a runtime type has disappeared (index.html).
-
-   Readiness and tab-existence are read from the DOM, not from
-   `authorRegistry` / `CREATION_TABS` directly: those are `let`/`const`
-   bindings at the legacy script's top level, and a let/const declaration
-   is never reflected as a `window` property (unlike a function
-   declaration or `var`) -- verified live, `'CREATION_TABS' in win` is
-   false. `#creation-shell-title` starts empty in the static markup and is
-   set by renderCreationShell(), called only from inside
-   _creationActivateTab() after creationInit()'s registry fetch resolves --
-   an equivalent, DOM-only readiness signal. Every CREATION_TABS entry,
-   static or runtime (TICKET-0046), renders a matching #ctab-<key> button
-   by construction (page_contract.py), so DOM presence substitutes for the
-   otherwise-invisible CREATION_TABS lookup. */
-export async function showCreationTab(tabId) {
-  showSurface('creation');
-  const win = legacyWindow();
-  const doc = win.document;
-  await whenLegacyReady(
-    () => doc.getElementById('creation-shell-title')?.textContent !== '',
-    { timeoutMs: 10000 }
-  );
-  const resolvedTab = doc.getElementById('ctab-' + tabId) ? tabId : 'npc';
-  callLegacy('showCreationSubTab', resolvedTab);
 }
 
 /* TICKET-0057. The graph primitive renders as an ISLAND inside the
@@ -140,30 +104,4 @@ export function selectRecord(tabId, record) {
    function; nothing about their own behavior changes. */
 export function legacyCall(fnName, ...args) {
   return callLegacy(fnName, ...args);
-}
-
-export function whenLegacyReady(predicate, { timeoutMs = 5000 } = {}) {
-  const win = legacyWindow();
-  return new Promise((resolve, reject) => {
-    const start = Date.now();
-    function poll() {
-      let ok;
-      try {
-        ok = predicate(win);
-      } catch (err) {
-        reject(err);
-        return;
-      }
-      if (ok) {
-        resolve();
-        return;
-      }
-      if (Date.now() - start >= timeoutMs) {
-        reject(new Error('legacy/bridge: whenLegacyReady timed out'));
-        return;
-      }
-      setTimeout(poll, 50);
-    }
-    poll();
-  });
 }

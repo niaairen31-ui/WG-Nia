@@ -46,10 +46,12 @@
      now fetched by this component directly (loadAgendaRecords, mirroring
      loadEvents), no more 'creation:list-data' push from a legacy
      loadAgendasList, which is gone. Its row click still reaches
-     Sheet.svelte through creationSelectRecord (unchanged call), which now
-     dispatches 'creation:record-detail' too. */
+     Sheet.svelte through creationSelectRecord, now a plain Svelte-to-Svelte
+     import (BRIEF-0059-l commit 1: creationSelectRecord ported off the
+     legacy window into tabs.js, alongside the rest of Creation's chrome),
+     which still dispatches 'creation:record-detail' too. */
   import { creationState } from './state.svelte.js';
-  import { selectRecord } from '../legacy/bridge.js';
+  import { creationSelectRecord } from './tabs.js';
   import { selectEntity } from './sheetState.svelte.js';
   import { openRoomBatch } from './roomBatch.svelte.js';
   import { loadAgendas } from './intrigues.svelte.js';
@@ -191,7 +193,7 @@
   }
 
   function onSelectRecord(record) {
-    selectRecord(creationState.activeTabKey, record);
+    creationSelectRecord(creationState.activeTabKey, record);
   }
 
   /** "Générer les buts manquants" (BRIEF-0013-b, ported off npcGoalsBackfillAll

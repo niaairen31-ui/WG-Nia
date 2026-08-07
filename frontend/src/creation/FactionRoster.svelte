@@ -13,11 +13,12 @@
      fetch, sequenced via factionPanel.svelte.js's loadFactionMembersPanel)
      for the zone1 role list and the add-member/inline-edit role pickers.
 
-     Double-click opens the member's own sheet via the still-legacy
-     creationOpenEntityFrom (unchanged, reached through legacyCall since
-     that's a cross-cutting Creation-list concern, not this panel's). */
+     Double-click opens the member's own sheet via creationOpenEntityFrom,
+     a cross-cutting Creation-list concern, not this panel's -- a plain
+     Svelte-to-Svelte import now (BRIEF-0059-l commit 1: ported off the
+     legacy window into tabs.js, alongside the rest of Creation's chrome). */
   import { creationState } from './state.svelte.js';
-  import { legacyCall } from '../legacy/bridge.js';
+  import { creationOpenEntityFrom } from './tabs.js';
   import { factionPanelState, addFactionMember, memberRoleEditSubmit } from './factionPanel.svelte.js';
 
   let { factionId } = $props();
@@ -55,7 +56,7 @@
   const zone3 = $derived(factionPanelState.rosterRows.filter((m) => !(m.role || '').trim()));
 
   function openEntity(entityId) {
-    legacyCall('creationOpenEntityFrom', entityId, 'character');
+    creationOpenEntityFrom(entityId, 'character');
   }
 
   function startEdit(m) {

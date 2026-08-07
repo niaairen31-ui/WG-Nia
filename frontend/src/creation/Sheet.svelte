@@ -67,7 +67,7 @@
   import { flushSync, tick } from 'svelte';
   import { creationState } from './state.svelte.js';
   import { serverState } from '../lib/serverState.svelte.js';
-  import { legacyCall } from '../legacy/bridge.js';
+  import { creationRefreshList, loadPendingCreations } from './tabs.js';
   import { readFieldValue } from './fields.js';
   import LocationTypeModal from './LocationTypeModal.svelte';
   import Field from './Field.svelte';
@@ -449,7 +449,7 @@
         ? await api('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         : await api(`/api/events/${encodeURIComponent(creationState.sheetDetail.id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-      legacyCall('creationRefreshList');
+      creationRefreshList();
       flushSync(() => { enterViewMode(saved, 'evenements'); });
       legacyDoc.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: saved.id } }));
       const st = legacyDoc.getElementById('author-status');
@@ -527,7 +527,7 @@
         // list's own refresh (loadPendingCreations) is still legacy -- a
         // new, baselined bridge-reach site, same order as before.
         consumePendingCreationMutationId();
-        legacyCall('loadPendingCreations');
+        loadPendingCreations();
       }
       if (isNewSave) {
         resetGeneratePanel();
@@ -536,7 +536,7 @@
         resetPendingDrafts();
       }
 
-      legacyCall('creationRefreshList');
+      creationRefreshList();
       notifySaved(legacyDoc, detail.id);
       // flushSync: the header-sync $effect below clears #author-status on
       // every 'view' render (matching authorRenderSheet's own unconditional
@@ -567,7 +567,7 @@
     const statusEl = legacyDoc.getElementById('author-status');
     try {
       await deleteEntity(id);
-      legacyCall('creationRefreshList'); // TICKET-0058 (BRIEF-0058-e): see regionCommit's identical comment; a third baselined call site (this island already had two)
+      creationRefreshList(); // TICKET-0058 (BRIEF-0058-e): see regionCommit's identical comment; a third baselined call site (this island already had two, now a plain import, BRIEF-0059-l commit 1)
       await selectEntity(legacyDoc, id);
       if (statusEl) { statusEl.className = 'author-status ok'; statusEl.textContent = 'Marked inactive.'; }
     } catch (e) {

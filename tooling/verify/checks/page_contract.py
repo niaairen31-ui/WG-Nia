@@ -1,20 +1,21 @@
 """G1 check for TICKET-0005 (BRIEF-0005-a/b/c) — Création page-contract
 structural gate. Exit 0 on pass, 1 on failure; prints one line per failure.
 
-TICKET-0058/BRIEF-0058-k: under A1 every target this check greps still
-lives in index.html (nothing has moved, so nothing is re-anchored here).
-The withdrawn singular `island: { key }` field and its "island XOR legacy"
-partition (BRIEF-0058-e amendment) are not re-asserted in this file — the
-pairing that replaced it (an entry's `primaryAction` and `createPanel` must
-be on the same side) is `creation_island.py` rule 11's job, not duplicated
-here. This check only counts the migrated/legacy split (below) so the
-residual is visible in every verify run until TICKET-0059 closes it.
+TICKET-0058/BRIEF-0058-k: under A1 every target this check greps used to
+live in index.html.
 
-TICKET-0059 (BRIEF-0059-h commit 4): the registre-add-form assertion
-re-anchors onto Registre.svelte's own initial state once that markup moves
-off index.html — the first target this check re-homes mid-ticket rather
-than at `-l`, since BRIEF-0005-c's invariant (collapsed by default) still
-needs a home the moment the legacy markup it used to check is gone.
+Re-anchored (TICKET-0059, BRIEF-0059-l commit 1, D1): the CREATION_TABS
+registry, the generic dispatcher (showCreationSubTab/_creationActivateTab)
+and the runtime-tab factory (buildRuntimeCreationTabs/creationInit) all
+moved to frontend/src/creation/tabs.js; the tab bar moved to
+frontend/src/creation/Creation.svelte, where it is a SINGLE reactive
+`{#each}` over CREATION_TABS for both static and runtime entries alike —
+there is no longer a separate "hand-authored static button" vs "factory
+-inserted button" distinction to police, so rule 6 (below) is re-expressed
+as "no literal id=\"ctab-<slug>\" HTML string outside the templated each
+block" rather than "no #ctab-<slug> outside TAB_KEYS in static markup".
+Everything else keeps its original assertion, re-targeted onto the new
+file.
 """
 import pathlib
 import re
@@ -22,7 +23,10 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
-REGISTRE_SVELTE = ROOT / "frontend" / "src" / "creation" / "Registre.svelte"
+CREATION_SRC = ROOT / "frontend" / "src" / "creation"
+TABS_JS = CREATION_SRC / "tabs.js"
+CREATION_SVELTE = CREATION_SRC / "Creation.svelte"
+REGISTRE_SVELTE = CREATION_SRC / "Registre.svelte"
 
 TAB_KEYS = [
     "npc", "pj", "lieux", "factions", "objets",
@@ -30,24 +34,24 @@ TAB_KEYS = [
 ]
 
 
-def _braced_block(html: str, start_pattern: str) -> str:
+def _braced_block(text: str, start_pattern: str) -> str:
     """Return the full `{ ... }` block whose opening brace follows the first
     match of start_pattern, matching braces to find the end. Empty string if
     the pattern or a balanced close isn't found."""
-    m = re.search(start_pattern, html)
+    m = re.search(start_pattern, text)
     if not m:
         return ""
-    brace_start = html.find("{", m.end() - 1)
+    brace_start = text.find("{", m.end() - 1)
     if brace_start == -1:
         return ""
     depth = 0
-    for i in range(brace_start, len(html)):
-        if html[i] == "{":
+    for i in range(brace_start, len(text)):
+        if text[i] == "{":
             depth += 1
-        elif html[i] == "}":
+        elif text[i] == "}":
             depth -= 1
             if depth == 0:
-                return html[brace_start:i + 1]
+                return text[brace_start:i + 1]
     return ""
 
 
@@ -138,12 +142,19 @@ def _has_nonempty_islands(entry_src: str) -> bool:
 
 
 def main() -> int:
-    html = INDEX_HTML.read_text(encoding="utf-8")
+    tabs_js = TABS_JS.read_text(encoding="utf-8") if TABS_JS.is_file() else ""
+    creation_svelte = CREATION_SVELTE.read_text(encoding="utf-8") if CREATION_SVELTE.is_file() else ""
+    html = INDEX_HTML.read_text(encoding="utf-8") if INDEX_HTML.is_file() else ""
     failures = []
 
-    registry_src = _braced_block(html, r"const CREATION_TABS\s*=\s*\{")
+    if not tabs_js:
+        failures.append(f"{TABS_JS} does not exist or is empty")
+    if not creation_svelte:
+        failures.append(f"{CREATION_SVELTE} does not exist or is empty")
+
+    registry_src = _braced_block(tabs_js, r"export const CREATION_TABS\s*=\s*\{") if tabs_js else ""
     if not registry_src:
-        failures.append("CREATION_TABS registry literal not found in index.html")
+        failures.append(f"CREATION_TABS registry literal not found in {TABS_JS}")
     else:
         for key in TAB_KEYS:
             if not re.search(rf"(?:^|[{{,\s]){key}\s*:\s*\{{", registry_src):
@@ -156,9 +167,9 @@ def main() -> int:
                     "(required — value may be null, BRIEF-0005-c)"
                 )
 
-    dispatcher_src = _braced_block(html, r"function showCreationSubTab\(tab\)\s*")
+    dispatcher_src = _braced_block(tabs_js, r"export function showCreationSubTab\(tab\)\s*")
     if not dispatcher_src:
-        failures.append("showCreationSubTab(tab) function body not found in index.html")
+        failures.append(f"showCreationSubTab(tab) function body not found in {TABS_JS}")
     else:
         for key in TAB_KEYS:
             if re.search(rf"""['"]{key}['"]""", dispatcher_src):
@@ -167,9 +178,9 @@ def main() -> int:
                     "— all per-tab variation must live in CREATION_TABS data"
                 )
 
-    activate_src = _braced_block(html, r"function _creationActivateTab\(\)\s*")
+    activate_src = _braced_block(tabs_js, r"function _creationActivateTab\(\)\s*")
     if not activate_src:
-        failures.append("_creationActivateTab() function body not found in index.html")
+        failures.append(f"_creationActivateTab() function body not found in {TABS_JS}")
     else:
         for key in TAB_KEYS:
             if re.search(rf"""['"]{key}['"]""", activate_src):
@@ -181,39 +192,52 @@ def main() -> int:
     # TICKET-0046/BRIEF-0046-d (E1): runtime Creation tabs may ONLY exist via
     # the single boot/refresh factory — mechanism-only, never a live-type
     # enumeration (no-DB doctrine holds).
-    factory_src = _braced_block(html, r"function _buildRuntimeCreationTabs\(\)\s*")
+    factory_src = _braced_block(tabs_js, r"export function buildRuntimeCreationTabs\([^)]*\)\s*")
     if not factory_src:
-        failures.append("_buildRuntimeCreationTabs() function body not found in index.html")
+        failures.append(f"buildRuntimeCreationTabs() function body not found in {TABS_JS}")
 
-    init_src = _braced_block(html, r"async function creationInit\(\)\s*")
+    init_src = _braced_block(tabs_js, r"export async function creationInit\(\)\s*")
     if not init_src:
-        failures.append("creationInit() function body not found in index.html")
-    elif "_buildRuntimeCreationTabs()" not in init_src:
+        failures.append(f"creationInit() function body not found in {TABS_JS}")
+    elif "buildRuntimeCreationTabs(" not in init_src:
         failures.append(
-            "creationInit() does not call _buildRuntimeCreationTabs() — the "
+            "creationInit() does not call buildRuntimeCreationTabs() — the "
             "factory must run on every Création boot (BRIEF-0046-d)"
         )
 
-    for m in re.finditer(r"""id=["']ctab-([a-zA-Z0-9_-]+)["']""", html):
+    # BRIEF-0046-d E1, re-expressed for the reactive tab bar (BRIEF-0059-l):
+    # Creation.svelte renders EVERY tab button (static and runtime alike)
+    # through one `{#each}` over CREATION_TABS — there is no longer a
+    # "static markup" surface a runtime tab could leak into outside the
+    # factory, since there is no hand-authored button at all. The residual
+    # risk this rule polices is a literal id="ctab-<slug>" string sitting
+    # OUTSIDE that each block (e.g. a stray hardcoded button); every match
+    # found must be the dynamic `id={'ctab-' + key}` expression, never a
+    # quoted literal.
+    for m in re.finditer(r"""id=["']ctab-([a-zA-Z0-9_-]+)["']""", creation_svelte):
         slug = m.group(1)
-        if slug not in TAB_KEYS:
-            failures.append(
-                f"static markup hand-authors '#ctab-{slug}' — runtime Creation "
-                "tabs must be injected by _buildRuntimeCreationTabs only, "
-                "never present in static HTML (BRIEF-0046-d E1)"
-            )
+        failures.append(
+            f"Creation.svelte hand-authors a literal id=\"ctab-{slug}\" — every tab "
+            "button must come from the CREATION_TABS {#each}, never a static id "
+            "attribute (BRIEF-0046-d E1)"
+        )
+    if "{#each" not in creation_svelte or "ctab-" not in creation_svelte:
+        failures.append(
+            "Creation.svelte does not render the tab bar via a {#each} over "
+            "CREATION_TABS keyed onto 'ctab-' ids"
+        )
 
     # TICKET-0023/BRIEF-0023-a: on-demand slot contract (F1) — the entry
     # contract comment documents `display`, and any slot named 'graph' (the
     # Lieux reader now, the NPC reader once BRIEF-0023-b lands) declares it.
     contract_comment_m = re.search(
-        r"// CREATION_TABS entry contract.*?const CREATION_TABS", html, re.S
+        r"// CREATION_TABS entry contract.*?export const CREATION_TABS", tabs_js, re.S
     )
     if not contract_comment_m or "display" not in contract_comment_m.group(0) \
             or "on_demand" not in contract_comment_m.group(0):
         failures.append(
             "CREATION_TABS entry-contract comment does not document the "
-            "'display' slot field (BRIEF-0023-a F1)"
+            f"'display' slot field (BRIEF-0023-a F1) in {TABS_JS}"
         )
 
     if registry_src:
@@ -242,26 +266,38 @@ def main() -> int:
             "through the standard + Nouveau control (H1)"
         )
 
-    if "currentCreationSubTab === 'pj'" in html:
+    if "currentCreationSubTab === 'pj'" in html or "currentCreationSubTab === 'pj'" in tabs_js:
         failures.append(
             "\"currentCreationSubTab === 'pj'\" still present — PJ must have no "
             "hardcoded tab-name branch outside the registry (BRIEF-0005-b)"
         )
 
     for identifier in ("pjCreateOpen", "pjCreateNew"):
-        if re.search(rf"\b{identifier}\b", html):
+        if re.search(rf"\b{identifier}\b", html) or re.search(rf"\b{identifier}\b", tabs_js):
             failures.append(
                 f"'{identifier}' still present — PJ's parallel create machinery "
                 "must be fully removed (BRIEF-0005-b)"
             )
 
-    occurrences = html.count("Ajouter une compétence")
+    # "Ajouter une compétence" lives in CREATION_TABS.competences'
+    # primaryAction label (tabs.js) now, not index.html — scan the whole
+    # frontend/src/creation/ tree (not just tabs.js) so an in-body control
+    # added to Competences.svelte would still be caught as a duplicate.
+    occurrences = 0
+    if CREATION_SRC.is_dir():
+        for path in CREATION_SRC.rglob("*"):
+            if path.is_file() and path.suffix in (".js", ".svelte"):
+                occurrences += path.read_text(encoding="utf-8").count("Ajouter une compétence")
     if occurrences == 0:
-        failures.append("'Ajouter une compétence' not found anywhere — expected once, in the registry's primaryAction label")
+        failures.append(
+            f"'Ajouter une compétence' not found anywhere under {CREATION_SRC} — expected "
+            "once, in the registry's primaryAction label"
+        )
     elif occurrences > 1:
         failures.append(
-            f"'Ajouter une compétence' appears {occurrences} times — expected exactly once "
-            "(the registry's primaryAction label); an in-body control must not exist (BRIEF-0005-c)"
+            f"'Ajouter une compétence' appears {occurrences} times under {CREATION_SRC} — "
+            "expected exactly once (the registry's primaryAction label); an in-body "
+            "control must not exist (BRIEF-0005-c)"
         )
 
     # TICKET-0059 (BRIEF-0059-h commit 4): the add-form moved off static
@@ -293,7 +329,7 @@ def main() -> int:
                     "containers: ['creation-editor-area'] (BRIEF-0021-a)"
                 )
 
-    if "creation-intrigues" in html:
+    if "creation-intrigues" in html or "creation-intrigues" in creation_svelte:
         failures.append(
             "element id 'creation-intrigues' still present — Intrigues must render "
             "only through the shared creation-editor-area shell (BRIEF-0021-a)"
@@ -335,7 +371,7 @@ def main() -> int:
         "standard shell + primaryAction on every entry; "
         f"{migrated_count} of {migrated_count + legacy_count} CREATION_TABS "
         f"entries have migrated at least one mount point, {legacy_count} "
-        "still render entirely from legacy code (TICKET-0059 residual)"
+        "still render entirely from legacy code"
     )
     return 0
 

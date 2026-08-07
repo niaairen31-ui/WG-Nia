@@ -1,14 +1,13 @@
 """G1 check: the Creation island-mount seam (TICKET-0058, BRIEF-0058-d,
-amended by BRIEF-0058-e).
+amended by BRIEF-0058-e; re-anchored by TICKET-0059, BRIEF-0059-l commit 1,
+D1).
 
-Bloc A1 keeps `CREATION_TABS`, the dispatcher and the tab bar legacy for
-this ticket and the next; migrated surfaces become Svelte islands mounted
-into the legacy containers they already own. Without a lock, "mount into
-the legacy container" is a convention a second brief can quietly break --
-a second `svelteMount` call site, a legacy loader left wired beside a
-mounted island (RECON-0058-a M5's destruction mode), or a primary-action
-button silently pointing at nothing. This check is what makes the seam
-constructible only one way.
+Migrated surfaces become Svelte islands mounted into containers Creation
+owns. Without a lock, "mount into the owning container" is a convention a
+second brief can quietly break -- a second `svelteMount` call site, a
+legacy loader left wired beside a mounted island (RECON-0058-a M5's
+destruction mode), or a primary-action button silently pointing at nothing.
+This check is what makes the seam constructible only one way.
 
 BRIEF-0058-e amendment: `#creation-editor-area` holds TWO mount points
 migrating across two briefs (`#author-entity-list` here, `#author-main` in
@@ -24,6 +23,18 @@ Rule 11 is restated around the pairing that actually matters: an entry's
 or both routed through the mounted component) -- a mixed pair is the real
 half-migration smell.
 
+BRIEF-0059-l commit 1 amendment: Creation no longer lives inside the legacy
+iframe, so containerId resolution (rule 4) and the CREATION_TABS registry
+(rule 5, rule 9) re-anchor onto frontend/src/creation/Creation.svelte and
+tabs.js respectively. The 'island:slot'/'island:action' CustomEvent bus
+(rule 8) is GONE entirely -- Creation.svelte's own containers and the
+mounted islands are now the same document, so mount.js exposes
+`activateIsland`/`triggerPrimaryAction` as plain functions instead; rule 8
+is re-expressed as confinement of THOSE two identifiers (defined once in
+mount.js, invoked only from tabs.js) plus a vacuity-proof assertion that
+the old event names are gone from the entire frontend tree -- a residual
+'island:slot' dispatch would mean the migration only partly happened.
+
 Same idiom as graph_primitive.py / legacy_mount.py: module-level FAILURES
 list, fail(), _report_and_exit(counts), ROOT via parents[3], stdlib only,
 no DB, no subprocess. Each rule vacuous-proof -- a missing file, an empty
@@ -35,41 +46,46 @@ comparison.
      a non-empty `containerId`, a non-empty `component`, and a non-empty
      `retiredPrefixes` list of non-empty strings.
   3. Every declared `component` file exists under `frontend/src/creation/`.
-  4. Every declared `containerId` exists as an element id in index.html.
+  4. Every declared `containerId` exists as an element id in
+     Creation.svelte.
   5. Many-to-many: every registry key is declared by AT LEAST ONE
-     `islands: [{ key, containerId }]` entry in index.html's CREATION_TABS
-     (with a matching containerId), and every such declaration in
-     index.html resolves to a registry key. Zero collected on either side
-     is a failure.
-  6. `svelteMount`/`mount(` from `svelte` is called on a legacy-document
+     `islands: [{ key, containerId }]` entry in tabs.js's CREATION_TABS
+     (with a matching containerId), and every such declaration in tabs.js
+     resolves to a registry key. Zero collected on either side is a
+     failure.
+  6. `svelteMount`/`mount(` from `svelte` is called on a Creation-owned
      target in exactly one file: `frontend/src/creation/mount.js`
      (`frontend/src/graph/mount.js` excepted by name, and only that
      file) -- the no-second-mechanism rule.
   7. The migrated surface's legacy functions are gone: for every registry
      entry, EVERY prefix in its `retiredPrefixes` matches zero
      `function <prefix>...(` declarations in index.html, in any context
-     (comments included).
-  8. `island:slot` and `island:action` are each dispatched only from
-     index.html and listened for only in `frontend/src/creation/mount.js`.
-  9. Every CREATION_TABS entry declaring a non-empty `islands` list also
-     declares `loader: null` and `state.onWorldSwitch: null`. Zero entries
-     collected is a failure.
-  10. The `island:slot` dispatch inside `_creationActivateTab` is
-      unconditional. A real nesting-depth proof needs a JS parser this
-      checker doesn't have, so this uses the WEAKER form the brief allows:
-      no identifier matching `loaded|mounted|_once` occurs anywhere in
-      `_creationActivateTab`'s own body -- the function is small and
-      single-purpose (page_contract.py already forbids tab-id branching in
-      it), so a stray one of those identifiers appearing anywhere in it
-      would already be a smuggled-back first-time gate, not noise from an
-      unrelated concern.
+     (comments included). Still index.html -- retiredPrefixes name
+     functions each island's OWN brief retired well before this ticket's
+     chrome inversion; unrelated to what commit 1 moved.
+  8. `activateIsland` and `triggerPrimaryAction` (frontend/src/creation/
+     mount.js) are each defined exactly once, there, and invoked
+     (identifier followed by `(`) only from tabs.js. The retired
+     'island:slot'/'island:action' CustomEvent names appear nowhere under
+     frontend/src/ -- a survivor would mean the old bus and the new direct
+     calls both exist, exactly the "kept just in case" smell this whole
+     file polices.
+  9. Every CREATION_TABS entry (tabs.js) declaring a non-empty `islands`
+     list also declares `loader: null` and `state.onWorldSwitch: null`.
+     Zero entries collected is a failure.
+  10. `creationRefreshList` (tabs.js) unconditionally activates every
+      island its active entry declares, and `_creationActivateTab` calls
+      it unconditionally. A real nesting-depth proof needs a JS parser
+      this checker doesn't have, so this uses the WEAKER form the brief
+      allows: no identifier matching `loaded|mounted|_once` occurs
+      anywhere in either function's own body.
   11. Pairing, not partition: for every CREATION_TABS entry whose
       `primaryAction` is not null, `primaryAction.handler` and
       `createPanel` must be on the SAME side -- either
-      `primaryAction.handler` calls `_islandPrimaryAction(` (a direct
+      `primaryAction.handler` calls `triggerPrimaryAction(` (a direct
       function reference fails that side) AND `createPanel` is `null` or
       absent, with the component `export function primaryAction`; OR
-      `primaryAction.handler` does NOT call `_islandPrimaryAction(` AND
+      `primaryAction.handler` does NOT call `triggerPrimaryAction(` AND
       `createPanel` is present and not `null`. A mixed pair -- one side
       island-routed, the other still legacy -- is a failure. Zero
       non-null-`primaryAction` entries collected is a failure.
@@ -85,6 +101,8 @@ FRONTEND_SRC = ROOT / "frontend" / "src"
 CREATION_SRC = FRONTEND_SRC / "creation"
 REGISTRY_FILE = CREATION_SRC / "registry.js"
 MOUNT_FILE = CREATION_SRC / "mount.js"
+TABS_FILE = CREATION_SRC / "tabs.js"
+CREATION_SVELTE_FILE = CREATION_SRC / "Creation.svelte"
 GRAPH_MOUNT_FILE = FRONTEND_SRC / "graph" / "mount.js"
 INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
 
@@ -116,30 +134,30 @@ def _report_and_exit(counts: dict | None = None) -> None:
     print(
         f"PASS: creation_island — {counts['islands']} island(s) registered, "
         f"{counts['retired']} retired legacy prefix set(s) confirmed gone, "
-        f"{counts['events']} event channel(s) confined, "
+        f"{counts['events']} mount-action identifier(s) confined, "
         f"{counts['primary_actions']} island primaryAction(s) wired"
     )
     sys.exit(0)
 
 
-def _braced_block(html: str, start_pattern: str) -> str:
+def _braced_block(text: str, start_pattern: str) -> str:
     """Return the full `{ ... }` block whose opening brace follows the
     first match of start_pattern, brace-balanced. Empty string if the
     pattern or a balanced close isn't found."""
-    m = re.search(start_pattern, html)
+    m = re.search(start_pattern, text)
     if not m:
         return ""
-    brace_start = html.find("{", m.end() - 1)
+    brace_start = text.find("{", m.end() - 1)
     if brace_start == -1:
         return ""
     depth = 0
-    for i in range(brace_start, len(html)):
-        if html[i] == "{":
+    for i in range(brace_start, len(text)):
+        if text[i] == "{":
             depth += 1
-        elif html[i] == "}":
+        elif text[i] == "}":
             depth -= 1
             if depth == 0:
-                return html[brace_start:i + 1]
+                return text[brace_start:i + 1]
     return ""
 
 
@@ -170,11 +188,6 @@ def _top_level_keys(braced_obj_src: str) -> list[str]:
             i += 1
             continue
         if depth == 0:
-            # Lookahead only -- the opening '{' itself is left for the next
-            # loop iteration's own depth += 1 branch to consume, otherwise
-            # the very next nested 'key: {' (e.g. an entry's own 'state: {')
-            # would be mis-seen at depth 0 too and picked up as a second
-            # top-level key.
             m = re.match(r"\s*(\w+)\s*:\s*(?=\{)", inner[i:])
             if m:
                 keys.append(m.group(1))
@@ -185,8 +198,9 @@ def _top_level_keys(braced_obj_src: str) -> list[str]:
 
 
 def _braced_function(text: str, name: str) -> str:
-    """Return `function NAME(...) { ... }`'s full source, brace-balanced."""
-    m = re.search(rf"function {re.escape(name)}\([^)]*\)\s*\{{", text)
+    """Return `function NAME(...) { ... }`'s full source (export/async
+    optional), brace-balanced."""
+    m = re.search(rf"(?:export\s+)?(?:async\s+)?function {re.escape(name)}\([^)]*\)\s*\{{", text)
     if not m:
         return ""
     start = text.find("{", m.end() - 1)
@@ -247,24 +261,24 @@ def _rule3_component_exists(entries: dict[str, dict[str, object]]) -> bool:
     return ok
 
 
-def _rule4_container_exists(html: str, entries: dict[str, dict[str, object]]) -> bool:
+def _rule4_container_exists(creation_svelte_src: str, entries: dict[str, dict[str, object]]) -> bool:
     ok = True
     for key, entry in entries.items():
         container_id = entry["containerId"]
-        if not re.search(rf"""id=["']{re.escape(container_id)}["']""", html):
-            fail(f"creation island {key!r}: containerId {container_id!r} has no matching element id in {INDEX_HTML}")
+        if not re.search(rf"""id=["']{re.escape(container_id)}["']""", creation_svelte_src):
+            fail(f"creation island {key!r}: containerId {container_id!r} has no matching element id in {CREATION_SVELTE_FILE}")
             ok = False
     return ok
 
 
-def _rule5_many_to_many(html: str, entries: dict[str, dict[str, object]]) -> bool:
-    tabs_src = _braced_block(html, r"const CREATION_TABS\s*=\s*\{")
-    if not tabs_src:
-        fail(f"{INDEX_HTML}: CREATION_TABS registry literal not found")
+def _rule5_many_to_many(tabs_src: str, entries: dict[str, dict[str, object]]) -> bool:
+    tabs_registry_src = _braced_block(tabs_src, r"export const CREATION_TABS\s*=\s*\{")
+    if not tabs_registry_src:
+        fail(f"{TABS_FILE}: CREATION_TABS registry literal not found")
         return False
-    decls = ISLAND_DECL_RE.findall(tabs_src)
+    decls = ISLAND_DECL_RE.findall(tabs_registry_src)
     if not decls:
-        fail(f"{INDEX_HTML}: zero 'islands: [{{ key, containerId }}]' declarations found in CREATION_TABS")
+        fail(f"{TABS_FILE}: zero 'islands: [{{ key, containerId }}]' declarations found in CREATION_TABS")
         return False
     ok = True
     declared_keys: set[str] = set()
@@ -272,12 +286,12 @@ def _rule5_many_to_many(html: str, entries: dict[str, dict[str, object]]) -> boo
         declared_keys.add(key)
         entry = entries.get(key)
         if not entry:
-            fail(f"index.html declares island key {key!r} with no matching entry in {REGISTRY_FILE}")
+            fail(f"{TABS_FILE} declares island key {key!r} with no matching entry in {REGISTRY_FILE}")
             ok = False
             continue
         if entry["containerId"] != container_id:
             fail(
-                f"index.html declares island key {key!r} with containerId {container_id!r} "
+                f"{TABS_FILE} declares island key {key!r} with containerId {container_id!r} "
                 f"but {REGISTRY_FILE} says containerId {entry['containerId']!r} — inconsistent seam"
             )
             ok = False
@@ -328,72 +342,118 @@ def _rule7_retired_gone(html: str, entries: dict[str, dict[str, object]]) -> int
     return count
 
 
-def _rule8_event_confinement() -> int:
+def _rule8_mount_action_confinement(mount_src: str, tabs_src: str) -> int:
+    """activateIsland/triggerPrimaryAction (mount.js) are defined exactly
+    once each, and imported by exactly one file: Creation.svelte, which
+    wires them into tabs.js via setMountActions (a late-bound seam, not a
+    static top-level import — tabs.js cannot import mount.js directly
+    without cycling back through every island component that imports a
+    navigation function FROM tabs.js; see tabs.js's own header comment).
+    tabs.js's actual invocation points are the internal
+    _activateIslandImpl(/_triggerPrimaryActionImpl( wrappers `
+    setMountActions` populates. The retired island:slot/island:action
+    CustomEvent bus (dispatchEvent/addEventListener call sites specifically
+    — a prose mention in a comment is not a survivor) is gone from the
+    whole frontend tree."""
     if not FRONTEND_SRC.is_dir():
         fail(f"{FRONTEND_SRC} is not a directory")
         return 0
-    if not INDEX_HTML.is_file():
-        fail(f"{INDEX_HTML} does not exist")
-        return 0
-    html = INDEX_HTML.read_text(encoding="utf-8")
     files = [p for p in FRONTEND_SRC.rglob("*") if p.is_file()]
     if not files:
         fail(f"{FRONTEND_SRC} contains no files -- empty scan is a failure")
         return 0
 
     confined = 0
-    for event in ("island:slot", "island:action"):
-        dispatch_re = re.compile(rf"dispatchEvent\(new CustomEvent\('{re.escape(event)}'")
-        listen_re = re.compile(rf"addEventListener\('{re.escape(event)}'")
+
+    # activateIsland/triggerPrimaryAction: defined once in mount.js each,
+    # imported only by Creation.svelte (which wires them into tabs.js via
+    # setMountActions).
+    for name in ("activateIsland", "triggerPrimaryAction"):
+        def_re = re.compile(rf"export function {name}\(")
+        import_re = re.compile(rf"import\s*\{{[^}}]*\b{name}\b[^}}]*\}}\s*from\s*['\"]\./mount\.js['\"]")
         ok = True
 
-        if not dispatch_re.search(html):
-            fail(f"{INDEX_HTML}: zero '{event}' dispatch site(s) -- expected at least one")
+        def_count = len(def_re.findall(mount_src))
+        if def_count != 1:
+            fail(f"{MOUNT_FILE}: 'export function {name}(' found {def_count} time(s), expected exactly 1")
             ok = False
 
+        importers: list[Path] = []
         for path in files:
-            if dispatch_re.search(path.read_text(encoding="utf-8")):
-                fail(f"{path}: dispatches '{event}' -- must be dispatched only from {INDEX_HTML}")
-                ok = False
-
-        if listen_re.search(html):
-            fail(f"{INDEX_HTML}: listens for '{event}' -- must be listened for only in {MOUNT_FILE}")
-            ok = False
-
-        mount_listens = 0
-        for path in files:
-            matches = len(listen_re.findall(path.read_text(encoding="utf-8")))
-            if not matches:
-                continue
             if path == MOUNT_FILE:
-                mount_listens += matches
-            else:
-                fail(f"{path}: listens for '{event}' -- must be listened for only in {MOUNT_FILE}")
-                ok = False
-        if mount_listens == 0:
-            fail(f"{MOUNT_FILE}: zero '{event}' listener(s) -- expected at least one")
+                continue
+            text = path.read_text(encoding="utf-8")
+            if import_re.search(text):
+                importers.append(path)
+        if importers != [CREATION_SVELTE_FILE]:
+            fail(
+                f"{name} (from {MOUNT_FILE}) is imported by {[str(p) for p in importers]} -- "
+                f"confined to exactly [{CREATION_SVELTE_FILE}]"
+            )
             ok = False
 
         if ok:
             confined += 1
+
+    # tabs.js's own late-bound invocation points exist.
+    for impl_call in ("_activateIslandImpl(", "_triggerPrimaryActionImpl("):
+        if impl_call not in tabs_src:
+            fail(f"{TABS_FILE}: no {impl_call} call found -- the setMountActions seam is not wired to an actual invocation")
+        else:
+            confined += 1
+
+    # setMountActions itself: exported once from tabs.js, called exactly
+    # once, from Creation.svelte.
+    if "export function setMountActions(" not in tabs_src:
+        fail(f"{TABS_FILE}: no 'export function setMountActions(' found")
+    else:
+        confined += 1
+    creation_svelte_src = CREATION_SVELTE_FILE.read_text(encoding="utf-8") if CREATION_SVELTE_FILE.is_file() else ""
+    setter_call_sites = [p for p in files if "setMountActions(" in p.read_text(encoding="utf-8") and p != TABS_FILE]
+    if setter_call_sites != [CREATION_SVELTE_FILE]:
+        fail(f"setMountActions( is called from {[str(p) for p in setter_call_sites]} -- confined to exactly [{CREATION_SVELTE_FILE}]")
+    else:
+        confined += 1
+
+    dispatch_re_tmpl = r"dispatchEvent\(\s*new\s+CustomEvent\(\s*['\"]{event}['\"]"
+    listen_re_tmpl = r"addEventListener\(\s*['\"]{event}['\"]"
+    for event in ("island:slot", "island:action"):
+        dispatch_re = re.compile(dispatch_re_tmpl.format(event=re.escape(event)))
+        listen_re = re.compile(listen_re_tmpl.format(event=re.escape(event)))
+        survivors = 0
+        for path in files:
+            text = path.read_text(encoding="utf-8")
+            if dispatch_re.search(text):
+                fail(f"{path}: still dispatches '{event}' -- the old CustomEvent bus must be fully gone (BRIEF-0059-l)")
+                survivors += 1
+            if listen_re.search(text):
+                fail(f"{path}: still listens for '{event}' -- the old CustomEvent bus must be fully gone (BRIEF-0059-l)")
+                survivors += 1
+        html_text = INDEX_HTML.read_text(encoding="utf-8") if INDEX_HTML.is_file() else ""
+        if dispatch_re.search(html_text):
+            fail(f"{INDEX_HTML}: still dispatches '{event}'")
+            survivors += 1
+        if listen_re.search(html_text):
+            fail(f"{INDEX_HTML}: still listens for '{event}'")
+            survivors += 1
+        if survivors == 0:
+            confined += 1
+
     return confined
 
 
-def _rule9_state_nulls(html: str, entries: dict[str, dict[str, object]]) -> bool:
-    tabs_src = _braced_block(html, r"const CREATION_TABS\s*=\s*\{")
-    if not tabs_src:
-        fail(f"{INDEX_HTML}: CREATION_TABS registry literal not found")
+def _rule9_state_nulls(tabs_src: str, entries: dict[str, dict[str, object]]) -> bool:
+    tabs_registry_src = _braced_block(tabs_src, r"export const CREATION_TABS\s*=\s*\{")
+    if not tabs_registry_src:
+        fail(f"{TABS_FILE}: CREATION_TABS registry literal not found")
         return False
-    if not ISLAND_DECL_RE.search(tabs_src):
+    if not ISLAND_DECL_RE.search(tabs_registry_src):
         fail("rule9: zero island-declaring CREATION_TABS entries collected -- a rule that passes on nothing is the flaw this fixes")
         return False
-    # Walk every top-level CREATION_TABS entry, checking any whose own
-    # 'islands' array is non-empty (registry KEYS don't map 1:1 to entry
-    # NAMES any more under the many-to-many amendment).
     ok = True
     checked = 0
-    for entry_name in _top_level_keys(tabs_src):
-        entry_src = _entry_block(tabs_src, entry_name)
+    for entry_name in _top_level_keys(tabs_registry_src):
+        entry_src = _entry_block(tabs_registry_src, entry_name)
         m = re.search(r"islands\s*:\s*\[", entry_src)
         if not m:
             continue
@@ -415,48 +475,43 @@ def _rule9_state_nulls(html: str, entries: dict[str, dict[str, object]]) -> bool
     return ok
 
 
-def _rule10_unconditional_dispatch(html: str) -> bool:
-    activate_body = _braced_function(html, "_creationActivateTab")
+def _rule10_unconditional_dispatch(tabs_src: str) -> bool:
+    activate_body = _braced_function(tabs_src, "_creationActivateTab")
     if not activate_body:
-        fail(f"{INDEX_HTML}: _creationActivateTab() function body not found")
+        fail(f"{TABS_FILE}: _creationActivateTab() function body not found")
         return False
-    # BRIEF-0058-e: the dispatch itself lives in creationRefreshList() so
-    # the sidebar's manual refresh button can re-run it too; the proof
-    # this check makes is that _creationActivateTab calls that function
-    # unconditionally, and that function's own body is where the
-    # unconditional 'island:slot' dispatch must live.
     if "creationRefreshList(" not in activate_body:
-        fail(f"{INDEX_HTML}: _creationActivateTab() does not call creationRefreshList()")
+        fail(f"{TABS_FILE}: _creationActivateTab() does not call creationRefreshList()")
         return False
     hit = DISQUALIFYING_IDENT_RE.search(activate_body)
     if hit:
-        fail(f"{INDEX_HTML}: _creationActivateTab() contains {hit.group(0)!r} -- the list-refresh "
+        fail(f"{TABS_FILE}: _creationActivateTab() contains {hit.group(0)!r} -- the list-refresh "
              "call must be unconditional, never behind a first-time/loaded gate")
         return False
 
-    refresh_body = _braced_function(html, "creationRefreshList")
+    refresh_body = _braced_function(tabs_src, "creationRefreshList")
     if not refresh_body:
-        fail(f"{INDEX_HTML}: creationRefreshList() function body not found")
+        fail(f"{TABS_FILE}: creationRefreshList() function body not found")
         return False
-    if "island:slot" not in refresh_body:
-        fail(f"{INDEX_HTML}: creationRefreshList() does not dispatch 'island:slot'")
+    if "activateIslandFor(" not in refresh_body:
+        fail(f"{TABS_FILE}: creationRefreshList() does not activate every declared island unconditionally")
         return False
     hit = DISQUALIFYING_IDENT_RE.search(refresh_body)
     if hit:
-        fail(f"{INDEX_HTML}: creationRefreshList() contains {hit.group(0)!r} -- the 'island:slot' "
-             "dispatch must be unconditional, never behind a first-time/loaded gate")
+        fail(f"{TABS_FILE}: creationRefreshList() contains {hit.group(0)!r} -- island activation "
+             "must be unconditional, never behind a first-time/loaded gate")
         return False
     return True
 
 
-def _rule11_pairing(html: str, entries: dict[str, dict[str, object]]) -> int:
-    tabs_src = _braced_block(html, r"const CREATION_TABS\s*=\s*\{")
-    if not tabs_src:
-        fail(f"{INDEX_HTML}: CREATION_TABS registry literal not found")
+def _rule11_pairing(tabs_src: str, entries: dict[str, dict[str, object]]) -> int:
+    tabs_registry_src = _braced_block(tabs_src, r"export const CREATION_TABS\s*=\s*\{")
+    if not tabs_registry_src:
+        fail(f"{TABS_FILE}: CREATION_TABS registry literal not found")
         return 0
     count = 0
-    for entry_name in _top_level_keys(tabs_src):
-        entry_src = _entry_block(tabs_src, entry_name)
+    for entry_name in _top_level_keys(tabs_registry_src):
+        entry_src = _entry_block(tabs_registry_src, entry_name)
         pa_src = _braced_block(entry_src, r"primaryAction\s*:\s*\{")
         if not pa_src:
             if re.search(r"\bprimaryAction\s*:\s*null\b", entry_src):
@@ -464,34 +519,34 @@ def _rule11_pairing(html: str, entries: dict[str, dict[str, object]]) -> int:
             fail(f"CREATION_TABS.{entry_name}: 'primaryAction' is neither null nor an object literal")
             continue
 
-        is_island_routed = "_islandPrimaryAction(" in pa_src
+        is_island_routed = "triggerPrimaryAction(" in pa_src
         has_create_panel_field = re.search(r"\bcreatePanel\s*:", entry_src) is not None
         create_panel_null_src = re.search(r"\bcreatePanel\s*:\s*null\b", entry_src)
         create_panel_is_null_or_absent = (not has_create_panel_field) or bool(create_panel_null_src)
 
         if is_island_routed and not create_panel_is_null_or_absent:
             fail(
-                f"CREATION_TABS.{entry_name}: primaryAction routes through _islandPrimaryAction "
+                f"CREATION_TABS.{entry_name}: primaryAction routes through triggerPrimaryAction "
                 "but createPanel is neither null nor absent — mixed pair (list migrated, sheet not)"
             )
             continue
         if not is_island_routed and create_panel_is_null_or_absent and has_create_panel_field:
             fail(
                 f"CREATION_TABS.{entry_name}: createPanel is null but primaryAction is not routed "
-                "through _islandPrimaryAction — mixed pair"
+                "through triggerPrimaryAction — mixed pair"
             )
             continue
 
         if is_island_routed:
-            key_m = re.search(r"""_islandPrimaryAction\(\s*['"]([^'"]+)['"]\s*\)""", pa_src)
+            key_m = re.search(r"""triggerPrimaryAction\(\s*['"]([^'"]+)['"]\s*\)""", pa_src)
             if not key_m:
-                fail(f"CREATION_TABS.{entry_name}: primaryAction.handler calls _islandPrimaryAction( "
+                fail(f"CREATION_TABS.{entry_name}: primaryAction.handler calls triggerPrimaryAction( "
                      "with no literal key argument — cannot verify its component")
                 continue
             key = key_m.group(1)
             entry = entries.get(key)
             if not entry:
-                fail(f"CREATION_TABS.{entry_name}: _islandPrimaryAction({key!r}) has no matching registry entry")
+                fail(f"CREATION_TABS.{entry_name}: triggerPrimaryAction({key!r}) has no matching registry entry")
                 continue
             component_path = CREATION_SRC / entry["component"]
             if not component_path.is_file():
@@ -509,13 +564,24 @@ def _rule11_pairing(html: str, entries: dict[str, dict[str, object]]) -> int:
 
 
 def main() -> None:
-    if not INDEX_HTML.is_file():
-        fail(f"{INDEX_HTML} does not exist")
+    if not TABS_FILE.is_file():
+        fail(f"{TABS_FILE} does not exist")
         _report_and_exit()
         return
-    html = INDEX_HTML.read_text(encoding="utf-8")
-    if not html.strip():
-        fail(f"{INDEX_HTML} is empty")
+    if not CREATION_SVELTE_FILE.is_file():
+        fail(f"{CREATION_SVELTE_FILE} does not exist")
+        _report_and_exit()
+        return
+    if not MOUNT_FILE.is_file():
+        fail(f"{MOUNT_FILE} does not exist")
+        _report_and_exit()
+        return
+    tabs_src = TABS_FILE.read_text(encoding="utf-8")
+    mount_src = MOUNT_FILE.read_text(encoding="utf-8")
+    creation_svelte_src = CREATION_SVELTE_FILE.read_text(encoding="utf-8")
+    html = INDEX_HTML.read_text(encoding="utf-8") if INDEX_HTML.is_file() else ""
+    if not tabs_src.strip() or not creation_svelte_src.strip():
+        fail(f"{TABS_FILE} or {CREATION_SVELTE_FILE} is empty")
         _report_and_exit()
         return
 
@@ -526,14 +592,14 @@ def main() -> None:
 
     shape_count = _rule2_shape(entries)
     component_ok = _rule3_component_exists(entries)
-    container_ok = _rule4_container_exists(html, entries)
-    bijection_ok = _rule5_many_to_many(html, entries)
+    container_ok = _rule4_container_exists(creation_svelte_src, entries)
+    bijection_ok = _rule5_many_to_many(tabs_src, entries)
     mechanism_ok = _rule6_single_mechanism()
     retired_count = _rule7_retired_gone(html, entries)
-    event_count = _rule8_event_confinement()
-    state_ok = _rule9_state_nulls(html, entries)
-    dispatch_ok = _rule10_unconditional_dispatch(html)
-    primary_action_count = _rule11_pairing(html, entries)
+    action_count = _rule8_mount_action_confinement(mount_src, tabs_src)
+    state_ok = _rule9_state_nulls(tabs_src, entries)
+    dispatch_ok = _rule10_unconditional_dispatch(tabs_src)
+    primary_action_count = _rule11_pairing(tabs_src, entries)
 
     if (
         FAILURES
@@ -543,7 +609,7 @@ def main() -> None:
         or not bijection_ok
         or not mechanism_ok
         or retired_count != len(entries)
-        or event_count != 2
+        or action_count != 8
         or not state_ok
         or not dispatch_ok
     ):
@@ -554,7 +620,7 @@ def main() -> None:
         {
             "islands": len(entries),
             "retired": retired_count,
-            "events": event_count,
+            "events": action_count,
             "primary_actions": primary_action_count,
         }
     )

@@ -520,7 +520,6 @@ header .local-badge {
     <button class="mode-tab"        id="mode-tab-creation"    onclick="showCreationView()">Création</button>
     <button class="mode-tab"        id="mode-tab-observation" onclick="showObservationView()">Observation</button>
   </div>
-  <select id="world-selector" onchange="activateWorld(this.value)" title="Monde actif"></select>
   <button class="btn-icon" onclick="worldCreateOpen()" title="Créer un nouveau monde">+ Monde</button>
   <button class="btn-icon" onclick="worldDeleteOpen()" title="Supprimer le monde sélectionné">🗑 Monde</button>
   <span class="local-badge">127.0.0.1 · local only</span>
@@ -938,15 +937,6 @@ let _streamingActive = false;  // true while an NPC reply is in flight
 // other init call; never the literal "char-player".
 let WORLD_ID  = null;
 let PLAYER_ID = null;
-
-let currentCreationSubTab = 'npc';
-let playerCharIds = new Set();  // IDs of player-character entities (from /api/skills/player-characters)
-
-/** Single-slot return crumb (TICKET-0054, decision F2a): where a
- *  programmatic cross-tab entity navigation came FROM. Never a stack —
- *  no reader needs a depth greater than one, and the day one does, this
- *  becomes an array with no other change. Shape: {tabId, entityId}. */
-let creationReturnTo = null;
 
 /* ════════════════════════════════════════════════════════════════════════════
    Utilities
@@ -1992,43 +1982,19 @@ async function analyzeConv(force) {
    Author CRUD (Master tool) — direct canonical writes, creator-mode-only
    ════════════════════════════════════════════════════════════════════════════ */
 
-let authorRegistry    = null;  // cached /api/entity-types response
-let authorAllEntities = [];    // flat list, used for entity_ref pickers and relation targets
 let authorTypeFilter  = '';    // '' = all types
 
-/* TICKET-0059 (BRIEF-0059-e): the two bare `let`s this island's selected-
- * entity id/type used to live in, and their one-line window accessor, are
- * gone -- the entity sheet's own selection moved to
- * frontend/src/creation/sheetState.svelte.js (selectEntity/
- * getSelectedEntityId), the one authority for it now. creationSelectedEntityId
- * below is NOT a second authority for that fact: it is a passive mirror,
- * kept in sync by the 'creation:selection' listener a few functions down,
- * that exists ONLY because creationOpenEntityFrom/creationReturnToOrigin
- * (chrome, Scope OUT of this brief, still legacy until -l) cannot import a
- * Svelte module and need a synchronous read of "what's currently selected"
- * to build their own return-crumb. It dies with them at -l. */
-let creationSelectedEntityId = null;
-
-// Generic selected-record id (BRIEF-0021-a) — the sheetRenderer-seam
-// counterpart of creationSelectedEntityId, for non-entity list+detail tabs
-// (Intrigues) whose rows carry full data already, no per-row fetch. Only one
-// such tab is ever visible at a time, so one shared id is enough (no second
-// dispatcher).
-let creationSelectedRecordId = null;
-
-/* Lieux hierarchy browse state (BRIEF-51) moved to frontend/src/creation/
- * EntityList.svelte (TICKET-0058, BRIEF-0058-e), component-local — nothing
- * outside that island reads it any more, so LOCATION_TYPE_ORDER/
- * LOCATION_TYPE_LABELS and the browse position (lieuxBrowseParentId/
- * lieuxBreadcrumb/lieuxActiveOnly) are gone from here. authorLocationTree
- * and authorLocationTypeCatalog stay: other still-legacy readers (the
- * field engine's location_type classification, location-type option
- * lists) depend on them; the island now populates both via
- * 'creation:entities-loaded' instead of authorLoadEntityList. */
-let authorLocationTree = [];     // [{id, name, parent_location_id, location_type, status}, ...]
-// [{name, classification: "interior"|"exterior"|null}, ...] for the active
-// world — refreshed by the entityList island; backs the location_type datalist.
-let authorLocationTypeCatalog = [];
+/* TICKET-0059 (BRIEF-0059-l commit 1). authorRegistry/authorAllEntities/
+ * creationSelectedEntityId/creationSelectedRecordId/authorLocationTree/
+ * authorLocationTypeCatalog and the 'creation:entities-loaded' listener
+ * that populated them are gone: their sole remaining readers (chrome --
+ * CREATION_TABS, creationOpenEntityFrom/creationReturnToOrigin/
+ * creationRenderReturnControl/creationResolveEntityTab, npc/pj's
+ * entityFilter closures) all moved to frontend/src/creation/tabs.js, which
+ * reads creationState.authorRegistry/entities/playerCharIds/locationTree/
+ * locationTypeCatalog directly -- EntityList.svelte already wrote all six
+ * there itself (state.svelte.js), so this was a passive mirror kept in
+ * sync for a legacy-only readership that no longer exists. */
 
 /* AI entity-authoring assistant (BRIEF-24) — pendingDraftKnowledge/
  * pendingDraftGoals (secret.knowledge rows / BRIEF-0013-b goals, held
@@ -2070,14 +2036,21 @@ function showPlayView() {
   document.getElementById('mode-tab-observation').classList.remove('active');
 }
 
+// TICKET-0059 (BRIEF-0059-l commit 1): unreachable from the shell now --
+// App.svelte drives Creation.svelte directly (item 2) and never calls
+// showSurface('creation'); the mode-tab button that used to call this
+// lives inside the suppressed legacy <header> (hideLegacyHeader()). Kept,
+// not deleted: legacy_mount.py rule 4 requires LEGACY_MOUNTS.creation's
+// declared showFn to exist as a top-level function here until this
+// mount retires (commit 4) -- its body is trimmed to what still resolves
+// in this document (#creation-view moved into Creation.svelte's own
+// template, so this function no longer touches it).
 function showCreationView() {
   document.getElementById('play-view').style.display = 'none';
-  document.getElementById('creation-view').style.display = '';
   document.getElementById('observation-view').style.display = 'none';
   document.getElementById('mode-tab-play').classList.remove('active');
   document.getElementById('mode-tab-creation').classList.add('active');
   document.getElementById('mode-tab-observation').classList.remove('active');
-  if (!authorRegistry) creationInit();
 }
 
 /* ── Observation view (TICKET-0051, BRIEF-0051-f) ──────────────────────────
@@ -2799,224 +2772,20 @@ async function spatialTalkTo(npcId) {
 
 /* ── Création sub-tabs ───────────────────────────────────────────────────── */
 
-// CREATION_TABS entry contract (TICKET-0005):
-// { label:        string, tab title shown in the shell header
-//   archetype:    'entity' | 'bespoke'
-//   containers:   [element ids to show when active; all others hidden]
-//   loader:       function called on activation
-//   state:        { onTabEnter: fn|null, onWorldSwitch: fn|null }
-//                 each fn resets ALL state this tab owns for that event
-//   // entity archetype only:
-//   listLoader:   fn|undefined — ONLY for a tab whose list isn't the
-//                 default flat/lieux shape the entityList island already
-//                 renders (Intrigues/Evenements): fetches and caches rows,
-//                 then hands them to the island via 'creation:list-data'
-//                 (TICKET-0058, BRIEF-0058-e). Absent on every tab the
-//                 island renders generically off `type`/`entityFilter`.
-//   sheetRenderer: fn|undefined (undefined = the entitySheet island's own
-//                 core field engine, Sheet.svelte, BRIEF-0058-f; present =
-//                 a bespoke legacy renderer for a tab whose record isn't a
-//                 plain typed entity — intrigues/evenements — rendering
-//                 into #author-legacy-sheet-slot, the island's stable leaf)
-//   createPanel:  fn|null (null with primaryAction routed through
-//                 _islandPrimaryAction('entitySheet') = the island's own
-//                 create mode; non-null = a bespoke legacy create panel,
-//                 same #author-legacy-sheet-slot target — rule 11 pairs
-//                 this with primaryAction, never mixed)
-//   slots:        [{ id, containerId, loader, onSelect: fn|null,
-//                    onOpen: fn|null (on_demand only; fires once, right
-//                    before the first loader/graph:slot dispatch),
-//                    display: 'always'|'on_demand' (default 'always'),
-//                    toggleLabel: string (on_demand only; default
-//                    'Voir le graphe'),
-//                    graph: { consumer: string, mountId: string|undefined }
-//                    (TICKET-0057/0058) — a shell-mounted graph island;
-//                    mountId defaults to containerId (lieux) but may name a
-//                    narrower child element (npc) when containerId also
-//                    hosts other, non-graph chrome that must survive the
-//                    graph's own mount/remount cycle untouched }]
-//                 'on_demand' (BRIEF-0023-a, F1): container stays hidden and
-//                 loader does not fire on tab activation; the standard shell
-//                 renders one toggle button per on_demand slot; first click
-//                 shows the container and fires loader, later clicks only
-//                 hide/show (no unload); state resets via onTabEnter/
-//                 onWorldSwitch.
-//   islands:      [{ key, containerId }, ...] | undefined — each entry a
-//                 mount point inside this tab whose content is a Svelte
-//                 island (TICKET-0058, amended BRIEF-0058-e). The legacy
-//                 document dispatches 'island:slot' per entry and renders
-//                 nothing at that containerId itself; the shell owns it.
-//                 Declared in frontend/src/creation/registry.js. A
-//                 registry key may be shared by MULTIPLE entries when one
-//                 component serves several tabs through one container
-//                 (the entity-list sidebar does, across all seven entity
-//                 tabs) — many-to-many, never a second renderer for the
-//                 same node.
-//                 An entry declaring a non-empty `islands` MUST also
-//                 declare loader: null and state.onWorldSwitch: null. A
-//                 legacy loader or world-switch renderer targeting an
-//                 island's OWN containerId would innerHTML over it
-//                 (RECON-0058-a M5); that state's reset is driven by
-//                 serverState in the mounted component, not a legacy
-//                 callback. A tab may be island for ONE containerId and
-//                 legacy for another (e.g. the list migrated, the sheet
-//                 not yet) — `islands` and a legacy `createPanel`/
-//                 `listRenderer` are not mutually exclusive; only
-//                 `primaryAction` and `createPanel` must stay paired on
-//                 the same side (creation_island.py rule 11).
-// }
-// Every Création page is a registry entry. No page renders outside it.
-//
-// Implementation notes (not part of the contract above):
-// - An entity entry only receives the shared list+detail shell (the
-//   "+ Nouveau" row, the list label, #author-entity-list/#author-main) when
-//   its `containers` includes 'creation-editor-area' — a shape check on the
-//   entry's own data, never a tab-id check. Artefacts is registered as
-//   `archetype: 'entity'` (BRIEF-0005-a item 7) but keeps its own container
-//   and its own `loader`, so it opts out of that shell.
-// - `type`/`entityFilter` on an entity entry drive the entityList island's
-//   default flat-list row selection (ignored for lieux, which the island
-//   renders hierarchically, and for a tab declaring `listLoader`).
-/** On-demand slot state (BRIEF-0023-a, F1) — tracks open/loaded per
- *  on_demand slot container, keyed by containerId. Reset exclusively by the
- *  owning tab's onTabEnter/onWorldSwitch (never by re-activation alone). */
-let onDemandSlotState = {};
-
-function _onDemandSlotReset(entry) {
-  (entry.slots || []).forEach(s => {
-    if (s.display !== 'on_demand') return;
-    onDemandSlotState[s.containerId] = { open: false, loaded: false };
-    const el = document.getElementById(s.containerId);
-    if (el) el.style.display = 'none';
-  });
-}
-
-function _onDemandSlotToggle(slot) {
-  const st = onDemandSlotState[slot.containerId]
-    || (onDemandSlotState[slot.containerId] = { open: false, loaded: false });
-  st.open = !st.open;
-  const el = document.getElementById(slot.containerId);
-  if (el) el.style.display = st.open ? '' : 'none';
-  if (st.open && !st.loaded) {
-    st.loaded = true;
-    if (slot.onOpen) slot.onOpen();
-    if (slot.graph) {
-      // TICKET-0057/0058: the graph primitive is a shell-mounted island;
-      // the legacy document only signals intent, it never loads or draws.
-      // mountId lets the graph mount into a child of containerId, so
-      // sibling chrome (the npc slot's Agent PNJ/liens panels) survives
-      // the graph's own mount/remount cycle untouched.
-      document.dispatchEvent(new CustomEvent('graph:slot', {
-        detail: { consumer: slot.graph.consumer, containerId: slot.graph.mountId || slot.containerId, open: true },
-      }));
-    } else if (slot.loader) {
-      slot.loader();
-    }
-  }
-  const entry = CREATION_TABS[currentCreationSubTab];
-  if (entry) _renderOnDemandToggles(entry);
-}
-
-function _onDemandSlotToggleById(containerId) {
-  const entry = CREATION_TABS[currentCreationSubTab];
-  if (!entry) return;
-  const slot = (entry.slots || []).find(s => s.containerId === containerId);
-  if (slot) _onDemandSlotToggle(slot);
-}
-
-/** Renders one toggle button per on_demand slot in the standard shell band,
- *  same fixed position on every tab (mirrors the primaryAction posture). */
-function _renderOnDemandToggles(entry) {
-  const wrapEl = document.getElementById('creation-shell-toggles');
-  if (!wrapEl) return;
-  const onDemandSlots = (entry.slots || []).filter(s => s.display === 'on_demand');
-  wrapEl.innerHTML = onDemandSlots.map(s => {
-    const st = onDemandSlotState[s.containerId] || { open: false };
-    const label = st.open ? 'Masquer le graphe' : (s.toggleLabel || 'Voir le graphe');
-    return `<button class="btn-icon" onclick="_onDemandSlotToggleById('${esc(s.containerId)}')">${esc(label)}</button>`;
-  }).join('');
-}
-
-function _entityTabEnterReset() {
-  creationRenderReturnControl();
-  // TICKET-0058 (BRIEF-0058-e): tells the entity-list island to drop its
-  // active-row highlight — a fresh tab always starts unselected.
-  // TICKET-0059 (BRIEF-0059-e): also the sole update path for
-  // creationSelectedEntityId now (the 'creation:selection' listener below
-  // mirrors every dispatch of this event, this one included).
-  document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
-  // TICKET-0058 (BRIEF-0058-f): #author-main is the entitySheet island's
-  // mount root now — title/save/delete/body reset moved into Sheet.svelte's
-  // own 'creation:sheet-reset' listener, which owns all four together.
-  document.dispatchEvent(new CustomEvent('creation:sheet-reset'));
-}
-
-/** BRIEF-0058-j: any open room-batch panel closes on leaving/re-entering
- *  Lieux, same as it always did (batchReset() used to run inline here) --
- *  RoomBatch.svelte owns that state now, so this fires a plain notification
- *  CustomEvent instead, the same 'creation:sheet-reset' idiom every other
- *  xTabEnterReset already uses to tell its own island to reset itself. */
-function _lieuxTabEnterReset() {
-  _entityTabEnterReset();
-  _onDemandSlotReset(CREATION_TABS.lieux);
-  document.dispatchEvent(new CustomEvent('creation:batch-reset'));
-}
-
-function _npcTabEnterReset() {
-  _entityTabEnterReset();
-  _onDemandSlotReset(CREATION_TABS.npc);
-  // TICKET-0059 (BRIEF-0059-f commit 2): the direct reset call this tab
-  // used to make on the (now Svelte) NPC agent panel is a CustomEvent now
-  // -- NpcAgent.svelte's own legacyDoc listener resets itself, the same
-  // 'creation:batch-reset' idiom RoomBatch.svelte already established.
-  document.dispatchEvent(new CustomEvent('creation:npcagent-reset'));
-  // TICKET-0059 (BRIEF-0059-g commit 1): same conversion, link agent's
-  // side -- LinkAgent.svelte's own legacyDoc listener resets itself now.
-  document.dispatchEvent(new CustomEvent('creation:linkagent-reset'));
-}
-
-// TICKET-0058 (BRIEF-0058-e): _npcWorldReset/_pjWorldReset/_lieuxWorldReset/
-// _factionsWorldReset/_entityListWorldReset/_intriguesWorldReset/
-// _evenementsWorldReset are gone — all seven entity tabs now declare
-// 'islands' for #author-entity-list (creation_island.py rule 9 forces
-// state.onWorldSwitch: null on each). Their entity-list-owning state
-// (authorAllEntities/playerCharIds/lieux browse position/agendas/
-// evenementsEvents) moved into frontend/src/creation/state.svelte.js and
-// the EntityList island's own component-local state, reset on
-// serverState.worldId change rather than a legacy callback. The DOM work
-// the seventh (npc) used to do beyond the entity list itself
-// (_npcWorldReset's on-demand-slot hide, for the two agent panels) no
-// longer needs a direct call here at all: the NPC agent panel and the
-// room-batch panel already reset themselves reactively off
-// serverState.worldId (BRIEF-0058-j, BRIEF-0059-f commit 2), and
-// BRIEF-0059-g commit 1 moves the link agent panel onto the identical
-// pattern — the -d rule every migrated island entry follows. pendingDraft*/
-// authorFactionRoles* (pj/factions' non-list state) are re-populated by
-// _creationRunWorldSwitchResets' own re-activation of the current tab
-// (activateWorld already calls showCreationSubTab after the resets) and
-// are not re-derived here — a narrower, deliberate gap (report only:
-// neither did DOM work).
-
-function _intriguesTabEnterReset() {
-  creationSelectedRecordId = null;
-  document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
-  // TICKET-0058 (BRIEF-0058-f): see _entityTabEnterReset's identical note.
-  document.dispatchEvent(new CustomEvent('creation:sheet-reset'));
-}
-
-/** evenements' onTabEnter (BRIEF-0022-a item 6, G1 state contract) — resets
- *  the one piece of state this tab owns at the legacy boundary: selection.
- *  Mirrors _intriguesTabEnterReset verbatim. The chip draft reset
- *  (evenementsInvolvedDraft) is gone with the rest of evenements' bespoke
- *  sheet (TICKET-0058, BRIEF-0058-j) — Evenements.svelte resets its own
- *  draft reactively off the 'creation:sheet-reset' dispatch below, via
- *  Sheet.svelte's existing listener, not a legacy global. */
-function _evenementsTabEnterReset() {
-  creationSelectedRecordId = null;
-  document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
-  // TICKET-0058 (BRIEF-0058-f): see _entityTabEnterReset's identical note.
-  document.dispatchEvent(new CustomEvent('creation:sheet-reset'));
-}
+// TICKET-0059 (BRIEF-0059-l commit 1, D1). The CREATION_TABS registry, its
+// entry contract, the on-demand slot machinery (onDemandSlotState/
+// _onDemandSlotReset/_onDemandSlotToggle/_onDemandSlotToggleById/
+// _renderOnDemandToggles), and the five onTabEnter resets
+// (_entityTabEnterReset/_lieuxTabEnterReset/_npcTabEnterReset/
+// _intriguesTabEnterReset/_evenementsTabEnterReset) are gone -- ported to
+// frontend/src/creation/tabs.js, whose own header comment carries the
+// entry contract now (verbatim) and the full account of what changed:
+// container visibility is a pure function (containerVisible)
+// Creation.svelte's template calls per container instead of this code
+// writing style.display; the on-demand toggle buttons and the shell
+// band's title/primaryAction are template expressions there too, not a
+// function that writes them once on activation; and
+// _creationRunWorldSwitchResets does not port at all (measured vacuous).
 
 /** BRIEF-0058-j closed the RECON-0058-a M4 author* call closure: every
  *  legacy caller the earlier briefs' own comments tracked here
@@ -3031,367 +2800,13 @@ function _evenementsTabEnterReset() {
  *  dispatches 'creation:sheet-create'/'creation:apply-generated-draft'
  *  (BRIEF-0058-h) — its own germ-realization flow is TICKET-0059
  *  territory, not this ticket's closure. */
-const CREATION_TABS = {
-  npc: {
-    label: 'NPC',
-    archetype: 'entity',
-    containers: ['creation-editor-area'],
-    loader: null,
-    state: { onTabEnter: _npcTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'npcAgent', containerId: 'npcagent-panel' }, { key: 'linkAgent', containerId: 'linkagent-panel' }],
-    type: 'character',
-    entityFilter: (entities) => entities.filter(e => e.type === 'character' && !playerCharIds.has(e.id)),
-    createPanel: null,
-    primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
-    showPendingCreations: true,
-    slots: [{ id: 'relgraph', containerId: 'creation-npc-relgraph', loader: null,
-              onSelect: (id) => document.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'relations', meta: { id } } })),
-              // TICKET-0059 (BRIEF-0059-g commit 1): the link agent's own
-              // open-batch check drops out too -- LinkAgent.svelte performs
-              // it itself on mount now, same as NpcAgent.svelte already
-              // does (BRIEF-0059-f commit 2). Both halves of this onOpen are
-              // gone, so the handler itself goes (item 7).
-              onOpen: null,
-              display: 'on_demand', toggleLabel: 'Voir le graphe',
-              graph: { consumer: 'relations', mountId: 'relgraph-mount' } }],
-  },
-  pj: {
-    label: 'Personnages joueurs',
-    archetype: 'entity',
-    containers: ['creation-editor-area'],
-    loader: null,
-    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'pjSkillFiche', containerId: 'creation-pj-skill' }],
-    type: 'character',
-    entityFilter: (entities) => entities.filter(e => e.type === 'character' && playerCharIds.has(e.id)),
-    // pj's create flow converged onto PjCreatePanel.svelte (TICKET-0059,
-    // BRIEF-0059-j commit 3) -- the bespoke /api/characters/player endpoint
-    // (distinct from the generic /api/entities route) survives the port
-    // unchanged; the legacy panel rendering it does not.
-    createPanel: null,
-    primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
-    // The Fiche slot converged onto PjSkillFiche.svelte too (BRIEF-0059-j
-    // commit 4, final): loader/onSelect both null, mounted via the
-    // 'pjSkillFiche' island entry above instead -- the descriptor itself
-    // stays, only for the display show/hide toggle every non-on_demand
-    // slot already gets in showCreationSubTab.
-    slots: [{ id: 'fiche', containerId: 'creation-pj-skill', loader: null, onSelect: null }],
-  },
-  lieux: {
-    label: 'Lieux',
-    archetype: 'entity',
-    containers: ['creation-editor-area', 'batch-panel-wrap'],
-    loader: null,
-    state: { onTabEnter: _lieuxTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'batch', containerId: 'batch-panel-wrap' }],
-    type: 'location',
-    createPanel: null,
-    primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
-    showPendingCreations: true,
-    slots: [{ id: 'graph', containerId: 'creation-lieux-graph', loader: null, onSelect: null,
-              display: 'on_demand', toggleLabel: 'Voir le graphe',
-              graph: { consumer: 'lieux' } }],
-  },
-  factions: {
-    label: 'Factions',
-    archetype: 'entity',
-    containers: ['creation-editor-area'],
-    loader: null,
-    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
-    type: 'faction',
-    createPanel: null,
-    primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
-    showPendingCreations: true,
-    slots: [],
-  },
-  objets: {
-    label: 'Objets',
-    archetype: 'entity',
-    containers: ['creation-editor-area'],
-    loader: null,
-    state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
-    type: 'item',
-    createPanel: null,
-    primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
-    slots: [],
-  },
-  competences: {
-    label: 'Compétences',
-    archetype: 'bespoke',
-    containers: ['creation-competences'],
-    loader: null,
-    state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'competences', containerId: 'creation-competences' }],
-    primaryAction: { label: '+ Ajouter une compétence', handler: () => _islandPrimaryAction('competences') },
-  },
-  region: {
-    label: 'Région',
-    archetype: 'bespoke',
-    containers: ['creation-region'],
-    loader: null,
-    state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'region', containerId: 'creation-region' }],
-    primaryAction: { label: 'Nouvelle région', handler: () => _islandPrimaryAction('region') },
-  },
-  constructeur: {
-    label: 'Constructeur',
-    archetype: 'bespoke',
-    containers: ['creation-constructeur'],
-    loader: null,
-    state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'constructeur', containerId: 'creation-constructeur' }],
-    primaryAction: { label: 'Créer le type', handler: () => _islandPrimaryAction('constructeur') },
-  },
-  artefacts: {
-    label: 'Artefacts',
-    archetype: 'entity', // degenerate: no create control, own container/loader (BRIEF-0005-a item 7)
-    containers: ['creation-artefacts'],
-    loader: null,
-    state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'artefacts', containerId: 'creation-artefacts' }],
-    createPanel: null,
-    primaryAction: null, // enabling artifact creation later = filling this in
-  },
-  registre: {
-    label: 'Registre',
-    archetype: 'bespoke',
-    containers: ['creation-registre'],
-    loader: null,
-    state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'registre', containerId: 'creation-registre' }],
-    primaryAction: { label: '+ Nouvelle entrée', handler: () => _islandPrimaryAction('registre') },
-  },
-  intrigues: {
-    label: 'Intrigues',
-    archetype: 'entity',
-    containers: ['creation-editor-area'],
-    loader: null,
-    state: { onTabEnter: _intriguesTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
-    // TICKET-0059 (BRIEF-0059-j): fully converged onto Intrigues.svelte/
-    // intrigues.svelte.js -- list + sheet (commit 1), create panel (commit
-    // 2, this change): createPanel goes null and primaryAction routes
-    // through _islandPrimaryAction('entitySheet'), the SAME side per rule
-    // 11, mirroring every other island-routed entity tab.
-    listLoader: null,
-    sheetRenderer: null,
-    createPanel: null,
-    primaryAction: { label: '+ Nouvelle intrigue', handler: () => _islandPrimaryAction('entitySheet') },
-  },
-  evenements: {
-    label: 'Événements',
-    archetype: 'entity',
-    containers: ['creation-editor-area'],
-    loader: null,
-    state: { onTabEnter: _evenementsTabEnterReset, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
-    createPanel: null,
-    primaryAction: { label: '+ Nouvel événement', handler: () => _islandPrimaryAction('entitySheet') },
-  },
-  queue: {
-    label: 'Review Queue',
-    archetype: 'bespoke',
-    containers: ['creation-queue'],
-    // TICKET-0059 (BRIEF-0059-k commit 2): loader is gone -- Queue.svelte
-    // resets itself off serverState.worldId (the -d rule) instead.
-    loader: null,
-    state: { onTabEnter: null, onWorldSwitch: null },
-    primaryAction: null, // append-only by design — rows never created here
-    // TICKET-0059 (BRIEF-0059-k): both slot loaders are gone -- their
-    // islands reset themselves off serverState.worldId (the -d rule every
-    // migrated island follows) instead. Both descriptors survive
-    // (containerId drives each container's own show/hide via the generic
-    // slot mechanism, unrelated to the island mechanism) with loader: null.
-    slots: [
-      { id: 'filters', containerId: 'creation-shell-extra', loader: null, onSelect: null },
-      { id: 'batchBar', containerId: 'creation-shell-batch-bar', loader: null, onSelect: null },
-    ],
-    islands: [
-      { key: 'queueFilters', containerId: 'creation-shell-extra' },
-      { key: 'queue', containerId: 'creation-queue' },
-      { key: 'queueBatchBar', containerId: 'creation-shell-batch-bar' },
-    ],
-  },
-  prompts: {
-    label: 'Prompts',
-    archetype: 'bespoke',
-    containers: ['creation-prompts'],
-    loader: null,
-    state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'prompts', containerId: 'creation-prompts' }],
-    primaryAction: null, // read-only, creator management surface (BRIEF-0008-b)
-  },
-};
-
-/** Dispatches every 'islands' entry the currently active tab declares, plus
- *  (for an editor-shell entity tab not yet fully islanded off its own
- *  listLoader — Intrigues/Evenements, TICKET-0058/BRIEF-0058-e) the legacy
- *  list fetch, which pushes its rows to the mounted island via
- *  'creation:list-data' rather than rendering DOM itself. Extracted out of
- *  _creationActivateTab so the sidebar's own "↻ Rafraîchir" button can
- *  re-run exactly this — a shape check on the entry's own data, never a
- *  tab-id branch (page_contract.py forbids tab-id literals in either
- *  function). */
-function creationRefreshList() {
-  const entry = CREATION_TABS[currentCreationSubTab];
-  if (!entry) return;
-  // TICKET-0058 (BRIEF-0058-d, amended -e): an island entry's declared
-  // containerId is rendered by a Svelte component, not by legacy code —
-  // the legacy document signals intent and renders nothing itself there.
-  // Dispatched on EVERY activation, unconditionally, never behind a
-  // first-visit gate: frontend/src/creation/mount.js's own node-identity
-  // check is what makes a repeat dispatch idempotent (RECON-0058-a M5),
-  // not a guard here.
-  (entry.islands || []).forEach(isl => {
-    document.dispatchEvent(new CustomEvent('island:slot', { detail: { key: isl.key, open: true, tabKey: currentCreationSubTab } }));
-  });
-  if (entry.listLoader) entry.listLoader();
-}
-
-/** Runs a registry entry's activation work — the single path used by BOTH
- *  showCreationSubTab and creationInit's first-ever activation, so the
- *  shell/label render exactly once, however the tab was reached: renders the
- *  standard shell + sidebar label, then (entity archetype) loads its list
- *  via the shared shell before the entry's own loader; declared slots' own
- *  loaders always run last, regardless of archetype (TICKET-0014/BRIEF-0014-b:
- *  Review Queue's bespoke entry needed its 'filters' slot's loader to fire
- *  too — this was previously entity-archetype-only because no bespoke slot
- *  had ever declared a real loader before). */
-function _creationActivateTab() {
-  const entry = CREATION_TABS[currentCreationSubTab];
-  if (!entry) return;
-  const usesEditorShell = entry.containers.includes('creation-editor-area');
-
-  const labelEl = document.getElementById('creation-list-label');
-  if (labelEl && usesEditorShell) labelEl.textContent = entry.label || '';
-  renderCreationShell(entry);
-
-  creationRefreshList();
-  if (entry.loader) entry.loader();
-  (entry.slots || []).forEach(s => { if (s.display !== 'on_demand' && s.loader) s.loader(); });
-
-  // Créations en attente strip (BRIEF-0019-a) — a registry field, not a
-  // tab-id branch: any entry may opt in by declaring showPendingCreations.
-  const pendingStripEl = document.getElementById('creation-pending-strip');
-  if (pendingStripEl) {
-    if (entry.showPendingCreations) {
-      pendingStripEl.style.display = '';
-      loadPendingCreations();
-    } else {
-      pendingStripEl.style.display = 'none';
-    }
-  }
-}
-
-/** Generic dispatcher (TICKET-0005): every tab's visibility, reset, and load
- *  behavior comes from its CREATION_TABS entry — no tab-id literals here. */
-function showCreationSubTab(tab) {
-  const prev = currentCreationSubTab;
-  const entry = CREATION_TABS[tab];
-  if (!entry) return;
-  currentCreationSubTab = tab;
-  creationReturnTo = null;  // any tab change drops the crumb; the two
-                            // navigation helpers below re-set it AFTER
-                            // calling this, which is what makes a manual
-                            // sub-tab click clear it and a programmatic
-                            // navigation keep it.
-
-  document.querySelectorAll('.creation-sub-tab').forEach(b => b.classList.remove('active'));
-  const btn = document.getElementById('ctab-' + tab);
-  if (btn) btn.classList.add('active');
-
-  const allContainerIds = new Set();
-  Object.values(CREATION_TABS).forEach(e => {
-    e.containers.forEach(id => allContainerIds.add(id));
-    (e.slots || []).forEach(s => allContainerIds.add(s.containerId));
-  });
-  allContainerIds.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
-  });
-  entry.containers.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = '';
-  });
-  (entry.slots || []).forEach(s => {
-    if (s.display === 'on_demand') return; // stays hidden until its toggle is clicked (F1)
-    const el = document.getElementById(s.containerId);
-    if (el) el.style.display = '';
-  });
-
-  const usesEditorShell = entry.containers.includes('creation-editor-area');
-
-  if (prev !== tab && entry.state.onTabEnter) entry.state.onTabEnter();
-
-  if (usesEditorShell && !authorRegistry) {
-    creationInit();
-  } else {
-    _creationActivateTab();
-  }
-
-  // TICKET-0058 (BRIEF-0058-k): the shell mirrors the active sub-tab into
-  // the URL via this one-way signal — the legacy document never touches
-  // history or reads location itself (RECON-0058-a; the graph:slot/
-  // island:slot channel is the same one-way shape, this is a third use).
-  document.dispatchEvent(new CustomEvent('route:subtab', { detail: { tab } }));
-}
-
-/** Standard shell band (BRIEF-0005-c) — the entry's title, plus its
- *  primaryAction button in the same fixed position on every one of the ten
- *  tabs. `createPanel` still decides WHAT + Nouveau renders; `primaryAction`
- *  alone decides WHETHER a button shows and where its click goes. */
-function renderCreationShell(entry) {
-  const titleEl = document.getElementById('creation-shell-title');
-  if (titleEl) titleEl.textContent = entry.label || '';
-  _renderOnDemandToggles(entry);
-  const actionEl = document.getElementById('creation-shell-action');
-  if (!actionEl) return;
-  if (entry.primaryAction) {
-    actionEl.textContent = entry.primaryAction.label;
-    actionEl.onclick = entry.primaryAction.handler;
-    actionEl.style.display = '';
-  } else {
-    actionEl.onclick = null;
-    actionEl.style.display = 'none';
-  }
-}
-
-/** Primary-action bridge for island tabs (TICKET-0058, BRIEF-0058-d). The
- *  shell owns an island's panel, but the standard action band stays legacy
- *  chrome (renderCreationShell above, unmodified) — so the band's click is
- *  forwarded to the mounted component by key instead of calling a legacy
- *  function directly. One generic helper serving every island, present or
- *  future; per-tab variation lives in CREATION_TABS data, never here. */
-function _islandPrimaryAction(key) {
-  document.dispatchEvent(new CustomEvent('island:action', { detail: { key } }));
-}
-
-/** Runs every registry entry's world-switch reset (BRIEF-0005-a item 3, G1) —
- *  called by activateWorld() and worldDeleteConfirm(), never per-tab. Also
- *  refreshes runtime Creation tabs for the newly active world (TICKET-0046,
- *  BRIEF-0046-d) — a world switch must clear the previous world's runtime
- *  tabs, never leave a stale one live. */
-async function _creationRunWorldSwitchResets() {
-  creationReturnTo = null;
-  Object.values(CREATION_TABS).forEach(entry => {
-    if (entry.state && entry.state.onWorldSwitch) entry.state.onWorldSwitch();
-  });
-  // TICKET-0058 (BRIEF-0058-e): npc's and lieux's onWorldSwitch are gone
-  // (see the comment above _lieuxTabEnterReset) but the DOM work link
-  // agent's panel still needs on a world switch belongs here, called
-  // unconditionally exactly as it always ran, just no longer nested inside
-  // a per-tab callback. The room-batch panel's own world-switch reset is
-  // gone too (BRIEF-0058-j), and TICKET-0059 (BRIEF-0059-f commit 2) moved
-  // the NPC agent panel onto the same pattern: NpcAgent.svelte resets
-  // itself reactively off serverState.worldId, the same -d rule every
-  // other island entry follows. BRIEF-0059-g commit 1 moves the link agent
-  // panel onto the identical pattern -- LinkAgent.svelte's own
-  // serverState.worldId effect, no direct call left here at all.
-  if (authorRegistry) await refreshCreationTabs();
-}
-
+// TICKET-0059 (BRIEF-0059-l commit 1). CREATION_TABS, creationRefreshList,
+// _creationActivateTab, showCreationSubTab, renderCreationShell and
+// _islandPrimaryAction are gone -- ported to frontend/src/creation/tabs.js
+// (data verbatim; the functions adapted to no longer touch DOM directly --
+// Creation.svelte's template does, and triggerPrimaryAction/activateIsland
+// (mount.js) replace the island:action/island:slot dispatches). See
+// tabs.js's own header comment for the full account.
 /* ── Intrigues (TICKET-0018/BRIEF-0018-a; entity-sheet shell TICKET-0021/
  * BRIEF-0021-a) ─────────────────────────────────────────────────────────────
  * Fully converged onto frontend/src/creation/Intrigues.svelte +
@@ -3444,33 +2859,15 @@ async function _creationRunWorldSwitchResets() {
  *  #author-main for these two tabs) is told to switch out of the way
  *  first -- flushSync inside the listener (Sheet.svelte) makes that node
  *  exist before createPanel()'s own innerHTML write runs, synchronously,
- *  right below. */
-function creationNewEntity() {
-  if (!authorRegistry) return;
-  const entry = CREATION_TABS[currentCreationSubTab];
-  if (!entry || !entry.createPanel) return;
-  document.dispatchEvent(new CustomEvent('creation:sheet-legacy-active'));
-  // TICKET-0059 (BRIEF-0059-e): the create-draft reset this used to call
-  // directly moved to frontend/src/creation/sheetState.svelte.js's
-  // resetCreateDrafts() -- a bare function call can't reach it across the
-  // legacy boundary any more, so this becomes a dispatch Sheet.svelte
-  // listens for, same idiom as every other legacy->shell signal.
-  document.dispatchEvent(new CustomEvent('creation:reset-create-drafts'));
-  entry.createPanel();
-}
-
-/* ── Constructeur — runtime entity-type creation (TICKET-0046, migrated to
- * a Svelte island by TICKET-0058/BRIEF-0058-d) ──
- * #creation-constructeur is now an empty mount container; the whole form,
- * its own GET /api/entity-types fetch and its POST submit live in
- * frontend/src/creation/Constructeur.svelte, mounted by
- * frontend/src/creation/mount.js. The one thing that still crosses back
- * into this document is the tab-bar refresh a successful create requires
- * — the reverse direction the legacy->shell bridge does not offer, so the
- * island dispatches this CustomEvent on itself instead of reaching in. */
-document.addEventListener('creation:refresh-tabs', () => {
-  if (typeof refreshCreationTabs === 'function') refreshCreationTabs();
-});
+ *  right below. TICKET-0059 (BRIEF-0059-l commit 1): creationNewEntity is
+ *  gone from this document -- ported to tabs.js (RECON-0059-a M6 chrome
+ *  inventory names it; kept there even though every current entry's
+ *  createPanel is null, same "future bespoke createPanel" reasoning as
+ *  index.html always carried it under). Constructeur.svelte's own
+ *  'creation:refresh-tabs' self-dispatch (unchanged -- #creation-constructeur
+ *  is still an empty mount container, mounted by frontend/src/creation/
+ *  mount.js) is now listened for in tabs.js's initCreationChrome, same
+ *  document, no longer a cross-document reverse-bridge. */
 
 /* TICKET-0059 (BRIEF-0059-f commit 2). The #npcagent-badge dot lives in
  * this document's own chrome (outside NpcAgent.svelte's #npcagent-panel
@@ -3490,101 +2887,18 @@ document.addEventListener('creation:linkagent-badge', (ev) => {
   if (badgeEl) badgeEl.style.display = ev.detail.open ? '' : 'none';
 });
 
-/* ── Runtime Creation tabs — dynamic tab factory (TICKET-0046, BRIEF-0046-d) ──
- * The single producer of runtime (custom entity-type) Creation tabs: reads
- * authorRegistry.runtime_types (world-scoped, from GET /api/entity-types) and
- * injects one entity-archetype CREATION_TABS entry + one #ctab-<slug> button
- * per active runtime type onto the shared creation-editor-area shell — no new
- * container, no per-type hand authoring, no dispatcher branch. Idempotent and
- * world-scoped: a slug previously injected but no longer live (retired type,
- * or a world switch) is removed via the tracked _runtimeCreationSlugs set —
- * static entries/buttons are never touched. */
-let _runtimeCreationSlugs = new Set();
-
-function _buildRuntimeCreationTabs() {
-  const liveSlugs = new Set((authorRegistry && authorRegistry.runtime_types) || []);
-  const tabBar = document.querySelector('.creation-sub-tab-bar');
-
-  for (const slug of Array.from(_runtimeCreationSlugs)) {
-    if (liveSlugs.has(slug)) continue;
-    delete CREATION_TABS[slug];
-    const btn = document.getElementById('ctab-' + slug);
-    if (btn) btn.remove();
-    _runtimeCreationSlugs.delete(slug);
-  }
-
-  for (const slug of liveSlugs) {
-    const typeInfo = (authorRegistry.types && authorRegistry.types[slug]) || { label: slug };
-    if (!CREATION_TABS[slug]) {
-      CREATION_TABS[slug] = {
-        label: typeInfo.label,
-        archetype: 'entity',
-        containers: ['creation-editor-area'],
-        loader: null,
-        state: { onTabEnter: _entityTabEnterReset, onWorldSwitch: null },
-        islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
-        type: slug,
-        createPanel: null,
-        primaryAction: { label: '+ Nouveau', handler: () => _islandPrimaryAction('entitySheet') },
-        slots: [],
-      };
-    }
-    if (tabBar && !document.getElementById('ctab-' + slug)) {
-      tabBar.insertAdjacentHTML('beforeend',
-        `<button class="creation-sub-tab" id="ctab-${esc(slug)}" onclick="showCreationSubTab('${slug}')">${esc(typeInfo.label)}</button>`);
-    }
-    _runtimeCreationSlugs.add(slug);
-  }
-}
-
-/** Re-fetches authorRegistry then rebuilds runtime tabs — the hook 0046-c
- *  calls after a successful type create; also run on world switch via
- *  _creationRunWorldSwitchResets(). */
-async function refreshCreationTabs() {
-  authorRegistry = await api('/api/entity-types');
-  _buildRuntimeCreationTabs();
-}
-
-/* ── Création bootstrap ──────────────────────────────────────────────────── */
-
-async function creationInit() {
-  try {
-    authorRegistry = await api('/api/entity-types');
-  } catch (e) {
-    // TICKET-0058 (BRIEF-0058-e): #author-entity-list is a Svelte-owned
-    // mount target from this brief onward (the entityList island); a
-    // legacy innerHTML there would orphan it (RECON-0058-a M5). The
-    // mounted component owns its own error state — a boot failure here
-    // has nothing else to report into, so it logs and lets the island's
-    // OWN /api/entity-types-adjacent fetches surface their own failures.
-    console.error('creationInit:', e.message);
-    return;
-  }
-  _buildRuntimeCreationTabs();
-  _creationActivateTab();
-}
-
-/* ── Entity list (sidebar) ───────────────────────────────────────────────── */
-// TICKET-0058 (BRIEF-0058-e): creationRenderEntityList/authorRenderEntityList
-// /authorLoadEntityList and the Lieux hierarchy-browse helpers (BRIEF-51)
-// are gone — ported to frontend/src/creation/EntityList.svelte, the single
-// island mounted into #author-entity-list for every entity-archetype tab
-// (npc/pj/lieux/factions/objets/intrigues/evenements/runtime types). The
-// island fetches its own copy of /api/entities + /api/skills/player-
-// characters + /api/locations + /api/location-types and pushes it back
-// here via 'creation:entities-loaded' — still-legacy consumers below
-// (entity_ref field pickers, the Evenements chip editor, faction roster
-// candidates, location-type classification, creationRenderReturnControl,
-// creationResolveEntityTab...) keep reading authorAllEntities/
-// playerCharIds/authorLocationTree/authorLocationTypeCatalog exactly as
-// before; only their populator moved.
-document.addEventListener('creation:entities-loaded', (ev) => {
-  const { entities, playerCharIds: pcIds, locationTree, locationTypeCatalog } = ev.detail;
-  authorAllEntities = entities;
-  playerCharIds = new Set(pcIds);
-  authorLocationTree = locationTree;
-  authorLocationTypeCatalog = locationTypeCatalog;
-});
+// TICKET-0059 (BRIEF-0059-l commit 1). The runtime tab factory
+// (_runtimeCreationSlugs/_buildRuntimeCreationTabs/refreshCreationTabs),
+// creationInit, and the 'creation:entities-loaded' listener are gone --
+// ported to frontend/src/creation/tabs.js/state.svelte.js. The factory no
+// longer touches the tab-bar DOM directly (no more insertAdjacentHTML with
+// an inline onclick string, which cannot resolve a module-scoped import as
+// a window global): Creation.svelte's tab-bar {#each} renders one button
+// per CREATION_TABS key reactively, keyed off creationState.tabsVersion.
+// EntityList.svelte already wrote entities/playerCharIds/locationTree/
+// locationTypeCatalog onto creationState directly (state.svelte.js) --
+// this listener was a passive mirror onto legacy globals for a legacy-only
+// readership that has now moved with it.
 
 /* ── Field rendering + entity sheet ──────────────────────────────────────────
  * BRIEF-0058-f (TICKET-0058): authorRenderField/authorReadField/
@@ -3639,73 +2953,13 @@ document.addEventListener('creation:entities-loaded', (ev) => {
  * path; authorSave posts the carried mutation_id so crud.py's create_entity
  * performs the realization flip. */
 
-async function loadPendingCreations() {
-  const listEl = document.getElementById('creation-pending-list');
-  if (!listEl) return;
-  const entry = CREATION_TABS[currentCreationSubTab];
-  if (!entry || !entry.type) { listEl.innerHTML = ''; return; }
-
-  listEl.innerHTML = '<div class="empty"><span class="spin">⟳</span></div>';
-  let items;
-  try {
-    items = await api('/api/creations/pending');
-  } catch (e) {
-    listEl.innerHTML = `<div class="empty" style="color:var(--red)">Erreur : ${esc(e.message)}</div>`;
-    return;
-  }
-
-  // A germ with no valid entity_type has no home tab — shown everywhere,
-  // visible-not-realizable (RECON F6), rather than silently dropped.
-  const filtered = items.filter(it => it.entity_type === entry.type || !it.entity_type);
-  listEl.innerHTML = filtered.length
-    ? filtered.map(renderPendingCreationCard).join('')
-    : '<div class="empty">Aucune création en attente.</div>';
-}
-
-function renderPendingCreationCard(item) {
-  const sourceLabel = item.source === 'tick' ? 'TICK' : 'CONVERSATION';
-  const typeOk = !!item.entity_type;
-  return `
-    <div class="row-card">
-      <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px">
-        <strong>${esc(item.name || '(sans nom)')}</strong>
-        <span class="badge b-other" style="font-size:10px">${sourceLabel}</span>
-      </div>
-      ${item.concept ? `<div style="font-size:12px; color:var(--muted)">${esc(item.concept)}</div>` : ''}
-      ${!typeOk ? '<span class="badge b-other" style="font-size:10px; border-color:var(--red); color:var(--red)">type inconnu</span>' : ''}
-      <div class="row-card-actions">
-        ${typeOk ? `<button class="btn-send" onclick="generatePendingCreation('${esc(item.mutation_id)}')">Générer la fiche</button>` : ''}
-      </div>
-    </div>`;
-}
-
-async function generatePendingCreation(mutationId) {
-  let result;
-  try {
-    result = await api(`/api/creations/${encodeURIComponent(mutationId)}/generate`, { method: 'POST' });
-  } catch (e) {
-    alert(e.message);
-    return;
-  }
-  if (!result || result.ok === false) {
-    alert((result && result.error) || 'Échec de la génération.');
-    return;
-  }
-
-  // TICKET-0058 (BRIEF-0058-f): flushSync inside Sheet.svelte's listener
-  // guarantees author-f-name/author-x-* et al. exist before the
-  // 'creation:apply-generated-draft' dispatch right below runs its own
-  // synchronous getElementById writes (BRIEF-0058-h: applyGeneratedDraft,
-  // reached through Sheet.svelte's reverse-bridge listener, replaces the
-  // three authorApply*Draft calls this used to make directly).
-  // TICKET-0059 (BRIEF-0059-e): mutationId rides in this same event's
-  // detail now -- pendingCreationMutationId is a Svelte module `$state`
-  // (sheetState.svelte.js) this legacy code can no longer write directly.
-  document.dispatchEvent(new CustomEvent('creation:sheet-create', { detail: { type: result.entity_type, mutationId } }));
-  document.dispatchEvent(new CustomEvent('creation:apply-generated-draft', {
-    detail: { entityType: result.entity_type, result },
-  }));
-}
+// TICKET-0059 (BRIEF-0059-l commit 1). loadPendingCreations/
+// renderPendingCreationCard/generatePendingCreation are gone -- ported to
+// frontend/src/creation/tabs.js (data now, not HTML strings:
+// creationState.pendingCreations/pendingCreationsLoading/
+// pendingCreationsError, rendered by Creation.svelte's own {#each} --
+// renderPendingCreationCard's inline onclick="generatePendingCreation(...)"
+// could not resolve a module-scoped import as a window global).
 
 /* Pending knowledge/goals draft panels (BRIEF-24/BRIEF-0013-b) moved to
  * frontend/src/creation/PendingKnowledgeEditor.svelte and
@@ -3772,159 +3026,17 @@ async function generatePendingCreation(mutationId) {
  * id) -- authorEntityType (its other half) had zero readers anywhere in
  * the tree and is dropped, not ported. */
 
-/** Mirrors creationSelectedEntityId off every 'creation:selection' dispatch
- *  (selectEntity, creationSelectRecord, the *TabEnterReset family) and, for
- *  an actual entity pick (entityId non-null — a record-based pick like
- *  creationSelectRecord's never triggered this work either, before this
- *  brief), re-runs the two side effects the old entity-sheet loader used to
- *  run inline: notifying the active tab's own slots (e.g. npc's relgraph
- *  slot invalidating the relations graph so ego mode re-centres) and
- *  refreshing the return-crumb control. TICKET-0059 (BRIEF-0059-e). */
-document.addEventListener('creation:selection', (ev) => {
-  creationSelectedEntityId = ev.detail.entityId ?? null;
-  if (creationSelectedEntityId == null) return;
-  const entry = CREATION_TABS[currentCreationSubTab];
-  (entry ? entry.slots || [] : []).forEach(s => { if (s.onSelect) s.onSelect(creationSelectedEntityId); });
-  creationRenderReturnControl();
-});
-
-/** Resolves the sub-tab that owns an entity (TICKET-0054, decision F2a).
- *  npc and pj both declare type 'character'; playerCharIds is the
- *  only discriminator the registry exposes, so this pair is resolved by
- *  name here rather than by a registry lookup. Every other type resolves
- *  through the registry — no other tab id is hardcoded. */
-function creationResolveEntityTab(entityId, entityType) {
-  if (entityType === 'character') {
-    return playerCharIds.has(entityId) ? 'pj' : 'npc';
-  }
-  const found = Object.entries(CREATION_TABS).find(
-    ([, entry]) => entry.archetype === 'entity' && entry.type === entityType
-  );
-  return found ? found[0] : null;
-}
-
-/** Cross-tab entity navigation (TICKET-0054, decision F2a) — opens an
- *  entity's real, editable sheet in its own sub-tab, leaving a single-slot
- *  return crumb. Fail-closed: aborts leaving no crumb if the target tab
- *  never actually activated (showCreationSubTab can early-return into
- *  creationInit() when the registry isn't loaded yet). */
-async function creationOpenEntityFrom(entityId, entityType) {
-  const tab = creationResolveEntityTab(entityId, entityType);
-  if (!tab) {
-    const statusEl = document.getElementById('author-status');
-    if (statusEl) {
-      statusEl.className = 'author-status err';
-      statusEl.textContent = 'Aucun onglet ne gère ce type d\'entité.';
-    }
-    return;
-  }
-  const origin = creationSelectedEntityId ? { tabId: currentCreationSubTab, entityId: creationSelectedEntityId } : null;
-  showCreationSubTab(tab);
-  if (currentCreationSubTab !== tab) return;
-  creationReturnTo = origin;
-  // TICKET-0059 (BRIEF-0059-e): the sheet's own loader is Svelte now
-  // (sheetState.svelte.js's selectEntity), reached
-  // from this still-legacy chrome function via the same reverse-bridge
-  // dispatch Sheet.svelte's 'creation:select-entity' listener picks up. Not
-  // awaited (the fetch it triggers is async); the explicit
-  // creationRenderReturnControl() call right below already covers the
-  // visible refresh this function needs, same as before.
-  document.dispatchEvent(new CustomEvent('creation:select-entity', { detail: { id: entityId } }));
-  creationRenderReturnControl();
-}
-
-/** Consumes the return crumb (TICKET-0054, decision F2a) — landing back on
- *  the origin tab clears the crumb via showCreationSubTab, which is correct:
- *  returning consumes it. */
-async function creationReturnToOrigin() {
-  const back = creationReturnTo;
-  if (!back) return;
-  showCreationSubTab(back.tabId);
-  if (currentCreationSubTab !== back.tabId) return;
-  // TICKET-0059 (BRIEF-0059-e): see creationOpenEntityFrom's identical note.
-  document.dispatchEvent(new CustomEvent('creation:select-entity', { detail: { id: back.entityId } }));
-  creationRenderReturnControl();
-}
-
-/** Toggles the sheet header's return control — every entity tab inherits
- *  it (called from the 'creation:selection' listener above and
- *  _entityTabEnterReset), not just
- *  factions. Hidden when creationReturnTo is null. */
-function creationRenderReturnControl() {
-  const btn = document.getElementById('author-return-btn');
-  if (!btn) return;
-  if (!creationReturnTo) {
-    btn.style.display = 'none';
-    return;
-  }
-  const origin = authorAllEntities.find(e => e.id === creationReturnTo.entityId);
-  const label = origin ? origin.name : ((CREATION_TABS[creationReturnTo.tabId] || {}).label || '');
-  btn.textContent = '← ' + esc(label);
-  btn.style.display = '';
-}
-
-/** Generic record selection (BRIEF-0021-a): the sheetRenderer-seam
- *  counterpart of sheetState.svelte.js's selectEntity (TICKET-0059,
- *  BRIEF-0059-e) for non-entity list+detail tabs whose rows already carry
- *  full data — no per-row fetch. A registered caller either declares a
- *  bespoke sheetRenderer (none currently do — intrigues converged onto
- *  Sheet.svelte too, BRIEF-0059-j commit 1) or doesn't (evenements, since
- *  BRIEF-0058-j; intrigues, since this same commit), in which case this
- *  dispatches 'creation:record-detail' for Sheet.svelte to render natively
- *  — the generic seam a future bespoke sheetRenderer would still take.
- *  Either way, the tab's list re-renders so the clicked row shows selected
- *  (creationSelectedRecordId is creationSelectedEntityId's equivalent for
- *  these tabs). */
-function creationSelectRecord(tabId, record) {
-  const entry = CREATION_TABS[tabId];
-  if (!entry) return;
-  creationSelectedRecordId = record.id;
-  if (entry.sheetRenderer) {
-    document.dispatchEvent(new CustomEvent('creation:sheet-legacy-active'));
-    entry.sheetRenderer(record);
-  } else {
-    document.dispatchEvent(new CustomEvent('creation:record-detail', { detail: { record, tabId } }));
-  }
-  // TICKET-0058 (BRIEF-0058-e): the entity-list island re-renders its own
-  // active-row highlight reactively off this, in place of the deleted
-  // entry.listRenderer() call (renderIntriguesListRows/renderEvenementsListRows).
-  document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: record.id } }));
-}
-
-/** Generic save-button dispatch (TICKET-0022, BRIEF-0022-a item 8): the
- *  static #author-save-btn is shared by every archetype:'entity' tab, but
- *  the core field engine (now Sheet.svelte) must not learn about non-entity
- *  rows. A registry entry may declare its own `saveHandler` — every entry
- *  without one (every current entry, since BRIEF-0058-j: evenements' own
- *  saveHandler is gone, its save routes through the mounted entitySheet
- *  island the same as every other tab now) falls through to the island's
- *  own save, via the same 'island:action'-style reverse dispatch
- *  _islandPrimaryAction already established for the primary-action band
- *  (BRIEF-0058-d), just under the 'creation:sheet-save' name since this is
- *  a distinct control (the persistent header Save button), not the
- *  "+ Nouveau" band. */
-function creationSaveDispatch() {
-  const entry = CREATION_TABS[currentCreationSubTab];
-  if (entry && entry.saveHandler) { entry.saveHandler(); return; }
-  document.dispatchEvent(new CustomEvent('creation:sheet-save'));
-}
-
-/* TICKET-0059 (BRIEF-0059-e): _authorGetPendingCreationMutationId and
- * _authorConsumePendingCreationMutationId moved into
- * frontend/src/creation/sheetState.svelte.js as getPendingCreationMutationId/
- * consumePendingCreationMutationId — Sheet.svelte's submitEntity reads/clears
- * pendingCreationMutationId directly now, no legacyCall needed. The
- * consume step's OTHER half, loadPendingCreations() (this still-legacy
- * germ-realization list's own refresh), stays a legacyCall from Sheet.svelte,
- * right after, same order the original single function always ran it in. */
-
-/* TICKET-0059 (BRIEF-0059-e): the soft-delete handler this island's header
- * button used to call moved into Sheet.svelte as deleteSheetEntity(),
- * calling sheetState.svelte.js's deleteEntity(id) for
- * the POST itself -- same endpoint, same confirmation text verbatim, same
- * creationRefreshList + re-select sequence. The static #author-delete-btn
- * this used to be wired to (index.html, header band) is gone with it;
- * Sheet.svelte's own template renders the button now. */
+// TICKET-0059 (BRIEF-0059-l commit 1). The 'creation:selection' listener,
+// creationResolveEntityTab, creationOpenEntityFrom, creationReturnToOrigin,
+// creationRenderReturnControl, creationSelectRecord and
+// creationSaveDispatch are all gone -- ported to frontend/src/creation/
+// tabs.js. Sheet.svelte/EntityList.svelte/FactionRoster.svelte/
+// Region.svelte/RoomBatch.svelte now import these as plain functions
+// instead of reaching them through legacyCall (legacy_calls.baseline
+// pruned to match). creationRenderReturnControl doesn't port as a separate
+// imperative DOM function: the return-crumb button's label/visibility is a
+// template expression in Creation.svelte, derived from
+// creationState.creationReturnTo + creationState.entities + CREATION_TABS.
 
 /* ════════════════════════════════════════════════════════════════════════════
    Fiche — player skill sheet (BRIEF-10, schema v1.22; converged onto Svelte
@@ -3945,39 +3057,20 @@ function creationSaveDispatch() {
 
 
 /* ════════════════════════════════════════════════════════════════════════════
-   NPC group agent panel (BRIEF-0037-c) — attaches to the relgraph panel head,
-   sibling of the link agent panel below (same header, "Agent PNJ" precedes
-   "Agent liens" — the region -> NPC -> liens pipeline order). TICKET-0059
-   (BRIEF-0059-f) ported the whole panel to frontend/src/creation/
-   NpcAgent.svelte + npcAgent.svelte.js — see those files' own header
-   comments for the full history. Only the display-flip toggle survives
-   here as chrome; the badge and panel content are the island's now.
+   NPC group agent panel (BRIEF-0037-c) / NPC link agent panel (BRIEF-0036-d)
+   — TICKET-0059 (BRIEF-0059-f/-g) ported both panels to frontend/src/
+   creation/NpcAgent.svelte+npcAgent.svelte.js and LinkAgent.svelte+
+   linkAgent.svelte.js. The two display-flip toggles that survived here as
+   chrome (npcAgentToggle/linkAgentToggle) are gone too now (BRIEF-0059-l
+   amendment, "the legacyContainer exposure"): their #npcagent-panel/
+   #linkagent-panel markup moved into Creation.svelte's own template the
+   moment the npc tab's chrome did (commit 1, not this brief's originally
+   -scheduled commit 4) -- npcAgent.svelte.js's generateLinks() reached
+   #linkagent-panel through legacyContainer/legacyCall, which broke the
+   instant that markup left this document. Both toggles are
+   creationState.npcAgentOpen/linkAgentOpen writes now, owned by
+   Creation.svelte; nothing legacy-side renders either panel any more.
    ════════════════════════════════════════════════════════════════════════════ */
-
-let npcAgentOpen = false;
-
-function npcAgentToggle() {
-  npcAgentOpen = !npcAgentOpen;
-  const panelEl = document.getElementById('npcagent-panel');
-  if (panelEl) panelEl.style.display = npcAgentOpen ? '' : 'none';
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   NPC link agent panel (BRIEF-0036-d) — attaches to the relgraph panel head,
-   sibling of the NPC group agent panel above. TICKET-0059 (BRIEF-0059-g)
-   ported the whole panel to frontend/src/creation/LinkAgent.svelte +
-   linkAgent.svelte.js — see those files' own header comments for the full
-   history. Only the display-flip toggle survives here as chrome; the badge
-   and panel content are the island's now.
-   ════════════════════════════════════════════════════════════════════════════ */
-
-let linkAgentOpen = false;
-
-function linkAgentToggle() {
-  linkAgentOpen = !linkAgentOpen;
-  const panelEl = document.getElementById('linkagent-panel');
-  if (panelEl) panelEl.style.display = linkAgentOpen ? '' : 'none';
-}
 
 /* ════════════════════════════════════════════════════════════════════════════
    Generic modal (BRIEF-41) — reusable overlay, body swapped per use
@@ -4021,38 +3114,18 @@ async function loadWorldSelector() {
   } catch (_) {}
 }
 
-async function activateWorld(worldId) {
-  let activated = false;
-  try {
-    const res = await api(`/api/worlds/${worldId}/activate`, { method: 'POST' });
-    if (res.ok) {
-      activated = true;
-    } else {
-      alert(`Échec de l'activation du monde : ${res.error}`);
-    }
-  } catch (err) {
-    alert(`Échec de l'activation du monde : ${err.message}`);
-  }
-  await loadWorldSelector();
-  if (!activated) return;
-
-  // Invalidate every tab's world-scoped state so no stale other-world row
-  // survives the switch (BRIEF-47 creation-world-scoping, widened to every
-  // registry entry's declared reset by BRIEF-0005-a G1).
-  await _creationRunWorldSwitchResets();
-
-  const creationView = document.getElementById('creation-view');
-  if (creationView && creationView.style.display !== 'none') {
-    if (authorRegistry) {
-      // The active tab may have been a runtime type that just got removed
-      // by refreshCreationTabs (world-scoped) — fall back to npc so the
-      // switch always lands on a live entry (BRIEF-0046-d).
-      showCreationSubTab(CREATION_TABS[currentCreationSubTab] ? currentCreationSubTab : 'npc');
-    } else {
-      creationInit();
-    }
-  }
-}
+// TICKET-0059 (BRIEF-0059-l commit 1, amendment). activateWorld is gone --
+// ported to frontend/src/creation/tabs.js's activateWorldCascade, called
+// directly from Header.svelte's onWorldChange (no legacy bridge hop). The
+// legacy #world-selector <select> this function used to update lived only
+// inside the suppressed legacy <header> (hideLegacyHeader()) and had no
+// other reader -- deleted alongside it (see the markup below and Header.
+// svelte, which renders its own <select> from serverState.worlds). Amends
+// TICKET-0056's own "the cascade moves WITH [Creation]" plan (Header.svelte
+// header comment) -- this ports one brief earlier than TICKET-0056 assumed,
+// since activateWorld's OTHER calls (CREATION_TABS/showCreationSubTab/
+// creationInit) already move at this same commit regardless of the
+// selector question.
 
 /** BRIEF-44 (B2): minimal create-world form — name + description +
  *  fundamental_laws, both optional. On success the new world is already
@@ -4183,15 +3256,15 @@ async function worldDeleteConfirm(worldId) {
     }
     await loadWorldSelector();
     await loadBootstrap();
-    await _creationRunWorldSwitchResets();
-    const creationView = document.getElementById('creation-view');
-    if (creationView && creationView.style.display !== 'none') {
-      if (authorRegistry) {
-        showCreationSubTab(CREATION_TABS[currentCreationSubTab] ? currentCreationSubTab : 'npc');
-      } else {
-        creationInit();
-      }
-    }
+    // TICKET-0059 (BRIEF-0059-l commit 1). _creationRunWorldSwitchResets is
+    // gone (vacuous -- every onWorldSwitch in CREATION_TABS is null) and
+    // CREATION_TABS/showCreationSubTab/creationInit no longer exist in this
+    // document. This reverse-bridge dispatch (the same idiom
+    // 'route:subtab'/'creation:refresh-tabs' already used cross-document
+    // before this brief) reaches tabs.js's handleWorldChanged, the same
+    // cascade tail activateWorldCascade uses. Retires when this function
+    // itself ports off the legacy window (commit 3).
+    document.dispatchEvent(new CustomEvent('creation:world-changed'));
     await loadScene();
     await loadPlayerName();
   } catch (err) {
@@ -4480,18 +3553,23 @@ function _obsRenderRunDetail(run) {
 
 /** BRIEF-0059-i cross-surface touch: this was the Observation lane's
  *  (TICKET-0051) only caller into the Prompts tab's now-retired list-load
- *  and detail-select functions. Ported to a one-way CustomEvent (same
- *  shape as mount.js's island:slot/island:action) carrying an intent, not
- *  a command -- Prompts.svelte applies it once its own list load resolves,
- *  so the ordering dependency the old .then() encoded moves to the
- *  listener instead of disappearing. showCreationSubTab('prompts') already
- *  mounts the island (which loads its own list); no cross-seam loader call
- *  is needed here. Nothing else in observation* is touched -- that
- *  cluster is TICKET-0060's. */
+ *  and detail-select functions. Ported to a one-way CustomEvent carrying an
+ *  intent, not a command -- Prompts.svelte applies it once its own list
+ *  load resolves.
+ *
+ *  TICKET-0059 (BRIEF-0059-l commit 1): showCreationView/showCreationSubTab
+ *  no longer live in this document (Creation is shell-side now), and
+ *  Prompts.svelte's own 'creation:open-prompt' listener is on the SHELL's
+ *  document (its legacyDoc prop, via mount.js, which now resolves to that
+ *  document) -- a dispatch on THIS document would never reach it. This
+ *  dispatches a reverse-bridge event instead (the same idiom 'route:subtab'/
+ *  'creation:refresh-tabs'/'creation:world-changed' already use
+ *  cross-document); App.svelte's onLegacyReady listens for it and does the
+ *  surface switch + sub-tab activation + re-dispatch on its own document.
+ *  Nothing else in observation* is touched -- that cluster is
+ *  TICKET-0060's. */
 function observationOpenPrompt(templateId) {
-  showCreationView();
-  showCreationSubTab('prompts');
-  document.dispatchEvent(new CustomEvent('creation:open-prompt', { detail: { templateId } }));
+  document.dispatchEvent(new CustomEvent('observation:open-prompt', { detail: { templateId } }));
 }
 
 /** Transcript (Done means): 'acted'/'silence'/'degraded'/'event' visually

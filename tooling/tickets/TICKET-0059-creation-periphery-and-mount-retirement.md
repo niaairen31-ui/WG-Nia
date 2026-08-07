@@ -136,15 +136,16 @@ stop-and-escalate rule; brief `-a` may re-cut anything below.
 - [ ] `LEGACY_MOUNTS` no longer contains `creation`; `legacy_mounts.baseline`
       shrinks to `observation` + `play`  ->  verify/checks/legacy_mount.py
 - [ ] Zero `function <prefix>...(` declarations remain in `index.html` for
-      every prefix retired by this ticket's island entries  ->
-      verify/checks/creation_island.py
+      every prefix retired by this ticket's island entries; `creation_island.py`
+      rules 4/5/9/10/11 re-anchored onto `frontend/src/creation/tabs.js` and
+      `Creation.svelte` (BRIEF-0059-l, SUPPLEMENT Amendment 7)  ->  verify/checks/creation_island.py
 - [ ] `page_contract.py` asserts the tab contract against
       `frontend/src/creation/tabs.js` and `Creation.svelte`, not
       `index.html`, and still forbids a static `#ctab-` outside the frozen
       `TAB_KEYS`  ->  verify/checks/page_contract.py
-- [ ] `creation_return_nav.py`, `faction_roster_panel.py`,
-      `review_component.py` re-anchored off `index.html`, each in the same
-      commit as the surface it guards  ->  respective checks
+- [ ] `creation_return_nav.py` re-anchored off `frontend/src/creation/tabs.js`  ->  verify/checks/creation_return_nav.py
+- [ ] `faction_roster_panel.py` confirmed needing no re-homing (M7)  ->  verify/checks/faction_roster_panel.py
+- [ ] `review_component.py` self-adapting, no re-homing needed  ->  verify/checks/review_component.py
 - [ ] Exactly one recursive location-tree renderer exists under
       `frontend/src/`  ->  verify/checks/location_tree.py
 - [ ] `SHELL_ROUTES` in `router.js` and `_SHELL_ROUTES` in `app.py` still

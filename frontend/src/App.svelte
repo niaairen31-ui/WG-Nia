@@ -1,25 +1,27 @@
 <script>
   import Header from './Header.svelte';
   import LegacyFrame from './LegacyFrame.svelte';
-  import { hideLegacyHeader, showSurface, showCreationTab, legacyDocument } from './legacy/bridge.js';
+  import Creation from './creation/Creation.svelte';
+  import { hideLegacyHeader, showSurface, legacyDocument } from './legacy/bridge.js';
+  import { showCreationSubTab, initWorldChangeBridge } from './creation/tabs.js';
   import { serverState, refreshServerState } from './lib/serverState.svelte.js';
-  import { onRoute, replace } from './lib/router.js';
+  import { onRoute, navigate } from './lib/router.js';
   import { initGraphMount } from './graph/mount.js';
   import { initCreationMount } from './creation/mount.js';
 
   let currentSurface = $state('play');
 
-  /* TICKET-0058 (BRIEF-0058-k): continuous sync now holds. The legacy
-     document dispatches 'route:subtab' after showCreationSubTab actually
-     changes the active tab; onLegacySubtabRoute below mirrors that into
-     the address bar via replace() (no pushState, no popstate) -- it never
-     calls back into showCreationTab, which would re-enter the legacy
-     document from a signal it just emitted itself. */
-  async function applyRoute({ surface, subTab }) {
+  /* TICKET-0059 (BRIEF-0059-l item 2): Creation no longer routes through
+     the legacy bridge -- showCreationSubTab (frontend/src/creation/tabs.js)
+     is called directly, same document, no cross-document 'route:subtab'
+     dispatch/mirror dance (it calls replace() itself now). play/observation
+     are the only two surfaces still legacy-mounted, so they're the only
+     ones still reached through showSurface(). */
+  function applyRoute({ surface, subTab }) {
     currentSurface = surface;
     try {
-      if (surface === 'creation' && subTab) {
-        await showCreationTab(subTab);
+      if (surface === 'creation') {
+        showCreationSubTab(subTab || 'npc');
       } else {
         showSurface(surface);
       }
@@ -28,25 +30,30 @@
     }
   }
 
-  // TICKET-0058 (BRIEF-0058-k): the legacy document is the sub-tab
-  // authority; the shell only mirrors. One direction of control, matching
-  // graph:slot/island:slot -- no function is installed on the legacy
-  // window for this.
-  function onLegacySubtabRoute({ detail }) {
-    currentSurface = 'creation';
-    replace('creation', detail.tab);
-  }
-
   // TICKET-0056 (BRIEF-0056-b): on legacy load -- suppress the legacy header
   // (byte-untouched index.html, style injected via the bridge), then mirror
   // server state, then wire the shell to the router. mountLegacy itself
   // lives in LegacyFrame.svelte; this is the continuation once that
   // iframe's `load` event has fired.
+  // TICKET-0059 (BRIEF-0059-l commit 1). Observation's own
+  // observationOpenPrompt (index.html, TICKET-0060 territory, untouched
+  // otherwise) reaches Creation's now-shell-side Prompts tab through this
+  // reverse-bridge event -- navigate() drives the surface/sub-tab switch
+  // through the same router path any other navigation takes, then the
+  // 'creation:open-prompt' re-dispatch (on THIS document, not the legacy
+  // one) reaches Prompts.svelte's own listener, whose legacyDoc prop now
+  // resolves to this document too (mount.js targets it directly).
+  function onObservationOpenPrompt({ detail }) {
+    navigate('creation', 'prompts');
+    document.dispatchEvent(new CustomEvent('creation:open-prompt', { detail }));
+  }
+
   async function onLegacyReady() {
     hideLegacyHeader();
     initGraphMount(legacyDocument());
     initCreationMount(legacyDocument());
-    legacyDocument().addEventListener('route:subtab', onLegacySubtabRoute);
+    initWorldChangeBridge(legacyDocument());
+    legacyDocument().addEventListener('observation:open-prompt', onObservationOpenPrompt);
     await refreshServerState();
     onRoute(applyRoute);
   }
@@ -54,7 +61,10 @@
 
 <div class="shell-layout">
   <Header activeSurface={currentSurface} />
-  <LegacyFrame onReady={onLegacyReady} />
+  <div style:display={currentSurface === 'creation' ? 'none' : ''}>
+    <LegacyFrame onReady={onLegacyReady} />
+  </div>
+  <Creation active={currentSurface === 'creation'} />
 </div>
 
 <style>
