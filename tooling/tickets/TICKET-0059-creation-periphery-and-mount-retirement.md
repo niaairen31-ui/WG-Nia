@@ -2,7 +2,7 @@
 id: TICKET-0059
 title: Creation periphery migration and legacy mount retirement
 type: feature
-status: done
+status: live-gate
 created: 2026-08-03
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
