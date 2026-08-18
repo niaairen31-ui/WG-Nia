@@ -16,21 +16,32 @@
      resolving 'region' the same way it always has -- one REVIEW_DESCRIPTORS
      singleton, read from either realm.
 
-     The sheet/modal editor (the _sheetField family, _regionSheetNode, the
-     _regionSheetRoles family, regionRenderSheet) is reimplemented natively
-     here rather than reusing
-     the shared #generic-modal-backdrop -- that shared modal's only other
-     callers (world create/delete, skill delete) stay legacy, and reaching
-     across the realm boundary for every keystroke inside it would need the
-     window-injection trick review/registry.js uses for a WHOLE module, not
-     worth it for one consumer. RECON-SUPPLEMENT-0058 flags this sheet as
-     "distinct from authorRenderField... a genuine several-things-doing-the-
-     same-thing candidate" and says REPORT ONLY -- do not converge it onto
-     Sheet.svelte/Field.svelte's field engine in this brief. Reported here,
-     not resolved: region's sheet fields (plain text/textarea/select, no
-     FieldSpec/ext_columns) duplicate Sheet.svelte's generic field renderer
-     in shape. Nia decides whether that overlap earns its own convergence
-     step.
+     The sheet's own FIELD editor (the _sheetField family, _regionSheetNode,
+     the _regionSheetRoles family, regionRenderSheet) is reimplemented
+     natively here rather than converging onto Sheet.svelte/Field.svelte's
+     field engine. RECON-SUPPLEMENT-0058 flags this as "distinct from
+     authorRenderField... a genuine several-things-doing-the-same-thing
+     candidate" and says REPORT ONLY -- do not converge it in this brief.
+     Reported here, not resolved: region's sheet fields (plain text/
+     textarea/select, no FieldSpec/ext_columns) duplicate Sheet.svelte's
+     generic field renderer in shape. Nia decides whether that overlap
+     earns its own convergence step. Unaffected by, and distinct from, the
+     modal-SHELL convergence below.
+
+     TICKET-0059 (BRIEF-0059-l commit 3, amendment). The sheet's outer
+     modal SHELL (backdrop/container/header/close button) converged onto
+     Modal.svelte -- it was reimplemented here (not reused) because the
+     shared legacy generic modal's only other callers (world create/
+     delete, skill delete) stayed legacy, and reaching across the realm
+     boundary for every keystroke would have needed a window-injection
+     trick not worth it for one consumer. Both reasons are gone: this
+     brief deletes the legacy modal (commit 3) and the realm boundary
+     itself (commit 4, Creation no longer lives in an iframe). The close
+     glyph changes from this file's own ✕ to Modal.svelte's &times; --
+     the primitive wins, a one-character visual change. closeSheet's own
+     semantics are unchanged (still the onClose handler, called on both
+     the close button and a backdrop click, dismissOnBackdrop defaulting
+     to true exactly as this file's own onclick guard always did).
 
      World reset is driven by serverState.worldId (the -d rule), replacing
      _regionWorldReset. No scoped <style> block: like every other Creation
@@ -40,6 +51,7 @@
   import { creationRefreshList } from './tabs.js';
   import { reviewRegister } from './review/registry.js';
   import Review from './Review.svelte';
+  import Modal from './Modal.svelte';
 
   let { legacyDoc } = $props();
 
@@ -563,13 +575,8 @@
   {@const pub = sheetTarget.result.draft.public}
   {@const sec = sheetTarget.result.draft.secret}
   {@const notes = sheetTarget.result.notes || []}
-  <div class="modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) closeSheet(); }}>
-    <div class="modal-container">
-      <div class="modal-header">
-        <span class="modal-title">{pub.name || ''}</span>
-        <button class="modal-close" onclick={closeSheet}>✕</button>
-      </div>
-      <div class="modal-body">
+  <Modal title={pub.name || ''} open={true} onClose={closeSheet}>
+    {#snippet body()}
         <div class="sheet-section-title">Public</div>
         {#if type === 'location'}
           <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Nom</div>
@@ -644,7 +651,6 @@
           <div class="sheet-section-title">Notes</div>
           {#each notes as n}<div class="sheet-field">{n}</div>{/each}
         {/if}
-      </div>
-    </div>
-  </div>
+    {/snippet}
+  </Modal>
 {/if}

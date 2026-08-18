@@ -1,3 +1,1 @@
 frontend/src/App.svelte::showFn::TICKET-0061
-frontend/src/Header.svelte::worldCreateOpen::TICKET-0059
-frontend/src/Header.svelte::worldDeleteOpen::TICKET-0059

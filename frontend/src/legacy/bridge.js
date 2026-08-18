@@ -38,14 +38,6 @@ export function showSurface(key) {
   callLegacy(entry.showFn);
 }
 
-export function openWorldCreate() {
-  callLegacy('worldCreateOpen');
-}
-
-export function openWorldDelete() {
-  callLegacy('worldDeleteOpen');
-}
-
 /* TICKET-0056: the legacy header is SUPPRESSED, not deleted -- index.html
    is byte-untouched by this ticket. Injecting one scoped style into the
    frame document is reversible, confined to this module, and covered by
@@ -76,20 +68,6 @@ export function legacyContainer(id) {
 
 export function legacyDocument() {
   return legacyWindow().document;
-}
-
-/* TICKET-0058 (BRIEF-0058-e). The entity-list island's row click needs to
-   trigger creationSelectRecord (non-entity record rows: intrigues,
-   evenements) -- stays a legacy dispatcher by design (A1 keeps the tab
-   mechanism legacy for this ticket), routing to either a still-legacy
-   sheetRenderer (intrigues) or a 'creation:record-detail' dispatch
-   Sheet.svelte renders natively. An entity row's own selectEntity
-   (TICKET-0058, BRIEF-0058-e) and the relations graph consumer's
-   getSelectedCharacterId (BRIEF-0058-c) both converged onto
-   frontend/src/creation/sheetState.svelte.js (TICKET-0059, BRIEF-0059-e) --
-   plain Svelte-to-Svelte imports now, no legacy window involved. */
-export function selectRecord(tabId, record) {
-  return callLegacy('creationSelectRecord', tabId, record);
 }
 
 /* TICKET-0058 (BRIEF-0058-f). Generic passthrough for the sheet's still-legacy

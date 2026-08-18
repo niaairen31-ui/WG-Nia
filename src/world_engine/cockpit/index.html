@@ -4,7 +4,11 @@
 <meta charset="utf-8">
 <title>World Engine — Cockpit</title>
 <link rel="stylesheet" href="/static/shared.css">
-<link rel="stylesheet" href="/static/creation.css">
+<!-- TICKET-0059 (BRIEF-0059-l commit 4): creation.css's legacy <link> is
+     gone -- stylesheet_partition.py rule5 ties its lifetime to
+     LEGACY_MOUNTS declaring 'creation' (frontend/src/legacy/registry.js),
+     which no longer does. The shell's own frontend/index.html keeps its
+     link (Creation renders there now). -->
 <style>
 /* ── Header ──────────────────────────────────────────────────────────────── */
 header {
@@ -515,13 +519,19 @@ header .local-badge {
   <span style="font-weight:600; color:var(--accent)">Cockpit</span>
   <span class="sub">creator review dashboard</span>
   <span class="spacer"></span>
+  <!-- TICKET-0059 (BRIEF-0059-l commit 4): the Création mode-tab button
+       is gone -- Creation is shell-native (Header.svelte's own mode-tabs,
+       App.svelte's currentSurface); this suppressed legacy header
+       (hideLegacyHeader()) keeps only the two surfaces it still owns. -->
   <div class="mode-tabs">
     <button class="mode-tab active" id="mode-tab-play"        onclick="showPlayView()">Play</button>
-    <button class="mode-tab"        id="mode-tab-creation"    onclick="showCreationView()">Création</button>
     <button class="mode-tab"        id="mode-tab-observation" onclick="showObservationView()">Observation</button>
   </div>
-  <button class="btn-icon" onclick="worldCreateOpen()" title="Créer un nouveau monde">+ Monde</button>
-  <button class="btn-icon" onclick="worldDeleteOpen()" title="Supprimer le monde sélectionné">🗑 Monde</button>
+  <!-- TICKET-0059 (BRIEF-0059-l commit 3): world create/delete buttons
+       removed -- worldCreateOpen/worldDeleteOpen ported to
+       frontend/src/creation/worldCrud.svelte.js, reached from Header.svelte's
+       own "+ Monde"/"🗑 Monde" buttons now. This header is suppressed
+       (hideLegacyHeader()) and had no other reader. -->
   <span class="local-badge">127.0.0.1 · local only</span>
 </header>
 
@@ -664,187 +674,15 @@ header .local-badge {
 
 </div><!-- #play-view -->
 
-<!-- ══ Création view ═════════════════════════════════════════════════════════ -->
-<div class="app-view" id="creation-view" style="display:none">
-
-  <!-- ── Sub-tab bar ── -->
-  <div class="creation-sub-tab-bar">
-    <button class="creation-sub-tab active" id="ctab-npc"       onclick="showCreationSubTab('npc')">NPC</button>
-    <button class="creation-sub-tab"        id="ctab-pj"        onclick="showCreationSubTab('pj')">Personnage joueur</button>
-    <button class="creation-sub-tab"        id="ctab-lieux"     onclick="showCreationSubTab('lieux')">Lieux</button>
-    <button class="creation-sub-tab"        id="ctab-factions"  onclick="showCreationSubTab('factions')">Factions</button>
-    <button class="creation-sub-tab"        id="ctab-objets"    onclick="showCreationSubTab('objets')">Objets</button>
-    <button class="creation-sub-tab"        id="ctab-competences" onclick="showCreationSubTab('competences')">Compétences</button>
-    <button class="creation-sub-tab"        id="ctab-region"    onclick="showCreationSubTab('region')">Région</button>
-    <button class="creation-sub-tab"        id="ctab-constructeur" onclick="showCreationSubTab('constructeur')">Constructeur</button>
-    <button class="creation-sub-tab"        id="ctab-artefacts" onclick="showCreationSubTab('artefacts')">Artefacts</button>
-    <button class="creation-sub-tab"        id="ctab-registre"  onclick="showCreationSubTab('registre')">Registre</button>
-    <button class="creation-sub-tab"        id="ctab-intrigues" onclick="showCreationSubTab('intrigues')">Intrigues</button>
-    <button class="creation-sub-tab"        id="ctab-evenements" onclick="showCreationSubTab('evenements')">Événements</button>
-    <button class="creation-sub-tab"        id="ctab-queue"     onclick="showCreationSubTab('queue')">Review Queue</button>
-    <button class="creation-sub-tab"        id="ctab-prompts"   onclick="showCreationSubTab('prompts')">Prompts</button>
-  </div>
-
-  <!-- ── Standard shell band (BRIEF-0005-c) — one header band above every
-       Création page: the entry's label (title) plus, iff it declares a
-       primaryAction, exactly one button in this same fixed position on all
-       ten tabs. #creation-shell-extra (filter bar + tick-controls) and
-       #creation-shell-batch-bar are Review Queue's mount points — a
-       one-off relocation, not a generic shell concept (hidden on every
-       other tab via the ordinary slot mechanism; both are declared slots
-       on CREATION_TABS.queue so the generic show/hide loop covers them —
-       creation_island.py rule 4 requires every island containerId to be a
-       real static element id here, so neither can be nested inside the
-       other's own island-rendered DOM). Both empty by construction
-       (TICKET-0059, BRIEF-0059-k) — Svelte mount() appends, it never
-       clears a target's pre-existing children. -->
-  <div class="panel-head" id="creation-shell-band">
-    <h2 id="creation-shell-title"></h2>
-    <div id="creation-shell-extra" style="display:none"></div><!-- #creation-shell-extra -->
-    <div id="creation-shell-batch-bar" style="display:none"></div><!-- #creation-shell-batch-bar -->
-    <!-- On-demand slot toggles (BRIEF-0023-a, F1) — one button per slot the
-         active entry declares display:'on_demand'; same fixed shell
-         position on every tab, mirroring primaryAction. -->
-    <div id="creation-shell-toggles" style="display:flex; gap:8px;"></div>
-    <button class="btn-send" id="creation-shell-action" style="display:none"></button>
-  </div>
-
-  <!-- TICKET-0057: mount point for the graph primitive (island rendered
-       by the shell into this legacy document). Empty by construction --
-       chrome, canvas and help text all belong to Graph.svelte and its
-       Lieux consumer. -->
-  <div id="creation-lieux-graph" style="display:none"></div>
-
-  <!-- ── Lieux — Room batch generator panel (TICKET-0042, converged onto
-       Svelte by TICKET-0058/BRIEF-0058-j). Empty by construction — the
-       whole panel (open/closed state included) belongs to
-       frontend/src/creation/RoomBatch.svelte, mounted here as the `batch`
-       island; this wrapper only participates in CREATION_TABS.lieux's
-       containers hide/show loop so it disappears when leaving the Lieux
-       tab. ── -->
-  <div id="batch-panel-wrap"></div>
-
-  <!-- ── NPC — Relation ego/global graph panel (BRIEF-0023-b, BRIEF-0033-e;
-       migrated onto the graph primitive, TICKET-0058/BRIEF-0058-c). The
-       graph's own chrome (mode/Lier/buckets/canvas/info-card) is entirely
-       shell-rendered into #relgraph-mount by the relations consumer; this
-       outer container keeps only what TICKET-0058 M8 requires survive the
-       graph's mount/remount cycle byte-untouched: the Agent PNJ/liens
-       launchers and their panels. ── -->
-  <div id="creation-npc-relgraph" style="display:none">
-    <div class="lieux-graph-head">
-      <span>Panneaux NPC</span>
-      <button class="btn-icon" id="npcagent-launcher-btn" onclick="npcAgentToggle()">Agent PNJ<span id="npcagent-badge" style="display:none">●</span></button>
-      <button class="btn-icon" id="linkagent-launcher-btn" onclick="linkAgentToggle()">Agent liens<span id="linkagent-badge" style="display:none">●</span></button>
-    </div>
-    <!-- ── NPC group agent panel (BRIEF-0037-c) — content rendered by the
-         frontend/src/creation/NpcAgent.svelte island (TICKET-0059,
-         BRIEF-0059-f); empty/hidden until "Agent PNJ" is clicked ── -->
-    <div id="npcagent-panel" style="display:none; border-bottom:1px solid var(--border); padding:10px 14px; max-height:460px; overflow-y:auto"></div>
-    <!-- ── NPC link agent panel (BRIEF-0036-d) — content rendered by the
-         frontend/src/creation/LinkAgent.svelte island (TICKET-0059,
-         BRIEF-0059-g); empty/hidden until "Agent liens" is clicked ── -->
-    <div id="linkagent-panel" style="display:none; border-bottom:1px solid var(--border); padding:10px 14px; max-height:460px; overflow-y:auto"></div>
-    <!-- ── The graph island's own mount point (TICKET-0057) — empty by
-         construction; chrome, canvas, info-card and edge panel all belong
-         to Graph.svelte and its relations consumer. ── -->
-    <div id="relgraph-mount"></div>
-  </div>
-
-  <!-- ── Entity editor (NPC / PJ / Lieux / Factions / Objets) ── -->
-  <div class="layout" id="creation-editor-area">
-    <aside class="sidebar">
-      <div class="sidebar-head">
-        <span id="creation-list-label">NPC</span>
-        <button class="btn-icon" onclick="creationRefreshList()" title="Rafraîchir">↻</button>
-      </div>
-      <!-- TICKET-0058 (BRIEF-0058-e): the entityList island's mount point.
-           Empty by construction — Svelte mount() appends, it never clears
-           a target's pre-existing children, so a static placeholder here
-           would sit beside the island's own DOM forever. The island
-           renders its own loading state. -->
-      <div class="conv-list" id="author-entity-list"></div>
-    </aside>
-
-    <div class="right-col">
-      <!-- Créations en attente (BRIEF-0019-a) — approved entity_creation
-           germs (tick- or conversation-sourced) awaiting on-demand sheet
-           generation; shown only for entity tabs whose registry entry sets
-           showPendingCreations (npc/lieux/factions — the three germ types). -->
-      <div id="creation-pending-strip" style="display:none; border-bottom:2px solid var(--border)">
-        <div class="panel-head" style="flex-shrink:0">
-          <h2 style="font-size:12px">Créations en attente</h2>
-          <button class="btn-icon" onclick="loadPendingCreations()" title="Rafraîchir">↻</button>
-        </div>
-        <div id="creation-pending-list" class="conv-list" style="max-height:180px; overflow-y:auto"></div>
-      </div>
-
-      <div class="transcript-panel" style="border-bottom:none">
-        <div class="panel-head">
-          <h2 id="author-sheet-title">Sélectionner une entité</h2>
-          <button class="btn-ghost" id="author-return-btn" onclick="creationReturnToOrigin()"
-                  style="display:none" title="Retour à l'entité d'origine"></button>
-          <span class="author-status" id="author-status"></span>
-          <button class="btn-send" id="author-save-btn" onclick="creationSaveDispatch()" style="display:none">Save</button>
-        </div>
-        <!-- TICKET-0059 (BRIEF-0059-e): #author-delete-btn moved into
-             Sheet.svelte's own template (frontend/src/creation/Sheet.svelte)
-             -- the header band shrinks from three buttons to two; delete is
-             no longer chrome-owned static markup. -->
-        <!-- TICKET-0058 (BRIEF-0058-f): the entitySheet island's mount point.
-             Empty by construction -- Svelte mount() appends, it never
-             clears a target's pre-existing children, so a static
-             placeholder here would sit beside the island's own DOM
-             forever. Sheet.svelte renders its own empty/loading/view state. -->
-        <div class="author-main" id="author-main"></div>
-      </div>
-
-      <!-- PJ Fiche — a declared slot on the pj registry entry (BRIEF-0005-b),
-           rendered by default on tab activation, outside the create gate.
-           The create form itself lives in #author-main via PjCreatePanel.svelte
-           (TICKET-0059, BRIEF-0059-j commit 3), the same detail region every
-           other entity type's + Nouveau uses. This slot's own markup
-           converged onto PjSkillFiche.svelte (BRIEF-0059-j commit 4, final)
-           -- empty by construction, same as every other island's container
-           (svelte mount() appends, never clears a target's pre-existing
-           children). -->
-      <div id="creation-pj-skill" style="display:none"></div>
-    </div><!-- .right-col -->
-  </div><!-- #creation-editor-area -->
-
-  <!-- ── Artefacts sub-tab (TICKET-0059, BRIEF-0059-h) — Svelte island: read-only
-       list, empty by construction (Svelte mount() appends, it never clears a
-       target's children) ── -->
-  <div id="creation-artefacts" style="display:none"></div><!-- #creation-artefacts -->
-
-  <!-- ── Compétences sub-tab (TICKET-0059, BRIEF-0059-h) — Svelte island: empty
-       by construction (Svelte mount() appends, it never clears a target's
-       children) ── -->
-  <div id="creation-competences" style="display:none"></div><!-- #creation-competences -->
-
-  <!-- ── Région sub-tab (TICKET-0058, BRIEF-0058-i) — Svelte island: generation
-       + D1 review + E1 atomic commit ── -->
-  <div id="creation-region" style="display:none"></div><!-- #creation-region -->
-
-  <!-- ── Constructeur sub-tab (TICKET-0046, BRIEF-0046-c) — runtime entity-type
-       creation: name/slug + checkable-trait palette, server-sourced ── -->
-  <div id="creation-constructeur" style="display:none"></div><!-- #creation-constructeur -->
-
-  <!-- ── Registre sub-tab (TICKET-0059, BRIEF-0059-h) — Svelte island: empty
-       by construction (Svelte mount() appends, it never clears a target's
-       children) ── -->
-  <div id="creation-registre" style="display:none"></div><!-- #creation-registre -->
-
-  <!-- ── Review Queue sub-tab (TICKET-0059, BRIEF-0059-k commit 2) — Svelte
-       island: empty by construction (Svelte mount() appends, it never
-       clears a target's children) ── -->
-  <div id="creation-queue" style="display:none"></div><!-- #creation-queue -->
-
-  <!-- ── Prompts sub-tab (TICKET-0059, BRIEF-0059-i) — Svelte island: prompt
-       management + the parked D-0050 conversation-window config panel ── -->
-  <div id="creation-prompts" style="display:none"></div><!-- #creation-prompts -->
-
-</div><!-- #creation-view -->
+<!-- TICKET-0059 (BRIEF-0059-l commit 4). The entire Création view markup
+     region (#creation-view, the #ctab-* sub-tab bar, the shell band, and
+     every pane container: batch-panel-wrap, creation-npc-relgraph +
+     npcagent-panel/linkagent-panel/relgraph-mount, creation-editor-area,
+     creation-artefacts/competences/region/constructeur/registre/queue/
+     prompts) is gone -- Creation.svelte (frontend/src/creation/Creation.svelte)
+     renders its own faithful copy of this same structure in the shell
+     document now, byte-for-byte the same containerIds. Play and Observation
+     markup below is untouched. -->
 
 <!-- ══ Observation view (TICKET-0051, BRIEF-0051-f) ══════════════════════════
      Top-level surface, sibling of Play/Création. Four regions: launch, live
@@ -2027,44 +1865,29 @@ let authorTypeFilter  = '';    // '' = all types
 
 /* ── Top-level mode switching ────────────────────────────────────────────── */
 
+// TICKET-0059 (BRIEF-0059-l commit 4). `creation` retired from
+// LEGACY_MOUNTS -- showCreationView is gone (its last reason to exist,
+// legacy_mount.py rule 4, no longer applies), and showPlayView/
+// showObservationView no longer touch #creation-view or #mode-tab-creation
+// (both gone too -- Creation is shell-native; App.svelte's own
+// currentSurface drives its visibility now, never this document).
 function showPlayView() {
   document.getElementById('play-view').style.display = '';
-  document.getElementById('creation-view').style.display = 'none';
   document.getElementById('observation-view').style.display = 'none';
   document.getElementById('mode-tab-play').classList.add('active');
-  document.getElementById('mode-tab-creation').classList.remove('active');
-  document.getElementById('mode-tab-observation').classList.remove('active');
-}
-
-// TICKET-0059 (BRIEF-0059-l commit 1): unreachable from the shell now --
-// App.svelte drives Creation.svelte directly (item 2) and never calls
-// showSurface('creation'); the mode-tab button that used to call this
-// lives inside the suppressed legacy <header> (hideLegacyHeader()). Kept,
-// not deleted: legacy_mount.py rule 4 requires LEGACY_MOUNTS.creation's
-// declared showFn to exist as a top-level function here until this
-// mount retires (commit 4) -- its body is trimmed to what still resolves
-// in this document (#creation-view moved into Creation.svelte's own
-// template, so this function no longer touches it).
-function showCreationView() {
-  document.getElementById('play-view').style.display = 'none';
-  document.getElementById('observation-view').style.display = 'none';
-  document.getElementById('mode-tab-play').classList.remove('active');
-  document.getElementById('mode-tab-creation').classList.add('active');
   document.getElementById('mode-tab-observation').classList.remove('active');
 }
 
 /* ── Observation view (TICKET-0051, BRIEF-0051-f) ──────────────────────────
    Top-level surface, sibling of Play and Création — NOT a Creation sub-tab
    (P1, corrected: TAB_KEYS/CREATION_TABS govern entity-CRUD sub-surfaces and
-   are untouched here). Mirrors showPlayView/showCreationView's contract:
-   show/hide the three top-level views, toggle the three mode-tab buttons,
+   are untouched here). Mirrors showPlayView's contract: show/hide the two
+   top-level views this document still owns, toggle their mode-tab buttons,
    lazy-init on first entry only. */
 function showObservationView() {
   document.getElementById('play-view').style.display = 'none';
-  document.getElementById('creation-view').style.display = 'none';
   document.getElementById('observation-view').style.display = '';
   document.getElementById('mode-tab-play').classList.remove('active');
-  document.getElementById('mode-tab-creation').classList.remove('active');
   document.getElementById('mode-tab-observation').classList.add('active');
   if (!obsInitialized) observationInit();
 }
@@ -3072,205 +2895,20 @@ document.addEventListener('creation:linkagent-badge', (ev) => {
    Creation.svelte; nothing legacy-side renders either panel any more.
    ════════════════════════════════════════════════════════════════════════════ */
 
-/* ════════════════════════════════════════════════════════════════════════════
-   Generic modal (BRIEF-41) — reusable overlay, body swapped per use
-   ════════════════════════════════════════════════════════════════════════════ */
-
-function genericModalOpen(title, bodyHtml, options = {}) {
-  document.getElementById('generic-modal-title').textContent = title;
-  document.getElementById('generic-modal-body').innerHTML = bodyHtml;
-  const backdrop = document.getElementById('generic-modal-backdrop');
-  backdrop.dataset.dismissOnBackdrop = options.dismissOnBackdrop === false ? 'false' : 'true';
-  backdrop.classList.remove('hidden');
-}
-
-function genericModalClose() {
-  document.getElementById('generic-modal-backdrop').classList.add('hidden');
-  document.getElementById('generic-modal-body').innerHTML = '';
-}
-
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !document.getElementById('generic-modal-backdrop').classList.contains('hidden')) {
-    genericModalClose();
-  }
-});
-
-/* ════════════════════════════════════════════════════════════════════════════
-   Boot
-   ════════════════════════════════════════════════════════════════════════════ */
-
-async function loadWorldSelector() {
-  const sel = document.getElementById('world-selector');
-  try {
-    const worlds = await api('/api/worlds');
-    sel.innerHTML = '';
-    for (const w of worlds) {
-      const opt = document.createElement('option');
-      opt.value = w.id;
-      opt.textContent = w.is_active ? `${w.name} (actif)` : w.name;
-      if (w.is_active) opt.selected = true;
-      sel.appendChild(opt);
-    }
-  } catch (_) {}
-}
-
-// TICKET-0059 (BRIEF-0059-l commit 1, amendment). activateWorld is gone --
-// ported to frontend/src/creation/tabs.js's activateWorldCascade, called
-// directly from Header.svelte's onWorldChange (no legacy bridge hop). The
-// legacy #world-selector <select> this function used to update lived only
-// inside the suppressed legacy <header> (hideLegacyHeader()) and had no
-// other reader -- deleted alongside it (see the markup below and Header.
-// svelte, which renders its own <select> from serverState.worlds). Amends
-// TICKET-0056's own "the cascade moves WITH [Creation]" plan (Header.svelte
-// header comment) -- this ports one brief earlier than TICKET-0056 assumed,
-// since activateWorld's OTHER calls (CREATION_TABS/showCreationSubTab/
-// creationInit) already move at this same commit regardless of the
-// selector question.
-
-/** BRIEF-44 (B2): minimal create-world form — name + description +
- *  fundamental_laws, both optional. On success the new world is already
- *  active server-side; just refresh the selector. */
-function worldCreateOpen() {
-  genericModalOpen('Nouveau monde', `
-    <div class="field-section" id="world-gen-panel" style="border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:12px;">
-      <div class="field-section-title">Générer avec l'IA</div>
-      <textarea id="world-gen-brief" rows="2" style="width:100%; resize:vertical"
-        placeholder="Intention en une phrase, ex. : « Un monde post-rupture magique où la mémoire se monnaie »"></textarea>
-      <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
-        <button class="btn-send" onclick="worldGenerateDraft()">Générer</button>
-        <span id="world-gen-status" style="font-size:12px; color:var(--muted)"></span>
-      </div>
-      <div id="world-gen-notes"></div>
-    </div>
-    <div class="field-grid">
-      <div class="field-row" style="grid-column:1/-1">
-        <label for="world-create-name">Nom *</label>
-        <input type="text" id="world-create-name" placeholder="Nom du monde">
-      </div>
-      <div class="field-row" style="grid-column:1/-1">
-        <label for="world-create-description">Contexte du monde (description, optionnel)</label>
-        <textarea id="world-create-description" rows="3" placeholder="Genre, ton, géographie générale…"></textarea>
-      </div>
-      <div class="field-row" style="grid-column:1/-1">
-        <label for="world-create-laws">Lois fondamentales (contraintes absolues, optionnel)</label>
-        <textarea id="world-create-laws" rows="3" placeholder="Ex. « La magie n'existe pas dans ce monde. »"></textarea>
-      </div>
-    </div>
-    <div id="world-create-status" style="color:var(--red); margin-top:6px;"></div>
-    <button class="btn-send" style="margin-top:8px" onclick="worldCreateSubmit()">Créer et activer</button>
-  `, { dismissOnBackdrop: false });
-}
-
-async function worldCreateSubmit() {
-  const name = document.getElementById('world-create-name').value.trim();
-  const description = document.getElementById('world-create-description').value.trim();
-  const fundamentalLaws = document.getElementById('world-create-laws').value.trim();
-  const statusEl = document.getElementById('world-create-status');
-  if (!name) { statusEl.textContent = 'Le nom est requis.'; return; }
-  statusEl.textContent = '…';
-  try {
-    const res = await api('/api/worlds', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description, fundamental_laws: fundamentalLaws }),
-    });
-    if (!res.ok) { statusEl.textContent = res.error; return; }
-    genericModalClose();
-    await loadWorldSelector();
-  } catch (err) {
-    statusEl.textContent = err.message;
-  }
-}
-
-/** BRIEF-47: world-bible generator. Seed phrase -> AI draft -> pre-fills the
- *  SAME create-world fields above; accept is still worldCreateSubmit()
- *  unchanged. Generating again simply re-runs this and overwrites the
- *  fields/notes — no separate discard step needed. */
-async function worldGenerateDraft() {
-  const briefEl = document.getElementById('world-gen-brief');
-  const statusEl = document.getElementById('world-gen-status');
-  const brief = briefEl.value.trim();
-  if (!brief) { statusEl.textContent = 'Intention requise.'; return; }
-  statusEl.textContent = 'Génération…';
-  try {
-    const result = await api('/api/worlds/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ brief }),
-    });
-    if (!result.ok) { statusEl.textContent = result.error; return; }
-    worldApplyDraft(result);
-    statusEl.textContent = 'Brouillon généré — relisez et éditez avant de créer.';
-  } catch (err) {
-    statusEl.textContent = err.message;
-  }
-}
-
-function worldApplyDraft(result) {
-  const draft = result.draft;
-  const setVal = (id, value) => { const el = document.getElementById(id); if (el) el.value = value ?? ''; };
-  setVal('world-create-name', draft.public.name);
-  setVal('world-create-description', draft.public.description);
-  setVal('world-create-laws', draft.public.fundamental_laws);
-
-  const notesEl = document.getElementById('world-gen-notes');
-  if (result.notes && result.notes.length) {
-    notesEl.innerHTML = '<div style="margin-top:8px; font-size:12px; color:var(--muted)">Notes de l\'assistant : ' +
-      result.notes.map(n => `<div>• ${n}</div>`).join('') + '</div>';
-  } else {
-    notesEl.innerHTML = '';
-  }
-}
-
-/** BRIEF-54 (B2′): delete-world confirm modal. Click-away protected; reads
- *  the selected world's id/name straight off #world-selector. */
-function worldDeleteOpen() {
-  const sel = document.getElementById('world-selector');
-  const worldId = sel.value;
-  const opt = sel.options[sel.selectedIndex];
-  if (!worldId || !opt) return;
-  const worldName = opt.textContent.replace(/\s*\(actif\)$/, '');
-  genericModalOpen('Supprimer le monde', `
-    <p>Cette action supprime définitivement le monde « ${worldName} » et tout
-    son contenu (entités, relations, historique, sessions). Elle est
-    irréversible.</p>
-    <p>Tapez Oui pour confirmer.</p>
-    <input type="text" id="world-delete-confirm-input" placeholder="Oui"
-      oninput="document.getElementById('world-delete-confirm-btn').disabled = this.value.trim() !== 'Oui'">
-    <div id="world-delete-status" style="color:var(--red); margin-top:6px;"></div>
-    <button class="btn-send" id="world-delete-confirm-btn" style="margin-top:8px" disabled
-      onclick="worldDeleteConfirm('${worldId}')">Supprimer définitivement</button>
-  `, { dismissOnBackdrop: false });
-}
-
-async function worldDeleteConfirm(worldId) {
-  const statusEl = document.getElementById('world-delete-status');
-  statusEl.textContent = '…';
-  try {
-    const res = await api(`/api/worlds/${worldId}`, { method: 'DELETE' });
-    if (!res.ok) { statusEl.textContent = res.error || 'Échec de la suppression.'; return; }
-    genericModalClose();
-    if (res.remaining === 0) {
-      worldCreateOpen();
-      return;
-    }
-    await loadWorldSelector();
-    await loadBootstrap();
-    // TICKET-0059 (BRIEF-0059-l commit 1). _creationRunWorldSwitchResets is
-    // gone (vacuous -- every onWorldSwitch in CREATION_TABS is null) and
-    // CREATION_TABS/showCreationSubTab/creationInit no longer exist in this
-    // document. This reverse-bridge dispatch (the same idiom
-    // 'route:subtab'/'creation:refresh-tabs' already used cross-document
-    // before this brief) reaches tabs.js's handleWorldChanged, the same
-    // cascade tail activateWorldCascade uses. Retires when this function
-    // itself ports off the legacy window (commit 3).
-    document.dispatchEvent(new CustomEvent('creation:world-changed'));
-    await loadScene();
-    await loadPlayerName();
-  } catch (err) {
-    statusEl.textContent = err.message;
-  }
-}
+// TICKET-0059 (BRIEF-0059-l commit 3). genericModalOpen/genericModalClose
+// (BRIEF-41), their Escape-key listener, loadWorldSelector, and the six
+// world CRUD functions (worldCreateOpen/worldCreateSubmit/worldGenerateDraft/
+// worldApplyDraft/worldDeleteOpen/worldDeleteConfirm) are gone. The generic
+// modal's last consumers were exactly these six functions plus Competences'
+// delete-confirm and LocationTypeModal (both already converged onto
+// Modal.svelte, TICKET-0059 BRIEF-0059-h) -- Modal.svelte is now every
+// dialog's one implementation, enforced by modal_primitive.py.
+// worldCreateOpen/worldCreateSubmit/worldGenerateDraft/worldApplyDraft/
+// worldDeleteOpen/worldDeleteConfirm ported to frontend/src/creation/
+// worldCrud.svelte.js + WorldCrud.svelte, reached from Header.svelte's own
+// "+ Monde"/"🗑 Monde" buttons. loadWorldSelector does not port: Header.
+// svelte already renders its own <select> reactively off serverState.worlds
+// (TICKET-0056); every call site now calls refreshServerState() instead.
 
 /* ════════════════════════════════════════════════════════════════════════════
    Observation surface (TICKET-0051, BRIEF-0051-f)
@@ -3629,23 +3267,18 @@ async function _obsLoadProposals(runId) {
   }
 }
 
+// TICKET-0059 (BRIEF-0059-l commit 3): loadWorldSelector() call removed --
+// the function it called is gone (Header.svelte renders the active-world
+// dropdown itself, reactively off serverState.worlds).
 document.addEventListener('DOMContentLoaded', async () => {
   await loadBootstrap(); // resolve world_id/player_id before anything that needs them
   loadScene();        // enter the player's location (idempotent, protects C1)
   loadPlayerName();   // populate "Tu incarnes" banner
-  loadWorldSelector(); // populate the active-world dropdown
 });
 </script>
 
-<div id="generic-modal-backdrop" class="modal-backdrop hidden" onclick="if (event.target === this && this.dataset.dismissOnBackdrop !== 'false') genericModalClose()">
-  <div class="modal-container">
-    <div class="modal-header">
-      <span id="generic-modal-title" class="modal-title"></span>
-      <button class="modal-close" onclick="genericModalClose()">&times;</button>
-    </div>
-    <div id="generic-modal-body" class="modal-body"></div>
-  </div>
-</div>
-
+<!-- TICKET-0059 (BRIEF-0059-l commit 3): #generic-modal-backdrop and its
+     two children are gone -- Modal.svelte (frontend/src/creation/Modal.svelte)
+     is the one dialog implementation now, enforced by modal_primitive.py. -->
 </body>
 </html>

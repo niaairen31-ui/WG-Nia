@@ -1,7 +1,7 @@
 <script>
   import { serverState, refreshServerState } from './lib/serverState.svelte.js';
-  import { openWorldCreate, openWorldDelete } from './legacy/bridge.js';
   import { activateWorldCascade } from './creation/tabs.js';
+  import { openWorldCreateModal, openWorldDeleteModal } from './creation/worldCrud.svelte.js';
   import { navigate } from './lib/router.js';
 
   // TICKET-0056 (BRIEF-0056-c): the router is the single source of truth for
@@ -47,8 +47,8 @@
       {/each}
     </select>
   {/if}
-  <button class="btn-icon" onclick={openWorldCreate} title="Créer un nouveau monde">+ Monde</button>
-  <button class="btn-icon" onclick={openWorldDelete} title="Supprimer le monde sélectionné">🗑 Monde</button>
+  <button class="btn-icon" onclick={openWorldCreateModal} title="Créer un nouveau monde">+ Monde</button>
+  <button class="btn-icon" onclick={openWorldDeleteModal} title="Supprimer le monde sélectionné">🗑 Monde</button>
   <span class="local-badge">127.0.0.1 · local only</span>
 </header>
 

@@ -151,6 +151,13 @@ stop-and-escalate rule; brief `-a` may re-cut anything below.
 - [ ] `SHELL_ROUTES` in `router.js` and `_SHELL_ROUTES` in `app.py` still
       agree  ->  verify/checks/legacy_mount.py
 - [ ] `npm run build` output is fresh  ->  verify/checks/frontend_build_fresh.py
+- [ ] Exactly one backdrop-plus-panel dialog implementation
+      (`Modal.svelte`) exists under `frontend/src/`, no allow-list
+      (BRIEF-0059-l item 10)  ->  verify/checks/modal_primitive.py
+- [ ] No selector appears in more than one of `shared.css`/`creation.css`/
+      `cockpit/index.html`'s inline `<style>`, and `creation.css`'s legacy
+      `<link>` tracks `LEGACY_MOUNTS` declaring `creation` (TICKET-0063,
+      prerequisite merged at BRIEF-0059-l commit 1)  ->  verify/checks/stylesheet_partition.py
 - [ ] No backend file under `src/world_engine/` outside `cockpit/app.py`
       route registration is modified by this ticket  ->  reviewed at `-m`
 

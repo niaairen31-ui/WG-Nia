@@ -757,25 +757,11 @@ export function initCreationChrome() {
   });
 }
 
-/** TICKET-0059 (BRIEF-0059-l commit 1). worldDeleteConfirm (index.html)
- *  stays legacy through commit 3 but its own world-switch tail called
- *  _creationRunWorldSwitchResets (now gone, vacuous) plus a
- *  CREATION_TABS/showCreationSubTab/creationInit block that no longer
- *  exists in that document -- this reverse-bridge event (dispatched on
- *  legacyDoc, the same idiom as 'route:subtab'/'creation:refresh-tabs'
- *  already used cross-document before this brief) replaces that block
- *  with a direct call into the same cascade tail activateWorldCascade
- *  uses. Called once from App.svelte's onLegacyReady -- the one hook that
- *  actually waits for the legacy iframe's own `load` event, unlike
- *  Creation.svelte's own onMount. Retires when worldDeleteConfirm itself
- *  ports (commit 3). */
-let _worldChangeBridgeInitialized = false;
-export function initWorldChangeBridge(legacyDoc) {
-  if (_worldChangeBridgeInitialized) return;
-  _worldChangeBridgeInitialized = true;
-  legacyDoc.addEventListener('creation:world-changed', () => {
-    handleWorldChanged();
-  });
-}
+// TICKET-0059 (BRIEF-0059-l commit 3). initWorldChangeBridge/the
+// 'creation:world-changed' reverse-bridge listener are gone: they existed
+// only to reach handleWorldChanged from the still-legacy worldDeleteConfirm
+// (commit 1's own comment named this exact retirement condition).
+// worldDeleteConfirm is Svelte now (frontend/src/creation/worldCrud.svelte.js)
+// and calls handleWorldChanged directly, a plain import, no bridge needed.
 
 export { esc };

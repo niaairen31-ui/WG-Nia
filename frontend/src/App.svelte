@@ -2,8 +2,9 @@
   import Header from './Header.svelte';
   import LegacyFrame from './LegacyFrame.svelte';
   import Creation from './creation/Creation.svelte';
+  import WorldCrud from './creation/WorldCrud.svelte';
   import { hideLegacyHeader, showSurface, legacyDocument } from './legacy/bridge.js';
-  import { showCreationSubTab, initWorldChangeBridge } from './creation/tabs.js';
+  import { showCreationSubTab } from './creation/tabs.js';
   import { serverState, refreshServerState } from './lib/serverState.svelte.js';
   import { onRoute, navigate } from './lib/router.js';
   import { initGraphMount } from './graph/mount.js';
@@ -52,7 +53,6 @@
     hideLegacyHeader();
     initGraphMount(legacyDocument());
     initCreationMount(legacyDocument());
-    initWorldChangeBridge(legacyDocument());
     legacyDocument().addEventListener('observation:open-prompt', onObservationOpenPrompt);
     await refreshServerState();
     onRoute(applyRoute);
@@ -65,6 +65,7 @@
     <LegacyFrame onReady={onLegacyReady} />
   </div>
   <Creation active={currentSurface === 'creation'} />
+  <WorldCrud />
 </div>
 
 <style>
