@@ -169,3 +169,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 11128 | CREATION SPINE — island seam, graph convergence, closure-driven scope (BRIEF-0058-a, BRIEF-0058-b, BRIEF-0058-c, BRIEF-0058-d, BRIEF-0058-e, BRIEF-0058-f, BRIEF-0058-g, BRIEF-0058-h, BRIEF-0058-i, BRIEF-0058-j, BRIEF-0058-k, BRIEF-0058-l, no schema change) | BRIEF-0058-a, BRIEF-0058-b, BRIEF-0058-c, BRIEF-0058-d, BRIEF-0058-e, BRIEF-0058-f, BRIEF-0058-g, BRIEF-0058-h, BRIEF-0058-i, BRIEF-0058-j, BRIEF-0058-k, BRIEF-0058-l |  |
 | 11293 | DOORS EDITOR EFFECT CYCLE — pure derivations are $derived, not $state (BRIEF-0062-a, no schema change) | BRIEF-0062-a |  |
 | 11357 | COCKPIT STYLESHEET PARTITION — one shared sheet, two documents (BRIEF-0063-a, no schema change) | BRIEF-0063-a |  |
+| 11437 | TICKET-0059 DOCTRINE SEAL — bridge-reach, LocationTree, Modal, effect-cycle, three-surface census (BRIEF-0059-m, no schema change) | BRIEF-0059-m |  |

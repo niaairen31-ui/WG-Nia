@@ -2,12 +2,12 @@
 id: TICKET-0059
 title: Creation periphery migration and legacy mount retirement
 type: feature
-status: exec   # briefs a-d merged to main via PR #79; e-g executed this PR; -h onward pending
+status: done
 created: 2026-08-03
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
 blast_radius: large
-brief_ids: [BRIEF-0059-a, BRIEF-0059-b, BRIEF-0059-c, BRIEF-0059-d, BRIEF-0059-e, BRIEF-0059-f, BRIEF-0059-g]
+brief_ids: [BRIEF-0059-a, BRIEF-0059-b, BRIEF-0059-c, BRIEF-0059-d, BRIEF-0059-e, BRIEF-0059-f, BRIEF-0059-g, BRIEF-0059-h, BRIEF-0059-i, BRIEF-0059-j, BRIEF-0059-k, BRIEF-0059-l, BRIEF-0059-m]
 schema_version_touched:
 retry_count: 0
 ---
@@ -181,3 +181,20 @@ stop-and-escalate rule; brief `-a` may re-cut anything below.
       tabs.
 - [ ] Review Queue still applies and rejects a proposed mutation.
 - [ ] World create and world delete still work from the shell header.
+
+## Closure notes (BRIEF-0059-m)
+
+- `-b` was reissued as v2 after RECON-0059-a M1 surfaced the eight
+  `callLegacy`-reaching wrappers the original `legacyCall`-string scope
+  missed (SUPPLEMENT-0059 Amendment 2).
+- `-e` was re-scoped by SUPPLEMENT-0059 Amendment 3, from "residual
+  `legacyCall` sites; baseline -> 0" to entity-sheet state ownership — the
+  baseline could not reach zero-for-TICKET-0059 before the chrome inverts
+  at `-l`, since `creationRefreshList`, `creationOpenEntityFrom`,
+  `creationSelectRecord` and `genericModal*` are chrome, not sheet-local.
+- `-k` was re-cut by SUPPLEMENT-0059 Amendment 4 to Review Queue only (23
+  functions, corrected from planning's 13 per RECON-0059-a M5); the six
+  `world*` CRUD functions moved to `-l` instead, alongside `Modal.svelte`.
+- TICKET-0062 (the Svelte effect-cycle fix) was inserted between `-d` and
+  `-e` in execution order — discovered during this ticket's own live
+  verification, not part of the original brief chain.
