@@ -11434,6 +11434,100 @@ anywhere in the tree) moved verbatim rather than deleted (a stylesheet
 extraction is not the place for that cleanup); `.scene-gathering-card`
 reads `var(--surface)`, never declared in the `:root` token block.
 
+## TICKET-0059 DOCTRINE SEAL — bridge-reach, LocationTree, Modal, effect-cycle, three-surface census (BRIEF-0059-m, no schema change)
+
+TICKET-0059 retired the legacy `creation` mount and finished the Creation
+periphery migration begun in TICKET-0058. Five decisions from across the
+chain are load-bearing enough to record here, each with why it went the
+way it did, not just what shipped.
+
+**The bridge-reach seam is scoped to `callLegacy`, not the string
+`legacyCall`.** RECON-0059-a M1 found eight further named wrapper exports
+(`showSurface`, `activateWorldViaLegacy`, `openWorldCreate`,
+`openWorldDelete`, `showCreationTab`, `getSelectedCharacterId`,
+`selectEntity`, `selectRecord`) reaching the same legacy window through the
+identical `callLegacy` primitive without ever spelling `legacyCall` — a
+check that grepped the literal string would have been structurally blind
+to all eight, and to a tenth wrapper added the same way. `legacy_call.py`
+rule 2 derives the reaching surface from `bridge.js`'s own exports rather
+than hardcoding names, so a new wrapper is caught automatically. Rule 7
+structurally ordered the mount retirement (`-l`) after the seam closed to
+zero-for-TICKET-0059, rather than trusting brief sequencing to get there.
+
+**`LocationTree.svelte` converges the two agent location pickers, but they
+were not a copy-paste.** RECON-0059-a M4 found `_npcAgentTreeHtml` and
+`_linkAgentTreeHtml` differ in kind, not just naming: single-select radio
+over one `npcAgentSelectedRoot` versus multi-select checkbox over a `Set`
+whose predicate additionally treats a node as checked when any ancestor is
+checked. What's shared is the recursive traversal and the two already
+shared CSS classes; what differs is the row control and the checked-state
+predicate. The resolution is a row snippet plus an `isChecked(node)`
+predicate prop, not a `mode: 'single' | 'multi'` prop — the union-type
+shape TICKET-0057's own D-C question taught this project to refuse: a
+component that branches internally on an interaction-model enum has
+absorbed two behaviours rather than converged one. `location_tree.py`
+locks the count at exactly one recursive location-tree renderer under
+`frontend/src/`.
+
+**`Modal.svelte` landed only once the legacy `genericModal*`
+implementation died, with no allow-list.** `genericModalOpen`/
+`genericModalClose` were chrome, not sheet-local — consumed by three
+legacy call sites beyond the Svelte one (`competences`, world create,
+world delete) — so the primitive could not converge until the chrome
+inverted at `-l`. `modal_primitive.py` asserts exactly one
+backdrop-plus-panel dialog implementation exists under `frontend/src/`,
+with no exception list: the same shape as the graph and review primitives
+before it.
+
+**The effect-cycle rule (TICKET-0062), discovered inside this ticket's
+live testing.** Pure derivations of props are `$derived`, not `$state`;
+assign-then-read of a `$state` binding inside one `$effect` body is
+forbidden, enforced fail-closed across `frontend/src/` by
+`effect_self_write.py`. Observed failure mode: a flush aborted by
+`effect_update_depth_exceeded` silently stops *sibling* components
+repainting, even though their own mutations had already persisted on the
+backend — the symptom (stale UI on unrelated components) sits far from the
+cause (a write-then-read cycle in one sibling's effect), and the two must
+be connected explicitly for the next person to diagnose it quickly. Full
+account: this file, "DOORS EDITOR EFFECT CYCLE — pure derivations are
+`$derived`, not `$state`".
+
+**The three-surface census rule supersedes RECON-0059-a M5's two-surface
+claim.** M5 asserted no cross-reads existed between Play and Creation; the
+search covered only those two surfaces, and `observationOpenPrompt` — a
+Creation-to-Observation cross-read — was found only during brief `-i`'s own
+execution, not by the RECON that was supposed to catch it. The rule going
+forward: every caller census for a migrating function covers Play,
+Creation **and** Observation — never just the two surfaces the ticket
+happens to be about.
+
+**Named deferrals**, each with an explicit reactivation condition:
+
+- **D-0059-prompts-surface** — promoting the Prompts tab out of Creation
+  into its own top-level surface. Reactivate when a second
+  creator-tooling surface appears, or when D-0050 activates and the two
+  would share a home.
+- **D-0059-npc-agent-termination** — the NPC agent's run loop detects
+  completion by catching an error and string-matching `'already fully
+  generated'`, while the link agent reads a `result.done` flag: two
+  different completion contracts for structurally similar loops.
+  Reactivate when either endpoint's contract is next touched; a backend
+  message-text edit silently breaks the loop today with nothing to catch
+  it.
+- **D-0050** is re-stated verbatim, not modified:
+
+  **Named deferral D-0050 — config editing surface.** The `word_budget` /
+  `verbatim_turns` / `summary_enabled` fields are edited on the existing
+  prompts surface, beside the `conversation_summary` template row (N2, ticket
+  intake) — not a dedicated world-configuration surface, because none exists
+  yet. Migrate this editing to a dedicated surface once one exists; not
+  scoped to this ticket.
+
+  Confirmed unchanged by SUPPLEMENT-0059 Amendment 5: the `cw*` functions
+  (conversation-window config) migrated with the Prompts tab verbatim and
+  still render inside the Prompts pane; D-0050's reactivation condition is
+  untouched.
+
 ---
 
 *Co-built with Claude, June 2026.*

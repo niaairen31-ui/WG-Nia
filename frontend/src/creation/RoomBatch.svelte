@@ -24,6 +24,15 @@
      World reset is driven by serverState.worldId (the -d rule), replacing
      the legacy _lieuxWorldReset's batchReset() call.
 
+     TICKET-0059 (BRIEF-0059-l commit 3, amendment). The sheetTarget modal's
+     own backdrop/container/header/close-button shell converged onto
+     Modal.svelte -- same reasoning as Region.svelte's identical
+     convergence (see that file's header comment): the shared legacy
+     generic modal's other callers stayed legacy until this brief, and the
+     realm boundary this duplication avoided crossing is gone in commit 4.
+     Close glyph changes from ✕ to Modal.svelte's &times;; closeSheet's own
+     semantics (onClose, dismissOnBackdrop defaulting to true) unchanged.
+
      No scoped <style> block: like every other Creation island, this
      renders inside the legacy iframe document. */
   import { serverState } from '../lib/serverState.svelte.js';
@@ -31,6 +40,7 @@
   import { creationRefreshList } from './tabs.js';
   import { locationTypeOptionLabel } from './locationType.js';
   import LocationTypeModal from './LocationTypeModal.svelte';
+  import Modal from './Modal.svelte';
   import { reviewRegister } from './review/registry.js';
   import Review from './Review.svelte';
   import { roomBatchState, resetRoomBatch } from './roomBatch.svelte.js';
@@ -438,18 +448,12 @@
 {/if}
 
 {#if sheetTarget}
-  <div class="modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) closeSheet(); }}>
-    <div class="modal-container">
-      <div class="modal-header">
-        <span class="modal-title">{sheetTarget.name}</span>
-        <button class="modal-close" onclick={closeSheet}>✕</button>
-      </div>
-      <div class="modal-body">
-        {#if sheetTarget.locationType}
-          <div style="font-size:12px; color:var(--muted)">{sheetTarget.locationType}</div>
-        {/if}
-        <div style="margin-top:8px">{sheetTarget.description}</div>
-      </div>
-    </div>
-  </div>
+  <Modal title={sheetTarget.name} open={true} onClose={closeSheet}>
+    {#snippet body()}
+      {#if sheetTarget.locationType}
+        <div style="font-size:12px; color:var(--muted)">{sheetTarget.locationType}</div>
+      {/if}
+      <div style="margin-top:8px">{sheetTarget.description}</div>
+    {/snippet}
+  </Modal>
 {/if}
