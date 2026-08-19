@@ -89,13 +89,17 @@ opens.
 ### Machine-checkable  ->  G1 deterministic gate
 
 - [x] Each of `.app-view`, `.panel-head`, `.sidebar-head`, `.conv-list`,
-      `.transcript-panel`, `.btn-end`, `.analyze-status` appears in
-      `frontend/public/shared.css` and in no other sheet
+      `.transcript-panel`, `.btn-end`, `.btn-send`, `.analyze-status`
+      appears in `frontend/public/shared.css` and in no other sheet
       -> verify/checks/stylesheet_partition.py
       (amended per `QUESTION-TICKET-0064.md`: `.sidebar` measures zero
       surviving legacy consumers, not one as BRIEF-0064-a's M4 stated —
       routed to `creation.css` instead, per A1's own rule applied to the
-      corrected count)
+      corrected count. `.btn-send` was not one of BRIEF-0064-a's ten named
+      selectors -- rule7's own corrected coverage formula found it as a
+      real, 24-file stranding; Nia's Decision 2 folded it into this
+      ticket rather than a separate one, routed to `shared.css` per A1
+      applied to its six measured legacy consumers)
 - [x] `.layout`, `.sidebar` and `.right-col` appear in
       `frontend/public/creation.css` and in no other sheet
       -> verify/checks/stylesheet_partition.py

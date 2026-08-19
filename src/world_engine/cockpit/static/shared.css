@@ -202,6 +202,14 @@ button:not(:disabled):hover { filter: brightness(1.15); }
   font-size: 11px;
   padding: 3px 10px;
 }
+.btn-send {
+  background: #12261e;
+  border-color: #238636;
+  color: var(--green);
+  font-weight: 600;
+  padding: 7px 16px;
+  white-space: nowrap;
+}
 
 /* ── Empty / info states ─────────────────────────────────────────────────── */
 .empty    { color: var(--muted);  font-style: italic; text-align: center; padding: 28px 16px; }
