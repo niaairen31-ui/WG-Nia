@@ -2,7 +2,7 @@
 id: TICKET-0064
 title: Creation stylesheet coverage — stranded selectors and the missing partition rule
 type: bug
-status: exec
+status: escalated
 created: 2026-08-19
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []

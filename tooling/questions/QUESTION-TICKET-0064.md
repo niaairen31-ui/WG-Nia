@@ -135,3 +135,48 @@ as written — do not introduce `\b`-style word-boundary matching anywhere in it
 Revert `status: escalated` to `exec`, append the resolution to
 `QUESTION-TICKET-0064.md` rather than editing the question (history is
 sacred), re-run M1–M8 against the corrected table, and proceed if clean.
+
+## Follow-up (rule7 implementation, commit 2) -- appended, first Response untouched
+
+rule7 is implemented exactly per BRIEF-0064-a Sec2.1-Sec2.7 (extractor,
+inline-selector parser, STRANDED = APPLIED ∩ INLINE, five vacuity guards).
+Running it on the tree after commit 1 (`73caa80`) surfaces 6 FAILs -- two
+distinct findings, neither answerable from the brief as written, both hit
+the brief's own stop clause: "If the implementation seems to need [an
+exemption], the specification has been misread -- STOP and report rather
+than introducing a list."
+
+### Finding 1 -- rule7 false-positives on a component's own scoped <style>
+
+`.local-badge`, `.mode-tab`, `.mode-tabs`, `.spacer`, `.sub` are applied by
+`frontend/src/Header.svelte` AND survive in `cockpit/index.html`'s inline
+block. But `Header.svelte` carries its OWN scoped `<style>` block
+(`Header.svelte:55-90`) defining all five identically -- Svelte compiles
+scoped CSS per-component, so these elements are already correctly styled
+independent of the inline block. Cross-checked: `cockpit/index.html`'s own
+(JS-suppressed but present) legacy header markup at lines 449-457 still
+carries `class="sub"`, `class="spacer"`, `class="mode-tabs"`,
+`class="mode-tab"` -- so the inline rules are NOT dead, they serve that
+markup. This is a same-name collision across two independently-styled
+surfaces, not a stranding: rule7's spec (Sec2.1-Sec2.4) has no clause for
+"the applying component defines this selector in its own scoped <style>",
+so it flags the collision anyway.
+
+### Finding 2 -- .btn-send: a real, large-scale stranding outside Scope IN
+
+`.btn-send`'s base declaration (`cockpit/index.html:324`, the visual
+identity of every "primary action" button in Creation -- Générer,
+Enregistrer, Créer, Commit, +Ajouter, etc.) exists ONLY in the inline
+block. `frontend/public/creation.css` carries one compound override
+(`.lieux-graph-head .btn-send { margin-left: auto; ... }`) but never the
+base rule. `.btn-send` is applied across **24 distinct files** under
+`frontend/src/creation/` (Competences, Region, RoomBatch, Prompts,
+WorldCrud, DoorsEditor, GoalsEditor, KnowledgeEditor, ... every migrated
+Creation island). All of them render inside the Svelte shell post
+TICKET-0059, so none can reach the inline block. This is not one of
+BRIEF-0064-a's ten named selectors and is an order of magnitude larger in
+surface area than the ticket's whole known scope (ten selectors across
+~4 files vs. one selector across 24 files).
+
+## Response (follow-up)
+
