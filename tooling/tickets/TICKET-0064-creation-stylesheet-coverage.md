@@ -88,20 +88,25 @@ opens.
 
 ### Machine-checkable  ->  G1 deterministic gate
 
-- [ ] Each of `.app-view`, `.panel-head`, `.sidebar`, `.sidebar-head`,
-      `.conv-list`, `.transcript-panel`, `.btn-end`, `.analyze-status` appears
-      in `frontend/public/shared.css` and in no other sheet
+- [x] Each of `.app-view`, `.panel-head`, `.sidebar-head`, `.conv-list`,
+      `.transcript-panel`, `.btn-end`, `.analyze-status` appears in
+      `frontend/public/shared.css` and in no other sheet
       -> verify/checks/stylesheet_partition.py
-- [ ] `.layout` and `.right-col` appear in `frontend/public/creation.css` and
-      in no other sheet  -> verify/checks/stylesheet_partition.py
-- [ ] `.conv-item`, `.conv-item:hover`, `.conv-item.active`,
+      (amended per `QUESTION-TICKET-0064.md`: `.sidebar` measures zero
+      surviving legacy consumers, not one as BRIEF-0064-a's M4 stated —
+      routed to `creation.css` instead, per A1's own rule applied to the
+      corrected count)
+- [x] `.layout`, `.sidebar` and `.right-col` appear in
+      `frontend/public/creation.css` and in no other sheet
+      -> verify/checks/stylesheet_partition.py
+- [x] `.conv-item`, `.conv-item:hover`, `.conv-item.active`,
       `.conv-item .ci-id`, `.conv-item .ci-meta` and `.transcript-body` remain
       in `cockpit/index.html`'s inline `<style>`
       -> verify/checks/stylesheet_partition.py
-- [ ] Descendant rules travel with their moved parent: `.sidebar-head button`
+- [x] Descendant rules travel with their moved parent: `.sidebar-head button`
       lands in `shared.css`, `.panel-head h2` lands in `shared.css`
       -> verify/checks/stylesheet_partition.py
-- [ ] rule2 still passes: no selector appears in more than one of
+- [x] rule2 still passes: no selector appears in more than one of
       `shared.css` / `creation.css` / inline
       -> verify/checks/stylesheet_partition.py
 - [ ] `rule7 (coverage)` exists in `stylesheet_partition.py`, is fail-closed,
@@ -113,10 +118,10 @@ opens.
       demonstrated, not asserted  -> verify/checks/stylesheet_partition.py
 - [ ] `rule7` covers ids as well as classes (F2), demonstrated the same way
       -> verify/checks/stylesheet_partition.py
-- [ ] `static/shared.css` and `static/creation.css` byte-match their
+- [x] `static/shared.css` and `static/creation.css` byte-match their
       `frontend/public/` sources (rule6 unbroken)
       -> verify/checks/stylesheet_partition.py
-- [ ] `npm run build` output is fresh; manifest hash matches
+- [x] `npm run build` output is fresh; manifest hash matches
       -> verify/checks/frontend_build_fresh.py
 - [ ] No file under `src/world_engine/` outside
       `cockpit/index.html` and `cockpit/static/` is modified
