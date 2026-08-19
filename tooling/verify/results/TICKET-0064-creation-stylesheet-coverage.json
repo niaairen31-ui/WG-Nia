@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0064-creation-stylesheet-coverage",
+  "when": "2026-08-19T17:00:06.437837+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "stylesheet_partition.py",
+      "status": "PASS",
+      "msg": "PASS: stylesheet_partition \u00e2\u20ac\u201d 307 top-level selector(s) across shared.css/creation.css/inline, zero duplicates; rule7 scanned 81 frontend/src file(s), 109 applied class name(s), 100 applied id name(s), 83 inline selector name(s), zero stranded"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u00e2\u20ac\u201d 85 source file(s), 1 output asset(s), manifest hash matches"
+    }
+  ]
+}

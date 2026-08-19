@@ -147,3 +147,28 @@ sub-panes (935-938) · Play spatiale (940-947) · Proximity affordance
   ticket keeps inline in `cockpit/index.html`. Two independent
   implementations of one visual idea; not this ticket's job to reconcile
   (Scope OUT: no consolidation of near-duplicates).
+
+## Correction (TICKET-0064)
+
+The `→ stays inline` classification of Two-column layout, Sidebar, Right
+column, Transcript panel and App views above was correct when measured
+against the tree at the time of this RECON. It was invalidated by
+`3fa8844` ("TICKET-0059 chrome inversion", BRIEF-0059-l commit 1), which
+created `frontend/src/creation/Creation.svelte` applying exactly those
+class names -- inside the same TICKET-0059 merge train this RECON's own
+ticket (TICKET-0063) landed alongside. Ten of those "stays inline"
+selectors were in fact stranded (unreachable from the Svelte shell) by
+the time `main` next moved; TICKET-0064 relocates them and adds
+`stylesheet_partition.py`'s rule7 (coverage) so a future reclassification
+of this kind fails the build instead of waiting for the next manual
+audit. Full account: `TICKET-0064-creation-stylesheet-coverage.md`.
+
+This RECON's own note above -- "`Header.svelte` duplicates `.local-badge`
+under its own scoped styling ... two independent implementations, not
+this ticket's job to reconcile" -- turned out to be exactly right and
+load-bearing: rule7's first draft treated that duplication as a false
+positive until its formula was corrected to exclude a selector covered
+by the applying component's own scoped `<style>` block (SCOPED(F) in
+`stylesheet_partition.py`'s rule7 docstring). This RECON flagged the
+duplication; TICKET-0064 is where it became a structural exclusion
+rather than a report-only note.

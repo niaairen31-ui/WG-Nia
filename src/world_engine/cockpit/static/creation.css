@@ -295,6 +295,27 @@ input.notes::placeholder { color: var(--muted); }
 }
 .row-card-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
+/* ── Creation two-column layout (TICKET-0064; zero legacy consumers) ─────── */
+.layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  overflow: hidden;
+}
+.sidebar {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.right-col {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 /* ── Création sub-tab bar ────────────────────────────────────────────────── */
 .creation-sub-tab-bar {
   flex-shrink: 0; background: var(--panel); border-bottom: 1px solid var(--border);

@@ -170,3 +170,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 11293 | DOORS EDITOR EFFECT CYCLE — pure derivations are $derived, not $state (BRIEF-0062-a, no schema change) | BRIEF-0062-a |  |
 | 11357 | COCKPIT STYLESHEET PARTITION — one shared sheet, two documents (BRIEF-0063-a, no schema change) | BRIEF-0063-a |  |
 | 11437 | TICKET-0059 DOCTRINE SEAL — bridge-reach, LocationTree, Modal, effect-cycle, three-surface census (BRIEF-0059-m, no schema change) | BRIEF-0059-m |  |
+| 11533 | STYLESHEET COVERAGE — disjointness proves no overlap, not that Creation is reachable (BRIEF-0064-a, no schema change) | BRIEF-0064-a |  |
