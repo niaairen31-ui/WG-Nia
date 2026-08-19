@@ -2,7 +2,7 @@
 id: TICKET-0064
 title: Creation stylesheet coverage — stranded selectors and the missing partition rule
 type: bug
-status: escalated
+status: exec
 created: 2026-08-19
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
@@ -113,21 +113,42 @@ opens.
 - [x] rule2 still passes: no selector appears in more than one of
       `shared.css` / `creation.css` / inline
       -> verify/checks/stylesheet_partition.py
-- [ ] `rule7 (coverage)` exists in `stylesheet_partition.py`, is fail-closed,
+- [x] `rule7 (coverage)` exists in `stylesheet_partition.py`, is fail-closed,
       and is vacuous-proof: an empty extraction, a missing `frontend/src`, or
       an unparseable sheet FAILS rather than passing silently
       -> verify/checks/stylesheet_partition.py
-- [ ] `rule7` fails on a deliberately reintroduced stranding (one moved
+      (amended per `QUESTION-TICKET-0064.md`'s follow-up / `BRIEF-0064-a`
+      Amendment 2: `STRANDED(F) = APPLIED(F) ∩ INLINE − REACHABLE −
+      SCOPED(F)`, REACHABLE/SCOPED strict-base-rule matching, SCOPED
+      per-file never unioned — a missing term in the original
+      `APPLIED ∩ INLINE` formula, not an exemption)
+- [x] `rule7` fails on a deliberately reintroduced stranding (one moved
       selector returned to the inline block) and passes once reverted —
       demonstrated, not asserted  -> verify/checks/stylesheet_partition.py
-- [ ] `rule7` covers ids as well as classes (F2), demonstrated the same way
+      (`.right-col` removed from `creation.css`, added to inline: rule7
+      FAILs naming `right-col` + `Creation.svelte`; reverted, rule7
+      passes)
+- [x] `rule7` covers ids as well as classes (F2), demonstrated the same way
       -> verify/checks/stylesheet_partition.py
+      (`#creation-shell-title` added to inline, applied by
+      `Creation.svelte`, defined nowhere else: rule7 FAILs naming the id
+      while rule2 passes; reverted)
+- [x] `rule7`'s vacuity guards fire rather than pass silently (one shown,
+      per BRIEF-0064-a's own scoping of that requirement)
+      -> verify/checks/stylesheet_partition.py
+      (`frontend/src` pointed at a non-existent path: rule7 FAILs "not a
+      directory" rather than passing; reverted)
+- [x] `rule7`'s REACHABLE/SCOPED matching is strict, not loose (Nia's
+      Decision 1 correction) -> verify/checks/stylesheet_partition.py
+      (`shared.css`'s base `.btn-send` rule temporarily weakened to
+      `.some-parent .btn-send`: rule7 FAILs naming `btn-send` — a loose
+      substring match would have wrongly PASSed; reverted)
 - [x] `static/shared.css` and `static/creation.css` byte-match their
       `frontend/public/` sources (rule6 unbroken)
       -> verify/checks/stylesheet_partition.py
 - [x] `npm run build` output is fresh; manifest hash matches
       -> verify/checks/frontend_build_fresh.py
-- [ ] No file under `src/world_engine/` outside
+- [x] No file under `src/world_engine/` outside
       `cockpit/index.html` and `cockpit/static/` is modified
       -> git diff review at close
 - [ ] Full verify suite green  ->  G1 gate

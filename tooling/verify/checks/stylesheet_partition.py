@@ -11,7 +11,7 @@ inline <style> (Play + legacy-document-only chrome) -- and makes cascade
 order moot rather than reasoned about: if no selector appears in more than
 one destination, load order cannot decide a conflict.
 
-Six rules, each named in its own failure message:
+Seven rules, each named in its own failure message:
 
   rule1 (scan is real)         -- vacuous-proof: both sheets exist and are
                                    non-empty, the inline <style> block
@@ -40,6 +40,60 @@ Six rules, each named in its own failure message:
                                    normalises is fail-open, and
                                    .gitattributes already governs EOLs
                                    here.
+  rule7 (coverage)               -- disjointness (rule2) proves the three
+                                   sheets never overlap; it never proves
+                                   Creation actually RECEIVES its visual
+                                   layer (TICKET-0064). rule7 closes that
+                                   gap. Per applying file F:
+
+                                       STRANDED(F) = APPLIED(F) ∩ INLINE
+                                                      − REACHABLE − SCOPED(F)
+                                       REACHABLE = base rules in shared.css
+                                                   ∪ creation.css ∪ the
+                                                   built CSS bundle
+                                       SCOPED(F) = base rules in F's own
+                                                   <style> block
+
+                                   APPLIED(F) is literal class="..."/
+                                   id="..." markup in one frontend/src
+                                   file; INLINE is loose (any class/id
+                                   name appearing anywhere in an inline
+                                   selector, descendant position
+                                   included). REACHABLE and SCOPED are
+                                   STRICT: a selector counts only when its
+                                   whole text is `.N` with optional
+                                   pseudo-classes, pseudo-elements or
+                                   self-compounds (`.N`, `.N:hover`,
+                                   `.N.active`, `.N::before`) -- a
+                                   descendant/compound selector like
+                                   `.parent .N` is a contextual override
+                                   and proves nothing about N's base
+                                   styling. SCOPED is per-file and never
+                                   unioned across components: Svelte scopes
+                                   component <style> blocks, so one
+                                   component's own rule for `.N` does not
+                                   cover a same-named `.N` applied by a
+                                   different component. Loose reachability
+                                   was tried and rejected: it let
+                                   `.lieux-graph-head .btn-send` in
+                                   creation.css mask a genuine, 24-file
+                                   stranding of `.btn-send`'s base rule --
+                                   the exact fail-open this ticket exists
+                                   to close, reproduced inside the fix.
+                                   Class names and id names are two
+                                   disjoint namespaces throughout -- never
+                                   unioned, so a class and an id sharing a
+                                   literal name can never cross-trigger.
+                                   This is computed, not enumerated: no
+                                   baseline, no allow-list, no annotation.
+                                   rule7 is directional -- it covers
+                                   frontend/src/** against the
+                                   Svelte-reachable sheets only. The mirror
+                                   direction (the legacy document's own
+                                   markup against shared.css plus its
+                                   inline block) is unguarded until
+                                   TICKET-0060 migrates Observation out of
+                                   the legacy document.
 
 No DB, stdlib only, same FAILURES/_report_and_exit/ROOT idiom as
 legacy_call.py.
@@ -60,11 +114,24 @@ STATIC_DIR = ROOT / "src" / "world_engine" / "cockpit" / "static"
 SHARED_STATIC = STATIC_DIR / "shared.css"
 CREATION_STATIC = STATIC_DIR / "creation.css"
 REGISTRY_FILE = ROOT / "frontend" / "src" / "legacy" / "registry.js"
+FRONTEND_SRC = ROOT / "frontend" / "src"
 
 SHARED_LINK = '<link rel="stylesheet" href="/static/shared.css">'
 CREATION_LINK = '<link rel="stylesheet" href="/static/creation.css">'
 STYLE_BLOCK_RE = re.compile(r"<style>(.*?)</style>", re.DOTALL)
 MOUNTS_CREATION_RE = re.compile(r"^\s*creation:\s*Object\.freeze\(", re.MULTILINE)
+
+# rule7 (coverage) -- see module docstring.
+APPLIED_ATTR_RE = re.compile(r'(?<![\w-])(class|id)="([^"]*)"')
+EXPR_RE = re.compile(r"\{[^{}]*\}")
+TOKEN_RE = re.compile(r"^[A-Za-z_][\w-]*$")
+SELECTOR_TOKEN_RE = re.compile(r"[.#][A-Za-z_][\w-]*")
+# A strict base rule: `.N`/`#N` plus only pseudo-classes, pseudo-elements
+# or self-compound classes -- no combinator, no descendant, no tag prefix.
+BASE_RULE_RE = re.compile(
+    r"^([.#])([A-Za-z_][\w-]*)"
+    r"(?:(?::[\w-]+(?:\([^)]*\))?)|(?:::[\w-]+)|(?:\.[\w-]+))*$"
+)
 
 FAILURES: list[str] = []
 
@@ -80,7 +147,10 @@ def _report_and_exit(counts: dict | None = None) -> None:
         sys.exit(1)
     print(
         f"PASS: stylesheet_partition — {counts['selectors']} top-level selector(s) "
-        f"across shared.css/creation.css/inline, zero duplicates"
+        f"across shared.css/creation.css/inline, zero duplicates; rule7 scanned "
+        f"{counts['files']} frontend/src file(s), {counts['applied_classes']} applied "
+        f"class name(s), {counts['applied_ids']} applied id name(s), "
+        f"{counts['inline_selectors']} inline selector name(s), zero stranded"
     )
     sys.exit(0)
 
@@ -280,6 +350,196 @@ def _check_rule6() -> None:
             )
 
 
+def _tokenize_attr_value(value: str) -> list[str]:
+    """Applies BRIEF-0064-a Sec2.2's adjacency rule to a literal
+    class="..."/id="..." attribute value: expressions {...} are removed,
+    the surviving literal runs are split on whitespace, and a token fused
+    (no intervening whitespace) to a removed expression is discarded."""
+    expr_spans = [(m.start(), m.end()) for m in EXPR_RE.finditer(value)]
+    runs: list[str] = []
+    cursor = 0
+    for start, end in expr_spans:
+        runs.append(value[cursor:start])
+        cursor = end
+    runs.append(value[cursor:])
+
+    tokens: list[str] = []
+    n_runs = len(runs)
+    for i, run in enumerate(runs):
+        toks = run.split()
+        if not toks:
+            continue
+        is_first_run = i == 0
+        is_last_run = i == n_runs - 1
+        if not is_first_run and not run[0].isspace():
+            toks = toks[1:]
+        if toks and not is_last_run and not run[-1].isspace():
+            toks = toks[:-1]
+        tokens.extend(toks)
+    return [t for t in tokens if TOKEN_RE.match(t)]
+
+
+def _scan_frontend_src() -> tuple[dict[str, list[str]], dict[str, list[str]], int]:
+    """Applied class/id names under frontend/src/** (BRIEF-0064-a Sec2.2).
+    Returns (applied_classes, applied_ids, files_scanned), each dict
+    mapping a name to the repo-relative files that apply it."""
+    applied_classes: dict[str, list[str]] = {}
+    applied_ids: dict[str, list[str]] = {}
+    if not FRONTEND_SRC.is_dir():
+        return applied_classes, applied_ids, 0
+    files = sorted(
+        p for p in FRONTEND_SRC.rglob("*")
+        if p.is_file() and p.suffix in (".svelte", ".js")
+    )
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        rel = str(path.relative_to(ROOT)).replace("\\", "/")
+        for attr_name, value in APPLIED_ATTR_RE.findall(text):
+            target = applied_classes if attr_name == "class" else applied_ids
+            for name in _tokenize_attr_value(value):
+                files_for_name = target.setdefault(name, [])
+                if rel not in files_for_name:  # dedupe: distinct files, not occurrences
+                    files_for_name.append(rel)
+    return applied_classes, applied_ids, len(files)
+
+
+def _inline_class_and_id_names(sources: dict[str, list[str]]) -> tuple[set[str], set[str]]:
+    """Every class/id name appearing anywhere in a selector of
+    cockpit/index.html's inline <style> block (BRIEF-0064-a Sec2.3),
+    including in descendant and compound selectors. Loose by design --
+    this is the "reachable only through the inline block" candidate set,
+    narrowed to genuine strandings by REACHABLE/SCOPED below."""
+    classes: set[str] = set()
+    ids: set[str] = set()
+    for sel in sources.get("cockpit/index.html (inline)", []):
+        for m in SELECTOR_TOKEN_RE.finditer(sel):
+            (classes if m.group(0)[0] == "." else ids).add(m.group(0)[1:])
+    return classes, ids
+
+
+def _base_rule_names(selectors: list[str]) -> tuple[set[str], set[str]]:
+    """Strict base-rule names (Nia's Decision 1 correction, D-0064-2): a
+    selector counts only when its whole text is `.N`/`#N` with optional
+    trailing pseudo-classes, pseudo-elements or self-compound classes --
+    `.N`, `.N:hover`, `.N.active`, `.N::before`. A descendant/compound
+    selector like `.parent .N` is a contextual override, not a base rule,
+    and contributes nothing."""
+    classes: set[str] = set()
+    ids: set[str] = set()
+    for sel in selectors:
+        m = BASE_RULE_RE.match(sel.strip())
+        if not m:
+            continue
+        (classes if m.group(1) == "." else ids).add(m.group(2))
+    return classes, ids
+
+
+def _reachable_names() -> tuple[set[str], set[str]]:
+    """REACHABLE: strict base rules in shared.css ∪ creation.css ∪ the
+    built CSS bundle (global, unioned -- these are genuinely reachable
+    from anywhere). A Svelte-scoped compiled rule always carries its
+    per-component hash suffix (e.g. `.mode-tab.svelte-13t3afu`), which
+    fails the strict base-rule match, so scoped component output never
+    leaks into this global set -- only true `:global(...)` rules can."""
+    classes: set[str] = set()
+    ids: set[str] = set()
+    paths = [SHARED_SRC, CREATION_SRC]
+    if STATIC_DIR.is_dir():
+        paths.extend(sorted((STATIC_DIR / "assets").glob("*.css")))
+    for path in paths:
+        if not path.is_file():
+            continue
+        c, i = _base_rule_names(_top_level_selectors(path.read_text(encoding="utf-8")))
+        classes |= c
+        ids |= i
+    return classes, ids
+
+
+def _scoped_names_for_file(path: Path) -> tuple[set[str], set[str]]:
+    """SCOPED(F): strict base rules in F's own <style> block. Per-file,
+    never unioned -- Svelte scopes component styles, so one component's
+    rule for `.N` does not cover a same-named `.N` applied elsewhere."""
+    if path.suffix != ".svelte" or not path.is_file():
+        return set(), set()
+    m = STYLE_BLOCK_RE.search(path.read_text(encoding="utf-8"))
+    if not m:
+        return set(), set()
+    return _base_rule_names(_top_level_selectors(m.group(1)))
+
+
+def _stranded_names_by_kind(
+    applied: dict[str, list[str]], inline: set[str], reachable: set[str], kind: str
+) -> dict[str, list[str]]:
+    """Per BRIEF-0064-a's corrected rule7: for each candidate name (applied
+    under frontend/src, present in the inline block, not globally
+    REACHABLE), keep only the applying files not covered by their own
+    SCOPED(F) -- STRANDED(F) = APPLIED(F) ∩ INLINE − REACHABLE − SCOPED(F).
+    `kind` selects the class or id half of SCOPED(F)'s namespace pair."""
+    scoped_index = 0 if kind == "class" else 1
+    stranded: dict[str, list[str]] = {}
+    for name in sorted((set(applied) & inline) - reachable):
+        files = [
+            f for f in applied[name]
+            if name not in _scoped_names_for_file(ROOT / f)[scoped_index]
+        ]
+        if files:
+            stranded[name] = files
+    return stranded
+
+
+def _check_rule7(sources: dict[str, list[str]]) -> dict[str, int] | None:
+    """Coverage (corrected per Nia's Decision 1, D-0064-2): STRANDED(F) =
+    APPLIED(F) ∩ INLINE − REACHABLE − SCOPED(F), computed separately for
+    the class namespace and the id namespace (F2 -- never unioned). Five
+    independent vacuity guards -- none may inherit its liveness from
+    rule1's ordering."""
+    if not FRONTEND_SRC.is_dir():
+        fail(f"rule7: vacuous scan -- {FRONTEND_SRC} is not a directory")
+        return None
+    applied_classes, applied_ids, n_files = _scan_frontend_src()
+    if n_files == 0:
+        fail(f"rule7: vacuous scan -- zero .svelte/.js files found under {FRONTEND_SRC}")
+        return None
+    if not applied_classes:
+        fail("rule7: vacuous scan -- zero applied class names extracted from frontend/src")
+        return None
+    if not applied_ids:
+        fail("rule7: vacuous scan -- zero applied id names extracted from frontend/src")
+        return None
+
+    inline_classes, inline_ids = _inline_class_and_id_names(sources)
+    if not inline_classes and not inline_ids:
+        fail(
+            "rule7: vacuous scan -- zero selectors parsed from cockpit/index.html's "
+            "inline <style> block"
+        )
+        return None
+
+    reachable_classes, reachable_ids = _reachable_names()
+    stranded_classes = _stranded_names_by_kind(applied_classes, inline_classes, reachable_classes, kind="class")
+    stranded_ids = _stranded_names_by_kind(applied_ids, inline_ids, reachable_ids, kind="id")
+
+    for name, files in stranded_classes.items():
+        cited = ", ".join(files[:3])
+        fail(
+            f"rule7: class {name!r} is stranded -- applied under frontend/src ({cited}) "
+            "but reachable only via cockpit/index.html's inline <style>"
+        )
+    for name, files in stranded_ids.items():
+        cited = ", ".join(files[:3])
+        fail(
+            f"rule7: id {name!r} is stranded -- applied under frontend/src ({cited}) "
+            "but reachable only via cockpit/index.html's inline <style>"
+        )
+
+    return {
+        "files": n_files,
+        "applied_classes": len(applied_classes),
+        "applied_ids": len(applied_ids),
+        "inline_selectors": len(inline_classes) + len(inline_ids),
+    }
+
+
 def main() -> None:
     sources = _check_rule1_and_collect()
     if sources is None:
@@ -291,8 +551,12 @@ def main() -> None:
     _check_rule4()
     _check_rule5()
     _check_rule6()
+    rule7_counts = _check_rule7(sources)
 
-    _report_and_exit({"selectors": total})
+    counts = {"selectors": total}
+    if rule7_counts:
+        counts.update(rule7_counts)
+    _report_and_exit(counts)
 
 
 if __name__ == "__main__":

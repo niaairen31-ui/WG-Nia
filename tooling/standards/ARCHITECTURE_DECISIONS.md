@@ -11530,4 +11530,95 @@ happens to be about.
 
 ---
 
+## STYLESHEET COVERAGE — disjointness proves no overlap, not that Creation is reachable (BRIEF-0064-a, no schema change)
+
+`stylesheet_partition.py`'s original six rules (TICKET-0063) proved the
+three destination sheets never overlap — cascade order can never decide a
+conflict. They never proved the inverse: that every selector a Creation
+island actually applies resolves *somewhere* the Svelte shell loads. Ten
+selectors (`.app-view`, `.panel-head`, `.layout`, `.sidebar`,
+`.sidebar-head`, `.conv-list`, `.right-col`, `.transcript-panel`,
+`.btn-end`, `.analyze-status`) were stranded in `cockpit/index.html`'s
+inline `<style>` by the time `Creation.svelte` existed to apply them —
+`3fa8844` created it inside the same TICKET-0059 merge train TICKET-0063
+landed alongside, invalidating RECON-0063-a's "stays inline" call for
+that group the same day it was made (`RECON-0063-a-selector-audit.md`,
+`## Correction (TICKET-0064)`). All nine of the original rules stayed
+green throughout — disjointness and coverage are independent guarantees,
+and a check that proves one says nothing about the other.
+
+**rule7 (coverage), per applying file F:**
+
+```
+STRANDED(F) = APPLIED(F) ∩ INLINE − REACHABLE − SCOPED(F)
+REACHABLE   = strict base rules in shared.css ∪ creation.css
+              ∪ the built CSS bundle
+SCOPED(F)   = strict base rules in F's own <style> block
+```
+
+`APPLIED(F)` is literal `class="..."`/`id="..."` markup in one
+`frontend/src` file; `INLINE` is loose — any class/id name appearing
+anywhere in an inline selector, descendant position included, since a
+name buried in a compound inline selector is exactly as unreachable as
+one at top level. `REACHABLE` and `SCOPED` are the opposite: STRICT. A
+selector counts as a base rule only when its whole text is `.N` (or `#N`)
+with optional pseudo-classes, pseudo-elements or self-compound classes —
+`.N`, `.N:hover`, `.N.active`, `.N::before`. A descendant or compound
+selector like `.parent .N` is a contextual override and proves nothing
+about `N`'s base styling.
+
+**The strict/loose asymmetry is not a stylistic choice — a loose
+`REACHABLE` reproduces the exact bug this check exists to close, inside
+the check itself.** rule7's first draft (BRIEF-0064-a's original
+specification) had no `REACHABLE`/`SCOPED` terms at all — `STRANDED =
+APPLIED ∩ INLINE`, full stop. Run against the real tree, that draft
+missed a live, 24-file stranding of `.btn-send`'s base rule (Creation's
+primary-action button style) entirely, because `creation.css` already
+carried an unrelated compound override, `.lieux-graph-head .btn-send`,
+and a loose "does this bare name appear anywhere in shared.css/
+creation.css" test reads that compound rule as coverage. It is not: it
+only styles `.btn-send` inside a `.lieux-graph-head` ancestor, and every
+one of the 24 consumers needed the base rule that did not exist outside
+the inline block. Strict matching is what makes `.lieux-graph-head
+.btn-send` correctly NOT count, and is what caught the stranding rule7
+was built to catch. `.btn-send` is the worked example proving the
+distinction is load-bearing, not defensive over-engineering.
+
+**`SCOPED(F)` is the fix for a false positive rule7's first draft also
+produced, and RECON-0063-a already told this project why.** RECON-0063-a
+flagged, report-only: "`Header.svelte` duplicates `.local-badge` under
+its own scoped styling with different (hardcoded) colors than the shared
+`.local-badge`... two independent implementations of one visual idea."
+TICKET-0063's own decision record above says the same about `.mode-tab`
+and Mode tabs. rule7's first draft, having no notion of a component's own
+scoped `<style>`, flagged `Header.svelte`'s `.local-badge`, `.mode-tab`,
+`.mode-tabs`, `.spacer` and `.sub` as stranded: all five are genuinely
+applied under `frontend/src` and genuinely present in `cockpit/index.html`'s
+inline block (which still needs them — its own, JS-suppressed legacy
+header markup still carries those classes). But Svelte compiles
+`Header.svelte`'s own `<style>` block into a per-component-scoped rule
+set, so those elements are correctly styled independent of the inline
+copy entirely. `SCOPED(F)` closes this without an exemption list: it is
+computed per file, from that file's own source, and — critically — never
+unioned across components. One component's own rule for `.N` must not be
+allowed to cover a same-named `.N` applied by a *different* component,
+or rule7 would silently stop catching the exact stranding class this
+ticket exists to close.
+
+**Class names and id names are two disjoint namespaces throughout rule7
+— never unioned.** `btn-send` exists in this tree as both a class
+(Creation's buttons) and an id (`id="btn-send"`, the legacy Play input's
+send button, `cockpit/index.html`). Nothing cross-triggers today, but a
+version of rule7 that merged the two namespaces would eventually produce
+a false positive or a false negative the day one namespace's `btn-send`
+diverges from the other's reachability.
+
+**rule7 is directional, by named deferral.** It covers `frontend/src/**`
+against the Svelte-reachable sheets only. The mirror direction — the
+legacy document's own markup against `shared.css` plus its remaining
+inline block — is unguarded. Reactivate when TICKET-0060 migrates
+Observation out of the legacy document.
+
+---
+
 *Co-built with Claude, June 2026.*

@@ -180,3 +180,22 @@ surface area than the ticket's whole known scope (ten selectors across
 
 ## Response (follow-up)
 
+Both findings correct, both are defects in BRIEF-0064-a, not in the
+implementation. Resolution: **Decision 1 — a missing term, not an
+exclusion** (`STRANDED(F) = APPLIED(F) ∩ INLINE − REACHABLE − SCOPED(F)`,
+`REACHABLE`/`SCOPED` strict base-rule matching, `SCOPED` per-file never
+unioned, class/id namespaces kept separate). **Decision 2 — `.btn-send`
+is in scope for TICKET-0064**, routed to `shared.css`'s `Buttons` banner
+per A1 applied to its six measured Play consumers; `creation.css`'s
+`.lieux-graph-head .btn-send` override untouched (rule2 confirmed to key
+on full selector text, not bare names). Commits resequenced: commit 2
+relocates `.btn-send`; commit 3 lands the corrected rule7 plus a third
+negative demonstration proving strictness (weakening `shared.css`'s base
+`.btn-send` rule to a compound must make rule7 FAIL). Added STOP
+condition (satisfied): rule7 against the branch tip, pre-move, reported
+exactly one stranded name, `btn-send`, across 24 files. Full resolution
+text, including the corrected formula's derivation and the worked
+example, recorded in `BRIEF-0064-a`'s own `## Amendment 2` (appended, the
+original brief text untouched) and `ARCHITECTURE_DECISIONS.md`'s
+"STYLESHEET COVERAGE" entry. Status reverts to `exec`; brief-exec
+resumes.
