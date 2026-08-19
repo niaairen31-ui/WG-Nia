@@ -2,7 +2,7 @@
 id: TICKET-0064
 title: Creation stylesheet coverage — stranded selectors and the missing partition rule
 type: bug
-status: exec
+status: live-gate
 created: 2026-08-19
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
@@ -151,7 +151,7 @@ opens.
 - [x] No file under `src/world_engine/` outside
       `cockpit/index.html` and `cockpit/static/` is modified
       -> git diff review at close
-- [ ] Full verify suite green  ->  G1 gate
+- [x] Full verify suite green  ->  G1 gate
 
 ### Live  ->  human gate (Nia)
 
