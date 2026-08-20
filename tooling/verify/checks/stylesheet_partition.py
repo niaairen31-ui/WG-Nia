@@ -88,12 +88,39 @@ Seven rules, each named in its own failure message:
                                    baseline, no allow-list, no annotation.
                                    rule7 is directional -- it covers
                                    frontend/src/** against the
-                                   Svelte-reachable sheets only. The mirror
-                                   direction (the legacy document's own
-                                   markup against shared.css plus its
-                                   inline block) is unguarded until
-                                   TICKET-0060 migrates Observation out of
-                                   the legacy document.
+                                   Svelte-reachable sheets only.
+
+  rule7 (legacy)                 -- the mirror direction (TICKET-0060,
+                                   BRIEF-0060-c, decision C3): cockpit/
+                                   index.html's own markup against a
+                                   REACHABLE scoped to that document, not
+                                   global.
+
+                                       STRANDED(legacy) = APPLIED(legacy)
+                                                    ∩ (creation.css ∪ bundle)
+                                                    − shared.css − inline
+
+                                   APPLIED(legacy) is literal class="..."/
+                                   id="..." markup anywhere in cockpit/
+                                   index.html -- static markup and the
+                                   <script> block's template literals
+                                   alike -- excluding the <style> block
+                                   itself. REACHABLE(legacy) is strict base
+                                   rules in shared.css and the document's
+                                   own inline <style> block only; unioning
+                                   creation.css or the built bundle in here
+                                   would be the exact fail-open that let
+                                   .r-warn/.r-err sit unreachable at nine
+                                   call sites through the whole of
+                                   TICKET-0059. The intersection term
+                                   against creation.css/bundle keeps the
+                                   rule from flagging every unstyled
+                                   semantic class the document applies --
+                                   it says precisely "this name is styled
+                                   somewhere this document cannot see".
+                                   Retires (as a fail-closed alarm, not a
+                                   note) once LEGACY_MOUNTS is empty --
+                                   TICKET-0061.
 
 No DB, stdlib only, same FAILURES/_report_and_exit/ROOT idiom as
 legacy_call.py.
@@ -103,6 +130,8 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+
+import legacy_mount
 
 ROOT = Path(__file__).resolve().parents[3]
 FRONTEND_PUBLIC = ROOT / "frontend" / "public"
@@ -128,9 +157,24 @@ TOKEN_RE = re.compile(r"^[A-Za-z_][\w-]*$")
 SELECTOR_TOKEN_RE = re.compile(r"[.#][A-Za-z_][\w-]*")
 # A strict base rule: `.N`/`#N` plus only pseudo-classes, pseudo-elements
 # or self-compound classes -- no combinator, no descendant, no tag prefix.
+# TICKET-0060 (BRIEF-0060-e, J1). The self-compound branch used to accept
+# a Svelte scope hash: `.spacer.svelte-13t3afu` matched and yielded
+# `spacer`, so every component-scoped rule leaked into the GLOBAL
+# reachable set that _reachable_names() builds. That function's docstring
+# already asserted the opposite -- the code contradicted its own
+# documentation, and the direction of the error was fail-open: names were
+# granted reachability they never had. Measured on main before this fix,
+# the built bundle contributed 11 class names to REACHABLE, all 11 via a
+# hashed selector and none legitimately, so the bundle term supplied
+# nothing but over-grants. The lookahead is deliberately narrow: it
+# refuses Svelte's scope suffix and nothing else. Whether a genuine
+# compound like `.a.b` should grant a base rule for `a` at all is a
+# separate question with unmeasured blast radius -- not reopened here.
+# Defect originates in TICKET-0064's rule7; repaired here because
+# BRIEF-0060-c cannot land while it stands.
 BASE_RULE_RE = re.compile(
     r"^([.#])([A-Za-z_][\w-]*)"
-    r"(?:(?::[\w-]+(?:\([^)]*\))?)|(?:::[\w-]+)|(?:\.[\w-]+))*$"
+    r"(?:(?::[\w-]+(?:\([^)]*\))?)|(?:::[\w-]+)|(?:\.(?!svelte-)[\w-]+))*$"
 )
 
 FAILURES: list[str] = []
@@ -150,7 +194,12 @@ def _report_and_exit(counts: dict | None = None) -> None:
         f"across shared.css/creation.css/inline, zero duplicates; rule7 scanned "
         f"{counts['files']} frontend/src file(s), {counts['applied_classes']} applied "
         f"class name(s), {counts['applied_ids']} applied id name(s), "
-        f"{counts['inline_selectors']} inline selector name(s), zero stranded"
+        f"{counts['inline_selectors']} inline selector name(s), zero stranded; "
+        f"rule7 (legacy) scanned cockpit/index.html, {counts['legacy_applied_classes']} "
+        f"applied class name(s), {counts['legacy_applied_ids']} applied id name(s), "
+        f"{len(counts['legacy_stranded_classes']) + len(counts['legacy_stranded_ids'])} stranded; "
+        f"STRANDED(legacy) classes={counts['legacy_stranded_classes']} "
+        f"ids={counts['legacy_stranded_ids']}"
     )
     sys.exit(0)
 
@@ -540,6 +589,145 @@ def _check_rule7(sources: dict[str, list[str]]) -> dict[str, int] | None:
     }
 
 
+def _scan_legacy_document() -> tuple[set[str], set[str], bool]:
+    """rule7 (legacy)'s APPLIED source (TICKET-0060, BRIEF-0060-c): literal
+    class="..."/id="..." markup anywhere in cockpit/index.html -- static
+    markup and the <script> block's template literals alike, both are real
+    applications. Reuses APPLIED_ATTR_RE and _tokenize_attr_value
+    unchanged. The <style> block itself is skipped: a selector is not an
+    application. Returns (applied_classes, applied_ids, ok); ok is False
+    on a missing or empty file -- never a silent empty-set success."""
+    if not COCKPIT_INDEX.is_file():
+        return set(), set(), False
+    html_text = COCKPIT_INDEX.read_text(encoding="utf-8")
+    if not html_text.strip():
+        return set(), set(), False
+    style_match = STYLE_BLOCK_RE.search(html_text)
+    scan_text = (
+        html_text[: style_match.start()] + html_text[style_match.end() :]
+        if style_match
+        else html_text
+    )
+    classes: set[str] = set()
+    ids: set[str] = set()
+    for attr_name, value in APPLIED_ATTR_RE.findall(scan_text):
+        target = classes if attr_name == "class" else ids
+        target.update(_tokenize_attr_value(value))
+    return classes, ids, True
+
+
+def _reachable_names_legacy(sources: dict[str, list[str]]) -> tuple[set[str], set[str]]:
+    # TICKET-0060 (BRIEF-0060-c, C3). REACHABLE is per-DOCUMENT, not
+    # global. cockpit/index.html links shared.css and nothing else --
+    # stylesheet_partition rule5 forbids it linking creation.css while
+    # LEGACY_MOUNTS lacks a `creation` entry, and it never loads the
+    # Svelte bundle. Unioning either in here would be exactly the
+    # fail-open that let .r-warn/.r-err sit unreachable at nine call
+    # sites through the whole of TICKET-0059 without this check speaking.
+    classes: set[str] = set()
+    ids: set[str] = set()
+    c, i = _base_rule_names(sources.get("shared.css", []))
+    classes |= c
+    ids |= i
+    c, i = _base_rule_names(sources.get("cockpit/index.html (inline)", []))
+    classes |= c
+    ids |= i
+    return classes, ids
+
+
+def _elsewhere_names_legacy() -> tuple[set[str], set[str]]:
+    """Strict base rules in creation.css ∪ the built CSS bundle -- the
+    "styled somewhere this document cannot see" half of STRANDED(legacy).
+    cockpit/index.html links neither."""
+    classes: set[str] = set()
+    ids: set[str] = set()
+    paths = [CREATION_SRC]
+    if STATIC_DIR.is_dir():
+        paths.extend(sorted((STATIC_DIR / "assets").glob("*.css")))
+    for path in paths:
+        if not path.is_file():
+            continue
+        c, i = _base_rule_names(_top_level_selectors(path.read_text(encoding="utf-8")))
+        classes |= c
+        ids |= i
+    return classes, ids
+
+
+def _legacy_mounts_count() -> int:
+    """Parses frontend/src/legacy/registry.js's LEGACY_MOUNTS entries,
+    reusing legacy_mount.py's own ENTRY_RE (a pure relocation-free reuse
+    via import -- no second parser). A missing registry counts as zero
+    entries: the retirement branch below fails closed on that, same as on
+    a genuinely emptied registry."""
+    if not REGISTRY_FILE.is_file():
+        return 0
+    return len(legacy_mount.ENTRY_RE.findall(REGISTRY_FILE.read_text(encoding="utf-8")))
+
+
+def _check_rule7_legacy(sources: dict[str, list[str]]) -> dict[str, int] | None:
+    """rule7 (legacy) -- see module docstring / BRIEF-0060-c. Coverage
+    mirrored onto cockpit/index.html: STRANDED(legacy) = APPLIED(legacy)
+    ∩ (creation.css ∪ built bundle) − shared.css − inline, computed
+    separately for the class namespace and the id namespace (F2 -- never
+    unioned), same discipline as the frontend/src half. Four independent
+    vacuity guards, none inheriting liveness from another, plus a
+    retirement branch that fails rather than skips."""
+    if _legacy_mounts_count() == 0:
+        # TICKET-0060 (BRIEF-0060-c, C3). The retirement condition, stated so
+        # a check can evaluate it rather than a person remember it. "Remove it
+        # once it serves nothing" is qualitative; "LEGACY_MOUNTS is empty" is
+        # not. TICKET-0061 empties that registry, and this rule fails loudly
+        # the moment it does -- a deferral whose reactivation condition is
+        # enforced by the same fail-closed machinery as the rule itself,
+        # never by a note someone has to find.
+        fail(
+            "rule7 (legacy): retirement condition met -- LEGACY_MOUNTS is empty, no "
+            "document applies these selectors any more. Delete the legacy half of rule7 "
+            "(TICKET-0060, decision C3) and this message with it."
+        )
+        return None
+
+    applied_classes, applied_ids, ok = _scan_legacy_document()
+    if not ok:
+        fail(f"rule7 (legacy): vacuous scan -- {COCKPIT_INDEX} is missing or empty")
+        return None
+    if not applied_classes:
+        fail("rule7 (legacy): vacuous scan -- zero applied class names extracted from cockpit/index.html")
+        return None
+    if not applied_ids:
+        fail("rule7 (legacy): vacuous scan -- zero applied id names extracted from cockpit/index.html")
+        return None
+
+    shared_classes, shared_ids = _base_rule_names(sources.get("shared.css", []))
+    if not shared_classes and not shared_ids:
+        fail("rule7 (legacy): vacuous scan -- zero base rules parsed from shared.css")
+        return None
+
+    reachable_classes, reachable_ids = _reachable_names_legacy(sources)
+    elsewhere_classes, elsewhere_ids = _elsewhere_names_legacy()
+
+    stranded_classes = sorted((applied_classes & elsewhere_classes) - reachable_classes)
+    stranded_ids = sorted((applied_ids & elsewhere_ids) - reachable_ids)
+
+    for name in stranded_classes:
+        fail(
+            f"rule7 (legacy): class {name!r} is stranded -- applied in cockpit/index.html "
+            "but its only rule lives in a sheet that document does not link"
+        )
+    for name in stranded_ids:
+        fail(
+            f"rule7 (legacy): id {name!r} is stranded -- applied in cockpit/index.html "
+            "but its only rule lives in a sheet that document does not link"
+        )
+
+    return {
+        "applied_classes": len(applied_classes),
+        "applied_ids": len(applied_ids),
+        "stranded_classes": stranded_classes,
+        "stranded_ids": stranded_ids,
+    }
+
+
 def main() -> None:
     sources = _check_rule1_and_collect()
     if sources is None:
@@ -552,10 +740,16 @@ def main() -> None:
     _check_rule5()
     _check_rule6()
     rule7_counts = _check_rule7(sources)
+    rule7_legacy_counts = _check_rule7_legacy(sources)
 
     counts = {"selectors": total}
     if rule7_counts:
         counts.update(rule7_counts)
+    if rule7_legacy_counts:
+        counts["legacy_applied_classes"] = rule7_legacy_counts["applied_classes"]
+        counts["legacy_applied_ids"] = rule7_legacy_counts["applied_ids"]
+        counts["legacy_stranded_classes"] = rule7_legacy_counts["stranded_classes"]
+        counts["legacy_stranded_ids"] = rule7_legacy_counts["stranded_ids"]
     _report_and_exit(counts)
 
 

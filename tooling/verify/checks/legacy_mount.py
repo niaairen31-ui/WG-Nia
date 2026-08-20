@@ -10,7 +10,11 @@ input is a FAILURE, never a trivially satisfied comparison):
   1. Registry parses, non-empty.
   2. Monotone shrink against tooling/verify/baselines/legacy_mounts.baseline.
   3. Every entry declares a well-formed `retiredBy` (`^TICKET-\\d{4}$`).
-  4. Every `showFn` exists as a top-level function in the legacy document.
+  4. Every `showFn` exists as a top-level function in the legacy document,
+     and its body's DOM access (`getElementById('{key}-view')`,
+     `'mode-tab-{key}'`) never names a surface key absent from the
+     registry (TICKET-0060, BRIEF-0060-b, I2 -- a retirement guard, see
+     that function's own docstring).
   5. Confinement: `contentWindow` / `legacy-frame` tokens occur only in
      legacy/bridge.js and LegacyFrame.svelte.
   6. Exactly one `src="/legacy"` assignment, zero `.src =` reassignments.
@@ -117,6 +121,23 @@ def _check_retired_by(entries: dict[str, dict[str, str]]) -> int:
     return count
 
 
+def _brace_match(text: str, brace_start: int) -> str:
+    """Brace-balanced text starting at `text[brace_start] == '{'`."""
+    depth = 0
+    for i in range(brace_start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[brace_start:i + 1]
+    return ""
+
+
+DOM_VIEW_RE = re.compile(r"getElementById\(\s*['\"]([\w-]+)-view['\"]\s*\)")
+DOM_TAB_RE = re.compile(r"['\"]mode-tab-([\w-]+)['\"]")
+
+
 def _check_show_fns(entries: dict[str, dict[str, str]]) -> int:
     if not LEGACY_INDEX.is_file():
         fail(f"{LEGACY_INDEX} does not exist")
@@ -125,10 +146,31 @@ def _check_show_fns(entries: dict[str, dict[str, str]]) -> int:
     count = 0
     for key, entry in entries.items():
         show_fn = entry["showFn"]
-        if not re.search(rf"^function {re.escape(show_fn)}\(", text, re.MULTILINE):
+        m = re.search(rf"^function {re.escape(show_fn)}\(", text, re.MULTILINE)
+        if not m:
             fail(f"legacy mount '{key}': showFn {show_fn!r} has no top-level function in {LEGACY_INDEX}")
             continue
         count += 1
+
+        # TICKET-0060 (BRIEF-0060-b, I2). Rule 4 asserted only that a showFn
+        # EXISTS. Retiring a surface leaves the surviving showFn calling
+        # getElementById on markup that has just been deleted -- a null
+        # dereference at the first surface switch, invisible to every other
+        # check. This is a guard on the RETIREMENT, not on check staleness: the
+        # TICKET-0059 lapse was a stale check over correct code, which is
+        # BRIEF-0060-d's corpus gate, not this rule.
+        brace_start = text.find("{", m.end() - 1)
+        body = _brace_match(text, brace_start) if brace_start != -1 else ""
+        if not body:
+            fail(f"legacy mount '{key}': showFn {show_fn!r} body could not be brace-matched")
+            continue
+        referenced_keys = {mm.group(1) for mm in DOM_VIEW_RE.finditer(body)}
+        referenced_keys |= {mm.group(1) for mm in DOM_TAB_RE.finditer(body)}
+        for ref_key in sorted(referenced_keys - entries.keys()):
+            fail(
+                f"legacy mount '{key}': showFn {show_fn!r} references the DOM of "
+                f"surface {ref_key!r}, which is absent from LEGACY_MOUNTS -- a retired surface's markup"
+            )
     return count
 
 

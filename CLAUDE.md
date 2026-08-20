@@ -15,7 +15,7 @@ and `world-engine-schema-changelog.md` — never here.
 - Python, FastAPI, SQLModel, SQLite (Supabase/PostgreSQL migration path
   preserved via the env-var DB URL).
 - Frontend: a built Svelte shell (`frontend/`) serves the cockpit at `/`.
-  Creation is partly Svelte islands mounted into the legacy document (`/legacy`, one governed iframe) through a single seam; Play and the remaining Creation tabs stay legacy until their own tickets. No new dependency without a decision.
+  Creation and Observation are shell-native Svelte components, mounted directly by `App.svelte`; Play alone stays legacy (`/legacy`, one governed iframe) until its own ticket (TICKET-0061). No new dependency without a decision.
 - Local models via Ollama; Claude API reserved for heavy lore-coherence work.
 - Runtime: Windows / PowerShell — `.venv\Scripts\Activate.ps1`,
   `$env:PYTHONPATH = "src"`.
@@ -411,7 +411,7 @@ WG-Nia/
 │       ├── app.py           # app factory + router mounting + fail-closed schema-version boot guard + link-batch retention purge (startup); routes/ holds the routers
 │       ├── play*.py         # say() decomposition: routing, physical branch, narration/initiative
 │       ├── crud/            # creator CRUD routes, split by domain (entities, relations, ...)
-│       ├── index.html       # legacy host for Play and Observation until TICKET-0060/0061 (TICKET-0059 retired Creation out of it); served at /legacy inside the shell's iframe
+│       ├── index.html       # legacy host for Play until TICKET-0061 (TICKET-0059 retired Creation, TICKET-0060 retired Observation); served at /legacy inside the shell's iframe
 │       └── static/          # committed built-frontend output (npm run build in frontend/); served at /static, boot-guarded
 ├── scripts/
 │   ├── init_db.py           # create tables + indexes (idempotent)
@@ -491,7 +491,7 @@ WG-Nia/
   committed output under `src/world_engine/cockpit/static/`. The output is
   versioned on purpose; rebuild and commit after any `frontend/` edit.
   Node is needed to BUILD only -- a prod launch requires none.
-- **Verify:** `python tooling/verify/run.py` (or `/verify`) runs every check under `tooling/verify/checks/`.
+- **Verify:** `python tooling/verify/run.py` (or `/verify`) runs every check under `tooling/verify/checks/`; `tooling/verify/checks/corpus_gate.py` additionally executes every check in that directory regardless of which ticket references it.
 
 ---
 

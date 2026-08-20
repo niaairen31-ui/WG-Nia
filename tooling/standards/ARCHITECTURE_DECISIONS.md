@@ -11819,4 +11819,295 @@ about an artifact's own internal correctness.
 
 ---
 
+## OBSERVATION SURFACE — shell-native migration (BRIEF-0060-a, BRIEF-0060-b, no schema change)
+
+Observation was the last Creation-era surface still rendered by the legacy
+document. BRIEF-0060-a repaired `observation_surface.py`'s Rule 1/Rule 2
+anchors against the post-TICKET-0059 tree (a two-view, not three-view,
+contract) before any migration began — a red test proving the repair holds
+on `main` as-is, so no fail-closed guard sat red across the commit
+boundary into the migration itself. BRIEF-0060-b then moved the surface
+out of the legacy document entirely (`frontend/src/observation/`, two
+files: `observation.svelte.js` for state/API calls, `Observation.svelte`
+for template + scoped style) and re-homed the check onto the result, in
+the same brief, for the same reason.
+
+**D1 — the two stranded CSS rules move into the component, not a global
+sheet.** `.r-warn`/`.r-err` lived only in `frontend/public/creation.css`;
+`cockpit/index.html` stopped linking that sheet the moment TICKET-0059
+retired the Creation mount (`stylesheet_partition.py` rule5 ties the
+link's lifetime to `LEGACY_MOUNTS.creation`), so every Observation error
+message and the no-NPC warning rendered uncoloured on `main` — a mirror-
+image of the TICKET-0064 coverage bug, one direction up. Both rules have
+zero consumers under `frontend/src` and are Observation-exclusive, so they
+land in `Observation.svelte`'s own scoped `<style>` block: no selector is
+added to the shared partition, and rule7's `SCOPED(F)` term covers them.
+A red test proved the honest gap this leaves: deleting the two scoped
+rules still leaves `stylesheet_partition.py` green, because rule7's
+`APPLIED(F)` domain scans `frontend/src/**` only — the legacy document's
+own markup (before this migration, the one place that applied these two
+classes) was never in scan domain. That direction is `BRIEF-0060-c`'s
+territory, not fixed here.
+
+**E1 — full Svelte templating, no `{@html}` anywhere in the surface.** The
+four legacy string renderers (`_obsRenderRunDetail`/`_obsRenderTranscript`/
+`_obsRenderIntents`/`_obsLoadProposals`'s render half, each building HTML
+via template literals and an `innerHTML` write) become real Svelte markup;
+every `${esc(...)}` disappears because Svelte interpolation escapes on its
+own. This is what makes D1 possible — Svelte's scoped-style compilation
+never reaches `{@html}`-injected content, so a raw-HTML escape hatch
+would have silently defeated the coloring fix. Enforced by
+`observation_surface.py`'s new Rule 8, a plain-text scan of
+`frontend/src/observation/**` for the literal directive.
+
+**F1 — the world-switch bug is fixed BY the migration, not beside it.**
+The legacy surface read a `WORLD_ID` global written once at document boot
+(`loadBootstrap()`) and never refreshed by `activateWorldCascade`
+(`creation/tabs.js`) on a Header world switch — so a run started after
+switching worlds mid-session was created, silently, in the previously
+active world, and its mutation proposals with it. `obsInitialized`
+compounded this as a one-shot latch: the location dropdown never reloaded
+either, so the stale world and the stale location list moved together,
+which is why the bug produced no visible mismatch. The port carries no
+local world cache at all: `startRun()` reads `serverState.worldId` at call
+time, and a single `$effect` on that same field drives `reloadForWorld()`
+(locations + run list reload, selection/run state reset) on every switch,
+mirroring `Creation.svelte`'s own boot-and-every-switch pattern. **F3**
+(the server-side half — `start_run` deriving the active world instead of
+trusting `body.world_id`) is a named deferral to a ticket opened after
+TICKET-0061: it is a backend write, an escalation under the frontend-only
+cross-cutting rule this ticket otherwise holds to, not a silent edit
+smuggled into a frontend migration brief.
+
+**H1 — two files, not three.** ≈428 lines across 18 functions
+(RECON-0060-a, PART B1/B2) fit comfortably under every module budget at
+one cut; the state/template split follows the `Creation.svelte`/`tabs.js`
+precedent rather than inventing a third shape. `observationState` is the
+one seam the component renders — an explicit, closed field list, not a
+free-form store — so a future change to what the surface tracks is a
+visible diff to that list, not a silent shape drift.
+
+**I2 — a retirement guard, explicitly not a staleness guard.**
+`legacy_mount.py` Rule 4 asserted only that a registry's `showFn` exists
+as a top-level function; it never asserted that function's BODY stays
+consistent with the registry as sibling surfaces retire. That gap is
+exactly how BRIEF-0060-a's finding (`showObservationView` still touching
+`creation-view`/`mode-tab-creation` after TICKET-0059 removed both) went
+undetected — `tooling/verify/run.py` only executes the checks a ticket's
+own Machine-checkable section names, and TICKET-0059's section never
+named `observation_surface.py`. Rule 4 now also scans each `showFn`'s
+body for DOM access (`getElementById('{key}-view')`, `'mode-tab-{key}'`)
+naming a surface key absent from `LEGACY_MOUNTS`, and fails closed if one
+is found — a null-dereference-at-first-switch defect the moment a sibling
+surface retires, invisible to every other check. This guards the
+RETIREMENT step itself; the TICKET-0059 lapse was a stale check over
+otherwise-correct code, a distinct failure mode that is `BRIEF-0060-d`'s
+corpus gate to close.
+
+**Environment-bearing checks stay a named gap.** RECON-0060-a's stdlib-only
+container could not evaluate `observation_socle`/`observation_runner`/
+`observation_metrics`/`json_ui_boundary`/`schema_*` — recorded as UNKNOWN,
+never promoted to PASS. `observation_surface.py`'s Rule 5
+(`json_ui_boundary` subprocess) is re-verified live in this brief's own
+execution environment, not merely inherited from the RECON's container.
+
+---
+
+## STYLESHEET PARTITION RULE7 FAIL-OPEN + ROW CONTAINERS UNSTRANDED (BRIEF-0060-e, no schema change)
+
+`BRIEF-0060-c`'s execution surfaced two pre-existing defects on `main`,
+both unrelated to Observation, that blocked its own commit. This brief
+cleared both so `-c` can resume.
+
+**J1 — `BASE_RULE_RE`'s fail-open, and its direction.** The self-compound
+branch of `stylesheet_partition.py`'s `BASE_RULE_RE`
+(`(?:\.[\w-]+)*` before this fix) accepted a Svelte-compiled scope hash
+as an ordinary compound class: `.spacer.svelte-13t3afu` matched and
+yielded `spacer`, so every component-scoped rule leaked into the GLOBAL
+`REACHABLE` set `_reachable_names()` builds — directly contradicting that
+function's own docstring, which already claimed a hashed selector "fails
+the strict base-rule match". Measured before the fix: the built bundle
+contributed 12 class names to `REACHABLE` (`brand`, `divider`,
+`legacy-slot`, `local-badge`, `mode-tab`, `mode-tabs`, `r-err`, `r-warn`,
+`refusal-band`, `shell-layout`, `spacer`, `sub`), all 12 via a hashed
+selector and none legitimately — the brief's own text, drafted against an
+earlier build of the bundle, cites 11; the twelfth (`r-err`/`r-warn`
+region aside) reflects one additional scoped rule the intervening
+Observation rebuild (BRIEF-0060-b commit 5) added before this fix landed,
+not a second defect. The error is directional: every one of these names
+was GRANTED reachability it never structurally had, which is fail-open,
+not fail-closed. A negative lookahead (`(?:\.(?!svelte-)[\w-]+)*`) refuses
+the scope-hash suffix specifically; after the fix the bundle's class
+contribution to `REACHABLE` is 0, verified by an in-process before/after
+regex transcript and an old-branch-restoration test, with
+`stylesheet_partition.py` still exiting 0 and its PASS line's five counts
+unchanged. Whether a genuine compound like `.a.b` should grant a base
+rule for `a` at all stays an open, unmeasured question — the lookahead
+does not touch it.
+
+Defect origin is `TICKET-0064`'s rule7 coverage formula, not
+`TICKET-0060` — repaired here anyway (not deferred to its own ticket)
+because `BRIEF-0060-c`'s legacy-half rule7 feeds the same `REACHABLE` set
+into its stranding formula, where an over-grant flips from harmless noise
+into a false stranding failure; a cross-ticket dependency would have
+blocked `-c` on work outside this ticket's scope.
+
+**K1 — row containers move to `shared.css`; membership follows
+readership.** `cockpit/index.html`'s `loadPlayerKnowledge` (Play's "Mes
+savoirs" tab) applies `.row-table`/`.row-card` from a JS template
+literal; both were styled only in `creation.css`, which the legacy
+document does not link once `LEGACY_MOUNTS.creation` retired
+(`TICKET-0059`) — `stylesheet_partition` rule5 ties that link's lifetime
+to the mount. Play's knowledge rows had been rendering with no card
+background, border or padding since. The fix is a move, not a copy —
+rule2 forbids a selector in more than one sheet, and a copy would hand
+the outcome back to load order, the exact thing the partition exists to
+prevent. `.row-card-actions`, syntactically adjacent to the two moved
+rules, stays in `creation.css`: it has zero legacy consumers, and
+`shared.css` means *both documents read this rule*, not *this rule sits
+near one that both documents read*. Membership in `shared.css` follows
+readership, never adjacency.
+
+The complete legacy-stranded set measured on `main` before this brief was
+exactly `classes -> ['r-err', 'r-warn', 'row-card', 'row-table']`,
+`ids -> []`. `r-err`/`r-warn` left with Observation in `BRIEF-0060-b`;
+this brief clears the remaining two.
+
+---
+
+## STYLESHEET PARTITION RULE7 (LEGACY) — coverage mirrored onto cockpit/index.html (BRIEF-0060-c, no schema change)
+
+Rule7's original half proved `frontend/src/**` receives its visual layer;
+the mirror direction — the legacy document's own markup against the
+sheets it can actually reach — stayed unguarded, the gap `BRIEF-0060-b`'s
+`.r-warn`/`.r-err` finding named explicitly. This brief closes it:
+`_check_rule7_legacy` scans `cockpit/index.html` (static markup and the
+`<script>` block's template literals alike, the `<style>` block excluded)
+for `class=`/`id=` applications and asserts none is stranded.
+
+**REACHABLE is per-document, not global.** The original rule7 unions
+`shared.css`, `creation.css` and the built bundle into one global
+reachable set — correct for `frontend/src/**`, which can load any of the
+three. `cockpit/index.html` cannot: it links `shared.css` only (rule5
+ties a `creation.css` link's lifetime to `LEGACY_MOUNTS.creation`, retired
+at `TICKET-0059`), and never loads the Svelte bundle. Unioning either back
+in for this half would silently readmit the exact fail-open that let
+`.r-warn`/`.r-err` sit unreachable at nine call sites through the whole of
+`TICKET-0059` without rule7 speaking — so `REACHABLE(legacy)` is scoped to
+`shared.css ∪` the document's own inline `<style>` block, nothing else,
+and Scope OUT of this brief forbids widening it to make a finding go
+away.
+
+**The intersection term is what keeps the rule honest.** `STRANDED(legacy)
+= APPLIED(legacy) ∩ (creation.css ∪ bundle) − shared.css − inline` computes
+the intersection against `creation.css ∪` bundle before subtracting, not
+just `APPLIED(legacy) − REACHABLE(legacy)`. Without it, every purely
+semantic class or id the document applies with no rule anywhere in the
+codebase — eight class names measured on the current tree — would be
+flagged as a false stranding. With it, the rule says precisely *this name
+is styled somewhere this document cannot see*, which is the `.r-err` case
+and nothing else. Class and id namespaces are computed and asserted
+separately throughout (F2), never unioned, so a class and an id sharing a
+literal name can never cross-trigger — verified by a dedicated red test
+constructing exactly that collision.
+
+**The retirement condition is a fail-closed alarm, not a comment.**
+`TICKET-0061` empties `LEGACY_MOUNTS` and retires `cockpit/index.html`
+entirely, at which point rule7 (legacy) has nothing left to guard —
+"remove it once it serves nothing" is qualitative and unenforceable, the
+exact shape of gap that let the TICKET-0059 lapse `BRIEF-0060-a` found go
+undetected. `_check_rule7_legacy` instead evaluates the condition itself:
+zero entries parsed from `LEGACY_MOUNTS` (via `legacy_mount.py`'s own
+`ENTRY_RE`, imported rather than re-implemented) is a FAIL naming the
+retirement explicitly, never a silent skip or a vacuous pass. The
+reactivation condition for deleting the legacy half is therefore
+enforced by the same fail-closed machinery as the rule itself.
+
+**D1 execution pause, resumed after `BRIEF-0060-e`.** A correct first
+implementation FAILed on unmodified `main` with five names —
+`local-badge`/`row-card`/`row-table`/`spacer`/`sub` — contradicting the
+brief's original "exits 0 on `main`" acceptance line, which had inferred
+a clean tree from the Observation surface's 13 classes without measuring
+the legacy document's 81. `row-card`/`row-table` were a genuine stranding
+(K1, above); the other three were `BASE_RULE_RE`'s Svelte-hash fail-open
+(J1, above) surfacing for the first time because this half feeds the
+bundle scan into the *stranding* side of the formula, where an over-grant
+that was harmless in the original rule7 becomes a false failure here.
+Execution stopped rather than guessed at either fix — moving CSS and
+loosening shared regex logic were both outside this brief's Scope OUT —
+and resumed once `BRIEF-0060-e` cleared both upstream. The amended
+acceptance criterion requires the check to report the computed
+`STRANDED(legacy)` set explicitly, including when empty, rather than a
+bare zero count a reader cannot distinguish from an unrun scan.
+
+---
+
+## CORPUS GATE — every check runs, or the gate is red (BRIEF-0060-d, no schema change)
+
+**A per-ticket gate proves the checks a ticket names; a corpus gate proves
+the corpus.** `tooling/verify/run.py` parses one ticket's Machine-checkable
+section and executes only the checks its `-> verify/checks/NAME.py` arrows
+name — correct as a per-ticket gate, silent about everything else.
+`observation_surface.py` was red on `main` from the moment TICKET-0059
+merged until `BRIEF-0060-a` repaired it: TICKET-0059's own Machine section
+linked eleven checks and not that one, so nothing was wrong with the gate
+that ran — the gate simply had nothing to say about a file outside its
+ticket's arrow set. `corpus_gate.py` (B1) closes that gap one level up
+from where `TICKET-0064`'s rule7 closed the same shape at the stylesheet
+level ("non-duplication does not prove coverage" -> "referenced by some
+ticket does not prove executed"): it discovers every `*.py` in
+`tooling/verify/checks/`, runs each as a subprocess, and asserts — via an
+independent re-glob taken *after* the run, not a reuse of the discovery
+list — that the executed set equals the directory. Proving "some checks
+passed" is a much weaker claim than proving "every check in the directory
+was executed"; only the second is what TICKET-0059's lapse needed.
+
+**ENVIRONMENT is a failure, never a skip.** RECON-0060-a ran in a
+stdlib-only container lacking `fastapi`/`sqlalchemy`: four checks could not
+even be imported, and one (`observation_surface.py` Rule 5, which shells
+out to `json_ui_boundary.py`) reported a subprocess failure visually
+indistinguishable from a genuine invariant violation. A corpus gate that
+treated a missing dependency as a skip would either drown in that noise on
+a bare container or, worse, quietly learn to tolerate it everywhere — the
+fail-open this whole ticket exists to close one level down. `corpus_gate.py`
+classifies every non-zero exit as `ENVIRONMENT` (stderr carries
+`ModuleNotFoundError`/`ImportError`), `TIMEOUT`, or `FAIL`, and all three
+resolve to the same red exit code — the classification exists solely for
+the reader, never as a second, more lenient control path.
+
+**Measured on this tree at BRIEF-0060-d's execution:** 83 sibling checks
+discovered (84 with `corpus_gate.py` itself, self-excluded by resolved
+path), 43s total wall-clock, slowest single check `prompt_version.py` at
+3.22s — the per-check timeout is set to four times that (15s) with
+headroom. Three genuine reds surfaced, **REPORT ONLY, left unfixed** per
+this brief's Scope OUT (a brief that both builds a gate and repairs
+whatever it finds has no reviewable boundary):
+
+- `npc_goal_read.py` — `NpcGoal` imported/referenced outside its allowlist
+  in `src/world_engine/observation_runner.py` and in the checks directory's
+  own `observation_runner.py`. Genuine failure, needs a follow-up ticket.
+- `pipeline_state.py` — three ticket files (`TICKET-0036`, `TICKET-0048`,
+  `TICKET-0062`) carry a `status:` value with a trailing inline comment
+  that fails the front-matter enum parse. Genuine failure, pipeline-artifact
+  hygiene, needs a follow-up ticket.
+- `prompt_model_write.py` — the local dev DB's `npc_dialogue`
+  `prompt_template` row has zero `prompt_version` rows; the check's own
+  live `TestClient` round-trip hits `prompt_store.current_prompt`'s
+  fail-closed `RuntimeError`. Requires a live DB in a state this tree's dev
+  database is not currently in (a migration/seed step, not a code defect
+  provable from this gate alone), needs a follow-up ticket.
+
+**No exclusion list, no baseline, no runner-mode flag.** Discovery excludes
+exactly one file — itself, matched by resolved path — and any exclusion
+list beyond that is the seam through which a check quietly stops being run,
+the precise failure this gate exists to prevent (Scope OUT item 4). No
+baseline file either: the check count grows over time and a shrink-only
+baseline is the wrong shape for a set that only ever gains members (Scope
+OUT item 6). `run.py` gained no `--all` flag or default corpus mode
+(Scope OUT item 3) — the gate is reachable exactly the way every other
+check is, through a ticket's own arrow, because a runner mode could not be
+named from a `### Machine-checkable` section in the first place.
+
+---
+
 *Co-built with Claude, June 2026.*

@@ -13,10 +13,15 @@
    iframe. legacy_call.py rule 7's gate (a TICKET-0059 bridge-reach record
    survives only while this mount exists) was already vacuously satisfied
    before this edit -- legacy_calls.baseline held zero TICKET-0059 records
-   once commit 3 landed. */
+   once commit 3 landed.
+
+   TICKET-0060 (BRIEF-0060-b commit 4): `observation` retired the same way
+   -- Observation is a shell-native Svelte component now
+   (frontend/src/observation/Observation.svelte, mounted directly by
+   App.svelte). `play` alone remains, retiring at TICKET-0061 on its own
+   stack. */
 export const LEGACY_MOUNTS = Object.freeze({
-  play:        Object.freeze({ showFn: 'showPlayView',        retiredBy: 'TICKET-0061' }),
-  observation: Object.freeze({ showFn: 'showObservationView', retiredBy: 'TICKET-0060' }),
+  play: Object.freeze({ showFn: 'showPlayView', retiredBy: 'TICKET-0061' }),
 });
 
 export const LEGACY_SURFACES = Object.freeze(Object.keys(LEGACY_MOUNTS));

@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## TICKET-0060 — 2026-08-20 (no schema change)
+
+A reader of the cockpit will notice the Observation tab now renders inside
+the shell itself, not the legacy iframe: same two-panel layout, same
+launch form, same step/multi-beat/interrupt/stop/inject controls, same
+transcript and run-detail panels. Two things actually change, both fixes:
+launch-panel errors and the "no NPC present" warning now render in their
+intended colours (they were uncoloured on `main` — the CSS rule that
+colored them had quietly stopped being linked into the document), and
+starting an observation run after switching the active world in the
+Header now creates that run in the newly active world, not whichever
+world was active when the cockpit last loaded. One further fix, in Play:
+the knowledge rows under "Mes savoirs" regain their card background,
+border and padding — the CSS rule that styled them had the same kind of
+quietly-unlinked-sheet problem as Observation's launch-panel errors.
+
+Underneath, a new corpus gate (`tooling/verify/checks/corpus_gate.py`)
+discovers and executes every check under `tooling/verify/checks/`, closing
+the exact hole that let Observation's own check sit red across
+TICKET-0059 unnoticed: a per-ticket `/verify` run only ever executes the
+checks that ticket's own brief links, so a check no ticket references can
+fail silently. See `tooling/standards/ARCHITECTURE_DECISIONS.md` for the
+decision record and the three pre-existing reds it surfaced (reported,
+not fixed, in this ticket).
+
 ## TICKET-0057 — 2026-07-31 (no schema change)
 
 A reader of the cockpit will notice nothing: the Lieux adjacency map and
