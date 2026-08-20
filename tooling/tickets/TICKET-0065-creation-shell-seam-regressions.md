@@ -2,7 +2,7 @@
 id: TICKET-0065
 title: Creation shell seam regressions — graph mount document + shell height chain
 type: bug
-status: exec
+status: live-gate
 created: 2026-08-19
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
