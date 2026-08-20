@@ -2,14 +2,14 @@
 id: TICKET-0060
 title: Observation surface migration — last surface out of the legacy document
 type: feature
-status: exec
+status: escalated
 created: 2026-08-20
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
 blast_radius: medium
 brief_ids: [BRIEF-0060-a, BRIEF-0060-b, BRIEF-0060-c, BRIEF-0060-d, BRIEF-0060-e]
 schema_version_touched:
-retry_count: 0
+retry_count: 1
 ---
 
 ## Request (verbatim, as Nia stated it)
