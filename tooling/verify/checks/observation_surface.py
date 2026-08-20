@@ -46,6 +46,7 @@ PAGE_CONTRACT = ROOT / "tooling" / "verify" / "checks" / "page_contract.py"
 # the three destinations). Rule 3 below scans this file too so the check
 # keeps finding the CSS wherever the partition currently puts it.
 SHARED_CSS = ROOT / "frontend" / "public" / "shared.css"
+CREATION_TABS_FILE = ROOT / "frontend" / "src" / "creation" / "tabs.js"
 
 FAILURES: list[str] = []
 _outcome_literals_found: set[str] = set()
@@ -91,9 +92,19 @@ def check_rule1_mode_tab(html: str) -> None:
         fail("Rule 1: showObservationView() function body not found")
         return
     _renderer_functions_found += 1
+    # TICKET-0060 (BRIEF-0060-a). Two views, not three. TICKET-0059
+    # (BRIEF-0059-l commit 4) made Creation shell-native, so the legacy
+    # document owns Play and Observation only and showObservationView has
+    # no creation-view / mode-tab-creation to toggle. This rule asserted
+    # the pre-0059 contract and had been RED on main ever since --
+    # undetected because verify/run.py executes only the checks a ticket's
+    # Machine-checkable section names, and TICKET-0059's section does not
+    # name this one. BRIEF-0060-d builds the corpus gate that closes that
+    # class of gap; BRIEF-0060-b re-homes this rule onto the Svelte
+    # surface once Observation leaves this document entirely.
     for needle in (
-        "play-view", "creation-view", "observation-view",
-        "mode-tab-play", "mode-tab-creation", "mode-tab-observation",
+        "play-view", "observation-view",
+        "mode-tab-play", "mode-tab-observation",
     ):
         if needle not in body:
             fail(f"Rule 1: showObservationView() does not reference {needle!r} — contract incomplete")
@@ -110,9 +121,16 @@ def check_rule2_no_creation_leak(html: str) -> None:
     elif re.search(r"""['"]observation['"]""", m.group(1)):
         fail("Rule 2: page_contract.py's TAB_KEYS includes 'observation' — must stay a mode-tab, not a Creation sub-tab")
 
-    registry_src = _braced_block(html, r"const CREATION_TABS\s*=\s*\{")
+    # TICKET-0060 (BRIEF-0060-a). CREATION_TABS moved to
+    # frontend/src/creation/tabs.js (TICKET-0058/0059). Reading it from
+    # index.html made this rule vacuously unsatisfiable, not vacuously
+    # satisfied -- it FAILED rather than passing, which is the correct
+    # direction but the wrong anchor. The assertion is unchanged: the
+    # Observation surface must never appear as a Creation sub-surface.
+    tabs_js_src = CREATION_TABS_FILE.read_text(encoding="utf-8")
+    registry_src = _braced_block(tabs_js_src, r"export const CREATION_TABS\s*=\s*\{")
     if not registry_src:
-        fail("Rule 2: CREATION_TABS registry literal not found in index.html")
+        fail("Rule 2: CREATION_TABS registry literal not found in frontend/src/creation/tabs.js")
     elif re.search(r"(?:^|[{,\s])observation\s*:\s*\{", registry_src):
         fail("Rule 2: CREATION_TABS has an 'observation' entry — the surface leaked into the Creation registry")
 
