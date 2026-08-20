@@ -16,6 +16,15 @@ the knowledge rows under "Mes savoirs" regain their card background,
 border and padding — the CSS rule that styled them had the same kind of
 quietly-unlinked-sheet problem as Observation's launch-panel errors.
 
+Underneath, a new corpus gate (`tooling/verify/checks/corpus_gate.py`)
+discovers and executes every check under `tooling/verify/checks/`, closing
+the exact hole that let Observation's own check sit red across
+TICKET-0059 unnoticed: a per-ticket `/verify` run only ever executes the
+checks that ticket's own brief links, so a check no ticket references can
+fail silently. See `tooling/standards/ARCHITECTURE_DECISIONS.md` for the
+decision record and the three pre-existing reds it surfaced (reported,
+not fixed, in this ticket).
+
 ## TICKET-0057 — 2026-07-31 (no schema change)
 
 A reader of the cockpit will notice nothing: the Lieux adjacency map and

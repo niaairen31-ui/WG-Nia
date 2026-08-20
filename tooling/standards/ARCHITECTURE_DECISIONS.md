@@ -12042,4 +12042,72 @@ bare zero count a reader cannot distinguish from an unrun scan.
 
 ---
 
+## CORPUS GATE — every check runs, or the gate is red (BRIEF-0060-d, no schema change)
+
+**A per-ticket gate proves the checks a ticket names; a corpus gate proves
+the corpus.** `tooling/verify/run.py` parses one ticket's Machine-checkable
+section and executes only the checks its `-> verify/checks/NAME.py` arrows
+name — correct as a per-ticket gate, silent about everything else.
+`observation_surface.py` was red on `main` from the moment TICKET-0059
+merged until `BRIEF-0060-a` repaired it: TICKET-0059's own Machine section
+linked eleven checks and not that one, so nothing was wrong with the gate
+that ran — the gate simply had nothing to say about a file outside its
+ticket's arrow set. `corpus_gate.py` (B1) closes that gap one level up
+from where `TICKET-0064`'s rule7 closed the same shape at the stylesheet
+level ("non-duplication does not prove coverage" -> "referenced by some
+ticket does not prove executed"): it discovers every `*.py` in
+`tooling/verify/checks/`, runs each as a subprocess, and asserts — via an
+independent re-glob taken *after* the run, not a reuse of the discovery
+list — that the executed set equals the directory. Proving "some checks
+passed" is a much weaker claim than proving "every check in the directory
+was executed"; only the second is what TICKET-0059's lapse needed.
+
+**ENVIRONMENT is a failure, never a skip.** RECON-0060-a ran in a
+stdlib-only container lacking `fastapi`/`sqlalchemy`: four checks could not
+even be imported, and one (`observation_surface.py` Rule 5, which shells
+out to `json_ui_boundary.py`) reported a subprocess failure visually
+indistinguishable from a genuine invariant violation. A corpus gate that
+treated a missing dependency as a skip would either drown in that noise on
+a bare container or, worse, quietly learn to tolerate it everywhere — the
+fail-open this whole ticket exists to close one level down. `corpus_gate.py`
+classifies every non-zero exit as `ENVIRONMENT` (stderr carries
+`ModuleNotFoundError`/`ImportError`), `TIMEOUT`, or `FAIL`, and all three
+resolve to the same red exit code — the classification exists solely for
+the reader, never as a second, more lenient control path.
+
+**Measured on this tree at BRIEF-0060-d's execution:** 83 sibling checks
+discovered (84 with `corpus_gate.py` itself, self-excluded by resolved
+path), 43s total wall-clock, slowest single check `prompt_version.py` at
+3.22s — the per-check timeout is set to four times that (15s) with
+headroom. Three genuine reds surfaced, **REPORT ONLY, left unfixed** per
+this brief's Scope OUT (a brief that both builds a gate and repairs
+whatever it finds has no reviewable boundary):
+
+- `npc_goal_read.py` — `NpcGoal` imported/referenced outside its allowlist
+  in `src/world_engine/observation_runner.py` and in the checks directory's
+  own `observation_runner.py`. Genuine failure, needs a follow-up ticket.
+- `pipeline_state.py` — three ticket files (`TICKET-0036`, `TICKET-0048`,
+  `TICKET-0062`) carry a `status:` value with a trailing inline comment
+  that fails the front-matter enum parse. Genuine failure, pipeline-artifact
+  hygiene, needs a follow-up ticket.
+- `prompt_model_write.py` — the local dev DB's `npc_dialogue`
+  `prompt_template` row has zero `prompt_version` rows; the check's own
+  live `TestClient` round-trip hits `prompt_store.current_prompt`'s
+  fail-closed `RuntimeError`. Requires a live DB in a state this tree's dev
+  database is not currently in (a migration/seed step, not a code defect
+  provable from this gate alone), needs a follow-up ticket.
+
+**No exclusion list, no baseline, no runner-mode flag.** Discovery excludes
+exactly one file — itself, matched by resolved path — and any exclusion
+list beyond that is the seam through which a check quietly stops being run,
+the precise failure this gate exists to prevent (Scope OUT item 4). No
+baseline file either: the check count grows over time and a shrink-only
+baseline is the wrong shape for a set that only ever gains members (Scope
+OUT item 6). `run.py` gained no `--all` flag or default corpus mode
+(Scope OUT item 3) — the gate is reachable exactly the way every other
+check is, through a ticket's own arrow, because a runner mode could not be
+named from a `### Machine-checkable` section in the first place.
+
+---
+
 *Co-built with Claude, June 2026.*
