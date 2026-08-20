@@ -2,14 +2,14 @@
 id: TICKET-0060
 title: Observation surface migration — last surface out of the legacy document
 type: feature
-status: escalated
+status: exec
 created: 2026-08-20
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
 blast_radius: medium
 brief_ids: [BRIEF-0060-a, BRIEF-0060-b, BRIEF-0060-c, BRIEF-0060-d, BRIEF-0060-e]
 schema_version_touched:
-retry_count: 1
+retry_count: 0
 ---
 
 ## Request (verbatim, as Nia stated it)
@@ -134,14 +134,25 @@ will hear it. The cross-document hop through `App.svelte:44-49,56` collapses.
       Creation island  -> verify/checks/creation_island.py
 - [ ] No `100vh` literal is introduced and the shell height chain still
       resolves through `#app` and `.shell-layout`  -> verify/checks/shell_height_chain.py
-- [ ] A corpus gate exists that discovers and executes every sibling check,
-      excludes only itself, fails closed on a missing dependency rather than
-      skipping, and reports every red it finds  -> verify/checks/corpus_gate.py
-- [ ] The corpus gate is red-tested: a deliberately broken check is detected,
-      and a check made unimportable by a removed dependency FAILS rather than
-      passing  -> verify/checks/corpus_gate.py
 
 ### Live  ->  human gate (Nia)
+
+- [ ] A corpus gate (`tooling/verify/checks/corpus_gate.py`) exists that
+      discovers and executes every sibling check, excludes only itself,
+      fails closed on a missing dependency rather than skipping, and
+      reports every red it finds. Re-homed here (QUESTION-TICKET-0060,
+      Nia's response): this ticket's own `/verify` cannot assert the
+      corpus is green — that is TICKET-0067's job — so this criterion is
+      human-verified against the execution report's red-test transcripts
+      and the diff, not a deterministic exit code.
+- [ ] The corpus gate is red-tested: a deliberately broken check is
+      detected; a check made unimportable by a removed dependency reports
+      `ENVIRONMENT` and FAILs rather than passing or skipping; the
+      coverage proof independently re-globs after the run (not reusing
+      the discovery list) and catches both a newly-added always-green
+      check and an artificially narrowed discovery glob, naming the
+      missed file; a second self-exclusion match FAILs; the gate
+      terminates with itself absent from its own executed set.
 
 - [ ] The Observation mode-tab renders the surface inside the shell document;
       the legacy iframe is hidden for this surface and visible only for Play.
