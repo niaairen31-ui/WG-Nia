@@ -2,7 +2,7 @@
 id: TICKET-0066
 title: Unhashed static assets are served with no freshness directive
 type: bug
-status: exec
+status: live-gate
 created: 2026-08-19
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
