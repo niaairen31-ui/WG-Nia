@@ -11819,4 +11819,98 @@ about an artifact's own internal correctness.
 
 ---
 
+## OBSERVATION SURFACE — shell-native migration (BRIEF-0060-a, BRIEF-0060-b, no schema change)
+
+Observation was the last Creation-era surface still rendered by the legacy
+document. BRIEF-0060-a repaired `observation_surface.py`'s Rule 1/Rule 2
+anchors against the post-TICKET-0059 tree (a two-view, not three-view,
+contract) before any migration began — a red test proving the repair holds
+on `main` as-is, so no fail-closed guard sat red across the commit
+boundary into the migration itself. BRIEF-0060-b then moved the surface
+out of the legacy document entirely (`frontend/src/observation/`, two
+files: `observation.svelte.js` for state/API calls, `Observation.svelte`
+for template + scoped style) and re-homed the check onto the result, in
+the same brief, for the same reason.
+
+**D1 — the two stranded CSS rules move into the component, not a global
+sheet.** `.r-warn`/`.r-err` lived only in `frontend/public/creation.css`;
+`cockpit/index.html` stopped linking that sheet the moment TICKET-0059
+retired the Creation mount (`stylesheet_partition.py` rule5 ties the
+link's lifetime to `LEGACY_MOUNTS.creation`), so every Observation error
+message and the no-NPC warning rendered uncoloured on `main` — a mirror-
+image of the TICKET-0064 coverage bug, one direction up. Both rules have
+zero consumers under `frontend/src` and are Observation-exclusive, so they
+land in `Observation.svelte`'s own scoped `<style>` block: no selector is
+added to the shared partition, and rule7's `SCOPED(F)` term covers them.
+A red test proved the honest gap this leaves: deleting the two scoped
+rules still leaves `stylesheet_partition.py` green, because rule7's
+`APPLIED(F)` domain scans `frontend/src/**` only — the legacy document's
+own markup (before this migration, the one place that applied these two
+classes) was never in scan domain. That direction is `BRIEF-0060-c`'s
+territory, not fixed here.
+
+**E1 — full Svelte templating, no `{@html}` anywhere in the surface.** The
+four legacy string renderers (`_obsRenderRunDetail`/`_obsRenderTranscript`/
+`_obsRenderIntents`/`_obsLoadProposals`'s render half, each building HTML
+via template literals and an `innerHTML` write) become real Svelte markup;
+every `${esc(...)}` disappears because Svelte interpolation escapes on its
+own. This is what makes D1 possible — Svelte's scoped-style compilation
+never reaches `{@html}`-injected content, so a raw-HTML escape hatch
+would have silently defeated the coloring fix. Enforced by
+`observation_surface.py`'s new Rule 8, a plain-text scan of
+`frontend/src/observation/**` for the literal directive.
+
+**F1 — the world-switch bug is fixed BY the migration, not beside it.**
+The legacy surface read a `WORLD_ID` global written once at document boot
+(`loadBootstrap()`) and never refreshed by `activateWorldCascade`
+(`creation/tabs.js`) on a Header world switch — so a run started after
+switching worlds mid-session was created, silently, in the previously
+active world, and its mutation proposals with it. `obsInitialized`
+compounded this as a one-shot latch: the location dropdown never reloaded
+either, so the stale world and the stale location list moved together,
+which is why the bug produced no visible mismatch. The port carries no
+local world cache at all: `startRun()` reads `serverState.worldId` at call
+time, and a single `$effect` on that same field drives `reloadForWorld()`
+(locations + run list reload, selection/run state reset) on every switch,
+mirroring `Creation.svelte`'s own boot-and-every-switch pattern. **F3**
+(the server-side half — `start_run` deriving the active world instead of
+trusting `body.world_id`) is a named deferral to a ticket opened after
+TICKET-0061: it is a backend write, an escalation under the frontend-only
+cross-cutting rule this ticket otherwise holds to, not a silent edit
+smuggled into a frontend migration brief.
+
+**H1 — two files, not three.** ≈428 lines across 18 functions
+(RECON-0060-a, PART B1/B2) fit comfortably under every module budget at
+one cut; the state/template split follows the `Creation.svelte`/`tabs.js`
+precedent rather than inventing a third shape. `observationState` is the
+one seam the component renders — an explicit, closed field list, not a
+free-form store — so a future change to what the surface tracks is a
+visible diff to that list, not a silent shape drift.
+
+**I2 — a retirement guard, explicitly not a staleness guard.**
+`legacy_mount.py` Rule 4 asserted only that a registry's `showFn` exists
+as a top-level function; it never asserted that function's BODY stays
+consistent with the registry as sibling surfaces retire. That gap is
+exactly how BRIEF-0060-a's finding (`showObservationView` still touching
+`creation-view`/`mode-tab-creation` after TICKET-0059 removed both) went
+undetected — `tooling/verify/run.py` only executes the checks a ticket's
+own Machine-checkable section names, and TICKET-0059's section never
+named `observation_surface.py`. Rule 4 now also scans each `showFn`'s
+body for DOM access (`getElementById('{key}-view')`, `'mode-tab-{key}'`)
+naming a surface key absent from `LEGACY_MOUNTS`, and fails closed if one
+is found — a null-dereference-at-first-switch defect the moment a sibling
+surface retires, invisible to every other check. This guards the
+RETIREMENT step itself; the TICKET-0059 lapse was a stale check over
+otherwise-correct code, a distinct failure mode that is `BRIEF-0060-d`'s
+corpus gate to close.
+
+**Environment-bearing checks stay a named gap.** RECON-0060-a's stdlib-only
+container could not evaluate `observation_socle`/`observation_runner`/
+`observation_metrics`/`json_ui_boundary`/`schema_*` — recorded as UNKNOWN,
+never promoted to PASS. `observation_surface.py`'s Rule 5
+(`json_ui_boundary` subprocess) is re-verified live in this brief's own
+execution environment, not merely inherited from the RECON's container.
+
+---
+
 *Co-built with Claude, June 2026.*

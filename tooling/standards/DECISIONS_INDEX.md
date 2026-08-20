@@ -174,3 +174,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 11622 | SHELL HEIGHT CHAIN — one height authority, html/body -> #app -> .shell-layout -> surface (BRIEF-0065-a, no schema change) | BRIEF-0065-a |  |
 | 11665 | GRAPH MOUNT SEAM — single document, rule 11 (BRIEF-0065-b, no schema change) | BRIEF-0065-b |  |
 | 11746 | STATIC ASSET FRESHNESS — revalidate is the default posture, immutable is opt-in (BRIEF-0066-a, no schema change) | BRIEF-0066-a |  |
+| 11822 | OBSERVATION SURFACE — shell-native migration (BRIEF-0060-a, BRIEF-0060-b, no schema change) | BRIEF-0060-a, BRIEF-0060-b |  |

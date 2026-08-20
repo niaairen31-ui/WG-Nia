@@ -134,8 +134,6 @@ input.notes::placeholder { color: var(--muted); }
   border-top: 1px solid var(--border);
 }
 .r-ok   { color: var(--green); }
-.r-warn { color: var(--yellow); }
-.r-err  { color: var(--red); }
 
 /* ── Apply-error block (shown on 'approved' / duplicate-risk cards) ──────── */
 /* "approved" status = proposal was reviewed but could NOT be applied to canon:

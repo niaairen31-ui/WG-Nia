@@ -9,7 +9,7 @@
      (_obsRenderRunDetail/_obsRenderTranscript/_obsRenderIntents/
      _obsLoadProposals's render half) become real markup below; every
      ${esc(...)} disappears because Svelte interpolation escapes on its
-     own. No {@html} anywhere in this file -- that is what makes D1's
+     own. No raw-HTML injection directive anywhere in this file -- that is what makes D1's
      scoped <style> block below actually apply to this content. */
   import { serverState } from '../lib/serverState.svelte.js';
   import { navigate } from '../lib/router.js';
