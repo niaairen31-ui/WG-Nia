@@ -128,9 +128,24 @@ TOKEN_RE = re.compile(r"^[A-Za-z_][\w-]*$")
 SELECTOR_TOKEN_RE = re.compile(r"[.#][A-Za-z_][\w-]*")
 # A strict base rule: `.N`/`#N` plus only pseudo-classes, pseudo-elements
 # or self-compound classes -- no combinator, no descendant, no tag prefix.
+# TICKET-0060 (BRIEF-0060-e, J1). The self-compound branch used to accept
+# a Svelte scope hash: `.spacer.svelte-13t3afu` matched and yielded
+# `spacer`, so every component-scoped rule leaked into the GLOBAL
+# reachable set that _reachable_names() builds. That function's docstring
+# already asserted the opposite -- the code contradicted its own
+# documentation, and the direction of the error was fail-open: names were
+# granted reachability they never had. Measured on main before this fix,
+# the built bundle contributed 11 class names to REACHABLE, all 11 via a
+# hashed selector and none legitimately, so the bundle term supplied
+# nothing but over-grants. The lookahead is deliberately narrow: it
+# refuses Svelte's scope suffix and nothing else. Whether a genuine
+# compound like `.a.b` should grant a base rule for `a` at all is a
+# separate question with unmeasured blast radius -- not reopened here.
+# Defect originates in TICKET-0064's rule7; repaired here because
+# BRIEF-0060-c cannot land while it stands.
 BASE_RULE_RE = re.compile(
     r"^([.#])([A-Za-z_][\w-]*)"
-    r"(?:(?::[\w-]+(?:\([^)]*\))?)|(?:::[\w-]+)|(?:\.[\w-]+))*$"
+    r"(?:(?::[\w-]+(?:\([^)]*\))?)|(?:::[\w-]+)|(?:\.(?!svelte-)[\w-]+))*$"
 )
 
 FAILURES: list[str] = []
