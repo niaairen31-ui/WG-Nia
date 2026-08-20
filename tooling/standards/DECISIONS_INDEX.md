@@ -171,3 +171,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 11357 | COCKPIT STYLESHEET PARTITION — one shared sheet, two documents (BRIEF-0063-a, no schema change) | BRIEF-0063-a |  |
 | 11437 | TICKET-0059 DOCTRINE SEAL — bridge-reach, LocationTree, Modal, effect-cycle, three-surface census (BRIEF-0059-m, no schema change) | BRIEF-0059-m |  |
 | 11533 | STYLESHEET COVERAGE — disjointness proves no overlap, not that Creation is reachable (BRIEF-0064-a, no schema change) | BRIEF-0064-a |  |
+| 11622 | SHELL HEIGHT CHAIN — one height authority, html/body -> #app -> .shell-layout -> surface (BRIEF-0065-a, no schema change) | BRIEF-0065-a |  |

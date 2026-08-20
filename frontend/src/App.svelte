@@ -61,7 +61,7 @@
 
 <div class="shell-layout">
   <Header activeSurface={currentSurface} />
-  <div style:display={currentSurface === 'creation' ? 'none' : ''}>
+  <div class="legacy-slot" style:display={currentSurface === 'creation' ? 'none' : 'flex'}>
     <LegacyFrame onReady={onLegacyReady} />
   </div>
   <Creation active={currentSurface === 'creation'} />
@@ -73,7 +73,30 @@
     margin: 0;
     padding: 0;
   }
+  /* TICKET-0065 (BRIEF-0065-a). The shell owns ONE height authority.
+     shared.css:11 makes html/body full-height; these two rules carry that
+     height down to the surfaces, so `.app-view`'s own `flex:1; min-height:0`
+     (shared.css:41) resolves against a definite-height flex parent exactly
+     as it did when it was a direct child of the legacy document's body.
+     Before this, #app had no rule at all and .shell-layout set only a
+     custom property, so every Creation flex ladder below resolved against
+     an auto-height ancestor and .conv-list never became scrollable. */
+  :global(#app) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
   .shell-layout {
     --header-height: 56px;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .legacy-slot {
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
   }
 </style>

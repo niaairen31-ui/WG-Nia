@@ -11619,6 +11619,49 @@ legacy document's own markup against `shared.css` plus its remaining
 inline block — is unguarded. Reactivate when TICKET-0060 migrates
 Observation out of the legacy document.
 
+## SHELL HEIGHT CHAIN — one height authority, html/body -> #app -> .shell-layout -> surface (BRIEF-0065-a, no schema change)
+
+TICKET-0059 inserted `#app` and `.shell-layout` between the shell's
+full-height `html`/`body` (`shared.css:11`) and every surface's own
+`flex:1; min-height:0` ladder, but gave neither wrapper a height or a
+flex context. `.app-view` and `.layout` were written against a parent
+chain that used to end at the legacy document's own `body` — a genuine
+full-height flex column — so Creation's ladder resolved against an
+auto-height ancestor and `.conv-list` never became scrollable. Play and
+Observation were unaffected only because `LegacyFrame.svelte` sized its
+iframe off `calc(100vh - var(--header-height))` directly: a second,
+independent height authority that happened to still work because it
+never depended on the wrappers at all.
+
+This step retires that second authority instead of patching around it.
+`html`/`body` stay the one source of viewport height; `#app` and
+`.shell-layout` now each declare `flex:1; min-height:0; display:flex;
+flex-direction:column`, carrying that height down explicitly the way the
+legacy `body` used to carry it implicitly. The iframe's wrapper
+(`.legacy-slot`) and the iframe itself become sized flex items in the
+same chain — `LegacyFrame.svelte`'s `iframe` rule reads `flex:1;
+min-height:0` instead of computing `100vh` itself. `--header-height`
+keeps exactly one reader after this (`Header.svelte`'s own `height` rule)
+and is kept for that reason alone, not retired.
+
+`shell_height_chain.py` (new, same `FAILURES`/`_report_and_exit`/`ROOT`
+idiom as `legacy_mount.py`) holds this structurally: rule1 fails on any
+`100vh` literal anywhere under `frontend/src`, `frontend/public` or
+`frontend/index.html`, comments included, so the second authority cannot
+silently return; rule2 fails unless `App.svelte` declares both the
+`:global(#app)` and `.shell-layout` rules with all three of `display:
+flex`, `flex-direction: column` and `min-height: 0`. Both rules are
+vacuous-proof: an empty file scan, or a rule that simply isn't found, is
+a FAILURE, never a pass.
+
+**`.signpost-group` (`DiscDetailsEditor.svelte`) and `.tick-controls`
+(`QueueFilters.svelte`) were checked, report-only, per the brief's Scope
+OUT.** Neither has a class rule in any stylesheet, but neither renders
+unstyled: both carry their own inline `style=` attribute supplying the
+layout that would otherwise come from a class rule (border/padding/margin
+on `.signpost-group`; flex layout on `.tick-controls`). No CSS rule was
+added for either.
+
 ---
 
 *Co-built with Claude, June 2026.*
