@@ -74,6 +74,43 @@ _log = logging.getLogger(__name__)
 # keeps its own single entry.
 _STATIC_DIR = Path(__file__).parent / "static"
 
+# TICKET-0066 (BRIEF-0066-a). The freshness partition, declared once and
+# read structurally by tooling/verify/checks/static_asset_freshness.py.
+# Everything Vite emits under this prefix carries a content hash in its
+# filename, so it can be cached forever; everything else -- shared.css,
+# creation.css, anything dropped into frontend/public/ later -- keeps a
+# STABLE name and therefore has no cache-busting mechanism of its own.
+# The default posture is revalidate, and immutability is the opt-in
+# exception, so a new unhashed asset is covered without anyone thinking
+# about it. This is not a convention: the check reads this constant by
+# AST and fails closed if the partition stops being exhaustive.
+_IMMUTABLE_ASSET_PREFIX = "assets"
+_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
+_REVALIDATE_CACHE_CONTROL = "no-cache"
+
+
+class _FreshnessAwareStaticFiles(StaticFiles):
+    """Serves /static with an explicit freshness directive on every response.
+
+    Bare StaticFiles sends etag + last-modified and NO Cache-Control, which
+    lets a browser apply HEURISTIC freshness and reuse a cached copy without
+    issuing a request at all. That is invisible in the Network panel and it
+    is how a post-TICKET-0059 bundle came to render against pre-TICKET-0063
+    stylesheets. `no-cache` means "revalidate", not "do not store": with the
+    etag already emitted, the steady-state cost is a 304 on two small files.
+    """
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        head = path.replace("\\", "/").lstrip("/").split("/", 1)[0]
+        response.headers["cache-control"] = (
+            _IMMUTABLE_CACHE_CONTROL
+            if head == _IMMUTABLE_ASSET_PREFIX
+            else _REVALIDATE_CACHE_CONTROL
+        )
+        return response
+
+
 app = FastAPI(title="World Engine Cockpit", docs_url=None, redoc_url=None)
 app.include_router(_crud.router)
 app.include_router(_routes_creator.router)
@@ -88,7 +125,7 @@ app.include_router(_routes_npc_agent.router)
 app.include_router(_routes_room_batch.router)
 app.include_router(_routes_observation.router)
 
-app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+app.mount("/static", _FreshnessAwareStaticFiles(directory=_STATIC_DIR), name="static")
 
 
 def _purge_closed_batches(
@@ -215,7 +252,7 @@ def _check_frontend_build_on_startup() -> None:
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/legacy", response_class=HTMLResponse)
-def serve_legacy() -> str:
+def serve_legacy() -> HTMLResponse:
     """The legacy single-file cockpit, served verbatim (TICKET-0056, B1).
 
     The shell hosts this document in ONE same-origin iframe; it also stays
@@ -223,7 +260,10 @@ def serve_legacy() -> str:
     by TICKET-0056 -- nine structural checks and `relation_graph.py`'s
     Lieux-graph byte-equality assertion against `main` depend on it.
     """
-    return _INDEX_HTML.read_text(encoding="utf-8")
+    return HTMLResponse(
+        _INDEX_HTML.read_text(encoding="utf-8"),
+        headers={"cache-control": _REVALIDATE_CACHE_CONTROL},
+    )
 
 
 # TICKET-0056 (D3b). The shell's SURFACE vocabulary, enumerated. Never a
@@ -244,8 +284,15 @@ def serve_legacy() -> str:
 _SHELL_ROUTES = ("/", "/play", "/creation", "/creation/{sub_tab}", "/observation")
 
 
-def _serve_shell() -> str:
-    return (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
+def _serve_shell() -> HTMLResponse:
+    # TICKET-0066 (BRIEF-0066-a). The shell document has a stable name and
+    # no cache-busting. A stale copy is worse than a stale render: it names
+    # a hashed bundle that `emptyOutDir: true` already deleted, so the
+    # failure mode is a 404 on the bundle and a BLANK PAGE.
+    return HTMLResponse(
+        (_STATIC_DIR / "index.html").read_text(encoding="utf-8"),
+        headers={"cache-control": _REVALIDATE_CACHE_CONTROL},
+    )
 
 
 for _shell_path in _SHELL_ROUTES:

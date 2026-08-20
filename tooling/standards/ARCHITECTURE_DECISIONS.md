@@ -11743,4 +11743,80 @@ not just to assert the exclusion's original conclusion.
 
 ---
 
+## STATIC ASSET FRESHNESS — revalidate is the default posture, immutable is opt-in (BRIEF-0066-a, no schema change)
+
+Bare `StaticFiles(directory=_STATIC_DIR)` emitted `etag` and `last-modified`
+but no `Cache-Control`. With no explicit freshness directive a browser
+applies HEURISTIC freshness and reuses a cached response without issuing a
+request at all — no round trip, no 304, nothing in the Network panel.
+`_serve_shell` and `serve_legacy` returned the shell document the same way,
+with no cache headers either — the more dangerous half, since a cached
+`index.html` names a hashed bundle filename that `emptyOutDir: true` has
+already deleted from disk on the next build, so the failure mode is a 404
+on the bundle and a blank page, not a stale render.
+
+TICKET-0063/0064 moved rules out of `cockpit/index.html`'s inline `<style>`
+into `shared.css`/`creation.css`. Browsers took the new hashed bundle (a
+hashed filename forces a fetch) but kept the stale unhashed stylesheets: a
+post-TICKET-0059 bundle rendered its DOM against pre-TICKET-0063 CSS. The
+Creation surface presented as a layout defect and consumed a full RECON
+session before the delivery layer — not the build, not the server, not the
+checkout — was identified. A `npm run build` plus a prod-server restart
+changed nothing, because the browser was asking the server nothing; a
+single `Ctrl+F5` restored correct rendering immediately and permanently.
+
+**The fix.** `_FreshnessAwareStaticFiles` (a `StaticFiles` subclass
+overriding `get_response`, the stable cross-version API that also covers
+the 304 path) sets `cache-control` on every `/static` response: `public,
+max-age=31536000, immutable` when the request path's first segment is the
+declared `_IMMUTABLE_ASSET_PREFIX` ("assets" — where Vite writes its
+content-hashed build output), `no-cache` otherwise. `no-cache` means
+revalidate, not "do not store": with the etag already emitted, the
+steady-state cost is a 304 on two small files. **The default posture is
+revalidate; immutability is the opt-in exception** — a file dropped into
+`frontend/public/` tomorrow is covered without anyone thinking about it.
+`_serve_shell` and `serve_legacy` now return `HTMLResponse` objects
+carrying the same `no-cache` directive, so the blank-page failure mode
+closes at the same time as the stale-CSS one.
+
+**Two locked exclusions.** `shared.css`/`creation.css` keep their stable,
+unhashed filenames — `cockpit/index.html` links them by fixed path and
+cannot link a content-hashed asset; that constraint expires on its own at
+TICKET-0061 and is not re-litigated here. Cache headers on the 151 `/api`
+routes are out of scope — a middleware covering all API routes for a
+static-serving concern was rejected as disproportionate blast radius; only
+`/static` and the enumerated HTML shell routes carry the directive.
+
+**`static_asset_freshness.py` holds the boundary structurally**, not as a
+convention to remember: it AST-reads `app.py`'s `_IMMUTABLE_ASSET_PREFIX`,
+`_IMMUTABLE_CACHE_CONTROL`, `_REVALIDATE_CACHE_CONTROL` and `_SHELL_ROUTES`
+(never regex — same discipline as `legacy_mount.py`/`single_canon_write.py`),
+asserts the `/static` mount's second argument is the freshness subclass and
+not bare `StaticFiles`, walks `_STATIC_DIR` to assert the immutable/
+revalidate partition is exhaustive with BOTH classes inhabited (a partition
+with a dead branch proves nothing about the branch that is dead), and
+asserts every `response_class=HTMLResponse` route — decorator-form and the
+`_SHELL_ROUTES` loop-registration form alike — constructs its response with
+a `cache-control` header. It is deliberately a separate check from
+`frontend_build_fresh.py`: that check proves the artifact on disk matches
+its source; this one proves what ships to the browser matches policy.
+Merging them would make a single report line ambiguous about which
+guarantee lapsed — the conflation is exactly what made the original bug
+look like a CSS regression instead of a delivery-layer defect.
+
+**The generalized lesson, its third instance:** a check that proves an
+artifact is correct on disk does not prove it is the artifact the consumer
+received. First seen as partition-vs-coverage (`stylesheet_partition.py`
+rule7: a stylesheet can partition selectors cleanly while some are
+unreachable from any live document). Second as dispatch-vs-listen
+(`graph_primitive.py` rule 11, TICKET-0065: an event can dispatch on one
+document while a listener sits on another, and nothing fires). Third here
+as build-vs-delivery: the frontend build can be byte-correct and freshly
+committed while the browser a real person is looking at never asks the
+server for it. Each instance closed with a check that reasons about a
+*channel* — reachability, document identity, HTTP freshness — rather than
+about an artifact's own internal correctness.
+
+---
+
 *Co-built with Claude, June 2026.*
