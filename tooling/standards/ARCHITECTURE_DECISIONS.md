@@ -11913,4 +11913,66 @@ execution environment, not merely inherited from the RECON's container.
 
 ---
 
+## STYLESHEET PARTITION RULE7 FAIL-OPEN + ROW CONTAINERS UNSTRANDED (BRIEF-0060-e, no schema change)
+
+`BRIEF-0060-c`'s execution surfaced two pre-existing defects on `main`,
+both unrelated to Observation, that blocked its own commit. This brief
+cleared both so `-c` can resume.
+
+**J1 — `BASE_RULE_RE`'s fail-open, and its direction.** The self-compound
+branch of `stylesheet_partition.py`'s `BASE_RULE_RE`
+(`(?:\.[\w-]+)*` before this fix) accepted a Svelte-compiled scope hash
+as an ordinary compound class: `.spacer.svelte-13t3afu` matched and
+yielded `spacer`, so every component-scoped rule leaked into the GLOBAL
+`REACHABLE` set `_reachable_names()` builds — directly contradicting that
+function's own docstring, which already claimed a hashed selector "fails
+the strict base-rule match". Measured before the fix: the built bundle
+contributed 12 class names to `REACHABLE` (`brand`, `divider`,
+`legacy-slot`, `local-badge`, `mode-tab`, `mode-tabs`, `r-err`, `r-warn`,
+`refusal-band`, `shell-layout`, `spacer`, `sub`), all 12 via a hashed
+selector and none legitimately — the brief's own text, drafted against an
+earlier build of the bundle, cites 11; the twelfth (`r-err`/`r-warn`
+region aside) reflects one additional scoped rule the intervening
+Observation rebuild (BRIEF-0060-b commit 5) added before this fix landed,
+not a second defect. The error is directional: every one of these names
+was GRANTED reachability it never structurally had, which is fail-open,
+not fail-closed. A negative lookahead (`(?:\.(?!svelte-)[\w-]+)*`) refuses
+the scope-hash suffix specifically; after the fix the bundle's class
+contribution to `REACHABLE` is 0, verified by an in-process before/after
+regex transcript and an old-branch-restoration test, with
+`stylesheet_partition.py` still exiting 0 and its PASS line's five counts
+unchanged. Whether a genuine compound like `.a.b` should grant a base
+rule for `a` at all stays an open, unmeasured question — the lookahead
+does not touch it.
+
+Defect origin is `TICKET-0064`'s rule7 coverage formula, not
+`TICKET-0060` — repaired here anyway (not deferred to its own ticket)
+because `BRIEF-0060-c`'s legacy-half rule7 feeds the same `REACHABLE` set
+into its stranding formula, where an over-grant flips from harmless noise
+into a false stranding failure; a cross-ticket dependency would have
+blocked `-c` on work outside this ticket's scope.
+
+**K1 — row containers move to `shared.css`; membership follows
+readership.** `cockpit/index.html`'s `loadPlayerKnowledge` (Play's "Mes
+savoirs" tab) applies `.row-table`/`.row-card` from a JS template
+literal; both were styled only in `creation.css`, which the legacy
+document does not link once `LEGACY_MOUNTS.creation` retired
+(`TICKET-0059`) — `stylesheet_partition` rule5 ties that link's lifetime
+to the mount. Play's knowledge rows had been rendering with no card
+background, border or padding since. The fix is a move, not a copy —
+rule2 forbids a selector in more than one sheet, and a copy would hand
+the outcome back to load order, the exact thing the partition exists to
+prevent. `.row-card-actions`, syntactically adjacent to the two moved
+rules, stays in `creation.css`: it has zero legacy consumers, and
+`shared.css` means *both documents read this rule*, not *this rule sits
+near one that both documents read*. Membership in `shared.css` follows
+readership, never adjacency.
+
+The complete legacy-stranded set measured on `main` before this brief was
+exactly `classes -> ['r-err', 'r-warn', 'row-card', 'row-table']`,
+`ids -> []`. `r-err`/`r-warn` left with Observation in `BRIEF-0060-b`;
+this brief clears the remaining two.
+
+---
+
 *Co-built with Claude, June 2026.*

@@ -11,7 +11,10 @@ intended colours (they were uncoloured on `main` — the CSS rule that
 colored them had quietly stopped being linked into the document), and
 starting an observation run after switching the active world in the
 Header now creates that run in the newly active world, not whichever
-world was active when the cockpit last loaded. Play is unaffected.
+world was active when the cockpit last loaded. One further fix, in Play:
+the knowledge rows under "Mes savoirs" regain their card background,
+border and padding — the CSS rule that styled them had the same kind of
+quietly-unlinked-sheet problem as Observation's launch-panel errors.
 
 ## TICKET-0057 — 2026-07-31 (no schema change)
 

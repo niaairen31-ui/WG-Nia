@@ -107,6 +107,27 @@ body {
 .f-btn:hover  { color: var(--text); border-color: var(--muted); }
 .f-btn.active { background: var(--card); color: var(--text); border-color: var(--accent); }
 
+/* ── Row containers (TICKET-0060, BRIEF-0060-e) ──────────────────────────── */
+/* Moved out of creation.css: cockpit/index.html applies both classes from
+   loadPlayerKnowledge's template literal (Play's "Mes savoirs" tab), and
+   that document does not link creation.css -- stylesheet_partition rule5
+   ties the link's lifetime to LEGACY_MOUNTS.creation, retired by
+   TICKET-0059. Play's knowledge rows had been rendering with no card
+   background, border or padding ever since. Both documents read these two
+   rules now, which is exactly what shared.css means. .row-card-actions
+   stays in creation.css: it has no legacy consumer, and moving it would
+   put a Creation-only rule in the shared layer. */
+.row-table { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.row-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 /* ── Badges ──────────────────────────────────────────────────────────────── */
 .badge {
   display: inline-block;
