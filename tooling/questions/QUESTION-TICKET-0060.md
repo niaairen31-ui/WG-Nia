@@ -82,4 +82,92 @@ C. Drop `corpus_gate.py`'s arrow from TICKET-0060's own Machine-checkable
    pre-existing reds are cleared by a follow-up ticket.
 
 ## Response
+Stopping the chain was correct. The D1-d escalation fired exactly as
+intended and nothing here is a defect in the execution: `corpus_gate.py`
+is correct, the five red tests prove it, and the three findings are
+real.
 
+The answer is none of A, B or C. The fault is upstream of all three.
+
+**What is actually wrong.** `tooling/verify/run.py` does not evaluate the
+text of an acceptance criterion. A `-> verify/checks/X.py` arrow means one
+thing: X must exit 0 for this ticket to verify green. TICKET-0060 carries
+two arrows to `corpus_gate.py`. Their criterion text says the gate
+exists, excludes only itself, fails closed on a missing dependency, and
+is red-tested. But the arrow asserts something else entirely — that the
+corpus is green — which was never TICKET-0060's job and which
+`BRIEF-0060-d`'s own Scope OUT item 1 explicitly forbids bringing about.
+So the ticket demanded, through its wiring, the exact thing its brief
+prohibited. That is a ticket-authoring error, not an execution problem,
+and it is why no confined retry could resolve it.
+
+Why not B: a documented exception to a fail-closed gate is a
+disciplinary safeguard, not a structural one — safeguards hold by
+construction, not by a well-argued PR body. It would set the precedent
+that a green verdict is negotiable in writing, exactly the erosion
+`corpus_gate.py` exists to make impossible.
+
+Why not C as written: dropping the arrow and deferring the wiring leaves
+`corpus_gate.py` referenced by no ticket at all — never executed,
+invisible when it breaks. That is the `observation_surface.py` lapse of
+TICKET-0059, reproduced on the very tool built to prevent it. The
+instinct behind C is right; the deferral is what makes it wrong.
+
+**Do this.**
+
+1. Correct TICKET-0060's wiring, then close it. In
+   `tooling/tickets/TICKET-0060-observation-surface-migration.md`, strike
+   both `corpus_gate.py` arrows from `### Machine-checkable` and move the
+   two criteria verbatim into `### Live -> human gate (Nia)`. They are
+   human-verified criteria: the evidence is the five red-test transcripts
+   and the diff, not a deterministic exit code. `/verify` then runs the
+   remaining eleven checks. They are green. TICKET-0060 closes normally
+   and the frontend refactor proceeds to TICKET-0061. Nothing in
+   `corpus_gate.py` changes — do not weaken it, do not add an exclusion,
+   do not soften `ENVIRONMENT` to a warning.
+
+2. Open TICKET-0067 — clear the corpus. Sole machine-checkable criterion:
+
+   - [ ] Every check in tooling/verify/checks/ exits 0  -> verify/checks/corpus_gate.py
+
+   That ticket cannot close until the corpus is green, so the gate is
+   wired to the one ticket whose job it actually is — a re-homing, not a
+   deferral. Scope: the three findings, three confined commits, one
+   brief.
+
+   - `pipeline_state.py` — three ticket files (0036, 0048, 0062) with
+     trailing comments on their `status:` values. Strip the comments. Do
+     not relax the parser to tolerate them: the frontmatter contract is
+     the thing being asserted.
+   - `npc_goal_read.py` — the `NpcGoal` reference in
+     `observation_runner.py`, in both the src and checks copies. Decide
+     which of two things is true and say which: the read is legitimate
+     and the allowlist is incomplete, or the read is a genuine boundary
+     violation. Do not add an allowlist entry to silence a violation.
+   - `prompt_model_write.py` — zero `prompt_version` rows for
+     `npc_dialogue`. Triage this one before designing a fix, and report
+     the measurement. The question is whether the check asserts code or
+     data. If it asserts a seeded database, then either the dev
+     environment needs a seed step 0067 supplies, or the check is
+     environment-bearing and must declare that dependency the way
+     `corpus_gate.py`'s contract expects. Both are legitimate answers;
+     guessing between them is not. If this one turns out larger than a
+     confined commit, split it into its own ticket and let 0067 land the
+     other two — but say so before starting, not partway through.
+
+3. Make the wiring structural, in the same ticket. `pipeline_state.py`
+   already validates ticket files and is already being touched. Extend it
+   with one rule: every ticket's `### Machine-checkable` section must
+   link `corpus_gate.py`. That converts "remember to wire the gate into
+   future tickets" from a convention into a check. Without it, the corpus
+   drifts again the first time someone forgets an arrow — the failure
+   this ticket series has now hit three times, at three different
+   levels. Vacuity guard: zero ticket files discovered is a FAIL, not a
+   pass. Red-test it: a ticket file without the arrow must FAIL.
+
+**Sequencing.** TICKET-0060 closes first, on eleven green checks.
+TICKET-0067 opens immediately after and is the first ticket to carry the
+`corpus_gate.py` arrow under its own new rule.
+
+`QUESTION-TICKET-0060.md` stays in the tree as the record. It is the
+escalation working, not a problem that needed avoiding.
