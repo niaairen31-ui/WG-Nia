@@ -11975,4 +11975,71 @@ this brief clears the remaining two.
 
 ---
 
+## STYLESHEET PARTITION RULE7 (LEGACY) — coverage mirrored onto cockpit/index.html (BRIEF-0060-c, no schema change)
+
+Rule7's original half proved `frontend/src/**` receives its visual layer;
+the mirror direction — the legacy document's own markup against the
+sheets it can actually reach — stayed unguarded, the gap `BRIEF-0060-b`'s
+`.r-warn`/`.r-err` finding named explicitly. This brief closes it:
+`_check_rule7_legacy` scans `cockpit/index.html` (static markup and the
+`<script>` block's template literals alike, the `<style>` block excluded)
+for `class=`/`id=` applications and asserts none is stranded.
+
+**REACHABLE is per-document, not global.** The original rule7 unions
+`shared.css`, `creation.css` and the built bundle into one global
+reachable set — correct for `frontend/src/**`, which can load any of the
+three. `cockpit/index.html` cannot: it links `shared.css` only (rule5
+ties a `creation.css` link's lifetime to `LEGACY_MOUNTS.creation`, retired
+at `TICKET-0059`), and never loads the Svelte bundle. Unioning either back
+in for this half would silently readmit the exact fail-open that let
+`.r-warn`/`.r-err` sit unreachable at nine call sites through the whole of
+`TICKET-0059` without rule7 speaking — so `REACHABLE(legacy)` is scoped to
+`shared.css ∪` the document's own inline `<style>` block, nothing else,
+and Scope OUT of this brief forbids widening it to make a finding go
+away.
+
+**The intersection term is what keeps the rule honest.** `STRANDED(legacy)
+= APPLIED(legacy) ∩ (creation.css ∪ bundle) − shared.css − inline` computes
+the intersection against `creation.css ∪` bundle before subtracting, not
+just `APPLIED(legacy) − REACHABLE(legacy)`. Without it, every purely
+semantic class or id the document applies with no rule anywhere in the
+codebase — eight class names measured on the current tree — would be
+flagged as a false stranding. With it, the rule says precisely *this name
+is styled somewhere this document cannot see*, which is the `.r-err` case
+and nothing else. Class and id namespaces are computed and asserted
+separately throughout (F2), never unioned, so a class and an id sharing a
+literal name can never cross-trigger — verified by a dedicated red test
+constructing exactly that collision.
+
+**The retirement condition is a fail-closed alarm, not a comment.**
+`TICKET-0061` empties `LEGACY_MOUNTS` and retires `cockpit/index.html`
+entirely, at which point rule7 (legacy) has nothing left to guard —
+"remove it once it serves nothing" is qualitative and unenforceable, the
+exact shape of gap that let the TICKET-0059 lapse `BRIEF-0060-a` found go
+undetected. `_check_rule7_legacy` instead evaluates the condition itself:
+zero entries parsed from `LEGACY_MOUNTS` (via `legacy_mount.py`'s own
+`ENTRY_RE`, imported rather than re-implemented) is a FAIL naming the
+retirement explicitly, never a silent skip or a vacuous pass. The
+reactivation condition for deleting the legacy half is therefore
+enforced by the same fail-closed machinery as the rule itself.
+
+**D1 execution pause, resumed after `BRIEF-0060-e`.** A correct first
+implementation FAILed on unmodified `main` with five names —
+`local-badge`/`row-card`/`row-table`/`spacer`/`sub` — contradicting the
+brief's original "exits 0 on `main`" acceptance line, which had inferred
+a clean tree from the Observation surface's 13 classes without measuring
+the legacy document's 81. `row-card`/`row-table` were a genuine stranding
+(K1, above); the other three were `BASE_RULE_RE`'s Svelte-hash fail-open
+(J1, above) surfacing for the first time because this half feeds the
+bundle scan into the *stranding* side of the formula, where an over-grant
+that was harmless in the original rule7 becomes a false failure here.
+Execution stopped rather than guessed at either fix — moving CSS and
+loosening shared regex logic were both outside this brief's Scope OUT —
+and resumed once `BRIEF-0060-e` cleared both upstream. The amended
+acceptance criterion requires the check to report the computed
+`STRANDED(legacy)` set explicitly, including when empty, rather than a
+bare zero count a reader cannot distinguish from an unrun scan.
+
+---
+
 *Co-built with Claude, June 2026.*
