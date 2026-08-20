@@ -23,10 +23,14 @@
 <style>
   iframe {
     width: 100%;
-    /* TICKET-0056 (BRIEF-0056-b): the header's height lives ONCE, in
-       --header-height (set on the shell layout container in App.svelte) --
-       this calc() reads it rather than repeating the number. */
-    height: calc(100vh - var(--header-height));
+    /* TICKET-0065 (BRIEF-0065-a): the iframe fills the slot the shell gives
+       it instead of computing its own viewport height. --header-height is
+       still read by Header.svelte's own `height` rule; this was its only
+       other consumer, and it was the shell's second, independent height
+       authority. shell_height_chain.py forbids that viewport-unit literal
+       from returning. */
+    flex: 1;
+    min-height: 0;
     border: 0;
     display: block;
   }

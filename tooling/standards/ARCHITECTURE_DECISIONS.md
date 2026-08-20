@@ -11619,6 +11619,128 @@ legacy document's own markup against `shared.css` plus its remaining
 inline block — is unguarded. Reactivate when TICKET-0060 migrates
 Observation out of the legacy document.
 
+## SHELL HEIGHT CHAIN — one height authority, html/body -> #app -> .shell-layout -> surface (BRIEF-0065-a, no schema change)
+
+TICKET-0059 inserted `#app` and `.shell-layout` between the shell's
+full-height `html`/`body` (`shared.css:11`) and every surface's own
+`flex:1; min-height:0` ladder, but gave neither wrapper a height or a
+flex context. `.app-view` and `.layout` were written against a parent
+chain that used to end at the legacy document's own `body` — a genuine
+full-height flex column — so Creation's ladder resolved against an
+auto-height ancestor and `.conv-list` never became scrollable. Play and
+Observation were unaffected only because `LegacyFrame.svelte` sized its
+iframe off `calc(100vh - var(--header-height))` directly: a second,
+independent height authority that happened to still work because it
+never depended on the wrappers at all.
+
+This step retires that second authority instead of patching around it.
+`html`/`body` stay the one source of viewport height; `#app` and
+`.shell-layout` now each declare `flex:1; min-height:0; display:flex;
+flex-direction:column`, carrying that height down explicitly the way the
+legacy `body` used to carry it implicitly. The iframe's wrapper
+(`.legacy-slot`) and the iframe itself become sized flex items in the
+same chain — `LegacyFrame.svelte`'s `iframe` rule reads `flex:1;
+min-height:0` instead of computing `100vh` itself. `--header-height`
+keeps exactly one reader after this (`Header.svelte`'s own `height` rule)
+and is kept for that reason alone, not retired.
+
+`shell_height_chain.py` (new, same `FAILURES`/`_report_and_exit`/`ROOT`
+idiom as `legacy_mount.py`) holds this structurally: rule1 fails on any
+`100vh` literal anywhere under `frontend/src`, `frontend/public` or
+`frontend/index.html`, comments included, so the second authority cannot
+silently return; rule2 fails unless `App.svelte` declares both the
+`:global(#app)` and `.shell-layout` rules with all three of `display:
+flex`, `flex-direction: column` and `min-height: 0`. Both rules are
+vacuous-proof: an empty file scan, or a rule that simply isn't found, is
+a FAILURE, never a pass.
+
+**`.signpost-group` (`DiscDetailsEditor.svelte`) and `.tick-controls`
+(`QueueFilters.svelte`) were checked, report-only, per the brief's Scope
+OUT.** Neither has a class rule in any stylesheet, but neither renders
+unstyled: both carry their own inline `style=` attribute supplying the
+layout that would otherwise come from a class rule (border/padding/margin
+on `.signpost-group`; flex layout on `.tick-controls`). No CSS rule was
+added for either.
+
+## GRAPH MOUNT SEAM — single document, rule 11 (BRIEF-0065-b, no schema change)
+
+`creation/mount.js` moved off the legacy document at BRIEF-0059-l, and its
+own header comment (`frontend/src/creation/mount.js:11-15`) named
+`graph/mount.js` as "a distinct, already-established mechanism" — an
+exclusion whose premise (Creation lives in the legacy iframe) was true when
+written and became false in the same merge train, with no check assuming
+the governance burden. The result, live on `main` until this brief: every
+`graph:slot`/`graph:invalidate` dispatch fired on the shell document while
+`initGraphMount`'s listeners sat on the legacy document, so no graph ever
+mounted; had one mounted, `legacyContainer(id)` would have thrown, because
+all four mount targets (`relgraph-mount`, `creation-lieux-graph`,
+`region-graph-mount`, `batch-graph-mount`) are `Creation.svelte`'s own
+children now. Four surfaces were dead: the NPC relation graph, the Lieux
+graph, and the Region and RoomBatch pre-commit previews — under a fully
+green verify corpus throughout, because nothing checked cross-document
+identity.
+
+This step moves the seam fully onto the shell, mirroring the migration
+`creation/mount.js` already made: `graph/mount.js` resolves containers via
+`document.getElementById(id)` (throwing the same shape `legacyContainer`
+used to on a miss) and `initGraphMount()` takes no document parameter,
+registering both listeners on the bare `document`. `legacy/bridge.js`'s
+`legacyContainer` export is deleted outright — zero importers remained
+once `graph/mount.js` stopped calling it, and "no structure without a
+reader" forbids leaving it exported anyway. `legacy_call.py`'s own rule9
+(BRIEF-0059-l amendment) previously confined `legacyContainer` to a
+two-file allow-list; that assumption ("these two names are used by the
+mount seam today, so a clean scan always finds at least one importer")
+broke the moment the name had zero importers left, so the same commit
+drops it from `MOUNT_DOOR_ALLOWED` — the retirement's structural
+consequence reaching a second check, not a second decision.
+
+**`graph_primitive.py` rule 11 holds the seam's single-document identity
+structurally**, the same way rules 1-10 hold convergence and confinement:
+
+- **11a** — zero `legacyContainer` occurrences anywhere under
+  `frontend/src/graph/`, comments included.
+- **11b** — every mount target named by a `graph:` spec's `mountId` (or,
+  absent that, the enclosing slot's own `containerId` — `tabs.js`'s
+  `lieux` slot has no `mountId`, so its `graph:{ consumer: 'lieux' }` spec
+  resolves against the slot's `containerId: 'creation-lieux-graph'`
+  exactly as `onDemandSlotToggle` itself does at runtime) resolves to a
+  real `id="..."` element under `frontend/src/creation/` or
+  `frontend/src/graph/`. Zero mount targets collected is a FAILURE.
+- **11c** — every dispatch site fires on the bare `document` or on a
+  `legacyDoc` binding proven, via `creation/mount.js`'s own
+  `legacyDoc: node.ownerDocument` prop, to BE the shell document; every
+  `graph/mount.js` listener registers on the bare `document`. A receiver
+  resolving to `legacyDocument()` or any `contentWindow`-derived document
+  is a FAILURE, not a silent miss — the receiver-capture regex spans
+  parens as well as word/dot characters specifically so a `legacyDocument()`
+  call is captured and rejected rather than failing to match the pattern
+  at all and vanishing from the count uncounted. Zero dispatch or zero
+  listener sites collected is a FAILURE.
+
+Rule 8's assertion (no scoped `<style>` on `Graph.svelte`) is unchanged;
+only its rationale is corrected. It used to read "the component renders
+inside the legacy iframe document, where Svelte injects scoped CSS into
+the SHELL's head, where it never reaches the frame" — true before this
+ticket, false after it, since the primitive now mounts in the shell and
+Svelte's scoped CSS would reach it. The rule stands on a different,
+durable reason instead: all graph CSS lives in `creation.css`, under
+`stylesheet_partition`'s rule7 coverage; a scoped block on `Graph.svelte`
+would be a second, shadow styling authority for the same selectors, not
+merely inert markup.
+
+**The generalized lesson, named explicitly because this is the second time
+this ticket has found it:** a named exclusion must state the check that
+assumes its governance burden, not just the reasoning that justified it at
+the time — "already covered elsewhere" is only true until the "elsewhere"
+changes. `creation/mount.js:23`'s exclusion of `graph/mount.js` stated no
+such check; none existed to catch the premise going stale. An exclusion
+justified by a state of the world (Creation lives in the iframe; these two
+names are always imported by the mount seam) is invalid the moment a later
+commit changes that state, and the invalidity is silent — a green corpus,
+not a red one — unless some rule is written to notice the state changed,
+not just to assert the exclusion's original conclusion.
+
 ---
 
 *Co-built with Claude, June 2026.*
