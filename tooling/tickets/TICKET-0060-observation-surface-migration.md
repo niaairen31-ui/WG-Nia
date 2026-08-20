@@ -2,7 +2,7 @@
 id: TICKET-0060
 title: Observation surface migration — last surface out of the legacy document
 type: feature
-status: exec
+status: live-gate
 created: 2026-08-20
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
