@@ -42,23 +42,30 @@ Nine rules, each named in its own failure message:
   rule8 (ticket vocabulary)         -- every baseline retiredBy field
                                         matches ^TICKET-\\d{4}$.
   rule9 (mount-door confinement)    -- TICKET-0059 (BRIEF-0059-l amendment).
-                                        `legacyContainer` importable only by
-                                        frontend/src/creation/mount.js and
-                                        frontend/src/graph/mount.js;
                                         `legacyDocument` importable only by
-                                        those two plus frontend/src/App.svelte.
+                                        frontend/src/creation/mount.js,
+                                        frontend/src/graph/mount.js and
+                                        frontend/src/App.svelte.
                                         SUPPLEMENT-0059 Amendment 2 excluded
-                                        both names from rule2/rule3's census
+                                        it from rule2/rule3's census
                                         on the reasoning that the coupling was
                                         "already governed by creation_island.py
                                         and legacy_mount.py" -- a full door
                                         census (this ticket) found neither
-                                        check mentions either name, and one
-                                        real violation (npcAgent.svelte.js
+                                        check mentions it, and one real
+                                        violation (npcAgent.svelte.js
                                         reaching linkAgent's own DOM through
                                         the mount door). This rule is the
                                         missing guard, landed in the same
                                         commit as the violation's fix.
+                                        `legacyContainer` retired at
+                                        TICKET-0065 (BRIEF-0065-b): the graph
+                                        mount seam moved fully onto the shell
+                                        document, and bridge.js no longer
+                                        exports the name at all, so there is
+                                        no door left to confine (No structure
+                                        without a reader) -- dropped from
+                                        MOUNT_DOOR_ALLOWED accordingly.
 
 No DB, stdlib only, same FAILURES/_report_and_exit/ROOT idiom as
 legacy_mount.py.
@@ -92,7 +99,6 @@ GRAPH_MOUNT_FILE = FRONTEND_SRC / "graph" / "mount.js"
 CREATION_MOUNT_FILE = FRONTEND_SRC / "creation" / "mount.js"
 APP_SVELTE_FILE = FRONTEND_SRC / "App.svelte"
 MOUNT_DOOR_ALLOWED = {
-    "legacyContainer": {CREATION_MOUNT_FILE, GRAPH_MOUNT_FILE},
     "legacyDocument": {CREATION_MOUNT_FILE, GRAPH_MOUNT_FILE, APP_SVELTE_FILE},
 }
 

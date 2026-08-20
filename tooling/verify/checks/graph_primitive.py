@@ -9,7 +9,7 @@ second graph engine constructible only by defeating a fail-closed gate.
 
 Same idiom as import_cycle.py / legacy_mount.py: module-level FAILURES
 list, fail(), _report_and_exit(counts), ROOT via parents[3], stdlib only,
-no DB, no subprocess. Ten rules, each vacuous-proof — a missing file, an
+no DB, no subprocess. Eleven rules, each vacuous-proof — a missing file, an
 empty scan or a zero-length collection is a FAILURE, never a trivially
 satisfied comparison.
 
@@ -49,10 +49,10 @@ satisfied comparison.
      index.html, cytoscape( occurs only within a baselined entry's own
      function bodies.
   7. The primitive (Graph.svelte) never fetches and never writes.
-  8. The primitive carries no scoped CSS. The component renders inside
-     the legacy iframe document; Svelte injects scoped CSS into the
-     SHELL's head, where it never reaches the frame. A <style> block here
-     is CSS that silently does nothing.
+  8. The primitive carries no scoped CSS (TICKET-0065: rationale corrected).
+     All graph CSS lives in creation.css, under stylesheet_partition's rule7
+     coverage -- a scoped <style> block on Graph.svelte would be a second,
+     shadow authority for the same selectors, not merely inert.
   9. Closed contract vocabulary: every `graph: { ... }` spec sets only
      consumer/mountId/extraEdges. Amended by BRIEF-0058-i: a descriptor's
      `graph` spec can now live in index.html (region's stayed there through
@@ -61,6 +61,26 @@ satisfied comparison.
      Region.svelte by BRIEF-0058-i) -- this rule collects from both loci and
      sums them. Zero specs collected across BOTH is a failure — the rule
      must not pass by finding nothing.
+  11. Single document (TICKET-0065, BRIEF-0065-b). Creation stopped living
+      in the legacy iframe at TICKET-0059; every graph mount target moved
+      into the shell document and every dispatcher moved onto it, but the
+      one listener (`initGraphMount`) stayed on the legacy document until
+      this ticket, so no graph mounted at all. Three assertions:
+        11a. Zero occurrences of `legacyContainer` anywhere under
+             frontend/src/graph/, any context, comments included.
+        11b. Every mount target named by a `graph:` spec's `mountId` (or,
+             absent that, the nearest preceding sibling `containerId`)
+             resolves to an `id="..."` element under frontend/src/creation/
+             or frontend/src/graph/ -- i.e. the shell document. Zero mount
+             targets collected is a FAILURE.
+        11c. Every `graph:slot` / `graph:invalidate` dispatch site under
+             frontend/src/ fires on the bare `document` or on a `legacyDoc`
+             binding proven (via creation/mount.js's own
+             `legacyDoc: node.ownerDocument` prop) to BE the shell document;
+             `graph/mount.js`'s own `addEventListener` sites register on the
+             bare `document`. A dispatch against `legacyDocument()` or any
+             `contentWindow`-derived document is a FAILURE. Zero dispatch
+             sites collected is a FAILURE.
 """
 from __future__ import annotations
 
@@ -288,6 +308,26 @@ GRAPH_IMPLS_DECL_RE = re.compile(r"GRAPH_IMPLS\s*=\s*Object\.freeze\(")
 BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 RETIRED_RECORD_RE = re.compile(r"^([^|]+)\|([^|]+)\|([^|]+)$")
 
+LINE_COMMENT_RE = re.compile(r"//[^\n]*")
+
+
+def _strip_comments(text: str) -> str:
+    """Block and line comments blanked out (not removed, to keep offsets
+    stable for the caller's own match positions) so a documentation comment
+    describing the `graph: { ... }` shape never parses as a real spec."""
+    text = BLOCK_COMMENT_RE.sub(lambda m: " " * len(m.group(0)), text)
+    return LINE_COMMENT_RE.sub(lambda m: " " * len(m.group(0)), text)
+
+
+CREATION_SRC = FRONTEND_SRC / "creation"
+CREATION_MOUNT_JS = CREATION_SRC / "mount.js"
+LEGACY_CONTAINER_RE = re.compile(r"legacyContainer")
+MOUNT_ID_RE = re.compile(r"mountId:\s*'([^']*)'")
+CONTAINER_ID_RE = re.compile(r"containerId:\s*'([^']*)'")
+OWNER_DOC_PROOF_RE = re.compile(r"legacyDoc:\s*node\.ownerDocument")
+GRAPH_DISPATCH_RE = re.compile(r"([\w.()]+)\.dispatchEvent\(\s*new CustomEvent\(\s*'graph:(?:slot|invalidate)'")
+GRAPH_LISTEN_RE = re.compile(r"([\w.()]+)\.addEventListener\(\s*'graph:(?:slot|invalidate)'")
+
 FAILURES: list[str] = []
 
 
@@ -305,7 +345,9 @@ def _report_and_exit(counts: dict | None = None) -> None:
         f"{counts['registry']} registry entry(ies) within baseline, "
         f"{counts['loci']} entry(ies) with a live locus, "
         f"{counts['specs']} graph spec(s) validated, "
-        f"{counts['live']} live graph impl(s), {counts['retired']} retired graph impl(s) proven absent"
+        f"{counts['live']} live graph impl(s), {counts['retired']} retired graph impl(s) proven absent, "
+        f"{counts['mounts']} mount target(s) resolved in the shell document, "
+        f"{counts['dispatches']} dispatch/listen site(s) on a single document"
     )
     sys.exit(0)
 
@@ -548,7 +590,8 @@ def _rule8_no_scoped_css() -> bool:
         fail(f"{GRAPH_SVELTE} does not exist")
         return False
     if STYLE_TAG_RE.search(GRAPH_SVELTE.read_text(encoding="utf-8")):
-        fail("rule8: Graph.svelte contains a <style> block — Svelte's scoped CSS never reaches the legacy frame")
+        fail("rule8: Graph.svelte contains a <style> block — all graph CSS lives in creation.css, under "
+             "stylesheet_partition's rule7 coverage; a scoped block here would be a second, shadow authority")
         return False
     return True
 
@@ -631,6 +674,151 @@ def _rule9_closed_vocab(html: str) -> int:
     return count
 
 
+def _rule11a_no_legacy_container() -> bool:
+    graph_dir = FRONTEND_SRC / "graph"
+    if not graph_dir.is_dir():
+        fail(f"{graph_dir} is not a directory")
+        return False
+    files = [p for p in graph_dir.rglob("*") if p.is_file()]
+    if not files:
+        fail(f"{graph_dir} contains no files — empty scan is a failure")
+        return False
+    ok = True
+    for path in files:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if LEGACY_CONTAINER_RE.search(text):
+            fail(f"rule11a: 'legacyContainer' still present in {path} — the graph mount seam must be single-document")
+            ok = False
+    return ok
+
+
+def _rule11b_collect_mount_targets() -> set[str] | None:
+    if not CREATION_SRC.is_dir():
+        fail(f"{CREATION_SRC} is not a directory")
+        return None
+    files = sorted(p for p in CREATION_SRC.rglob("*") if p.is_file())
+    if not files:
+        fail(f"{CREATION_SRC} contains no files — empty scan is a failure")
+        return None
+    targets: set[str] = set()
+    for path in files:
+        text = _strip_comments(path.read_text(encoding="utf-8", errors="ignore"))
+        for m in GRAPH_SPEC_RE.finditer(text):
+            start = m.end() - 1
+            depth = 0
+            end = None
+            for i in range(start, len(text)):
+                if text[i] == "{":
+                    depth += 1
+                elif text[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+            if end is None:
+                fail(f"rule11b: a 'graph: {{' spec in {path} has unbalanced braces")
+                continue
+            body = text[start + 1:end]
+            mid = MOUNT_ID_RE.search(body)
+            if mid:
+                targets.add(mid.group(1))
+                continue
+            preceding = text[:m.start()]
+            cmatches = list(CONTAINER_ID_RE.finditer(preceding))
+            if not cmatches:
+                fail(f"rule11b: 'graph: {{' spec in {path} has no mountId and no preceding containerId to fall back to")
+                continue
+            targets.add(cmatches[-1].group(1))
+    if not targets:
+        fail("rule11b: zero mount targets collected — a rule that passes on nothing is the flaw this fixes")
+        return None
+    return targets
+
+
+def _rule11b_verify_elements(targets: set[str]) -> int | None:
+    search_dirs = [CREATION_SRC, FRONTEND_SRC / "graph"]
+    files: list[Path] = []
+    for d in search_dirs:
+        if d.is_dir():
+            files.extend(p for p in d.rglob("*") if p.is_file())
+    if not files:
+        fail("rule11b: zero files scanned under frontend/src/creation/ or frontend/src/graph/ — empty scan is a failure")
+        return None
+    corpus = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in files)
+    ok = True
+    for target in sorted(targets):
+        pattern = re.compile(rf"""id=["']{re.escape(target)}["']""")
+        if not pattern.search(corpus):
+            fail(f"rule11b: mount target '{target}' has no matching element id under "
+                 "frontend/src/creation/ or frontend/src/graph/ — the shell document")
+            ok = False
+    return len(targets) if ok else None
+
+
+def _rule11c_owner_doc_proven() -> bool:
+    if not CREATION_MOUNT_JS.is_file():
+        fail(f"{CREATION_MOUNT_JS} does not exist")
+        return False
+    if not OWNER_DOC_PROOF_RE.search(CREATION_MOUNT_JS.read_text(encoding="utf-8")):
+        fail(f"rule11c: {CREATION_MOUNT_JS} no longer proves legacyDoc == node.ownerDocument — "
+             "a 'legacyDoc' dispatch receiver can no longer be trusted as the shell document")
+        return False
+    return True
+
+
+def _rule11c_dispatch_sites() -> int | None:
+    if not FRONTEND_SRC.is_dir():
+        fail(f"{FRONTEND_SRC} is not a directory")
+        return None
+    files = [p for p in FRONTEND_SRC.rglob("*") if p.is_file()]
+    if not files:
+        fail(f"{FRONTEND_SRC} contains no files — empty scan is a failure")
+        return None
+
+    dispatch_count = 0
+    ok = True
+    for path in files:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for m in GRAPH_DISPATCH_RE.finditer(text):
+            receiver = m.group(1)
+            if receiver not in ("document", "legacyDoc"):
+                fail(f"rule11c: {path}: graph:slot/invalidate dispatched on {receiver!r}, "
+                     "neither the bare document nor the proven legacyDoc binding")
+                ok = False
+                continue
+            dispatch_count += 1
+
+    if dispatch_count == 0:
+        fail("rule11c: zero graph:slot/invalidate dispatch sites collected — a rule that passes on nothing "
+             "is the flaw this fixes")
+        return None
+    return dispatch_count if ok else None
+
+
+def _rule11c_listen_sites() -> int | None:
+    graph_mount_js = FRONTEND_SRC / "graph" / "mount.js"
+    if not graph_mount_js.is_file():
+        fail(f"{graph_mount_js} does not exist")
+        return None
+    text = graph_mount_js.read_text(encoding="utf-8", errors="ignore")
+
+    listen_count = 0
+    ok = True
+    for m in GRAPH_LISTEN_RE.finditer(text):
+        receiver = m.group(1)
+        if receiver != "document":
+            fail(f"rule11c: {graph_mount_js}: graph:slot/invalidate listener registered on {receiver!r}, "
+                 "not the bare document")
+            ok = False
+            continue
+        listen_count += 1
+
+    if listen_count == 0:
+        fail(f"rule11c: zero graph:slot/invalidate listener sites collected in {graph_mount_js}")
+        return None
+    return listen_count if ok else None
+
+
 def main() -> None:
     if not INDEX_HTML.is_file():
         fail(f"{INDEX_HTML} does not exist")
@@ -674,6 +862,13 @@ def main() -> None:
     css_ok = _rule8_no_scoped_css()
     spec_count = _rule9_closed_vocab(html)
 
+    legacy_container_ok = _rule11a_no_legacy_container()
+    mount_targets = _rule11b_collect_mount_targets()
+    mount_target_count = _rule11b_verify_elements(mount_targets) if mount_targets is not None else None
+    owner_doc_ok = _rule11c_owner_doc_proven()
+    dispatch_count = _rule11c_dispatch_sites() if owner_doc_ok else None
+    listen_count = _rule11c_listen_sites() if owner_doc_ok else None
+
     if (
         FAILURES
         or entries is None
@@ -683,6 +878,10 @@ def main() -> None:
         or not confinement_ok
         or not primitive_ok
         or not css_ok
+        or not legacy_container_ok
+        or mount_target_count is None
+        or dispatch_count is None
+        or listen_count is None
     ):
         _report_and_exit()
         return
@@ -695,6 +894,8 @@ def main() -> None:
             "specs": spec_count,
             "live": len(entries),
             "retired": retired_proven_count,
+            "mounts": mount_target_count,
+            "dispatches": dispatch_count + listen_count,
         }
     )
 

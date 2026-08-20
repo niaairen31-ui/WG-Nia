@@ -28,7 +28,6 @@
    own static capability set. */
 import { mount as svelteMount, unmount as svelteUnmount } from 'svelte';
 import Graph from './Graph.svelte';
-import { legacyContainer } from '../legacy/bridge.js';
 import lieux from './consumers/lieux.js';
 import review from './consumers/review.js';
 import relations from './consumers/relations.js';
@@ -119,7 +118,10 @@ async function renderInto(containerId, consumerKey, meta) {
   if (!consumer) {
     throw new Error(`graph/mount: unknown consumer ${JSON.stringify(consumerKey)}`);
   }
-  const node = legacyContainer(containerId);
+  const node = document.getElementById(containerId);
+  if (!node) {
+    throw new Error(`graph/mount: no element #${containerId} in the shell document`);
+  }
   node.innerHTML = '';
 
   const effectiveMeta = { ...(consumer.defaultMeta || {}), ...meta };
@@ -190,7 +192,10 @@ async function renderInto(containerId, consumerKey, meta) {
 }
 
 export async function mountGraph(containerId, consumerKey, meta = {}) {
-  const node = legacyContainer(containerId);
+  const node = document.getElementById(containerId);
+  if (!node) {
+    throw new Error(`graph/mount: no element #${containerId} in the shell document`);
+  }
   const existing = live[containerId];
   if (existing) {
     // Either the same node (a fresh open after the panel was hidden and
@@ -239,18 +244,22 @@ export async function remountGraph(containerId, metaPatch = {}) {
   await mountGraph(containerId, consumerKey, { ...meta, ...metaPatch });
 }
 
-/* The legacy -> shell signal: one direction of control, no function
-   installed on the legacy window. Legacy dispatches CustomEvents on its
-   own document; this is the sole listener. */
-export function initGraphMount(legacyDoc) {
-  legacyDoc.addEventListener('graph:slot', (ev) => {
+/* TICKET-0065 (BRIEF-0065-b). One document, one bus. Creation stopped
+   living in the legacy iframe at TICKET-0059, which moved every graph
+   mount target into the shell document and every dispatcher onto it --
+   but this listener stayed on the legacy document, so no graph mounted
+   at all. There is no cross-document signal left here: dispatchers and
+   listeners are both `document`, and graph_primitive.py rule 11 holds
+   that identity structurally. */
+export function initGraphMount() {
+  document.addEventListener('graph:slot', (ev) => {
     const { consumer, containerId, open, key } = ev.detail;
     if (!open) return;
     mountGraph(containerId, consumer, key ? { key } : {}).catch((err) => {
       console.error('graph/mount:', err.message);
     });
   });
-  legacyDoc.addEventListener('graph:invalidate', (ev) => {
+  document.addEventListener('graph:invalidate', (ev) => {
     const { consumer, meta: metaPatch } = ev.detail;
     Object.keys(live).forEach((containerId) => {
       if (live[containerId].consumerKey === consumer) {

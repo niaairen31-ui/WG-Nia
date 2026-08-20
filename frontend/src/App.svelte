@@ -51,7 +51,7 @@
 
   async function onLegacyReady() {
     hideLegacyHeader();
-    initGraphMount(legacyDocument());
+    initGraphMount();
     initCreationMount(legacyDocument());
     legacyDocument().addEventListener('observation:open-prompt', onObservationOpenPrompt);
     await refreshServerState();
