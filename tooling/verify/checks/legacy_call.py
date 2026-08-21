@@ -40,7 +40,15 @@ Nine rules, each named in its own failure message:
                                         only while LEGACY_MOUNTS still
                                         declares `creation`.
   rule8 (ticket vocabulary)         -- every baseline retiredBy field
-                                        matches ^TICKET-\\d{4}$.
+                                        matches ^TICKET-\\d{4}$, its named
+                                        ticket exists on disk, and that
+                                        ticket's status is not `done`
+                                        (TICKET-0061, BRIEF-0061-b, A3 --
+                                        reuses legacy_mount.py's
+                                        resolve_ticket_status, imported
+                                        rather than duplicated: one
+                                        implementation of this assertion,
+                                        not two).
   rule9 (mount-door confinement)    -- TICKET-0059 (BRIEF-0059-l amendment).
                                         `legacyDocument` importable only by
                                         frontend/src/creation/mount.js,
@@ -82,6 +90,9 @@ FRONTEND_SRC = ROOT / "frontend" / "src"
 BRIDGE_FILE = FRONTEND_SRC / "legacy" / "bridge.js"
 REGISTRY_FILE = FRONTEND_SRC / "legacy" / "registry.js"
 BASELINE_FILE = ROOT / "tooling" / "verify" / "baselines" / "legacy_calls.baseline"
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import legacy_mount  # noqa: E402 -- reuse resolve_ticket_status, never a second implementation
 
 RETIRED_BY_RE = re.compile(r"^TICKET-\d{4}$")
 FUNC_DEF_RE = re.compile(
@@ -273,6 +284,15 @@ def _load_baseline() -> list[tuple[str, str, str]] | None:
         path, fn, retired_by = parts
         if not RETIRED_BY_RE.match(retired_by):
             fail(f"rule8: baseline record {line!r} has retiredBy {retired_by!r}, not ^TICKET-\\d{{4}}$")
+            continue
+        status = legacy_mount.resolve_ticket_status(retired_by, f"rule8: baseline record {line!r}")
+        if status is None:
+            continue
+        if status == "done":
+            fail(
+                f"rule8: baseline record {line!r} names {retired_by}, whose status is "
+                f"'done' -- a finished ticket cannot be the reason a bridge-reach record still lives"
+            )
             continue
         records.append((path, fn, retired_by))
     return records
