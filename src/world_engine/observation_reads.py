@@ -11,6 +11,13 @@ exposed: JSON-shaped dict builders (`list_runs`/`get_run_detail`/
 (`get_run`/`list_beats`/`list_intents`/`list_run_templates`/
 `list_mutation_links`) for a caller that computes over the rows itself
 (the metrics script) rather than serialising them.
+
+`npc_ids_with_active_goal` is the one accessor here that reads OUTSIDE the
+observation_* family: `npc_goal`, and only as a presence probe. It lives
+here rather than in `context.py` because the observation run precondition
+is an observation-domain read, and because this module — not its callers —
+is what `npc_goal_read.py`'s allowlist names. See its own docstring for the
+N1 reasoning.
 """
 
 from __future__ import annotations
@@ -22,6 +29,7 @@ from sqlmodel import Session, select
 from .models import (
     Character,
     Entity,
+    NpcGoal,
     ObservationBeat,
     ObservationIntent,
     ObservationMutationLink,
@@ -85,6 +93,32 @@ def list_run_templates(run_id: str, db: Session) -> list[ObservationRunTemplate]
 def list_mutation_links(run_id: str, db: Session) -> list[ObservationMutationLink]:
     """Raw ORM accessor (BRIEF-0051-g) — F3 provenance rows for a run."""
     return list(db.exec(select(ObservationMutationLink).where(ObservationMutationLink.run_id == run_id)).all())
+
+
+def npc_ids_with_active_goal(npc_ids: list[str], db: Session) -> set[str]:
+    """Which of `npc_ids` currently hold at least one active goal.
+
+    A PRESENCE PROBE, never a content read. The return type is the
+    guarantee: a set of NPC ids, so no caller can reach a goal's
+    description, horizon or note. `npc_goal` is NPC interiority (N1,
+    TICKET-0013) and its CONTENT is read only by
+    `context.assemble_npc_context` and the initiative vote. The
+    observation runner needs one boolean per NPC — "does this NPC have
+    something to act on?" — and nothing else. This accessor is what keeps
+    that need from becoming a second reader of the table: an allowlist
+    entry for the runner itself would have licensed content reads the
+    code does not perform, with nothing to keep it that way.
+
+    Empty `npc_ids` returns an empty set without querying.
+    """
+    if not npc_ids:
+        return set()
+    return {
+        g.npc_id
+        for g in db.exec(
+            select(NpcGoal).where(NpcGoal.npc_id.in_(npc_ids), NpcGoal.status == "active")
+        ).all()
+    }
 
 
 def list_present_npcs(location_id: str, db: Session) -> list[dict]:

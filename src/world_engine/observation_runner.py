@@ -34,7 +34,6 @@ from .context import assemble_npc_context
 from .models import (
     Character,
     Entity,
-    NpcGoal,
     ObservationBeat,
     ObservationRun,
     ProposedMutation,
@@ -42,6 +41,7 @@ from .models import (
     Relation,
 )
 from .observation_engine import arbitrate, request_intent
+from .observation_reads import npc_ids_with_active_goal
 from .observation_window import resolve_observation_transcript
 from .observation_writes import (
     OBSERVED_PROPOSED_BY,
@@ -123,12 +123,7 @@ def check_run_readiness(
             if entity is None or not (entity.name or "").strip() or not (entity.description or "").strip():
                 failures.append(f"NPC {npc_id!r} lacks a describable identity (name and description)")
 
-        goal_npc_ids = {
-            g.npc_id
-            for g in db.exec(
-                select(NpcGoal).where(NpcGoal.npc_id.in_(npc_ids), NpcGoal.status == "active")
-            ).all()
-        }
+        goal_npc_ids = npc_ids_with_active_goal(npc_ids, db)
         for npc_id in npc_ids:
             if npc_id not in goal_npc_ids:
                 entity = entities.get(npc_id)

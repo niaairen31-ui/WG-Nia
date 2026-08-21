@@ -178,3 +178,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 11916 | STYLESHEET PARTITION RULE7 FAIL-OPEN + ROW CONTAINERS UNSTRANDED (BRIEF-0060-e, no schema change) | BRIEF-0060-e |  |
 | 11978 | STYLESHEET PARTITION RULE7 (LEGACY) — coverage mirrored onto cockpit/index.html (BRIEF-0060-c, no schema change) | BRIEF-0060-c |  |
 | 12045 | CORPUS GATE — every check runs, or the gate is red (BRIEF-0060-d, no schema change) | BRIEF-0060-d |  |
+| 12113 | RED GUARDS REPAIRED — goal-read accessor and prompt-model fixture (BRIEF-0067-a, no schema change) | BRIEF-0067-a |  |

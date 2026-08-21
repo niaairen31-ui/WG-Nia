@@ -1,0 +1,47 @@
+{
+  "ticket": "TICKET-0067-red-guards-goal-read-and-prompt-fixture",
+  "when": "2026-08-21T00:23:12.443120+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "npc_goal_read.py",
+      "status": "PASS",
+      "msg": "PASS: npc_goal read boundary intact (N1), D1 provenance gate intact"
+    },
+    {
+      "check": "prompt_model_write.py",
+      "status": "PASS",
+      "msg": "PASS: prompt model write path \u2014 PATCH null/valid/invalid/unknown, V1 fail-closed, GET /api/ollama/models, no second resolver, seed S-null"
+    },
+    {
+      "check": "prompt_version.py",
+      "status": "PASS",
+      "msg": "PASS: prompt_version schema, single accessor/write-shape allowlists, append-only, H1, and the versioned edit API (PATCH/versions/restore, C1 fail-closed)"
+    },
+    {
+      "check": "observation_runner.py",
+      "status": "PASS",
+      "msg": "PASS: observation_runner \u2014 2 beat(s) executed, 3 intent row(s) written across the fixtures"
+    },
+    {
+      "check": "import_cycle.py",
+      "status": "PASS",
+      "msg": "PASS: import_cycle \u2014 no module-level import cycle under src/world_engine"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values; 83 frontend file(s) within the 1000-line cap"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u2014 every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "undefined_names.py",
+      "status": "PASS",
+      "msg": "PASS: undefined_names \u2014 pyflakes reports zero undefined names under src/"
+    }
+  ]
+}
