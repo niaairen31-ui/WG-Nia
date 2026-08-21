@@ -83,7 +83,8 @@ and `world-engine-schema-changelog.md` — never here.
   append-only log lives in `world-engine-schema-changelog.md` (repo root).
   If the minor part reaches 99, stop and escalate (D1-c). RECON lesson:
   "RECON: trace every UI-visible field to its storage, including
-  `entity.metadata` JSON keys — grepping columns is not sufficient."
+  `entity.metadata` JSON keys — grepping columns is not sufficient." Every
+  ticket's Machine-checkable section links `verify/checks/corpus_gate.py`.
 - **Artifact convention — the filename is law.** Tickets, RECONs, and briefs
   arrive as `.md` files carrying their final real IDs in both filename and
   content (`TICKET-0010.md`, `RECON-0010.md`, `BRIEF-0010-a.md`); no
