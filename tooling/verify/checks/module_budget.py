@@ -27,7 +27,7 @@ vacuous-proof guard as the Python rule's zero-.py-files case.
 
 A third rule (legacy_document_ratchet, TICKET-0061, BRIEF-0061-b, A3)
 covers the one file the other two rules structurally cannot reach: the
-legacy document (`src/world_engine/cockpit/index.html`) is neither
+legacy document (`src/world_engine/cockpit/legacy.html`) is neither
 `src/**/*.py` nor `frontend/src/**/*.{svelte,js}`, and under decision A3
 its exemption from every other budget lives a year or more. This is a
 RATCHET, not the 1000-line cap (which would be red on arrival and prove
@@ -58,7 +58,7 @@ MAX_FUNCTIONS = 40
 MAX_LINES = 1000
 FRONTEND_MAX_LINES = 1000
 
-LEGACY_DOCUMENT = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
+LEGACY_DOCUMENT = ROOT / "src" / "world_engine" / "cockpit" / "legacy.html"
 # Ratchet ceiling, TICKET-0061 BRIEF-0061-b (A3): the legacy document's
 # committed line count. May only ever DECREASE -- lower this constant to
 # the new count in the same commit that shrinks the file. Never raise it.

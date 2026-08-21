@@ -22,7 +22,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
+INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "legacy.html"
 CREATION_SRC = ROOT / "frontend" / "src" / "creation"
 TABS_JS = CREATION_SRC / "tabs.js"
 CREATION_SVELTE = CREATION_SRC / "Creation.svelte"

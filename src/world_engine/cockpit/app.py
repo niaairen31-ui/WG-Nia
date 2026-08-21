@@ -63,7 +63,7 @@ from .routes import room_batch as _routes_room_batch
 from .routes import scene as _routes_scene
 from .routes import spatial as _routes_spatial
 
-_INDEX_HTML = Path(__file__).parent / "index.html"
+_INDEX_HTML = Path(__file__).parent / "legacy.html"
 _log = logging.getLogger(__name__)
 
 # Built frontend assets (TICKET-0055, C1). The deferral recorded above --
@@ -256,7 +256,7 @@ def serve_legacy() -> HTMLResponse:
     """The legacy single-file cockpit, served verbatim (TICKET-0056, B1).
 
     The shell hosts this document in ONE same-origin iframe; it also stays
-    directly reachable as an escape hatch. `index.html` is byte-untouched
+    directly reachable as an escape hatch. `legacy.html` is byte-untouched
     by TICKET-0056 -- nine structural checks and `relation_graph.py`'s
     Lieux-graph byte-equality assertion against `main` depend on it.
     """

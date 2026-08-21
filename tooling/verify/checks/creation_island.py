@@ -104,7 +104,7 @@ MOUNT_FILE = CREATION_SRC / "mount.js"
 TABS_FILE = CREATION_SRC / "tabs.js"
 CREATION_SVELTE_FILE = CREATION_SRC / "Creation.svelte"
 GRAPH_MOUNT_FILE = FRONTEND_SRC / "graph" / "mount.js"
-INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
+INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "legacy.html"
 
 ENTRY_RE = re.compile(
     r"(\w+):\s*Object\.freeze\(\{\s*"

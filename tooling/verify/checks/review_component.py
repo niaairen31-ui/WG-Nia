@@ -43,7 +43,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
+INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "legacy.html"
 FRONTEND_SRC = ROOT / "frontend" / "src"
 CREATION_SRC = FRONTEND_SRC / "creation"
 REGISTRY_FILE = CREATION_SRC / "review" / "registry.js"
@@ -208,7 +208,7 @@ def main() -> int:
     for name in outside_fns:
         body = _braced_function(html, name)
         if body and _SYMBOL_RE.search(body):
-            failures.append(f"rule6a: {name!r} references a review* symbol in index.html "
+            failures.append(f"rule6a: {name!r} references a review* symbol in legacy.html "
                              "-- no legacy consumer should reach the review component any more")
 
     # Rule 6b — the boundary holds on the Svelte side: only the sanctioned

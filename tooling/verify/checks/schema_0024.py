@@ -20,7 +20,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
 CRUD = ROOT / "src" / "world_engine" / "cockpit" / "crud" / "factions.py"
-INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
+INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "legacy.html"
 sys.path.insert(0, str(SRC))
 
 FAILURES: list[str] = []
@@ -98,9 +98,9 @@ def check_no_metadata_roles_usage() -> None:
     else:
         src = INDEX_HTML.read_text(encoding="utf-8")
         if "detail.metadata.roles" in src or "entityData.metadata.roles" in src:
-            fail("index.html still merges faction roles into entity.metadata — BRIEF-0024-d not fully applied")
+            fail("legacy.html still merges faction roles into entity.metadata — BRIEF-0024-d not fully applied")
         if "role-capacities" in src or "authorFactionCapacitiesDraft" in src:
-            fail("index.html still references the removed role-capacities editor")
+            fail("legacy.html still references the removed role-capacities editor")
 
 
 def main() -> None:
