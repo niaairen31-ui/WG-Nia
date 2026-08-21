@@ -12191,4 +12191,148 @@ remaining failure — `pipeline_state.py` — TICKET-0061's to close.
 
 ---
 
+## TICKET-0061 LEGACY SEAL — Play sealed not migrated, the pointer made true, the rename lands (BRIEF-0061-a, BRIEF-0061-b, BRIEF-0061-c, no schema change)
+
+Last ticket of the seven-ticket frontend-migration series (TICKET-0055
+through TICKET-0061). One supplement, appended once, for the whole
+ticket — the two entries it reconciles are quoted and left standing,
+never edited.
+
+**The Play-fate contradiction, resolved.** `:10973` (the COCKPIT SHELL
+entry, BRIEF-0056-a/b/c/d) reads "`play` survives to TICKET-0061 and
+beyond, until its own rewrite." `:12015` (the STYLESHEET PARTITION
+RULE7 (LEGACY) entry, BRIEF-0060-c) reads "`TICKET-0061` empties
+`LEGACY_MOUNTS` and retires `cockpit/index.html` entirely." These say
+opposite things about what happens to Play at this ticket. TICKET-0056's
+reading is the one that stands: Q2 of the workstream map locked it before
+either entry was written, and PART C rule 1 of that map makes the seal
+ticket — the one that closes the series — structurally the wrong place to
+also land the largest single migration of the series (73 top-level
+functions, 2 762 lines, four sub-tabs of live play surface). Neither
+entry is rewritten; this paragraph is the reconciliation, and it resolves
+in TICKET-0056's favour. Decision A3 (below) is what makes that
+resolution real rather than aspirational.
+
+**A3 — Play is sealed, not migrated.** `LEGACY_MOUNTS` keeps `play`;
+the legacy document stays, renamed to `cockpit/legacy.html` (BRIEF-0061-c
+commit 1) but byte-untouched below the rename. Its migration becomes
+TICKET-0069, deposited paused, reactivated only at Nia's request — the
+3D decision is the gate (see below), not a structural condition.
+
+**A3 and 3b, together.** Before this ticket, `legacy_mount.py`'s
+`_check_retired_by` validated only the FORMAT of a `retiredBy` field
+(`^TICKET-\d{4}$`) — never that the named ticket exists, never that it
+isn't already `done`. A sealed `retiredBy: 'TICKET-0061'` would have been
+a well-formed falsehood a green check blessed: this very ticket, still
+open, named as the one that already retired Play. Rule 3b
+(`legacy_mount.py`, BRIEF-0061-b commit 2) closes that hole structurally:
+for every `LEGACY_MOUNTS` entry, the named ticket must exist on disk
+(resolved by glob) and its `status` must not be `done` — vacuous-proof,
+so a missing or unreadable ticket file is a FAILURE, not a pass. The
+accessor to this guarantee is the ticket file's existence plus its
+non-`done` status — nothing else makes the claim checkable. The rule is
+**inexpressible** under the alternative where `retiredBy` names
+TICKET-0061 itself: a rule asserting "this ticket is not done" while
+executing as part of this ticket's own closure is not a rule, it's a
+tautology waiting to become false the moment the ticket merges. Repointed
+at TICKET-0069 (BRIEF-0061-b commit 1; `frontend/src/legacy/registry.js`,
+`legacy_calls.baseline`), the pointer names a ticket this one does not
+control the status of, and 3b keeps it honest for as long as TICKET-0069
+stays open.
+
+**The ratchet on the legacy document.** At 2 762 lines, `legacy.html` sits
+at 2.7× `module_budget.py`'s 1000-line cap, which no baseline exempts it
+from because the check never scanned `.html` files at all — a structural
+blind spot, not a deliberate exemption. `function_length.py`'s 80-line
+cap is escaped the same way: `sendPlayerLine` runs ~247 lines. Under A3
+the document's exemption from ordinary discipline lives a year or more,
+so BRIEF-0061-b commit 3 puts it on a RATCHET instead — a named constant
+(`LEGACY_DOCUMENT_LINE_CEILING = 2762`) that fails the check on growth
+*and* on shrinkage (instructing the constant be lowered), the same
+monotonically-shrinking discipline as `LEGACY_MOUNTS` itself. The
+per-function cap is a named, explicit deferral: baselining 73 functions
+in a seal ticket was rejected as disproportionate to what a seal is for.
+Reactivation condition: TICKET-0069, which deletes the functions rather
+than baselining them.
+
+**`legacyCall` stays — a specification error in two earlier documents,
+corrected here by supplement.** Both TICKET-0067's decision table and
+this ticket's own brief decomposition (`## Brief decomposition`, above)
+listed "`legacyCall` removed from `bridge.js` and `legacy_calls.baseline`
+shrunk accordingly" as part of BRIEF-0061-b. Measured at that brief's own
+RECON: deleting `export function legacyCall` produces `FAIL: rule6:
+legacyCall is defined 0 time(s) in the tree, expected exactly 1` —
+`legacy_call.py` rule 6 requires the bridge primitive to exist and be
+exported, independent of whether anything currently calls it. Zero call
+sites in `frontend/src` is the confinement rule working (every consumer
+already migrated), not dead code awaiting a purge. It dies with the
+bridge at TICKET-0069, not before. Neither earlier document is edited —
+this is the correction, standing beside them.
+
+**C3's two halves, and what produced them.** TICKET-0067 found
+`prompt_model_write.py` holding two independent defects where the first
+crashed the process before `main()`'s `if FAILURES` block, silently
+discarding the second — a check can *raise*, which is a distinct, worse
+verdict than *fail*. BRIEF-0061-a commit 2 gave that a name: CRASH,
+recovered via a harness that owns the checked script's globals dict and
+reports whatever it had already appended to `FAILURES` before dying.
+The harness's `sys.path.insert(0, ...)` restoration of the script's own
+directory is load-bearing, not defensive: found by running the corpus
+under the harness without it, which crashed `stylesheet_partition.py` on
+its `import legacy_mount` sibling import — direct script execution puts
+that directory on `sys.path[0]` and the harness must replicate it exactly
+or introduce a false CRASH of its own. The second half is a declared
+external-tool contract, `REQUIRED_TOOLS = ("fastapi", "httpx",
+"pyflakes", "sqlalchemy", "sqlmodel")`, measured by AST import scan
+across the corpus — checked via `importlib.util.find_spec` before any
+check runs, reported as `ENVIRONMENT` immediately rather than letting a
+missing dependency masquerade as content failures. Measured need: with
+five dependencies absent, the corpus previously reported `0 environment,
+0 timeout, 6 other` — six genuine defects indistinguishable from six
+environment gaps in the summary line alone.
+
+**C1.** This ticket's own Machine-checkable section links
+`corpus_gate.py` (confirmed present, BRIEF-0061-a commit 3), and
+`CLAUDE.md` now records as standing law that every ticket's
+Machine-checkable section must do the same (`:87`). `corpus_gate.py`
+itself was, until this ticket, run by no gate — TICKET-0060's Machine
+section linked 13 arrows and not the corpus gate that proves all of them
+are live.
+
+**The lapsed-guard pattern, third instance.** `observation_surface.py`
+lapsed between TICKET-0059 and TICKET-0060; `npc_goal_read.py` lapsed
+between TICKET-0051/-0053 and TICKET-0067; the corpus gate itself lapsed
+between its own authorship (BRIEF-0060-d) and this ticket, unlinked from
+any Machine-checkable section the whole time. Same shape three times: a
+guard is built, works, and is never wired to anything that runs it by
+default. C1 is the closure — cross-referenced here, not restated; the
+general lesson already has its own entry.
+
+**TICKET-0066's exclusion has NOT expired.** `:11785` records that
+`shared.css`/`creation.css` keep unhashed filenames because
+`cockpit/legacy.html` (then `index.html`) links them by fixed path, and
+states "that constraint expires on its own at TICKET-0061." Under A3 it
+does not: the legacy document still links both stylesheets by fixed path,
+unchanged. The exclusion continues, reactivating only alongside
+TICKET-0069.
+
+**D-0063-scoped-component-styles has NOT reactivated.** Its condition —
+no document outside the shell consumes `creation.css` — remains false for
+the same reason: `legacy.html` still links it.
+
+**The four named deferrals, each with its reactivation condition:**
+
+| Ticket | Covers | Reactivates |
+|---|---|---|
+| TICKET-0068 | Play's stale `WORLD_ID` (`loadBootstrap()` writes it once, never refreshed by `activateWorldCascade` — the defect TICKET-0060/F1 fixed for Observation) | Immediately; deposited, not paused |
+| TICKET-0069 | Play's migration out of the legacy document | **Human gate.** Nia's explicit request only — horizon one year or more, tied to the 3D reactivation decision. Not a structural condition this or any check can satisfy. |
+| TICKET-0070 | A `claude_md_contract.py` rule asserting symbol LOCATION (a `` `symbol` (`path`) `` claim must find that symbol in that path) | A parser existing with acceptable false-positive surface — a prototype measured ~40% noise across 8 candidate pairs; deposited paused |
+| TICKET-0071 | `CLAUDE.md` hygiene pass — keep only what is law, delegate the rest; must also repair the budget itself, measurably contourned by line length (8 lines carry 30% of 45 979 characters, e.g. `:278` at 5 180 chars) | Deposited paused; no structural trigger |
+
+**The 3D guard rail: cross-reference only.** TICKET-0055, TICKET-0056 and
+TICKET-0057 each held this line at less temptation than a seal ticket
+carries. Restating doctrine is how doctrine drifts. Not restated here.
+
+---
+
 *Co-built with Claude, June 2026.*

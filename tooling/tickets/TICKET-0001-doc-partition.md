@@ -74,3 +74,8 @@ append-only history (cold) live in the same files, so every reader who needs
 
 - [ ] hot/cold partition holds  -> verify/checks/schema_partition.py
 - [ ] index ≡ headers, new headers strict  -> verify/checks/decisions_index.py
+
+### Live  ->  human gate (Nia)
+
+- [ ] No live gate applies to this ticket: a documentation/tooling partition
+      with no user-visible behavior for a human to play-test.

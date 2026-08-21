@@ -1,0 +1,77 @@
+{
+  "ticket": "TICKET-0061-legacy-decommission-and-doctrine-seal",
+  "when": "2026-08-21T22:36:00.252438+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 83 check(s) discovered, 83 executed, 83 passed"
+    },
+    {
+      "check": "pipeline_state.py",
+      "status": "PASS",
+      "msg": "PASS: every ticket front-matter conforms to TEMPLATE.md"
+    },
+    {
+      "check": "legacy_mount.py",
+      "status": "PASS",
+      "msg": "PASS: legacy_mount \u2014 1 mount(s) within baseline, 1 retiring ticket(s), 1 legacy fn(s) resolved, access confined to bridge, 1 frame src site, 5 shell route(s) agreed"
+    },
+    {
+      "check": "legacy_call.py",
+      "status": "PASS",
+      "msg": "PASS: legacy_call \u2014 1 bridge-reach site(s) observed, 1 baselined, 0 stale, 2 reaching export(s) derived"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values; 83 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "creation_island.py",
+      "status": "PASS",
+      "msg": "PASS: creation_island \u2014 15 island(s) registered, 15 retired legacy prefix set(s) confirmed gone, 8 mount-action identifier(s) confined, 11 island primaryAction(s) wired"
+    },
+    {
+      "check": "faction_roster_panel.py",
+      "status": "PASS",
+      "msg": "PASS: faction_roster_panel \u2014 grouped roster panel + member authoring wired correctly"
+    },
+    {
+      "check": "graph_primitive.py",
+      "status": "PASS",
+      "msg": "PASS: graph_primitive \u2014 236 retired token(s) confirmed absent, 0 registry entry(ies) within baseline, 0 entry(ies) with a live locus, 5 graph spec(s) validated, 0 live graph impl(s), 1 retired graph impl(s) proven absent, 4 mount target(s) resolved in the shell document, 9 dispatch/listen site(s) on a single document"
+    },
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u2014 CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry; 14 of 14 CREATION_TABS entries have migrated at least one mount point, 0 still render entirely from legacy code"
+    },
+    {
+      "check": "review_component.py",
+      "status": "PASS",
+      "msg": "PASS: review_component \u2014 8 rules evaluated, nine region* names, reviewGraphRender and the retired string-render half all gone across every locus, four review* generics singly-defined in review/registry.js and consumer-blind, reviewCascade is a pure one-parameter function keyed on fallbackParentId, single descriptor factory per Svelte consumer (Region.svelte/RoomBatch.svelte), boundary holds in index.html (zero legacy consumers) and via the Svelte import graph"
+    },
+    {
+      "check": "schema_0024.py",
+      "status": "PASS",
+      "msg": "PASS: faction_role table + idx_faction_role_name (COLLATE NOCASE) present; faction.role_capacities and entity.metadata.roles usage gone"
+    },
+    {
+      "check": "stylesheet_partition.py",
+      "status": "PASS",
+      "msg": "PASS: stylesheet_partition \u2014 305 top-level selector(s) across shared.css/creation.css/inline, zero duplicates; rule7 scanned 83 frontend/src file(s), 113 applied class name(s), 103 applied id name(s), 83 inline selector name(s), zero stranded; rule7 (legacy) scanned cockpit/legacy.html, 75 applied class name(s), 49 applied id name(s), 0 stranded; STRANDED(legacy) classes=[] ids=[]"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u2014 section whitelist, line budgets, archaeology ban, pointer freshness"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    }
+  ]
+}

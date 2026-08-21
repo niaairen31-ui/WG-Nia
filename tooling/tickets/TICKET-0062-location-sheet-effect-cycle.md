@@ -2,7 +2,7 @@
 id: TICKET-0062
 title: Location sheet effect cycle — async state updates do not paint
 type: bug
-status: done   # merged to main via PR #80 (rode ticket/0059's branch, K1/K2 -- no dedicated PR)
+status: done
 created: 2026-08-03
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
@@ -172,3 +172,7 @@ not something exec checks off on her behalf.
       obstacles.
 - [ ] The same mutations on a character sheet still work (no regression on
       the branch that was already healthy).
+
+## Status note
+
+merged to main via PR #80 (rode ticket/0059's branch, K1/K2 -- no dedicated PR)

@@ -2,7 +2,7 @@
 id: TICKET-0048
 title: canon.py stratum sub-split -- extract faction domain to canon_faction.py
 type: refactor            # NOTE: TEMPLATE.md's type enum lists only feature|bug; refactor per Nia's call (2026-07-23). Template may need a type-vocab update.
-status: live-gate         # intake|recon|brief|exec|verify|live-gate|done|paused|escalated
+status: live-gate
 created: 2026-07-23
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []          # no db_write, no migration, no destructive_data -- move-only, schema byte-identical

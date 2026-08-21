@@ -10,6 +10,15 @@ input is a FAILURE, never a trivially satisfied comparison):
   1. Registry parses, non-empty.
   2. Monotone shrink against tooling/verify/baselines/legacy_mounts.baseline.
   3. Every entry declares a well-formed `retiredBy` (`^TICKET-\\d{4}$`).
+  3b. (TICKET-0061, BRIEF-0061-b, A3.) That `retiredBy` ticket EXISTS on
+     disk (`tooling/tickets/{retiredBy}-*.md`, exactly one match) and its
+     front-matter `status` is not `done` -- a `retiredBy` naming a
+     finished ticket while the mount still lives is a contradiction a
+     year-long seal cannot afford to let drift silently. Front-matter is
+     read the same way pipeline_state.py reads it (`extract_front_matter`
+     / `field_value`, imported rather than reimplemented). Vacuous-proof:
+     a missing/ambiguous ticket file, an unreadable one, or a front-matter
+     with no `status` field are each a FAILURE, never a skip.
   4. Every `showFn` exists as a top-level function in the legacy document,
      and its body's DOM access (`getElementById('{key}-view')`,
      `'mode-tab-{key}'`) never names a surface key absent from the
@@ -35,9 +44,13 @@ ROOT = Path(__file__).resolve().parents[3]
 FRONTEND_SRC = ROOT / "frontend" / "src"
 REGISTRY_FILE = FRONTEND_SRC / "legacy" / "registry.js"
 BASELINE_FILE = ROOT / "tooling" / "verify" / "baselines" / "legacy_mounts.baseline"
-LEGACY_INDEX = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
+LEGACY_INDEX = ROOT / "src" / "world_engine" / "cockpit" / "legacy.html"
 APP_PY = ROOT / "src" / "world_engine" / "cockpit" / "app.py"
 ROUTER_JS = FRONTEND_SRC / "lib" / "router.js"
+TICKETS_DIR = ROOT / "tooling" / "tickets"
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pipeline_state  # noqa: E402 -- reuse extract_front_matter/field_value, never a second YAML reader
 
 CONFINED_FILES = {
     FRONTEND_SRC / "legacy" / "bridge.js",
@@ -110,12 +123,53 @@ def _check_monotone_shrink(keys: set[str]) -> bool:
     return ok
 
 
+def resolve_ticket_status(retired_by: str, context: str) -> str | None:
+    """Resolve `retired_by` (already known to match ^TICKET-\\d{4}$) to its
+    ticket file's front-matter `status`. Shared by rule 3b here and by
+    legacy_call.py rule 8 -- one implementation, not two. Vacuous-proof:
+    zero or several matching files, an unreadable file, a missing
+    front-matter block, or a missing `status` field are each a FAILURE
+    naming `context` (the caller's own label for what is being checked),
+    never a skip."""
+    matches = sorted(TICKETS_DIR.glob(f"{retired_by}-*.md"))
+    if len(matches) != 1:
+        fail(
+            f"{context}: retiredBy {retired_by!r} resolves to {len(matches)} file(s) "
+            f"matching tooling/tickets/{retired_by}-*.md, expected exactly 1"
+        )
+        return None
+    path = matches[0]
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        fail(f"{context}: could not read {path}: {exc}")
+        return None
+    block = pipeline_state.extract_front_matter(text)
+    if block is None:
+        fail(f"{context}: {path.name} has no parseable YAML front-matter block")
+        return None
+    status = pipeline_state.field_value(block, "status")
+    if status is None:
+        fail(f"{context}: {path.name} front-matter has no 'status' field")
+        return None
+    return status
+
+
 def _check_retired_by(entries: dict[str, dict[str, str]]) -> int:
     count = 0
     for key, entry in entries.items():
         retired_by = entry.get("retiredBy", "")
         if not RETIRED_BY_RE.match(retired_by):
             fail(f"legacy mount '{key}': retiredBy {retired_by!r} does not match ^TICKET-\\d{{4}}$")
+            continue
+        status = resolve_ticket_status(retired_by, f"legacy mount '{key}'")
+        if status is None:
+            continue
+        if status == "done":
+            fail(
+                f"legacy mount '{key}': retiredBy names {retired_by}, whose status is "
+                f"'done' -- a finished ticket cannot be the reason a legacy mount still lives"
+            )
             continue
         count += 1
     return count

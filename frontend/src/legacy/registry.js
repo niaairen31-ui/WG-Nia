@@ -19,9 +19,19 @@
    -- Observation is a shell-native Svelte component now
    (frontend/src/observation/Observation.svelte, mounted directly by
    App.svelte). `play` alone remains, retiring at TICKET-0061 on its own
-   stack. */
+   stack.
+
+   TICKET-0061 (A3). The contradiction above is settled: `play` SURVIVES
+   this ticket. TICKET-0056's own decision entry said so ("survives to
+   TICKET-0061 and beyond, until its own rewrite"); TICKET-0060's entry
+   later said the opposite ("TICKET-0061 empties LEGACY_MOUNTS"), and this
+   field carried that second reading. Resolved in favour of TICKET-0056 and
+   repointed at TICKET-0069, the Play migration, deposited paused. Rule 3b
+   (legacy_mount.py) now asserts that ticket exists and is not done, so
+   this field can no longer be a well-formed sentence naming a finished
+   ticket. */
 export const LEGACY_MOUNTS = Object.freeze({
-  play: Object.freeze({ showFn: 'showPlayView', retiredBy: 'TICKET-0061' }),
+  play: Object.freeze({ showFn: 'showPlayView', retiredBy: 'TICKET-0069' }),
 });
 
 export const LEGACY_SURFACES = Object.freeze(Object.keys(LEGACY_MOUNTS));

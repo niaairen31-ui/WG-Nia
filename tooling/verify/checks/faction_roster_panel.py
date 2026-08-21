@@ -24,7 +24,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
+INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "legacy.html"
 SHEET_SVELTE = ROOT / "frontend" / "src" / "creation" / "Sheet.svelte"
 FACTION_PANEL_JS = ROOT / "frontend" / "src" / "creation" / "factionPanel.svelte.js"
 FACTION_ROSTER_SVELTE = ROOT / "frontend" / "src" / "creation" / "FactionRoster.svelte"

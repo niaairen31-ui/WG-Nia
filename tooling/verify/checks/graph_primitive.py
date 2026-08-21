@@ -94,7 +94,7 @@ GRAPH_SRC = FRONTEND_SRC / "graph"
 REGISTRY_FILE = GRAPH_SRC / "registry.js"
 BASELINE_FILE = ROOT / "tooling" / "verify" / "baselines" / "graph_impls.baseline"
 RETIRED_FILE = ROOT / "tooling" / "verify" / "baselines" / "graph_impls.retired"
-INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
+INDEX_HTML = ROOT / "src" / "world_engine" / "cockpit" / "legacy.html"
 GRAPH_SVELTE = GRAPH_SRC / "Graph.svelte"
 
 GONE_PLAIN = [
@@ -378,20 +378,20 @@ def _braced_bodies(text: str, prefix: str) -> list[str]:
 def _rule1_gone(html: str) -> int:
     for token in GONE_PLAIN:
         if token in html:
-            fail(f"rule1: retired token {token!r} still present in index.html")
+            fail(f"rule1: retired token {token!r} still present in legacy.html")
     for token in GONE_WORD:
         if re.search(rf"\b{re.escape(token)}\b", html):
-            fail(f"rule1: retired token {token!r} still present in index.html")
+            fail(f"rule1: retired token {token!r} still present in legacy.html")
     for token in GONE_CASE_INSENSITIVE:
         if token in html.lower():
-            fail(f"rule1: retired token {token!r} still present in index.html (case-insensitive)")
+            fail(f"rule1: retired token {token!r} still present in legacy.html (case-insensitive)")
     return len(GONE_PLAIN) + len(GONE_WORD) + len(GONE_CASE_INSENSITIVE)
 
 
 def _rule2_no_svg(html: str) -> bool:
     count = len(SVG_TAG_RE.findall(html))
     if count:
-        fail(f"rule2: {count} '<svg' occurrence(s) remain in index.html — the legacy document must emit no SVG graph")
+        fail(f"rule2: {count} '<svg' occurrence(s) remain in legacy.html — the legacy document must emit no SVG graph")
         return False
     return True
 
@@ -564,7 +564,7 @@ def _rule6_engine_confinement(html: str, entries: dict[str, dict[str, str]]) -> 
     allowed_calls = len(CYTOSCAPE_CALL_RE.findall(allowed_bodies))
     total_calls = len(CYTOSCAPE_CALL_RE.findall(html))
     if total_calls != allowed_calls:
-        fail(f"rule6: {total_calls - allowed_calls} 'cytoscape(' call(s) in index.html fall outside "
+        fail(f"rule6: {total_calls - allowed_calls} 'cytoscape(' call(s) in legacy.html fall outside "
              "a registered entry's function body")
         ok = False
     return ok
@@ -669,7 +669,7 @@ def _rule9_closed_vocab(html: str) -> int:
             text = path.read_text(encoding="utf-8")
             count += _rule9_closed_vocab_locus(text, path)
     if count == 0:
-        fail("rule9: zero 'graph: {...}' specs collected across index.html and frontend/src/creation/ "
+        fail("rule9: zero 'graph: {...}' specs collected across legacy.html and frontend/src/creation/ "
              "— a rule that passes on nothing is the flaw this fixes")
     return count
 

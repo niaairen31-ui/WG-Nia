@@ -24,9 +24,20 @@ observation_surface.py. Three properties, each vacuous-proof:
   3. Coverage: the set of executed paths equals the discovered set. A
      directory listing that outran the executed set is a FAIL naming the
      missed files -- not merely "some checks passed".
+
+TICKET-0061 (C3): property 2's verdicts are ENVIRONMENT / CRASH / TIMEOUT /
+FAIL. CRASH is a check that raised before it finished reporting -- verdict
+UNKNOWN, not merely failed, because whatever rules it had already checked
+before the exception are unproven, not disproven. TICKET-0067 found
+prompt_model_write.py holding two independent defects where the first
+raised before main() reached its `if FAILURES` block, hiding the second
+from the report entirely. CRASH is still a failure, same as the other
+three -- the new class is for the reader, never a way to make the gate
+less red.
 """
 from __future__ import annotations
 
+import importlib.util
 import re
 import subprocess
 import sys
@@ -43,6 +54,47 @@ TIMEOUT_SECONDS = 15
 
 MODULE_RE = re.compile(r"No module named '([^']+)'")
 
+# TICKET-0061 (C3). Measured on this tree by AST import scan across
+# tooling/verify/checks/*.py. Re-measure rather than trusting this tuple:
+# a check that grows a new third-party dependency belongs here, and a
+# missing tool must be ENVIRONMENT before execution, not a wall of
+# ambiguous FAILs afterwards.
+REQUIRED_TOOLS = ("fastapi", "httpx", "pyflakes", "sqlalchemy", "sqlmodel")
+
+# TICKET-0061 (C3). TICKET-0067 found prompt_model_write.py holding TWO
+# defects: the first raised before main() reached its `if FAILURES` block,
+# so the second never printed. The gate could say "this check failed" and
+# could not say "and it holds another failure you cannot see". Running each
+# check through a harness that OWNS the globals dict makes the accumulated
+# FAILURES list survivable across an uncaught exception, and gives the
+# crash its own verdict class: not failed, UNKNOWN.
+CRASH_EXIT = 70
+_HARNESS = """
+import os, sys, traceback
+p = sys.argv[1]
+# Replicate direct script execution: `python3 path/check.py` puts the
+# script's own directory on sys.path[0]. Sibling imports depend on it
+# (stylesheet_partition.py does `import legacy_mount`).
+sys.path.insert(0, os.path.dirname(os.path.abspath(p)))
+g = {"__name__": "__main__", "__file__": p}
+code = 0
+try:
+    exec(compile(open(p, encoding="utf-8").read(), p, "exec"), g)
+except SystemExit as exc:
+    code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
+except BaseException:
+    traceback.print_exc()
+    code = 70
+    fs = g.get("FAILURES")
+    if isinstance(fs, list) and fs:
+        print("CRASH-RECOVERED-FAILURES: %d" % len(fs))
+        for f in fs:
+            print("    " + str(f))
+    else:
+        print("CRASH-RECOVERED-FAILURES: 0")
+sys.exit(code)
+"""
+
 FAILURES: list[str] = []
 
 
@@ -55,11 +107,13 @@ def _report_and_exit(counts: dict | None = None) -> None:
         for msg in FAILURES:
             print(msg)
         env = sum(1 for m in FAILURES if m.startswith("ENVIRONMENT:"))
+        crash = sum(1 for m in FAILURES if m.startswith("CRASH:"))
         timeout = sum(1 for m in FAILURES if m.startswith("TIMEOUT:"))
-        other = len(FAILURES) - env - timeout
+        recovered = sum(1 for m in FAILURES if m.startswith("    "))
+        other = len(FAILURES) - env - crash - timeout - recovered
         print(
             f"SUMMARY: {len(FAILURES)} check(s) failed "
-            f"({env} environment, {timeout} timeout, {other} other)"
+            f"({env} environment, {crash} crash, {timeout} timeout, {other} other)"
         )
         sys.exit(1)
     print(
@@ -78,10 +132,25 @@ def _report_and_exit(counts: dict | None = None) -> None:
 # subprocess failure indistinguishable from a real one. Any future edit
 # that turns ENVIRONMENT into a warning re-opens the hole this gate was
 # built to close.
-def _classify(name: str, stdout: str, stderr: str, timed_out: bool) -> str:
+def _check_required_tools() -> None:
+    missing = [t for t in REQUIRED_TOOLS if importlib.util.find_spec(t) is None]
+    for tool in missing:
+        fail(f"ENVIRONMENT: required tool {tool!r} is not installed -- the corpus cannot be evaluated")
+
+
+def _classify(name: str, stdout: str, stderr: str, timed_out: bool, returncode: int = 1) -> str:
     if timed_out:
         return f"TIMEOUT: {name} exceeded {TIMEOUT_SECONDS}s"
     combined = f"{stderr}\n{stdout}"
+    if returncode == CRASH_EXIT:
+        recovered = ""
+        for line in combined.splitlines():
+            if line.startswith("CRASH-RECOVERED-FAILURES:"):
+                recovered = line.split(":", 1)[1].strip()
+        return (
+            f"CRASH: {name} raised before reporting -- verdict UNKNOWN, not merely failed "
+            f"({recovered} failure(s) recovered from its FAILURES list)"
+        )
     if "ModuleNotFoundError" in combined or "ImportError" in combined:
         m = MODULE_RE.search(combined)
         module = m.group(1) if m else "unknown"
@@ -111,6 +180,11 @@ def _discover() -> list[Path] | None:
 
 
 def main() -> None:
+    _check_required_tools()
+    if FAILURES:
+        _report_and_exit()
+        return
+
     discovered = _discover()
     if discovered is None:
         _report_and_exit()
@@ -121,14 +195,23 @@ def main() -> None:
     for path in discovered:
         try:
             proc = subprocess.run(
-                [sys.executable, str(path)],
+                [sys.executable, "-c", _HARNESS, str(path)],
                 capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
             )
             executed.append(path)
             if proc.returncode == 0:
                 passed += 1
             else:
-                fail(_classify(path.name, proc.stdout, proc.stderr, timed_out=False))
+                fail(_classify(path.name, proc.stdout, proc.stderr, timed_out=False, returncode=proc.returncode))
+                if proc.returncode == CRASH_EXIT:
+                    # Recovered failure lines are printed to stdout by the
+                    # harness (print()); the traceback is stderr
+                    # (traceback.print_exc()) and is also 4-space indented
+                    # Python source context -- scanning stdout only keeps
+                    # the two apart.
+                    for line in proc.stdout.splitlines():
+                        if line.startswith("    ") and line.strip():
+                            fail(line)
         except subprocess.TimeoutExpired as exc:
             executed.append(path)
             stdout = exc.stdout if isinstance(exc.stdout, str) else (exc.stdout or b"").decode(errors="replace")

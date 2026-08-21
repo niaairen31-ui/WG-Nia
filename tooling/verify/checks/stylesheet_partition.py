@@ -138,7 +138,7 @@ FRONTEND_PUBLIC = ROOT / "frontend" / "public"
 SHARED_SRC = FRONTEND_PUBLIC / "shared.css"
 CREATION_SRC = FRONTEND_PUBLIC / "creation.css"
 FRONTEND_INDEX = ROOT / "frontend" / "index.html"
-COCKPIT_INDEX = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
+COCKPIT_INDEX = ROOT / "src" / "world_engine" / "cockpit" / "legacy.html"
 STATIC_DIR = ROOT / "src" / "world_engine" / "cockpit" / "static"
 SHARED_STATIC = STATIC_DIR / "shared.css"
 CREATION_STATIC = STATIC_DIR / "creation.css"
@@ -195,7 +195,7 @@ def _report_and_exit(counts: dict | None = None) -> None:
         f"{counts['files']} frontend/src file(s), {counts['applied_classes']} applied "
         f"class name(s), {counts['applied_ids']} applied id name(s), "
         f"{counts['inline_selectors']} inline selector name(s), zero stranded; "
-        f"rule7 (legacy) scanned cockpit/index.html, {counts['legacy_applied_classes']} "
+        f"rule7 (legacy) scanned cockpit/legacy.html, {counts['legacy_applied_classes']} "
         f"applied class name(s), {counts['legacy_applied_ids']} applied id name(s), "
         f"{len(counts['legacy_stranded_classes']) + len(counts['legacy_stranded_ids'])} stranded; "
         f"STRANDED(legacy) classes={counts['legacy_stranded_classes']} "
@@ -341,13 +341,13 @@ def _check_rule3(sources: dict[str, list[str]]) -> None:
         return
     if ":root" in inline:
         fail(
-            "rule3: cockpit/index.html's inline <style> still declares a :root block -- "
+            "rule3: cockpit/legacy.html's inline <style> still declares a :root block -- "
             "design tokens must exist exactly once, in shared.css"
         )
 
 
 def _check_rule4() -> None:
-    for path, label in ((FRONTEND_INDEX, "frontend/index.html"), (COCKPIT_INDEX, "cockpit/index.html")):
+    for path, label in ((FRONTEND_INDEX, "frontend/index.html"), (COCKPIT_INDEX, "cockpit/legacy.html")):
         if not path.is_file():
             fail(f"rule4: {path} does not exist")
             continue
@@ -371,12 +371,12 @@ def _check_rule5() -> None:
 
     if link_present and not mount_declared:
         fail(
-            "rule5: cockpit/index.html links creation.css but LEGACY_MOUNTS no longer "
+            "rule5: cockpit/legacy.html links creation.css but LEGACY_MOUNTS no longer "
             "declares 'creation' -- the link outlived the mount it was tied to"
         )
     elif mount_declared and not link_present:
         fail(
-            "rule5: LEGACY_MOUNTS still declares 'creation' but cockpit/index.html is "
+            "rule5: LEGACY_MOUNTS still declares 'creation' but cockpit/legacy.html is "
             "missing the creation.css <link> -- Creation would lose its styling while "
             "still rendering inside the legacy iframe"
         )
@@ -559,7 +559,7 @@ def _check_rule7(sources: dict[str, list[str]]) -> dict[str, int] | None:
     inline_classes, inline_ids = _inline_class_and_id_names(sources)
     if not inline_classes and not inline_ids:
         fail(
-            "rule7: vacuous scan -- zero selectors parsed from cockpit/index.html's "
+            "rule7: vacuous scan -- zero selectors parsed from cockpit/legacy.html's "
             "inline <style> block"
         )
         return None
@@ -572,13 +572,13 @@ def _check_rule7(sources: dict[str, list[str]]) -> dict[str, int] | None:
         cited = ", ".join(files[:3])
         fail(
             f"rule7: class {name!r} is stranded -- applied under frontend/src ({cited}) "
-            "but reachable only via cockpit/index.html's inline <style>"
+            "but reachable only via cockpit/legacy.html's inline <style>"
         )
     for name, files in stranded_ids.items():
         cited = ", ".join(files[:3])
         fail(
             f"rule7: id {name!r} is stranded -- applied under frontend/src ({cited}) "
-            "but reachable only via cockpit/index.html's inline <style>"
+            "but reachable only via cockpit/legacy.html's inline <style>"
         )
 
     return {
@@ -692,10 +692,10 @@ def _check_rule7_legacy(sources: dict[str, list[str]]) -> dict[str, int] | None:
         fail(f"rule7 (legacy): vacuous scan -- {COCKPIT_INDEX} is missing or empty")
         return None
     if not applied_classes:
-        fail("rule7 (legacy): vacuous scan -- zero applied class names extracted from cockpit/index.html")
+        fail("rule7 (legacy): vacuous scan -- zero applied class names extracted from cockpit/legacy.html")
         return None
     if not applied_ids:
-        fail("rule7 (legacy): vacuous scan -- zero applied id names extracted from cockpit/index.html")
+        fail("rule7 (legacy): vacuous scan -- zero applied id names extracted from cockpit/legacy.html")
         return None
 
     shared_classes, shared_ids = _base_rule_names(sources.get("shared.css", []))
@@ -711,12 +711,12 @@ def _check_rule7_legacy(sources: dict[str, list[str]]) -> dict[str, int] | None:
 
     for name in stranded_classes:
         fail(
-            f"rule7 (legacy): class {name!r} is stranded -- applied in cockpit/index.html "
+            f"rule7 (legacy): class {name!r} is stranded -- applied in cockpit/legacy.html "
             "but its only rule lives in a sheet that document does not link"
         )
     for name in stranded_ids:
         fail(
-            f"rule7 (legacy): id {name!r} is stranded -- applied in cockpit/index.html "
+            f"rule7 (legacy): id {name!r} is stranded -- applied in cockpit/legacy.html "
             "but its only rule lives in a sheet that document does not link"
         )
 
