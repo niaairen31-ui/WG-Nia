@@ -94,6 +94,7 @@ def check_write_path_and_list_route() -> None:
     from world_engine.cockpit.app import app
     from world_engine.models import PromptTemplate
     from world_engine.ollama_client import OllamaError
+    from world_engine.writes.prompts import write_prompt_version
 
     with Session(engine) as session:
         row = PromptTemplate(
@@ -103,6 +104,22 @@ def check_write_path_and_list_route() -> None:
         session.commit()
         session.refresh(row)
         row_id = row.id
+        # TICKET-0067 (C1). A versionless head is structurally impossible
+        # post-migration — prompt_store.current_prompt raises on one, by
+        # design — and the PATCH under test summarises the row through it
+        # (cockpit/crud/prompts.py:115). Seeded through the sanctioned
+        # write path, never a bare Session.add(PromptVersion(...)):
+        # prompt_version.py's single-write-shape rule scans src/ plus the
+        # migration and would not catch the shortcut here, which is a
+        # reason to avoid it, not a licence to use it.
+        write_prompt_version(
+            session,
+            template_id=row_id,
+            system_prompt="s",
+            user_template="u",
+        )
+        session.commit()
+        session.refresh(row)
         last_updated_at = row.updated_at
 
     client = TestClient(app)
