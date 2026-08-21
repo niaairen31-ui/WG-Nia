@@ -2,7 +2,7 @@
 id: TICKET-0036
 title: NPC link agent — batch relation/knowledge authoring with coherence pass
 type: feature
-status: live-gate    # all briefs landed; PR #55 awaits Nia's play-test
+status: live-gate
 created: 2026-07-20
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
@@ -93,3 +93,7 @@ ete fait a la fin."
       last 2 closed batches survive a restart
 - [ ] journal files exist under ~/.world_engine/link_agent_journal/ and
       contain the full trace of the run; nothing under the repo tree
+
+## Status note
+
+all briefs landed; PR #55 awaits Nia's play-test
