@@ -2,7 +2,7 @@
 id: TICKET-0067
 title: Two red guards on main — the N1 goal-read breach and the prompt-model fixture drift
 type: bug
-status: exec
+status: live-gate
 created: 2026-08-20
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
