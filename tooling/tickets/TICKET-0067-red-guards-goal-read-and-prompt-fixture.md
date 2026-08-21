@@ -2,7 +2,7 @@
 id: TICKET-0067
 title: Two red guards on main — the N1 goal-read breach and the prompt-model fixture drift
 type: bug
-status: escalated
+status: exec
 created: 2026-08-20
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
@@ -153,3 +153,29 @@ Decisions locked before any artifact was authored:
   docstring and in TICKET-0013. Do not add one; the file has one line of
   headroom against its 500-line cap.
 - No schema changelog entry: `schema_version_touched: none`.
+
+## Amendment (D1, escalated during BRIEF-0067-a commit 2, resolved by Nia)
+
+Executing commit 2's `write_prompt_version` fixture fix let
+`prompt_model_write.py`'s `main()` run to completion for the first time,
+unmasking a second, independent, previously-invisible failure in the same
+check file: `check_seed_model_free`'s `re.search(r"\bmodel\s*=", ...)`
+matched three comments in `scripts/seed_pilot.py` (`:2206`, `:2227`,
+`:2339`) documenting the `model=NULL (Q1)` invariant — not any actual
+`model=` assignment. It was masked on `main` because
+`check_write_path_and_list_route()` used to crash with an uncaught
+`RuntimeError` before `main()` ever reached its `if FAILURES:` print
+block. See `tooling/questions/QUESTION-TICKET-0067.md` for the full
+escalation and Nia's decision (option A: repair now, as a separate third
+commit).
+
+Additional Machine-checkable criterion, landed by commit 3:
+
+- [x] `check_seed_model_free` parses `scripts/seed_pilot.py`'s AST (never
+      greps raw text) for a `model=` keyword argument on any
+      `upsert_prompt_template(...)` call or a `.model =` attribute
+      assignment, with a vacuous-proof guard (`seeded == 0` fails) —
+      red-tested by injecting `model=` at one call site (FAIL naming that
+      line) and by renaming `upsert_prompt_template` throughout (FAIL on
+      the vacuous-proof guard), both reverted  ->
+      verify/checks/prompt_model_write.py

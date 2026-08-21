@@ -12110,4 +12110,85 @@ named from a `### Machine-checkable` section in the first place.
 
 ---
 
+## RED GUARDS REPAIRED — goal-read accessor and prompt-model fixture (BRIEF-0067-a, no schema change)
+
+`corpus_gate.py` (BRIEF-0060-d) surfaced two genuine, previously-invisible
+reds on `main`: `npc_goal_read.py` (the observation runner selecting
+`NpcGoal` directly, outside its allowlist) and `prompt_model_write.py`
+(its fixture creating a versionless `PromptTemplate` head, tripping
+`prompt_store.current_prompt`'s fail-closed `RuntimeError`).
+
+**The presence probe became an accessor, not an allowlist entry.**
+`observation_runner.check_run_readiness` needs exactly one boolean per
+NPC — does it hold an active goal — as a run-launch precondition. Simply
+allowlisting the runner for `NpcGoal` would have licensed content reads
+(`description`/`horizon`/`note`) the code does not perform and nothing
+would keep it that way. Instead, `npc_ids_with_active_goal(npc_ids, db)
+-> set[str]` lands in `observation_reads.py` — the observation domain's
+existing read module. The return type IS the structural guarantee: no
+caller can reach a goal's content through this function, so the presence
+need can never silently widen into a second content reader.
+
+`npc_goal_read.py`'s `ALLOWED_MODULES` gains exactly two entries, both
+relocations, never new consumers: `src/world_engine/observation_reads.py`
+(a READ MODULE, definitionally a reader) and
+`tooling/verify/checks/observation_runner.py` (a check fixture that seeds
+`NpcGoal` rows for its own test corpus, allowlisted by name on the
+precedent of `npc_goal_read.py`'s own existing entry — not a
+directory-wide rule, and not a narrowed `tooling/` scan).
+
+**Second instance of the lapsed-guard pattern.** `npc_goal_read.py` is
+linked by the Machine sections of TICKET-0013/-0014/-0015/-0020/-0048;
+TICKET-0051 and -0053, which authored `observation_runner.py`, link it
+zero times — the same shape as `observation_surface.py`'s lapse
+(BRIEF-0060-a). `verify/run.py` runs only what a ticket names; the
+corpus gate is what made both lapses visible. The corpus-wide fix
+(linking `corpus_gate.py` as standing law) is TICKET-0061's, not this
+one's.
+
+**The prompt-model fixture repair, and a second defect it unmasked
+(D1).** The fixture now seeds its v1 `prompt_version` row through the
+sanctioned write path, `writes.prompts.write_prompt_version`, inside the
+check's own fresh temp-file DB — never a bare
+`Session.add(PromptVersion(...))`, which `prompt_version.py`'s
+single-write-shape rule would not have caught in `tooling/` regardless
+(exploiting that blind spot was rejected on the same footing as writing
+around it).
+
+Fixing that crash let `prompt_model_write.py`'s `main()` run to
+completion for the first time — which unmasked a second, independent,
+previously-invisible failure in the same file: `check_seed_model_free`'s
+`re.search(r"\bmodel\s*=", ...)` matched three comments in
+`scripts/seed_pilot.py` (`:2206`, `:2227`, `:2339`) documenting the
+S-null invariant in the words `model=NULL (Q1)`, not any actual
+assignment. It had been silently swallowed because
+`check_write_path_and_list_route()` used to crash with an uncaught
+exception before `main()` ever reached its `if FAILURES:` print block.
+Escalated (QUESTION-TICKET-0067.md, D1) rather than patched as a
+drive-by; Nia's decision: repair it, as its own third commit, by parsing
+rather than grepping. `check_seed_model_free` now walks the AST for a
+`model=` keyword argument on any `upsert_prompt_template(...)` call or a
+`.model =` attribute assignment, plus a `seeded == 0` vacuous-proof guard
+— a rule that passes because it found nothing to inspect is the flaw
+this ticket exists to close. Anchoring on a literal `PromptTemplate(`
+construction was rejected (measured: zero exist in `seed_pilot.py`, 29
+`upsert_prompt_template(...)` calls do, whose `**head_fields` is the
+actual path a `model=` would take); stripping `#` comments before
+grepping was rejected too (still a raw-text scan over a 3257-line file
+holding 64 triple-quoted prompt bodies, re-tripped by future prompt text
+containing the characters `model=`).
+
+**Report-only findings, left unfixed by decision:** `context.py` sits at
+979/1000 lines against `module_budget.py`'s cap — a pre-existing
+condition this ticket routed around (the accessor could not live there)
+rather than repaired; it deserves its own ticket. The scan-scope
+asymmetry between `npc_goal_read.py` (scans `tooling/`) and
+`prompt_version.py` (scans `src/` plus the migration only) — same class
+of doctrine, opposite scopes — is reported, not reconciled.
+
+With all three commits landed, `corpus_gate.py` reports exactly one
+remaining failure — `pipeline_state.py` — TICKET-0061's to close.
+
+---
+
 *Co-built with Claude, June 2026.*
