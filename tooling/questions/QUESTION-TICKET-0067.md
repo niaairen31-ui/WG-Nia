@@ -65,3 +65,70 @@ B. Defer to a new ticket (next id via `tooling/glue/next_id.py`). This
 C. Something else Nia specifies.
 
 ## Response
+Decision: A — repair it here, as a THIRD commit, not folded into commit 2.
+
+Your escalation is correct behavior and STOP condition 5 was the right call. The diagnosis is right too: it is a false positive, and the three matches at `scripts/seed_pilot.py:2206,:2227,:2339` are comments documenting the very invariant the rule enforces.
+
+One correction to the options you proposed. Anchoring the regex against a `PromptTemplate(` construction would be a fail-open. Measured on this tree: `seed_pilot.py` contains zero literal `PromptTemplate(...)` constructions and 29 `upsert_prompt_template(...)` calls, whose signature is `(session, id, *, system_prompt, user_template, **head_fields)` — `**head_fields` is exactly the path a `model=` would take. That anchor would match nothing and pass forever. Stripping `#` comments is also rejected: it stays a grep over 3 257 lines holding 64 triple-quoted prompt bodies, so any future prompt text containing the characters `model=` re-trips it.
+
+Parse it. Same discipline `legacy_mount.py` and `static_asset_freshness.py` state for their own AST reads. Replace `check_seed_model_free` (`tooling/verify/checks/prompt_model_write.py:63-66`) with exactly this, and add `import ast` to the module's import block (`re` stays — it is still used at `:59`):
+
+```python
+def check_seed_model_free() -> None:
+    """S-null (Q1): the seed never sets a model on a prompt_template head.
+
+    TICKET-0067 (D1). This rule was `re.search(r"\bmodel\s*=", seed_text)`
+    over the whole file. `seed_pilot.py` is 3257 lines holding 64
+    triple-quoted prompt bodies, and three comments (:2206, :2227, :2339)
+    record the invariant in the words `model=NULL (Q1)` — so the comments
+    documenting the rule tripped the rule. Parsed, never grepped.
+
+    Anchoring on a `PromptTemplate(` construction was rejected: this file
+    has ZERO of them and 29 `upsert_prompt_template(...)` calls, whose
+    `**head_fields` is how a `model=` would actually arrive. That anchor
+    would match nothing and pass forever.
+    """
+    try:
+        tree = ast.parse(SEED.read_text(encoding="utf-8"), filename=str(SEED))
+    except SyntaxError as exc:
+        fail(f"{SEED}: SyntaxError: {exc}")
+        return
+
+    seeded = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id == "upsert_prompt_template":
+                seeded += 1
+            for kw in node.keywords:
+                if kw.arg == "model":
+                    fail(
+                        f"scripts/seed_pilot.py:{node.lineno} passes a `model=` "
+                        "keyword argument — S-null violated"
+                    )
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Attribute) and target.attr == "model":
+                    fail(
+                        f"scripts/seed_pilot.py:{node.lineno} assigns `.model` "
+                        "— S-null violated"
+                    )
+
+    if seeded == 0:
+        fail(
+            "scripts/seed_pilot.py: zero upsert_prompt_template(...) calls "
+            "parsed — the seeding shape changed and this scan proves nothing"
+        )
+```
+
+The `seeded == 0` clause is the vacuous-proof guard: a rule that passes because it found nothing to inspect is the flaw this whole ticket exists to close.
+
+Commit structure. Commit 2 lands the `write_prompt_version` wiring alone, as specified — commit it now. The S-null repair is commit 3, on its own. The brief protocol requires a conditional fix discovered during execution to take a separate commit, and the two defects deserve two records: "the fixture followed the versioning" and "the S-null rule stopped grepping comments" are different findings. `prompt_model_write.py` being red between commits 2 and 3 is not a regression — it was red before commit 1, and this ticket is what turns it green.
+
+Two red-tests to run and record in commit 3's message:
+
+1. Add `model="llama3.1:8b"` to any `upsert_prompt_template(...)` call → FAIL naming that line. Revert. (Verified: fires at the injected line.)
+2. Rename `upsert_prompt_template` throughout `seed_pilot.py` → FAIL on the vacuous guard. Revert. (Verified.)
+
+No change to the brief's Done means. With commit 3 landed, `corpus_gate.py` reports exactly one remaining failure — `pipeline_state.py` — as the brief already states. Verified end-to-end on a simulated tree.
+
+TICKET-0067's Machine-checkable section and BRIEF-0067-a will receive an appended amendment recording this third repair. Appended, not rewritten — do not edit either artifact's existing text.
