@@ -1,5 +1,10 @@
 """G1 check for TICKET-0009 (BRIEF-0009-a) — prompt_template.model write path.
 
+The law (delegated from CLAUDE.md, TICKET-0071 BRIEF-0071-a; rules 1-3 and
+5 below already cover the write/read/seed contract): seeded rows stay
+NULL — the `WORLD_ENGINE_OLLAMA_MODEL` env override must keep showing
+through NULL-model templates.
+
 No live Ollama required: `ping` is monkeypatched at the `cockpit.crud.prompts`
 module level (`crud/prompts.py` does `from ...ollama_client import ping`, so
 the module-level name there — not ollama_client.py's — is the one call

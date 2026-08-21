@@ -14,8 +14,10 @@ and `world-engine-schema-changelog.md` — never here.
 
 - Python, FastAPI, SQLModel, SQLite (Supabase/PostgreSQL migration path
   preserved via the env-var DB URL).
-- Frontend: a built Svelte shell (`frontend/`) serves the cockpit at `/`.
-  Creation and Observation are shell-native Svelte components, mounted directly by `App.svelte`; Play alone stays legacy (`/legacy`, one governed iframe, `cockpit/legacy.html`), sealed rather than migrated by TICKET-0061, until its own ticket (TICKET-0069). No new dependency without a decision.
+- Frontend: a built Svelte shell (`frontend/`) serves the cockpit at `/`. Creation and Observation
+  are shell-native Svelte components, mounted directly by `App.svelte`; Play alone stays legacy
+  (`/legacy`, one governed iframe, `cockpit/legacy.html`), sealed rather than migrated by
+  TICKET-0061, until its own ticket (TICKET-0069). No new dependency without a decision.
 - Local models via Ollama; Claude API reserved for heavy lore-coherence work.
 - Runtime: Windows / PowerShell — `.venv\Scripts\Activate.ps1`,
   `$env:PYTHONPATH = "src"`.
@@ -34,7 +36,8 @@ and `world-engine-schema-changelog.md` — never here.
   player mode, never expose an NPC's secrets, others' secrets, or anything
   the player character is not meant to know.
 - Database URL resolves fail-closed from `WORLD_ENGINE_ENV=prod|test` (no
-  implicit default; `WORLD_ENGINE_DATABASE_URL` overrides) — PostgreSQL/Supabase needs only a variable change.
+  implicit default; `WORLD_ENGINE_DATABASE_URL` overrides) —
+  PostgreSQL/Supabase needs only a variable change.
 - History is sacred: prefer preserving successive states over overwriting them.
 - **`--force` only deletes `proposed` rows.** Any `proposed_mutation` row
   with status `applied`, `approved`, or `rejected` is reviewed history and
@@ -49,15 +52,6 @@ and `world-engine-schema-changelog.md` — never here.
   This file is contract-checked: `tooling/verify/checks/claude_md_contract.py`
   enforces its section whitelist, line budgets, and the ban on brief/schema
   archaeology in the File structure section.
-- **Every Création page is a `CREATION_TABS` registry entry** rendered by the
-  generic dispatcher (`showCreationSubTab`, `frontend/src/creation/tabs.js`) under the
-  standard shell; no page or tab-specific branch may exist outside the
-  registry, and a page's primary action exists only as its registry
-  `primaryAction` (`tooling/verify/checks/page_contract.py` enforces). A
-  slot may declare `display: 'on_demand'` to stay hidden and unloaded until its shell toggle is clicked (default `'always'`, today's behavior). Runtime-type tabs (TICKET-0046, BRIEF-0046-d) are injected ONLY by the single boot/refresh factory `buildRuntimeCreationTabs()`/`refreshCreationTabs()` (`frontend/src/creation/tabs.js`) as normal entity-archetype registry entries on the shared shell — never a hand-authored `#ctab-`; `page_contract` asserts that mechanism (factory defined + called from `creationInit`, no static `#ctab-` outside its frozen `TAB_KEYS`), never enumerates live types.
-- **The review tree** (`review*`, `frontend/src/creation/review/registry.js`, TICKET-0058) is a generic accept/reject component driven by a registered descriptor, never by consumer globals: a consumer calls `reviewRegister(key, descriptor)` and every DOM-reachable entry point takes that key as its first argument. `reviewCascade` is PURE and re-attaches an orphan to `descriptor.fallbackParentId` — region (`frontend/src/creation/Region.svelte`, rendered via `Review.svelte`) passes its draft root, the room batch generator passes its synthetic anchor; that fallback is never recomputed inside the component. No `review*` body may name `region`, and outside the component only `batchRenderAll`/`batchReviewDescriptor` (`frontend/src/creation/RoomBatch.svelte`) and `regionReviewDescriptor` (`Region.svelte`, via the ES-module import graph) may reach a `review*` symbol — both directions enforced fail-closed by `tooling/verify/checks/review_component.py`. The component no longer knows how a graph is drawn: a descriptor declares a `graph` spec (`{consumer, mountId, extraEdges}`) and the graph primitive renders it (TICKET-0057). The frontend is mid-migration: legacy surfaces are an enumerated, monotonically shrinking registry (`frontend/src/legacy/registry.js`), legacy access is confined to `frontend/src/legacy/bridge.js`, and the shell route vocabulary is mirrored in `app.py` and `frontend/src/lib/router.js` -- all enforced fail-closed by `tooling/verify/checks/legacy_mount.py`. A migrated Creation surface mounts as a Svelte island inside the legacy container it already owns via the `island:slot` seam, declared in `frontend/src/creation/registry.js` -- unlike the legacy and graph registries, this one GROWS, one entry per migrated surface, never shrinking; an entry declaring `island` MUST also declare `loader: null` and `state.onWorldSwitch: null` (a live legacy renderer left behind would `innerHTML` over the mounted island) -- enforced fail-closed by `tooling/verify/checks/creation_island.py`. The committed build output under `cockpit/static/` must match its sources -- enforced fail-closed by `tooling/verify/checks/frontend_build_fresh.py`, and by a boot guard that refuses to serve an empty `static/`. The legacy bridge (`frontend/src/legacy/bridge.js`) is the sole channel from Svelte into what remains of the legacy document: every export that resolves through its private `callLegacy` primitive is censused against a shrinking baseline by `tooling/verify/checks/legacy_call.py`, keyed off `bridge.js`'s own export surface rather than the literal string `legacyCall`, so a new wrapper is caught automatically. `frontend/src/creation/LocationTree.svelte` is the one recursive location-tree renderer (`tooling/verify/checks/location_tree.py` enforces): it owns traversal only, taking an `isChecked(node)` predicate and a row snippet as the interaction-model seam rather than a `mode` prop. `frontend/src/creation/Modal.svelte` is the one backdrop-plus-panel dialog implementation, no allow-list (`tooling/verify/checks/modal_primitive.py` enforces). Play stays vanilla-JS until its own rewrite. Rationale, target shape and the surface-migration chain live in `tooling/standards/ARCHITECTURE_DECISIONS.md`.
-- **The graph primitive** (`frontend/src/graph/Graph.svelte`) is the ONE graph component: it never fetches and never writes, reporting interactions through callbacks whose PRESENCE is the capability declaration (no `onMoveNode` → no drag, no `onConnect` → no select-to-connect, no `onDeleteEdge` → no edge deletion). `frontend/src/graph/registry.js` is now permanently empty (TICKET-0058): the lock's rule proves each baselined implementation is ABSENT from its locus (via the append-only `tooling/verify/baselines/graph_impls.baseline` record), not that a declared one is present — a second graph engine is constructible only by defeating that fail-closed proof. The whole of it — zero dormant code, engine confinement, closed spec vocabulary — is enforced fail-closed by `tooling/verify/checks/graph_primitive.py`. Rationale and the convergence history live in `tooling/standards/ARCHITECTURE_DECISIONS.md`.
-- **Svelte effect hygiene:** inside a `$effect`/`$effect.pre` body, a `$state` binding assigned in that body must not be read (`.`/`[` access) afterwards in the same body, local calls inlined one level deep -- enforced fail-closed across `frontend/src/**/*.svelte` by `tooling/verify/checks/effect_self_write.py` (TICKET-0062). The 1000-line module budget now covers the frontend too: `tooling/verify/checks/module_budget.py` extends its existing Python AST rule with a line-count rule over `frontend/src/**/*.{svelte,js}`.
 
 ## Ticket pipeline (governance)
 
@@ -137,7 +131,8 @@ Law only. Rationale, chantier history, and deferred alternatives live in
 - **Per-NPC uniqueness:** each present NPC belongs to exactly ONE open
   gathering. Per-NPC, NOT per-location (multiple open gatherings in one
   location are legal). Defended on every join/migrate path.
-- **Dissolve-before-create lives in the caller** (`enter_location`), never inside `generate_gatherings`.
+- **Dissolve-before-create lives in the caller** (`enter_location`), never
+  inside `generate_gatherings`.
 - **`relation_change` is owned by window analysis** (`analyze_window`,
   `proposed_by='local_ai_window'`): at most one `relation_change` per NPC
   pair per window, proportionate to that window. Never deduplicated against
@@ -156,18 +151,17 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   payload.** Missing -> skip and log (`_normalize_to_schema` returns
   `None`); never attributed via a conversation-level default. Per-item
   roster resolution is a named deferral.
-- **Two sanctioned canon-write paths for canon ROWS:** `_apply_mutation` (AI
-  proposals, post-approval) and the creator CRUD, never elsewhere for an AI proposal
-  (`POST /api/entities/generate` accept reuses creator CRUD). A THIRD, creator-only
-  authority covers canon STRUCTURE: `writes/schema.py::create_entity_type`, closed
-  by `single_canon_write.py` + `runtime_ddl_guard.py`. The trait registry (`src/world_engine/traits.py`, TICKET-0045) is code-source-of-truth for entity-type trait contracts — traits are added via Claude Code, never hot-edited at runtime; every trait declares exactly one reader form (`reader_callable` | `reader_guard` | `reader_deferred`), enforced at construction, with `mutable_by_ai` the sole `reader_deferred` exception (TICKET-0047). `socle_traits()` and `checkable_traits()` partition `TRAITS` totally and disjointly (BRIEF-0045-d): socle traits (`describable`) are implicit on every entity_type and are never written as an `entity_trait` row — enforced by `trait_registry_projection.py`. Each trait also carries typed `ext_columns` (BRIEF-0046-a): `ext_columns_for()` / `form_fields_for()` are the single derivation of both the `create_entity_type` DDL columns and the generated-form field-specs from a trait selection, validated against `writes/schema.py::valid_col_types()`, the pointer-fresh accessor for the closed DDL type enum; `describable`/`knowable`/`mutable_by_ai` contribute zero ext columns. `POST /api/entity-types` (BRIEF-0046-b) is the creator-direct route composing `create_entity_type` with the `entity_trait` inserts in that same transaction — rejecting non-checkable `trait_keys` and any slug colliding with a static `ENTITY_TYPE_REGISTRY` key; `GET /api/entity-types` is the single source of runtime types for the frontend, carrying `runtime_types` and `checkable_traits` alongside the static `types`. Instance CRUD (BRIEF-0046-e) generalizes the same `POST`/`GET`/`PUT /api/entities` routes: a governed runtime type's `ext_*` row goes through `cockpit/crud/entity_runtime.py`'s parameterized SQLAlchemy Core insert/update/select against a reflected `Table` (never string interpolation, never a second write authority) — `dynamic_ext_crud.py` verifies the round-trip and the fail-closed 422 on an ungoverned slug; `json_ui_boundary.py`'s fourth volet keeps that dynamic form surface relational-only by importing `traits` directly.
-- **History is sacred on BOTH write paths:** any edit to `relation` or
-  `knowledge` appends the previous state to `change_history`; states are
-  preserved, never silently overwritten. `entity_type_history` extends this to the schema grain: append-only by construction, no `change_history` column — the rows ARE the history.
-- **Commit before touching any canon-writing path** (`_apply_mutation`, the
-  creator CRUD, the analyzers, and everything they call) — hard.
-  Recommended: also commit before touching the `/say` flow or the
-  interpretation phase (playability-critical). On SQLite, DDL participates in the surrounding transaction — a structural guarantee of the shared engine (`db.py`), never a per-site precaution.
+- Two canon-write paths for rows: `_apply_mutation`, creator CRUD. A third covers canon STRUCTURE
+  -- closed by `single_canon_write.py` + `runtime_ddl_guard.py`.
+- **History is sacred on BOTH write paths:** any edit to `relation` or `knowledge` appends the
+  previous state to `change_history`; states are preserved, never silently overwritten.
+  `entity_type_history` extends this to the schema grain: append-only by construction, no
+  `change_history` column — the rows ARE the history.
+- **Commit before touching any canon-writing path** (`_apply_mutation`, the creator CRUD, the
+  analyzers, and everything they call) — hard. Recommended: also commit before touching the `/say`
+  flow or the interpretation phase (playability-critical). On SQLite, DDL participates in the
+  surrounding transaction — a structural guarantee of the shared engine (`db.py`), never a per-
+  site precaution.
 - **The MJ context assembler is scoped to the player's perception
   boundary:** only what the player may perceive or already knows. Never
   NPC-private knowledge, secrets, internal names, non-public entities, or
@@ -190,9 +184,10 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   blindfolded effects are enforced in Python before any model call
   (`_stream` in `app.py`). Blindfolded exclusion is a data exclusion in
   `assemble_mj_context`, never a "don't describe" prompt.
-- **Condition ladder is monotone for engine writes:** `unharmed -> bruised
-  -> injured -> neutralized` — forward only by violent-verdict code; backward only by creator CRUD.
-- **Frozen scene yields no model calls:** `scene_state.frozen = True` -> `/say` short-circuits with a fixed MJ message. Only the creator panel unfreezes.
+- **Condition ladder is monotone for engine writes:** `unharmed -> bruised -> injured ->
+  neutralized` — forward only by violent-verdict code; backward only by creator CRUD.
+- **Frozen scene yields no model calls:** `scene_state.frozen = True` -> `/say` short-circuits
+  with a fixed MJ message. Only the creator panel unfreezes.
 - **`discoverable_detail` is structurally excluded from every assembler,
   with one consciously narrowed exception:** no assembler or prompt-building
   path reads the table. `hidden` content reaches a model ONLY via the
@@ -243,7 +238,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   `commit:` flag.
 - **Region generation writes no canon; commit is atomic; resolution is
   server-authoritative.** `generate_region_draft` proposes factions and
-  locations only — characters retired to the group agent (TICKET-0037 A1).
+  locations only — characters retired to the group agent (A1).
   `POST /api/regions/commit` is the single write point: entities, skeleton
   (`parent_location_id`, faction role vocabulary via `write_faction_role`)
   and creator-confirmed links commit in one transaction, all-or-nothing,
@@ -267,16 +262,8 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   are not canon — no `_apply_mutation`, no `change_history`). Roster and
   co-present reads gate on `entity.status='active' AND
   vital_status='alive'` in addition to `gathering_member.left_at IS NULL`.
-- **Hard deletes are a closed, named list** — enforced by
-  `tooling/verify/checks/single_canon_write.py`; any new hard-delete path
-  must be named here, never added silently. The list:
-  `delete_world_cascade` (broadest — every row scoped to a world, world row
-  included); `skill_definition` delete (one definition + its dependent
-  `skill` rows); creator-correction deletes `delete_relation`,
-  `delete_knowledge` (each discards the row's `change_history` with the
-  row), `delete_discoverable_detail`, and `write_faction_role(mode=
-  "delete")` (S1, blocked while an active membership holds the role) —
-  creator-CRUD-only, never reachable from any AI or play path. Full-replace config deletes (whole-set replace, not single-row correction): `write_npc_prices`, `write_location_subculture`, `write_world_laws`, `write_location_obstacles`, and `write_location_doors` each `DELETE FROM` their table(s) scoped to one parent (NPC / location / world / location / location) then re-insert the submitted set, in one transaction — creator-CRUD and world-bootstrap only (`set_npc_prices`, `set_location_subculture`, `create_world`, `set_location_geometry`, `set_location_doors`), never reachable from any AI or play path. These tables carry no `change_history` by design (metadata-config category); the full-replace IS their write shape. No table may take a foreign key on `door.id` (A1 escalation guard, TICKET-0034) — enforced by `door_terminal.py`. `cockpit/spatial_doors.py` orchestrates door resolution and implements no math: distances, thresholds and spawn offsets belong to `placement.py`, the sole placement/distance authority (K1, TICKET-0034) — enforced by `door_terminal.py`. `_perform_travel` has three callers, all in `routes/play.py`: conversation-bound (in-fiction), creator god-mode, and door-gated (`/api/spatial/travel`, TICKET-0034). The neighbour restriction is a property of the in-fiction callers (C1, BRIEF-16); the door-gated caller carries it through `door_id`. `/api/spatial/travel` lives in `routes/play.py`, not `routes/spatial.py`, because it writes. `location_type_catalog` reaches the creator surface through exactly two routes, both `cockpit/crud/locations.py`: `GET /api/location-types` (active-world scoped list) backs the Creation-mode type picker's datalist (never a hardcoded vocab); `POST /api/location-types` (`upsert_location_type`) is the classification-prompt persist step — a location save gates on it whenever the chosen type is uncataloged or `classification IS NULL` (Interieur/Exterieur, once, TICKET-0039); it also carries `default_width`/`default_height`, a per-type size template applied ONCE at a location's creation and never retroactive to an existing location (TICKET-0040). `PUT /api/entities/{id}/geometry` distinguishes a bounds key OMITTED from the request body (preserved) from one sent as explicit `null` (cleared), via `body.model_fields_set` — the one route in the codebase where full-replace does not govern every field; the `obstacle` set beneath it stays full-replace (F1, TICKET-0040, BRIEF-0040-c). `spatial_author._catalog_row` is the single catalog read path (J1, TICKET-0040) — both `location_classification` and the size-template reader resolve a `location_type` through it — and a location's birth bounds come from that template ONLY at `cockpit/crud/entities.py::_create_entity_core` (E1), never from the update path. `LOCATION_TYPE_ORDER` (index.html) stays the browse-tree bucket order only, never the vocabulary. Every creator path that creates a `connects_to` edge flows through `connect_locations` (`spatial_author.py`, J1, TICKET-0039) — write the edge then `materialize_doors` both endpoints: region commit takes the bulk equivalent (`commit_region` collects touched location ids from `written_links` and calls `materialize_doors` once before its single commit); the manual adjacency route (`crud/relations.py::create_relation`, `type == "connects_to"`) calls `connect_locations` directly; the room batch atomic commit (`cockpit/routes/room_batch.py::commit_room_batch`, TICKET-0042, report-only generation enforced by `room_batch_report_only.py`) calls it once per edge (K1 tree + confirmed supplementary), re-deriving each room's `parent_room` against the accepted set server-side (never a client cascade) and degrading a NULL-bounds/classification anchor's door(s) to the origin (T1) rather than blocking. `write_relation` itself stays a pure relation writer — never embeds materialization. Door kind (interior-interior / boundary / exterior-exterior) is DERIVED, never stored: `spatial_author.location_classification` is the ONLY interior/exterior reader, resolving a location's `location_type` against `location_type_catalog` case-insensitively. `commit_region`'s E1 street-access note (a BUILDING SHELL — interior with an exterior parent, or an interior root — with no live exterior neighbour) is purely advisory: appended to the response's `notes` list, never blocking the commit and never mutating. Door coverage, door distinct-points, and type-vocab classification are fail-closed G1 gates: `tooling/verify/checks/door_coverage.py` (every active connects_to edge between active locations carries both directed door rows), `tooling/verify/checks/door_distinct_points.py` (within one active location carrying non-NULL, positive bounds, no two `door` rows share the same `(x, y)`; NULL-bounds locations excluded), and `tooling/verify/checks/location_type_classified.py` (every active location's `location_type` is catalogued with a non-NULL classification). `materialize_doors` re-derives a door still sitting at the exact H1 bounds center (`placement.is_legacy_center`, G1, TICKET-0040) onto the perimeter on its next run; every other existing point, hand-placed or already-perimeter, is reused verbatim.
+- Hard deletes are a closed, named list -- enforced by `single_canon_write.py`; any new hard-
+  delete path must be named there, never added silently.
 - **Custom skill lookups filter `skill_definition_id`, by construction:** a
   base-domain `skill` lookup MUST include `AND skill_definition_id IS NULL`.
   A custom skill resolves via its `skill_definition.base_domain` — never
@@ -301,35 +288,39 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   `prompt_registry.effective_model`** — the single model resolver. New
   prompt usages must add a `PROMPT_REGISTRY` entry
   (`tooling/verify/checks/prompt_registry.py` enforces).
-- **`prompt_template.model` is written ONLY via
-  `PATCH /api/prompts/{id}/model`,** validated fail-closed against the live
-  Ollama tag list (503 when Ollama is unreachable, 422 when the name is
-  absent; NULL always accepted with no ping). Seeded rows stay NULL — the
-  `WORLD_ENGINE_OLLAMA_MODEL` env override must keep showing through
-  NULL-model templates. `GET /api/ollama/models` is a thin `ping()`
-  wrapper: explicit 503 on failure, never an empty-list masquerade.
-  (`tooling/verify/checks/prompt_model_write.py` enforces.)
+- `prompt_template.model` is written ONLY via `PATCH /api/prompts/{id}/model`, validated fail-
+  closed against live Ollama -- enforced by `prompt_model_write.py`.
 - **`_npc_dialogue_system_prompt(system_prompt, context)` in `cockpit/play.py`
   is the single npc_dialogue system-prompt construction:** every live call
   site and the Prompts tab's assembled preview call it — never a duplicated
   inline concatenation.
-- **Prompt text lives ONLY in the append-only `prompt_version` table**
-  (`prompt_template` is a head/identity row); "current" = `MAX(version_number)`
-  per head, no pointer column, no UPDATE/DELETE ever on `prompt_version`.
-  **`prompt_store.current_prompt`/`get_version`/`list_versions` is the sole
-  read path; `writes.write_prompt_version` is the sole write path**
-  (`PATCH /api/prompts/{id}/text`, the restore route, and the seed's
-  virgin-head path all route through it) — C1 fail-closed placeholder
-  validation on every write, restore included. The seed never touches text
-  once a head has any version (S2) — creator edits are never silently
-  superseded by a re-seed. One substitution mechanic repo-wide: every
-  call site uses chained `.replace()`, never `.format()` (H1).
-  (`tooling/verify/checks/prompt_version.py` enforces.)
-- Affinity tiers are resolved in code (`context.py::_affinity_tier`); prompt templates never carry the tier table.
+- Prompt text lives ONLY in the append-only `prompt_version` table, never
+  UPDATE/DELETE -- enforced by `prompt_version.py`.
+- Affinity tiers are resolved in code (`context.py::_affinity_tier`);
+  prompt templates never carry the tier table.
 - **UI-visible data never lives in JSON** — relational only; enforced
   fail-closed by `json_ui_boundary` (exceptions justified in that file).
-- **The app refuses to boot when `schema_meta.static_version` != `EXPECTED_STATIC_SCHEMA_VERSION`, OR when a physical table is neither a static model table nor a registered `entity_type.physical_table`** (fail-closed on both; the second check is `schema_reconcile.unaccounted_tables`, extending the same `cockpit/app.py` startup hook — `_orphan_ext_*` quarantine tables are pattern-accounted, never flagged); `schema_meta` is migration-only infra, never canon, never writable outside a migration script.
-- **Rollback contract (B1):** "Once a runtime type exists, rolling code back past the constructor version requires running `scripts/rollback_quarantine.py` first (after a backup). Roll-forward restoration (`--restore`) is potentially lossy, bounded to rows whose `entity` row was deleted during the rollback window; every lost row is preserved in `_orphan_lost_*` and reported — never silently dropped. This contract is SQLite-scoped (the rebuild-without-FK recipe is SQLite-specific), matching the engine's current single-backend reality." Full rationale: `ARCHITECTURE_DECISIONS.md`, "ENTITY-TYPE CONSTRUCTOR — rollback quarantine (B1)".
+- **The app refuses to boot when `schema_meta.static_version` !=
+  `EXPECTED_STATIC_SCHEMA_VERSION`, OR when a physical table is neither a static model table nor
+  a registered `entity_type.physical_table`** (fail-closed on both; the second check is
+  `schema_reconcile.unaccounted_tables`, extending the same `cockpit/app.py` startup hook —
+  `_orphan_ext_*` quarantine tables are pattern-accounted, never flagged); `schema_meta` is
+  migration-only infra, never canon, never writable outside a migration script.
+- **Rollback contract (B1):** "Once a runtime type exists, rolling code back past the
+  constructor version requires running `scripts/rollback_quarantine.py` first (after a backup).
+  Roll-forward restoration (`--restore`) is potentially lossy, bounded to rows whose `entity`
+  row was deleted during the rollback window; every lost row is preserved in `_orphan_lost_*`
+  and reported — never silently dropped. This contract is SQLite-scoped (the rebuild-without-FK
+  recipe is SQLite-specific), matching the engine's current single-backend reality." Full
+  rationale: `ARCHITECTURE_DECISIONS.md`, "ENTITY-TYPE CONSTRUCTOR — rollback quarantine (B1)".
+- Every Création page is a `CREATION_TABS` registry entry rendered by the generic dispatcher; no
+  page/tab-specific branch exists outside it — enforced by `page_contract.py`.
+- The review tree (`review*`, `frontend/src/creation/review/registry.js`) is a generic
+  accept/reject component, never driven by consumer globals — enforced by `review_component.py`.
+- The graph primitive (`frontend/src/graph/Graph.svelte`) is the ONE graph component; a second
+  engine is constructible only by defeating `graph_primitive.py`'s fail-closed lock.
+- Inside a `$effect` body, a `$state` binding assigned there must not be read afterwards in the
+  same body — enforced by `effect_self_write.py`.
 
 ## Local model notes
 
@@ -385,35 +376,35 @@ WG-Nia/
 │   ├── hooks/               # session-start, block-main-push, block-db-in-git (PowerShell)
 │   ├── skills/              # recon, brief, verify-authoring skills
 │   └── settings.json        # permissions allowlist
-├── frontend/                 # Svelte + Vite sources; npm run build writes the committed static/ output
-│   ├── src/legacy/           # enumerated legacy-mount registry + the sole bridge module into the legacy iframe (TICKET-0056)
-│   ├── src/graph/            # the graph primitive, its consumers, and its shrinking non-converged registry (TICKET-0057)
-│   └── src/creation/         # Svelte islands mounted into the legacy Creation document + the review-tree component; registry.js GROWS as surfaces migrate (TICKET-0058)
+├── frontend/                 # Svelte + Vite sources; build writes the committed static/ output
+│   ├── src/legacy/           # enumerated legacy-mount registry + sole bridge into legacy
+│   ├── src/graph/            # the graph primitive, its consumers, its non-converged registry
+│   └── src/creation/         # Svelte islands + review-tree; registry.js GROWS as surfaces migrate
 ├── src/world_engine/        # the importable package (PYTHONPATH=src)
 │   ├── db.py                # engine + session; URL from env var
-│   ├── schema_version.py    # code-side expected-version constant for the static schema, checked at cockpit boot
-│   ├── schema_reconcile.py  # physical-table reconciliation (C2 plane 2): static ∪ registered_runtime ∪ orphan-pattern accounting, boot guard + CLI
-│   ├── models/               # all SQLModel table classes (the schema), split by canon/canon_faction/ephemeral/pipeline stratum; models/__init__.py re-exports the whole surface
-│   ├── context*.py          # context.py: NPC + MJ context assembly, structural exclusions, signposts; context_window.py: sliding context window (config + message-list assembly), shared seam for the played and observed lanes, read + compute only
-│   ├── tick*.py             # world-tick: tick.py orchestrates, tick_context.py assembles, tick_normalize.py normalizes; call sites allowlisted by verify/checks/world_tick.py
+│   ├── schema_version.py    # code-side expected static-schema constant, checked at boot
+│   ├── schema_reconcile.py  # table reconciliation: static ∪ runtime ∪ orphan; boot guard + CLI
+│   ├── models/               # SQLModel table classes, split by canon/faction/ephemeral/pipeline
+│   ├── context*.py          # NPC/MJ assembly + exclusions; context_window.py: sliding-window seam
+│   ├── tick*.py             # world-tick: orchestrate/assemble/normalize; sites in world_tick.py
 │   ├── gathering.py         # initial NPC clustering into gatherings
 │   ├── ollama_client.py     # local Ollama HTTP client; think-stripping; ping()
-│   ├── analyzer*.py         # analyzer.py: conversation-bound wrapper, persists + advances last_analyzed_turn; analyzer_transcript.py: conversation-agnostic judging core -> un-persisted proposed_mutation rows, shared by played and observed scenes
-│   ├── observation_*.py     # observed-lane socle/engine/runner/reads/writes (TICKET-0051); observation_window.py resolves the per-NPC windowed transcript via context_window, MJ narration deliberately excluded (H1); observation_window_parity.py (verify) makes both structural: single window implementation, MJ exclusion asserted, not just documented
+│   ├── analyzer*.py         # conversation-bound wrapper + conversation-agnostic judging core
+│   ├── observation_*.py     # observed-lane socle/engine/runner/reads/writes; per-NPC window
 │   ├── resolution.py, ledger.py  # physical-action dice resolution (2d6 bands); ledger read helpers
-│   ├── writes/               # shared canon-write helpers, split by canon domain; writes/__init__.py re-exports the whole surface; schema.py is the third structural-write authority (governed runtime-DDL writer for ext_* tables)
+│   ├── writes/               # canon-write helpers by domain; schema.py is the DDL authority
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
 │   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)
-│   ├── entity_author.py     # AI authoring assistant (entities, PC, skill catalogue, agendas, events)
+│   ├── entity_author.py     # AI authoring assistant (entities, PC, skills, agendas, events)
 │   ├── region_author.py     # region generation orchestrator (proposes names, no canon)
-│   ├── spatial_author.py    # Creation-side door materialization from live connects_to (TICKET-0039)
-│   ├── room_batch_author.py # Room batch orchestrator: Phase A manifest, Phase B fiches, Phase C coherence edges (TICKET-0042)
+│   ├── spatial_author.py    # Creation-side door materialization from live connects_to
+│   ├── room_batch_author.py # Room batch orchestrator: manifest, fiches, coherence edges
 │   └── cockpit/             # creator web UI (FastAPI, port 8000, loopback)
-│       ├── app.py           # app factory + router mounting + fail-closed schema-version boot guard + link-batch retention purge (startup); routes/ holds the routers
+│       ├── app.py           # app factory + router mounting + fail-closed boot guard
 │       ├── play*.py         # say() decomposition: routing, physical branch, narration/initiative
 │       ├── crud/            # creator CRUD routes, split by domain (entities, relations, ...)
-│       ├── legacy.html      # legacy host for Play until TICKET-0069; TICKET-0059 retired Creation, TICKET-0060 retired Observation, TICKET-0061 sealed and renamed it; served at /legacy inside the shell's iframe
-│       └── static/          # committed built-frontend output (npm run build in frontend/); served at /static, boot-guarded
+│       ├── legacy.html      # legacy host for Play only now; served at /legacy in the iframe
+│       └── static/          # committed built-frontend output; served at /static, boot-guarded
 ├── scripts/
 │   ├── init_db.py           # create tables + indexes (idempotent)
 │   ├── seed_pilot.py        # seed Verkhaal world + prompt templates (idempotent)
@@ -422,13 +413,13 @@ WG-Nia/
 │   ├── cockpit.py           # launch the world cockpit
 │   ├── pipeline_cockpit.py  # launch the pipeline cockpit (port 8100; deposit dormant)
 │   ├── backup.py            # manual DB backup, 2-file rotation
-│   ├── rollback_quarantine.py  # B1 quarantine/restore for runtime entity types (destructive_data, manual)
+│   ├── rollback_quarantine.py  # quarantine/restore for runtime entity types (destructive, manual)
 │   └── migrate_*.py         # one idempotent migration per schema step
 ├── tooling/
 │   ├── tickets/, recon/, briefs/  # pipeline artifacts (filename is law)
 │   ├── questions/           # pipeline escalations awaiting Nia
 │   ├── glue/                # next_id.py, gen_decisions_index.py, question_response.py
-│   ├── standards/           # ARCHITECTURE_DECISIONS.md, DECISIONS_INDEX.md (generated), code_standards.md
+│   ├── standards/           # decision registry, generated index, code_standards.md
 │   ├── verify/              # run.py, checks/, baselines/, results/
 │   ├── improvement/         # bug_log.jsonl
 │   └── pipeline_cockpit/    # deposit UI app (dormant; never imports src/world_engine/)
@@ -475,7 +466,8 @@ WG-Nia/
   never touches text once a version exists (S2), and still converges
   non-text head fields (name, variables, destination, notes, is_active)
   without losing other data.
-- **Backup:** `python scripts/backup.py` — manual, SQLite online backup API, 2-file rotation to `~/.world_engine/backups/`.
+- **Backup:** `python scripts/backup.py` — manual, SQLite online backup
+  API, 2-file rotation to `~/.world_engine/backups/`.
 - **CLI conversation:** `python scripts/talk.py` (requires `ollama serve`).
 - **Analyze a conversation:**
   `python scripts/analyze_conversation.py <conversation_id>` — reads
@@ -487,7 +479,8 @@ WG-Nia/
   loopback only; requires Ollama for all AI calls. Turn mechanics, overhearing
   accumulation, window-analysis triggers, batch review and Voyager ordering
   are documented in `tooling/standards/ARCHITECTURE_DECISIONS.md`.
-- **Pipeline cockpit:** `python scripts/pipeline_cockpit.py` -> port 8100. Deposit flow dormant; artifacts are deposited manually.
+- **Pipeline cockpit:** `python scripts/pipeline_cockpit.py` -> port 8100.
+  Deposit flow dormant; artifacts are deposited manually.
 - **Frontend build:** `cd frontend`, `npm ci`, `npm run build` -> writes the
   committed output under `src/world_engine/cockpit/static/`. The output is
   versioned on purpose; rebuild and commit after any `frontend/` edit.

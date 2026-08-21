@@ -10,6 +10,123 @@ be attributed to any table at all is always a failure — RECON-0003 D1
 confirmed zero dynamic-dispatch write sites exist in `src/` today, so an
 unattributable site is new and must be made legible before merging.
 
+Section 1 — the law (delegated from CLAUDE.md, TICKET-0071 BRIEF-0071-a):
+two sanctioned canon-write paths for canon ROWS: `_apply_mutation` (AI
+proposals, post-approval) and the creator CRUD, never elsewhere for an AI
+proposal (`POST /api/entities/generate` accept reuses creator CRUD). A
+THIRD, creator-only authority covers canon STRUCTURE:
+`writes/schema.py::create_entity_type`, closed by this check plus
+`runtime_ddl_guard.py`. The trait registry (`src/world_engine/traits.py`)
+is code-source-of-truth for entity-type trait contracts — traits are
+added via Claude Code, never hot-edited at runtime; every trait declares
+exactly one reader form (`reader_callable` | `reader_guard` |
+`reader_deferred`), enforced at construction, with `mutable_by_ai` the
+sole `reader_deferred` exception. `socle_traits()` and `checkable_traits()`
+partition `TRAITS` totally and disjointly: socle traits (`describable`)
+are implicit on every entity_type and are never written as an
+`entity_trait` row — enforced by `trait_registry_projection.py`. Each
+trait also carries typed `ext_columns`: `ext_columns_for()` /
+`form_fields_for()` are the single derivation of both the
+`create_entity_type` DDL columns and the generated-form field-specs from
+a trait selection, validated against `writes/schema.py::valid_col_types()`,
+the pointer-fresh accessor for the closed DDL type enum; `describable`/
+`knowable`/`mutable_by_ai` contribute zero ext columns. `POST
+/api/entity-types` is the creator-direct route composing
+`create_entity_type` with the `entity_trait` inserts in that same
+transaction — rejecting non-checkable `trait_keys` and any slug colliding
+with a static `ENTITY_TYPE_REGISTRY` key; `GET /api/entity-types` is the
+single source of runtime types for the frontend, carrying `runtime_types`
+and `checkable_traits` alongside the static `types`. Instance CRUD
+generalizes the same `POST`/`GET`/`PUT /api/entities` routes: a governed
+runtime type's `ext_*` row goes through
+`cockpit/crud/entity_runtime.py`'s parameterized SQLAlchemy Core
+insert/update/select against a reflected `Table` (never string
+interpolation, never a second write authority) — `dynamic_ext_crud.py`
+verifies the round-trip and the fail-closed 422 on an ungoverned slug;
+`json_ui_boundary.py`'s fourth volet keeps that dynamic form surface
+relational-only by importing `traits` directly.
+
+Section 2 — hard deletes are a closed, named list (delegated from
+CLAUDE.md, TICKET-0071 BRIEF-0071-a); any new hard-delete path must be
+named here, never added silently. The list: `delete_world_cascade`
+(broadest — every row scoped to a world, world row included);
+`skill_definition` delete (one definition + its dependent `skill` rows);
+creator-correction deletes `delete_relation`, `delete_knowledge` (each
+discards the row's `change_history` with the row), `delete_discoverable_
+detail`, and `write_faction_role(mode="delete")` (blocked while an active
+membership holds the role) — creator-CRUD-only, never reachable from any
+AI or play path. Full-replace config deletes (whole-set replace, not
+single-row correction): `write_npc_prices`, `write_location_subculture`,
+`write_world_laws`, `write_location_obstacles`, and `write_location_doors`
+each `DELETE FROM` their table(s) scoped to one parent (NPC / location /
+world / location / location) then re-insert the submitted set, in one
+transaction — creator-CRUD and world-bootstrap only (`set_npc_prices`,
+`set_location_subculture`, `create_world`, `set_location_geometry`,
+`set_location_doors`), never reachable from any AI or play path. These
+tables carry no `change_history` by design (metadata-config category);
+the full-replace IS their write shape. No table may take a foreign key on
+`door.id` — enforced by `door_terminal.py`. `cockpit/spatial_doors.py`
+orchestrates door resolution and implements no math: distances,
+thresholds and spawn offsets belong to `placement.py`, the sole
+placement/distance authority — enforced by `door_terminal.py`.
+`_perform_travel` has three callers, all in `routes/play.py`:
+conversation-bound (in-fiction), creator god-mode, and door-gated
+(`/api/spatial/travel`). The neighbour restriction is a property of the
+in-fiction callers; the door-gated caller carries it through `door_id`.
+`/api/spatial/travel` lives in `routes/play.py`, not `routes/spatial.py`,
+because it writes. `location_type_catalog` reaches the creator surface
+through exactly two routes, both `cockpit/crud/locations.py`: `GET
+/api/location-types` (active-world scoped list) backs the Creation-mode
+type picker's datalist (never a hardcoded vocab); `POST
+/api/location-types` (`upsert_location_type`) is the
+classification-prompt persist step — a location save gates on it whenever
+the chosen type is uncataloged or `classification IS NULL`
+(Interieur/Exterieur, once); it also carries `default_width`/
+`default_height`, a per-type size template applied ONCE at a location's
+creation and never retroactive to an existing location. `PUT
+/api/entities/{id}/geometry` distinguishes a bounds key OMITTED from the
+request body (preserved) from one sent as explicit `null` (cleared), via
+`body.model_fields_set` — the one route in the codebase where
+full-replace does not govern every field; the `obstacle` set beneath it
+stays full-replace. `spatial_author._catalog_row` is the single catalog
+read path — both `location_classification` and the size-template reader
+resolve a `location_type` through it — and a location's birth bounds come
+from that template ONLY at
+`cockpit/crud/entities.py::_create_entity_core`, never from the update
+path. `LOCATION_TYPE_ORDER` (index.html) stays the browse-tree bucket
+order only, never the vocabulary. Every creator path that creates a
+`connects_to` edge flows through `connect_locations` (`spatial_author.py`)
+— write the edge then `materialize_doors` both endpoints: region commit
+takes the bulk equivalent (`commit_region` collects touched location ids
+from `written_links` and calls `materialize_doors` once before its single
+commit); the manual adjacency route (`crud/relations.py::create_relation`,
+`type == "connects_to"`) calls `connect_locations` directly; the room
+batch atomic commit (`cockpit/routes/room_batch.py::commit_room_batch`,
+report-only generation enforced by `room_batch_report_only.py`) calls it
+once per edge (tree + confirmed supplementary), re-deriving each room's
+`parent_room` against the accepted set server-side (never a client
+cascade) and degrading a NULL-bounds/classification anchor's door(s) to
+the origin rather than blocking. `write_relation` itself stays a pure
+relation writer — never embeds materialization. Door kind
+(interior-interior / boundary / exterior-exterior) is DERIVED, never
+stored: `spatial_author.location_classification` is the ONLY
+interior/exterior reader, resolving a location's `location_type` against
+`location_type_catalog` case-insensitively. `commit_region`'s street-access
+note (a BUILDING SHELL — interior with an exterior parent, or an interior
+root — with no live exterior neighbour) is purely advisory: appended to
+the response's `notes` list, never blocking the commit and never
+mutating. Door coverage, door distinct-points, and type-vocab
+classification are fail-closed G1 gates: `door_coverage.py` (every active
+connects_to edge between active locations carries both directed door
+rows), `door_distinct_points.py` (within one active location carrying
+non-NULL, positive bounds, no two `door` rows share the same `(x, y)`;
+NULL-bounds locations excluded), and `location_type_classified.py` (every
+active location's `location_type` is catalogued with a non-NULL
+classification). `materialize_doors` re-derives a door still sitting at
+the exact bounds center (`placement.is_legacy_center`) onto the perimeter
+on its next run; every other existing point, hand-placed or
+already-perimeter, is reused verbatim.
+
 No DB, stdlib `ast` only.
 """
 from __future__ import annotations

@@ -1,6 +1,21 @@
 """G1 check for TICKET-0005 (BRIEF-0005-a/b/c) — Création page-contract
 structural gate. Exit 0 on pass, 1 on failure; prints one line per failure.
 
+The law (delegated from CLAUDE.md, TICKET-0071 BRIEF-0071-a): every
+Création page is a CREATION_TABS registry entry rendered by the generic
+dispatcher (showCreationSubTab, frontend/src/creation/tabs.js) under the
+standard shell; no page or tab-specific branch may exist outside the
+registry, and a page's primary action exists only as its registry
+primaryAction. A slot may declare display: 'on_demand' to stay hidden and
+unloaded until its shell toggle is clicked (default 'always', today's
+behavior). Runtime-type tabs (TICKET-0046, BRIEF-0046-d) are injected ONLY
+by the single boot/refresh factory buildRuntimeCreationTabs()/
+refreshCreationTabs() (frontend/src/creation/tabs.js) as normal
+entity-archetype registry entries on the shared shell — never a
+hand-authored #ctab-; this check asserts that mechanism (factory defined +
+called from creationInit, no static #ctab- outside its frozen TAB_KEYS),
+never enumerates live types.
+
 TICKET-0058/BRIEF-0058-k: under A1 every target this check greps used to
 live in index.html.
 

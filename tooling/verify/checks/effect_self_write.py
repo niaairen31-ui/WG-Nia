@@ -1,5 +1,11 @@
 """G1 check: effect_self_write (TICKET-0062, BRIEF-0062-a commit 2).
 
+The CLAUDE.md bullet that named this check (TICKET-0071 BRIEF-0071-a)
+already restates the rule below in full, so only its second half is new
+here: the 1000-line module budget covers the frontend too —
+`tooling/verify/checks/module_budget.py` extends its existing Python AST
+rule with a line-count rule over `frontend/src/**/*.{svelte,js}`.
+
 The rule: inside a `$effect` (or `$effect.pre`) body, a `$state` binding
 that is ASSIGNED in that body must not be READ afterwards in the same
 body. Local functions called from the body (`function <name>(...) { ... }`
