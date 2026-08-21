@@ -492,7 +492,10 @@ WG-Nia/
   committed output under `src/world_engine/cockpit/static/`. The output is
   versioned on purpose; rebuild and commit after any `frontend/` edit.
   Node is needed to BUILD only -- a prod launch requires none.
-- **Verify:** `python tooling/verify/run.py` (or `/verify`) runs every check under `tooling/verify/checks/`; `tooling/verify/checks/corpus_gate.py` additionally executes every check in that directory regardless of which ticket references it.
+- **Verify:** `python tooling/verify/run.py --ticket TICKET-NNNN` runs the
+  checks that ticket links in its Machine-checkable section;
+  `tooling/verify/checks/corpus_gate.py` runs every check in the directory,
+  regardless of which ticket references it.
 
 ---
 
