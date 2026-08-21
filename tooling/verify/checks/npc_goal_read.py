@@ -52,6 +52,20 @@ ALLOWED_MODULES = {
     "src/world_engine/tick_context.py",
     "scripts/migrate_v1_69_npc_goal.py",
     "tooling/verify/checks/npc_goal_read.py",
+    # TICKET-0067 (A1). NOT the observation runner: the runner needs a
+    # boolean per NPC for a run precondition, and reaching that need
+    # through a named accessor here — returning set[str], never NpcGoal
+    # rows — keeps the consumer structurally unable to read goal content.
+    # The allowlist grows by a READ MODULE, definitionally a reader, never
+    # by a consumer.
+    "src/world_engine/observation_reads.py",
+    # TICKET-0067 (B1). A check fixture, not a reader: this file seeds
+    # NpcGoal rows to build its own test corpus. Allowlisted by name, one
+    # entry, on the precedent of npc_goal_read.py's own entry above — not
+    # as a directory-wide rule, and NOT by narrowing the tooling/ scan,
+    # which is what would catch a real reader appearing in tooling/glue/
+    # or tooling/pipeline_cockpit/.
+    "tooling/verify/checks/observation_runner.py",
 }
 
 FAILURES: list[str] = []
