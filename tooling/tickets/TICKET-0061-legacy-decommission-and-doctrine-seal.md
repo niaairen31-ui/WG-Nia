@@ -2,7 +2,7 @@
 id: TICKET-0061
 title: Legacy decommission and doctrine seal — the legacy document is sealed and renamed, not deleted
 type: feature
-status: intake
+status: live-gate
 created: 2026-08-20
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
