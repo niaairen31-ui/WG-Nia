@@ -23,6 +23,7 @@ world_engine import) so this check never touches Nia's real DB.
 """
 from __future__ import annotations
 
+import ast
 import os
 import pathlib
 import re
@@ -61,9 +62,49 @@ def check_no_second_resolver() -> None:
 
 
 def check_seed_model_free() -> None:
-    seed_text = SEED.read_text(encoding="utf-8")
-    if re.search(r"\bmodel\s*=", seed_text):
-        fail("scripts/seed_pilot.py sets a `model=` value on a prompt_template row — S-null violated")
+    r"""S-null (Q1): the seed never sets a model on a prompt_template head.
+
+    TICKET-0067 (D1). This rule was `re.search(r"\bmodel\s*=", seed_text)`
+    over the whole file. `seed_pilot.py` is 3257 lines holding 64
+    triple-quoted prompt bodies, and three comments (:2206, :2227, :2339)
+    record the invariant in the words `model=NULL (Q1)` — so the comments
+    documenting the rule tripped the rule. Parsed, never grepped.
+
+    Anchoring on a `PromptTemplate(` construction was rejected: this file
+    has ZERO of them and 29 `upsert_prompt_template(...)` calls, whose
+    `**head_fields` is how a `model=` would actually arrive. That anchor
+    would match nothing and pass forever.
+    """
+    try:
+        tree = ast.parse(SEED.read_text(encoding="utf-8"), filename=str(SEED))
+    except SyntaxError as exc:
+        fail(f"{SEED}: SyntaxError: {exc}")
+        return
+
+    seeded = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id == "upsert_prompt_template":
+                seeded += 1
+            for kw in node.keywords:
+                if kw.arg == "model":
+                    fail(
+                        f"scripts/seed_pilot.py:{node.lineno} passes a `model=` "
+                        "keyword argument — S-null violated"
+                    )
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Attribute) and target.attr == "model":
+                    fail(
+                        f"scripts/seed_pilot.py:{node.lineno} assigns `.model` "
+                        "— S-null violated"
+                    )
+
+    if seeded == 0:
+        fail(
+            "scripts/seed_pilot.py: zero upsert_prompt_template(...) calls "
+            "parsed — the seeding shape changed and this scan proves nothing"
+        )
 
 
 def _fresh_engine():
