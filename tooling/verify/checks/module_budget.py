@@ -25,8 +25,23 @@ the cap as of TICKET-0059, so there is nothing to grandfather. A glob
 collecting zero frontend files is a FAILURE, not a pass — the same
 vacuous-proof guard as the Python rule's zero-.py-files case.
 
-No DB, stdlib `ast` only (the frontend rule adds no dependency — it is a
-line count).
+A third rule (legacy_document_ratchet, TICKET-0061, BRIEF-0061-b, A3)
+covers the one file the other two rules structurally cannot reach: the
+legacy document (`src/world_engine/cockpit/index.html`) is neither
+`src/**/*.py` nor `frontend/src/**/*.{svelte,js}`, and under decision A3
+its exemption from every other budget lives a year or more. This is a
+RATCHET, not the 1000-line cap (which would be red on arrival and prove
+nothing): `LEGACY_DOCUMENT_LINE_CEILING` is a named constant recording
+the document's committed line count, and it may only ever decrease.
+Exceeding it is a FAILURE naming both numbers; coming in UNDER it is
+also a FAILURE, instructing that the constant be lowered to the new
+count in the same commit — the document stays on the same
+monotonically-shrinking discipline as `LEGACY_MOUNTS`, and the constant
+can never silently drift above the truth. The file's absence is a
+FAILURE, not a vacuous pass.
+
+No DB, stdlib `ast` only (the frontend and legacy-document rules add no
+dependency — both are line counts).
 """
 from __future__ import annotations
 
@@ -43,6 +58,12 @@ MAX_FUNCTIONS = 40
 MAX_LINES = 1000
 FRONTEND_MAX_LINES = 1000
 
+LEGACY_DOCUMENT = ROOT / "src" / "world_engine" / "cockpit" / "index.html"
+# Ratchet ceiling, TICKET-0061 BRIEF-0061-b (A3): the legacy document's
+# committed line count. May only ever DECREASE -- lower this constant to
+# the new count in the same commit that shrinks the file. Never raise it.
+LEGACY_DOCUMENT_LINE_CEILING = 2762
+
 FAILURES: list[str] = []
 
 
@@ -50,7 +71,7 @@ def fail(msg: str) -> None:
     FAILURES.append(msg)
 
 
-def _report_and_exit(frontend_count: int | None = None) -> None:
+def _report_and_exit(frontend_count: int | None = None, legacy_lines: int | None = None) -> None:
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -59,6 +80,7 @@ def _report_and_exit(frontend_count: int | None = None) -> None:
         "PASS: module_budget — every module over 40 functions or 1000 lines "
         "is baselined at or below its recorded values"
         + (f"; {frontend_count} frontend file(s) within the 1000-line cap" if frontend_count is not None else "")
+        + (f"; legacy document at its ratcheted {legacy_lines}-line ceiling" if legacy_lines is not None else "")
     )
     sys.exit(0)
 
@@ -124,6 +146,31 @@ def _check_frontend_line_budget() -> int | None:
     return len(frontend_files)
 
 
+def _check_legacy_document_ratchet() -> int | None:
+    """rule: legacy_document_ratchet. Not a cap -- a ratchet. Exceeding
+    LEGACY_DOCUMENT_LINE_CEILING fails naming both numbers; coming in
+    UNDER it also fails, instructing the constant be lowered, so it can
+    never silently drift above the truth. Absence is a FAILURE."""
+    if not LEGACY_DOCUMENT.is_file():
+        fail(f"legacy_document_ratchet: {LEGACY_DOCUMENT} does not exist")
+        return None
+    lines = len(LEGACY_DOCUMENT.read_text(encoding="utf-8").splitlines())
+    if lines > LEGACY_DOCUMENT_LINE_CEILING:
+        fail(
+            f"legacy_document_ratchet: {LEGACY_DOCUMENT.relative_to(ROOT).as_posix()} "
+            f"grew to {lines} lines, past its ratcheted ceiling of {LEGACY_DOCUMENT_LINE_CEILING}"
+        )
+        return None
+    if lines < LEGACY_DOCUMENT_LINE_CEILING:
+        fail(
+            f"legacy_document_ratchet: {LEGACY_DOCUMENT.relative_to(ROOT).as_posix()} "
+            f"shrank to {lines} lines, under its ratcheted ceiling of {LEGACY_DOCUMENT_LINE_CEILING} -- "
+            f"lower LEGACY_DOCUMENT_LINE_CEILING to {lines} in this same commit"
+        )
+        return None
+    return lines
+
+
 def main() -> None:
     baseline = _load_baseline()
     if baseline is None:
@@ -165,8 +212,9 @@ def main() -> None:
             fail(f"{rel} grew to {lines} lines, past its baselined {base_lines}")
 
     frontend_count = _check_frontend_line_budget()
+    legacy_lines = _check_legacy_document_ratchet()
 
-    _report_and_exit(frontend_count)
+    _report_and_exit(frontend_count, legacy_lines)
 
 
 if __name__ == "__main__":
