@@ -12379,4 +12379,115 @@ the 38 000 cap with the intended headroom for future invariants.
 
 ---
 
+## ENGINE — SQLITE WAL CONCURRENCY POSTURE (BRIEF-0072-a, no schema change)
+
+TICKET-0072: Play crashed with "database is locked" on every NPC turn. Root
+cause was BRIEF-0044-f, not `play.py`. Making every SQLite transaction
+explicit (`isolation_level = None` plus an engine-instance `"begin"` listener
+issuing `BEGIN`) so DDL could not escape a rollback had an unintended
+consequence under the default rollback journal: a `SELECT` now held a
+`SHARED` lock for the life of its transaction, not just for the statement.
+The Play request session, bound through `Depends(get_session)` and returned
+inside a `StreamingResponse`, therefore held that lock for an entire SSE
+turn. The nested `Session(engine)` persisting the NPC line
+(`play.py:609-617`) could INSERT — `RESERVED` is compatible with a foreign
+`SHARED` — but its COMMIT had to promote to `EXCLUSIVE`, which waited on the
+request session's `SHARED`, exhausted the busy timeout, and raised. The
+traceback itself discriminates the cause: the failure lands in `do_commit`,
+not the `INSERT` — a competing writer fails at the INSERT, a competing
+reader fails exactly at the COMMIT.
+
+**A second, masked failure mode exists** (decision B1, out of scope here,
+closed by BRIEF-0072-b): the same open transaction pins the request session
+to a read snapshot. Under WAL, a pinned transaction that then attempts to
+WRITE does not wait — it fails instantly with `SQLITE_BUSY_SNAPSHOT`,
+reported as the identical "database is locked" text and immune to
+`busy_timeout`. `play_stream.py:110`'s travel write is the one site in the
+stream that hits this, and today it is invisible only because failure mode 1
+kills the turn first.
+
+**Decision (A1): `PRAGMA journal_mode=WAL` plus an explicit, declared
+`PRAGMA busy_timeout`, in the existing connect listener.** One place,
+structural, measured. WAL removes the reader-blocks-writer conflict at its
+root — a `SHARED` reader no longer excludes a `RESERVED`/`EXCLUSIVE` writer —
+without touching `PRAGMA synchronous` (stays at the durable default `FULL`;
+recent commits are not traded away for throughput). `_SQLITE_JOURNAL_MODE`
+and `_SQLITE_BUSY_TIMEOUT_MS` are declared as module-level constants in
+`src/world_engine/db.py`, read by both the listener and the new check, so
+the posture is a fact about the module rather than something someone must
+remember about the database file. An unexpected `journal_mode` at connect
+time raises rather than serving a Play surface that cannot persist a turn —
+`_SQLITE_JOURNAL_MODES_OK = ("wal", "memory")` admits an in-memory carrier
+too, since nothing in the tree binds one today but `WORLD_ENGINE_DATABASE_URL`
+could.
+
+**Rejected alternatives.** A2 (end the request session's transaction before
+streaming): there are reads on `ctx.db` throughout the stream, so the fix
+would survive only as a rule people remember, not a structural one. A3 (make
+the explicit `BEGIN` opt-in, DDL-only): reopens BRIEF-0044-f's doctrine and
+is fail-open the day a DDL path forgets to opt in; its reactivation
+condition is WAL being measured unavailable or unsafe on the carrier
+filesystem. A4 (one session per turn): deletes the independent commit
+boundaries that keep an NPC line persisted when a later phase fails — those
+boundaries are deliberate, not incidental.
+
+**Why the nested-session persist pattern across the Play modules is legal
+now, not lucky.** Eleven sites (`play.py:266`, `play.py:609`,
+`play_stream.py:116`, `play_stream.py:133`, `play_physical.py:266/324/333/395`,
+`play_initiative.py:203/207/250`) open a second `Session(engine)` to commit
+independently of the request session. Before this brief, every one of them
+carried failure mode 1 the instant the request session held any read
+transaction — `play_initiative.py:200-204`'s own comment ("the SSE
+generator's db session has no open write transaction at this point ... so
+there is no nested-transaction conflict") states the invariant BRIEF-0044-f
+invalidated, and is left uncorrected here deliberately: fixing the comment
+belongs with the B1 reader audit, not this ticket. Under WAL, a read
+transaction never blocks a write commit regardless of which session holds
+which, which is what makes the pattern legal by construction rather than by
+timing luck.
+
+**Preserved, not traded: BRIEF-0044-f's guarantee.** `scripts/test_ddl_atomicity.py`
+runs unmodified under WAL and still passes 3/3 — a forced failure between a
+`CREATE TABLE` and a following `INSERT` still leaves neither the table nor
+the row. Transactional DDL was never sqlite-journal-mode-dependent; it
+depends on `isolation_level = None` plus the explicit `BEGIN`, both
+untouched.
+
+**New check: `tooling/verify/checks/sqlite_concurrency.py`.** AST-parses
+`db.py` to confirm the posture is declared (rule 1) and referenced by the
+listener; opens a real connection to confirm it is effective (rule 2);
+reproduces `play.py:136`→`play.py:143` with two sessions to prove a reader
+genuinely holding an open transaction (asserted at both the SQLAlchemy and
+the driver level — the vacuity guard) does not block a nested writer's
+commit, in under a second (rule 3); and reproduces the identical shape
+against a second scratch file left in the default rollback journal, via raw
+`sqlite3` with a 0.2s timeout, to prove the instrument itself can still see
+red (rule 4) — a concurrency proof that never actually contends anything is
+the textbook vacuous pass, and rule 4 is what rules that out. Touches only
+scratch files under `tempfile.gettempdir()`, deleted (with `-wal`/`-shm`
+sidecars) at start and end; never the prod or test carrier.
+
+**Process lesson, recorded so it is not re-litigated.** BRIEF-0044-f's
+verification surface was DDL, migrations and `init_db.py` — thorough within
+that frame, and the frame was itself the defect. An engine-wide
+transaction-semantics change alters the behaviour of every concurrent path
+in the application; the concurrent paths that mattered (a streaming request
+session coexisting with nested persist sessions) were never exercised. Same
+shape as the "proves X, not Y" family already recorded elsewhere in this
+document: proving DDL atomic does not prove ordinary reads and writes still
+compose.
+
+**The check's honest limit.** `sqlite_concurrency.py` proves a reader does
+not block a writer; it does NOT prove that no path holds an open WRITE
+transaction across a nested commit — WAL would not save that case either
+(two writers still serialize; a pinned snapshot attempting to write is
+exactly BRIEF-0072-b's E1 territory, not this check's).
+
+**Checked and clear, recorded so it is not re-litigated:** `scripts/backup.py`
+uses SQLite's online backup API (`source.backup(target)`), which is
+WAL-safe — no backup change was needed. `.gitignore` already covers
+`*.db-wal` / `*.db-shm` alongside `*.db`.
+
+---
+
 *Co-built with Claude, June 2026.*

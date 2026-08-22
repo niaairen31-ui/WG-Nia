@@ -13,6 +13,30 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **(no schema change — applicatif addendum)** — TICKET-0072, BRIEF-0072-a:
+  engine concurrency posture only, no table/column touched. Fixes the
+  "database is locked" crash on every Play NPC turn: BRIEF-0044-f's explicit
+  `BEGIN` listener made every SELECT hold a `SHARED` lock for the life of its
+  transaction under the default rollback journal, and the Play request
+  session (bound for the whole `StreamingResponse`) held one for an entire
+  SSE turn, so the nested `Session(engine)` persisting the NPC line could
+  INSERT but never COMMIT — promotion to `EXCLUSIVE` waited on the reader,
+  exhausted the busy timeout, and raised. Fix, in `src/world_engine/db.py`'s
+  connect listener: `PRAGMA busy_timeout=5000` (declared as
+  `_SQLITE_BUSY_TIMEOUT_MS` rather than inherited from pysqlite's driver
+  default) and `PRAGMA journal_mode=WAL` (declared as `_SQLITE_JOURNAL_MODE`),
+  asserted at connect time and fail-closed on any unexpected mode
+  (`_SQLITE_JOURNAL_MODES_OK = ("wal", "memory")`). WAL removes the
+  reader-blocks-writer conflict at its root while leaving BRIEF-0044-f's
+  transactional-DDL guarantee intact — re-proved by
+  `scripts/test_ddl_atomicity.py`, run unmodified. New
+  `tooling/verify/checks/sqlite_concurrency.py` is the fail-closed, AST-plus-
+  driver proof (posture declared, posture effective, a reader does not block
+  a nested writer's commit, and a rollback-journal counterfactual is proven
+  to still fail — the vacuity guard). See
+  `tooling/standards/ARCHITECTURE_DECISIONS.md` — "ENGINE — SQLITE WAL
+  CONCURRENCY POSTURE".
+
 - **(no schema change — applicatif addendum)** — TICKET-0054, BRIEF-0054-b:
   faction membership creator-side role reassignment + capacity chokepoint
   (decisions D2/E1). New `POST /memberships/{id}/role`
