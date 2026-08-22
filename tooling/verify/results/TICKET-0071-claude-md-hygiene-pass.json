@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0071-claude-md-hygiene-pass",
+  "when": "2026-08-22T14:21:20.662906+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u00e2\u20ac\u201d section whitelist, character/line budgets, File-structure archaeology ban, Invariants archaeology ban, tooling/ pointer freshness, .py pointer freshness"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 83 check(s) discovered, 83 executed, 83 passed"
+    }
+  ]
+}

@@ -12333,6 +12333,50 @@ the same reason: `legacy.html` still links it.
 TICKET-0057 each held this line at less temptation than a seal ticket
 carries. Restating doctrine is how doctrine drifts. Not restated here.
 
+## CLAUDE.MD BUDGET — characters and per-line length, not lines (BRIEF-0071-a, BRIEF-0071-b, no schema change)
+
+Step a brought CLAUDE.md to law-only content, reclassified four
+frontend invariants out of Working rules, delegated eight oversized
+check-backed invariants to their primary check's module docstring, and
+reflowed the whole file to a 100-character line ceiling. Step b made
+that ceiling structural.
+
+**Why a character budget replaces the line budget.** `TOTAL_LINE_BUDGET`
+measured a quantity that line length defeats: at 499 lines the file held
+47 084 characters, three of its lines exceeding 1 000 each, and reflowed
+at 80 columns it would have run 750 lines — 150% of the 500-line budget
+it was supposedly under. A number satisfiable by rewrapping is discipline
+wearing a check's clothes, not a structural guard. `claude_md_contract.py`
+now enforces `TOTAL_CHAR_BUDGET = 38_000` (`len(text)` on the whole file)
+and `MAX_LINE_LENGTH = 100` (every line, fenced blocks included, no
+exemption, each offender reported individually rather than
+one-at-a-time). `FILE_STRUCTURE_LINE_BUDGET = 80` is untouched: that
+section's failure mode is tree depth, which lines do measure correctly.
+
+**Long law lives in the docstring of the check that defends it.** The
+eight delegated invariants (BRIEF-0071-a) each left an obligation bullet
+in CLAUDE.md naming its check; the mechanism, enumeration and rationale
+moved to that check's module docstring. This is only safe if a stale
+pointer fails loudly — so rule 5 (`check_py_pointer_freshness`) asserts
+that every bare `\b[a-z0-9_]+\.py\b` token anywhere in CLAUDE.md resolves
+to at least one file on disk by filename, excluding `.venv/` and
+`node_modules/`, with zero tokens collected itself a FAILURE (step a
+guarantees at least the eight delegation pointers). Without this rule,
+CLAUDE.md could name a check that no longer exists and the law it
+delegated would become unreachable with the gate still green.
+
+**The archaeology ban widens to Invariants,** scoped to that section only
+(`## Numbering & decisions governance` states the identifier format
+normatively and must stay legal): zero `TICKET-\d` / `BRIEF-\d` matches
+from the Invariants heading to the next H2. Both this rule and rule 5
+carry a vacuous-proof guard — an Invariants section with zero `- `
+bullets, or zero `.py` tokens found anywhere, is a FAILURE, not a pass. A
+check that goes green on an empty corpus is the exact defect this project
+treats as a bug.
+
+Landing: CLAUDE.md at 496 lines / ~31 300 characters, comfortably under
+the 38 000 cap with the intended headroom for future invariants.
+
 ---
 
 *Co-built with Claude, June 2026.*

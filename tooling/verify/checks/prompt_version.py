@@ -1,6 +1,13 @@
 """G1 checks for TICKET-0011 (BRIEF-0011-a) — prompt_version table, single
 read accessor, single write shape, versioned edit API.
 
+The law (delegated from CLAUDE.md, TICKET-0071 BRIEF-0071-a; rules 1-7
+below already cover the append-only/write-path/placeholder/.replace()
+contract): `prompt_store.current_prompt`/`get_version`/`list_versions` is
+the sole read path. The seed never touches text once a head has any
+version (S2) — creator edits are never silently superseded by a re-seed;
+`upsert_prompt_template` writes text (v1) only on a virgin head.
+
 No live Ollama required, no HTTP layer required (crud.py route functions are
 called directly with an explicit `db` session — avoids depending on
 `fastapi.testclient`/`httpx`, which is not guaranteed installed here).

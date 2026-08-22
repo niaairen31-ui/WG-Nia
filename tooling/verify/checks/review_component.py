@@ -1,5 +1,54 @@
 """G1 check for TICKET-0041/BRIEF-0041-c — shared review-tree component.
 
+The law (delegated from CLAUDE.md, TICKET-0071 BRIEF-0071-a): the review
+tree (review*, frontend/src/creation/review/registry.js, TICKET-0058) is a
+generic accept/reject component driven by a registered descriptor, never
+by consumer globals — a consumer calls reviewRegister(key, descriptor) and
+every DOM-reachable entry point takes that key as its first argument.
+reviewCascade is PURE and re-attaches an orphan to
+descriptor.fallbackParentId — region (frontend/src/creation/Region.svelte,
+rendered via Review.svelte) passes its draft root, the room batch
+generator passes its synthetic anchor; that fallback is never recomputed
+inside the component. No review* body may name region, and outside the
+component only batchRenderAll/batchReviewDescriptor
+(frontend/src/creation/RoomBatch.svelte) and regionReviewDescriptor
+(Region.svelte, via the ES-module import graph) may reach a review*
+symbol — both directions enforced fail-closed by this check. The
+component no longer knows how a graph is drawn: a descriptor declares a
+graph spec ({consumer, mountId, extraEdges}) and the graph primitive
+renders it (TICKET-0057).
+
+The frontend is mid-migration, and this bullet's neighboring checks are
+each the enforcement for one seam of it (none edited by this delegation —
+only named here, alongside the review tree, as the law that already lived
+in one CLAUDE.md bullet): legacy surfaces are an enumerated, monotonically
+shrinking registry (frontend/src/legacy/registry.js), legacy access is
+confined to frontend/src/legacy/bridge.js, and the shell route vocabulary
+is mirrored in app.py and frontend/src/lib/router.js — all enforced
+fail-closed by legacy_mount.py. A migrated Creation surface mounts as a
+Svelte island inside the legacy container it already owns via the
+island:slot seam, declared in frontend/src/creation/registry.js — unlike
+the legacy and graph registries, this one GROWS, one entry per migrated
+surface, never shrinking; an entry declaring island MUST also declare
+loader: null and state.onWorldSwitch: null (a live legacy renderer left
+behind would innerHTML over the mounted island) — enforced fail-closed by
+creation_island.py. The committed build output under cockpit/static/ must
+match its sources — enforced fail-closed by frontend_build_fresh.py, and
+by a boot guard that refuses to serve an empty static/. The legacy bridge
+(frontend/src/legacy/bridge.js) is the sole channel from Svelte into what
+remains of the legacy document: every export that resolves through its
+private callLegacy primitive is censused against a shrinking baseline by
+legacy_call.py, keyed off bridge.js's own export surface rather than the
+literal string legacyCall, so a new wrapper is caught automatically.
+frontend/src/creation/LocationTree.svelte is the one recursive
+location-tree renderer (location_tree.py enforces): it owns traversal
+only, taking an isChecked(node) predicate and a row snippet as the
+interaction-model seam rather than a mode prop. frontend/src/creation/
+Modal.svelte is the one backdrop-plus-panel dialog implementation, no
+allow-list (modal_primitive.py enforces). Play stays vanilla-JS until its
+own rewrite. Rationale, target shape and the surface-migration chain live
+in tooling/standards/ARCHITECTURE_DECISIONS.md.
+
 Closed by BRIEF-0058-j (per RECON-SUPPLEMENT-0058's -j scope): this brief
 converged the room batch generator -- the component's second and last
 legacy consumer -- onto RoomBatch.svelte, so CONSUMER_ALLOW_LIST_LEGACY

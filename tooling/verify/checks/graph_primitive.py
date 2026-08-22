@@ -1,6 +1,18 @@
 """G1 check: the graph primitive convergence lock (TICKET-0057, BRIEF-0057-d;
 amended BRIEF-0058-b to prove convergence, not just presence).
 
+The law (delegated from CLAUDE.md, TICKET-0071 BRIEF-0071-a; most of it
+already lived here, so only the missing piece is added): the graph
+primitive (frontend/src/graph/Graph.svelte) is the ONE graph component,
+reporting interactions through callbacks whose PRESENCE is the capability
+declaration — no onMoveNode -> no drag, no onConnect -> no select-to-
+connect, no onDeleteEdge -> no edge deletion. It never fetches and never
+writes (rule 7, below). registry.js's monotone shrink against the
+baseline (rule 3, below) is that same "second engine only by defeating a
+fail-closed proof" guarantee restated: not that a declared implementation
+is present, but that every one once baselined is provably absent from its
+locus.
+
 Two of three graph implementations converged onto `Graph.svelte`
 (TICKET-0057). Without a lock, that is a refactor: a third could stay
 forever and a fourth could be born at the next feature, exactly as
