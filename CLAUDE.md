@@ -50,8 +50,9 @@ and `world-engine-schema-changelog.md` — never here.
   schema-touching) and keeps `tooling/standards/ARCHITECTURE_DECISIONS.md`
   and this file consistent with the code. Use the `/close-step` command.
   This file is contract-checked: `tooling/verify/checks/claude_md_contract.py`
-  enforces its section whitelist, line budgets, and the ban on brief/schema
-  archaeology in the File structure section.
+  enforces its section whitelist, a 38 000-character file budget, a
+  100-character per-line ceiling, and archaeology bans in File structure
+  and Invariants.
 
 ## Ticket pipeline (governance)
 
