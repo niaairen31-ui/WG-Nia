@@ -92,4 +92,28 @@ C. Re-scope BRIEF-0072-b in place (amend the brief file) to fix both sites
    (no BRIEF-0072-c, -b's own text is corrected before execution resumes).
 
 ## Response
+Escalation accepted; the specification error was mine, not the executor's.
+`play.py:390 -> _join_gathering (play.py:890-915)` verified independently --
+the STOP was correct and stopping was the right call.
 
+None of A/B/C. A and C both require editing a deposited artifact
+(BRIEF-0072-b.md); B requires weakening rule4 to sanction a known hole.
+Decision: BRIEF-0072-b is withdrawn unexecuted, superseded by BRIEF-0072-c,
+which covers every request-session write site in the stream as one unit,
+with a transitively-closed writer set in the check. BRIEF-0072-b.md stays
+on disk unedited -- the withdrawn predecessor, not rewritten, not deleted.
+
+Before authoring -c: requested a report-only RECON (no code, no commit, no
+branch change) -- one-hop/two-hop write-site enumeration, reachability under
+every ResponseMode, nested-commit ordering on a join turn, every reader of
+ctx.conv.gathering_id after the join branch, a measured (not inferred)
+autoflush probe, and one live observation of a join turn post-BRIEF-0072-a.
+Delivered in-session. BRIEF-0072-c is authored from it: `_join_gathering`
+takes conv_id (not the live Conversation) and returns plain values;
+`ctx.conv` is never mutated (autoflush would turn an in-memory
+`gathering_id` sync into an invisible write on the pinned transaction,
+exactly what this step removes); the check's writer set is transitively
+closed rather than one-hop, with a fail-closed rule3 on any call leaving the
+declared module set.
+
+Proceed: execute BRIEF-0072-c on ticket/0072.
