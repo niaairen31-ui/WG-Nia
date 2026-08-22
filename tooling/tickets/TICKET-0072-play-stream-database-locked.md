@@ -7,7 +7,7 @@ created: 2026-08-22
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write]
 blast_radius: large
-brief_ids: [BRIEF-0072-a, BRIEF-0072-b, BRIEF-0072-c]
+brief_ids: [BRIEF-0072-a, BRIEF-0072-b, BRIEF-0072-c, BRIEF-0072-d]
 schema_version_touched:
 retry_count: 0
 ---
