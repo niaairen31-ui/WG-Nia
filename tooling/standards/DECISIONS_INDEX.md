@@ -181,4 +181,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 12113 | RED GUARDS REPAIRED — goal-read accessor and prompt-model fixture (BRIEF-0067-a, no schema change) | BRIEF-0067-a |  |
 | 12194 | TICKET-0061 LEGACY SEAL — Play sealed not migrated, the pointer made true, the rename lands (BRIEF-0061-a, BRIEF-0061-b, BRIEF-0061-c, no schema change) | BRIEF-0061-a, BRIEF-0061-b, BRIEF-0061-c |  |
 | 12336 | CLAUDE.MD BUDGET — characters and per-line length, not lines (BRIEF-0071-a, BRIEF-0071-b, no schema change) | BRIEF-0071-a, BRIEF-0071-b |  |
-| 12382 | ENGINE — SQLITE WAL CONCURRENCY POSTURE (BRIEF-0072-a, no schema change) | BRIEF-0072-a |  |
+| 12382 | ENGINE — SQLITE WAL CONCURRENCY POSTURE (BRIEF-0072-a, BRIEF-0072-d, no schema change) | BRIEF-0072-a, BRIEF-0072-d |  |

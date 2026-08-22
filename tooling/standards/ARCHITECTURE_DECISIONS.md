@@ -12379,7 +12379,7 @@ the 38 000 cap with the intended headroom for future invariants.
 
 ---
 
-## ENGINE — SQLITE WAL CONCURRENCY POSTURE (BRIEF-0072-a, no schema change)
+## ENGINE — SQLITE WAL CONCURRENCY POSTURE (BRIEF-0072-a, BRIEF-0072-d, no schema change)
 
 TICKET-0072: Play crashed with "database is locked" on every NPC turn. Root
 cause was BRIEF-0044-f, not `play.py`. Making every SQLite transaction
@@ -12487,6 +12487,74 @@ exactly BRIEF-0072-b's E1 territory, not this check's).
 uses SQLite's online backup API (`source.backup(target)`), which is
 WAL-safe — no backup change was needed. `.gitignore` already covers
 `*.db-wal` / `*.db-shm` alongside `*.db`.
+
+**E1 — the request session is read-only for the life of a streaming
+response (BRIEF-0072-d).** WAL alone only relocated the crash: it stopped
+one write (`play.py:390`'s join-gathering commit) from landing on a session
+already blocked by a foreign reader, but it does nothing for a write
+attempted on a session already pinned to a stale snapshot — `SQLITE_BUSY_SNAPSHOT`,
+the same "database is locked" text, immune to `busy_timeout`. Two sites
+wrote on `ctx.db` inside the SSE stream: `play_stream.py:110`
+(`_perform_travel`, live-crashing the instant WAL landed, since nested
+persists earlier in the same turn had already committed) and `play.py:390`
+(`_join_gathering`, latent rather than live — nothing commits between the
+snapshot pin at `play.py:143` and the join branch today, so it is correct
+by phase ordering, not by construction). Both halves of TICKET-0072 are
+load-bearing and neither suffices alone: WAL alone relocates the crash from
+dialogue turns to travel turns; the session change alone leaves failure
+mode 1 (a plain reader blocking a writer under the rollback journal) fully
+intact. Both sites now run on a nested `Session(engine)` of their own,
+never `ctx.db`, matching the eleven pre-existing nested-session sites
+BRIEF-0072-a already documented.
+
+**The autoflush finding.** Measured (scratch-DB probe, not inferred):
+`Session(engine).autoflush` is `True` by default, and mutating a persistent
+attribute on an object still attached to `ctx.db` — even with no explicit
+`.commit()` — gets silently flushed into `ctx.db`'s own open transaction the
+next time any query runs on that session. It never reaches a second
+connection (nothing to contend with, so no crash), but FastAPI's dependency
+teardown then rolls that transaction back on request completion since
+nothing ever explicitly commits `ctx.db` again for the rest of the stream —
+the mutation is silently lost, no error, no trace. An in-memory
+`ctx.conv.gathering_id = ...` sync was the design this ruled out: it looks
+like it avoids a write, and is actually a write with no call site,
+invisible to a call-site-based check by construction. `stream_session_readonly.py`'s
+rule4 forbids any `ctx.conv.<attr> = ...` (or the same through a local
+alias) for exactly this reason.
+
+**The enumeration-scope rule.** Three enumerations on this ticket were each
+scoped to less than the artifact's true blast radius, and each produced a
+STOP: BRIEF-0072-b assumed one request-session write site in the stream
+(there were two — `play.py:390` was missed); BRIEF-0072-c, correcting that,
+assumed `_join_gathering` had one caller (there were three repo-wide —
+`play.py:390`, `routes/scene.py:303`, `routes/play.py:239`, one of which
+pre-`flush()`es a still-pending `Conversation` specifically to obtain its id
+before calling in). Neither predecessor brief is edited; both stay on disk
+as the withdrawn chain (`QUESTION-TICKET-0072.md`, `QUESTION-TICKET-0072-2.md`).
+The corollary this ticket records: **a brief that changes a shared
+function's signature carries a repo-wide enumeration requirement — grep
+across the tree, output pasted verbatim, count stated — never "confirm
+there is one caller."** And the stronger corollary BRIEF-0072-d actually
+acted on (decision H1): **prefer the fix whose correctness does not depend
+on a complete enumeration.** `_join_gathering`'s signature, body and return
+type stay byte-identical; the session boundary is owned by the one call
+site that needed it (`play.py:390`, re-fetching the `Conversation` by id on
+its own nested session, same idiom as `play_physical.py:324-330`'s
+`ss_db.get(Conversation, ...)`), so the fix is correct regardless of how
+many other callers `_join_gathering` turns out to have.
+
+**The named condition under which `ctx.conv.gathering_id`'s post-join
+staleness stops being harmless.** `player_gathering` is computed once at
+`play.py:677`, before interpretation, and threaded unchanged through the
+rest of the turn into `_say_initiative_phase` — so on a first-time join it
+is still `None` when initiative evaluates, initiative returns early
+(`play_initiative.py:61-62`), and nothing downstream reads the value
+`_join_gathering` just wrote. That silence is today's safety net, not a
+guarantee: **the day `player_gathering` is recomputed after the mode
+dispatch, the joined id must be threaded to the initiative phase
+explicitly** — `_say_join_branch` already has it in hand as `joined_id`,
+returned rather than synced onto `ctx.conv` (no structure without a
+reader).
 
 ---
 
