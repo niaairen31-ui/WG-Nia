@@ -90,4 +90,26 @@ C. Keep `_join_gathering`'s current object-taking signature untouched;
    with its own caller.
 
 ## Response
+None of A/B/C. BRIEF-0072-c is withdrawn unexecuted (stays on disk unedited,
+same shape as the -b -> -c supersession), replaced by BRIEF-0072-d.
 
+Decision (H1): leave _join_gathering's signature, body and return type
+untouched (play.py:890-915 stays byte-identical) rather than changing it to
+take conv_id. The RECON that followed -c's own STOP found the function has
+THREE callers repo-wide, not two -- play.py:390, routes/scene.py:303, and
+routes/play.py:239 -- one of which (routes/scene.py:300) pre-flush()es a
+still-pending Conversation specifically to obtain its id before calling
+_join_gathering. A signature change touches two working HTTP endpoints and
+makes correctness depend on an exhaustive caller enumeration -- and on this
+ticket, enumeration scope has been wrong three times now (BRIEF-0072-b's
+one-site assumption, BRIEF-0072-c's two-site assumption, now three). BRIEF-
+0072-d instead owns the session boundary at the play.py:390 call site only:
+open a nested Session(engine), re-fetch the Conversation on it by id, call
+_join_gathering unchanged, read joined_id/joined_label out of the returned
+Gathering before the session closes. Same idiom already used at
+play_physical.py:324-330. The two route callers are not touched, cannot
+regress, and do not need to be enumerated correctly for this fix to be
+correct -- the corollary this ticket is recording: prefer the fix whose
+correctness does not depend on a complete enumeration.
+
+Proceed: execute BRIEF-0072-d on ticket/0072.
