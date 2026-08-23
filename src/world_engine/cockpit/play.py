@@ -387,11 +387,23 @@ def _say_join_branch(
 
     resolved_id = _play_physical._resolve_join_target(reference, open_gatherings, ctx.db)
     if resolved_id is not None:
-        gathering = _join_gathering(ctx.conv, resolved_id, ctx.db)
-        extra_event = {"joined": {"gathering_id": gathering.id, "label": gathering.label}}
+        # TICKET-0072 (BRIEF-0072-d, E1/H1). Own session: ctx.db is pinned, a
+        # write here fails under WAL. _join_gathering keeps its signature and
+        # two other callers -- the session boundary is owned here instead, as
+        # at play_physical.py:324-330.
+        with Session(engine) as join_db:
+            join_conv = join_db.get(Conversation, ctx.conv_id)
+            if join_conv is None:
+                raise _SayAbort([
+                    f"data: {json.dumps({'error': 'conversation not found'})}\n\n",
+                    "data: [DONE]\n\n",
+                ])
+            gathering = _join_gathering(join_conv, resolved_id, join_db)
+            joined_id, joined_label = gathering.id, gathering.label
+        extra_event = {"joined": {"gathering_id": joined_id, "label": joined_label}}
         mj_user = _play_initiative._build_join_narration_user(
             location_name=ctx.location_name, player_line=ctx.content,
-            joined=True, gathering_label=gathering.label,
+            joined=True, gathering_label=joined_label,
         )
     else:
         extra_event = {

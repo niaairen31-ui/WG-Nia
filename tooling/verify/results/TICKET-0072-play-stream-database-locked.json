@@ -1,0 +1,27 @@
+{
+  "ticket": "TICKET-0072-play-stream-database-locked",
+  "when": "2026-08-23T00:33:36.437148+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "sqlite_concurrency.py",
+      "status": "PASS",
+      "msg": "PASS: sqlite_concurrency \u2014 journal_mode=wal, busy_timeout=5000ms declared and effective, nested commit under an open read in 16.7ms, counterfactual red"
+    },
+    {
+      "check": "stream_session_readonly.py",
+      "status": "PASS",
+      "msg": "PASS: stream_session_readonly \u2014 9 module(s) declared, 24 writer(s) (transitive), 8 alias(es), 38 request-session call site(s), zero writes on the request session"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 85 check(s) discovered, 85 executed, 85 passed"
+    },
+    {
+      "check": "pipeline_state.py",
+      "status": "PASS",
+      "msg": "PASS: every ticket front-matter conforms to TEMPLATE.md"
+    }
+  ]
+}

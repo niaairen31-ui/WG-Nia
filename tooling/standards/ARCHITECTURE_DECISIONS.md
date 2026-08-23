@@ -12379,4 +12379,183 @@ the 38 000 cap with the intended headroom for future invariants.
 
 ---
 
+## ENGINE — SQLITE WAL CONCURRENCY POSTURE (BRIEF-0072-a, BRIEF-0072-d, no schema change)
+
+TICKET-0072: Play crashed with "database is locked" on every NPC turn. Root
+cause was BRIEF-0044-f, not `play.py`. Making every SQLite transaction
+explicit (`isolation_level = None` plus an engine-instance `"begin"` listener
+issuing `BEGIN`) so DDL could not escape a rollback had an unintended
+consequence under the default rollback journal: a `SELECT` now held a
+`SHARED` lock for the life of its transaction, not just for the statement.
+The Play request session, bound through `Depends(get_session)` and returned
+inside a `StreamingResponse`, therefore held that lock for an entire SSE
+turn. The nested `Session(engine)` persisting the NPC line
+(`play.py:609-617`) could INSERT — `RESERVED` is compatible with a foreign
+`SHARED` — but its COMMIT had to promote to `EXCLUSIVE`, which waited on the
+request session's `SHARED`, exhausted the busy timeout, and raised. The
+traceback itself discriminates the cause: the failure lands in `do_commit`,
+not the `INSERT` — a competing writer fails at the INSERT, a competing
+reader fails exactly at the COMMIT.
+
+**A second, masked failure mode exists** (decision B1, out of scope here,
+closed by BRIEF-0072-b): the same open transaction pins the request session
+to a read snapshot. Under WAL, a pinned transaction that then attempts to
+WRITE does not wait — it fails instantly with `SQLITE_BUSY_SNAPSHOT`,
+reported as the identical "database is locked" text and immune to
+`busy_timeout`. `play_stream.py:110`'s travel write is the one site in the
+stream that hits this, and today it is invisible only because failure mode 1
+kills the turn first.
+
+**Decision (A1): `PRAGMA journal_mode=WAL` plus an explicit, declared
+`PRAGMA busy_timeout`, in the existing connect listener.** One place,
+structural, measured. WAL removes the reader-blocks-writer conflict at its
+root — a `SHARED` reader no longer excludes a `RESERVED`/`EXCLUSIVE` writer —
+without touching `PRAGMA synchronous` (stays at the durable default `FULL`;
+recent commits are not traded away for throughput). `_SQLITE_JOURNAL_MODE`
+and `_SQLITE_BUSY_TIMEOUT_MS` are declared as module-level constants in
+`src/world_engine/db.py`, read by both the listener and the new check, so
+the posture is a fact about the module rather than something someone must
+remember about the database file. An unexpected `journal_mode` at connect
+time raises rather than serving a Play surface that cannot persist a turn —
+`_SQLITE_JOURNAL_MODES_OK = ("wal", "memory")` admits an in-memory carrier
+too, since nothing in the tree binds one today but `WORLD_ENGINE_DATABASE_URL`
+could.
+
+**Rejected alternatives.** A2 (end the request session's transaction before
+streaming): there are reads on `ctx.db` throughout the stream, so the fix
+would survive only as a rule people remember, not a structural one. A3 (make
+the explicit `BEGIN` opt-in, DDL-only): reopens BRIEF-0044-f's doctrine and
+is fail-open the day a DDL path forgets to opt in; its reactivation
+condition is WAL being measured unavailable or unsafe on the carrier
+filesystem. A4 (one session per turn): deletes the independent commit
+boundaries that keep an NPC line persisted when a later phase fails — those
+boundaries are deliberate, not incidental.
+
+**Why the nested-session persist pattern across the Play modules is legal
+now, not lucky.** Eleven sites (`play.py:266`, `play.py:609`,
+`play_stream.py:116`, `play_stream.py:133`, `play_physical.py:266/324/333/395`,
+`play_initiative.py:203/207/250`) open a second `Session(engine)` to commit
+independently of the request session. Before this brief, every one of them
+carried failure mode 1 the instant the request session held any read
+transaction — `play_initiative.py:200-204`'s own comment ("the SSE
+generator's db session has no open write transaction at this point ... so
+there is no nested-transaction conflict") states the invariant BRIEF-0044-f
+invalidated, and is left uncorrected here deliberately: fixing the comment
+belongs with the B1 reader audit, not this ticket. Under WAL, a read
+transaction never blocks a write commit regardless of which session holds
+which, which is what makes the pattern legal by construction rather than by
+timing luck.
+
+**Preserved, not traded: BRIEF-0044-f's guarantee.** `scripts/test_ddl_atomicity.py`
+runs unmodified under WAL and still passes 3/3 — a forced failure between a
+`CREATE TABLE` and a following `INSERT` still leaves neither the table nor
+the row. Transactional DDL was never sqlite-journal-mode-dependent; it
+depends on `isolation_level = None` plus the explicit `BEGIN`, both
+untouched.
+
+**New check: `tooling/verify/checks/sqlite_concurrency.py`.** AST-parses
+`db.py` to confirm the posture is declared (rule 1) and referenced by the
+listener; opens a real connection to confirm it is effective (rule 2);
+reproduces `play.py:136`→`play.py:143` with two sessions to prove a reader
+genuinely holding an open transaction (asserted at both the SQLAlchemy and
+the driver level — the vacuity guard) does not block a nested writer's
+commit, in under a second (rule 3); and reproduces the identical shape
+against a second scratch file left in the default rollback journal, via raw
+`sqlite3` with a 0.2s timeout, to prove the instrument itself can still see
+red (rule 4) — a concurrency proof that never actually contends anything is
+the textbook vacuous pass, and rule 4 is what rules that out. Touches only
+scratch files under `tempfile.gettempdir()`, deleted (with `-wal`/`-shm`
+sidecars) at start and end; never the prod or test carrier.
+
+**Process lesson, recorded so it is not re-litigated.** BRIEF-0044-f's
+verification surface was DDL, migrations and `init_db.py` — thorough within
+that frame, and the frame was itself the defect. An engine-wide
+transaction-semantics change alters the behaviour of every concurrent path
+in the application; the concurrent paths that mattered (a streaming request
+session coexisting with nested persist sessions) were never exercised. Same
+shape as the "proves X, not Y" family already recorded elsewhere in this
+document: proving DDL atomic does not prove ordinary reads and writes still
+compose.
+
+**The check's honest limit.** `sqlite_concurrency.py` proves a reader does
+not block a writer; it does NOT prove that no path holds an open WRITE
+transaction across a nested commit — WAL would not save that case either
+(two writers still serialize; a pinned snapshot attempting to write is
+exactly BRIEF-0072-b's E1 territory, not this check's).
+
+**Checked and clear, recorded so it is not re-litigated:** `scripts/backup.py`
+uses SQLite's online backup API (`source.backup(target)`), which is
+WAL-safe — no backup change was needed. `.gitignore` already covers
+`*.db-wal` / `*.db-shm` alongside `*.db`.
+
+**E1 — the request session is read-only for the life of a streaming
+response (BRIEF-0072-d).** WAL alone only relocated the crash: it stopped
+one write (`play.py:390`'s join-gathering commit) from landing on a session
+already blocked by a foreign reader, but it does nothing for a write
+attempted on a session already pinned to a stale snapshot — `SQLITE_BUSY_SNAPSHOT`,
+the same "database is locked" text, immune to `busy_timeout`. Two sites
+wrote on `ctx.db` inside the SSE stream: `play_stream.py:110`
+(`_perform_travel`, live-crashing the instant WAL landed, since nested
+persists earlier in the same turn had already committed) and `play.py:390`
+(`_join_gathering`, latent rather than live — nothing commits between the
+snapshot pin at `play.py:143` and the join branch today, so it is correct
+by phase ordering, not by construction). Both halves of TICKET-0072 are
+load-bearing and neither suffices alone: WAL alone relocates the crash from
+dialogue turns to travel turns; the session change alone leaves failure
+mode 1 (a plain reader blocking a writer under the rollback journal) fully
+intact. Both sites now run on a nested `Session(engine)` of their own,
+never `ctx.db`, matching the eleven pre-existing nested-session sites
+BRIEF-0072-a already documented.
+
+**The autoflush finding.** Measured (scratch-DB probe, not inferred):
+`Session(engine).autoflush` is `True` by default, and mutating a persistent
+attribute on an object still attached to `ctx.db` — even with no explicit
+`.commit()` — gets silently flushed into `ctx.db`'s own open transaction the
+next time any query runs on that session. It never reaches a second
+connection (nothing to contend with, so no crash), but FastAPI's dependency
+teardown then rolls that transaction back on request completion since
+nothing ever explicitly commits `ctx.db` again for the rest of the stream —
+the mutation is silently lost, no error, no trace. An in-memory
+`ctx.conv.gathering_id = ...` sync was the design this ruled out: it looks
+like it avoids a write, and is actually a write with no call site,
+invisible to a call-site-based check by construction. `stream_session_readonly.py`'s
+rule4 forbids any `ctx.conv.<attr> = ...` (or the same through a local
+alias) for exactly this reason.
+
+**The enumeration-scope rule.** Three enumerations on this ticket were each
+scoped to less than the artifact's true blast radius, and each produced a
+STOP: BRIEF-0072-b assumed one request-session write site in the stream
+(there were two — `play.py:390` was missed); BRIEF-0072-c, correcting that,
+assumed `_join_gathering` had one caller (there were three repo-wide —
+`play.py:390`, `routes/scene.py:303`, `routes/play.py:239`, one of which
+pre-`flush()`es a still-pending `Conversation` specifically to obtain its id
+before calling in). Neither predecessor brief is edited; both stay on disk
+as the withdrawn chain (`QUESTION-TICKET-0072.md`, `QUESTION-TICKET-0072-2.md`).
+The corollary this ticket records: **a brief that changes a shared
+function's signature carries a repo-wide enumeration requirement — grep
+across the tree, output pasted verbatim, count stated — never "confirm
+there is one caller."** And the stronger corollary BRIEF-0072-d actually
+acted on (decision H1): **prefer the fix whose correctness does not depend
+on a complete enumeration.** `_join_gathering`'s signature, body and return
+type stay byte-identical; the session boundary is owned by the one call
+site that needed it (`play.py:390`, re-fetching the `Conversation` by id on
+its own nested session, same idiom as `play_physical.py:324-330`'s
+`ss_db.get(Conversation, ...)`), so the fix is correct regardless of how
+many other callers `_join_gathering` turns out to have.
+
+**The named condition under which `ctx.conv.gathering_id`'s post-join
+staleness stops being harmless.** `player_gathering` is computed once at
+`play.py:677`, before interpretation, and threaded unchanged through the
+rest of the turn into `_say_initiative_phase` — so on a first-time join it
+is still `None` when initiative evaluates, initiative returns early
+(`play_initiative.py:61-62`), and nothing downstream reads the value
+`_join_gathering` just wrote. That silence is today's safety net, not a
+guarantee: **the day `player_gathering` is recomputed after the mode
+dispatch, the joined id must be threaded to the initiative phase
+explicitly** — `_say_join_branch` already has it in hand as `joined_id`,
+returned rather than synced onto `ctx.conv` (no structure without a
+reader).
+
+---
+
 *Co-built with Claude, June 2026.*

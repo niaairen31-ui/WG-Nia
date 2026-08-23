@@ -13,6 +13,48 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **(no schema change — applicatif addendum)** — TICKET-0072, BRIEF-0072-a:
+  engine concurrency posture only, no table/column touched. Fixes the
+  "database is locked" crash on every Play NPC turn: BRIEF-0044-f's explicit
+  `BEGIN` listener made every SELECT hold a `SHARED` lock for the life of its
+  transaction under the default rollback journal, and the Play request
+  session (bound for the whole `StreamingResponse`) held one for an entire
+  SSE turn, so the nested `Session(engine)` persisting the NPC line could
+  INSERT but never COMMIT — promotion to `EXCLUSIVE` waited on the reader,
+  exhausted the busy timeout, and raised. Fix, in `src/world_engine/db.py`'s
+  connect listener: `PRAGMA busy_timeout=5000` (declared as
+  `_SQLITE_BUSY_TIMEOUT_MS` rather than inherited from pysqlite's driver
+  default) and `PRAGMA journal_mode=WAL` (declared as `_SQLITE_JOURNAL_MODE`),
+  asserted at connect time and fail-closed on any unexpected mode
+  (`_SQLITE_JOURNAL_MODES_OK = ("wal", "memory")`). WAL removes the
+  reader-blocks-writer conflict at its root while leaving BRIEF-0044-f's
+  transactional-DDL guarantee intact — re-proved by
+  `scripts/test_ddl_atomicity.py`, run unmodified. New
+  `tooling/verify/checks/sqlite_concurrency.py` is the fail-closed, AST-plus-
+  driver proof (posture declared, posture effective, a reader does not block
+  a nested writer's commit, and a rollback-journal counterfactual is proven
+  to still fail — the vacuity guard). BRIEF-0072-d (E1) closes the second
+  failure mode WAL alone did not: the request session, pinned to a read
+  snapshot for the life of the SSE stream, could still fail a WRITE with
+  `SQLITE_BUSY_SNAPSHOT` (same "database is locked" text, immune to
+  `busy_timeout`) once any other connection had committed since the pin.
+  Two sites wrote on `ctx.db` inside the stream — `play_stream.py:110`
+  (`_perform_travel`) and `play.py:390` (`_join_gathering`, via a
+  caller-owned nested session; `_join_gathering` itself keeps its original
+  signature and its other two callers, decision H1) — both now run on a
+  `Session(engine)` of their own. New
+  `tooling/verify/checks/stream_session_readonly.py` is the fail-closed,
+  AST-only proof: no direct write and no write-by-delegation on the request
+  session across the four Play modules, a transitively-closed writer set
+  reaching into `context.py`/`context_window.py`/`analyzer.py`/`gathering.py`/
+  `prompt_store.py`, a fail-closed rule on any request-session expression
+  passed to a callee outside that declared set, and a rule forbidding any
+  `ctx.conv.<attr> = ...` assignment (autoflush measured `True` on this
+  session — such an assignment would silently flush an UPDATE into the
+  pinned transaction, invisible to every call-site rule). See
+  `tooling/standards/ARCHITECTURE_DECISIONS.md` — "ENGINE — SQLITE WAL
+  CONCURRENCY POSTURE".
+
 - **(no schema change — applicatif addendum)** — TICKET-0054, BRIEF-0054-b:
   faction membership creator-side role reassignment + capacity chokepoint
   (decisions D2/E1). New `POST /memberships/{id}/role`

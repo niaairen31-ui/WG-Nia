@@ -104,10 +104,11 @@ def _say_narrate_and_finish(
         ctx, player_gathering, open_gatherings, responder_id, mode, npc_reply, responder_name, ss_condition,
     )
 
-    # Travel state transition (resolved direct travel only) — runs after
-    # the traveled SSE and initiative blocks, before [DONE].
+    # Travel transition — own session (TICKET-0072, BRIEF-0072-d, E1):
+    # ctx.db is pinned, fails under WAL.
     if travel_dest_id is not None:
-        _perform_travel(ctx.conv.player_id, travel_dest_id, ctx.db)
+        with Session(engine) as travel_db:
+            _perform_travel(ctx.conv.player_id, travel_dest_id, travel_db)
 
     yield "data: [DONE]\n\n"
 
