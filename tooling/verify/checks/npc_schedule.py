@@ -31,8 +31,7 @@ Every rule carries an anti-vacuity guard: a rule that locates zero items is
 a FAILURE, not a silent pass.
 
 R9-R11 and R4b (BRIEF-0074-b amendment — Creation surfaces): the frontend
-mount seam and the bare-write structural guarantee. Context rule R12 is NOT
-authored here — brief -c amends this file.
+mount seam and the bare-write structural guarantee.
 R9 (read-only panel): `SchedulePanel.svelte` contains no `method:` value
 among POST/PUT/PATCH/DELETE.
 R10 (mount reachability): `Sheet.svelte` both imports and mounts each of
@@ -47,6 +46,14 @@ R4b (the bare write, T-A1 condition 2): `PUT /api/world/phase`'s handler
 (`cockpit/routes/creator.py::set_world_phase`) calls nothing beyond a fixed
 allowlist — its world-resolution helper, its validation helper, the session
 `add`/`commit`, and its response builder.
+
+R12 (BRIEF-0074-c amendment — L1 concordance reachability): proves the
+concordance test is REACHED, not merely that it exists.
+`_standing_is_concordant` is defined in `context.py` and its body
+references `where_is`; `_npc_context_standing`'s body calls
+`_standing_is_concordant`; `assemble_npc_context`'s body calls
+`_npc_context_standing` with at least three positional arguments;
+`_npc_context_standing` has exactly one call site across `src/`.
 """
 from __future__ import annotations
 
@@ -62,6 +69,7 @@ SCHEDULE_FILE = SRC / "models" / "schedule.py"
 CANON_FILE = SRC / "models" / "canon.py"
 SCHEDULE_READS_FILE = SRC / "schedule_reads.py"
 CONFIG_WRITES_FILE = SRC / "writes" / "config.py"
+CONTEXT_FILE = SRC / "context.py"
 POLICY_FILE = ROOT / "tooling" / "verify" / "canon_write_policy.txt"
 
 FRONTEND_SRC = ROOT / "frontend" / "src"
@@ -591,6 +599,66 @@ def check_bare_phase_write() -> None:
         fail(f"{_rel(CREATOR_ROUTES_FILE)}: set_world_phase's body contains zero calls — vacuous")
 
 
+def check_concordance_reachability() -> None:
+    """R12 (BRIEF-0074-c): proves the concordance test is REACHED, not merely
+    that it exists — the "dispatch-site existence proves an event fires but
+    not that a listener hears it" lesson, applied to `_standing_is_concordant`.
+    Any of the four targets not located is a FAILURE."""
+    tree = _parse(CONTEXT_FILE)
+    if tree is None:
+        return
+
+    concordant_func = _find_function(tree, "_standing_is_concordant")
+    if concordant_func is None:
+        fail(f"{_rel(CONTEXT_FILE)}: _standing_is_concordant not found")
+    else:
+        references_where_is = any(
+            isinstance(node, ast.Name) and node.id == "where_is" for node in ast.walk(concordant_func)
+        )
+        if not references_where_is:
+            fail(f"{_rel(CONTEXT_FILE)}: _standing_is_concordant does not reference where_is")
+
+    standing_func = _find_function(tree, "_npc_context_standing")
+    if standing_func is None:
+        fail(f"{_rel(CONTEXT_FILE)}: _npc_context_standing not found")
+    else:
+        calls_concordant = any(
+            isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_standing_is_concordant"
+            for node in ast.walk(standing_func)
+        )
+        if not calls_concordant:
+            fail(f"{_rel(CONTEXT_FILE)}: _npc_context_standing does not call _standing_is_concordant")
+
+    assemble_func = _find_function(tree, "assemble_npc_context")
+    if assemble_func is None:
+        fail(f"{_rel(CONTEXT_FILE)}: assemble_npc_context not found")
+    else:
+        found_call = False
+        for node in ast.walk(assemble_func):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_npc_context_standing":
+                found_call = True
+                if len(node.args) < 3:
+                    fail(
+                        f"{_rel(CONTEXT_FILE)}:{node.lineno} — assemble_npc_context calls "
+                        f"_npc_context_standing with {len(node.args)} positional argument(s), expected >= 3"
+                    )
+        if not found_call:
+            fail(f"{_rel(CONTEXT_FILE)}: assemble_npc_context never calls _npc_context_standing")
+
+    call_sites = 0
+    for path in sorted(SRC.rglob("*.py")):
+        file_tree = _parse(path)
+        if file_tree is None:
+            continue
+        for node in ast.walk(file_tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_npc_context_standing":
+                call_sites += 1
+    if call_sites == 0:
+        fail("npc_schedule R12: zero call sites of _npc_context_standing located across src/ — vacuous")
+    elif call_sites != 1:
+        fail(f"npc_schedule R12: _npc_context_standing has {call_sites} call site(s) across src/, expected exactly 1")
+
+
 def main() -> None:
     check_vocabulary()
     check_constraints()
@@ -603,14 +671,15 @@ def main() -> None:
     check_mount_reachability()
     check_single_vocabulary_source()
     check_bare_phase_write()
+    check_concordance_reachability()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         sys.exit(1)
     print(
         "PASS: npc_schedule — vocabulary, constraints, precedence bijection, table shape, "
-        "write-site registration, read-only panel, mount reachability, vocabulary source and "
-        "the bare phase write are all intact"
+        "write-site registration, read-only panel, mount reachability, vocabulary source, "
+        "the bare phase write and the concordance reachability are all intact"
     )
     sys.exit(0)
 

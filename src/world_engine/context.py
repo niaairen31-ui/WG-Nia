@@ -45,7 +45,9 @@ from .models import (
     NpcPrice,
     Relation,
     SkillDefinition,
+    World,
 )
+from .schedule_reads import where_is
 
 # Section headers (kept stable so a harness can split the output reliably).
 H_IDENTITY = "QUI TU ES"
@@ -271,13 +273,38 @@ def _npc_context_goals(npc_id: str, session: Session) -> str:
     return (_section(H_GOALS, "\n".join(goal_lines)) + "\n") if goal_lines else ""
 
 
-def _npc_context_standing(npc_id: str, session: Session) -> str:
+def _standing_is_concordant(npc_id: str, location_id: str, session: Session) -> bool:
+    # L1 (TICKET-0074). The occupation is BACKGROUND: it explains why an NPC is
+    # where it belongs. Rendered unconditionally (TICKET-0073's shipped
+    # behaviour) it also explains an innkeeper met in a forest at midnight,
+    # which collapses the J1 background/foreground distinction this ticket
+    # exists to hold. The test compares the schedule's answer for the CURRENT
+    # phase against where the scene actually is.
+    #
+    # Deliberately NOT `resolution.source == "schedule"` (rejected L3): in a
+    # live scene with the player the NPC is in a gathering, so the present
+    # branch resolves via `gathering` every time and the test would never fire.
+    # It is the LOCATION that must agree, not the winning term.
+    world = session.exec(select(World).where(World.is_active == True)).first()  # noqa: E712
+    if world is None:
+        return False
+    resolution = where_is(npc_id, world.current_phase, session, is_present=True)
+    return resolution.location_id == location_id
+
+
+def _npc_context_standing(npc_id: str, location_id: str, session: Session) -> str:
     """----- 1c. Standing occupation (TICKET-0073, G2/M1) — the single most
     recent active standing goal, rendered as a REASON FOR PRESENCE rather
-    than a current action. This briefing carries no scene history and is
-    rebuilt on every call, so a "what you are doing right now" framing would
-    be re-asserted verbatim at turn 14 and loop against the conversation the
-    model already has. The scene owns the gesture; this owns the reason."""
+    than a current action, but only when `_standing_is_concordant` (L1,
+    TICKET-0074) holds: the schedule's answer for the current phase must
+    agree with where the scene actually is. An NPC with a standing goal and
+    NO schedule row for the current phase resolves to source="unknown",
+    which never concords — an intended behaviour change against TICKET-0073
+    for every NPC without an authored schedule (B1 leaves the table sparse).
+    This briefing carries no scene history and is rebuilt on every call, so a
+    "what you are doing right now" framing would be re-asserted verbatim at
+    turn 14 and loop against the conversation the model already has. The
+    scene owns the gesture; this owns the reason."""
     standing_goal = session.exec(
         select(NpcGoal)
         .where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active", NpcGoal.kind == "standing")
@@ -285,6 +312,8 @@ def _npc_context_standing(npc_id: str, session: Session) -> str:
         .limit(1)
     ).first()
     if standing_goal is None:
+        return ""
+    if not _standing_is_concordant(npc_id, location_id, session):
         return ""
     body = (
         f"{standing_goal.description}\n"
@@ -566,7 +595,7 @@ def assemble_npc_context(
 
     identity = _npc_context_identity(npc_entity, npc_char)
     goals_section = _npc_context_goals(npc_id, session)
-    standing_section = _npc_context_standing(npc_id, session)
+    standing_section = _npc_context_standing(npc_id, location_id, session)
     setting = _npc_context_setting(location_id, player_condition, session)
     speak_body = _npc_context_speak(npc_id, disclosure_intensity, session)
     perception = _npc_context_perception(

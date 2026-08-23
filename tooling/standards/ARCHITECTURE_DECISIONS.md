@@ -12639,7 +12639,7 @@ named mapping constant (the coupling would live in ad hoc conditional
 logic, invisible to a structural check and silently bypassed by any second
 caller of the same route).
 
-## NPC SCHEDULES — background versus foreground, two-branch precedence, the world's phase (BRIEF-0074-a, BRIEF-0074-b, schema v1.92)
+## NPC SCHEDULES — background versus foreground, two-branch precedence, the world's phase (BRIEF-0074-a, BRIEF-0074-b, BRIEF-0074-c, schema v1.92)
 
 **J1 — a schedule is background, an agenda is foreground; one accessor.**
 TICKET-0073 gave an NPC a standing occupation (a reason to be somewhere) but
@@ -12762,6 +12762,55 @@ world-resolution helper, its validation helper, `db.add`/`db.commit`, and
 its response builder — condition 2 (advancing the phase moves nothing
 else) made structural rather than documented, the same shape R9 gives
 condition 1's read-only panel.
+
+**L1 — the occupation is earned by concordance, not shown unconditionally.**
+TICKET-0073 shipped `POURQUOI TU ES ICI` unconditionally: any NPC carrying a
+`kind='standing'` goal rendered its occupation in every scene, everywhere —
+an innkeeper met in a forest at midnight still explained itself as an
+innkeeper on duty, collapsing J1's background/foreground distinction. L1
+gates the render on a new `_standing_is_concordant(npc_id, location_id,
+session)`: the active world's `current_phase` feeds `where_is(npc_id,
+current_phase, session, is_present=True)`, and the section renders only if
+that resolution's `location_id` equals the scene's own `location_id`.
+Deliberately NOT `resolution.source == "schedule"` (rejected L3): in a live
+scene with the player the NPC is in a gathering, so the present branch
+resolves via `gathering` every time and that test would never fire. It is
+the LOCATION that must agree, not the winning term — a schedule-driven
+gate would be structurally correct but never demonstrable in the one
+context (a live conversation) `_npc_context_standing` runs in.
+`_npc_context_standing` gained `location_id` as a parameter, drawn from
+`assemble_npc_context`'s own — no new parameter on `assemble_npc_context`
+or any of its seven callers. `verify/checks/npc_schedule.py`'s R12 proves
+the test is REACHED, not merely defined: `_standing_is_concordant` exists
+and references `where_is`; `_npc_context_standing` calls it;
+`assemble_npc_context` calls `_npc_context_standing` with >= 3 positional
+arguments; `_npc_context_standing` keeps exactly one call site in `src/`.
+
+Because C1's present branch ranks `gathering` and `current_location` above
+`schedule`, and a live scene's NPC is normally a member of an open
+gathering at that same location, the schedule term is usually never
+reached during ordinary play — concordance holds via `gathering` instead,
+and only fails when the scene's `location_id` genuinely disagrees with
+where the NPC currently, factually, is. The schedule term decides
+concordance only for an NPC with neither an open gathering nor a
+`current_location_id` matching the scene — e.g. a freshly authored NPC, or
+one reached outside a live gathering. This is C1 holding as designed, not
+an L1 gap: advancing `world.current_phase` alone, with nothing else moved,
+will not hide the section for an NPC the player is presently gathered
+with, precisely because condition 2 (advancing the phase moves nothing
+else) forbids the gathering itself from following the clock.
+
+**An unscheduled NPC loses the section TICKET-0073 gave it unconditionally
+— intended, not a regression.** An NPC with a standing goal and NO
+`npc_schedule` row for the current phase resolves to `source="unknown"`,
+`location_id=None` (T-D2's terminal), which never equals a real scene
+location, so `_standing_is_concordant` returns `False` and the section is
+withheld. Every NPC without an authored schedule is in this state until one
+is written (B1 leaves the table sparse), so this reads as correct behaviour
+on every pre-existing NPC rather than a bug — recorded here because it is
+the criterion most likely to surprise on first live-gate pass. The
+initiative vote's standing fragment (TICKET-0073, N1) is untouched by this
+gate: L1 withholds the dialogue section only.
 
 ---
 
