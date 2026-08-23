@@ -469,13 +469,27 @@ class Knowledge(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
-# npc_goal  (NPC interiority — in-scene volition, schema v1.69, BRIEF-0013-a)
+# npc_goal  (NPC volition, schema v1.91, BRIEF-0013-a + TICKET-0073)
 #
 # Flat table (F1, no parent_goal_id — see ARCHITECTURE_DECISIONS "Deferred
-# decisions" for the F2 reactivation trigger). description is immutable after
-# insert: a "changed" goal is a closed goal plus a new row. status transitions
-# are one-way (active -> completed|abandoned), never reopened. Read ONLY by
-# assemble_npc_context and the initiative vote (N1) — assemble_mj_context must
+# decisions" for the F2 reactivation trigger). description is immutable
+# after insert: a "changed" goal is a closed goal plus a new row. status
+# transitions are one-way (active -> completed|abandoned), never reopened.
+#
+# `kind` (TICKET-0073, G2) splits two natures that share this table:
+#   volition — in-scene volition, aimed at changing a state. Everything
+#              this table held before v1.91.
+#   standing — background volition: an occupation, a trade, a pastime. It
+#              has no terminal state and is never "completed" by play; it
+#              ends only when the creator closes it. Rendered as a reason
+#              for presence (context.py's POURQUOI TU ES ICI), never as a
+#              current action — see M1 in TICKET-0073 for why.
+# `kind='standing'` implies `horizon='long'` (ck_npc_goal_standing_horizon).
+# This CHECK is defence in depth: every in-scene reader filters on `kind`
+# explicitly, and the constraint catches a future reader that forgets to.
+#
+# Read ONLY by assemble_npc_context, the tick briefing, the initiative
+# vote (N1) and _mutation_goal_change_close — assemble_mj_context must
 # never gain a query against this table.
 # -----------------------------------------------------------------------------
 class NpcGoal(SQLModel, table=True):
@@ -485,6 +499,10 @@ class NpcGoal(SQLModel, table=True):
         CheckConstraint(
             "status IN ('active','completed','abandoned')", name="ck_npc_goal_status"
         ),
+        CheckConstraint("kind IN ('volition','standing')", name="ck_npc_goal_kind"),
+        CheckConstraint(
+            "kind <> 'standing' OR horizon = 'long'", name="ck_npc_goal_standing_horizon"
+        ),
         Index("idx_npc_goal_npc_status", "npc_id", "status"),
     )
 
@@ -493,6 +511,7 @@ class NpcGoal(SQLModel, table=True):
     npc_id: str = Field(foreign_key="entity.id", nullable=False)
     description: str
     horizon: str
+    kind: str = Field(default="volition", sa_column_kwargs={"server_default": text("'volition'")})
     status: str = Field(default="active", sa_column_kwargs={"server_default": text("'active'")})
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()

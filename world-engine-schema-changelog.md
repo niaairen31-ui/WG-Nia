@@ -13,6 +13,19 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v1.91** — Added `npc_goal.kind` (TEXT NOT NULL DEFAULT 'volition',
+  CHECK `kind IN ('volition','standing')` and CHECK
+  `kind <> 'standing' OR horizon = 'long'`). `standing` rows are background
+  volition — an occupation, a trade, a pastime — with no terminal state,
+  authored by creator CRUD only. Every in-scene reader now filters on `kind`
+  explicitly: the dialogue goal block, the tick briefing and the initiative
+  vote render `volition` only, and `_mutation_goal_change_close` can no
+  longer match a standing row, so no model-proposed `goal_change` can close
+  an occupation. Standing rows render in their own dialogue section
+  (`POURQUOI TU ES ICI`) as a reason for presence rather than a current
+  action, and add a separate `ici pour=` fragment to the initiative signal
+  line. Purely additive: existing rows take the default.
+
 - **(no schema change — applicatif addendum)** — TICKET-0072, BRIEF-0072-a:
   engine concurrency posture only, no table/column touched. Fixes the
   "database is locked" crash on every Play NPC turn: BRIEF-0044-f's explicit

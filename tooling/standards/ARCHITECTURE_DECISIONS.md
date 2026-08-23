@@ -12558,4 +12558,66 @@ reader).
 
 ---
 
+## STANDING OCCUPATION GOALS — kind discriminator, presence not action (BRIEF-0073-b, schema v1.91)
+
+**G2 — a discriminator column, not a second table.** NPC dialogue drifted
+toward intrigue: every active `npc_goal` was a volition aimed at changing a
+state, so an NPC with nothing else in its briefing played every scene as an
+operator. There was no representation of what an NPC simply *does* — its
+trade, its pastime, the thing that explains its presence somewhere. The fix
+is `npc_goal.kind` (`volition` | `standing`), not a second table: one write
+path, one prompt-assembly family, one place a diverging behaviour could
+hide. Rejected: G1, a third `horizon` value (`horizon` is a temporal reach,
+not a nature — both pre-existing readers already query it by explicit
+equality, so a third value would have been silently invisible to every one
+of them); G3, a separate `npc_occupation` table (two tables meaning "what
+this NPC wants" guarantees the two write paths and two prompt renders
+diverge over time). `kind='standing'` implies `horizon='long'`, enforced by
+`ck_npc_goal_standing_horizon` — defence in depth, not the primary
+mechanism: every in-scene reader (`context.py::_npc_context_goals`,
+`tick_context.py::_tick_goals_block`, `play_initiative.py::
+_initiative_candidate_data`, `cockpit/mutations.py::
+_mutation_goal_change_close`) filters on `kind` explicitly, and the CHECK
+only catches a future reader that forgets to.
+
+**M1 — a reason for presence, never a current action.** Nia's objection,
+verbatim from intake: a briefing that asserts "what you are doing right
+now" is re-injected unchanged on every turn while the scene moves on — the
+NPC is told at turn 14 it is still whittling, and loops instead of
+advancing. `assemble_npc_context` receives no history and is rebuilt from
+canon on every call, so a `kind='standing'` row is stable across a whole
+scene by construction; the objection is therefore about the framing, not
+the field. The fix: the new `POURQUOI TU ES ICI` section states a REASON
+FOR PRESENCE, which stays true for the whole scene, while the moment-to-
+moment gesture stays exactly where it already lives — the conversation
+history the model already receives. The section's own fixed sentence makes
+the precedence explicit: *"Si la scène t'a déjà écarté de cette occupation,
+la scène prime."* Rejected: M2, first-turn-only injection
+(`assemble_npc_context` has no turn index and seven call sites, two of
+which have no notion of a turn — reactivate this if the live gate shows the
+NPC looping on its occupation across a long scene); M3, continuously
+rewritten activity (would need either a model call per NPC per turn or a
+parse pass over generated prose, plus a WRITE inside the stream — the exact
+shape of the TICKET-0072 `database is locked` regression — and would build
+a second, competing source of truth about what an NPC is doing, when the
+scene history already tracks it for free).
+
+**N1 (initiative) extended, not re-litigated.** The standing goal DOES
+reach the initiative vote, as its own fragment (`standing_by_npc`,
+`ici pour=`), never merged into the existing short-goal pool — that pool is
+collapsed to one string per NPC via `setdefault`, so admitting the
+occupation there would silently suppress one of the two by creation date.
+An NPC held by its post and an NPC at leisure in its own room now read
+differently to the vote, which is exactly the signal it lacked before.
+
+**E1 — creator CRUD only, this ticket.** No model authors a standing row in
+v1: `generate_npc_goals` is not extended, no new mutation type exists, and
+`_mutation_goal_change_close`'s candidate pool now excludes `kind='standing'`
+— closing the one path (a `goal_change` whose text happened to match an
+occupation's description) by which a model-proposed mutation could have
+reached a standing row. The Creation-side editor (BRIEF-0073-c) is the only
+way to create or close one.
+
+---
+
 *Co-built with Claude, June 2026.*

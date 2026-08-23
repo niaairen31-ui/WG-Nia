@@ -180,15 +180,22 @@ def _tick_identity_block(npc_entity: Entity, npc_char: Character) -> str:
 
 def _tick_goals_block(npc_id: str, session: Session) -> str:
     """ALL active goals, both horizons, newest first, long-terms first. No
-    read-side cap (unlike the dialogue injection)."""
+    read-side cap (unlike the dialogue injection). `kind == "volition"`
+    (TICKET-0073, G2): the tick briefing never surfaces standing rows."""
     long_goals = session.exec(
         select(NpcGoal)
-        .where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active", NpcGoal.horizon == "long")
+        .where(
+            NpcGoal.npc_id == npc_id, NpcGoal.status == "active",
+            NpcGoal.horizon == "long", NpcGoal.kind == "volition",
+        )
         .order_by(NpcGoal.created_at.desc())
     ).all()
     short_goals = session.exec(
         select(NpcGoal)
-        .where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active", NpcGoal.horizon == "short")
+        .where(
+            NpcGoal.npc_id == npc_id, NpcGoal.status == "active",
+            NpcGoal.horizon == "short", NpcGoal.kind == "volition",
+        )
         .order_by(NpcGoal.created_at.desc())
     ).all()
     goal_lines = []

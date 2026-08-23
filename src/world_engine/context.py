@@ -50,6 +50,7 @@ from .models import (
 # Section headers (kept stable so a harness can split the output reliably).
 H_IDENTITY = "QUI TU ES"
 H_GOALS = "TES OBJECTIFS"
+H_STANDING = "POURQUOI TU ES ICI"
 H_SETTING = "OÙ TU TE TROUVES"
 H_SPEAK = "CE QUE TU PEUX ÉVOQUER"
 H_PERCEPTION = "COMMENT TU VOIS CEUX QUI T'ENTOURENT"
@@ -241,16 +242,24 @@ def _npc_context_identity(npc_entity: Entity, npc_char: Character) -> str:
 def _npc_context_goals(npc_id: str, session: Session) -> str:
     """----- 1b. Goals (BRIEF-0013-a, Q1/S1/N1) — the long goal + the 2 most
     recent active shorts, newest first within each horizon. Read-side LIMIT
-    is the S1 bound; no write-side cap exists anywhere on active shorts."""
+    is the S1 bound; no write-side cap exists anywhere on active shorts.
+    `kind == "volition"` (TICKET-0073, G2): standing rows render in their own
+    section, `_npc_context_standing`, never here."""
     long_goal = session.exec(
         select(NpcGoal)
-        .where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active", NpcGoal.horizon == "long")
+        .where(
+            NpcGoal.npc_id == npc_id, NpcGoal.status == "active",
+            NpcGoal.horizon == "long", NpcGoal.kind == "volition",
+        )
         .order_by(NpcGoal.created_at.desc())
         .limit(1)
     ).first()
     short_goals = session.exec(
         select(NpcGoal)
-        .where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active", NpcGoal.horizon == "short")
+        .where(
+            NpcGoal.npc_id == npc_id, NpcGoal.status == "active",
+            NpcGoal.horizon == "short", NpcGoal.kind == "volition",
+        )
         .order_by(NpcGoal.created_at.desc())
         .limit(2)
     ).all()
@@ -260,6 +269,29 @@ def _npc_context_goals(npc_id: str, session: Session) -> str:
     for g in short_goals:
         goal_lines.append(f"[COURT TERME] {g.description}{_goal_provenance_suffix(g, npc_id, session)}")
     return (_section(H_GOALS, "\n".join(goal_lines)) + "\n") if goal_lines else ""
+
+
+def _npc_context_standing(npc_id: str, session: Session) -> str:
+    """----- 1c. Standing occupation (TICKET-0073, G2/M1) — the single most
+    recent active standing goal, rendered as a REASON FOR PRESENCE rather
+    than a current action. This briefing carries no scene history and is
+    rebuilt on every call, so a "what you are doing right now" framing would
+    be re-asserted verbatim at turn 14 and loop against the conversation the
+    model already has. The scene owns the gesture; this owns the reason."""
+    standing_goal = session.exec(
+        select(NpcGoal)
+        .where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active", NpcGoal.kind == "standing")
+        .order_by(NpcGoal.created_at.desc())
+        .limit(1)
+    ).first()
+    if standing_goal is None:
+        return ""
+    body = (
+        f"{standing_goal.description}\n"
+        "C'est ta raison d'être ici, pas une action en cours. Si la scène t'a "
+        "déjà écarté de cette occupation, la scène prime."
+    )
+    return _section(H_STANDING, body) + "\n"
 
 
 def _npc_context_setting(location_id: str, player_condition: str, session: Session) -> str:
@@ -534,8 +566,8 @@ def assemble_npc_context(
 
     identity = _npc_context_identity(npc_entity, npc_char)
     goals_section = _npc_context_goals(npc_id, session)
+    standing_section = _npc_context_standing(npc_id, session)
     setting = _npc_context_setting(location_id, player_condition, session)
-
     speak_body = _npc_context_speak(npc_id, disclosure_intensity, session)
     perception = _npc_context_perception(
         npc_id, interlocutor_id, inter_name, inter_relation, inter_intensity,
@@ -546,7 +578,6 @@ def assemble_npc_context(
 
     affiliations_section = _npc_context_affiliations(npc_id, session)
     pricing_section = _npc_context_pricing(npc_id, session)
-
     # ----- 5. Hard boundaries -----
     boundaries = (
         "Tu ne sais que ce qui est écrit ci-dessus. N'invente aucun fait sur le "
@@ -559,6 +590,7 @@ def assemble_npc_context(
         _section(H_IDENTITY, identity)
         + "\n"
         + goals_section
+        + standing_section
         + _section(H_SETTING, setting)
         + "\n"
         + _section(H_SPEAK, speak_body)
