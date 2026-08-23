@@ -1,0 +1,37 @@
+{
+  "ticket": "TICKET-0074-npc-schedules",
+  "when": "2026-08-23T19:23:52.343081+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "npc_schedule.py",
+      "status": "PASS",
+      "msg": "PASS: npc_schedule \u00e2\u20ac\u201d vocabulary, constraints, precedence bijection, table shape, write-site registration, read-only panel, mount reachability, vocabulary source and the bare phase write are all intact"
+    },
+    {
+      "check": "world_tick.py",
+      "status": "PASS",
+      "msg": "PASS: world-tick structural gate intact (rules 1-20)"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v1.92'"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values; 87 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 87 check(s) discovered, 87 executed, 87 passed"
+    }
+  ]
+}
