@@ -1,0 +1,27 @@
+{
+  "ticket": "TICKET-0073-standing-occupation-goal",
+  "when": "2026-08-23T16:13:44.756307+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values; 83 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "npc_goal_read.py",
+      "status": "PASS",
+      "msg": "PASS: npc_goal read boundary intact (N1), D1 provenance gate intact"
+    },
+    {
+      "check": "standing_goal.py",
+      "status": "PASS",
+      "msg": "PASS: standing_goal \u00e2\u20ac\u201d npc_goal.kind reader filters, constraints, vocabulary and reachability intact"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 86 check(s) discovered, 86 executed, 86 passed"
+    }
+  ]
+}
