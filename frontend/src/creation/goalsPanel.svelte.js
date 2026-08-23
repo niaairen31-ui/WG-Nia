@@ -90,12 +90,12 @@ export async function detachGoalLink(entityId, linkId) {
   }
 }
 
-export async function addGoal(legacyDoc, entityId, horizon, description) {
+export async function addGoal(legacyDoc, entityId, kind, horizon, description) {
   await sheetRequest(
     legacyDoc,
     `/api/entities/${encodeURIComponent(entityId)}/goals`,
     'POST',
-    JSON.stringify({ horizon, description }),
+    JSON.stringify({ kind, horizon, description }),
     () => loadGoals(entityId),
   );
 }

@@ -55,6 +55,7 @@ from ...tick_normalize import _EVENT_TYPES
 from ...writes import (
     KNOWLEDGE_LEVELS,
     NPC_GOAL_HORIZONS,
+    NPC_GOAL_KINDS,
     NPC_GOAL_PREREQUISITE_TYPES,
     PromptValidationError,
     detach_goal_agenda_link,
@@ -129,6 +130,7 @@ def _goal_dict(g: NpcGoal, db: DbSession) -> dict:
         "npc_id": g.npc_id,
         "description": g.description,
         "horizon": g.horizon,
+        "kind": g.kind,
         "status": g.status,
         "created_at": _iso(g.created_at),
         "updated_at": _iso(g.updated_at),
@@ -149,6 +151,7 @@ def _list_goals(entity_id: str, db: DbSession) -> list[dict]:
 class GoalWriteBody(BaseModel):
     description: Optional[str] = None
     horizon: Optional[str] = None
+    kind: Optional[str] = None
 
 
 class GoalStatusBody(BaseModel):
@@ -174,6 +177,11 @@ def create_goal(entity_id: str, body: GoalWriteBody, db: DbSession = Depends(get
         raise HTTPException(404, f"Entity {entity_id!r} not found")
     if body.horizon not in NPC_GOAL_HORIZONS:
         raise HTTPException(422, f"horizon must be one of {sorted(NPC_GOAL_HORIZONS)}")
+    kind = body.kind or "volition"
+    if kind not in NPC_GOAL_KINDS:
+        raise HTTPException(422, f"kind must be one of {sorted(NPC_GOAL_KINDS)}")
+    if kind == "standing" and body.horizon != "long":
+        raise HTTPException(422, "kind='standing' requires horizon='long'")
     if not body.description or not body.description.strip():
         raise HTTPException(422, "description is required")
     char = db.get(Character, entity_id)
@@ -186,6 +194,7 @@ def create_goal(entity_id: str, body: GoalWriteBody, db: DbSession = Depends(get
         npc_id=entity_id,
         description=body.description.strip(),
         horizon=body.horizon,
+        kind=kind,
         changed_by="creator",
     )
     db.commit()

@@ -2,7 +2,7 @@
 
 Standing rows (background occupation) share the `npc_goal` table with
 volition rows but must never leak into a volition-shaped render or into a
-model-closable goal match. Six rules, stdlib `ast` only, no DB — same
+model-closable goal match. Eight rules, stdlib `ast` only, no DB — same
 FAILURES/fail()/_report_and_exit idiom as `npc_goal_read.py`.
 
 R1 (reader filter): each of the four in-scene readers filters every
@@ -15,6 +15,11 @@ R5 (render separation): the standing section is its own thing, never H_GOALS.
 R6 (reachability): the standing section and the initiative fragment are
 both actually wired into their assemblers — R5 alone proves the constant
 and function exist, not that anything reaches them.
+R7 (paired validation, BRIEF-0073-c): `crud/goals.py::create_goal` validates
+`kind` and `horizon` together, not as two independent fields.
+R8 (single-control mapping, BRIEF-0073-c): `GoalsEditor.svelte` offers the
+`standing` choice from exactly ONE `<select>`, mapped through a named
+constant — the incoherent pair is unformable, not merely rejected.
 """
 from __future__ import annotations
 
@@ -32,6 +37,8 @@ CONTEXT_FILE = SRC / "context.py"
 TICK_CONTEXT_FILE = SRC / "tick_context.py"
 PLAY_INITIATIVE_FILE = SRC / "cockpit" / "play_initiative.py"
 MUTATIONS_FILE = SRC / "cockpit" / "mutations.py"
+CRUD_GOALS_FILE = SRC / "cockpit" / "crud" / "goals.py"
+GOALS_EDITOR_FILE = ROOT / "frontend" / "src" / "creation" / "GoalsEditor.svelte"
 
 # The four in-scene readers (mini-RECON, BRIEF-0073-b). A function not found
 # at its named location is a FAILURE — it may have been renamed, and a
@@ -243,12 +250,76 @@ def check_reachability() -> None:
                 fail(f"{_rel(PLAY_INITIATIVE_FILE)}: _initiative_signal_lines never references standing_frag")
 
 
+def _compare_operands(node: ast.Compare) -> list[ast.AST]:
+    return [node.left, *node.comparators]
+
+
+def _references_name(node: ast.AST, name: str) -> bool:
+    if isinstance(node, ast.Name) and node.id == name:
+        return True
+    if isinstance(node, ast.Attribute) and node.attr == name:
+        return True
+    return False
+
+
+def check_paired_validation() -> None:
+    tree = _parse(CRUD_GOALS_FILE)
+    if tree is None:
+        return
+    func = _find_function(tree, "create_goal")
+    if func is None:
+        fail(f"{_rel(CRUD_GOALS_FILE)}: create_goal not found")
+        return
+
+    tests_standing = False
+    tests_horizon = False
+    for node in ast.walk(func):
+        if not isinstance(node, ast.Compare):
+            continue
+        operands = _compare_operands(node)
+        if any(isinstance(o, ast.Constant) and o.value == "standing" for o in operands):
+            tests_standing = True
+        if any(_references_name(o, "horizon") for o in operands):
+            tests_horizon = True
+
+    if not tests_standing:
+        fail(f"{_rel(CRUD_GOALS_FILE)}: create_goal has no comparison against 'standing'")
+    if not tests_horizon:
+        fail(f"{_rel(CRUD_GOALS_FILE)}: create_goal has no comparison involving horizon")
+
+
+def check_single_control_mapping() -> None:
+    if not GOALS_EDITOR_FILE.exists():
+        fail(f"{_rel(GOALS_EDITOR_FILE)}: file not found")
+        return
+    text = GOALS_EDITOR_FILE.read_text(encoding="utf-8")
+
+    selects_with_standing = 0
+    for block in text.split("<select")[1:]:
+        select_body = block.split("</select>", 1)[0]
+        if 'value="standing"' in select_body or "value='standing'" in select_body:
+            selects_with_standing += 1
+
+    if selects_with_standing == 0:
+        fail(f"{_rel(GOALS_EDITOR_FILE)}: no <select> offers a 'standing' option")
+    elif selects_with_standing > 1:
+        fail(
+            f"{_rel(GOALS_EDITOR_FILE)}: {selects_with_standing} <select> elements offer "
+            "'standing' — the pair must be reachable from exactly one control"
+        )
+
+    if "CHOICE_TO_PAIR" not in text:
+        fail(f"{_rel(GOALS_EDITOR_FILE)}: CHOICE_TO_PAIR mapping constant not found")
+
+
 def main() -> None:
     check_reader_filters()
     check_constraints_present()
     check_vocabulary()
     check_render_separation()
     check_reachability()
+    check_paired_validation()
+    check_single_control_mapping()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")

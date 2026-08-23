@@ -12618,6 +12618,27 @@ occupation's description) by which a model-proposed mutation could have
 reached a standing row. The Creation-side editor (BRIEF-0073-c) is the only
 way to create or close one.
 
+## STANDING OCCUPATION EDITOR — one selector deriving the pair (BRIEF-0073-c, no schema change)
+
+**O1 — a single `(kind, horizon)` choice, not two independent fields.** The
+`GoalsEditor` add form offered one `horizon` `<select>` before this step;
+`kind='standing'` requires `horizon='long'` (`ck_npc_goal_standing_horizon`,
+BRIEF-0073-b), so a second, independent `kind` control would let the
+creator form the one pair the CHECK refuses. The form instead offers three
+labelled choices — COURT TERME / LONG TERME / OCCUPATION — mapped through a
+single `CHOICE_TO_PAIR` constant to the `(kind, horizon)` pair the backend
+receives; there is no second control from which the two could be chosen
+independently. `crud/goals.py::create_goal` validates the pair server-side
+regardless (`kind == "standing" and horizon != "long"` -> 422) — the
+structural guarantee; the single-selector shape is what keeps the creator
+from meeting that 422 in normal use, not what enforces it. Rejected: O2,
+two independent controls plus the existing CHECK (exposes the combination
+the CHECK refuses, so the creator meets a 422 instead of being unable to
+form the pair at all); O3, forcing the pair in the component without a
+named mapping constant (the coupling would live in ad hoc conditional
+logic, invisible to a structural check and silently bypassed by any second
+caller of the same route).
+
 ---
 
 *Co-built with Claude, June 2026.*
