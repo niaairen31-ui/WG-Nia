@@ -12639,6 +12639,83 @@ named mapping constant (the coupling would live in ad hoc conditional
 logic, invisible to a structural check and silently bypassed by any second
 caller of the same route).
 
+## NPC SCHEDULES — background versus foreground, two-branch precedence, the world's phase (BRIEF-0074-a, schema v1.92)
+
+**J1 — a schedule is background, an agenda is foreground; one accessor.**
+TICKET-0073 gave an NPC a standing occupation (a reason to be somewhere) but
+nothing said WHERE that somewhere is, or WHEN. `npc_schedule` is the
+positional expression of that background disposition: `npc_id`, `phase`,
+`location_id`, a nullable `standing_goal_id` back-pointer to the `npc_goal`
+row it explains. It is read through exactly one accessor, `schedule_reads.
+where_is`, on the earshot precedent (one code path, not a scatter of ad hoc
+lookups). Rejected: J2, a schedule as a recurring agenda (an agenda has a
+terminal status and at most one active step; a routine has neither — forcing
+the shape would mean an agenda that never terminates, which the agenda
+machinery elsewhere assumes cannot happen); J3, last-known position only
+(`character.current_location_id` alone) — a fact about right now that says
+nothing about a phase three days out, the exact gap this table exists to
+close.
+
+**C1 — time-relative precedence, two branches, one accessor.** A present
+phase resolves a set of FACTS (a roster, a stored location); a future phase
+resolves a set of PREDICTIONS, where `current_location_id` is only a last
+known position and must never beat the schedule. `PRESENT_PRECEDENCE` =
+gathering > current_location > schedule > unknown; `FUTURE_PRECEDENCE` =
+schedule > last_known > unknown. Both are module-level tuples in
+`schedule_reads.py`, dispatched through a name-keyed `_SOURCE_LOOKUPS` table
+that `where_is` iterates performing no lookup of its own —
+`verify/checks/npc_schedule.py` asserts the bijection between tuple names
+and lookup keys, and that `where_is`'s body contains no `select(` call.
+Rejected: C2, a single total order (would let a stale `current_location_id`
+beat the schedule for a phase three days out — the exact failure this table
+exists to fix); C3, schedule-always-wins with overlays at call sites
+(violates J1: a background default cannot outrank a live fact like gathering
+membership without inverting which one is background).
+
+C1 originally named a third term, `agenda_step`, in both branches. Execution
+of BRIEF-0074-a's mini-RECON (item 13) found no location column reachable
+from `AgendaStep`, `Agenda`, or `NpcGoal` — STOP fired correctly, and Nia's
+resolution (AMENDMENT-1) removed the term BY DESIGN rather than deferring
+it: an agenda states an OBJECTIVE, never a place, and giving it one would
+create a second positional authority competing with `npc_schedule`. An
+agenda's positional consequence already reaches `where_is` some other way —
+the tick moves the NPC via `write_character_location`, and the present
+branch's `current_location` term reads that fact one rank above the
+schedule. There is no reactivation condition: a future predictive term
+comes from whatever the day-resolution chain emits, as a new named term,
+never resurrected from an agenda. See
+`tooling/briefs/BRIEF-0074-a-amendment-1-no-agenda-term.md` for the full
+correction.
+
+**T-A1 — the world's phase is a bare creator-set column, with two riders.**
+Nothing in the tree named a current phase (`current_phase` grep returned
+zero hits pre-ticket) and `World` carried no temporal state, yet C1's
+present/future split and the coming L1 concordance both need one. The fix,
+`world.current_phase` (four-value CHECK, default `'matin'`), rides with two
+non-optional conditions: (1) a forgotten phase mis-renders L1 *silently*,
+which the doctrine refuses as a disciplinary safeguard — the compensating
+control is the phase displayed permanently in cockpit chrome (BRIEF-0074-b),
+so "forgotten" is visible rather than mute; without that display, deferring
+L1 entirely would have been the correct call instead. (2) Advancing the
+phase moves nothing else — a bare state write, no tick, no cascade, no
+recomputation; the day-resolution chain stays Scope OUT of this ticket.
+Per-world by construction: two worlds are two `world` rows, so two
+independent phases, with no rule anyone has to remember. Rejected: T-A2,
+derive from wall-clock time (couples fiction to real time; the engine is
+turn-based); T-A3, phase on `conversation` (cannot be the only source — the
+Creation-side `who_is_at` panel has no conversation; kept non-foreclosed: a
+`conversation.phase_snapshot` stays a possible additive migration later);
+T-A4, defer L1 entirely (the real contender, retained as the fallback if
+condition 1 above is ever dropped).
+
+**S-I1 — no `change_history` on `npc_schedule`.** A schedule row is a
+standing DEFAULT, not a narrative event — the same curated-config family as
+`location_type_catalog`/`world_law` (`write_location_doors` precedent: full-
+replace per NPC, delete-then-insert in the caller's transaction). "History
+is sacred" protects narrative artifacts; a model-authored `schedule_change`
+mutation, when it exists, is what would need its own trail — deferred with
+auto-approve (S-F) to a separate ticket that needs a real proposer.
+
 ---
 
 *Co-built with Claude, June 2026.*

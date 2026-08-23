@@ -13,6 +13,26 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v1.92** — Added `npc_schedule` (standing per-phase location default: `id`,
+  `world_id`, `npc_id`, `phase` CHECK `phase IN ('matin','apres-midi','soir',
+  'nuit')`, `location_id`, nullable `standing_goal_id` FK to `npc_goal`,
+  `created_at`, `updated_at`; unique index on `(npc_id, phase)`, index on
+  `(location_id, phase)`; no `change_history` — curated config, same family
+  as `location_type_catalog`/`world_law`) and `world.current_phase` (TEXT NOT
+  NULL DEFAULT 'matin', CHECK against the same four-value vocabulary —
+  creator-set day-cycle phase, advanced without a tick or a cascade).
+  TICKET-0074, BRIEF-0074-a. `npc_schedule` is written ONLY via
+  `writes.write_npc_schedule` (full-replace per NPC) and read ONLY via the
+  new `schedule_reads.py` (`where_is`/`who_is_at`/`unresolved_npcs`) — the
+  time-relative precedence resolving an NPC's phase-scoped location from a
+  present-facts branch (gathering > current location > schedule > unknown)
+  and a future-predictions branch (schedule > last known position >
+  unknown). No `agenda_step` term in either branch, by design: an agenda
+  states an objective, never a place (see
+  `tooling/briefs/BRIEF-0074-a-amendment-1-no-agenda-term.md`). Sparse by
+  decision (B1): no seeding, no backfill. Purely additive: every existing
+  `world` row takes the column default.
+
 - **v1.91** — Added `npc_goal.kind` (TEXT NOT NULL DEFAULT 'volition',
   CHECK `kind IN ('volition','standing')` and CHECK
   `kind <> 'standing' OR horizon = 'long'`). `standing` rows are background

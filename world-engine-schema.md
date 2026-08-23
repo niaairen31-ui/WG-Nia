@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.91
+Current schema version: v1.92
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -32,6 +32,11 @@ CREATE TABLE world (
                                        -- dormant | awakening | active | suppressed
   is_active             BOOLEAN NOT NULL DEFAULT FALSE,
                                        -- the single globally-active world (v1.54)
+  current_phase         TEXT NOT NULL DEFAULT 'matin'
+                          CHECK (current_phase IN ('matin','apres-midi','soir','nuit')),
+                                       -- creator-set day-cycle phase (v1.92, TICKET-0074,
+                                       -- T-A1). Per-world; advancing it writes only this
+                                       -- column -- no tick, no cascade.
   created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -692,6 +697,42 @@ CREATE INDEX idx_npc_goal_npc_status ON npc_goal(npc_id, status);
 --       (`POURQUOI TU ES ICI`), framed as a reason for presence rather than
 --       a current action (M1), and add an `ici pour=` fragment to the
 --       initiative signal line — never merged with a volition goal.
+
+-----
+
+### `npc_schedule`
+
+Standing per-phase location default (schema v1.92, TICKET-0074,
+BRIEF-0074-a). Curated config, same family as `location_type_catalog` /
+`world_law`: no `change_history`, written ONLY via
+`writes.write_npc_schedule` (full-replace per NPC). Sparse by decision
+(B1) — absence of a row is legal; `schedule_reads.py::where_is` supplies
+the fallback. `standing_goal_id`, when set, must reference an `npc_goal`
+row belonging to the same `npc_id` with `kind='standing'` (writer-enforced,
+not a DB constraint — SQLite CHECK cannot cross-reference another table's
+row).
+
+```sql
+CREATE TABLE npc_schedule (
+  id                TEXT PRIMARY KEY,
+  world_id          TEXT NOT NULL REFERENCES world(id),
+  npc_id            TEXT NOT NULL REFERENCES entity(id),
+  phase             TEXT NOT NULL CHECK (phase IN ('matin','apres-midi','soir','nuit')),
+  location_id       TEXT NOT NULL REFERENCES entity(id),
+  standing_goal_id  TEXT REFERENCES npc_goal(id),
+  created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_npc_schedule_npc_phase ON npc_schedule(npc_id, phase);
+CREATE INDEX idx_npc_schedule_location_phase ON npc_schedule(location_id, phase);
+```
+-- NOTE: no calendrical axis in v1 (A1a) — `phase` is a pure day-cycle,
+--       never widened to `(npc_id, phase, day_kind)` if a calendar lands
+--       later (SQLite treats NULLs as DISTINCT inside a UNIQUE index, so
+--       that widening would silently lose the one-row-per-NPC-per-phase
+--       guarantee). The correct future path is the `faction_membership`
+--       partial-unique idiom: one partial UNIQUE `WHERE day_kind IS NULL`,
+--       one `WHERE day_kind IS NOT NULL`.
 
 -----
 

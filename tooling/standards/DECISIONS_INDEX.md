@@ -184,3 +184,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 12382 | ENGINE — SQLITE WAL CONCURRENCY POSTURE (BRIEF-0072-a, BRIEF-0072-d, no schema change) | BRIEF-0072-a, BRIEF-0072-d |  |
 | 12561 | STANDING OCCUPATION GOALS — kind discriminator, presence not action (BRIEF-0073-b, schema v1.91) | BRIEF-0073-b | v1.91 |
 | 12621 | STANDING OCCUPATION EDITOR — one selector deriving the pair (BRIEF-0073-c, no schema change) | BRIEF-0073-c |  |
+| 12642 | NPC SCHEDULES — background versus foreground, two-branch precedence, the world's phase (BRIEF-0074-a, schema v1.92) | BRIEF-0074-a | v1.92 |
