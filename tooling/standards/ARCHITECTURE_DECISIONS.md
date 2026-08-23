@@ -12639,7 +12639,7 @@ named mapping constant (the coupling would live in ad hoc conditional
 logic, invisible to a structural check and silently bypassed by any second
 caller of the same route).
 
-## NPC SCHEDULES — background versus foreground, two-branch precedence, the world's phase (BRIEF-0074-a, schema v1.92)
+## NPC SCHEDULES — background versus foreground, two-branch precedence, the world's phase (BRIEF-0074-a, BRIEF-0074-b, schema v1.92)
 
 **J1 — a schedule is background, an agenda is foreground; one accessor.**
 TICKET-0073 gave an NPC a standing occupation (a reason to be somewhere) but
@@ -12715,6 +12715,53 @@ replace per NPC, delete-then-insert in the caller's transaction). "History
 is sacred" protects narrative artifacts; a model-authored `schedule_change`
 mutation, when it exists, is what would need its own trail — deferred with
 auto-approve (S-F) to a separate ticket that needs a real proposer.
+
+**T-C1 — the NPC sheet authors, the location sheet reads.** `ScheduleEditor.
+svelte` (mounted on the NPC sheet, after Objectifs — an occupation is the
+reason, a schedule is the where, so they read in that order) authors all
+four phases of one NPC's day at once, full-replace through
+`PUT /api/entities/{id}/schedule` -> `write_npc_schedule`, matching E1's
+per-NPC write shape and matching how a creator actually thinks: one authors
+a character's day, not a location's footfall. `SchedulePanel.svelte`
+(mounted on the location sheet) is the read-only mirror. The two surfaces
+never overlap: authoring a schedule and verifying its footprint are
+deliberately different screens, on the `GoalsEditor`/`goalsPanel.svelte.js`
+split (component owns markup, `schedulePanel.svelte.js` owns state and
+requests through `sheetRequest.svelte.js`) — neither component receives
+schedule rows as a prop from `Sheet.svelte`'s own `detail` (confirmed
+absent from `crud/entities.py::get_entity`'s response), so both load their
+own data, the same shape `GoalsEditor` already uses. Rejected: T-C2, author
+from the location sheet (each edit would touch one cell of one NPC's day,
+fighting the full-replace write shape); T-C3, ship the read panel and CLI
+only, defer authoring (leaves Nia unable to create a schedule except by
+hand, breaking the live-gate loop this brief exists to unblock).
+
+**F1 as B1's compensating control, structurally enforced.** B1 made
+`npc_schedule` sparse by decision and refused a coverage check (inventing
+canon by rule). `SchedulePanel.svelte`'s four phase groups (via
+`GET /api/locations/{id}/schedule`, which calls `who_is_at`/
+`unresolved_npcs` per phase with a server-computed `is_present` — the one
+phase matching `world.current_phase` resolves through
+`PRESENT_PRECEDENCE`, the other three through `FUTURE_PRECEDENCE`) render
+visibly empty rather than omitted, and the panel's own `unresolved` block
+names every NPC that resolves nowhere. This is a REPORT, not a gate: no
+required-field validation, no save-blocking badge. The panel's read-only
+posture is not a docstring promise — `verify/checks/npc_schedule.py`'s R9
+asserts no POST/PUT/PATCH/DELETE method literal appears in
+`SchedulePanel.svelte`'s own source, on the same "structural, never
+disciplinary" doctrine as the rest of this ticket.
+
+**T-A1 condition 1, closing the loop.** The phase control lives in
+`Header.svelte`, not inside the Creation tab — `Header.svelte` is mounted
+unconditionally by `App.svelte`, outside every surface's own gated
+container, so it is the one component visible from Play, Création and
+Observation alike. The current phase renders as persistent text next to a
+`<select>` that calls `PUT /api/world/phase`; R4b (`verify/checks/
+npc_schedule.py`) asserts that handler's body calls nothing beyond its
+world-resolution helper, its validation helper, `db.add`/`db.commit`, and
+its response builder — condition 2 (advancing the phase moves nothing
+else) made structural rather than documented, the same shape R9 gives
+condition 1's read-only panel.
 
 ---
 

@@ -32,6 +32,7 @@ from ...models import (
     Faction,
     FactionMembership,
     ProposedMutation,
+    SCHEDULE_PHASES,
     Skill,
     SkillDefinition,
     User,
@@ -480,6 +481,49 @@ def delete_world(world_id: str, db: Session = Depends(get_session)) -> dict:
         db.rollback()
         return {"ok": False, "error": str(exc)}
     return {"ok": True, "remaining": remaining, "active_world_id": active_world_id}
+
+
+# ── World phase (T-A1, TICKET-0074) — a bare state write, nothing else ────────
+
+def _active_world_row(db: Session) -> World:
+    world = db.exec(select(World).where(World.is_active == True)).first()  # noqa: E712
+    if world is None:
+        raise HTTPException(status_code=400, detail="No active world. Activate a world before proceeding.")
+    return world
+
+
+def _validate_world_phase(current_phase: str) -> None:
+    if current_phase not in SCHEDULE_PHASES:
+        raise HTTPException(422, f"current_phase must be one of {list(SCHEDULE_PHASES)}")
+
+
+def _world_phase_dict(world: World) -> dict:
+    return {"world_id": world.id, "current_phase": world.current_phase, "phases": list(SCHEDULE_PHASES)}
+
+
+@router.get("/api/world/phase")
+def get_world_phase(db: Session = Depends(get_session)) -> dict:
+    return _world_phase_dict(_active_world_row(db))
+
+
+class WorldPhaseBody(BaseModel):
+    current_phase: str
+
+
+@router.put("/api/world/phase")
+def set_world_phase(body: WorldPhaseBody, db: Session = Depends(get_session)) -> dict:
+    """A bare state write and nothing else (T-A1 condition 2): no tick, no
+    cascade, no NPC movement. `verify/checks/npc_schedule.py`'s R4b asserts
+    this handler's body calls nothing beyond `_active_world_row`,
+    `_validate_world_phase`, the session `add`/`commit`, and
+    `_world_phase_dict` — any other call is the structural tripwire for a
+    future edit that tries to make advancing the phase DO something."""
+    world = _active_world_row(db)
+    _validate_world_phase(body.current_phase)
+    world.current_phase = body.current_phase
+    db.add(world)
+    db.commit()
+    return _world_phase_dict(world)
 
 
 # ── Bootstrap — resolved play context for the static cockpit JS (BRIEF-45) ────

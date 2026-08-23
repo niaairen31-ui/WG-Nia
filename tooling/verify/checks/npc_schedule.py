@@ -28,8 +28,25 @@ five named fields; `where_is`, `who_is_at`, `unresolved_npcs` all exist
 with an `is_present` keyword-only parameter.
 
 Every rule carries an anti-vacuity guard: a rule that locates zero items is
-a FAILURE, not a silent pass. Frontend and context rules (R9-R12) are NOT
-authored here — briefs -b and -c amend this file.
+a FAILURE, not a silent pass.
+
+R9-R11 and R4b (BRIEF-0074-b amendment — Creation surfaces): the frontend
+mount seam and the bare-write structural guarantee. Context rule R12 is NOT
+authored here — brief -c amends this file.
+R9 (read-only panel): `SchedulePanel.svelte` contains no `method:` value
+among POST/PUT/PATCH/DELETE.
+R10 (mount reachability): `Sheet.svelte` both imports and mounts each of
+`ScheduleEditor` and `SchedulePanel`, and each mount sits inside its named
+`{#if}` branch guard (dispatch-site existence proves an event fires, not
+that a listener hears it — applied here to mounts).
+R11 (single vocabulary source): every phase `<select>` under `frontend/src/`
+builds its options from an `{#each}` over the one named `SCHEDULE_PHASES`
+constant (`frontend/src/creation/schedule.js`), never from inline phase
+literals.
+R4b (the bare write, T-A1 condition 2): `PUT /api/world/phase`'s handler
+(`cockpit/routes/creator.py::set_world_phase`) calls nothing beyond a fixed
+allowlist — its world-resolution helper, its validation helper, the session
+`add`/`commit`, and its response builder.
 """
 from __future__ import annotations
 
@@ -47,7 +64,17 @@ SCHEDULE_READS_FILE = SRC / "schedule_reads.py"
 CONFIG_WRITES_FILE = SRC / "writes" / "config.py"
 POLICY_FILE = ROOT / "tooling" / "verify" / "canon_write_policy.txt"
 
+FRONTEND_SRC = ROOT / "frontend" / "src"
+CREATION_SRC = FRONTEND_SRC / "creation"
+SHEET_FILE = CREATION_SRC / "Sheet.svelte"
+SCHEDULE_PANEL_FILE = CREATION_SRC / "SchedulePanel.svelte"
+SCHEDULE_JS_FILE = CREATION_SRC / "schedule.js"
+CREATOR_ROUTES_FILE = SRC / "cockpit" / "routes" / "creator.py"
+
 EXPECTED_PHASES = ("matin", "apres-midi", "soir", "nuit")
+
+NPC_SHEET_GUARD = "!isNew && type === 'character' && tabKey === 'npc'"
+LOCATION_SHEET_GUARD = "!isNew && type === 'location'"
 
 FAILURES: list[str] = []
 _TREE_CACHE: dict[pathlib.Path, ast.Module | None] = {}
@@ -395,6 +422,175 @@ def check_reader_shape() -> None:
         fail("npc_schedule: zero of where_is/who_is_at/unresolved_npcs located")
 
 
+def _read_text(path: pathlib.Path) -> "str | None":
+    if not path.exists():
+        fail(f"{_rel(path)}: file not found")
+        return None
+    return path.read_text(encoding="utf-8")
+
+
+def check_read_only_panel() -> None:
+    """R9 (BRIEF-0074-b): `SchedulePanel.svelte` contains no `method:` value
+    among POST/PUT/PATCH/DELETE. Zero fetch calls found is fine (a bare
+    `fetch(url)` defaults to GET) — the file not existing is the failure."""
+    text = _read_text(SCHEDULE_PANEL_FILE)
+    if text is None:
+        return
+    hit = re.search(r"method:\s*['\"](POST|PUT|PATCH|DELETE)['\"]", text)
+    if hit:
+        fail(f"{_rel(SCHEDULE_PANEL_FILE)}: contains a {hit.group(1)} method literal — the F1 panel must be read-only")
+
+
+def _svelte_if_blocks(text: str, condition_literal: str) -> list[str]:
+    """Every `{#if <condition_literal>}...{/if}` block's full source, brace-
+    balanced against nested `{#if}`/`{/if}` pairs. The same literal condition
+    string opens more than one block in Sheet.svelte (Tarifs, Objectifs,
+    Horaire all share the NPC guard) — callers check membership across ALL
+    of them, never just the first."""
+    marker = "{#if " + condition_literal + "}"
+    blocks: list[str] = []
+    search_from = 0
+    while True:
+        start = text.find(marker, search_from)
+        if start == -1:
+            break
+        pos = start + len(marker)
+        depth = 1
+        while depth > 0:
+            next_if = text.find("{#if", pos)
+            next_end = text.find("{/if}", pos)
+            if next_end == -1:
+                pos = len(text)
+                break
+            if next_if != -1 and next_if < next_end:
+                depth += 1
+                pos = next_if + 4
+            else:
+                depth -= 1
+                pos = next_end + 5
+        blocks.append(text[start:pos])
+        search_from = pos
+    return blocks
+
+
+def check_mount_reachability() -> None:
+    """R10 (BRIEF-0074-b): `Sheet.svelte` both imports and mounts each of
+    `ScheduleEditor`/`SchedulePanel`, and each mount sits inside its named
+    `{#if}` branch guard — dispatch-site existence proves an event fires,
+    not that a listener hears it, applied here to mounts. An import without
+    a mount, or a mount without an import, is a FAILURE."""
+    text = _read_text(SHEET_FILE)
+    if text is None:
+        return
+    for name, guard in (("ScheduleEditor", NPC_SHEET_GUARD), ("SchedulePanel", LOCATION_SHEET_GUARD)):
+        imported = re.search(rf"import\s+{name}\s+from\s+['\"]\./{name}\.svelte['\"]", text) is not None
+        if not imported:
+            fail(f"{_rel(SHEET_FILE)}: {name} is not imported")
+        blocks = _svelte_if_blocks(text, guard)
+        if not blocks:
+            fail(f"{_rel(SHEET_FILE)}: no {{#if {guard}}} branch found")
+            continue
+        if not any(f"<{name}" in block for block in blocks):
+            fail(f"{_rel(SHEET_FILE)}: {name} is not mounted inside its named {{#if {guard}}} branch")
+
+
+def check_single_vocabulary_source() -> None:
+    """R11 (BRIEF-0074-b, retargeted from standing_goal.py's R8): every phase
+    `<select>` under `frontend/src/` builds its options from an `{#each
+    SCHEDULE_PHASES}` loop over the one named constant
+    (`frontend/src/creation/schedule.js`), never from inline phase literals.
+    Zero such `<select>` elements located is a FAILURE."""
+    svelte_files = sorted(FRONTEND_SRC.rglob("*.svelte"))
+    if not svelte_files:
+        fail(f"{_rel(FRONTEND_SRC)}: zero .svelte files found — vacuous scan")
+        return
+
+    each_hits = 0
+    for path in svelte_files:
+        text = path.read_text(encoding="utf-8")
+        for block in text.split("<select")[1:]:
+            select_body = block.split("</select>", 1)[0]
+            literal_hits = sum(
+                1 for lit in EXPECTED_PHASES
+                if f"'{lit}'" in select_body or f'"{lit}"' in select_body
+            )
+            has_named_loop = re.search(r"\{#each\s+SCHEDULE_PHASES\s+as\s+\w+", select_body) is not None
+            if has_named_loop:
+                each_hits += 1
+                continue
+            if literal_hits >= 2:
+                fail(
+                    f"{_rel(path)}: <select> options include {literal_hits} inline phase literal(s), "
+                    "not an {#each SCHEDULE_PHASES} loop"
+                )
+
+    if each_hits == 0:
+        fail("npc_schedule R11: zero <select> elements built from an {#each SCHEDULE_PHASES} loop located")
+
+    schedule_js = _read_text(SCHEDULE_JS_FILE)
+    if schedule_js is not None and "export const SCHEDULE_PHASES" not in schedule_js:
+        fail(f"{_rel(SCHEDULE_JS_FILE)}: SCHEDULE_PHASES is not exported")
+
+
+_R4B_ALLOWED_NAMES = {"_active_world_row", "_validate_world_phase", "_world_phase_dict"}
+_R4B_ALLOWED_ATTRS = {"add", "commit"}
+
+
+def check_bare_phase_write() -> None:
+    """R4b (BRIEF-0074-b, T-A1 condition 2 made structural): `PUT
+    /api/world/phase`'s handler body calls nothing beyond its
+    world-resolution helper, its validation helper, the session
+    `add`/`commit`, and its response builder. Only the function's own BODY
+    statements are walked — its decorator and signature defaults are not —
+    so `@router.put(...)` and `Depends(get_session)` are never mistaken for
+    a body call."""
+    tree = _parse(CREATOR_ROUTES_FILE)
+    if tree is None:
+        return
+
+    target: ast.FunctionDef | None = None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for deco in node.decorator_list:
+            if (
+                isinstance(deco, ast.Call)
+                and isinstance(deco.func, ast.Attribute)
+                and deco.func.attr == "put"
+                and deco.args
+                and isinstance(deco.args[0], ast.Constant)
+                and deco.args[0].value == "/api/world/phase"
+            ):
+                target = node
+    if target is None:
+        fail(f"{_rel(CREATOR_ROUTES_FILE)}: PUT /api/world/phase handler not found")
+        return
+
+    calls_seen = 0
+    for stmt in target.body:
+        for node in ast.walk(stmt):
+            if not isinstance(node, ast.Call):
+                continue
+            calls_seen += 1
+            func = node.func
+            if isinstance(func, ast.Name):
+                if func.id not in _R4B_ALLOWED_NAMES:
+                    fail(
+                        f"{_rel(CREATOR_ROUTES_FILE)}:{node.lineno} — set_world_phase calls "
+                        f"{func.id!r}, outside the allowlist {sorted(_R4B_ALLOWED_NAMES)!r}"
+                    )
+            elif isinstance(func, ast.Attribute):
+                if func.attr not in _R4B_ALLOWED_ATTRS:
+                    fail(
+                        f"{_rel(CREATOR_ROUTES_FILE)}:{node.lineno} — set_world_phase calls "
+                        f".{func.attr}(...), outside the allowlist {sorted(_R4B_ALLOWED_ATTRS)!r}"
+                    )
+            else:
+                fail(f"{_rel(CREATOR_ROUTES_FILE)}:{node.lineno} — set_world_phase contains an unrecognized call shape")
+    if calls_seen == 0:
+        fail(f"{_rel(CREATOR_ROUTES_FILE)}: set_world_phase's body contains zero calls — vacuous")
+
+
 def main() -> None:
     check_vocabulary()
     check_constraints()
@@ -403,11 +599,19 @@ def main() -> None:
     check_table_shape()
     check_write_site_registration()
     check_reader_shape()
+    check_read_only_panel()
+    check_mount_reachability()
+    check_single_vocabulary_source()
+    check_bare_phase_write()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         sys.exit(1)
-    print("PASS: npc_schedule — vocabulary, constraints, precedence bijection, table shape and write-site registration intact")
+    print(
+        "PASS: npc_schedule — vocabulary, constraints, precedence bijection, table shape, "
+        "write-site registration, read-only panel, mount reachability, vocabulary source and "
+        "the bare phase write are all intact"
+    )
     sys.exit(0)
 
 

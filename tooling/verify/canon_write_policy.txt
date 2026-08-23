@@ -79,6 +79,11 @@ src/world_engine/cockpit/mutations.py::_mutation_apply_new_knowledge    discover
 src/world_engine/cockpit/routes/creator.py::activate_world                world
 src/world_engine/cockpit/routes/creator.py::create_world                  world
 src/world_engine/cockpit/routes/creator.py::_activate_world_core          world
+# TICKET-0074, BRIEF-0074-b: set_world_phase is a bare write of one column
+# (world.current_phase) on the same active-world row the three sites above
+# already write — T-A1 condition 2 (no cascade) is enforced separately by
+# verify/checks/npc_schedule.py's R4b, not by this policy file.
+src/world_engine/cockpit/routes/creator.py::set_world_phase               world
 src/world_engine/cockpit/routes/creator.py::create_player_character       entity character skill
 src/world_engine/cockpit/play_stream.py::_perform_travel               character
 # TICKET-0046, BRIEF-0046-e: _create_entity_core became a pure static-vs-
