@@ -53,6 +53,7 @@ from .factions import (
 )
 from .goals_agendas import (
     NPC_GOAL_HORIZONS,
+    NPC_GOAL_KINDS,
     NPC_GOAL_PREREQUISITE_TYPES,
     _AGENDA_GOAL_CASCADE_MAP,
     detach_goal_agenda_link,

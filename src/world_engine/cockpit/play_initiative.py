@@ -411,7 +411,9 @@ _NPC_INITIATIVE_ACT_FALLBACK = (
 )
 
 
-def _initiative_candidate_data(npc_ids: list[str], player_id: str, db: Session) -> tuple[list[Relation], dict[str, str]]:
+def _initiative_candidate_data(
+    npc_ids: list[str], player_id: str, db: Session
+) -> tuple[list[Relation], dict[str, str], dict[str, str]]:
     all_rels = db.exec(
         select(Relation).where(
             ((Relation.entity_a_id.in_(npc_ids)) & (Relation.entity_b_id == player_id))
@@ -420,18 +422,35 @@ def _initiative_candidate_data(npc_ids: list[str], player_id: str, db: Session) 
     ).all()
     all_short_goals = db.exec(
         select(NpcGoal)
-        .where(NpcGoal.npc_id.in_(npc_ids), NpcGoal.horizon == "short", NpcGoal.status == "active")
+        .where(
+            NpcGoal.npc_id.in_(npc_ids), NpcGoal.horizon == "short",
+            NpcGoal.status == "active", NpcGoal.kind == "volition",
+        )
         .order_by(NpcGoal.created_at.desc())
     ).all()
     goal_by_npc: dict[str, str] = {}
     for g in all_short_goals:
         goal_by_npc.setdefault(g.npc_id, g.description)
-    return all_rels, goal_by_npc
+
+    # Standing occupation (TICKET-0073, N1) — its OWN fragment, never merged
+    # into goal_by_npc: that dict is collapsed to one string per NPC via
+    # setdefault, so admitting the occupation there would silently suppress
+    # either it or the short goal by creation date.
+    all_standing_goals = db.exec(
+        select(NpcGoal)
+        .where(NpcGoal.npc_id.in_(npc_ids), NpcGoal.status == "active", NpcGoal.kind == "standing")
+        .order_by(NpcGoal.created_at.desc())
+    ).all()
+    standing_by_npc: dict[str, str] = {}
+    for g in all_standing_goals:
+        standing_by_npc.setdefault(g.npc_id, g.description)
+
+    return all_rels, goal_by_npc, standing_by_npc
 
 
 def _initiative_signal_lines(
     members: list[tuple[GatheringMember, Entity]], non_member_ids: set[str],
-    all_rels: list[Relation], goal_by_npc: dict[str, str],
+    all_rels: list[Relation], goal_by_npc: dict[str, str], standing_by_npc: dict[str, str],
 ) -> tuple[list[str], list[str]]:
     """(group_lines, distant_lines) — non-members can only intervene by approaching (move=True)."""
     def _npc_rel(npc_id: str) -> Optional[Relation]:
@@ -450,7 +469,12 @@ def _initiative_signal_lines(
         if goal_text:
             text = goal_text if len(goal_text) <= 80 else goal_text[:80] + "…"
             goal_frag = f", objectif=« {text} »"
-        return f"- {e.name} : {signal}, statut={e.status}{goal_frag}"
+        standing_text = standing_by_npc.get(e.id)
+        standing_frag = ""
+        if standing_text:
+            text = standing_text if len(standing_text) <= 80 else standing_text[:80] + "…"
+            standing_frag = f", ici pour=« {text} »"
+        return f"- {e.name} : {signal}, statut={e.status}{goal_frag}{standing_frag}"
 
     group_lines   = [_signal_line(e) for _gm, e in members if e.id not in non_member_ids]
     distant_lines = [_signal_line(e) for _gm, e in members if e.id in non_member_ids]
@@ -529,8 +553,10 @@ def _npc_initiative_vote(
         return False, None
 
     npc_ids = [e.id for _gm, e in members]
-    all_rels, goal_by_npc = _initiative_candidate_data(npc_ids, player_id, db)
-    group_lines, distant_lines = _initiative_signal_lines(members, non_member_ids, all_rels, goal_by_npc)
+    all_rels, goal_by_npc, standing_by_npc = _initiative_candidate_data(npc_ids, player_id, db)
+    group_lines, distant_lines = _initiative_signal_lines(
+        members, non_member_ids, all_rels, goal_by_npc, standing_by_npc
+    )
 
     return _initiative_vote_call(
         template, location_name, interpreted_mode, player_line,

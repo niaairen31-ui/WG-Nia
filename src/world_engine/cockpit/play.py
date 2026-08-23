@@ -26,8 +26,6 @@ from .. import ollama_client
 from ..context import (
     assemble_mj_context,
     assemble_npc_context,
-    format_inventory_line,
-    format_item_list_for_interpretation,
 )
 from ..context_window import resolve_npc_message_list
 from ..db import engine
@@ -45,6 +43,7 @@ from ..models import (
     Session as GameSession,
 )
 from ..prompt_store import current_prompt
+from ..scene_format import format_inventory_line, format_item_list_for_interpretation
 
 
 @dataclass

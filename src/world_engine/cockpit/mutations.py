@@ -514,7 +514,9 @@ def _mutation_goal_change_close(
     (TICKET-0024, BRIEF-0024-c) before closing the goal."""
     normalized = _routes_mutations._normalize_goal_text(goal_text)
     candidates = db.exec(
-        select(NpcGoal).where(NpcGoal.npc_id == npc_id, NpcGoal.status == "active")
+        select(NpcGoal).where(
+            NpcGoal.npc_id == npc_id, NpcGoal.status == "active", NpcGoal.kind == "volition",
+        )
     ).all()
     matches = [g for g in candidates if _routes_mutations._normalize_goal_text(g.description) == normalized]
     if len(matches) != 1:

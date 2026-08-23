@@ -18,10 +18,8 @@ from sqlmodel import Session, select
 from .. import llm_parse, ollama_client
 from ..context import (
     _SAFE_SUBCULTURE_KEYS,
-    active_signposts,
     assemble_mj_context,
     assemble_npc_context,
-    format_inventory_line,
 )
 from ..db import engine
 from ..models import (
@@ -43,6 +41,7 @@ from ..models import (
 from ..prompt_registry import effective_model
 from ..prompt_store import current_prompt
 from ..resolution import resolve_physical
+from ..scene_format import active_signposts, format_inventory_line
 from .play import (
     ResponseMode,
     _PHYSICAL_BAND_OUTCOME,

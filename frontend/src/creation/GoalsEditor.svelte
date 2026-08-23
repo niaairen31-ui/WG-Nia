@@ -34,6 +34,12 @@
 
   const HORIZON_LABEL = { long: 'LONG TERME', short: 'COURT TERME' };
 
+  const CHOICE_TO_PAIR = {
+    short:    { kind: 'volition', horizon: 'short' },
+    long:     { kind: 'volition', horizon: 'long'  },
+    standing: { kind: 'standing', horizon: 'long'  },
+  };
+
   $effect(() => {
     loadGoals(entityId);
     const handler = () => loadGoals(entityId);
@@ -59,89 +65,106 @@
     attachGoalLink(entityId, goalId, agendaId);
   }
 
-  let newHorizon = $state('short');
+  let newChoice = $state('short');
   let newDescription = $state('');
 
   async function onAddGoal() {
-    await addGoal(legacyDoc, entityId, newHorizon, newDescription);
-    newHorizon = 'short';
+    const pair = CHOICE_TO_PAIR[newChoice];
+    await addGoal(legacyDoc, entityId, pair.kind, pair.horizon, newDescription);
+    newChoice = 'short';
     newDescription = '';
   }
+
+  const standingGoals = $derived(goalsPanelState.goals.filter((g) => g.kind === 'standing'));
+  const otherGoals = $derived(goalsPanelState.goals.filter((g) => g.kind !== 'standing'));
 </script>
+
+{#snippet goalRow(g)}
+  {@const closed = g.status !== 'active'}
+  {@const prereqs = g.prerequisites || []}
+  <div class="row-card" style={closed ? 'opacity:0.6;' : ''}>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+      <span>
+        <span class="badge b-other">{g.kind === 'standing' ? 'OCCUPATION' : (HORIZON_LABEL[g.horizon] || g.horizon)}</span>
+        {g.description}
+        {#each (g.links || []) as l}
+          <span class="badge b-other" style="margin-left:4px;">
+            sert : « {l.agenda_title} »
+            <button class="btn-icon" style="padding:0 4px" title="Détacher (réversible)" onclick={() => detachGoalLink(entityId, l.link_id)}>✕</button>
+          </span>
+        {/each}
+      </span>
+      <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <span class="badge {closed ? 'b-rejected' : 'b-equipped'}">{g.status}</span>
+        {#if !closed}
+          <button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick={() => setGoalStatus(legacyDoc, entityId, g.id, 'completed')}>Accompli</button>
+          <button class="btn-end" style="font-size:12px; padding:3px 8px" onclick={() => setGoalStatus(legacyDoc, entityId, g.id, 'abandoned')}>Abandonné</button>
+        {/if}
+        {#if !closed && goalsPanelState.activeAgendas.length > 0}
+          <span style="display:inline-flex; gap:4px; align-items:center; margin-left:6px;">
+            <select bind:value={attachSelection[g.id]} style="font-size:11px;">
+              <option value="">rattacher à…</option>
+              {#each goalsPanelState.activeAgendas as a (a.id)}
+                <option value={a.id}>{a.title}</option>
+              {/each}
+            </select>
+            <button class="btn-icon" title="Rattacher à l'intrigue choisie" onclick={() => onAttach(g.id)}>+</button>
+          </span>
+        {/if}
+      </span>
+    </div>
+    {#if prereqs.length || !closed}
+      <div style="margin-top:4px; font-size:11px;">
+        {#each prereqs as p, i}
+          <span class="badge b-other" style="display:inline-flex; align-items:center; gap:5px; margin:2px 4px 0 0;">
+            relation ≥ {p.threshold} avec {p.target_entity_name}
+            <button class="btn-icon" style="padding:0 2px" title="Retirer" onclick={() => removeGoalPrerequisite(legacyDoc, entityId, g.id, i)}>✕</button>
+          </span>
+        {/each}
+        {#if !closed}
+          <span style="display:inline-flex; gap:4px; align-items:center; margin-top:2px;">
+            <select bind:value={prereqTarget[g.id]} style="font-size:11px;">
+              <option value="">— prérequis : relation ≥ seuil avec —</option>
+              {#each prereqCandidates as e (e.id)}
+                <option value={e.id}>{e.name}</option>
+              {/each}
+            </select>
+            <input type="number" bind:value={prereqThreshold[g.id]} min="1" max="100" placeholder="seuil" style="width:60px; font-size:11px;">
+            <button class="btn-icon" title="Ajouter ce prérequis" onclick={() => onAddPrerequisite(g.id)}>+</button>
+          </span>
+        {/if}
+      </div>
+    {/if}
+  </div>
+{/snippet}
 
 {#if goalsPanelState.loadError}
   <div class="empty">{goalsPanelState.loadError}</div>
 {:else if goalsPanelState.goals.length === 0}
   <div class="empty">Aucun objectif.</div>
 {:else}
+  {#if standingGoals.length > 0}
+    <div class="row-table">
+      <div class="badge b-other">OCCUPATIONS</div>
+      {#each standingGoals as g (g.id)}
+        {@render goalRow(g)}
+      {/each}
+    </div>
+  {/if}
   <div class="row-table">
-    {#each goalsPanelState.goals as g (g.id)}
-      {@const closed = g.status !== 'active'}
-      {@const prereqs = g.prerequisites || []}
-      <div class="row-card" style={closed ? 'opacity:0.6;' : ''}>
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-          <span>
-            <span class="badge b-other">{HORIZON_LABEL[g.horizon] || g.horizon}</span>
-            {g.description}
-            {#each (g.links || []) as l}
-              <span class="badge b-other" style="margin-left:4px;">
-                sert : « {l.agenda_title} »
-                <button class="btn-icon" style="padding:0 4px" title="Détacher (réversible)" onclick={() => detachGoalLink(entityId, l.link_id)}>✕</button>
-              </span>
-            {/each}
-          </span>
-          <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-            <span class="badge {closed ? 'b-rejected' : 'b-equipped'}">{g.status}</span>
-            {#if !closed}
-              <button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick={() => setGoalStatus(legacyDoc, entityId, g.id, 'completed')}>Accompli</button>
-              <button class="btn-end" style="font-size:12px; padding:3px 8px" onclick={() => setGoalStatus(legacyDoc, entityId, g.id, 'abandoned')}>Abandonné</button>
-            {/if}
-            {#if !closed && goalsPanelState.activeAgendas.length > 0}
-              <span style="display:inline-flex; gap:4px; align-items:center; margin-left:6px;">
-                <select bind:value={attachSelection[g.id]} style="font-size:11px;">
-                  <option value="">rattacher à…</option>
-                  {#each goalsPanelState.activeAgendas as a (a.id)}
-                    <option value={a.id}>{a.title}</option>
-                  {/each}
-                </select>
-                <button class="btn-icon" title="Rattacher à l'intrigue choisie" onclick={() => onAttach(g.id)}>+</button>
-              </span>
-            {/if}
-          </span>
-        </div>
-        {#if prereqs.length || !closed}
-          <div style="margin-top:4px; font-size:11px;">
-            {#each prereqs as p, i}
-              <span class="badge b-other" style="display:inline-flex; align-items:center; gap:5px; margin:2px 4px 0 0;">
-                relation ≥ {p.threshold} avec {p.target_entity_name}
-                <button class="btn-icon" style="padding:0 2px" title="Retirer" onclick={() => removeGoalPrerequisite(legacyDoc, entityId, g.id, i)}>✕</button>
-              </span>
-            {/each}
-            {#if !closed}
-              <span style="display:inline-flex; gap:4px; align-items:center; margin-top:2px;">
-                <select bind:value={prereqTarget[g.id]} style="font-size:11px;">
-                  <option value="">— prérequis : relation ≥ seuil avec —</option>
-                  {#each prereqCandidates as e (e.id)}
-                    <option value={e.id}>{e.name}</option>
-                  {/each}
-                </select>
-                <input type="number" bind:value={prereqThreshold[g.id]} min="1" max="100" placeholder="seuil" style="width:60px; font-size:11px;">
-                <button class="btn-icon" title="Ajouter ce prérequis" onclick={() => onAddPrerequisite(g.id)}>+</button>
-              </span>
-            {/if}
-          </div>
-        {/if}
-      </div>
+    {#each otherGoals as g (g.id)}
+      {@render goalRow(g)}
     {/each}
   </div>
 {/if}
 
 <div class="row-card">
   <div class="field-grid">
-    <div class="field-row"><label>Horizon *</label>
-      <select bind:value={newHorizon}>
-        <option value="short">short</option>
-        <option value="long">long</option>
+    <div class="field-row"><label>Type *</label>
+      <select bind:value={newChoice}>
+        <option value="short">COURT TERME</option>
+        <option value="long">LONG TERME</option>
+        <option value="standing">OCCUPATION</option>
       </select></div>
     <div class="field-row span-2"><label>Description *</label><textarea bind:value={newDescription}></textarea></div>
   </div>

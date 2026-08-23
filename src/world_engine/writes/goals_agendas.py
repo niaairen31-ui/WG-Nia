@@ -48,6 +48,11 @@ from ..models import Agenda, AgendaStep, Entity, GoalAgendaLink, GoalPrerequisit
 # npc_goal.horizon enum (world-engine-schema.md v1.69): short | long.
 NPC_GOAL_HORIZONS = frozenset({"short", "long"})
 
+# npc_goal.kind enum (world-engine-schema.md v1.91, TICKET-0073, G2):
+# volition | standing. See models/canon.py's npc_goal header for the
+# semantics of each.
+NPC_GOAL_KINDS = frozenset({"volition", "standing"})
+
 # npc_goal.prerequisites[].type enum (schema v1.74, TICKET-0024, G1). v1 is a
 # single type; expand only at a second concrete case.
 NPC_GOAL_PREREQUISITE_TYPES = frozenset({"relation_gte"})
@@ -135,6 +140,7 @@ def write_npc_goal(
     npc_id: str,
     description: str,
     horizon: str,
+    kind: str = "volition",
     changed_by: str = "creator",
 ) -> NpcGoal:
     """Insert an `active` `npc_goal` row. Caller adds the row to the session.
@@ -145,15 +151,25 @@ def write_npc_goal(
     `write_knowledge`'s idiom; `changed_by` is accepted for call-site
     symmetry with `write_npc_goal_status` but has nothing to attribute on a
     fresh row.
+
+    `kind` (TICKET-0073, G2) defaults to `volition`, preserving every
+    pre-v1.91 call site. `kind='standing'` requires `horizon='long'` —
+    validated here BEFORE the insert, duplicating the CHECK on purpose so
+    the failure is a readable ValueError, not an IntegrityError.
     """
     if horizon not in NPC_GOAL_HORIZONS:
         raise ValueError(f"write_npc_goal: invalid horizon {horizon!r}")
+    if kind not in NPC_GOAL_KINDS:
+        raise ValueError(f"write_npc_goal: invalid kind {kind!r}")
+    if kind == "standing" and horizon != "long":
+        raise ValueError("write_npc_goal: kind='standing' requires horizon='long'")
 
     goal = NpcGoal(
         world_id=world_id,
         npc_id=npc_id,
         description=description,
         horizon=horizon,
+        kind=kind,
         status="active",
         change_history=[],
     )

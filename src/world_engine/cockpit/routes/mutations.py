@@ -43,12 +43,14 @@ from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt
 from ...context import (
     _SAFE_SUBCULTURE_KEYS,
-    active_signposts,
     assemble_mj_context,
     assemble_npc_context,
+    format_mj_context,
+)
+from ...scene_format import (
+    active_signposts,
     format_inventory_line,
     format_item_list_for_interpretation,
-    format_mj_context,
 )
 from ...db import engine, get_session
 from ...observation_writes import OBSERVED_PROPOSED_BY

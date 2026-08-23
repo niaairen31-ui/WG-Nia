@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.90
+Current schema version: v1.91
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -652,9 +652,10 @@ CREATE TABLE knowledge (
 
 ### `npc_goal`
 
-NPC interiority — in-scene volition (schema v1.69, TICKET-0013/BRIEF-0013-a).
-Read ONLY by `assemble_npc_context` (the `TES OBJECTIFS` section) and, later,
-the initiative vote — `assemble_mj_context` never reads this table
+NPC volition (schema v1.69, TICKET-0013/BRIEF-0013-a; `kind` added v1.91,
+TICKET-0073). Read ONLY by `assemble_npc_context` (the `TES OBJECTIFS` and
+`POURQUOI TU ES ICI` sections), the tick briefing, the initiative vote and
+`_mutation_goal_change_close` — `assemble_mj_context` never reads this table
 (structural exclusion, N1).
 
 ```sql
@@ -664,12 +665,16 @@ CREATE TABLE npc_goal (
   npc_id          TEXT NOT NULL REFERENCES entity(id),
   description     TEXT NOT NULL,   -- immutable after insert (see NOTE below)
   horizon         TEXT NOT NULL CHECK (horizon IN ('short','long')),
+  kind            TEXT NOT NULL DEFAULT 'volition'
+                    CHECK (kind IN ('volition','standing')),
+                    -- volition | standing (TICKET-0073, G2) — see NOTE below
   status          TEXT NOT NULL DEFAULT 'active'
                     CHECK (status IN ('active','completed','abandoned')),
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   change_history  JSON DEFAULT '[]'  -- archived previous states, mirror of
                     --                  knowledge.change_history
+  -- CHECK (kind <> 'standing' OR horizon = 'long')  -- ck_npc_goal_standing_horizon
 );
 CREATE INDEX idx_npc_goal_npc_status ON npc_goal(npc_id, status);
 ```
@@ -677,6 +682,16 @@ CREATE INDEX idx_npc_goal_npc_status ON npc_goal(npc_id, status);
 --       goal plus a new row. Status transitions are one-way, active ->
 --       closed only (completed | abandoned) — a closed goal is never
 --       reopened; a revived goal is a new row.
+-- NOTE (v1.91, TICKET-0073, G2): `kind='volition'` is in-scene volition —
+--       everything this table held before v1.91. `kind='standing'` is
+--       background volition (an occupation, a trade, a pastime): no
+--       terminal state, never closed by play, creator-CRUD authored only,
+--       and implies `horizon='long'` (ck_npc_goal_standing_horizon). Every
+--       in-scene reader filters on `kind` explicitly; the CHECK is defence
+--       in depth. Standing rows render in their own section
+--       (`POURQUOI TU ES ICI`), framed as a reason for presence rather than
+--       a current action (M1), and add an `ici pour=` fragment to the
+--       initiative signal line — never merged with a volition goal.
 
 -----
 
