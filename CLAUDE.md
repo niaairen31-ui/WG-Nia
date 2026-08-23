@@ -195,7 +195,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   post-selection `{detail_content}` injection in `_stream()` on a
   partial/success perception search (`domain="perception"`,
   `opposed_npc_id=None`). `ambient` content is read only via the pure code
-  predicate `active_signposts` (context.py), passed directly into the MJ
+  predicate `active_signposts` (scene_format.py), passed directly into the MJ
   establishment call. A `location_subculture` row with `key = "hidden"`
   is a TRAP — never add `"hidden"` to `_SAFE_SUBCULTURE_KEYS`, and every
   reader filters `is_hidden = FALSE` at query construction; discoverable

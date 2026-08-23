@@ -25,8 +25,9 @@ from ...gathering import enter_location as _enter_location
 from ...analyzer import analyze_window as _analyze_window
 from ...prompt_registry import effective_model
 from ...prompt_store import current_prompt
-from ...context import assemble_mj_context, format_item_list_for_interpretation
+from ...context import assemble_mj_context
 from ...db import get_session
+from ...scene_format import format_item_list_for_interpretation
 from ...models import Character, Conversation, Entity, Gathering, GatheringMember, Visit
 from .. import crud as _crud
 from ..play import (

@@ -25,8 +25,14 @@ subprocess.
 rather than inferred): the four Play modules --
 `src/world_engine/cockpit/{play,play_stream,play_physical,play_initiative}.py`
 -- plus every module they hand a session to --
-`src/world_engine/{context,context_window,analyzer,gathering,prompt_store}.py`.
-A named module missing from disk is a FAILURE.
+`src/world_engine/{context,context_window,analyzer,gathering,prompt_store,scene_format}.py`.
+A named module missing from disk is a FAILURE. `scene_format` joined the set
+in TICKET-0073/BRIEF-0073-a, a verbatim relocation of three read-only
+formatters (`active_signposts`, `format_inventory_line`,
+`format_item_list_for_interpretation`) out of `context.py` -- same
+relocation-not-broadening precedent as `models.py` -> `models/` and
+`play_stream.py` -> `play_initiative.py`; the moved code has zero writers,
+so the set grows by exactly the new module, nothing else.
 
 **WRITERS** -- every function defined anywhere in the declared set whose
 body calls `.add(`, `.delete(`, `.merge(`, `.commit(` or `.flush(` on a
@@ -113,6 +119,7 @@ DECLARED_MODULES: tuple[tuple[str, Path], ...] = (
     ("analyzer", SRC / "world_engine" / "analyzer.py"),
     ("gathering", SRC / "world_engine" / "gathering.py"),
     ("prompt_store", SRC / "world_engine" / "prompt_store.py"),
+    ("scene_format", SRC / "world_engine" / "scene_format.py"),
 )
 DECLARED_NAMES = {name for name, _ in DECLARED_MODULES}
 PLAY_MODULES = ("play", "play_stream", "play_physical", "play_initiative")
