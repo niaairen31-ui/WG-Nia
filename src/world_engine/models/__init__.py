@@ -75,6 +75,7 @@ from .canon_faction import (
     FactionRole,
 )
 from .config import ConversationWindowConfig
+from .schedule import SCHEDULE_PHASES, NpcSchedule
 from .ephemeral import (
     Conversation,
     ConversationMessage,
@@ -158,6 +159,8 @@ __all__ = [
     "EntityTrait",
     "BASE_SKILL_DOMAINS",
     "ConversationWindowConfig",
+    "SCHEDULE_PHASES",
+    "NpcSchedule",
     "ObservationRun",
     "ObservationRunTemplate",
     "ObservationBeat",

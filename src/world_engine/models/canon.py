@@ -70,6 +70,7 @@ class World(SQLModel, table=True):
             "idx_world_one_active", "is_active",
             unique=True, sqlite_where=text("is_active = 1"),
         ),
+        CheckConstraint("current_phase IN ('matin','apres-midi','soir','nuit')", name="ck_world_current_phase"),
     )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
@@ -82,6 +83,12 @@ class World(SQLModel, table=True):
     is_active: bool = Field(
         default=False, sa_column_kwargs={"server_default": text("0")}
     )
+    # Creator-set current day-cycle phase (T-A1, TICKET-0074). Per-WORLD by
+    # construction: two worlds are two rows. Advancing it writes this column
+    # and nothing else -- no tick, no cascade. The literal list is kept equal
+    # to `models.schedule.SCHEDULE_PHASES` by verify/checks/npc_schedule.py
+    # (imported here would be an import cycle: schedule.py imports from canon).
+    current_phase: str = Field(default="matin", sa_column_kwargs={"server_default": text("'matin'")})
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
 

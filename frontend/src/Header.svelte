@@ -1,8 +1,10 @@
 <script>
+  import { onMount } from 'svelte';
   import { serverState, refreshServerState } from './lib/serverState.svelte.js';
   import { activateWorldCascade } from './creation/tabs.js';
   import { openWorldCreateModal, openWorldDeleteModal } from './creation/worldCrud.svelte.js';
   import { navigate } from './lib/router.js';
+  import { SCHEDULE_PHASES, PHASE_LABELS } from './creation/schedule.js';
 
   // TICKET-0056 (BRIEF-0056-c): the router is the single source of truth for
   // the active surface; App.svelte derives it from onRoute and passes it
@@ -23,7 +25,42 @@
        world-scoped resets, replacing the legacy activateWorld() this used
        to delegate to via the bridge. */
     await activateWorldCascade(id, refreshServerState);
+    await loadWorldPhase();
   }
+
+  // TICKET-0074 (BRIEF-0074-b), T-A1 condition 1: the current phase, shown
+  // here as persistent text -- never behind a click, never a tooltip -- so
+  // a forgotten phase is VISIBLE rather than mute. Header.svelte is always
+  // mounted, outside every surface's own gated container (App.svelte), so
+  // this is the ONE place a control reaches every surface at once.
+  let worldPhase = $state({ current_phase: '', phases: [] });
+
+  async function loadWorldPhase() {
+    try {
+      const res = await fetch('/api/world/phase');
+      if (!res.ok) return;
+      worldPhase = await res.json();
+    } catch (_err) {
+      // best-effort chrome display -- a failed fetch just leaves the
+      // control blank rather than raising a shell-wide error banner.
+    }
+  }
+
+  async function onPhaseChange(event) {
+    const next = event.target.value;
+    try {
+      const res = await fetch('/api/world/phase', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current_phase: next }),
+      });
+      if (res.ok) worldPhase = await res.json();
+    } catch (_err) {
+      // leave the previously displayed phase on failure
+    }
+  }
+
+  onMount(() => { loadWorldPhase(); });
 </script>
 
 {#if serverState.error}
@@ -49,6 +86,12 @@
   {/if}
   <button class="btn-icon" onclick={openWorldCreateModal} title="Créer un nouveau monde">+ Monde</button>
   <button class="btn-icon" onclick={openWorldDeleteModal} title="Supprimer le monde sélectionné">🗑 Monde</button>
+  <span class="phase-indicator">Phase : <strong>{PHASE_LABELS[worldPhase.current_phase] || '—'}</strong></span>
+  <select id="world-phase-selector" onchange={onPhaseChange} title="Avancer la phase du monde actif" disabled={!worldPhase.phases?.length}>
+    {#each SCHEDULE_PHASES as phase (phase)}
+      <option value={phase} selected={phase === worldPhase.current_phase}>{PHASE_LABELS[phase]}</option>
+    {/each}
+  </select>
   <span class="local-badge">127.0.0.1 · local only</span>
 </header>
 
@@ -88,6 +131,8 @@
     cursor: pointer;
   }
   .local-badge { font-size: 11px; color: #888; border: 1px solid #333; border-radius: 4px; padding: 2px 6px; }
+  .phase-indicator { font-size: 12px; color: #ccc; }
+  .phase-indicator strong { color: #6ab0ff; }
   .refusal-band {
     background: #4a1d1d;
     color: #ffb3b3;

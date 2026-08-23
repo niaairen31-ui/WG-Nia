@@ -4,6 +4,7 @@ knowledge ledger item skill skill_definition discoverable_detail
 event artifact npc_goal agenda agenda_step goal_agenda_link
 npc_price location_subculture world_law obstacle obstacle_vertex door
 location_type_catalog entity_type entity_type_history conversation_window_config
+npc_schedule
 
 [ALLOWED_SITES]
 # path::function                                              tables
@@ -35,6 +36,8 @@ src/world_engine/writes/config.py::write_location_doors        door
 src/world_engine/writes/config.py::upsert_location_type        location_type_catalog
 # TICKET-0050, BRIEF-0050-a: upsert_conversation_window_config is the 28th site — creator-tunable NPC dialogue context window, curated-config family (upsert-one, upsert_location_type precedent).
 src/world_engine/writes/config.py::upsert_conversation_window_config conversation_window_config
+# TICKET-0074, BRIEF-0074-a: write_npc_schedule is the 29th site — standing per-phase location default, curated-config family (write_location_doors precedent).
+src/world_engine/writes/config.py::write_npc_schedule          npc_schedule
 # TICKET-0044, BRIEF-0044-c: create_entity_type is the 26th site — the governed
 # structural-write authority (D2), a NEW sanctioned site distinct from the two
 # canon-write paths (AI-proposal pipeline, creator CRUD). Its `CREATE TABLE
@@ -76,6 +79,11 @@ src/world_engine/cockpit/mutations.py::_mutation_apply_new_knowledge    discover
 src/world_engine/cockpit/routes/creator.py::activate_world                world
 src/world_engine/cockpit/routes/creator.py::create_world                  world
 src/world_engine/cockpit/routes/creator.py::_activate_world_core          world
+# TICKET-0074, BRIEF-0074-b: set_world_phase is a bare write of one column
+# (world.current_phase) on the same active-world row the three sites above
+# already write — T-A1 condition 2 (no cascade) is enforced separately by
+# verify/checks/npc_schedule.py's R4b, not by this policy file.
+src/world_engine/cockpit/routes/creator.py::set_world_phase               world
 src/world_engine/cockpit/routes/creator.py::create_player_character       entity character skill
 src/world_engine/cockpit/play_stream.py::_perform_travel               character
 # TICKET-0046, BRIEF-0046-e: _create_entity_core became a pure static-vs-

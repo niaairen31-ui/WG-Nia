@@ -34,6 +34,11 @@ none of these three functions were baselined.
   creator-tunable NPC dialogue context window). Same curated-config
   discipline as `upsert_location_type`: no `change_history`, fetch-or-create,
   partial update (only non-None fields applied).
+- `write_npc_schedule(...)`              : full-replace `npc_schedule` rows
+  (TICKET-0074, BRIEF-0074-a — standing per-phase location default). Same
+  curated-config discipline as `write_location_doors`: no `change_history`,
+  delete-then-insert inside the caller's transaction. Sparse by decision
+  (B1): an empty `rows` list is legal.
 """
 
 from __future__ import annotations
@@ -53,9 +58,11 @@ from ..models import (
     LocationSubculture,
     LocationTypeCatalog,
     NpcPrice,
+    NpcSchedule,
     Obstacle,
     ObstacleVertex,
     Relation,
+    SCHEDULE_PHASES,
     World,
     WorldLaw,
 )
@@ -450,3 +457,83 @@ def upsert_conversation_window_config(
     )
     db.add(new_row)
     return new_row
+
+
+def write_npc_schedule(
+    db: Session,
+    *,
+    world_id: str,
+    npc_id: str,
+    rows: list[dict],
+    changed_by: str,
+) -> list[NpcSchedule]:
+    """Full-replace `npc_schedule` rows for one NPC. Caller adds the
+    returned rows to the session and commits.
+
+    Each item is `{"phase": str, "location_id": str, "standing_goal_id":
+    str | None}` — validated all-or-nothing before any write: `phase` in
+    `SCHEDULE_PHASES`, no duplicate phase within one payload (defense in
+    depth — `idx_npc_schedule_npc_phase` is the structural guard),
+    `location_id` resolves to an ACTIVE location of the same world, and
+    `standing_goal_id`, when present, resolves to an `npc_goal` row
+    belonging to `npc_id` with `kind == "standing"`.
+
+    An empty `rows` list is legal and means "this NPC has no schedule" —
+    the delete runs, nothing is inserted (B1, sparse table).
+    """
+    clean: list[tuple[str, str, Optional[str]]] = []
+    seen_phases: set[str] = set()
+    for item in rows:
+        phase = str(item.get("phase") or "").strip()
+        location_id = str(item.get("location_id") or "").strip()
+        standing_goal_id = item.get("standing_goal_id") or None
+
+        if phase not in SCHEDULE_PHASES:
+            raise ValueError(f"write_npc_schedule: invalid phase {phase!r}")
+        if phase in seen_phases:
+            raise ValueError(f"write_npc_schedule: duplicate phase {phase!r}")
+        seen_phases.add(phase)
+
+        location = db.get(Entity, location_id)
+        if (
+            location is None
+            or location.type != "location"
+            or location.status != "active"
+            or location.world_id != world_id
+        ):
+            raise ValueError(
+                f"write_npc_schedule: location_id {location_id!r} is not an active "
+                "location of this world"
+            )
+
+        if standing_goal_id is not None:
+            # Raw SQL, not the NpcGoal ORM class: N1 (npc_goal_read.py) scopes
+            # ORM/content access to context-assembly modules; a write-time FK
+            # + business-rule probe is a different kind of access, same as
+            # this function's own DELETE below.
+            goal_row = db.execute(
+                text("SELECT npc_id, kind FROM npc_goal WHERE id = :id"),
+                {"id": standing_goal_id},
+            ).first()
+            if goal_row is None or goal_row.npc_id != npc_id or goal_row.kind != "standing":
+                raise ValueError(
+                    f"write_npc_schedule: standing_goal_id {standing_goal_id!r} is not a "
+                    f"'standing' npc_goal belonging to {npc_id!r}"
+                )
+
+        clean.append((phase, location_id, standing_goal_id))
+
+    db.execute(text("DELETE FROM npc_schedule WHERE npc_id = :npc_id"), {"npc_id": npc_id})
+
+    new_rows: list[NpcSchedule] = []
+    for phase, location_id, standing_goal_id in clean:
+        row = NpcSchedule(
+            world_id=world_id,
+            npc_id=npc_id,
+            phase=phase,
+            location_id=location_id,
+            standing_goal_id=standing_goal_id,
+        )
+        db.add(row)
+        new_rows.append(row)
+    return new_rows

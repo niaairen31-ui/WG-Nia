@@ -12639,6 +12639,179 @@ named mapping constant (the coupling would live in ad hoc conditional
 logic, invisible to a structural check and silently bypassed by any second
 caller of the same route).
 
+## NPC SCHEDULES — background versus foreground, two-branch precedence, the world's phase (BRIEF-0074-a, BRIEF-0074-b, BRIEF-0074-c, schema v1.92)
+
+**J1 — a schedule is background, an agenda is foreground; one accessor.**
+TICKET-0073 gave an NPC a standing occupation (a reason to be somewhere) but
+nothing said WHERE that somewhere is, or WHEN. `npc_schedule` is the
+positional expression of that background disposition: `npc_id`, `phase`,
+`location_id`, a nullable `standing_goal_id` back-pointer to the `npc_goal`
+row it explains. It is read through exactly one accessor, `schedule_reads.
+where_is`, on the earshot precedent (one code path, not a scatter of ad hoc
+lookups). Rejected: J2, a schedule as a recurring agenda (an agenda has a
+terminal status and at most one active step; a routine has neither — forcing
+the shape would mean an agenda that never terminates, which the agenda
+machinery elsewhere assumes cannot happen); J3, last-known position only
+(`character.current_location_id` alone) — a fact about right now that says
+nothing about a phase three days out, the exact gap this table exists to
+close.
+
+**C1 — time-relative precedence, two branches, one accessor.** A present
+phase resolves a set of FACTS (a roster, a stored location); a future phase
+resolves a set of PREDICTIONS, where `current_location_id` is only a last
+known position and must never beat the schedule. `PRESENT_PRECEDENCE` =
+gathering > current_location > schedule > unknown; `FUTURE_PRECEDENCE` =
+schedule > last_known > unknown. Both are module-level tuples in
+`schedule_reads.py`, dispatched through a name-keyed `_SOURCE_LOOKUPS` table
+that `where_is` iterates performing no lookup of its own —
+`verify/checks/npc_schedule.py` asserts the bijection between tuple names
+and lookup keys, and that `where_is`'s body contains no `select(` call.
+Rejected: C2, a single total order (would let a stale `current_location_id`
+beat the schedule for a phase three days out — the exact failure this table
+exists to fix); C3, schedule-always-wins with overlays at call sites
+(violates J1: a background default cannot outrank a live fact like gathering
+membership without inverting which one is background).
+
+C1 originally named a third term, `agenda_step`, in both branches. Execution
+of BRIEF-0074-a's mini-RECON (item 13) found no location column reachable
+from `AgendaStep`, `Agenda`, or `NpcGoal` — STOP fired correctly, and Nia's
+resolution (AMENDMENT-1) removed the term BY DESIGN rather than deferring
+it: an agenda states an OBJECTIVE, never a place, and giving it one would
+create a second positional authority competing with `npc_schedule`. An
+agenda's positional consequence already reaches `where_is` some other way —
+the tick moves the NPC via `write_character_location`, and the present
+branch's `current_location` term reads that fact one rank above the
+schedule. There is no reactivation condition: a future predictive term
+comes from whatever the day-resolution chain emits, as a new named term,
+never resurrected from an agenda. See
+`tooling/briefs/BRIEF-0074-a-amendment-1-no-agenda-term.md` for the full
+correction.
+
+**T-A1 — the world's phase is a bare creator-set column, with two riders.**
+Nothing in the tree named a current phase (`current_phase` grep returned
+zero hits pre-ticket) and `World` carried no temporal state, yet C1's
+present/future split and the coming L1 concordance both need one. The fix,
+`world.current_phase` (four-value CHECK, default `'matin'`), rides with two
+non-optional conditions: (1) a forgotten phase mis-renders L1 *silently*,
+which the doctrine refuses as a disciplinary safeguard — the compensating
+control is the phase displayed permanently in cockpit chrome (BRIEF-0074-b),
+so "forgotten" is visible rather than mute; without that display, deferring
+L1 entirely would have been the correct call instead. (2) Advancing the
+phase moves nothing else — a bare state write, no tick, no cascade, no
+recomputation; the day-resolution chain stays Scope OUT of this ticket.
+Per-world by construction: two worlds are two `world` rows, so two
+independent phases, with no rule anyone has to remember. Rejected: T-A2,
+derive from wall-clock time (couples fiction to real time; the engine is
+turn-based); T-A3, phase on `conversation` (cannot be the only source — the
+Creation-side `who_is_at` panel has no conversation; kept non-foreclosed: a
+`conversation.phase_snapshot` stays a possible additive migration later);
+T-A4, defer L1 entirely (the real contender, retained as the fallback if
+condition 1 above is ever dropped).
+
+**S-I1 — no `change_history` on `npc_schedule`.** A schedule row is a
+standing DEFAULT, not a narrative event — the same curated-config family as
+`location_type_catalog`/`world_law` (`write_location_doors` precedent: full-
+replace per NPC, delete-then-insert in the caller's transaction). "History
+is sacred" protects narrative artifacts; a model-authored `schedule_change`
+mutation, when it exists, is what would need its own trail — deferred with
+auto-approve (S-F) to a separate ticket that needs a real proposer.
+
+**T-C1 — the NPC sheet authors, the location sheet reads.** `ScheduleEditor.
+svelte` (mounted on the NPC sheet, after Objectifs — an occupation is the
+reason, a schedule is the where, so they read in that order) authors all
+four phases of one NPC's day at once, full-replace through
+`PUT /api/entities/{id}/schedule` -> `write_npc_schedule`, matching E1's
+per-NPC write shape and matching how a creator actually thinks: one authors
+a character's day, not a location's footfall. `SchedulePanel.svelte`
+(mounted on the location sheet) is the read-only mirror. The two surfaces
+never overlap: authoring a schedule and verifying its footprint are
+deliberately different screens, on the `GoalsEditor`/`goalsPanel.svelte.js`
+split (component owns markup, `schedulePanel.svelte.js` owns state and
+requests through `sheetRequest.svelte.js`) — neither component receives
+schedule rows as a prop from `Sheet.svelte`'s own `detail` (confirmed
+absent from `crud/entities.py::get_entity`'s response), so both load their
+own data, the same shape `GoalsEditor` already uses. Rejected: T-C2, author
+from the location sheet (each edit would touch one cell of one NPC's day,
+fighting the full-replace write shape); T-C3, ship the read panel and CLI
+only, defer authoring (leaves Nia unable to create a schedule except by
+hand, breaking the live-gate loop this brief exists to unblock).
+
+**F1 as B1's compensating control, structurally enforced.** B1 made
+`npc_schedule` sparse by decision and refused a coverage check (inventing
+canon by rule). `SchedulePanel.svelte`'s four phase groups (via
+`GET /api/locations/{id}/schedule`, which calls `who_is_at`/
+`unresolved_npcs` per phase with a server-computed `is_present` — the one
+phase matching `world.current_phase` resolves through
+`PRESENT_PRECEDENCE`, the other three through `FUTURE_PRECEDENCE`) render
+visibly empty rather than omitted, and the panel's own `unresolved` block
+names every NPC that resolves nowhere. This is a REPORT, not a gate: no
+required-field validation, no save-blocking badge. The panel's read-only
+posture is not a docstring promise — `verify/checks/npc_schedule.py`'s R9
+asserts no POST/PUT/PATCH/DELETE method literal appears in
+`SchedulePanel.svelte`'s own source, on the same "structural, never
+disciplinary" doctrine as the rest of this ticket.
+
+**T-A1 condition 1, closing the loop.** The phase control lives in
+`Header.svelte`, not inside the Creation tab — `Header.svelte` is mounted
+unconditionally by `App.svelte`, outside every surface's own gated
+container, so it is the one component visible from Play, Création and
+Observation alike. The current phase renders as persistent text next to a
+`<select>` that calls `PUT /api/world/phase`; R4b (`verify/checks/
+npc_schedule.py`) asserts that handler's body calls nothing beyond its
+world-resolution helper, its validation helper, `db.add`/`db.commit`, and
+its response builder — condition 2 (advancing the phase moves nothing
+else) made structural rather than documented, the same shape R9 gives
+condition 1's read-only panel.
+
+**L1 — the occupation is earned by concordance, not shown unconditionally.**
+TICKET-0073 shipped `POURQUOI TU ES ICI` unconditionally: any NPC carrying a
+`kind='standing'` goal rendered its occupation in every scene, everywhere —
+an innkeeper met in a forest at midnight still explained itself as an
+innkeeper on duty, collapsing J1's background/foreground distinction. L1
+gates the render on a new `_standing_is_concordant(npc_id, location_id,
+session)`: the active world's `current_phase` feeds `where_is(npc_id,
+current_phase, session, is_present=True)`, and the section renders only if
+that resolution's `location_id` equals the scene's own `location_id`.
+Deliberately NOT `resolution.source == "schedule"` (rejected L3): in a live
+scene with the player the NPC is in a gathering, so the present branch
+resolves via `gathering` every time and that test would never fire. It is
+the LOCATION that must agree, not the winning term — a schedule-driven
+gate would be structurally correct but never demonstrable in the one
+context (a live conversation) `_npc_context_standing` runs in.
+`_npc_context_standing` gained `location_id` as a parameter, drawn from
+`assemble_npc_context`'s own — no new parameter on `assemble_npc_context`
+or any of its seven callers. `verify/checks/npc_schedule.py`'s R12 proves
+the test is REACHED, not merely defined: `_standing_is_concordant` exists
+and references `where_is`; `_npc_context_standing` calls it;
+`assemble_npc_context` calls `_npc_context_standing` with >= 3 positional
+arguments; `_npc_context_standing` keeps exactly one call site in `src/`.
+
+Because C1's present branch ranks `gathering` and `current_location` above
+`schedule`, and a live scene's NPC is normally a member of an open
+gathering at that same location, the schedule term is usually never
+reached during ordinary play — concordance holds via `gathering` instead,
+and only fails when the scene's `location_id` genuinely disagrees with
+where the NPC currently, factually, is. The schedule term decides
+concordance only for an NPC with neither an open gathering nor a
+`current_location_id` matching the scene — e.g. a freshly authored NPC, or
+one reached outside a live gathering. This is C1 holding as designed, not
+an L1 gap: advancing `world.current_phase` alone, with nothing else moved,
+will not hide the section for an NPC the player is presently gathered
+with, precisely because condition 2 (advancing the phase moves nothing
+else) forbids the gathering itself from following the clock.
+
+**An unscheduled NPC loses the section TICKET-0073 gave it unconditionally
+— intended, not a regression.** An NPC with a standing goal and NO
+`npc_schedule` row for the current phase resolves to `source="unknown"`,
+`location_id=None` (T-D2's terminal), which never equals a real scene
+location, so `_standing_is_concordant` returns `False` and the section is
+withheld. Every NPC without an authored schedule is in this state until one
+is written (B1 leaves the table sparse), so this reads as correct behaviour
+on every pre-existing NPC rather than a bug — recorded here because it is
+the criterion most likely to surprise on first live-gate pass. The
+initiative vote's standing fragment (TICKET-0073, N1) is untouched by this
+gate: L1 withholds the dialogue section only.
+
 ---
 
 *Co-built with Claude, June 2026.*

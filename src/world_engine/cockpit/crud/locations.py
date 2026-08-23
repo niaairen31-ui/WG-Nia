@@ -46,12 +46,14 @@ from ...models import (
     PromptVariable,
     ProposedMutation,
     Relation,
+    SCHEDULE_PHASES,
     Skill,
     SkillDefinition,
     World,
 )
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
+from ...schedule_reads import unresolved_npcs, where_is, who_is_at
 from ...tick_normalize import _EVENT_TYPES
 from ...writes import (
     KNOWLEDGE_LEVELS,
@@ -331,3 +333,40 @@ def create_or_classify_location_type(
     db.commit()
     db.refresh(row)
     return _location_type_dict(row)
+
+
+def _schedule_npc_brief(npc_id: str, db: DbSession) -> dict:
+    entity = db.get(Entity, npc_id)
+    return {"npc_id": npc_id, "name": entity.name if entity else npc_id}
+
+
+@router.get("/locations/{location_id}/schedule")
+def get_location_schedule(location_id: str, db: DbSession = Depends(get_session)) -> dict:
+    """F1 — "qui est ici, par phase" (T-C1's read-only counterpart), the
+    compensating control for B1: with no coverage check on `npc_schedule`,
+    an empty phase must be visible to the author before a player walks into
+    one. Four phase groups, always. `is_present` is computed here by
+    comparing the phase to the active world's `current_phase` — the one
+    phase equal to `current_phase` resolves through `where_is`'s
+    PRESENT_PRECEDENCE, the other three through FUTURE_PRECEDENCE.
+    `unresolved`, per phase, is B1's own signal: the NPCs that resolve
+    nowhere for that phase."""
+    _get_entity(db, location_id)
+    world = db.get(World, _world_id(db))
+    current_phase = world.current_phase
+
+    phases = []
+    for phase in SCHEDULE_PHASES:
+        is_present = phase == current_phase
+        npcs = []
+        for npc_id in who_is_at(location_id, phase, db, is_present=is_present):
+            entity = db.get(Entity, npc_id)
+            resolution = where_is(npc_id, phase, db, is_present=is_present)
+            npcs.append({"npc_id": npc_id, "name": entity.name if entity else npc_id, "source": resolution.source})
+        unresolved = [
+            _schedule_npc_brief(npc_id, db)
+            for npc_id in unresolved_npcs(phase, db, is_present=is_present)
+        ]
+        phases.append({"phase": phase, "is_present": is_present, "npcs": npcs, "unresolved": unresolved})
+
+    return {"location_id": location_id, "current_phase": current_phase, "phases": phases}

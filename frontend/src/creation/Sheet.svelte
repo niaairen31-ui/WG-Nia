@@ -95,6 +95,8 @@
   import KnowledgeEditor from './KnowledgeEditor.svelte';
   import GoalsEditor from './GoalsEditor.svelte';
   import { backfillGoals } from './goalsPanel.svelte.js';
+  import ScheduleEditor from './ScheduleEditor.svelte';
+  import SchedulePanel from './SchedulePanel.svelte';
   import DiscDetailsEditor from './DiscDetailsEditor.svelte';
   import { resetCreateDrafts, getPendingCreationMutationId, consumePendingCreationMutationId, setPendingCreationMutationId, notifySaved, selectEntity, deleteEntity } from './sheetState.svelte.js';
 
@@ -677,6 +679,9 @@
               {legacyDoc} onSaved={(d) => flushSync(() => enterViewMode(d, d.type))} />
           </div>
         </div>
+        <div class="field-section"><div class="field-section-title">Qui est ici, par phase</div>
+          <SchedulePanel entityId={detail.id} />
+        </div>
       {/if}
 
       {#if !isNew}
@@ -737,6 +742,12 @@
             <button class="btn-ghost" style="font-size:12px; padding:3px 8px" onclick={() => backfillGoals(legacyDoc, detail.id)}>Générer les buts</button>
           </div>
           <GoalsEditor entityId={detail.id} {legacyDoc} />
+        </div>
+      {/if}
+
+      {#if !isNew && type === 'character' && tabKey === 'npc'}
+        <div class="field-section"><div class="field-section-title">Horaire</div>
+          <ScheduleEditor entityId={detail.id} {legacyDoc} />
         </div>
       {/if}
 

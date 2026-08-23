@@ -41,10 +41,12 @@ from ...models import (
     LocationSubculture,
     NpcGoal,
     NpcPrice,
+    NpcSchedule,
     PromptTemplate,
     PromptVariable,
     ProposedMutation,
     Relation,
+    SCHEDULE_PHASES,
     Skill,
     SkillDefinition,
     World,
@@ -75,6 +77,7 @@ from ...writes import (
     write_npc_goal_prerequisites,
     write_npc_goal_status,
     write_npc_prices,
+    write_npc_schedule,
     write_prompt_version,
     write_relation,
     write_skill_tier,
@@ -414,3 +417,72 @@ def detach_goal_agenda_link_route(link_id: str, db: DbSession = Depends(get_sess
         "detached_at": _iso(link.detached_at),
         "detached_by": link.detached_by,
     }
+
+
+def _schedule_row_dict(row: Optional[NpcSchedule], phase: str, db: DbSession) -> dict:
+    """One day-row, present or absent (T-C1, B1) — `_list_schedule` always
+    returns exactly `len(SCHEDULE_PHASES)` of these, in order, so an absent
+    phase renders as an empty slot rather than a missing list element."""
+    if row is None:
+        return {
+            "phase": phase, "location_id": None, "location_name": None,
+            "standing_goal_id": None, "standing_goal_description": None,
+        }
+    location = db.get(Entity, row.location_id)
+    goal = db.get(NpcGoal, row.standing_goal_id) if row.standing_goal_id else None
+    return {
+        "phase": phase,
+        "location_id": row.location_id,
+        "location_name": location.name if location else row.location_id,
+        "standing_goal_id": row.standing_goal_id,
+        "standing_goal_description": goal.description if goal else None,
+    }
+
+
+def _list_schedule(entity_id: str, db: DbSession) -> list[dict]:
+    rows = db.exec(select(NpcSchedule).where(NpcSchedule.npc_id == entity_id)).all()
+    by_phase = {r.phase: r for r in rows}
+    return [_schedule_row_dict(by_phase.get(phase), phase, db) for phase in SCHEDULE_PHASES]
+
+
+@router.get("/entities/{entity_id}/schedule")
+def get_entity_schedule(entity_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
+    entity = _get_entity(db, entity_id)
+    if entity.world_id != _world_id(db):
+        raise HTTPException(404, f"Entity {entity_id!r} not found")
+    return _list_schedule(entity_id, db)
+
+
+class ScheduleRowBody(BaseModel):
+    phase: str
+    location_id: str
+    standing_goal_id: Optional[str] = None
+
+
+class ScheduleWriteBody(BaseModel):
+    rows: list[ScheduleRowBody] = []
+
+
+@router.put("/entities/{entity_id}/schedule")
+def set_entity_schedule(
+    entity_id: str, body: ScheduleWriteBody, db: DbSession = Depends(get_session)
+) -> list[dict]:
+    """Full-replace `npc_schedule` for one NPC (T-C1, E1) — creator CRUD,
+    a direct canonical write with no `proposed_mutation` checkpoint, on
+    `write_npc_schedule` (the ONLY write site). Rows absent from
+    `body.rows` are deleted — full replace, not an accumulating list."""
+    entity = _get_entity(db, entity_id)
+    if entity.world_id != _world_id(db):
+        raise HTTPException(404, f"Entity {entity_id!r} not found")
+    char = db.get(Character, entity_id)
+    if char is None or char.character_type != "npc":
+        raise HTTPException(422, "schedule may only be set on an NPC character")
+    try:
+        write_npc_schedule(
+            db, world_id=entity.world_id, npc_id=entity_id,
+            rows=[r.model_dump() for r in body.rows], changed_by="creator",
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    db.commit()
+    return _list_schedule(entity_id, db)

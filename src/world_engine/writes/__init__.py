@@ -41,6 +41,7 @@ from .config import (
     write_location_obstacles,
     write_location_subculture,
     write_npc_prices,
+    write_npc_schedule,
     write_world_laws,
 )
 from .events import write_event, write_event_update
