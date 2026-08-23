@@ -2,7 +2,7 @@
 id: TICKET-0072
 title: Play stream crashes with "database is locked" on every NPC turn
 type: bug
-status: escalated
+status: live-gate
 created: 2026-08-22
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write]
