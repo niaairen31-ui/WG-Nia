@@ -13077,6 +13077,188 @@ outcome from a busy-tavern `presence` sweep, and the full germ lifecycle —
 construct, approve, PARK — with the world's `entity` row count asserted
 unchanged before germ emission, after germ emission, and after approval.
 
+## RESOLUTION, FACT SHEET AND NARRATION — the prose renders, it never decides (BRIEF-0075-d, no schema change)
+
+**The whole shape, restated from the brief because it is the point.** Dice
+are Python (`resolve_physical`, unchanged since BRIEF-11). Banding and
+truncation are Python. The fact sheet is Python, frozen once, never
+mutated. Only THEN does a model write prose — and even then it receives
+the fact sheet, never the registry, never the DB. A judge (also Python)
+verifies the prose against that same fact sheet before anything is stored.
+Every stage after the dice roll can only render or reject what the dice
+already decided; none of them can originate a fact.
+
+**`resolve_steps` re-derives the plan from the DB on EVERY call, not once
+at plan-emission time.** `day_resolve.py` reloads the character's active
+`Agenda`'s `agenda_step`/`agenda_step_requirement` rows, reconstructs
+`day_plan.PlanStep`/`RequirementSpec`, and re-runs the SAME
+`evaluate_requirements`/`budget_cut` pair `day_plan.py` uses at emission
+time — never a cached in-memory plan. This is what makes a REPLAY
+(Scope IN item 5) a real re-resolution rather than a re-render of stored
+dice: `POST /api/day/{id}/resolve` on an already-`resolved` `pass_play`
+re-evaluates every requirement against CURRENT world state and re-rolls
+every included step, and `write_agenda_step_status`'s existing
+snapshot-before-overwrite discipline means the previous attempt's
+`{status, outcome, updated_at}` survives in `agenda_step.change_history`
+— a step can flip from `completed` to `failed` between two resolves of the
+same day, and both attempts are readable. `persist_step_outcomes` writes
+NOTHING of its own: every `agenda_step` transition goes through the
+EXISTING allow-listed chokepoint, `writes.goals_agendas.write_
+agenda_step_status` — `single_canon_write.py` needed no new
+`ALLOWED_SITES` line for this brief.
+
+**D2 (NPC opposition tier) resolves to a constant, not a second
+derivation.** `play_physical.py`'s live-Play precedent derives `npc_tier`
+from `character.physical_tier` when a turn is opposed by a specific NPC —
+but neither `agenda_step` nor `agenda_step_requirement` carries an
+opposing-NPC id; a day-plan step names no opponent. `_step_player_tier`
+reproduces the base-domain half of that precedent verbatim (custom-skill
+dispatch never applies here, since `day_plan._validate_step` rejects any
+`domain` outside `BASE_SKILL_DOMAINS`); `npc_tier` is passed `0` always.
+Not an ambiguity between two derivations (the brief's own STOP
+condition) — the one derivation found reduces to its already-existing
+`None -> 0` fallback because its gate is never true on this schema.
+
+**The fact sheet's `concordance` parameter is a FRESH re-run, not a
+persisted object.** The brief's signature anticipated `freeze_facts`
+receiving a `concordance` argument; `day_concordance.ConcordanceResult` is
+never persisted past the `/plan` call that builds it (BRIEF-0075-c), and —
+measured live — `agenda_step_requirement.target_entity_id` is populated
+essentially NEVER in practice: the seeded `day_plan` prompt only ever asks
+the model for the two requirement forms that need no entity id
+(knowledge/resource). Sourcing `FactSheet.npcs`/`.locations` from
+`agenda_step_requirement` rows alone would leave the fact sheet almost
+always empty even when the declaration named a real NPC concordance HAD
+resolved at plan time. The route (`cockpit/routes/day.py::
+_concord_declaration`) re-runs extraction + `concord()` — the SAME
+deterministic, model-free lookup, minus `emit_germs` (re-emitting germs at
+resolve time, including on every replay, would duplicate the
+`entity_creation` proposals `/plan` already staged). This is not a
+regression from BRIEF-0075-c's "extraction happens once" posture:
+extraction is three real model calls, but concordance ITSELF (the
+Python-only matching) is idempotent and cheap to re-run, and re-running it
+means AMENDMENT 1's ordering guarantee (concordance precedes narration)
+holds a second time, inside `/resolve` too — not only inside `/plan`.
+
+**What the T1 judge proves, and — as important — what it does NOT
+prove.** Name containment (`day_narration_guard.extract_names` against
+`FactSheet.authorised_names`) proves no proper name outside the
+authorised list appears in the prose. It does NOT prove the prose is
+coherent, and it does NOT prove a role hint was rendered as a function
+rather than silently dropped — a beat that mentions no one at all still
+passes name containment cleanly. Outcome survival (band-marker counting,
+`BAND_MARKERS` shared between `day_narration.py`'s prompt-building and the
+judge) proves the prose carries, for each band present on the fact sheet,
+AT LEAST as many occurrences of that band's marker as there are steps of
+that band — a COUNT, not a per-step positional pin: two same-band steps
+are proven both rendered in aggregate, never individually tied to their
+own sentence. The anti-vacuity guards (zero names extracted, zero steps on
+the fact sheet) are both hard failures, never a silent pass — the single
+most important lines in `judge_narration`, per the brief's own framing.
+
+**The name-extraction heuristic is a real, if inherently incomplete,
+detector — not a claim of completeness.** French has no small closed set
+of "words that can never be a name." `extract_names` strips `[MARKER]`
+band tags first (discovered live: without stripping, `[RÉUSSITE]` fuses
+onto the name that follows it into one bogus multi-word candidate), then
+treats a run of one-or-more consecutive capitalized words as a name
+candidate, joined across a lowercase connector (de/du/des/le/la/l'/d'/
+von/van). A lone SINGLE-word capitalized run at the very start of a
+sentence is discarded only when that word, case-folded, is in
+`_SENTENCE_INITIAL_STOPWORDS` — a substantial but deliberately
+non-exhaustive list of French articles, pronouns, prepositions,
+conjunctions and discourse adverbs. Two live-test iterations found real
+gaps in an early, narrower version of this list ("Malgré", "À") and both
+are now covered; the list is expected to keep needing entries as real
+narration prose is produced — the module docstring says so, on purpose,
+rather than implying the heuristic is finished. The alternative design
+(discard EVERY sentence-initial single-word capital, no stoplist at all)
+was tried first and rejected: it silently drops a real name whenever
+prose opens a sentence with it ("Jehan insiste." — extremely common in
+narrative prose), which is a worse failure than an occasional stopword
+gap, because a dropped real name at sentence-start would just as silently
+let an unauthorised name slip past in the exact same position.
+
+**The rewrite pass is built against a trigger that cannot currently
+fire.** `detect_late_delta` looks for an `entity_creation`
+`proposed_mutation` tied to the resolving `pass_play_id` with
+`status='applied'` and a real `target_id` — but no code path anywhere
+turns that mutation type into a real entity: `_approve_entity_creation_
+shortcircuit` (BRIEF-0019-a, reasserted by `day_concordance.py`'s R5)
+PARKS every entity_creation approval, synchronously, unconditionally (I2).
+`detect_late_delta` is therefore written against the day an applier for
+that mutation type ships, not against today's actual behavior — Scope IN
+item 4's own text predicts this ("the rewrite is expected never to fire in
+a correctly ordered run"). Observed over the live verification runs for
+this brief (repeated `/resolve` calls against one seeded declaration,
+narrate+judge only, no rewrite trigger present): **0 rewrite firings**,
+consistent with the prediction. This 0 is the evidence the D3 reactivation
+condition (an entity_creation applier eventually shipping) is phrased
+against — a nonzero count would mean the trigger fired despite the
+structural block above still holding, which would itself be worth
+investigating.
+
+**A judge failure leaves the mechanical outcome committed, only the prose
+rejected.** `resolve_day` commits `persist_step_outcomes`'s `agenda_step`
+transitions (the dice already rolled, a real and final mechanical fact)
+independently of whether the narration that renders them later passes the
+judge. On a judge failure, `_finalize_resolution` still appends ONE
+`pass_play.history` entry (the fact sheet, the rejected prose, the judge's
+reason) and commits, then raises a 422 — Nia sees exactly what was
+rejected and why. `pass_play.status` is left untouched (`resolving`, not
+moved to `resolved`), so a second `POST /resolve` on the same batch
+re-enters `resolve_steps` fresh — a real retry (new dice, since
+`resolve_steps` re-rolls every call), never a queued retry of the SAME
+rejected prose. This is deliberately not a "rollback the dice on judge
+failure" design: the roll is Python and already true the instant it
+happens: a narration problem is not a mechanics problem, and treating a
+narration rejection as grounds to un-happen a real dice roll would make
+the dice conditional on prose quality, which is exactly backwards from
+"the prose is a rendering of an already-decided outcome, never a source
+of one."
+
+**`Batch.local_summary`/`.final_result` are repurposed, not added (D3).**
+Confirmed zero readers and zero writers for both, in `src/` and
+`tooling/`, before reuse — `local_summary` now holds the narration draft
+(the prose as first accepted, whether that is the first attempt or the
+rewrite), `final_result` holds the identical accepted prose a second time,
+framed as "the canon-ready value" rather than "the draft"; the two are
+byte-identical in every observed run because the rewrite path (above)
+never fires. `message_to_claude`/`claude_raw_response` stay untouched,
+still vestigial, still zero writers — Scope OUT is explicit that this
+brief repurposes only its two siblings. `batch.status` gains one new
+value, `resolved_awaiting_review` (`writes.pipeline.BATCH_RESOLVED_
+STATUS`, declared beside the new `BATCH_STATUSES` vocabulary tuple — the
+`PASS_PLAY_STATUSES` idiom, restated for `batch`) — legal without a schema
+change, since the column carries no CHECK constraint on its vocabulary.
+
+**`pass_play.history` gets its first writer.** `writes.pipeline.write_
+pass_play_resolution` is the sole write path: `history = list(pass_play.
+history or []); history.append(entry); pass_play.history = history` —
+built from the CURRENT value plus one new entry, never a fresh literal,
+matching `write_agenda_step_status`/`write_npc_goal_status`'s snapshot-
+before-overwrite idiom even though this is a genuinely new column rather
+than an edit to an existing row's live fields. A replay calls this a
+second time on the same `pass_play` row and appends a SECOND entry; the
+first is never touched. `declared_action` stays completely unwritten by
+this brief, reasserted by both `pipeline_wiring.py`'s existing R3 and this
+brief's own `day_narration.py` R8.
+
+Verified live (not only by the check suite): `POST /api/day/declare` →
+`POST /api/day/{id}/plan` → `POST /api/day/{id}/resolve` against the
+seeded pilot world, real Ollama calls throughout (no mocking). A
+three-step plan budget-cut to two included steps (the third genuinely
+excluded by budget, never attempted) resolved with real 2d6 rolls,
+persisted `agenda_step` transitions, and produced a judge-accepted
+narration naming the concordance-matched NPC and rendering the
+budget-excluded step correctly as never-attempted. Repeated `/resolve`
+calls against the SAME `pass_play` (replay) produced different dice each
+time and a growing `pass_play.history`, with every earlier entry intact.
+A judge REJECTION was also observed live (the model mislabelling a
+`failure`-banded step with the `[RÉUSSITE]` marker) and correctly stored
+nothing final, appended the rejected attempt to `history`, and returned a
+422 — confirming the fail-closed path is not only theoretical.
+
 ---
 
 *Co-built with Claude, June 2026.*

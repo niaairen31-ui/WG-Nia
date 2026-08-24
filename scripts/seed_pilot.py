@@ -2543,6 +2543,112 @@ Identifie les mentions demandées.\
         destination="local",
     )
 
+    # ----- prompt templates: day narration and rewrite (TICKET-0075, -------
+    # BRIEF-0075-d). The narration is a RENDERING of an already-decided
+    # outcome (dice are Python, resolution.py); this prompt never asks the
+    # model to decide anything, only to render the given fact sheet.
+    # Positive-form only, same reason as day_plan/day_extract above: the
+    # gameplay model is abliterated and does not reliably follow negative
+    # constraints. "N'invente AUCUN autre nom" is present as backstop
+    # phrasing, but the actual enforcement is the T1 judge
+    # (day_narration_guard.py), never the prompt text. `{fact_sheet}` is a
+    # code-rendered block (day_narration._render_fact_sheet) — never
+    # separate structured variables — because its content (authorised
+    # names, per-step band markers) must match EXACTLY what the judge
+    # checks against, and a template built from those same call-site
+    # substitutions is the only way to guarantee that.
+    DAY_NARRATION_SYSTEM_PROMPT = """\
+Tu es le conteur d'un jeu de rôle. Le joueur a passé une journée entière \
+hors scène ; le déroulé mécanique de sa journée (jets de dés, réussites, \
+échecs) est déjà DÉCIDÉ et te sera donné. Ton travail : raconter cette \
+journée en prose, en RENDANT ce qui s'est déjà passé, jamais en décidant \
+quoi que ce soit toi-même.
+
+RÈGLES :
+- Pour chaque étape listée, commence sa phrase par le marqueur exact entre \
+crochets correspondant à son issue : [RÉUSSITE], [PARTIEL] ou [ÉCHEC], puis \
+raconte ce qui s'est passé, dans l'esprit de cette issue.
+- Nomme le personnage joueur par son nom (donné sous « Personnage joueur ») \
+au moins une fois dans le récit, plutôt que de ne dire que « le joueur » ou \
+« il »/« elle ».
+- Nomme UNIQUEMENT les personnes et les lieux listés sous « Personnes \
+nommables » et « Lieux nommables », plus le personnage joueur lui-même. \
+N'invente aucun autre nom propre.
+- Pour toute personne listée sous « Personnes sans nom résolu », \
+désigne-la uniquement par sa fonction donnée (par exemple « le marchand », \
+« la femme aux registres »), jamais par un nom inventé.
+- Raconte les étapes dans l'ordre donné.
+
+Réponds UNIQUEMENT avec le texte de la narration, en français, sans \
+préambule ni commentaire.\
+"""
+
+    DAY_NARRATION_USER_TEMPLATE = """\
+Déclaration du joueur : {declaration}
+
+{fact_sheet}
+
+Raconte cette journée.\
+"""
+
+    # day_rewrite: fires only on the narrow late-delta trigger
+    # (day_narration.detect_late_delta) — a role hint resolving to a real
+    # name after the first draft. Expected to almost never fire (see
+    # day_narration.py's module docstring); seeded regardless so the
+    # PROMPT_REGISTRY entry and the rewrite call path are never a 503 away
+    # from working the one time they're needed.
+    DAY_REWRITE_SYSTEM_PROMPT = """\
+Tu révises une narration déjà écrite pour un jeu de rôle. Un rôle qui \
+n'avait pas encore de nom au moment de l'écriture a depuis reçu un nom \
+propre. Ton travail : reprendre la narration donnée et y intégrer ce nom, \
+sans rien changer d'autre au déroulé.
+
+RÈGLES :
+- Remplace la désignation par fonction du rôle concerné par son nom \
+propre, partout où elle apparaît.
+- Conserve le marqueur [RÉUSSITE]/[PARTIEL]/[ÉCHEC] de chaque étape, à \
+l'identique.
+- Ne nomme aucune autre personne ou lieu que ceux déjà nommés dans la \
+narration d'origine, plus ce nouveau nom.
+- Ne change rien d'autre au déroulé des faits.
+
+Réponds UNIQUEMENT avec le texte révisé de la narration, en français, sans \
+préambule ni commentaire.\
+"""
+
+    DAY_REWRITE_USER_TEMPLATE = """\
+{fact_sheet}
+
+Rôle désormais nommé : « {role_hint} » est en réalité {resolved_name}.
+
+Narration à réviser :
+{prior_prose}\
+"""
+
+    upsert_prompt_template(
+        session,
+        "pt-day-narration",
+        world_id=None,
+        name="Narration du jour — rendu de la journée résolue",
+        usage="day_narration",
+        system_prompt=DAY_NARRATION_SYSTEM_PROMPT,
+        user_template=DAY_NARRATION_USER_TEMPLATE,
+        variables=["declaration", "fact_sheet"],
+        destination="local",
+    )
+
+    upsert_prompt_template(
+        session,
+        "pt-day-rewrite",
+        world_id=None,
+        name="Narration du jour — réécriture après délai tardif",
+        usage="day_rewrite",
+        system_prompt=DAY_REWRITE_SYSTEM_PROMPT,
+        user_template=DAY_REWRITE_USER_TEMPLATE,
+        variables=["fact_sheet", "role_hint", "resolved_name", "prior_prose"],
+        destination="local",
+    )
+
     # ----- factions (entity + faction) --------------------------------------
     # L'Innommée — existence denied in public discourse.
     get_or_create(

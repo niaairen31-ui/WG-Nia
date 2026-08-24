@@ -1,15 +1,23 @@
 """`batch`/`pass_play` write primitives (TICKET-0075, BRIEF-0075-a — the
-declaration socle: plumbing only, no resolution, no model call).
+declaration socle: plumbing only, no resolution, no model call;
+`write_pass_play_resolution` added BRIEF-0075-d — the first writer of
+`pass_play.history`, S5).
 
-Both functions follow the same commit-free contract as the rest of
-`writes/`: neither commits, the caller adds the returned row(s) to the
-session and commits. `PASS_PLAY_STATUSES` is declared here because
-`routes/day.py` renders it; `flagged` is reserved for a future input
-classifier and is never written by anything in this module.
+All three functions follow the same commit-free contract as the rest of
+`writes/`: none commits, the caller adds the returned row(s) to the session
+and commits. `PASS_PLAY_STATUSES` is declared here because `routes/day.py`
+renders it; `flagged` is reserved for a future input classifier and is
+never written by anything in this module. `BATCH_STATUSES` is the same
+idiom for `batch.status` (BRIEF-0075-d): `write_batch` only ever writes
+`"pending"`; `BATCH_RESOLVED_STATUS` is the value the resolve route moves
+a batch to once its day narration is judged and accepted.
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
+from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, func, select
 
 from ..models import Batch, PassPlay
@@ -17,6 +25,9 @@ from ..models import Batch, PassPlay
 MAX_DECLARATION_CHARS = 4000
 
 PASS_PLAY_STATUSES: tuple[str, ...] = ("submitted", "resolving", "resolved", "flagged")
+
+BATCH_STATUSES: tuple[str, ...] = ("pending", "resolved_awaiting_review")
+BATCH_RESOLVED_STATUS: str = BATCH_STATUSES[1]
 
 
 def write_batch(db: Session, *, session_id: str, changed_by: str) -> Batch:
@@ -53,3 +64,27 @@ def write_pass_play(
         batch_order=1,
         history=[],
     )
+
+
+def write_pass_play_resolution(
+    db: Session, *, pass_play: PassPlay, fact_sheet: dict, prose: str, judge_verdict: dict,
+) -> PassPlay:
+    """Append one resolution attempt to `pass_play.history` (BRIEF-0075-d —
+    this function is `history`'s first writer, S5). Append-only by
+    construction: a NEW list (the old one plus one new entry) replaces the
+    column value — no existing entry is ever mutated, matching every other
+    `change_history` writer's discipline (`write_agenda_step_status`,
+    `write_npc_goal_status`). A replay calls this a second time on the same
+    `pass_play` and appends a SECOND entry; the first stays intact. Caller
+    sets `pass_play.status` and adds the row to the session."""
+    entry = {
+        "fact_sheet": fact_sheet,
+        "prose": prose,
+        "judge_verdict": judge_verdict,
+        "resolved_at": datetime.now(UTC).isoformat(),
+    }
+    history = list(pass_play.history or [])
+    history.append(entry)
+    pass_play.history = history
+    sa_attrs.flag_modified(pass_play, "history")
+    return pass_play

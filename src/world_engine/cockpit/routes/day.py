@@ -1,13 +1,16 @@
-"""Day declaration and plan-emission routes (TICKET-0075, BRIEF-0075-a — the
-declaration socle: plumbing only; BRIEF-0075-b — plan emission and budget;
-BRIEF-0075-c — extraction and concordance). A player declares a day; the
-declaration is stored, listed and read back, and a plan can be emitted
-against it: extraction + concordance resolve its mentions to canon ids or
-roles (C1: the resolver never authors — any unmatched PERSON mention only
-ever reaches canon as a PARKED `entity_creation` germ, never authored here),
-then one model call (`day_plan.emit_plan`), Python-judged requirements and a
-Python budget cut (F1: model proposes, code judges). No `resolve_physical`
-call appears anywhere in this module (still Scope OUT of BRIEF-0075-b).
+"""Day declaration, plan-emission and resolution routes (TICKET-0075,
+BRIEF-0075-a — the declaration socle: plumbing only; BRIEF-0075-b — plan
+emission and budget; BRIEF-0075-c — extraction and concordance;
+BRIEF-0075-d — resolution, the fact sheet and narration). A player declares
+a day; the declaration is stored, listed and read back, a plan can be
+emitted against it: extraction + concordance resolve its mentions to canon
+ids or roles (C1: the resolver never authors — any unmatched PERSON mention
+only ever reaches canon as a PARKED `entity_creation` germ, never authored
+here), then one model call (`day_plan.emit_plan`), Python-judged
+requirements and a Python budget cut (F1: model proposes, code judges).
+Finally the budgeted plan is resolved (`resolve_day`): Python dice
+(`resolve_steps`), a frozen fact sheet, one narration call constrained by
+it, and a fail-closed Python judge before anything is stored final.
 
 `_get_or_open_session` deliberately duplicates the M5 idiom from
 `cockpit/play.py` (`_get_or_open_session`) rather than importing it: Play is
@@ -17,6 +20,7 @@ not couple to it.
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -25,12 +29,22 @@ from sqlmodel import Session, select
 
 from ...day_concordance import ConcordanceResult, concord, emit_germs, plan_context
 from ...day_extract import extract_factions, extract_persons, extract_places
+from ...day_narration import detect_late_delta, narrate, rewrite as day_rewrite
+from ...day_narration_guard import JudgeVerdict, judge_narration
 from ...day_plan import DAY_BUDGET_SLOTS, EvaluatedStep, budget_cut, emit_plan, evaluate_requirements
+from ...day_resolve import FactSheet, fact_sheet_dict, freeze_facts, persist_step_outcomes, resolve_steps
 from ...db import get_session
 from ...llm_parse import LlmParseError
 from ...models import Agenda, Batch, Character, Entity, PassPlay
 from ...models import Session as GameSession
-from ...writes import MAX_DECLARATION_CHARS, write_batch, write_day_plan, write_pass_play
+from ...writes import (
+    BATCH_RESOLVED_STATUS,
+    MAX_DECLARATION_CHARS,
+    write_batch,
+    write_day_plan,
+    write_pass_play,
+    write_pass_play_resolution,
+)
 from .. import crud as _crud
 
 router = APIRouter()
@@ -343,3 +357,179 @@ def plan_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     result = _finalize_plan(world_id, character, pass_play, raw_steps, db)
     result["concordance"] = _concordance_dict(concordance_result, germ_ids, db)
     return result
+
+
+def _load_resolvable_day(batch_id: str, world_id: str, db: Session) -> tuple[Batch, PassPlay]:
+    row = db.exec(
+        select(Batch, PassPlay)
+        .join(GameSession, GameSession.id == Batch.session_id)
+        .join(PassPlay, PassPlay.batch_id == Batch.id)
+        .where(Batch.id == batch_id, GameSession.world_id == world_id)
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"day {batch_id!r} not found")
+    batch: Batch = row[0]
+    pass_play: PassPlay = row[1]
+    # 'resolving' is the first resolve; 'resolved' is a replay (Scope IN
+    # item 5) — the route says so in the response.
+    if pass_play.status not in ("resolving", "resolved"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"day {batch_id!r} is not awaiting resolution (status={pass_play.status!r})",
+        )
+    return batch, pass_play
+
+
+def _load_active_agenda(character: Character, db: Session) -> Agenda:
+    agenda = db.exec(
+        select(Agenda).where(Agenda.owner_entity_id == character.id, Agenda.status == "active")
+    ).first()
+    if agenda is None:
+        raise HTTPException(
+            status_code=409, detail=f"character {character.id!r} has no active agenda to resolve",
+        )
+    return agenda
+
+
+def _resolve_response(fact_sheet: FactSheet, prose: str, is_replay: bool) -> dict:
+    """No `agenda_id`, no `step_id`, no fact-sheet internals beyond what the
+    player should see (Scope IN item 5)."""
+    return {
+        "day_number": fact_sheet.day_number,
+        "prose": prose,
+        "npcs": [{"id": r.entity_id, "name": r.name} for r in fact_sheet.npcs],
+        "locations": [{"id": r.entity_id, "name": r.name} for r in fact_sheet.locations],
+        "resource_deltas": list(fact_sheet.resource_deltas),
+        "knowledge_deltas": list(fact_sheet.knowledge_deltas),
+        "skill_deltas": list(fact_sheet.skill_deltas),
+        "is_replay": is_replay,
+    }
+
+
+def _concord_declaration(pass_play: PassPlay, character: Character, db: Session) -> ConcordanceResult:
+    """Extraction + concordance ONLY (BRIEF-0075-d) — the `_extract_and_
+    concord` precedent above minus `emit_germs`: re-emitting germs at
+    resolve time would duplicate the `entity_creation` proposals `/plan`
+    already staged, including on every replay. `ConcordanceResult` is
+    never persisted past the call that builds it (BRIEF-0075-c), so
+    `freeze_facts` needs a fresh one — same deterministic, model-free
+    lookup, re-run."""
+    mentions = [
+        *extract_places(pass_play.declared_action, db),
+        *extract_persons(pass_play.declared_action, db),
+        *extract_factions(pass_play.declared_action, db),
+    ]
+    return concord(mentions, character, db)
+
+
+def _narrate_and_judge(
+    fact_sheet: FactSheet, pass_play: PassPlay, db: Session,
+) -> tuple[FactSheet, str, JudgeVerdict]:
+    """Narration + the T1 judge + the ONE conditional rewrite attempt
+    (Scope IN items 3-4), carved out of `resolve_day` for the function-
+    length ceiling (`_finalize_plan`/`write_day_plan`'s precedent). Raises
+    `HTTPException` (502) on an LLM failure; returns the (possibly
+    rewritten) fact sheet, the prose and the judge's final verdict —
+    NEVER raises on a judge rejection, that is the caller's job (it must
+    still record the rejected attempt before reporting)."""
+    try:
+        prose = narrate(fact_sheet, pass_play.declared_action, db)
+    except LlmParseError as exc:
+        db.rollback()
+        raise HTTPException(status_code=502, detail=f"day narration failed: {exc}") from exc
+    verdict = judge_narration(prose, fact_sheet)
+    if verdict.passed:
+        return fact_sheet, prose, verdict
+
+    delta = detect_late_delta(fact_sheet, pass_play, db)
+    if delta is None:
+        return fact_sheet, prose, verdict
+
+    fact_sheet = dataclasses.replace(
+        fact_sheet, authorised_names=fact_sheet.authorised_names | {delta.resolved_name},
+    )
+    try:
+        prose = day_rewrite(fact_sheet, prose, delta, db)
+    except LlmParseError as exc:
+        db.rollback()
+        raise HTTPException(status_code=502, detail=f"day rewrite failed: {exc}") from exc
+    verdict = judge_narration(prose, fact_sheet)
+    return fact_sheet, prose, verdict
+
+
+def _finalize_resolution(
+    batch: Batch, pass_play: PassPlay, fact_sheet: FactSheet, prose: str, verdict: JudgeVerdict,
+    is_replay: bool, db: Session,
+) -> dict:
+    """Persist item 5's outcome and build the response — carved out of
+    `resolve_day` for the function-length ceiling. A judge failure stores
+    nothing final: `pass_play.status`/`batch` are left untouched (still
+    `resolving`, so a retry re-enters the SAME `resolve_steps`/`narrate`
+    chain), but the rejected attempt still gets ONE `history` entry (Nia
+    sees the rejected prose and the reason) before the 422."""
+    judge_dict = {"passed": verdict.passed, "reason": verdict.reason}
+    if not verdict.passed:
+        write_pass_play_resolution(
+            db, pass_play=pass_play, fact_sheet=fact_sheet_dict(fact_sheet), prose=prose, judge_verdict=judge_dict,
+        )
+        db.add(pass_play)
+        db.commit()
+        raise HTTPException(status_code=422, detail=f"day narration rejected by judge: {verdict.reason}")
+
+    batch.local_summary = prose
+    batch.final_result = prose
+    batch.processed_at = datetime.now(UTC)
+    batch.status = BATCH_RESOLVED_STATUS
+    db.add(batch)
+
+    pass_play.status = "resolved"
+    write_pass_play_resolution(
+        db, pass_play=pass_play, fact_sheet=fact_sheet_dict(fact_sheet), prose=prose, judge_verdict=judge_dict,
+    )
+    db.add(pass_play)
+    db.commit()
+
+    return _resolve_response(fact_sheet, prose, is_replay)
+
+
+@router.post("/api/day/{batch_id}/resolve")
+def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
+    """Resolve the budgeted portion of a declared day (TICKET-0075,
+    BRIEF-0075-d): Python dice (`resolve_steps`), a frozen fact sheet
+    (`freeze_facts`), one narration call (`narrate`) constrained by that
+    fact sheet, and a fail-closed Python judge (`judge_narration`) before
+    anything is stored. A judge failure stores nothing final and reports —
+    it never silently degrades (Scope IN item 4). One transaction:
+    outcomes, agenda step transitions, narration, the `pass_play.history`
+    append, and both status moves.
+
+    Fail-closed: the batch must belong to the active world, and
+    `pass_play.status` must be `resolving` (first resolve) or `resolved`
+    (a replay — the SAME immutable `declared_action` re-run, appending a
+    SECOND `history` entry; the first stays intact). The character must
+    hold an active agenda — the plan `/plan` wrote.
+    """
+    world_id = _crud._world_id(db)
+    # Annotated single-name assignments, not a tuple-unpack
+    # (single_canon_write.py's static resolver tracks an ast.AnnAssign
+    # target's type but not a Tuple target — `_load_plannable_day`'s
+    # precedent, same reason).
+    row = _load_resolvable_day(batch_id, world_id, db)
+    batch: Batch = row[0]
+    pass_play: PassPlay = row[1]
+    character = _resolve_player_character(world_id, db)
+    agenda = _load_active_agenda(character, db)
+    is_replay = pass_play.status == "resolved"
+
+    outcomes = resolve_steps(agenda, character, db)
+    persist_step_outcomes(agenda, outcomes, db)
+
+    try:
+        concordance_result = _concord_declaration(pass_play, character, db)
+    except LlmParseError as exc:
+        db.rollback()
+        raise HTTPException(status_code=502, detail=f"day narration concordance failed: {exc}") from exc
+    fact_sheet = freeze_facts(outcomes, concordance_result, batch, character, db)
+
+    fact_sheet, prose, verdict = _narrate_and_judge(fact_sheet, pass_play, db)
+    return _finalize_resolution(batch, pass_play, fact_sheet, prose, verdict, is_replay, db)

@@ -39,6 +39,17 @@ boot guard checks against the stored `schema_meta` row.
   `dry_run_capable=True`), seeded template `pt-day-plan`. `POST
   /api/day/{batch_id}/plan` emits and persists a plan (one model call, F1);
   the response never carries `agenda_id` or `step_id`.
+  **No new columns (TICKET-0075, BRIEF-0075-d, resolution/narration):**
+  `batch.local_summary`/`batch.final_result` are REPURPOSED, not added —
+  confirmed zero readers and zero writers for both (D3) before reuse.
+  `local_summary` now holds the day-narration draft; `final_result` holds
+  the post-judge accepted prose (identical to `local_summary` when the
+  Scope IN item 4 rewrite never fires, which is the expected case).
+  `batch.message_to_claude`/`batch.claude_raw_response` stay untouched,
+  still vestigial, still zero writers. `batch.status` gains one new value,
+  `resolved_awaiting_review` (`writes.pipeline.BATCH_RESOLVED_STATUS`) —
+  legal without a schema change since the column carries no CHECK
+  constraint on its vocabulary.
 
 - **v1.93** — Added `batch.day_number` (INTEGER NOT NULL DEFAULT 0) and a
   unique index `idx_batch_session_day` on `(session_id, day_number)`.

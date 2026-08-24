@@ -396,6 +396,9 @@ WG-Nia/
 │   ├── day_plan.py          # day-plan emission + budget cut: requirement evaluators, its own BFS
 │   ├── day_extract.py       # day extraction: 3 passes (place/person/faction), never sees registry
 │   ├── day_concordance.py   # day mention resolution: matching rungs, germ emission; never authors
+│   ├── day_resolve.py       # day step resolution: Python dice, truncation, the frozen fact sheet
+│   ├── day_narration.py     # day narration + rewrite: renders the fact sheet, never decides
+│   ├── day_narration_guard.py  # T1 judge: name containment + outcome survival, Python-only
 │   ├── writes/               # canon-write helpers by domain; schema.py is the DDL authority
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
 │   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)
