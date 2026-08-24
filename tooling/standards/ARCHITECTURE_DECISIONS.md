@@ -12854,4 +12854,104 @@ open mutation-type/budget/rewrite-guard questions still gating them.
 
 ---
 
+## DAY PLAN EMISSION AND BUDGET — model proposes, code judges (BRIEF-0075-b, schema v1.94)
+
+**F1 — one model emission, Python cut.** `day_plan.emit_plan` makes exactly
+ONE call: the model proposes the FULL ordered step list for a declaration:
+every downstream decision (which requirements are met, how many steps
+happen today) is Python. Rejected a multi-turn plan-then-refine loop —
+unnecessary latency and a second place a plan could silently drift from
+what the player declared.
+
+**M1/P2 — the four `SCHEDULE_PHASES` ARE the budget; the phase is never
+read.** `DAY_BUDGET_SLOTS = len(SCHEDULE_PHASES)`, derived rather than
+written as `4` (a future fifth phase widens the budget for free). Every day
+gets the full budget regardless of `world.current_phase` (P2) —
+`day_plan.py` reads no `current_phase` anywhere and performs no `select(`
+against `NpcSchedule`; positional/schedule reads stay exclusively in
+`schedule_reads.py`.
+
+**S1 — four requirement forms, one named evaluator each, closed by a CHECK.**
+`agenda_step_requirement.type IN ('knowledge','relation_gte','resource',
+'location_reachable')`, and a SECOND CheckConstraint
+(`ck_agenda_step_requirement_shape`) enforces the per-type shape at the row
+level — an ill-formed row (e.g. `relation_gte` with a NULL
+`target_entity_id`) cannot exist, full stop, not by evaluator discipline.
+`day_plan._EVALUATORS`'s key set is asserted equal to `REQUIREMENT_TYPES` in
+both directions (`day_plan.py`'s R1, the `_SOURCE_LOOKUPS` bijection
+precedent) — widening the vocabulary without adding an evaluator fails
+loudly, at `evaluate_requirements`'s fail-closed unknown-type branch AND at
+verify.
+
+**H1 — a plan reuses `Agenda`/`AgendaStep`, deliberately.** `agenda_step`
+gains two nullable columns (`cost`, `domain`) rather than a parallel
+`day_plan_step` table — NULL for every pre-v1.94 (NPC) step, since a plan
+IS a plan: an NPC's agenda and a player's day plan are the same shape, one
+step at a time, one active at once (the existing partial unique index,
+unmodified, is still the whole guarantee). The alternative (a bespoke table)
+would have duplicated `step_order`/`status`/`change_history` for no
+structural gain.
+
+**THE POSITIONAL WALL HOLDS (BRIEF-0074-a-amendment-1) — reaffirmed, not
+merely inherited.** `agenda_step` gains NO location column even though this
+step's budget metadata rides on the same row; `location_reachable`'s target
+lives on `agenda_step_requirement`, a REQUIREMENT row, never on the step —
+"the player must be able to reach L" is a precondition on the player, never
+a position of an NPC. `day_plan.py`'s R6 (`tooling/verify/checks/
+day_plan.py`) is the single most important check in this brief: no
+location-named field on `Agenda`/`AgendaStep`, and `schedule_reads.py`
+references neither `Agenda`, `AgendaStep` nor `AgendaStepRequirement`.
+
+**The `location_reachable` reader — an escalation, corrected.** The original
+brief instructed "reuse the existing traversal; do not write a second one."
+That instruction was wrong: it directly contradicted decision **D1
+(BRIEF-19)**, standing doctrine that each new `connects_to` consumer gets
+its OWN reader (a real dedup opportunity is REPORTED, never acted on — see
+the `connects_to` convention section and every reaffirmation since,
+`_location_neighbours` through `spatial_doors.py`). Claude Code stopped
+under the brief's own STOP condition rather than guess; the correction is
+`tooling/briefs/BRIEF-0075-b-amendment-1-location-reachable-reader.md`.
+`day_plan._day_reachable_ids` is a NEW, day-local BFS over `connects_to`
+among ACTIVE locations — unbounded (a day has no meaningful hop radius,
+unlike the tick's interval bound) and origin-INCLUSIVE (the player being
+already there satisfies reachability — the concrete shape difference from
+`_reachable_locations`, which excludes the origin, meaning sharing would
+have been wrong on the merits and not only on doctrine). Measured at
+amendment time: roughly the SEVENTH independent `connects_to` reader in the
+tree (`_location_neighbours` `cockpit/play.py:854`; `_reachable_locations`
+`tick_context.py:405`; `write_location_doors`'s B1 gate
+`writes/config.py:275`; `spatial_doors.py:60-62`;
+`spatial_author._live_neighbour_ids`; `room_batch_author.py:141`) — D1
+reaffirmed in a code comment at each addition, count still rising, still not
+acted on. `tooling/verify/checks/day_plan.py`'s R10 makes the
+non-reuse structural for this consumer rather than a comment convention:
+`day_plan.py` imports none of the sibling readers and is asserted to declare
+its own loop referencing `connects_to`.
+
+**Reported, not acted on (D1's own posture, applied to this brief):**
+(1) the dedup count above; (2) this archive's own `connects_to`-convention
+section and the L1/BRIEF-16 travel-model note cite reader locations
+(`cockpit/app.py`, `tick.py`) that have since moved (`cockpit/play.py:854`,
+`tick_context.py:405`) — same check-anchor drift class as TICKET-0027's;
+retargeting those anchors is TICKET-0071 hygiene territory, not this
+brief's; (3) a "proves X, not Y" gap this step introduces and does not
+close: `_day_reachable_ids` proves a path exists in the `connects_to` graph;
+it does NOT prove the Play surface's door/travel gate would let the player
+actually walk it. Harmless today — the day chain resolves travel
+abstractly, and Play is sealed (TICKET-0061) — and worth a fresh look only
+if a future ticket ever routes a day step through Play.
+
+Scope OUT, named explicitly so a later brief doesn't assume otherwise: no
+`resolve_physical` call anywhere in this step (BRIEF-0075-d);
+no `proposed_mutation` row is written (BRIEF-0075-e); the emitted plan's
+`requires` items are restricted, at the PROMPT level, to `knowledge`/
+`resource` (target-key-based — no entity resolution needed); `relation_gte`/
+`location_reachable` have full evaluators and write-path validation but are
+not yet reachable from a live declaration, because extraction/concordance
+(name -> entity id) is BRIEF-0075-c's job, not this one's. `POST
+/api/day/{batch_id}/plan`'s response carries neither `agenda_id` nor
+`step_id` — the player never sees the agenda.
+
+---
+
 *Co-built with Claude, June 2026.*

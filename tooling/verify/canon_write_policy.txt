@@ -4,7 +4,7 @@ knowledge ledger item skill skill_definition discoverable_detail
 event artifact npc_goal agenda agenda_step goal_agenda_link
 npc_price location_subculture world_law obstacle obstacle_vertex door
 location_type_catalog entity_type entity_type_history conversation_window_config
-npc_schedule
+npc_schedule agenda_step_requirement
 
 [ALLOWED_SITES]
 # path::function                                              tables
@@ -38,6 +38,8 @@ src/world_engine/writes/config.py::upsert_location_type        location_type_cat
 src/world_engine/writes/config.py::upsert_conversation_window_config conversation_window_config
 # TICKET-0074, BRIEF-0074-a: write_npc_schedule is the 29th site — standing per-phase location default, curated-config family (write_location_doors precedent).
 src/world_engine/writes/config.py::write_npc_schedule          npc_schedule
+# TICKET-0075, BRIEF-0075-b: write_day_plan is the 30th site — its OWN body writes agenda_step_requirement only (it calls write_agenda/write_agenda_step, whose own db.add sites are already allow-listed above; single_canon_write.py is function-scoped, not interprocedural).
+src/world_engine/writes/goals_agendas.py::write_day_plan       agenda_step_requirement
 # TICKET-0044, BRIEF-0044-c: create_entity_type is the 26th site — the governed
 # structural-write authority (D2), a NEW sanctioned site distinct from the two
 # canon-write paths (AI-proposal pipeline, creator CRUD). Its `CREATE TABLE

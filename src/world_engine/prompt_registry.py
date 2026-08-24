@@ -257,6 +257,13 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         call_sites=("src/world_engine/tick.py:run_world_tick",),
         default_model=_game_model,
     ),
+    "day_plan": PromptSpec(
+        surface="play",
+        world_scoped=True,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/day_plan.py:emit_plan",),
+        default_model=_game_model,
+    ),
     "conversation_summary": PromptSpec(
         surface="play",
         world_scoped=True,

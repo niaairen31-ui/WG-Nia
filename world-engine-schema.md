@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.93
+Current schema version: v1.94
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1571,6 +1571,14 @@ active step is always derived in code (this table's partial unique index
 guarantees at most one). Advancement (`complete` -> next step active / agenda
 completed; `fail` -> whole agenda failed) is CODE, at apply.
 
+`cost`/`domain` (schema v1.94, TICKET-0075, BRIEF-0075-b): day-plan budget
+metadata. NULL for every pre-v1.94 (NPC) step — no backfill; populated only
+by the day-plan chain. `cost` = day-budget slots consumed (1-4); `domain` =
+the `resolve_physical` domain, or NULL when the step needs no roll. No
+location column here or ever (the positional wall,
+BRIEF-0074-a-amendment-1) — `agenda_step_requirement`'s `location_reachable`
+rows carry a location on the REQUIREMENT, never on the step.
+
 ```sql
 CREATE TABLE agenda_step (
   id                TEXT PRIMARY KEY,
@@ -1581,6 +1589,8 @@ CREATE TABLE agenda_step (
                       CHECK (status IN ('pending','active','completed','failed')),
   outcome           TEXT,
   visibility_trace  TEXT,
+  cost              INTEGER CHECK (cost IS NULL OR cost BETWEEN 1 AND 4),
+  domain            TEXT,
   created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
   change_history    JSON DEFAULT '[]'
@@ -1590,6 +1600,46 @@ CREATE INDEX idx_agenda_step_agenda ON agenda_step(agenda_id, step_order);
 -- enforced by SQLite itself — never by discipline.
 CREATE UNIQUE INDEX idx_agenda_step_one_active
   ON agenda_step(agenda_id) WHERE status = 'active';
+```
+
+-----
+
+### `agenda_step_requirement`
+
+Day-plan precondition gate on one `agenda_step` (schema v1.94, TICKET-0075,
+BRIEF-0075-b). `goal_prerequisite` shape precedent, widened to a closed
+four-form vocabulary (`knowledge`, `relation_gte`, `resource`,
+`location_reachable`) and a `target_key` column for the two forms that gate
+on a string (a knowledge subject, a resource tag) rather than an entity. The
+per-type shape CHECK is the structural guarantee that an ill-formed row
+cannot exist: `relation_gte`/`location_reachable` require `target_entity_id`
+NOT NULL; `knowledge`/`resource` require `target_key` NOT NULL;
+`relation_gte`/`resource` require `threshold` NOT NULL. Curated plan
+metadata, same family as `npc_schedule` — no `change_history`. THE
+POSITIONAL WALL: `location_reachable`'s target lives HERE, never on
+`agenda_step` — a requirement states "the player must be able to reach L", a
+precondition on the player, never a position of an NPC (see
+BRIEF-0074-a-amendment-1). Written only by `writes.write_day_plan`, read
+only by `day_plan.evaluate_requirements`.
+
+```sql
+CREATE TABLE agenda_step_requirement (
+  id                TEXT PRIMARY KEY,
+  world_id          TEXT NOT NULL REFERENCES world(id),
+  step_id           TEXT NOT NULL REFERENCES agenda_step(id),
+  type              TEXT NOT NULL
+                      CHECK (type IN ('knowledge','relation_gte','resource','location_reachable')),
+  target_entity_id  TEXT REFERENCES entity(id),
+  target_key        TEXT,
+  threshold         INTEGER,
+  CHECK (
+    (type NOT IN ('relation_gte','location_reachable') OR target_entity_id IS NOT NULL)
+    AND (type NOT IN ('knowledge','resource') OR target_key IS NOT NULL)
+    AND (type NOT IN ('relation_gte','resource') OR threshold IS NOT NULL)
+  )
+);
+CREATE UNIQUE INDEX idx_agenda_step_requirement_unique
+  ON agenda_step_requirement(step_id, type, target_entity_id, target_key);
 ```
 
 -----

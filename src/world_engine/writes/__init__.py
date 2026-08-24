@@ -63,6 +63,7 @@ from .goals_agendas import (
     write_agenda_status,
     write_agenda_step,
     write_agenda_step_status,
+    write_day_plan,
     write_goal_agenda_link,
     write_npc_goal,
     write_npc_goal_prerequisites,

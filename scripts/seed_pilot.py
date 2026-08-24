@@ -2370,6 +2370,67 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         destination="local",
     )
 
+    # ----- prompt template: day plan emission (TICKET-0075, BRIEF-0075-b) ---
+    # usage = "day_plan". world_id = NULL. ONE call (F1): the model proposes
+    # the full ordered step list for a declared day; Python (day_plan.py)
+    # evaluates each step's requirements and cuts the plan against the day
+    # budget — model proposes, code judges. Positive-form only (the gameplay
+    # model is abliterated and does not reliably follow negative
+    # constraints). "requires" is restricted to the two forms the model can
+    # supply without entity resolution (knowledge/resource, target_key-based)
+    # — relation_gte/location_reachable have evaluators but need entity ids
+    # no extraction/concordance step provides yet (Scope OUT, BRIEF-0075-c).
+    # Called by day_plan.emit_plan.
+    DAY_PLAN_SYSTEM_PROMPT = """\
+Tu es le metteur en scène d'un jeu de rôle. Le joueur vient de déclarer ce \
+qu'il compte faire aujourd'hui. Ton travail : décomposer cette déclaration \
+en une liste ORDONNÉE d'étapes concrètes, dans l'ordre où elles doivent se \
+dérouler.
+
+RÈGLES :
+- Émets une liste d'étapes, dans l'ordre où elles se déroulent.
+- Chaque étape a un "objective" : une description courte et concrète de ce \
+que le personnage fait à cette étape.
+- Chaque étape a un "cost" : un entier de 1 à 4, le nombre de tranches de la \
+journée que cette étape consomme (une course rapide coûte 1, une entreprise \
+longue coûte 4).
+- Chaque étape a un "domain" : si l'étape nécessite un jet, choisis \
+EXACTEMENT parmi "physical", "agility", "perception", "composure" ; sinon \
+mets null.
+- Chaque étape a un tableau "requires", vide si l'étape n'a pas de condition \
+préalable. Utilise UNIQUEMENT ces deux formes :
+  - {"type":"knowledge","target_key":"<étiquette courte>"} — le personnage \
+doit déjà savoir quelque chose.
+  - {"type":"resource","target_key":"<étiquette courte>","threshold":<entier>} \
+— le personnage doit disposer d'au moins ce montant de ressource.
+- Émets au maximum 12 étapes.
+- N'invente aucun fait sur le monde au-delà de ce que la déclaration \
+contient déjà.
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien \
+d'autre :
+{"title":"<titre court>","steps":[{"objective":"<...>","cost":<1-4>,"domain":"<physical|agility|perception|composure|null>","requires":[...]}]}\
+"""
+
+    DAY_PLAN_USER_TEMPLATE = """\
+Personnage : {character_name}
+Déclaration du jour : {declaration}
+
+Décompose cette déclaration en étapes.\
+"""
+
+    upsert_prompt_template(
+        session,
+        "pt-day-plan",
+        world_id=None,
+        name="Plan du jour — décomposition en étapes et budget",
+        usage="day_plan",
+        system_prompt=DAY_PLAN_SYSTEM_PROMPT,
+        user_template=DAY_PLAN_USER_TEMPLATE,
+        variables=["character_name", "declaration"],
+        destination="local",
+    )
+
     # ----- factions (entity + faction) --------------------------------------
     # L'Innommée — existence denied in public discourse.
     get_or_create(

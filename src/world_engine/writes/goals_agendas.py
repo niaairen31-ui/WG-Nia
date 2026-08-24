@@ -43,7 +43,16 @@ from sqlalchemy import text
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from ..models import Agenda, AgendaStep, Entity, GoalAgendaLink, GoalPrerequisite, NpcGoal
+from ..day_plan import REQUIREMENT_TYPES, PlanStep, RequirementSpec
+from ..models import (
+    Agenda,
+    AgendaStep,
+    AgendaStepRequirement,
+    Entity,
+    GoalAgendaLink,
+    GoalPrerequisite,
+    NpcGoal,
+)
 
 # npc_goal.horizon enum (world-engine-schema.md v1.69): short | long.
 NPC_GOAL_HORIZONS = frozenset({"short", "long"})
@@ -280,13 +289,18 @@ def write_agenda_step(
     objective: str,
     visibility_trace: Optional[str] = None,
     status: str = "pending",
+    cost: Optional[int] = None,
+    domain: Optional[str] = None,
 ) -> AgendaStep:
-    """Insert one `agenda_step` row (TICKET-0018, BRIEF-0018-a).
+    """Insert one `agenda_step` row (TICKET-0018, BRIEF-0018-a; `cost`/
+    `domain` TICKET-0075, BRIEF-0075-b).
 
     The ONLY constructor of `AgendaStep` in gameplay code. `status="active"`
     is passed by the caller for exactly one step per agenda (the first, at
     creation time — the partial unique index enforces this structurally);
-    every other step is created `pending`.
+    every other step is created `pending`. `cost`/`domain` default to `None`
+    — every pre-v1.94 (NPC) call site is unaffected; only `write_day_plan`
+    passes them.
     """
     step = AgendaStep(
         agenda_id=agenda_id,
@@ -294,6 +308,8 @@ def write_agenda_step(
         objective=objective,
         visibility_trace=visibility_trace,
         status=status,
+        cost=cost,
+        domain=domain,
         change_history=[],
     )
     db.add(step)
@@ -503,5 +519,104 @@ def write_agenda_status(
     goal_status = _AGENDA_GOAL_CASCADE_MAP.get(status)
     if was_active and goal_status is not None:
         _cascade_agenda_status_to_goals(db, agenda, goal_status, status)
+
+    return agenda
+
+
+def _clean_requirement(db: Session, world_id: str, step_index: int, req: RequirementSpec) -> dict:
+    """Validate one requirement against the six-condition per-type shape
+    (the `agenda_step_requirement` CHECK, duplicated here as a readable
+    `ValueError` rather than a bare `IntegrityError`) and resolve it into the
+    exact kwargs `AgendaStepRequirement` needs. Raises on any violation —
+    carved out of `write_day_plan` so that function fits the 80-line cap
+    (`_build_relation_delta`/`_build_relation_set` precedent, R7)."""
+    if req.type not in REQUIREMENT_TYPES:
+        raise ValueError(f"write_day_plan: unknown requirement type {req.type!r}")
+
+    entity_gated = req.type in ("relation_gte", "location_reachable")
+    if entity_gated:
+        if not req.target_entity_id:
+            raise ValueError(
+                f"write_day_plan: step {step_index} requirement type {req.type!r} needs a target_entity_id"
+            )
+        target = db.get(Entity, req.target_entity_id)
+        if target is None or target.world_id != world_id:
+            raise ValueError(f"write_day_plan: unknown target entity {req.target_entity_id!r}")
+    elif not req.target_key:
+        raise ValueError(f"write_day_plan: step {step_index} requirement type {req.type!r} needs a target_key")
+
+    threshold = req.threshold
+    if req.type in ("relation_gte", "resource"):
+        if not isinstance(threshold, int) or isinstance(threshold, bool) or threshold < 1:
+            raise ValueError(
+                f"write_day_plan: step {step_index} requirement type {req.type!r} needs a positive integer threshold"
+            )
+    else:
+        threshold = None
+
+    return {
+        "type": req.type,
+        "target_entity_id": req.target_entity_id if entity_gated else None,
+        "target_key": None if entity_gated else req.target_key,
+        "threshold": threshold,
+    }
+
+
+def _clean_plan_steps(db: Session, world_id: str, steps: list[PlanStep]) -> list[tuple[PlanStep, list[dict]]]:
+    """All-or-nothing pre-validation for `write_day_plan` (Scope IN item 5):
+    every step and every requirement is checked before `write_day_plan`
+    constructs its first row."""
+    clean: list[tuple[PlanStep, list[dict]]] = []
+    for step_index, step in enumerate(steps):
+        if not isinstance(step.cost, int) or isinstance(step.cost, bool) or not (1 <= step.cost <= 4):
+            raise ValueError(f"write_day_plan: step {step_index} has invalid cost {step.cost!r}")
+        clean_requirements = [_clean_requirement(db, world_id, step_index, req) for req in step.requirements]
+        clean.append((step, clean_requirements))
+    return clean
+
+
+def write_day_plan(
+    db: Session,
+    *,
+    world_id: str,
+    owner_entity_id: str,
+    title: str,
+    steps: list[PlanStep],
+    active_step_index: Optional[int] = None,
+) -> Agenda:
+    """Persist one full day plan (TICKET-0075, BRIEF-0075-b): one `agenda`
+    owned by the player (via `write_agenda` — its ACTIVE-owner and
+    one-active-agenda guards apply unchanged, S3), its `agenda_step` rows in
+    order with `cost`/`domain`, and their `agenda_step_requirement` rows.
+
+    All-or-nothing (Scope IN item 5): `_clean_plan_steps` validates every
+    step and every requirement BEFORE any row is constructed — mirrors
+    `write_npc_goal_prerequisites`'s validate-then-write shape. `steps` is a
+    plan in full (F1: the model emits the whole objective list); the budget
+    cut decides only which ONE step is written `status="active"`
+    (`active_step_index`, 0 or None — every other step is `"pending"`, and
+    the partial unique index, M2, is the structural guarantee that at most
+    one ever is).
+    """
+    if not steps:
+        raise ValueError("write_day_plan: steps must be non-empty")
+    if active_step_index is not None and not (0 <= active_step_index < len(steps)):
+        raise ValueError(f"write_day_plan: active_step_index {active_step_index!r} out of range")
+
+    clean_steps = _clean_plan_steps(db, world_id, steps)
+
+    agenda = write_agenda(db, world_id=world_id, owner_entity_id=owner_entity_id, title=title)
+    for step_index, (step, clean_requirements) in enumerate(clean_steps):
+        agenda_step = write_agenda_step(
+            db,
+            agenda_id=agenda.id,
+            step_order=step_index + 1,
+            objective=step.objective,
+            status="active" if step_index == active_step_index else "pending",
+            cost=step.cost,
+            domain=step.domain,
+        )
+        for clean in clean_requirements:
+            db.add(AgendaStepRequirement(world_id=world_id, step_id=agenda_step.id, **clean))
 
     return agenda
