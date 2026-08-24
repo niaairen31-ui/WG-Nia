@@ -264,6 +264,27 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         call_sites=("src/world_engine/day_plan.py:emit_plan",),
         default_model=_game_model,
     ),
+    "day_extract_place": PromptSpec(
+        surface="play",
+        world_scoped=True,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/day_extract.py:extract_places",),
+        default_model=_game_model,
+    ),
+    "day_extract_person": PromptSpec(
+        surface="play",
+        world_scoped=True,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/day_extract.py:extract_persons",),
+        default_model=_game_model,
+    ),
+    "day_extract_faction": PromptSpec(
+        surface="play",
+        world_scoped=True,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/day_extract.py:extract_factions",),
+        default_model=_game_model,
+    ),
     "conversation_summary": PromptSpec(
         surface="play",
         world_scoped=True,

@@ -66,6 +66,14 @@ ALLOWED_MODULES = {
     # which is what would catch a real reader appearing in tooling/glue/
     # or tooling/pipeline_cockpit/.
     "tooling/verify/checks/observation_runner.py",
+    # TICKET-0075/BRIEF-0075-c (M4): the occupation-matching rung reads
+    # STANDING goals ONLY (`kind='standing'`, reached through
+    # `npc_schedule.standing_goal_id` — the occupation index) to resolve a
+    # role hint to a canon NPC id. `description` text is compared in Python
+    # and never leaves this module: only the resolved entity id (never goal
+    # content) reaches a payload, a response or a model prompt — the
+    # allowlist grows by a READ MODULE, same precedent as observation_reads.py.
+    "src/world_engine/day_concordance.py",
 }
 
 FAILURES: list[str] = []

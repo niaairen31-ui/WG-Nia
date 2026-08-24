@@ -2431,6 +2431,118 @@ Décompose cette déclaration en étapes.\
         destination="local",
     )
 
+    # ----- prompt templates: day extraction (TICKET-0075, BRIEF-0075-c) -----
+    # Three SEPARATE passes (usages day_extract_place/person/faction), one
+    # call each — deliberately not combined (day_extract.py's module
+    # docstring). Positive-form only: the gameplay model is abliterated and
+    # does not reliably follow negative constraints, so each prompt asks
+    # only for what to emit. Neither prompt is handed the registry (C1) —
+    # only the declaration and a compact, secret-free world frame ({world_frame}).
+    DAY_EXTRACT_PLACE_SYSTEM_PROMPT = """\
+Tu identifies les LIEUX mentionnés ou clairement impliqués par la \
+déclaration du jour d'un joueur.
+
+Pour chaque lieu, indique :
+- "surface_form" : les mots utilisés par le joueur pour désigner ce lieu.
+- "kind" : "named" si un nom précis est donné, "inferred" si seule une \
+fonction ou un type de lieu est décrit, sans nom.
+- "role_hint" : uniquement quand "kind" vaut "inferred" — la fonction du \
+lieu recherché (par exemple "une taverne près des quais", "l'échoppe d'un \
+marchand de tissus").
+
+Émets au maximum 8 lieux, fondés uniquement sur la déclaration et le \
+contexte du monde fournis.
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien \
+d'autre :
+{"mentions":[{"surface_form":"<...>","kind":"named|inferred","role_hint":"<...>"}]}\
+"""
+
+    DAY_EXTRACT_PERSON_SYSTEM_PROMPT = """\
+Tu identifies les PERSONNAGES mentionnés ou clairement impliqués par la \
+déclaration du jour d'un joueur.
+
+Pour chaque personnage, indique :
+- "surface_form" : les mots utilisés par le joueur pour désigner cette \
+personne.
+- "kind" : "named" si un nom précis est donné, "inferred" si seule une \
+fonction est décrite, sans nom (par exemple "un receleur", "quelqu'un qui \
+connaît les registres de la guilde").
+- "role_hint" : uniquement quand "kind" vaut "inferred" — la fonction \
+recherchée (par exemple "une vendeuse de fleurs", "un receleur", \
+"quelqu'un qui connaît les registres de la guilde").
+
+Émets au maximum 8 personnages, fondés uniquement sur la déclaration et le \
+contexte du monde fournis.
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien \
+d'autre :
+{"mentions":[{"surface_form":"<...>","kind":"named|inferred","role_hint":"<...>"}]}\
+"""
+
+    DAY_EXTRACT_FACTION_SYSTEM_PROMPT = """\
+Tu identifies les FACTIONS ou GROUPES mentionnés ou clairement impliqués \
+par la déclaration du jour d'un joueur.
+
+Pour chaque faction, indique :
+- "surface_form" : les mots utilisés par le joueur pour désigner ce groupe.
+- "kind" : "named" si un nom précis est donné, "inferred" si seul un type \
+de groupe est décrit, sans nom (par exemple "une bande qui contrôle les \
+docks").
+- "role_hint" : uniquement quand "kind" vaut "inferred" — la fonction du \
+groupe recherché.
+
+Émets au maximum 8 factions, fondées uniquement sur la déclaration et le \
+contexte du monde fournis.
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien \
+d'autre :
+{"mentions":[{"surface_form":"<...>","kind":"named|inferred","role_hint":"<...>"}]}\
+"""
+
+    DAY_EXTRACT_USER_TEMPLATE = """\
+Monde : {world_frame}
+Déclaration du jour : {declaration}
+
+Identifie les mentions demandées.\
+"""
+
+    upsert_prompt_template(
+        session,
+        "pt-day-extract-place",
+        world_id=None,
+        name="Extraction du jour — lieux",
+        usage="day_extract_place",
+        system_prompt=DAY_EXTRACT_PLACE_SYSTEM_PROMPT,
+        user_template=DAY_EXTRACT_USER_TEMPLATE,
+        variables=["declaration", "world_frame"],
+        destination="local",
+    )
+
+    upsert_prompt_template(
+        session,
+        "pt-day-extract-person",
+        world_id=None,
+        name="Extraction du jour — personnages",
+        usage="day_extract_person",
+        system_prompt=DAY_EXTRACT_PERSON_SYSTEM_PROMPT,
+        user_template=DAY_EXTRACT_USER_TEMPLATE,
+        variables=["declaration", "world_frame"],
+        destination="local",
+    )
+
+    upsert_prompt_template(
+        session,
+        "pt-day-extract-faction",
+        world_id=None,
+        name="Extraction du jour — factions",
+        usage="day_extract_faction",
+        system_prompt=DAY_EXTRACT_FACTION_SYSTEM_PROMPT,
+        user_template=DAY_EXTRACT_USER_TEMPLATE,
+        variables=["declaration", "world_frame"],
+        destination="local",
+    )
+
     # ----- factions (entity + faction) --------------------------------------
     # L'Innommée — existence denied in public discourse.
     get_or_create(

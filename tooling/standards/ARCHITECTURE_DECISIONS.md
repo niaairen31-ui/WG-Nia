@@ -12954,4 +12954,129 @@ not yet reachable from a live declaration, because extraction/concordance
 
 ---
 
+## EXTRACTION AND CONCORDANCE — the resolver never authors (BRIEF-0075-c, no schema change)
+
+**C1 — the whole shape.** A day plan is emitted against the player's raw
+words: "find whoever stole the guild seal" names a faction and an object,
+and implies a fence, a district, a contact — none of it resolved to canon.
+This step resolves it, and the ONE rule governing every path through it is:
+**the resolver never authors.** On a match it uses the canon id. Failing
+that, the day names a FUNCTION WITHOUT IDENTITY ("a flower seller set up
+near the east gate") and emits an `entity_creation` germ carrying the hint —
+the SAME parked-germ mechanism BRIEF-0019-a built for the tick
+(`_approve_entity_creation_shortcircuit`, byte-identical here: approval
+PARKS, it never authors synchronously). The NPC becomes canon only when Nia
+realises it in the Creation tab; at that moment it was already there,
+narratively free.
+
+**Two-model, one-code shape.** Three SEPARATE extraction passes
+(`day_extract.py`: `extract_places`/`extract_persons`/`extract_factions`,
+usages `day_extract_place`/`day_extract_person`/`day_extract_faction`) read
+the declaration and a compact, secret-free world frame
+(`World.name`/`.description` — no per-entity query backs it, so nothing else
+can leak through it) and return `Mention`s: `surface_form` (the player's
+words), `kind` (`named`|`inferred`), and for `inferred` mentions a
+`role_hint` (the FUNCTION needed). **They never see the registry** — R2
+(`tooling/verify/checks/day_concordance.py`) asserts no `select(` in
+`day_extract.py` references `Entity`, `Faction` or `Location`. Handing a
+model the registry invites it to invent a plausible id; matching stays
+Python, against real rows, in `day_concordance.py` — "another AI with the
+full registry" from the design conversation, resolved to code, which is
+strictly better: a lookup cannot hallucinate an id.
+
+**Four matching rungs, tried in order, stopping at the first hit**
+(`day_concordance.MATCHING_RUNGS`, dispatched through `_RUNG_LOOKUPS` — the
+same one-tuple/one-dict idiom as `schedule_reads.PRESENT_PRECEDENCE`/
+`_SOURCE_LOOKUPS`, bijection-checked by R6):
+1. `named_exact` — `surface_form` against entity names in the active world,
+   case-folded, scoped by `Entity.world_id` at query construction.
+2. `named_alias` — an alias/cover-role surface. Measured: none exists.
+   `faction_membership.cover_role` is a faction ROLE label (a title), never
+   a person's name — using it here would conflate "what someone is called"
+   with "what someone is called *by their faction*." This rung is a
+   structural no-op, reported once as skipped, per mention, NOT built for
+   the occasion (Scope OUT: alias infrastructure).
+3. `occupation` — persons, `inferred` only: `role_hint` keywords (casefolded,
+   stopword- and length-filtered) against STANDING goals
+   (`npc_goal.kind='standing'`) reached through
+   `npc_schedule.standing_goal_id` — **the occupation index** landed by
+   TICKET-0074. "Who is a flower seller" is answered by joining a schedule
+   row to its standing goal, never by reading free text elsewhere. Goal
+   `description` text is compared in Python and never leaves this module:
+   only the resolved entity id (never goal content) reaches a payload, a
+   response, or a model prompt — `npc_goal_read.py`'s allowlist grew by this
+   one READ MODULE, same precedent as `observation_reads.py`, because N1's
+   real concern (goal content leaking into a prompt) does not apply to an
+   id-only consumer.
+4. `presence` — persons, `inferred` only, only when a PLACE mention already
+   matched within the SAME `concord()` call: `who_is_at` (the one sanctioned
+   positional read, `schedule_reads.py`) swept across all four
+   `SCHEDULE_PHASES` for each matched place. Consumed through the public
+   accessor only — no new precedence term, no edit to `where_is`'s dispatch
+   (Scope OUT, defended by R4's constructor scan).
+
+**Ambiguity is reported, never resolved by picking.** Two or more equally
+good candidates at any rung is `ambiguous`, carrying every candidate id — the
+mention is treated as unmatched for germ purposes (no germ) but reported
+distinctly, so Nia sees the engine hesitated rather than failed. Measured in
+execution: a place-scoped `presence` rung can widen past two candidates (a
+busy tavern scene) — "two or more" is the real rule, not "exactly two."
+
+**Persons only; places and factions are reported, never germinated.** A
+location germ drags in the location tree, doors, geometry and four
+fail-closed checks — explicitly deferred to a location-symmetry ticket. A
+faction the player invents is a misunderstanding to surface, not an entity
+to create. `emit_germs` filters `mention.category == "person"` before
+constructing a single `ProposedMutation` — R3 asserts every constructed row
+sets `source_type='pass_play'`, `mutation_type='entity_creation'`,
+`status='proposed'`, and nothing else.
+
+**The germ payload matches what the Creation tab actually reads.** Measured
+from `list_pending_creations`/`generate_creation_draft`
+(`cockpit/routes/creator.py`): `entity_type` (`"character"`), `name`
+(falls back across `name|title`), `concept` (`concept|description|content`),
+`anchor`. The germ payload carries all four PLUS `role_hint`,
+`surface_form`, `kind`, and `candidate_location_id` — the anchoring context
+concordance had, even when rung 4 tried and missed. `rationale` states which
+rungs were tried and missed, so a germ reads as reviewable, not mysterious.
+
+**Writes split by construction, not by convention.** `day_concordance.py`
+contains no `db.add(`, no `.commit(`, no `chat(` (R1) — `concord` and
+`emit_germs` return objects; the route (`cockpit/routes/day.py`,
+`_extract_and_concord`) adds them to the session. Germs commit in the SAME
+transaction as the plan — all-or-nothing: an extraction or concordance
+failure reports and stops before anything is staged, matching the existing
+`write_day_plan` all-or-nothing convention rather than inventing a second
+one.
+
+**The plan receives resolved context as text, never as a template
+placeholder.** `day_plan.emit_plan` gained a `concordance_summary: str = ""`
+parameter (`day_concordance.plan_context` builds it), appended to the user
+message in code — deliberately NOT woven into the seeded `{declaration}`
+template via a new `{concordance}` placeholder. S2 (prompt text is
+append-only, locked after v1) means a placeholder added to
+`DAY_PLAN_USER_TEMPLATE`'s source would be inert on any already-provisioned
+world; appending in code sidesteps that entirely and needs no reseed. A
+matched mention reaches the model as a resolved name; an unmatched person
+reaches it as a role — never a canon id the model could misuse, since
+`relation_gte`/`location_reachable` requirements stay out of the model's
+reach (BRIEF-0075-b's own forward note, honored: no requirement-schema
+wiring lands here, only prompt-facing text).
+
+**Response shape.** `POST /api/day/{batch_id}/plan` gains a `concordance`
+block: matched mentions with resolved display names, ambiguous ones with
+candidate counts, unmatched ones with role hints and germ ids. Entity ids
+for MATCHED mentions may appear; germ ids may appear; no `agenda_id`, no
+`step_id` — unchanged from BRIEF-0075-b's posture, reasserted by
+`pipeline_wiring.py`.
+
+Verified live (not only by the check suite): a canned-model smoke run
+against a seeded world confirmed rung 1 (named place and person), rung 3
+(a planted `standing` goal resolving a French role hint), an `ambiguous`
+outcome from a busy-tavern `presence` sweep, and the full germ lifecycle —
+construct, approve, PARK — with the world's `entity` row count asserted
+unchanged before germ emission, after germ emission, and after approval.
+
+---
+
 *Co-built with Claude, June 2026.*
