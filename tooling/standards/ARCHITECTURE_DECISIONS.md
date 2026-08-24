@@ -12812,6 +12812,46 @@ the criterion most likely to surprise on first live-gate pass. The
 initiative vote's standing fragment (TICKET-0073, N1) is untouched by this
 gate: L1 withholds the dialogue section only.
 
+## DAY DECLARATION SOCLE — the day is the batch, an explicit ordinal, a new surface (BRIEF-0075-a, schema v1.93)
+
+**L1 — the day IS the batch; the day number is its ordinal.** No new world
+column: `Batch` already existed (declared since the pipeline package split)
+but had never had a reader, a standing "no structure without a reader"
+violation this step clears. Rejected L2 (`world.current_day` — a second
+temporal authority beside the deliberately inert `current_phase`) and L3
+(no day counter, everything relative — fragile as soon as a rendezvous is
+at D+2).
+
+**U1 — the ordinal is an explicit column, unique per session.**
+`Batch.day_number: int NOT NULL` plus a unique index on
+`(session_id, day_number)` — decided over U2 (derive by row number over
+`created_at`: no migration, but the ordinal is never stable — a deleted or
+reordered row would renumber every day after it) and U3 (reuse
+`Session.number`, one batch per session: a session is a period of PLAY, not
+a world day, and `cockpit/play.py`'s `_get_or_open_session` already creates
+sessions for live conversations — collapsing the two would make a
+conversation and a declared day compete for the same counter).
+`writes.write_batch` is the sole allocator (`max(day_number) + 1` per
+`session_id`, or `1` for a session with none); no update path exists.
+
+**Q1 — a new, minimal Svelte surface, independent of Play.** `Journée`
+(`frontend/src/journee/`) is a sibling of `Creation`/`Observation`,
+following the same `active`-prop mount pattern (declare / read the
+account only — no legacy bridge call). Rejected Q2 (grafting onto legacy
+Play — adds legacy after the TICKET-0061 doctrine seal) and Q3 (API only —
+the chain could not be PLAYED). A rendezvous conversation still runs in
+the legacy Play surface until TICKET-0069; this brief's surface is
+declaration-only and reads no agenda.
+
+This step is PLUMBING ONLY: `POST /api/day/declare`, `GET /api/days`,
+`GET /api/day/{id}` (new `cockpit/routes/day.py`) store and read back a
+declaration; nothing resolves, and no model is called anywhere in this
+brief. `declared_action` is write-once by construction (`writes/pipeline.py`'s
+`PassPlay(...)` constructor is the only site that ever sets it) —
+resolution, plan emission, concordance and narration are later briefs,
+tracked as decisions I1 (rendezvous is a pointer, not a scene) and the
+open mutation-type/budget/rewrite-guard questions still gating them.
+
 ---
 
 *Co-built with Claude, June 2026.*

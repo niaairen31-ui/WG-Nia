@@ -29,9 +29,19 @@ from .canon import _created_ts, _uuid
 # -----------------------------------------------------------------------------
 class Batch(SQLModel, table=True):
     __tablename__ = "batch"
+    __table_args__ = (
+        Index("idx_batch_session_day", "session_id", "day_number", unique=True),
+    )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     session_id: str = Field(foreign_key="session.id", nullable=False)
+    # The day IS the batch ordinal (L1), scoped to its session (U1,
+    # TICKET-0075, BRIEF-0075-a). Always assigned explicitly by
+    # `writes.write_batch` (max(day_number) + 1 per session) -- no Python
+    # default, matching `Session.number`'s convention. `server_default='0'`
+    # exists only to satisfy SQLite's ADD COLUMN ... NOT NULL requirement on
+    # the migration path; every real row's value comes from the write path.
+    day_number: int = Field(sa_column_kwargs={"server_default": text("0")})
     status: str = Field(
         default="pending",
         sa_column_kwargs={"server_default": text("'pending'")},

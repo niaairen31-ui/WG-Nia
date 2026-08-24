@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.92
+Current schema version: v1.93
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -825,6 +825,10 @@ Grouping of pass-plays for consolidated processing.
 CREATE TABLE batch (
   id                    TEXT PRIMARY KEY,
   session_id            TEXT NOT NULL REFERENCES session(id),
+  day_number            INTEGER NOT NULL DEFAULT 0,
+                        -- the day IS the batch ordinal (L1), scoped to its
+                        -- session (U1); allocated by writes.write_batch as
+                        -- max(day_number) + 1 per session_id
   status                TEXT DEFAULT 'pending',
                         -- pending | local_analysis | ready_checkpoint_1 |
                         -- approved_checkpoint_1 | sent_to_claude |
@@ -839,6 +843,7 @@ CREATE TABLE batch (
   processed_at          DATETIME,
   applied_at            DATETIME
 );
+-- idx_batch_session_day: UNIQUE (session_id, day_number).
 ```
 
 -----
