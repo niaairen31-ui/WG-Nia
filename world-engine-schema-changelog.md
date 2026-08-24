@@ -13,6 +13,25 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v1.93** — Added `batch.day_number` (INTEGER NOT NULL DEFAULT 0) and a
+  unique index `idx_batch_session_day` on `(session_id, day_number)`.
+  TICKET-0075, BRIEF-0075-a, decision U1: the day IS the batch ordinal
+  (decision L1), and the ordinal is an explicit column, scoped to the
+  session — two sessions may each hold a "day 1". Allocated only by the new
+  `writes.write_batch` (`max(day_number) + 1` per `session_id`, or `1` for
+  a session with none); no update path exists. Purely additive: every
+  existing `batch` row takes the column default, then the migration's
+  backfill branch assigns real per-session ordinals before the unique
+  index is created (dead in this project's state — `batch` was empty at
+  migration time). This step also opens `Batch`/`PassPlay` to their first
+  reader: `POST /api/day/declare`, `GET /api/days`, `GET /api/day/{id}`
+  (new `cockpit/routes/day.py`), backed by `writes/pipeline.py`
+  (`write_batch`, `write_pass_play`, `PASS_PLAY_STATUSES`). `declared_action`
+  is write-once by construction — no update path exists anywhere. No
+  resolution, plan emission, or model call of any kind is introduced by
+  this step. New shell-native surface `/journee` (`frontend/src/journee/`),
+  a sibling of Play/Création/Observation.
+
 - **v1.92** — Added `npc_schedule` (standing per-phase location default: `id`,
   `world_id`, `npc_id`, `phase` CHECK `phase IN ('matin','apres-midi','soir',
   'nuit')`, `location_id`, nullable `standing_goal_id` FK to `npc_goal`,

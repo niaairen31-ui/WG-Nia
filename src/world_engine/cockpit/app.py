@@ -52,6 +52,7 @@ from ..models import LinkBatch, LinkBatchRow, NpcBatch, NpcBatchRow, SchemaMeta
 from ..schema_version import EXPECTED_STATIC_SCHEMA_VERSION
 from . import crud as _crud
 from .routes import creator as _routes_creator
+from .routes import day as _routes_day
 from .routes import link_agent as _routes_link_agent
 from .routes import mutations as _routes_mutations
 from .routes import npc_agent as _routes_npc_agent
@@ -114,6 +115,7 @@ class _FreshnessAwareStaticFiles(StaticFiles):
 app = FastAPI(title="World Engine Cockpit", docs_url=None, redoc_url=None)
 app.include_router(_crud.router)
 app.include_router(_routes_creator.router)
+app.include_router(_routes_day.router)
 app.include_router(_routes_regions.router)
 app.include_router(_routes_prompts.router)
 app.include_router(_routes_mutations.router)
@@ -281,7 +283,7 @@ def serve_legacy() -> HTMLResponse:
 #
 # This literal is mirrored by SHELL_ROUTES in frontend/src/lib/router.js;
 # tooling/verify/checks/legacy_mount.py asserts the two agree.
-_SHELL_ROUTES = ("/", "/play", "/creation", "/creation/{sub_tab}", "/observation")
+_SHELL_ROUTES = ("/", "/play", "/creation", "/creation/{sub_tab}", "/observation", "/journee")
 
 
 def _serve_shell() -> HTMLResponse:

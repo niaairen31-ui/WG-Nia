@@ -14,9 +14,9 @@ and `world-engine-schema-changelog.md` — never here.
 
 - Python, FastAPI, SQLModel, SQLite (Supabase/PostgreSQL migration path
   preserved via the env-var DB URL).
-- Frontend: a built Svelte shell (`frontend/`) serves the cockpit at `/`. Creation and Observation
-  are shell-native Svelte components, mounted directly by `App.svelte`; Play alone stays legacy
-  (`/legacy`, one governed iframe, `cockpit/legacy.html`), sealed rather than migrated by
+- Frontend: a built Svelte shell (`frontend/`) serves the cockpit at `/`. Creation, Observation and
+  Journée are shell-native Svelte components, mounted directly by `App.svelte`; Play alone stays
+  legacy (`/legacy`, one governed iframe, `cockpit/legacy.html`), sealed rather than migrated by
   TICKET-0061, until its own ticket (TICKET-0069). No new dependency without a decision.
 - Local models via Ollama; Claude API reserved for heavy lore-coherence work.
 - Runtime: Windows / PowerShell — `.venv\Scripts\Activate.ps1`,

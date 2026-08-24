@@ -21,6 +21,7 @@ Layout, by canon domain:
     events.py           — `event`.
     prompts.py          — `prompt_version`/`prompt_variable` (non-canon;
                           moved for module hygiene, not policy).
+    pipeline.py         — `batch`/`pass_play` (TICKET-0075, BRIEF-0075-a).
     worlds.py           — `delete_world_cascade` (the sole delete-side
                           helper, wildcard-allowed in canon_write_policy.txt).
 
@@ -75,6 +76,7 @@ from .knowledge import (
     knowledge_level_rank,
     write_knowledge,
 )
+from .pipeline import MAX_DECLARATION_CHARS, PASS_PLAY_STATUSES, write_batch, write_pass_play
 from .prompts import (
     _PLACEHOLDER_RE,
     PromptValidationError,
