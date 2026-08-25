@@ -13644,6 +13644,68 @@ guard.py`/`day_plan.py` — reported here only because they were observed
 during this brief's live-testing, exactly as CLAUDE.md's testing guidance
 asks; not fixed, as fixing them is out of this brief's scope.
 
+## THE REMAINING-WORK INVARIANT AND THE RESOLVE PRECONDITION (BRIEF-0075-f, no schema change)
+
+**BB1 (locked with Nia) — two structural fixes, discovered mid-execution of
+BRIEF-0075-f, landed ahead of that brief's own commit.**
+
+**Part 1 — the remaining-work invariant.** `day_resolve._load_evaluated_steps`
+loaded EVERY `agenda_step` row for the agenda, unconditionally, and fed all
+of them into `budget_cut`, which always walks starting at the lowest
+`step_order`. Harmless while an agenda could never outlive a single day
+(BRIEF-0075-b through -e refused a second declaration on an active agenda
+outright — the S3 refusal BRIEF-0075-f replaces). Once continuation is
+real, the first time Nia approves a prior day's `agenda_step_change`
+(moving a step to `completed`), the NEXT day's `/resolve` would still
+re-include and re-roll that same completed step forever — the greedy walk
+can never progress past step 1 once it is done. The resulting mutation
+would be safely REJECTED at approval time by the applier's existing stale
+guard (`step.status != "active"`), so canon was never at risk; only the
+day's own dice and narration were wrong, repeatedly.
+
+`_load_evaluated_steps` now excludes `agenda_step` rows already at a
+TERMINAL status (`completed`, `failed`) from its walk — the agenda's
+REMAINING work only, on every call, present or future. This is safe under
+REPLAY (Scope IN item 5, BRIEF-0075-d): under V1, `day_resolve.py` writes
+no canon, so a step's status only ever moves when Nia approves the
+corresponding `agenda_step_change` mutation — an action structurally
+decoupled from `/resolve` itself. A replay called before that approval
+therefore never encounters a step that "moved" out from under it; nothing
+about REPLAY ever depended on terminal-status rows being in the walk.
+
+**Part 2 — the resolve precondition.** Excluding terminal steps closes the
+APPROVED case completely, but leaves the RESOLVED-BUT-UNAPPROVED case open:
+a step `/resolve` proposed yesterday, still sitting at `status='proposed'`
+in the queue, keeps its `AgendaStep.status` as `active`/`pending` — so
+today's walk re-rolls it and today's narration replays the same beats a
+second time. Canon still cannot be corrupted (the stale guard holds), but
+the day ACCOUNT would lie about what happened.
+
+`POST /api/day/{batch_id}/resolve` now refuses, fail-closed
+(`_guard_no_pending_agenda_step_change`, `routes/day.py`), when the
+standing agenda carries ANY `agenda_step_change` proposal still
+`status='proposed'` — deliberately with NO distinction between a mutation
+THIS batch just emitted and one a PRIOR day emitted. This is the
+structural expression of A1's rhythm (the world does not advance while
+proposals about it are unreviewed) extended from "no direct write" to "no
+further resolution either." It also means a REPLAY of the SAME day is now
+gated exactly like a NEXT day's continuation: rejecting a resolution
+rejects its own proposals, which clears the precondition and unblocks the
+replay — one rule, one rhythm, not an exception carved out for same-batch
+proposals. The check is ONE precondition query, self-contained in
+`routes/day.py`: `day_resolve.py` has no business knowing the review queue
+exists (unchanged discipline), so the walk itself stays uncoupled from
+`ProposedMutation`.
+
+**Verify.** `tooling/verify/checks/day_narration.py` R12 (the remaining-
+work invariant: the terminal-status constant and the `.not_in(...)`
+exclusion are both located, not presumed) and
+`tooling/verify/checks/day_mutations.py` R12 (the resolve precondition:
+the guard filters `mutation_type='agenda_step_change'` at
+`status='proposed'`, raises a 409, and is actually called from
+`resolve_day`) — both fail-closed and vacuity-guarded, each observed
+FAILING under a deliberate local mutation before revert.
+
 ---
 
 *Co-built with Claude, June 2026.*

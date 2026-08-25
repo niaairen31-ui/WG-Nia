@@ -578,6 +578,43 @@ def _load_active_agenda(character: Character, db: Session) -> Agenda:
     return agenda
 
 
+def _guard_no_pending_agenda_step_change(agenda: Agenda, db: Session) -> None:
+    """BB1 (locked with Nia): `/resolve` refuses, fail-closed, while ANY
+    `agenda_step_change` proposal for this agenda is still `status=
+    'proposed'` — no distinction between a mutation this SAME batch just
+    emitted and one a PRIOR day emitted. This is the structural expression
+    of A1's rhythm (the world does not advance while proposals about it
+    are unreviewed), extended from "no direct write" to "no further
+    resolution either": a REPLAY of THIS day is blocked exactly the same
+    way a NEXT day's continuation is, until Nia approves or rejects what
+    is already in the queue — one rule, not an exception for same-batch
+    proposals. `day_resolve.py` has no business knowing the queue exists
+    (`writes/pipeline.py`'s discipline, unchanged) — this precondition
+    lives here, one query, never coupled into the walk itself."""
+    step_ids = set(
+        db.exec(select(AgendaStep.id).where(AgendaStep.agenda_id == agenda.id)).all()
+    )
+    if not step_ids:
+        return
+    pending = db.exec(
+        select(ProposedMutation).where(
+            ProposedMutation.mutation_type == "agenda_step_change",
+            ProposedMutation.status == "proposed",
+        )
+    ).all()
+    pending_count = sum(
+        1 for m in pending if isinstance(m.payload, dict) and m.payload.get("step_id") in step_ids
+    )
+    if pending_count:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{pending_count} agenda_step_change proposal(s) for {agenda.title!r} are still "
+                "awaiting review — approve or reject them before resolving again"
+            ),
+        )
+
+
 def _resolve_response(fact_sheet: FactSheet, prose: str, is_replay: bool) -> dict:
     """No `agenda_id`, no `step_id`, no fact-sheet internals beyond what the
     player should see (Scope IN item 5)."""
@@ -709,7 +746,10 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     `pass_play.status` must be `resolving` (first resolve) or `resolved`
     (a replay — the SAME immutable `declared_action` re-run, appending a
     SECOND `history` entry; the first stays intact). The character must
-    hold an active agenda — the plan `/plan` wrote.
+    hold an active agenda — the plan `/plan` wrote. BB1 (BRIEF-0075-f):
+    the agenda must also carry NO `agenda_step_change` proposal still
+    `status='proposed'` — a replay of THIS day is refused exactly like a
+    NEXT day's continuation would be, until Nia clears the queue.
     """
     world_id = _crud._world_id(db)
     # Annotated single-name assignments, not a tuple-unpack
@@ -721,6 +761,7 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     pass_play: PassPlay = row[1]
     character = _resolve_player_character(world_id, db)
     agenda = _load_active_agenda(character, db)
+    _guard_no_pending_agenda_step_change(agenda, db)
     is_replay = pass_play.status == "resolved"
 
     # BRIEF-0075-g, Y1: the veto's retained count was decided once at
