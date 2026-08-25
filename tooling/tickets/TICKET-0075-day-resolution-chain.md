@@ -234,26 +234,27 @@ not only in briefs. Flagged for reversal.
 - [ ] A day has a stable, unique ordinal; two batches in one session cannot
       share it  -> verify/checks/pipeline_wiring.py
 - [ ] No write path updates `PassPlay.declared_action` after insert; replays
-      append to `PassPlay.history`  -> verify/checks/declaration_immutable.py
+      append to `PassPlay.history`  -> verify/checks/day_narration.py (R7, R8)
 - [ ] The day budget is a declared Python constant; step costs are summed and
       cut in Python, with no model call on the cut path
-      -> verify/checks/day_plan_budget.py
+      -> verify/checks/day_plan.py (R4, R7)
 - [ ] The `requires` vocabulary is a closed constant of exactly four forms, each
       with a named evaluator; an unknown form fails closed
-      -> verify/checks/day_plan_budget.py
+      -> verify/checks/day_plan.py (R1, R2)
 - [ ] The rewrite pass is guarded: proper nouns emitted are a subset of the
       authorised set and every fact-sheet outcome survives; zero facts collected
-      is a failure, not a pass  -> verify/checks/narration_guard.py
+      is a failure, not a pass  -> verify/checks/day_narration.py (R5, R6)
 - [ ] Mutations emitted with `source_type='pass_play'` are drawn from the
       declared whitelist, `npc_move` is absent, and every row enters at
-      `proposed`  -> verify/checks/passplay_mutation_types.py
-- [ ] The chain reads no agenda for a position and adds no term to
-      `schedule_reads.py`'s precedence tuples
-      -> verify/checks/npc_schedule.py (extension)
+      `proposed`  -> verify/checks/day_mutations.py (R1, R2, R3)
+- [ ] The chain reads no agenda for a position (the positional wall)
+      -> verify/checks/day_plan.py (R5, R6)
+- [ ] The chain adds no term to `schedule_reads.py`'s precedence tuples
+      -> verify/checks/npc_schedule.py
 - [ ] No API response reachable from the new surface carries an agenda payload
-      -> verify/checks/day_surface_boundary.py
+      -> verify/checks/day_mutations.py (R7)
 - [ ] Every check above is fail-closed and vacuity-guarded; zero items collected
-      is a failure  -> corpus_gate.py
+      is a failure  -> verify/checks/corpus_gate.py
 
 ### Live  ->  human gate (Nia)
 

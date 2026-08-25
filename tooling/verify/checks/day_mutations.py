@@ -45,6 +45,10 @@ time — never restated as a literal here or in `day_mutations.py`).
 R11: no payload built in the day chain sets a `subject`/`entity_a_id`/
 `entity_b_id`-style subject key inside an `agenda_step_change` payload —
 the applier forces the subject; this module must never propose one.
+R12 (BRIEF-0075-f, decision BB1): `resolve_day` refuses, fail-closed, while
+any `agenda_step_change` proposal for the standing agenda is still
+`status='proposed'` — asserts the guard exists, filters on the right
+type/status, raises a 409, and is actually called from `resolve_day`.
 """
 from __future__ import annotations
 
@@ -484,6 +488,55 @@ def check_no_forced_subject_in_payload() -> None:
         fail("day_mutations R11: zero day-chain files parsed — vacuous")
 
 
+def check_resolve_precondition() -> None:
+    """R12 (BRIEF-0075-f, decision BB1): `resolve_day` refuses, fail-closed,
+    while any `agenda_step_change` proposal for the standing agenda is
+    still `status='proposed'` — the structural expression of A1's rhythm
+    (the world does not advance while proposals about it are unreviewed).
+    Asserts the guard function exists, queries `ProposedMutation` for
+    `mutation_type='agenda_step_change'` at `status='proposed'`, raises a
+    409, and is actually CALLED from `resolve_day` — not merely present
+    somewhere in the file."""
+    tree = _parse(DAY_ROUTE_FILE)
+    if tree is None:
+        fail(f"day_mutations R12: {_rel(DAY_ROUTE_FILE)} not found or unparsable")
+        return
+
+    guard_fn = _find_function(tree, "_guard_no_pending_agenda_step_change")
+    if guard_fn is None:
+        fail(f"day_mutations R12: {_rel(DAY_ROUTE_FILE)}: _guard_no_pending_agenda_step_change not found")
+        return
+
+    constants = {n.value for n in ast.walk(guard_fn) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+    if "agenda_step_change" not in constants:
+        fail(f"day_mutations R12: {_rel(DAY_ROUTE_FILE)}: guard does not filter mutation_type='agenda_step_change'")
+    if "proposed" not in constants:
+        fail(f"day_mutations R12: {_rel(DAY_ROUTE_FILE)}: guard does not filter status='proposed'")
+
+    raises_409 = any(
+        isinstance(n, ast.Raise) and any(
+            isinstance(kw.value, ast.Constant) and kw.value.value == 409
+            for call in ast.walk(n) if isinstance(call, ast.Call)
+            for kw in call.keywords if kw.arg == "status_code"
+        )
+        for n in ast.walk(guard_fn)
+    )
+    if not raises_409:
+        fail(f"day_mutations R12: {_rel(DAY_ROUTE_FILE)}: guard does not raise HTTPException(status_code=409, ...)")
+
+    resolve_fn = _find_function(tree, "resolve_day")
+    if resolve_fn is None:
+        fail(f"day_mutations R12: {_rel(DAY_ROUTE_FILE)}: resolve_day not found")
+        return
+    calls_guard = any(
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        and n.func.id == "_guard_no_pending_agenda_step_change"
+        for n in ast.walk(resolve_fn)
+    )
+    if not calls_guard:
+        fail(f"day_mutations R12: {_rel(DAY_ROUTE_FILE)}: resolve_day never calls the precondition guard")
+
+
 def main() -> None:
     check_bijection()
     check_npc_move_absent()
@@ -495,6 +548,7 @@ def main() -> None:
     check_entity_creation_shortcircuit_authors_nothing()
     check_effects_contract()
     check_no_forced_subject_in_payload()
+    check_resolve_precondition()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -502,7 +556,8 @@ def main() -> None:
     print(
         "PASS: day_mutations — emission bijection, npc_move absence, status/vocabulary "
         "discipline, never-applies, every-type-applicable, route shape, no agenda_id/step_id, "
-        "entity_creation parks, the effects contract, and no forced subject are all intact"
+        "entity_creation parks, the effects contract, no forced subject, and BB1's resolve "
+        "precondition are all intact"
     )
     sys.exit(0)
 

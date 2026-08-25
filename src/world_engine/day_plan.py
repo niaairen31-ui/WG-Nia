@@ -339,6 +339,7 @@ def _validate_step(raw: object) -> PlanStep:
 
 def emit_plan(
     declaration: str, character: Character, db: Session, concordance_summary: str = "",
+    standing_steps_summary: str = "",
 ) -> list[PlanStep]:
     """ONE model call (F1). Parses through `llm_parse.extract_object`;
     domain/shape validation stays here per M9's contract. A parse failure or
@@ -346,12 +347,14 @@ def emit_plan(
     (unlike `gathering.py`'s solo-partition fallback: a day plan gates real
     play consequences, a silent partial plan would be worse than none).
 
-    `concordance_summary` (BRIEF-0075-c) is appended verbatim to the user
-    message, never woven into the seeded template text: a matched mention
-    reaches the model as a resolved name, an unmatched person as a role —
-    text the concordance pass built, not a new prompt-template placeholder
-    that a virgin-head-only seed (S2) could never retrofit onto an
-    already-provisioned world."""
+    `concordance_summary` (BRIEF-0075-c) and `standing_steps_summary`
+    (BRIEF-0075-f, `modify`'s reconciliation path) are BOTH appended
+    verbatim to the user message, never woven into the seeded template
+    text — the same discipline for the same reason: text a Python pass
+    already built, not a new prompt-template placeholder that a
+    virgin-head-only seed (S2) could never retrofit onto an
+    already-provisioned world. `standing_steps_summary` defaults to ""
+    (a no-op) so every pre-BRIEF-0075-f call site is byte-identical."""
     template = _load_day_plan_template(character.world_id, db)
     if template is None:
         raise llm_parse.LlmParseError("day_plan: no active prompt_template for usage='day_plan'")
@@ -366,6 +369,8 @@ def emit_plan(
     )
     if concordance_summary:
         user_msg += f"\n\n{concordance_summary}"
+    if standing_steps_summary:
+        user_msg += f"\n\n{standing_steps_summary}"
     user_msg += "\n/no_think"
     raw = ollama_client.chat(
         [

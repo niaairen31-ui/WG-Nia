@@ -191,3 +191,5 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 13080 | RESOLUTION, FACT SHEET AND NARRATION — the prose renders, it never decides (BRIEF-0075-d, no schema change) | BRIEF-0075-d |  |
 | 13381 | MUTATION EMISSION AND THE DAY ACCOUNT — proposer, not writer (BRIEF-0075-e, no schema change) | BRIEF-0075-e |  |
 | 13508 | THE FEASIBILITY VETO — a downward-only clamp is not an exception (BRIEF-0075-g, no schema change) | BRIEF-0075-g |  |
+| 13647 | THE REMAINING-WORK INVARIANT AND THE RESOLVE PRECONDITION (BRIEF-0075-f, no schema change) | BRIEF-0075-f |  |
+| 13709 | RECONCILIATION AND CLOSURE — Z4 repairs the source, AA2 makes replace a creator act (BRIEF-0075-f, no schema change) | BRIEF-0075-f |  |

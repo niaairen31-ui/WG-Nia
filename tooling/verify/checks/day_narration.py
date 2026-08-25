@@ -38,6 +38,11 @@ imports no writer from `writes/goals_agendas.py` (nor `writes` re-exporting
 one), contains no `db.add(`, no `.commit(`, and no assignment to `.status`,
 `.outcome` or `.change_history` on an `AgendaStep`. Fail-closed and
 vacuity-guarded: the file not existing is a FAILURE, not a vacuous pass.
+R12 (BRIEF-0075-f, decision BB1 — the remaining-work invariant):
+`_TERMINAL_AGENDA_STEP_STATUSES` is exactly `("completed", "failed")`, and
+`_load_evaluated_steps`'s query excludes them via a `.not_in(...)` call —
+without this, a multi-day continuation would re-roll an already-approved
+step forever. Fail-closed and vacuity-guarded.
 """
 from __future__ import annotations
 
@@ -436,6 +441,49 @@ def check_no_direct_step_write() -> None:
                 )
 
 
+def check_terminal_status_excluded() -> None:
+    """R12 (BRIEF-0075-f, decision BB1 — the remaining-work invariant):
+    `_load_evaluated_steps` excludes terminal-status `AgendaStep` rows
+    from its walk, on every call. Fail-closed and vacuity-guarded: both
+    the constant and the exclusion call must be located, never presumed."""
+    tree = _parse(DAY_RESOLVE_FILE)
+    if tree is None:
+        fail(f"day_narration R12: {_rel(DAY_RESOLVE_FILE)} not found or unparsable")
+        return
+
+    const_values: "set[str] | None" = None
+    for node in ast.walk(tree):
+        name, value = None, None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name, value = node.targets[0].id, node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            name, value = node.target.id, node.value
+        if name == "_TERMINAL_AGENDA_STEP_STATUSES" and isinstance(value, ast.Tuple):
+            const_values = {e.value for e in value.elts if isinstance(e, ast.Constant)}
+    if const_values is None:
+        fail(f"day_narration R12: {_rel(DAY_RESOLVE_FILE)}: _TERMINAL_AGENDA_STEP_STATUSES not found")
+        return
+    if const_values != {"completed", "failed"}:
+        fail(
+            f"day_narration R12: _TERMINAL_AGENDA_STEP_STATUSES is {sorted(const_values)!r}, "
+            "expected ['completed', 'failed']"
+        )
+
+    func = _find_function(tree, "_load_evaluated_steps")
+    if func is None:
+        fail(f"day_narration R12: {_rel(DAY_RESOLVE_FILE)}: _load_evaluated_steps not found")
+        return
+    uses_exclusion = any(
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "not_in"
+        for node in ast.walk(func)
+    )
+    if not uses_exclusion:
+        fail(
+            f"day_narration R12: {_rel(DAY_RESOLVE_FILE)}: _load_evaluated_steps's query has no "
+            ".not_in(...) exclusion — terminal steps would re-enter the walk"
+        )
+
+
 def main() -> None:
     check_dice_are_python()
     check_truncation_purity()
@@ -447,6 +495,7 @@ def main() -> None:
     check_declared_action_still_write_once()
     check_registry_wiring()
     check_no_direct_step_write()
+    check_terminal_status_excluded()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -454,8 +503,8 @@ def main() -> None:
     print(
         "PASS: day_narration — dice-are-Python, truncation purity, narrate's DB boundary, "
         "the judge's Python-only and anti-vacuity guards, the bounded rewrite, history "
-        "append-only, declared_action write-once, PROMPT_REGISTRY wiring, and V1's no-direct-"
-        "step-write boundary are all intact"
+        "append-only, declared_action write-once, PROMPT_REGISTRY wiring, V1's no-direct-"
+        "step-write boundary, and BB1's remaining-work invariant are all intact"
     )
     sys.exit(0)
 

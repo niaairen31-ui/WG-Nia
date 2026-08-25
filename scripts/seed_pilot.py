@@ -2709,6 +2709,59 @@ une seule journée pour ce personnage ?\
         destination="local",
     )
 
+    # ----- prompt template: reconciliation (TICKET-0075, BRIEF-0075-f) -----
+    # usage = "day_reconcile". world_id = NULL. ONE call, decision R1: the
+    # model CLASSIFIES a new declaration against a STANDING agenda as
+    # continue/modify/replace and must cite the step it is reasoning about --
+    # the classification is the model's, the effect (always through the
+    # queue, when there is one at all) is Nia's. Sees the agenda's title and
+    # its steps' objective/step_order/status only -- no costs, no
+    # requirements, no ids, no registry (R6).
+    DAY_RECONCILE_SYSTEM_PROMPT = """\
+Tu classes la déclaration du jour d'un joueur par rapport à un plan déjà \
+en cours (un "agenda"). Le joueur a déjà un plan actif ; sa nouvelle \
+déclaration peut soit poursuivre ce plan, soit l'ajuster, soit \
+l'abandonner pour autre chose.
+
+RÈGLES :
+- "verdict" : exactement l'une de ces trois valeurs :
+  - "continue" — la déclaration poursuit le plan en cours tel quel.
+  - "modify" — la déclaration ajuste ou infléchit le plan en cours, sans \
+l'abandonner.
+  - "replace" — la déclaration n'a plus rien à voir avec le plan en \
+cours ; le joueur passe à autre chose.
+- "cited_step_order" : le numéro de l'étape du plan (voir la liste \
+ci-dessous) sur laquelle tu fondes ton jugement.
+- "rationale" : une phrase courte justifiant ton choix, en citant cette \
+étape.
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien \
+d'autre :
+{"verdict":"continue|modify|replace","cited_step_order":<entier>,"rationale":"<...>"}\
+"""
+
+    DAY_RECONCILE_USER_TEMPLATE = """\
+Plan en cours : {agenda_title}
+Étapes du plan :
+{steps}
+
+Déclaration du jour : {declaration}
+
+Classe cette déclaration par rapport au plan en cours.\
+"""
+
+    upsert_prompt_template(
+        session,
+        "pt-day-reconcile",
+        world_id=None,
+        name="Journée — réconciliation avec le plan en cours",
+        usage="day_reconcile",
+        system_prompt=DAY_RECONCILE_SYSTEM_PROMPT,
+        user_template=DAY_RECONCILE_USER_TEMPLATE,
+        variables=["agenda_title", "steps", "declaration"],
+        destination="local",
+    )
+
     # ----- factions (entity + faction) --------------------------------------
     # L'Innommée — existence denied in public discourse.
     get_or_create(

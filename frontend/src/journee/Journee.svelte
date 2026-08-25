@@ -95,6 +95,15 @@
           {#if journeeState.planError}<div class="r-err">{journeeState.planError}</div>{/if}
           {#if journeeState.resolveError}<div class="r-err">{journeeState.resolveError}</div>{/if}
 
+          {#if journeeState.reconciliation}
+            {@const recon = journeeState.reconciliation}
+            <p class="muted reconciliation-note">
+              Plan en cours — {recon.verdict === 'continue' ? 'poursuite' : 'ajustement'} :
+              {recon.rationale}
+              {#if recon.cited_objective} (étape citée : « {recon.cited_objective} »){/if}
+            </p>
+          {/if}
+
           {#if journeeState.detail?.feasibility}
             {@const feas = journeeState.detail.feasibility}
             <p class="muted feasibility-note">
