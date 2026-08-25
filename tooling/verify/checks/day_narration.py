@@ -32,6 +32,11 @@ R9 (registry wiring): `day_narration` and `day_rewrite` are both in
 (`narrate`/`rewrite`) in `day_narration.py`.
 R10: every rule above is vacuity-guarded — a rule that locates zero items
 is a FAILURE, not a silent pass.
+R11 (BRIEF-0075-d-amendment-1, V1 — no direct step write): `day_resolve.py`
+imports no writer from `writes/goals_agendas.py` (nor `writes` re-exporting
+one), contains no `db.add(`, no `.commit(`, and no assignment to `.status`,
+`.outcome` or `.change_history` on an `AgendaStep`. Fail-closed and
+vacuity-guarded: the file not existing is a FAILURE, not a vacuous pass.
 """
 from __future__ import annotations
 
@@ -384,6 +389,52 @@ def check_registry_wiring() -> None:
         fail("day_narration R9: zero day_narration/day_rewrite entries found — vacuous")
 
 
+_AGENDA_STEP_WRITE_ATTRS = {"status", "outcome", "change_history"}
+
+
+def check_no_direct_step_write() -> None:
+    """R11 (BRIEF-0075-d-amendment-1, V1): `day_resolve.py` writes NO
+    canon. No import of a writer from `writes/goals_agendas.py` (nor
+    `writes` re-exporting one — `write_agenda_step_status`,
+    `write_agenda_status`, `write_agenda_step`), no `db.add(` call, no
+    `.commit(` call, and no assignment targeting `.status`, `.outcome` or
+    `.change_history` (the same attribute set day_narration.py's own R7
+    protects on `.history`, applied here to `AgendaStep`)."""
+    tree = _parse(DAY_RESOLVE_FILE)
+    if tree is None:
+        fail(f"day_narration R11: {_rel(DAY_RESOLVE_FILE)} not found or unparsable")
+        return
+
+    forbidden_writers = {
+        "write_agenda_step_status", "write_agenda_status", "write_agenda_step",
+    }
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                if alias.name in forbidden_writers:
+                    fail(
+                        f"day_narration R11: {_rel(DAY_RESOLVE_FILE)}:{node.lineno} — imports "
+                        f"{alias.name!r}, a direct AgendaStep/Agenda writer (V1 forbids this)"
+                    )
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute) and node.func.attr in ("add", "commit"):
+                fail(
+                    f"day_narration R11: {_rel(DAY_RESOLVE_FILE)}:{node.lineno} — "
+                    f".{node.func.attr}( call — this module writes no canon"
+                )
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AugAssign):
+            targets = [node.target]
+        for target in targets:
+            if isinstance(target, ast.Attribute) and target.attr in _AGENDA_STEP_WRITE_ATTRS:
+                fail(
+                    f"day_narration R11: {_rel(DAY_RESOLVE_FILE)}:{node.lineno} — assignment "
+                    f"to .{target.attr} — AgendaStep transitions only through the queue (V1)"
+                )
+
+
 def main() -> None:
     check_dice_are_python()
     check_truncation_purity()
@@ -394,6 +445,7 @@ def main() -> None:
     check_history_append_only()
     check_declared_action_still_write_once()
     check_registry_wiring()
+    check_no_direct_step_write()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -401,7 +453,8 @@ def main() -> None:
     print(
         "PASS: day_narration — dice-are-Python, truncation purity, narrate's DB boundary, "
         "the judge's Python-only and anti-vacuity guards, the bounded rewrite, history "
-        "append-only, declared_action write-once, and PROMPT_REGISTRY wiring are all intact"
+        "append-only, declared_action write-once, PROMPT_REGISTRY wiring, and V1's no-direct-"
+        "step-write boundary are all intact"
     )
     sys.exit(0)
 

@@ -1,5 +1,6 @@
 """Step resolution and the frozen fact sheet (TICKET-0075, BRIEF-0075-d —
-decisions B4-as-amended and T1; dice are Python, never a model).
+decisions B4-as-amended and T1; dice are Python, never a model — as
+corrected by BRIEF-0075-d-amendment-1, decision V1).
 
 Scope IN item 1 (step resolution): `resolve_steps` re-evaluates the
 character's active `Agenda` (the "plan" — every `agenda_step` row plus its
@@ -7,13 +8,18 @@ character's active `Agenda` (the "plan" — every `agenda_step` row plus its
 SAME `evaluate_requirements`/`budget_cut` pair `day_plan.py` uses at
 emission time. This is deliberate: a REPLAY (Scope IN item 5) re-derives
 requirement verdicts against current world state and may re-roll a step
-that already resolved once — `write_agenda_step_status` appends the
-previous `{status, outcome, updated_at}` before overwriting, so history
-grows rather than being replaced (history is sacred). Persistence
-(`persist_step_outcomes`) is the ONLY place this module writes canon, and it
-writes through `write_agenda_step_status` — the existing, already-allow-
-listed `agenda_step` chokepoint (`canon_write_policy.txt`) — never a
-`db.add(` of its own.
+that already resolved once.
+
+V1 (BRIEF-0075-d-amendment-1): this module writes NO canon. The original
+brief had `persist_step_outcomes` transition `AgendaStep.status` directly —
+that was wrong, because it made every `agenda_step_change` proposal
+BRIEF-0075-e emits a dead one (the step is no longer `active` by the time
+the proposal reaches the queue). The boundary is EMPTY FOOTPRINT vs. WORLD
+FOOTPRINT: creating a plan (`write_day_plan`, BRIEF-0075-b) has no world
+footprint and stays a direct write; completing a step carries `effects` and
+advances the agenda, so it goes through the queue, always. `AgendaStep.
+status`, `outcome` and `change_history` move only when Nia approves an
+`agenda_step_change` (`day_mutations.py`, BRIEF-0075-e).
 
 The dice roll is `resolve_physical` (M1, `resolution.py`); this module
 contains no `randint` call of its own (R1). The truncation logic itself
@@ -59,7 +65,6 @@ from .models import (
     Skill,
 )
 from .resolution import Verdict, resolve_physical
-from .writes import write_agenda_step_status
 
 _log = logging.getLogger(__name__)
 
@@ -254,38 +259,17 @@ def blocked_reason(agenda: Agenda, character: Character, db: Session) -> str:
     return "Le budget de la journée ne permettait aucune étape."
 
 
-def _outcome_line(outcome: StepOutcome) -> str:
-    """A short FACTUAL line (not prose — narration is `day_narration.py`)."""
+def outcome_line(outcome: StepOutcome) -> str:
+    """A short FACTUAL line (not prose — narration is `day_narration.py`).
+    V1 (BRIEF-0075-d-amendment-1): no longer consumed by a direct write in
+    this module — `day_mutations.emit_mutations` reads it for the
+    `agenda_step_change` payload's `outcome` key, which
+    `_mutation_apply_agenda_step_change` (cockpit/mutations.py) writes onto
+    the `AgendaStep` row only once Nia approves."""
     if outcome.verdict is None:
         return f"{outcome.band}: no roll required"
     v = outcome.verdict
     return f"{outcome.band}: {v.domain} {v.dice[0]}+{v.dice[1]}{v.modifier:+d}={v.total}"
-
-
-def persist_step_outcomes(agenda: Agenda, outcomes: list[StepOutcome], db: Session) -> None:
-    """Persist item 1's outcomes: every attempted step transitions to
-    `completed`/`failed` through `write_agenda_step_status` (the existing
-    allow-listed `agenda_step` chokepoint — this function itself never
-    calls `db.add(` on an `AgendaStep`). The next unattempted step (by
-    `step_order`, across the FULL agenda, not just the attempted prefix)
-    becomes `active` — the partial unique index (M7) guarantees at most
-    one ever is. Caller commits."""
-    ordered_steps = db.exec(
-        select(AgendaStep).where(AgendaStep.agenda_id == agenda.id).order_by(AgendaStep.step_order)
-    ).all()
-
-    for outcome in outcomes:
-        step = db.get(AgendaStep, outcome.agenda_step_id)
-        if step is None:
-            continue
-        new_status = "failed" if outcome.band == "failure" else "completed"
-        write_agenda_step_status(db, step=step, status=new_status, outcome=_outcome_line(outcome))
-    db.flush()
-
-    last_attempted_order = outcomes[-1].step_order if outcomes else 0
-    next_step = next((s for s in ordered_steps if s.step_order > last_attempted_order), None)
-    if next_step is not None and next_step.status != "active":
-        write_agenda_step_status(db, step=next_step, status="active")
 
 
 def freeze_facts(

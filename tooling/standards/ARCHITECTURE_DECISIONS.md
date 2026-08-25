@@ -13101,11 +13101,20 @@ every included step, and `write_agenda_step_status`'s existing
 snapshot-before-overwrite discipline means the previous attempt's
 `{status, outcome, updated_at}` survives in `agenda_step.change_history`
 — a step can flip from `completed` to `failed` between two resolves of the
-same day, and both attempts are readable. `persist_step_outcomes` writes
-NOTHING of its own: every `agenda_step` transition goes through the
-EXISTING allow-listed chokepoint, `writes.goals_agendas.write_
-agenda_step_status` — `single_canon_write.py` needed no new
-`ALLOWED_SITES` line for this brief.
+same day, and both attempts are readable.
+
+**Superseded by AMENDMENT 1 (V1), below.** The rest of this paragraph
+described `persist_step_outcomes` writing every `agenda_step` transition
+directly through `write_agenda_step_status` on every `/resolve` call.
+That function no longer exists: `resolve_day` now only computes
+`StepOutcome`s and emits `ProposedMutation` proposals
+(BRIEF-0075-e/`day_mutations.py`); `AgendaStep.status`/`.outcome`/`.
+change_history` move only once Nia approves one. A replay still re-rolls
+every included step fresh each call (`resolve_steps` re-evaluates from
+`step_order` 1 every time, unchanged) — but two resolves of the same day
+now emit two independent sets of proposals rather than two direct writes,
+and only proposals matching canon's actual current step state apply
+cleanly (the ordered-approval consequence, see AMENDMENT 1).
 
 **D2 (NPC opposition tier) resolves to a constant, not a second
 derivation.** `play_physical.py`'s live-Play precedent derives `npc_tier`
@@ -13256,10 +13265,17 @@ against — a nonzero count would mean the trigger fired despite the
 structural block above still holding, which would itself be worth
 investigating.
 
-**A judge failure leaves the mechanical outcome committed, only the prose
-rejected.** `resolve_day` commits `persist_step_outcomes`'s `agenda_step`
-transitions (the dice already rolled, a real and final mechanical fact)
-independently of whether the narration that renders them later passes the
+**A judge failure commits nothing mechanical either, superseded by V1.**
+This paragraph originally read "a judge failure leaves the mechanical
+outcome committed, only the prose rejected," describing
+`persist_step_outcomes` committing `agenda_step` transitions independently
+of the judge. Under V1 (AMENDMENT 1, below) that direct commit no longer
+exists at all: a judge failure and a judge success now differ only in
+whether `emit_mutations` runs — `_finalize_resolution` calls it exclusively
+on the success path, so a rejected attempt proposes NOTHING for Nia to
+review, and the dice-are-final argument below applies to the *outcome
+value* (a real `StepOutcome` the instant `resolve_physical` returns), not
+to any canon write, since none happens at resolve time regardless of the
 judge. On a judge failure, `_finalize_resolution` still appends ONE
 `pass_play.history` entry (the fact sheet, the rejected prose, the judge's
 reason) and commits, then raises a 422 — Nia sees exactly what was
@@ -13332,6 +13348,33 @@ ledger balance could never satisfy) and confirmed fixed: the SAME batch,
 resolved and replayed, returned `200` both times with a code-rendered
 prose naming the exact unmet requirement, no model call, no judge
 involvement, and `pass_play.history` growing by one entry per call.
+
+**AMENDMENT 1 (V1 — no direct step write).** The paragraph above describing
+`persist_step_outcomes`'s direct `agenda_step` transitions is superseded.
+Claude Code's execution of BRIEF-0075-e escalated a dead-proposal STOP
+condition: -e's own Invariants section states the day chain "adds a
+PROPOSER, not a writer," while this brief had it writing `agenda_step`
+transitions directly — both cannot be true, and by the time an
+`agenda_step_change` proposal reached the queue the step was no longer
+`active`, so `_mutation_apply_agenda_step_change`'s stale guard rejected
+it on arrival. The fault was this brief's: decision **V1** (locked,
+`BRIEF-0075-d-amendment-1-no-direct-step-write.md`) removes
+`persist_step_outcomes` entirely — `day_resolve.py` now computes
+`StepOutcome`s and writes NO canon at all. The boundary is EMPTY FOOTPRINT
+vs. WORLD FOOTPRINT, not agenda vs. non-agenda: creating a plan
+(`write_day_plan`) records the player's own declared intent and stays a
+direct write; completing a step carries `effects` (relations, ledger,
+roles) and advances the agenda, so it goes through the review queue,
+always. `AgendaStep.status`/`.outcome`/`.change_history` now move only
+when Nia approves an `agenda_step_change` mutation (BRIEF-0075-e). A
+consequence carried forward: `_mutation_apply_agenda_step_change` already
+cascades on `complete` (activates the lowest-`step_order` `pending` step,
+or completes the agenda when none remain), so a multi-step day still
+works under V1 with no change to the applier — but the N proposals a day
+emits must be approved in `step_order`, since an out-of-order approval
+hits the stale guard. `fail` fails the WHOLE agenda (the applier's
+existing, unbranching behaviour), so a failed step terminates the day's
+plan rather than pausing it; recovery is BRIEF-0075-f's reconciliation.
 
 ---
 
