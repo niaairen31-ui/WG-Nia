@@ -3,12 +3,33 @@ decisions B4-as-amended and T1; dice are Python, never a model — as
 corrected by BRIEF-0075-d-amendment-1, decision V1).
 
 Scope IN item 1 (step resolution): `resolve_steps` re-evaluates the
-character's active `Agenda` (the "plan" — every `agenda_step` row plus its
-`agenda_step_requirement` rows) from `step_order` 1 EVERY call, through the
-SAME `evaluate_requirements`/`budget_cut` pair `day_plan.py` uses at
-emission time. This is deliberate: a REPLAY (Scope IN item 5) re-derives
+character's active `Agenda` (the "plan" — every REMAINING `agenda_step`
+row plus its `agenda_step_requirement` rows) EVERY call, through the SAME
+`evaluate_requirements`/`budget_cut` pair `day_plan.py` uses at emission
+time. This is deliberate: a REPLAY (Scope IN item 5) re-derives
 requirement verdicts against current world state and may re-roll a step
 that already resolved once.
+
+**The remaining-work invariant** (BRIEF-0075-f, decision BB1):
+`_load_evaluated_steps` walks only steps whose `status` is NOT `completed`
+or `failed` — a step that has already reached a TERMINAL status is never
+re-included in a later `budget_cut` walk, on this call or any future one.
+This is safe for REPLAY: under V1 (below), this module writes no canon —
+an `AgendaStep.status` only ever reaches `completed`/`failed` when Nia
+APPROVES the corresponding `agenda_step_change` mutation
+(`_mutation_apply_agenda_step_change`, `cockpit/mutations.py`), an action
+structurally decoupled from `/resolve` itself. A REPLAY (calling `/resolve`
+again before that approval) therefore never encounters a step that moved
+out from under it — every step it re-rolls is still exactly as `pending`/
+`active` as it was on the first call. Multi-day CONTINUATION (BRIEF-0075-f)
+is the case this invariant actually protects: once a PRIOR day's step is
+approved (now `completed`), a LATER day's walk must never re-include it —
+without this filter, `budget_cut`'s greedy walk (always starting at the
+lowest `step_order` in `ordered_steps`) would re-roll the same completed
+step forever, and the day could never progress past it. (The resulting
+mutation would still be REJECTED at approval time by the applier's stale
+guard — `step.status != "active"` — so canon safety never depended on this
+invariant; only the day's own narration and dice did.)
 
 V1 (BRIEF-0075-d-amendment-1): this module writes NO canon. The original
 brief had `persist_step_outcomes` transition `AgendaStep.status` directly —
@@ -150,11 +171,20 @@ def _step_player_tier(character: Character, domain: str, db: Session) -> int:
     return skill_row.tier if skill_row else 0
 
 
+_TERMINAL_AGENDA_STEP_STATUSES = ("completed", "failed")
+
+
 def _load_evaluated_steps(
     agenda: Agenda, character: Character, db: Session,
 ) -> tuple[list[AgendaStep], list[EvaluatedStep]]:
+    """The agenda's REMAINING work only (BB1, module docstring): steps
+    already at a terminal status are excluded from the walk, on this call
+    and every future one — see the module docstring for why this is safe
+    under REPLAY and necessary for multi-day continuation."""
     ordered_steps = db.exec(
-        select(AgendaStep).where(AgendaStep.agenda_id == agenda.id).order_by(AgendaStep.step_order)
+        select(AgendaStep)
+        .where(AgendaStep.agenda_id == agenda.id, AgendaStep.status.not_in(_TERMINAL_AGENDA_STEP_STATUSES))
+        .order_by(AgendaStep.step_order)
     ).all()
     evaluated_steps: list[EvaluatedStep] = []
     for agenda_step in ordered_steps:
