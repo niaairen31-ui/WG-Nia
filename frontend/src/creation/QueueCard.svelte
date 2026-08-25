@@ -12,7 +12,7 @@
      resync -- the same one-shot-seed reasoning RoleRow.svelte's own
      header describes, just without that component's resync effect
      because this card never needs one. */
-  import { mutationEntityName, mutationAgendaName, shortId, approveMutation, rejectMutation, toggleSelected } from './queue.svelte.js';
+  import { mutationEntityName, mutationAgendaName, mutationDayInfo, shortId, approveMutation, rejectMutation, toggleSelected } from './queue.svelte.js';
 
   let { mutation, selected } = $props();
 
@@ -49,6 +49,14 @@
       : mutation.pass_play_id
         ? `pass-play:${shortId(mutation.pass_play_id)}`
         : ''
+  );
+
+  /* BRIEF-0075-e (D2): the day this pass_play-sourced proposal came from,
+     so the queue entry links back to it in context -- day number and the
+     declaration's first line, same idiom as mutationEntityName/
+     mutationAgendaName's lazy id->label caches. */
+  let dayInfo = $derived(
+    mutation.source_type === 'pass_play' ? mutationDayInfo(mutation.pass_play_id) : null
   );
 
   /** Human-readable money + optional knowledge leg for a resource_change
@@ -155,10 +163,14 @@
     {#if mutation.source_type === 'world_tick' && mutation.tick_id}
       <span class="badge b-tick" title="tick {mutation.tick_id}">TICK ·{mutation.tick_id.slice(0, 4)}</span>
     {/if}
+    {#if mutation.source_type === 'pass_play'}
+      <span class="badge b-pass-play" title="pass_play {mutation.pass_play_id}">JOURNÉE{dayInfo ? ` · Jour ${dayInfo.dayNumber}` : ''}</span>
+    {/if}
     {#if mutation.payload && mutation.payload.secret_derived === true}
       <span class="badge b-secret-derived">dérivé d'un secret</span>
     {/if}
     {#if sourceRef}<span class="target-ref">{sourceRef}</span>{/if}
+    {#if dayInfo?.firstLine}<span class="target-ref">« {dayInfo.firstLine} »</span>{/if}
     <span class="ts">{fmtDate(mutation.proposed_at)}</span>
   </div>
 

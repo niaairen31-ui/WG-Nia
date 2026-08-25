@@ -13,6 +13,44 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v1.94** — Added `agenda_step.cost` (INTEGER, CHECK `cost IS NULL OR cost
+  BETWEEN 1 AND 4`) and `agenda_step.domain` (TEXT), both nullable, and a new
+  table `agenda_step_requirement` (`id`, `world_id`, `step_id` FK
+  `agenda_step.id`, `type` CHECK `type IN ('knowledge','relation_gte',
+  'resource','location_reachable')`, nullable `target_entity_id` FK
+  `entity.id`, nullable `target_key`, nullable `threshold`, a per-type shape
+  CHECK, unique index on `(step_id, type, target_entity_id, target_key)`, no
+  `change_history`). TICKET-0075, BRIEF-0075-b: the plan-emission-and-budget
+  step. `cost`/`domain` are NULL for every pre-v1.94 (NPC) step — no
+  backfill; populated only by the new `day_plan.py` chain
+  (`emit_plan`/`budget_cut`/`evaluate_requirements`) via the new
+  `writes.write_day_plan`. THE POSITIONAL WALL (BRIEF-0074-a-amendment-1)
+  holds: `agenda_step` gains no location column, and `location_reachable`
+  stores its target on the REQUIREMENT row, never the step — a requirement
+  states "the player must be able to reach L", a precondition on the player,
+  never a position of an NPC. `location_reachable`'s evaluator resolves
+  reachability via a NEW, day-local `connects_to` BFS reader
+  (`day_plan._day_reachable_ids`, unbounded, origin included) rather than
+  reusing an existing one — decision D1 (BRIEF-19) stands: this is (per
+  `tooling/briefs/BRIEF-0075-b-amendment-1-location-reachable-reader.md`)
+  roughly the SEVENTH independent `connects_to` reader in the tree, each
+  shaped for its own caller, dedup reported but never acted on. New
+  `PROMPT_REGISTRY` usage `day_plan` (`surface="play"`, `world_scoped=True`,
+  `dry_run_capable=True`), seeded template `pt-day-plan`. `POST
+  /api/day/{batch_id}/plan` emits and persists a plan (one model call, F1);
+  the response never carries `agenda_id` or `step_id`.
+  **No new columns (TICKET-0075, BRIEF-0075-d, resolution/narration):**
+  `batch.local_summary`/`batch.final_result` are REPURPOSED, not added —
+  confirmed zero readers and zero writers for both (D3) before reuse.
+  `local_summary` now holds the day-narration draft; `final_result` holds
+  the post-judge accepted prose (identical to `local_summary` when the
+  Scope IN item 4 rewrite never fires, which is the expected case).
+  `batch.message_to_claude`/`batch.claude_raw_response` stay untouched,
+  still vestigial, still zero writers. `batch.status` gains one new value,
+  `resolved_awaiting_review` (`writes.pipeline.BATCH_RESOLVED_STATUS`) —
+  legal without a schema change since the column carries no CHECK
+  constraint on its vocabulary.
+
 - **v1.93** — Added `batch.day_number` (INTEGER NOT NULL DEFAULT 0) and a
   unique index `idx_batch_session_day` on `(session_id, day_number)`.
   TICKET-0075, BRIEF-0075-a, decision U1: the day IS the batch ordinal

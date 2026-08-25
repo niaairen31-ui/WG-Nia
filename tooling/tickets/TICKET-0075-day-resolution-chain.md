@@ -2,12 +2,12 @@
 id: TICKET-0075
 title: Day resolution chain — Batch/PassPlay reactivation
 type: feature
-status: intake
+status: escalated
 created: 2026-08-24
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
 blast_radius: large
-brief_ids: [BRIEF-0075-a]
+brief_ids: [BRIEF-0075-a, BRIEF-0075-b-plan-emission-budget, BRIEF-0075-b-amendment-1-location-reachable-reader, BRIEF-0075-c, BRIEF-0075-d-resolution-narration, BRIEF-0075-d-amendment-1-no-direct-step-write, BRIEF-0075-e-mutation-emission-day-account, BRIEF-0075-e-amendment-1-delta-source-rendezvous, BRIEF-0075-f-reconciliation-closure, BRIEF-0075-g-feasibility-veto]
 schema_version_touched: v1.93
 retry_count: 0
 ---

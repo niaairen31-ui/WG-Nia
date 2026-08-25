@@ -393,6 +393,14 @@ WG-Nia/
 │   ├── analyzer*.py         # conversation-bound wrapper + conversation-agnostic judging core
 │   ├── observation_*.py     # observed-lane socle/engine/runner/reads/writes; per-NPC window
 │   ├── resolution.py, ledger.py  # physical-action dice resolution (2d6 bands); ledger read helpers
+│   ├── day_plan.py          # day-plan emission + budget cut: requirement evaluators, its own BFS
+│   ├── day_extract.py       # day extraction: 3 passes (place/person/faction), never sees registry
+│   ├── day_concordance.py   # day mention resolution: matching rungs, germ emission; never authors
+│   ├── day_resolve.py       # day step resolution: Python dice, truncation, the frozen fact sheet
+│   ├── day_narration.py     # day narration + rewrite: renders the fact sheet, never decides
+│   ├── day_narration_guard.py  # T1 judge: name containment + outcome survival, Python-only
+│   ├── day_mutations.py     # day-chain mutation emission: proposer only, never applies (V1)
+│   ├── day_feasibility.py   # feasibility veto: downward-only, clamp_verdict is the safety (Y1)
 │   ├── writes/               # canon-write helpers by domain; schema.py is the DDL authority
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
 │   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)

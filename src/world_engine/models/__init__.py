@@ -38,7 +38,6 @@ from __future__ import annotations
 from .canon import (
     BASE_SKILL_DOMAINS,
     Agenda,
-    AgendaStep,
     Artifact,
     Character,
     DiscoverableDetail,
@@ -74,7 +73,7 @@ from .canon_faction import (
     FactionMembership,
     FactionRole,
 )
-from .config import ConversationWindowConfig
+from .config import AgendaStep, AgendaStepRequirement, ConversationWindowConfig
 from .schedule import SCHEDULE_PHASES, NpcSchedule
 from .ephemeral import (
     Conversation,
@@ -153,6 +152,7 @@ __all__ = [
     "Visit",
     "Agenda",
     "AgendaStep",
+    "AgendaStepRequirement",
     "GoalAgendaLink",
     "EntityType",
     "EntityTypeHistory",

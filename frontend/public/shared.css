@@ -148,6 +148,8 @@ body {
 .b-other             { background:#1c2128; color:var(--muted); border:1px solid var(--border); }
 /* world-tick badges (TICKET-0014/BRIEF-0014-b) */
 .b-tick            { background:#1c2128; color:var(--muted); border:1px solid var(--border); }
+/* pass_play (Journée day) source badge (TICKET-0075/BRIEF-0075-e) */
+.b-pass-play       { background:#0d2138; color:#79c0ff; border:1px solid #1f6feb; }
 .b-secret-derived  { background:#2b1d00; color:var(--yellow); border:1px solid #9e6a03; }
 /* status colours */
 .b-proposed { background:#2b1d00; color:var(--yellow); border:1px solid #9e6a03; }

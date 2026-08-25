@@ -186,3 +186,8 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 12621 | STANDING OCCUPATION EDITOR — one selector deriving the pair (BRIEF-0073-c, no schema change) | BRIEF-0073-c |  |
 | 12642 | NPC SCHEDULES — background versus foreground, two-branch precedence, the world's phase (BRIEF-0074-a, BRIEF-0074-b, BRIEF-0074-c, schema v1.92) | BRIEF-0074-a, BRIEF-0074-b, BRIEF-0074-c | v1.92 |
 | 12815 | DAY DECLARATION SOCLE — the day is the batch, an explicit ordinal, a new surface (BRIEF-0075-a, schema v1.93) | BRIEF-0075-a | v1.93 |
+| 12857 | DAY PLAN EMISSION AND BUDGET — model proposes, code judges (BRIEF-0075-b, schema v1.94) | BRIEF-0075-b | v1.94 |
+| 12957 | EXTRACTION AND CONCORDANCE — the resolver never authors (BRIEF-0075-c, no schema change) | BRIEF-0075-c |  |
+| 13080 | RESOLUTION, FACT SHEET AND NARRATION — the prose renders, it never decides (BRIEF-0075-d, no schema change) | BRIEF-0075-d |  |
+| 13381 | MUTATION EMISSION AND THE DAY ACCOUNT — proposer, not writer (BRIEF-0075-e, no schema change) | BRIEF-0075-e |  |
+| 13508 | THE FEASIBILITY VETO — a downward-only clamp is not an exception (BRIEF-0075-g, no schema change) | BRIEF-0075-g |  |

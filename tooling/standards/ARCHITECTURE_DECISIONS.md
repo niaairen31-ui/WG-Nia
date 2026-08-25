@@ -12854,4 +12854,796 @@ open mutation-type/budget/rewrite-guard questions still gating them.
 
 ---
 
+## DAY PLAN EMISSION AND BUDGET — model proposes, code judges (BRIEF-0075-b, schema v1.94)
+
+**F1 — one model emission, Python cut.** `day_plan.emit_plan` makes exactly
+ONE call: the model proposes the FULL ordered step list for a declaration:
+every downstream decision (which requirements are met, how many steps
+happen today) is Python. Rejected a multi-turn plan-then-refine loop —
+unnecessary latency and a second place a plan could silently drift from
+what the player declared.
+
+**M1/P2 — the four `SCHEDULE_PHASES` ARE the budget; the phase is never
+read.** `DAY_BUDGET_SLOTS = len(SCHEDULE_PHASES)`, derived rather than
+written as `4` (a future fifth phase widens the budget for free). Every day
+gets the full budget regardless of `world.current_phase` (P2) —
+`day_plan.py` reads no `current_phase` anywhere and performs no `select(`
+against `NpcSchedule`; positional/schedule reads stay exclusively in
+`schedule_reads.py`.
+
+**S1 — four requirement forms, one named evaluator each, closed by a CHECK.**
+`agenda_step_requirement.type IN ('knowledge','relation_gte','resource',
+'location_reachable')`, and a SECOND CheckConstraint
+(`ck_agenda_step_requirement_shape`) enforces the per-type shape at the row
+level — an ill-formed row (e.g. `relation_gte` with a NULL
+`target_entity_id`) cannot exist, full stop, not by evaluator discipline.
+`day_plan._EVALUATORS`'s key set is asserted equal to `REQUIREMENT_TYPES` in
+both directions (`day_plan.py`'s R1, the `_SOURCE_LOOKUPS` bijection
+precedent) — widening the vocabulary without adding an evaluator fails
+loudly, at `evaluate_requirements`'s fail-closed unknown-type branch AND at
+verify.
+
+**H1 — a plan reuses `Agenda`/`AgendaStep`, deliberately.** `agenda_step`
+gains two nullable columns (`cost`, `domain`) rather than a parallel
+`day_plan_step` table — NULL for every pre-v1.94 (NPC) step, since a plan
+IS a plan: an NPC's agenda and a player's day plan are the same shape, one
+step at a time, one active at once (the existing partial unique index,
+unmodified, is still the whole guarantee). The alternative (a bespoke table)
+would have duplicated `step_order`/`status`/`change_history` for no
+structural gain.
+
+**THE POSITIONAL WALL HOLDS (BRIEF-0074-a-amendment-1) — reaffirmed, not
+merely inherited.** `agenda_step` gains NO location column even though this
+step's budget metadata rides on the same row; `location_reachable`'s target
+lives on `agenda_step_requirement`, a REQUIREMENT row, never on the step —
+"the player must be able to reach L" is a precondition on the player, never
+a position of an NPC. `day_plan.py`'s R6 (`tooling/verify/checks/
+day_plan.py`) is the single most important check in this brief: no
+location-named field on `Agenda`/`AgendaStep`, and `schedule_reads.py`
+references neither `Agenda`, `AgendaStep` nor `AgendaStepRequirement`.
+
+**The `location_reachable` reader — an escalation, corrected.** The original
+brief instructed "reuse the existing traversal; do not write a second one."
+That instruction was wrong: it directly contradicted decision **D1
+(BRIEF-19)**, standing doctrine that each new `connects_to` consumer gets
+its OWN reader (a real dedup opportunity is REPORTED, never acted on — see
+the `connects_to` convention section and every reaffirmation since,
+`_location_neighbours` through `spatial_doors.py`). Claude Code stopped
+under the brief's own STOP condition rather than guess; the correction is
+`tooling/briefs/BRIEF-0075-b-amendment-1-location-reachable-reader.md`.
+`day_plan._day_reachable_ids` is a NEW, day-local BFS over `connects_to`
+among ACTIVE locations — unbounded (a day has no meaningful hop radius,
+unlike the tick's interval bound) and origin-INCLUSIVE (the player being
+already there satisfies reachability — the concrete shape difference from
+`_reachable_locations`, which excludes the origin, meaning sharing would
+have been wrong on the merits and not only on doctrine). Measured at
+amendment time: roughly the SEVENTH independent `connects_to` reader in the
+tree (`_location_neighbours` `cockpit/play.py:854`; `_reachable_locations`
+`tick_context.py:405`; `write_location_doors`'s B1 gate
+`writes/config.py:275`; `spatial_doors.py:60-62`;
+`spatial_author._live_neighbour_ids`; `room_batch_author.py:141`) — D1
+reaffirmed in a code comment at each addition, count still rising, still not
+acted on. `tooling/verify/checks/day_plan.py`'s R10 makes the
+non-reuse structural for this consumer rather than a comment convention:
+`day_plan.py` imports none of the sibling readers and is asserted to declare
+its own loop referencing `connects_to`.
+
+**Reported, not acted on (D1's own posture, applied to this brief):**
+(1) the dedup count above; (2) this archive's own `connects_to`-convention
+section and the L1/BRIEF-16 travel-model note cite reader locations
+(`cockpit/app.py`, `tick.py`) that have since moved (`cockpit/play.py:854`,
+`tick_context.py:405`) — same check-anchor drift class as TICKET-0027's;
+retargeting those anchors is TICKET-0071 hygiene territory, not this
+brief's; (3) a "proves X, not Y" gap this step introduces and does not
+close: `_day_reachable_ids` proves a path exists in the `connects_to` graph;
+it does NOT prove the Play surface's door/travel gate would let the player
+actually walk it. Harmless today — the day chain resolves travel
+abstractly, and Play is sealed (TICKET-0061) — and worth a fresh look only
+if a future ticket ever routes a day step through Play.
+
+Scope OUT, named explicitly so a later brief doesn't assume otherwise: no
+`resolve_physical` call anywhere in this step (BRIEF-0075-d);
+no `proposed_mutation` row is written (BRIEF-0075-e); the emitted plan's
+`requires` items are restricted, at the PROMPT level, to `knowledge`/
+`resource` (target-key-based — no entity resolution needed); `relation_gte`/
+`location_reachable` have full evaluators and write-path validation but are
+not yet reachable from a live declaration, because extraction/concordance
+(name -> entity id) is BRIEF-0075-c's job, not this one's. `POST
+/api/day/{batch_id}/plan`'s response carries neither `agenda_id` nor
+`step_id` — the player never sees the agenda.
+
+---
+
+## EXTRACTION AND CONCORDANCE — the resolver never authors (BRIEF-0075-c, no schema change)
+
+**C1 — the whole shape.** A day plan is emitted against the player's raw
+words: "find whoever stole the guild seal" names a faction and an object,
+and implies a fence, a district, a contact — none of it resolved to canon.
+This step resolves it, and the ONE rule governing every path through it is:
+**the resolver never authors.** On a match it uses the canon id. Failing
+that, the day names a FUNCTION WITHOUT IDENTITY ("a flower seller set up
+near the east gate") and emits an `entity_creation` germ carrying the hint —
+the SAME parked-germ mechanism BRIEF-0019-a built for the tick
+(`_approve_entity_creation_shortcircuit`, byte-identical here: approval
+PARKS, it never authors synchronously). The NPC becomes canon only when Nia
+realises it in the Creation tab; at that moment it was already there,
+narratively free.
+
+**Two-model, one-code shape.** Three SEPARATE extraction passes
+(`day_extract.py`: `extract_places`/`extract_persons`/`extract_factions`,
+usages `day_extract_place`/`day_extract_person`/`day_extract_faction`) read
+the declaration and a compact, secret-free world frame
+(`World.name`/`.description` — no per-entity query backs it, so nothing else
+can leak through it) and return `Mention`s: `surface_form` (the player's
+words), `kind` (`named`|`inferred`), and for `inferred` mentions a
+`role_hint` (the FUNCTION needed). **They never see the registry** — R2
+(`tooling/verify/checks/day_concordance.py`) asserts no `select(` in
+`day_extract.py` references `Entity`, `Faction` or `Location`. Handing a
+model the registry invites it to invent a plausible id; matching stays
+Python, against real rows, in `day_concordance.py` — "another AI with the
+full registry" from the design conversation, resolved to code, which is
+strictly better: a lookup cannot hallucinate an id.
+
+**Four matching rungs, tried in order, stopping at the first hit**
+(`day_concordance.MATCHING_RUNGS`, dispatched through `_RUNG_LOOKUPS` — the
+same one-tuple/one-dict idiom as `schedule_reads.PRESENT_PRECEDENCE`/
+`_SOURCE_LOOKUPS`, bijection-checked by R6):
+1. `named_exact` — `surface_form` against entity names in the active world,
+   case-folded, scoped by `Entity.world_id` at query construction.
+2. `named_alias` — an alias/cover-role surface. Measured: none exists.
+   `faction_membership.cover_role` is a faction ROLE label (a title), never
+   a person's name — using it here would conflate "what someone is called"
+   with "what someone is called *by their faction*." This rung is a
+   structural no-op, reported once as skipped, per mention, NOT built for
+   the occasion (Scope OUT: alias infrastructure).
+3. `occupation` — persons, `inferred` only: `role_hint` keywords (casefolded,
+   stopword- and length-filtered) against STANDING goals
+   (`npc_goal.kind='standing'`) reached through
+   `npc_schedule.standing_goal_id` — **the occupation index** landed by
+   TICKET-0074. "Who is a flower seller" is answered by joining a schedule
+   row to its standing goal, never by reading free text elsewhere. Goal
+   `description` text is compared in Python and never leaves this module:
+   only the resolved entity id (never goal content) reaches a payload, a
+   response, or a model prompt — `npc_goal_read.py`'s allowlist grew by this
+   one READ MODULE, same precedent as `observation_reads.py`, because N1's
+   real concern (goal content leaking into a prompt) does not apply to an
+   id-only consumer.
+4. `presence` — persons, `inferred` only, only when a PLACE mention already
+   matched within the SAME `concord()` call: `who_is_at` (the one sanctioned
+   positional read, `schedule_reads.py`) swept across all four
+   `SCHEDULE_PHASES` for each matched place. Consumed through the public
+   accessor only — no new precedence term, no edit to `where_is`'s dispatch
+   (Scope OUT, defended by R4's constructor scan).
+
+**Ambiguity is reported, never resolved by picking.** Two or more equally
+good candidates at any rung is `ambiguous`, carrying every candidate id — the
+mention is treated as unmatched for germ purposes (no germ) but reported
+distinctly, so Nia sees the engine hesitated rather than failed. Measured in
+execution: a place-scoped `presence` rung can widen past two candidates (a
+busy tavern scene) — "two or more" is the real rule, not "exactly two."
+
+**Persons only; places and factions are reported, never germinated.** A
+location germ drags in the location tree, doors, geometry and four
+fail-closed checks — explicitly deferred to a location-symmetry ticket. A
+faction the player invents is a misunderstanding to surface, not an entity
+to create. `emit_germs` filters `mention.category == "person"` before
+constructing a single `ProposedMutation` — R3 asserts every constructed row
+sets `source_type='pass_play'`, `mutation_type='entity_creation'`,
+`status='proposed'`, and nothing else.
+
+**The germ payload matches what the Creation tab actually reads.** Measured
+from `list_pending_creations`/`generate_creation_draft`
+(`cockpit/routes/creator.py`): `entity_type` (`"character"`), `name`
+(falls back across `name|title`), `concept` (`concept|description|content`),
+`anchor`. The germ payload carries all four PLUS `role_hint`,
+`surface_form`, `kind`, and `candidate_location_id` — the anchoring context
+concordance had, even when rung 4 tried and missed. `rationale` states which
+rungs were tried and missed, so a germ reads as reviewable, not mysterious.
+
+**Writes split by construction, not by convention.** `day_concordance.py`
+contains no `db.add(`, no `.commit(`, no `chat(` (R1) — `concord` and
+`emit_germs` return objects; the route (`cockpit/routes/day.py`,
+`_extract_and_concord`) adds them to the session. Germs commit in the SAME
+transaction as the plan — all-or-nothing: an extraction or concordance
+failure reports and stops before anything is staged, matching the existing
+`write_day_plan` all-or-nothing convention rather than inventing a second
+one.
+
+**The plan receives resolved context as text, never as a template
+placeholder.** `day_plan.emit_plan` gained a `concordance_summary: str = ""`
+parameter (`day_concordance.plan_context` builds it), appended to the user
+message in code — deliberately NOT woven into the seeded `{declaration}`
+template via a new `{concordance}` placeholder. S2 (prompt text is
+append-only, locked after v1) means a placeholder added to
+`DAY_PLAN_USER_TEMPLATE`'s source would be inert on any already-provisioned
+world; appending in code sidesteps that entirely and needs no reseed. A
+matched mention reaches the model as a resolved name; an unmatched person
+reaches it as a role — never a canon id the model could misuse, since
+`relation_gte`/`location_reachable` requirements stay out of the model's
+reach (BRIEF-0075-b's own forward note, honored: no requirement-schema
+wiring lands here, only prompt-facing text).
+
+**Response shape.** `POST /api/day/{batch_id}/plan` gains a `concordance`
+block: matched mentions with resolved display names, ambiguous ones with
+candidate counts, unmatched ones with role hints and germ ids. Entity ids
+for MATCHED mentions may appear; germ ids may appear; no `agenda_id`, no
+`step_id` — unchanged from BRIEF-0075-b's posture, reasserted by
+`pipeline_wiring.py`.
+
+Verified live (not only by the check suite): a canned-model smoke run
+against a seeded world confirmed rung 1 (named place and person), rung 3
+(a planted `standing` goal resolving a French role hint), an `ambiguous`
+outcome from a busy-tavern `presence` sweep, and the full germ lifecycle —
+construct, approve, PARK — with the world's `entity` row count asserted
+unchanged before germ emission, after germ emission, and after approval.
+
+## RESOLUTION, FACT SHEET AND NARRATION — the prose renders, it never decides (BRIEF-0075-d, no schema change)
+
+**The whole shape, restated from the brief because it is the point.** Dice
+are Python (`resolve_physical`, unchanged since BRIEF-11). Banding and
+truncation are Python. The fact sheet is Python, frozen once, never
+mutated. Only THEN does a model write prose — and even then it receives
+the fact sheet, never the registry, never the DB. A judge (also Python)
+verifies the prose against that same fact sheet before anything is stored.
+Every stage after the dice roll can only render or reject what the dice
+already decided; none of them can originate a fact.
+
+**`resolve_steps` re-derives the plan from the DB on EVERY call, not once
+at plan-emission time.** `day_resolve.py` reloads the character's active
+`Agenda`'s `agenda_step`/`agenda_step_requirement` rows, reconstructs
+`day_plan.PlanStep`/`RequirementSpec`, and re-runs the SAME
+`evaluate_requirements`/`budget_cut` pair `day_plan.py` uses at emission
+time — never a cached in-memory plan. This is what makes a REPLAY
+(Scope IN item 5) a real re-resolution rather than a re-render of stored
+dice: `POST /api/day/{id}/resolve` on an already-`resolved` `pass_play`
+re-evaluates every requirement against CURRENT world state and re-rolls
+every included step, and `write_agenda_step_status`'s existing
+snapshot-before-overwrite discipline means the previous attempt's
+`{status, outcome, updated_at}` survives in `agenda_step.change_history`
+— a step can flip from `completed` to `failed` between two resolves of the
+same day, and both attempts are readable.
+
+**Superseded by AMENDMENT 1 (V1), below.** The rest of this paragraph
+described `persist_step_outcomes` writing every `agenda_step` transition
+directly through `write_agenda_step_status` on every `/resolve` call.
+That function no longer exists: `resolve_day` now only computes
+`StepOutcome`s and emits `ProposedMutation` proposals
+(BRIEF-0075-e/`day_mutations.py`); `AgendaStep.status`/`.outcome`/`.
+change_history` move only once Nia approves one. A replay still re-rolls
+every included step fresh each call (`resolve_steps` re-evaluates from
+`step_order` 1 every time, unchanged) — but two resolves of the same day
+now emit two independent sets of proposals rather than two direct writes,
+and only proposals matching canon's actual current step state apply
+cleanly (the ordered-approval consequence, see AMENDMENT 1).
+
+**D2 (NPC opposition tier) resolves to a constant, not a second
+derivation.** `play_physical.py`'s live-Play precedent derives `npc_tier`
+from `character.physical_tier` when a turn is opposed by a specific NPC —
+but neither `agenda_step` nor `agenda_step_requirement` carries an
+opposing-NPC id; a day-plan step names no opponent. `_step_player_tier`
+reproduces the base-domain half of that precedent verbatim (custom-skill
+dispatch never applies here, since `day_plan._validate_step` rejects any
+`domain` outside `BASE_SKILL_DOMAINS`); `npc_tier` is passed `0` always.
+Not an ambiguity between two derivations (the brief's own STOP
+condition) — the one derivation found reduces to its already-existing
+`None -> 0` fallback because its gate is never true on this schema.
+
+**The fact sheet's `concordance` parameter is a FRESH re-run, not a
+persisted object.** The brief's signature anticipated `freeze_facts`
+receiving a `concordance` argument; `day_concordance.ConcordanceResult` is
+never persisted past the `/plan` call that builds it (BRIEF-0075-c), and —
+measured live — `agenda_step_requirement.target_entity_id` is populated
+essentially NEVER in practice: the seeded `day_plan` prompt only ever asks
+the model for the two requirement forms that need no entity id
+(knowledge/resource). Sourcing `FactSheet.npcs`/`.locations` from
+`agenda_step_requirement` rows alone would leave the fact sheet almost
+always empty even when the declaration named a real NPC concordance HAD
+resolved at plan time. The route (`cockpit/routes/day.py::
+_concord_declaration`) re-runs extraction + `concord()` — the SAME
+deterministic, model-free lookup, minus `emit_germs` (re-emitting germs at
+resolve time, including on every replay, would duplicate the
+`entity_creation` proposals `/plan` already staged). This is not a
+regression from BRIEF-0075-c's "extraction happens once" posture:
+extraction is three real model calls, but concordance ITSELF (the
+Python-only matching) is idempotent and cheap to re-run, and re-running it
+means AMENDMENT 1's ordering guarantee (concordance precedes narration)
+holds a second time, inside `/resolve` too — not only inside `/plan`.
+
+**What the T1 judge proves, and — as important — what it does NOT
+prove.** Name containment (`day_narration_guard.extract_names` against
+`FactSheet.authorised_names`) proves no proper name outside the
+authorised list appears in the prose. It does NOT prove the prose is
+coherent, and it does NOT prove a role hint was rendered as a function
+rather than silently dropped — a beat that mentions no one at all still
+passes name containment cleanly. Outcome survival (band-marker counting,
+`BAND_MARKERS` shared between `day_narration.py`'s prompt-building and the
+judge) proves the prose carries, for each band present on the fact sheet,
+AT LEAST as many occurrences of that band's marker as there are steps of
+that band — a COUNT, not a per-step positional pin: two same-band steps
+are proven both rendered in aggregate, never individually tied to their
+own sentence. The anti-vacuity guards (zero names extracted, zero steps on
+the fact sheet) are both hard failures, never a silent pass — the single
+most important lines in `judge_narration`, per the brief's own framing.
+
+**The name-extraction heuristic is a real, if inherently incomplete,
+detector — not a claim of completeness.** French has no small closed set
+of "words that can never be a name." `extract_names` strips `[MARKER]`
+band tags first (discovered live: without stripping, `[RÉUSSITE]` fuses
+onto the name that follows it into one bogus multi-word candidate), then
+treats a run of one-or-more consecutive capitalized words as a name
+candidate, joined across a lowercase connector (de/du/des/le/la/l'/d'/
+von/van). A lone SINGLE-word capitalized run is discarded when that word,
+case-folded, is in `_FUNCTION_WORD_STOPWORDS` — a substantial but
+deliberately non-exhaustive list of French articles, pronouns,
+prepositions, conjunctions and discourse adverbs — REGARDLESS of sentence
+position. Position-gating this (discard only at the very start of a
+sentence) was the FIRST design and was live-tested wrong twice over:
+gap-filling the stoplist itself ("Malgré", "À") fixed sentence-initial
+false positives, but a THIRD live run produced "[RÉUSSITE] Le marchand
+accepte : Il vend à Joran Vey." — a pronoun ("Il") sitting right after a
+colon, a position this module cannot reliably prove is "sentence-initial"
+(French punctuation the model actually produces is not limited to
+`.`/`!`/`?`), so the position gate let a known function word through
+ungated and the judge rejected a clean narration for it. Dropping the
+position gate entirely (a function word is never a name candidate,
+anywhere) fixed it, and is now the rule. The remaining risk — a genuine
+one-word character name that collides with a function word — is accepted
+as vanishingly rare next to two independent observed failures from the
+position-gated design. The list is still expected to keep needing entries
+as real narration prose is produced — the module docstring says so, on
+purpose, rather than implying the heuristic is finished.
+
+**A candidate run is authorised at the WORD level, not only verbatim.**
+Live testing surfaced "Joran" (the player's own first name) rejected as
+unauthorised because `FactSheet.authorised_names` only ever held the full
+display name, "Joran Vey" — a model naturally refers to someone by one
+name component, not always the full string. `day_narration_guard.
+_authorised_words` expands every authorised full name into its
+constituent words; a candidate run passes if it matches an authorised
+name VERBATIM or if every one of its own words is individually
+authorised. This also sharpens a merge artifact the extractor cannot
+otherwise disambiguate from a real two-word name — two adjacent
+capitalized words with no sentence boundary between them ("Maelis En",
+from "Maelis. En quête de calme...") — by reporting only the genuinely
+unauthorised word ("En"), not the whole run, since "Maelis" alone is
+already authorised.
+
+**An unresolved PLACE mention needed the same "render as a function, not
+a name" instruction an unresolved PERSON already got.** `FactSheet.
+role_hints` was person-only through the first live-test pass; a
+declaration naming an unconfirmed market ("le marché", never resolved to
+a real `location` entity, C1) gave the model no instruction at all for
+that mention, and it capitalized "Marché" into what read as an invented
+proper place name — a judge rejection the judge was RIGHT to produce (an
+invented capitalized place name is exactly what name containment exists
+to catch). The fix is on the prompt side, not the judge side:
+`freeze_facts` now collects role hints for `concordance.unmatched` mentions
+of category `person` OR `place`, and both the rendered fact sheet
+(`day_narration._render_fact_sheet`) and the seeded `day_narration` prompt
+say "personnes et lieux sans nom résolu... en minuscules, jamais comme un
+nom propre" — loosening the judge here would have meant accepting an
+actually-invented name; tightening the model's instructions instead keeps
+the judge's guarantee intact.
+
+**Zero resolved steps is a legitimate outcome, not a judge failure —
+discovered live, not anticipated by the brief text.** A step-1 requirement
+the character does not meet (e.g. a `resource` threshold against a zero
+ledger balance) makes `budget_cut` exclude EVERY step before any dice
+roll: `resolve_steps` returns `[]`, and a `FactSheet` built from an empty
+`outcomes` list has `steps == ()`. The anti-vacuity guard (`judge_
+narration`'s "zero steps on the fact sheet" check) is not wrong to exist —
+a genuinely empty fact sheet passed to a model asking it to render
+something is exactly the vacuity trap R5 exists to catch — but this
+particular emptiness is not a broken computation, it is the correct,
+narratable answer to "what happened today": nothing did, and code already
+knows exactly why (`evaluate_requirements`'s own verdict reason for step
+1). `day_resolve.blocked_reason` surfaces that reason; `resolve_day`
+checks for the empty-outcomes case BEFORE calling `narrate`, and when it
+fires, renders the day's prose directly in Python — no model call, no
+judge call, a synthetic `JudgeVerdict(passed=True, ...)` fed straight into
+the SAME `_finalize_resolution` persistence path every other outcome
+uses. Skipping the model here is not a workaround for the judge's
+anti-vacuity rule; it removes the only case where that rule would have
+had to make an exception, which is safer than adding one.
+
+**The rewrite pass is built against a trigger that cannot currently
+fire.** `detect_late_delta` looks for an `entity_creation`
+`proposed_mutation` tied to the resolving `pass_play_id` with
+`status='applied'` and a real `target_id` — but no code path anywhere
+turns that mutation type into a real entity: `_approve_entity_creation_
+shortcircuit` (BRIEF-0019-a, reasserted by `day_concordance.py`'s R5)
+PARKS every entity_creation approval, synchronously, unconditionally (I2).
+`detect_late_delta` is therefore written against the day an applier for
+that mutation type ships, not against today's actual behavior — Scope IN
+item 4's own text predicts this ("the rewrite is expected never to fire in
+a correctly ordered run"). Observed over the live verification runs for
+this brief (repeated `/resolve` calls against one seeded declaration,
+narrate+judge only, no rewrite trigger present): **0 rewrite firings**,
+consistent with the prediction. This 0 is the evidence the D3 reactivation
+condition (an entity_creation applier eventually shipping) is phrased
+against — a nonzero count would mean the trigger fired despite the
+structural block above still holding, which would itself be worth
+investigating.
+
+**A judge failure commits nothing mechanical either, superseded by V1.**
+This paragraph originally read "a judge failure leaves the mechanical
+outcome committed, only the prose rejected," describing
+`persist_step_outcomes` committing `agenda_step` transitions independently
+of the judge. Under V1 (AMENDMENT 1, below) that direct commit no longer
+exists at all: a judge failure and a judge success now differ only in
+whether `emit_mutations` runs — `_finalize_resolution` calls it exclusively
+on the success path, so a rejected attempt proposes NOTHING for Nia to
+review, and the dice-are-final argument below applies to the *outcome
+value* (a real `StepOutcome` the instant `resolve_physical` returns), not
+to any canon write, since none happens at resolve time regardless of the
+judge. On a judge failure, `_finalize_resolution` still appends ONE
+`pass_play.history` entry (the fact sheet, the rejected prose, the judge's
+reason) and commits, then raises a 422 — Nia sees exactly what was
+rejected and why. `pass_play.status` is left untouched (`resolving`, not
+moved to `resolved`), so a second `POST /resolve` on the same batch
+re-enters `resolve_steps` fresh — a real retry (new dice, since
+`resolve_steps` re-rolls every call), never a queued retry of the SAME
+rejected prose. This is deliberately not a "rollback the dice on judge
+failure" design: the roll is Python and already true the instant it
+happens: a narration problem is not a mechanics problem, and treating a
+narration rejection as grounds to un-happen a real dice roll would make
+the dice conditional on prose quality, which is exactly backwards from
+"the prose is a rendering of an already-decided outcome, never a source
+of one."
+
+**`Batch.local_summary`/`.final_result` are repurposed, not added (D3).**
+Confirmed zero readers and zero writers for both, in `src/` and
+`tooling/`, before reuse — `local_summary` now holds the narration draft
+(the prose as first accepted, whether that is the first attempt or the
+rewrite), `final_result` holds the identical accepted prose a second time,
+framed as "the canon-ready value" rather than "the draft"; the two are
+byte-identical in every observed run because the rewrite path (above)
+never fires. `message_to_claude`/`claude_raw_response` stay untouched,
+still vestigial, still zero writers — Scope OUT is explicit that this
+brief repurposes only its two siblings. `batch.status` gains one new
+value, `resolved_awaiting_review` (`writes.pipeline.BATCH_RESOLVED_
+STATUS`, declared beside the new `BATCH_STATUSES` vocabulary tuple — the
+`PASS_PLAY_STATUSES` idiom, restated for `batch`) — legal without a schema
+change, since the column carries no CHECK constraint on its vocabulary.
+
+**`pass_play.history` gets its first writer.** `writes.pipeline.write_
+pass_play_resolution` is the sole write path: `history = list(pass_play.
+history or []); history.append(entry); pass_play.history = history` —
+built from the CURRENT value plus one new entry, never a fresh literal,
+matching `write_agenda_step_status`/`write_npc_goal_status`'s snapshot-
+before-overwrite idiom even though this is a genuinely new column rather
+than an edit to an existing row's live fields. A replay calls this a
+second time on the same `pass_play` row and appends a SECOND entry; the
+first is never touched. `declared_action` stays completely unwritten by
+this brief, reasserted by both `pipeline_wiring.py`'s existing R3 and this
+brief's own `day_narration.py` R8.
+
+Verified live (not only by the check suite): `POST /api/day/declare` →
+`POST /api/day/{id}/plan` → `POST /api/day/{id}/resolve` against the
+seeded pilot world, real Ollama calls throughout (no mocking). A
+three-step plan budget-cut to two included steps (the third genuinely
+excluded by budget, never attempted) resolved with real 2d6 rolls,
+persisted `agenda_step` transitions, and produced a judge-accepted
+narration naming the concordance-matched NPC and rendering the
+budget-excluded step correctly as never-attempted. Repeated `/resolve`
+calls against the SAME `pass_play` (replay) produced different dice each
+time and a growing `pass_play.history`, with every earlier entry intact.
+A judge REJECTION was also observed live (the model mislabelling a
+`failure`-banded step with the `[RÉUSSITE]` marker) and correctly stored
+nothing final, appended the rejected attempt to `history`, and returned a
+422 — confirming the fail-closed path is not only theoretical.
+
+Extended live soak testing (repeated `/resolve` calls against varied
+declarations and plans, real Ollama calls throughout) found the three
+gaps documented above — the position-gated stoplist letting "Il" through
+after a colon, whole-string-only name matching rejecting "Joran" against
+authorised "Joran Vey", and unresolved places never being told to stay
+generic — each confirmed by a REAL rejected `/resolve` call before the
+fix, and each confirmed passing after it: a run using the full name, a
+first-name-only reference, and a lowercase "le marche" in the SAME
+narration all cleared the judge together once every fix landed. The
+zero-attempted-steps edge case was also found live (a plan's first step
+carrying a `resource` requirement the seeded player character's zero
+ledger balance could never satisfy) and confirmed fixed: the SAME batch,
+resolved and replayed, returned `200` both times with a code-rendered
+prose naming the exact unmet requirement, no model call, no judge
+involvement, and `pass_play.history` growing by one entry per call.
+
+**AMENDMENT 1 (V1 — no direct step write).** The paragraph above describing
+`persist_step_outcomes`'s direct `agenda_step` transitions is superseded.
+Claude Code's execution of BRIEF-0075-e escalated a dead-proposal STOP
+condition: -e's own Invariants section states the day chain "adds a
+PROPOSER, not a writer," while this brief had it writing `agenda_step`
+transitions directly — both cannot be true, and by the time an
+`agenda_step_change` proposal reached the queue the step was no longer
+`active`, so `_mutation_apply_agenda_step_change`'s stale guard rejected
+it on arrival. The fault was this brief's: decision **V1** (locked,
+`BRIEF-0075-d-amendment-1-no-direct-step-write.md`) removes
+`persist_step_outcomes` entirely — `day_resolve.py` now computes
+`StepOutcome`s and writes NO canon at all. The boundary is EMPTY FOOTPRINT
+vs. WORLD FOOTPRINT, not agenda vs. non-agenda: creating a plan
+(`write_day_plan`) records the player's own declared intent and stays a
+direct write; completing a step carries `effects` (relations, ledger,
+roles) and advances the agenda, so it goes through the review queue,
+always. `AgendaStep.status`/`.outcome`/`.change_history` now move only
+when Nia approves an `agenda_step_change` mutation (BRIEF-0075-e). A
+consequence carried forward: `_mutation_apply_agenda_step_change` already
+cascades on `complete` (activates the lowest-`step_order` `pending` step,
+or completes the agenda when none remain), so a multi-step day still
+works under V1 with no change to the applier — but the N proposals a day
+emits must be approved in `step_order`, since an out-of-order approval
+hits the stale guard. `fail` fails the WHOLE agenda (the applier's
+existing, unbranching behaviour), so a failed step terminates the day's
+plan rather than pausing it; recovery is BRIEF-0075-f's reconciliation.
+
+---
+
+## MUTATION EMISSION AND THE DAY ACCOUNT — proposer, not writer (BRIEF-0075-e, no schema change)
+
+**A1 (asynchronous, creator in the loop) / O1 (no auto-approve).** The day
+chain's ONLY new write is a `ProposedMutation` row at `status='proposed'`,
+`source_type='pass_play'`, `pass_play_id` set, `conversation_id`/`tick_id`
+NULL — built entirely in the new `day_mutations.py` (plus the
+pre-existing `day_concordance.emit_germs` for `entity_creation` germs,
+BRIEF-0075-c, unchanged). Nothing in the chain calls `_apply_mutation`;
+every emitted mutation reaches canon only through the ordinary review
+queue, exactly like a conversation- or tick-sourced proposal. A rejected
+narration (the T1 judge, BRIEF-0075-d) emits NOTHING — `resolve_day` only
+calls `emit_mutations` on the success path, inside the same transaction as
+the narration/status writes, so a discarded attempt proposes nothing for
+Nia to review.
+
+**The corrected vocabulary (BRIEF-0075-e-amendment-1).**
+`EMITTED_MUTATION_TYPES = ("knowledge_change", "relation_change",
+"agenda_step_change", "entity_creation")`. `resource_change` and
+`agenda_creation` from the original brief are REMOVED: under V1's
+boundary, creating a plan has no world footprint and stays
+`write_day_plan`'s direct write, and resources travel as `ledger_transfer`
+effects on a step's own completion rather than a second vocabulary for
+the same thing. `npc_move` stays absent (N1, BRIEF-0074-a-amendment-1):
+the schedule is the positional truth, and a resolution-emitted move would
+reopen that amendment. `relation_change` is kept for relation movement
+belonging to no step, but has no computed source in v1 either — the
+emitter always returns an empty list, the same deliberate no-op posture as
+skill deltas (X1, below); the type stays in the vocabulary for a future
+source, never invented here.
+
+**The delta contract travels on the payload, not a column.** The
+escalation looked for an `effects`/reward column on `AgendaStep`/
+`AgendaStepRequirement` and correctly found none — the contract is
+`_apply_completion_effects`'s own `_EFFECT_TYPES = frozenset({"relation_
+delta", "ledger_transfer", "role_change"})` (`cockpit/mutations.py`,
+TICKET-0024/BRIEF-0024-c), already shared with `goal_change complete`.
+Every emitted `agenda_step_change` carries an EMPTY `effects` list in v1:
+no per-step reward exists to compute one from (a `resource`-type
+requirement carries no counterparty entity, so a `ledger_transfer` cannot
+even be well-formed from it; a `relation_gte`-type requirement carries no
+relation type or delta amount) — inventing a value here would be exactly
+the house-rule the brief forbids. Nia edits the proposed payload in the
+review queue (`ApproveBody.payload`, an existing creator affordance) to
+attach a concrete effect when the day's narrative warrants one.
+
+**The armed rendezvous (I1) needs no new mechanism.** `AgendaStepRequirement`
+already has a `knowledge` requirement type (`_eval_knowledge`, day_plan.py)
+gating a step on the player ALREADY holding some `Knowledge` subject —
+that row must exist for the step to have been attemptable at all.
+`day_mutations._emit_knowledge_change` deepens that SAME row to `knows`
+whenever the step carrying that precondition completes successfully — the
+"a contact found, an appointment made" case — emitted alongside the
+generic `agenda_step_change` for that step. Arming the rendezvous is then
+just the ordinary chain: approving the `agenda_step_change` cascades the
+NEXT `pending` step to `active` (the applier's existing behaviour, V1),
+whose `objective` — written at plan time by the model — IS the meeting;
+approving the `knowledge_change` deepens the fact. Nothing is inserted,
+nothing is invented, and the rendezvous is armed only once both are
+approved. A day establishing a meeting the plan never anticipated (no
+`knowledge` requirement on the completed step) emits nothing extra here —
+bending the applier to insert a step was ruled out of scope; the next
+day's reconciliation (BRIEF-0075-f) is the recovery path.
+
+**X1 (named deferral) — skills have no carrier.** `_EFFECT_TYPES` covers
+relations, ledger transfers and faction roles; it has no skill-gain
+effect. In v1 the day produces no skill gain, and the account says so
+positively (a `skill: {produced: [], note: "..."}` block, never a silent
+omission) rather than pretending the category doesn't exist. Reactivation
+condition: when a skill effect type exists in `_EFFECT_TYPES` — adding one
+touches `_apply_completion_effects`, shared with `goal_change`, so it is
+its own ticket, never an addition inside `day_mutations.py`.
+
+**The day account (`GET /api/day/{id}`) never reads `pass_play.history`.**
+`routes/day.py` is forbidden that attribute file-wide (`pipeline_wiring.
+py`'s R5), so the account reads through two new helpers in `writes/
+pipeline.py` — `read_latest_resolution` (the latest `history` entry) and
+`resolution_count` (its length, `> 1` meaning a replay) — rather than
+re-running extraction/concordance a second time, which would also cost a
+fresh, non-deterministic model call on every read of an already-resolved
+day. The account assembles prose (`batch.final_result`), NPCs/locations/
+role_hints (the frozen fact sheet, unchanged since the resolution that
+produced it), gains (read from this pass_play's own `ProposedMutation`
+rows, each tagged with its live review status), a pending-review block,
+and the rendezvous (surfaced only once its `agenda_step_change` shows
+`status='applied'` — i.e., Nia already approved it and the applier's
+cascade already ran). No `agenda_id`/`step_id` key reaches the response or
+`Journee.svelte` (re-asserted by `tooling/verify/checks/day_mutations.py`
+R7).
+
+**The review queue badge and day link (D2).** `pass_play`-sourced rows
+already rendered via the generic `sourceRef` text; this brief adds a
+proper `b-pass-play` badge (`JOURNÉE · Jour N`) matching the existing
+`b-tick` precedent, plus the day's declaration first line, resolved
+through a new lazy `pass_play_id -> {day_number, declared_action}` cache
+in `queue.svelte.js` fed by the already-existing `pass_play_id` field on
+`GET /api/days`' response.
+
+**The handoff to Play adds no new bridge-reach site.** The DELEGATED D1
+from the original brief (what the legacy Play surface needs to open a
+conversation with a given NPC) resolved to a hard constraint rather than a
+contract to implement: `legacy_call.py`'s bridge-reach seam is shrink-only,
+and its baseline holds exactly one sanctioned site
+(`App.svelte::showFn`). `Journee.svelte`'s "Parler" button therefore calls
+only `router.navigate('play')` — the same ordinary SPA navigation any
+surface switch uses — which `App.svelte`'s existing route handler turns
+into the one baselined `showSurface('play')` call. The player is handed
+the rendezvous objective and the NPC's name in prose and lands on Play;
+finding and starting the conversation there is Play's own existing
+affordance, untouched, exactly as Scope OUT requires ("do not migrate it,
+do not restyle it").
+
+Verified live against the seeded pilot world (no schema change, real
+Ollama calls for extraction/narration where exercised): a resolved day's
+account rendered NPCs, role hints, prose and an empty gains block
+correctly before any mutation existed for it. A scratch `agenda_step_
+change` (`action=complete`) plus a `knowledge_change` deepening a
+pre-existing `rumor`-level fact, approved in order through the live
+`/api/mutations/{id}/approve` route: the first approval cascaded the
+agenda's next `pending` step to `active` exactly as the applier's
+existing logic predicts; the second upgraded the `Knowledge` row's level
+to `knows` with its prior state preserved in `change_history`. The day
+account then showed the rendezvous block (`armed: true`, the new active
+step's objective) and the knowledge gain (`status: "applied"`), and the
+review queue displayed the new `JOURNÉE · Jour N` badge with the day's
+declaration linked. The "Parler" handoff was confirmed to navigate the
+shell to `/play` with no new legacy bridge-reach site.
+
+## THE FEASIBILITY VETO — a downward-only clamp is not an exception (BRIEF-0075-g, no schema change)
+
+**Y1 (the veto's shape is the whole safety argument).** A model call that
+can only SUBTRACT from an already-legal plan cannot break F1
+("model proposes, code judges"), because it never proposes anything new:
+`day_feasibility.veto()` receives `budget_result.included` — the steps
+`budget_cut` (BRIEF-0075-b) already retained, requirements already judged
+— and asks one question ("how many of these, in order, could this
+character plausibly do in one day?"). `clamp_verdict()`, a PURE function
+(no `db`, `select(`, `chat(`, `datetime`, `randint` — R1), is what actually
+enforces the bound with a real `min(raw_retained, python_retained)` call
+(R2), never a prompt instruction: this is deliberate, because an
+abliterated model follows a positive request but cannot be trusted to
+honour a negative one, so "never propose more than you were given" has to
+be code, not phrasing. This is why Y1 is not an exception to "model
+proposes, code judges" at all — the model's only two possible effects on
+canon are "resolve fewer of Python's steps today" or "no effect" (an
+honoured or unavailable verdict). It can never add a step, raise a cost,
+lower a cost, or overturn a prerequisite verdict — Y3 (the model deciding
+how many steps fit, replacing Python's sum) was rejected as F3 in the
+original brief and stays rejected.
+
+**Proves X, not Y.** The clamp proves the veto CANNOT lengthen a day —
+that is a structural guarantee, true on every input, adversarial or not
+(verified by feeding `clamp_verdict` a deliberately inflated `retained`,
+a negative one, a missing `reason`, and a citation naming a step outside
+the input — every case lands on `clamped` or `unavailable`, never a
+widened `veto_retained`). It does NOT prove the veto's judgment is GOOD —
+whether the character/plausibility reasoning is any good is an empirical
+question the clamp is structurally blind to. That is what the calibration
+numbers (below) are for, and why Scope OUT forbids tuning the prompt
+against them in this same brief: reporting and tuning are different
+activities, and mixing them here would make the first report already a
+biased one.
+
+**Fail-closed in the direction that matters.** `veto()` never raises —
+Ollama unreachable, an unparseable response, a missing/malformed field, or
+a citation naming a step outside the input all collapse to
+`outcome="unavailable"` with `veto_retained == python_retained` (R6): the
+day proceeds on Python's cut, exactly unchanged. This is a deliberate
+asymmetry with every other model call in the day chain (`day_plan.
+emit_plan`, the extraction passes) — those RAISE on failure and abort the
+whole `/plan` call (F1's "propose or stop" posture), because a day plan
+with no steps is meaningless. The veto is an ADD-ON judgment layered onto
+a plan Python already legally computed; its own failure must never block
+that plan, and "inert" (Python's cut stands) is the only failure mode that
+cannot also be a silent widening.
+
+**D1 resolved: there is no "character frame" to build, only to reuse.**
+The mini-RECON asked what character context the extraction passes
+(`day_extract.py`) already assemble, on the premise that the veto needed
+"the same frame." The premise half-held: `day_extract.py`'s passes take NO
+character parameter at all — they see only a secret-free `world_frame(world)`
+(name + description; `World` carries no secret column, so this cannot leak
+one). The one piece of character-specific context anywhere in the day
+chain is a NAME, looked up in `day_plan.emit_plan` via `db.get(Entity,
+character.id)` — nothing deeper (goals, secrets-excluded knowledge,
+personality) is ever assembled for a day-chain model call. `day_feasibility.
+veto()` reuses BOTH builders verbatim (`world_frame`, promoted public in
+`day_extract.py` for this reuse, plus the identical name lookup) rather
+than building a second, deeper frame — which is exactly the ad-hoc
+assembly the mini-RECON's D1 was warning against: a frame nothing else in
+the chain has is a frame that has never been audited for what it leaks.
+
+**The persistence problem the brief didn't spell out, and how it's solved.**
+The veto decides ONCE, at `/plan` time (Wiring: "calls veto AFTER
+budget_cut… never before"), but `POST /api/day/{id}/resolve`
+(`day_resolve.resolve_steps`) independently RE-DERIVES `budget_cut` from
+the persisted `AgendaStep` rows every time it runs (BRIEF-0075-d's
+deliberate replay semantics) — with no schema change available, there was
+no column to carry `veto_retained` from one request to the other. The
+"Docs to update" line ("the verdict record rides in `PassPlay.history`")
+pins the answer: `write_day_feasibility` (`writes/pipeline.py`) appends a
+SECOND entry kind to the same `pass_play.history` list `write_pass_play_
+resolution` (BRIEF-0075-d) already owns, discriminated by `"kind":
+"feasibility"` (resolution entries carry no `"kind"` key at all, before or
+after this brief). `resolve_day` reads it back via a new `read_latest_
+feasibility` and hands `veto_retained` into `resolve_steps`, which slices
+`budget_result.included` to that prefix BEFORE rolling any dice — a
+further truncation layered on top of `budget_cut`'s own output, never a
+change to what `budget_cut` computes or to any requirement verdict, so S4
+("any existing caller depends on `budget_cut`'s output being final") does
+not fire: every caller still gets `budget_cut`'s exact result; the veto
+only ever narrows the PREFIX of it that gets used, identically at `/plan`
+and `/resolve`. `resolution_count`/`read_latest_resolution`
+(BRIEF-0075-e's `is_replay` machinery) are updated to skip any entry whose
+`"kind"` is `"feasibility"` — since a feasibility entry is written exactly
+once per `pass_play`, never on a replay (Scope OUT: "retrying a rejected
+verdict"), this cannot inflate the replay count, and every entry written
+before this brief is unaffected (no `"kind"` key to filter on).
+
+**Live-tested against the seeded pilot world, real Ollama calls
+throughout** (`huihui_ai/qwen3-abliterated:8b-v2`, the seeded default):
+nine feasibility verdicts across nine declared days, five carried through
+to a full resolution (declare → plan → resolve → account), plus one
+synthetic injection (a persisted `veto_retained` edited directly in the
+test DB from 3 to 1, citing step 2) to force-observe an ACTUAL reduction
+end to end without waiting on the model to volunteer one. That synthetic
+case confirmed the mechanism precisely: with `python_retained=3`,
+`veto_retained=1`, `resolve_steps` rolled exactly ONE step ("Saler
+Maelis"), and the frozen fact sheet / emitted mutations both reflected
+one step, not three — steps 2 and 3 stayed `pending`, untouched, exactly
+as Done-means item 1 specifies.
+
+**The calibration numbers (Scope IN item 4 — evidence, not tuning).**
+Outcome distribution across the nine organic (model-produced) verdicts:
+9 `honoured`, 0 `clamped`, 0 `unavailable`. `python_retained -
+veto_retained` distribution: `{0: 8, 2: 1}` (the one non-zero delta is the
+synthetic injection above, not an organic model judgment). Read plainly:
+in this session, the model never once disagreed with Python's own budget
+cut. The likely reason is structural, not a prompt defect: `DAY_BUDGET_
+SLOTS` is small (four slots derived from the phase vocabulary) and most
+emitted steps cost 1-4, so `budget_cut` itself rarely retains more than
+one to three steps before the veto ever sees the plan — there is
+typically little room left for a plausibility judgment to disagree with an
+already-tight mechanical cut. `clamp_verdict`'s `clamped`/`unavailable`
+paths are independently verified correct by direct unit exercise (an
+inflated `retained`, a negative one, a missing `reason`, a citation
+outside the input — see execution notes), so their absence here is a
+statement about what this run's inputs produced, not about whether the
+code paths work. Per Y1's own "proves X, not Y": a veto that never fires
+is a calibration fact to sit with, not a code defect to chase inside this
+brief — Scope OUT explicitly forbids tuning the prompt against it here.
+
+**A live-testing aside, unrelated to Y1, reported for the record.** Several
+resolve attempts (independent of the veto) were rejected by the T1
+narration judge (BRIEF-0075-d) for reasons the veto never touches: a
+location matched by declaration text without its definite article ("Dernier
+Verre" vs. the canon "Le Dernier Verre") went unmatched by concordance and
+then got rendered as an unauthorised proper noun; the world/city name
+"Verkhaal" surfaced in narration despite never being added to `authorised_
+names` (only matched NPCs and locations feed that set, never factions); and
+a very long, multi-clause declaration twice produced truncated/invalid JSON
+from `day_plan.emit_plan`. None of these touch the veto's own code path —
+they are pre-existing surface area in `day_concordance.py`/`day_narration_
+guard.py`/`day_plan.py` — reported here only because they were observed
+during this brief's live-testing, exactly as CLAUDE.md's testing guidance
+asks; not fixed, as fixing them is out of this brief's scope.
+
+---
+
 *Co-built with Claude, June 2026.*

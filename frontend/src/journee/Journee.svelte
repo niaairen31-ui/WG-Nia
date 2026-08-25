@@ -10,11 +10,17 @@
      in the backend (writes/pipeline.py). No agenda data is fetched,
      rendered or referenced anywhere in this surface (Scope OUT). */
   import { serverState } from '../lib/serverState.svelte.js';
+  import { navigate } from '../lib/router.js';
   import {
     journeeState, selectedDay, loadDays, selectDay, submitDeclaration, reloadForWorld,
+    planDay, resolveDay,
   } from './journee.svelte.js';
 
   let { active = false } = $props();
+
+  function goToPlay() {
+    navigate('play');
+  }
 
   // Mirrors writes/pipeline.py's MAX_DECLARATION_CHARS -- no shared source
   // across the network boundary, so the two are kept in step by hand.
@@ -76,6 +82,94 @@
         <div class="day-detail">
           <h3>Jour {day.day_number} — {day.status}</h3>
           <p>{day.declared_action}</p>
+
+          {#if day.status === 'submitted'}
+            <button disabled={journeeState.planning} onclick={() => planDay(day.id)}>
+              {journeeState.planning ? '⟳ Émission du plan…' : 'Émettre le plan'}
+            </button>
+          {:else if day.status === 'resolving'}
+            <button disabled={journeeState.resolving} onclick={() => resolveDay(day.id)}>
+              {journeeState.resolving ? '⟳ Résolution…' : 'Résoudre la journée'}
+            </button>
+          {/if}
+          {#if journeeState.planError}<div class="r-err">{journeeState.planError}</div>{/if}
+          {#if journeeState.resolveError}<div class="r-err">{journeeState.resolveError}</div>{/if}
+
+          {#if journeeState.detail?.feasibility}
+            {@const feas = journeeState.detail.feasibility}
+            <p class="muted feasibility-note">
+              Faisabilité : {feas.veto_retained}/{feas.python_retained} étape(s) retenue(s) —
+              {feas.reason}
+              {#if feas.outcome === 'unavailable'}(jugement indisponible, plan inchangé){/if}
+            </p>
+          {/if}
+
+          {#if journeeState.detailLoading}
+            <div class="empty"><span class="spin">⟳</span></div>
+          {:else if journeeState.detailError}
+            <div class="r-err">{journeeState.detailError}</div>
+          {:else if journeeState.detail?.account}
+            {@const account = journeeState.detail.account}
+            <div class="day-account">
+              {#if account.is_replay}<div class="badge b-other">journée rejouée — dernière résolution</div>{/if}
+
+              <h4>Récit</h4>
+              <p class="account-prose">{account.prose}</p>
+
+              <h4>Personnages rencontrés</h4>
+              {#if account.npcs.length === 0}
+                <p class="muted">Aucun.</p>
+              {:else}
+                <ul>{#each account.npcs as n}<li>{n.name}</li>{/each}</ul>
+              {/if}
+
+              <h4>Lieux visités</h4>
+              {#if account.locations.length === 0}
+                <p class="muted">Aucun.</p>
+              {:else}
+                <ul>{#each account.locations as l}<li>{l.name}</li>{/each}</ul>
+              {/if}
+              {#if account.role_hints.length > 0}
+                <p class="muted">Évoqués sans identité résolue : {account.role_hints.join(', ')}</p>
+              {/if}
+
+              <h4>Gains</h4>
+              <ul class="gains-list">
+                {#each account.gains.resource as g}
+                  <li><span class="badge b-other">ressource</span> {g.status} — {JSON.stringify(g.detail)}</li>
+                {/each}
+                {#each account.gains.knowledge as g}
+                  <li><span class="badge b-other">connaissance</span> {g.subject} → {g.to_level} ({g.status})</li>
+                {/each}
+                {#each account.gains.relation as g}
+                  <li><span class="badge b-other">relation</span> {g.status} — {JSON.stringify(g.detail)}</li>
+                {/each}
+                {#if account.gains.resource.length === 0 && account.gains.knowledge.length === 0 && account.gains.relation.length === 0}
+                  <li class="muted">Rien pour l'instant.</li>
+                {/if}
+              </ul>
+              <p class="muted">{account.gains.skill.note}</p>
+
+              {#if account.germs.length > 0}
+                <h4>Nouveaux contacts entrevus</h4>
+                <ul>{#each account.germs as g}<li>{g.name} ({g.role_hint || '—'}) — {g.status}</li>{/each}</ul>
+              {/if}
+
+              {#if account.pending_review.length > 0}
+                <h4>En attente de revue</h4>
+                <ul>{#each account.pending_review as p}<li>{p.mutation_type} — {p.rationale}</li>{/each}</ul>
+              {/if}
+
+              {#if account.rendezvous}
+                <h4>Rendez-vous</h4>
+                <p>
+                  {account.rendezvous.objective}
+                  {#if account.rendezvous.npc_name}(avec {account.rendezvous.npc_name}){/if}
+                </p>
+                <button onclick={goToPlay}>Parler</button>
+              {/if}
+            </div>
+          {/if}
         </div>
       {/if}
     </div>
@@ -95,4 +189,10 @@
     margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px;
     white-space: pre-wrap;
   }
+  .day-account { margin-top: 12px; }
+  .day-account h4 { margin: 12px 0 4px; font-size: 13px; color: var(--muted); }
+  .account-prose { white-space: pre-wrap; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .gains-list { list-style: none; padding: 0; margin: 0; }
+  .gains-list li { padding: 2px 0; }
 </style>

@@ -37,6 +37,8 @@ WIRED_FILES = [
     SRC / "cockpit" / "play_stream.py",
     SRC / "tick.py",
     SRC / "context_window.py",
+    SRC / "day_plan.py",
+    SRC / "day_extract.py",
 ]
 
 # Exemption allowlist (by enclosing function name): the call path whose
