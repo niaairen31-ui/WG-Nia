@@ -2650,6 +2650,65 @@ Narration à réviser :
         destination="local",
     )
 
+    # ----- prompt template: feasibility veto (TICKET-0075, BRIEF-0075-g) ---
+    # usage = "day_feasibility". world_id = NULL. ONE call, decision Y1: the
+    # model judges how many of the steps Python ALREADY RETAINED (budget_cut,
+    # -b) are plausible for this character in one day. It never sees the
+    # excluded steps, the requirements or the registry -- day_feasibility.
+    # clamp_verdict() is what actually enforces the downward-only contract
+    # (R1/R2), never this prompt text: a negative-form instruction is
+    # worthless against the abliterated gameplay model, so this prompt only
+    # ever asks positively for the three fields.
+    DAY_FEASIBILITY_SYSTEM_PROMPT = """\
+Tu es un juge de plausibilité pour un jeu de rôle. Le moteur a déjà \
+découpé la journée déclarée par le joueur en une liste ORDONNÉE d'étapes \
+retenues, dans la limite du budget de la journée. Ton travail : juger \
+combien de ces étapes retenues, en commençant par la première et dans \
+l'ordre donné, ce personnage pourrait plausiblement accomplir en une \
+seule journée, compte tenu de qui il est.
+
+RÈGLES :
+- "retained" : un entier entre 0 et le nombre d'étapes retenues indiqué \
+ci-dessous. Il indique combien des PREMIÈRES étapes, dans l'ordre donné, \
+sont plausibles aujourd'hui pour ce personnage.
+- "reason" : une phrase courte expliquant ton jugement.
+- "cited_step_order" : le numéro (1, 2, 3...) de la PREMIÈRE étape que tu \
+écartes. Indique-le UNIQUEMENT si "retained" est inférieur au nombre \
+d'étapes retenues ; sinon mets null.
+
+Exemple : si 3 étapes sont retenues et que tu juges que seules les deux \
+premières sont plausibles aujourd'hui, réponds \
+{"retained":2,"reason":"...","cited_step_order":3}.
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien \
+d'autre :
+{"retained":<entier>,"reason":"<...>","cited_step_order":<entier ou null>}\
+"""
+
+    DAY_FEASIBILITY_USER_TEMPLATE = """\
+Personnage : {character_name}
+Monde : {world_frame}
+Déclaration du joueur : {declaration}
+
+Étapes retenues aujourd'hui, dans l'ordre :
+{steps}
+
+Combien de ces étapes, en commençant par la première, sont plausibles en \
+une seule journée pour ce personnage ?\
+"""
+
+    upsert_prompt_template(
+        session,
+        "pt-day-feasibility",
+        world_id=None,
+        name="Journée — veto de faisabilité",
+        usage="day_feasibility",
+        system_prompt=DAY_FEASIBILITY_SYSTEM_PROMPT,
+        user_template=DAY_FEASIBILITY_USER_TEMPLATE,
+        variables=["character_name", "world_frame", "declaration", "steps"],
+        destination="local",
+    )
+
     # ----- factions (entity + faction) --------------------------------------
     # L'Innommée — existence denied in public discourse.
     get_or_create(

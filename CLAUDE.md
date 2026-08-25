@@ -400,6 +400,7 @@ WG-Nia/
 │   ├── day_narration.py     # day narration + rewrite: renders the fact sheet, never decides
 │   ├── day_narration_guard.py  # T1 judge: name containment + outcome survival, Python-only
 │   ├── day_mutations.py     # day-chain mutation emission: proposer only, never applies (V1)
+│   ├── day_feasibility.py   # feasibility veto: downward-only, clamp_verdict is the safety (Y1)
 │   ├── writes/               # canon-write helpers by domain; schema.py is the DDL authority
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
 │   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)

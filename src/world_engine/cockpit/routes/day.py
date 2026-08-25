@@ -1,16 +1,19 @@
 """Day declaration, plan-emission and resolution routes (TICKET-0075,
 BRIEF-0075-a — the declaration socle: plumbing only; BRIEF-0075-b — plan
 emission and budget; BRIEF-0075-c — extraction and concordance;
-BRIEF-0075-d — resolution, the fact sheet and narration). A player declares
-a day; the declaration is stored, listed and read back, a plan can be
-emitted against it: extraction + concordance resolve its mentions to canon
-ids or roles (C1: the resolver never authors — any unmatched PERSON mention
-only ever reaches canon as a PARKED `entity_creation` germ, never authored
-here), then one model call (`day_plan.emit_plan`), Python-judged
-requirements and a Python budget cut (F1: model proposes, code judges).
-Finally the budgeted plan is resolved (`resolve_day`): Python dice
-(`resolve_steps`), a frozen fact sheet, one narration call constrained by
-it, and a fail-closed Python judge before anything is stored final.
+BRIEF-0075-d — resolution, the fact sheet and narration; BRIEF-0075-g —
+the feasibility veto, decision Y1). A player declares a day; the
+declaration is stored, listed and read back, a plan can be emitted against
+it: extraction + concordance resolve its mentions to canon ids or roles
+(C1: the resolver never authors — any unmatched PERSON mention only ever
+reaches canon as a PARKED `entity_creation` germ, never authored here),
+then one model call (`day_plan.emit_plan`), Python-judged requirements and
+a Python budget cut (F1: model proposes, code judges), then ONE MORE model
+call (`day_feasibility.veto`) that can only shorten what Python retained,
+never extend it (Y1). Finally the budgeted, vetoed plan is resolved
+(`resolve_day`): Python dice (`resolve_steps`, capped at the veto's own
+retained count), a frozen fact sheet, one narration call constrained by it,
+and a fail-closed Python judge before anything is stored final.
 
 `_get_or_open_session` deliberately duplicates the M5 idiom from
 `cockpit/play.py` (`_get_or_open_session`) rather than importing it: Play is
@@ -30,6 +33,7 @@ from sqlmodel import Session, select
 
 from ...day_concordance import ConcordanceResult, concord, emit_germs, plan_context
 from ...day_extract import extract_factions, extract_persons, extract_places
+from ...day_feasibility import VetoVerdict, veto as feasibility_veto
 from ...day_mutations import emit_mutations
 from ...day_narration import detect_late_delta, narrate, rewrite as day_rewrite
 from ...day_narration_guard import JudgeVerdict, judge_narration
@@ -58,9 +62,11 @@ from ...models import Session as GameSession
 from ...writes import (
     BATCH_RESOLVED_STATUS,
     MAX_DECLARATION_CHARS,
+    read_latest_feasibility,
     read_latest_resolution,
     resolution_count,
     write_batch,
+    write_day_feasibility,
     write_day_plan,
     write_pass_play,
     write_pass_play_resolution,
@@ -125,6 +131,24 @@ def _day_dict(batch: Batch, pass_play: PassPlay) -> dict:
         "status": pass_play.status,
         "declared_action": pass_play.declared_action,
         "created_at": batch.created_at.isoformat() if batch.created_at else None,
+    }
+
+
+def _feasibility_dict(
+    python_retained: int, veto_retained: int, reason: str, cited_objective: Optional[str], outcome: str,
+) -> dict:
+    """Player-facing shape (BRIEF-0075-g, Wiring): counts, the reason, the
+    cited step's OBJECTIVE (never its order/id -- ticket-wide Scope OUT),
+    and the honoured/clamped/unavailable flag. Shared by the `/plan`
+    response (built from the fresh `VetoVerdict`) and `GET /api/day/{id}`
+    (built from the persisted `pass_play.history` entry via `read_latest_
+    feasibility` -- never `.history` itself, `pipeline_wiring.py`'s R5)."""
+    return {
+        "python_retained": python_retained,
+        "veto_retained": veto_retained,
+        "reason": reason,
+        "cited_objective": cited_objective,
+        "outcome": outcome,
     }
 
 
@@ -309,6 +333,12 @@ def get_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
         raise HTTPException(status_code=404, detail=f"day {batch_id!r} not found")
     batch, pass_play = row
     result = _day_dict(batch, pass_play)
+    feasibility_entry = read_latest_feasibility(pass_play)
+    if feasibility_entry is not None:
+        result["feasibility"] = _feasibility_dict(
+            feasibility_entry["python_retained"], feasibility_entry["veto_retained"],
+            feasibility_entry["reason"], feasibility_entry["cited_objective"], feasibility_entry["outcome"],
+        )
     if pass_play.status == "resolved":
         result["account"] = _day_account_dict(pass_play, batch, db)
     return result
@@ -432,7 +462,11 @@ def _finalize_plan(
         for step in raw_steps
     ]
     budget_result = budget_cut(evaluated_steps, DAY_BUDGET_SLOTS)
-    active_step_index = 0 if budget_result.included else None
+    # BRIEF-0075-g, Y1: the veto runs AFTER budget_cut, on an already-legal
+    # plan (R4) — its own output can only narrow `budget_result.included`
+    # further, never widen it (day_feasibility.clamp_verdict, R1/R2).
+    verdict = feasibility_veto(budget_result, character, pass_play.declared_action, db)
+    active_step_index = 0 if verdict.veto_retained > 0 else None
 
     title = pass_play.declared_action.strip().splitlines()[0][:200]
     try:
@@ -449,7 +483,10 @@ def _finalize_plan(
 
     # Germs (already staged by `_extract_and_concord`) commit in the same
     # transaction as the plan (Scope IN item 4, all-or-nothing) — never
-    # added inside day_concordance.py itself (R1).
+    # added inside day_concordance.py itself (R1). The feasibility verdict
+    # (item 4, observability) is recorded in the SAME transaction, exactly
+    # once per pass_play, BEFORE the status move to 'resolving'.
+    write_day_feasibility(db, pass_play=pass_play, verdict=verdict)
     pass_play.status = "resolving"
     db.add(pass_play)
     db.commit()
@@ -462,6 +499,10 @@ def _finalize_plan(
         "slots_consumed": budget_result.slots_consumed,
         "slots_budget": budget_result.slots_budget,
         "first_excluded_index": budget_result.first_excluded_index,
+        "feasibility": _feasibility_dict(
+            verdict.python_retained, verdict.veto_retained, verdict.reason,
+            verdict.cited_objective, verdict.outcome,
+        ),
     }
 
 
@@ -653,14 +694,16 @@ def _finalize_resolution(
 def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     """Resolve the budgeted portion of a declared day (TICKET-0075,
     BRIEF-0075-d, resolution+narration; BRIEF-0075-e, mutation emission —
-    V1): Python dice (`resolve_steps`), a frozen fact sheet
-    (`freeze_facts`), one narration call (`narrate`) constrained by that
-    fact sheet, and a fail-closed Python judge (`judge_narration`) before
-    anything is stored. A judge failure stores nothing final and reports —
-    it never silently degrades (Scope IN item 4). One transaction:
-    narration, the `pass_play.history` append, both status moves, and the
-    emitted `ProposedMutation` rows — never an agenda step transition
-    (V1, BRIEF-0075-d-amendment-1): those move only when Nia approves.
+    V1; BRIEF-0075-g, the feasibility veto — Y1): Python dice (`resolve_
+    steps`, capped at the retained count the veto decided once at `/plan`
+    time), a frozen fact sheet (`freeze_facts`), one narration call
+    (`narrate`) constrained by that fact sheet, and a fail-closed Python
+    judge (`judge_narration`) before anything is stored. A judge failure
+    stores nothing final and reports — it never silently degrades (Scope IN
+    item 4). One transaction: narration, the resolution-history append,
+    both status moves, and the emitted `ProposedMutation` rows — never an
+    agenda step transition (V1, BRIEF-0075-d-amendment-1): those move only
+    when Nia approves.
 
     Fail-closed: the batch must belong to the active world, and
     `pass_play.status` must be `resolving` (first resolve) or `resolved`
@@ -680,7 +723,14 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     agenda = _load_active_agenda(character, db)
     is_replay = pass_play.status == "resolved"
 
-    outcomes = resolve_steps(agenda, character, db)
+    # BRIEF-0075-g, Y1: the veto's retained count was decided once at
+    # `/plan` time and recorded in `pass_play.history` (never re-decided
+    # here, and never re-invoked on a replay — Scope OUT). `None` (no
+    # feasibility entry — a plan predating this brief) leaves `resolve_
+    # steps`'s own `budget_cut` untouched.
+    feasibility_entry = read_latest_feasibility(pass_play)
+    veto_retained = feasibility_entry.get("veto_retained") if feasibility_entry else None
+    outcomes = resolve_steps(agenda, character, db, veto_retained=veto_retained)
 
     try:
         concordance_result = _concord_declaration(pass_play, character, db)
@@ -690,11 +740,19 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     fact_sheet = freeze_facts(outcomes, concordance_result, batch, character, db)
 
     if not outcomes:
-        # Step 1's own requirements were unmet — budget_cut excluded
-        # everything before any dice roll (live-discovered edge case).
-        # Nothing to roll, nothing for a model to render, nothing for the
-        # judge to check: code renders this outcome directly.
-        prose = f"La journée n'a pas pu commencer : {blocked_reason(agenda, character, db)}"
+        # Two distinct reasons a day can start with zero outcomes: step 1's
+        # own requirements were unmet (budget_cut excluded everything
+        # before any dice roll — live-discovered edge case), or the veto
+        # judged NONE of Python's retained steps plausible today
+        # (`veto_retained == 0` — a legitimate outcome, BRIEF-0075-g Scope
+        # IN item 2). Either way nothing to roll, nothing for a model to
+        # render, nothing for the judge to check: code renders it directly,
+        # citing whichever reason actually produced the empty list.
+        if veto_retained == 0 and feasibility_entry and feasibility_entry.get("python_retained", 0) > 0:
+            reason = feasibility_entry.get("reason") or "jugé peu plausible en une seule journée"
+        else:
+            reason = blocked_reason(agenda, character, db)
+        prose = f"La journée n'a pas pu commencer : {reason}"
         verdict = JudgeVerdict(passed=True, reason="blocked before any step — code-rendered, judge not invoked")
         return _finalize_resolution(batch, pass_play, fact_sheet, prose, verdict, is_replay, outcomes, character, db)
 

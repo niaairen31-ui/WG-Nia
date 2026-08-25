@@ -46,10 +46,14 @@ class Mention:
     role_hint: Optional[str] = None  # set iff kind == "inferred"
 
 
-def _world_frame(world: Optional[World]) -> str:
+def world_frame(world: Optional[World]) -> str:
     """A compact world frame — name + description only. No per-entity query
     backs this (R2): `World` carries no secret column, so reading it directly
-    cannot leak one."""
+    cannot leak one. Public (BRIEF-0075-g): `day_feasibility.py` reuses this
+    EXACT builder rather than assembling a second one — the mini-RECON's D1,
+    resolved: the day chain's only per-request "context" is this secret-free
+    world frame plus the character's name (looked up the same way
+    `day_plan.emit_plan` already does); nothing deeper is ever assembled."""
     if world is None:
         return ""
     parts = [world.name]
@@ -107,7 +111,7 @@ def _extract(usage: str, category: str, declaration: str, db: Session) -> list[M
     user_msg = (
         version.user_template
         .replace("{declaration}", declaration)
-        .replace("{world_frame}", _world_frame(world))
+        .replace("{world_frame}", world_frame(world))
         + "\n/no_think"
     )
     raw = ollama_client.chat(

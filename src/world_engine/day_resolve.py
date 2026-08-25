@@ -225,17 +225,34 @@ def _truncate_on_failure(rolled: list[_RolledStep]) -> list[StepOutcome]:
     return outcomes
 
 
-def resolve_steps(agenda: Agenda, character: Character, db: Session) -> list[StepOutcome]:
+def resolve_steps(
+    agenda: Agenda, character: Character, db: Session, *, veto_retained: Optional[int] = None,
+) -> list[StepOutcome]:
     """Resolve the budgeted portion of `agenda`'s plan (Scope IN item 1).
     `agenda` is the character's currently active `Agenda` — the "plan" of
     the brief's signature. Returns an EMPTY list when step 1's own
     requirements are unmet (budget_cut excludes everything, first_
     excluded_index == 0) — a legitimate outcome (the day never got off the
     ground), never an error. Callers must not hand an empty result to
-    `narrate`/`judge_narration` (see `blocked_reason`)."""
+    `narrate`/`judge_narration` (see `blocked_reason`).
+
+    `veto_retained` (BRIEF-0075-g, decision Y1) is the feasibility veto's
+    OWN retained count, decided once at `/plan` time and read back by the
+    caller from `pass_play.history` (`writes.read_latest_feasibility`) —
+    never re-decided here. It is a FURTHER truncation applied on top of
+    `budget_cut`'s own output, never a change to what `budget_cut` computes
+    or to any requirement verdict (S4 stands: `budget_cut`'s result is
+    still exactly what every prerequisite/budget judgment produces; the
+    veto only ever narrows the PREFIX of it that actually gets rolled,
+    identically to how it narrowed the plan at `/plan` time). `None` (no
+    feasibility entry recorded — a plan predating this brief) leaves
+    `budget_cut`'s output untouched, byte for byte."""
     ordered_steps, evaluated_steps = _load_evaluated_steps(agenda, character, db)
     budget_result = budget_cut(evaluated_steps, DAY_BUDGET_SLOTS)
-    rolled = _roll_included_steps(ordered_steps, budget_result.included, character, db)
+    included = budget_result.included
+    if veto_retained is not None:
+        included = included[: max(0, veto_retained)]
+    rolled = _roll_included_steps(ordered_steps, included, character, db)
     return _truncate_on_failure(rolled)
 
 

@@ -190,3 +190,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 12957 | EXTRACTION AND CONCORDANCE — the resolver never authors (BRIEF-0075-c, no schema change) | BRIEF-0075-c |  |
 | 13080 | RESOLUTION, FACT SHEET AND NARRATION — the prose renders, it never decides (BRIEF-0075-d, no schema change) | BRIEF-0075-d |  |
 | 13381 | MUTATION EMISSION AND THE DAY ACCOUNT — proposer, not writer (BRIEF-0075-e, no schema change) | BRIEF-0075-e |  |
+| 13508 | THE FEASIBILITY VETO — a downward-only clamp is not an exception (BRIEF-0075-g, no schema change) | BRIEF-0075-g |  |

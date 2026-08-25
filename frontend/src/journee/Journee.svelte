@@ -95,6 +95,15 @@
           {#if journeeState.planError}<div class="r-err">{journeeState.planError}</div>{/if}
           {#if journeeState.resolveError}<div class="r-err">{journeeState.resolveError}</div>{/if}
 
+          {#if journeeState.detail?.feasibility}
+            {@const feas = journeeState.detail.feasibility}
+            <p class="muted feasibility-note">
+              Faisabilité : {feas.veto_retained}/{feas.python_retained} étape(s) retenue(s) —
+              {feas.reason}
+              {#if feas.outcome === 'unavailable'}(jugement indisponible, plan inchangé){/if}
+            </p>
+          {/if}
+
           {#if journeeState.detailLoading}
             <div class="empty"><span class="spin">⟳</span></div>
           {:else if journeeState.detailError}

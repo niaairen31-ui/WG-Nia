@@ -19,10 +19,11 @@ R6 (bounded rewrite): `MAX_REWRITE_ATTEMPTS` is a module-level constant in
 (`cockpit/routes/day.py`) is reachable from exactly one `if` condition.
 R7 (history is sacred, append-only): no assignment of a fresh list to
 `.history` anywhere in `src/`, except inside `PassPlay(...)`'s constructor
-(`writes/pipeline.py::write_pass_play`, empty-list initialisation) and
-`write_pass_play_resolution` (which assigns a list built by extending the
-CURRENT value, never a fresh literal) — and no `.history[` subscript
-assignment anywhere.
+(`writes/pipeline.py::write_pass_play`, empty-list initialisation),
+`write_pass_play_resolution`, and `write_day_feasibility` (BRIEF-0075-g —
+the SECOND entry kind `pass_play.history` carries; same shape, a list built
+by extending the CURRENT value, never a fresh literal) — and no
+`.history[` subscript assignment anywhere.
 R8 (declared_action re-asserted from this brief's angle): no assignment to
 `.declared_action` anywhere in `src/` — this brief is the first to write
 the same row's `history` column, so the sibling invariant is re-checked
@@ -61,13 +62,13 @@ DAY_CHAIN_FILES = (
     DAY_PLAN_FILE, DAY_CONCORDANCE_FILE, DAY_EXTRACT_FILE,
 )
 
-# write_pass_play_resolution builds `history = list(pass_play.history or
-# []); history.append(entry); pass_play.history = history` — a real
-# assignment target (`pass_play.history = history`), but the RHS is a name
-# built from the OLD value plus one append, never a fresh literal. This
-# function (alongside write_pass_play's constructor) is the one exemption
-# R7 grants.
-_HISTORY_ASSIGN_EXEMPT_FUNCTIONS = {"write_pass_play_resolution"}
+# write_pass_play_resolution and write_day_feasibility (BRIEF-0075-g) both
+# build `history = list(pass_play.history or []); history.append(entry);
+# pass_play.history = history` — a real assignment target (`pass_play.
+# history = history`), but the RHS is a name built from the OLD value plus
+# one append, never a fresh literal. These two functions (alongside
+# write_pass_play's constructor) are the exemptions R7 grants.
+_HISTORY_ASSIGN_EXEMPT_FUNCTIONS = {"write_pass_play_resolution", "write_day_feasibility"}
 
 FAILURES: list[str] = []
 _TREE_CACHE: dict[pathlib.Path, "ast.Module | None"] = {}

@@ -13505,6 +13505,145 @@ review queue displayed the new `JOURNÉE · Jour N` badge with the day's
 declaration linked. The "Parler" handoff was confirmed to navigate the
 shell to `/play` with no new legacy bridge-reach site.
 
+## THE FEASIBILITY VETO — a downward-only clamp is not an exception (BRIEF-0075-g, no schema change)
+
+**Y1 (the veto's shape is the whole safety argument).** A model call that
+can only SUBTRACT from an already-legal plan cannot break F1
+("model proposes, code judges"), because it never proposes anything new:
+`day_feasibility.veto()` receives `budget_result.included` — the steps
+`budget_cut` (BRIEF-0075-b) already retained, requirements already judged
+— and asks one question ("how many of these, in order, could this
+character plausibly do in one day?"). `clamp_verdict()`, a PURE function
+(no `db`, `select(`, `chat(`, `datetime`, `randint` — R1), is what actually
+enforces the bound with a real `min(raw_retained, python_retained)` call
+(R2), never a prompt instruction: this is deliberate, because an
+abliterated model follows a positive request but cannot be trusted to
+honour a negative one, so "never propose more than you were given" has to
+be code, not phrasing. This is why Y1 is not an exception to "model
+proposes, code judges" at all — the model's only two possible effects on
+canon are "resolve fewer of Python's steps today" or "no effect" (an
+honoured or unavailable verdict). It can never add a step, raise a cost,
+lower a cost, or overturn a prerequisite verdict — Y3 (the model deciding
+how many steps fit, replacing Python's sum) was rejected as F3 in the
+original brief and stays rejected.
+
+**Proves X, not Y.** The clamp proves the veto CANNOT lengthen a day —
+that is a structural guarantee, true on every input, adversarial or not
+(verified by feeding `clamp_verdict` a deliberately inflated `retained`,
+a negative one, a missing `reason`, and a citation naming a step outside
+the input — every case lands on `clamped` or `unavailable`, never a
+widened `veto_retained`). It does NOT prove the veto's judgment is GOOD —
+whether the character/plausibility reasoning is any good is an empirical
+question the clamp is structurally blind to. That is what the calibration
+numbers (below) are for, and why Scope OUT forbids tuning the prompt
+against them in this same brief: reporting and tuning are different
+activities, and mixing them here would make the first report already a
+biased one.
+
+**Fail-closed in the direction that matters.** `veto()` never raises —
+Ollama unreachable, an unparseable response, a missing/malformed field, or
+a citation naming a step outside the input all collapse to
+`outcome="unavailable"` with `veto_retained == python_retained` (R6): the
+day proceeds on Python's cut, exactly unchanged. This is a deliberate
+asymmetry with every other model call in the day chain (`day_plan.
+emit_plan`, the extraction passes) — those RAISE on failure and abort the
+whole `/plan` call (F1's "propose or stop" posture), because a day plan
+with no steps is meaningless. The veto is an ADD-ON judgment layered onto
+a plan Python already legally computed; its own failure must never block
+that plan, and "inert" (Python's cut stands) is the only failure mode that
+cannot also be a silent widening.
+
+**D1 resolved: there is no "character frame" to build, only to reuse.**
+The mini-RECON asked what character context the extraction passes
+(`day_extract.py`) already assemble, on the premise that the veto needed
+"the same frame." The premise half-held: `day_extract.py`'s passes take NO
+character parameter at all — they see only a secret-free `world_frame(world)`
+(name + description; `World` carries no secret column, so this cannot leak
+one). The one piece of character-specific context anywhere in the day
+chain is a NAME, looked up in `day_plan.emit_plan` via `db.get(Entity,
+character.id)` — nothing deeper (goals, secrets-excluded knowledge,
+personality) is ever assembled for a day-chain model call. `day_feasibility.
+veto()` reuses BOTH builders verbatim (`world_frame`, promoted public in
+`day_extract.py` for this reuse, plus the identical name lookup) rather
+than building a second, deeper frame — which is exactly the ad-hoc
+assembly the mini-RECON's D1 was warning against: a frame nothing else in
+the chain has is a frame that has never been audited for what it leaks.
+
+**The persistence problem the brief didn't spell out, and how it's solved.**
+The veto decides ONCE, at `/plan` time (Wiring: "calls veto AFTER
+budget_cut… never before"), but `POST /api/day/{id}/resolve`
+(`day_resolve.resolve_steps`) independently RE-DERIVES `budget_cut` from
+the persisted `AgendaStep` rows every time it runs (BRIEF-0075-d's
+deliberate replay semantics) — with no schema change available, there was
+no column to carry `veto_retained` from one request to the other. The
+"Docs to update" line ("the verdict record rides in `PassPlay.history`")
+pins the answer: `write_day_feasibility` (`writes/pipeline.py`) appends a
+SECOND entry kind to the same `pass_play.history` list `write_pass_play_
+resolution` (BRIEF-0075-d) already owns, discriminated by `"kind":
+"feasibility"` (resolution entries carry no `"kind"` key at all, before or
+after this brief). `resolve_day` reads it back via a new `read_latest_
+feasibility` and hands `veto_retained` into `resolve_steps`, which slices
+`budget_result.included` to that prefix BEFORE rolling any dice — a
+further truncation layered on top of `budget_cut`'s own output, never a
+change to what `budget_cut` computes or to any requirement verdict, so S4
+("any existing caller depends on `budget_cut`'s output being final") does
+not fire: every caller still gets `budget_cut`'s exact result; the veto
+only ever narrows the PREFIX of it that gets used, identically at `/plan`
+and `/resolve`. `resolution_count`/`read_latest_resolution`
+(BRIEF-0075-e's `is_replay` machinery) are updated to skip any entry whose
+`"kind"` is `"feasibility"` — since a feasibility entry is written exactly
+once per `pass_play`, never on a replay (Scope OUT: "retrying a rejected
+verdict"), this cannot inflate the replay count, and every entry written
+before this brief is unaffected (no `"kind"` key to filter on).
+
+**Live-tested against the seeded pilot world, real Ollama calls
+throughout** (`huihui_ai/qwen3-abliterated:8b-v2`, the seeded default):
+nine feasibility verdicts across nine declared days, five carried through
+to a full resolution (declare → plan → resolve → account), plus one
+synthetic injection (a persisted `veto_retained` edited directly in the
+test DB from 3 to 1, citing step 2) to force-observe an ACTUAL reduction
+end to end without waiting on the model to volunteer one. That synthetic
+case confirmed the mechanism precisely: with `python_retained=3`,
+`veto_retained=1`, `resolve_steps` rolled exactly ONE step ("Saler
+Maelis"), and the frozen fact sheet / emitted mutations both reflected
+one step, not three — steps 2 and 3 stayed `pending`, untouched, exactly
+as Done-means item 1 specifies.
+
+**The calibration numbers (Scope IN item 4 — evidence, not tuning).**
+Outcome distribution across the nine organic (model-produced) verdicts:
+9 `honoured`, 0 `clamped`, 0 `unavailable`. `python_retained -
+veto_retained` distribution: `{0: 8, 2: 1}` (the one non-zero delta is the
+synthetic injection above, not an organic model judgment). Read plainly:
+in this session, the model never once disagreed with Python's own budget
+cut. The likely reason is structural, not a prompt defect: `DAY_BUDGET_
+SLOTS` is small (four slots derived from the phase vocabulary) and most
+emitted steps cost 1-4, so `budget_cut` itself rarely retains more than
+one to three steps before the veto ever sees the plan — there is
+typically little room left for a plausibility judgment to disagree with an
+already-tight mechanical cut. `clamp_verdict`'s `clamped`/`unavailable`
+paths are independently verified correct by direct unit exercise (an
+inflated `retained`, a negative one, a missing `reason`, a citation
+outside the input — see execution notes), so their absence here is a
+statement about what this run's inputs produced, not about whether the
+code paths work. Per Y1's own "proves X, not Y": a veto that never fires
+is a calibration fact to sit with, not a code defect to chase inside this
+brief — Scope OUT explicitly forbids tuning the prompt against it here.
+
+**A live-testing aside, unrelated to Y1, reported for the record.** Several
+resolve attempts (independent of the veto) were rejected by the T1
+narration judge (BRIEF-0075-d) for reasons the veto never touches: a
+location matched by declaration text without its definite article ("Dernier
+Verre" vs. the canon "Le Dernier Verre") went unmatched by concordance and
+then got rendered as an unauthorised proper noun; the world/city name
+"Verkhaal" surfaced in narration despite never being added to `authorised_
+names` (only matched NPCs and locations feed that set, never factions); and
+a very long, multi-clause declaration twice produced truncated/invalid JSON
+from `day_plan.emit_plan`. None of these touch the veto's own code path —
+they are pre-existing surface area in `day_concordance.py`/`day_narration_
+guard.py`/`day_plan.py` — reported here only because they were observed
+during this brief's live-testing, exactly as CLAUDE.md's testing guidance
+asks; not fixed, as fixing them is out of this brief's scope.
+
 ---
 
 *Co-built with Claude, June 2026.*
