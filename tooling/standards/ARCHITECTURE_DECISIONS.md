@@ -13378,4 +13378,133 @@ plan rather than pausing it; recovery is BRIEF-0075-f's reconciliation.
 
 ---
 
+## MUTATION EMISSION AND THE DAY ACCOUNT — proposer, not writer (BRIEF-0075-e, no schema change)
+
+**A1 (asynchronous, creator in the loop) / O1 (no auto-approve).** The day
+chain's ONLY new write is a `ProposedMutation` row at `status='proposed'`,
+`source_type='pass_play'`, `pass_play_id` set, `conversation_id`/`tick_id`
+NULL — built entirely in the new `day_mutations.py` (plus the
+pre-existing `day_concordance.emit_germs` for `entity_creation` germs,
+BRIEF-0075-c, unchanged). Nothing in the chain calls `_apply_mutation`;
+every emitted mutation reaches canon only through the ordinary review
+queue, exactly like a conversation- or tick-sourced proposal. A rejected
+narration (the T1 judge, BRIEF-0075-d) emits NOTHING — `resolve_day` only
+calls `emit_mutations` on the success path, inside the same transaction as
+the narration/status writes, so a discarded attempt proposes nothing for
+Nia to review.
+
+**The corrected vocabulary (BRIEF-0075-e-amendment-1).**
+`EMITTED_MUTATION_TYPES = ("knowledge_change", "relation_change",
+"agenda_step_change", "entity_creation")`. `resource_change` and
+`agenda_creation` from the original brief are REMOVED: under V1's
+boundary, creating a plan has no world footprint and stays
+`write_day_plan`'s direct write, and resources travel as `ledger_transfer`
+effects on a step's own completion rather than a second vocabulary for
+the same thing. `npc_move` stays absent (N1, BRIEF-0074-a-amendment-1):
+the schedule is the positional truth, and a resolution-emitted move would
+reopen that amendment. `relation_change` is kept for relation movement
+belonging to no step, but has no computed source in v1 either — the
+emitter always returns an empty list, the same deliberate no-op posture as
+skill deltas (X1, below); the type stays in the vocabulary for a future
+source, never invented here.
+
+**The delta contract travels on the payload, not a column.** The
+escalation looked for an `effects`/reward column on `AgendaStep`/
+`AgendaStepRequirement` and correctly found none — the contract is
+`_apply_completion_effects`'s own `_EFFECT_TYPES = frozenset({"relation_
+delta", "ledger_transfer", "role_change"})` (`cockpit/mutations.py`,
+TICKET-0024/BRIEF-0024-c), already shared with `goal_change complete`.
+Every emitted `agenda_step_change` carries an EMPTY `effects` list in v1:
+no per-step reward exists to compute one from (a `resource`-type
+requirement carries no counterparty entity, so a `ledger_transfer` cannot
+even be well-formed from it; a `relation_gte`-type requirement carries no
+relation type or delta amount) — inventing a value here would be exactly
+the house-rule the brief forbids. Nia edits the proposed payload in the
+review queue (`ApproveBody.payload`, an existing creator affordance) to
+attach a concrete effect when the day's narrative warrants one.
+
+**The armed rendezvous (I1) needs no new mechanism.** `AgendaStepRequirement`
+already has a `knowledge` requirement type (`_eval_knowledge`, day_plan.py)
+gating a step on the player ALREADY holding some `Knowledge` subject —
+that row must exist for the step to have been attemptable at all.
+`day_mutations._emit_knowledge_change` deepens that SAME row to `knows`
+whenever the step carrying that precondition completes successfully — the
+"a contact found, an appointment made" case — emitted alongside the
+generic `agenda_step_change` for that step. Arming the rendezvous is then
+just the ordinary chain: approving the `agenda_step_change` cascades the
+NEXT `pending` step to `active` (the applier's existing behaviour, V1),
+whose `objective` — written at plan time by the model — IS the meeting;
+approving the `knowledge_change` deepens the fact. Nothing is inserted,
+nothing is invented, and the rendezvous is armed only once both are
+approved. A day establishing a meeting the plan never anticipated (no
+`knowledge` requirement on the completed step) emits nothing extra here —
+bending the applier to insert a step was ruled out of scope; the next
+day's reconciliation (BRIEF-0075-f) is the recovery path.
+
+**X1 (named deferral) — skills have no carrier.** `_EFFECT_TYPES` covers
+relations, ledger transfers and faction roles; it has no skill-gain
+effect. In v1 the day produces no skill gain, and the account says so
+positively (a `skill: {produced: [], note: "..."}` block, never a silent
+omission) rather than pretending the category doesn't exist. Reactivation
+condition: when a skill effect type exists in `_EFFECT_TYPES` — adding one
+touches `_apply_completion_effects`, shared with `goal_change`, so it is
+its own ticket, never an addition inside `day_mutations.py`.
+
+**The day account (`GET /api/day/{id}`) never reads `pass_play.history`.**
+`routes/day.py` is forbidden that attribute file-wide (`pipeline_wiring.
+py`'s R5), so the account reads through two new helpers in `writes/
+pipeline.py` — `read_latest_resolution` (the latest `history` entry) and
+`resolution_count` (its length, `> 1` meaning a replay) — rather than
+re-running extraction/concordance a second time, which would also cost a
+fresh, non-deterministic model call on every read of an already-resolved
+day. The account assembles prose (`batch.final_result`), NPCs/locations/
+role_hints (the frozen fact sheet, unchanged since the resolution that
+produced it), gains (read from this pass_play's own `ProposedMutation`
+rows, each tagged with its live review status), a pending-review block,
+and the rendezvous (surfaced only once its `agenda_step_change` shows
+`status='applied'` — i.e., Nia already approved it and the applier's
+cascade already ran). No `agenda_id`/`step_id` key reaches the response or
+`Journee.svelte` (re-asserted by `tooling/verify/checks/day_mutations.py`
+R7).
+
+**The review queue badge and day link (D2).** `pass_play`-sourced rows
+already rendered via the generic `sourceRef` text; this brief adds a
+proper `b-pass-play` badge (`JOURNÉE · Jour N`) matching the existing
+`b-tick` precedent, plus the day's declaration first line, resolved
+through a new lazy `pass_play_id -> {day_number, declared_action}` cache
+in `queue.svelte.js` fed by the already-existing `pass_play_id` field on
+`GET /api/days`' response.
+
+**The handoff to Play adds no new bridge-reach site.** The DELEGATED D1
+from the original brief (what the legacy Play surface needs to open a
+conversation with a given NPC) resolved to a hard constraint rather than a
+contract to implement: `legacy_call.py`'s bridge-reach seam is shrink-only,
+and its baseline holds exactly one sanctioned site
+(`App.svelte::showFn`). `Journee.svelte`'s "Parler" button therefore calls
+only `router.navigate('play')` — the same ordinary SPA navigation any
+surface switch uses — which `App.svelte`'s existing route handler turns
+into the one baselined `showSurface('play')` call. The player is handed
+the rendezvous objective and the NPC's name in prose and lands on Play;
+finding and starting the conversation there is Play's own existing
+affordance, untouched, exactly as Scope OUT requires ("do not migrate it,
+do not restyle it").
+
+Verified live against the seeded pilot world (no schema change, real
+Ollama calls for extraction/narration where exercised): a resolved day's
+account rendered NPCs, role hints, prose and an empty gains block
+correctly before any mutation existed for it. A scratch `agenda_step_
+change` (`action=complete`) plus a `knowledge_change` deepening a
+pre-existing `rumor`-level fact, approved in order through the live
+`/api/mutations/{id}/approve` route: the first approval cascaded the
+agenda's next `pending` step to `active` exactly as the applier's
+existing logic predicts; the second upgraded the `Knowledge` row's level
+to `knows` with its prior state preserved in `change_history`. The day
+account then showed the rendezvous block (`armed: true`, the new active
+step's objective) and the knowledge gain (`status: "applied"`), and the
+review queue displayed the new `JOURNÉE · Jour N` badge with the day's
+declaration linked. The "Parler" handoff was confirmed to navigate the
+shell to `/play` with no new legacy bridge-reach site.
+
+---
+
 *Co-built with Claude, June 2026.*

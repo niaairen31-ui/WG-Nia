@@ -111,6 +111,35 @@ export function mutationAgendaName(id) {
   return shortId(id);
 }
 
+/* Lazy pass_play id -> day info cache (BRIEF-0075-e, D2): resolves a
+   `pass_play`-sourced mutation's day number and declaration first line so
+   the queue card can link back to the day it came from, mirroring
+   _mutationEntityNames/_mutationAgendaNames. `/api/days` already carries
+   `pass_play_id` (day.py's `_day_dict`) alongside `day_number` and
+   `declared_action` -- no new endpoint needed. */
+let _mutationDayInfo = null;
+
+export async function loadMutationDayInfo() {
+  if (_mutationDayInfo) return;
+  try {
+    const rows = await api('/api/days');
+    _mutationDayInfo = new Map(
+      rows.filter((d) => d.pass_play_id).map((d) => [
+        d.pass_play_id,
+        { dayNumber: d.day_number, firstLine: (d.declared_action || '').split('\n')[0] },
+      ])
+    );
+  } catch (_err) {
+    _mutationDayInfo = new Map();
+  }
+}
+
+export function mutationDayInfo(passPlayId) {
+  if (!passPlayId) return null;
+  if (_mutationDayInfo && _mutationDayInfo.has(passPlayId)) return _mutationDayInfo.get(passPlayId);
+  return null;
+}
+
 /* TICKET-0059 (BRIEF-0059-k commit 2). Faithful port of loadQueue's fetch
    half (index.html, now deleted) -- the render half (renderCard and its
    helpers) lives in Queue.svelte/QueueCard.svelte, reading queueState.mutations
@@ -122,7 +151,7 @@ export async function loadQueue() {
   queueState.loadError = '';
   queueState.selectedIds = new Set();
   try {
-    await Promise.all([loadMutationEntityNames(), loadMutationAgendaNames()]);
+    await Promise.all([loadMutationEntityNames(), loadMutationAgendaNames(), loadMutationDayInfo()]);
     queueState.mutations = await api('/api/mutations?status=' + queueState.currentFilter);
   } catch (e) {
     queueState.loadError = e.message;

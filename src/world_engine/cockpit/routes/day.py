@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import UTC, datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -29,24 +30,36 @@ from sqlmodel import Session, select
 
 from ...day_concordance import ConcordanceResult, concord, emit_germs, plan_context
 from ...day_extract import extract_factions, extract_persons, extract_places
+from ...day_mutations import emit_mutations
 from ...day_narration import detect_late_delta, narrate, rewrite as day_rewrite
 from ...day_narration_guard import JudgeVerdict, judge_narration
 from ...day_plan import DAY_BUDGET_SLOTS, EvaluatedStep, budget_cut, emit_plan, evaluate_requirements
 from ...day_resolve import (
     FactSheet,
+    StepOutcome,
     blocked_reason,
     fact_sheet_dict,
     freeze_facts,
-    persist_step_outcomes,
     resolve_steps,
 )
 from ...db import get_session
 from ...llm_parse import LlmParseError
-from ...models import Agenda, Batch, Character, Entity, PassPlay
+from ...models import (
+    Agenda,
+    AgendaStep,
+    AgendaStepRequirement,
+    Batch,
+    Character,
+    Entity,
+    PassPlay,
+    ProposedMutation,
+)
 from ...models import Session as GameSession
 from ...writes import (
     BATCH_RESOLVED_STATUS,
     MAX_DECLARATION_CHARS,
+    read_latest_resolution,
+    resolution_count,
     write_batch,
     write_day_plan,
     write_pass_play,
@@ -107,6 +120,7 @@ def _day_dict(batch: Batch, pass_play: PassPlay) -> dict:
     # vocabulary belonging to the legacy Claude-checkpoint pipeline).
     return {
         "id": batch.id,
+        "pass_play_id": pass_play.id,
         "day_number": batch.day_number,
         "status": pass_play.status,
         "declared_action": pass_play.declared_action,
@@ -160,6 +174,128 @@ def list_days(db: Session = Depends(get_session)) -> list[dict]:
     return [_day_dict(batch, pass_play) for batch, pass_play in rows]
 
 
+def _account_gains(mutations: list[ProposedMutation]) -> dict:
+    """Gains block (Scope IN item 4): resource/relation gains are read from
+    the `effects` embedded in `agenda_step_change` payloads (the delta
+    contract, BRIEF-0075-e-amendment-1) plus any standalone
+    `relation_change` row; knowledge gains are the rendezvous
+    `knowledge_change` rows. Skill deltas have no carrier in v1 (X1) —
+    reported positively, never silently omitted."""
+    resource: list[dict] = []
+    relation: list[dict] = []
+    knowledge: list[dict] = []
+    for m in mutations:
+        payload = m.payload if isinstance(m.payload, dict) else {}
+        if m.mutation_type == "agenda_step_change":
+            for eff in payload.get("effects") or []:
+                if not isinstance(eff, dict):
+                    continue
+                if eff.get("type") == "ledger_transfer":
+                    resource.append({"mutation_id": m.id, "status": m.status, "detail": eff})
+                elif eff.get("type") == "relation_delta":
+                    relation.append({"mutation_id": m.id, "status": m.status, "detail": eff})
+        elif m.mutation_type == "relation_change":
+            relation.append({"mutation_id": m.id, "status": m.status, "detail": payload})
+        elif m.mutation_type == "knowledge_change":
+            knowledge.append({
+                "mutation_id": m.id, "status": m.status,
+                "subject": payload.get("subject"), "to_level": payload.get("to_level"),
+            })
+    return {
+        "resource": resource,
+        "relation": relation,
+        "knowledge": knowledge,
+        "skill": {
+            "produced": [],
+            "note": "La résolution de journée ne produit pas encore de gain de compétence.",
+        },
+    }
+
+
+def _account_rendezvous(mutations: list[ProposedMutation], db: Session) -> Optional[dict]:
+    """The armed rendezvous (I1, corrected by BRIEF-0075-e-amendment-1):
+    surfaced only once the step that established it has actually been
+    APPLIED — `_mutation_apply_agenda_step_change`'s own cascade
+    (cockpit/mutations.py) is what puts the next step `active` on
+    approval, so reading the agenda's current active step at that point
+    is correct, never a guess. No `agenda_id`/`step_id` key anywhere in
+    the returned dict (R7)."""
+    agenda_id = None
+    for m in mutations:
+        if m.mutation_type != "agenda_step_change" or m.status != "applied":
+            continue
+        payload = m.payload if isinstance(m.payload, dict) else {}
+        step = db.get(AgendaStep, payload.get("step_id"))
+        if step is not None:
+            agenda_id = step.agenda_id
+    if agenda_id is None:
+        return None
+
+    active_step = db.exec(
+        select(AgendaStep).where(AgendaStep.agenda_id == agenda_id, AgendaStep.status == "active")
+    ).first()
+    if active_step is None:
+        return None
+
+    npc_id, npc_name = None, None
+    for req in db.exec(
+        select(AgendaStepRequirement).where(
+            AgendaStepRequirement.step_id == active_step.id,
+            AgendaStepRequirement.type == "relation_gte",
+        )
+    ).all():
+        target = db.get(Entity, req.target_entity_id) if req.target_entity_id else None
+        if target is not None:
+            npc_id, npc_name = target.id, target.name
+            break
+
+    return {"objective": active_step.objective, "npc_id": npc_id, "npc_name": npc_name, "armed": True}
+
+
+def _day_account_dict(pass_play: PassPlay, batch: Batch, db: Session) -> dict:
+    """The day account (Scope IN item 4): prose, NPCs, locations, gains and
+    a pending-review block. Reads the LATEST resolution through
+    `read_latest_resolution` (`writes/pipeline.py`), never `pass_play.
+    history` directly — this file must never reference `.history`
+    (`pipeline_wiring.py`'s R5) — and that helper also spares a second,
+    non-deterministic extraction+concordance model-call pass just to
+    rebuild what `resolve_day` already computed once. `is_replay` comes
+    from `resolution_count`, the same `.history`-free boundary."""
+    latest = read_latest_resolution(pass_play)
+    if latest is None:
+        return {}
+    fact_sheet = latest.get("fact_sheet") or {}
+
+    mutations = db.exec(
+        select(ProposedMutation).where(ProposedMutation.pass_play_id == pass_play.id)
+    ).all()
+
+    germs = [
+        {
+            "name": (m.payload or {}).get("name") if isinstance(m.payload, dict) else None,
+            "role_hint": (m.payload or {}).get("role_hint") if isinstance(m.payload, dict) else None,
+            "status": m.status,
+        }
+        for m in mutations if m.mutation_type == "entity_creation"
+    ]
+    pending_review = [
+        {"mutation_id": m.id, "mutation_type": m.mutation_type, "rationale": m.rationale}
+        for m in mutations if m.status == "proposed"
+    ]
+
+    return {
+        "prose": latest.get("prose") or batch.final_result,
+        "npcs": fact_sheet.get("npcs", []),
+        "locations": fact_sheet.get("locations", []),
+        "role_hints": fact_sheet.get("role_hints", []),
+        "gains": _account_gains(mutations),
+        "pending_review": pending_review,
+        "germs": germs,
+        "rendezvous": _account_rendezvous(mutations, db),
+        "is_replay": resolution_count(pass_play) > 1,
+    }
+
+
 @router.get("/api/day/{batch_id}")
 def get_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     world_id = _crud._world_id(db)
@@ -172,7 +308,10 @@ def get_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     if row is None:
         raise HTTPException(status_code=404, detail=f"day {batch_id!r} not found")
     batch, pass_play = row
-    return _day_dict(batch, pass_play)
+    result = _day_dict(batch, pass_play)
+    if pass_play.status == "resolved":
+        result["account"] = _day_account_dict(pass_play, batch, db)
+    return result
 
 
 def _plan_step_dict(evaluated: EvaluatedStep, status: str) -> dict:
@@ -466,14 +605,21 @@ def _narrate_and_judge(
 
 def _finalize_resolution(
     batch: Batch, pass_play: PassPlay, fact_sheet: FactSheet, prose: str, verdict: JudgeVerdict,
-    is_replay: bool, db: Session,
+    is_replay: bool, outcomes: list[StepOutcome], character: Character, db: Session,
 ) -> dict:
     """Persist item 5's outcome and build the response — carved out of
     `resolve_day` for the function-length ceiling. A judge failure stores
     nothing final: `pass_play.status`/`batch` are left untouched (still
     `resolving`, so a retry re-enters the SAME `resolve_steps`/`narrate`
     chain), but the rejected attempt still gets ONE `history` entry (Nia
-    sees the rejected prose and the reason) before the 422."""
+    sees the rejected prose and the reason) before the 422 — and no
+    mutation is emitted for a narration the judge rejected (V1: only a
+    resolution that actually stands proposes anything).
+
+    On success (BRIEF-0075-e, V1): `emit_mutations` turns `outcomes` into
+    `ProposedMutation` rows, added and committed in this SAME transaction
+    as the narration/status writes — proposing, never applying (no
+    `_apply_mutation` call anywhere in this chain)."""
     judge_dict = {"passed": verdict.passed, "reason": verdict.reason}
     if not verdict.passed:
         write_pass_play_resolution(
@@ -494,6 +640,10 @@ def _finalize_resolution(
         db, pass_play=pass_play, fact_sheet=fact_sheet_dict(fact_sheet), prose=prose, judge_verdict=judge_dict,
     )
     db.add(pass_play)
+
+    for mutation in emit_mutations(outcomes, pass_play, character, db):
+        db.add(mutation)
+
     db.commit()
 
     return _resolve_response(fact_sheet, prose, is_replay)
@@ -502,13 +652,15 @@ def _finalize_resolution(
 @router.post("/api/day/{batch_id}/resolve")
 def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     """Resolve the budgeted portion of a declared day (TICKET-0075,
-    BRIEF-0075-d): Python dice (`resolve_steps`), a frozen fact sheet
+    BRIEF-0075-d, resolution+narration; BRIEF-0075-e, mutation emission —
+    V1): Python dice (`resolve_steps`), a frozen fact sheet
     (`freeze_facts`), one narration call (`narrate`) constrained by that
     fact sheet, and a fail-closed Python judge (`judge_narration`) before
     anything is stored. A judge failure stores nothing final and reports —
     it never silently degrades (Scope IN item 4). One transaction:
-    outcomes, agenda step transitions, narration, the `pass_play.history`
-    append, and both status moves.
+    narration, the `pass_play.history` append, both status moves, and the
+    emitted `ProposedMutation` rows — never an agenda step transition
+    (V1, BRIEF-0075-d-amendment-1): those move only when Nia approves.
 
     Fail-closed: the batch must belong to the active world, and
     `pass_play.status` must be `resolving` (first resolve) or `resolved`
@@ -544,8 +696,7 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
         # judge to check: code renders this outcome directly.
         prose = f"La journée n'a pas pu commencer : {blocked_reason(agenda, character, db)}"
         verdict = JudgeVerdict(passed=True, reason="blocked before any step — code-rendered, judge not invoked")
-        return _finalize_resolution(batch, pass_play, fact_sheet, prose, verdict, is_replay, db)
+        return _finalize_resolution(batch, pass_play, fact_sheet, prose, verdict, is_replay, outcomes, character, db)
 
-    persist_step_outcomes(agenda, outcomes, db)
     fact_sheet, prose, verdict = _narrate_and_judge(fact_sheet, pass_play, db)
-    return _finalize_resolution(batch, pass_play, fact_sheet, prose, verdict, is_replay, db)
+    return _finalize_resolution(batch, pass_play, fact_sheet, prose, verdict, is_replay, outcomes, character, db)

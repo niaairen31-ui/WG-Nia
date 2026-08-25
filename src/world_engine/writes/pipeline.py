@@ -16,6 +16,7 @@ a batch to once its day narration is judged and accepted.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Optional
 
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, func, select
@@ -88,3 +89,22 @@ def write_pass_play_resolution(
     pass_play.history = history
     sa_attrs.flag_modified(pass_play, "history")
     return pass_play
+
+
+def read_latest_resolution(pass_play: PassPlay) -> Optional[dict]:
+    """Return the most recent `write_pass_play_resolution` entry (the
+    LATEST resolution — a replay appends a second entry, the first stays
+    intact), or `None` if the day has never resolved. BRIEF-0075-e's day
+    account route reads through this helper rather than `pass_play.
+    history` directly: `routes/day.py` must never reference `.history`
+    (`pipeline_wiring.py`'s R5), and re-running extraction/concordance just
+    to rebuild what `resolve_day` already computed once would also cost a
+    fresh, non-deterministic model call on every read."""
+    history = pass_play.history or []
+    return history[-1] if history else None
+
+
+def resolution_count(pass_play: PassPlay) -> int:
+    """Number of resolution attempts recorded on `pass_play` — more than
+    one means the day was replayed (BRIEF-0075-d Scope IN item 5)."""
+    return len(pass_play.history or [])
