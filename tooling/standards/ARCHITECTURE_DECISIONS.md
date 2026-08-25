@@ -13163,21 +13163,79 @@ band tags first (discovered live: without stripping, `[RÉUSSITE]` fuses
 onto the name that follows it into one bogus multi-word candidate), then
 treats a run of one-or-more consecutive capitalized words as a name
 candidate, joined across a lowercase connector (de/du/des/le/la/l'/d'/
-von/van). A lone SINGLE-word capitalized run at the very start of a
-sentence is discarded only when that word, case-folded, is in
-`_SENTENCE_INITIAL_STOPWORDS` — a substantial but deliberately
-non-exhaustive list of French articles, pronouns, prepositions,
-conjunctions and discourse adverbs. Two live-test iterations found real
-gaps in an early, narrower version of this list ("Malgré", "À") and both
-are now covered; the list is expected to keep needing entries as real
-narration prose is produced — the module docstring says so, on purpose,
-rather than implying the heuristic is finished. The alternative design
-(discard EVERY sentence-initial single-word capital, no stoplist at all)
-was tried first and rejected: it silently drops a real name whenever
-prose opens a sentence with it ("Jehan insiste." — extremely common in
-narrative prose), which is a worse failure than an occasional stopword
-gap, because a dropped real name at sentence-start would just as silently
-let an unauthorised name slip past in the exact same position.
+von/van). A lone SINGLE-word capitalized run is discarded when that word,
+case-folded, is in `_FUNCTION_WORD_STOPWORDS` — a substantial but
+deliberately non-exhaustive list of French articles, pronouns,
+prepositions, conjunctions and discourse adverbs — REGARDLESS of sentence
+position. Position-gating this (discard only at the very start of a
+sentence) was the FIRST design and was live-tested wrong twice over:
+gap-filling the stoplist itself ("Malgré", "À") fixed sentence-initial
+false positives, but a THIRD live run produced "[RÉUSSITE] Le marchand
+accepte : Il vend à Joran Vey." — a pronoun ("Il") sitting right after a
+colon, a position this module cannot reliably prove is "sentence-initial"
+(French punctuation the model actually produces is not limited to
+`.`/`!`/`?`), so the position gate let a known function word through
+ungated and the judge rejected a clean narration for it. Dropping the
+position gate entirely (a function word is never a name candidate,
+anywhere) fixed it, and is now the rule. The remaining risk — a genuine
+one-word character name that collides with a function word — is accepted
+as vanishingly rare next to two independent observed failures from the
+position-gated design. The list is still expected to keep needing entries
+as real narration prose is produced — the module docstring says so, on
+purpose, rather than implying the heuristic is finished.
+
+**A candidate run is authorised at the WORD level, not only verbatim.**
+Live testing surfaced "Joran" (the player's own first name) rejected as
+unauthorised because `FactSheet.authorised_names` only ever held the full
+display name, "Joran Vey" — a model naturally refers to someone by one
+name component, not always the full string. `day_narration_guard.
+_authorised_words` expands every authorised full name into its
+constituent words; a candidate run passes if it matches an authorised
+name VERBATIM or if every one of its own words is individually
+authorised. This also sharpens a merge artifact the extractor cannot
+otherwise disambiguate from a real two-word name — two adjacent
+capitalized words with no sentence boundary between them ("Maelis En",
+from "Maelis. En quête de calme...") — by reporting only the genuinely
+unauthorised word ("En"), not the whole run, since "Maelis" alone is
+already authorised.
+
+**An unresolved PLACE mention needed the same "render as a function, not
+a name" instruction an unresolved PERSON already got.** `FactSheet.
+role_hints` was person-only through the first live-test pass; a
+declaration naming an unconfirmed market ("le marché", never resolved to
+a real `location` entity, C1) gave the model no instruction at all for
+that mention, and it capitalized "Marché" into what read as an invented
+proper place name — a judge rejection the judge was RIGHT to produce (an
+invented capitalized place name is exactly what name containment exists
+to catch). The fix is on the prompt side, not the judge side:
+`freeze_facts` now collects role hints for `concordance.unmatched` mentions
+of category `person` OR `place`, and both the rendered fact sheet
+(`day_narration._render_fact_sheet`) and the seeded `day_narration` prompt
+say "personnes et lieux sans nom résolu... en minuscules, jamais comme un
+nom propre" — loosening the judge here would have meant accepting an
+actually-invented name; tightening the model's instructions instead keeps
+the judge's guarantee intact.
+
+**Zero resolved steps is a legitimate outcome, not a judge failure —
+discovered live, not anticipated by the brief text.** A step-1 requirement
+the character does not meet (e.g. a `resource` threshold against a zero
+ledger balance) makes `budget_cut` exclude EVERY step before any dice
+roll: `resolve_steps` returns `[]`, and a `FactSheet` built from an empty
+`outcomes` list has `steps == ()`. The anti-vacuity guard (`judge_
+narration`'s "zero steps on the fact sheet" check) is not wrong to exist —
+a genuinely empty fact sheet passed to a model asking it to render
+something is exactly the vacuity trap R5 exists to catch — but this
+particular emptiness is not a broken computation, it is the correct,
+narratable answer to "what happened today": nothing did, and code already
+knows exactly why (`evaluate_requirements`'s own verdict reason for step
+1). `day_resolve.blocked_reason` surfaces that reason; `resolve_day`
+checks for the empty-outcomes case BEFORE calling `narrate`, and when it
+fires, renders the day's prose directly in Python — no model call, no
+judge call, a synthetic `JudgeVerdict(passed=True, ...)` fed straight into
+the SAME `_finalize_resolution` persistence path every other outcome
+uses. Skipping the model here is not a workaround for the judge's
+anti-vacuity rule; it removes the only case where that rule would have
+had to make an exception, which is safer than adding one.
 
 **The rewrite pass is built against a trigger that cannot currently
 fire.** `detect_late_delta` looks for an `entity_creation`
@@ -13258,6 +13316,22 @@ A judge REJECTION was also observed live (the model mislabelling a
 `failure`-banded step with the `[RÉUSSITE]` marker) and correctly stored
 nothing final, appended the rejected attempt to `history`, and returned a
 422 — confirming the fail-closed path is not only theoretical.
+
+Extended live soak testing (repeated `/resolve` calls against varied
+declarations and plans, real Ollama calls throughout) found the three
+gaps documented above — the position-gated stoplist letting "Il" through
+after a colon, whole-string-only name matching rejecting "Joran" against
+authorised "Joran Vey", and unresolved places never being told to stay
+generic — each confirmed by a REAL rejected `/resolve` call before the
+fix, and each confirmed passing after it: a run using the full name, a
+first-name-only reference, and a lowercase "le marche" in the SAME
+narration all cleared the judge together once every fix landed. The
+zero-attempted-steps edge case was also found live (a plan's first step
+carrying a `resource` requirement the seeded player character's zero
+ledger balance could never satisfy) and confirmed fixed: the SAME batch,
+resolved and replayed, returned `200` both times with a code-rendered
+prose naming the exact unmet requirement, no model call, no judge
+involvement, and `pass_play.history` growing by one entry per call.
 
 ---
 

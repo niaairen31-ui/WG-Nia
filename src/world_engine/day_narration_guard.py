@@ -24,17 +24,22 @@ more consecutive capitalized words, optionally bridged by a lowercase
 connector (de/du/des/le/la/l'/d'/von/van) followed by another capitalized
 word.
 
-A run that is a SINGLE capitalized word at the very start of a sentence is
-discarded ONLY when that word, case-folded, is a known French function
-word (`_SENTENCE_INITIAL_STOPWORDS` — articles, pronouns, prepositions,
-conjunctions: "Le marchand refuse." must not false-positive "Le" as a
-name). A sentence-initial word NOT on that stoplist is kept — a name is
-exactly as likely to open a sentence as to sit mid-sentence ("Jehan
-insiste." must not be silently dropped, or a real unauthorised name in
-the same position would slip past just as invisibly). A multi-word run is
-always kept regardless of position. This is a real, if imperfect,
-detector — not a rule that discards everything (the vacuity failure this
-brief warns against) nor one so broad it discards genuine signal.
+A run that is a SINGLE capitalized word is discarded when that word,
+case-folded, is a known French function word (`_FUNCTION_WORD_STOPWORDS`
+— articles, pronouns, prepositions, conjunctions), REGARDLESS of sentence
+position. Position-gating this (discard only at sentence-start) was tried
+first and live-tested wrong: French sentence punctuation is not the only
+thing that precedes a capital in generated prose — a colon, a marker tag,
+or the model's own inconsistent punctuation can put a function word
+("Il", "En") in a position this module cannot reliably prove is
+"sentence-initial," and a false negative there (treating a stray pronoun
+as an invented name) is a real, observed failure, not a hypothetical one.
+A multi-word run is always kept regardless of position — the false-
+positive risk this trades away (a genuine one-word name that collides
+with a function word, e.g. a character actually named "Il") is
+vanishingly rare next to that. This is a real, if imperfect, detector —
+not a rule that discards everything (the vacuity failure this brief warns
+against) nor one so broad it discards genuine signal.
 """
 
 from __future__ import annotations
@@ -50,14 +55,15 @@ _CONNECTORS = frozenset({"de", "du", "des", "le", "la", "l'", "d'", "von", "van"
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ'-]+|[.!?]+")
 _MARKER_RE = re.compile(r"\[[^\[\]]*\]")
 
-# Sentence-initial capitalized function words — the ONLY case a lone
-# single-word capitalized run is discarded (see module docstring). Closed
-# word classes (articles, pronouns, prepositions, conjunctions) plus the
-# common discourse/temporal adverbs a narrative model reaches for to open
-# a sentence. Necessarily incomplete — French has no small closed set of
-# "words that can never be a name" — so this stays a real, if imperfect,
-# detector (module docstring) rather than a claim of completeness.
-_SENTENCE_INITIAL_STOPWORDS = frozenset({
+# Capitalized function words — the ONLY case a lone single-word
+# capitalized run is discarded, at ANY position (see module docstring).
+# Closed word classes (articles, pronouns, prepositions, conjunctions)
+# plus the common discourse/temporal adverbs a narrative model reaches
+# for to open a sentence. Necessarily incomplete — French has no small
+# closed set of "words that can never be a name" — so this stays a real,
+# if imperfect, detector (module docstring) rather than a claim of
+# completeness.
+_FUNCTION_WORD_STOPWORDS = frozenset({
     "le", "la", "les", "un", "une", "des", "ce", "cet", "cette", "ces",
     "il", "elle", "ils", "elles", "on", "nous", "vous", "tu", "je",
     "son", "sa", "ses", "mon", "ma", "mes", "ton", "ta", "tes", "notre",
@@ -90,36 +96,28 @@ def extract_names(prose: str) -> frozenset[str]:
     """Deterministic name-candidate extraction — see the module docstring
     for the exact rule."""
     prose = _MARKER_RE.sub(" ", prose)
-    tokens: list[tuple[str, bool]] = []
-    sentence_initial = True
-    for match in _TOKEN_RE.finditer(prose):
-        tok = match.group()
-        if tok[0] in ".!?":
-            sentence_initial = True
-            continue
-        tokens.append((tok, sentence_initial))
-        sentence_initial = False
+    tokens = [m.group() for m in _TOKEN_RE.finditer(prose) if m.group()[0] not in ".!?"]
 
     names: set[str] = set()
     i = 0
     while i < len(tokens):
-        word, is_initial = tokens[i]
+        word = tokens[i]
         if not word[0].isupper():
             i += 1
             continue
         run = [word]
         j = i + 1
         while j < len(tokens):
-            nxt, _ = tokens[j]
+            nxt = tokens[j]
             if nxt[0].isupper():
                 run.append(nxt)
                 j += 1
-            elif nxt.lower() in _CONNECTORS and j + 1 < len(tokens) and tokens[j + 1][0][0].isupper():
+            elif nxt.lower() in _CONNECTORS and j + 1 < len(tokens) and tokens[j + 1][0].isupper():
                 run.append(nxt)
                 j += 1
             else:
                 break
-        if len(run) > 1 or not (is_initial and word.casefold() in _SENTENCE_INITIAL_STOPWORDS):
+        if len(run) > 1 or word.casefold() not in _FUNCTION_WORD_STOPWORDS:
             names.add(" ".join(run))
         i = j
     return frozenset(names)
@@ -140,6 +138,18 @@ def _missing_band_markers(prose: str, fact_sheet: FactSheet) -> list[str]:
     return missing_objectives
 
 
+def _authorised_words(fact_sheet: FactSheet) -> frozenset[str]:
+    """Word-level expansion of `authorised_names` (live-discovered: a model
+    naturally refers to a multi-word authorised name — "Joran Vey" — by
+    ONE of its words alone — "Joran" — which is not itself a fabrication).
+    Every word of every authorised full name is individually authorised in
+    addition to the full name."""
+    words: set[str] = set()
+    for name in fact_sheet.authorised_names:
+        words.update(name.split())
+    return frozenset(words)
+
+
 def judge_narration(prose: str, fact_sheet: FactSheet) -> JudgeVerdict:
     """The T1 judge (Scope IN item 4). Fail-closed: any of the checks
     below not passing is a FAILURE, reported by name, never a silent
@@ -151,10 +161,24 @@ def judge_narration(prose: str, fact_sheet: FactSheet) -> JudgeVerdict:
         # lines in this module.
         return JudgeVerdict(passed=False, reason="anti-vacuity: zero names extracted from the prose")
 
-    unauthorised = sorted(n for n in extracted if n not in fact_sheet.authorised_names)
+    # A candidate run passes if it is EITHER the full authorised string
+    # verbatim, OR every one of its own words is individually authorised
+    # (the "Joran" vs "Joran Vey" case). This also sharpens a merge
+    # artifact like "Maelis En" (two adjacent capitalized words the
+    # extractor could not tell apart from a real two-word name): only the
+    # genuinely unauthorised word ("En") is reported, not the whole run.
+    authorised_words = _authorised_words(fact_sheet)
+    unauthorised: set[str] = set()
+    for run in extracted:
+        if run in fact_sheet.authorised_names:
+            continue
+        for word in run.split():
+            if word not in authorised_words:
+                unauthorised.add(word)
     if unauthorised:
         return JudgeVerdict(
-            passed=False, reason=f"unauthorised name(s) not in authorised_names: {', '.join(unauthorised)}",
+            passed=False,
+            reason=f"unauthorised name(s) not in authorised_names: {', '.join(sorted(unauthorised))}",
         )
 
     if not fact_sheet.steps:

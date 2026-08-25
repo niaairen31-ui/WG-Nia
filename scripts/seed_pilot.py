@@ -2574,9 +2574,10 @@ au moins une fois dans le récit, plutôt que de ne dire que « le joueur » ou 
 - Nomme UNIQUEMENT les personnes et les lieux listés sous « Personnes \
 nommables » et « Lieux nommables », plus le personnage joueur lui-même. \
 N'invente aucun autre nom propre.
-- Pour toute personne listée sous « Personnes sans nom résolu », \
-désigne-la uniquement par sa fonction donnée (par exemple « le marchand », \
-« la femme aux registres »), jamais par un nom inventé.
+- Pour toute personne ou tout lieu listé sous « Personnes et lieux sans nom \
+résolu », désigne-le uniquement par sa fonction donnée, en minuscules \
+(par exemple « le marchand », « la femme aux registres », « le marché »), \
+jamais par un nom propre inventé.
 - Raconte les étapes dans l'ordre donné.
 
 Réponds UNIQUEMENT avec le texte de la narration, en français, sans \

@@ -100,9 +100,14 @@ class FactSheet:
     steps: tuple[StepFact, ...]
     npcs: tuple[NamedRef, ...]
     locations: tuple[NamedRef, ...]
-    # Role hints for persons the concordance pass (BRIEF-0075-c) never
-    # resolved to a canon id — the narration renders these as functions,
-    # never as invented names (they are explicitly NOT in authorised_names).
+    # Role hints for persons AND places the concordance pass (BRIEF-0075-c)
+    # never resolved to a canon id — the narration renders these as
+    # functions, never as invented names (they are explicitly NOT in
+    # authorised_names). Places widened in live-testing: an unresolved
+    # place with no role hint at all (e.g. "le marché") was never told to
+    # stay generic, so the model capitalized it into what read as an
+    # invented proper noun — the judge was right to reject that; the fix
+    # is telling the model, not loosening the judge.
     role_hints: tuple[str, ...]
     # Computed deltas the outcomes imply, NOT yet emitted as mutations
     # (Scope OUT — BRIEF-0075-e owns emission). Empty in this brief: no
@@ -218,11 +223,35 @@ def _truncate_on_failure(rolled: list[_RolledStep]) -> list[StepOutcome]:
 def resolve_steps(agenda: Agenda, character: Character, db: Session) -> list[StepOutcome]:
     """Resolve the budgeted portion of `agenda`'s plan (Scope IN item 1).
     `agenda` is the character's currently active `Agenda` — the "plan" of
-    the brief's signature."""
+    the brief's signature. Returns an EMPTY list when step 1's own
+    requirements are unmet (budget_cut excludes everything, first_
+    excluded_index == 0) — a legitimate outcome (the day never got off the
+    ground), never an error. Callers must not hand an empty result to
+    `narrate`/`judge_narration` (see `blocked_reason`)."""
     ordered_steps, evaluated_steps = _load_evaluated_steps(agenda, character, db)
     budget_result = budget_cut(evaluated_steps, DAY_BUDGET_SLOTS)
     rolled = _roll_included_steps(ordered_steps, budget_result.included, character, db)
     return _truncate_on_failure(rolled)
+
+
+def blocked_reason(agenda: Agenda, character: Character, db: Session) -> str:
+    """Why `resolve_steps` returned zero outcomes (Scope IN item 1's edge
+    case, live-discovered: a step-1 requirement the character does not
+    meet — e.g. a resource threshold with a zero balance — truncates the
+    ENTIRE day before any dice roll). Deterministic and code-only: no
+    model call, because there is nothing to render beyond a verdict
+    reason `evaluate_requirements` already produced. The caller uses this
+    to render the day directly, bypassing `narrate`/`judge_narration`
+    entirely — a fact sheet with zero steps has nothing for either to
+    check, so skipping both is safer than asking the judge to accept an
+    empty render as a special case."""
+    _ordered_steps, evaluated_steps = _load_evaluated_steps(agenda, character, db)
+    if not evaluated_steps:
+        return "Aucune étape n'était planifiée pour cette journée."
+    unmet = [v.reason for v in evaluated_steps[0].verdicts if not v.met]
+    if unmet:
+        return "; ".join(unmet)
+    return "Le budget de la journée ne permettait aucune étape."
 
 
 def _outcome_line(outcome: StepOutcome) -> str:
@@ -289,7 +318,7 @@ def freeze_facts(
     role_hints = tuple(sorted({
         um.mention.role_hint or um.mention.surface_form
         for um in concordance.unmatched
-        if um.mention.category == "person"
+        if um.mention.category in ("person", "place")
     }))
 
     character_entity = db.get(Entity, character.id)

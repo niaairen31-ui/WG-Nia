@@ -86,7 +86,8 @@ def _render_fact_sheet(fact_sheet: FactSheet) -> str:
         lines.append("Lieux nommables : " + ", ".join(r.name for r in fact_sheet.locations) + ".")
     if fact_sheet.role_hints:
         lines.append(
-            "Personnes SANS nom résolu — désigne-les uniquement par leur fonction : "
+            "Personnes et lieux SANS nom résolu — désigne-les uniquement par leur "
+            "fonction, en minuscules, jamais comme un nom propre : "
             + ", ".join(fact_sheet.role_hints) + "."
         )
     return "\n".join(lines)

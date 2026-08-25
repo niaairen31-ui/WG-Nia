@@ -32,7 +32,14 @@ from ...day_extract import extract_factions, extract_persons, extract_places
 from ...day_narration import detect_late_delta, narrate, rewrite as day_rewrite
 from ...day_narration_guard import JudgeVerdict, judge_narration
 from ...day_plan import DAY_BUDGET_SLOTS, EvaluatedStep, budget_cut, emit_plan, evaluate_requirements
-from ...day_resolve import FactSheet, fact_sheet_dict, freeze_facts, persist_step_outcomes, resolve_steps
+from ...day_resolve import (
+    FactSheet,
+    blocked_reason,
+    fact_sheet_dict,
+    freeze_facts,
+    persist_step_outcomes,
+    resolve_steps,
+)
 from ...db import get_session
 from ...llm_parse import LlmParseError
 from ...models import Agenda, Batch, Character, Entity, PassPlay
@@ -522,7 +529,6 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     is_replay = pass_play.status == "resolved"
 
     outcomes = resolve_steps(agenda, character, db)
-    persist_step_outcomes(agenda, outcomes, db)
 
     try:
         concordance_result = _concord_declaration(pass_play, character, db)
@@ -531,5 +537,15 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
         raise HTTPException(status_code=502, detail=f"day narration concordance failed: {exc}") from exc
     fact_sheet = freeze_facts(outcomes, concordance_result, batch, character, db)
 
+    if not outcomes:
+        # Step 1's own requirements were unmet — budget_cut excluded
+        # everything before any dice roll (live-discovered edge case).
+        # Nothing to roll, nothing for a model to render, nothing for the
+        # judge to check: code renders this outcome directly.
+        prose = f"La journée n'a pas pu commencer : {blocked_reason(agenda, character, db)}"
+        verdict = JudgeVerdict(passed=True, reason="blocked before any step — code-rendered, judge not invoked")
+        return _finalize_resolution(batch, pass_play, fact_sheet, prose, verdict, is_replay, db)
+
+    persist_step_outcomes(agenda, outcomes, db)
     fact_sheet, prose, verdict = _narrate_and_judge(fact_sheet, pass_play, db)
     return _finalize_resolution(batch, pass_play, fact_sheet, prose, verdict, is_replay, db)
