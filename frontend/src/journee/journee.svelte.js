@@ -22,6 +22,11 @@ export const journeeState = $state({
   planError: '',
   resolving: false,
   resolveError: '',
+  // BRIEF-0075-f: the /plan response's transient `reconciliation` block
+  // (verdict, cited objective, rationale) -- only present when the
+  // declaration was reconciled against a standing agenda, cleared on the
+  // next plan/select so it never shows stale for a different day.
+  reconciliation: null,
 });
 
 export function selectedDay() {
@@ -60,14 +65,17 @@ export function selectDay(id) {
   journeeState.selectedId = id;
   journeeState.planError = '';
   journeeState.resolveError = '';
+  journeeState.reconciliation = null;
   loadDayDetail(id);
 }
 
 export async function planDay(id) {
   journeeState.planning = true;
   journeeState.planError = '';
+  journeeState.reconciliation = null;
   try {
-    await api('/api/day/' + id + '/plan', { method: 'POST' });
+    const result = await api('/api/day/' + id + '/plan', { method: 'POST' });
+    journeeState.reconciliation = result.reconciliation || null;
     await loadDays();
     await loadDayDetail(id);
   } catch (e) {
@@ -118,5 +126,6 @@ export async function reloadForWorld() {
   journeeState.selectedId = null;
   journeeState.detail = null;
   journeeState.detailError = '';
+  journeeState.reconciliation = null;
   await loadDays();
 }

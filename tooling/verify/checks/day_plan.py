@@ -32,7 +32,53 @@ declares its own `_day_reachable_ids` BFS. Do NOT add a check asserting
 superseded original instruction.
 
 Every rule carries an anti-vacuity guard: a rule that locates zero items is a
-FAILURE, not a silent pass.
+FAILURE, not a silent pass — EXCEPT R17, which is deliberately NOT
+vacuity-guarded to require a find (see its own docstring).
+
+--- BRIEF-0075-f (reconciliation and closure), as corrected by AMENDMENT 1 ---
+
+Rather than a ninth check module, this brief extends the one that already
+owns the plan path (its own Scope IN item 5). Continuing this file's OWN
+numbering (R11+) to avoid colliding with BRIEF-0075-b's R1-R10 above; each
+docstring also names the brief's OWN rule number for traceability.
+
+R11 (brief R1): `day_reconcile.py` writes no canon — no `db.add(` of an
+`Agenda`/`AgendaStep`, no `_apply_mutation` call, no `Agenda(`/`AgendaStep(`
+construction.
+R12 (brief R2): `RECONCILE_VERDICTS` is exactly `("continue", "modify",
+"replace")`, and `routes/day.py`'s dispatch dict (`_reconcile_and_finalize`)
+has the identical key set, both directions.
+R13 (brief R3): the citation validator compares against real `step_order`
+values; `reconcile()` raises `LlmParseError` on a validation failure, and
+never silently defaults `.get("verdict", "continue")`.
+R14 (brief R4, REPLACED by AMENDMENT 1 — no longer asserts the absence of
+`abandoned`): `day_reconcile.py` contains no `.delete(`, and `_finalize_
+replace` (routes/day.py) constructs no `ProposedMutation` at all.
+R15 (brief R5): the S3 refusal from -b (`_guard_no_active_agenda`, "already
+holds an active agenda") is gone from `routes/day.py`, and `plan_day` calls
+`_load_standing_agenda` — the reconciliation path is wired where the
+refusal used to be.
+R16 (brief R6): `day_reconcile.py` references neither `AgendaStepRequirement`
+nor `.cost` — it classifies intent, nothing else.
+R17 (brief R7): any `ProposedMutation(` constructed by the reconciliation
+path carries a `rationale` kwarg. Deliberately NOT vacuity-guarded to
+require a find: R11/R14/R19 independently establish that the reconciliation
+path constructs NO mutation at all under the current applier's capability
+(AA2, S2) — zero sites is the correct, designed state; this rule exists to
+catch a future regression, not to demand one exists.
+R18 (brief R8, re-asserted from this angle): `day_reconcile.py` contains no
+`'npc_move'` constant, no `ProposedMutation(status=...)` other than the
+literal `'proposed'`, no `select(` against `NpcSchedule`, and no reference
+to `current_location_id` — reconciliation reads no position.
+R19 (brief R10, NEW): `_finalize_continue` (routes/day.py) constructs no
+`ProposedMutation` — a no-op verdict emits nothing.
+R20 (brief R11, NEW, decision Z4): `PATCH /agendas/{agenda_id}`'s
+reactivation branch (`_activate_lowest_pending_step_if_none_active`,
+`cockpit/crud/agendas.py`) calls `write_agenda_step_status` for the
+activation rather than assigning `.status` directly.
+R21 (Scope OUT, re-asserted): `_mutation_apply_agenda_step_change`'s action
+vocabulary is still exactly `("complete", "fail")` — Z4 exists precisely so
+this never needs widening.
 """
 from __future__ import annotations
 
@@ -45,16 +91,20 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src" / "world_engine"
 
 DAY_PLAN_FILE = SRC / "day_plan.py"
+DAY_RECONCILE_FILE = SRC / "day_reconcile.py"
 CANON_FILE = SRC / "models" / "canon.py"
 CONFIG_FILE = SRC / "models" / "config.py"
 SCHEDULE_READS_FILE = SRC / "schedule_reads.py"
 DAY_ROUTE_FILE = SRC / "cockpit" / "routes" / "day.py"
+CRUD_AGENDAS_FILE = SRC / "cockpit" / "crud" / "agendas.py"
+MUTATIONS_FILE = SRC / "cockpit" / "mutations.py"
 
 # AgendaStep/AgendaStepRequirement live in config.py, not canon.py (module_budget
 # headroom, TICKET-0075/BRIEF-0075-b) — Agenda stays in canon.py.
 _MODEL_FILES = (CANON_FILE, CONFIG_FILE)
 
 EXPECTED_REQUIREMENT_TYPES = ("knowledge", "relation_gte", "resource", "location_reachable")
+EXPECTED_RECONCILE_VERDICTS = ("continue", "modify", "replace")
 
 FAILURES: list[str] = []
 _TREE_CACHE: dict[pathlib.Path, "ast.Module | None"] = {}
@@ -416,6 +466,272 @@ def check_no_traversal_reuse() -> None:
         fail(f"{_rel(DAY_PLAN_FILE)}: _day_reachable_ids does not reference 'connects_to'")
 
 
+# --- BRIEF-0075-f (reconciliation and closure), as corrected by AMENDMENT 1 ---
+
+def check_reconcile_writes_nothing() -> None:
+    """R11 (brief R1)."""
+    tree = _parse(DAY_RECONCILE_FILE)
+    if tree is None:
+        fail(f"day_plan R11: {_rel(DAY_RECONCILE_FILE)} not found or unparsable")
+        return
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id == "_apply_mutation":
+                fail(f"day_plan R11: {_rel(DAY_RECONCILE_FILE)}:{node.lineno} — calls _apply_mutation")
+            elif node.func.id in ("Agenda", "AgendaStep"):
+                fail(f"day_plan R11: {_rel(DAY_RECONCILE_FILE)}:{node.lineno} — constructs {node.func.id}(")
+        if (
+            isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "add"
+            and isinstance(node.func.value, ast.Name) and node.func.value.id == "db"
+        ):
+            fail(f"day_plan R11: {_rel(DAY_RECONCILE_FILE)}:{node.lineno} — calls db.add(")
+
+
+def check_verdict_dispatch_bijection() -> None:
+    """R12 (brief R2)."""
+    tree = _parse(DAY_RECONCILE_FILE)
+    if tree is None:
+        return
+    verdict_tuple = _tuple_assign(tree, "RECONCILE_VERDICTS")
+    if verdict_tuple is None:
+        fail(f"day_plan R12: {_rel(DAY_RECONCILE_FILE)}: RECONCILE_VERDICTS not found")
+        return
+    verdicts = tuple(e.value for e in verdict_tuple.elts if isinstance(e, ast.Constant))
+    if verdicts != EXPECTED_RECONCILE_VERDICTS:
+        fail(f"day_plan R12: RECONCILE_VERDICTS is {verdicts!r}, expected {EXPECTED_RECONCILE_VERDICTS!r}")
+
+    route_tree = _parse(DAY_ROUTE_FILE)
+    if route_tree is None:
+        return
+    fn = _find_function(route_tree, "_reconcile_and_finalize")
+    if fn is None:
+        fail(f"day_plan R12: {_rel(DAY_ROUTE_FILE)}: _reconcile_and_finalize not found")
+        return
+    handlers_dict = None
+    for node in ast.walk(fn):
+        name, value = None, None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name, value = node.targets[0].id, node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            name, value = node.target.id, node.value
+        if name == "handlers" and isinstance(value, ast.Dict):
+            handlers_dict = value
+    if handlers_dict is None:
+        fail(f"day_plan R12: {_rel(DAY_ROUTE_FILE)}: _reconcile_and_finalize has no 'handlers' dict literal")
+        return
+    handler_keys = {k.value for k in handlers_dict.keys if isinstance(k, ast.Constant)}
+    if not handler_keys:
+        fail(f"day_plan R12: {_rel(DAY_ROUTE_FILE)}: handlers dict located but holds zero keys")
+        return
+    if handler_keys != set(EXPECTED_RECONCILE_VERDICTS):
+        fail(
+            f"day_plan R12: handlers dict keys {sorted(handler_keys)!r} != "
+            f"RECONCILE_VERDICTS {sorted(EXPECTED_RECONCILE_VERDICTS)!r}"
+        )
+
+
+def check_citation_validator_and_no_default() -> None:
+    """R13 (brief R3)."""
+    tree = _parse(DAY_RECONCILE_FILE)
+    if tree is None:
+        return
+    fn = _find_function(tree, "reconcile")
+    if fn is None:
+        fail(f"day_plan R13: {_rel(DAY_RECONCILE_FILE)}: reconcile not found")
+        return
+
+    has_citation_check = any(
+        isinstance(node, ast.Compare) and any(
+            isinstance(c, ast.Attribute) and c.attr == "step_order" for c in ast.walk(node)
+        )
+        for node in ast.walk(fn)
+    )
+    if not has_citation_check:
+        fail(f"day_plan R13: {_rel(DAY_RECONCILE_FILE)}: reconcile has no step_order citation comparison")
+
+    for node in ast.walk(fn):
+        if (
+            isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get"
+            and node.args and isinstance(node.args[0], ast.Constant) and node.args[0].value == "verdict"
+            and len(node.args) > 1 and isinstance(node.args[1], ast.Constant) and node.args[1].value == "continue"
+        ):
+            fail(
+                f"day_plan R13: {_rel(DAY_RECONCILE_FILE)}:{node.lineno} — "
+                ".get('verdict', 'continue') silently defaults to continue"
+            )
+
+    raises_parse_error = any(
+        isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call)
+        and isinstance(node.exc.func, ast.Attribute) and node.exc.func.attr == "LlmParseError"
+        for node in ast.walk(fn)
+    )
+    if not raises_parse_error:
+        fail(f"day_plan R13: {_rel(DAY_RECONCILE_FILE)}: reconcile never raises llm_parse.LlmParseError")
+
+
+def check_replace_writes_nothing() -> None:
+    """R14 (brief R4, REPLACED by AMENDMENT 1)."""
+    tree = _parse(DAY_RECONCILE_FILE)
+    if tree is not None:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "delete":
+                fail(f"day_plan R14: {_rel(DAY_RECONCILE_FILE)}:{node.lineno} — calls .delete(")
+
+    route_tree = _parse(DAY_ROUTE_FILE)
+    if route_tree is None:
+        return
+    fn = _find_function(route_tree, "_finalize_replace")
+    if fn is None:
+        fail(f"day_plan R14: {_rel(DAY_ROUTE_FILE)}: _finalize_replace not found")
+        return
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "ProposedMutation":
+            fail(f"day_plan R14: {_rel(DAY_ROUTE_FILE)}:{node.lineno} — _finalize_replace constructs ProposedMutation")
+
+
+def check_s3_refusal_replaced() -> None:
+    """R15 (brief R5). The old refusal's raise message was an f-string
+    (`ast.JoinedStr`, interpolating `character.id`) — scanned as such so a
+    docstring PROSE mention of the same phrase (describing the new
+    behavior) is never a false positive."""
+    tree = _parse(DAY_ROUTE_FILE)
+    if tree is None:
+        return
+    if _find_function(tree, "_guard_no_active_agenda") is not None:
+        fail(f"day_plan R15: {_rel(DAY_ROUTE_FILE)}: _guard_no_active_agenda still defined")
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.JoinedStr):
+            continue
+        joined = "".join(v.value for v in node.values if isinstance(v, ast.Constant) and isinstance(v.value, str))
+        if "already holds an active agenda" in joined:
+            fail(f"day_plan R15: {_rel(DAY_ROUTE_FILE)}:{node.lineno} — the S3 refusal f-string is still present")
+
+    plan_fn = _find_function(tree, "plan_day")
+    if plan_fn is None:
+        fail(f"day_plan R15: {_rel(DAY_ROUTE_FILE)}: plan_day not found")
+        return
+    calls_standing_lookup = any(
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_load_standing_agenda"
+        for node in ast.walk(plan_fn)
+    )
+    if not calls_standing_lookup:
+        fail(f"day_plan R15: {_rel(DAY_ROUTE_FILE)}: plan_day does not call _load_standing_agenda")
+
+
+def check_reconcile_no_cost_or_requirement_reads() -> None:
+    """R16 (brief R6)."""
+    tree = _parse(DAY_RECONCILE_FILE)
+    if tree is None:
+        return
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id == "AgendaStepRequirement":
+            fail(f"day_plan R16: {_rel(DAY_RECONCILE_FILE)}:{node.lineno} — references AgendaStepRequirement")
+        if isinstance(node, ast.Attribute) and node.attr == "cost":
+            fail(f"day_plan R16: {_rel(DAY_RECONCILE_FILE)}:{node.lineno} — references .cost")
+
+
+def check_reconcile_mutation_rationale() -> None:
+    """R17 (brief R7). Deliberately NOT vacuity-guarded to require a
+    find — see the module docstring."""
+    for path in (DAY_RECONCILE_FILE, DAY_ROUTE_FILE):
+        tree = _parse(path)
+        if tree is None:
+            continue
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "ProposedMutation"):
+                continue
+            rationale_kw = next((kw for kw in node.keywords if kw.arg == "rationale"), None)
+            if rationale_kw is None:
+                fail(f"day_plan R17: {_rel(path)}:{node.lineno} — ProposedMutation( has no rationale kwarg")
+            elif isinstance(rationale_kw.value, ast.Constant) and not str(rationale_kw.value.value).strip():
+                fail(f"day_plan R17: {_rel(path)}:{node.lineno} — ProposedMutation( rationale is empty")
+
+
+def check_reconcile_npc_move_status_position() -> None:
+    """R18 (brief R8, re-asserted)."""
+    tree = _parse(DAY_RECONCILE_FILE)
+    text = _read_text(DAY_RECONCILE_FILE)
+    if tree is None or text is None:
+        return
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and node.value == "npc_move":
+            fail(f"day_plan R18: {_rel(DAY_RECONCILE_FILE)}:{node.lineno} — references 'npc_move'")
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "ProposedMutation":
+            for kw in node.keywords:
+                if kw.arg == "status" and not (isinstance(kw.value, ast.Constant) and kw.value.value == "proposed"):
+                    fail(
+                        f"day_plan R18: {_rel(DAY_RECONCILE_FILE)}:{node.lineno} — "
+                        "ProposedMutation(status=...) is not the literal 'proposed'"
+                    )
+    if re.search(r"select\(\s*NpcSchedule", text):
+        fail(f"day_plan R18: {_rel(DAY_RECONCILE_FILE)}: select( against NpcSchedule")
+    if "current_location_id" in text:
+        fail(f"day_plan R18: {_rel(DAY_RECONCILE_FILE)}: references current_location_id")
+
+
+def check_continue_constructs_nothing() -> None:
+    """R19 (brief R10, NEW)."""
+    tree = _parse(DAY_ROUTE_FILE)
+    if tree is None:
+        return
+    fn = _find_function(tree, "_finalize_continue")
+    if fn is None:
+        fail(f"day_plan R19: {_rel(DAY_ROUTE_FILE)}: _finalize_continue not found")
+        return
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "ProposedMutation":
+            fail(f"day_plan R19: {_rel(DAY_ROUTE_FILE)}:{node.lineno} — _finalize_continue constructs ProposedMutation")
+
+
+def check_z4_activation_uses_writer() -> None:
+    """R20 (brief R11, NEW, decision Z4)."""
+    tree = _parse(CRUD_AGENDAS_FILE)
+    if tree is None:
+        fail(f"day_plan R20: {_rel(CRUD_AGENDAS_FILE)} not found or unparsable")
+        return
+    fn = _find_function(tree, "_activate_lowest_pending_step_if_none_active")
+    if fn is None:
+        fail(f"day_plan R20: {_rel(CRUD_AGENDAS_FILE)}: _activate_lowest_pending_step_if_none_active not found")
+        return
+    calls_writer = any(
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "write_agenda_step_status"
+        for node in ast.walk(fn)
+    )
+    if not calls_writer:
+        fail(f"day_plan R20: {_rel(CRUD_AGENDAS_FILE)}: activation branch does not call write_agenda_step_status")
+    for node in ast.walk(fn):
+        if (
+            isinstance(node, ast.Assign) and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Attribute) and node.targets[0].attr == "status"
+        ):
+            fail(
+                f"day_plan R20: {_rel(CRUD_AGENDAS_FILE)}:{node.lineno} — assigns .status directly, "
+                "bypassing write_agenda_step_status"
+            )
+
+
+def check_applier_action_vocabulary_unwidened() -> None:
+    """R21 (Scope OUT, re-asserted)."""
+    tree = _parse(MUTATIONS_FILE)
+    if tree is None:
+        fail(f"day_plan R21: {_rel(MUTATIONS_FILE)} not found or unparsable")
+        return
+    fn = _find_function(tree, "_mutation_apply_agenda_step_change")
+    if fn is None:
+        fail(f"day_plan R21: {_rel(MUTATIONS_FILE)}: _mutation_apply_agenda_step_change not found")
+        return
+    found = False
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Compare) and len(node.comparators) == 1 and isinstance(node.comparators[0], ast.Tuple):
+            values = tuple(e.value for e in node.comparators[0].elts if isinstance(e, ast.Constant))
+            if values:
+                found = True
+                if values != ("complete", "fail"):
+                    fail(f"day_plan R21: {_rel(MUTATIONS_FILE)}: action tuple is {values!r}, expected ('complete', 'fail')")
+    if not found:
+        fail(f"day_plan R21: {_rel(MUTATIONS_FILE)}: no 'action in (...)' comparison found")
+
+
 def main() -> None:
     check_evaluator_bijection()
     check_type_constraint()
@@ -427,6 +743,17 @@ def main() -> None:
     check_emit_plan_wiring()
     check_bounds_constants()
     check_no_traversal_reuse()
+    check_reconcile_writes_nothing()
+    check_verdict_dispatch_bijection()
+    check_citation_validator_and_no_default()
+    check_replace_writes_nothing()
+    check_s3_refusal_replaced()
+    check_reconcile_no_cost_or_requirement_reads()
+    check_reconcile_mutation_rationale()
+    check_reconcile_npc_move_status_position()
+    check_continue_constructs_nothing()
+    check_z4_activation_uses_writer()
+    check_applier_action_vocabulary_unwidened()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -434,7 +761,8 @@ def main() -> None:
     print(
         "PASS: day_plan — evaluator bijection, requirement CHECKs, budget derivation, "
         "P2/positional exclusion, the positional wall, budget_cut purity, emit_plan "
-        "wiring, named bounds, and the D1 traversal-independence gate are all intact"
+        "wiring, named bounds, the D1 traversal-independence gate, and BRIEF-0075-f's "
+        "reconciliation/Z4/AA2 gates (R11-R21) are all intact"
     )
     sys.exit(0)
 

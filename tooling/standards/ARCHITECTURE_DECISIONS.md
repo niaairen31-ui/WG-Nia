@@ -13706,6 +13706,140 @@ the guard filters `mutation_type='agenda_step_change'` at
 `resolve_day`) — both fail-closed and vacuity-guarded, each observed
 FAILING under a deliberate local mutation before revert.
 
+## RECONCILIATION AND CLOSURE — Z4 repairs the source, AA2 makes replace a creator act (BRIEF-0075-f, no schema change)
+
+**R1 (unaffected by the amendment).** `day_reconcile.reconcile()` is ONE
+model call classifying a new declaration against a STANDING agenda as
+`continue`/`modify`/`replace`, citing a real `step_order`. The model
+CLASSIFIES; it writes nothing (R1's own tripwire) — every structural
+effect, when there is one, goes through the ordinary mutation queue,
+never a direct write. A validation failure (a verdict outside the trio, or
+a citation naming no real step) raises `LlmParseError` and stops the day —
+never a silent fallback to `continue`, which the brief's own Invariants
+call "the worst possible failure mode: it looks like inertia and is
+actually a swallowed error."
+
+**Z4 (locked with Nia) — the escalation was correct, the fix goes where
+the state breaks, not downstream.** The original brief's Scope IN item 2
+needed a `pending -> active` flip that `_mutation_apply_agenda_step_
+change` cannot express (it accepts only `action in ("complete", "fail")`
+on the CURRENTLY ACTIVE step), while the brief's own Scope OUT forbids
+widening that vocabulary. Escalated rather than guessed at (the correct
+call — see the mini-RECON's own STOP condition). The resolution: the
+mechanism already existed. `PATCH /agenda-steps/{step_id}` has always
+been able to perform that exact flip (creator CRUD, the SECOND sanctioned
+canon-write path) — nothing was missing from the engine. The real gap was
+narrower: `PATCH /agendas/{agenda_id}` with `status='active'` (reactivating
+a failed agenda) never touched the reactivated agenda's steps, so a
+reactivation onto an agenda with pending-but-no-active steps left it
+INCOHERENT — active at the agenda grain, with no active step underneath.
+
+`_activate_lowest_pending_step_if_none_active` (`cockpit/crud/agendas.py`)
+closes that gap AT ITS SOURCE: the SAME `PATCH /agendas/{agenda_id}` call
+that reactivates the agenda also promotes its lowest-`step_order` PENDING
+step to `active`, in the SAME transaction, via `write_agenda_step_status`
+(so `change_history` is appended — history stays sacred), when and only
+when no step is already active. Idempotent both ways: a step already
+active is untouched, and an agenda with no pending step left is untouched
+too — that agenda is INERT, a `replace` case for the day chain, not a
+`continue` one. This makes the invariant unconditional rather than
+situational: **an active agenda with pending steps always has exactly one
+active step**, defended at the one place the state can break, never
+patched around downstream. `_mutation_apply_agenda_step_change`'s action
+vocabulary stays exactly `("complete", "fail")` — Z4 exists precisely so
+that widening is never needed (re-asserted, `day_plan.py` check R21).
+
+Live-verified: a step approved as `fail` (agenda -> `failed`, that step ->
+`failed`, remaining steps left `pending` with none promoted — `fail`
+touches only the failing step, per the applier's own code) reactivated via
+`PATCH /agendas/{id}` -> `status='active'` correctly activated the next
+`pending` step, with the prior `pending` state recorded in that step's
+`change_history`.
+
+**Corrected `continue`: a true no-op.** In the normal case (an approved
+prior step already cascaded the next one active) there is nothing to
+activate — `continue` proposes NOTHING, ever, and emitting an empty
+proposal for a no-op was ruled queue noise (day_plan.py check R19: the
+`continue` path constructs no `ProposedMutation`). Z4 guarantees the ONLY
+way an active agenda reaches reconciliation with no active step is the
+now-impossible-to-reach INERT case — so `continue` on that state reports
+the plan exhausted (409) and stops; that classification should have been
+`replace`.
+
+**`modify`, and why it structurally never expresses a diff.**
+`_mutation_apply_agenda_step_change` has no action to insert, reorder, or
+edit a PENDING step's objective — its only actions transition the
+CURRENTLY ACTIVE step, and even those describe something ALREADY ROLLED
+(dice happen at `/resolve`, reconciliation happens at `/plan`, before any
+roll exists to describe). The consequence, confirmed by direct
+implementation and live-tested: comparing the revised plan (`emit_plan`
+re-run with the standing agenda's remaining steps as context) against
+those remaining steps is either IDENTICAL (no real diff — a no-op,
+`mutation_ids: []`, same as `continue`) or DIFFERENT, and every observed
+DIFFERENT case is S2 — a 422 naming exactly why ("no action exists to
+insert, reorder or edit a pending step"). This is not a limitation
+introduced here; it is what `_mutation_apply_agenda_step_change`'s
+existing, unwidened vocabulary always implied. `modify` is otherwise
+unaffected by the amendment.
+
+**AA2 (locked with Nia) — a correction, and `replace` becomes a creator
+act.** The original brief's R4 forbade `replace` from ever emitting
+`abandoned`, reasoning "history is sacred" as if `abandoned` erased
+something `failed` preserves. That conflated two different rules:
+`abandoned` preserves `change_history` exactly as `failed` does — the
+difference is TERMINAL MEANING, not audit fidelity. `failed` additionally
+routes through `_cascade_agenda_status_to_goals` (`writes/goals_agendas.
+py`), abandoning every linked `npc_goal` — the correct side effect for a
+plan the character genuinely lost, and the WRONG one for a plan the
+player merely dropped to do something else. `replace` therefore emits
+NOTHING and writes NOTHING (R14: no `.delete(` in `day_reconcile.py`, no
+`ProposedMutation` construction in the `replace` handler): the chain
+records the verdict, reports that the standing plan must be closed,
+names it, and stops (409). Nia closes it manually through the EXISTING
+`PATCH /agendas/{id}` -> `'abandoned'` — a creator act, not a chain-
+automated one; rejected alternatives were proposing `agenda_step_change
+fail` (wrong terminal state, plus the goal cascade) and adding a new
+`abandon` mutation type or action (correct but scope creep into the
+shared applier — its own ticket if the manual step proves tiresome after
+five separate days, the named reactivation condition for that deferral).
+
+Live-verified end to end: an unrelated declaration against a standing
+agenda classified `replace`, named the standing agenda's title, committed
+nothing (the standing agenda's steps were unchanged in the DB); the
+standing agenda closed via `PATCH .../abandoned`; the SAME declaration
+re-planned found no active agenda and took BRIEF-0075-b's fresh-plan path
+unchanged (no `reconciliation` key in the response).
+
+**The dispatch is a real dict, not an if/elif chain** (`_reconcile_and_
+finalize`, `routes/day.py`) — `RECONCILE_VERDICTS` and the `handlers`
+dict's key set are the same static, checkable fact (day_plan.py check
+R12), the same `_EVALUATORS`/`REQUIREMENT_TYPES` bijection idiom this
+ticket has used throughout.
+
+**Ticket-closure sweep (Scope IN item 4).** Every named deferral
+confirmed still deferred, by diff (nothing outside this brief's own file
+list was touched): multiplayer and `batch_order` beyond 1 (`write_pass_
+play` still hardcodes `1`), auto-approve, `flag_reason`, location germs
+(`day_concordance.emit_germs` unchanged, person-only), D3's prologue,
+P1's phase-anchored budget (`DAY_BUDGET_SLOTS` still `len(SCHEDULE_
+PHASES)`), M3's interval unification, TICKET-0069, `schedule_reads.py`
+(zero-diff), `PUT /api/world/phase` (zero-diff).
+
+**The four vestigial `Batch` columns, reported only.** `local_summary`
+and `final_result` have writers (`_finalize_resolution`, since
+BRIEF-0075-d); `message_to_claude` and `claude_raw_response` have NO
+writer and NO reader anywhere in `src/` — unchanged by this ticket
+end to end. A no-reader review candidate for a later ticket, per the
+brief's own instruction — not dropped here.
+
+**The rewrite-firing counter: zero, across every day resolved during
+this ticket's verification** (both this brief's live-testing and
+BRIEF-0075-g's, spanning roughly twenty declared days) — matching the
+structural prediction in `day_narration.py`'s own module docstring: no
+applier exists yet for `entity_creation`, so `detect_late_delta` can
+never find an approved germ to fire on. The D3 reactivation condition
+(an applier for `entity_creation` exists) remains unmet.
+
 ---
 
 *Co-built with Claude, June 2026.*

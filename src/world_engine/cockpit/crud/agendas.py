@@ -209,6 +209,31 @@ def create_agenda(body: AgendaCreateBody, db: DbSession = Depends(get_session)) 
     return _agenda_dict(agenda, db)
 
 
+def _activate_lowest_pending_step_if_none_active(agenda: Agenda, db: DbSession) -> None:
+    """Z4 (TICKET-0075, BRIEF-0075-f AMENDMENT 1) — repair the invariant at
+    its source: an active agenda with pending steps always has exactly one
+    active step. Same transaction as the caller's agenda-status write, via
+    `write_agenda_step_status` so `change_history` is appended (history
+    stays sacred). Idempotent: a no-op when a step is already active, or
+    when there is no pending step to promote — that agenda is INERT, a
+    `replace` case for the day chain (BRIEF-0075-f), never a `continue`
+    one. This is a repair to this existing creator route, not a widening
+    of `agenda_step_change` — that mutation's action vocabulary stays
+    exactly `("complete", "fail")`."""
+    has_active = db.exec(
+        select(AgendaStep).where(AgendaStep.agenda_id == agenda.id, AgendaStep.status == "active")
+    ).first()
+    if has_active is not None:
+        return
+    next_step = db.exec(
+        select(AgendaStep)
+        .where(AgendaStep.agenda_id == agenda.id, AgendaStep.status == "pending")
+        .order_by(AgendaStep.step_order)
+    ).first()
+    if next_step is not None:
+        write_agenda_step_status(db, step=next_step, status="active")
+
+
 @router.patch("/agendas/{agenda_id}")
 def update_agenda_status(agenda_id: str, body: AgendaStatusBody, db: DbSession = Depends(get_session)) -> dict:
     agenda = db.get(Agenda, agenda_id)
@@ -218,6 +243,8 @@ def update_agenda_status(agenda_id: str, body: AgendaStatusBody, db: DbSession =
         raise HTTPException(422, "status must be 'active' (reactivate) or 'abandoned'")
 
     agenda = write_agenda_status(db, agenda=agenda, status=body.status)
+    if body.status == "active":
+        _activate_lowest_pending_step_if_none_active(agenda, db)
     db.commit()
     db.refresh(agenda)
     return _agenda_dict(agenda, db)

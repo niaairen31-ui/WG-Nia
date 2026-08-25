@@ -306,6 +306,13 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         call_sites=("src/world_engine/day_feasibility.py:veto",),
         default_model=_game_model,
     ),
+    "day_reconcile": PromptSpec(
+        surface="play",
+        world_scoped=True,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/day_reconcile.py:reconcile",),
+        default_model=_game_model,
+    ),
     "conversation_summary": PromptSpec(
         surface="play",
         world_scoped=True,
