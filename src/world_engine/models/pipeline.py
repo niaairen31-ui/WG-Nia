@@ -61,12 +61,22 @@ class Batch(SQLModel, table=True):
 # -----------------------------------------------------------------------------
 class PassPlay(SQLModel, table=True):
     __tablename__ = "pass_play"
-    __table_args__ = (Index("idx_passplay_batch", "batch_id"),)
+    __table_args__ = (
+        Index("idx_passplay_batch", "batch_id"),
+        Index("idx_passplay_agenda", "agenda_id"),
+    )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     batch_id: str = Field(foreign_key="batch.id", nullable=False)
     session_id: str = Field(foreign_key="session.id", nullable=False)
     character_id: str = Field(foreign_key="entity.id", nullable=False)
+    # Which plan this day advanced (schema vX.YY, TICKET-0077, BRIEF-0077-a).
+    # NULL for every pre-BRIEF-0077-a row and for a day that never reached
+    # plan emission — `/resolve` falls back to the player's active agenda in
+    # that case. Written once, at plan time, and never rewritten: once plans
+    # can be parked, "which plan did day N advance" stops being derivable
+    # from current state.
+    agenda_id: Optional[str] = Field(default=None, foreign_key="agenda.id")
     declared_action: str
     injected_context: Optional[Any] = Field(default=None, sa_column=Column(JSON))
     creator_notes: Optional[str] = None
