@@ -193,3 +193,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 13508 | THE FEASIBILITY VETO — a downward-only clamp is not an exception (BRIEF-0075-g, no schema change) | BRIEF-0075-g |  |
 | 13647 | THE REMAINING-WORK INVARIANT AND THE RESOLVE PRECONDITION (BRIEF-0075-f, no schema change) | BRIEF-0075-f |  |
 | 13709 | RECONCILIATION AND CLOSURE — Z4 repairs the source, AA2 makes replace a creator act (BRIEF-0075-f, no schema change) | BRIEF-0075-f |  |
+| 13843 | DAY CHAIN PROMPT DELIVERY AND COVERAGE GUARD (BRIEF-0076-a, no schema change) | BRIEF-0076-a |  |

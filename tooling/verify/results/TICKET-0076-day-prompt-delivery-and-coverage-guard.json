@@ -1,0 +1,22 @@
+{
+  "ticket": "TICKET-0076-day-prompt-delivery-and-coverage-guard",
+  "when": "2026-08-26T14:54:59.626923+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "day_prompt_delivery.py",
+      "status": "PASS",
+      "msg": "PASS: day_prompt_delivery \u2014 the 14 DAY_* constants are module-level, DAY_PROMPT_HEADS is the single seeding source, the one-shot embeds no text, prompt_coverage derives usages with no literal restatement, the day_feasibility exemption matches the code's actual Raise/Return shape, missing_usages checks E2 depth, and the guard runs before write_batch"
+    },
+    {
+      "check": "prompt_registry.py",
+      "status": "PASS",
+      "msg": "PASS: prompt_registry \u2014 usage bijection, registry entry shape, static resolver wiring, effective_model pure-function behavior"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values; 89 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    }
+  ]
+}

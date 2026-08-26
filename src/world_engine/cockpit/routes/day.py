@@ -49,6 +49,7 @@ from ...day_resolve import (
 )
 from ...db import get_session
 from ...llm_parse import LlmParseError
+from ...prompt_coverage import DAY_CHAIN_USAGES, missing_usages
 from ...models import (
     Agenda,
     AgendaStep,
@@ -162,6 +163,17 @@ class DayDeclareBody(BaseModel):
 
 @router.post("/api/day/declare")
 def declare_day(body: DayDeclareBody, db: Session = Depends(get_session)) -> dict:
+    missing = missing_usages(DAY_CHAIN_USAGES, db)
+    if missing:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "day chain unavailable: no active prompt_template with a version for "
+                f"{', '.join(missing)} -- run "
+                "python scripts/apply_ticket_0076_day_prompt_seed.py"
+            ),
+        )
+
     world_id = _crud._world_id(db)
     game_session = _get_or_open_session(world_id, db)
     character = _resolve_player_character(world_id, db)

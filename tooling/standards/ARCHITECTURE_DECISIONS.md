@@ -13840,6 +13840,94 @@ applier exists yet for `entity_creation`, so `detect_late_delta` can
 never find an approved germ to fire on. The D3 reactivation condition
 (an applier for `entity_creation` exists) remains unmet.
 
+## DAY CHAIN PROMPT DELIVERY AND COVERAGE GUARD (BRIEF-0076-a, no schema change)
+
+TICKET-0075 shipped eight `prompt_template` heads (`pt-day-plan`,
+`pt-day-extract-place/person/faction`, `pt-day-narration`, `pt-day-rewrite`,
+`pt-day-feasibility`, `pt-day-reconcile`) with exactly one creation path:
+`scripts/seed_pilot.py`. `cockpit/crud/prompts.py` has list / edit-text /
+restore-version / set-model but no create endpoint, no boot hook in
+`cockpit/app.py` reads `prompt_template`, and every prompt-related check
+under `tooling/verify/checks/` is static (none opens a database) — so a live
+DB seeded before the day chain shipped, or one restored from an older
+backup, silently diverges from the corpus with no detector anywhere. The
+symptom (TICKET-0076's intake report): `POST /api/day/{batch}/plan` failing
+502 with `day_extract: no active prompt_template for usage='day_extract_place'`
+on a DB that had never run the post-BRIEF-0075-b seed.
+
+**Delivery is a hoist, not a rewrite.** The 14 `DAY_*` prompt-text constants
+move from inside `seed()` to module level in `scripts/seed_pilot.py`,
+byte-identical. A module-level `DAY_PROMPT_HEADS` — a tuple of eight
+`dict(id=..., name=..., usage=..., world_id=..., system_prompt=...,
+user_template=..., variables=..., destination=...)` calls — is the single
+source for both the head fields `upsert_prompt_template` needs and the text
+constants; `seed()` now loops `for entry in DAY_PROMPT_HEADS:
+upsert_prompt_template(session, **entry)` instead of eight literal calls.
+`scripts/apply_ticket_0076_day_prompt_seed.py` is the one-shot delivery path
+for an already-running DB: a CREATE-HEAD script (unlike
+`apply_ticket_0024_prompt_updates.py`'s append-a-version shape) that embeds
+no text and no head fields of its own, importing `seed_pilot.DAY_PROMPT_HEADS`
+and looping the same `upsert_prompt_template`. S2 (creator sovereignty) is
+inherited, never reimplemented: a head already present with >= 1 version
+never has its text touched, by either path.
+
+**The `dict(...)` call form is load-bearing, not stylistic.** The existing
+`prompt_registry.py` check's bijection assertion greps the WHOLE seed file
+for a literal `usage\s*=\s*"([a-z_]+)"` text pattern — it is not scoped to
+`seed()` and does not parse the AST. A dict LITERAL (`{"usage": "day_plan"}`)
+would have made all eight `usage=` occurrences vanish from the file's text,
+silently failing that check's bijection in the wrong direction (registry
+entries with no seeded usage). Keyword-call syntax keeps the literal text
+pattern intact while still letting `DAY_PROMPT_HEADS` be actual structured
+data. Rejected: touching `prompt_registry.py`'s check to scope or AST-ify
+the scan — out of blast radius for a delivery-only step, and the existing
+check has three other assertions this ticket has no reason to touch.
+
+**The coverage guard sits at `POST /api/day/declare`** (`declare_day`,
+`routes/day.py`), as its first statement, before any write —
+`src/world_engine/prompt_coverage.missing_usages` is called against
+`DAY_CHAIN_USAGES` and a non-empty result raises a 503 naming every missing
+usage and the one-shot script to run. Rejected: a boot-time guard (B1) — one
+missing prompt would stop every surface from serving, not just the day
+chain; reactivation condition: a second chain ships and per-surface guards
+start duplicating each other. Rejected: an advisory report only (B3) —
+contradicts structural-over-disciplinary (the same posture as every other
+fail-closed gate in this codebase).
+
+**`DAY_CHAIN_USAGES` is derived, never restated.** `prompt_coverage.py`
+computes it from `PROMPT_REGISTRY`: every usage whose `PromptSpec.call_sites`
+names a `src/world_engine/day_*.py` module, minus `DEGRADING_USAGES`. No
+usage string literal appears in the module outside that one frozenset.
+Rejected: a usage-key prefix rule (D1) — lexical, drifts silently on a
+rename, no reactivation foreseen. Rejected: a new `PromptSpec.chain` field
+(D3) — one reader only, and a forgotten `chain="day"` on a future entry
+falls out of the guard exactly as silently as the prefix rule; reactivation
+condition: a day-chain prompt moves outside a `day_*.py` module, or a second
+chain needs the same treatment. `surface` cannot carry this distinction
+either — it is a two-value field (`"play"` | `"authoring"`) and all eight
+day usages share `surface="play"` with sixteen others.
+
+**`day_feasibility` is exempt, deliberately, and the exemption is checked
+rather than trusted.** `day_feasibility.py:188` returns
+`_unavailable(...)` instead of raising on a missing template —
+BRIEF-0075-g's decision Y1, a designed degradation (the veto is optional;
+its absence just means nothing narrows the plan Python already cut).
+Requiring it at `/declare` would convert a tolerated absence into a refusal
+it was never meant to have. `tooling/verify/checks/day_prompt_delivery.py`'s
+R6 recomputes this by AST every run: for each `day_*.py` file carrying a
+day-chain usage, it finds the file's "no active prompt_template" message(s)
+and classifies the file as `Raise` or `Return`; the `Return`-classified
+usages must equal `DEGRADING_USAGES` exactly, and the `Raise`-classified
+usages must equal `DAY_CHAIN_USAGES` exactly, in both directions. Rejected:
+a `D1`/`D2` cross-agreement rule pairing the prefix approach with the
+derivation — dropped on Nia's explicit instruction ("D2 seulement"); R6
+checks the exemption's correctness directly instead.
+
+**Ticket-closure sweep.** TICKET-0075's front-matter `status` moves
+`escalated` -> `done` (front-matter only; `QUESTION-TICKET-0075.md` and its
+`continue` verdict were answered out of band directly to Claude Code and are
+untouched here, per this brief's explicit Scope OUT).
+
 ---
 
 *Co-built with Claude, June 2026.*
