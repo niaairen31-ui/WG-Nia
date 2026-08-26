@@ -2,7 +2,7 @@
 id: TICKET-0076
 title: Day chain prompt delivery — module-level hoist, one-shot seed, coverage guard
 type: bug
-status: exec
+status: live-gate
 created: 2026-08-26
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write]
