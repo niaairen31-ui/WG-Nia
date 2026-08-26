@@ -175,6 +175,16 @@ body {
 .b-degraded { background:#2a0e10; color:var(--red);     border:1px solid #b62324; }
 .b-event    { background:#1e1130; color:#d2a8ff;        border:1px solid #6e40c9; }
 
+/* agenda.status (TICKET-0077, BRIEF-0077-a) — paused must read distinctly
+   from abandoned: paused is a resumable set-aside (amber, matches
+   b-proposed/b-secret), abandoned/failed are terminal (red, matches
+   b-rejected/b-degraded). */
+.b-active    { background:#0d2c12; color:var(--green);  border:1px solid #238636; }
+.b-paused    { background:#2b1d00; color:var(--yellow);  border:1px solid #9e6a03; }
+.b-completed { background:#0d1f38; color:var(--accent);  border:1px solid #1f6feb; }
+.b-abandoned { background:#2a0e10; color:var(--red);     border:1px solid #b62324; }
+.b-failed    { background:#2a0e10; color:var(--red);     border:1px solid #b62324; }
+
 .target-ref { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */

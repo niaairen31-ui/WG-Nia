@@ -47,7 +47,7 @@ async function refreshAgendaSelection(agendaId) {
 }
 
 export async function setAgendaStatus(agendaId, status, linkedGoalCount) {
-  if (status !== 'active' && linkedGoalCount > 0) {
+  if (status !== 'active' && status !== 'paused' && linkedGoalCount > 0) {
     const ok = confirm(
       `Cette intrigue a ${linkedGoalCount} objectif(s) lié(s). La fermer transitionnera ` +
       `(complété/abandonné) chaque objectif dont c'est le DERNIER lien actif — un objectif ` +

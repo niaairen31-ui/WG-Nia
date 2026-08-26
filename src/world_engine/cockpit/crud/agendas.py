@@ -239,10 +239,13 @@ def update_agenda_status(agenda_id: str, body: AgendaStatusBody, db: DbSession =
     agenda = db.get(Agenda, agenda_id)
     if agenda is None or agenda.world_id != _world_id(db):
         raise HTTPException(404, f"Agenda {agenda_id!r} not found")
-    if body.status not in ("active", "abandoned"):
-        raise HTTPException(422, "status must be 'active' (reactivate) or 'abandoned'")
+    if body.status not in ("active", "paused", "abandoned"):
+        raise HTTPException(422, "status must be 'active' (reactivate), 'paused', or 'abandoned'")
 
-    agenda = write_agenda_status(db, agenda=agenda, status=body.status)
+    try:
+        agenda = write_agenda_status(db, agenda=agenda, status=body.status)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if body.status == "active":
         _activate_lowest_pending_step_if_none_active(agenda, db)
     db.commit()
