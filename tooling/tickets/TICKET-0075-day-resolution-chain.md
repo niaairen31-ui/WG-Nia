@@ -2,7 +2,7 @@
 id: TICKET-0075
 title: Day resolution chain — Batch/PassPlay reactivation
 type: feature
-status: escalated
+status: done
 created: 2026-08-24
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
