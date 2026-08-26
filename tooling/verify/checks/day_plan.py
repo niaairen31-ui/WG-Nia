@@ -45,9 +45,13 @@ docstring also names the brief's OWN rule number for traceability.
 R11 (brief R1): `day_reconcile.py` writes no canon — no `db.add(` of an
 `Agenda`/`AgendaStep`, no `_apply_mutation` call, no `Agenda(`/`AgendaStep(`
 construction.
-R12 (brief R2): `RECONCILE_VERDICTS` is exactly `("continue", "modify",
-"replace")`, and `day_reconcile_apply.py`'s dispatch dict
-(`_reconcile_and_finalize`) has the identical key set, both directions.
+R12 (brief R2, WIDENED by BRIEF-0077-c): `RECONCILE_VERDICTS` is exactly
+`("continue", "modify", "replace")` — asserted on its own — AND
+`day_reconcile_apply.py`'s dispatch dict (`_reconcile_and_finalize`) has a
+key set exactly `EXPECTED_PLAN_ACTIONS` (`"continue","modify","replace",
+"resume"`), both directions. These are now two SEPARATE assertions: the
+model's verdict vocabulary stays three-valued, the dispatch's action
+vocabulary is four-valued, and `resume` is Python's, never the model's.
 (retargeted by TICKET-0077/BRIEF-0077-b after BRIEF-0077-a item 5 relocated
 this function; the assertion is unchanged, only where it looks.)
 R13 (brief R3): the citation validator compares against real `step_order`
@@ -96,6 +100,23 @@ has already merged. This rule proves the location itself, so a future move
 is caught as a location change rather than as three unrelated "not found"
 messages. It proves WHERE the functions are, not that their bodies are
 correct — R12/R14/R19 still own that.
+
+--- BRIEF-0077-c (dedicated plan selection and the resume action) ---
+
+R15 (brief R5, RETARGETED): `_load_standing_agenda` is DELETED (Scope IN
+item 6 — an unused reader is structure without a reader) and `plan_day`
+now calls `day_plan_select.select_plan` in its place — the same kind of
+retarget BRIEF-0077-b already applied to R12/R14/R19 for a relocation; the
+assertion's INTENT (plan_day routes through the selection stage, not the
+old single-active-agenda lookup) is unchanged, only what it looks for.
+R23 (new): `day_reconcile.plan_action`'s body contains a dict or mapping
+literal whose key set is exactly the six `(verdict, status)` pairs of
+`RECONCILE_VERDICTS x day_plans.OPEN_PLAN_STATUSES`, and the function
+raises on an unknown pair. Proves the mapping is TOTAL, not that each
+target action is the right one.
+R24 (new): `day_plan_select.py` contains no `db.add(`, no
+`Agenda(`/`AgendaStep(` construction, no `_apply_mutation` call, and no
+`ProposedMutation` reference — R11's shape, applied to the new module.
 """
 from __future__ import annotations
 
@@ -109,6 +130,7 @@ SRC = ROOT / "src" / "world_engine"
 
 DAY_PLAN_FILE = SRC / "day_plan.py"
 DAY_RECONCILE_FILE = SRC / "day_reconcile.py"
+DAY_PLAN_SELECT_FILE = SRC / "day_plan_select.py"
 CANON_FILE = SRC / "models" / "canon.py"
 CONFIG_FILE = SRC / "models" / "config.py"
 SCHEDULE_READS_FILE = SRC / "schedule_reads.py"
@@ -123,6 +145,10 @@ _MODEL_FILES = (CANON_FILE, CONFIG_FILE)
 
 EXPECTED_REQUIREMENT_TYPES = ("knowledge", "relation_gte", "resource", "location_reachable")
 EXPECTED_RECONCILE_VERDICTS = ("continue", "modify", "replace")
+EXPECTED_PLAN_ACTIONS = ("continue", "modify", "replace", "resume")
+# day_plans.OPEN_PLAN_STATUSES, restated here for the static R23 total-mapping
+# check — day_plan.py's own checks are text/AST-only and import no runtime code.
+EXPECTED_OPEN_PLAN_STATUSES = ("active", "paused")
 
 FAILURES: list[str] = []
 _TREE_CACHE: dict[pathlib.Path, "ast.Module | None"] = {}
@@ -506,7 +532,16 @@ def check_reconcile_writes_nothing() -> None:
 
 
 def check_verdict_dispatch_bijection() -> None:
-    """R12 (brief R2)."""
+    """R12 (brief R2, WIDENED by BRIEF-0077-c). Two SEPARATE assertions:
+    `RECONCILE_VERDICTS` (the model's vocabulary) stays three-valued, and
+    the dispatch dict's key set (the ACTIONS, Python's own vocabulary) is
+    the four-valued `EXPECTED_PLAN_ACTIONS` — `resume` included, since a
+    handler assigned via `handlers["resume"] = handlers["continue"]` still
+    adds a real key to the dict literal's runtime value, but the KEY ITSELF
+    must appear as a literal somewhere for this AST check to see it, so the
+    dict literal is expected to carry all three of continue/modify/replace
+    and the extra `handlers["resume"] = ...` assignment is checked
+    separately."""
     tree = _parse(DAY_RECONCILE_FILE)
     if tree is None:
         return
@@ -526,6 +561,7 @@ def check_verdict_dispatch_bijection() -> None:
         fail(f"day_plan R12: {_rel(DAY_RECONCILE_APPLY_FILE)}: _reconcile_and_finalize not found")
         return
     handlers_dict = None
+    extra_keys: set[str] = set()
     for node in ast.walk(fn):
         name, value = None, None
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
@@ -534,17 +570,28 @@ def check_verdict_dispatch_bijection() -> None:
             name, value = node.target.id, node.value
         if name == "handlers" and isinstance(value, ast.Dict):
             handlers_dict = value
+        # `handlers["resume"] = handlers["continue"]` — a subscript-assignment
+        # that adds a key without re-stating the dict literal.
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if (
+                isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name)
+                and target.value.id == "handlers"
+            ):
+                idx = target.slice
+                if isinstance(idx, ast.Constant) and isinstance(idx.value, str):
+                    extra_keys.add(idx.value)
     if handlers_dict is None:
         fail(f"day_plan R12: {_rel(DAY_RECONCILE_APPLY_FILE)}: _reconcile_and_finalize has no 'handlers' dict literal")
         return
-    handler_keys = {k.value for k in handlers_dict.keys if isinstance(k, ast.Constant)}
+    handler_keys = {k.value for k in handlers_dict.keys if isinstance(k, ast.Constant)} | extra_keys
     if not handler_keys:
         fail(f"day_plan R12: {_rel(DAY_RECONCILE_APPLY_FILE)}: handlers dict located but holds zero keys")
         return
-    if handler_keys != set(EXPECTED_RECONCILE_VERDICTS):
+    if handler_keys != set(EXPECTED_PLAN_ACTIONS):
         fail(
             f"day_plan R12: handlers dict keys {sorted(handler_keys)!r} != "
-            f"RECONCILE_VERDICTS {sorted(EXPECTED_RECONCILE_VERDICTS)!r}"
+            f"EXPECTED_PLAN_ACTIONS {sorted(EXPECTED_PLAN_ACTIONS)!r}"
         )
 
 
@@ -608,15 +655,21 @@ def check_replace_writes_nothing() -> None:
 
 
 def check_s3_refusal_replaced() -> None:
-    """R15 (brief R5). The old refusal's raise message was an f-string
-    (`ast.JoinedStr`, interpolating `character.id`) — scanned as such so a
-    docstring PROSE mention of the same phrase (describing the new
-    behavior) is never a false positive."""
+    """R15 (brief R5, RETARGETED by BRIEF-0077-c). The old refusal's raise
+    message was an f-string (`ast.JoinedStr`, interpolating `character.id`)
+    — scanned as such so a docstring PROSE mention of the same phrase
+    (describing the new behavior) is never a false positive.
+    `_load_standing_agenda` was DELETED by BRIEF-0077-c (Scope IN item 6 —
+    an unused reader is structure without a reader); `plan_day` now routes
+    through `day_plan_select.select_plan` instead — the same kind of
+    retarget BRIEF-0077-b already applied to R12/R14/R19 for a relocation."""
     tree = _parse(DAY_ROUTE_FILE)
     if tree is None:
         return
     if _find_function(tree, "_guard_no_active_agenda") is not None:
         fail(f"day_plan R15: {_rel(DAY_ROUTE_FILE)}: _guard_no_active_agenda still defined")
+    if _find_function(tree, "_load_standing_agenda") is not None:
+        fail(f"day_plan R15: {_rel(DAY_ROUTE_FILE)}: _load_standing_agenda still defined — an unused reader")
     for node in ast.walk(tree):
         if not isinstance(node, ast.JoinedStr):
             continue
@@ -628,12 +681,12 @@ def check_s3_refusal_replaced() -> None:
     if plan_fn is None:
         fail(f"day_plan R15: {_rel(DAY_ROUTE_FILE)}: plan_day not found")
         return
-    calls_standing_lookup = any(
-        isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_load_standing_agenda"
+    calls_select_plan = any(
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "select_plan"
         for node in ast.walk(plan_fn)
     )
-    if not calls_standing_lookup:
-        fail(f"day_plan R15: {_rel(DAY_ROUTE_FILE)}: plan_day does not call _load_standing_agenda")
+    if not calls_select_plan:
+        fail(f"day_plan R15: {_rel(DAY_ROUTE_FILE)}: plan_day does not call day_plan_select.select_plan")
 
 
 def check_reconcile_no_cost_or_requirement_reads() -> None:
@@ -782,6 +835,77 @@ def check_reconcile_finalizers_located() -> None:
         fail("day_plan R22: zero reconciliation finalizers located across both files")
 
 
+def check_plan_action_total() -> None:
+    """R23 (new, BRIEF-0077-c): `plan_action`'s body contains a dict or
+    mapping literal whose key set is exactly the six `(verdict, status)`
+    pairs of `RECONCILE_VERDICTS x OPEN_PLAN_STATUSES`, and the function
+    raises on an unknown pair. Proves the mapping is TOTAL, not that each
+    target action is the right one."""
+    tree = _parse(DAY_RECONCILE_FILE)
+    if tree is None:
+        return
+    fn = _find_function(tree, "plan_action")
+    if fn is None:
+        fail(f"day_plan R23: {_rel(DAY_RECONCILE_FILE)}: plan_action not found")
+        return
+
+    pairs: set[tuple[str, str]] = set()
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key in node.keys:
+            if isinstance(key, ast.Tuple) and len(key.elts) == 2:
+                a, b = key.elts
+                if isinstance(a, ast.Constant) and isinstance(b, ast.Constant):
+                    pairs.add((a.value, b.value))
+    expected_pairs = {
+        (verdict, status)
+        for verdict in EXPECTED_RECONCILE_VERDICTS
+        for status in EXPECTED_OPEN_PLAN_STATUSES
+    }
+    if not pairs:
+        fail(f"day_plan R23: {_rel(DAY_RECONCILE_FILE)}: plan_action has no (verdict, status) mapping literal")
+    elif pairs != expected_pairs:
+        fail(
+            f"day_plan R23: plan_action's mapping keys {sorted(pairs)!r} != "
+            f"expected {sorted(expected_pairs)!r} (RECONCILE_VERDICTS x OPEN_PLAN_STATUSES)"
+        )
+
+    raises_on_unknown = any(isinstance(node, ast.Raise) for node in ast.walk(fn))
+    if not raises_on_unknown:
+        fail(f"day_plan R23: {_rel(DAY_RECONCILE_FILE)}: plan_action never raises on an unknown pair")
+
+
+def check_select_reads_only() -> None:
+    """R24 (new, BRIEF-0077-c): `day_plan_select.py` contains no `db.add(`,
+    no `Agenda(`/`AgendaStep(` construction, no `_apply_mutation` call, and
+    no `ProposedMutation` reference — R11's shape, applied to the new
+    module."""
+    tree = _parse(DAY_PLAN_SELECT_FILE)
+    if tree is None:
+        fail(f"day_plan R24: {_rel(DAY_PLAN_SELECT_FILE)} not found or unparsable")
+        return
+    nodes_walked = 0
+    for node in ast.walk(tree):
+        nodes_walked += 1
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id == "_apply_mutation":
+                fail(f"day_plan R24: {_rel(DAY_PLAN_SELECT_FILE)}:{node.lineno} — calls _apply_mutation")
+            elif node.func.id in ("Agenda", "AgendaStep"):
+                fail(f"day_plan R24: {_rel(DAY_PLAN_SELECT_FILE)}:{node.lineno} — constructs {node.func.id}(")
+            elif node.func.id == "ProposedMutation":
+                fail(f"day_plan R24: {_rel(DAY_PLAN_SELECT_FILE)}:{node.lineno} — constructs ProposedMutation(")
+        if isinstance(node, ast.Name) and node.id == "ProposedMutation":
+            fail(f"day_plan R24: {_rel(DAY_PLAN_SELECT_FILE)}:{node.lineno} — references ProposedMutation")
+        if (
+            isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "add"
+            and isinstance(node.func.value, ast.Name) and node.func.value.id == "db"
+        ):
+            fail(f"day_plan R24: {_rel(DAY_PLAN_SELECT_FILE)}:{node.lineno} — calls db.add(")
+    if nodes_walked == 0:
+        fail(f"day_plan R24: {_rel(DAY_PLAN_SELECT_FILE)}: zero AST nodes walked — vacuous")
+
+
 def main() -> None:
     check_evaluator_bijection()
     check_type_constraint()
@@ -805,6 +929,8 @@ def main() -> None:
     check_z4_activation_uses_writer()
     check_applier_action_vocabulary_unwidened()
     check_reconcile_finalizers_located()
+    check_plan_action_total()
+    check_select_reads_only()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -813,8 +939,8 @@ def main() -> None:
         "PASS: day_plan — evaluator bijection, requirement CHECKs, budget derivation, "
         "P2/positional exclusion, the positional wall, budget_cut purity, emit_plan "
         "wiring, named bounds, the D1 traversal-independence gate, BRIEF-0075-f's "
-        "reconciliation/Z4/AA2 gates (R11-R21), and R22's finalizer-location gate "
-        "are all intact"
+        "reconciliation/Z4/AA2 gates (R11-R21), R22's finalizer-location gate, and "
+        "BRIEF-0077-c's selection/resume gates (R15 retargeted, R23-R24) are all intact"
     )
     sys.exit(0)
 

@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0077-multi-plan-day-chain",
-  "when": "2026-08-26T19:27:36.260519+00:00",
+  "when": "2026-08-26T20:01:37.329687+00:00",
   "green": false,
   "checks": [
     {
@@ -31,12 +31,12 @@
     {
       "check": "day_prompt_delivery.py",
       "status": "PASS",
-      "msg": "PASS: day_prompt_delivery \u2014 the 14 DAY_* constants are module-level, DAY_PROMPT_HEADS is the single seeding source, the one-shot embeds no text, prompt_coverage derives usages with no literal restatement, the day_feasibility exemption matches the code's actual Raise/Return shape, missing_usages checks E2 depth, and the guard runs before write_batch"
+      "msg": "PASS: day_prompt_delivery \u2014 the 16 DAY_* constants are module-level, DAY_PROMPT_HEADS is the single seeding source, the one-shot embeds no text, prompt_coverage derives usages with no literal restatement, the day_feasibility exemption matches the code's actual Raise/Return shape, missing_usages checks E2 depth, and the guard runs before write_batch"
     },
     {
       "check": "day_plan.py",
       "status": "PASS",
-      "msg": "PASS: day_plan \u2014 evaluator bijection, requirement CHECKs, budget derivation, P2/positional exclusion, the positional wall, budget_cut purity, emit_plan wiring, named bounds, the D1 traversal-independence gate, BRIEF-0075-f's reconciliation/Z4/AA2 gates (R11-R21), and R22's finalizer-location gate are all intact"
+      "msg": "PASS: day_plan \u2014 evaluator bijection, requirement CHECKs, budget derivation, P2/positional exclusion, the positional wall, budget_cut purity, emit_plan wiring, named bounds, the D1 traversal-independence gate, BRIEF-0075-f's reconciliation/Z4/AA2 gates (R11-R21), R22's finalizer-location gate, and BRIEF-0077-c's selection/resume gates (R15 retargeted, R23-R24) are all intact"
     },
     {
       "check": "corpus_gate.py",
