@@ -1,0 +1,37 @@
+{
+  "ticket": "TICKET-0077-multi-plan-day-chain",
+  "when": "2026-08-26T18:54:31.845766+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "parked_plan_guard.py",
+      "status": "PASS",
+      "msg": "PASS: parked_plan_guard \u00e2\u20ac\u201d agenda.status vocabulary, no-cascade-on-paused, the one-active guard at both canon-write sites, pass_play.agenda_id's reader, and day_plans.py's direct-write posture all hold"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values; 89 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u00e2\u20ac\u201d every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v1.95'"
+    },
+    {
+      "check": "day_prompt_delivery.py",
+      "status": "PASS",
+      "msg": "PASS: day_prompt_delivery \u00e2\u20ac\u201d the 14 DAY_* constants are module-level, DAY_PROMPT_HEADS is the single seeding source, the one-shot embeds no text, prompt_coverage derives usages with no literal restatement, the day_feasibility exemption matches the code's actual Raise/Return shape, missing_usages checks E2 depth, and the guard runs before write_batch"
+    }
+  ]
+}

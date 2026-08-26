@@ -501,8 +501,32 @@ def write_agenda_status(
     otherwise used here. Runs identically for tick-approved transitions and
     creator CRUD overrides (both route through this helper). See
     `_cascade_agenda_status_to_goals` for the goal-cascade rule.
+
+    `paused` (TICKET-0077, BRIEF-0077-a) is a non-terminal set-aside state and
+    is absent from `_AGENDA_GOAL_CASCADE_MAP`, so parking a plan cascades
+    NOTHING onto linked goals — checked by `parked_plan_guard.py`, not left to
+    reading. The one-active-per-character guard above is the SAME rule
+    `write_agenda` enforces at creation (goals_agendas.py:263-271), replayed
+    here because this is the other canon-write site that can produce an
+    `active` agenda: `PATCH /agendas/{id}` reached it without the guard before
+    this brief. Faction owners keep their multi-agenda freedom.
     """
     del mutation_id
+    if status == "active":
+        owner = db.get(Entity, agenda.owner_entity_id)
+        if owner is not None and owner.type == "character":
+            other = db.exec(
+                select(Agenda).where(
+                    Agenda.owner_entity_id == agenda.owner_entity_id,
+                    Agenda.status == "active",
+                    Agenda.id != agenda.id,
+                )
+            ).first()
+            if other is not None:
+                raise ValueError(
+                    "write_agenda_status: character owner already holds an active "
+                    f"agenda ({other.title!r}) — park it before activating this one"
+                )
     was_active = agenda.status == "active"
     history = list(agenda.change_history or [])
     history.append({

@@ -13928,6 +13928,59 @@ checks the exemption's correctness directly instead.
 `continue` verdict were answered out of band directly to Claude Code and are
 untouched here, per this brief's explicit Scope OUT).
 
+## PARKED PLANS — direct write, not auto-approved; the owner_type index rejected (BRIEF-0077-a, schema v1.95)
+
+**(a) Parking/activating a plan is a direct write, never an auto-approved
+mutation.** Nia's requirement is absolute: a plan swap must never block the
+day (A1). `day_mutations.py:12-16` already records the governing precedent
+for this exact posture:
+
+> `resource_change` and `agenda_creation` are OUT: under V1, creating a plan
+> has no world footprint and stays `write_day_plan`'s direct write
+> (BRIEF-0075-b); resources travel as `ledger_transfer` effects on a step's
+> own completion, never a parallel vocabulary.
+
+A status swap between two plans of the SAME player has the same property —
+no NPC sees it, no relation/knowledge/ledger row moves — so `day_plans.
+park_active_plan` calls `write_agenda_status` directly, exactly as
+`write_day_plan` calls `write_agenda` directly. Considered and rejected:
+routing the park through `_apply_mutation` as an auto-approved
+`ProposedMutation` (`status='applied'` on creation) — this would still be a
+queue row for Nia to eventually SEE, contradicting "nothing can leave the
+day blocked" only by accident of timing, and it would be the first
+mutation type ever created pre-approved, a precedent this codebase's
+review-queue doctrine does not want. The audit trail is `agenda.
+change_history`, appended by `write_agenda_status` on every transition —
+the same mechanism as every other agenda status change, not a special case.
+
+**(b) A denormalized `agenda.owner_type` column with a partial unique index
+is rejected.** `(owner_entity_id) WHERE status='active' AND
+owner_type='character'` would buy structural (database-level) enforcement
+of the one-active-per-character-owner rule, at the cost of a denormalized
+copy of `entity.type` that can drift from the real value — and the two
+canon-write sites (`write_agenda`, `write_agenda_status`, see (c) below)
+are already a complete chokepoint without it: nothing else constructs an
+`Agenda` row or transitions its `status`, per `canon_write_policy.
+txt:53,56`. *Reactivation condition: if a third canon-write site for
+`agenda.status` is ever introduced* — at that point a code-level guard
+stops being a complete chokepoint and the structural index earns its
+denormalization cost.
+
+**(c) Amendment to ONE-ACTIVE-PERSONAL-AGENDA (BRIEF-0020-a).** The section
+above (line ~5522) placed the one-active-per-character guard inside
+`write_agenda` alone, on the reasoning that it was "the sole canon-write
+path" for `agenda.status = 'active'`. BRIEF-0077-a's intake found that
+reasoning stale: `PATCH /agendas/{id}` (`cockpit/crud/agendas.py`) already
+routed a reactivation through `write_agenda_status` WITHOUT replaying the
+guard — a second, unguarded path to `status='active'` for a character
+owner, reachable since `write_agenda_status` first unlocked `character`
+owners (BRIEF-0020-a) alongside `write_agenda`. Two active agendas for one
+player character were therefore already reachable before this brief, not a
+risk `paused` introduces. The guard is now replayed verbatim at
+`write_agenda_status`'s own `status == "active"` branch — same tier, same
+existence-query shape, closing the gap rather than converting the
+invariant into something the `PATCH` route caller must remember to check.
+
 ---
 
 *Co-built with Claude, June 2026.*

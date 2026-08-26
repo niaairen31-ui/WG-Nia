@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.94
+Current schema version: v1.95
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -856,7 +856,11 @@ CREATE TABLE batch (
 
 ### `pass_play`
 
-An action declared by a player between two sessions.
+An action declared by a player between two sessions. `agenda_id` (schema
+v1.95, TICKET-0077/BRIEF-0077-a) records which day plan this pass advanced —
+written once, at plan time, never rewritten. NULL for every pre-v1.95 row and
+for a day that never reached plan emission; `/resolve` falls back to the
+player's active agenda in that case (no backfill).
 
 ```sql
 CREATE TABLE pass_play (
@@ -864,6 +868,7 @@ CREATE TABLE pass_play (
   batch_id            TEXT NOT NULL REFERENCES batch(id),
   session_id          TEXT NOT NULL REFERENCES session(id),
   character_id        TEXT NOT NULL REFERENCES entity(id),
+  agenda_id           TEXT REFERENCES agenda(id),  -- BRIEF-0077-a
   declared_action     TEXT NOT NULL,    -- player free text
   injected_context    JSON,             -- world state snapshot at deposit time
   creator_notes       TEXT,
@@ -1538,14 +1543,19 @@ CREATE INDEX idx_visit_player_location ON visit(player_id, location_id, entered_
 ### `agenda`
 
 Structured intrigue (schema v1.72, TICKET-0018/BRIEF-0018-a; owner unlock
-schema v1.73, TICKET-0020/BRIEF-0020-a). `owner_entity_id` is FK-shaped for
-A2 (location owners stay rejected) but `write_agenda` enforces an ACTIVE
-owner of type `faction` OR `character` — the write helper, not the column,
-carries the constraint. Factions keep unlimited concurrent agendas; a
-`character` owner may hold AT MOST ONE active agenda at a time (the
-one-active-personal-agenda invariant, enforced in the same helper). The
-tick's faction-scoped scope-event call reads active agendas via
-`AGENDA EN COURS` and proposes `agenda_step_change`/`agenda_creation`,
+schema v1.73, TICKET-0020/BRIEF-0020-a; `paused` schema v1.95, TICKET-0077/
+BRIEF-0077-a). `owner_entity_id` is FK-shaped for A2 (location owners stay
+rejected) but `write_agenda` enforces an ACTIVE owner of type `faction` OR
+`character` — the write helper, not the column, carries the constraint.
+Factions keep unlimited concurrent agendas; a `character` owner may hold AT
+MOST ONE active agenda at a time (the one-active-personal-agenda invariant),
+now enforced at BOTH canon-write sites that can produce an `active` agenda —
+`write_agenda` at creation and `write_agenda_status` at transition. A
+`character` owner may additionally hold any number of `paused` agendas — a
+day plan set aside and resumable later, never terminal, deliberately absent
+from `_AGENDA_GOAL_CASCADE_MAP` so parking never cascades onto a linked
+`npc_goal`. The tick's faction-scoped scope-event call reads active agendas
+via `AGENDA EN COURS` and proposes `agenda_step_change`/`agenda_creation`,
 reviewed like any other `proposed_mutation`; the creator authors/edits
 agendas directly (first dedicated non-entity CRUD surface,
 `/api/agendas`). Per-NPC tick readers for character-owned agendas are
@@ -1558,7 +1568,7 @@ CREATE TABLE agenda (
   owner_entity_id   TEXT NOT NULL REFERENCES entity(id),
   title             TEXT NOT NULL,
   status            TEXT NOT NULL DEFAULT 'active'
-                      CHECK (status IN ('active','completed','failed','abandoned')),
+                      CHECK (status IN ('active','paused','completed','failed','abandoned')),
   created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
   change_history    JSON DEFAULT '[]'  -- archived previous states, mirror of

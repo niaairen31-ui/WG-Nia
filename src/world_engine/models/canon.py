@@ -807,12 +807,20 @@ class DiscoverableDetail(SQLModel, table=True):
 # lives in `models/config.py`, not here — canon.py was already at its
 # 1000-line module_budget cap (ConversationWindowConfig precedent) when this
 # step landed.
+#
+# `paused` (schema vX.YY, TICKET-0077, BRIEF-0077-a): a NON-TERMINAL state
+# for a player plan set aside and resumable later. It is deliberately
+# absent from `_AGENDA_GOAL_CASCADE_MAP` — parking a plan must never touch
+# a linked npc_goal, unlike `failed`/`abandoned`. The one-active-agenda
+# rule for `character` owners is unchanged and now enforced at BOTH
+# canon-write sites (`write_agenda`, `write_agenda_status`): a player may
+# hold any number of `paused` plans and at most one `active` one.
 # -----------------------------------------------------------------------------
 class Agenda(SQLModel, table=True):
     __tablename__ = "agenda"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('active','completed','failed','abandoned')",
+            "status IN ('active','paused','completed','failed','abandoned')",
             name="ck_agenda_status",
         ),
         Index("idx_agenda_owner_status", "owner_entity_id", "status"),

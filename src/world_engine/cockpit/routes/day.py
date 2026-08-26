@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import UTC, datetime
-from typing import Callable, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -38,7 +38,6 @@ from ...day_mutations import emit_mutations
 from ...day_narration import detect_late_delta, narrate, rewrite as day_rewrite
 from ...day_narration_guard import JudgeVerdict, judge_narration
 from ...day_plan import DAY_BUDGET_SLOTS, EvaluatedStep, budget_cut, emit_plan, evaluate_requirements
-from ...day_reconcile import Reconciliation, reconcile
 from ...day_resolve import (
     FactSheet,
     StepOutcome,
@@ -74,6 +73,7 @@ from ...writes import (
     write_pass_play_resolution,
 )
 from .. import crud as _crud
+from ..day_reconcile_apply import _reconcile_and_finalize
 
 router = APIRouter()
 
@@ -481,7 +481,7 @@ def _finalize_plan(
 
     title = pass_play.declared_action.strip().splitlines()[0][:200]
     try:
-        write_day_plan(
+        agenda = write_day_plan(
             db,
             world_id=world_id,
             owner_entity_id=character.id,
@@ -499,6 +499,7 @@ def _finalize_plan(
     # once per pass_play, BEFORE the status move to 'resolving'.
     write_day_feasibility(db, pass_play=pass_play, verdict=verdict)
     pass_play.status = "resolving"
+    pass_play.agenda_id = agenda.id  # BRIEF-0077-a: which plan this day advanced
     db.add(pass_play)
     db.commit()
 
@@ -515,134 +516,6 @@ def _finalize_plan(
             verdict.cited_objective, verdict.outcome,
         ),
     }
-
-
-def _reconciliation_dict(recon: Reconciliation, mutation_ids: list[str]) -> dict:
-    """No `agenda_id`, no `step_id` (ticket-wide Scope OUT) — the verdict,
-    the cited step's OBJECTIVE, the rationale, and any mutation ids
-    proposed (Wiring, Scope IN item 3)."""
-    return {
-        "verdict": recon.verdict,
-        "cited_objective": recon.cited_objective,
-        "rationale": recon.rationale,
-        "mutation_ids": mutation_ids,
-    }
-
-
-def _finalize_continue(pass_play: PassPlay, agenda: Agenda, recon: Reconciliation, db: Session) -> dict:
-    """AMENDMENT 1: `continue` proposes NOTHING — a classification with no
-    structural effect. The day proceeds against the standing agenda's
-    already-active step. Z4 (`cockpit/crud/agendas.py`) guarantees that an
-    ACTIVE agenda either already has an active step, or has no pending
-    step left at all (inert) — so `active_step is None` here can only mean
-    the latter: the plan is exhausted, and the verdict should have been
-    `replace`."""
-    active_step = db.exec(
-        select(AgendaStep).where(AgendaStep.agenda_id == agenda.id, AgendaStep.status == "active")
-    ).first()
-    if active_step is None:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"the standing plan {agenda.title!r} has no active or pending step left — close it "
-                "(PATCH its status to 'abandoned') before declaring again"
-            ),
-        )
-    pass_play.status = "resolving"
-    db.add(pass_play)
-    db.commit()
-    return {"reconciliation": _reconciliation_dict(recon, [])}
-
-
-def _revised_plan_matches_remaining(revised: list, remaining: list[AgendaStep]) -> bool:
-    """Pure comparison (Scope IN item 2, `modify`): the ONLY diff
-    `_mutation_apply_agenda_step_change` can express is completing or
-    failing the CURRENTLY ACTIVE step — it has no action to insert,
-    reorder or edit a PENDING one. An identical revised plan (same count,
-    same objectives in order) is therefore the only expressible outcome;
-    anything else is S2."""
-    if len(revised) != len(remaining):
-        return False
-    return all(r.objective.strip() == s.objective.strip() for r, s in zip(revised, remaining))
-
-
-def _finalize_modify(
-    world_id: str, character: Character, pass_play: PassPlay, agenda: Agenda,
-    steps: list[AgendaStep], recon: Reconciliation, concordance_result: ConcordanceResult, db: Session,
-) -> dict:
-    """AMENDMENT 1: re-run `emit_plan` with the standing agenda's remaining
-    steps as context; only an IDENTICAL revised plan is expressible (no
-    action exists to insert/reorder/edit a pending step) — anything else
-    is S2, a STOP, per the brief's own Scope OUT ("if the diff needs an
-    action the applier does not have, STOP")."""
-    del world_id  # unused: modify emits nothing, so no owner_entity_id write happens here
-    remaining = [s for s in steps if s.status in ("active", "pending")]
-    remaining_summary = "Étapes restantes du plan en cours :\n" + "\n".join(
-        f"{s.step_order}. {s.objective}" for s in remaining
-    )
-    try:
-        revised_steps = emit_plan(
-            pass_play.declared_action, character, db,
-            concordance_summary=plan_context(concordance_result, db),
-            standing_steps_summary=remaining_summary,
-        )
-    except LlmParseError as exc:
-        raise HTTPException(status_code=502, detail=f"plan revision failed: {exc}") from exc
-
-    if not _revised_plan_matches_remaining(revised_steps, remaining):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "reconciliation verdict is 'modify' but the revised plan cannot be expressed as "
-                "agenda_step_change mutations — no action exists to insert, reorder or edit a "
-                "pending step"
-            ),
-        )
-
-    pass_play.status = "resolving"
-    db.add(pass_play)
-    db.commit()
-    return {"reconciliation": _reconciliation_dict(recon, [])}
-
-
-def _finalize_replace(agenda: Agenda, recon: Reconciliation) -> dict:
-    """AA2: `replace` emits nothing and writes nothing — always raises.
-    Nia closes the standing plan manually (`PATCH /agendas/{id}` ->
-    `'abandoned'`, history-preserving); the NEXT declaration then finds no
-    active agenda and takes the fresh-plan path unchanged."""
-    del recon  # the verdict is already known to the caller; nothing more to record
-    raise HTTPException(
-        status_code=409,
-        detail=(
-            f"reconciliation verdict is 'replace': the standing plan {agenda.title!r} must be "
-            "closed (PATCH its status to 'abandoned') before a new plan can start"
-        ),
-    )
-
-
-def _reconcile_and_finalize(
-    character: Character, pass_play: PassPlay, agenda: Agenda,
-    concordance_result: ConcordanceResult, db: Session,
-) -> dict:
-    steps = db.exec(
-        select(AgendaStep).where(AgendaStep.agenda_id == agenda.id).order_by(AgendaStep.step_order)
-    ).all()
-    try:
-        recon = reconcile(pass_play.declared_action, agenda, steps, db)
-    except LlmParseError as exc:
-        raise HTTPException(status_code=502, detail=f"reconciliation failed: {exc}") from exc
-
-    # R2 (verify): the dispatch's key set equals RECONCILE_VERDICTS, both
-    # directions — a real dict, not an if/elif chain, so the bijection is
-    # a static, checkable fact.
-    handlers: dict[str, Callable[[], dict]] = {
-        "continue": lambda: _finalize_continue(pass_play, agenda, recon, db),
-        "modify": lambda: _finalize_modify(
-            agenda.world_id, character, pass_play, agenda, steps, recon, concordance_result, db,
-        ),
-        "replace": lambda: _finalize_replace(agenda, recon),
-    }
-    return handlers[recon.verdict]()
 
 
 @router.post("/api/day/{batch_id}/plan")
@@ -712,7 +585,22 @@ def _load_resolvable_day(batch_id: str, world_id: str, db: Session) -> tuple[Bat
     return batch, pass_play
 
 
-def _load_active_agenda(character: Character, db: Session) -> Agenda:
+def _load_active_agenda(character: Character, pass_play: PassPlay, db: Session) -> Agenda:
+    """The agenda this day resolves against (BRIEF-0077-a, B2). When
+    `pass_play.agenda_id` is set (every day planned since this brief), it
+    binds to THAT plan specifically — not required to be `active` here
+    (BRIEF-0077-c may resolve a plan the same request just resumed). When it
+    is NULL (every pre-BRIEF-0077-a row, and a day that never reached plan
+    emission), this is the pre-BRIEF-0077-a fallback: the player's single
+    `status == 'active'` agenda, 409 when absent — unchanged."""
+    if pass_play.agenda_id is not None:
+        agenda = db.get(Agenda, pass_play.agenda_id)
+        if agenda is None or agenda.owner_entity_id != character.id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"pass_play {pass_play.id!r}'s bound agenda {pass_play.agenda_id!r} is missing or not owned by {character.id!r}",
+            )
+        return agenda
     agenda = db.exec(
         select(Agenda).where(Agenda.owner_entity_id == character.id, Agenda.status == "active")
     ).first()
@@ -905,7 +793,7 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     batch: Batch = row[0]
     pass_play: PassPlay = row[1]
     character = _resolve_player_character(world_id, db)
-    agenda = _load_active_agenda(character, db)
+    agenda = _load_active_agenda(character, pass_play, db)
     _guard_no_pending_agenda_step_change(agenda, db)
     is_replay = pass_play.status == "resolved"
 

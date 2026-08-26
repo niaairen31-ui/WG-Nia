@@ -161,10 +161,12 @@
       <div style="display:flex; gap:6px; align-items:center;">
         <span class="badge b-{agenda.status}">{agenda.status}</span>
         {#if agenda.status === 'active'}
+          <button class="btn-icon" title="Mettre l'intrigue en pause"
+            onclick={() => setAgendaStatus(agenda.id, 'paused', (agenda.linked_goals || []).length)}>⏸</button>
           <button class="btn-icon" title="Abandonner l'intrigue"
-            onclick={() => setAgendaStatus(agenda.id, 'abandoned', (agenda.linked_goals || []).length)}>⏸</button>
+            onclick={() => setAgendaStatus(agenda.id, 'abandoned', (agenda.linked_goals || []).length)}>✗</button>
         {/if}
-        {#if agenda.status === 'abandoned' || agenda.status === 'failed'}
+        {#if agenda.status === 'paused' || agenda.status === 'abandoned' || agenda.status === 'failed'}
           <button class="btn-icon" title="Réactiver l'intrigue" onclick={() => setAgendaStatus(agenda.id, 'active', 0)}>▶</button>
         {/if}
       </div>
