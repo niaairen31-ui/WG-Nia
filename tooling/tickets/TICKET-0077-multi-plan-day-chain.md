@@ -7,7 +7,7 @@ created: 2026-08-26
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
 blast_radius: medium
-brief_ids: [BRIEF-0077-a-parked-plan-socle]
+brief_ids: [BRIEF-0077-a-parked-plan-socle, BRIEF-0077-b-verify-gate-retarget]
 schema_version_touched: v1.94 -> v1.95
 retry_count: 0
 ---
@@ -138,6 +138,11 @@ that path routine, so the guard moves to the chokepoint.
       -> verify/checks/schema_version_agreement.py
 - [ ] the day chain's prompt usages are all delivered (regression guard from
       TICKET-0076)  -> verify/checks/day_prompt_delivery.py
+- [ ] the reconciliation finalizers are located in day_reconcile_apply.py
+      and TICKET-0075's plan-path guards are intact
+      -> verify/checks/day_plan.py
+- [ ] every check in tooling/verify/checks/ runs and passes
+      -> verify/checks/corpus_gate.py
 
 ### Live  ->  human gate (Nia)
 - [ ] Day 1: declare, emit a plan, resolve. Unchanged behaviour end to end.

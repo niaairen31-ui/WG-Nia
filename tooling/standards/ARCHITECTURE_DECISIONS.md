@@ -12108,6 +12108,23 @@ OUT item 6). `run.py` gained no `--all` flag or default corpus mode
 check is, through a ticket's own arrow, because a runner mode could not be
 named from a `### Machine-checkable` section in the first place.
 
+**Second occurrence of the linked-checks-only failure mode (TICKET-0077,
+BRIEF-0077-b).** BRIEF-0077-a relocated six reconciliation finalizers from
+`cockpit/routes/day.py` to `cockpit/day_reconcile_apply.py`; three rules in
+`day_plan.py` (R12/R14/R19) still resolved them in the old file and went
+red on `main` the moment that commit landed. TICKET-0077's own
+Machine-checkable section linked six checks and not `day_plan.py`, and not
+`corpus_gate.py` either, so `run.py` reported green on a corpus that was
+not — the identical shape as `observation_surface.py`/TICKET-0059
+(BRIEF-0060-a), one section up. BRIEF-0077-b retargets the three rules,
+adds R22 (a location-drift guard so a future move fails as one location
+message instead of three unrelated "not found" lines), and closes TICKET-
+0077's own gap by adding both `day_plan.py` and `corpus_gate.py` to its
+Machine-checkable section. Standing rule, now carried by two occurrences:
+**every ticket's Machine-checkable section links `corpus_gate.py`** —
+already recorded in `CLAUDE.md`; this entry is the second measured
+instance of what happens when a ticket does not.
+
 ---
 
 ## RED GUARDS REPAIRED — goal-read accessor and prompt-model fixture (BRIEF-0067-a, no schema change)
