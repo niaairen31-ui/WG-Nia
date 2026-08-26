@@ -13,6 +13,29 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v1.95** — Widened `agenda.status`'s `ck_agenda_status` CHECK from
+  `('active','completed','failed','abandoned')` to `('active','paused',
+  'completed','failed','abandoned')`, and added `pass_play.agenda_id`
+  (nullable TEXT, FK `agenda.id`, indexed `idx_passplay_agenda`). TICKET-0077,
+  BRIEF-0077-a: the parked-plan socle — a player may now hold several day
+  plans (`agenda` rows), each independently `active` or `paused`, so an
+  unrelated declaration no longer forces a 409 demanding the standing plan be
+  abandoned outright. `paused` is a NON-TERMINAL state and is deliberately
+  absent from `_AGENDA_GOAL_CASCADE_MAP` (`writes/goals_agendas.py`) —
+  parking a plan cascades nothing onto any linked `npc_goal`, unlike
+  `failed`/`abandoned`. The one-active-per-character-owner invariant is
+  unchanged and now enforced at BOTH canon-write sites that can produce an
+  `active` agenda (`write_agenda` at creation, `write_agenda_status` at
+  transition) — closing a pre-existing gap where `PATCH /agendas/{id}` could
+  reactivate a second agenda without the guard. `pass_play.agenda_id` records
+  which plan a given day advanced (written once, at plan time, never
+  rewritten); NULL for every pre-v1.95 row and for a day that never reached
+  plan emission, with `/resolve` falling back to the player's active agenda
+  in that case — no backfill. Migration: `migrate_v1_95_parked_plans.py`
+  (idempotent; rebuilds `agenda` to pick up the widened CHECK following the
+  `migrate_v1_8_gatherings.py` table-rebuild precedent, and adds the new
+  `pass_play` column/index).
+
 - **v1.94** — Added `agenda_step.cost` (INTEGER, CHECK `cost IS NULL OR cost
   BETWEEN 1 AND 4`) and `agenda_step.domain` (TEXT), both nullable, and a new
   table `agenda_step_requirement` (`id`, `world_id`, `step_id` FK
