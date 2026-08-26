@@ -194,3 +194,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 13647 | THE REMAINING-WORK INVARIANT AND THE RESOLVE PRECONDITION (BRIEF-0075-f, no schema change) | BRIEF-0075-f |  |
 | 13709 | RECONCILIATION AND CLOSURE — Z4 repairs the source, AA2 makes replace a creator act (BRIEF-0075-f, no schema change) | BRIEF-0075-f |  |
 | 13843 | DAY CHAIN PROMPT DELIVERY AND COVERAGE GUARD (BRIEF-0076-a, no schema change) | BRIEF-0076-a |  |
+| 13931 | PARKED PLANS — direct write, not auto-approved; the owner_type index rejected (BRIEF-0077-a, schema v1.95) | BRIEF-0077-a | v1.95 |
