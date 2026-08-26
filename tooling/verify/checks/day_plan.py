@@ -46,14 +46,18 @@ R11 (brief R1): `day_reconcile.py` writes no canon — no `db.add(` of an
 `Agenda`/`AgendaStep`, no `_apply_mutation` call, no `Agenda(`/`AgendaStep(`
 construction.
 R12 (brief R2): `RECONCILE_VERDICTS` is exactly `("continue", "modify",
-"replace")`, and `routes/day.py`'s dispatch dict (`_reconcile_and_finalize`)
-has the identical key set, both directions.
+"replace")`, and `day_reconcile_apply.py`'s dispatch dict
+(`_reconcile_and_finalize`) has the identical key set, both directions.
+(retargeted by TICKET-0077/BRIEF-0077-b after BRIEF-0077-a item 5 relocated
+this function; the assertion is unchanged, only where it looks.)
 R13 (brief R3): the citation validator compares against real `step_order`
 values; `reconcile()` raises `LlmParseError` on a validation failure, and
 never silently defaults `.get("verdict", "continue")`.
 R14 (brief R4, REPLACED by AMENDMENT 1 — no longer asserts the absence of
 `abandoned`): `day_reconcile.py` contains no `.delete(`, and `_finalize_
-replace` (routes/day.py) constructs no `ProposedMutation` at all.
+replace` (day_reconcile_apply.py) constructs no `ProposedMutation` at all.
+(retargeted by TICKET-0077/BRIEF-0077-b after BRIEF-0077-a item 5 relocated
+this function; the assertion is unchanged, only where it looks.)
 R15 (brief R5): the S3 refusal from -b (`_guard_no_active_agenda`, "already
 holds an active agenda") is gone from `routes/day.py`, and `plan_day` calls
 `_load_standing_agenda` — the reconciliation path is wired where the
@@ -70,8 +74,10 @@ R18 (brief R8, re-asserted from this angle): `day_reconcile.py` contains no
 `'npc_move'` constant, no `ProposedMutation(status=...)` other than the
 literal `'proposed'`, no `select(` against `NpcSchedule`, and no reference
 to `current_location_id` — reconciliation reads no position.
-R19 (brief R10, NEW): `_finalize_continue` (routes/day.py) constructs no
-`ProposedMutation` — a no-op verdict emits nothing.
+R19 (brief R10, NEW): `_finalize_continue` (day_reconcile_apply.py)
+constructs no `ProposedMutation` — a no-op verdict emits nothing.
+(retargeted by TICKET-0077/BRIEF-0077-b after BRIEF-0077-a item 5 relocated
+this function; the assertion is unchanged, only where it looks.)
 R20 (brief R11, NEW, decision Z4): `PATCH /agendas/{agenda_id}`'s
 reactivation branch (`_activate_lowest_pending_step_if_none_active`,
 `cockpit/crud/agendas.py`) calls `write_agenda_step_status` for the
@@ -79,6 +85,17 @@ activation rather than assigning `.status` directly.
 R21 (Scope OUT, re-asserted): `_mutation_apply_agenda_step_change`'s action
 vocabulary is still exactly `("complete", "fail")` — Z4 exists precisely so
 this never needs widening.
+
+--- BRIEF-0077-b (verify gate retarget) ---
+
+R22 (TICKET-0077, BRIEF-0077-b): the six reconciliation finalizers live in
+`cockpit/day_reconcile_apply.py` and nowhere else. R12/R14/R19 each resolve
+a function by name in a fixed file and report "not found" when it moves —
+that is a correct failure, but a LATE one: it fires only after a relocation
+has already merged. This rule proves the location itself, so a future move
+is caught as a location change rather than as three unrelated "not found"
+messages. It proves WHERE the functions are, not that their bodies are
+correct — R12/R14/R19 still own that.
 """
 from __future__ import annotations
 
@@ -96,6 +113,7 @@ CANON_FILE = SRC / "models" / "canon.py"
 CONFIG_FILE = SRC / "models" / "config.py"
 SCHEDULE_READS_FILE = SRC / "schedule_reads.py"
 DAY_ROUTE_FILE = SRC / "cockpit" / "routes" / "day.py"
+DAY_RECONCILE_APPLY_FILE = SRC / "cockpit" / "day_reconcile_apply.py"
 CRUD_AGENDAS_FILE = SRC / "cockpit" / "crud" / "agendas.py"
 MUTATIONS_FILE = SRC / "cockpit" / "mutations.py"
 
@@ -500,12 +518,12 @@ def check_verdict_dispatch_bijection() -> None:
     if verdicts != EXPECTED_RECONCILE_VERDICTS:
         fail(f"day_plan R12: RECONCILE_VERDICTS is {verdicts!r}, expected {EXPECTED_RECONCILE_VERDICTS!r}")
 
-    route_tree = _parse(DAY_ROUTE_FILE)
+    route_tree = _parse(DAY_RECONCILE_APPLY_FILE)
     if route_tree is None:
         return
     fn = _find_function(route_tree, "_reconcile_and_finalize")
     if fn is None:
-        fail(f"day_plan R12: {_rel(DAY_ROUTE_FILE)}: _reconcile_and_finalize not found")
+        fail(f"day_plan R12: {_rel(DAY_RECONCILE_APPLY_FILE)}: _reconcile_and_finalize not found")
         return
     handlers_dict = None
     for node in ast.walk(fn):
@@ -517,11 +535,11 @@ def check_verdict_dispatch_bijection() -> None:
         if name == "handlers" and isinstance(value, ast.Dict):
             handlers_dict = value
     if handlers_dict is None:
-        fail(f"day_plan R12: {_rel(DAY_ROUTE_FILE)}: _reconcile_and_finalize has no 'handlers' dict literal")
+        fail(f"day_plan R12: {_rel(DAY_RECONCILE_APPLY_FILE)}: _reconcile_and_finalize has no 'handlers' dict literal")
         return
     handler_keys = {k.value for k in handlers_dict.keys if isinstance(k, ast.Constant)}
     if not handler_keys:
-        fail(f"day_plan R12: {_rel(DAY_ROUTE_FILE)}: handlers dict located but holds zero keys")
+        fail(f"day_plan R12: {_rel(DAY_RECONCILE_APPLY_FILE)}: handlers dict located but holds zero keys")
         return
     if handler_keys != set(EXPECTED_RECONCILE_VERDICTS):
         fail(
@@ -577,16 +595,16 @@ def check_replace_writes_nothing() -> None:
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "delete":
                 fail(f"day_plan R14: {_rel(DAY_RECONCILE_FILE)}:{node.lineno} — calls .delete(")
 
-    route_tree = _parse(DAY_ROUTE_FILE)
+    route_tree = _parse(DAY_RECONCILE_APPLY_FILE)
     if route_tree is None:
         return
     fn = _find_function(route_tree, "_finalize_replace")
     if fn is None:
-        fail(f"day_plan R14: {_rel(DAY_ROUTE_FILE)}: _finalize_replace not found")
+        fail(f"day_plan R14: {_rel(DAY_RECONCILE_APPLY_FILE)}: _finalize_replace not found")
         return
     for node in ast.walk(fn):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "ProposedMutation":
-            fail(f"day_plan R14: {_rel(DAY_ROUTE_FILE)}:{node.lineno} — _finalize_replace constructs ProposedMutation")
+            fail(f"day_plan R14: {_rel(DAY_RECONCILE_APPLY_FILE)}:{node.lineno} — _finalize_replace constructs ProposedMutation")
 
 
 def check_s3_refusal_replaced() -> None:
@@ -671,16 +689,16 @@ def check_reconcile_npc_move_status_position() -> None:
 
 def check_continue_constructs_nothing() -> None:
     """R19 (brief R10, NEW)."""
-    tree = _parse(DAY_ROUTE_FILE)
+    tree = _parse(DAY_RECONCILE_APPLY_FILE)
     if tree is None:
         return
     fn = _find_function(tree, "_finalize_continue")
     if fn is None:
-        fail(f"day_plan R19: {_rel(DAY_ROUTE_FILE)}: _finalize_continue not found")
+        fail(f"day_plan R19: {_rel(DAY_RECONCILE_APPLY_FILE)}: _finalize_continue not found")
         return
     for node in ast.walk(fn):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "ProposedMutation":
-            fail(f"day_plan R19: {_rel(DAY_ROUTE_FILE)}:{node.lineno} — _finalize_continue constructs ProposedMutation")
+            fail(f"day_plan R19: {_rel(DAY_RECONCILE_APPLY_FILE)}:{node.lineno} — _finalize_continue constructs ProposedMutation")
 
 
 def check_z4_activation_uses_writer() -> None:
@@ -732,6 +750,38 @@ def check_applier_action_vocabulary_unwidened() -> None:
         fail(f"day_plan R21: {_rel(MUTATIONS_FILE)}: no 'action in (...)' comparison found")
 
 
+def check_reconcile_finalizers_located() -> None:
+    """R22 (TICKET-0077, BRIEF-0077-b): the six reconciliation finalizers
+    live in `cockpit/day_reconcile_apply.py` and nowhere else. Proves
+    location only — R12/R14/R19 still own the correctness of each body."""
+    names = (
+        "_reconcile_and_finalize",
+        "_finalize_continue",
+        "_finalize_modify",
+        "_finalize_replace",
+        "_reconciliation_dict",
+        "_revised_plan_matches_remaining",
+    )
+    route_tree = _parse(DAY_ROUTE_FILE)
+    apply_tree = _parse(DAY_RECONCILE_APPLY_FILE)
+    located_any = False
+    for name in names:
+        in_route = route_tree is not None and _find_function(route_tree, name) is not None
+        in_apply = apply_tree is not None and _find_function(apply_tree, name) is not None
+        if in_route and in_apply:
+            fail(f"day_plan R22: {name} is defined in both {_rel(DAY_ROUTE_FILE)} and {_rel(DAY_RECONCILE_APPLY_FILE)}")
+            located_any = True
+            continue
+        if not in_route and not in_apply:
+            fail(f"day_plan R22: {name} not found in {_rel(DAY_ROUTE_FILE)} or {_rel(DAY_RECONCILE_APPLY_FILE)}")
+            continue
+        located_any = True
+        if in_route:
+            fail(f"day_plan R22: {name} is defined in {_rel(DAY_ROUTE_FILE)}, expected {_rel(DAY_RECONCILE_APPLY_FILE)}")
+    if not located_any:
+        fail("day_plan R22: zero reconciliation finalizers located across both files")
+
+
 def main() -> None:
     check_evaluator_bijection()
     check_type_constraint()
@@ -754,6 +804,7 @@ def main() -> None:
     check_continue_constructs_nothing()
     check_z4_activation_uses_writer()
     check_applier_action_vocabulary_unwidened()
+    check_reconcile_finalizers_located()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -761,8 +812,9 @@ def main() -> None:
     print(
         "PASS: day_plan — evaluator bijection, requirement CHECKs, budget derivation, "
         "P2/positional exclusion, the positional wall, budget_cut purity, emit_plan "
-        "wiring, named bounds, the D1 traversal-independence gate, and BRIEF-0075-f's "
-        "reconciliation/Z4/AA2 gates (R11-R21) are all intact"
+        "wiring, named bounds, the D1 traversal-independence gate, BRIEF-0075-f's "
+        "reconciliation/Z4/AA2 gates (R11-R21), and R22's finalizer-location gate "
+        "are all intact"
     )
     sys.exit(0)
 
