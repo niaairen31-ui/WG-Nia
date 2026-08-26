@@ -481,7 +481,7 @@ def _finalize_plan(
 
     title = pass_play.declared_action.strip().splitlines()[0][:200]
     try:
-        write_day_plan(
+        agenda = write_day_plan(
             db,
             world_id=world_id,
             owner_entity_id=character.id,
@@ -499,6 +499,7 @@ def _finalize_plan(
     # once per pass_play, BEFORE the status move to 'resolving'.
     write_day_feasibility(db, pass_play=pass_play, verdict=verdict)
     pass_play.status = "resolving"
+    pass_play.agenda_id = agenda.id  # BRIEF-0077-a: which plan this day advanced
     db.add(pass_play)
     db.commit()
 
@@ -584,7 +585,22 @@ def _load_resolvable_day(batch_id: str, world_id: str, db: Session) -> tuple[Bat
     return batch, pass_play
 
 
-def _load_active_agenda(character: Character, db: Session) -> Agenda:
+def _load_active_agenda(character: Character, pass_play: PassPlay, db: Session) -> Agenda:
+    """The agenda this day resolves against (BRIEF-0077-a, B2). When
+    `pass_play.agenda_id` is set (every day planned since this brief), it
+    binds to THAT plan specifically — not required to be `active` here
+    (BRIEF-0077-c may resolve a plan the same request just resumed). When it
+    is NULL (every pre-BRIEF-0077-a row, and a day that never reached plan
+    emission), this is the pre-BRIEF-0077-a fallback: the player's single
+    `status == 'active'` agenda, 409 when absent — unchanged."""
+    if pass_play.agenda_id is not None:
+        agenda = db.get(Agenda, pass_play.agenda_id)
+        if agenda is None or agenda.owner_entity_id != character.id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"pass_play {pass_play.id!r}'s bound agenda {pass_play.agenda_id!r} is missing or not owned by {character.id!r}",
+            )
+        return agenda
     agenda = db.exec(
         select(Agenda).where(Agenda.owner_entity_id == character.id, Agenda.status == "active")
     ).first()
@@ -777,7 +793,7 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     batch: Batch = row[0]
     pass_play: PassPlay = row[1]
     character = _resolve_player_character(world_id, db)
-    agenda = _load_active_agenda(character, db)
+    agenda = _load_active_agenda(character, pass_play, db)
     _guard_no_pending_agenda_step_change(agenda, db)
     is_replay = pass_play.status == "resolved"
 

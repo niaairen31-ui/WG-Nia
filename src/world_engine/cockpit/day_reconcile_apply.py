@@ -13,6 +13,7 @@ from typing import Callable
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
+from .. import day_plans
 from ..day_concordance import ConcordanceResult, plan_context
 from ..day_plan import emit_plan
 from ..day_reconcile import Reconciliation, reconcile
@@ -52,6 +53,7 @@ def _finalize_continue(pass_play: PassPlay, agenda: Agenda, recon: Reconciliatio
             ),
         )
     pass_play.status = "resolving"
+    pass_play.agenda_id = agenda.id  # BRIEF-0077-a: which plan this day advanced
     db.add(pass_play)
     db.commit()
     return {"reconciliation": _reconciliation_dict(recon, [])}
@@ -103,24 +105,40 @@ def _finalize_modify(
         )
 
     pass_play.status = "resolving"
+    pass_play.agenda_id = agenda.id  # BRIEF-0077-a: which plan this day advanced
     db.add(pass_play)
     db.commit()
     return {"reconciliation": _reconciliation_dict(recon, [])}
 
 
-def _finalize_replace(agenda: Agenda, recon: Reconciliation) -> dict:
-    """AA2: `replace` emits nothing and writes nothing — always raises.
-    Nia closes the standing plan manually (`PATCH /agendas/{id}` ->
-    `'abandoned'`, history-preserving); the NEXT declaration then finds no
-    active agenda and takes the fresh-plan path unchanged."""
-    del recon  # the verdict is already known to the caller; nothing more to record
-    raise HTTPException(
-        status_code=409,
-        detail=(
-            f"reconciliation verdict is 'replace': the standing plan {agenda.title!r} must be "
-            "closed (PATCH its status to 'abandoned') before a new plan can start"
-        ),
-    )
+def _finalize_replace(
+    world_id: str, character: Character, pass_play: PassPlay, agenda: Agenda,
+    recon: Reconciliation, concordance_result: ConcordanceResult, db: Session,
+) -> dict:
+    """AA2, superseded by TICKET-0077/BRIEF-0077-a (A1): `replace` no longer
+    refuses — it PARKS the standing plan and opens a fresh one in its place,
+    one transaction: `day_plans.park_active_plan` -> `emit_plan` (same
+    `concordance_summary` the fresh-plan path uses) -> `_finalize_plan`
+    unchanged. `_finalize_plan` stays in `routes/day.py` (not moved here by
+    BRIEF-0077-a item 5) — reached via a lazy import to avoid a module
+    cycle (`play_stream`/`play.py` precedent, `import_cycle.py`'s sanctioned
+    idiom). A failed emission (`LlmParseError`) rolls back the park with the
+    rest of the transaction, leaving the standing plan `active`, never
+    orphaned mid-park."""
+    from .routes import day as _day
+
+    day_plans.park_active_plan(character, db)
+    try:
+        raw_steps = emit_plan(
+            pass_play.declared_action, character, db,
+            concordance_summary=plan_context(concordance_result, db),
+        )
+    except LlmParseError as exc:
+        raise HTTPException(status_code=502, detail=f"plan emission failed: {exc}") from exc
+
+    result = _day._finalize_plan(world_id, character, pass_play, raw_steps, db)
+    result["reconciliation"] = _reconciliation_dict(recon, [])
+    return result
 
 
 def _reconcile_and_finalize(
@@ -143,6 +161,8 @@ def _reconcile_and_finalize(
         "modify": lambda: _finalize_modify(
             agenda.world_id, character, pass_play, agenda, steps, recon, concordance_result, db,
         ),
-        "replace": lambda: _finalize_replace(agenda, recon),
+        "replace": lambda: _finalize_replace(
+            agenda.world_id, character, pass_play, agenda, recon, concordance_result, db,
+        ),
     }
     return handlers[recon.verdict]()
