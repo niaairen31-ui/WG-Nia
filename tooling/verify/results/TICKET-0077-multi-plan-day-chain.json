@@ -1,7 +1,7 @@
 {
   "ticket": "TICKET-0077-multi-plan-day-chain",
-  "when": "2026-08-26T20:09:16.143637+00:00",
-  "green": false,
+  "when": "2026-08-27T00:56:55.884599+00:00",
+  "green": true,
   "checks": [
     {
       "check": "parked_plan_guard.py",
@@ -40,8 +40,8 @@
     },
     {
       "check": "corpus_gate.py",
-      "status": "FAIL",
-      "msg": "SUMMARY: 1 check(s) failed (0 environment, 0 crash, 0 timeout, 1 other)"
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 95 check(s) discovered, 95 executed, 95 passed"
     }
   ]
 }
