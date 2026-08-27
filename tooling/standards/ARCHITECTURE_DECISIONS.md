@@ -14230,6 +14230,54 @@ version is never edited in place. `blocked_detail` is a new, defaulted
 written before this step simply lacks the key on read-back — no migration,
 no rewrite of stored rows.
 
+## D3 — A BLOCKED STEP PROPOSES A RUMOR-LEVEL LEAD ON ITS OWN BLOCKING SUBJECT (BRIEF-0078-c, no schema change)
+
+Nia's own reading, verbatim from the ticket's follow-up decisions: *"un plan
+peut être créer avec un knowledge que le joueur ne détient pas ... et le
+joueur aura une piste sur comment l'obtenir (rumor) jouable la prochaine
+journée."* This is a WORLD RULE she decided, not a technical fallout of
+C2's blocked band — bumping into a door teaches a little about it.
+
+`day_mutations._emit_new_knowledge` walks a blocked outcome's
+`requirement_verdicts` and, for each unmet `knowledge` verdict, proposes a
+`new_knowledge` mutation at `_BLOCKED_LEAD_LEVEL = "rumor"` on the EXACT
+subject that blocked the step — spelling and all, no normalization (G1
+stays deferred). The proposal goes through the review queue like every
+other day-chain mutation: V1 stands, the day chain proposes and never
+applies. This is what makes REQUIREMENT ANCHORING's precision non-load-
+bearing (BRIEF-0078-a): a legitimate gate on a near-duplicate subject no
+reachable NPC holds still resolves through play instead of deadlocking,
+because the player earns a lead on it regardless of which near-twin key
+the model happened to invent.
+
+The TICKET-0077 park/resume precedent does not apply here — that is a
+DIRECT write (`writes/goals_agendas.py`) because a plan has no world
+footprint; granting knowledge has one, so it stays proposal-only.
+
+A duplicate guard (`_blocked_lead_already_proposed`) stops re-resolving the
+same blocked day from stacking identical proposals before Nia clears the
+queue. It is a DELIBERATE duplicate of `cockpit/mutations.py`'s
+`_knowledge_already_applied`, not a call into it — that guard is
+conversation-scoped and scans APPLIED rows; this one is world-scoped and
+scans the OPEN `proposed` queue, a different question with a different
+key. Bounded by the size of that queue.
+
+## H1 — ANY KNOWLEDGE LEVEL SATISFIES A GATE (BRIEF-0078-a, BRIEF-0078-c, no schema change)
+
+`_eval_knowledge` (`day_plan.py`) tests `row is not None` and never reads
+`level` — kept exactly as is, because it is what makes D3's rumor
+playable the very next day, precisely as Nia described. The price, stated
+plainly: **every knowledge gate is a one-day speed bump, never a durable
+obstacle.**
+
+H2 (a floor level carried on the unused
+`agenda_step_requirement.threshold` column, ranked via a
+`KNOWLEDGE_LEVEL_LADDER`) is the named deferral. Reactivation condition:
+*once a level escalator on repeated blocking exists* — a step blocked N
+times proposing a rising `knowledge_change`. Without that escalator, H2/H3
+would produce a permanently shut gate, which is this ticket's own bug
+returning by another door — so it stays out until the escalator exists.
+
 ---
 
 *Co-built with Claude, June 2026.*
