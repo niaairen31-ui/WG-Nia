@@ -38,7 +38,15 @@ from ...day_feasibility import VetoVerdict, veto as feasibility_veto
 from ...day_mutations import emit_mutations
 from ...day_narration import detect_late_delta, narrate, rewrite as day_rewrite
 from ...day_narration_guard import JudgeVerdict, judge_narration
-from ...day_plan import DAY_BUDGET_SLOTS, EvaluatedStep, budget_cut, emit_plan, evaluate_requirements
+from ...day_plan import (
+    DAY_BUDGET_SLOTS,
+    EvaluatedStep,
+    anchor_requirements,
+    budget_cut,
+    emit_plan,
+    evaluate_requirements,
+    held_subjects_summary,
+)
 from ...day_resolve import (
     FactSheet,
     StepOutcome,
@@ -460,9 +468,14 @@ def _load_plannable_day(batch_id: str, world_id: str, db: Session) -> PassPlay:
 def _finalize_plan(
     world_id: str, character: Character, pass_play: PassPlay, raw_steps: list, db: Session,
 ) -> dict:
+    # BRIEF-0078-a, Scope IN item 7: anchoring runs BEFORE evaluate_requirements
+    # so a dropped requirement never reaches evaluate_requirements or
+    # agenda_step_requirement (E2 — reporting, never refusing: /plan still
+    # returns 200 and writes the plan exactly as it does today).
+    anchored_steps, dropped_report = anchor_requirements(raw_steps, character, db)
     evaluated_steps = [
         EvaluatedStep(step=step, verdicts=tuple(evaluate_requirements(step, character, db)))
-        for step in raw_steps
+        for step in anchored_steps
     ]
     budget_result = budget_cut(evaluated_steps, DAY_BUDGET_SLOTS)
     # BRIEF-0075-g, Y1: the veto runs AFTER budget_cut, on an already-legal
@@ -470,6 +483,15 @@ def _finalize_plan(
     # further, never widen it (day_feasibility.clamp_verdict, R1/R2).
     verdict = feasibility_veto(budget_result, character, pass_play.declared_action, db)
     active_step_index = 0 if verdict.veto_retained > 0 else None
+
+    # E2: reporting, never refusing — a budget-only cut is not a block.
+    blocked_index: Optional[int] = None
+    blocked_text: Optional[str] = None
+    if budget_result.first_excluded_index is not None:
+        excluded = evaluated_steps[budget_result.first_excluded_index]
+        if not excluded.met:
+            blocked_index = budget_result.first_excluded_index
+            blocked_text = "; ".join(v.reason for v in excluded.verdicts if not v.met)
 
     title = pass_play.declared_action.strip().splitlines()[0][:200]
     try:
@@ -507,6 +529,9 @@ def _finalize_plan(
             verdict.python_retained, verdict.veto_retained, verdict.reason,
             verdict.cited_objective, verdict.outcome,
         ),
+        "anchoring": {"dropped": dropped_report},
+        "blocked_at_index": blocked_index,
+        "blocked_reason": blocked_text,
     }
 
 
@@ -555,6 +580,7 @@ def plan_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
             raw_steps = emit_plan(
                 pass_play.declared_action, character, db,
                 concordance_summary=plan_context(concordance_result, db),
+                held_subjects_summary=held_subjects_summary(character, db),
             )
         except LlmParseError as exc:
             raise HTTPException(status_code=502, detail=f"plan emission failed: {exc}") from exc

@@ -40,7 +40,7 @@ routes a day step through Play.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Optional
 
 from sqlmodel import Session, func, select
@@ -73,6 +73,11 @@ REQUIREMENT_TYPES: tuple[str, ...] = ("knowledge", "relation_gte", "resource", "
 # reported count (logged), not silently dropped.
 MAX_PLAN_STEPS = 12
 
+# BRIEF-0078-a Scope IN item 6: bound on how many held subjects are listed
+# in held_subjects_summary(). Anything beyond is truncated with a reported
+# count (logged), not silently dropped.
+MAX_HELD_SUBJECTS_SHOWN: int = 40
+
 # Same mild repetition controls as MJ gathering — short, low-drift JSON output.
 DAY_PLAN_OPTIONS: dict = {"repeat_penalty": 1.1, "repeat_last_n": 128}
 
@@ -95,6 +100,10 @@ class PlanStep:
 
 @dataclass(frozen=True)
 class Verdict:
+    # `type` FIRST (BRIEF-0078-a, Scope IN item 3): a positional
+    # `Verdict(...)` construction anywhere in the tree now fails loudly
+    # (wrong type in the wrong slot) rather than silently shifting fields.
+    type: str
     met: bool
     current: object
     required: object
@@ -136,7 +145,9 @@ def _eval_knowledge(req: RequirementSpec, character: Character, db: Session, rea
         f"knowledge {req.target_key!r} already held" if met
         else f"prerequisite not met — knowledge {req.target_key!r} not held"
     )
-    return Verdict(met=met, current=("held" if met else "unheld"), required=req.target_key, reason=reason)
+    return Verdict(
+        type=req.type, met=met, current=("held" if met else "unheld"), required=req.target_key, reason=reason,
+    )
 
 
 def _eval_relation_gte(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
@@ -161,7 +172,7 @@ def _eval_relation_gte(req: RequirementSpec, character: Character, db: Session, 
         f"relation with {target_name} is {current}, meets requires >= {threshold}" if met
         else f"prerequisite not met — relation with {target_name} is {current}, requires >= {threshold}"
     )
-    return Verdict(met=met, current=current, required=threshold, reason=reason)
+    return Verdict(type=req.type, met=met, current=current, required=threshold, reason=reason)
 
 
 def _eval_resource(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
@@ -173,7 +184,7 @@ def _eval_resource(req: RequirementSpec, character: Character, db: Session, reac
         f"resource {req.target_key!r} balance is {total}, meets requires >= {threshold}" if met
         else f"prerequisite not met — resource {req.target_key!r} balance is {total}, requires >= {threshold}"
     )
-    return Verdict(met=met, current=total, required=threshold, reason=reason)
+    return Verdict(type=req.type, met=met, current=total, required=threshold, reason=reason)
 
 
 def _eval_location_reachable(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
@@ -185,7 +196,10 @@ def _eval_location_reachable(req: RequirementSpec, character: Character, db: Ses
         f"{target_name} is reachable" if met
         else f"prerequisite not met — {target_name} is not reachable from the current location"
     )
-    return Verdict(met=met, current=character.current_location_id, required=req.target_entity_id, reason=reason)
+    return Verdict(
+        type=req.type, met=met, current=character.current_location_id,
+        required=req.target_entity_id, reason=reason,
+    )
 
 
 _EVALUATORS: dict[str, Callable[[RequirementSpec, Character, Session, object], Verdict]] = {
@@ -275,6 +289,71 @@ def budget_cut(steps: list[EvaluatedStep], budget: int) -> BudgetResult:
     )
 
 
+# ── requirement anchoring (BRIEF-0078-a, decisions A5(A1b)/B3) ──────────────
+#
+# B3: a gate is legitimate only on a subject that exists to be learned --
+# held in this world by an entity OTHER than the player, on a non-secret
+# row. `is_secret` is excluded because a gate on a secret is both
+# unsatisfiable and a disclosure: the reject message would reveal that the
+# secret exists.
+
+def _held_subjects(character: Character, db: Session) -> frozenset[str]:
+    """The player's own held subjects (A1b) — handed to the emission model
+    via `held_subjects_summary` so it stops proposing a dead gate on
+    something already held. Called at most once per emission (F3)."""
+    rows = db.exec(
+        select(Knowledge.subject).where(Knowledge.entity_id == character.id).distinct()
+    ).all()
+    return frozenset(rows)
+
+
+def _anchorable_subjects(character: Character, db: Session) -> frozenset[str]:
+    """The B3 predicate, and nowhere else: subjects that legitimately anchor
+    a `knowledge` requirement — held in this world (`Entity.world_id`), by an
+    entity OTHER than the player (`Knowledge.entity_id != character.id`), on
+    a non-secret row (`Knowledge.is_secret == False`). Called at most once
+    per emission (F3)."""
+    rows = db.exec(
+        select(Knowledge.subject)
+        .join(Entity, Entity.id == Knowledge.entity_id)
+        .where(
+            Entity.world_id == character.world_id,
+            Knowledge.entity_id != character.id,
+            Knowledge.is_secret == False,  # noqa: E712
+        )
+        .distinct()
+    ).all()
+    return frozenset(rows)
+
+
+def anchor_requirements(
+    steps: list[PlanStep], character: Character, db: Session,
+) -> tuple[list[PlanStep], list[dict]]:
+    """Drop every `knowledge` requirement whose `target_key` is not anchored
+    (B3) — REQUIREMENTS are dropped, never steps: the returned step count
+    always equals the input count. A step whose only requirement was dropped
+    becomes an ungated step, the intended outcome, not a degradation.
+    `_anchorable_subjects` is called ONCE for the whole plan (F3)."""
+    anchorable = _anchorable_subjects(character, db)
+    dropped: list[dict] = []
+    anchored_steps: list[PlanStep] = []
+    for step_index, step in enumerate(steps):
+        kept_requirements = []
+        for req in step.requirements:
+            if req.type == "knowledge" and req.target_key not in anchorable:
+                dropped.append({
+                    "step_index": step_index, "objective": step.objective, "target_key": req.target_key,
+                })
+                _log.info(
+                    "day_plan: dropped unanchored knowledge requirement %r on step %d",
+                    req.target_key, step_index,
+                )
+                continue
+            kept_requirements.append(req)
+        anchored_steps.append(replace(step, requirements=tuple(kept_requirements)))
+    return anchored_steps, dropped
+
+
 # ── plan emission (model call) ───────────────────────────────────────────────
 
 def _load_day_plan_template(world_id: Optional[str], db: Session) -> Optional[PromptTemplate]:
@@ -337,9 +416,36 @@ def _validate_step(raw: object) -> PlanStep:
     return PlanStep(objective=objective.strip(), cost=cost, domain=domain, requirements=requirements)
 
 
+def held_subjects_summary(character: Character, db: Session) -> str:
+    """A short French summary of the subjects `character` already holds
+    (BRIEF-0078-a Scope IN item 6, decision A1b) — appended to `emit_plan`'s
+    user message so the model stops proposing a `knowledge` gate on a
+    subject already held (a dead gate). Positive form only — the gameplay
+    model is abliterated. Returns "" when the player holds no subject at
+    all. Calls `_held_subjects` once."""
+    subjects = sorted(_held_subjects(character, db))
+    if not subjects:
+        return ""
+    truncated = 0
+    if len(subjects) > MAX_HELD_SUBJECTS_SHOWN:
+        truncated = len(subjects) - MAX_HELD_SUBJECTS_SHOWN
+        subjects = subjects[:MAX_HELD_SUBJECTS_SHOWN]
+        _log.info(
+            "day_plan: held_subjects_summary truncated %d subject(s) beyond MAX_HELD_SUBJECTS_SHOWN=%d",
+            truncated, MAX_HELD_SUBJECTS_SHOWN,
+        )
+    character_entity = db.get(Entity, character.id)
+    character_name = character_entity.name if character_entity is not None else character.id
+    liste = ", ".join(subjects)
+    return (
+        f"Sujets que {character_name} connaît déjà : {liste}.\n"
+        "Une condition « knowledge » porte sur un sujet absent de cette liste."
+    )
+
+
 def emit_plan(
     declaration: str, character: Character, db: Session, concordance_summary: str = "",
-    standing_steps_summary: str = "",
+    standing_steps_summary: str = "", held_subjects_summary: str = "",
 ) -> list[PlanStep]:
     """ONE model call (F1). Parses through `llm_parse.extract_object`;
     domain/shape validation stays here per M9's contract. A parse failure or
@@ -347,14 +453,14 @@ def emit_plan(
     (unlike `gathering.py`'s solo-partition fallback: a day plan gates real
     play consequences, a silent partial plan would be worse than none).
 
-    `concordance_summary` (BRIEF-0075-c) and `standing_steps_summary`
-    (BRIEF-0075-f, `modify`'s reconciliation path) are BOTH appended
-    verbatim to the user message, never woven into the seeded template
-    text — the same discipline for the same reason: text a Python pass
-    already built, not a new prompt-template placeholder that a
-    virgin-head-only seed (S2) could never retrofit onto an
-    already-provisioned world. `standing_steps_summary` defaults to ""
-    (a no-op) so every pre-BRIEF-0075-f call site is byte-identical."""
+    `concordance_summary` (BRIEF-0075-c), `standing_steps_summary`
+    (BRIEF-0075-f, `modify`'s reconciliation path) and `held_subjects_summary`
+    (BRIEF-0078-a, item 6) are ALL appended verbatim to the user message,
+    never woven into the seeded template text — the same discipline for the
+    same reason: text a Python pass already built, not a new prompt-template
+    placeholder that a virgin-head-only seed (S2) could never retrofit onto
+    an already-provisioned world. Each defaults to "" (a no-op) so every
+    pre-existing call site is byte-identical."""
     template = _load_day_plan_template(character.world_id, db)
     if template is None:
         raise llm_parse.LlmParseError("day_plan: no active prompt_template for usage='day_plan'")
@@ -371,6 +477,8 @@ def emit_plan(
         user_msg += f"\n\n{concordance_summary}"
     if standing_steps_summary:
         user_msg += f"\n\n{standing_steps_summary}"
+    if held_subjects_summary:
+        user_msg += f"\n\n{held_subjects_summary}"
     user_msg += "\n/no_think"
     raw = ollama_client.chat(
         [

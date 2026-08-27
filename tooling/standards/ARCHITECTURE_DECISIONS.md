@@ -14083,4 +14083,95 @@ relocation.
 
 ---
 
+## REQUIREMENT ANCHORING — a knowledge gate is legitimate only on a learnable subject (BRIEF-0078-a, schema v1.96)
+
+TICKET-0078: a day plan could gate step 1 on `{"type":"knowledge",
+"target_key":"room_setup"}` — a key the model invented with no canon row
+behind it — and `budget_cut` breaking at the first unmet step then emptied
+the whole day. The inversion the doctrine forbids: the model was proposing
+the CRITERION a Python gate would enforce, not the action a Python gate
+would judge. This step restores the boundary: "model proposes, code
+judges" now applies to the REQUIREMENT itself, not only to the character's
+state against it.
+
+**B3 — the anchoring predicate.** A `knowledge` requirement's `target_key`
+survives emission only when it matches a `knowledge.subject` held, in this
+world, by an entity OTHER than the player, on a row that is not
+`is_secret`. `_anchorable_subjects` (`day_plan.py`) is the ONE place this
+predicate lives, expressed as a single explicitly-filtered `select(`:
+`Entity.world_id == character.world_id` (in-world only — a cross-world
+name collision must not anchor a gate), `Knowledge.entity_id !=
+character.id` (the player's OWN held subjects can never anchor a gate on
+themselves — a gate on something already held is dead, not legitimate),
+`Knowledge.is_secret == False` (structural, not instructional: a secret
+subject is both an unsatisfiable gate and a leak, since the reject message
+would itself disclose that the secret exists — the same doctrine that
+excludes `character.secrets` and `is_secret` rows from every context
+assembler). An unanchored `knowledge` requirement is DROPPED at emission
+(`anchor_requirements`), never the step it sat on: the step keeps its
+objective and loses only the gate, becoming an ungated step — the intended
+outcome, a day that runs, not a degradation. `_held_subjects` (also
+`day_plan.py`) feeds the emission model the player's own held subjects
+(`held_subjects_summary`, appended verbatim to `emit_plan`'s user message,
+the `concordance_summary`/`standing_steps_summary` precedent — never a new
+prompt-template placeholder) so it stops proposing a dead gate in the
+first place; `anchor_requirements` catches the opposite error, a gate on
+something that exists for NOBODY. Together they carve out exactly the
+legal band: **you can only be locked on something that exists to be
+learned.**
+
+**Schema v1.96 — `idx_knowledge_subject`.** `knowledge` carried no index on
+`subject`; anchoring's join through `entity` would otherwise be a full
+scan on every `/plan` call. Index-only migration
+(`migrate_v1_96_knowledge_subject_index.py`), no table rebuild — this
+column needed no CHECK, no NOT NULL change, nothing an index add can't do
+alone. `_anchorable_subjects` and `_held_subjects` are its only readers,
+and each runs AT MOST ONCE per `/plan` call (one explicitly filtered
+`select(`, not once per requirement) — the enumeration-scope discipline
+applied to a lookup that previously did not exist.
+
+**E2 — `/plan` reports, it does not refuse.** `_finalize_plan` already
+computed `first_excluded_index` and used it for nothing; this step wires
+it to two new response keys, `blocked_at_index` and `blocked_reason`
+(non-null only when the excluded step's own requirements are unmet — a
+budget-only cut is not a block), alongside `anchoring.dropped` (the
+anchoring drop report). The day is still written and `/plan` still
+returns 200 exactly as before: visibility, not refusal. Rendering the
+blocked step as narrative prose is BRIEF-0078-b's job — after this step an
+anchored-but-unmet step 1 still produces the pre-existing one-line
+failure at `/resolve`.
+
+**`Verdict` gains a `type` field, placed FIRST.** BRIEF-0078-b and -c both
+need to know which requirement TYPE produced an unmet verdict (to decide
+whether a blocked step should propose a learned rumor); rather than thread
+`RequirementSpec` alongside `Verdict` everywhere, each of the four
+evaluators now sets `type=req.type` on its own `Verdict`. `type` is FIRST
+in the dataclass, not appended, so that a positional `Verdict(...)`
+construction anywhere in the tree (none exist today — checked, not
+assumed) would fail loudly on the wrong type in the wrong slot rather than
+silently shifting every other field one place over.
+
+## G1 — subject-vocabulary hygiene, deferred (BRIEF-0078-a, no schema change)
+
+The pilot seed already holds numerous distinct `knowledge.subject` values
+with visible near-twins (`magic_existence` / `magic_awakening` /
+`personal_magic_incident` / `local_magic_incidents`; `lettre_innommee` /
+`the_unnamed`), no normalization at the write chokepoint
+(`writes/knowledge.py`), and exact-string comparison in the existing
+duplicate guard (`cockpit/mutations.py`). Anchoring gives this problem its
+first READER — `_anchorable_subjects` now cares whether two near-duplicate
+strings are "the same subject" — but does not introduce the problem, and
+is deliberately not the ticket that fixes it: a normalization pass, an
+alias table, or a canonical-vocabulary table is real scope, and
+anchoring's own C2/D3 design (BRIEF-0078-b/-c) makes anchoring PRECISION
+affect flavour only, never liveness — a near-duplicate subject can still
+produce a legitimate gate the player cannot open from any NPC, and a
+blocked step's proposed rumor opens it through play anyway. Reopen this
+deferral once either becomes true, verified, not estimated: `SELECT
+COUNT(DISTINCT subject) FROM knowledge` on a live world exceeds **150**,
+OR a similarity pass measures more than **20%** of subjects within
+Levenshtein distance <= 3 of another.
+
+---
+
 *Co-built with Claude, June 2026.*
