@@ -69,6 +69,7 @@ from sqlmodel import Session, select
 from .day_concordance import ConcordanceResult
 from .day_plan import (
     DAY_BUDGET_SLOTS,
+    BudgetResult,
     EvaluatedStep,
     PlanStep,
     RequirementSpec,
@@ -98,7 +99,11 @@ class StepOutcome:
     domain: Optional[str]
     # None is the explicit "no roll" marker (the step's domain was NULL).
     verdict: Optional[Verdict]
-    band: str  # "success" | "partial" | "failure"
+    # "success" | "partial" | "failure" are resolve_physical's own three
+    # (M1, rolled); "blocked" (BRIEF-0078-b, BLOCKED_BAND) is the fourth,
+    # assigned by this module ONLY — never rolled, never produced by
+    # resolution.py.
+    band: str
     requirement_verdicts: tuple[RequirementVerdict, ...]
     canon_ids: tuple[str, ...]
 
@@ -116,6 +121,10 @@ class StepFact:
     dice: Optional[tuple[int, int]]
     modifier: Optional[int]
     total: Optional[int]
+    # French, code-built (requirement_detail_fr) — set only for a `blocked`
+    # step; None for every other band. Defaulted so every pre-existing
+    # construction stays valid (BRIEF-0078-b Scope IN item 2).
+    blocked_detail: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -172,6 +181,11 @@ def _step_player_tier(character: Character, domain: str, db: Session) -> int:
 
 
 _TERMINAL_AGENDA_STEP_STATUSES = ("completed", "failed")
+
+# BRIEF-0078-b Scope IN item 1: the fourth StepOutcome.band, assigned by
+# this module only (resolve_physical keeps its own three — resolution.py
+# is not touched).
+BLOCKED_BAND: str = "blocked"
 
 
 def _load_evaluated_steps(
@@ -255,16 +269,84 @@ def _truncate_on_failure(rolled: list[_RolledStep]) -> list[StepOutcome]:
     return outcomes
 
 
+# BRIEF-0078-b Scope IN item 3: player-facing French for a blocked step's
+# requirement, keyed on `Verdict.type` (BRIEF-0078-a). No English machine
+# text from `Verdict.reason` may reach a player — this dict is the ONLY
+# source of a blocked step's rendered reason.
+_BLOCKED_DETAIL_FR: dict[str, str] = {
+    "knowledge": "il lui manque encore ce qu'il faut savoir sur « {required} »",
+    "resource": "il ne dispose pas des moyens nécessaires",
+    "relation_gte": "ses appuis ne sont pas encore assez solides pour cela",
+    "location_reachable": "l'endroit n'est pas accessible depuis là où il se trouve",
+}
+
+
+def requirement_detail_fr(verdict: RequirementVerdict) -> str:
+    """Pure: `verdict.type` -> player-facing French. Fail-closed on an
+    unknown type — the same posture `evaluate_requirements` already takes
+    (`day_plan.py`'s `_EVALUATORS.get(...) is None` branch)."""
+    template = _BLOCKED_DETAIL_FR.get(verdict.type)
+    if template is None:
+        raise ValueError(f"day_resolve: unknown requirement type {verdict.type!r}")
+    return template.format(required=verdict.required)
+
+
+def _append_blocked_step(
+    ordered_steps: list[AgendaStep],
+    evaluated_steps: list[EvaluatedStep],
+    budget_result: BudgetResult,
+    rolled: list[_RolledStep],
+    outcomes: list[StepOutcome],
+) -> None:
+    """Pure (no `db`, `select(`, `chat(`, `datetime`, `randint` — everything
+    it needs is precomputed by `resolve_steps`). Appends AT MOST ONE
+    `StepOutcome` to `outcomes`, in place, and only when all three
+    conjuncts hold (Scope IN item 4):
+
+    1. the budget cut actually excluded a step for being UNMET (a
+       budget-only cut is not a block);
+    2. the feasibility veto did not truncate further than that excluded
+       step — when it did, the veto owns the day's reason;
+    3. `_truncate_on_failure` did not already stop the walk on an earlier
+       FAILURE — that failure is what stopped the day, not this step's gate.
+    """
+    first_excluded = budget_result.first_excluded_index
+    if first_excluded is None or evaluated_steps[first_excluded].met:
+        return
+    if len(rolled) != first_excluded:
+        return
+    if len(outcomes) != len(rolled):
+        return
+    agenda_step = ordered_steps[first_excluded]
+    evaluated = evaluated_steps[first_excluded]
+    canon_ids = tuple(sorted({
+        r.target_entity_id for r in evaluated.step.requirements if r.target_entity_id
+    }))
+    outcomes.append(StepOutcome(
+        agenda_step_id=agenda_step.id,
+        step_order=agenda_step.step_order,
+        objective=evaluated.step.objective,
+        domain=evaluated.step.domain,
+        verdict=None,
+        band=BLOCKED_BAND,
+        requirement_verdicts=evaluated.verdicts,
+        canon_ids=canon_ids,
+    ))
+
+
 def resolve_steps(
     agenda: Agenda, character: Character, db: Session, *, veto_retained: Optional[int] = None,
 ) -> list[StepOutcome]:
     """Resolve the budgeted portion of `agenda`'s plan (Scope IN item 1).
     `agenda` is the character's currently active `Agenda` — the "plan" of
-    the brief's signature. Returns an EMPTY list when step 1's own
-    requirements are unmet (budget_cut excludes everything, first_
-    excluded_index == 0) — a legitimate outcome (the day never got off the
-    ground), never an error. Callers must not hand an empty result to
-    `narrate`/`judge_narration` (see `blocked_reason`).
+    the brief's signature. A step whose own requirements are unmet no
+    longer empties the result (BRIEF-0078-b): it becomes a single trailing
+    `blocked` outcome (`_append_blocked_step`), an OUTCOME rather than an
+    absence. The result is still an EMPTY list in one legitimate case: the
+    feasibility veto retained zero steps (`veto_retained == 0`) while
+    Python itself retained at least one — the veto owns that day's reason,
+    and no blocked beat is invented for it (the caller keeps its own
+    code-rendered prose for that case, unchanged from before this brief).
 
     `veto_retained` (BRIEF-0075-g, decision Y1) is the feasibility veto's
     OWN retained count, decided once at `/plan` time and read back by the
@@ -283,27 +365,9 @@ def resolve_steps(
     if veto_retained is not None:
         included = included[: max(0, veto_retained)]
     rolled = _roll_included_steps(ordered_steps, included, character, db)
-    return _truncate_on_failure(rolled)
-
-
-def blocked_reason(agenda: Agenda, character: Character, db: Session) -> str:
-    """Why `resolve_steps` returned zero outcomes (Scope IN item 1's edge
-    case, live-discovered: a step-1 requirement the character does not
-    meet — e.g. a resource threshold with a zero balance — truncates the
-    ENTIRE day before any dice roll). Deterministic and code-only: no
-    model call, because there is nothing to render beyond a verdict
-    reason `evaluate_requirements` already produced. The caller uses this
-    to render the day directly, bypassing `narrate`/`judge_narration`
-    entirely — a fact sheet with zero steps has nothing for either to
-    check, so skipping both is safer than asking the judge to accept an
-    empty render as a special case."""
-    _ordered_steps, evaluated_steps = _load_evaluated_steps(agenda, character, db)
-    if not evaluated_steps:
-        return "Aucune étape n'était planifiée pour cette journée."
-    unmet = [v.reason for v in evaluated_steps[0].verdicts if not v.met]
-    if unmet:
-        return "; ".join(unmet)
-    return "Le budget de la journée ne permettait aucune étape."
+    outcomes = _truncate_on_failure(rolled)
+    _append_blocked_step(ordered_steps, evaluated_steps, budget_result, rolled, outcomes)
+    return outcomes
 
 
 def outcome_line(outcome: StepOutcome) -> str:
@@ -362,6 +426,10 @@ def freeze_facts(
             dice=o.verdict.dice if o.verdict is not None else None,
             modifier=o.verdict.modifier if o.verdict is not None else None,
             total=o.verdict.total if o.verdict is not None else None,
+            blocked_detail=(
+                " ; ".join(requirement_detail_fr(v) for v in o.requirement_verdicts if not v.met)
+                if o.band == BLOCKED_BAND else None
+            ),
         )
         for o in outcomes
     )
@@ -392,6 +460,7 @@ def fact_sheet_dict(fact_sheet: FactSheet) -> dict:
                 "objective": s.objective, "band": s.band,
                 "dice": list(s.dice) if s.dice is not None else None,
                 "modifier": s.modifier, "total": s.total,
+                "blocked_detail": s.blocked_detail,
             }
             for s in fact_sheet.steps
         ],

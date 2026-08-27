@@ -14174,4 +14174,62 @@ Levenshtein distance <= 3 of another.
 
 ---
 
+## C2 — A BLOCKED STEP IS AN OUTCOME, NOT AN ABSENCE (BRIEF-0078-b, no schema change)
+
+After BRIEF-0078-a a `knowledge` gate is anchored in canon, but an anchored
+gate the player genuinely does not meet still emptied the day:
+`budget_cut` breaks at the first unmet step, `resolve_steps` returned an
+empty list, and `judge_narration`'s own zero-step anti-vacuity guard then
+refused the fact sheet — the only way past it was a code-rendered
+one-liner (`cockpit/routes/day.py`'s old zero-outcome branch), never a real
+narrative.
+
+**The zero-step case is ELIMINATED, not excused.** The temptation this
+step's whole shape is built to resist: adding a special case to
+`judge_narration` for "blocked days." That would be a weaker judge. Instead
+`resolve_steps` (`day_resolve.py`) now appends AT MOST ONE trailing
+`StepOutcome` at `band=BLOCKED_BAND` (`_append_blocked_step`) whenever the
+budget cut excluded a step for being genuinely unmet — and ONLY then: a
+budget-only cut invents no blocked beat, a feasibility-veto truncation
+past that point owns its own reason instead, and a step that already
+FAILED on the dice keeps its own stop, never a fabricated gate beat after
+it. `day_narration_guard.py` is byte-identical after this step — its
+zero-names and zero-steps anti-vacuity guards, and `extract_names`, are
+untouched. Making the input non-empty, rather than loosening what checks
+it, is the whole point.
+
+**A blocked step was never attempted.** `day_mutations._step_action`
+widens to return `None` for it (neither `"complete"` nor `"fail"`), and
+`_emit_agenda_step_change` emits nothing for that `None` —
+`_mutation_apply_agenda_step_change`'s own action vocabulary stays exactly
+`("complete", "fail")` (R21), since no third literal is ever constructed
+into a payload. The step's `AgendaStep` therefore stays exactly as
+`pending`/`active` as it was; nothing enters the review queue for it.
+Proposing the rumor the player learns from bumping into the gate (D3) is
+NOT this step — that is BRIEF-0078-c.
+
+**French only, structurally.** `requirement_detail_fr` maps a `Verdict`'s
+`type` (BRIEF-0078-a's field) to one of four fixed French templates
+(`_BLOCKED_DETAIL_FR`) — `Verdict.reason`, the English machine text
+`evaluate_requirements` produces for logs and the `/plan` response, never
+reaches a player. The rendered detail (including a `knowledge` gate's raw
+subject label) is fed to the narration model as fact-sheet INPUT, never
+shown to the player directly; the reseeded `day_narration` prompt's marker
+rule is the safeguard that keeps the raw label out of the player-visible
+prose — it explicitly instructs the model to use the given reason "sans
+la recopier" (without copying it verbatim). This is a Live (human-gate)
+acceptance criterion, not a machine-checkable one, because it depends on
+the local model's actual behaviour.
+
+**History is sacred, again.** The `day_narration` prompt's marker rule
+gains one clause (`[BLOQUÉ]`) via a NEW `prompt_version` row
+(`scripts/apply_ticket_0078_narration_seed.py`, the
+`apply_ticket_0024_prompt_updates.py` append-version shape) — the existing
+version is never edited in place. `blocked_detail` is a new, defaulted
+`None` key on `StepFact`/`fact_sheet_dict`; a `pass_play.history` entry
+written before this step simply lacks the key on read-back — no migration,
+no rewrite of stored rows.
+
+---
+
 *Co-built with Claude, June 2026.*

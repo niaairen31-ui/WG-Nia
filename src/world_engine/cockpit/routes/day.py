@@ -50,7 +50,6 @@ from ...day_plan import (
 from ...day_resolve import (
     FactSheet,
     StepOutcome,
-    blocked_reason,
     fact_sheet_dict,
     freeze_facts,
     resolve_steps,
@@ -840,21 +839,30 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     fact_sheet = freeze_facts(outcomes, concordance_result, batch, character, db)
 
     if not outcomes:
-        # Two distinct reasons a day can start with zero outcomes: step 1's
-        # own requirements were unmet (budget_cut excluded everything
-        # before any dice roll — live-discovered edge case), or the veto
-        # judged NONE of Python's retained steps plausible today
-        # (`veto_retained == 0` — a legitimate outcome, BRIEF-0075-g Scope
-        # IN item 2). Either way nothing to roll, nothing for a model to
-        # render, nothing for the judge to check: code renders it directly,
-        # citing whichever reason actually produced the empty list.
+        # BRIEF-0078-b: a step whose own requirements are unmet no longer
+        # empties `outcomes` — resolve_steps appends a trailing `blocked`
+        # StepOutcome for it instead. The ONE remaining legitimate empty
+        # case is the feasibility veto retaining zero of Python's own
+        # retained steps (`veto_retained == 0`, BRIEF-0075-g Scope IN item
+        # 2) — the veto owns that day's reason, and no blocked beat is
+        # invented for it; code renders it directly, exactly as before this
+        # ticket.
         if veto_retained == 0 and feasibility_entry and feasibility_entry.get("python_retained", 0) > 0:
             reason = feasibility_entry.get("reason") or "jugé peu plausible en une seule journée"
-        else:
-            reason = blocked_reason(agenda, character, db)
-        prose = f"La journée n'a pas pu commencer : {reason}"
-        verdict = JudgeVerdict(passed=True, reason="blocked before any step — code-rendered, judge not invoked")
-        return _finalize_resolution(batch, pass_play, fact_sheet, prose, verdict, is_replay, outcomes, character, db)
+            prose = f"La journée n'a pas pu commencer : {reason}"
+            verdict = JudgeVerdict(
+                passed=True, reason="blocked before any step — code-rendered, judge not invoked",
+            )
+            return _finalize_resolution(
+                batch, pass_play, fact_sheet, prose, verdict, is_replay, outcomes, character, db,
+            )
+        # Fail-closed: the blocked band (BRIEF-0078-b) makes a step-level
+        # empty result unreachable, and the veto-zero case above is already
+        # handled — neither a step nor the veto explains this emptiness.
+        raise HTTPException(
+            status_code=500,
+            detail="day resolution produced zero outcomes -- the blocked band should make this unreachable",
+        )
 
     fact_sheet, prose, verdict = _narrate_and_judge(fact_sheet, pass_play, db)
     return _finalize_resolution(batch, pass_play, fact_sheet, prose, verdict, is_replay, outcomes, character, db)

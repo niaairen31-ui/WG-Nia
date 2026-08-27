@@ -34,7 +34,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from . import llm_parse, ollama_client
-from .day_resolve import FactSheet
+from .day_resolve import BLOCKED_BAND, FactSheet
 from .models import Entity, PassPlay, ProposedMutation, PromptTemplate
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
@@ -46,8 +46,11 @@ _log = logging.getLogger(__name__)
 MAX_REWRITE_ATTEMPTS = 1
 
 # Shared with day_narration_guard.py's outcome-survival check — the single
-# source of the band-to-marker mapping.
-BAND_MARKERS: dict[str, str] = {"success": "[RÉUSSITE]", "partial": "[PARTIEL]", "failure": "[ÉCHEC]"}
+# source of the band-to-marker mapping. BLOCKED_BAND (BRIEF-0078-b) is
+# day_resolve's own constant, imported rather than restated.
+BAND_MARKERS: dict[str, str] = {
+    "success": "[RÉUSSITE]", "partial": "[PARTIEL]", "failure": "[ÉCHEC]", BLOCKED_BAND: "[BLOQUÉ]",
+}
 
 
 @dataclass(frozen=True)
@@ -79,7 +82,10 @@ def _render_fact_sheet(fact_sheet: FactSheet) -> str:
     for step in fact_sheet.steps:
         marker = BAND_MARKERS[step.band]
         detail = f" (jet total {step.total})" if step.total is not None else " (aucun jet)"
-        lines.append(f"- Étape « {step.objective} » — marqueur attendu {marker}{detail}.")
+        line = f"- Étape « {step.objective} » — marqueur attendu {marker}{detail}."
+        if step.blocked_detail:
+            line += f" Le personnage n'a pas pu l'entreprendre : {step.blocked_detail}."
+        lines.append(line)
     if fact_sheet.npcs:
         lines.append("Personnes nommables : " + ", ".join(r.name for r in fact_sheet.npcs) + ".")
     if fact_sheet.locations:

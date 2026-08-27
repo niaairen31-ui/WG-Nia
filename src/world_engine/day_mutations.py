@@ -70,11 +70,11 @@ Nothing here works around that — O1 stands.
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Optional
 
 from sqlmodel import Session, select
 
-from .day_resolve import StepOutcome, outcome_line
+from .day_resolve import BLOCKED_BAND, StepOutcome, outcome_line
 from .models import AgendaStepRequirement, Character, PassPlay, ProposedMutation
 
 EMITTED_MUTATION_TYPES: tuple[str, ...] = (
@@ -89,20 +89,32 @@ EMITTED_MUTATION_TYPES: tuple[str, ...] = (
 _KNOWLEDGE_DEEPEN_LEVEL = "knows"
 
 
-def _step_action(outcome: StepOutcome) -> str:
+def _step_action(outcome: StepOutcome) -> Optional[str]:
+    """BRIEF-0078-b: a blocked step was never attempted -- neither
+    `"complete"` nor `"fail"` applies to it, so its `AgendaStep` must stay
+    exactly as `pending`/`active` as it was. `None` is the signal
+    `_emit_agenda_step_change` reads to emit nothing for it.
+    `_mutation_apply_agenda_step_change`'s own action vocabulary stays
+    `("complete", "fail")` — R21 — since this action is never constructed
+    into a payload."""
+    if outcome.band == BLOCKED_BAND:
+        return None
     return "fail" if outcome.band == "failure" else "complete"
 
 
 def _emit_agenda_step_change(
     outcome: StepOutcome, pass_play: PassPlay, character: Character, world_id: str, db: Session,
 ) -> list[ProposedMutation]:
-    """One `agenda_step_change` per resolved step. `effects` is always an
-    empty list (see module docstring) — a construction site for R10, never
-    an invented value. No subject key in the payload (R11):
-    `_mutation_apply_agenda_step_change` forces the subject to the
-    agenda's owner."""
+    """One `agenda_step_change` per resolved step -- EXCEPT a blocked one
+    (BRIEF-0078-b), which was never attempted and proposes nothing. `effects`
+    is always an empty list (see module docstring) — a construction site for
+    R10, never an invented value. No subject key in the payload (R11):
+    `_mutation_apply_agenda_step_change` forces the subject to the agenda's
+    owner."""
     del character, db
     action = _step_action(outcome)
+    if action is None:
+        return []
     payload: dict = {"step_id": outcome.agenda_step_id, "action": action, "outcome": outcome_line(outcome)}
     if action == "complete":
         payload["effects"] = []

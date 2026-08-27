@@ -198,3 +198,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 14008 | DEDICATED PLAN SELECTION AND THE RESUME ACTION — a SELECT before a CLASSIFY, an ordinal never an id (BRIEF-0077-c, no schema change) | BRIEF-0077-c |  |
 | 14086 | REQUIREMENT ANCHORING — a knowledge gate is legitimate only on a learnable subject (BRIEF-0078-a, schema v1.96) | BRIEF-0078-a | v1.96 |
 | 14154 | G1 — subject-vocabulary hygiene, deferred (BRIEF-0078-a, no schema change) | BRIEF-0078-a |  |
+| 14177 | C2 — A BLOCKED STEP IS AN OUTCOME, NOT AN ABSENCE (BRIEF-0078-b, no schema change) | BRIEF-0078-b |  |
