@@ -2,7 +2,7 @@
 id: TICKET-0078
 title: Day narrative under an unmet prerequisite -- requirement anchoring, blocked band, learned rumor
 type: bug
-status: intake
+status: live-gate
 created: 2026-08-27
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
