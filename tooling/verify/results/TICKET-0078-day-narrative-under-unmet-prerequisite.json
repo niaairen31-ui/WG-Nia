@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0078-day-narrative-under-unmet-prerequisite",
-  "when": "2026-08-27T15:47:31.030231+00:00",
+  "when": "2026-08-27T15:58:33.173132+00:00",
   "green": true,
   "checks": [
     {
@@ -21,7 +21,7 @@
     {
       "check": "day_mutations.py",
       "status": "PASS",
-      "msg": "PASS: day_mutations \u2014 emission bijection, npc_move absence, status/vocabulary discipline, never-applies, every-type-applicable, route shape, no agenda_id/step_id, entity_creation parks, the effects contract, no forced subject, and BB1's resolve precondition are all intact"
+      "msg": "PASS: day_mutations \u2014 emission bijection, npc_move absence, status/vocabulary discipline, never-applies, every-type-applicable, route shape, no agenda_id/step_id, entity_creation parks, the effects contract, no forced subject, BB1's resolve precondition, and BRIEF-0078-c's new_knowledge emission/duplicate-guard gates (R13-R17) are all intact"
     },
     {
       "check": "day_prompt_delivery.py",
