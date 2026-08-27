@@ -43,6 +43,24 @@ R12 (BRIEF-0075-f, decision BB1 — the remaining-work invariant):
 `_load_evaluated_steps`'s query excludes them via a `.not_in(...)` call —
 without this, a multi-day continuation would re-roll an already-approved
 step forever. Fail-closed and vacuity-guarded.
+
+--- BRIEF-0078-b (blocked band and narration) ---
+
+R13: `BAND_MARKERS`' key set is exactly the four bands, and `"[BLOQUÉ]"` is
+its value for `BLOCKED_BAND`.
+R14: `judge_narration` still contains a zero-length `fact_sheet.steps`
+branch that returns `passed=False`; zero such branches located is a
+FAILURE. This does NOT permit an empty fact sheet — that would encode the
+opposite of this brief.
+R15: `_BLOCKED_DETAIL_FR`'s key set equals `REQUIREMENT_TYPES` in both
+directions, and `requirement_detail_fr` raises on an unknown type.
+R16: `_append_blocked_step`'s body contains no `db`, `select(`, `chat(`,
+`datetime` or `randint`, and its single `.append(` call sits behind at
+least three guard `if` statements (the three conjuncts).
+R17: `blocked_reason` is defined nowhere in `src/world_engine/`, and
+`cockpit/routes/day.py` imports it nowhere — no structure without a reader.
+R18: `resolution.py` contains no `"blocked"` literal — the fourth band is
+Python-assigned by the day chain, never rolled.
 """
 from __future__ import annotations
 
@@ -61,6 +79,7 @@ DAY_CONCORDANCE_FILE = SRC / "day_concordance.py"
 DAY_EXTRACT_FILE = SRC / "day_extract.py"
 DAY_ROUTE_FILE = SRC / "cockpit" / "routes" / "day.py"
 WRITES_PIPELINE_FILE = SRC / "writes" / "pipeline.py"
+RESOLUTION_FILE = SRC / "resolution.py"
 
 DAY_CHAIN_FILES = (
     DAY_RESOLVE_FILE, DAY_NARRATION_FILE, DAY_NARRATION_GUARD_FILE,
@@ -484,6 +503,203 @@ def check_terminal_status_excluded() -> None:
         )
 
 
+def check_band_markers_four_bands() -> None:
+    """R13 (BRIEF-0078-b item 6): BAND_MARKERS' key set is exactly the four
+    bands, and "[BLOQUÉ]" is its value for BLOCKED_BAND."""
+    narration_tree = _parse(DAY_NARRATION_FILE)
+    resolve_tree = _parse(DAY_RESOLVE_FILE)
+    if narration_tree is None or resolve_tree is None:
+        return
+
+    blocked_band = None
+    for node in ast.walk(resolve_tree):
+        name, value = None, None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name, value = node.targets[0].id, node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            name, value = node.target.id, node.value
+        if name == "BLOCKED_BAND" and isinstance(value, ast.Constant):
+            blocked_band = value.value
+    if blocked_band is None:
+        fail(f"day_narration R13: {_rel(DAY_RESOLVE_FILE)}: BLOCKED_BAND not found")
+        return
+
+    markers_dict = None
+    for node in ast.walk(narration_tree):
+        name, value = None, None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name, value = node.targets[0].id, node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            name, value = node.target.id, node.value
+        if name == "BAND_MARKERS" and isinstance(value, ast.Dict):
+            markers_dict = value
+    if markers_dict is None:
+        fail(f"day_narration R13: {_rel(DAY_NARRATION_FILE)}: BAND_MARKERS dict not found")
+        return
+
+    keys: dict = {}
+    for k, v in zip(markers_dict.keys, markers_dict.values):
+        key_val = None
+        if isinstance(k, ast.Constant):
+            key_val = k.value
+        elif isinstance(k, ast.Name) and k.id == "BLOCKED_BAND":
+            key_val = blocked_band
+        if key_val is not None and isinstance(v, ast.Constant):
+            keys[key_val] = v.value
+    if not keys:
+        fail(f"day_narration R13: {_rel(DAY_NARRATION_FILE)}: BAND_MARKERS located but holds zero keys")
+        return
+    if set(keys) != {"success", "partial", "failure", blocked_band}:
+        fail(f"day_narration R13: BAND_MARKERS keys {sorted(keys)!r} != the four bands")
+    if keys.get(blocked_band) != "[BLOQUÉ]":
+        fail(f"day_narration R13: BAND_MARKERS[{blocked_band!r}] is {keys.get(blocked_band)!r}, expected '[BLOQUÉ]'")
+
+
+def check_judge_rejects_empty_fact_sheet() -> None:
+    """R14 (BRIEF-0078-b, invariant re-assertion): judge_narration still
+    contains a zero-length fact_sheet.steps branch that returns
+    passed=False. Do NOT write a check that permits an empty fact sheet —
+    that would encode the opposite of this brief. Zero such branches
+    located is a FAILURE."""
+    tree = _parse(DAY_NARRATION_GUARD_FILE)
+    if tree is None:
+        return
+    func = _find_function(tree, "judge_narration")
+    if func is None:
+        fail(f"{_rel(DAY_NARRATION_GUARD_FILE)}: judge_narration not found")
+        return
+    found = False
+    for node in ast.walk(func):
+        if not isinstance(node, ast.If):
+            continue
+        test = node.test
+        if not (isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not)):
+            continue
+        operand = test.operand
+        if not (isinstance(operand, ast.Attribute) and operand.attr == "steps"):
+            continue
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Return) and isinstance(inner.value, ast.Call):
+                for kw in inner.value.keywords:
+                    if kw.arg == "passed" and isinstance(kw.value, ast.Constant) and kw.value.value is False:
+                        found = True
+    if not found:
+        fail("day_narration R14: judge_narration has no zero-steps branch returning passed=False")
+
+
+def check_blocked_detail_fr_bijection() -> None:
+    """R15 (BRIEF-0078-b item 3): _BLOCKED_DETAIL_FR's key set equals
+    day_plan.REQUIREMENT_TYPES in both directions, and
+    requirement_detail_fr raises on an unknown type."""
+    tree = _parse(DAY_RESOLVE_FILE)
+    if tree is None:
+        return
+
+    detail_dict = None
+    for node in ast.walk(tree):
+        name, value = None, None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name, value = node.targets[0].id, node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            name, value = node.target.id, node.value
+        if name == "_BLOCKED_DETAIL_FR" and isinstance(value, ast.Dict):
+            detail_dict = value
+    if detail_dict is None:
+        fail(f"day_narration R15: {_rel(DAY_RESOLVE_FILE)}: _BLOCKED_DETAIL_FR not found")
+        return
+    keys = {k.value for k in detail_dict.keys if isinstance(k, ast.Constant)}
+    if not keys:
+        fail(f"day_narration R15: {_rel(DAY_RESOLVE_FILE)}: _BLOCKED_DETAIL_FR located but holds zero keys")
+        return
+
+    sys.path.insert(0, str(ROOT / "src"))
+    from world_engine.day_plan import REQUIREMENT_TYPES  # noqa: E402
+
+    if keys != set(REQUIREMENT_TYPES):
+        fail(
+            f"day_narration R15: _BLOCKED_DETAIL_FR keys {sorted(keys)!r} != "
+            f"REQUIREMENT_TYPES {sorted(REQUIREMENT_TYPES)!r}"
+        )
+
+    func = _find_function(tree, "requirement_detail_fr")
+    if func is None:
+        fail(f"day_narration R15: {_rel(DAY_RESOLVE_FILE)}: requirement_detail_fr not found")
+        return
+    if not any(isinstance(node, ast.Raise) for node in ast.walk(func)):
+        fail("day_narration R15: requirement_detail_fr contains no Raise — must fail closed on an unknown type")
+
+
+def check_append_blocked_step_purity_and_guard() -> None:
+    """R16 (BRIEF-0078-b item 4): _append_blocked_step's body contains no
+    db, select(, chat(, datetime or randint, and its .append( call sits
+    behind at least three guard `if` statements (the three conjuncts)."""
+    tree = _parse(DAY_RESOLVE_FILE)
+    if tree is None:
+        return
+    func = _find_function(tree, "_append_blocked_step")
+    if func is None:
+        fail(f"day_narration R16: {_rel(DAY_RESOLVE_FILE)}: _append_blocked_step not found")
+        return
+    forbidden = {"db", "select", "chat", "datetime", "randint"}
+    hits: set[str] = set()
+    for node in ast.walk(func):
+        if isinstance(node, ast.Name) and node.id in forbidden:
+            hits.add(node.id)
+        if isinstance(node, ast.Attribute) and node.attr in forbidden:
+            hits.add(node.attr)
+    if hits:
+        fail(f"day_narration R16: _append_blocked_step references forbidden name(s) {sorted(hits)!r} — must stay pure")
+
+    append_found = any(
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "append"
+        for node in ast.walk(func)
+    )
+    if not append_found:
+        fail(f"day_narration R16: {_rel(DAY_RESOLVE_FILE)}: _append_blocked_step never calls .append(")
+    guard_count = sum(1 for node in ast.walk(func) if isinstance(node, ast.If))
+    if guard_count < 3:
+        fail(
+            f"day_narration R16: _append_blocked_step has {guard_count} guard `if` statement(s), "
+            "expected at least 3 (the three conjuncts)"
+        )
+
+
+def check_blocked_reason_deleted() -> None:
+    """R17 (BRIEF-0078-b item 5, "no structure without a reader"):
+    blocked_reason is defined nowhere in src/world_engine/, and
+    cockpit/routes/day.py imports it nowhere."""
+    files = _all_src_files()
+    if not files:
+        fail(f"{_rel(SRC)}: zero .py files found — vacuous scan (R17)")
+        return
+    for path in files:
+        tree = _parse(path)
+        if tree is None:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "blocked_reason":
+                fail(f"day_narration R17: {_rel(path)}:{node.lineno} — blocked_reason still defined")
+
+    route_tree = _parse(DAY_ROUTE_FILE)
+    if route_tree is None:
+        return
+    for node in ast.walk(route_tree):
+        if isinstance(node, ast.ImportFrom) and any(a.name == "blocked_reason" for a in node.names):
+            fail(f"day_narration R17: {_rel(DAY_ROUTE_FILE)}:{node.lineno} — still imports blocked_reason")
+
+
+def check_resolution_never_produces_blocked() -> None:
+    """R18 (BRIEF-0078-b item 1): resolution.py contains no "blocked"
+    literal — the fourth band is Python-assigned by the day chain, never
+    rolled."""
+    tree = _parse(RESOLUTION_FILE)
+    if tree is None:
+        return
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and node.value == "blocked":
+            fail(f"day_narration R18: {_rel(RESOLUTION_FILE)}:{node.lineno} — contains the literal 'blocked'")
+
+
 def main() -> None:
     check_dice_are_python()
     check_truncation_purity()
@@ -496,6 +712,12 @@ def main() -> None:
     check_registry_wiring()
     check_no_direct_step_write()
     check_terminal_status_excluded()
+    check_band_markers_four_bands()
+    check_judge_rejects_empty_fact_sheet()
+    check_blocked_detail_fr_bijection()
+    check_append_blocked_step_purity_and_guard()
+    check_blocked_reason_deleted()
+    check_resolution_never_produces_blocked()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -504,7 +726,8 @@ def main() -> None:
         "PASS: day_narration — dice-are-Python, truncation purity, narrate's DB boundary, "
         "the judge's Python-only and anti-vacuity guards, the bounded rewrite, history "
         "append-only, declared_action write-once, PROMPT_REGISTRY wiring, V1's no-direct-"
-        "step-write boundary, and BB1's remaining-work invariant are all intact"
+        "step-write boundary, BB1's remaining-work invariant, and BRIEF-0078-b's blocked-band "
+        "gates (R13-R18) are all intact"
     )
     sys.exit(0)
 
