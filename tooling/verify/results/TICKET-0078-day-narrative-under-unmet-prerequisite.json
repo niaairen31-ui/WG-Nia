@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0078-day-narrative-under-unmet-prerequisite",
-  "when": "2026-08-27T15:28:57.480079+00:00",
+  "when": "2026-08-27T15:47:31.030231+00:00",
   "green": true,
   "checks": [
     {
@@ -16,7 +16,7 @@
     {
       "check": "day_narration.py",
       "status": "PASS",
-      "msg": "PASS: day_narration \u2014 dice-are-Python, truncation purity, narrate's DB boundary, the judge's Python-only and anti-vacuity guards, the bounded rewrite, history append-only, declared_action write-once, PROMPT_REGISTRY wiring, V1's no-direct-step-write boundary, and BB1's remaining-work invariant are all intact"
+      "msg": "PASS: day_narration \u2014 dice-are-Python, truncation purity, narrate's DB boundary, the judge's Python-only and anti-vacuity guards, the bounded rewrite, history append-only, declared_action write-once, PROMPT_REGISTRY wiring, V1's no-direct-step-write boundary, BB1's remaining-work invariant, and BRIEF-0078-b's blocked-band gates (R13-R18) are all intact"
     },
     {
       "check": "day_mutations.py",
