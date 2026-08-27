@@ -1,0 +1,57 @@
+{
+  "ticket": "TICKET-0078-day-narrative-under-unmet-prerequisite",
+  "when": "2026-08-27T15:28:57.480079+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "day_plan.py",
+      "status": "PASS",
+      "msg": "PASS: day_plan \u2014 evaluator bijection, requirement CHECKs, budget derivation, P2/positional exclusion, the positional wall, budget_cut purity, emit_plan wiring, named bounds, the D1 traversal-independence gate, BRIEF-0075-f's reconciliation/Z4/AA2 gates (R11-R21), R22's finalizer-location gate, BRIEF-0077-c's selection/resume gates (R15 retargeted, R23-R24), and BRIEF-0078-a's requirement-anchoring gates (R25-R28) are all intact"
+    },
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v1.96'"
+    },
+    {
+      "check": "day_narration.py",
+      "status": "PASS",
+      "msg": "PASS: day_narration \u2014 dice-are-Python, truncation purity, narrate's DB boundary, the judge's Python-only and anti-vacuity guards, the bounded rewrite, history append-only, declared_action write-once, PROMPT_REGISTRY wiring, V1's no-direct-step-write boundary, and BB1's remaining-work invariant are all intact"
+    },
+    {
+      "check": "day_mutations.py",
+      "status": "PASS",
+      "msg": "PASS: day_mutations \u2014 emission bijection, npc_move absence, status/vocabulary discipline, never-applies, every-type-applicable, route shape, no agenda_id/step_id, entity_creation parks, the effects contract, no forced subject, and BB1's resolve precondition are all intact"
+    },
+    {
+      "check": "day_prompt_delivery.py",
+      "status": "PASS",
+      "msg": "PASS: day_prompt_delivery \u2014 the 16 DAY_* constants are module-level, DAY_PROMPT_HEADS is the single seeding source, the one-shot embeds no text, prompt_coverage derives usages with no literal restatement, the day_feasibility exemption matches the code's actual Raise/Return shape, missing_usages checks E2 depth, and the guard runs before write_batch"
+    },
+    {
+      "check": "prompt_lean.py",
+      "status": "PASS",
+      "msg": "PASS: prompt_lean \u2014 pilot purge, affinity tier resolver, pricing relocation, example trims"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values; 89 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u2014 every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 95 check(s) discovered, 95 executed, 95 passed"
+    }
+  ]
+}
