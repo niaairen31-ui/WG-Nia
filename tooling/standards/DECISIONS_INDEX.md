@@ -178,20 +178,21 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 11916 | STYLESHEET PARTITION RULE7 FAIL-OPEN + ROW CONTAINERS UNSTRANDED (BRIEF-0060-e, no schema change) | BRIEF-0060-e |  |
 | 11978 | STYLESHEET PARTITION RULE7 (LEGACY) — coverage mirrored onto cockpit/index.html (BRIEF-0060-c, no schema change) | BRIEF-0060-c |  |
 | 12045 | CORPUS GATE — every check runs, or the gate is red (BRIEF-0060-d, no schema change) | BRIEF-0060-d |  |
-| 12113 | RED GUARDS REPAIRED — goal-read accessor and prompt-model fixture (BRIEF-0067-a, no schema change) | BRIEF-0067-a |  |
-| 12194 | TICKET-0061 LEGACY SEAL — Play sealed not migrated, the pointer made true, the rename lands (BRIEF-0061-a, BRIEF-0061-b, BRIEF-0061-c, no schema change) | BRIEF-0061-a, BRIEF-0061-b, BRIEF-0061-c |  |
-| 12336 | CLAUDE.MD BUDGET — characters and per-line length, not lines (BRIEF-0071-a, BRIEF-0071-b, no schema change) | BRIEF-0071-a, BRIEF-0071-b |  |
-| 12382 | ENGINE — SQLITE WAL CONCURRENCY POSTURE (BRIEF-0072-a, BRIEF-0072-d, no schema change) | BRIEF-0072-a, BRIEF-0072-d |  |
-| 12561 | STANDING OCCUPATION GOALS — kind discriminator, presence not action (BRIEF-0073-b, schema v1.91) | BRIEF-0073-b | v1.91 |
-| 12621 | STANDING OCCUPATION EDITOR — one selector deriving the pair (BRIEF-0073-c, no schema change) | BRIEF-0073-c |  |
-| 12642 | NPC SCHEDULES — background versus foreground, two-branch precedence, the world's phase (BRIEF-0074-a, BRIEF-0074-b, BRIEF-0074-c, schema v1.92) | BRIEF-0074-a, BRIEF-0074-b, BRIEF-0074-c | v1.92 |
-| 12815 | DAY DECLARATION SOCLE — the day is the batch, an explicit ordinal, a new surface (BRIEF-0075-a, schema v1.93) | BRIEF-0075-a | v1.93 |
-| 12857 | DAY PLAN EMISSION AND BUDGET — model proposes, code judges (BRIEF-0075-b, schema v1.94) | BRIEF-0075-b | v1.94 |
-| 12957 | EXTRACTION AND CONCORDANCE — the resolver never authors (BRIEF-0075-c, no schema change) | BRIEF-0075-c |  |
-| 13080 | RESOLUTION, FACT SHEET AND NARRATION — the prose renders, it never decides (BRIEF-0075-d, no schema change) | BRIEF-0075-d |  |
-| 13381 | MUTATION EMISSION AND THE DAY ACCOUNT — proposer, not writer (BRIEF-0075-e, no schema change) | BRIEF-0075-e |  |
-| 13508 | THE FEASIBILITY VETO — a downward-only clamp is not an exception (BRIEF-0075-g, no schema change) | BRIEF-0075-g |  |
-| 13647 | THE REMAINING-WORK INVARIANT AND THE RESOLVE PRECONDITION (BRIEF-0075-f, no schema change) | BRIEF-0075-f |  |
-| 13709 | RECONCILIATION AND CLOSURE — Z4 repairs the source, AA2 makes replace a creator act (BRIEF-0075-f, no schema change) | BRIEF-0075-f |  |
-| 13843 | DAY CHAIN PROMPT DELIVERY AND COVERAGE GUARD (BRIEF-0076-a, no schema change) | BRIEF-0076-a |  |
-| 13931 | PARKED PLANS — direct write, not auto-approved; the owner_type index rejected (BRIEF-0077-a, schema v1.95) | BRIEF-0077-a | v1.95 |
+| 12130 | RED GUARDS REPAIRED — goal-read accessor and prompt-model fixture (BRIEF-0067-a, no schema change) | BRIEF-0067-a |  |
+| 12211 | TICKET-0061 LEGACY SEAL — Play sealed not migrated, the pointer made true, the rename lands (BRIEF-0061-a, BRIEF-0061-b, BRIEF-0061-c, no schema change) | BRIEF-0061-a, BRIEF-0061-b, BRIEF-0061-c |  |
+| 12353 | CLAUDE.MD BUDGET — characters and per-line length, not lines (BRIEF-0071-a, BRIEF-0071-b, no schema change) | BRIEF-0071-a, BRIEF-0071-b |  |
+| 12399 | ENGINE — SQLITE WAL CONCURRENCY POSTURE (BRIEF-0072-a, BRIEF-0072-d, no schema change) | BRIEF-0072-a, BRIEF-0072-d |  |
+| 12578 | STANDING OCCUPATION GOALS — kind discriminator, presence not action (BRIEF-0073-b, schema v1.91) | BRIEF-0073-b | v1.91 |
+| 12638 | STANDING OCCUPATION EDITOR — one selector deriving the pair (BRIEF-0073-c, no schema change) | BRIEF-0073-c |  |
+| 12659 | NPC SCHEDULES — background versus foreground, two-branch precedence, the world's phase (BRIEF-0074-a, BRIEF-0074-b, BRIEF-0074-c, schema v1.92) | BRIEF-0074-a, BRIEF-0074-b, BRIEF-0074-c | v1.92 |
+| 12832 | DAY DECLARATION SOCLE — the day is the batch, an explicit ordinal, a new surface (BRIEF-0075-a, schema v1.93) | BRIEF-0075-a | v1.93 |
+| 12874 | DAY PLAN EMISSION AND BUDGET — model proposes, code judges (BRIEF-0075-b, schema v1.94) | BRIEF-0075-b | v1.94 |
+| 12974 | EXTRACTION AND CONCORDANCE — the resolver never authors (BRIEF-0075-c, no schema change) | BRIEF-0075-c |  |
+| 13097 | RESOLUTION, FACT SHEET AND NARRATION — the prose renders, it never decides (BRIEF-0075-d, no schema change) | BRIEF-0075-d |  |
+| 13398 | MUTATION EMISSION AND THE DAY ACCOUNT — proposer, not writer (BRIEF-0075-e, no schema change) | BRIEF-0075-e |  |
+| 13525 | THE FEASIBILITY VETO — a downward-only clamp is not an exception (BRIEF-0075-g, no schema change) | BRIEF-0075-g |  |
+| 13664 | THE REMAINING-WORK INVARIANT AND THE RESOLVE PRECONDITION (BRIEF-0075-f, no schema change) | BRIEF-0075-f |  |
+| 13726 | RECONCILIATION AND CLOSURE — Z4 repairs the source, AA2 makes replace a creator act (BRIEF-0075-f, no schema change) | BRIEF-0075-f |  |
+| 13865 | DAY CHAIN PROMPT DELIVERY AND COVERAGE GUARD (BRIEF-0076-a, no schema change) | BRIEF-0076-a |  |
+| 13953 | PARKED PLANS — direct write, not auto-approved; the owner_type index rejected (BRIEF-0077-a, schema v1.95) | BRIEF-0077-a | v1.95 |
+| 14008 | DEDICATED PLAN SELECTION AND THE RESUME ACTION — a SELECT before a CLASSIFY, an ordinal never an id (BRIEF-0077-c, no schema change) | BRIEF-0077-c |  |

@@ -4,6 +4,13 @@ module-budget headroom (TICKET-0077, BRIEF-0077-a) — the
 otherwise: `_reconciliation_dict`, `_finalize_continue`,
 `_revised_plan_matches_remaining`, `_finalize_modify`, `_finalize_replace`,
 `_reconcile_and_finalize`, in that order.
+
+`_reconcile_and_finalize` (BRIEF-0077-c) now takes the plan `day_plan_select`
+chose rather than assuming the single active agenda, and dispatches on an
+`action` — `continue`/`modify`/`replace`/`resume` — derived from the
+model's three-value verdict plus the selected plan's MEASURED status
+(`day_reconcile.plan_action`). `resume` swaps which plan is active before
+dispatch and reuses `continue`'s handler unchanged.
 """
 
 from __future__ import annotations
@@ -16,9 +23,10 @@ from sqlmodel import Session, select
 from .. import day_plans
 from ..day_concordance import ConcordanceResult, plan_context
 from ..day_plan import emit_plan
-from ..day_reconcile import Reconciliation, reconcile
+from ..day_reconcile import Reconciliation, plan_action, reconcile
 from ..llm_parse import LlmParseError
 from ..models import Agenda, AgendaStep, Character, PassPlay
+from ..writes import write_agenda_status
 
 
 def _reconciliation_dict(recon: Reconciliation, mutation_ids: list[str]) -> dict:
@@ -153,7 +161,24 @@ def _reconcile_and_finalize(
     except LlmParseError as exc:
         raise HTTPException(status_code=502, detail=f"reconciliation failed: {exc}") from exc
 
-    # R2 (verify): the dispatch's key set equals RECONCILE_VERDICTS, both
+    # BRIEF-0077-c: `selected_status` is read BEFORE any write, and
+    # `plan_action` maps the model's verdict plus that MEASURED status onto
+    # the dispatch action — `resume` is derived, never reported by the model.
+    selected_status = agenda.status
+    action = plan_action(recon.verdict, selected_status)
+    if action != "replace" and selected_status == "paused":
+        # Swap: park whichever plan is currently active, then activate the
+        # selected (paused) one. The park runs first so `write_agenda_status`'s
+        # one-active-per-character guard cannot normally fire here; if it
+        # somehow does, its own message becomes the 409 detail.
+        day_plans.park_active_plan(character, db)
+        try:
+            write_agenda_status(db, agenda=agenda, status="active")
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        db.flush()
+
+    # R2 (verify): the dispatch's key set equals EXPECTED_PLAN_ACTIONS, both
     # directions — a real dict, not an if/elif chain, so the bijection is
     # a static, checkable fact.
     handlers: dict[str, Callable[[], dict]] = {
@@ -165,4 +190,11 @@ def _reconcile_and_finalize(
             agenda.world_id, character, pass_play, agenda, recon, concordance_result, db,
         ),
     }
-    return handlers[recon.verdict]()
+    # `resume` reuses `continue`'s handler UNCHANGED (Scope IN item 5e): a
+    # resumed plan's content doesn't change, only which plan is active does
+    # — the distinct key is what makes the action visible to dispatch and
+    # to R12, not a different code path.
+    handlers["resume"] = handlers["continue"]
+    result = handlers[action]()
+    result["reconciliation"]["action"] = action
+    return result

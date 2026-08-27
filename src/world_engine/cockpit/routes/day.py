@@ -31,6 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
+from ... import day_plan_select, day_plans
 from ...day_concordance import ConcordanceResult, concord, emit_germs, plan_context
 from ...day_extract import extract_factions, extract_persons, extract_places
 from ...day_feasibility import VetoVerdict, veto as feasibility_veto
@@ -170,7 +171,7 @@ def declare_day(body: DayDeclareBody, db: Session = Depends(get_session)) -> dic
             detail=(
                 "day chain unavailable: no active prompt_template with a version for "
                 f"{', '.join(missing)} -- run "
-                "python scripts/apply_ticket_0076_day_prompt_seed.py"
+                "python scripts/apply_ticket_0077_plan_select_seed.py"
             ),
         )
 
@@ -456,15 +457,6 @@ def _load_plannable_day(batch_id: str, world_id: str, db: Session) -> PassPlay:
     return pass_play
 
 
-def _load_standing_agenda(character: Character, db: Session) -> Optional[Agenda]:
-    """The player's standing agenda, if any (BRIEF-0075-f — REPLACES the
-    S3 refusal from BRIEF-0075-b: an active agenda no longer blocks a new
-    declaration outright, it routes to reconciliation instead)."""
-    return db.exec(
-        select(Agenda).where(Agenda.owner_entity_id == character.id, Agenda.status == "active")
-    ).first()
-
-
 def _finalize_plan(
     world_id: str, character: Character, pass_play: PassPlay, raw_steps: list, db: Session,
 ) -> dict:
@@ -522,35 +514,43 @@ def _finalize_plan(
 def plan_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     """Emit and persist a day plan (TICKET-0075, BRIEF-0075-b; extraction and
     concordance, BRIEF-0075-c; reconciliation, BRIEF-0075-f as corrected by
-    AMENDMENT 1). ONE model call for the plan (F1), preceded by the
-    extraction/concordance stage (C1: the resolver never authors — an
-    unmatched person only ever reaches canon as a parked germ). Fail-closed:
-    the batch must belong to the active world and its `pass_play.status`
-    must be `submitted` (a second call on the same batch fails here —
-    `status` is now `resolving`). The S3 refusal from -b is GONE: when the
-    player already holds an active agenda, the declaration is reconciled
-    against it instead of being rejected outright. `agenda_id`/`step_id`
-    never appear in the response — the player never sees the agenda (ticket
-    Scope OUT)."""
+    AMENDMENT 1; dedicated plan selection, TICKET-0077/BRIEF-0077-c). ONE
+    model call for the plan (F1), preceded by the extraction/concordance
+    stage (C1: the resolver never authors — an unmatched person only ever
+    reaches canon as a parked germ). Fail-closed: the batch must belong to
+    the active world and its `pass_play.status` must be `submitted` (a
+    second call on the same batch fails here — `status` is now
+    `resolving`). A dedicated model call (`day_plan_select.select_plan`)
+    picks which of the player's open plans, if any, the declaration
+    targets — ONE OF among ALL open (active or paused) plans, never only
+    the active one; `None` means the declaration opens something new, and
+    the standing active plan (if any) is parked before a fresh one is
+    emitted. `agenda_id`/`step_id` never appear in the response — the
+    player never sees the agenda (ticket Scope OUT)."""
     world_id = _crud._world_id(db)
     pass_play = _load_plannable_day(batch_id, world_id, db)
     character = _resolve_player_character(world_id, db)
 
-    # Extraction and concordance run BEFORE plan emission or reconciliation
-    # (BRIEF-0075-c, C1; ordering re-asserted by BRIEF-0075-f's Wiring): the
-    # resolver never authors, and its result only ever reaches either path
-    # as a resolved name or a role, never a canon id the model could misuse.
-    # A failure here reports and stops — no plan row, no germ row, nothing
-    # committed (Scope IN item 4).
+    # Extraction and concordance run BEFORE plan emission, selection or
+    # reconciliation (BRIEF-0075-c, C1; ordering re-asserted by
+    # BRIEF-0075-f's Wiring): the resolver never authors, and its result
+    # only ever reaches either path as a resolved name or a role, never a
+    # canon id the model could misuse. A failure here reports and stops —
+    # no plan row, no germ row, nothing committed (Scope IN item 4).
     try:
         concordance_result, germ_ids = _extract_and_concord(pass_play, character, db)
     except LlmParseError as exc:
         raise HTTPException(status_code=502, detail=f"day extraction failed: {exc}") from exc
 
-    standing_agenda = _load_standing_agenda(character, db)
-    if standing_agenda is not None:
-        result = _reconcile_and_finalize(character, pass_play, standing_agenda, concordance_result, db)
+    plans = day_plans.open_plans(character, db)
+    try:
+        selected = day_plan_select.select_plan(pass_play.declared_action, plans, db)
+    except LlmParseError as exc:
+        raise HTTPException(status_code=502, detail=f"plan selection failed: {exc}") from exc
+    if selected is not None:
+        result = _reconcile_and_finalize(character, pass_play, selected, concordance_result, db)
     else:
+        day_plans.park_active_plan(character, db)
         try:
             raw_steps = emit_plan(
                 pass_play.declared_action, character, db,

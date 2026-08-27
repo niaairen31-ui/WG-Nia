@@ -2009,6 +2009,33 @@ Déclaration du jour : {declaration}
 Classe cette déclaration par rapport au plan en cours.\
 """
 
+DAY_PLAN_SELECT_SYSTEM_PROMPT = """\
+Tu identifies à quel plan en cours se rattache la déclaration du jour d'un \
+joueur. On te donne la liste numérotée de ses plans ouverts (certains sont \
+en pause) et sa déclaration.
+
+RÈGLES :
+- "selected" : le NUMÉRO du plan auquel la déclaration se rattache, ou null \
+si la déclaration ne se rattache à aucun d'eux et ouvre quelque chose de \
+neuf.
+- Ne choisis un plan que si la déclaration poursuit, reprend ou infléchit \
+CE plan précis. Dans le doute, réponds null.
+- "rationale" : une phrase courte justifiant ton choix.
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien \
+d'autre :
+{"selected":<entier ou null>,"rationale":"<...>"}\
+"""
+
+DAY_PLAN_SELECT_USER_TEMPLATE = """\
+Plans ouverts du joueur :
+{plans}
+
+Déclaration du jour : {declaration}
+
+À quel plan cette déclaration se rattache-t-elle, s'il y en a un ?\
+"""
+
 DAY_PROMPT_HEADS = (
     dict(
         id="pt-day-plan",
@@ -2088,6 +2115,16 @@ DAY_PROMPT_HEADS = (
         system_prompt=DAY_RECONCILE_SYSTEM_PROMPT,
         user_template=DAY_RECONCILE_USER_TEMPLATE,
         variables=["agenda_title", "steps", "declaration"],
+        destination="local",
+    ),
+    dict(
+        id="pt-day-plan-select",
+        name="Journée — sélection du plan visé",
+        usage="day_plan_select",
+        world_id=None,
+        system_prompt=DAY_PLAN_SELECT_SYSTEM_PROMPT,
+        user_template=DAY_PLAN_SELECT_USER_TEMPLATE,
+        variables=["plans", "declaration"],
         destination="local",
     ),
 )

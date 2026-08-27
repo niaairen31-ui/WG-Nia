@@ -59,8 +59,35 @@ from .prompt_store import current_prompt
 
 RECONCILE_VERDICTS: tuple[str, ...] = ("continue", "modify", "replace")
 
+# The dispatch's vocabulary, which is NOT the model's. `resume` is derived
+# by Python from a measured fact (the selected plan's status), never
+# reported by the model: asking a model to restate something a SELECT
+# already knows adds a failure mode and buys nothing. TICKET-0077,
+# BRIEF-0077-c — decision D2, "four verdicts", landed as four ACTIONS.
+PLAN_ACTIONS: tuple[str, ...] = ("continue", "modify", "replace", "resume")
+
 # Same mild repetition controls as the rest of the day chain's emission calls.
 RECONCILE_OPTIONS: dict = {"repeat_penalty": 1.1, "repeat_last_n": 128}
+
+
+def plan_action(verdict: str, selected_status: str) -> str:
+    """Map a model verdict plus the selected plan's MEASURED status onto a
+    dispatch action. Total over RECONCILE_VERDICTS x OPEN_PLAN_STATUSES —
+    an unknown pair raises, fail-closed."""
+    mapping = {
+        ("continue", "active"): "continue",
+        ("continue", "paused"): "resume",
+        ("modify", "active"): "modify",
+        # revision is BRIEF-0077-d; until then a paused plan is resumed
+        # unchanged and `modify`'s 422 is not reached from this path
+        ("modify", "paused"): "resume",
+        ("replace", "active"): "replace",
+        ("replace", "paused"): "replace",
+    }
+    key = (verdict, selected_status)
+    if key not in mapping:
+        raise ValueError(f"plan_action: no mapping for verdict={verdict!r}, selected_status={selected_status!r}")
+    return mapping[key]
 
 
 @dataclass(frozen=True)

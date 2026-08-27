@@ -12108,6 +12108,23 @@ OUT item 6). `run.py` gained no `--all` flag or default corpus mode
 check is, through a ticket's own arrow, because a runner mode could not be
 named from a `### Machine-checkable` section in the first place.
 
+**Second occurrence of the linked-checks-only failure mode (TICKET-0077,
+BRIEF-0077-b).** BRIEF-0077-a relocated six reconciliation finalizers from
+`cockpit/routes/day.py` to `cockpit/day_reconcile_apply.py`; three rules in
+`day_plan.py` (R12/R14/R19) still resolved them in the old file and went
+red on `main` the moment that commit landed. TICKET-0077's own
+Machine-checkable section linked six checks and not `day_plan.py`, and not
+`corpus_gate.py` either, so `run.py` reported green on a corpus that was
+not — the identical shape as `observation_surface.py`/TICKET-0059
+(BRIEF-0060-a), one section up. BRIEF-0077-b retargets the three rules,
+adds R22 (a location-drift guard so a future move fails as one location
+message instead of three unrelated "not found" lines), and closes TICKET-
+0077's own gap by adding both `day_plan.py` and `corpus_gate.py` to its
+Machine-checkable section. Standing rule, now carried by two occurrences:
+**every ticket's Machine-checkable section links `corpus_gate.py`** —
+already recorded in `CLAUDE.md`; this entry is the second measured
+instance of what happens when a ticket does not.
+
 ---
 
 ## RED GUARDS REPAIRED — goal-read accessor and prompt-model fixture (BRIEF-0067-a, no schema change)
@@ -13814,7 +13831,12 @@ unchanged (no `reconciliation` key in the response).
 finalize`, `routes/day.py`) — `RECONCILE_VERDICTS` and the `handlers`
 dict's key set are the same static, checkable fact (day_plan.py check
 R12), the same `_EVALUATORS`/`REQUIREMENT_TYPES` bijection idiom this
-ticket has used throughout.
+ticket has used throughout. **Superseded in shape, not in spirit, by
+BRIEF-0077-c** (see "DEDICATED PLAN SELECTION AND THE RESUME ACTION"
+below): the dispatch now keys on a four-value `action`
+(`PLAN_ACTIONS`), not `RECONCILE_VERDICTS` directly, and R12 checks the
+`handlers` key set against `EXPECTED_PLAN_ACTIONS` instead — the
+real-dict-not-if/elif property this bullet documents is unchanged.
 
 **Ticket-closure sweep (Scope IN item 4).** Every named deferral
 confirmed still deferred, by diff (nothing outside this brief's own file
@@ -13980,6 +14002,84 @@ risk `paused` introduces. The guard is now replayed verbatim at
 `write_agenda_status`'s own `status == "active"` branch — same tier, same
 existence-query shape, closing the gap rather than converting the
 invariant into something the `PATCH` route caller must remember to check.
+
+---
+
+## DEDICATED PLAN SELECTION AND THE RESUME ACTION — a SELECT before a CLASSIFY, an ordinal never an id (BRIEF-0077-c, no schema change)
+
+After BRIEF-0077-a a player can hold several open plans (`active` and
+`paused`), but `plan_day` still looked only at the single `active` one
+(`_load_standing_agenda`): a declaration that means "I go back to what I
+was doing before" could not find a parked plan, and resuming stayed a
+manual two-step through the Creation intrigues tab. This brief adds ONE
+model call, `day_plan_select.select_plan`, whose only job is to say which
+of the player's open plans a declaration targets, or none, and wires the
+`resume` transition Python derives from the answer.
+
+**(a) Selection is a SEPARATE model call from reconciliation — Nia's
+decision C3, "un appel modèle dédié juste à cela".** `day_reconcile.
+reconcile` already classifies a declaration against ONE agenda's remaining
+steps (`continue`/`modify`/`replace`); collapsing "which plan" and "what
+does it mean for that plan" into a single call was considered and
+rejected. A dedicated SELECT keeps each call's failure mode narrow and
+legible — a bad selection is a wrong plan, a bad reconciliation is a wrong
+classification of an already-known plan — and keeps `day_reconcile.py`'s
+prompt untouched (S2: an already-seeded head's text is not retouched by
+this brief).
+
+**(b) The model answers with an ORDINAL into a Python-owned list, never an
+id.** `select_plan` builds the numbered `{plans}` list itself, in the order
+`day_plans.open_plans` returns it; the model's `"selected"` field is that
+number or `null`, exactly as `day_reconcile` already has the model cite a
+`step_order` rather than a `step_id`. A hallucinated identifier therefore
+cannot reach canon — there is no identifier to hallucinate. An
+out-of-range or non-integer answer is a parse failure
+(`llm_parse.LlmParseError`), never a silent fallback to `None` or to plan
+1: the same discipline BRIEF-0075-f's own decision record calls "the worst
+possible failure mode: it looks like inertia and is actually a swallowed
+error." `MAX_SELECTABLE_PLANS` does not exist — every open plan is
+offered, uncapped (decision G).
+
+**(c) Decision D2 — four dispatch ACTIONS, three model VERDICTS.**
+`day_reconcile.RECONCILE_VERDICTS` stays exactly `("continue", "modify",
+"replace")`; the model is never asked to report whether the plan it
+classified was active or paused; asking it to restate a fact Python
+already measured (`agenda.status`) would add a failure mode for no
+benefit. Instead `day_reconcile.plan_action(verdict, selected_status)` is a
+total, code-only mapping from `RECONCILE_VERDICTS x
+day_plans.OPEN_PLAN_STATUSES` (six pairs) onto a four-value ACTION
+vocabulary, `PLAN_ACTIONS = ("continue", "modify", "replace", "resume")`:
+`continue`/`modify` on an `active` plan pass through unchanged;
+`continue`/`modify` on a `paused` plan both land on `resume` (plan
+revision on a resumed plan is BRIEF-0077-d's; until then a paused plan
+resumes unchanged and `modify`'s 422 is unreachable from this path);
+`replace` is `replace` regardless of the selected plan's status, since
+`_finalize_replace` parks whatever is ACTIVE and opens a fresh plan
+unconditionally. `_reconcile_and_finalize` (`cockpit/day_reconcile_apply.
+py`) dispatches on the ACTION, not the verdict; `resume`'s handler is
+`handlers["continue"]` reused verbatim — a resumed plan's content does not
+change, only which plan is active does, so the distinct dispatch key is
+what makes the action visible and checkable (`day_plan.py` R12/R23), not a
+different code path. Before dispatch, a `resume`/non-`replace` action on a
+`paused` selection parks whichever plan is currently active
+(`day_plans.park_active_plan`) and activates the selected one
+(`write_agenda_status`) — park before activate, flushed between, so the
+one-active-per-character guard cannot normally fire; if it somehow does,
+its `ValueError` surfaces as a 409, never a 500.
+
+**(d) `plan_day` routes selection before reconciliation, and the fresh-plan
+path now explicitly parks.** `plan_day` calls `day_plans.open_plans` then
+`day_plan_select.select_plan`; a non-`None` result goes to
+`_reconcile_and_finalize` against the SELECTED plan (which may be paused);
+`None` means the declaration opens something new, and — because selection
+now runs against ALL open plans rather than gating on "is there an active
+one" — the standing active plan, if any, must be parked explicitly
+(`day_plans.park_active_plan`) before a fresh plan is emitted, a step the
+old `_load_standing_agenda`-gated branch got for free. `_load_standing_agenda`
+is deleted (an unused reader is structure without a reader); `tooling/verify/
+checks/day_plan.py` R15 is retargeted from it to `day_plan_select.select_plan`,
+the same kind of retarget BRIEF-0077-b already applied to R12/R14/R19 for a
+relocation.
 
 ---
 

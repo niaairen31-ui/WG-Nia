@@ -2,10 +2,16 @@
 (TICKET-0076, BRIEF-0076-a). Stdlib `ast` and text only, no DB — same
 FAILURES/fail()/`_parse`/`_rel` idiom as `day_feasibility.py`.
 
-R1: the 14 named `DAY_*` constants are module-level in `seed_pilot.py`, and
+Counts updated by TICKET-0077/BRIEF-0077-c (8 -> 9 heads, 14 -> 16
+constants) for the `day_plan_select` usage. The counts are deliberately
+literal and deliberately brittle: a head added to `seed_pilot.py` without
+a matching delivery script is exactly the TICKET-0076 defect, and a check
+that auto-counted whatever it found could never catch it.
+
+R1: the 16 named `DAY_*` constants are module-level in `seed_pilot.py`, and
 `seed()` contains no `Assign` to any of them.
-R2: `DAY_PROMPT_HEADS` is module-level with exactly 8 entries, each a
-`dict(...)` call carrying exactly the 8 required keys; the 8 `id` values
+R2: `DAY_PROMPT_HEADS` is module-level with exactly 9 entries, each a
+`dict(...)` call carrying exactly the 8 required keys; the 9 `id` values
 match the anchors from the brief's mini-RECON.
 R3: `seed()` contains no `upsert_prompt_template` call whose `usage` starts
 with `day_` — the loop over `DAY_PROMPT_HEADS` is the only seeding path.
@@ -53,6 +59,7 @@ DAY_CONSTANTS = (
     "DAY_REWRITE_SYSTEM_PROMPT", "DAY_REWRITE_USER_TEMPLATE",
     "DAY_FEASIBILITY_SYSTEM_PROMPT", "DAY_FEASIBILITY_USER_TEMPLATE",
     "DAY_RECONCILE_SYSTEM_PROMPT", "DAY_RECONCILE_USER_TEMPLATE",
+    "DAY_PLAN_SELECT_SYSTEM_PROMPT", "DAY_PLAN_SELECT_USER_TEMPLATE",
 )
 REQUIRED_HEAD_KEYS = {
     "id", "name", "usage", "world_id", "system_prompt", "user_template",
@@ -61,7 +68,7 @@ REQUIRED_HEAD_KEYS = {
 EXPECTED_HEAD_IDS = {
     "pt-day-plan", "pt-day-extract-place", "pt-day-extract-person",
     "pt-day-extract-faction", "pt-day-narration", "pt-day-rewrite",
-    "pt-day-feasibility", "pt-day-reconcile",
+    "pt-day-feasibility", "pt-day-reconcile", "pt-day-plan-select",
 }
 DEGRADING_USAGES = frozenset({"day_feasibility"})
 
@@ -168,8 +175,8 @@ def check_day_prompt_heads() -> None:
         fail(f"day_prompt_delivery R2: {_rel(SEED_FILE)}: DAY_PROMPT_HEADS is not a tuple literal")
         return
     _record("R2", len(heads_node.elts))
-    if len(heads_node.elts) != 8:
-        fail(f"day_prompt_delivery R2: {_rel(SEED_FILE)}: DAY_PROMPT_HEADS has {len(heads_node.elts)} entries, expected 8")
+    if len(heads_node.elts) != 9:
+        fail(f"day_prompt_delivery R2: {_rel(SEED_FILE)}: DAY_PROMPT_HEADS has {len(heads_node.elts)} entries, expected 9")
 
     ids_found: set[str] = set()
     for elt in heads_node.elts:
@@ -474,7 +481,7 @@ def main() -> None:
             print(f"FAIL: {msg}")
         sys.exit(1)
     print(
-        "PASS: day_prompt_delivery — the 14 DAY_* constants are module-level, DAY_PROMPT_HEADS "
+        "PASS: day_prompt_delivery — the 16 DAY_* constants are module-level, DAY_PROMPT_HEADS "
         "is the single seeding source, the one-shot embeds no text, prompt_coverage derives "
         "usages with no literal restatement, the day_feasibility exemption matches the code's "
         "actual Raise/Return shape, missing_usages checks E2 depth, and the guard runs before "
