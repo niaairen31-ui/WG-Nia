@@ -14083,4 +14083,201 @@ relocation.
 
 ---
 
+## REQUIREMENT ANCHORING — a knowledge gate is legitimate only on a learnable subject (BRIEF-0078-a, schema v1.96)
+
+TICKET-0078: a day plan could gate step 1 on `{"type":"knowledge",
+"target_key":"room_setup"}` — a key the model invented with no canon row
+behind it — and `budget_cut` breaking at the first unmet step then emptied
+the whole day. The inversion the doctrine forbids: the model was proposing
+the CRITERION a Python gate would enforce, not the action a Python gate
+would judge. This step restores the boundary: "model proposes, code
+judges" now applies to the REQUIREMENT itself, not only to the character's
+state against it.
+
+**B3 — the anchoring predicate.** A `knowledge` requirement's `target_key`
+survives emission only when it matches a `knowledge.subject` held, in this
+world, by an entity OTHER than the player, on a row that is not
+`is_secret`. `_anchorable_subjects` (`day_plan.py`) is the ONE place this
+predicate lives, expressed as a single explicitly-filtered `select(`:
+`Entity.world_id == character.world_id` (in-world only — a cross-world
+name collision must not anchor a gate), `Knowledge.entity_id !=
+character.id` (the player's OWN held subjects can never anchor a gate on
+themselves — a gate on something already held is dead, not legitimate),
+`Knowledge.is_secret == False` (structural, not instructional: a secret
+subject is both an unsatisfiable gate and a leak, since the reject message
+would itself disclose that the secret exists — the same doctrine that
+excludes `character.secrets` and `is_secret` rows from every context
+assembler). An unanchored `knowledge` requirement is DROPPED at emission
+(`anchor_requirements`), never the step it sat on: the step keeps its
+objective and loses only the gate, becoming an ungated step — the intended
+outcome, a day that runs, not a degradation. `_held_subjects` (also
+`day_plan.py`) feeds the emission model the player's own held subjects
+(`held_subjects_summary`, appended verbatim to `emit_plan`'s user message,
+the `concordance_summary`/`standing_steps_summary` precedent — never a new
+prompt-template placeholder) so it stops proposing a dead gate in the
+first place; `anchor_requirements` catches the opposite error, a gate on
+something that exists for NOBODY. Together they carve out exactly the
+legal band: **you can only be locked on something that exists to be
+learned.**
+
+**Schema v1.96 — `idx_knowledge_subject`.** `knowledge` carried no index on
+`subject`; anchoring's join through `entity` would otherwise be a full
+scan on every `/plan` call. Index-only migration
+(`migrate_v1_96_knowledge_subject_index.py`), no table rebuild — this
+column needed no CHECK, no NOT NULL change, nothing an index add can't do
+alone. `_anchorable_subjects` and `_held_subjects` are its only readers,
+and each runs AT MOST ONCE per `/plan` call (one explicitly filtered
+`select(`, not once per requirement) — the enumeration-scope discipline
+applied to a lookup that previously did not exist.
+
+**E2 — `/plan` reports, it does not refuse.** `_finalize_plan` already
+computed `first_excluded_index` and used it for nothing; this step wires
+it to two new response keys, `blocked_at_index` and `blocked_reason`
+(non-null only when the excluded step's own requirements are unmet — a
+budget-only cut is not a block), alongside `anchoring.dropped` (the
+anchoring drop report). The day is still written and `/plan` still
+returns 200 exactly as before: visibility, not refusal. Rendering the
+blocked step as narrative prose is BRIEF-0078-b's job — after this step an
+anchored-but-unmet step 1 still produces the pre-existing one-line
+failure at `/resolve`.
+
+**`Verdict` gains a `type` field, placed FIRST.** BRIEF-0078-b and -c both
+need to know which requirement TYPE produced an unmet verdict (to decide
+whether a blocked step should propose a learned rumor); rather than thread
+`RequirementSpec` alongside `Verdict` everywhere, each of the four
+evaluators now sets `type=req.type` on its own `Verdict`. `type` is FIRST
+in the dataclass, not appended, so that a positional `Verdict(...)`
+construction anywhere in the tree (none exist today — checked, not
+assumed) would fail loudly on the wrong type in the wrong slot rather than
+silently shifting every other field one place over.
+
+## G1 — subject-vocabulary hygiene, deferred (BRIEF-0078-a, no schema change)
+
+The pilot seed already holds numerous distinct `knowledge.subject` values
+with visible near-twins (`magic_existence` / `magic_awakening` /
+`personal_magic_incident` / `local_magic_incidents`; `lettre_innommee` /
+`the_unnamed`), no normalization at the write chokepoint
+(`writes/knowledge.py`), and exact-string comparison in the existing
+duplicate guard (`cockpit/mutations.py`). Anchoring gives this problem its
+first READER — `_anchorable_subjects` now cares whether two near-duplicate
+strings are "the same subject" — but does not introduce the problem, and
+is deliberately not the ticket that fixes it: a normalization pass, an
+alias table, or a canonical-vocabulary table is real scope, and
+anchoring's own C2/D3 design (BRIEF-0078-b/-c) makes anchoring PRECISION
+affect flavour only, never liveness — a near-duplicate subject can still
+produce a legitimate gate the player cannot open from any NPC, and a
+blocked step's proposed rumor opens it through play anyway. Reopen this
+deferral once either becomes true, verified, not estimated: `SELECT
+COUNT(DISTINCT subject) FROM knowledge` on a live world exceeds **150**,
+OR a similarity pass measures more than **20%** of subjects within
+Levenshtein distance <= 3 of another.
+
+---
+
+## C2 — A BLOCKED STEP IS AN OUTCOME, NOT AN ABSENCE (BRIEF-0078-b, no schema change)
+
+After BRIEF-0078-a a `knowledge` gate is anchored in canon, but an anchored
+gate the player genuinely does not meet still emptied the day:
+`budget_cut` breaks at the first unmet step, `resolve_steps` returned an
+empty list, and `judge_narration`'s own zero-step anti-vacuity guard then
+refused the fact sheet — the only way past it was a code-rendered
+one-liner (`cockpit/routes/day.py`'s old zero-outcome branch), never a real
+narrative.
+
+**The zero-step case is ELIMINATED, not excused.** The temptation this
+step's whole shape is built to resist: adding a special case to
+`judge_narration` for "blocked days." That would be a weaker judge. Instead
+`resolve_steps` (`day_resolve.py`) now appends AT MOST ONE trailing
+`StepOutcome` at `band=BLOCKED_BAND` (`_append_blocked_step`) whenever the
+budget cut excluded a step for being genuinely unmet — and ONLY then: a
+budget-only cut invents no blocked beat, a feasibility-veto truncation
+past that point owns its own reason instead, and a step that already
+FAILED on the dice keeps its own stop, never a fabricated gate beat after
+it. `day_narration_guard.py` is byte-identical after this step — its
+zero-names and zero-steps anti-vacuity guards, and `extract_names`, are
+untouched. Making the input non-empty, rather than loosening what checks
+it, is the whole point.
+
+**A blocked step was never attempted.** `day_mutations._step_action`
+widens to return `None` for it (neither `"complete"` nor `"fail"`), and
+`_emit_agenda_step_change` emits nothing for that `None` —
+`_mutation_apply_agenda_step_change`'s own action vocabulary stays exactly
+`("complete", "fail")` (R21), since no third literal is ever constructed
+into a payload. The step's `AgendaStep` therefore stays exactly as
+`pending`/`active` as it was; nothing enters the review queue for it.
+Proposing the rumor the player learns from bumping into the gate (D3) is
+NOT this step — that is BRIEF-0078-c.
+
+**French only, structurally.** `requirement_detail_fr` maps a `Verdict`'s
+`type` (BRIEF-0078-a's field) to one of four fixed French templates
+(`_BLOCKED_DETAIL_FR`) — `Verdict.reason`, the English machine text
+`evaluate_requirements` produces for logs and the `/plan` response, never
+reaches a player. The rendered detail (including a `knowledge` gate's raw
+subject label) is fed to the narration model as fact-sheet INPUT, never
+shown to the player directly; the reseeded `day_narration` prompt's marker
+rule is the safeguard that keeps the raw label out of the player-visible
+prose — it explicitly instructs the model to use the given reason "sans
+la recopier" (without copying it verbatim). This is a Live (human-gate)
+acceptance criterion, not a machine-checkable one, because it depends on
+the local model's actual behaviour.
+
+**History is sacred, again.** The `day_narration` prompt's marker rule
+gains one clause (`[BLOQUÉ]`) via a NEW `prompt_version` row
+(`scripts/apply_ticket_0078_narration_seed.py`, the
+`apply_ticket_0024_prompt_updates.py` append-version shape) — the existing
+version is never edited in place. `blocked_detail` is a new, defaulted
+`None` key on `StepFact`/`fact_sheet_dict`; a `pass_play.history` entry
+written before this step simply lacks the key on read-back — no migration,
+no rewrite of stored rows.
+
+## D3 — A BLOCKED STEP PROPOSES A RUMOR-LEVEL LEAD ON ITS OWN BLOCKING SUBJECT (BRIEF-0078-c, no schema change)
+
+Nia's own reading, verbatim from the ticket's follow-up decisions: *"un plan
+peut être créer avec un knowledge que le joueur ne détient pas ... et le
+joueur aura une piste sur comment l'obtenir (rumor) jouable la prochaine
+journée."* This is a WORLD RULE she decided, not a technical fallout of
+C2's blocked band — bumping into a door teaches a little about it.
+
+`day_mutations._emit_new_knowledge` walks a blocked outcome's
+`requirement_verdicts` and, for each unmet `knowledge` verdict, proposes a
+`new_knowledge` mutation at `_BLOCKED_LEAD_LEVEL = "rumor"` on the EXACT
+subject that blocked the step — spelling and all, no normalization (G1
+stays deferred). The proposal goes through the review queue like every
+other day-chain mutation: V1 stands, the day chain proposes and never
+applies. This is what makes REQUIREMENT ANCHORING's precision non-load-
+bearing (BRIEF-0078-a): a legitimate gate on a near-duplicate subject no
+reachable NPC holds still resolves through play instead of deadlocking,
+because the player earns a lead on it regardless of which near-twin key
+the model happened to invent.
+
+The TICKET-0077 park/resume precedent does not apply here — that is a
+DIRECT write (`writes/goals_agendas.py`) because a plan has no world
+footprint; granting knowledge has one, so it stays proposal-only.
+
+A duplicate guard (`_blocked_lead_already_proposed`) stops re-resolving the
+same blocked day from stacking identical proposals before Nia clears the
+queue. It is a DELIBERATE duplicate of `cockpit/mutations.py`'s
+`_knowledge_already_applied`, not a call into it — that guard is
+conversation-scoped and scans APPLIED rows; this one is world-scoped and
+scans the OPEN `proposed` queue, a different question with a different
+key. Bounded by the size of that queue.
+
+## H1 — ANY KNOWLEDGE LEVEL SATISFIES A GATE (BRIEF-0078-a, BRIEF-0078-c, no schema change)
+
+`_eval_knowledge` (`day_plan.py`) tests `row is not None` and never reads
+`level` — kept exactly as is, because it is what makes D3's rumor
+playable the very next day, precisely as Nia described. The price, stated
+plainly: **every knowledge gate is a one-day speed bump, never a durable
+obstacle.**
+
+H2 (a floor level carried on the unused
+`agenda_step_requirement.threshold` column, ranked via a
+`KNOWLEDGE_LEVEL_LADDER`) is the named deferral. Reactivation condition:
+*once a level escalator on repeated blocking exists* — a step blocked N
+times proposing a rising `knowledge_change`. Without that escalator, H2/H3
+would produce a permanently shut gate, which is this ticket's own bug
+returning by another door — so it stays out until the escalator exists.
+
+---
+
 *Co-built with Claude, June 2026.*

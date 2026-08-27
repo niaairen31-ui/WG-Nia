@@ -38,11 +38,18 @@ from ...day_feasibility import VetoVerdict, veto as feasibility_veto
 from ...day_mutations import emit_mutations
 from ...day_narration import detect_late_delta, narrate, rewrite as day_rewrite
 from ...day_narration_guard import JudgeVerdict, judge_narration
-from ...day_plan import DAY_BUDGET_SLOTS, EvaluatedStep, budget_cut, emit_plan, evaluate_requirements
+from ...day_plan import (
+    DAY_BUDGET_SLOTS,
+    EvaluatedStep,
+    anchor_requirements,
+    budget_cut,
+    emit_plan,
+    evaluate_requirements,
+    held_subjects_summary,
+)
 from ...day_resolve import (
     FactSheet,
     StepOutcome,
-    blocked_reason,
     fact_sheet_dict,
     freeze_facts,
     resolve_steps,
@@ -460,9 +467,14 @@ def _load_plannable_day(batch_id: str, world_id: str, db: Session) -> PassPlay:
 def _finalize_plan(
     world_id: str, character: Character, pass_play: PassPlay, raw_steps: list, db: Session,
 ) -> dict:
+    # BRIEF-0078-a, Scope IN item 7: anchoring runs BEFORE evaluate_requirements
+    # so a dropped requirement never reaches evaluate_requirements or
+    # agenda_step_requirement (E2 — reporting, never refusing: /plan still
+    # returns 200 and writes the plan exactly as it does today).
+    anchored_steps, dropped_report = anchor_requirements(raw_steps, character, db)
     evaluated_steps = [
         EvaluatedStep(step=step, verdicts=tuple(evaluate_requirements(step, character, db)))
-        for step in raw_steps
+        for step in anchored_steps
     ]
     budget_result = budget_cut(evaluated_steps, DAY_BUDGET_SLOTS)
     # BRIEF-0075-g, Y1: the veto runs AFTER budget_cut, on an already-legal
@@ -470,6 +482,15 @@ def _finalize_plan(
     # further, never widen it (day_feasibility.clamp_verdict, R1/R2).
     verdict = feasibility_veto(budget_result, character, pass_play.declared_action, db)
     active_step_index = 0 if verdict.veto_retained > 0 else None
+
+    # E2: reporting, never refusing — a budget-only cut is not a block.
+    blocked_index: Optional[int] = None
+    blocked_text: Optional[str] = None
+    if budget_result.first_excluded_index is not None:
+        excluded = evaluated_steps[budget_result.first_excluded_index]
+        if not excluded.met:
+            blocked_index = budget_result.first_excluded_index
+            blocked_text = "; ".join(v.reason for v in excluded.verdicts if not v.met)
 
     title = pass_play.declared_action.strip().splitlines()[0][:200]
     try:
@@ -507,6 +528,9 @@ def _finalize_plan(
             verdict.python_retained, verdict.veto_retained, verdict.reason,
             verdict.cited_objective, verdict.outcome,
         ),
+        "anchoring": {"dropped": dropped_report},
+        "blocked_at_index": blocked_index,
+        "blocked_reason": blocked_text,
     }
 
 
@@ -555,6 +579,7 @@ def plan_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
             raw_steps = emit_plan(
                 pass_play.declared_action, character, db,
                 concordance_summary=plan_context(concordance_result, db),
+                held_subjects_summary=held_subjects_summary(character, db),
             )
         except LlmParseError as exc:
             raise HTTPException(status_code=502, detail=f"plan emission failed: {exc}") from exc
@@ -814,21 +839,30 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     fact_sheet = freeze_facts(outcomes, concordance_result, batch, character, db)
 
     if not outcomes:
-        # Two distinct reasons a day can start with zero outcomes: step 1's
-        # own requirements were unmet (budget_cut excluded everything
-        # before any dice roll — live-discovered edge case), or the veto
-        # judged NONE of Python's retained steps plausible today
-        # (`veto_retained == 0` — a legitimate outcome, BRIEF-0075-g Scope
-        # IN item 2). Either way nothing to roll, nothing for a model to
-        # render, nothing for the judge to check: code renders it directly,
-        # citing whichever reason actually produced the empty list.
+        # BRIEF-0078-b: a step whose own requirements are unmet no longer
+        # empties `outcomes` — resolve_steps appends a trailing `blocked`
+        # StepOutcome for it instead. The ONE remaining legitimate empty
+        # case is the feasibility veto retaining zero of Python's own
+        # retained steps (`veto_retained == 0`, BRIEF-0075-g Scope IN item
+        # 2) — the veto owns that day's reason, and no blocked beat is
+        # invented for it; code renders it directly, exactly as before this
+        # ticket.
         if veto_retained == 0 and feasibility_entry and feasibility_entry.get("python_retained", 0) > 0:
             reason = feasibility_entry.get("reason") or "jugé peu plausible en une seule journée"
-        else:
-            reason = blocked_reason(agenda, character, db)
-        prose = f"La journée n'a pas pu commencer : {reason}"
-        verdict = JudgeVerdict(passed=True, reason="blocked before any step — code-rendered, judge not invoked")
-        return _finalize_resolution(batch, pass_play, fact_sheet, prose, verdict, is_replay, outcomes, character, db)
+            prose = f"La journée n'a pas pu commencer : {reason}"
+            verdict = JudgeVerdict(
+                passed=True, reason="blocked before any step — code-rendered, judge not invoked",
+            )
+            return _finalize_resolution(
+                batch, pass_play, fact_sheet, prose, verdict, is_replay, outcomes, character, db,
+            )
+        # Fail-closed: the blocked band (BRIEF-0078-b) makes a step-level
+        # empty result unreachable, and the veto-zero case above is already
+        # handled — neither a step nor the veto explains this emptiness.
+        raise HTTPException(
+            status_code=500,
+            detail="day resolution produced zero outcomes -- the blocked band should make this unreachable",
+        )
 
     fact_sheet, prose, verdict = _narrate_and_judge(fact_sheet, pass_play, db)
     return _finalize_resolution(batch, pass_play, fact_sheet, prose, verdict, is_replay, outcomes, character, db)
