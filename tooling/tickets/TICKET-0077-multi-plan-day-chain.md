@@ -2,7 +2,7 @@
 id: TICKET-0077
 title: Multi-plan day chain — parked plans, dedicated plan selection, plan revision
 type: feature
-status: escalated
+status: live-gate
 created: 2026-08-26
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
