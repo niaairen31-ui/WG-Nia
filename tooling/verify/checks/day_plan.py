@@ -117,6 +117,22 @@ target action is the right one.
 R24 (new): `day_plan_select.py` contains no `db.add(`, no
 `Agenda(`/`AgendaStep(` construction, no `_apply_mutation` call, and no
 `ProposedMutation` reference — R11's shape, applied to the new module.
+
+--- BRIEF-0078-a (requirement anchoring and the subject index) ---
+
+R25: `Verdict`'s field list starts with `type`, and all four `Verdict(`
+constructions in `day_plan.py` pass a `type=` keyword. Zero constructions
+collected is a FAILURE.
+R26: `_anchorable_subjects` exists and its body references all three of
+`world_id`, `is_secret` and a `!=`/`is_not` comparison against
+`character.id`; `_held_subjects` exists. Zero located is a FAILURE.
+R27: `anchor_requirements` is called in `cockpit/routes/day.py` and the call
+appears in `_finalize_plan` BEFORE the first reference to
+`evaluate_requirements` in that function (compare `lineno`).
+R28: `emit_plan` appends `held_subjects_summary` with `+=` to the user
+message and `held_subjects_summary` appears in NO seeded prompt constant in
+`scripts/seed_pilot.py` — proving it is appended text, not a template
+placeholder.
 """
 from __future__ import annotations
 
@@ -138,6 +154,7 @@ DAY_ROUTE_FILE = SRC / "cockpit" / "routes" / "day.py"
 DAY_RECONCILE_APPLY_FILE = SRC / "cockpit" / "day_reconcile_apply.py"
 CRUD_AGENDAS_FILE = SRC / "cockpit" / "crud" / "agendas.py"
 MUTATIONS_FILE = SRC / "cockpit" / "mutations.py"
+SEED_PILOT_FILE = ROOT / "scripts" / "seed_pilot.py"
 
 # AgendaStep/AgendaStepRequirement live in config.py, not canon.py (module_budget
 # headroom, TICKET-0075/BRIEF-0075-b) — Agenda stays in canon.py.
@@ -906,6 +923,151 @@ def check_select_reads_only() -> None:
         fail(f"day_plan R24: {_rel(DAY_PLAN_SELECT_FILE)}: zero AST nodes walked — vacuous")
 
 
+def check_verdict_type_field() -> None:
+    """R25 (BRIEF-0078-a item 3): Verdict's field list starts with `type`,
+    and all four `Verdict(` constructions in day_plan.py pass a `type=`
+    keyword. Zero constructions collected is a FAILURE."""
+    tree = _parse(DAY_PLAN_FILE)
+    if tree is None:
+        return
+    cls = _find_class(tree, "Verdict")
+    if cls is None:
+        fail(f"day_plan R25: {_rel(DAY_PLAN_FILE)}: Verdict class not found")
+        return
+    field_names = [
+        node.target.id for node in cls.body
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+    ]
+    if not field_names:
+        fail(f"day_plan R25: {_rel(DAY_PLAN_FILE)}: Verdict declares zero annotated fields")
+        return
+    if field_names[0] != "type":
+        fail(f"day_plan R25: Verdict's first field is {field_names[0]!r}, expected 'type'")
+
+    constructions = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "Verdict":
+            constructions += 1
+            kw_names = {kw.arg for kw in node.keywords}
+            if "type" not in kw_names:
+                fail(f"day_plan R25: {_rel(DAY_PLAN_FILE)}:{node.lineno} — Verdict(...) missing type= keyword")
+    if constructions == 0:
+        fail(f"day_plan R25: zero Verdict(...) constructions located in {_rel(DAY_PLAN_FILE)} — vacuous")
+
+
+def check_anchoring_readers() -> None:
+    """R26 (BRIEF-0078-a item 4): `_anchorable_subjects` exists and its body
+    references all three of `world_id`, `is_secret` and a `!=`/`is_not`
+    comparison against `character.id`; `_held_subjects` exists. Zero located
+    is a FAILURE."""
+    tree = _parse(DAY_PLAN_FILE)
+    if tree is None:
+        return
+    held = _find_function(tree, "_held_subjects")
+    anchorable = _find_function(tree, "_anchorable_subjects")
+    if held is None and anchorable is None:
+        fail(f"day_plan R26: neither _held_subjects nor _anchorable_subjects found in {_rel(DAY_PLAN_FILE)} — vacuous")
+        return
+    if held is None:
+        fail(f"day_plan R26: {_rel(DAY_PLAN_FILE)}: _held_subjects not found")
+    if anchorable is None:
+        fail(f"day_plan R26: {_rel(DAY_PLAN_FILE)}: _anchorable_subjects not found")
+        return
+
+    attrs = {node.attr for node in ast.walk(anchorable) if isinstance(node, ast.Attribute)}
+    if "world_id" not in attrs:
+        fail(f"day_plan R26: {_rel(DAY_PLAN_FILE)}: _anchorable_subjects does not reference world_id")
+    if "is_secret" not in attrs:
+        fail(f"day_plan R26: {_rel(DAY_PLAN_FILE)}: _anchorable_subjects does not reference is_secret")
+
+    has_player_exclusion = False
+    for node in ast.walk(anchorable):
+        if isinstance(node, ast.Compare) and any(isinstance(op, (ast.NotEq, ast.IsNot)) for op in node.ops):
+            operands = [node.left, *node.comparators]
+            if any(
+                isinstance(o, ast.Attribute) and o.attr == "id"
+                and isinstance(o.value, ast.Name) and o.value.id == "character"
+                for o in operands
+            ):
+                has_player_exclusion = True
+    if not has_player_exclusion:
+        fail(
+            f"day_plan R26: {_rel(DAY_PLAN_FILE)}: _anchorable_subjects has no != / is not "
+            "comparison against character.id"
+        )
+
+
+def check_anchor_requirements_wiring() -> None:
+    """R27 (BRIEF-0078-a item 7): `anchor_requirements` is called in
+    `cockpit/routes/day.py` and the call appears in `_finalize_plan` BEFORE
+    the first reference to `evaluate_requirements` in that function."""
+    tree = _parse(DAY_ROUTE_FILE)
+    if tree is None:
+        return
+    fn = _find_function(tree, "_finalize_plan")
+    if fn is None:
+        fail(f"day_plan R27: {_rel(DAY_ROUTE_FILE)}: _finalize_plan not found")
+        return
+    anchor_lineno = None
+    evaluate_lineno = None
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id == "anchor_requirements" and anchor_lineno is None:
+                anchor_lineno = node.lineno
+            elif node.func.id == "evaluate_requirements" and evaluate_lineno is None:
+                evaluate_lineno = node.lineno
+    if anchor_lineno is None:
+        fail(f"day_plan R27: {_rel(DAY_ROUTE_FILE)}: _finalize_plan does not call anchor_requirements")
+        return
+    if evaluate_lineno is None:
+        fail(f"day_plan R27: {_rel(DAY_ROUTE_FILE)}: _finalize_plan does not call evaluate_requirements")
+        return
+    if not anchor_lineno < evaluate_lineno:
+        fail(
+            f"day_plan R27: anchor_requirements (line {anchor_lineno}) does not precede "
+            f"evaluate_requirements (line {evaluate_lineno}) in _finalize_plan"
+        )
+
+
+def check_held_subjects_summary_append() -> None:
+    """R28 (BRIEF-0078-a item 6): `emit_plan` appends `held_subjects_summary`
+    with `+=` to the user message and `held_subjects_summary` appears in NO
+    seeded prompt constant in `scripts/seed_pilot.py` — proving it is
+    appended text, not a template placeholder."""
+    tree = _parse(DAY_PLAN_FILE)
+    if tree is None:
+        return
+    fn = _find_function(tree, "emit_plan")
+    if fn is None:
+        fail(f"day_plan R28: {_rel(DAY_PLAN_FILE)}: emit_plan not found")
+        return
+    found = False
+    for node in ast.walk(fn):
+        if (
+            isinstance(node, ast.AugAssign) and isinstance(node.op, ast.Add)
+            and isinstance(node.target, ast.Name) and node.target.id == "user_msg"
+        ):
+            if any(
+                isinstance(sub, ast.Name) and sub.id == "held_subjects_summary"
+                for sub in ast.walk(node.value)
+            ):
+                found = True
+    if not found:
+        fail(f"day_plan R28: {_rel(DAY_PLAN_FILE)}: emit_plan does not append held_subjects_summary with +=")
+
+    seed_tree = _parse(SEED_PILOT_FILE)
+    if seed_tree is not None:
+        for node in ast.walk(seed_tree):
+            if (
+                isinstance(node, ast.Constant) and isinstance(node.value, str)
+                and "held_subjects_summary" in node.value
+            ):
+                fail(
+                    f"day_plan R28: {_rel(SEED_PILOT_FILE)}:{node.lineno} — a seeded prompt string "
+                    "contains 'held_subjects_summary' as a template placeholder"
+                )
+
+
 def main() -> None:
     check_evaluator_bijection()
     check_type_constraint()
@@ -931,6 +1093,10 @@ def main() -> None:
     check_reconcile_finalizers_located()
     check_plan_action_total()
     check_select_reads_only()
+    check_verdict_type_field()
+    check_anchoring_readers()
+    check_anchor_requirements_wiring()
+    check_held_subjects_summary_append()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -939,8 +1105,9 @@ def main() -> None:
         "PASS: day_plan — evaluator bijection, requirement CHECKs, budget derivation, "
         "P2/positional exclusion, the positional wall, budget_cut purity, emit_plan "
         "wiring, named bounds, the D1 traversal-independence gate, BRIEF-0075-f's "
-        "reconciliation/Z4/AA2 gates (R11-R21), R22's finalizer-location gate, and "
-        "BRIEF-0077-c's selection/resume gates (R15 retargeted, R23-R24) are all intact"
+        "reconciliation/Z4/AA2 gates (R11-R21), R22's finalizer-location gate, "
+        "BRIEF-0077-c's selection/resume gates (R15 retargeted, R23-R24), and "
+        "BRIEF-0078-a's requirement-anchoring gates (R25-R28) are all intact"
     )
     sys.exit(0)
 
