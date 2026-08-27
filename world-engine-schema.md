@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.95
+Current schema version: v1.96
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1999,6 +1999,10 @@ CREATE INDEX idx_entity_type         ON entity(type);
 
 -- "everything entity X knows"
 CREATE INDEX idx_knowledge_entity    ON knowledge(entity_id);
+
+-- "who (if anyone) holds subject S" (schema v1.96, BRIEF-0078-a) — the
+-- knowledge-gate anchoring lookup, day_plan._anchorable_subjects
+CREATE INDEX idx_knowledge_subject   ON knowledge(subject);
 
 -- "this NPC's active goals" (schema v1.69, BRIEF-0013-a)
 CREATE INDEX idx_npc_goal_npc_status ON npc_goal(npc_id, status);

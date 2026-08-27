@@ -13,6 +13,15 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v1.96** — Added `Index("idx_knowledge_subject", "subject")` to `knowledge`
+  (`CREATE INDEX idx_knowledge_subject ON knowledge(subject);`). TICKET-0078,
+  BRIEF-0078-a: the sole reader of this index is
+  `day_plan._anchorable_subjects` — the knowledge-gate anchoring lookup that
+  decides whether a model-proposed `knowledge` requirement's `target_key`
+  matches a real, learnable subject before the requirement is allowed to gate
+  a day-plan step. Index-only migration, no table rebuild:
+  `migrate_v1_96_knowledge_subject_index.py`.
+
 - **v1.95** — Widened `agenda.status`'s `ck_agenda_status` CHECK from
   `('active','completed','failed','abandoned')` to `('active','paused',
   'completed','failed','abandoned')`, and added `pass_play.agenda_id`

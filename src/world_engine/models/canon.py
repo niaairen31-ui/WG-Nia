@@ -447,6 +447,7 @@ class Knowledge(SQLModel, table=True):
             name="ck_knowledge_share_threshold",
         ),
         Index("idx_knowledge_entity", "entity_id"),
+        Index("idx_knowledge_subject", "subject"),
     )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
