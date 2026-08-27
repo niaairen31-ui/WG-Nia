@@ -49,6 +49,23 @@ R12 (BRIEF-0075-f, decision BB1): `resolve_day` refuses, fail-closed, while
 any `agenda_step_change` proposal for the standing agenda is still
 `status='proposed'` — asserts the guard exists, filters on the right
 type/status, raises a 409, and is actually called from `resolve_day`.
+
+R13 (BRIEF-0078-c, D3): `_EMITTERS`' key set equals `EMITTED_MUTATION_TYPES`
+in both directions (re-asserts R1 now that the vocabulary is five-valued)
+and is exactly five-valued.
+R14: `_emit_new_knowledge` exists; its body references `BLOCKED_BAND` and
+returns early (`outcome.band != BLOCKED_BAND` -> `[]`) when the band does
+not match; it references `_BLOCKED_LEAD_LEVEL` and contains no bare
+`"rumor"` string constant.
+R15: every `ProposedMutation(` construction inside `_emit_new_knowledge`
+sets `status` to the literal `"proposed"` and passes a non-empty (non-
+constant-empty) `rationale` keyword.
+R16: `day_mutations.py` calls neither `_apply_mutation` nor `write_
+knowledge` anywhere (re-asserts V1/R4 by name for the new writer family).
+R17: `_blocked_lead_already_proposed` exists; its `select(ProposedMutation)`
+call carries a `.where(` whose comparisons name `world_id`, `mutation_type`
+and `status` explicitly — an unfiltered `select(ProposedMutation)` anywhere
+in `day_mutations.py` is a FAILURE.
 """
 from __future__ import annotations
 
@@ -74,7 +91,7 @@ DAY_CHAIN_FILES = (
 )
 
 EXPECTED_EMITTED_MUTATION_TYPES = (
-    "knowledge_change", "relation_change", "agenda_step_change", "entity_creation",
+    "knowledge_change", "relation_change", "agenda_step_change", "entity_creation", "new_knowledge",
 )
 REMOVED_MUTATION_TYPES = ("resource_change", "agenda_creation")
 
@@ -126,7 +143,7 @@ def _str_elements(node: ast.AST) -> "list[str] | None":
 
 
 def check_bijection() -> None:
-    """R1."""
+    """R1, R13 (BRIEF-0078-c: re-asserted now the vocabulary is five-valued)."""
     tree = _parse(DAY_MUTATIONS_FILE)
     if tree is None:
         return
@@ -165,6 +182,8 @@ def check_bijection() -> None:
             f"day_mutations R1: _EMITTERS keys {sorted(set(emitters_keys))!r} do not match "
             f"EMITTED_MUTATION_TYPES {sorted(set(constant_tuple))!r}"
         )
+    if len(constant_tuple) != 5:
+        fail(f"day_mutations R13: EMITTED_MUTATION_TYPES has {len(constant_tuple)} entries, expected 5")
 
 
 def check_npc_move_absent() -> None:
@@ -537,6 +556,124 @@ def check_resolve_precondition() -> None:
         fail(f"day_mutations R12: {_rel(DAY_ROUTE_FILE)}: resolve_day never calls the precondition guard")
 
 
+def check_emit_new_knowledge_shape() -> None:
+    """R14: `_emit_new_knowledge` exists, band-guards on `BLOCKED_BAND`, and
+    never carries a bare `"rumor"` literal (uses `_BLOCKED_LEAD_LEVEL`
+    instead)."""
+    tree = _parse(DAY_MUTATIONS_FILE)
+    if tree is None:
+        return
+    fn = _find_function(tree, "_emit_new_knowledge")
+    if fn is None:
+        fail(f"day_mutations R14: {_rel(DAY_MUTATIONS_FILE)}: _emit_new_knowledge not found")
+        return
+
+    names_used = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+    if "BLOCKED_BAND" not in names_used:
+        fail("day_mutations R14: _emit_new_knowledge never references BLOCKED_BAND")
+    if "_BLOCKED_LEAD_LEVEL" not in names_used:
+        fail("day_mutations R14: _emit_new_knowledge never references _BLOCKED_LEAD_LEVEL")
+
+    has_band_guard = any(
+        isinstance(n, ast.If)
+        and isinstance(n.test, ast.Compare)
+        and any(isinstance(c, ast.NotEq) for c in n.test.ops)
+        for n in ast.walk(fn)
+    )
+    if not has_band_guard:
+        fail("day_mutations R14: _emit_new_knowledge has no band != BLOCKED_BAND early-return guard")
+
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Constant) and n.value == "rumor":
+            fail(f"day_mutations R14: {_rel(DAY_MUTATIONS_FILE)}:{n.lineno} — bare 'rumor' literal found")
+
+
+def check_new_knowledge_status_and_rationale() -> None:
+    """R15."""
+    tree = _parse(DAY_MUTATIONS_FILE)
+    if tree is None:
+        return
+    fn = _find_function(tree, "_emit_new_knowledge")
+    if fn is None:
+        fail(f"day_mutations R15: {_rel(DAY_MUTATIONS_FILE)}: _emit_new_knowledge not found")
+        return
+    calls = _proposed_mutation_calls(fn)
+    if not calls:
+        fail("day_mutations R15: zero ProposedMutation( constructions inside _emit_new_knowledge — vacuous")
+        return
+    for call in calls:
+        status_kw = next((kw for kw in call.keywords if kw.arg == "status"), None)
+        if not (status_kw and isinstance(status_kw.value, ast.Constant) and status_kw.value.value == "proposed"):
+            fail(f"day_mutations R15: {_rel(DAY_MUTATIONS_FILE)}:{call.lineno} — status is not literal 'proposed'")
+        rationale_kw = next((kw for kw in call.keywords if kw.arg == "rationale"), None)
+        if rationale_kw is None or (
+            isinstance(rationale_kw.value, ast.Constant) and not str(rationale_kw.value.value)
+        ):
+            fail(f"day_mutations R15: {_rel(DAY_MUTATIONS_FILE)}:{call.lineno} — missing or empty rationale")
+
+
+def check_no_apply_or_write_knowledge() -> None:
+    """R16 (re-asserts V1/R4 by name for the new_knowledge writer family)."""
+    tree = _parse(DAY_MUTATIONS_FILE)
+    if tree is None:
+        return
+    for node in ast.walk(tree):
+        name = None
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            name = node.func.id
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name in ("_apply_mutation", "write_knowledge"):
+                    fail(f"day_mutations R16: {_rel(DAY_MUTATIONS_FILE)} imports {alias.name}")
+        if name in ("_apply_mutation", "write_knowledge"):
+            fail(f"day_mutations R16: {_rel(DAY_MUTATIONS_FILE)}:{node.lineno} — calls {name}(...)")
+
+
+def check_duplicate_guard_filters() -> None:
+    """R17: `_blocked_lead_already_proposed`'s `select(ProposedMutation)`
+    carries all three named filters, and no unfiltered
+    `select(ProposedMutation)` appears anywhere in the module."""
+    tree = _parse(DAY_MUTATIONS_FILE)
+    if tree is None:
+        return
+    fn = _find_function(tree, "_blocked_lead_already_proposed")
+    if fn is None:
+        fail(f"day_mutations R17: {_rel(DAY_MUTATIONS_FILE)}: _blocked_lead_already_proposed not found")
+        return
+
+    select_calls = [
+        n for n in ast.walk(fn)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "select"
+    ]
+    if not select_calls:
+        fail("day_mutations R17: _blocked_lead_already_proposed contains no select( call — vacuous")
+        return
+
+    for call in ast.walk(fn):
+        if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr == "where"):
+            continue
+        compared = set()
+        for arg in call.args:
+            for n in ast.walk(arg):
+                if isinstance(n, ast.Attribute):
+                    compared.add(n.attr)
+        for field in ("world_id", "mutation_type", "status"):
+            if field not in compared:
+                fail(f"day_mutations R17: .where( in _blocked_lead_already_proposed does not name {field!r}")
+
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "select"):
+            continue
+        if not (node.args and isinstance(node.args[0], ast.Name) and node.args[0].id == "ProposedMutation"):
+            continue
+        parent_fn = _enclosing_function(tree, node)
+        if parent_fn is None or parent_fn.name != "_blocked_lead_already_proposed":
+            fail(
+                f"day_mutations R17: {_rel(DAY_MUTATIONS_FILE)}:{node.lineno} — "
+                "select(ProposedMutation) outside _blocked_lead_already_proposed"
+            )
+
+
 def main() -> None:
     check_bijection()
     check_npc_move_absent()
@@ -549,6 +686,10 @@ def main() -> None:
     check_effects_contract()
     check_no_forced_subject_in_payload()
     check_resolve_precondition()
+    check_emit_new_knowledge_shape()
+    check_new_knowledge_status_and_rationale()
+    check_no_apply_or_write_knowledge()
+    check_duplicate_guard_filters()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -556,8 +697,9 @@ def main() -> None:
     print(
         "PASS: day_mutations — emission bijection, npc_move absence, status/vocabulary "
         "discipline, never-applies, every-type-applicable, route shape, no agenda_id/step_id, "
-        "entity_creation parks, the effects contract, no forced subject, and BB1's resolve "
-        "precondition are all intact"
+        "entity_creation parks, the effects contract, no forced subject, BB1's resolve "
+        "precondition, and BRIEF-0078-c's new_knowledge emission/duplicate-guard gates "
+        "(R13-R17) are all intact"
     )
     sys.exit(0)
 
