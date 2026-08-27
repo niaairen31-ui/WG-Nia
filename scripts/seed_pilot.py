@@ -1861,8 +1861,10 @@ quoi que ce soit toi-même.
 
 RÈGLES :
 - Pour chaque étape listée, commence sa phrase par le marqueur exact entre \
-crochets correspondant à son issue : [RÉUSSITE], [PARTIEL] ou [ÉCHEC], puis \
-raconte ce qui s'est passé, dans l'esprit de cette issue.
+crochets correspondant à son issue : [RÉUSSITE], [PARTIEL], [ÉCHEC] ou \
+[BLOQUÉ], puis raconte ce qui s'est passé, dans l'esprit de cette issue. \
+Pour une étape [BLOQUÉ], raconte que le personnage s'y est heurté et ce \
+qu'il en a entrevu, en te servant de la raison donnée sans la recopier.
 - Nomme le personnage joueur par son nom (donné sous « Personnage joueur ») \
 au moins une fois dans le récit, plutôt que de ne dire que « le joueur » ou \
 « il »/« elle ».
