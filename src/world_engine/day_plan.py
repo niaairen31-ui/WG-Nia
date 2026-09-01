@@ -49,6 +49,8 @@ from . import llm_parse, ollama_client
 from .models import (
     BASE_SKILL_DOMAINS,
     SCHEDULE_PHASES,
+    AgendaStep,
+    AgendaStepRequirement,
     Character,
     Entity,
     Knowledge,
@@ -260,6 +262,31 @@ def evaluate_requirements(step: PlanStep, character: Character, db: Session) -> 
             raise ValueError(f"unknown requirement type {req.type!r}")
         verdicts.append(evaluator(req, character, db, reachable_ids))
     return verdicts
+
+
+def evaluate_agenda_step(agenda_step: AgendaStep, character: Character, db: Session) -> EvaluatedStep:
+    """One `agenda_step` row plus its requirement rows, judged against
+    `character`'s current state (TICKET-0080, BRIEF-0080-b). Carved out of
+    `day_resolve._load_evaluated_steps` unchanged so that the day chain's
+    resolve walk and `_finalize_continue`'s refusal path share ONE
+    evaluation, rather than growing a second copy that can drift."""
+    requirement_rows = db.exec(
+        select(AgendaStepRequirement).where(AgendaStepRequirement.step_id == agenda_step.id)
+    ).all()
+    plan_step = PlanStep(
+        objective=agenda_step.objective,
+        cost=agenda_step.cost,
+        domain=agenda_step.domain,
+        requirements=tuple(
+            RequirementSpec(
+                type=r.type, target_entity_id=r.target_entity_id,
+                target_key=r.target_key, threshold=r.threshold,
+            )
+            for r in requirement_rows
+        ),
+    )
+    verdicts = tuple(evaluate_requirements(plan_step, character, db))
+    return EvaluatedStep(step=plan_step, verdicts=verdicts)
 
 
 def budget_cut(steps: list[EvaluatedStep], budget: int) -> BudgetResult:
