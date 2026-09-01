@@ -82,10 +82,14 @@ R19 (brief R10, NEW): `_finalize_continue` (day_reconcile_apply.py)
 constructs no `ProposedMutation` — a no-op verdict emits nothing.
 (retargeted by TICKET-0077/BRIEF-0077-b after BRIEF-0077-a item 5 relocated
 this function; the assertion is unchanged, only where it looks.)
-R20 (brief R11, NEW, decision Z4): `PATCH /agendas/{agenda_id}`'s
-reactivation branch (`_activate_lowest_pending_step_if_none_active`,
-`cockpit/crud/agendas.py`) calls `write_agenda_step_status` for the
-activation rather than assigning `.status` directly.
+R20 (brief R11, NEW, decision Z4): the step-activation repair
+(`_activate_lowest_pending_step_if_none_active`, `writes/goals_agendas.py`,
+called from `write_agenda_status`) calls `write_agenda_step_status` for the
+activation rather than assigning `.status` directly. (retargeted by
+TICKET-0080/BRIEF-0080-a after that brief relocated the helper from
+`cockpit/crud/agendas.py` into `writes/goals_agendas.py`; the assertion is
+unchanged, only where it looks — same treatment R14/R19 got from
+BRIEF-0077-b.)
 R21 (Scope OUT, re-asserted): `_mutation_apply_agenda_step_change`'s action
 vocabulary is still exactly `("complete", "fail")` — Z4 exists precisely so
 this never needs widening.
@@ -152,7 +156,7 @@ CONFIG_FILE = SRC / "models" / "config.py"
 SCHEDULE_READS_FILE = SRC / "schedule_reads.py"
 DAY_ROUTE_FILE = SRC / "cockpit" / "routes" / "day.py"
 DAY_RECONCILE_APPLY_FILE = SRC / "cockpit" / "day_reconcile_apply.py"
-CRUD_AGENDAS_FILE = SRC / "cockpit" / "crud" / "agendas.py"
+GOALS_AGENDAS_FILE = SRC / "writes" / "goals_agendas.py"
 MUTATIONS_FILE = SRC / "cockpit" / "mutations.py"
 SEED_PILOT_FILE = ROOT / "scripts" / "seed_pilot.py"
 
@@ -772,28 +776,33 @@ def check_continue_constructs_nothing() -> None:
 
 
 def check_z4_activation_uses_writer() -> None:
-    """R20 (brief R11, NEW, decision Z4)."""
-    tree = _parse(CRUD_AGENDAS_FILE)
+    """R20 (brief R11, NEW, decision Z4). Retargeted by TICKET-0080/BRIEF-0080-a
+    after that brief relocated `_activate_lowest_pending_step_if_none_active`
+    from `cockpit/crud/agendas.py` into `writes/goals_agendas.py`, called from
+    `write_agenda_status` — the same retarget-not-rewrite treatment R14/R19
+    already got from BRIEF-0077-b: the assertion is unchanged, only where it
+    looks."""
+    tree = _parse(GOALS_AGENDAS_FILE)
     if tree is None:
-        fail(f"day_plan R20: {_rel(CRUD_AGENDAS_FILE)} not found or unparsable")
+        fail(f"day_plan R20: {_rel(GOALS_AGENDAS_FILE)} not found or unparsable")
         return
     fn = _find_function(tree, "_activate_lowest_pending_step_if_none_active")
     if fn is None:
-        fail(f"day_plan R20: {_rel(CRUD_AGENDAS_FILE)}: _activate_lowest_pending_step_if_none_active not found")
+        fail(f"day_plan R20: {_rel(GOALS_AGENDAS_FILE)}: _activate_lowest_pending_step_if_none_active not found")
         return
     calls_writer = any(
         isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "write_agenda_step_status"
         for node in ast.walk(fn)
     )
     if not calls_writer:
-        fail(f"day_plan R20: {_rel(CRUD_AGENDAS_FILE)}: activation branch does not call write_agenda_step_status")
+        fail(f"day_plan R20: {_rel(GOALS_AGENDAS_FILE)}: activation branch does not call write_agenda_step_status")
     for node in ast.walk(fn):
         if (
             isinstance(node, ast.Assign) and len(node.targets) == 1
             and isinstance(node.targets[0], ast.Attribute) and node.targets[0].attr == "status"
         ):
             fail(
-                f"day_plan R20: {_rel(CRUD_AGENDAS_FILE)}:{node.lineno} — assigns .status directly, "
+                f"day_plan R20: {_rel(GOALS_AGENDAS_FILE)}:{node.lineno} — assigns .status directly, "
                 "bypassing write_agenda_step_status"
             )
 
