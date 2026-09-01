@@ -2,7 +2,7 @@
 id: TICKET-0080
 title: Inert plan resume and continue-guard verdict split
 type: bug
-status: exec
+status: live-gate
 created: 2026-09-01
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write]
