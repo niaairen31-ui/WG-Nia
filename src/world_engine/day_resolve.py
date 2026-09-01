@@ -71,16 +71,13 @@ from .day_plan import (
     DAY_BUDGET_SLOTS,
     BudgetResult,
     EvaluatedStep,
-    PlanStep,
-    RequirementSpec,
     Verdict as RequirementVerdict,
     budget_cut,
-    evaluate_requirements,
+    evaluate_agenda_step,
 )
 from .models import (
     Agenda,
     AgendaStep,
-    AgendaStepRequirement,
     Batch,
     Character,
     Entity,
@@ -202,23 +199,7 @@ def _load_evaluated_steps(
     ).all()
     evaluated_steps: list[EvaluatedStep] = []
     for agenda_step in ordered_steps:
-        requirement_rows = db.exec(
-            select(AgendaStepRequirement).where(AgendaStepRequirement.step_id == agenda_step.id)
-        ).all()
-        plan_step = PlanStep(
-            objective=agenda_step.objective,
-            cost=agenda_step.cost,
-            domain=agenda_step.domain,
-            requirements=tuple(
-                RequirementSpec(
-                    type=r.type, target_entity_id=r.target_entity_id,
-                    target_key=r.target_key, threshold=r.threshold,
-                )
-                for r in requirement_rows
-            ),
-        )
-        verdicts = tuple(evaluate_requirements(plan_step, character, db))
-        evaluated_steps.append(EvaluatedStep(step=plan_step, verdicts=verdicts))
+        evaluated_steps.append(evaluate_agenda_step(agenda_step, character, db))
     return ordered_steps, evaluated_steps
 
 

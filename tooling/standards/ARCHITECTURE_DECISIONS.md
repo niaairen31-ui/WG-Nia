@@ -14081,6 +14081,98 @@ checks/day_plan.py` R15 is retargeted from it to `day_plan_select.select_plan`,
 the same kind of retarget BRIEF-0077-b already applied to R12/R14/R19 for a
 relocation.
 
+## STEP ACTIVATION AT THE TRANSITION — Z4 bound structurally, not by convention (BRIEF-0080-a, BRIEF-0080-b, no schema change)
+
+TICKET-0080's intake measured that a parked plan resuming via the day chain
+hit a false 409: `_finalize_continue` (`day_reconcile_apply.py`) trusted the
+Z4 guarantee — "an ACTIVE agenda either already has an active step, or has
+no pending step left at all" — but that guarantee held at only ONE of the
+two canon-write sites that can turn an agenda `active`. The creator's
+`PATCH /agendas/{id}` route called the repair
+(`_activate_lowest_pending_step_if_none_active`, formerly
+`cockpit/crud/agendas.py`); the day chain's `resume` branch called
+`write_agenda_status(..., status="active")` directly and skipped it. A
+parked plan with all-`pending` steps therefore resumed into a state the
+guard refused, with a message that prescribed `abandoned` — destroying
+resumable work to fix a bug in the repair's own coverage.
+
+**(a) The fix moves the repair to the transition, not to the missed
+caller.** `_activate_lowest_pending_step_if_none_active` relocates into
+`writes/goals_agendas.py` and is called from inside `write_agenda_status`
+itself, on the `status == "active"` branch, after the one-active-per-
+character guard and the goal cascade, before `return agenda`. Every canon-
+write path that can produce an `active` agenda — today's five call sites,
+and any future one — is covered by construction; there is no second
+caller left to forget. This is the same move BRIEF-0077-a made for the
+one-active-per-character guard: a caller-side discipline promoted into a
+property of the chokepoint itself. `parked_plan_guard.py` gained two rules
+to keep this checkable rather than asserted: R7 confirms the call exists
+inside `write_agenda_status`; R8 confirms the helper has exactly one
+definition anywhere under `src/world_engine/`, in `writes/goals_agendas.py`
+— a second copy appearing elsewhere would silently reintroduce the same
+asymmetry this brief closes.
+
+**(b) The promotion stays unconditional, exactly as Z4 was before this
+brief.** Re-evaluating a promoted step's requirements before activating it
+is deferred (G3's behavioural half); this brief is a pure relocation plus
+one call, not a widening. The `blocked` band (BRIEF-0078-b) already
+surfaces an unmet prerequisite as a narrated outcome at resolve time, so an
+unconditional promotion here cannot produce a false success — it can only
+make a step selectable, never make it succeed.
+
+**(c) G3 stays locked as doctrine, deferred as behaviour.** A plan born
+with `active_step_index = None` (`cockpit/routes/day.py:484`, the
+feasibility veto retaining zero steps) is INERT BY INTENTION: the veto
+judged nothing startable, and this brief does not touch that line or force
+step 1 active there. What "resume a blocked plan" should mean is a
+separate workstream. Until it lands, such a plan still refuses on
+`continue` — that refusal's message is BRIEF-0080-b's 422 split, not this
+brief's concern — and the reactivation condition recorded at intake is the
+first live session in which that 422 branch fires.
+
+**(d) BRIEF-0080-b: the guard's single message was two conflated failure
+modes.** After (a), `resume` no longer reaches the guard at all — the
+transition promotes a pending step before dispatch. One path still does: a
+plan born with `active_step_index = None` ((c) above), selected with a
+`continue` verdict, never parked. For that plan the old guard was correct
+to refuse and wrong in what it said — it reported exhaustion ("no active
+or pending step left") when the plan was in fact blocked, and prescribed
+`abandoned` when the work was intact. Two distinct causes sharing one
+message is what sent Nia toward destroying a recoverable plan at intake.
+
+The fix splits the refusal into `_refuse_unstarted_plan`
+(`day_reconcile_apply.py`), extracted out of `_finalize_continue` so the
+guard is a single, nameable assertion rather than an inline branch:
+
+- **EXHAUSTED** (no `pending` step either, every step terminal) — 409,
+  naming exhaustion, offering `completed` OR `abandoned` as the remedy —
+  closure is a choice, not the only one.
+- **UNSTARTED** (a `pending` step exists at the lowest `step_order` but was
+  never activated) — 422, naming the plan intact, explicitly stating
+  "do NOT abandon it", and citing the first remaining step's own unmet
+  requirement in French.
+
+**A guard asserts, it never repairs.** `_refuse_unstarted_plan` contains no
+`db.add`, no `write_*`, no `db.commit` — the same discipline (a) already
+established for the transition-bound repair: any future "resume a blocked
+plan" behaviour is G3's workstream, not a widening of this guard.
+
+**One evaluation, not two.** The 422's requirement detail is built by
+`day_plan.evaluate_agenda_step` — the per-step evaluation carved out of
+`day_resolve._load_evaluated_steps` in this same brief's first commit — so
+the day chain's resolve walk and the guard's refusal share ONE judgment of
+"is this step's requirement met", rather than growing a second, hand-rolled
+copy that could drift from it. `requirement_detail_fr` (BRIEF-0078-b)
+renders the unmet verdicts into the same player-facing French the
+`blocked` band already uses.
+
+**G3's reactivation condition, restated in its verifiable form (supersedes
+(c)'s wording):** the first live session in which `_refuse_unstarted_plan`'s
+422 branch actually fires against a real player. Until then, "resume a
+blocked plan" stays deferred — the plan refuses with a true message instead
+of a false one, which is strictly better than today without deciding G3's
+behavioural half.
+
 ---
 
 ## REQUIREMENT ANCHORING — a knowledge gate is legitimate only on a learnable subject (BRIEF-0078-a, schema v1.96)

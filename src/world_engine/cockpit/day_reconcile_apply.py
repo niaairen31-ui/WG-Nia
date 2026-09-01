@@ -11,19 +11,26 @@ chose rather than assuming the single active agenda, and dispatches on an
 model's three-value verdict plus the selected plan's MEASURED status
 (`day_reconcile.plan_action`). `resume` swaps which plan is active before
 dispatch and reuses `continue`'s handler unchanged.
+
+`_refuse_unstarted_plan` (TICKET-0080, BRIEF-0080-b) is defined immediately
+BEFORE `_finalize_continue`, which is now the only caller: the single
+conflated 409 the guard used to raise directly is split into two verdicts
+that name their own cause — EXHAUSTED (409) versus UNSTARTED (422, the
+plan is intact).
 """
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, NoReturn
 
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from .. import day_plans
 from ..day_concordance import ConcordanceResult, plan_context
-from ..day_plan import emit_plan
+from ..day_plan import emit_plan, evaluate_agenda_step
 from ..day_reconcile import Reconciliation, plan_action, reconcile
+from ..day_resolve import requirement_detail_fr
 from ..llm_parse import LlmParseError
 from ..models import Agenda, AgendaStep, Character, PassPlay
 from ..writes import write_agenda_status
@@ -41,25 +48,59 @@ def _reconciliation_dict(recon: Reconciliation, mutation_ids: list[str]) -> dict
     }
 
 
-def _finalize_continue(pass_play: PassPlay, agenda: Agenda, recon: Reconciliation, db: Session) -> dict:
+def _refuse_unstarted_plan(character: Character, agenda: Agenda, db: Session) -> NoReturn:
+    """The guard asserts, it does not write (BRIEF-0080-b): no `db.add`, no
+    `write_*`, no `db.commit` here — any repair belongs at the transition
+    (BRIEF-0080-a) or in G3, never here. Two failure modes, conflated into
+    one message before this brief: EXHAUSTED (no pending step either — 409,
+    closure is the right remedy) versus UNSTARTED (a pending step exists,
+    lowest `step_order`, but was never activated — 422, the plan is intact
+    and the first remaining step's unmet requirement is the true reason)."""
+    pending_step = db.exec(
+        select(AgendaStep)
+        .where(AgendaStep.agenda_id == agenda.id, AgendaStep.status == "pending")
+        .order_by(AgendaStep.step_order)
+    ).first()
+    if pending_step is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"the standing plan {agenda.title!r} has no step left at all - every step is "
+                "completed or failed. Close it (PATCH its status to 'completed' or 'abandoned') "
+                "before declaring again."
+            ),
+        )
+    evaluated = evaluate_agenda_step(pending_step, character, db)
+    unmet = [requirement_detail_fr(v) for v in evaluated.verdicts if not v.met]
+    detail = "; ".join(unmet) if unmet else (
+        "aucun prerequis non satisfait - le veto de faisabilite a juge l'action elle-meme irrealisable"
+    )
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            f"the standing plan {agenda.title!r} has not started: its first remaining step "
+            f"({pending_step.objective!r}) was judged infeasible when the plan was created and no "
+            f"step is active. Reason: {detail}. The plan is intact - do NOT abandon it."
+        ),
+    )
+
+
+def _finalize_continue(
+    character: Character, pass_play: PassPlay, agenda: Agenda, recon: Reconciliation, db: Session,
+) -> dict:
     """AMENDMENT 1: `continue` proposes NOTHING — a classification with no
     structural effect. The day proceeds against the standing agenda's
-    already-active step. Z4 (`cockpit/crud/agendas.py`) guarantees that an
-    ACTIVE agenda either already has an active step, or has no pending
-    step left at all (inert) — so `active_step is None` here can only mean
-    the latter: the plan is exhausted, and the verdict should have been
-    `replace`."""
+    already-active step. BRIEF-0080-a bound the pending-step repair to the
+    `-> active` transition itself, so an active agenda reaching here with
+    no active step means that repair found nothing to promote —
+    `_refuse_unstarted_plan` (BRIEF-0080-b) names which of the two distinct
+    failure modes that actually is, rather than the single false message
+    this function used to raise directly."""
     active_step = db.exec(
         select(AgendaStep).where(AgendaStep.agenda_id == agenda.id, AgendaStep.status == "active")
     ).first()
     if active_step is None:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"the standing plan {agenda.title!r} has no active or pending step left — close it "
-                "(PATCH its status to 'abandoned') before declaring again"
-            ),
-        )
+        _refuse_unstarted_plan(character, agenda, db)
     pass_play.status = "resolving"
     pass_play.agenda_id = agenda.id  # BRIEF-0077-a: which plan this day advanced
     db.add(pass_play)
@@ -182,7 +223,7 @@ def _reconcile_and_finalize(
     # directions — a real dict, not an if/elif chain, so the bijection is
     # a static, checkable fact.
     handlers: dict[str, Callable[[], dict]] = {
-        "continue": lambda: _finalize_continue(pass_play, agenda, recon, db),
+        "continue": lambda: _finalize_continue(character, pass_play, agenda, recon, db),
         "modify": lambda: _finalize_modify(
             agenda.world_id, character, pass_play, agenda, steps, recon, concordance_result, db,
         ),

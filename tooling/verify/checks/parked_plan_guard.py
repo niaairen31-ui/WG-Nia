@@ -17,6 +17,13 @@ R5 (direct-write posture): `day_plans.py` contains no `ProposedMutation`
 reference and no string literal `"proposed"` — checked, not trusted.
 R6 (vacuity): any rule above that collected zero items is a FAILURE in its
 own right.
+R7 (repair at the transition, TICKET-0080, BRIEF-0080-a): `write_agenda_status`
+in `writes/goals_agendas.py` contains at least one call to
+`_activate_lowest_pending_step_if_none_active`. Zero is a FAILURE.
+R8 (single definition, TICKET-0080, BRIEF-0080-a): exactly one FunctionDef
+named `_activate_lowest_pending_step_if_none_active` exists anywhere under
+`src/world_engine/`, and it lives in `writes/goals_agendas.py`. Zero, or two
+or more, is a FAILURE.
 """
 from __future__ import annotations
 
@@ -35,6 +42,7 @@ DAY_PLANS_FILE = SRC / "day_plans.py"
 EXPECTED_STATUS_VALUES = {"active", "paused", "completed", "failed", "abandoned"}
 EXPECTED_CASCADE_KEYS = {"completed", "failed", "abandoned"}
 GUARD_FUNCTIONS = ("write_agenda", "write_agenda_status")
+ACTIVATION_HELPER = "_activate_lowest_pending_step_if_none_active"
 
 FAILURES: list[str] = []
 _ITEM_COUNTS: dict[str, int] = {}
@@ -240,6 +248,49 @@ def check_direct_write_posture() -> None:
     _record("R5", found_any)
 
 
+def check_repair_bound_to_transition() -> None:
+    """R7."""
+    tree = _parse(GOALS_AGENDAS_FILE)
+    if tree is None:
+        return
+    func = _find_function(tree, "write_agenda_status")
+    if func is None:
+        fail(f"{_rel(GOALS_AGENDAS_FILE)}: write_agenda_status not found")
+        return
+    n_calls_found = sum(
+        1
+        for node in ast.walk(func)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == ACTIVATION_HELPER
+    )
+    _record("R7", n_calls_found)
+    if n_calls_found == 0:
+        fail(
+            f"{_rel(GOALS_AGENDAS_FILE)}:{func.lineno} — write_agenda_status calls "
+            f"{ACTIVATION_HELPER!r} zero times"
+        )
+
+
+def check_single_activation_helper_definition() -> None:
+    """R8."""
+    found: list[str] = []
+    n_files_scanned = 0
+    for path in sorted(SRC.rglob("*.py")):
+        n_files_scanned += 1
+        tree = _parse(path)
+        if tree is None:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == ACTIVATION_HELPER:
+                found.append(f"{_rel(path)}:{node.lineno}")
+    _record("R8", n_files_scanned)
+    if len(found) == 0:
+        fail(f"parked_plan_guard R8: no definition of {ACTIVATION_HELPER!r} found under {_rel(SRC)}")
+    elif len(found) > 1:
+        fail(f"parked_plan_guard R8: {len(found)} definitions of {ACTIVATION_HELPER!r} found: {', '.join(found)}")
+    elif not found[0].startswith(_rel(GOALS_AGENDAS_FILE)):
+        fail(f"parked_plan_guard R8: sole definition of {ACTIVATION_HELPER!r} is not in goals_agendas.py: {found[0]}")
+
+
 def check_vacuity() -> None:
     """R6."""
     for rule, count in _ITEM_COUNTS.items():
@@ -253,6 +304,8 @@ def main() -> None:
     check_guard_replayed_at_both_sites()
     check_pass_play_agenda_id_has_reader()
     check_direct_write_posture()
+    check_repair_bound_to_transition()
+    check_single_activation_helper_definition()
     check_vacuity()
     if FAILURES:
         for msg in FAILURES:
@@ -260,8 +313,9 @@ def main() -> None:
         sys.exit(1)
     print(
         "PASS: parked_plan_guard — agenda.status vocabulary, no-cascade-on-paused, the one-active "
-        "guard at both canon-write sites, pass_play.agenda_id's reader, and day_plans.py's "
-        "direct-write posture all hold"
+        "guard at both canon-write sites, pass_play.agenda_id's reader, day_plans.py's "
+        "direct-write posture, the R7 repair-at-the-transition call, and the R8 single definition "
+        "of the activation helper all hold"
     )
     sys.exit(0)
 
