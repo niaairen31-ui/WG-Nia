@@ -1,22 +1,22 @@
 {
   "ticket": "TICKET-0079-day-narration-judge-false-positives",
-  "when": "2026-09-01T12:21:59.975414+00:00",
+  "when": "2026-09-01T13:03:35.462371+00:00",
   "green": true,
   "checks": [
     {
       "check": "day_name_extraction.py",
       "status": "PASS",
-      "msg": "PASS: day_name_extraction \u00e2\u20ac\u201d all 5 golden cases hold (G1-G5)"
+      "msg": "PASS: day_name_extraction \u2014 all 5 golden cases hold (G1-G5)"
     },
     {
       "check": "day_narration.py",
       "status": "PASS",
-      "msg": "PASS: day_narration \u00e2\u20ac\u201d dice-are-Python, truncation purity, narrate's DB boundary, the judge's Python-only and anti-vacuity guards, the bounded rewrite, history append-only, declared_action write-once, PROMPT_REGISTRY wiring, V1's no-direct-step-write boundary, BB1's remaining-work invariant, and BRIEF-0078-b's blocked-band gates (R13-R18) are all intact"
+      "msg": "PASS: day_narration \u2014 dice-are-Python, truncation purity, narrate's DB boundary, the judge's Python-only and anti-vacuity guards, the bounded rewrite, history append-only, declared_action write-once, PROMPT_REGISTRY wiring, V1's no-direct-step-write boundary, BB1's remaining-work invariant, BRIEF-0078-b's blocked-band gates (R13-R18), and BRIEF-0079-b's bounded repair and failure-surface gates (R19-R22) are all intact"
     },
     {
       "check": "prompt_registry.py",
       "status": "PASS",
-      "msg": "PASS: prompt_registry \u00e2\u20ac\u201d usage bijection, registry entry shape, static resolver wiring, effective_model pure-function behavior"
+      "msg": "PASS: prompt_registry \u2014 usage bijection, registry entry shape, static resolver wiring, effective_model pure-function behavior"
     }
   ]
 }
