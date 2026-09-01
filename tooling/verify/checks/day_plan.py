@@ -137,6 +137,26 @@ R28: `emit_plan` appends `held_subjects_summary` with `+=` to the user
 message and `held_subjects_summary` appears in NO seeded prompt constant in
 `scripts/seed_pilot.py` — proving it is appended text, not a template
 placeholder.
+
+--- BRIEF-0080-b (continue-guard verdict split) ---
+
+Continuing this file's own numbering again (R29+), the same treatment
+BRIEF-0078-a's R25-28 got: the brief's own text names these two rules R13
+and R14, but this file already has an R13 (citation validator) and an R14
+(replace writes nothing) from BRIEF-0075-f — a stale mini-RECON measurement,
+not a real collision to resolve by overwriting. Retargeted to the file's
+real next numbers, same as R20/R25-28 before them.
+
+R29 (brief's R13 — two verdicts, no false remedy): across `_finalize_
+continue` and `_refuse_unstarted_plan` (`cockpit/day_reconcile_apply.py`),
+the set of `status_code` constants on `HTTPException(` raises equals
+exactly {409, 422}; at least one `ast.Compare` against the string constant
+'pending' appears; and no 409 raise's detail names 'abandoned' without also
+naming 'completed'. Zero raises collected is a FAILURE.
+R30 (brief's R14 — one evaluation, two readers): `evaluate_agenda_step` has
+exactly one `ast.FunctionDef` under `src/world_engine/`, in `day_plan.py`,
+and is called from BOTH `day_resolve.py` and `cockpit/day_reconcile_apply.py`.
+Fewer than two calling modules is a FAILURE.
 """
 from __future__ import annotations
 
@@ -156,6 +176,7 @@ CONFIG_FILE = SRC / "models" / "config.py"
 SCHEDULE_READS_FILE = SRC / "schedule_reads.py"
 DAY_ROUTE_FILE = SRC / "cockpit" / "routes" / "day.py"
 DAY_RECONCILE_APPLY_FILE = SRC / "cockpit" / "day_reconcile_apply.py"
+DAY_RESOLVE_FILE = SRC / "day_resolve.py"
 GOALS_AGENDAS_FILE = SRC / "writes" / "goals_agendas.py"
 MUTATIONS_FILE = SRC / "cockpit" / "mutations.py"
 SEED_PILOT_FILE = ROOT / "scripts" / "seed_pilot.py"
@@ -1077,6 +1098,104 @@ def check_held_subjects_summary_append() -> None:
                 )
 
 
+def check_continue_verdict_split() -> None:
+    """R29 (BRIEF-0080-b item 7, first of two — see the module docstring
+    for the renumbering note)."""
+    tree = _parse(DAY_RECONCILE_APPLY_FILE)
+    if tree is None:
+        return
+    fns = []
+    for name in ("_finalize_continue", "_refuse_unstarted_plan"):
+        fn = _find_function(tree, name)
+        if fn is None:
+            fail(f"day_plan R29: {_rel(DAY_RECONCILE_APPLY_FILE)}: {name} not found")
+        else:
+            fns.append(fn)
+    if not fns:
+        return
+
+    status_codes: set[object] = set()
+    has_pending_compare = False
+    for fn in fns:
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Compare):
+                operands = [node.left, *node.comparators]
+                if any(isinstance(o, ast.Constant) and o.value == "pending" for o in operands):
+                    has_pending_compare = True
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "HTTPException"):
+                continue
+            status_kw = next((kw for kw in node.keywords if kw.arg == "status_code"), None)
+            if status_kw is None or not isinstance(status_kw.value, ast.Constant):
+                continue
+            status_codes.add(status_kw.value.value)
+            if status_kw.value.value != 409:
+                continue
+            detail_kw = next((kw for kw in node.keywords if kw.arg == "detail"), None)
+            if detail_kw is None:
+                continue
+            strings = [
+                c.value for c in ast.walk(detail_kw.value)
+                if isinstance(c, ast.Constant) and isinstance(c.value, str)
+            ]
+            joined = "".join(strings)
+            if "abandoned" in joined and "completed" not in joined:
+                fail(
+                    f"day_plan R29: {_rel(DAY_RECONCILE_APPLY_FILE)}:{node.lineno} — 409 raise names "
+                    "'abandoned' without also naming 'completed'"
+                )
+
+    if not status_codes:
+        fail(
+            f"day_plan R29: {_rel(DAY_RECONCILE_APPLY_FILE)}: zero HTTPException(status_code=...) "
+            "raises found across _finalize_continue/_refuse_unstarted_plan"
+        )
+        return
+    if status_codes != {409, 422}:
+        fail(f"day_plan R29: status_code set is {sorted(status_codes)!r}, expected [409, 422]")
+    if not has_pending_compare:
+        fail(
+            f"day_plan R29: {_rel(DAY_RECONCILE_APPLY_FILE)}: no comparison against the string "
+            "constant 'pending' found"
+        )
+
+
+def check_evaluate_agenda_step_single_reader_pair() -> None:
+    """R30 (BRIEF-0080-b item 7, second of two — see the module docstring
+    for the renumbering note)."""
+    definitions: list[str] = []
+    for path in sorted(SRC.rglob("*.py")):
+        tree = _parse(path)
+        if tree is None:
+            continue
+        if _find_function(tree, "evaluate_agenda_step") is not None:
+            definitions.append(_rel(path))
+    if not definitions:
+        fail("day_plan R30: evaluate_agenda_step is defined nowhere under src/world_engine/")
+        return
+    if definitions != [_rel(DAY_PLAN_FILE)]:
+        fail(
+            f"day_plan R30: evaluate_agenda_step defined at {definitions!r}, "
+            f"expected exactly [{_rel(DAY_PLAN_FILE)!r}]"
+        )
+
+    calling_modules: set[str] = set()
+    for path in (DAY_RESOLVE_FILE, DAY_RECONCILE_APPLY_FILE):
+        tree = _parse(path)
+        if tree is None:
+            continue
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "evaluate_agenda_step"
+            ):
+                calling_modules.add(_rel(path))
+    if len(calling_modules) < 2:
+        fail(
+            f"day_plan R30: evaluate_agenda_step called from {sorted(calling_modules)!r}, expected "
+            f"both {_rel(DAY_RESOLVE_FILE)!r} and {_rel(DAY_RECONCILE_APPLY_FILE)!r}"
+        )
+
+
 def main() -> None:
     check_evaluator_bijection()
     check_type_constraint()
@@ -1106,6 +1225,8 @@ def main() -> None:
     check_anchoring_readers()
     check_anchor_requirements_wiring()
     check_held_subjects_summary_append()
+    check_continue_verdict_split()
+    check_evaluate_agenda_step_single_reader_pair()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -1115,8 +1236,9 @@ def main() -> None:
         "P2/positional exclusion, the positional wall, budget_cut purity, emit_plan "
         "wiring, named bounds, the D1 traversal-independence gate, BRIEF-0075-f's "
         "reconciliation/Z4/AA2 gates (R11-R21), R22's finalizer-location gate, "
-        "BRIEF-0077-c's selection/resume gates (R15 retargeted, R23-R24), and "
-        "BRIEF-0078-a's requirement-anchoring gates (R25-R28) are all intact"
+        "BRIEF-0077-c's selection/resume gates (R15 retargeted, R23-R24), "
+        "BRIEF-0078-a's requirement-anchoring gates (R25-R28), and BRIEF-0080-b's "
+        "continue-guard verdict split (R29-R30) are all intact"
     )
     sys.exit(0)
 
