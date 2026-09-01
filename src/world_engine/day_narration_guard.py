@@ -19,24 +19,38 @@ Name-extraction heuristic (documented per the brief's own STOP condition:
 "a weak extractor makes this check vacuous"): the prose's `[MARKER]` band
 tags (`day_narration.BAND_MARKERS` — all-caps, structural, never narrative
 content) are stripped first, so a marker like `[RÉUSSITE]` can never fuse
-onto the name that follows it. What remains is scanned for a run of one or
-more consecutive capitalized words, optionally bridged by a lowercase
-connector (de/du/des/le/la/l'/d'/von/van) followed by another capitalized
-word.
+onto the name that follows it. What remains is split into sentences on
+`.`, `!` and `?` (`_sentences`) — a run is built independently within each
+sentence and NEVER spans a sentence-final terminator, so a capitalized
+word that opens one sentence can never fuse onto the tail of the run that
+closed the previous one (TICKET-0079: this fusion was live-observed —
+"... les Serviteurs. Sans Dirigeants ..." produced the single run
+"Serviteurs Sans Dirigeants"). Within a sentence, a run is one or more
+consecutive capitalized words, optionally bridged by a lowercase connector
+(de/du/des/le/la/l'/d'/von/van) followed by another capitalized word.
 
-A run that is a SINGLE capitalized word is discarded when that word,
-case-folded, is a known French function word (`_FUNCTION_WORD_STOPWORDS`
-— articles, pronouns, prepositions, conjunctions), REGARDLESS of sentence
-position. Position-gating this (discard only at sentence-start) was tried
-first and live-tested wrong: French sentence punctuation is not the only
-thing that precedes a capital in generated prose — a colon, a marker tag,
-or the model's own inconsistent punctuation can put a function word
-("Il", "En") in a position this module cannot reliably prove is
-"sentence-initial," and a false negative there (treating a stray pronoun
-as an invented name) is a real, observed failure, not a hypothetical one.
-A multi-word run is always kept regardless of position — the false-
-positive risk this trades away (a genuine one-word name that collides
-with a function word, e.g. a character actually named "Il") is
+Every built run then has function words stripped from its FRONT and BACK
+(`_strip_stopword_edges`, TICKET-0079) before the keep decision — a run
+like "Les Serviteurs" surfaces "Serviteurs", not "Les". Only the edges are
+stripped: an interior connector ("Joran de Vey") survives untouched, and
+an interior non-stopword oddity is never silently trimmed away, only
+reported. A run is discarded only when stripping empties it entirely.
+
+Position-gating (discarding a candidate because it opens a sentence) was
+tried first and live-tested wrong, and stays rejected even now that
+`_sentences` makes sentence position knowable: French sentence punctuation
+is not the only thing that precedes a capital in generated prose — a
+colon, a marker tag, or the model's own inconsistent punctuation can put a
+function word ("Il", "En") in a position this module cannot reliably prove
+is "sentence-initial," and a false negative there (treating a stray
+pronoun as an invented name) is a real, observed failure, not a
+hypothetical one. A single capitalized word is discarded ONLY when that
+word, case-folded, is a known French function word
+(`_FUNCTION_WORD_STOPWORDS` — articles, pronouns, prepositions,
+conjunctions), at ANY position — never by where it sits in the sentence.
+A multi-word run keeps any non-stopword edge regardless of position — the
+false-positive risk this trades away (a genuine one-word name that
+collides with a function word, e.g. a character actually named "Il") is
 vanishingly rare next to that. This is a real, if imperfect, detector —
 not a rule that discards everything (the vacuity failure this brief warns
 against) nor one so broad it discards genuine signal.
@@ -90,36 +104,73 @@ _FUNCTION_WORD_STOPWORDS = frozenset({
 class JudgeVerdict:
     passed: bool
     reason: str
+    # Populated only by the containment branch below (TICKET-0079,
+    # BRIEF-0079-b) -- the exact words the bounded repair pass is fed.
+    # The route must never parse `reason` to recover this.
+    offending_words: tuple[str, ...] = ()
+
+
+def _sentences(prose: str) -> list[list[str]]:
+    """Strips `[MARKER]` tags and tokenizes with `_TOKEN_RE`, then splits
+    the token stream into per-sentence word lists: a token whose first
+    character is in `.!?` terminates the current sentence and is itself
+    discarded. A terminator that closes an empty sentence contributes
+    nothing — no empty lists in the returned value."""
+    prose = _MARKER_RE.sub(" ", prose)
+    sentences: list[list[str]] = []
+    current: list[str] = []
+    for m in _TOKEN_RE.finditer(prose):
+        token = m.group()
+        if token[0] in ".!?":
+            if current:
+                sentences.append(current)
+            current = []
+        else:
+            current.append(token)
+    if current:
+        sentences.append(current)
+    return sentences
+
+
+def _strip_stopword_edges(run: list[str]) -> list[str]:
+    """Removes function words from the FRONT, then the BACK, of a run —
+    interior words are never touched. May return an empty list."""
+    start = 0
+    end = len(run)
+    while start < end and run[start].casefold() in _FUNCTION_WORD_STOPWORDS:
+        start += 1
+    while end > start and run[end - 1].casefold() in _FUNCTION_WORD_STOPWORDS:
+        end -= 1
+    return run[start:end]
 
 
 def extract_names(prose: str) -> frozenset[str]:
     """Deterministic name-candidate extraction — see the module docstring
     for the exact rule."""
-    prose = _MARKER_RE.sub(" ", prose)
-    tokens = [m.group() for m in _TOKEN_RE.finditer(prose) if m.group()[0] not in ".!?"]
-
     names: set[str] = set()
-    i = 0
-    while i < len(tokens):
-        word = tokens[i]
-        if not word[0].isupper():
-            i += 1
-            continue
-        run = [word]
-        j = i + 1
-        while j < len(tokens):
-            nxt = tokens[j]
-            if nxt[0].isupper():
-                run.append(nxt)
-                j += 1
-            elif nxt.lower() in _CONNECTORS and j + 1 < len(tokens) and tokens[j + 1][0].isupper():
-                run.append(nxt)
-                j += 1
-            else:
-                break
-        if len(run) > 1 or word.casefold() not in _FUNCTION_WORD_STOPWORDS:
-            names.add(" ".join(run))
-        i = j
+    for tokens in _sentences(prose):
+        i = 0
+        while i < len(tokens):
+            word = tokens[i]
+            if not word[0].isupper():
+                i += 1
+                continue
+            run = [word]
+            j = i + 1
+            while j < len(tokens):
+                nxt = tokens[j]
+                if nxt[0].isupper():
+                    run.append(nxt)
+                    j += 1
+                elif nxt.lower() in _CONNECTORS and j + 1 < len(tokens) and tokens[j + 1][0].isupper():
+                    run.append(nxt)
+                    j += 1
+                else:
+                    break
+            stripped = _strip_stopword_edges(run)
+            if stripped:
+                names.add(" ".join(stripped))
+            i = j
     return frozenset(names)
 
 
@@ -179,6 +230,7 @@ def judge_narration(prose: str, fact_sheet: FactSheet) -> JudgeVerdict:
         return JudgeVerdict(
             passed=False,
             reason=f"unauthorised name(s) not in authorised_names: {', '.join(sorted(unauthorised))}",
+            offending_words=tuple(sorted(unauthorised)),
         )
 
     if not fact_sheet.steps:

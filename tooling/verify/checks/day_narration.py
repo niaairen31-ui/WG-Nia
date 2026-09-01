@@ -61,6 +61,24 @@ R17: `blocked_reason` is defined nowhere in `src/world_engine/`, and
 `cockpit/routes/day.py` imports it nowhere — no structure without a reader.
 R18: `resolution.py` contains no `"blocked"` literal — the fourth band is
 Python-assigned by the day chain, never rolled.
+
+--- BRIEF-0079-b (bounded repair pass and failure surface) ---
+
+R19 (bounded repair): `MAX_REPAIR_ATTEMPTS` is a module-level constant in
+`day_narration.py` with the value `1`; the repair call site
+(`cockpit/routes/day.py`) is reachable from exactly one `if` condition. R6
+counts `rewrite`/`day_rewrite` by name and would not see a call named
+`repair` — this is why R19 is its own rule rather than a stretch of R6.
+R20 (registry wiring, extends R9): `day_narration_repair` is also a
+`PROMPT_REGISTRY` key, with a `call_sites` entry naming `repair` in
+`day_narration.py`.
+R21 (no reason parsing): `JudgeVerdict` declares an `offending_words`
+field, and no `.split(`, `.replace(`, `re.` call or subscript is applied to
+`verdict.reason` anywhere in `cockpit/routes/day.py` — the route reads
+`offending_words` structurally, never by re-parsing the message string.
+R22 (prompt hygiene): `DAY_NARRATION_SYSTEM_PROMPT`'s source text in
+`scripts/seed_pilot.py` contains none of the removed illustrative examples
+or the removed negative-form naming instruction.
 """
 from __future__ import annotations
 
@@ -80,6 +98,7 @@ DAY_EXTRACT_FILE = SRC / "day_extract.py"
 DAY_ROUTE_FILE = SRC / "cockpit" / "routes" / "day.py"
 WRITES_PIPELINE_FILE = SRC / "writes" / "pipeline.py"
 RESOLUTION_FILE = SRC / "resolution.py"
+SEED_PILOT_FILE = ROOT / "scripts" / "seed_pilot.py"
 
 DAY_CHAIN_FILES = (
     DAY_RESOLVE_FILE, DAY_NARRATION_FILE, DAY_NARRATION_GUARD_FILE,
@@ -391,27 +410,34 @@ def check_declared_action_still_write_once() -> None:
                     fail(f"day_narration R8: {_rel(path)}:{node.lineno} — assignment to .declared_action")
 
 
+_REGISTRY_WIRING_EXPECTED = {
+    "day_narration": ("narrate", "R9"),
+    "day_rewrite": ("rewrite", "R9"),
+    "day_narration_repair": ("repair", "R20"),
+}
+
+
 def check_registry_wiring() -> None:
     """R9: day_narration/day_rewrite in PROMPT_REGISTRY, call_sites naming
-    narrate/rewrite."""
+    narrate/rewrite. R20 (BRIEF-0079-b item 9, extends R9): same shape for
+    day_narration_repair/repair."""
     sys.path.insert(0, str(ROOT / "src"))
     from world_engine import prompt_registry  # noqa: E402
 
-    expected = {"day_narration": "narrate", "day_rewrite": "rewrite"}
     found_any = False
-    for usage, fn_name in expected.items():
+    for usage, (fn_name, rule) in _REGISTRY_WIRING_EXPECTED.items():
         entry = prompt_registry.PROMPT_REGISTRY.get(usage)
         if entry is None:
-            fail(f"day_narration R9: PROMPT_REGISTRY has no {usage!r} entry")
+            fail(f"day_narration {rule}: PROMPT_REGISTRY has no {usage!r} entry")
             continue
         found_any = True
         call_sites = getattr(entry, "call_sites", ())
         if not call_sites:
-            fail(f"day_narration R9: PROMPT_REGISTRY[{usage!r}].call_sites is empty")
+            fail(f"day_narration {rule}: PROMPT_REGISTRY[{usage!r}].call_sites is empty")
         elif not any(fn_name in site for site in call_sites):
-            fail(f"day_narration R9: PROMPT_REGISTRY[{usage!r}].call_sites does not name {fn_name}: {call_sites!r}")
+            fail(f"day_narration {rule}: PROMPT_REGISTRY[{usage!r}].call_sites does not name {fn_name}: {call_sites!r}")
     if not found_any:
-        fail("day_narration R9: zero day_narration/day_rewrite entries found — vacuous")
+        fail("day_narration R9: zero day_narration/day_rewrite/day_narration_repair entries found — vacuous")
 
 
 _AGENDA_STEP_WRITE_ATTRS = {"status", "outcome", "change_history"}
@@ -700,6 +726,134 @@ def check_resolution_never_produces_blocked() -> None:
             fail(f"day_narration R18: {_rel(RESOLUTION_FILE)}:{node.lineno} — contains the literal 'blocked'")
 
 
+def check_bounded_repair() -> None:
+    """R19 (BRIEF-0079-b item 9): MAX_REPAIR_ATTEMPTS == 1 in
+    day_narration.py; the repair call site in routes/day.py is reachable
+    from exactly one `if`. Mirrors check_bounded_rewrite, for the second,
+    independently-bounded pass."""
+    tree = _parse(DAY_NARRATION_FILE)
+    if tree is None:
+        return
+    found = False
+    for node in tree.body:
+        target_name, value = None, None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            target_name, value = node.targets[0].id, node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            target_name, value = node.target.id, node.value
+        if target_name != "MAX_REPAIR_ATTEMPTS":
+            continue
+        found = True
+        if not (isinstance(value, ast.Constant) and value.value == 1):
+            fail(f"day_narration R19: MAX_REPAIR_ATTEMPTS is {ast.dump(value)}, expected the literal 1")
+    if not found:
+        fail(f"day_narration R19: {_rel(DAY_NARRATION_FILE)}: MAX_REPAIR_ATTEMPTS not found")
+
+    route_tree = _parse(DAY_ROUTE_FILE)
+    if route_tree is None:
+        return
+    resolve_fn = _find_function(route_tree, "_narrate_and_judge") or _find_function(route_tree, "resolve_day")
+    if resolve_fn is None:
+        fail(f"{_rel(DAY_ROUTE_FILE)}: neither _narrate_and_judge nor resolve_day found")
+        return
+
+    repair_calls = [
+        node for node in ast.walk(resolve_fn)
+        if isinstance(node, ast.Call) and (
+            (isinstance(node.func, ast.Name) and node.func.id == "repair")
+            or (isinstance(node.func, ast.Attribute) and node.func.attr == "repair")
+        )
+    ]
+    if not repair_calls:
+        fail(f"day_narration R19: {_rel(DAY_ROUTE_FILE)}: {resolve_fn.name} never calls the repair pass")
+    elif len(repair_calls) > 1:
+        fail(
+            f"day_narration R19: {_rel(DAY_ROUTE_FILE)}: {resolve_fn.name} calls the repair pass "
+            f"{len(repair_calls)} times, expected exactly 1 — no retry loop"
+        )
+    else:
+        has_any_if = any(isinstance(node, ast.If) for node in ast.walk(resolve_fn))
+        if not has_any_if:
+            fail(
+                f"day_narration R19: {_rel(DAY_ROUTE_FILE)}: {resolve_fn.name} calls the repair pass "
+                "with no conditional guard anywhere in the function"
+            )
+
+
+def check_no_reason_parsing() -> None:
+    """R21 (BRIEF-0079-b item 1/D2): JudgeVerdict declares an
+    offending_words field, and cockpit/routes/day.py performs no string
+    parsing of verdict.reason — no .split(, .replace(, re.<call>( or
+    subscript applied to it."""
+    guard_tree = _parse(DAY_NARRATION_GUARD_FILE)
+    if guard_tree is None:
+        return
+    has_field = False
+    for node in ast.walk(guard_tree):
+        if isinstance(node, ast.ClassDef) and node.name == "JudgeVerdict":
+            for stmt in node.body:
+                if (
+                    isinstance(stmt, ast.AnnAssign)
+                    and isinstance(stmt.target, ast.Name)
+                    and stmt.target.id == "offending_words"
+                ):
+                    has_field = True
+    if not has_field:
+        fail(f"day_narration R21: {_rel(DAY_NARRATION_GUARD_FILE)}: JudgeVerdict has no offending_words field")
+
+    route_tree = _parse(DAY_ROUTE_FILE)
+    if route_tree is None:
+        return
+
+    def _is_verdict_reason(node: ast.AST) -> bool:
+        return (
+            isinstance(node, ast.Attribute) and node.attr == "reason"
+            and isinstance(node.value, ast.Name) and node.value.id == "verdict"
+        )
+
+    for node in ast.walk(route_tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr in ("split", "replace") and _is_verdict_reason(node.func.value):
+                fail(f"day_narration R21: {_rel(DAY_ROUTE_FILE)}:{node.lineno} — .{node.func.attr}( applied to verdict.reason")
+            if (
+                isinstance(node.func.value, ast.Name) and node.func.value.id == "re"
+                and any(_is_verdict_reason(arg) for arg in node.args)
+            ):
+                fail(f"day_narration R21: {_rel(DAY_ROUTE_FILE)}:{node.lineno} — re.{node.func.attr}( applied to verdict.reason")
+        if isinstance(node, ast.Subscript) and _is_verdict_reason(node.value):
+            fail(f"day_narration R21: {_rel(DAY_ROUTE_FILE)}:{node.lineno} — subscript applied to verdict.reason")
+
+
+def check_narration_prompt_hygiene() -> None:
+    """R22 (BRIEF-0079-b item 2, decisions B2b-2/R2): DAY_NARRATION_SYSTEM_
+    PROMPT's source text in scripts/seed_pilot.py contains none of the
+    removed illustrative examples or the removed negative-form naming
+    instruction — an example in a system prompt is a vocabulary reservoir
+    that tints later narration, and negative form is worthless against the
+    abliterated gameplay model."""
+    tree = _parse(SEED_PILOT_FILE)
+    if tree is None:
+        return
+    prompt_value = None
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign) and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "DAY_NARRATION_SYSTEM_PROMPT"
+            and isinstance(node.value, ast.Constant)
+        ):
+            prompt_value = node.value.value
+    if prompt_value is None:
+        fail(f"day_narration R22: {_rel(SEED_PILOT_FILE)}: DAY_NARRATION_SYSTEM_PROMPT not found")
+        return
+    forbidden = (
+        "le marchand", "la femme aux registres", "le marché",
+        "N'invente aucun autre nom propre", "jamais par un nom propre inventé",
+    )
+    for phrase in forbidden:
+        if phrase in prompt_value:
+            fail(f"day_narration R22: DAY_NARRATION_SYSTEM_PROMPT still contains {phrase!r}")
+
+
 def main() -> None:
     check_dice_are_python()
     check_truncation_purity()
@@ -718,6 +872,9 @@ def main() -> None:
     check_append_blocked_step_purity_and_guard()
     check_blocked_reason_deleted()
     check_resolution_never_produces_blocked()
+    check_bounded_repair()
+    check_no_reason_parsing()
+    check_narration_prompt_hygiene()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -726,8 +883,9 @@ def main() -> None:
         "PASS: day_narration — dice-are-Python, truncation purity, narrate's DB boundary, "
         "the judge's Python-only and anti-vacuity guards, the bounded rewrite, history "
         "append-only, declared_action write-once, PROMPT_REGISTRY wiring, V1's no-direct-"
-        "step-write boundary, BB1's remaining-work invariant, and BRIEF-0078-b's blocked-band "
-        "gates (R13-R18) are all intact"
+        "step-write boundary, BB1's remaining-work invariant, BRIEF-0078-b's blocked-band "
+        "gates (R13-R18), and BRIEF-0079-b's bounded repair and failure-surface gates "
+        "(R19-R22) are all intact"
     )
     sys.exit(0)
 
