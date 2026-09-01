@@ -14278,6 +14278,54 @@ times proposing a rising `knowledge_change`. Without that escalator, H2/H3
 would produce a permanently shut gate, which is this ticket's own bug
 returning by another door — so it stays out until the escalator exists.
 
+## A2 — THE NAME EXTRACTOR IS SENTENCE-SCOPED AND EDGE-STRIPPED, POSITION GATING STAYS REJECTED (BRIEF-0079-a, no schema change)
+
+TICKET-0079's measured root cause: `_TOKEN_RE` (`day_narration_guard.py`)
+captured `[.!?]+` as tokens, but the pre-fix `extract_names` filtered them
+out before the run-building loop, so a run could span a full stop —
+`"... les Serviteurs. Sans Dirigeants ..."` fused into the single run
+`"Serviteurs Sans Dirigeants"`, and the `len(run) > 1` bypass let `Sans`
+(a listed stopword) through despite never being a real name candidate.
+
+Fixed with two independent, composable passes: `_sentences` splits the
+marker-stripped token stream on `.`/`!`/`?` and `extract_names` builds runs
+per sentence, unioning the results — a run can no longer span a sentence
+boundary. `_strip_stopword_edges` then trims function words off the FRONT
+and BACK of every built run before the keep decision, closing the bypass
+that let a fused run smuggle a stopword through as an "interior" word;
+interior words are never touched, so a genuine oddity between two real
+names is still reported rather than silently discarded.
+
+**Position gating stays rejected.** `_sentences` makes sentence position
+knowable for the first time, which makes discarding a candidate for being
+sentence-initial newly tempting — it is still forbidden. A single
+capitalized word is discarded ONLY by the `_FUNCTION_WORD_STOPWORDS` test,
+at any position, per the live-tested-wrong precedent already recorded in
+the module docstring (`day_narration_guard.py:39-56`).
+
+**The capitalised common-noun class is out of scope here and stays a
+judge-external fix.** `Dirigeants`/`Serviteurs`-shaped capitalized common
+nouns still report as unauthorised after this step — no French common-noun
+lexicon, determiner exemption, or lowercase-elsewhere heuristic was added
+to the extractor. This upholds the precedent already recorded at
+`day_resolve.py:141-146`: when the model over-capitalizes, the fix belongs
+in the prompt (and, per BRIEF-0079-b, a bounded repair pass), never in a
+looser judge. Rejected again here for the same reason: `B1` (determiner
+exemption) and `B3` (deterministic de-capitalisation pre-pass).
+
+**Amendment, in-session (no ticket-artifact file deposited):** the
+brief's original `verify/checks/day_name_extraction.py` Scope IN spec used
+containment assertions ("no returned run contains X") on a G1 golden case
+whose prose kept the offending common noun lowercase. Measured: those
+assertions held for the target implementation, for a sentence-split-only
+revert, AND for the fully pre-fix `extract_names` alike — the case
+distinguished nothing. Corrected with Nia in-session: G1's prose was
+replaced with the live-observed reproduction (capitalized
+`Serviteurs`/`Dirigeants`), and every golden case now asserts the exact
+returned set. Each case's mutation-kill is recorded inline in the check
+file; the two reverts (sentence-split, edge-strip) were each run once
+against the corrected suite and confirmed to fail it.
+
 ---
 
 *Co-built with Claude, June 2026.*
