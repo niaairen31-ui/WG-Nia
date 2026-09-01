@@ -485,6 +485,41 @@ def _cascade_agenda_status_to_goals(
         )
 
 
+def _activate_lowest_pending_step_if_none_active(agenda: Agenda, db: Session) -> None:
+    """Z4 (TICKET-0075, BRIEF-0075-f AMENDMENT 1) — repair the invariant at
+    its source: an active agenda with pending steps always has exactly one
+    active step. Same transaction as the caller's agenda-status write, via
+    `write_agenda_step_status` so `change_history` is appended (history
+    stays sacred). Idempotent: a no-op when a step is already active, or
+    when there is no pending step to promote — that agenda is INERT, a
+    `replace` case for the day chain (BRIEF-0075-f), never a `continue`
+    one. This is a repair to this existing creator route, not a widening
+    of `agenda_step_change` — that mutation's action vocabulary stays
+    exactly `("complete", "fail")`.
+
+    Relocated from `cockpit/crud/agendas.py` to this module (TICKET-0080,
+    BRIEF-0080-a) and called from `write_agenda_status`'s `active` branch.
+    Z4 was a repair at ONE of the two paths that produce an `active`
+    agenda; the day chain's `resume` branch reached the other one
+    (`day_reconcile_apply.py`) and skipped it, so a parked plan with no
+    active step resumed into a state `_finalize_continue` refuses. Binding
+    the repair to the TRANSITION rather than to a caller is the same move
+    BRIEF-0077-a made for the one-active-per-character guard: structural,
+    not by convention."""
+    has_active = db.exec(
+        select(AgendaStep).where(AgendaStep.agenda_id == agenda.id, AgendaStep.status == "active")
+    ).first()
+    if has_active is not None:
+        return
+    next_step = db.exec(
+        select(AgendaStep)
+        .where(AgendaStep.agenda_id == agenda.id, AgendaStep.status == "pending")
+        .order_by(AgendaStep.step_order)
+    ).first()
+    if next_step is not None:
+        write_agenda_step_status(db, step=next_step, status="active")
+
+
 def write_agenda_status(
     db: Session,
     *,
@@ -543,6 +578,9 @@ def write_agenda_status(
     goal_status = _AGENDA_GOAL_CASCADE_MAP.get(status)
     if was_active and goal_status is not None:
         _cascade_agenda_status_to_goals(db, agenda, goal_status, status)
+
+    if status == "active":
+        _activate_lowest_pending_step_if_none_active(agenda, db)
 
     return agenda
 
