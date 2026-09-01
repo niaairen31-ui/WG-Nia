@@ -36,7 +36,7 @@ from ...day_concordance import ConcordanceResult, concord, emit_germs, plan_cont
 from ...day_extract import extract_factions, extract_persons, extract_places
 from ...day_feasibility import VetoVerdict, veto as feasibility_veto
 from ...day_mutations import emit_mutations
-from ...day_narration import detect_late_delta, narrate, rewrite as day_rewrite
+from ...day_narration import detect_late_delta, narrate, repair, rewrite as day_rewrite
 from ...day_narration_guard import JudgeVerdict, judge_narration
 from ...day_plan import (
     DAY_BUDGET_SLOTS,
@@ -708,12 +708,13 @@ def _narrate_and_judge(
     fact_sheet: FactSheet, pass_play: PassPlay, db: Session,
 ) -> tuple[FactSheet, str, JudgeVerdict]:
     """Narration + the T1 judge + the ONE conditional rewrite attempt
-    (Scope IN items 3-4), carved out of `resolve_day` for the function-
-    length ceiling (`_finalize_plan`/`write_day_plan`'s precedent). Raises
+    (Scope IN items 3-4) + the ONE conditional repair attempt (TICKET-0079,
+    BRIEF-0079-b), carved out of `resolve_day` for the function-length
+    ceiling (`_finalize_plan`/`write_day_plan`'s precedent). Raises
     `HTTPException` (502) on an LLM failure; returns the (possibly
-    rewritten) fact sheet, the prose and the judge's final verdict —
-    NEVER raises on a judge rejection, that is the caller's job (it must
-    still record the rejected attempt before reporting)."""
+    rewritten/repaired) fact sheet, the prose and the judge's final
+    verdict — NEVER raises on a judge rejection, that is the caller's job
+    (it must still record the rejected attempt before reporting)."""
     try:
         prose = narrate(fact_sheet, pass_play.declared_action, db)
     except LlmParseError as exc:
@@ -724,18 +725,25 @@ def _narrate_and_judge(
         return fact_sheet, prose, verdict
 
     delta = detect_late_delta(fact_sheet, pass_play, db)
-    if delta is None:
-        return fact_sheet, prose, verdict
+    if delta is not None:
+        fact_sheet = dataclasses.replace(
+            fact_sheet, authorised_names=fact_sheet.authorised_names | {delta.resolved_name},
+        )
+        try:
+            prose = day_rewrite(fact_sheet, prose, delta, db)
+        except LlmParseError as exc:
+            db.rollback()
+            raise HTTPException(status_code=502, detail=f"day rewrite failed: {exc}") from exc
+        verdict = judge_narration(prose, fact_sheet)
 
-    fact_sheet = dataclasses.replace(
-        fact_sheet, authorised_names=fact_sheet.authorised_names | {delta.resolved_name},
-    )
-    try:
-        prose = day_rewrite(fact_sheet, prose, delta, db)
-    except LlmParseError as exc:
-        db.rollback()
-        raise HTTPException(status_code=502, detail=f"day rewrite failed: {exc}") from exc
-    verdict = judge_narration(prose, fact_sheet)
+    if not verdict.passed and verdict.offending_words:
+        try:
+            prose = repair(fact_sheet, prose, verdict.offending_words, db)
+        except LlmParseError as exc:
+            db.rollback()
+            raise HTTPException(status_code=502, detail=f"day narration repair failed: {exc}") from exc
+        verdict = judge_narration(prose, fact_sheet)
+
     return fact_sheet, prose, verdict
 
 
@@ -763,7 +771,15 @@ def _finalize_resolution(
         )
         db.add(pass_play)
         db.commit()
-        raise HTTPException(status_code=422, detail=f"day narration rejected by judge: {verdict.reason}")
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": f"day narration rejected by judge: {verdict.reason}",
+                "reason": verdict.reason,
+                "offending_words": list(verdict.offending_words),
+                "prose": prose,
+            },
+        )
 
     batch.local_summary = prose
     batch.final_result = prose

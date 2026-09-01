@@ -104,6 +104,10 @@ _FUNCTION_WORD_STOPWORDS = frozenset({
 class JudgeVerdict:
     passed: bool
     reason: str
+    # Populated only by the containment branch below (TICKET-0079,
+    # BRIEF-0079-b) -- the exact words the bounded repair pass is fed.
+    # The route must never parse `reason` to recover this.
+    offending_words: tuple[str, ...] = ()
 
 
 def _sentences(prose: str) -> list[list[str]]:
@@ -226,6 +230,7 @@ def judge_narration(prose: str, fact_sheet: FactSheet) -> JudgeVerdict:
         return JudgeVerdict(
             passed=False,
             reason=f"unauthorised name(s) not in authorised_names: {', '.join(sorted(unauthorised))}",
+            offending_words=tuple(sorted(unauthorised)),
         )
 
     if not fact_sheet.steps:

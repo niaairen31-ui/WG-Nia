@@ -14326,6 +14326,136 @@ returned set. Each case's mutation-kill is recorded inline in the check
 file; the two reverts (sentence-split, edge-strip) were each run once
 against the corrected suite and confirmed to fail it.
 
+## THE BOUNDED REPAIR PASS AND THE STRUCTURED 422 (BRIEF-0079-b, no schema change)
+
+Second and last step of TICKET-0079. After -a, the extractor no longer
+fuses across sentences, but a capitalized common noun (`Dirigeants`,
+`Serviteurs`) still correctly reports as unauthorised, per the precedent at
+`day_resolve.py:141-146`: the judge stays strict and the fix belongs to the
+model. Three changes ship together: `JudgeVerdict` gains a defaulted
+`offending_words: tuple[str, ...] = ()` field, populated only by the
+containment branch; `DAY_NARRATION_SYSTEM_PROMPT`'s naming rule is
+re-anchored on the nameable LIST rather than a word class, in positive
+form only, with no illustrative examples (an example in a system prompt is
+a vocabulary reservoir that tints later narration) — forward-compatible
+with factions joining the nameable list later (`E2'`); and one bounded
+repair pass (`day_narration.repair`, `MAX_REPAIR_ATTEMPTS = 1`) fires in
+`_narrate_and_judge` when, and only when, the verdict failed AND
+`offending_words` is non-empty — never on a band-marker or anti-vacuity
+failure. The 422 body (`cockpit/routes/day.py:_finalize_resolution`) is now
+a structured dict (`message`/`reason`/`offending_words`/`prose`); the route
+never parses `verdict.reason` (R21).
+
+**R19 exists as its own rule, not a stretch of R6.** R6 (the rewrite's
+bound) counts calls named `rewrite`/`day_rewrite`; it is structurally blind
+to a call named `repair`. R19 mirrors R6's shape for the repair pass
+specifically, so each of the two independent model-call passes carries its
+own bound, verified by its own rule.
+
+**R20 extends R9 (registry wiring) rather than duplicating it** — the same
+function now walks `{day_narration, day_rewrite, day_narration_repair}`,
+each against its own rule id in the failure message.
+
+**Downstream governance list also needed updating.** Adding the
+`day_narration_repair` seed head and its `PROMPT_REGISTRY` entry pushed
+`tooling/verify/checks/day_prompt_delivery.py`'s R1/R2 counts from 9/16 to
+10/18 heads/constants — that check's own docstring calls its counts
+"deliberately literal and deliberately brittle" (TICKET-0076), by design
+requiring exactly this kind of manual bump on every legitimate addition
+(TICKET-0077/BRIEF-0077-c set the precedent). Updated in the same commit;
+`corpus_gate.py` (96 checks) is green.
+
+### Execution notes (live-gate findings for Nia)
+
+**The re-anchored naming rule (item 2) is NOT live on any already-seeded
+world, by design (S2, TICKET-0011, locked) — action needed from Nia.**
+`upsert_prompt_template`'s own docstring: "a head already present with
+>= 1 version -> NEVER touch text again (creator sovereignty is absolute —
+seed wording improvements no longer propagate to an already-seeded DB)."
+Measured on "La Dichotomie": `pt-day-narration` already carries 2
+`prompt_version` rows (both pre-dating this ticket), so re-running
+`seed_pilot.py` left its live text exactly as it was — the two bullets
+this brief rewrote in `scripts/seed_pilot.py` are correct in the SOURCE
+CONSTANT (and will seed correctly on any virgin/new-world head) but are
+NOT what the live model was tested against below. `day_narration_repair`,
+being a brand-new head, seeded its v1 correctly and WAS live for every
+test. To put the new wording in effect on an existing world, Nia creates a
+new `prompt_version` for `pt-day-narration` herself via the Prompts tab
+(S2's whole point: text propagation to a live world is a creator act, not
+an automatic one) — this is not a defect, but it does mean the false-
+positive rate on "La Dichotomie" will not visibly improve until she does.
+
+**Item 8 (422 consumer enumeration, report-only).** The sole consumer of
+`POST /api/day/{batch_id}/resolve` is `frontend/src/journee/journee.svelte.js:92`
+(`resolveDay`), through `frontend/src/creation/sheetRequest.svelte.js:33`
+(`api()`: `throw new Error(data.detail || JSON.stringify(data))`) into
+`journee.svelte.js:96` (`journeeState.resolveError = e.message`). `detail`
+is now a dict, not a string: `new Error(dict)` coerces it to the string
+`"[object Object]"`, discarding `offending_words` and `prose` entirely.
+Confirmed live: resolving Jour 6 of "La Dichotomie" through the actual
+Journée UI rendered exactly `[object Object]` as the error text. Per this
+brief's Scope OUT, NOT fixed here — Journée is shell-native (not the sealed
+Play surface), but the brief's item 8 is report-only regardless of which
+surface holds the broken consumer.
+
+**A discrepancy in this brief's own Done-means, found live.** One Done-means
+bullet reads: "force a rejection the repair cannot fix (temporarily remove
+`day_narration_repair`'s seeded row) and confirm the 422 body carries
+`offending_words` and `prose`." Tested exactly as written (`is_active =
+False` on the seeded row, then resolved a day whose narration drew a
+name-containment rejection): the actual result is a **502**
+(`"day narration repair failed: ...no active prompt_template..."`), not a
+422 — because Scope IN item 6 explicitly specifies `LlmParseError` from a
+missing template is handled "exactly as the two existing calls handle it"
+(502), and item 5's `repair()` raises exactly that when the template is
+absent. The code is internally consistent with its own Scope IN; the
+Done-means bullet's premise (missing template -> 422) does not hold given
+item 6's own instruction. A 422 carrying `offending_words`/`prose` DOES
+happen — reliably — on the OTHER meaning of "a rejection the repair cannot
+fix": the repair prompt is present, fires, and the repaired prose is
+STILL rejected. Confirmed live and via a direct `narrate`/`judge_narration`/
+`repair` probe against the real model and the seeded prompts (below).
+
+**The repair pass's real-world success rate, measured against the live
+game model (`huihui_ai/qwen3-abliterated:8b-v2`).** A 6-sample probe
+against a synthetic fact sheet reproducing the ticket's exact scenario
+(Lorian, `Serviteurs`/`Dirigeants` role hints) drew: 1 clean pass, 1
+anti-vacuity failure (repair not attempted — correctly, per Scope OUT),
+and 4 name-containment rejections that triggered repair — of which **0
+of 4 repaired successfully**. The repair model's failure mode is
+consistent: rather than lower-casing only the listed offending word(s), it
+lower-cases the ENTIRE prose, including the authorised names and the
+`[RÉUSSITE]`/`[PARTIEL]`/`[BLOQUÉ]` markers — which then fails the judge's
+anti-vacuity guard instead (zero names extracted). Every failure still
+degrades correctly to a structured 422 (never a silent bad narration, per
+"Fail-closed narration" above) — this is a model-compliance quality
+finding, not a code defect (per the project's own precedent: "French
+quality... is a model-selection signal, not a code defect"). It is flagged
+here because it bears directly on this ticket's own governance: `B1`/`B3`
+carry a reactivation condition — "the judge still rejects after the repair
+pass on more than 2 out of 10 resolved days" — and this sample (4 of 6,
+counting the anti-vacuity case, rejected even after the repair attempt was
+either skipped or failed) is already past that threshold. Recorded for
+Nia's live-gate judgment, not acted on unilaterally: revisiting `B1`/`B3`,
+or tuning the repair prompt or model, is a design decision outside this
+brief's Scope IN.
+
+**Live-tested and confirmed working (against the pre-existing narration
+wording, per the note above).** `JudgeVerdict.offending_words` is populated
+correctly on every containment rejection; the repair pass fires exactly
+when, and only when, `offending_words` is non-empty (never on the
+anti-vacuity/band-marker failures also observed live); the 422 body is
+structured on every rejection path tested (repair not attempted, repair
+attempted and still rejected, and repair unavailable). A "clean pass" DID
+occur in the probe's first sample — the pre-existing prompt wording
+sometimes gets it right on its own, model stochasticity — but this is not
+evidence for the new bullets specifically, per the note above; the
+re-anchored wording's own effect on the false-positive rate is untested
+until it is live on a world. `pass_play.history` on the live "Jour 6"
+(`392d014a-9eff-4b83-86af-b1462d5ce58f`) grew append-only from 3 to 7
+entries across this session's live/API test calls; the pre-existing
+feasibility entry and every prior rejected attempt survived intact.
+
 ---
 
 *Co-built with Claude, June 2026.*

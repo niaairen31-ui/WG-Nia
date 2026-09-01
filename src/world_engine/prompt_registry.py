@@ -299,6 +299,13 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         call_sites=("src/world_engine/day_narration.py:rewrite",),
         default_model=_game_model,
     ),
+    "day_narration_repair": PromptSpec(
+        surface="play",
+        world_scoped=True,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/day_narration.py:repair",),
+        default_model=_game_model,
+    ),
     "day_feasibility": PromptSpec(
         surface="play",
         world_scoped=True,
