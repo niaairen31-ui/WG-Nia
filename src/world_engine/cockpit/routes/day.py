@@ -24,6 +24,7 @@ not couple to it.
 from __future__ import annotations
 
 import dataclasses
+import logging
 from datetime import UTC, datetime
 from typing import Optional
 
@@ -32,7 +33,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ... import day_plan_select, day_plans
-from ...day_concordance import ConcordanceResult, concord, emit_germs, plan_context
+from ...day_concordance import AmbiguousMention, ConcordanceResult, concord, emit_germs, plan_context
 from ...day_extract import extract_factions, extract_persons, extract_places
 from ...day_feasibility import VetoVerdict, veto as feasibility_veto
 from ...day_mutations import emit_mutations
@@ -84,6 +85,7 @@ from .. import crud as _crud
 from ..day_reconcile_apply import _reconcile_and_finalize
 
 router = APIRouter()
+_log = logging.getLogger(__name__)
 
 
 def _get_or_open_session(world_id: str, db: Session) -> GameSession:
@@ -397,6 +399,17 @@ def _concordance_dict(result: ConcordanceResult, germ_ids: dict[int, str], db: S
             }
             for mm in result.matched
         ],
+        "cast": [
+            {
+                "surface_form": cm.mention.surface_form,
+                "category": cm.mention.category,
+                "entity_id": cm.entity_id,
+                "entity_name": _name(cm.entity_id),
+                "rung": cm.rung,
+                "basis": cm.basis,
+            }
+            for cm in result.cast
+        ],
         "ambiguous": [
             {
                 "surface_form": am.mention.surface_form,
@@ -418,6 +431,20 @@ def _concordance_dict(result: ConcordanceResult, germ_ids: dict[int, str], db: S
         ],
         "skipped_rungs": list(result.skipped_rungs),
     }
+
+
+def _ambiguous_detail(ambiguous: tuple[AmbiguousMention, ...], db: Session) -> str:
+    """Names each ambiguous surface form and the NAMES (not the ids) of its
+    candidates, for the 409 detail (BRIEF-0081-a item 8)."""
+    def _name(entity_id: str) -> str:
+        entity = db.get(Entity, entity_id)
+        return entity.name if entity is not None else entity_id
+
+    parts = [
+        f'"{am.mention.surface_form}" -> {", ".join(_name(cid) for cid in am.candidate_ids)}'
+        for am in ambiguous
+    ]
+    return "ambiguous mention(s), resolve manually before planning: " + "; ".join(parts)
 
 
 def _extract_and_concord(
@@ -566,6 +593,14 @@ def plan_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     except LlmParseError as exc:
         raise HTTPException(status_code=502, detail=f"day extraction failed: {exc}") from exc
 
+    # BRIEF-0081-a item 8: a genuine identity collision (C2-partition — a
+    # multi-candidate NAMED mention) blocks the plan outright. Nothing is
+    # committed here — the germs `_extract_and_concord` staged die with the
+    # transaction when this request's session closes (no commit precedes
+    # this raise).
+    if concordance_result.ambiguous:
+        raise HTTPException(status_code=409, detail=_ambiguous_detail(concordance_result.ambiguous, db))
+
     plans = day_plans.open_plans(character, db)
     try:
         selected = day_plan_select.select_plan(pass_play.declared_action, plans, db)
@@ -702,6 +737,30 @@ def _concord_declaration(pass_play: PassPlay, character: Character, db: Session)
         *extract_factions(pass_play.declared_action, db),
     ]
     return concord(mentions, character, db)
+
+
+def _concord_declaration_logged(pass_play: PassPlay, character: Character, db: Session) -> ConcordanceResult:
+    """`_concord_declaration` plus BRIEF-0081-a item 9's interim, short-lived
+    behavior: the plan-time 409 (item 8) already blocks a genuine collision
+    at declaration time, but extraction is an LLM call — the resolve-time
+    mention set can differ from the plan-time one. A 409 here would strand
+    an already-planned day, so a non-empty `.ambiguous` is only logged; it
+    reaches `freeze_facts` unresolved (that function never reads
+    `.ambiguous`) rather than blocking. BRIEF-0081-b removes this re-
+    derivation entirely. Carved out of `resolve_day` for the function-
+    length ceiling."""
+    try:
+        concordance_result = _concord_declaration(pass_play, character, db)
+    except LlmParseError as exc:
+        db.rollback()
+        raise HTTPException(status_code=502, detail=f"day narration concordance failed: {exc}") from exc
+    if concordance_result.ambiguous:
+        _log.info(
+            "day %s: %d ambiguous mention(s) at resolve time, treated as unresolved: %s",
+            pass_play.id, len(concordance_result.ambiguous),
+            [am.mention.surface_form for am in concordance_result.ambiguous],
+        )
+    return concordance_result
 
 
 def _narrate_and_judge(
@@ -847,11 +906,7 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     veto_retained = feasibility_entry.get("veto_retained") if feasibility_entry else None
     outcomes = resolve_steps(agenda, character, db, veto_retained=veto_retained)
 
-    try:
-        concordance_result = _concord_declaration(pass_play, character, db)
-    except LlmParseError as exc:
-        db.rollback()
-        raise HTTPException(status_code=502, detail=f"day narration concordance failed: {exc}") from exc
+    concordance_result = _concord_declaration_logged(pass_play, character, db)
     fact_sheet = freeze_facts(outcomes, concordance_result, batch, character, db)
 
     if not outcomes:

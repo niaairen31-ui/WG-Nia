@@ -1,0 +1,22 @@
+{
+  "ticket": "TICKET-0081-day-declaration-rewrite-and-concordance",
+  "when": "2026-09-01T23:26:30.844835+00:00",
+  "green": false,
+  "checks": [
+    {
+      "check": "day_concordance.py",
+      "status": "PASS",
+      "msg": "PASS: day_concordance \u00e2\u20ac\u201d purity, no registry leak, germ shape, no synchronous authoring, the I2 parking tripwire, PROMPT_REGISTRY wiring, rung bijection, the mentions bound, the casting bijection, and the E2c reachability tripwire are all intact"
+    },
+    {
+      "check": "day_rewrite.py",
+      "status": "MISSING",
+      "msg": "C:\\Users\\Utilisateur\\Documents\\World-genrator\\tooling\\verify\\checks\\day_rewrite.py not found"
+    },
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v1.96'"
+    }
+  ]
+}

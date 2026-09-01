@@ -25,8 +25,19 @@ evaluator bijection check) — a named, ordered sequence, not inline branches.
 R7 (named bound): `MAX_MENTIONS_PER_PASS` is a module-level constant in
 `day_extract.py`, referenced by the shared extraction path all three passes
 call through.
-R8: every rule above is vacuity-guarded — a rule that locates zero items is
-a FAILURE, not a silent pass.
+R8 (casting bijection, TICKET-0081/BRIEF-0081-a): `CAST_PRECEDENCE` and
+`_CAST_LOOKUPS` in `day_concordance.py` are in bijection (same idiom as R6),
+and `"stable"` — the TOTAL criterion — is the last element of
+`CAST_PRECEDENCE`.
+R9 (E2c BFS is a fresh reader): `day_concordance.py` defines a function
+whose body contains a `connects_to` string constant (the new reachability
+BFS), AND the module's import list does not name `_day_reachable_ids` (D1 —
+never import `day_plan`'s reader, never share one).
+R10 (E2c tripwire): `_rung_occupation`'s body references the concordance
+context's `reachable_location_ids` attribute — the E2c scoping filter.
+
+Every rule above is vacuity-guarded — a rule that locates zero items is a
+FAILURE, not a silent pass.
 """
 from __future__ import annotations
 
@@ -53,7 +64,7 @@ EXPECTED_FUNCTIONS = {
     "day_extract_person": "extract_persons",
     "day_extract_faction": "extract_factions",
 }
-EXPECTED_RUNGS = {"named_exact", "named_alias", "occupation", "presence"}
+EXPECTED_RUNGS = {"named_exact", "named_token", "named_alias", "occupation", "presence"}
 
 FAILURES: list[str] = []
 _TREE_CACHE: dict[pathlib.Path, "ast.Module | None"] = {}
@@ -322,6 +333,85 @@ def check_mentions_bound() -> None:
         fail("day_concordance R7: MAX_MENTIONS_PER_PASS is declared but never read by the shared extraction path")
 
 
+def check_cast_precedence() -> None:
+    tree = _parse(DAY_CONCORDANCE_FILE)
+    if tree is None:
+        return
+    precedence_tuple = _tuple_assign(tree, "CAST_PRECEDENCE")
+    if precedence_tuple is None:
+        fail(f"day_concordance R8: {_rel(DAY_CONCORDANCE_FILE)}: CAST_PRECEDENCE tuple not found")
+        return
+    precedence = [e.value for e in precedence_tuple.elts if isinstance(e, ast.Constant)]
+    if not precedence:
+        fail("day_concordance R8: CAST_PRECEDENCE located but holds zero values")
+        return
+    if precedence[-1] != "stable":
+        fail(f"day_concordance R8: CAST_PRECEDENCE's last element is {precedence[-1]!r}, expected 'stable'")
+
+    lookups = _named_dict(tree, "_CAST_LOOKUPS")
+    if lookups is None:
+        fail(f"day_concordance R8: {_rel(DAY_CONCORDANCE_FILE)}: _CAST_LOOKUPS dict literal not found")
+        return
+    lookup_keys = {k.value for k in lookups.keys if isinstance(k, ast.Constant)}
+    if not lookup_keys:
+        fail("day_concordance R8: _CAST_LOOKUPS located but holds zero keys")
+        return
+
+    precedence_set = set(precedence)
+    missing = precedence_set - lookup_keys
+    if missing:
+        fail(f"day_concordance R8: CAST_PRECEDENCE value(s) {sorted(missing)!r} have no _CAST_LOOKUPS key")
+    orphan = lookup_keys - precedence_set
+    if orphan:
+        fail(f"day_concordance R8: _CAST_LOOKUPS key(s) {sorted(orphan)!r} are not in CAST_PRECEDENCE")
+
+
+def check_reachability_reader() -> None:
+    tree = _parse(DAY_CONCORDANCE_FILE)
+    if tree is None:
+        return
+
+    found_constant = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if any(isinstance(sub, ast.Constant) and sub.value == "connects_to" for sub in ast.walk(node)):
+            found_constant = True
+            break
+    if not found_constant:
+        fail("day_concordance R9: no function body in day_concordance.py contains a 'connects_to' string constant")
+
+    imports_shared_reader = False
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            if any(alias.name == "_day_reachable_ids" for alias in node.names):
+                imports_shared_reader = True
+    if imports_shared_reader:
+        fail(
+            "day_concordance R9: day_concordance.py imports _day_reachable_ids — "
+            "the E2c BFS must be written fresh in this module (D1)"
+        )
+
+
+def check_occupation_reachability_reference() -> None:
+    tree = _parse(DAY_CONCORDANCE_FILE)
+    if tree is None:
+        return
+    func = _find_function(tree, "_rung_occupation")
+    if func is None:
+        fail(f"day_concordance R10: {_rel(DAY_CONCORDANCE_FILE)}: _rung_occupation not found")
+        return
+    references = [
+        node for node in ast.walk(func)
+        if isinstance(node, ast.Attribute) and node.attr == "reachable_location_ids"
+    ]
+    if not references:
+        fail(
+            "day_concordance R10: _rung_occupation does not reference "
+            "ctx.reachable_location_ids — the E2c tripwire"
+        )
+
+
 def main() -> None:
     check_purity()
     check_no_registry_leak()
@@ -330,6 +420,9 @@ def main() -> None:
     check_shortcircuit_intact()
     check_registry_and_rungs()
     check_mentions_bound()
+    check_cast_precedence()
+    check_reachability_reader()
+    check_occupation_reachability_reference()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -337,7 +430,8 @@ def main() -> None:
     print(
         "PASS: day_concordance — purity, no registry leak, germ shape, no synchronous "
         "authoring, the I2 parking tripwire, PROMPT_REGISTRY wiring, rung bijection, "
-        "and the mentions bound are all intact"
+        "the mentions bound, the casting bijection, and the E2c reachability tripwire "
+        "are all intact"
     )
     sys.exit(0)
 
