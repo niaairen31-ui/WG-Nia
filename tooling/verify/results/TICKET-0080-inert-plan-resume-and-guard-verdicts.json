@@ -1,17 +1,17 @@
 {
   "ticket": "TICKET-0080-inert-plan-resume-and-guard-verdicts",
-  "when": "2026-09-01T21:32:59.689680+00:00",
+  "when": "2026-09-01T21:52:43.315738+00:00",
   "green": true,
   "checks": [
     {
       "check": "parked_plan_guard.py",
       "status": "PASS",
-      "msg": "PASS: parked_plan_guard \u2014 agenda.status vocabulary, no-cascade-on-paused, the one-active guard at both canon-write sites, pass_play.agenda_id's reader, day_plans.py's direct-write posture, the R7 repair-at-the-transition call, and the R8 single definition of the activation helper all hold"
+      "msg": "PASS: parked_plan_guard \u00e2\u20ac\u201d agenda.status vocabulary, no-cascade-on-paused, the one-active guard at both canon-write sites, pass_play.agenda_id's reader, day_plans.py's direct-write posture, the R7 repair-at-the-transition call, and the R8 single definition of the activation helper all hold"
     },
     {
       "check": "day_plan.py",
       "status": "PASS",
-      "msg": "PASS: day_plan \u2014 evaluator bijection, requirement CHECKs, budget derivation, P2/positional exclusion, the positional wall, budget_cut purity, emit_plan wiring, named bounds, the D1 traversal-independence gate, BRIEF-0075-f's reconciliation/Z4/AA2 gates (R11-R21), R22's finalizer-location gate, and BRIEF-0077-c's selection/resume gates (R15 retargeted, R23-R24) are all intact"
+      "msg": "PASS: day_plan \u00e2\u20ac\u201d evaluator bijection, requirement CHECKs, budget derivation, P2/positional exclusion, the positional wall, budget_cut purity, emit_plan wiring, named bounds, the D1 traversal-independence gate, BRIEF-0075-f's reconciliation/Z4/AA2 gates (R11-R21), R22's finalizer-location gate, BRIEF-0077-c's selection/resume gates (R15 retargeted, R23-R24), BRIEF-0078-a's requirement-anchoring gates (R25-R28), and BRIEF-0080-b's continue-guard verdict split (R29-R30) are all intact"
     }
   ]
 }
