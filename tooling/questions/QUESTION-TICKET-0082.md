@@ -77,3 +77,53 @@ C. Hold BRIEF-0082-c's schema change (the `fact_default` table) out of this
 D. Something else Nia specifies.
 
 ## Response
+
+## Resolution
+
+Decision on QUESTION-TICKET-0082 — resolved. Stopping here was correct;
+the literal reading of the 99 threshold is also correct.
+
+VERDICT: option B, with the convention specified below. Option A is
+rejected for a reason not in the write-up above: assigning v1.99 while
+leaving the escalate-at-99 rule in place leaves the tripwire permanently
+fired. Every later schema-touching step would re-trigger this same stop
+with no defined resolution. Option C is rejected as disproportionate — the
+numbering convention is orthogonal to the fact-default chantier.
+
+1. This step's schema version is v1.99. Proceed with it.
+
+2. Numbering convention, effective now. The existing schema version
+   numbering clause in CLAUDE.md is replaced with:
+
+   Schema version: `vMAJOR.MINOR`, MINOR two digits, 00-99. Next version:
+   MINOR < 99  ->  `vMAJOR.(MINOR+1)` zero-padded; MINOR = 99  ->
+   `v(MAJOR+1).00`. MAJOR counts MINOR overflows and carries no semantic
+   meaning. Published changelog versions are never renumbered.
+
+   This is a total function with no escalation branch — that is the point.
+   The "stop and escalate (D1-c)" sentence is not preserved alongside it.
+
+3. Sequencing. The CLAUDE.md edit and this appended section go in one
+   commit of their own, before BRIEF-0082-c implementation resumes.
+   Append only — the committed Options section above is not rewritten.
+
+4. STOP conditions honored: the CLAUDE.md contract check (character
+   budget, per-line ceiling) must pass after the edit without trimming the
+   replacement text to fit; if the surrounding text made a clean splice
+   impossible, that was to be reported rather than improvised.
+
+5. REPORT ONLY, no fix: grep the tree for hardcoded `v1.` version
+   assumptions (regexes like `v1\.\d{2}`, string literals, boot guards).
+   Nothing there blocks v1.99 — the shape is unchanged — but it is the
+   breakage surface for the v2.00 roll. Findings feed a separate ticket,
+   not this one.
+
+6. Scope OUT / named deferral: no verify check enforcing the version
+   format or the increment rule in this ticket. That rule is currently
+   disciplinary — it held this time because CLAUDE.md was read and
+   complied with, not by construction. Reactivation condition: a
+   schema_version_format check ticket is opened before the next
+   schema-touching ticket enters exec.
+
+Everything else in BRIEF-0082-c stands unchanged. Resume after the
+convention commit.
