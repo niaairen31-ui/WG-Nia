@@ -78,7 +78,7 @@ D. Something else Nia specifies.
 
 ## Response
 
-## Resolution
+### Resolution
 
 Decision on QUESTION-TICKET-0082 — resolved. Stopping here was correct;
 the literal reading of the 99 threshold is also correct.
@@ -127,3 +127,79 @@ numbering convention is orthogonal to the fact-default chantier.
 
 Everything else in BRIEF-0082-c stands unchanged. Resume after the
 convention commit.
+
+---
+
+# QUESTION 2 — TICKET-0082 (BRIEF-0082-d)
+Trigger: D1-c
+## Context
+
+`/brief-exec 0082-d` (BRIEF-0082-d, "Known-reachability graph for
+deliberation"). Before writing the classification table (Scope IN item 1),
+I re-verified the mini-RECON's twelve-module `connects_to` reader count —
+confirmed still accurate, no thirteenth site. `relation_graph.py` and
+`graph_primitive.py` checked for conflict — none (different concern, the
+social relation graph exclusion).
+
+`tick_context._reachable_locations` — the function the brief names for
+conversion to a knowledge-filtered `known_reachable_locations` (item 3,
+"expected to be tick_context.py:433 ... via a knower-aware variant") — has
+**two callers**, and the mini-RECON's enumeration recorded only one:
+
+1. `tick.py:69` — feeds an NPC's own tick briefing (`destinations` in
+   `assemble_tick_context`). Unambiguously **deliberation**: a specific
+   `entity_id` exists to resolve knowledge against.
+2. `tick_context.py:494`, inside `assemble_location_event_context` — feeds
+   a location-scope event briefing ("LES ENVIRONS"), consumed by
+   `_tick_run_scope_events` -> `_tick_call_scope_model` (`tick.py:412-417`).
+   This caller has no single character whose knowledge would govern the
+   filter — it is an omniscient, location-scoped generator proposing
+   ambient events, not a character's belief.
+
+None of the four classification labels (`resolution`, `deliberation`,
+`authoring`, `vocabulary`) cleanly fits caller 2: it is not a legality
+check, it does not build/write the graph, it is not a vocabulary literal,
+and B2's "deliberation" is explicitly defined as *a character's* belief —
+there is no character here. Per the brief's own STOP condition ("If the
+classification of any site is genuinely ambiguous ... stop and escalate.
+Do not pick. That ambiguity is a design question about where deliberation
+ends, and it belongs to Nia."), I stopped before item 1's table and before
+any code.
+
+I raised this in-session (not async) and Nia's instruction was: open a PR
+now with the work already completed on this ticket (BRIEF-0082-a,
+BRIEF-0082-b, BRIEF-0082-c — all committed, verified PASS on
+`module_budget.py`, `fact_spine.py`, `knowledge_resolution.py`), and she
+will return with the classification answer separately. BRIEF-0082-d is
+therefore NOT executed this session; `known_reachability.py` remains
+MISSING and the ticket's verify result stays red on that one check.
+
+## Question
+
+How should `assemble_location_event_context`'s call to
+`_reachable_locations` (the location-scope event briefing) be classified,
+and should its call site be repointed to a knowledge-filtered reader?
+
+## Options
+
+A. `authoring` — leave it unfiltered. Treat it like region/room-batch
+   generation: engine-internal content proposal, reads canon truth
+   directly. Behaviour stays exactly as today (the safety property BRIEF-d
+   asks for). `known_reachable_locations` is wired ONLY at `tick.py:69`
+   (the NPC-destinations call).
+
+B. Knowledge-filtered by the scope's own resolved defaults — stretch G2a's
+   per-entity resolution into a per-location aggregate (e.g. highest
+   default among entities present). No precedent in the locked design;
+   likely out of this ticket's scope as decided.
+
+C. Defer entirely — don't build `known_reachable_locations` for
+   `tick_context.py` at all this ticket; wire `day_plan.py` only, and
+   revisit the NPC-destinations (`tick.py:69`) and scope-event callers
+   together in a follow-up once this question is settled.
+
+D. Something else Nia specifies.
+
+## Response
+
+
