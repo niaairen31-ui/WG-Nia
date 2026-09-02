@@ -11,6 +11,10 @@ Layout, by canon domain:
     _shared.py        — closed helper set (R7): `_clamp`, `_append_history_snapshot`.
     relations.py       — `relation`: `write_relation`, `_find_relation_pair`.
     knowledge.py        — `knowledge`: `write_knowledge` and the level ladder.
+    facts.py            — `fact`/`fact_participant`/`fact_default`:
+                          `create_fact`, `attach_participants`
+                          (TICKET-0082, BRIEF-0082-b), `create_fact_default`
+                          (BRIEF-0082-c).
     characters.py       — `character`/`skill`/`ledger`: three unbaselined movers.
     factions.py         — `faction_membership`/`faction_role`.
     config.py           — the governed-config group (`npc_price`,
@@ -46,6 +50,7 @@ from .config import (
     write_world_laws,
 )
 from .events import write_event, write_event_update
+from .facts import attach_participants, create_fact, create_fact_default
 from .factions import (
     _validate_max_holders,
     active_role_counts,
@@ -104,6 +109,9 @@ from .worlds import delete_world_cascade
 __all__ = [
     "write_relation",
     "write_knowledge",
+    "create_fact",
+    "create_fact_default",
+    "attach_participants",
     "write_skill_tier",
     "write_ledger_entry",
     "write_membership",

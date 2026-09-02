@@ -28,6 +28,7 @@ import logging
 
 from sqlmodel import Session, select
 
+from .knowledge_resolve import resolve_default_rows
 from .ledger import get_balance
 from .models import (
     Agenda,
@@ -239,6 +240,10 @@ def _tick_knowledge_block(npc_id: str, session: Session) -> str:
     knowledge = session.exec(
         select(Knowledge).where(Knowledge.entity_id == npc_id).order_by(Knowledge.id)
     ).all()
+    # Union with resolved scoped defaults (TICKET-0082, BRIEF-0082-c, G2a).
+    knowledge = knowledge + resolve_default_rows(
+        session, npc_id, {k.fact_id for k in knowledge}
+    )
     return "\n".join(_knowledge_line(k) for k in knowledge) if knowledge else "(aucune connaissance)"
 
 

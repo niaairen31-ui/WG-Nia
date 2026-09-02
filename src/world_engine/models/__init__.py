@@ -11,6 +11,12 @@ Layout, by stratum:
     canon_faction.py — faction extension tables (Faction, FactionRole,
                         FactionMembership), extracted from canon.py at
                         TICKET-0048 for the module_budget cap.
+    canon_knowledge.py — perception extension tables (Relation, Knowledge),
+                        extracted from canon.py at TICKET-0082, BRIEF-0082-a
+                        for the module_budget cap. Fact/FactParticipant (the
+                        knowledge anchor spine) added at BRIEF-0082-b.
+                        FactDefault (scoped default knowledge level, G2a)
+                        added at BRIEF-0082-c.
     config.py        — canon curated-config tables too new/small to justify
                         growing canon.py at its module_budget cap
                         (ConversationWindowConfig, TICKET-0050).
@@ -27,8 +33,9 @@ This module re-exports the ENTIRE former public surface of the flat
 `models.py` — every class, constant, and the two module functions
 (`_uuid`, `_created_ts`) — so every existing `from .models import X` /
 `from world_engine.models import X` in `src/` and `scripts/` resolves
-unchanged. Import order (canon, canon_faction, config, ephemeral, pipeline,
-observation) keeps table registration on `SQLModel.metadata` deterministic;
+unchanged. Import order (canon, canon_faction, canon_knowledge, config,
+ephemeral, pipeline, observation) keeps table registration on
+`SQLModel.metadata` deterministic;
 cross-stratum foreign keys (string table-name references) resolve
 regardless of file order.
 """
@@ -51,7 +58,6 @@ from .canon import (
     GoalAgendaLink,
     GoalPrerequisite,
     Item,
-    Knowledge,
     Ledger,
     Location,
     LocationSubculture,
@@ -60,7 +66,6 @@ from .canon import (
     NpcPrice,
     Obstacle,
     ObstacleVertex,
-    Relation,
     Skill,
     SkillDefinition,
     World,
@@ -73,6 +78,7 @@ from .canon_faction import (
     FactionMembership,
     FactionRole,
 )
+from .canon_knowledge import Fact, FactDefault, FactParticipant, Knowledge, Relation
 from .config import AgendaStep, AgendaStepRequirement, ConversationWindowConfig
 from .schedule import SCHEDULE_PHASES, NpcSchedule
 from .ephemeral import (
@@ -124,6 +130,9 @@ __all__ = [
     "FactionMembership",
     "Relation",
     "Knowledge",
+    "Fact",
+    "FactParticipant",
+    "FactDefault",
     "NpcGoal",
     "GoalPrerequisite",
     "Ledger",

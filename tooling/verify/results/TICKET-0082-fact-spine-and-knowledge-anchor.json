@@ -1,0 +1,27 @@
+{
+  "ticket": "TICKET-0082-fact-spine-and-knowledge-anchor",
+  "when": "2026-09-02T14:03:48.575616+00:00",
+  "green": false,
+  "checks": [
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values; 89 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "fact_spine.py",
+      "status": "PASS",
+      "msg": "PASS: fact_spine \u2014 no participant on a typed fact, no NULL knowledge.fact_id, every fact/knowledge level in vocabulary, and Fact/FactParticipant writes stay inside writes/facts.py"
+    },
+    {
+      "check": "knowledge_resolution.py",
+      "status": "PASS",
+      "msg": "PASS: knowledge_resolution \u2014 all five precedence tiers resolve correctly, no fact_default shape violations, vocabulary imported (never re-typed), and the golden fixture is mutation-sensitive to both named alternate policies"
+    },
+    {
+      "check": "known_reachability.py",
+      "status": "MISSING",
+      "msg": "C:\\Users\\Utilisateur\\Documents\\World-genrator\\tooling\\verify\\checks\\known_reachability.py not found"
+    }
+  ]
+}

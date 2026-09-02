@@ -14548,6 +14548,188 @@ until it is live on a world. `pass_play.history` on the live "Jour 6"
 entries across this session's live/API test calls; the pre-existing
 feasibility entry and every prior rejected attempt survived intact.
 
+## THE FACT SPINE — KNOWLEDGE'S STRUCTURAL ANCHOR, SUBJECT CUTOVER DEFERRED (BRIEF-0082-b, schema v1.98)
+
+`knowledge` pointed at a string (`subject`) with no foreign key to what is
+known. `fact` gives it a structural target: `id, world_id, relation_id,
+event_id, world_law_id, content, default_level, created_at, created_by,
+change_history`, with `ck_fact_spine_exclusive` (at most one of
+`relation_id`/`event_id`/`world_law_id` set) and `ck_fact_default_level`
+(the six-value level vocabulary). A fact is EITHER a typed row that
+already exists OR free-standing (every typed FK NULL); `fact_participant`
+(`id, world_id, fact_id, entity_id, role, position`, unique on
+`(fact_id, entity_id)`) carries a free-standing fact's arity — zero for a
+world-level statement, one for a statement about a single entity, several
+for a secret shared by conspirators. No `entity_id` column on `fact`
+itself (an intake amendment): an arity-1 fact is a nu spine plus one
+`fact_participant` row, exactly one way to express each arity — avoiding
+two ways to say the same thing. `situation_id` is deliberately absent; the
+`situation` table does not exist yet.
+
+**Single write chokepoint, spanning-constraint enforced in code.**
+`writes/facts.py::create_fact`/`attach_participants` are the only
+sanctioned `fact`/`fact_participant` write sites (registered in
+`canon_write_policy.txt`, AST-scanned by both `single_canon_write.py` and
+`fact_spine.py`'s own narrower scan). `attach_participants` raises
+`ValueError` when the target fact carries any typed FK — the one rule
+SQLite cannot express as a CHECK because it spans two tables — surfaced as
+a 409 by the creator endpoint (`POST`/`DELETE
+/api/facts/{fact_id}/participants`), never silently dropped.
+
+**`knowledge.fact_id` is NOT NULL — the write-site blast radius was wider
+than the brief's own enumeration.** The Scope IN text names only
+`cockpit/crud/knowledge.py::_create_knowledge_core` for the "auto-create a
+free-standing fact when none is given" fallback. `write_knowledge`
+(`writes/knowledge.py`) has five call sites, not one:
+`cockpit/crud/knowledge.py::_create_knowledge_core`,
+`cockpit/mutations.py`'s `new_knowledge` and `resource_change` branches,
+`link_author.py::commit_batch` (`write_knowledge(db, **row.payload)`), and
+`cockpit/routes/creator.py::_write_pc_knowledge`. Making `fact_id` NOT
+NULL without touching any of them would 500 four sanctioned paths outright.
+The fallback therefore lives in `write_knowledge`/`_build_knowledge_update`
+itself — the single chokepoint all five already share — rather than
+duplicated at `_create_knowledge_core` alone: an explicit `fact_id`
+attaches to that fact, omitting it auto-creates a free-standing one via
+`create_fact` with `content = subject`, exactly the behaviour the brief
+specifies, just placed where every creator benefits from it for free. This
+was executed as a mechanical consequence of the NOT NULL column (there was
+one coherent answer, not a D1 fork), not a re-litigation of Scope IN.
+
+**Migration (`scripts/migrate_v1_98_fact_spine.py`).** One raw-DBAPI-
+connection transaction (`migrate_v1_95_parked_plans.py` precedent):
+backfills one free-standing fact per distinct `(world_id, subject)` pair
+reachable through `knowledge.entity_id -> entity.world_id`
+(`content = subject`, `default_level = 'unaware'`, `created_by =
+'migrate_v1_98'`, zero participants — the literal subject `"unknown"`
+gets a fact like any other, never special-cased), then rebuilds
+`knowledge` with `fact_id` populated via a `(world_id, content=subject)`
+join. An orphan guard (a `knowledge` row whose `entity_id` cannot resolve
+a world) aborts before any DDL runs. Post-checks — row count unchanged,
+zero NULL `fact_id`, a checksum over `(id, entity_id, subject, level,
+content, acquired_at)` unchanged — run BEFORE commit and roll back the
+whole transaction on failure (stricter than the `migrate_v1_95` precedent,
+which checks after commit).
+
+**Deferred decision — `Knowledge.subject` cutover.** Ten identity-key
+sites survive this ticket, matching from the string rather than
+`fact_id`: `scene_format.py:61-63`, `cockpit/mutations.py:464-466`,
+`cockpit/mutations.py:724-726`, `cockpit/routes/mutations.py:172-174`,
+`day_plan.py:141-142`, `day_plan.py:332`, `day_plan.py:344-349`,
+`link_context.py:89-90`, `link_author.py:191-193`,
+`analyzer_transcript.py:658 / 716-726 / 834-836` — including
+`link_author.py:193`'s `f"npc:{other_id}"` convention, a foreign key
+already encoded inside the string. `subject` and `idx_knowledge_subject`
+(v1.96) are untouched; none of the ten sites is converted here. Reactivates
+immediately on close of TICKET-0082 — a successor ticket is required
+before any NEW reader is written against `subject`.
+
+## SCOPED KNOWLEDGE DEFAULTS — THE G2a PRECEDENCE LADDER (BRIEF-0082-c, schema v1.99)
+
+**The single authority on level resolution.** `knowledge_resolve.py::
+resolve_knowledge_level(db, entity_id, fact_id) -> str` is total over the
+six-value ladder (`writes/knowledge.py::KNOWLEDGE_LEVEL_LADDER`) — it always
+returns one of the six values, never `None`, because its last tier
+(`fact.default_level`) is NOT NULL by schema. Precedence, most specific
+first, the function returning at the FIRST tier that produces a value:
+
+1. a stored `knowledge` row for `(entity_id, fact_id)` — wins outright,
+   including when it is `'unaware'`;
+2. a `fact_default` at `scope_type='location'` for the entity's current
+   location (`character.current_location_id`) or any ancestor of it via
+   `location.parent_location_id` — nearest ancestor wins;
+3. a `fact_default` at `scope_type='faction'` for any faction the entity
+   holds an ACTIVE membership in (`faction_membership.left_at IS NULL`) —
+   across several such memberships, the HIGHEST level on the ladder wins;
+4. a `fact_default` at `scope_type='world'` (`scope_id IS NULL`);
+5. `fact.default_level`.
+
+`resolve_levels_for_entity(db, entity_id) -> dict[str, str]` is the batch
+companion: one pass over every fact in the entity's world, each precomputed
+context (stored rows, location chain, active faction ids, every
+`fact_default` for the world) fetched exactly once rather than once per
+fact, returning only the facts resolving above `'unaware'`. Both entry
+points share one pure tier function (`_resolve_tiers`) so the two never
+drift.
+
+**New table `fact_default`** (`models/canon_knowledge.py`): `id, world_id,
+fact_id, scope_type, scope_id, level, created_at, created_by`, with
+`ck_fact_default_scope_type` (`scope_type IN ('world','faction',
+'location')`), `ck_fact_default_scope_shape` (`scope_id` NULL iff
+`scope_type='world'`) and `ck_fact_default_level` (the six-value
+vocabulary). A faction scope uses the faction's `entity.id` directly —
+`faction.id` is already an `entity.id` FK, so `scope_id` needs no second
+column and no polymorphic type tag. Unique on `(fact_id, scope_type,
+scope_id)`. Ships empty (no migration seed); the creator surface is its
+first writer.
+
+**Single write chokepoint, duplicate-checked at the route.**
+`writes/facts.py::create_fact_default` is the sole sanctioned write site
+(registered in `canon_write_policy.txt`). It performs no duplicate check of
+its own — the creator route (`POST /api/facts/{fact_id}/defaults`,
+`cockpit/crud/knowledge.py`) queries for an existing `(fact_id, scope_type,
+scope_id)` row first and returns 409 rather than a silent upsert; SQLite's
+NULL semantics would otherwise let several `scope_type='world'` rows past
+the unique index (`NULL <> NULL`), so the 409 pre-check is load-bearing for
+that case specifically, not merely defense in depth. `DELETE
+/api/fact-defaults/{id}` is a creator-correction hard delete, same class as
+`delete_knowledge`/`detach_fact_participant` — named in
+`single_canon_write.py`'s closed hard-delete list; a `fact_default` row
+carries no `change_history` of its own (curated-config shape, no
+per-knower identity to preserve).
+
+**Readers stay thin — the union lives in one shared helper.**
+`resolve_default_rows(db, entity_id, exclude_fact_ids)` builds transient
+(never `db.add`-ed) `Knowledge` instances for every fact resolving above
+`'unaware'`, skipping any fact a stored row already covers, each carrying
+`is_secret=False` and `share_threshold=50` — item 5's structural defence
+(see `knowledge_resolve.py`'s module docstring, reproduced verbatim there):
+a resolved default can never mint a secret, because secrecy stays a
+property of a stored row, structurally excluded at query level by the
+existing readers; a default-minted secret would put a second, weaker
+authority behind that exclusion. The three readers
+(`context.py::_npc_context_speak`, `context.py::
+_mj_context_player_knowledge`, `tick_context.py::_tick_knowledge_block`)
+each add a 2-3 line union call and nothing else — `context.py`
+(956 lines) and `tick_context.py` (644 lines) both stayed clear of the
+1000-line `module_budget.py` cap.
+
+**Verify check `knowledge_resolution.py`.** Four assertions on a
+self-contained fresh-SQLite fixture (never Nia's real DB): all five
+precedence tiers resolve correctly on one shared fixture; no `fact_default`
+row violates its shape constraints; an AST scan confirms
+`knowledge_resolve.py` and the check itself import the six-value vocabulary
+from `writes/knowledge.py` rather than re-typing it; and a
+mutation-sensitivity fixture (a member of two factions with levels
+`'rumor'` (joined first) and `'knows'` (joined second) on the same fact)
+proves two named wrong policies — lowest-wins, first-membership-wins —
+would each disagree with the real answer (`'knows'`), so the fixture would
+catch either mutation rather than passing vacuously regardless of which
+policy ran.
+
+**Scope OUT, explicitly not decided here.** Whether a SECRET faction
+membership (`faction_membership.is_secret=TRUE`) resolves that faction's
+`fact_default` rows is unsettled — `resolve_knowledge_level`'s faction tier
+reads `faction_membership` directly (same table `read_public_memberships`
+gates), not through that accessor, so a secret member currently DOES
+resolve faction defaults like any other active member. This is a
+conscious non-decision, not an oversight: the STOP condition in
+BRIEF-0082-c required halting before the live gate if any secret
+membership existed in the dev database, which it did not, so the question
+never had to be forced.
+
+**Deferral this step makes satisfiable, not acted on.**
+`faction.magic_knowledge_level` (`models/canon_faction.py:31`) is a
+hardcoded, faction-scoped default knowledge level on a single subject — the
+direct ancestor of `fact_default`, and still rendered at
+`tick_context.py:543` (`"Connaissance de la magie : "`), untouched by this
+step (TICKET-0082's own named deferral). Its reactivation condition — "a
+`world_law`-backed fact about magic exists AND a `fact_default` row with
+`scope_type='faction'` exists" — has its second half satisfiable as of this
+step (the table and its faction-scope write path now exist); the first
+half (a `world_law`-backed magic fact) does not yet exist in any seeded
+world, so the condition as a whole remains unmet. Logged here per
+BRIEF-0082-c's own instruction, not because anything is due.
+
 ---
 
 *Co-built with Claude, June 2026.*

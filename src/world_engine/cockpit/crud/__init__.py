@@ -111,12 +111,15 @@ from .relations import (
 from .knowledge import (
     KNOWLEDGE_FIELDS,
     KNOWLEDGE_LEVELS_ORDERED,
+    FactParticipantBody,
     KnowledgeWriteBody,
     _create_knowledge_core,
     _knowledge_dict,
     _list_knowledge,
+    attach_fact_participant,
     create_knowledge,
     delete_knowledge,
+    detach_fact_participant,
     list_entity_knowledge,
     update_knowledge,
 )

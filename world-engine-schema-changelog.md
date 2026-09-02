@@ -13,6 +13,66 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v1.99** — TICKET-0082, BRIEF-0082-c: `fact_default`, scoped default
+  knowledge levels (G2a). One new table: `fact_default` (`id, world_id,
+  fact_id, scope_type, scope_id, level, created_at, created_by`; CHECK
+  `ck_fact_default_scope_type` — `scope_type IN ('world','faction',
+  'location')`; CHECK `ck_fact_default_scope_shape` — `scope_id` NULL iff
+  `scope_type = 'world'`; CHECK `ck_fact_default_level` — the six-value
+  level vocabulary; UNIQUE `(fact_id, scope_type, scope_id)`). A faction
+  scope uses the faction's `entity.id` directly (`faction.id` is already an
+  `entity.id` FK) — no second column, no polymorphic type tag. Resolution
+  (`src/world_engine/knowledge_resolve.py::resolve_knowledge_level`), most
+  specific first: a stored `knowledge` row wins outright (including
+  `'unaware'`); then the nearest `location`-scoped default up the entity's
+  `parent_location_id` chain; then, across every ACTIVE faction membership
+  (`left_at IS NULL`), the HIGHEST `world`-scoped default; then
+  `fact.default_level` (always present, so resolution is total — never
+  `None`). `resolve_levels_for_entity` is the batch companion consumed once
+  per context assembly. Three readers now union stored `knowledge` rows
+  with resolved defaults (`context.py`'s NPC-speak and player-knowledge
+  blocks, `tick_context.py`'s full-interiority knowledge block) — a
+  resolved default renders `is_secret=False`, `share_threshold=50`, never
+  persisted as a `knowledge` row. Creator surface: `GET/POST
+  /api/facts/{fact_id}/defaults`, `DELETE /api/fact-defaults/{id}`
+  (`cockpit/crud/knowledge.py`) — a duplicate `(fact_id, scope_type,
+  scope_id)` returns 409. Ships empty; the creator surface is its first
+  writer. Migration (`scripts/migrate_v1_99_fact_default.py`) creates the
+  table and its indexes only, no backfill.
+  Numbering convention change (not schema-touching on its own, recorded
+  here for provenance): `CLAUDE.md`'s schema-version-assignment clause was
+  replaced with a total function (`MINOR` 00-99 rolls `MAJOR`, no
+  escalation branch) — see `tooling/questions/QUESTION-TICKET-0082.md`.
+
+- **v1.98** — TICKET-0082, BRIEF-0082-b: the fact spine, `knowledge`'s
+  structural anchor. Two new tables: `fact` (`id, world_id, relation_id,
+  event_id, world_law_id, content, default_level, created_at, created_by,
+  change_history`; CHECK `ck_fact_spine_exclusive` — at most one of
+  `relation_id`/`event_id`/`world_law_id` set; CHECK `ck_fact_default_level`
+  — the six-value level vocabulary) is a typed row (already exists) or a
+  free-standing proposition; `fact_participant` (`id, world_id, fact_id,
+  entity_id, role, position`; UNIQUE `(fact_id, entity_id)`) carries a
+  free-standing fact's arity — zero, one, or several entities, never a
+  typed fact's (enforced in code, `writes/facts.py::attach_participants`,
+  a rule spanning two tables no CHECK can express). No `entity_id` column
+  on `fact`: an arity-1 fact is a nu spine plus one `fact_participant` row,
+  exactly one way to say each thing. `knowledge.fact_id` (NOT NULL, FK
+  `fact.id`, `idx_knowledge_fact`) anchors every existing and future
+  knowledge row to the fact it is knowledge OF; `knowledge.subject` and
+  `idx_knowledge_subject` are untouched — the ten identity-key readers keep
+  matching on the string, cutover deferred to a successor ticket (named in
+  `ARCHITECTURE_DECISIONS.md`). Migration
+  (`scripts/migrate_v1_98_fact_spine.py`) backfills one free-standing fact
+  per distinct `(world, subject)` pair reachable through existing
+  `knowledge` rows, then rebuilds `knowledge` with `fact_id` populated —
+  row count and a `(id, entity_id, subject, level, content, acquired_at)`
+  checksum both asserted unchanged, rolled back whole on any mismatch.
+  `writes/knowledge.py::write_knowledge`'s create path auto-creates a
+  free-standing fact (`content = subject`) when no `fact_id` is supplied,
+  so every existing create call site (creator CRUD, `_apply_mutation`'s
+  `new_knowledge`/`resource_change`, the link-agent batch commit, PC-creation
+  draft knowledge) keeps working unchanged against the new NOT NULL column.
+
 - **v1.97** — TICKET-0081, BRIEF-0081-b: two new tables, `day_rewrite` and
   `day_mention_resolution` (decisions A2'/B2/J2) — the declaration rewrite
   becomes a load-bearing, persisted artifact instead of a per-call, thrown-
