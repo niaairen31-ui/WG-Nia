@@ -130,6 +130,53 @@ class FactParticipant(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
+# fact_default  (scoped default knowledge level, schema vNEXT, TICKET-0082,
+# BRIEF-0082-c — G2a: a secret known by an entire faction, or by everyone in
+# a location, without one stored `knowledge` row per knower)
+#
+# Precedence (most specific first, `knowledge_resolve.py::resolve_knowledge_
+# level`): a stored `knowledge` row beats every default outright; then the
+# nearest `location`-scoped default up the entity's `parent_location_id`
+# chain; then, across every ACTIVE faction membership, the HIGHEST
+# `world`-scoped default; then `fact.default_level`.
+#
+# A faction scope uses the faction's `entity.id` directly — `Faction.id` is
+# already a FK to `entity.id`, so `scope_id` needs no second column and no
+# polymorphic type tag.
+# -----------------------------------------------------------------------------
+class FactDefault(SQLModel, table=True):
+    __tablename__ = "fact_default"
+    __table_args__ = (
+        CheckConstraint(
+            "scope_type IN ('world','faction','location')",
+            name="ck_fact_default_scope_type",
+        ),
+        CheckConstraint(
+            "(scope_type = 'world' AND scope_id IS NULL) OR "
+            "(scope_type <> 'world' AND scope_id IS NOT NULL)",
+            name="ck_fact_default_scope_shape",
+        ),
+        CheckConstraint(
+            "level IN ('unaware','rumor','suspicious','partial','knows','fully_understands')",
+            name="ck_fact_default_level",
+        ),
+        Index(
+            "idx_fact_default_unique", "fact_id", "scope_type", "scope_id", unique=True,
+        ),
+        Index("idx_fact_default_fact", "fact_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    fact_id: str = Field(foreign_key="fact.id", nullable=False)
+    scope_type: str
+    scope_id: Optional[str] = Field(default=None, foreign_key="entity.id")
+    level: str
+    created_at: datetime = _created_ts()
+    created_by: str
+
+
+# -----------------------------------------------------------------------------
 # knowledge  (what each entity knows)
 # -----------------------------------------------------------------------------
 class Knowledge(SQLModel, table=True):

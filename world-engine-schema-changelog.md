@@ -13,6 +13,37 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v1.99** — TICKET-0082, BRIEF-0082-c: `fact_default`, scoped default
+  knowledge levels (G2a). One new table: `fact_default` (`id, world_id,
+  fact_id, scope_type, scope_id, level, created_at, created_by`; CHECK
+  `ck_fact_default_scope_type` — `scope_type IN ('world','faction',
+  'location')`; CHECK `ck_fact_default_scope_shape` — `scope_id` NULL iff
+  `scope_type = 'world'`; CHECK `ck_fact_default_level` — the six-value
+  level vocabulary; UNIQUE `(fact_id, scope_type, scope_id)`). A faction
+  scope uses the faction's `entity.id` directly (`faction.id` is already an
+  `entity.id` FK) — no second column, no polymorphic type tag. Resolution
+  (`src/world_engine/knowledge_resolve.py::resolve_knowledge_level`), most
+  specific first: a stored `knowledge` row wins outright (including
+  `'unaware'`); then the nearest `location`-scoped default up the entity's
+  `parent_location_id` chain; then, across every ACTIVE faction membership
+  (`left_at IS NULL`), the HIGHEST `world`-scoped default; then
+  `fact.default_level` (always present, so resolution is total — never
+  `None`). `resolve_levels_for_entity` is the batch companion consumed once
+  per context assembly. Three readers now union stored `knowledge` rows
+  with resolved defaults (`context.py`'s NPC-speak and player-knowledge
+  blocks, `tick_context.py`'s full-interiority knowledge block) — a
+  resolved default renders `is_secret=False`, `share_threshold=50`, never
+  persisted as a `knowledge` row. Creator surface: `GET/POST
+  /api/facts/{fact_id}/defaults`, `DELETE /api/fact-defaults/{id}`
+  (`cockpit/crud/knowledge.py`) — a duplicate `(fact_id, scope_type,
+  scope_id)` returns 409. Ships empty; the creator surface is its first
+  writer. Migration (`scripts/migrate_v1_99_fact_default.py`) creates the
+  table and its indexes only, no backfill.
+  Numbering convention change (not schema-touching on its own, recorded
+  here for provenance): `CLAUDE.md`'s schema-version-assignment clause was
+  replaced with a total function (`MINOR` 00-99 rolls `MAJOR`, no
+  escalation branch) — see `tooling/questions/QUESTION-TICKET-0082.md`.
+
 - **v1.98** — TICKET-0082, BRIEF-0082-b: the fact spine, `knowledge`'s
   structural anchor. Two new tables: `fact` (`id, world_id, relation_id,
   event_id, world_law_id, content, default_level, created_at, created_by,

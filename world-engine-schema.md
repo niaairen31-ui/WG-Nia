@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.98
+Current schema version: v1.99
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -676,6 +676,42 @@ CREATE TABLE fact_participant (
 );
 CREATE UNIQUE INDEX idx_fact_participant_unique ON fact_participant(fact_id, entity_id);
 CREATE INDEX idx_fact_participant_entity ON fact_participant(entity_id);
+```
+
+-----
+
+### `fact_default`
+
+Scoped default knowledge level (schema v1.99, TICKET-0082, BRIEF-0082-c,
+G2a): a secret known by an entire faction, or by everyone standing in a
+location, without one stored `knowledge` row per knower. Resolution
+(`knowledge_resolve.py::resolve_knowledge_level`), most specific first: a
+stored `knowledge` row wins outright; then the nearest `location`-scoped
+default up the entity's `parent_location_id` chain; then, across every
+ACTIVE faction membership, the HIGHEST `world`-scoped default; then
+`fact.default_level`. A faction scope uses the faction's `entity.id`
+directly — `faction.id` is already a FK to `entity.id`, so `scope_id` needs
+no second column and no polymorphic type tag. Ships empty; the creator
+surface (`cockpit/crud/knowledge.py`) is its first writer.
+
+```sql
+CREATE TABLE fact_default (
+  id               TEXT PRIMARY KEY,
+  world_id         TEXT NOT NULL REFERENCES world(id),
+  fact_id          TEXT NOT NULL REFERENCES fact(id),
+  scope_type       TEXT NOT NULL CHECK (scope_type IN ('world','faction','location')),
+  scope_id         TEXT REFERENCES entity(id),
+                   -- NULL only when scope_type = 'world'
+  level            TEXT NOT NULL
+                   CHECK (level IN
+                     ('unaware','rumor','suspicious','partial','knows','fully_understands')),
+  created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+  created_by       TEXT NOT NULL,
+  CHECK ((scope_type = 'world' AND scope_id IS NULL) OR
+         (scope_type <> 'world' AND scope_id IS NOT NULL))
+);
+CREATE UNIQUE INDEX idx_fact_default_unique ON fact_default(fact_id, scope_type, scope_id);
+CREATE INDEX idx_fact_default_fact ON fact_default(fact_id);
 ```
 
 -----
@@ -2143,6 +2179,10 @@ CREATE INDEX idx_fact_event               ON fact(event_id);
 CREATE INDEX idx_fact_world_law           ON fact(world_law_id);
 CREATE UNIQUE INDEX idx_fact_participant_unique ON fact_participant(fact_id, entity_id);
 CREATE INDEX idx_fact_participant_entity  ON fact_participant(entity_id);
+
+-- scoped default knowledge level lookups (schema v1.99, BRIEF-0082-c)
+CREATE UNIQUE INDEX idx_fact_default_unique ON fact_default(fact_id, scope_type, scope_id);
+CREATE INDEX idx_fact_default_fact          ON fact_default(fact_id);
 
 -- "this NPC's active goals" (schema v1.69, BRIEF-0013-a)
 CREATE INDEX idx_npc_goal_npc_status ON npc_goal(npc_id, status);

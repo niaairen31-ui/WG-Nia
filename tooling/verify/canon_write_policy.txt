@@ -4,7 +4,7 @@ knowledge ledger item skill skill_definition discoverable_detail
 event artifact npc_goal agenda agenda_step goal_agenda_link
 npc_price location_subculture world_law obstacle obstacle_vertex door
 location_type_catalog entity_type entity_type_history conversation_window_config
-npc_schedule agenda_step_requirement fact fact_participant
+npc_schedule agenda_step_requirement fact fact_participant fact_default
 
 [ALLOWED_SITES]
 # path::function                                              tables
@@ -127,6 +127,14 @@ src/world_engine/cockpit/crud/agendas.py::update_agenda_step             agenda_
 src/world_engine/writes/facts.py::create_fact                          fact
 src/world_engine/writes/facts.py::attach_participants                  fact_participant
 src/world_engine/cockpit/crud/knowledge.py::detach_fact_participant    fact_participant
+# TICKET-0082, BRIEF-0082-c: fact_default, the scoped-default knowledge level
+# (G2a). create_fact_default is the single write chokepoint (writes/facts.py);
+# the creator route pre-checks for a duplicate (fact_id, scope_type, scope_id)
+# and returns 409 before ever calling it. delete_fact_default is a creator-
+# correction hard delete, same class as delete_knowledge/detach_fact_participant
+# above — a fact_default row carries no change_history of its own.
+src/world_engine/writes/facts.py::create_fact_default                  fact_default
+src/world_engine/cockpit/crud/knowledge.py::delete_fact_default        fact_default
 
 # TICKET-0051, BRIEF-0051-a: observation_run, observation_run_template,
 # observation_beat, observation_intent and observation_mutation_link are

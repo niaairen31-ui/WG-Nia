@@ -15,6 +15,8 @@ Layout, by stratum:
                         extracted from canon.py at TICKET-0082, BRIEF-0082-a
                         for the module_budget cap. Fact/FactParticipant (the
                         knowledge anchor spine) added at BRIEF-0082-b.
+                        FactDefault (scoped default knowledge level, G2a)
+                        added at BRIEF-0082-c.
     config.py        — canon curated-config tables too new/small to justify
                         growing canon.py at its module_budget cap
                         (ConversationWindowConfig, TICKET-0050).
@@ -76,7 +78,7 @@ from .canon_faction import (
     FactionMembership,
     FactionRole,
 )
-from .canon_knowledge import Fact, FactParticipant, Knowledge, Relation
+from .canon_knowledge import Fact, FactDefault, FactParticipant, Knowledge, Relation
 from .config import AgendaStep, AgendaStepRequirement, ConversationWindowConfig
 from .schedule import SCHEDULE_PHASES, NpcSchedule
 from .ephemeral import (
@@ -130,6 +132,7 @@ __all__ = [
     "Knowledge",
     "Fact",
     "FactParticipant",
+    "FactDefault",
     "NpcGoal",
     "GoalPrerequisite",
     "Ledger",

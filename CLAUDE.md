@@ -386,6 +386,7 @@ WG-Nia/
 │   ├── schema_reconcile.py  # table reconciliation: static ∪ runtime ∪ orphan; boot guard + CLI
 │   ├── models/               # SQLModel table classes, split by canon/faction/ephemeral/pipeline
 │   ├── context*.py          # NPC/MJ assembly + exclusions; context_window.py: sliding-window seam
+│   ├── knowledge_resolve.py # scoped default knowledge-level resolution (G2a); read-only, no writes
 │   ├── tick*.py             # world-tick: orchestrate/assemble/normalize; sites in world_tick.py
 │   ├── gathering.py         # initial NPC clustering into gatherings
 │   ├── ollama_client.py     # local Ollama HTTP client; think-stripping; ping()

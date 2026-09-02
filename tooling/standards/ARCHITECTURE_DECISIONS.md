@@ -14623,6 +14623,113 @@ already encoded inside the string. `subject` and `idx_knowledge_subject`
 immediately on close of TICKET-0082 — a successor ticket is required
 before any NEW reader is written against `subject`.
 
+## SCOPED KNOWLEDGE DEFAULTS — THE G2a PRECEDENCE LADDER (BRIEF-0082-c, schema v1.99)
+
+**The single authority on level resolution.** `knowledge_resolve.py::
+resolve_knowledge_level(db, entity_id, fact_id) -> str` is total over the
+six-value ladder (`writes/knowledge.py::KNOWLEDGE_LEVEL_LADDER`) — it always
+returns one of the six values, never `None`, because its last tier
+(`fact.default_level`) is NOT NULL by schema. Precedence, most specific
+first, the function returning at the FIRST tier that produces a value:
+
+1. a stored `knowledge` row for `(entity_id, fact_id)` — wins outright,
+   including when it is `'unaware'`;
+2. a `fact_default` at `scope_type='location'` for the entity's current
+   location (`character.current_location_id`) or any ancestor of it via
+   `location.parent_location_id` — nearest ancestor wins;
+3. a `fact_default` at `scope_type='faction'` for any faction the entity
+   holds an ACTIVE membership in (`faction_membership.left_at IS NULL`) —
+   across several such memberships, the HIGHEST level on the ladder wins;
+4. a `fact_default` at `scope_type='world'` (`scope_id IS NULL`);
+5. `fact.default_level`.
+
+`resolve_levels_for_entity(db, entity_id) -> dict[str, str]` is the batch
+companion: one pass over every fact in the entity's world, each precomputed
+context (stored rows, location chain, active faction ids, every
+`fact_default` for the world) fetched exactly once rather than once per
+fact, returning only the facts resolving above `'unaware'`. Both entry
+points share one pure tier function (`_resolve_tiers`) so the two never
+drift.
+
+**New table `fact_default`** (`models/canon_knowledge.py`): `id, world_id,
+fact_id, scope_type, scope_id, level, created_at, created_by`, with
+`ck_fact_default_scope_type` (`scope_type IN ('world','faction',
+'location')`), `ck_fact_default_scope_shape` (`scope_id` NULL iff
+`scope_type='world'`) and `ck_fact_default_level` (the six-value
+vocabulary). A faction scope uses the faction's `entity.id` directly —
+`faction.id` is already an `entity.id` FK, so `scope_id` needs no second
+column and no polymorphic type tag. Unique on `(fact_id, scope_type,
+scope_id)`. Ships empty (no migration seed); the creator surface is its
+first writer.
+
+**Single write chokepoint, duplicate-checked at the route.**
+`writes/facts.py::create_fact_default` is the sole sanctioned write site
+(registered in `canon_write_policy.txt`). It performs no duplicate check of
+its own — the creator route (`POST /api/facts/{fact_id}/defaults`,
+`cockpit/crud/knowledge.py`) queries for an existing `(fact_id, scope_type,
+scope_id)` row first and returns 409 rather than a silent upsert; SQLite's
+NULL semantics would otherwise let several `scope_type='world'` rows past
+the unique index (`NULL <> NULL`), so the 409 pre-check is load-bearing for
+that case specifically, not merely defense in depth. `DELETE
+/api/fact-defaults/{id}` is a creator-correction hard delete, same class as
+`delete_knowledge`/`detach_fact_participant` — named in
+`single_canon_write.py`'s closed hard-delete list; a `fact_default` row
+carries no `change_history` of its own (curated-config shape, no
+per-knower identity to preserve).
+
+**Readers stay thin — the union lives in one shared helper.**
+`resolve_default_rows(db, entity_id, exclude_fact_ids)` builds transient
+(never `db.add`-ed) `Knowledge` instances for every fact resolving above
+`'unaware'`, skipping any fact a stored row already covers, each carrying
+`is_secret=False` and `share_threshold=50` — item 5's structural defence
+(see `knowledge_resolve.py`'s module docstring, reproduced verbatim there):
+a resolved default can never mint a secret, because secrecy stays a
+property of a stored row, structurally excluded at query level by the
+existing readers; a default-minted secret would put a second, weaker
+authority behind that exclusion. The three readers
+(`context.py::_npc_context_speak`, `context.py::
+_mj_context_player_knowledge`, `tick_context.py::_tick_knowledge_block`)
+each add a 2-3 line union call and nothing else — `context.py`
+(956 lines) and `tick_context.py` (644 lines) both stayed clear of the
+1000-line `module_budget.py` cap.
+
+**Verify check `knowledge_resolution.py`.** Four assertions on a
+self-contained fresh-SQLite fixture (never Nia's real DB): all five
+precedence tiers resolve correctly on one shared fixture; no `fact_default`
+row violates its shape constraints; an AST scan confirms
+`knowledge_resolve.py` and the check itself import the six-value vocabulary
+from `writes/knowledge.py` rather than re-typing it; and a
+mutation-sensitivity fixture (a member of two factions with levels
+`'rumor'` (joined first) and `'knows'` (joined second) on the same fact)
+proves two named wrong policies — lowest-wins, first-membership-wins —
+would each disagree with the real answer (`'knows'`), so the fixture would
+catch either mutation rather than passing vacuously regardless of which
+policy ran.
+
+**Scope OUT, explicitly not decided here.** Whether a SECRET faction
+membership (`faction_membership.is_secret=TRUE`) resolves that faction's
+`fact_default` rows is unsettled — `resolve_knowledge_level`'s faction tier
+reads `faction_membership` directly (same table `read_public_memberships`
+gates), not through that accessor, so a secret member currently DOES
+resolve faction defaults like any other active member. This is a
+conscious non-decision, not an oversight: the STOP condition in
+BRIEF-0082-c required halting before the live gate if any secret
+membership existed in the dev database, which it did not, so the question
+never had to be forced.
+
+**Deferral this step makes satisfiable, not acted on.**
+`faction.magic_knowledge_level` (`models/canon_faction.py:31`) is a
+hardcoded, faction-scoped default knowledge level on a single subject — the
+direct ancestor of `fact_default`, and still rendered at
+`tick_context.py:543` (`"Connaissance de la magie : "`), untouched by this
+step (TICKET-0082's own named deferral). Its reactivation condition — "a
+`world_law`-backed fact about magic exists AND a `fact_default` row with
+`scope_type='faction'` exists" — has its second half satisfiable as of this
+step (the table and its faction-scope write path now exist); the first
+half (a `world_law`-backed magic fact) does not yet exist in any seeded
+world, so the condition as a whole remains unmet. Logged here per
+BRIEF-0082-c's own instruction, not because anything is due.
+
 ---
 
 *Co-built with Claude, June 2026.*
