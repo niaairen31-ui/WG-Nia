@@ -25,10 +25,17 @@ helper `run_world_tick` (`tick.py`) calls into. Pure move, no logic change.
 from __future__ import annotations
 
 import logging
+from typing import Optional
 
 from sqlmodel import Session, select
 
-from .knowledge_resolve import resolve_default_rows
+from .knowledge_resolve import (
+    KNOWN_EDGE_FLOOR,
+    meets_floor,
+    resolve_default_rows,
+    resolve_levels_for_entity,
+    resolve_public_levels,
+)
 from .ledger import get_balance
 from .models import (
     Agenda,
@@ -37,6 +44,7 @@ from .models import (
     Entity,
     Event,
     EventEntity,
+    Fact,
     Faction,
     FactionMembership,
     GoalAgendaLink,
@@ -407,17 +415,93 @@ def assemble_tick_context(
     )
 
 
+def _log_unknown_edge(
+    diagnostics: list[dict[str, Optional[str]]], *,
+    relation_id: str, from_id: str, to_id: str, knower_id: Optional[str], reason: str, level: Optional[str],
+) -> None:
+    entry = {
+        "relation_id": relation_id, "from": from_id, "to": to_id,
+        "knower_id": knower_id, "reason": reason, "resolved_level": level,
+    }
+    diagnostics.append(entry)
+    _log.info(
+        "connects_to edge not traversable: relation_id=%s from=%s to=%s knower=%s reason=%s resolved_level=%s",
+        relation_id, from_id, to_id, knower_id if knower_id is not None else "public", reason, level,
+    )
+
+
+def _levels_by_fact_for(db: Session, from_location_id: str, knower_id: Optional[str]) -> dict[str, str]:
+    """Batch-resolved `fact_id -> level`, once per `_reachable_locations`
+    call: `knower_id` set -> deliberation (`resolve_levels_for_entity`);
+    `knower_id=None` -> public floor (`resolve_public_levels`), scoped to
+    the origin's own world."""
+    if knower_id is not None:
+        return resolve_levels_for_entity(db, knower_id)
+    origin_entity = db.get(Entity, from_location_id)
+    if origin_entity is None:
+        return {}
+    return resolve_public_levels(db, origin_entity.world_id)
+
+
+def _known_neighbour(
+    db: Session, rel: Relation, loc_id: str, *,
+    knower_id: Optional[str], levels_by_fact: dict[str, str], diagnostics: list[dict[str, Optional[str]]],
+) -> Optional[Entity]:
+    """The ACTIVE `Entity` on the far end of `rel` from `loc_id`, iff it
+    passes the fail-closed missing-fact rule and `KNOWN_EDGE_FLOOR` — else
+    `None`, with the drop recorded in `diagnostics` (missing_fact/
+    below_floor). Never indexes `KNOWLEDGE_LEVEL_LADDER` itself
+    (`knowledge_resolve.meets_floor` is the one comparator)."""
+    neighbour_id = rel.entity_b_id if rel.entity_a_id == loc_id else rel.entity_a_id
+    fact = db.exec(select(Fact).where(Fact.relation_id == rel.id)).first()
+    if fact is None:
+        _log_unknown_edge(
+            diagnostics, relation_id=rel.id, from_id=loc_id, to_id=neighbour_id,
+            knower_id=knower_id, reason="missing_fact", level=None,
+        )
+        return None
+    level = levels_by_fact.get(fact.id, "unaware")
+    if not meets_floor(level, KNOWN_EDGE_FLOOR):
+        _log_unknown_edge(
+            diagnostics, relation_id=rel.id, from_id=loc_id, to_id=neighbour_id,
+            knower_id=knower_id, reason="below_floor", level=level,
+        )
+        return None
+    neighbour = db.get(Entity, neighbour_id)
+    return neighbour if neighbour is not None and neighbour.status == "active" else None
+
+
 def _reachable_locations(
-    db: Session, from_location_id: str, interval_label: str
-) -> list[tuple[str, str]]:
+    db: Session, from_location_id: str, interval_label: str, *, knower_id: Optional[str],
+) -> tuple[list[tuple[str, str]], list[dict[str, Optional[str]]]]:
     """BFS over `connects_to` relations among ACTIVE locations, starting at
     `from_location_id`, bounded by `INTERVAL_HOP_RADIUS[interval_label]`
     (`None` -> exhaust the connected component). Origin excluded from the
-    result. Returns `(entity_id, name)` pairs.
+    result. Returns `((entity_id, name) pairs, diagnostics)`.
 
     A NEW, tick-local `connects_to` reader — deliberately not shared with
-    `_location_neighbours` (cockpit/app.py, direct-neighbours-only): decision
-    D1 stands, this is now the third reader (RECON-0015 F3).
+    `_location_neighbours` (cockpit/app.py, direct-neighbours-only) or
+    `day_plan._day_reachable_ids` (D1, BRIEF-19: each `connects_to` consumer
+    holds its OWN traversal; a dedup opportunity is REPORTED, never acted
+    on). See `tooling/tickets/connects-to-readers-TICKET-0082.md` for the
+    full classification of every reader.
+
+    Knowledge-gated (TICKET-0082, BRIEF-0082-d, amended by amendment 1):
+    an edge is traversable only at or above `KNOWN_EDGE_FLOOR`.
+    `knower_id` is keyword-only and REQUIRED, so no call site can drift
+    into the wrong path by accident:
+    - `knower_id` set -> **deliberation**: resolved against that entity's
+      own knowledge (`resolve_levels_for_entity`) — what a character
+      considers, proposes or is offered.
+    - `knower_id=None` -> **public**: resolved at the public floor, no
+      entity (`resolve_public_levels`) — for a prompt no single character
+      governs (the location-scope event briefing).
+
+    Fail-closed: a `connects_to` relation with no backing `fact` is NOT
+    traversable on either path. Every dropped edge (missing fact, or
+    resolved level below the floor) is logged as one structured line and
+    appended to the returned `diagnostics` list — never silently skipped
+    (`_known_neighbour` does both the gating and the recording).
 
     Raises `ValueError` on an unrecognised interval label — the endpoint's
     422 gate (`_VALID_TICK_INTERVALS`) makes this unreachable in production;
@@ -426,7 +510,9 @@ def _reachable_locations(
     if interval_label not in INTERVAL_HOP_RADIUS:
         raise ValueError(f"unknown interval label {interval_label!r}")
     max_hops = INTERVAL_HOP_RADIUS[interval_label]
+    levels_by_fact = _levels_by_fact_for(db, from_location_id, knower_id)
 
+    diagnostics: list[dict[str, Optional[str]]] = []
     visited: dict[str, str] = {}
     frontier = [from_location_id]
     hops = 0
@@ -443,14 +529,16 @@ def _reachable_locations(
                 neighbour_id = rel.entity_b_id if rel.entity_a_id == loc_id else rel.entity_a_id
                 if neighbour_id == from_location_id or neighbour_id in visited:
                     continue
-                neighbour = db.get(Entity, neighbour_id)
-                if neighbour is not None and neighbour.status == "active":
-                    visited[neighbour_id] = neighbour.name
-                    next_frontier.append(neighbour_id)
+                neighbour = _known_neighbour(
+                    db, rel, loc_id, knower_id=knower_id, levels_by_fact=levels_by_fact, diagnostics=diagnostics,
+                )
+                if neighbour is not None:
+                    visited[neighbour.id] = neighbour.name
+                    next_frontier.append(neighbour.id)
         frontier = next_frontier
         hops += 1
 
-    return list(visited.items())
+    return list(visited.items()), diagnostics
 
 
 def assemble_location_event_context(
@@ -491,7 +579,11 @@ def assemble_location_event_context(
             who_lines.append(f"- {entity.name}")
     who_body = "\n".join(who_lines) if who_lines else "(personne)"
 
-    neighbours = _reachable_locations(session, location_id, interval_label)
+    # `public` (TICKET-0082, BRIEF-0082-d amendment 1, H3): this briefing is
+    # not governed by a single character, so it is filtered at the public
+    # floor, never a character's own knowledge — knower_id is ALWAYS None
+    # here, never an entity_id.
+    neighbours, _diagnostics = _reachable_locations(session, location_id, interval_label, knower_id=None)
     around_body = (
         "\n".join(f"- {name}" for _, name in neighbours)
         if neighbours

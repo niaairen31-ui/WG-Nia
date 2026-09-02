@@ -46,11 +46,12 @@ def main() -> None:
 
     with Session(engine) as db:
         npc_char = db.get(Character, args.npc)
-        reachable = (
-            _reachable_locations(db, npc_char.current_location_id, args.interval)
-            if npc_char and npc_char.current_location_id
-            else []
-        )
+        if npc_char and npc_char.current_location_id:
+            reachable, _diagnostics = _reachable_locations(
+                db, npc_char.current_location_id, args.interval, knower_id=args.npc,
+            )
+        else:
+            reachable = []
         try:
             briefing = assemble_tick_context(args.npc, db, destinations=reachable)
         except ValueError as exc:

@@ -43,6 +43,20 @@ from .writes.knowledge import KNOWLEDGE_LEVEL_LADDER
 
 DEFAULT_SHARE_THRESHOLD = 50
 
+# `partial` is the floor at which an edge becomes traversable: the first
+# level on the ladder at which the knower can be said to know where the way
+# goes. One constant, shared by the character path and the public path — a
+# second floor would drift. (TICKET-0082, BRIEF-0082-d amendment 1, I1.)
+KNOWN_EDGE_FLOOR = "partial"
+
+
+def meets_floor(level: str, floor: str) -> bool:
+    """True iff `level` is at or above `floor` on `KNOWLEDGE_LEVEL_LADDER`.
+    The one place a floor comparison indexes the ladder — callers (e.g.
+    `tick_context._reachable_locations`) compare through this, never by
+    indexing `KNOWLEDGE_LEVEL_LADDER` themselves."""
+    return KNOWLEDGE_LEVEL_LADDER.index(level) >= KNOWLEDGE_LEVEL_LADDER.index(floor)
+
 
 def _location_ancestor_chain(db: Session, entity_id: str) -> list[str]:
     """The entity's current location, then each ancestor up
@@ -209,6 +223,56 @@ def resolve_levels_for_entity(db: Session, entity_id: str) -> dict[str, str]:
         if level != "unaware":
             resolved[fact.id] = level
     return resolved
+
+
+def resolve_public_level(db: Session, fact_id: str) -> str:
+    """Public-floor resolution (TICKET-0082, BRIEF-0082-d amendment 1, H3):
+    the same tiered authority as `resolve_knowledge_level`, entered at its
+    world tier, with NO entity — tiers 1-3 (stored row, location chain,
+    faction memberships) are skipped because each requires one. For a
+    reader whose prompt no single character governs (classified `public`,
+    never `deliberation` — a `public` site never passes an entity_id)."""
+    world_row = db.exec(
+        select(FactDefault).where(
+            FactDefault.fact_id == fact_id, FactDefault.scope_type == "world",
+        )
+    ).first()
+    world_default = world_row.level if world_row is not None else None
+    fact = db.get(Fact, fact_id)
+    fallback_level = fact.default_level if fact is not None else "unaware"
+    return _resolve_tiers(
+        stored_level=None, location_chain=[], location_defaults={},
+        faction_ids=[], faction_defaults={},
+        world_default=world_default, fallback_level=fallback_level,
+    )
+
+
+def resolve_public_levels(db: Session, world_id: str) -> dict[str, str]:
+    """Batch companion to `resolve_public_level`, in the shape of
+    `resolve_levels_for_entity`: `fact_id -> level` for every fact in
+    `world_id`, each resolved at the public floor (no entity). Unlike the
+    per-entity batch helper, this includes every fact regardless of level —
+    a `public` caller's floor comparison needs the full set, not one
+    pre-filtered by a per-entity notion of "resolves above unaware"."""
+    facts = db.exec(select(Fact).where(Fact.world_id == world_id)).all()
+    if not facts:
+        return {}
+    fact_ids = [fact.id for fact in facts]
+    world_rows = db.exec(
+        select(FactDefault).where(
+            FactDefault.fact_id.in_(fact_ids), FactDefault.scope_type == "world",
+        )
+    ).all()
+    world_default_by_fact = {row.fact_id: row.level for row in world_rows}
+    return {
+        fact.id: _resolve_tiers(
+            stored_level=None, location_chain=[], location_defaults={},
+            faction_ids=[], faction_defaults={},
+            world_default=world_default_by_fact.get(fact.id),
+            fallback_level=fact.default_level,
+        )
+        for fact in facts
+    }
 
 
 def resolve_default_rows(
