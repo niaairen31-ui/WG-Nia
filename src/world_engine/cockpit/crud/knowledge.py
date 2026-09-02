@@ -30,6 +30,8 @@ from ...models import (
     Entity,
     Event,
     EventEntity,
+    Fact,
+    FactParticipant,
     Faction,
     FactionMembership,
     FactionRole,
@@ -57,6 +59,7 @@ from ...writes import (
     NPC_GOAL_HORIZONS,
     NPC_GOAL_PREREQUISITE_TYPES,
     PromptValidationError,
+    attach_participants,
     detach_goal_agenda_link,
     write_agenda,
     write_agenda_status,
@@ -83,6 +86,7 @@ from ._router import router
 from ._shared import (
     KNOWLEDGE_FIELDS,
     KNOWLEDGE_LEVELS_ORDERED,
+    _fact_participants,
     _get_entity,
     _iso,
     _knowledge_dict,
@@ -98,6 +102,12 @@ class KnowledgeWriteBody(BaseModel):
     is_incorrect: bool = False
     is_secret: bool = False
     share_threshold: Optional[int] = None
+    fact_id: Optional[str] = None
+
+
+class FactParticipantBody(BaseModel):
+    entity_id: str
+    role: Optional[str] = None
 
 
 @router.get("/entities/{entity_id}/knowledge")
@@ -107,12 +117,19 @@ def list_entity_knowledge(entity_id: str, db: DbSession = Depends(get_session)) 
 
 
 def _create_knowledge_core(entity_id: str, body: KnowledgeWriteBody, db: DbSession) -> Knowledge:
-    """Commit-free core of `create_knowledge` — adds, never commits (BRIEF-35)."""
+    """Commit-free core of `create_knowledge` — adds, never commits (BRIEF-35).
+
+    `body.fact_id`, when present, attaches to that existing fact (404 if it
+    does not exist); when absent, `write_knowledge` auto-creates a
+    free-standing fact with `content = subject` (TICKET-0082, BRIEF-0082-b).
+    """
     _get_entity(db, entity_id)
     if not body.subject:
         raise HTTPException(422, "subject is required")
     if body.level not in KNOWLEDGE_LEVELS:
         raise HTTPException(422, f"level must be one of {sorted(KNOWLEDGE_LEVELS)}")
+    if body.fact_id is not None and db.get(Fact, body.fact_id) is None:
+        raise HTTPException(404, f"Fact {body.fact_id!r} not found")
 
     return write_knowledge(
         db,
@@ -125,6 +142,7 @@ def _create_knowledge_core(entity_id: str, body: KnowledgeWriteBody, db: DbSessi
         is_secret=body.is_secret,
         share_threshold=body.share_threshold if body.share_threshold is not None else 50,
         session_id=None,  # author-created knowledge is foundational, not session-acquired
+        fact_id=body.fact_id,
     )
 
 
@@ -133,7 +151,7 @@ def create_knowledge(entity_id: str, body: KnowledgeWriteBody, db: DbSession = D
     k = _create_knowledge_core(entity_id, body, db)
     db.commit()
     db.refresh(k)
-    return _knowledge_dict(k)
+    return _knowledge_dict(k, db)
 
 
 @router.put("/knowledge/{knowledge_id}")
@@ -159,7 +177,7 @@ def update_knowledge(knowledge_id: str, body: KnowledgeWriteBody, db: DbSession 
     )
     db.commit()
     db.refresh(k)
-    return _knowledge_dict(k)
+    return _knowledge_dict(k, db)
 
 
 @router.delete("/knowledge/{knowledge_id}")
@@ -171,3 +189,42 @@ def delete_knowledge(knowledge_id: str, db: DbSession = Depends(get_session)) ->
     db.delete(k)
     db.commit()
     return {"deleted": True, "id": knowledge_id}
+
+
+@router.post("/facts/{fact_id}/participants", status_code=201)
+def attach_fact_participant(fact_id: str, body: FactParticipantBody, db: DbSession = Depends(get_session)) -> dict:
+    """Attach one entity as a participant on a free-standing fact
+    (TICKET-0082, BRIEF-0082-b). `attach_participants` (writes/facts.py)
+    raises `ValueError` when `fact` carries any typed FK — surfaced here as
+    409 rather than crashing."""
+    fact = db.get(Fact, fact_id)
+    if fact is None:
+        raise HTTPException(404, f"Fact {fact_id!r} not found")
+    _get_entity(db, body.entity_id)
+    try:
+        attach_participants(db, fact=fact, entity_ids=[body.entity_id], role=body.role)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+    db.commit()
+    return {"fact_id": fact_id, "participants": _fact_participants(fact_id, db)}
+
+
+@router.delete("/facts/{fact_id}/participants/{entity_id}")
+def detach_fact_participant(fact_id: str, entity_id: str, db: DbSession = Depends(get_session)) -> dict:
+    """Hard delete of one `fact_participant` row — same typed-FK refusal as
+    the attach route (409, surfaced rather than crashed)."""
+    fact = db.get(Fact, fact_id)
+    if fact is None:
+        raise HTTPException(404, f"Fact {fact_id!r} not found")
+    if fact.relation_id is not None or fact.event_id is not None or fact.world_law_id is not None:
+        raise HTTPException(409, f"fact {fact_id!r} is typed — participants attach only to a free-standing fact")
+    row = db.exec(
+        select(FactParticipant).where(
+            FactParticipant.fact_id == fact_id, FactParticipant.entity_id == entity_id,
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(404, f"participant {entity_id!r} not found on fact {fact_id!r}")
+    db.delete(row)
+    db.commit()
+    return {"detached": True, "fact_id": fact_id, "entity_id": entity_id}

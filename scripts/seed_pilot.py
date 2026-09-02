@@ -26,7 +26,7 @@ from sqlmodel import Session, select  # noqa: E402
 from world_engine import models as m  # noqa: E402
 from world_engine.db import engine  # noqa: E402
 from world_engine.prompt_store import list_versions  # noqa: E402
-from world_engine.writes import write_location_subculture, write_membership, write_npc_prices, write_prompt_variables, write_prompt_version  # noqa: E402
+from world_engine.writes import create_fact, write_location_subculture, write_membership, write_npc_prices, write_prompt_variables, write_prompt_version  # noqa: E402
 
 WORLD_ID = "verkhaal"
 
@@ -103,9 +103,22 @@ def upsert_knowledge(session: Session, id: str, **fields):
     already-seeded database requires converging existing rows to the desired
     state rather than skipping them — so the knowledge rows go through this
     explicit upsert path. Still idempotent: a second run finds nothing to change.
+
+    `knowledge.fact_id` (NOT NULL, TICKET-0082 BRIEF-0082-b): on create,
+    absent a caller-supplied `fact_id`, a free-standing fact is created with
+    `content = subject` — the same fallback `write_knowledge` applies at
+    runtime. An existing row's `fact_id` is never touched by the update
+    branch below.
     """
     obj = session.get(m.Knowledge, id)
     if obj is None:
+        if "fact_id" not in fields:
+            entity = session.get(m.Entity, fields["entity_id"])
+            fact = create_fact(
+                session, world_id=entity.world_id,
+                content=fields.get("subject") or "unknown", created_by="seed_pilot",
+            )
+            fields = {**fields, "fact_id": fact.id}
         obj = m.Knowledge(id=id, **fields)
         session.add(obj)
         _created.append((m.Knowledge.__tablename__, id))
@@ -3266,9 +3279,8 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
 
     # Core secret: kept in the DB for audit/future use, NEVER injected. It is
     # is_secret = TRUE, so the assembler excludes it. Do not delete.
-    get_or_create(
+    upsert_knowledge(
         session,
-        m.Knowledge,
         "kn-maelis-unnamed",
         entity_id="npc-maelis",
         subject="the_unnamed",
@@ -3343,9 +3355,8 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
     )
 
     # Player: knows the tavern, knows Maelis by sight, lived an unexplained incident.
-    get_or_create(
+    upsert_knowledge(
         session,
-        m.Knowledge,
         "kn-player-tavern",
         entity_id="char-player",
         subject="le_dernier_verre",
@@ -3354,9 +3365,8 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         source="habitué du lieu",
         is_secret=False,
     )
-    get_or_create(
+    upsert_knowledge(
         session,
-        m.Knowledge,
         "kn-player-maelis",
         entity_id="char-player",
         subject="maelis",
@@ -3365,9 +3375,8 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         source="fréquentation du lieu",
         is_secret=False,
     )
-    get_or_create(
+    upsert_knowledge(
         session,
-        m.Knowledge,
         "kn-player-incident",
         entity_id="char-player",
         subject="personal_magic_incident",

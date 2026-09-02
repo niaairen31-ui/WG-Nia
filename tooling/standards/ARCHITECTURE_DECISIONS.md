@@ -14548,6 +14548,81 @@ until it is live on a world. `pass_play.history` on the live "Jour 6"
 entries across this session's live/API test calls; the pre-existing
 feasibility entry and every prior rejected attempt survived intact.
 
+## THE FACT SPINE — KNOWLEDGE'S STRUCTURAL ANCHOR, SUBJECT CUTOVER DEFERRED (BRIEF-0082-b, schema v1.98)
+
+`knowledge` pointed at a string (`subject`) with no foreign key to what is
+known. `fact` gives it a structural target: `id, world_id, relation_id,
+event_id, world_law_id, content, default_level, created_at, created_by,
+change_history`, with `ck_fact_spine_exclusive` (at most one of
+`relation_id`/`event_id`/`world_law_id` set) and `ck_fact_default_level`
+(the six-value level vocabulary). A fact is EITHER a typed row that
+already exists OR free-standing (every typed FK NULL); `fact_participant`
+(`id, world_id, fact_id, entity_id, role, position`, unique on
+`(fact_id, entity_id)`) carries a free-standing fact's arity — zero for a
+world-level statement, one for a statement about a single entity, several
+for a secret shared by conspirators. No `entity_id` column on `fact`
+itself (an intake amendment): an arity-1 fact is a nu spine plus one
+`fact_participant` row, exactly one way to express each arity — avoiding
+two ways to say the same thing. `situation_id` is deliberately absent; the
+`situation` table does not exist yet.
+
+**Single write chokepoint, spanning-constraint enforced in code.**
+`writes/facts.py::create_fact`/`attach_participants` are the only
+sanctioned `fact`/`fact_participant` write sites (registered in
+`canon_write_policy.txt`, AST-scanned by both `single_canon_write.py` and
+`fact_spine.py`'s own narrower scan). `attach_participants` raises
+`ValueError` when the target fact carries any typed FK — the one rule
+SQLite cannot express as a CHECK because it spans two tables — surfaced as
+a 409 by the creator endpoint (`POST`/`DELETE
+/api/facts/{fact_id}/participants`), never silently dropped.
+
+**`knowledge.fact_id` is NOT NULL — the write-site blast radius was wider
+than the brief's own enumeration.** The Scope IN text names only
+`cockpit/crud/knowledge.py::_create_knowledge_core` for the "auto-create a
+free-standing fact when none is given" fallback. `write_knowledge`
+(`writes/knowledge.py`) has five call sites, not one:
+`cockpit/crud/knowledge.py::_create_knowledge_core`,
+`cockpit/mutations.py`'s `new_knowledge` and `resource_change` branches,
+`link_author.py::commit_batch` (`write_knowledge(db, **row.payload)`), and
+`cockpit/routes/creator.py::_write_pc_knowledge`. Making `fact_id` NOT
+NULL without touching any of them would 500 four sanctioned paths outright.
+The fallback therefore lives in `write_knowledge`/`_build_knowledge_update`
+itself — the single chokepoint all five already share — rather than
+duplicated at `_create_knowledge_core` alone: an explicit `fact_id`
+attaches to that fact, omitting it auto-creates a free-standing one via
+`create_fact` with `content = subject`, exactly the behaviour the brief
+specifies, just placed where every creator benefits from it for free. This
+was executed as a mechanical consequence of the NOT NULL column (there was
+one coherent answer, not a D1 fork), not a re-litigation of Scope IN.
+
+**Migration (`scripts/migrate_v1_98_fact_spine.py`).** One raw-DBAPI-
+connection transaction (`migrate_v1_95_parked_plans.py` precedent):
+backfills one free-standing fact per distinct `(world_id, subject)` pair
+reachable through `knowledge.entity_id -> entity.world_id`
+(`content = subject`, `default_level = 'unaware'`, `created_by =
+'migrate_v1_98'`, zero participants — the literal subject `"unknown"`
+gets a fact like any other, never special-cased), then rebuilds
+`knowledge` with `fact_id` populated via a `(world_id, content=subject)`
+join. An orphan guard (a `knowledge` row whose `entity_id` cannot resolve
+a world) aborts before any DDL runs. Post-checks — row count unchanged,
+zero NULL `fact_id`, a checksum over `(id, entity_id, subject, level,
+content, acquired_at)` unchanged — run BEFORE commit and roll back the
+whole transaction on failure (stricter than the `migrate_v1_95` precedent,
+which checks after commit).
+
+**Deferred decision — `Knowledge.subject` cutover.** Ten identity-key
+sites survive this ticket, matching from the string rather than
+`fact_id`: `scene_format.py:61-63`, `cockpit/mutations.py:464-466`,
+`cockpit/mutations.py:724-726`, `cockpit/routes/mutations.py:172-174`,
+`day_plan.py:141-142`, `day_plan.py:332`, `day_plan.py:344-349`,
+`link_context.py:89-90`, `link_author.py:191-193`,
+`analyzer_transcript.py:658 / 716-726 / 834-836` — including
+`link_author.py:193`'s `f"npc:{other_id}"` convention, a foreign key
+already encoded inside the string. `subject` and `idx_knowledge_subject`
+(v1.96) are untouched; none of the ten sites is converted here. Reactivates
+immediately on close of TICKET-0082 — a successor ticket is required
+before any NEW reader is written against `subject`.
+
 ---
 
 *Co-built with Claude, June 2026.*

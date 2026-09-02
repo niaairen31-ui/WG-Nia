@@ -41,7 +41,7 @@ from typing import Any, Optional
 from fastapi import HTTPException
 from sqlmodel import Session as DbSession, select
 
-from ...models import Entity, Knowledge, Relation, World
+from ...models import Entity, Fact, FactParticipant, Knowledge, Relation, World
 
 
 def _iso(dt: Optional[datetime]) -> Optional[str]:
@@ -196,7 +196,21 @@ KNOWLEDGE_FIELDS: list[dict[str, Any]] = [
 ]
 
 
-def _knowledge_dict(k: Knowledge) -> dict:
+def _fact_participants(fact_id: str, db: DbSession) -> list[dict]:
+    rows = db.exec(
+        select(FactParticipant, Entity)
+        .join(Entity, Entity.id == FactParticipant.entity_id)
+        .where(FactParticipant.fact_id == fact_id)
+        .order_by(FactParticipant.position)
+    ).all()
+    return [
+        {"entity_id": p.entity_id, "name": e.name, "role": p.role}
+        for p, e in rows
+    ]
+
+
+def _knowledge_dict(k: Knowledge, db: Optional[DbSession] = None) -> dict:
+    fact = db.get(Fact, k.fact_id) if db is not None else None
     return {
         "id": k.id,
         "entity_id": k.entity_id,
@@ -210,6 +224,10 @@ def _knowledge_dict(k: Knowledge) -> dict:
         "session_id": k.session_id,
         "acquired_at": _iso(k.acquired_at),
         "updated_at": _iso(k.updated_at),
+        "fact_id": k.fact_id,
+        "fact_content": fact.content if fact else None,
+        "fact_default_level": fact.default_level if fact else None,
+        "fact_participants": _fact_participants(k.fact_id, db) if db is not None else [],
     }
 
 
@@ -219,7 +237,7 @@ def _list_knowledge(entity_id: str, db: DbSession) -> list[dict]:
         .where(Knowledge.entity_id == entity_id)
         .order_by(Knowledge.acquired_at)
     ).all()
-    return [_knowledge_dict(k) for k in rows]
+    return [_knowledge_dict(k, db) for k in rows]
 
 
 EVENT_TYPE_LABELS_FR: dict[str, str] = {

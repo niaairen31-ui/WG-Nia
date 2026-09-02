@@ -13,6 +13,35 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v1.98** — TICKET-0082, BRIEF-0082-b: the fact spine, `knowledge`'s
+  structural anchor. Two new tables: `fact` (`id, world_id, relation_id,
+  event_id, world_law_id, content, default_level, created_at, created_by,
+  change_history`; CHECK `ck_fact_spine_exclusive` — at most one of
+  `relation_id`/`event_id`/`world_law_id` set; CHECK `ck_fact_default_level`
+  — the six-value level vocabulary) is a typed row (already exists) or a
+  free-standing proposition; `fact_participant` (`id, world_id, fact_id,
+  entity_id, role, position`; UNIQUE `(fact_id, entity_id)`) carries a
+  free-standing fact's arity — zero, one, or several entities, never a
+  typed fact's (enforced in code, `writes/facts.py::attach_participants`,
+  a rule spanning two tables no CHECK can express). No `entity_id` column
+  on `fact`: an arity-1 fact is a nu spine plus one `fact_participant` row,
+  exactly one way to say each thing. `knowledge.fact_id` (NOT NULL, FK
+  `fact.id`, `idx_knowledge_fact`) anchors every existing and future
+  knowledge row to the fact it is knowledge OF; `knowledge.subject` and
+  `idx_knowledge_subject` are untouched — the ten identity-key readers keep
+  matching on the string, cutover deferred to a successor ticket (named in
+  `ARCHITECTURE_DECISIONS.md`). Migration
+  (`scripts/migrate_v1_98_fact_spine.py`) backfills one free-standing fact
+  per distinct `(world, subject)` pair reachable through existing
+  `knowledge` rows, then rebuilds `knowledge` with `fact_id` populated —
+  row count and a `(id, entity_id, subject, level, content, acquired_at)`
+  checksum both asserted unchanged, rolled back whole on any mismatch.
+  `writes/knowledge.py::write_knowledge`'s create path auto-creates a
+  free-standing fact (`content = subject`) when no `fact_id` is supplied,
+  so every existing create call site (creator CRUD, `_apply_mutation`'s
+  `new_knowledge`/`resource_change`, the link-agent batch commit, PC-creation
+  draft knowledge) keeps working unchanged against the new NOT NULL column.
+
 - **v1.97** — TICKET-0081, BRIEF-0081-b: two new tables, `day_rewrite` and
   `day_mention_resolution` (decisions A2'/B2/J2) — the declaration rewrite
   becomes a load-bearing, persisted artifact instead of a per-call, thrown-

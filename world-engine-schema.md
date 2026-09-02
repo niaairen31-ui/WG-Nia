@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.97
+Current schema version: v1.98
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -620,14 +620,79 @@ CREATE TABLE relation (
 
 -----
 
+### `fact`
+
+The spine: anything that can be known (schema v1.98, TICKET-0082,
+BRIEF-0082-b). A fact is one proposition. It is EITHER a typed row that
+already exists (`relation` | `event` | `world_law` — at most one FK set,
+`ck_fact_spine_exclusive`) OR free-standing (every typed FK NULL), in which
+case `fact_participant` carries its arity: zero participants for a
+world-level statement, one for a statement about a single entity, three for
+a secret shared by three conspirators. There is NO `entity_id` column here
+on purpose — an arity-1 fact is a nu spine plus one `fact_participant` row,
+exactly one way to say each thing. `content` is the TRUTH; a degraded or
+false belief lives on the `knowledge` row that points here
+(`knowledge.is_incorrect`), never on the fact. `situation_id` is
+deliberately absent: the `situation` table does not exist yet.
+
+```sql
+CREATE TABLE fact (
+  id               TEXT PRIMARY KEY,
+  world_id         TEXT NOT NULL REFERENCES world(id),
+  relation_id      TEXT REFERENCES relation(id),
+  event_id         TEXT REFERENCES event(id),
+  world_law_id     TEXT REFERENCES world_law(id),
+  content          TEXT NOT NULL,   -- the canonical statement of the fact
+  default_level    TEXT NOT NULL DEFAULT 'unaware'
+                   CHECK (default_level IN
+                     ('unaware','rumor','suspicious','partial','knows','fully_understands')),
+  created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+  created_by       TEXT NOT NULL,
+  change_history   JSON DEFAULT '[]',
+  CHECK ((relation_id IS NOT NULL) + (event_id IS NOT NULL) + (world_law_id IS NOT NULL) <= 1)
+);
+CREATE INDEX idx_fact_world ON fact(world_id);
+CREATE INDEX idx_fact_relation ON fact(relation_id);
+CREATE INDEX idx_fact_event ON fact(event_id);
+CREATE INDEX idx_fact_world_law ON fact(world_law_id);
+```
+
+-----
+
+### `fact_participant`
+
+Arity for a free-standing fact — never for a typed one. Enforced in code
+by `writes/facts.py` (`attach_participants`), not by a CHECK constraint: the
+rule spans two tables, which SQLite cannot express.
+
+```sql
+CREATE TABLE fact_participant (
+  id               TEXT PRIMARY KEY,
+  world_id         TEXT NOT NULL REFERENCES world(id),
+  fact_id          TEXT NOT NULL REFERENCES fact(id),
+  entity_id        TEXT NOT NULL REFERENCES entity(id),
+  role             TEXT,            -- creator-authored label
+  position         INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX idx_fact_participant_unique ON fact_participant(fact_id, entity_id);
+CREATE INDEX idx_fact_participant_entity ON fact_participant(entity_id);
+```
+
+-----
+
 ### `knowledge`
 
 What each entity knows — structured and injectable into prompts.
+`fact_id` (schema v1.98, TICKET-0082, BRIEF-0082-b) anchors each row to the
+fact it is knowledge OF; `subject` is unchanged and still the identity key
+for the ten call sites enumerated in BRIEF-0082-b (cutover deferred to a
+successor ticket).
 
 ```sql
 CREATE TABLE knowledge (
   id               TEXT PRIMARY KEY,
   entity_id        TEXT NOT NULL REFERENCES entity(id),
+  fact_id          TEXT NOT NULL REFERENCES fact(id),
   subject          TEXT NOT NULL,
                    -- ex: "magic_existence", "the_11", "verkhaal_nexus",
                    --     "the_unnamed", "faction_X_status"
@@ -2067,6 +2132,17 @@ CREATE INDEX idx_knowledge_entity    ON knowledge(entity_id);
 -- "who (if anyone) holds subject S" (schema v1.96, BRIEF-0078-a) — the
 -- knowledge-gate anchoring lookup, day_plan._anchorable_subjects
 CREATE INDEX idx_knowledge_subject   ON knowledge(subject);
+
+-- "the fact this knowledge row is about" (schema v1.98, BRIEF-0082-b)
+CREATE INDEX idx_knowledge_fact      ON knowledge(fact_id);
+
+-- fact spine lookups (schema v1.98, BRIEF-0082-b)
+CREATE INDEX idx_fact_world               ON fact(world_id);
+CREATE INDEX idx_fact_relation            ON fact(relation_id);
+CREATE INDEX idx_fact_event               ON fact(event_id);
+CREATE INDEX idx_fact_world_law           ON fact(world_law_id);
+CREATE UNIQUE INDEX idx_fact_participant_unique ON fact_participant(fact_id, entity_id);
+CREATE INDEX idx_fact_participant_entity  ON fact_participant(entity_id);
 
 -- "this NPC's active goals" (schema v1.69, BRIEF-0013-a)
 CREATE INDEX idx_npc_goal_npc_status ON npc_goal(npc_id, status);

@@ -13,7 +13,8 @@ Layout, by stratum:
                         TICKET-0048 for the module_budget cap.
     canon_knowledge.py — perception extension tables (Relation, Knowledge),
                         extracted from canon.py at TICKET-0082, BRIEF-0082-a
-                        for the module_budget cap.
+                        for the module_budget cap. Fact/FactParticipant (the
+                        knowledge anchor spine) added at BRIEF-0082-b.
     config.py        — canon curated-config tables too new/small to justify
                         growing canon.py at its module_budget cap
                         (ConversationWindowConfig, TICKET-0050).
@@ -75,7 +76,7 @@ from .canon_faction import (
     FactionMembership,
     FactionRole,
 )
-from .canon_knowledge import Knowledge, Relation
+from .canon_knowledge import Fact, FactParticipant, Knowledge, Relation
 from .config import AgendaStep, AgendaStepRequirement, ConversationWindowConfig
 from .schedule import SCHEDULE_PHASES, NpcSchedule
 from .ephemeral import (
@@ -127,6 +128,8 @@ __all__ = [
     "FactionMembership",
     "Relation",
     "Knowledge",
+    "Fact",
+    "FactParticipant",
     "NpcGoal",
     "GoalPrerequisite",
     "Ledger",

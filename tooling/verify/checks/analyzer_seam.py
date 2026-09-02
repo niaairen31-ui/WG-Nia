@@ -374,11 +374,11 @@ def _seed_fixture(engine):
         session.add(GatheringMember(gathering_id=gathering.id, entity_id=bystander_id))
         session.commit()
 
-        from world_engine.models import Knowledge
-        session.add(Knowledge(
-            entity_id=npc_id, subject="a_subject", level="knows",
-            content="Fixture fact.", is_secret=False, share_threshold=50,
-        ))
+        from world_engine.writes import write_knowledge
+        write_knowledge(
+            session, entity_id=npc_id, subject="a_subject", level="knows",
+            content="Fixture fact.", is_secret=False, share_threshold=50, changed_by="check",
+        )
         session.commit()
 
         from world_engine.models import PromptTemplate

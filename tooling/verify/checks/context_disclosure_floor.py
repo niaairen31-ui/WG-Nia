@@ -66,11 +66,11 @@ def _seed_fixture(engine):
     from world_engine.models import (
         Character,
         Entity,
-        Knowledge,
         Location,
         Relation,
         World,
     )
+    from world_engine.writes import write_knowledge
 
     with DbSession(engine) as session:
         world = World(name="Check World", is_active=True)
@@ -111,11 +111,11 @@ def _seed_fixture(engine):
         ))
         session.commit()
 
-        session.add(Knowledge(
-            entity_id=a_id, subject="the plan", level="knows",
+        write_knowledge(
+            session, entity_id=a_id, subject="the plan", level="knows",
             content="Le plan se met en place demain.",
-            is_secret=False, share_threshold=50,
-        ))
+            is_secret=False, share_threshold=50, changed_by="check",
+        )
         session.commit()
 
         return {

@@ -53,9 +53,11 @@ named here, never added silently. The list: `delete_world_cascade`
 `skill_definition` delete (one definition + its dependent `skill` rows);
 creator-correction deletes `delete_relation`, `delete_knowledge` (each
 discards the row's `change_history` with the row), `delete_discoverable_
-detail`, and `write_faction_role(mode="delete")` (blocked while an active
-membership holds the role) — creator-CRUD-only, never reachable from any
-AI or play path. Full-replace config deletes (whole-set replace, not
+detail`, `detach_fact_participant` (TICKET-0082, BRIEF-0082-b — a
+`fact_participant` row carries no `change_history` of its own, arity
+metadata only), and `write_faction_role(mode="delete")` (blocked while an
+active membership holds the role) — creator-CRUD-only, never reachable
+from any AI or play path. Full-replace config deletes (whole-set replace, not
 single-row correction): `write_npc_prices`, `write_location_subculture`,
 `write_world_laws`, `write_location_obstacles`, and `write_location_doors`
 each `DELETE FROM` their table(s) scoped to one parent (NPC / location /
