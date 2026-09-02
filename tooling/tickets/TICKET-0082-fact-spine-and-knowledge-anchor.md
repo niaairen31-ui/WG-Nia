@@ -2,7 +2,7 @@
 id: TICKET-0082
 title: Fact spine — structural anchor for knowledge
 type: feature
-status: brief
+status: live-gate
 created: 2026-09-01
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
