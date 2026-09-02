@@ -37,9 +37,13 @@ from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, func, select
 
 from ..day_feasibility import VetoVerdict
-from ..models import Batch, PassPlay
+from ..models import Batch, DayMentionResolution, DayRewrite, PassPlay
 
 MAX_DECLARATION_CHARS = 4000
+
+_MENTION_CATEGORIES: tuple[str, ...] = ("place", "person", "faction")
+_MENTION_KINDS: tuple[str, ...] = ("named", "inferred")
+_MENTION_VERDICTS: tuple[str, ...] = ("matched", "cast", "unmatched")
 
 PASS_PLAY_STATUSES: tuple[str, ...] = ("submitted", "resolving", "resolved", "flagged")
 
@@ -179,3 +183,78 @@ def read_latest_feasibility(pass_play: PassPlay) -> Optional[dict]:
         if isinstance(entry, dict) and entry.get("kind") == "feasibility":
             return entry
     return None
+
+
+def next_day_rewrite_generation(db: Session, *, pass_play_id: str) -> int:
+    """`max(generation) + 1` for `pass_play_id`, or `1` when none exists yet
+    (`write_batch`'s `max(day_number) + 1` precedent) — the caller (`routes/
+    day.py` for the first generation, `day_reconcile_apply.py`'s modify/
+    replace handlers for a later one) computes this BEFORE calling
+    `write_day_rewrite`; that function never guesses it."""
+    max_generation = db.exec(
+        select(func.max(DayRewrite.generation)).where(DayRewrite.pass_play_id == pass_play_id)
+    ).first()
+    return (max_generation or 0) + 1
+
+
+def _validate_day_mention_resolution(item: dict) -> None:
+    """The CHECK-constraint shapes, asserted in Python before any row is
+    constructed (TICKET-0081, BRIEF-0081-b, Scope IN item 3) — `'ambiguous'`
+    is deliberately absent from `_MENTION_VERDICTS`: a stored ambiguity would
+    mean the plan route's 409 guard was bypassed."""
+    category = item.get("category")
+    if category not in _MENTION_CATEGORIES:
+        raise ValueError(f"write_day_rewrite: category must be one of {_MENTION_CATEGORIES}, got {category!r}")
+    kind = item.get("kind")
+    if kind not in _MENTION_KINDS:
+        raise ValueError(f"write_day_rewrite: kind must be one of {_MENTION_KINDS}, got {kind!r}")
+    verdict = item.get("verdict")
+    if verdict not in _MENTION_VERDICTS:
+        raise ValueError(f"write_day_rewrite: verdict must be one of {_MENTION_VERDICTS}, got {verdict!r}")
+    entity_id = item.get("entity_id")
+    rung = item.get("rung")
+    if verdict in ("matched", "cast") and (entity_id is None or rung is None):
+        raise ValueError("write_day_rewrite: a matched/cast resolution needs both entity_id and rung")
+    if verdict == "cast" and item.get("cast_basis") is None:
+        raise ValueError("write_day_rewrite: a cast resolution needs cast_basis")
+    if verdict == "unmatched" and entity_id is not None:
+        raise ValueError("write_day_rewrite: an unmatched resolution must not carry an entity_id")
+
+
+def write_day_rewrite(
+    db: Session, *, world_id: str, pass_play_id: str, generation: int, rendered_text: str,
+    resolutions: list[dict],
+) -> DayRewrite:
+    """Validate-then-construct, all-or-nothing (TICKET-0081, BRIEF-0081-b,
+    Scope IN item 3): every resolution dict is checked against the shape
+    CHECK constraints BEFORE the first row is constructed; any violation
+    raises `ValueError` with nothing built. Both the `day_rewrite` row and
+    its `day_mention_resolution` children are constructed with the SQLModel
+    constructors (never `db.execute(sa_insert(...))`). The autoflush trap
+    (module docstring) cuts both ways: no attribute is ever assigned onto an
+    already-added row, AND the parent is flushed BEFORE the children are
+    constructed — without a declared ORM `relationship()` between the two
+    classes, SQLAlchemy's unit of work has no dependency edge to sort a
+    bare-FK-column child ahead of its parent, so an `add_all` of both in one
+    call can flush the child first and fail the FK constraint. Caller
+    commits in the same transaction as the plan it belongs to."""
+    for item in resolutions:
+        _validate_day_mention_resolution(item)
+
+    rewrite = DayRewrite(
+        world_id=world_id, pass_play_id=pass_play_id, generation=generation, rendered_text=rendered_text,
+    )
+    db.add(rewrite)
+    db.flush()
+
+    children = [
+        DayMentionResolution(
+            world_id=world_id, rewrite_id=rewrite.id, ordinal=item["ordinal"], category=item["category"],
+            surface_form=item["surface_form"], kind=item["kind"], role_hint=item.get("role_hint"),
+            verdict=item["verdict"], entity_id=item.get("entity_id"), rung=item.get("rung"),
+            cast_basis=item.get("cast_basis"),
+        )
+        for item in resolutions
+    ]
+    db.add_all(children)
+    return rewrite

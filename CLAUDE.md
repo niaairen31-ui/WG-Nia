@@ -396,6 +396,7 @@ WG-Nia/
 │   ├── day_plan.py          # day-plan emission + budget cut: requirement evaluators, its own BFS
 │   ├── day_extract.py       # day extraction: 3 passes (place/person/faction), never sees registry
 │   ├── day_concordance.py   # day mention resolution: matching rungs, germ emission; never authors
+│   ├── day_rewrite.py       # declaration rewrite: render/resolutions/load_latest, no model call
 │   ├── day_resolve.py       # day step resolution: Python dice, truncation, the frozen fact sheet
 │   ├── day_narration.py     # day narration + rewrite: renders the fact sheet, never decides
 │   ├── day_narration_guard.py  # T1 judge: name containment + outcome survival, Python-only

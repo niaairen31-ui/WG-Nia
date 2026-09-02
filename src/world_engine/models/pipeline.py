@@ -145,6 +145,63 @@ class ProposedMutation(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
+# day_rewrite / day_mention_resolution  (the declaration rewrite and its
+# trace, schema vX.YY, TICKET-0081, BRIEF-0081-b — decisions A2'/B2/J2)
+#
+# `day_rewrite` — one row per generation of one declaration's rendering: the
+# literal text `select_plan`/`emit_plan` were actually handed, built by the
+# pure `day_rewrite.render` (no model call). `day_mention_resolution` — the
+# facts behind it, one row per resolved mention, ordinal-ordered. Both
+# append-only: no UPDATE, no DELETE, ever (`verify/checks/day_rewrite.py`'s
+# W2). `verdict` deliberately excludes `'ambiguous'` — an ambiguous mention
+# 409s the plan route before any write, so a stored ambiguity would mean
+# that guard was bypassed.
+# -----------------------------------------------------------------------------
+class DayRewrite(SQLModel, table=True):
+    __tablename__ = "day_rewrite"
+    __table_args__ = (
+        Index("idx_day_rewrite_pass_generation", "pass_play_id", "generation", unique=True),
+        CheckConstraint("generation >= 1", name="ck_day_rewrite_generation"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    pass_play_id: str = Field(foreign_key="pass_play.id", nullable=False)
+    generation: int
+    rendered_text: str
+    created_at: datetime = _created_ts()
+
+
+class DayMentionResolution(SQLModel, table=True):
+    __tablename__ = "day_mention_resolution"
+    __table_args__ = (
+        Index("idx_day_mention_resolution_rewrite", "rewrite_id", "ordinal", unique=True),
+        CheckConstraint("category IN ('place','person','faction')", name="ck_day_mention_resolution_category"),
+        CheckConstraint("kind IN ('named','inferred')", name="ck_day_mention_resolution_kind"),
+        CheckConstraint("verdict IN ('matched','cast','unmatched')", name="ck_day_mention_resolution_verdict"),
+        CheckConstraint(
+            "(verdict NOT IN ('matched','cast') OR (entity_id IS NOT NULL AND rung IS NOT NULL)) "
+            "AND (verdict <> 'cast' OR cast_basis IS NOT NULL) "
+            "AND (verdict <> 'unmatched' OR entity_id IS NULL)",
+            name="ck_day_mention_resolution_shape",
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    rewrite_id: str = Field(foreign_key="day_rewrite.id", nullable=False)
+    ordinal: int
+    category: str
+    surface_form: str
+    kind: str
+    role_hint: Optional[str] = None
+    verdict: str
+    entity_id: Optional[str] = Field(default=None, foreign_key="entity.id")
+    rung: Optional[str] = None
+    cast_basis: Optional[str] = None
+
+
+# -----------------------------------------------------------------------------
 # user  (system accounts)
 # -----------------------------------------------------------------------------
 class User(SQLModel, table=True):

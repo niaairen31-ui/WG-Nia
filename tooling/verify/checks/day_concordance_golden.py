@@ -188,7 +188,12 @@ def _seed_fixture(engine) -> dict:
         }
 
 
-def check_golden_cases() -> None:
+def check_golden_cases():
+    """Returns `(engine, fixture)` so `check_rewrite_golden_cases` (BRIEF-
+    0081-b) can reuse the SAME engine/world rather than calling
+    `_fresh_engine()` a second time in this process — `SQLModel.metadata`
+    is a process-global singleton, so a second from-scratch `create_db_and_
+    tables()` in the same run collides on "Table already defined"."""
     engine = _fresh_engine()
     fixture = _seed_fixture(engine)
 
@@ -202,7 +207,7 @@ def check_golden_cases() -> None:
     if not fixture.get("pc_id") or not fixture.get("tavernier_id") or not fixture.get("aldric_id") or not fixture.get("selvane_id"):
         fail("vacuous fixture: one or more required fixture ids are missing")
     if FAILURES:
-        return
+        return engine, fixture
 
     from sqlmodel import Session as DbSession
 
@@ -283,9 +288,91 @@ def check_golden_cases() -> None:
         if result5.matched or result5.cast or result5.ambiguous:
             fail("case 5 (E2c reachability): non-unmatched buckets are not all empty")
 
+    return engine, fixture
+
+
+def check_rewrite_golden_cases(engine, fixture) -> None:
+    """TICKET-0081, BRIEF-0081-b, Scope IN item 11: four FAILING-input golden
+    cases for `day_rewrite.render`/`write_day_rewrite`/`load_latest`, in this
+    same fixture module. Each is asserted directly against the pre-change
+    behaviour it would regress to if the corresponding guard were removed.
+    Reuses the `(engine, fixture)` `check_golden_cases` already built — see
+    that function's docstring for why a second `_fresh_engine()` call in
+    this same process is unsafe."""
+    if not fixture.get("world_id") or not fixture.get("tavernier_id"):
+        fail("vacuous fixture (rewrite cases): required fixture ids are missing")
+        return
+
+    from sqlmodel import Session as DbSession
+    from sqlmodel import select as db_select
+
+    from world_engine import day_rewrite
+    from world_engine.day_concordance import AmbiguousMention, ConcordanceResult, MatchedMention
+    from world_engine.day_extract import Mention
+    from world_engine.models import DayRewrite
+    from world_engine.writes import write_day_rewrite
+
+    # ── Case 6: render() raises on a non-empty `ambiguous` bucket ─────────
+    ambiguous_mention = Mention(category="person", surface_form="Marin", kind="named")
+    ambiguous_result = ConcordanceResult(
+        matched=(), cast=(),
+        ambiguous=(AmbiguousMention(mention=ambiguous_mention, candidate_ids=("a", "b")),),
+        unmatched=(), skipped_rungs=(),
+    )
+    try:
+        day_rewrite.render("le joueur parle a Marin", ambiguous_result, db=None)
+        fail("case 6 (ambiguity guard): render() did not raise on a non-empty ambiguous bucket")
+    except ValueError:
+        pass
+
+    # ── Case 7: render() is deterministic — two calls, byte-identical ─────
+    with DbSession(engine) as session:
+        matched_mention = Mention(category="person", surface_form="le tavernier", kind="named")
+        matched_result = ConcordanceResult(
+            matched=(MatchedMention(mention=matched_mention, entity_id=fixture["tavernier_id"], rung="named_exact"),),
+            cast=(), ambiguous=(), unmatched=(), skipped_rungs=(),
+        )
+        declaration = "Je vais voir le tavernier."
+        rendered_1 = day_rewrite.render(declaration, matched_result, session)
+        rendered_2 = day_rewrite.render(declaration, matched_result, session)
+        if rendered_1 != rendered_2:
+            fail(
+                f"case 7 (determinism): two render() calls over identical inputs diverged: "
+                f"{rendered_1!r} != {rendered_2!r}"
+            )
+
+    # ── Case 8: write_day_rewrite rejects cast/cast_basis=None, no row built
+    with DbSession(engine) as session:
+        try:
+            write_day_rewrite(
+                session, world_id=fixture["world_id"], pass_play_id="fake-pass-play",
+                generation=1, rendered_text="x",
+                resolutions=[{
+                    "ordinal": 1, "category": "person", "surface_form": "un garde", "kind": "inferred",
+                    "role_hint": "garde", "verdict": "cast", "entity_id": fixture["tavernier_id"],
+                    "rung": "occupation", "cast_basis": None,
+                }],
+            )
+            fail("case 8 (write_day_rewrite validation): accepted a cast resolution with cast_basis=None")
+        except ValueError:
+            pass
+        session.rollback()
+        leftover = session.exec(
+            db_select(DayRewrite).where(DayRewrite.pass_play_id == "fake-pass-play")
+        ).all()
+        if leftover:
+            fail("case 8 (write_day_rewrite validation): a DayRewrite row was constructed despite the rejection")
+
+    # ── Case 9: load_latest() returns None with no day_rewrite row ────────
+    with DbSession(engine) as session:
+        result = day_rewrite.load_latest("a-pass-play-with-no-rewrite", fixture["world_id"], session)
+        if result is not None:
+            fail("case 9 (resolve-path fail-closed): load_latest() returned a result with no day_rewrite row stored")
+
 
 def main() -> None:
-    check_golden_cases()
+    engine, fixture = check_golden_cases()
+    check_rewrite_golden_cases(engine, fixture)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -293,7 +380,9 @@ def main() -> None:
     print(
         "PASS: day_concordance_golden — leading-article and trailing-qualifier "
         "matching, casting (C2-partition, basis 'stable'), identity-collision "
-        "ambiguity, and E2c reachability scoping all resolve correctly"
+        "ambiguity, E2c reachability scoping, and the rewrite golden cases "
+        "(ambiguity guard, determinism, cast/cast_basis validation, fail-closed "
+        "resolve reader) all resolve correctly"
     )
     sys.exit(0)
 

@@ -488,38 +488,3 @@ def emit_germs(unmatched: tuple[UnmatchedMention, ...], pass_play: PassPlay, db:
             rationale=rationale,
         ))
     return germs
-
-
-def plan_context(result: ConcordanceResult, db: Session) -> str:
-    """A short French summary handed to `day_plan.emit_plan` (Scope IN item
-    4) so a matched or cast mention reaches the plan as a resolved name and
-    an unmatched person reaches it as a role, never a canon id the model
-    could misuse. Pure text; the model never sees this module's queries. A
-    cast mention renders exactly like a matched one — no basis, no discarded
-    candidates (BRIEF-0081-a item 7). Fail-closed: called with any unresolved
-    `ambiguous` mention, this raises rather than silently omitting it — the
-    409 at the plan route (item 8) makes that structurally unreachable."""
-    if result.ambiguous:
-        raise ValueError(
-            "plan_context called with unresolved ambiguity — the plan route's "
-            "409 must fire before this function is ever reached"
-        )
-    lines: list[str] = []
-    for mm in result.matched:
-        entity = db.get(Entity, mm.entity_id)
-        display = entity.name if entity is not None else mm.entity_id
-        lines.append(f'- "{mm.mention.surface_form}" désigne {display} (déjà identifié).')
-    for cm in result.cast:
-        entity = db.get(Entity, cm.entity_id)
-        display = entity.name if entity is not None else cm.entity_id
-        lines.append(f'- "{cm.mention.surface_form}" désigne {display} (déjà identifié).')
-    for um in result.unmatched:
-        if um.mention.category != "person":
-            continue
-        lines.append(
-            f'- "{um.mention.surface_form}" : aucun personnage connu ne correspond — '
-            f"désigne-le par sa fonction : {um.mention.role_hint or um.mention.surface_form}."
-        )
-    if not lines:
-        return ""
-    return "Repères déjà résolus pour cette déclaration :\n" + "\n".join(lines)

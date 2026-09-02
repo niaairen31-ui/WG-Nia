@@ -13,6 +13,35 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v1.97** — TICKET-0081, BRIEF-0081-b: two new tables, `day_rewrite` and
+  `day_mention_resolution` (decisions A2'/B2/J2) — the declaration rewrite
+  becomes a load-bearing, persisted artifact instead of a per-call, thrown-
+  away `ConcordanceResult`. `day_rewrite` (`id, world_id, pass_play_id,
+  generation, rendered_text, created_at`; UNIQUE `(pass_play_id,
+  generation)`; CHECK `generation >= 1`) holds one row per generation of one
+  declaration's rendering — the literal text `day_plan_select.select_plan`
+  and `day_plan.emit_plan` are actually handed, built by the pure
+  `day_rewrite.render` (no model call). `day_mention_resolution` (`id,
+  world_id, rewrite_id, ordinal, category, surface_form, kind, role_hint,
+  verdict, entity_id, rung, cast_basis`; UNIQUE `(rewrite_id, ordinal)`;
+  CHECK `category IN ('place','person','faction')`; CHECK `kind IN
+  ('named','inferred')`; CHECK `verdict IN ('matched','cast','unmatched')`;
+  a shape CHECK tying `verdict` to which of `entity_id`/`rung`/`cast_basis`
+  must be set) holds the facts behind it, one row per resolved mention.
+  **`ambiguous` is deliberately not a storable verdict** — an ambiguous
+  mention 409s the plan route before any write, so a stored ambiguity would
+  mean that guard was bypassed. Both tables are append-only: no UPDATE, no
+  DELETE, ever (`verify/checks/day_rewrite.py`'s W2). Three named readers:
+  the enriched `/api/day/{id}/plan` API return (`concordance.rewrite`), the
+  resolve path (`day_rewrite.load_latest`, which replaces re-running the
+  three extraction model calls at `/resolve` time), and post-hoc diagnosis.
+  `plan_context` (`day_concordance.py`) and `emit_plan`'s `concordance_
+  summary` parameter are retired, their behavior absorbed by `day_rewrite.
+  render`. `pass_play.declared_action` stays write-once and untouched;
+  `feasibility_veto`, `reconcile` and `narrate` keep reading the raw
+  declaration (Scope OUT — separate chantiers). Migration:
+  `migrate_v1_97_day_rewrite.py`.
+
 - **v1.96** — Added `Index("idx_knowledge_subject", "subject")` to `knowledge`
   (`CREATE INDEX idx_knowledge_subject ON knowledge(subject);`). TICKET-0078,
   BRIEF-0078-a: the sole reader of this index is

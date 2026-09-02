@@ -32,12 +32,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from ... import day_plan_select, day_plans
-from ...day_concordance import AmbiguousMention, ConcordanceResult, concord, emit_germs, plan_context
+from ... import day_plan_select, day_plans, day_rewrite
+from ...day_concordance import AmbiguousMention, ConcordanceResult, concord, emit_germs
 from ...day_extract import extract_factions, extract_persons, extract_places
 from ...day_feasibility import VetoVerdict, veto as feasibility_veto
 from ...day_mutations import emit_mutations
-from ...day_narration import detect_late_delta, narrate, repair, rewrite as day_rewrite
+# `rewrite` here is day_narration's late-delta prose rewrite -- unrelated to
+# the day_rewrite MODULE imported above (declaration rewrite, BRIEF-0081-b);
+# aliased to keep the two "rewrite" concepts from colliding on one name.
+from ...day_narration import detect_late_delta, narrate, repair, rewrite as rewrite_narration
 from ...day_narration_guard import JudgeVerdict, judge_narration
 from ...day_plan import (
     DAY_BUDGET_SLOTS,
@@ -64,6 +67,7 @@ from ...models import (
     AgendaStepRequirement,
     Batch,
     Character,
+    DayRewrite,
     Entity,
     PassPlay,
     ProposedMutation,
@@ -72,12 +76,14 @@ from ...models import Session as GameSession
 from ...writes import (
     BATCH_RESOLVED_STATUS,
     MAX_DECLARATION_CHARS,
+    next_day_rewrite_generation,
     read_latest_feasibility,
     read_latest_resolution,
     resolution_count,
     write_batch,
     write_day_feasibility,
     write_day_plan,
+    write_day_rewrite,
     write_pass_play,
     write_pass_play_resolution,
 )
@@ -380,7 +386,30 @@ def _plan_step_dict(evaluated: EvaluatedStep, status: str) -> dict:
     }
 
 
-def _concordance_dict(result: ConcordanceResult, germ_ids: dict[int, str], db: Session) -> dict:
+def _rewrite_dict(rewrite_row: DayRewrite, result: ConcordanceResult, db: Session) -> dict:
+    """The `rewrite` block (BRIEF-0081-b, Scope IN item 9) — the V1 surface
+    Nia asked for: the rendered text `select_plan`/`emit_plan` actually
+    received, and the resolutions behind it, each carrying an `entity_name`
+    alongside its `entity_id` for a human reading the API return."""
+    def _name(entity_id: Optional[str]) -> Optional[str]:
+        if entity_id is None:
+            return None
+        entity = db.get(Entity, entity_id)
+        return entity.name if entity is not None else entity_id
+
+    return {
+        "generation": rewrite_row.generation,
+        "rendered_text": rewrite_row.rendered_text,
+        "resolutions": [
+            {**item, "entity_name": _name(item["entity_id"])}
+            for item in day_rewrite.resolutions(result)
+        ],
+    }
+
+
+def _concordance_dict(
+    result: ConcordanceResult, germ_ids: dict[int, str], rewrite_row: DayRewrite, db: Session,
+) -> dict:
     """Response shape for BRIEF-0075-c's `concordance` block. Entity ids for
     MATCHED mentions may appear; germ ids may appear; no `agenda_id` and no
     `step_id` anywhere (Scope OUT)."""
@@ -430,6 +459,7 @@ def _concordance_dict(result: ConcordanceResult, germ_ids: dict[int, str], db: S
             for um in result.unmatched
         ],
         "skipped_rungs": list(result.skipped_rungs),
+        "rewrite": _rewrite_dict(rewrite_row, result, db),
     }
 
 
@@ -467,6 +497,23 @@ def _extract_and_concord(
     for germ in germs:
         db.add(germ)
     return concordance_result, germ_ids
+
+
+def _write_declaration_rewrite(
+    world_id: str, pass_play: PassPlay, concordance_result: ConcordanceResult, db: Session,
+) -> tuple[str, DayRewrite]:
+    """BRIEF-0081-b, Scope IN item 4: the FIRST generation of this
+    declaration's rewrite — the text `select_plan` is handed, and (absent a
+    reconciliation re-emission, item 8) the same text `emit_plan` is handed
+    too. Staged, not committed: the caller's single commit covers the plan,
+    the germs and this trace together."""
+    rendered = day_rewrite.render(pass_play.declared_action, concordance_result, db)
+    generation = next_day_rewrite_generation(db, pass_play_id=pass_play.id)
+    rewrite_row = write_day_rewrite(
+        db, world_id=world_id, pass_play_id=pass_play.id, generation=generation, rendered_text=rendered,
+        resolutions=day_rewrite.resolutions(concordance_result),
+    )
+    return rendered, rewrite_row
 
 
 def _load_plannable_day(batch_id: str, world_id: str, db: Session) -> PassPlay:
@@ -601,26 +648,30 @@ def plan_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     if concordance_result.ambiguous:
         raise HTTPException(status_code=409, detail=_ambiguous_detail(concordance_result.ambiguous, db))
 
+    # BRIEF-0081-b, Scope IN item 4: the rewrite REPLACES `declared_action`
+    # as the input to both plan selection and plan emission — staged in the
+    # same transaction as the plan and the germs (all-or-nothing).
+    rendered, rewrite_row = _write_declaration_rewrite(world_id, pass_play, concordance_result, db)
+
     plans = day_plans.open_plans(character, db)
     try:
-        selected = day_plan_select.select_plan(pass_play.declared_action, plans, db)
+        selected = day_plan_select.select_plan(rendered, plans, db)
     except LlmParseError as exc:
         raise HTTPException(status_code=502, detail=f"plan selection failed: {exc}") from exc
     if selected is not None:
-        result = _reconcile_and_finalize(character, pass_play, selected, concordance_result, db)
+        result = _reconcile_and_finalize(character, pass_play, selected, concordance_result, rendered, db)
     else:
         day_plans.park_active_plan(character, db)
         try:
             raw_steps = emit_plan(
-                pass_play.declared_action, character, db,
-                concordance_summary=plan_context(concordance_result, db),
+                rendered, character, db,
                 held_subjects_summary=held_subjects_summary(character, db),
             )
         except LlmParseError as exc:
             raise HTTPException(status_code=502, detail=f"plan emission failed: {exc}") from exc
         result = _finalize_plan(world_id, character, pass_play, raw_steps, db)
 
-    result["concordance"] = _concordance_dict(concordance_result, germ_ids, db)
+    result["concordance"] = _concordance_dict(concordance_result, germ_ids, rewrite_row, db)
     return result
 
 
@@ -723,44 +774,21 @@ def _resolve_response(fact_sheet: FactSheet, prose: str, is_replay: bool) -> dic
     }
 
 
-def _concord_declaration(pass_play: PassPlay, character: Character, db: Session) -> ConcordanceResult:
-    """Extraction + concordance ONLY (BRIEF-0075-d) — the `_extract_and_
-    concord` precedent above minus `emit_germs`: re-emitting germs at
-    resolve time would duplicate the `entity_creation` proposals `/plan`
-    already staged, including on every replay. `ConcordanceResult` is
-    never persisted past the call that builds it (BRIEF-0075-c), so
-    `freeze_facts` needs a fresh one — same deterministic, model-free
-    lookup, re-run."""
-    mentions = [
-        *extract_places(pass_play.declared_action, db),
-        *extract_persons(pass_play.declared_action, db),
-        *extract_factions(pass_play.declared_action, db),
-    ]
-    return concord(mentions, character, db)
-
-
-def _concord_declaration_logged(pass_play: PassPlay, character: Character, db: Session) -> ConcordanceResult:
-    """`_concord_declaration` plus BRIEF-0081-a item 9's interim, short-lived
-    behavior: the plan-time 409 (item 8) already blocks a genuine collision
-    at declaration time, but extraction is an LLM call — the resolve-time
-    mention set can differ from the plan-time one. A 409 here would strand
-    an already-planned day, so a non-empty `.ambiguous` is only logged; it
-    reaches `freeze_facts` unresolved (that function never reads
-    `.ambiguous`) rather than blocking. BRIEF-0081-b removes this re-
-    derivation entirely. Carved out of `resolve_day` for the function-
-    length ceiling."""
-    try:
-        concordance_result = _concord_declaration(pass_play, character, db)
-    except LlmParseError as exc:
-        db.rollback()
-        raise HTTPException(status_code=502, detail=f"day narration concordance failed: {exc}") from exc
-    if concordance_result.ambiguous:
-        _log.info(
-            "day %s: %d ambiguous mention(s) at resolve time, treated as unresolved: %s",
-            pass_play.id, len(concordance_result.ambiguous),
-            [am.mention.surface_form for am in concordance_result.ambiguous],
+def _read_day_rewrite_concordance(pass_play: PassPlay, world_id: str, db: Session) -> ConcordanceResult:
+    """BRIEF-0081-b, Scope IN item 7: the resolve path READS the trace
+    `/plan` already wrote instead of re-deriving it — no extraction model
+    call happens here anymore, so `freeze_facts` and `/plan` are guaranteed
+    to work from the SAME reading of the declaration. Fail-closed: a
+    `pass_play` with no `day_rewrite` row (a plan predating this brief, or a
+    day that never reached plan emission) 409s naming the missing trace,
+    rather than silently re-deriving or returning an empty result."""
+    result = day_rewrite.load_latest(pass_play.id, world_id, db)
+    if result is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"day {pass_play.id!r} has no day_rewrite trace recorded — plan it again before resolving",
         )
-    return concordance_result
+    return result
 
 
 def _narrate_and_judge(
@@ -789,7 +817,7 @@ def _narrate_and_judge(
             fact_sheet, authorised_names=fact_sheet.authorised_names | {delta.resolved_name},
         )
         try:
-            prose = day_rewrite(fact_sheet, prose, delta, db)
+            prose = rewrite_narration(fact_sheet, prose, delta, db)
         except LlmParseError as exc:
             db.rollback()
             raise HTTPException(status_code=502, detail=f"day rewrite failed: {exc}") from exc
@@ -906,7 +934,7 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     veto_retained = feasibility_entry.get("veto_retained") if feasibility_entry else None
     outcomes = resolve_steps(agenda, character, db, veto_retained=veto_retained)
 
-    concordance_result = _concord_declaration_logged(pass_play, character, db)
+    concordance_result = _read_day_rewrite_concordance(pass_play, world_id, db)
     fact_sheet = freeze_facts(outcomes, concordance_result, batch, character, db)
 
     if not outcomes:
