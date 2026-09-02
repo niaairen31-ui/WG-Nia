@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.96
+Current schema version: v1.97
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -881,6 +881,70 @@ CREATE TABLE pass_play (
 );
 -- NOTE: the old `local_proposal` column is removed.
 -- Proposed changes now live in `proposed_mutation` (one pass-play can spawn several).
+```
+
+-----
+
+### `day_rewrite`
+
+One row per generation of one declaration's rendering (schema v1.97,
+TICKET-0081, BRIEF-0081-b — decisions A2'/B2/J2): the literal text
+`day_plan_select.select_plan`/`day_plan.emit_plan` were actually handed, built
+by the pure `day_rewrite.render` (no model call) from the declaration's own
+words plus a line per resolved mention naming the entity. `generation` starts
+at 1 and is incremented only by the reconciliation paths (`modify`/`replace`)
+that re-emit a plan against the same rendered text — append-only, no row on
+this table is ever UPDATEd or DELETEd.
+
+```sql
+CREATE TABLE day_rewrite (
+  id              TEXT PRIMARY KEY,
+  world_id        TEXT NOT NULL REFERENCES world(id),
+  pass_play_id    TEXT NOT NULL REFERENCES pass_play(id),
+  generation      INTEGER NOT NULL CHECK (generation >= 1),
+  rendered_text   TEXT NOT NULL,
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_day_rewrite_pass_generation
+  ON day_rewrite(pass_play_id, generation);
+```
+
+-----
+
+### `day_mention_resolution`
+
+The facts behind one `day_rewrite`: one row per resolved mention,
+`ordinal`-ordered (schema v1.97, TICKET-0081, BRIEF-0081-b). Read back by the
+resolve path (`day_rewrite.load_latest`) to reconstruct a `ConcordanceResult`
+without re-running extraction, and surfaced in `/api/day/{id}/plan`'s
+`concordance.rewrite` block. Append-only, same discipline as `day_rewrite`.
+
+**NOTE — `ambiguous` is deliberately not a storable verdict.** An ambiguous
+mention 409s the plan route before any write, so a stored ambiguity would
+mean that guard was bypassed.
+
+```sql
+CREATE TABLE day_mention_resolution (
+  id              TEXT PRIMARY KEY,
+  world_id        TEXT NOT NULL REFERENCES world(id),
+  rewrite_id      TEXT NOT NULL REFERENCES day_rewrite(id),
+  ordinal         INTEGER NOT NULL,
+  category        TEXT NOT NULL CHECK (category IN ('place','person','faction')),
+  surface_form    TEXT NOT NULL,
+  kind            TEXT NOT NULL CHECK (kind IN ('named','inferred')),
+  role_hint       TEXT,
+  verdict         TEXT NOT NULL CHECK (verdict IN ('matched','cast','unmatched')),
+  entity_id       TEXT REFERENCES entity(id),
+  rung            TEXT,
+  cast_basis      TEXT,
+  CHECK (
+    (verdict NOT IN ('matched','cast') OR (entity_id IS NOT NULL AND rung IS NOT NULL))
+    AND (verdict <> 'cast' OR cast_basis IS NOT NULL)
+    AND (verdict <> 'unmatched' OR entity_id IS NULL)
+  )
+);
+CREATE UNIQUE INDEX idx_day_mention_resolution_rewrite
+  ON day_mention_resolution(rewrite_id, ordinal);
 ```
 
 -----

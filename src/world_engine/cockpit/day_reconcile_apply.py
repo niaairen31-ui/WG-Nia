@@ -26,14 +26,14 @@ from typing import Callable, NoReturn
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from .. import day_plans
-from ..day_concordance import ConcordanceResult, plan_context
+from .. import day_plans, day_rewrite
+from ..day_concordance import ConcordanceResult
 from ..day_plan import emit_plan, evaluate_agenda_step
 from ..day_reconcile import Reconciliation, plan_action, reconcile
 from ..day_resolve import requirement_detail_fr
 from ..llm_parse import LlmParseError
 from ..models import Agenda, AgendaStep, Character, PassPlay
-from ..writes import write_agenda_status
+from ..writes import next_day_rewrite_generation, write_agenda_status, write_day_rewrite
 
 
 def _reconciliation_dict(recon: Reconciliation, mutation_ids: list[str]) -> dict:
@@ -85,6 +85,21 @@ def _refuse_unstarted_plan(character: Character, agenda: Agenda, db: Session) ->
     )
 
 
+def _append_rewrite_generation(
+    world_id: str, pass_play: PassPlay, rendered: str, concordance_result: ConcordanceResult, db: Session,
+) -> None:
+    """BRIEF-0081-b, Scope IN item 8: `modify`/`replace` re-emit a plan
+    against the SAME rendered text `routes/day.py` already fed to
+    `select_plan` (item 5 — this module never re-renders), but that
+    re-emission is its OWN historical artifact: a NEW `day_rewrite`
+    generation, never a reuse of the first one."""
+    generation = next_day_rewrite_generation(db, pass_play_id=pass_play.id)
+    write_day_rewrite(
+        db, world_id=world_id, pass_play_id=pass_play.id, generation=generation, rendered_text=rendered,
+        resolutions=day_rewrite.resolutions(concordance_result),
+    )
+
+
 def _finalize_continue(
     character: Character, pass_play: PassPlay, agenda: Agenda, recon: Reconciliation, db: Session,
 ) -> dict:
@@ -122,22 +137,24 @@ def _revised_plan_matches_remaining(revised: list, remaining: list[AgendaStep]) 
 
 def _finalize_modify(
     world_id: str, character: Character, pass_play: PassPlay, agenda: Agenda,
-    steps: list[AgendaStep], recon: Reconciliation, concordance_result: ConcordanceResult, db: Session,
+    steps: list[AgendaStep], recon: Reconciliation, concordance_result: ConcordanceResult, rendered: str,
+    db: Session,
 ) -> dict:
     """AMENDMENT 1: re-run `emit_plan` with the standing agenda's remaining
     steps as context; only an IDENTICAL revised plan is expressible (no
     action exists to insert/reorder/edit a pending step) — anything else
     is S2, a STOP, per the brief's own Scope OUT ("if the diff needs an
-    action the applier does not have, STOP")."""
-    del world_id  # unused: modify emits nothing, so no owner_entity_id write happens here
+    action the applier does not have, STOP"). `rendered` (BRIEF-0081-b) is
+    the text `routes/day.py` already fed to `select_plan` — this function
+    never re-renders it (item 5), but a successful re-emission still appends
+    its own `day_rewrite` generation (item 8)."""
     remaining = [s for s in steps if s.status in ("active", "pending")]
     remaining_summary = "Étapes restantes du plan en cours :\n" + "\n".join(
         f"{s.step_order}. {s.objective}" for s in remaining
     )
     try:
         revised_steps = emit_plan(
-            pass_play.declared_action, character, db,
-            concordance_summary=plan_context(concordance_result, db),
+            rendered, character, db,
             standing_steps_summary=remaining_summary,
         )
     except LlmParseError as exc:
@@ -153,6 +170,7 @@ def _finalize_modify(
             ),
         )
 
+    _append_rewrite_generation(world_id, pass_play, rendered, concordance_result, db)
     pass_play.status = "resolving"
     pass_play.agenda_id = agenda.id  # BRIEF-0077-a: which plan this day advanced
     db.add(pass_play)
@@ -162,29 +180,28 @@ def _finalize_modify(
 
 def _finalize_replace(
     world_id: str, character: Character, pass_play: PassPlay, agenda: Agenda,
-    recon: Reconciliation, concordance_result: ConcordanceResult, db: Session,
+    recon: Reconciliation, concordance_result: ConcordanceResult, rendered: str, db: Session,
 ) -> dict:
     """AA2, superseded by TICKET-0077/BRIEF-0077-a (A1): `replace` no longer
     refuses — it PARKS the standing plan and opens a fresh one in its place,
-    one transaction: `day_plans.park_active_plan` -> `emit_plan` (same
-    `concordance_summary` the fresh-plan path uses) -> `_finalize_plan`
-    unchanged. `_finalize_plan` stays in `routes/day.py` (not moved here by
-    BRIEF-0077-a item 5) — reached via a lazy import to avoid a module
-    cycle (`play_stream`/`play.py` precedent, `import_cycle.py`'s sanctioned
-    idiom). A failed emission (`LlmParseError`) rolls back the park with the
-    rest of the transaction, leaving the standing plan `active`, never
-    orphaned mid-park."""
+    one transaction: `day_plans.park_active_plan` -> `emit_plan` (fed
+    `rendered`, BRIEF-0081-b — never re-rendered here, item 5) ->
+    `_finalize_plan` unchanged. `_finalize_plan` stays in `routes/day.py`
+    (not moved here by BRIEF-0077-a item 5) — reached via a lazy import to
+    avoid a module cycle (`play_stream`/`play.py` precedent,
+    `import_cycle.py`'s sanctioned idiom). A failed emission
+    (`LlmParseError`) rolls back the park with the rest of the transaction,
+    leaving the standing plan `active`, never orphaned mid-park. A
+    successful emission appends its own `day_rewrite` generation (item 8)."""
     from .routes import day as _day
 
     day_plans.park_active_plan(character, db)
     try:
-        raw_steps = emit_plan(
-            pass_play.declared_action, character, db,
-            concordance_summary=plan_context(concordance_result, db),
-        )
+        raw_steps = emit_plan(rendered, character, db)
     except LlmParseError as exc:
         raise HTTPException(status_code=502, detail=f"plan emission failed: {exc}") from exc
 
+    _append_rewrite_generation(world_id, pass_play, rendered, concordance_result, db)
     result = _day._finalize_plan(world_id, character, pass_play, raw_steps, db)
     result["reconciliation"] = _reconciliation_dict(recon, [])
     return result
@@ -192,7 +209,7 @@ def _finalize_replace(
 
 def _reconcile_and_finalize(
     character: Character, pass_play: PassPlay, agenda: Agenda,
-    concordance_result: ConcordanceResult, db: Session,
+    concordance_result: ConcordanceResult, rendered: str, db: Session,
 ) -> dict:
     steps = db.exec(
         select(AgendaStep).where(AgendaStep.agenda_id == agenda.id).order_by(AgendaStep.step_order)
@@ -225,10 +242,10 @@ def _reconcile_and_finalize(
     handlers: dict[str, Callable[[], dict]] = {
         "continue": lambda: _finalize_continue(character, pass_play, agenda, recon, db),
         "modify": lambda: _finalize_modify(
-            agenda.world_id, character, pass_play, agenda, steps, recon, concordance_result, db,
+            agenda.world_id, character, pass_play, agenda, steps, recon, concordance_result, rendered, db,
         ),
         "replace": lambda: _finalize_replace(
-            agenda.world_id, character, pass_play, agenda, recon, concordance_result, db,
+            agenda.world_id, character, pass_play, agenda, recon, concordance_result, rendered, db,
         ),
     }
     # `resume` reuses `continue`'s handler UNCHANGED (Scope IN item 5e): a

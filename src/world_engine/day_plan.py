@@ -471,7 +471,7 @@ def held_subjects_summary(character: Character, db: Session) -> str:
 
 
 def emit_plan(
-    declaration: str, character: Character, db: Session, concordance_summary: str = "",
+    declaration: str, character: Character, db: Session,
     standing_steps_summary: str = "", held_subjects_summary: str = "",
 ) -> list[PlanStep]:
     """ONE model call (F1). Parses through `llm_parse.extract_object`;
@@ -480,14 +480,16 @@ def emit_plan(
     (unlike `gathering.py`'s solo-partition fallback: a day plan gates real
     play consequences, a silent partial plan would be worse than none).
 
-    `concordance_summary` (BRIEF-0075-c), `standing_steps_summary`
-    (BRIEF-0075-f, `modify`'s reconciliation path) and `held_subjects_summary`
-    (BRIEF-0078-a, item 6) are ALL appended verbatim to the user message,
-    never woven into the seeded template text — the same discipline for the
-    same reason: text a Python pass already built, not a new prompt-template
-    placeholder that a virgin-head-only seed (S2) could never retrofit onto
-    an already-provisioned world. Each defaults to "" (a no-op) so every
-    pre-existing call site is byte-identical."""
+    `declaration` is the RENDERED text (TICKET-0081, BRIEF-0081-b —
+    `day_rewrite.render`'s output, participants already named), never the
+    raw `pass_play.declared_action` — every call site passes the rewrite.
+    `standing_steps_summary` (BRIEF-0075-f, `modify`'s reconciliation path)
+    and `held_subjects_summary` (BRIEF-0078-a, item 6) are appended verbatim
+    to the user message, never woven into the seeded template text — text a
+    Python pass already built, not a new prompt-template placeholder that a
+    virgin-head-only seed (S2) could never retrofit onto an already-
+    provisioned world. Each defaults to "" (a no-op) so every pre-existing
+    call site is byte-identical."""
     template = _load_day_plan_template(character.world_id, db)
     if template is None:
         raise llm_parse.LlmParseError("day_plan: no active prompt_template for usage='day_plan'")
@@ -500,8 +502,6 @@ def emit_plan(
         .replace("{character_name}", character_name)
         .replace("{declaration}", declaration)
     )
-    if concordance_summary:
-        user_msg += f"\n\n{concordance_summary}"
     if standing_steps_summary:
         user_msg += f"\n\n{standing_steps_summary}"
     if held_subjects_summary:

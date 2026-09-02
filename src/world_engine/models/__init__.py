@@ -89,6 +89,8 @@ from .ephemeral import (
 )
 from .pipeline import (
     Batch,
+    DayMentionResolution,
+    DayRewrite,
     PassPlay,
     ProposedMutation,
     PromptTemplate,
@@ -128,6 +130,8 @@ __all__ = [
     "Session",
     "Batch",
     "PassPlay",
+    "DayRewrite",
+    "DayMentionResolution",
     "Gathering",
     "GatheringMember",
     "LinkBatch",
