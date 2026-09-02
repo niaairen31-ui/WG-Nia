@@ -41,11 +41,15 @@ casting, not resolving — F1's `_cast_one` narrows the set through
 `emit_germs` writes NOTHING (no `db.add(`, no `.commit(`) — it constructs
 `ProposedMutation` objects and returns them; the caller (the
 `/api/day/{id}/plan` route) adds and commits them in the same transaction as
-the plan.
+the plan. TICKET-0081, BRIEF-0081-c gave it the two emission-side guards
+TICKET-0019 already gave the tick path (name collision against an active
+entity, dedup against a pending germ) plus a per-declaration quota — reads
+only, deliberately redundant with the approval-side guard.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -66,6 +70,8 @@ from .models import (
 )
 from .schedule_reads import who_is_at
 
+_log = logging.getLogger(__name__)
+
 _CATEGORY_ENTITY_TYPE: dict[str, str] = {"place": "location", "person": "character", "faction": "faction"}
 
 MATCHING_RUNGS: tuple[str, ...] = (
@@ -73,6 +79,11 @@ MATCHING_RUNGS: tuple[str, ...] = (
 )
 
 CAST_PRECEDENCE: tuple[str, ...] = ("presence", "relation", "stable")
+
+# Bound on germs emitted per declaration (BRIEF-0081-c). Over the bound,
+# truncate and report the count — never silently drop the excess without a
+# log line.
+MAX_GERMS_PER_DECLARATION = 3
 
 _ALIAS_SKIP_NOTE = "rung 2 (named_alias) skipped — no alias/cover-role surface exists for entity names"
 
@@ -450,19 +461,74 @@ def concord(mentions: list[Mention], character: Character, db: Session) -> Conco
     )
 
 
+def _germ_blocked(name: str, world_id: Optional[str], db: Session) -> Optional[str]:
+    """Two emission-side guards (BRIEF-0081-c), deliberately redundant with
+    the approval-side ones TICKET-0019 already enforces
+    (`_approve_entity_creation_shortcircuit`): a name colliding with an
+    ACTIVE entity, or a still-open pending germ already proposing the same
+    name. Reads only — returns a reason string (for the INFO log at the
+    call site) or None."""
+    folded = name.casefold()
+
+    for entity in db.exec(
+        select(Entity).where(Entity.world_id == world_id, Entity.status == "active")
+    ).all():
+        if entity.name.casefold() == folded:
+            return f"collides with active entity {entity.name!r} ({entity.id})"
+
+    for mut in db.exec(
+        select(ProposedMutation).where(
+            ProposedMutation.world_id == world_id,
+            ProposedMutation.mutation_type == "entity_creation",
+            ProposedMutation.status.in_(("proposed", "approved")),
+        )
+    ).all():
+        payload = mut.payload if isinstance(mut.payload, dict) else {}
+        if payload.get("created_entity_id"):
+            # Already realized — a second, different NPC may legitimately
+            # be needed, so this pending row no longer blocks a new germ.
+            continue
+        if str(payload.get("name") or "").casefold() == folded:
+            return f"duplicates pending mutation {mut.id}"
+
+    return None
+
+
 def emit_germs(unmatched: tuple[UnmatchedMention, ...], pass_play: PassPlay, db: Session) -> list[ProposedMutation]:
     """Persons only (Scope IN item 3 / Scope OUT: places and factions are
     reported, never germinated). Constructs `ProposedMutation` rows and
     returns them — writes NOTHING itself (R1): no `db.add(`, no `.commit(`.
-    The caller adds and commits them in the same transaction as the plan."""
+    The caller adds and commits them in the same transaction as the plan.
+    Guards and quota per BRIEF-0081-c: `_germ_blocked` runs before the
+    quota, so a blocked candidate never occupies a quota slot; the quota
+    then keeps the first `MAX_GERMS_PER_DECLARATION` survivors in mention
+    order and logs the truncated count."""
     character = db.get(Character, pass_play.character_id)
     world_id = character.world_id if character is not None else None
 
-    germs: list[ProposedMutation] = []
+    survivors: list[UnmatchedMention] = []
     for item in unmatched:
         mention = item.mention
         if mention.category != "person":
             continue
+        name = mention.role_hint or mention.surface_form
+        reason = _germ_blocked(name, world_id, db)
+        if reason is not None:
+            _log.info("day_concordance.emit_germs: skipped germ for %r — %s", name, reason)
+            continue
+        survivors.append(item)
+
+    if len(survivors) > MAX_GERMS_PER_DECLARATION:
+        dropped = len(survivors) - MAX_GERMS_PER_DECLARATION
+        _log.info(
+            "day_concordance.emit_germs: truncated %d germ candidate(s) over MAX_GERMS_PER_DECLARATION=%d",
+            dropped, MAX_GERMS_PER_DECLARATION,
+        )
+        survivors = survivors[:MAX_GERMS_PER_DECLARATION]
+
+    germs: list[ProposedMutation] = []
+    for item in survivors:
+        mention = item.mention
         name = mention.role_hint or mention.surface_form
         rationale = f"matching rungs tried and missed: {', '.join(item.rungs_tried)}"
         if item.candidate_location_id:

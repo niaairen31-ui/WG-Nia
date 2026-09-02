@@ -1,5 +1,6 @@
 """Golden-case fixture for `day_concordance.concord` (TICKET-0081,
-BRIEF-0081-a). Same fresh-temp-SQLite-DB idiom as `context_disclosure_
+BRIEF-0081-a) and `day_concordance.emit_germs` (BRIEF-0081-c). Same
+fresh-temp-SQLite-DB idiom as `context_disclosure_
 floor.py`. Every case below is a FAILING input against the PRE-change code
 (BRIEF-0075-c's plain-casefold `named_exact`, no `named_token` rung, no
 casting, no E2c reachability scope) — each is asserted with exact set
@@ -370,9 +371,95 @@ def check_rewrite_golden_cases(engine, fixture) -> None:
             fail("case 9 (resolve-path fail-closed): load_latest() returned a result with no day_rewrite row stored")
 
 
+def check_germ_golden_cases(engine, fixture) -> None:
+    """TICKET-0081, BRIEF-0081-c, Scope IN item 8: four FAILING-input golden
+    cases for `emit_germs`'s two emission-side guards and its quota. Reuses
+    the SAME `(engine, fixture)` pair as `check_rewrite_golden_cases` — see
+    `check_golden_cases`'s docstring for why a second `_fresh_engine()` call
+    in this same process is unsafe."""
+    if not fixture.get("world_id") or not fixture.get("pc_id"):
+        fail("vacuous fixture (germ cases): required fixture ids are missing")
+        return
+
+    from sqlmodel import Session as DbSession
+
+    from world_engine.day_concordance import MAX_GERMS_PER_DECLARATION, UnmatchedMention, emit_germs
+    from world_engine.day_extract import Mention
+    from world_engine.models import Entity, PassPlay, ProposedMutation
+
+    world_id = fixture["world_id"]
+    # Never added/committed — emit_germs only reads .id/.character_id off it,
+    # so it need not satisfy pass_play's DB-level NOT NULL FKs here.
+    pass_play = PassPlay(id="germ-fixture-pass-play", character_id=fixture["pc_id"], declared_action="x")
+
+    def _unmatched(surface_form: str, role_hint: str) -> "UnmatchedMention":
+        return UnmatchedMention(
+            mention=Mention(category="person", surface_form=surface_form, kind="inferred", role_hint=role_hint),
+            rungs_tried=("occupation", "presence"),
+        )
+
+    with DbSession(engine) as session:
+        # A live NPC the collision guard must find.
+        session.add(Entity(world_id=world_id, type="character", name="Barde", status="active"))
+        # A pending germ the dedup guard must find.
+        session.add(ProposedMutation(
+            world_id=world_id, source_type="pass_play", pass_play_id=None,
+            mutation_type="entity_creation", status="proposed",
+            payload={"entity_type": "character", "name": "Chasseur"},
+            proposed_by="local_ai",
+        ))
+        # A REALIZED germ (created_entity_id set) — must NOT block a new one.
+        session.add(ProposedMutation(
+            world_id=world_id, source_type="pass_play", pass_play_id=None,
+            mutation_type="entity_creation", status="approved",
+            payload={"entity_type": "character", "name": "Marchand", "created_entity_id": "already-real"},
+            proposed_by="local_ai",
+        ))
+        session.commit()
+
+        # ── Case 10: collision guard — role_hint case-folds onto an ACTIVE
+        # entity name -> ZERO germs. Removing the collision guard must make
+        # this case fail.
+        germs = emit_germs((_unmatched("un barde", "Barde"),), pass_play, session)
+        if germs:
+            fail(f"case 10 (collision guard): expected zero germs, got {[g.payload.get('name') for g in germs]!r}")
+
+        # ── Case 11: pending dedup — role_hint case-folds onto a PENDING
+        # germ's payload name -> ZERO germs. Removing the dedup must make
+        # this case fail.
+        germs = emit_germs((_unmatched("un chasseur", "chasseur"),), pass_play, session)
+        if germs:
+            fail(f"case 11 (pending dedup): expected zero germs, got {[g.payload.get('name') for g in germs]!r}")
+
+        # ── Case 12: a germ whose payload already carries created_entity_id
+        # must NOT block a new one — the entity was realized, a second,
+        # different one may legitimately be needed. Widening the dedup to
+        # ignore created_entity_id must make this case fail.
+        germs = emit_germs((_unmatched("un marchand", "marchand"),), pass_play, session)
+        if {g.payload.get("name") for g in germs} != {"marchand"}:
+            fail(
+                f"case 12 (realized germ does not block): expected one germ named 'marchand', "
+                f"got {[g.payload.get('name') for g in germs]!r}"
+            )
+
+        # ── Case 13: quota — five distinct unmatched persons -> exactly
+        # MAX_GERMS_PER_DECLARATION germs, kept in mention order. Removing
+        # the quota must make this case fail.
+        five = tuple(_unmatched(f"un inconnu {i}", f"role-{i}") for i in range(5))
+        germs = emit_germs(five, pass_play, session)
+        if len(germs) != MAX_GERMS_PER_DECLARATION:
+            fail(f"case 13 (quota): expected {MAX_GERMS_PER_DECLARATION} germs, got {len(germs)}")
+        elif [g.payload.get("name") for g in germs] != [f"role-{i}" for i in range(MAX_GERMS_PER_DECLARATION)]:
+            fail(
+                f"case 13 (quota): expected the first {MAX_GERMS_PER_DECLARATION} in mention order, "
+                f"got names={[g.payload.get('name') for g in germs]!r}"
+            )
+
+
 def main() -> None:
     engine, fixture = check_golden_cases()
     check_rewrite_golden_cases(engine, fixture)
+    check_germ_golden_cases(engine, fixture)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -380,9 +467,10 @@ def main() -> None:
     print(
         "PASS: day_concordance_golden — leading-article and trailing-qualifier "
         "matching, casting (C2-partition, basis 'stable'), identity-collision "
-        "ambiguity, E2c reachability scoping, and the rewrite golden cases "
+        "ambiguity, E2c reachability scoping, the rewrite golden cases "
         "(ambiguity guard, determinism, cast/cast_basis validation, fail-closed "
-        "resolve reader) all resolve correctly"
+        "resolve reader), and the germ emission golden cases (collision guard, "
+        "pending dedup, realized-germ non-block, quota) all resolve correctly"
     )
     sys.exit(0)
 

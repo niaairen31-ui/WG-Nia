@@ -1,12 +1,12 @@
 {
   "ticket": "TICKET-0081-day-declaration-rewrite-and-concordance",
-  "when": "2026-09-01T23:52:31.484615+00:00",
+  "when": "2026-09-02T00:06:06.808902+00:00",
   "green": true,
   "checks": [
     {
       "check": "day_concordance.py",
       "status": "PASS",
-      "msg": "PASS: day_concordance \u2014 purity, no registry leak, germ shape, no synchronous authoring, the I2 parking tripwire, PROMPT_REGISTRY wiring, rung bijection, the mentions bound, the casting bijection, and the E2c reachability tripwire are all intact"
+      "msg": "PASS: day_concordance \u2014 purity, no registry leak, germ shape, no synchronous authoring, the I2 parking tripwire, PROMPT_REGISTRY wiring, rung bijection, the mentions bound, the casting bijection, the E2c reachability tripwire, the germ quota, and the germ emission guards are all intact"
     },
     {
       "check": "day_rewrite.py",

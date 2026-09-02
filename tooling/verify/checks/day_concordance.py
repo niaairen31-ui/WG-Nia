@@ -35,6 +35,13 @@ BFS), AND the module's import list does not name `_day_reachable_ids` (D1 —
 never import `day_plan`'s reader, never share one).
 R10 (E2c tripwire): `_rung_occupation`'s body references the concordance
 context's `reachable_location_ids` attribute — the E2c scoping filter.
+R11 (germ quota declared and read, TICKET-0081/BRIEF-0081-c):
+`MAX_GERMS_PER_DECLARATION` is a module-level constant in
+`day_concordance.py`, read inside `emit_germs`.
+R12 (germ guards query shape): `emit_germs` (or its extracted helper,
+`_germ_blocked`) contains a `select(` against `Entity` (the collision
+guard) AND a `select(` against `ProposedMutation` (the pending dedup
+guard).
 
 Every rule above is vacuity-guarded — a rule that locates zero items is a
 FAILURE, not a silent pass.
@@ -412,6 +419,60 @@ def check_occupation_reachability_reference() -> None:
         )
 
 
+def check_germ_quota_declared_and_read() -> None:
+    tree = _parse(DAY_CONCORDANCE_FILE)
+    if tree is None:
+        return
+    names_found: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            names_found.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names_found.add(node.target.id)
+    if "MAX_GERMS_PER_DECLARATION" not in names_found:
+        fail(f"day_concordance R11: {_rel(DAY_CONCORDANCE_FILE)}: MAX_GERMS_PER_DECLARATION module-level constant not found")
+        return
+
+    func = _find_function(tree, "emit_germs")
+    if func is None:
+        fail("day_concordance R11: emit_germs not found")
+        return
+    references = [n for n in ast.walk(func) if isinstance(n, ast.Name) and n.id == "MAX_GERMS_PER_DECLARATION"]
+    if not references:
+        fail("day_concordance R11: MAX_GERMS_PER_DECLARATION is declared but never read inside emit_germs")
+
+
+def check_germ_guards_query_shape() -> None:
+    tree = _parse(DAY_CONCORDANCE_FILE)
+    if tree is None:
+        return
+    func = _find_function(tree, "emit_germs")
+    if func is None:
+        fail("day_concordance R12: emit_germs not found")
+        return
+    helper = _find_function(tree, "_germ_blocked")
+    bodies = [func] + ([helper] if helper is not None else [])
+
+    select_targets: set[str] = set()
+    for body in bodies:
+        for node in ast.walk(body):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "select"):
+                continue
+            for sub in ast.walk(node):
+                name = None
+                if isinstance(sub, ast.Name):
+                    name = sub.id
+                elif isinstance(sub, ast.Attribute):
+                    name = sub.attr
+                if name in ("Entity", "ProposedMutation"):
+                    select_targets.add(name)
+
+    if "Entity" not in select_targets:
+        fail("day_concordance R12: no select( against Entity in emit_germs (or _germ_blocked) — the collision guard is missing")
+    if "ProposedMutation" not in select_targets:
+        fail("day_concordance R12: no select( against ProposedMutation in emit_germs (or _germ_blocked) — the pending dedup guard is missing")
+
+
 def main() -> None:
     check_purity()
     check_no_registry_leak()
@@ -423,6 +484,8 @@ def main() -> None:
     check_cast_precedence()
     check_reachability_reader()
     check_occupation_reachability_reference()
+    check_germ_quota_declared_and_read()
+    check_germ_guards_query_shape()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -430,8 +493,8 @@ def main() -> None:
     print(
         "PASS: day_concordance — purity, no registry leak, germ shape, no synchronous "
         "authoring, the I2 parking tripwire, PROMPT_REGISTRY wiring, rung bijection, "
-        "the mentions bound, the casting bijection, and the E2c reachability tripwire "
-        "are all intact"
+        "the mentions bound, the casting bijection, the E2c reachability tripwire, "
+        "the germ quota, and the germ emission guards are all intact"
     )
     sys.exit(0)
 
