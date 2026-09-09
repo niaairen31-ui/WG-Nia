@@ -2,7 +2,7 @@
 id: TICKET-0083
 title: Creation sub-tab switch loses the sheet reset
 type: bug
-status: exec
+status: live-gate
 created: 2026-09-08
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
