@@ -13,6 +13,20 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.00** — TICKET-0082, BRIEF-0082-d: `connects_to` facts, the
+  known-reachability floor. No new tables or columns — data only. First
+  version under the rollover convention decided at QUESTION-TICKET-0082
+  (block 1): `MINOR=99 -> MAJOR+1, MINOR=00`. Migration
+  `scripts/migrate_v2_00_connects_to_facts.py` inserts one typed `fact`
+  (`relation_id` set, zero `fact_participant` rows — `ck_fact_spine_
+  exclusive` forbids participants on a typed fact) per existing
+  `connects_to` relation, `content` a generated French statement
+  (`"{name_a} communique avec {name_b}."`), `default_level = 'knows'` —
+  every edge arrives already known, so the knowledge-filtered graph is
+  identical to the truth graph for every entity on arrival; behaviour
+  preserved by construction, no default lowered by this step. History is
+  sacred: the migration never touches a `relation` row (checksum-verified
+  pre/post).
 - **v1.99** — TICKET-0082, BRIEF-0082-c: `fact_default`, scoped default
   knowledge levels (G2a). One new table: `fact_default` (`id, world_id,
   fact_id, scope_type, scope_id, level, created_at, created_by`; CHECK

@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v1.99
+Current schema version: v2.00
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----

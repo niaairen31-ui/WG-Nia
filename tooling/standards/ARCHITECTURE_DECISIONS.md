@@ -14732,4 +14732,106 @@ BRIEF-0082-c's own instruction, not because anything is due.
 
 ---
 
+## KNOWN-REACHABILITY — THE PUBLIC FLOOR AND THE D1 CORRECTION (BRIEF-0082-d, schema v2.00)
+
+B2 restated as the standing rule, verbatim: **truth resolves, belief
+deliberates.** `day_resolve.py`'s `location_reachable` and
+`cockpit/spatial_doors.py`'s door resolution read canon directly and are
+never knowledge-filtered; `tick_context._reachable_locations` is the one
+reader this step makes knowledge-gated, at floor `KNOWN_EDGE_FLOOR =
+'partial'` (`knowledge_resolve.py`) — the first level at which a knower can
+be said to know where an edge goes.
+
+**Every `connects_to` read site classifies into exactly one of five
+labels** (`tooling/tickets/connects-to-readers-TICKET-0082.md` is the
+durable, per-module artifact; `known_reachability.py` enforces it), verbatim:
+
+```
+resolution     — decides whether something that has been proposed is
+                 legal. Reads canon. Must NOT be knowledge-filtered.
+deliberation   — decides what a CHARACTER considers, proposes or is
+                 offered. Filtered by that character's resolved level.
+                 A site with this label always passes an entity_id.
+public         — feeds a prompt that no single character governs.
+                 Filtered by the PUBLIC FLOOR: the same resolution
+                 authority entered at its world tier, with no entity.
+                 A site with this label NEVER passes an entity_id.
+authoring      — creator or generator building the graph itself. Reads
+                 and writes canon. Not filtered.
+vocabulary     — a type literal or exclusion list, not a traversal.
+```
+
+**The fifth label, `public`, exists because a reader can have no knower.**
+The original brief's Mini-RECON recorded one caller of
+`_reachable_locations` (the per-NPC tick briefing, `tick.py:73`,
+`deliberation`). Execution found a second: `assemble_location_event_
+context`'s `LES ENVIRONS` section (`tick_context.py:566`), feeding a
+location-scope event proposal that no single character governs. Claude
+Code stopped under the brief's own STOP condition rather than pick a label
+— correct behaviour, not a failure. Nia's amendment
+(`tooling/briefs/BRIEF-0082-d-amendment-1-public-floor-reader.md`) named
+`public`: filtered by the public floor (`knowledge_resolve.resolve_
+public_level`/`resolve_public_levels` — the SAME `_resolve_tiers`
+authority as `resolve_knowledge_level`, entered with `stored_level=None`,
+`location_chain=[]`, `faction_ids=[]` — tiers 1-3 skipped because each
+requires an entity, never a parallel omniscient branch). A `public` call
+site never passes an entity_id; a `deliberation` one always does —
+`known_reachability.py`'s AST assertion enforces the pairing structurally,
+not by convention, and is mutation-sensitive to a flipped call site.
+
+**D1 conformance, corrected.** The original brief's Scope IN instructed a
+new shared module (`knowledge_reach.py`) serving both `tick_context.py` and
+`day_plan.py` — the same class of error BRIEF-0075-b-amendment-1 already
+named: decision D1 (BRIEF-19) is that each `connects_to` consumer holds its
+own traversal; a dedup opportunity is REPORTED, never acted on. The
+amendment corrected this before any code was written: no new module: the
+filter lives inside `_reachable_locations` itself via a keyword-only,
+REQUIRED `knower_id` parameter. `day_plan.py`'s `_day_reachable_ids` is
+untouched by this step.
+
+**Migration v2.00** (`scripts/migrate_v2_00_connects_to_facts.py`) — data
+only, no new table or column; the version bump is the v1.6 precedent
+("no new tables or columns" still bumps) applied under the rollover
+convention QUESTION-TICKET-0082 (block 1) decided: `MINOR=99 ->
+MAJOR+1, MINOR=00`. Inserts one typed `fact` (`relation_id` set, so
+`ck_fact_spine_exclusive` forbids a `fact_participant`) per existing
+`connects_to` relation, `default_level='knows'` — every edge arrives
+already known, so the knowledge-filtered graph is IDENTICAL to the truth
+graph for every entity on arrival (behaviour preserved by construction;
+this step lowers no default). Checksum-verified: the migration never
+touches a `relation` row.
+
+**Verify check `known_reachability.py`.** Four assertions on a
+self-contained fresh-SQLite fixture (never Nia's real DB): every
+`connects_to` relation has exactly one backing fact; every module
+containing the literal `"connects_to"` is in the classification table's
+documented set (module-granularity — a thirteenth reader fails the check,
+not a line-number count that drifts); every `_reachable_locations(` call
+site's `knower_id` argument matches its documented label (AST-based); and
+a golden case (no default lowered) matches an independent, from-scratch
+reference BFS, with three self-tests proving the check would catch a
+regression — the floor constant lowered to `'unaware'`, the missing-fact
+case treated as traversable, and the `public` call site source-mutated to
+pass a non-None `knower_id`.
+
+**Named gap, not fixed here.** B2's safety composition — deliberation
+narrows, resolution verifies, so a route a character never proposes never
+reaches resolution — holds for an NPC, which has a briefing to narrow. It
+does NOT hold for the player: a day declaration is free natural language
+with no deliberation stage, and the legacy Play surface offers/validates
+travel through the same unfiltered `_location_neighbours`
+(`cockpit/play.py`). **TICKET-0082 delivers knowledge-gated reachability
+for NPCs and for location-scope generation, and does NOT deliver it for
+the player** — Nia's originally stated use case (can a player reach a
+place they know how to get to) is not satisfied by this ticket. Both
+player-facing readers (`day_plan._day_reachable_ids`,
+`cockpit/play._location_neighbours`) are classified `resolution` in the
+table and left untouched; filtering either would be a perception-layer
+fact producing a mechanical verdict, which is **E2**, deferred by this
+ticket. E2's reactivation condition is now satisfiable — the fact spine
+and the resolution authority both exist — and a successor ticket is the
+place for it, not a widening of this brief.
+
+---
+
 *Co-built with Claude, June 2026.*

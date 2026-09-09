@@ -202,4 +202,22 @@ D. Something else Nia specifies.
 
 ## Response
 
+### Resolution
 
+Answered by `tooling/briefs/BRIEF-0082-d-amendment-1-public-floor-reader.md`
+(2026-09-02). Verdict: option A's shape (leave `tick_context.py:494`
+unfiltered by any single character) was right in spirit, but the correct
+label is a new fifth one, `public`, not `authoring` — the site is filtered
+by the **public floor** (the resolution ladder entered at its world tier,
+no entity), not left raw. `tick.py:69` stays `deliberation`.
+
+Also corrects a second error the amendment caught: the original brief's
+item 3/4 (a new shared `knowledge_reach.py` module used by both
+`tick_context.py` and `day_plan.py`) would have violated D1 (BRIEF-19) —
+each `connects_to` consumer keeps its own traversal. The filter goes
+inside `_reachable_locations` itself via a keyword-only `knower_id`
+parameter; no new module. `day_plan.py`'s `_day_reachable_ids` is NOT
+touched by this brief.
+
+Full corrected instructions in the amendment. Resuming BRIEF-0082-d
+execution per the amendment.

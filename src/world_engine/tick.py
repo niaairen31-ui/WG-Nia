@@ -66,7 +66,13 @@ def _tick_npc_setup(db: Session, npc_id: str, interval_label: str) -> dict[str, 
     from_location_id = npc_char.current_location_id if npc_char else None
     from_entity = db.get(Entity, from_location_id) if from_location_id else None
     from_name = from_entity.name if from_entity else None
-    reachable = _reachable_locations(db, from_location_id, interval_label) if from_location_id else []
+    # `deliberation` (TICKET-0082, BRIEF-0082-d): this NPC's own destinations
+    # are filtered by this NPC's own knowledge — knower_id is ALWAYS npc_id
+    # here, never None.
+    if from_location_id:
+        reachable, _diagnostics = _reachable_locations(db, from_location_id, interval_label, knower_id=npc_id)
+    else:
+        reachable = []
     destinations = {name.casefold(): loc_id for loc_id, name in reachable}
     return {
         "from_location_id": from_location_id,
