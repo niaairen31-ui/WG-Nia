@@ -38,6 +38,16 @@
       module writing `style.display` itself — the template owns its own
       DOM.
 
+   TICKET-0083. `showCreationSubTab` now clears the entity sheet itself,
+   before assigning activeTabKey, on every tab change. The five per-entry
+   tab-enter resets this module was ported with each re-dispatched
+   'creation:selection' + 'creation:sheet-reset'; three of them held
+   nothing else and are gone. What survives in _lieuxTabEnterReset /
+   _npcTabEnterReset is the state those two tabs own beyond the sheet
+   (on-demand slots, the batch panel, the two NPC agent panels) -- an
+   entry's onTabEnter is for ITS OWN state now, never for the shared
+   sheet.
+
    `_creationRunWorldSwitchResets` does NOT port: every `onWorldSwitch` in
    CREATION_TABS (14 static entries + the runtime-tab factory's own
    template) is `null` (measured, not assumed — grep `onWorldSwitch:` over
@@ -199,7 +209,7 @@ export const CREATION_TABS = {
     archetype: 'entity',
     containers: ['creation-editor-area'],
     loader: null,
-    state: { onTabEnter: () => _entityTabEnterReset(), onWorldSwitch: null },
+    state: { onTabEnter: null, onWorldSwitch: null },
     islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'pjSkillFiche', containerId: 'creation-pj-skill' }],
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && creationState.playerCharIds.has(e.id)),
@@ -227,7 +237,7 @@ export const CREATION_TABS = {
     archetype: 'entity',
     containers: ['creation-editor-area'],
     loader: null,
-    state: { onTabEnter: () => _entityTabEnterReset(), onWorldSwitch: null },
+    state: { onTabEnter: null, onWorldSwitch: null },
     islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
     type: 'faction',
     createPanel: null,
@@ -240,7 +250,7 @@ export const CREATION_TABS = {
     archetype: 'entity',
     containers: ['creation-editor-area'],
     loader: null,
-    state: { onTabEnter: () => _entityTabEnterReset(), onWorldSwitch: null },
+    state: { onTabEnter: null, onWorldSwitch: null },
     islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
     type: 'item',
     createPanel: null,
@@ -298,7 +308,7 @@ export const CREATION_TABS = {
     archetype: 'entity',
     containers: ['creation-editor-area'],
     loader: null,
-    state: { onTabEnter: () => _intriguesTabEnterReset(), onWorldSwitch: null },
+    state: { onTabEnter: null, onWorldSwitch: null },
     islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
     listLoader: null,
     sheetRenderer: null,
@@ -310,7 +320,7 @@ export const CREATION_TABS = {
     archetype: 'entity',
     containers: ['creation-editor-area'],
     loader: null,
-    state: { onTabEnter: () => _evenementsTabEnterReset(), onWorldSwitch: null },
+    state: { onTabEnter: null, onWorldSwitch: null },
     islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
     createPanel: null,
     primaryAction: { label: '+ Nouvel événement', handler: () => triggerPrimaryAction('entitySheet') },
@@ -388,34 +398,15 @@ export function containerVisible(id) {
 
 /* ── Tab-enter resets ────────────────────────────────────────────────────── */
 
-function _entityTabEnterReset() {
-  document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
-  document.dispatchEvent(new CustomEvent('creation:sheet-reset'));
-}
-
 function _lieuxTabEnterReset() {
-  _entityTabEnterReset();
   onDemandSlotReset(CREATION_TABS.lieux);
   document.dispatchEvent(new CustomEvent('creation:batch-reset'));
 }
 
 function _npcTabEnterReset() {
-  _entityTabEnterReset();
   onDemandSlotReset(CREATION_TABS.npc);
   document.dispatchEvent(new CustomEvent('creation:npcagent-reset'));
   document.dispatchEvent(new CustomEvent('creation:linkagent-reset'));
-}
-
-function _intriguesTabEnterReset() {
-  creationState.selectedRecordId = null;
-  document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
-  document.dispatchEvent(new CustomEvent('creation:sheet-reset'));
-}
-
-function _evenementsTabEnterReset() {
-  creationState.selectedRecordId = null;
-  document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
-  document.dispatchEvent(new CustomEvent('creation:sheet-reset'));
 }
 
 /* ── Generic dispatcher (TICKET-0005) ───────────────────────────────────── */
@@ -458,6 +449,35 @@ export function showCreationSubTab(tab) {
   const prev = creationState.activeTabKey;
   const entry = CREATION_TABS[tab];
   if (!entry) return;
+
+  // TICKET-0083. The sheet is cleared BEFORE activeTabKey moves, and on
+  // EVERY tab change -- not per registry entry, not afterwards. Both
+  // halves are load-bearing:
+  //
+  //   (a) BEFORE. Sheet.svelte's branch chain is SELECTED by one fact and
+  //       FED by another (sheetType/sheetDetail). While the two disagree
+  //       it renders a record's data through the generic entity branch,
+  //       whose registry.types[type] lookup does not resolve for a tab id.
+  //       flushSync(fn) flushes the pending batch BEFORE running fn
+  //       (svelte/src/internal/client/reactivity/batch.js), so a reset
+  //       that runs AFTER the key move is precisely what forces that
+  //       inconsistent frame. The throw it raised aborted the batch, and
+  //       every DOM update queued in it -- the sheet's AND the sidebar's
+  //       -- was dropped: the tab button and URL moved, the editor area
+  //       did not.
+  //
+  //   (b) EVERY. The seven bespoke entries declare onTabEnter: null, so a
+  //       per-entry reset means "reset iff this entry remembered to ask"
+  //       -- a convention a new entry can silently break. Here it is a
+  //       property of the switch itself.
+  //
+  // These two dispatches are the SINGLE sheet-reset site in the frontend
+  // tree; creation_tab_switch.py locks both the uniqueness and the order.
+  if (prev !== tab) {
+    document.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: null } }));
+    document.dispatchEvent(new CustomEvent('creation:sheet-reset'));
+  }
+
   creationState.activeTabKey = tab;
   // Any tab change drops the crumb; creationOpenEntityFrom/
   // creationReturnToOrigin re-set it AFTER calling this, which is what
@@ -522,7 +542,7 @@ export function buildRuntimeCreationTabs(authorRegistry) {
         archetype: 'entity',
         containers: ['creation-editor-area'],
         loader: null,
-        state: { onTabEnter: () => _entityTabEnterReset(), onWorldSwitch: null },
+        state: { onTabEnter: null, onWorldSwitch: null },
         islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
         type: slug,
         createPanel: null,
