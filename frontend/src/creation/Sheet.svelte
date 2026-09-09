@@ -63,7 +63,16 @@
      other tab already does.
 
      No scoped <style> block: like every other Creation island, this
-     renders inside the legacy iframe document. */
+     renders inside the legacy iframe document.
+
+     TICKET-0083. The evenements/intrigues branches below are selected by
+     `type` (creationState.sheetType), not by `tabKey`: the branch selector
+     and the data the branch renders must be the SAME fact, or a tab switch
+     can render a record through the generic entity branch and throw on
+     registry.types[<tab id>]. `tabKey` survives only where it is genuinely
+     the discriminator (pj vs npc, both type 'character') and where it gates
+     a sub-editor's visibility, never where it chooses which renderer a
+     record gets. */
   import { flushSync, tick } from 'svelte';
   import { creationState } from './state.svelte.js';
   import { serverState } from '../lib/serverState.svelte.js';
@@ -609,14 +618,14 @@
   {:else if mode === 'view'}
     {#if !registry}
       <div class="empty"><span class="spin">⟳</span></div>
-    {:else if tabKey === 'evenements'}
+    {:else if type === 'evenements'}
       <Evenements {legacyDoc} {isNew} event={detail} entities={creationState.entities}
         eventFields={registry.event_fields} onSave={saveSheet} />
-    {:else if tabKey === 'intrigues'}
+    {:else if type === 'intrigues'}
       <Intrigues {isNew} agenda={detail} />
     {:else if tabKey === 'pj' && isNew}
       <PjCreatePanel {legacyDoc} />
-    {:else}
+    {:else if registry.types[type]}
       {#if !isNew}
         <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">
           <button class="btn-end" id="author-delete-btn" onclick={deleteSheetEntity}>Delete</button>
@@ -756,6 +765,8 @@
           <DiscDetailsEditor entityId={detail.id} worldId={detail.world_id} />
         </div>
       {/if}
+    {:else}
+      <div class="empty">Type inconnu : {type}</div>
     {/if}
   {/if}
 </div>
