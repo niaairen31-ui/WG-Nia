@@ -47,6 +47,7 @@ from .models import (
     SkillDefinition,
     World,
 )
+from .knowledge_resolve import resolve_default_rows
 from .schedule_reads import where_is
 
 # Section headers (kept stable so a harness can split the output reliably).
@@ -377,6 +378,12 @@ def _npc_context_speak(npc_id: str, disclosure_intensity: int, session: Session)
         .where(Knowledge.entity_id == npc_id)
         .order_by(Knowledge.id)
     ).all()
+    # Union with resolved scoped defaults (TICKET-0082, BRIEF-0082-c, G2a) —
+    # a stored row for a fact already renders on its own, so defaults are
+    # excluded for any fact_id already covered.
+    knowledge = knowledge + resolve_default_rows(
+        session, npc_id, {k.fact_id for k in knowledge}
+    )
     allowed = [
         k for k in knowledge
         if not k.is_secret and disclosure_intensity >= k.share_threshold
@@ -721,6 +728,10 @@ def _mj_context_player_knowledge(player_character_id: str, db: Session) -> list[
         .where(Knowledge.entity_id == player_character_id)
         .order_by(Knowledge.id)
     ).all()
+    # Union with resolved scoped defaults (TICKET-0082, BRIEF-0082-c, G2a).
+    knowledge_rows = knowledge_rows + resolve_default_rows(
+        db, player_character_id, {k.fact_id for k in knowledge_rows}
+    )
     return [
         {"subject": k.subject, "level": k.level, "content": k.content}
         for k in knowledge_rows

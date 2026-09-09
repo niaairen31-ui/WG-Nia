@@ -48,6 +48,7 @@ JSON_COLUMN_ALLOWLIST = {
     # Append-only audit snapshots — never rendered in any UI surface.
     "Relation.change_history",
     "Knowledge.change_history",
+    "Fact.change_history",
     "NpcGoal.change_history",
     "Skill.change_history",
     "Agenda.change_history",

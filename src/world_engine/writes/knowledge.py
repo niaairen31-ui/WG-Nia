@@ -16,6 +16,15 @@ decomposed from `writes.py`).
 (no `db.add`) carved out of `write_knowledge` at this brief so the function
 fits the 80-line cap (R7). `write_knowledge` itself owns the single
 `db.add` call.
+
+`knowledge.fact_id` (TICKET-0082, BRIEF-0082-b) is NOT NULL: every create
+call site (`_apply_mutation`'s `new_knowledge`/`resource_change` branches,
+`link_author.py`'s batch commit, `create_player_character`'s draft
+knowledge, and the creator CRUD) passes through this one function, so the
+fallback lives here rather than being duplicated at each caller — an
+explicit `fact_id` attaches to that existing fact; omitting it auto-creates
+a free-standing one (`writes/facts.py::create_fact`) with `content =
+subject`, matching the creator CRUD's documented behaviour exactly.
 """
 
 from __future__ import annotations
@@ -26,8 +35,9 @@ from typing import Any, Optional
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session
 
-from ..models import Knowledge
+from ..models import Entity, Knowledge
 from ._shared import _clamp
+from .facts import create_fact
 
 # knowledge.level enum (world-engine-schema.md): unaware | rumor | suspicious |
 # partial | knows | fully_understands.
@@ -112,10 +122,14 @@ def _build_knowledge_update(
     subject: Optional[str], level: Optional[str], content: Optional[Any],
     source: Optional[Any], is_incorrect: bool, is_secret: bool,
     share_threshold: int, session_id: Optional[str], changed_by: str,
+    fact_id: Optional[str] = None,
 ) -> Knowledge:
     """Pure build for `write_knowledge(mode="update")` (default) — no
     `db.add`. `level` falls back to "rumor" if missing/unrecognised
     (matches the analyzer's default for unreliable local-model output).
+    On create, `fact_id` attaches to an existing fact; omitting it
+    auto-creates a free-standing one via `writes/facts.py::create_fact`
+    with `content = subject` (see module docstring).
     """
     norm_level = level if level in KNOWLEDGE_LEVELS else "rumor"
     threshold = _clamp(share_threshold)
@@ -138,8 +152,17 @@ def _build_knowledge_update(
 
     if not entity_id:
         raise ValueError("write_knowledge: entity_id is required to create")
+    resolved_subject = subject or "unknown"
+    if fact_id is None:
+        entity = db.get(Entity, entity_id)
+        if entity is None:
+            raise ValueError(f"write_knowledge: entity {entity_id!r} not found")
+        fact = create_fact(
+            db, world_id=entity.world_id, content=resolved_subject, created_by=changed_by,
+        )
+        fact_id = fact.id
     return Knowledge(
-        entity_id=entity_id, subject=subject or "unknown", level=norm_level,
+        entity_id=entity_id, fact_id=fact_id, subject=resolved_subject, level=norm_level,
         content=content, source=source, is_incorrect=bool(is_incorrect),
         is_secret=bool(is_secret), share_threshold=threshold, session_id=session_id,
     )
@@ -160,12 +183,14 @@ def write_knowledge(
     share_threshold: int = 50,
     session_id: Optional[str] = None,
     changed_by: str = "creator_crud",
+    fact_id: Optional[str] = None,
 ) -> Knowledge:
     """Insert or update a `knowledge` row — the single sanctioned `knowledge`
     write site; this function itself calls `db.add`.
 
     mode="update" (default; creator CRUD and `_apply_mutation`'s
     `new_knowledge`/`resource_change` branches): see `_build_knowledge_update`.
+    `fact_id` is ignored when updating an existing row (`knowledge_id` set).
 
     mode="level_change" (`_apply_mutation`'s `knowledge_change` branch
     only): see `_build_knowledge_level_change`.
@@ -179,7 +204,7 @@ def write_knowledge(
             db, knowledge_id=knowledge_id, entity_id=entity_id, subject=subject,
             level=level, content=content, source=source, is_incorrect=is_incorrect,
             is_secret=is_secret, share_threshold=share_threshold, session_id=session_id,
-            changed_by=changed_by,
+            changed_by=changed_by, fact_id=fact_id,
         )
 
     db.add(k)
