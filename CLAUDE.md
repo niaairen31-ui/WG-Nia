@@ -320,6 +320,10 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   accept/reject component, never driven by consumer globals — enforced by `review_component.py`.
 - The graph primitive (`frontend/src/graph/Graph.svelte`) is the ONE graph component; a second
   engine is constructible only by defeating `graph_primitive.py`'s fail-closed lock.
+- A Creation sub-tab change clears the entity sheet from the single dispatcher
+  (`showCreationSubTab`), BEFORE `activeTabKey` moves and on every change, never per
+  registry entry; and `Sheet.svelte` selects its render branch from `sheetType`, the same
+  fact that feeds it, never from `activeTabKey` -- enforced by `creation_tab_switch.py`.
 - Inside a `$effect` body, a `$state` binding assigned there must not be read afterwards in the
   same body — enforced by `effect_self_write.py`.
 
