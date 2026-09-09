@@ -1,7 +1,7 @@
 {
   "ticket": "TICKET-0082-fact-spine-and-knowledge-anchor",
-  "when": "2026-09-02T14:03:48.575616+00:00",
-  "green": false,
+  "when": "2026-09-02T17:58:02.656325+00:00",
+  "green": true,
   "checks": [
     {
       "check": "module_budget.py",
@@ -20,8 +20,8 @@
     },
     {
       "check": "known_reachability.py",
-      "status": "MISSING",
-      "msg": "C:\\Users\\Utilisateur\\Documents\\World-genrator\\tooling\\verify\\checks\\known_reachability.py not found"
+      "status": "PASS",
+      "msg": "PASS: known_reachability \u2014 every connects_to relation has exactly one backing fact, every connects_to module is documented in the classification table, every _reachable_locations call site's knower_id matches its documented label, and the golden-case reader matches an independent reference BFS with no default lowered (mutation-sensitive to floor, fail-closed, and call-site labelling)"
     }
   ]
 }
