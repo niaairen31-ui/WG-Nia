@@ -1,0 +1,37 @@
+{
+  "ticket": "TICKET-0083-creation-tab-switch-sheet-reset",
+  "when": "2026-09-09T13:37:00.758619+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "creation_tab_switch.py",
+      "status": "PASS",
+      "msg": "PASS: creation_tab_switch \u2014 reset dispatched at offset 23234 before activeTabKey move at offset 23267; 17 onTabEnter key(s) surviving"
+    },
+    {
+      "check": "creation_island.py",
+      "status": "PASS",
+      "msg": "PASS: creation_island \u2014 15 island(s) registered, 15 retired legacy prefix set(s) confirmed gone, 8 mount-action identifier(s) confined, 11 island primaryAction(s) wired"
+    },
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u2014 CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry; 14 of 14 CREATION_TABS entries have migrated at least one mount point, 0 still render entirely from legacy code"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values; 89 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u2014 93 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "static_asset_freshness.py",
+      "status": "PASS",
+      "msg": "PASS: static_asset_freshness \u2014 mount is policy-bearing, 2 immutable file(s) / 4 revalidating file(s), 7 HTML route(s) covered"
+    }
+  ]
+}

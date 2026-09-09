@@ -14730,6 +14730,63 @@ half (a `world_law`-backed magic fact) does not yet exist in any seeded
 world, so the condition as a whole remains unmet. Logged here per
 BRIEF-0082-c's own instruction, not because anything is due.
 
+## THE TAB SWITCH CLEARS THE SHEET BEFORE THE KEY MOVES (BRIEF-0083-a, no schema change)
+
+Opening a record on Creation's Intrigues (or Evenements) sub-tab, then clicking another
+sub-tab, left the editor area frozen on the opened record — old sheet, old sidebar list —
+while the URL and the sub-tab button both moved. Five measured links formed the chain:
+
+1. `showCreationSubTab` (`frontend/src/creation/tabs.js:461`, pre-fix) wrote
+   `creationState.activeTabKey = tab` BEFORE dispatching any sheet reset.
+2. `Sheet.svelte`'s record-tab render branches (`:612, :615`, pre-fix) were SELECTED by
+   `tabKey` (`activeTabKey`) while the DATA those branches consumed came from
+   `sheetType`/`sheetDetail` — two facts, two writers, no ordering contract between them.
+3. `flushSync(fn)` (`svelte/src/internal/client/reactivity/batch.js:1020-1024`) flushes the
+   PENDING batch BEFORE running `fn`. The reset itself was therefore what forced the one
+   inconsistent frame where the branch selector and its data disagreed.
+4. The generic entity branch (`Sheet.svelte:641`, pre-fix) read `registry.types[type].label`
+   unguarded. With `type === 'intrigues'` (a tab id, absent from the registry) this raised
+   `TypeError: Cannot read properties of undefined (reading 'label')`.
+5. The throw happened inside a `dispatchEvent` listener, so it surfaced as an uncaught error
+   and `showCreationSubTab` kept running (URL and sub-tab button both updated) while the
+   `flushSync` callback never executed — the sheet reset was silently lost, and every DOM
+   update queued in the aborted batch (the sheet's AND the sidebar's) was dropped.
+
+A full transition matrix (one process per source/destination pair, record open on the
+source tab) measured this as the general "record tab with an open record" class, not an
+Intrigues quirk: 12/13 destinations FAILED from Intrigues, 8/9 destinations FAILED from
+Evenements (in both cases the class's one exception is Evenements <- Intrigues, whose branch
+precedes Intrigues' own and tolerates the agenda shape); with no record open, all
+transitions passed (`mode=empty`, the generic branch never rendered). The seven bespoke tabs
+(`onTabEnter: null`) were worse — nothing reset their sheet at any point.
+
+Two rejected alternatives, both measured on a scratch tree before this brief's combined fix
+was chosen:
+
+- **Ordering fix alone** (hoist the reset, keep `Sheet.svelte` gated on `tabKey`): 16/16
+  transitions landed clean. Rejected anyway because it leaves the class of bug —
+  selector/data disagreement — latent for the next branch that reads `tabKey` instead of
+  the fed fact; the seven bespoke tabs also still lacked any per-entry safety net had the
+  ordering fix not been unconditional on the dispatcher itself.
+- **Type-gating alone** (guard the generic branch, keep the pre-fix `activeTabKey` write
+  order): no crash, but the sheet stayed on `view/intrigues` under bespoke tabs — inside a
+  `display:none` container, harmless but not clean, and the frozen-content symptom Nia
+  reported was still directly observable during the one frame before the container hid it.
+
+Both together, re-measured against the same matrix: 18/18 transitions landed on
+`mode=empty type=null`, zero uncaught errors, and all five create modes (`intrigues`,
+`evenements`, `npc`, `pj`, `factions`) rendered byte-for-byte as before.
+
+**The general rule this establishes:** a render branch's SELECTOR and the DATA it renders
+must be the same fact, written by the same code path. `Sheet.svelte` now gates its
+`evenements`/`intrigues` branches on `type` (`creationState.sheetType`) rather than
+`activeTabKey`, because `enterViewMode`/`enterCreateMode` write `sheetType` and
+`sheetDetail` together, in the same `flushSync` callback — branch and data can no longer
+disagree because they are the same write. `tabKey` remains legitimate only where it is
+genuinely the discriminator (`pj` vs `npc`, both `type === 'character'`) or where it gates a
+sub-editor's visibility — never where it chooses which renderer a record gets. Locked by
+`tooling/verify/checks/creation_tab_switch.py`.
+
 ---
 
 ## KNOWN-REACHABILITY — THE PUBLIC FLOOR AND THE D1 CORRECTION (BRIEF-0082-d, schema v2.00)
