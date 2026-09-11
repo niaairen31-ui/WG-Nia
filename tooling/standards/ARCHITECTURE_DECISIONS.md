@@ -14947,6 +14947,15 @@ count unchanged, every `system_id` NULL). No world, including the pilot,
 gets a default system; no existing `skill_definition` row is backfilled —
 Nia attaches them by hand.
 
+**F2, discharged (BRIEF-0084-b).** `skill_system`'s first and only reader
+is the Creation surface (Compétences tab): a systems editor plus the
+skill-definition catalogue grouped by system, both reached through
+BRIEF-0084-a's existing CRUD — no new endpoint. It is a display reader by
+design, per B3's own framing above: as of TICKET-0084, no assembler,
+constraint guard, or roll reads this table. `Sans système` is computed in
+the component from the two flat lists (`system_id IS NULL`, or matching no
+live system) — never a stored row, never a nested endpoint response.
+
 **Verify check `skill_system_shape.py`.** Fresh-SQLite-fixture (never
 Nia's real DB): `skill_system`'s column set matches exactly; `skill_
 definition.system_id` exists and is nullable; `BASE_SKILL_DOMAINS` has

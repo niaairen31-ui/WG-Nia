@@ -18,6 +18,8 @@ and `world-engine-schema-changelog.md` — never here.
   Journée are shell-native Svelte components, mounted directly by `App.svelte`; Play alone stays
   legacy (`/legacy`, one governed iframe, `cockpit/legacy.html`), sealed rather than migrated by
   TICKET-0061, until its own ticket (TICKET-0069). No new dependency without a decision.
+  Creation's Compétences tab reads `skill_system`: an editor plus a system-grouped catalogue;
+  `Sans système` is a rendered group, never a stored row (TICKET-0084).
 - Local models via Ollama; Claude API reserved for heavy lore-coherence work.
 - Runtime: Windows / PowerShell — `.venv\Scripts\Activate.ps1`,
   `$env:PYTHONPATH = "src"`.
