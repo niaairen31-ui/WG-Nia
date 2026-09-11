@@ -76,10 +76,6 @@ class World(SQLModel, table=True):
     id: str = Field(default_factory=_uuid, primary_key=True)
     name: str
     description: Optional[str] = None
-    magic_status: str = Field(
-        default="dormant",
-        sa_column_kwargs={"server_default": text("'dormant'")},
-    )
     is_active: bool = Field(
         default=False, sa_column_kwargs={"server_default": text("0")}
     )

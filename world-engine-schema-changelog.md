@@ -13,6 +13,25 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.03** — TICKET-0084, BRIEF-0084-e: `world.magic_status` dropped —
+  the ticket's only destructive step, its own migration, its own commit.
+  The column had no reader, no creator surface, and one writer
+  (`scripts/seed_pilot.py`); `skill_system` row presence now answers "does
+  magic exist here" (B3), and a world-level magic column would have offered
+  a second, conflicting answer to the same question. `location.magic_status`
+  is untouched — it keeps its documented posture (unplugged from prompts by
+  D3, stored shape kept). Migration:
+  `scripts/migrate_v2_03_drop_world_magic_status.py`
+  (`ALTER TABLE world DROP COLUMN magic_status`, same technique as
+  `migrate_v1_40_drop_character_faction_id.py`); idempotent — reports the
+  column already absent and exits 0 on a second run; prints every world's
+  prior value before dropping, and checksums `id`/`name`/`is_active`/
+  `current_phase` before and after, aborting on any mismatch rather than
+  repairing. Destroyed values (dev DB, 11 worlds): `verkhaal`/Verkhaal =
+  `awakening`; all 10 other worlds = `dormant` (the schema default, never
+  set by a creator). New G1 check: `verify/checks/no_world_magic_status.py`,
+  which also asserts `location.magic_status` is untouched, so the check
+  cannot pass vacuously.
 - **v2.02** — TICKET-0084, BRIEF-0084-c: `skill_resolution`, the action
   lexicon's audit trail. One new table: `skill_resolution` (`id, world_id,
   conversation_id, surface_form, verdict, base_domain, skill_definition_id,

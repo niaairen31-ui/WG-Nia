@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.02
+Current schema version: v2.03
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -28,8 +28,6 @@ CREATE TABLE world (
   id                    TEXT PRIMARY KEY,
   name                  TEXT NOT NULL,
   description           TEXT,
-  magic_status          TEXT DEFAULT 'dormant',
-                                       -- dormant | awakening | active | suppressed
   is_active             BOOLEAN NOT NULL DEFAULT FALSE,
                                        -- the single globally-active world (v1.54)
   current_phase         TEXT NOT NULL DEFAULT 'matin'

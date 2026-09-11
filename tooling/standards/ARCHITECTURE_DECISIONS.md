@@ -15062,6 +15062,21 @@ condition (BRIEF-0084-c) reads — this step makes it visible to Nia
 directly, still without fuzzy grouping: two near-miss spellings render as
 two distinct rows on purpose.
 
+## WORLD.MAGIC_STATUS REMOVED (BRIEF-0084-e, schema v2.03)
+
+**`world.magic_status` was removed in schema v2.03 (TICKET-0084,
+BRIEF-0084-e).** It had no reader, no creator surface, and one writer
+(`scripts/seed_pilot.py`), so every world created through the cockpit
+carried the schema default `'dormant'` as an accident rather than a
+statement about that world. Its two siblings had already been dealt with:
+`location.magic_status` was unplugged from every prompt surface by D3, and
+`faction.magic_knowledge_level` is named as `fact_default`'s direct
+ancestor. Keeping a world-level magic column beside `skill_system` would
+have offered two answers to "does magic exist here" — the exact ambiguity
+`skill_system` exists to remove. Magic's existence is the presence of a
+`skill_system` row, and nothing else. Magic's narrative intensity, if it is
+ever wanted again, returns as a property of that row, never of the world.
+
 ---
 
 *Co-built with Claude, June 2026.*
