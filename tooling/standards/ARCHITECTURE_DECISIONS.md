@@ -14963,6 +14963,75 @@ exactly four members; `ck_skill_definition_base_domain`'s constraint text
 still names exactly those four, no more, no fewer. Zero columns/
 constraints collected on any volet is a FAIL, never a vacuous pass.
 
+## THE ACTION LEXICON — SHARED RESOLVER AND SKILL_RESOLUTION (BRIEF-0084-c, schema v2.02)
+
+**C1 + C3a, discharged.** The domain clamp that used to live sealed inside
+`cockpit/play_physical.py::_arbitrate` — the only call site, `Conversation`
+always in scope there — moves to `src/world_engine/skill_lexicon.py`: a
+pure `judge(raw, *, base_domains, catalogue)` classifies the arbiter's raw
+string against the two closed sets (base domains, lowercase-compared; the
+world's `skill_definition` catalogue, exact-name-compared), and `record`
+persists the verdict. `_arbitrate` keeps its one job — call the model,
+parse the JSON — and stops clamping: it returns the raw domain, unclamped,
+including two literal failure sentinels (`__arbiter_error__` on a
+bad-JSON/Ollama-error/timeout, `__arbiter_empty__` on a blank domain field)
+so the recorded verdict distinguishes "the arbiter itself failed" from "the
+arbiter named something the world doesn't recognise" — both still resolve
+the physical turn on `physical`, byte-for-byte as before this step for
+`base` and `matched`. Matching stays exact-name, code-judged, fail-closed;
+`judge` never raises, on any input.
+
+**G3, discharged — one row per occurrence, append-only.** `skill_resolution`
+(not `skill_gap` — it holds successful matches too) carries `world_id,
+conversation_id, surface_form, verdict, base_domain, skill_definition_id,
+created_at`, `ck_skill_resolution_shape` pinning the per-verdict column
+shape. It is written by exactly one function (`record`), never updated or
+deleted — enforced structurally by `skill_resolution_append_only.py`
+(the `day_rewrite.py` W2 AST technique), not by discipline. It is NOT
+canon: absent from `canon_write_policy.txt`'s `[CANON_TABLES]`, same
+posture as `day_mention_resolution`/`observation_run` — the two-sanctioned-
+canon-write-paths doctrine does not apply to it, and the check confirms
+`single_canon_write.py` still attributes `record`'s write site correctly
+(non-canon tables are ignored by that checker, by design).
+
+**L1, discharged — anchored by `conversation_id` alone.** Play is the only
+caller this ticket pays for. The day-chain arm (a `skill_resolution` row
+with no live conversation) is a deliberate, named absence: `day_plan.py::
+_validate_step` keeps accepting only `null` or a base domain, untouched by
+this step. It arrives, and pays for its own column, with the ticket that
+wires the day chain to the catalogue.
+
+**C3b reactivation condition, made measurable.** An alias table, fuzzy
+matching, embeddings, or normalisation beyond `.strip()` are all deferred.
+Reactivates on:
+
+```sql
+SELECT COUNT(DISTINCT surface_form) FROM skill_resolution
+WHERE verdict = 'unmatched'
+```
+
+restricted to strings that are near-misses of catalogue names — threshold
+set by Nia at the live gate reading BRIEF-0084-d's gaps view, not
+pre-committed here.
+
+**B3 holds, unamended.** A world with no magic `skill_system` row owns no
+magic `skill_definition` row either (FK) — the catalogue `judge` is handed
+is therefore structurally empty of magic terms for that world, so `matched`
+on a magic term is unreachable by construction. No name-based guard was
+added; exclusion stays row-presence, the same idiom as secrets.
+
+**Verify checks.** `skill_resolution_append_only.py` (fresh-SQLite-fixture,
+never Nia's real DB): no `.delete()`/UPDATE site targets `skill_resolution`
+anywhere in `src/` (day_rewrite.py's W2 technique); the table is absent
+from `[CANON_TABLES]`; every row in the fixture satisfies the shape CHECK.
+Vacuous pass (zero construction sites AND zero rows examined) is a FAIL.
+`skill_lexicon_clamp.py` (no DB, no model): every base domain — including
+uppercase — yields `base`; every fixed-catalogue name yields `matched`;
+at least ten hostile inputs (empty, whitespace, near-misses, a trailing
+period, wrong-case catalogue names, JSON fragments, a very long string,
+`None`, a non-string) all yield `unmatched` with `effective_domain ==
+"physical"`, and `judge` never raises.
+
 ---
 
 *Co-built with Claude, June 2026.*

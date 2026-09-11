@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.01
+Current schema version: v2.02
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1046,6 +1046,37 @@ CREATE TABLE day_mention_resolution (
 );
 CREATE UNIQUE INDEX idx_day_mention_resolution_rewrite
   ON day_mention_resolution(rewrite_id, ordinal);
+```
+
+-----
+
+### `skill_resolution`
+
+```sql
+-- One row per arbiter classification (v2.02, TICKET-0084). APPEND-ONLY: no
+-- UPDATE site, no DELETE site, enforced by
+-- verify/checks/skill_resolution_append_only.py. verdict 'base' = the
+-- arbiter named a base domain; 'matched' = it named a skill_definition of
+-- this world; 'unmatched' = it named neither and was clamped to the
+-- physical fallback -- a hole in the world, read by Creation's gaps view.
+-- 'unmatched' NEVER refuses a turn. Not a canon table.
+CREATE TABLE skill_resolution (
+  id                   TEXT PRIMARY KEY,
+  world_id             TEXT NOT NULL REFERENCES world(id),
+  conversation_id      TEXT NOT NULL REFERENCES conversation(id),
+  surface_form         TEXT NOT NULL,
+  verdict              TEXT NOT NULL CHECK (verdict IN ('base','matched','unmatched')),
+  base_domain          TEXT,
+  skill_definition_id  TEXT REFERENCES skill_definition(id),
+  created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CHECK (
+    (verdict <> 'base' OR (base_domain IS NOT NULL AND skill_definition_id IS NULL))
+    AND (verdict <> 'matched' OR (skill_definition_id IS NOT NULL AND base_domain IS NULL))
+    AND (verdict <> 'unmatched' OR (skill_definition_id IS NULL AND base_domain IS NULL))
+  )
+);
+CREATE INDEX idx_skill_resolution_world_verdict ON skill_resolution(world_id, verdict);
+CREATE INDEX idx_skill_resolution_conversation ON skill_resolution(conversation_id);
 ```
 
 -----

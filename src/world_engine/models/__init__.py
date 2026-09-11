@@ -104,6 +104,7 @@ from .pipeline import (
     PromptVariable,
     PromptVersion,
     SchemaMeta,
+    SkillResolution,
     User,
 )
 from .observation import (
@@ -142,6 +143,7 @@ __all__ = [
     "PassPlay",
     "DayRewrite",
     "DayMentionResolution",
+    "SkillResolution",
     "Gathering",
     "GatheringMember",
     "LinkBatch",

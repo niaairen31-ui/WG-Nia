@@ -13,6 +13,38 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.02** — TICKET-0084, BRIEF-0084-c: `skill_resolution`, the action
+  lexicon's audit trail. One new table: `skill_resolution` (`id, world_id,
+  conversation_id, surface_form, verdict, base_domain, skill_definition_id,
+  created_at`; `ck_skill_resolution_verdict` restricts `verdict` to
+  `'base'|'matched'|'unmatched'`; `ck_skill_resolution_shape` enforces the
+  per-verdict column shape — `base` carries `base_domain` only, `matched`
+  carries `skill_definition_id` only, `unmatched` carries neither;
+  `idx_skill_resolution_world_verdict`, `idx_skill_resolution_conversation`).
+  Append-only: no UPDATE site, no DELETE site, enforced by
+  `verify/checks/skill_resolution_append_only.py`, which also confirms the
+  table is absent from `canon_write_policy.txt`'s `[CANON_TABLES]` — it is
+  telemetry, not canon, same posture as `day_mention_resolution`/
+  `observation_run`. The clamp formerly sealed inside
+  `cockpit/play_physical.py::_arbitrate` moves to the new shared module
+  `src/world_engine/skill_lexicon.py`: `judge` (pure, no DB) classifies an
+  arbiter's raw domain string against the base domains and the world's
+  `skill_definition` catalogue — `base` (a base domain), `matched` (a
+  catalogue skill, `skill_definition_id` set), or `unmatched` (clamped to
+  the `physical` fallback, never refused, never surfaced to the player — a
+  hole in the world for Creation's gaps view, BRIEF-0084-d); `record`
+  inserts the verdict; `lexicon_terms` reads the world's skill names for
+  prompt injection. `_arbitrate` itself stops clamping and returns the raw
+  domain, including two literal failure sentinels (`__arbiter_error__` on
+  a bad-JSON/Ollama-error/timeout, `__arbiter_empty__` on a blank domain
+  field) so the recorded verdict tells "the arbiter failed" apart from "the
+  arbiter named something unrecognised" — both still resolve the turn on
+  `physical`, byte-for-byte as before this step. Migration
+  (`scripts/migrate_v2_02_skill_resolution.py`) creates the table and its
+  two indexes only, purely additive: zero rows created (post-check
+  verified). The day chain is NOT wired to this table this round (L1): a
+  resolution row is anchored by `conversation_id` alone, and the day-chain
+  arm is paid for by the ticket that wires it.
 - **v2.01** — TICKET-0084, BRIEF-0084-a: `skill_system`, the world-authored
   body of skill rules (magic, technology, ritual, ...). One new table:
   `skill_system` (`id, world_id, name, description, created_at, updated_at`;

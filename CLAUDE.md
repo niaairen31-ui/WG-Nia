@@ -403,6 +403,7 @@ WG-Nia/
 │   ├── analyzer*.py         # conversation-bound wrapper + conversation-agnostic judging core
 │   ├── observation_*.py     # observed-lane socle/engine/runner/reads/writes; per-NPC window
 │   ├── resolution.py, ledger.py  # physical-action dice resolution (2d6 bands); ledger read helpers
+│   ├── skill_lexicon.py     # action lexicon: judge/record; Play calls it, never clamps inline
 │   ├── day_plan.py          # day-plan emission + budget cut: requirement evaluators, its own BFS
 │   ├── day_extract.py       # day extraction: 3 passes (place/person/faction), never sees registry
 │   ├── day_concordance.py   # day mention resolution: matching rungs, germ emission; never authors

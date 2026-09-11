@@ -201,6 +201,37 @@ class DayMentionResolution(SQLModel, table=True):
     cast_basis: Optional[str] = None
 
 
+# -------------------------------------------------------------------------
+# skill_resolution  (one row per arbiter classification — the action
+# lexicon's audit trail; schema v2.02, TICKET-0084)
+# -------------------------------------------------------------------------
+class SkillResolution(SQLModel, table=True):
+    __tablename__ = "skill_resolution"
+    __table_args__ = (
+        CheckConstraint(
+            "verdict IN ('base','matched','unmatched')",
+            name="ck_skill_resolution_verdict",
+        ),
+        CheckConstraint(
+            "(verdict <> 'base' OR (base_domain IS NOT NULL AND skill_definition_id IS NULL)) "
+            "AND (verdict <> 'matched' OR (skill_definition_id IS NOT NULL AND base_domain IS NULL)) "
+            "AND (verdict <> 'unmatched' OR (skill_definition_id IS NULL AND base_domain IS NULL))",
+            name="ck_skill_resolution_shape",
+        ),
+        Index("idx_skill_resolution_world_verdict", "world_id", "verdict"),
+        Index("idx_skill_resolution_conversation", "conversation_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    conversation_id: str = Field(foreign_key="conversation.id", nullable=False)
+    surface_form: str
+    verdict: str
+    base_domain: Optional[str] = None
+    skill_definition_id: Optional[str] = Field(default=None, foreign_key="skill_definition.id")
+    created_at: datetime = _created_ts()
+
+
 # -----------------------------------------------------------------------------
 # user  (system accounts)
 # -----------------------------------------------------------------------------
