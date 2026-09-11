@@ -76,10 +76,6 @@ class World(SQLModel, table=True):
     id: str = Field(default_factory=_uuid, primary_key=True)
     name: str
     description: Optional[str] = None
-    magic_status: str = Field(
-        default="dormant",
-        sa_column_kwargs={"server_default": text("'dormant'")},
-    )
     is_active: bool = Field(
         default=False, sa_column_kwargs={"server_default": text("0")}
     )
@@ -609,6 +605,25 @@ BASE_SKILL_DOMAINS = ("physical", "agility", "perception", "composure")
 
 
 # -----------------------------------------------------------------------------
+# skill_system  (world-authored body of skill rules — magic, technology,
+# ritual, ... ; schema v2.01, TICKET-0084)
+# -----------------------------------------------------------------------------
+class SkillSystem(SQLModel, table=True):
+    __tablename__ = "skill_system"
+    __table_args__ = (
+        Index("idx_skill_system_world_name", "world_id", "name", unique=True),
+        Index("idx_skill_system_world", "world_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    name: str
+    description: Optional[str] = None  # rendered as the group subtitle (F2)
+    created_at: datetime = _created_ts()
+    updated_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
 # skill_definition  (world-scoped custom skill catalogue, schema v1.63)
 # -----------------------------------------------------------------------------
 class SkillDefinition(SQLModel, table=True):
@@ -620,12 +635,25 @@ class SkillDefinition(SQLModel, table=True):
         ),  # canonical list: BASE_SKILL_DOMAINS above
         Index("idx_skill_definition_world_name", "world_id", "name", unique=True),
         Index("idx_skill_definition_world", "world_id"),
+        Index("idx_skill_definition_system", "system_id"),
     )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     world_id: str = Field(foreign_key="world.id", nullable=False)
     name: str
     base_domain: str  # specialises exactly one of BASE_SKILL_DOMAINS
+    # The body of rules this skill belongs to; NULL = unaffiliated (v2.01).
+    # `sa_column=Column(ForeignKey(..., ondelete=...), nullable=True)`
+    # mirrors `Skill.skill_definition_id` below — SQLModel's
+    # `Field(foreign_key=..., sa_column_kwargs={"ondelete": ...})` shape
+    # raises (`ondelete` is a `ForeignKey` kwarg, not a `Column` kwarg).
+    system_id: Optional[str] = Field(
+        default=None,
+        sa_column=Column(
+            ForeignKey("skill_system.id", ondelete="RESTRICT"),
+            nullable=True,
+        ),
+    )
     description: Optional[str] = None  # authored in chantier 2, not read this round
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()

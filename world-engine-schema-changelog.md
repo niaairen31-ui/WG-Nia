@@ -13,6 +13,77 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.03** — TICKET-0084, BRIEF-0084-e: `world.magic_status` dropped —
+  the ticket's only destructive step, its own migration, its own commit.
+  The column had no reader, no creator surface, and one writer
+  (`scripts/seed_pilot.py`); `skill_system` row presence now answers "does
+  magic exist here" (B3), and a world-level magic column would have offered
+  a second, conflicting answer to the same question. `location.magic_status`
+  is untouched — it keeps its documented posture (unplugged from prompts by
+  D3, stored shape kept). Migration:
+  `scripts/migrate_v2_03_drop_world_magic_status.py`
+  (`ALTER TABLE world DROP COLUMN magic_status`, same technique as
+  `migrate_v1_40_drop_character_faction_id.py`); idempotent — reports the
+  column already absent and exits 0 on a second run; prints every world's
+  prior value before dropping, and checksums `id`/`name`/`is_active`/
+  `current_phase` before and after, aborting on any mismatch rather than
+  repairing. Destroyed values (dev DB, 11 worlds): `verkhaal`/Verkhaal =
+  `awakening`; all 10 other worlds = `dormant` (the schema default, never
+  set by a creator). New G1 check: `verify/checks/no_world_magic_status.py`,
+  which also asserts `location.magic_status` is untouched, so the check
+  cannot pass vacuously.
+- **v2.02** — TICKET-0084, BRIEF-0084-c: `skill_resolution`, the action
+  lexicon's audit trail. One new table: `skill_resolution` (`id, world_id,
+  conversation_id, surface_form, verdict, base_domain, skill_definition_id,
+  created_at`; `ck_skill_resolution_verdict` restricts `verdict` to
+  `'base'|'matched'|'unmatched'`; `ck_skill_resolution_shape` enforces the
+  per-verdict column shape — `base` carries `base_domain` only, `matched`
+  carries `skill_definition_id` only, `unmatched` carries neither;
+  `idx_skill_resolution_world_verdict`, `idx_skill_resolution_conversation`).
+  Append-only: no UPDATE site, no DELETE site, enforced by
+  `verify/checks/skill_resolution_append_only.py`, which also confirms the
+  table is absent from `canon_write_policy.txt`'s `[CANON_TABLES]` — it is
+  telemetry, not canon, same posture as `day_mention_resolution`/
+  `observation_run`. The clamp formerly sealed inside
+  `cockpit/play_physical.py::_arbitrate` moves to the new shared module
+  `src/world_engine/skill_lexicon.py`: `judge` (pure, no DB) classifies an
+  arbiter's raw domain string against the base domains and the world's
+  `skill_definition` catalogue — `base` (a base domain), `matched` (a
+  catalogue skill, `skill_definition_id` set), or `unmatched` (clamped to
+  the `physical` fallback, never refused, never surfaced to the player — a
+  hole in the world for Creation's gaps view, BRIEF-0084-d); `record`
+  inserts the verdict; `lexicon_terms` reads the world's skill names for
+  prompt injection. `_arbitrate` itself stops clamping and returns the raw
+  domain, including two literal failure sentinels (`__arbiter_error__` on
+  a bad-JSON/Ollama-error/timeout, `__arbiter_empty__` on a blank domain
+  field) so the recorded verdict tells "the arbiter failed" apart from "the
+  arbiter named something unrecognised" — both still resolve the turn on
+  `physical`, byte-for-byte as before this step. Migration
+  (`scripts/migrate_v2_02_skill_resolution.py`) creates the table and its
+  two indexes only, purely additive: zero rows created (post-check
+  verified). The day chain is NOT wired to this table this round (L1): a
+  resolution row is anchored by `conversation_id` alone, and the day-chain
+  arm is paid for by the ticket that wires it.
+- **v2.01** — TICKET-0084, BRIEF-0084-a: `skill_system`, the world-authored
+  body of skill rules (magic, technology, ritual, ...). One new table:
+  `skill_system` (`id, world_id, name, description, created_at, updated_at`;
+  UNIQUE `(world_id, name)`; no `status`/`roll_spec`/any mechanical column —
+  a world without magic owns no row). One new nullable column:
+  `skill_definition.system_id`, FK to `skill_system(id)` ON DELETE
+  RESTRICT, `idx_skill_definition_system` — NULL for every existing row
+  (unaffiliated), set only by creator CRUD from here on.
+  `ck_skill_definition_base_domain` and `BASE_SKILL_DOMAINS` are untouched:
+  no fifth base domain, `system_id` is an axis orthogonal to `base_domain`.
+  Creator surface: `GET/POST/PUT/DELETE /api/skill-systems`
+  (`cockpit/crud/skills.py`) — `DELETE` is fail-closed (409 while any
+  `skill_definition` still carries the system's id), the deliberate
+  asymmetry with `DELETE /skill-definitions`, which deletes its dependents.
+  `POST`/`PUT /api/skill-definitions` gain `system_id`, validated against
+  the active world (422 otherwise); the existing tier-0 PC backfill on
+  `POST` is unchanged. Migration (`scripts/migrate_v2_01_skill_system.py`)
+  creates the table and the column only, purely additive: zero rows
+  created, zero rows updated, zero rows deleted (post-check verified). Its
+  reader (Creation-side grouping) ships in BRIEF-0084-b.
 - **v2.00** — TICKET-0082, BRIEF-0082-d: `connects_to` facts, the
   known-reachability floor. No new tables or columns — data only. First
   version under the rollover convention decided at QUESTION-TICKET-0082

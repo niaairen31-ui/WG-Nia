@@ -18,6 +18,8 @@ and `world-engine-schema-changelog.md` — never here.
   Journée are shell-native Svelte components, mounted directly by `App.svelte`; Play alone stays
   legacy (`/legacy`, one governed iframe, `cockpit/legacy.html`), sealed rather than migrated by
   TICKET-0061, until its own ticket (TICKET-0069). No new dependency without a decision.
+  Creation's Compétences tab reads `skill_system`: an editor plus a system-grouped catalogue;
+  `Sans système` is a rendered group, never a stored row (TICKET-0084).
 - Local models via Ollama; Claude API reserved for heavy lore-coherence work.
 - Runtime: Windows / PowerShell — `.venv\Scripts\Activate.ps1`,
   `$env:PYTHONPATH = "src"`.
@@ -284,6 +286,15 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   (`physical`/`agility`/`perception`/`composure`, case-insensitive) — both
   write paths (creator CRUD and `_normalize_skill_catalogue`) reject/drop
   it.
+- **A `skill_definition` may carry a `system_id`** (schema v2.01), the body
+  of rules it belongs to; NULL = unaffiliated. `DELETE
+  /api/skill-systems` refuses while any skill is still attached, unlike
+  `DELETE /api/skill-definitions`, which deletes its dependents.
+- **`GET /api/skill-gaps` is read-only** — it performs no write of any
+  kind. It surfaces distinct `unmatched` `skill_resolution.surface_form`
+  rows for the active world; the two arbiter-failure sentinels
+  (`__arbiter_error__`, `__arbiter_empty__`) are excluded from its `gaps`
+  list by design and reported separately in `arbiter_failures`.
 - **All templated model calls resolve through
   `prompt_registry.effective_model`** — the single model resolver. New
   prompt usages must add a `PROMPT_REGISTRY` entry
@@ -397,6 +408,7 @@ WG-Nia/
 │   ├── analyzer*.py         # conversation-bound wrapper + conversation-agnostic judging core
 │   ├── observation_*.py     # observed-lane socle/engine/runner/reads/writes; per-NPC window
 │   ├── resolution.py, ledger.py  # physical-action dice resolution (2d6 bands); ledger read helpers
+│   ├── skill_lexicon.py     # action lexicon: judge/record; Play calls it, never clamps inline
 │   ├── day_plan.py          # day-plan emission + budget cut: requirement evaluators, its own BFS
 │   ├── day_extract.py       # day extraction: 3 passes (place/person/faction), never sees registry
 │   ├── day_concordance.py   # day mention resolution: matching rungs, germ emission; never authors

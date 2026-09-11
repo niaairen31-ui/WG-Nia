@@ -14891,4 +14891,192 @@ place for it, not a widening of this brief.
 
 ---
 
+## SKILL_SYSTEM — MAGIC AS A ROW, NOT A FLAG (BRIEF-0084-a, schema v2.01)
+
+**A3, locked.** Magic has no structural home before this step: the word
+appears across `world.magic_status`, `location.magic_status`,
+`faction.magic_knowledge_level` and the `magic` entity type — all
+narrative, none mechanical. Rather than special-case magic, it becomes one
+instance of a world-authored `skill_system`: a named body of skill rules a
+world may or may not own. A world without magic owns no `skill_system` row
+and therefore no skill_definition row attached to one — existence is row
+presence, never a status flag. `world.magic_status` itself is untouched by
+this step (BRIEF-0084-e, its own migration, its own commit).
+
+**B3, locked.** `skill_system` carries no mechanical column — no
+`roll_spec`, `status`, or `intensity`. Differentiated magic rolls were
+discussed and explicitly parked: the house rules are not decided, and
+`resolve_physical` is not touched by this step. The table exists so the
+catalogue has a place to group by, nothing more; its reader (Creation-side
+grouping) ships one brief later (BRIEF-0084-b) — a deliberate, bounded gap,
+not license to add further unread columns here.
+
+**Rejected: a fifth base domain.** `resolve_physical` does not read
+`domain` in its math, so a fifth domain buys nothing mechanically, and it
+would break the standing "strictly physical/sensory" guard
+(`world-engine-schema.md`, skill section — social abilities are NEVER skill
+domains). `BASE_SKILL_DOMAINS` stays at exactly four and
+`ck_skill_definition_base_domain` keeps its four literals, unamended.
+Reactivates only if a magic roll must differ from the base-domain 2d6 bands
+AND that difference cannot be expressed on the `skill_system` row itself.
+
+**Rejected: D3's feasibility refusal** (a world must be able to keep a
+magic catalogue with magic mechanically switched off). Not needed this
+round — `system_id` is purely an attachment axis, orthogonal to
+`base_domain`, so a catalogue can exist whether or not its system is ever
+mechanically differentiated. Reactivates the day a world must keep a magic
+catalogue with magic mechanically off in a way row-presence alone cannot
+express.
+
+**Asymmetric delete.** `DELETE /api/skill-systems` is fail-closed (409,
+`"Cannot delete a skill system that still has skills attached — detach or
+delete them first."`) — the deliberate opposite of `DELETE
+/api/skill-definitions`, which cascades its dependent `skill` rows. A
+system is a container the creator authored; silently orphaning her
+catalogue is worse than making her say it twice. Creating a system never
+backfills anything — no `skill` or `skill_definition` row is touched,
+unlike `POST /skill-definitions`'s existing tier-0 PC backfill, which this
+step leaves untouched.
+
+**Migration v2.01** (`scripts/migrate_v2_01_skill_system.py`) — additive
+only: creates `skill_system` and its two indexes, adds
+`skill_definition.system_id` (nullable FK, ON DELETE RESTRICT) and its
+index. Zero rows created, zero rows updated, zero rows deleted —
+post-check verified (`skill_system` count is 0, `skill_definition` row
+count unchanged, every `system_id` NULL). No world, including the pilot,
+gets a default system; no existing `skill_definition` row is backfilled —
+Nia attaches them by hand.
+
+**F2, discharged (BRIEF-0084-b).** `skill_system`'s first and only reader
+is the Creation surface (Compétences tab): a systems editor plus the
+skill-definition catalogue grouped by system, both reached through
+BRIEF-0084-a's existing CRUD — no new endpoint. It is a display reader by
+design, per B3's own framing above: as of TICKET-0084, no assembler,
+constraint guard, or roll reads this table. `Sans système` is computed in
+the component from the two flat lists (`system_id IS NULL`, or matching no
+live system) — never a stored row, never a nested endpoint response.
+
+**Verify check `skill_system_shape.py`.** Fresh-SQLite-fixture (never
+Nia's real DB): `skill_system`'s column set matches exactly; `skill_
+definition.system_id` exists and is nullable; `BASE_SKILL_DOMAINS` has
+exactly four members; `ck_skill_definition_base_domain`'s constraint text
+still names exactly those four, no more, no fewer. Zero columns/
+constraints collected on any volet is a FAIL, never a vacuous pass.
+
+## THE ACTION LEXICON — SHARED RESOLVER AND SKILL_RESOLUTION (BRIEF-0084-c, schema v2.02)
+
+**C1 + C3a, discharged.** The domain clamp that used to live sealed inside
+`cockpit/play_physical.py::_arbitrate` — the only call site, `Conversation`
+always in scope there — moves to `src/world_engine/skill_lexicon.py`: a
+pure `judge(raw, *, base_domains, catalogue)` classifies the arbiter's raw
+string against the two closed sets (base domains, lowercase-compared; the
+world's `skill_definition` catalogue, exact-name-compared), and `record`
+persists the verdict. `_arbitrate` keeps its one job — call the model,
+parse the JSON — and stops clamping: it returns the raw domain, unclamped,
+including two literal failure sentinels (`__arbiter_error__` on a
+bad-JSON/Ollama-error/timeout, `__arbiter_empty__` on a blank domain field)
+so the recorded verdict distinguishes "the arbiter itself failed" from "the
+arbiter named something the world doesn't recognise" — both still resolve
+the physical turn on `physical`, byte-for-byte as before this step for
+`base` and `matched`. Matching stays exact-name, code-judged, fail-closed;
+`judge` never raises, on any input.
+
+**G3, discharged — one row per occurrence, append-only.** `skill_resolution`
+(not `skill_gap` — it holds successful matches too) carries `world_id,
+conversation_id, surface_form, verdict, base_domain, skill_definition_id,
+created_at`, `ck_skill_resolution_shape` pinning the per-verdict column
+shape. It is written by exactly one function (`record`), never updated or
+deleted — enforced structurally by `skill_resolution_append_only.py`
+(the `day_rewrite.py` W2 AST technique), not by discipline. It is NOT
+canon: absent from `canon_write_policy.txt`'s `[CANON_TABLES]`, same
+posture as `day_mention_resolution`/`observation_run` — the two-sanctioned-
+canon-write-paths doctrine does not apply to it, and the check confirms
+`single_canon_write.py` still attributes `record`'s write site correctly
+(non-canon tables are ignored by that checker, by design).
+
+**L1, discharged — anchored by `conversation_id` alone.** Play is the only
+caller this ticket pays for. The day-chain arm (a `skill_resolution` row
+with no live conversation) is a deliberate, named absence: `day_plan.py::
+_validate_step` keeps accepting only `null` or a base domain, untouched by
+this step. It arrives, and pays for its own column, with the ticket that
+wires the day chain to the catalogue.
+
+**C3b reactivation condition, made measurable.** An alias table, fuzzy
+matching, embeddings, or normalisation beyond `.strip()` are all deferred.
+Reactivates on:
+
+```sql
+SELECT COUNT(DISTINCT surface_form) FROM skill_resolution
+WHERE verdict = 'unmatched'
+```
+
+restricted to strings that are near-misses of catalogue names — threshold
+set by Nia at the live gate reading BRIEF-0084-d's gaps view, not
+pre-committed here.
+
+**B3 holds, unamended.** A world with no magic `skill_system` row owns no
+magic `skill_definition` row either (FK) — the catalogue `judge` is handed
+is therefore structurally empty of magic terms for that world, so `matched`
+on a magic term is unreachable by construction. No name-based guard was
+added; exclusion stays row-presence, the same idiom as secrets.
+
+**Verify checks.** `skill_resolution_append_only.py` (fresh-SQLite-fixture,
+never Nia's real DB): no `.delete()`/UPDATE site targets `skill_resolution`
+anywhere in `src/` (day_rewrite.py's W2 technique); the table is absent
+from `[CANON_TABLES]`; every row in the fixture satisfies the shape CHECK.
+Vacuous pass (zero construction sites AND zero rows examined) is a FAIL.
+`skill_lexicon_clamp.py` (no DB, no model): every base domain — including
+uppercase — yields `base`; every fixed-catalogue name yields `matched`;
+at least ten hostile inputs (empty, whitespace, near-misses, a trailing
+period, wrong-case catalogue names, JSON fragments, a very long string,
+`None`, a non-string) all yield `unmatched` with `effective_domain ==
+"physical"`, and `judge` never raises.
+
+## THE GAPS VIEW — G3 DISCHARGED, G2 REJECTED (BRIEF-0084-d, no schema change)
+
+**G3, discharged for real.** BRIEF-0084-c named `skill_resolution` so its
+"holes in my world" filter (`verdict = 'unmatched'`) needed no separate
+instrumentation; this step is that filter's first reader. `GET
+/api/skill-gaps` groups distinct `unmatched` `surface_form` rows for the
+active world, most frequent first, and Creation's Compétences tab renders
+them as a read-only "Trous du lexique" panel — no dismiss, no resolved
+flag, no delete: the table stays append-only and this view is a reader,
+full stop. The two arbiter-failure sentinels (`__arbiter_error__`,
+`__arbiter_empty__`) are Ollama being unwell, not a hole in the world —
+excluded from the list, counted separately as `arbiter_failures`.
+
+**G2, considered and rejected.** Proposing gaps to a model, or germinating
+them as `ProposedMutation` rows, was considered and rejected in favour of
+G3: a lexicon hole is creator telemetry Nia reads and acts on by authoring
+a skill through the existing catalogue form, not a pending canon mutation
+awaiting her accept/reject. Reactivation condition: Nia asking for
+one-click skill creation straight from the gaps list — until then, a gap
+click only prefills the create form (`name` from `surface_form`,
+`base_domain`/`system_id` left for her to choose); nothing is written
+until she submits it through `POST /api/skill-definitions`, same as any
+other manually added skill.
+
+**C3b's reactivation counter now has a UI, not just a query.** The gaps
+list is exactly the "distinct unmatched surface forms" evidence C3b's
+condition (BRIEF-0084-c) reads — this step makes it visible to Nia
+directly, still without fuzzy grouping: two near-miss spellings render as
+two distinct rows on purpose.
+
+## WORLD.MAGIC_STATUS REMOVED (BRIEF-0084-e, schema v2.03)
+
+**`world.magic_status` was removed in schema v2.03 (TICKET-0084,
+BRIEF-0084-e).** It had no reader, no creator surface, and one writer
+(`scripts/seed_pilot.py`), so every world created through the cockpit
+carried the schema default `'dormant'` as an accident rather than a
+statement about that world. Its two siblings had already been dealt with:
+`location.magic_status` was unplugged from every prompt surface by D3, and
+`faction.magic_knowledge_level` is named as `fact_default`'s direct
+ancestor. Keeping a world-level magic column beside `skill_system` would
+have offered two answers to "does magic exist here" — the exact ambiguity
+`skill_system` exists to remove. Magic's existence is the presence of a
+`skill_system` row, and nothing else. Magic's narrative intensity, if it is
+ever wanted again, returns as a property of that row, never of the world.
+
+---
+
 *Co-built with Claude, June 2026.*

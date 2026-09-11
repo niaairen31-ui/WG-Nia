@@ -1,6 +1,6 @@
 [CANON_TABLES]
 world entity character location faction faction_membership faction_role relation
-knowledge ledger item skill skill_definition discoverable_detail
+knowledge ledger item skill skill_definition skill_system discoverable_detail
 event artifact npc_goal agenda agenda_step goal_agenda_link
 npc_price location_subculture world_law obstacle obstacle_vertex door
 location_type_catalog entity_type entity_type_history conversation_window_config
@@ -112,6 +112,9 @@ src/world_engine/cockpit/crud/knowledge.py::delete_knowledge               knowl
 src/world_engine/cockpit/crud/skills.py::create_skill_definition        skill_definition skill
 src/world_engine/cockpit/crud/skills.py::update_skill_definition        skill_definition skill
 src/world_engine/cockpit/crud/skills.py::delete_skill_definition        skill_definition skill
+src/world_engine/cockpit/crud/skills.py::create_skill_system            skill_system
+src/world_engine/cockpit/crud/skills.py::update_skill_system            skill_system
+src/world_engine/cockpit/crud/skills.py::delete_skill_system            skill_system
 src/world_engine/cockpit/crud/locations.py::create_discoverable_detail     discoverable_detail
 src/world_engine/cockpit/crud/locations.py::update_discoverable_detail     discoverable_detail
 src/world_engine/cockpit/crud/locations.py::delete_discoverable_detail     discoverable_detail

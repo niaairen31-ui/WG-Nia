@@ -15,7 +15,7 @@ from typing import Any, Iterator, Optional
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from .. import llm_parse, ollama_client
+from .. import llm_parse, ollama_client, skill_lexicon
 from ..context import (
     _SAFE_SUBCULTURE_KEYS,
     assemble_mj_context,
@@ -118,7 +118,7 @@ def _say_physical_roster_and_arbiter(
         arbiter_template = _load_mj_arbiter_template(ctx.world_id, db)
         if arbiter_template is not None:
             arbiter_version = current_prompt(db, arbiter_template)
-            domain, opposed_npc_id, applies_constraint, violent = _arbitrate(
+            raw_domain, opposed_npc_id, applies_constraint, violent = _arbitrate(
                 player_line=ctx.content,
                 npc_list=physical_npc_list,
                 name_to_id=physical_name_to_id,
@@ -127,10 +127,26 @@ def _say_physical_roster_and_arbiter(
                 model=ctx.model,
                 custom_skill_names=world_custom_skill_names,
             )
+            domain = _judge_and_record_domain(ctx, raw_domain, world_skill_defs_by_name)
         else:
             domain, opposed_npc_id = "physical", None
 
     return domain, opposed_npc_id, applies_constraint, violent, npc_tier, world_skill_defs_by_name, world_custom_skill_names
+
+
+def _judge_and_record_domain(ctx: _TurnCtx, raw_domain: str, world_skill_defs_by_name: dict) -> str:
+    """Judge `_arbitrate`'s raw domain and record the verdict (BRIEF-0084-c).
+
+    Returns the token `_say_physical_resolve_verdict` already understands: a
+    base domain, or — on a match — the skill's own name, so its
+    `world_skill_defs_by_name.get(domain)` lookup still finds it.
+    """
+    catalogue = {name: (d.id, d.base_domain) for name, d in world_skill_defs_by_name.items()}
+    verdict = skill_lexicon.judge(raw_domain, base_domains=_PHYSICAL_DOMAINS, catalogue=catalogue)
+    with Session(engine) as res_db:
+        skill_lexicon.record(res_db, world_id=ctx.world_id, conversation_id=ctx.conv_id, verdict=verdict)
+        res_db.commit()
+    return raw_domain.strip() if verdict.verdict == "matched" else verdict.effective_domain
 
 
 def _say_physical_resolve_verdict(
@@ -830,14 +846,19 @@ def _interpret_mode(
 
 
 def _parse_arbitrate_response(
-    obj: dict, allowed_domains: set[str], name_to_id: dict[str, str], player_line: str,
+    obj: dict, name_to_id: dict[str, str], player_line: str,
 ) -> tuple[str, Optional[str], Optional[str], bool]:
     """Parse the arbiter's JSON object into (domain, opposed_npc_id,
     applies_constraint, violent), resolving the model's NPC name against the
-    roster (case-insensitive exact match, never invented)."""
-    domain = str(obj.get("domain", "")).strip()
-    if domain not in allowed_domains:
-        domain = "physical"
+    roster (case-insensitive exact match, never invented).
+
+    `domain` is returned RAW (BRIEF-0084-c: the caller runs
+    `skill_lexicon.judge`, not this function, against it). A missing/blank
+    domain field becomes the literal `__arbiter_empty__`, never "" — so the
+    audit trail can tell "the model answered with nothing" apart from a
+    genuine unrecognised skill name.
+    """
+    domain = str(obj.get("domain", "")).strip() or "__arbiter_empty__"
 
     opposed_raw = obj.get("opposed_npc_id")
     opposed_name = str(opposed_raw).strip() if opposed_raw else ""
@@ -872,29 +893,26 @@ def _arbitrate(
 ) -> tuple[str, Optional[str], Optional[str], bool]:
     """Classify a `physical` turn into a domain and optional NPC opposition.
 
-    The model classifies ONLY; it never rolls and never decides outcomes. On
-    any failure (bad JSON, unknown domain, Ollama error, timeout): falls back
-    to `("physical", None, None, False)` — a misclassification must never
-    break a turn. See `_parse_arbitrate_response` for the response shape and
-    NPC-name resolution.
+    The model classifies ONLY; it never rolls and never decides outcomes.
+    `domain` is returned RAW — unclamped (BRIEF-0084-c): the caller runs
+    `skill_lexicon.judge` against it. On a bad-JSON/Ollama-error/timeout
+    failure, falls back to `("__arbiter_error__", None, None, False)` so
+    the recorded verdict can tell "the arbiter itself failed" apart from
+    "it named something unrecognised" (see `_parse_arbitrate_response`'s
+    own `__arbiter_empty__` sentinel). A misclassification must never break
+    a turn.
 
     `custom_skill_names` (BRIEF-55, schema v1.63): the active world's
     `skill_definition.name` values, filled into the `pt-mj-arbiter` prompt's
-    `{custom_skill_names}` placeholder and widening the domain clamp below —
-    a returned `domain` may be a base domain OR one of these custom names.
-    `(aucune)` when the world has none, and the arbiter behaves byte-for-byte
-    as before (1-C).
-
+    `{custom_skill_names}` placeholder. `(aucune)` when the world has none.
     Returns (domain, opposed_npc_id, applies_constraint, violent):
-    - domain: a base domain (BASE_SKILL_DOMAINS) or a custom skill name.
-    - applies_constraint (BRIEF-12): the constraint that would be applied on
-      failure (e.g. "restrained" if an NPC is trying to pin the player), or
-      None if no constraint stake. Only valid values from _VALID_CONSTRAINTS.
-    - violent (BRIEF-12): True if the action involves a risk of physical harm
-      to the player (blow, weapon, fall, combat). Drives condition degradation
-      on failure.
+    - domain: raw, unclamped — a base domain, a custom skill name, one of
+      the `__arbiter_*__` sentinels, or anything else the model returned.
+    - applies_constraint (BRIEF-12): the constraint applied on failure (e.g.
+      "restrained"), or None — only valid values from _VALID_CONSTRAINTS.
+    - violent (BRIEF-12): True if the action risks physical harm to the
+      player, driving condition degradation on failure.
     """
-    allowed_domains = set(_PHYSICAL_DOMAINS) | set(custom_skill_names)
     system_msg = arbiter_system.replace(
         "{custom_skill_names}",
         ", ".join(custom_skill_names) if custom_skill_names else "(aucune)",
@@ -915,10 +933,10 @@ def _arbitrate(
             format="json",
         )
         obj = llm_parse.extract_object(raw)
-        return _parse_arbitrate_response(obj, allowed_domains, name_to_id, player_line)
+        return _parse_arbitrate_response(obj, name_to_id, player_line)
     except Exception as exc:
         _log.warning("MJ arbitrate failed (%s), fallback to physical/unopposed", exc)
-        return "physical", None, None, False
+        return "__arbiter_error__", None, None, False
 
 
 _CONDITION_LADDER = ("unharmed", "bruised", "injured", "neutralized")

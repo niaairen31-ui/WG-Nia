@@ -51,6 +51,9 @@ CLAUDE.md, TICKET-0071 BRIEF-0071-a); any new hard-delete path must be
 named here, never added silently. The list: `delete_world_cascade`
 (broadest — every row scoped to a world, world row included);
 `skill_definition` delete (one definition + its dependent `skill` rows);
+`skill_system` delete (TICKET-0084, BRIEF-0084-a — fail-closed: refuses
+with 409 while any `skill_definition` still carries the system's id, the
+deliberate asymmetry with `skill_definition` delete's cascade);
 creator-correction deletes `delete_relation`, `delete_knowledge` (each
 discards the row's `change_history` with the row), `delete_discoverable_
 detail`, `detach_fact_participant` (TICKET-0082, BRIEF-0082-b — a

@@ -2201,7 +2201,6 @@ def seed(session: Session) -> None:
             "Ville-forteresse sur un ancien nœud magique « éteint », seul "
             "passage praticable entre deux nations."
         ),
-        magic_status="awakening",
         is_active=True,
     )
 

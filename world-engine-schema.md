@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.00
+Current schema version: v2.03
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -28,8 +28,6 @@ CREATE TABLE world (
   id                    TEXT PRIMARY KEY,
   name                  TEXT NOT NULL,
   description           TEXT,
-  magic_status          TEXT DEFAULT 'dormant',
-                                       -- dormant | awakening | active | suppressed
   is_active             BOOLEAN NOT NULL DEFAULT FALSE,
                                        -- the single globally-active world (v1.54)
   current_phase         TEXT NOT NULL DEFAULT 'matin'
@@ -1050,6 +1048,37 @@ CREATE UNIQUE INDEX idx_day_mention_resolution_rewrite
 
 -----
 
+### `skill_resolution`
+
+```sql
+-- One row per arbiter classification (v2.02, TICKET-0084). APPEND-ONLY: no
+-- UPDATE site, no DELETE site, enforced by
+-- verify/checks/skill_resolution_append_only.py. verdict 'base' = the
+-- arbiter named a base domain; 'matched' = it named a skill_definition of
+-- this world; 'unmatched' = it named neither and was clamped to the
+-- physical fallback -- a hole in the world, read by Creation's gaps view.
+-- 'unmatched' NEVER refuses a turn. Not a canon table.
+CREATE TABLE skill_resolution (
+  id                   TEXT PRIMARY KEY,
+  world_id             TEXT NOT NULL REFERENCES world(id),
+  conversation_id      TEXT NOT NULL REFERENCES conversation(id),
+  surface_form         TEXT NOT NULL,
+  verdict              TEXT NOT NULL CHECK (verdict IN ('base','matched','unmatched')),
+  base_domain          TEXT,
+  skill_definition_id  TEXT REFERENCES skill_definition(id),
+  created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CHECK (
+    (verdict <> 'base' OR (base_domain IS NOT NULL AND skill_definition_id IS NULL))
+    AND (verdict <> 'matched' OR (skill_definition_id IS NOT NULL AND base_domain IS NULL))
+    AND (verdict <> 'unmatched' OR (skill_definition_id IS NULL AND base_domain IS NULL))
+  )
+);
+CREATE INDEX idx_skill_resolution_world_verdict ON skill_resolution(world_id, verdict);
+CREATE INDEX idx_skill_resolution_conversation ON skill_resolution(conversation_id);
+```
+
+-----
+
 ### `gathering`
 
 An ephemeral social cluster: who is standing together at a location, for the
@@ -1418,6 +1447,35 @@ CREATE TABLE item (
 
 -----
 
+### `skill_system`
+
+World-authored body of skill rules — magic, technology, ritual, ... (schema
+v2.01, TICKET-0084). One row = one named body of rules for one world. No
+`status`, `roll_spec`, or any mechanical column: a world without magic
+simply owns no row of this table.
+
+```sql
+CREATE TABLE skill_system (
+  id           TEXT PRIMARY KEY,
+  world_id     TEXT NOT NULL REFERENCES world(id),
+  name         TEXT NOT NULL,
+  description  TEXT,                   -- rendered as the group subtitle (F2)
+  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_skill_system_world_name
+  ON skill_system(world_id, name);
+CREATE INDEX idx_skill_system_world ON skill_system(world_id);
+```
+
+-- NOTE: written only from creator CRUD (`POST`/`PUT`/`DELETE
+-- /api/skill-systems`, `cockpit/crud/skills.py`) — never by a migration.
+-- `DELETE` is fail-closed: it refuses while any `skill_definition` still
+-- carries this row's id, unlike `DELETE /skill-definitions` which deletes
+-- its dependents.
+
+-----
+
 ### `skill_definition`
 
 World-scoped custom skill catalogue (schema v1.63, BRIEF-55). One row = one
@@ -1432,6 +1490,7 @@ CREATE TABLE skill_definition (
   name         TEXT NOT NULL,
   base_domain  TEXT NOT NULL,          -- specialises exactly one base domain
                CHECK (base_domain IN ('physical','agility','perception','composure')),
+  system_id    TEXT REFERENCES skill_system(id) ON DELETE RESTRICT,
   description  TEXT,                   -- prose; authored in chantier 2, NOT
                                        -- read by any consumer this round
   created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -1440,6 +1499,7 @@ CREATE TABLE skill_definition (
 CREATE UNIQUE INDEX idx_skill_definition_world_name
   ON skill_definition(world_id, name);
 CREATE INDEX idx_skill_definition_world ON skill_definition(world_id);
+CREATE INDEX idx_skill_definition_system ON skill_definition(system_id);
 ```
 
 -- NOTE: `UNIQUE(world_id, name)` is the structural guard that makes a name a
@@ -1447,6 +1507,14 @@ CREATE INDEX idx_skill_definition_world ON skill_definition(world_id);
 -- arbiter's candidate list. `base_domain`'s CHECK references the canonical
 -- list `BASE_SKILL_DOMAINS` (`models.py`) — the single source of truth for
 -- the four base domains (decision 3).
+
+-- system_id: the body of rules this skill belongs to (v2.01, TICKET-0084).
+-- NULL = unaffiliated. A world where magic does not exist simply owns no
+-- magic skill_system row, and therefore no magic skill_definition rows --
+-- existence is row presence, never a flag. This column is an axis ORTHOGONAL
+-- to base_domain: it does not add a domain, and the standing guard (domains
+-- are strictly physical/sensory, social abilities are NEVER skill domains)
+-- is unamended by it.
 
 -----
 

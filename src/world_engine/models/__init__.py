@@ -68,6 +68,7 @@ from .canon import (
     ObstacleVertex,
     Skill,
     SkillDefinition,
+    SkillSystem,
     World,
     WorldLaw,
     _created_ts,
@@ -103,6 +104,7 @@ from .pipeline import (
     PromptVariable,
     PromptVersion,
     SchemaMeta,
+    SkillResolution,
     User,
 )
 from .observation import (
@@ -141,6 +143,7 @@ __all__ = [
     "PassPlay",
     "DayRewrite",
     "DayMentionResolution",
+    "SkillResolution",
     "Gathering",
     "GatheringMember",
     "LinkBatch",
@@ -155,6 +158,7 @@ __all__ = [
     "Artifact",
     "Item",
     "SkillDefinition",
+    "SkillSystem",
     "Skill",
     "DiscoverableDetail",
     "User",
