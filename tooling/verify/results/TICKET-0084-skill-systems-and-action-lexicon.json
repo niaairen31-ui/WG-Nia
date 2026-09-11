@@ -1,0 +1,27 @@
+{
+  "ticket": "TICKET-0084-skill-systems-and-action-lexicon",
+  "when": "2026-09-11T19:25:09.886151+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "skill_system_shape.py",
+      "status": "PASS",
+      "msg": "PASS: skill_system_shape \u2014 skill_system table shape matches, skill_definition.system_id exists and is nullable, BASE_SKILL_DOMAINS is exactly four, and ck_skill_definition_base_domain names all four"
+    },
+    {
+      "check": "skill_resolution_append_only.py",
+      "status": "PASS",
+      "msg": "PASS: skill_resolution_append_only \u2014 no update/delete site targets skill_resolution, it is absent from [CANON_TABLES], and every examined row satisfies the shape CHECK"
+    },
+    {
+      "check": "skill_lexicon_clamp.py",
+      "status": "PASS",
+      "msg": "PASS: skill_lexicon_clamp \u2014 every base domain yields 'base', every catalogue name yields 'matched', and every hostile input yields 'unmatched'/'physical' without raising"
+    },
+    {
+      "check": "no_world_magic_status.py",
+      "status": "PASS",
+      "msg": "PASS: no_world_magic_status \u2014 world.magic_status is absent from the model, the schema doc, and every World construction site, while location.magic_status remains untouched"
+    }
+  ]
+}
