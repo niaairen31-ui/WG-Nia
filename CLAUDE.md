@@ -290,6 +290,11 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   of rules it belongs to; NULL = unaffiliated. `DELETE
   /api/skill-systems` refuses while any skill is still attached, unlike
   `DELETE /api/skill-definitions`, which deletes its dependents.
+- **`GET /api/skill-gaps` is read-only** — it performs no write of any
+  kind. It surfaces distinct `unmatched` `skill_resolution.surface_form`
+  rows for the active world; the two arbiter-failure sentinels
+  (`__arbiter_error__`, `__arbiter_empty__`) are excluded from its `gaps`
+  list by design and reported separately in `arbiter_failures`.
 - **All templated model calls resolve through
   `prompt_registry.effective_model`** — the single model resolver. New
   prompt usages must add a `PROMPT_REGISTRY` entry

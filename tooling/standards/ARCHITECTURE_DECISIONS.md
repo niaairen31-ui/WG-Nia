@@ -15032,6 +15032,36 @@ period, wrong-case catalogue names, JSON fragments, a very long string,
 `None`, a non-string) all yield `unmatched` with `effective_domain ==
 "physical"`, and `judge` never raises.
 
+## THE GAPS VIEW — G3 DISCHARGED, G2 REJECTED (BRIEF-0084-d, no schema change)
+
+**G3, discharged for real.** BRIEF-0084-c named `skill_resolution` so its
+"holes in my world" filter (`verdict = 'unmatched'`) needed no separate
+instrumentation; this step is that filter's first reader. `GET
+/api/skill-gaps` groups distinct `unmatched` `surface_form` rows for the
+active world, most frequent first, and Creation's Compétences tab renders
+them as a read-only "Trous du lexique" panel — no dismiss, no resolved
+flag, no delete: the table stays append-only and this view is a reader,
+full stop. The two arbiter-failure sentinels (`__arbiter_error__`,
+`__arbiter_empty__`) are Ollama being unwell, not a hole in the world —
+excluded from the list, counted separately as `arbiter_failures`.
+
+**G2, considered and rejected.** Proposing gaps to a model, or germinating
+them as `ProposedMutation` rows, was considered and rejected in favour of
+G3: a lexicon hole is creator telemetry Nia reads and acts on by authoring
+a skill through the existing catalogue form, not a pending canon mutation
+awaiting her accept/reject. Reactivation condition: Nia asking for
+one-click skill creation straight from the gaps list — until then, a gap
+click only prefills the create form (`name` from `surface_form`,
+`base_domain`/`system_id` left for her to choose); nothing is written
+until she submits it through `POST /api/skill-definitions`, same as any
+other manually added skill.
+
+**C3b's reactivation counter now has a UI, not just a query.** The gaps
+list is exactly the "distinct unmatched surface forms" evidence C3b's
+condition (BRIEF-0084-c) reads — this step makes it visible to Nia
+directly, still without fuzzy grouping: two near-miss spellings render as
+two distinct rows on purpose.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session as DbSession, select
 
@@ -47,6 +48,7 @@ from ...models import (
     Relation,
     Skill,
     SkillDefinition,
+    SkillResolution,
     SkillSystem,
     World,
 )
@@ -262,6 +264,48 @@ def delete_skill_system(system_id: str, db: DbSession = Depends(get_session)) ->
     db.delete(system)
     db.commit()
     return {"deleted": system_id}
+
+
+# The two arbiter-failure sentinels `skill_lexicon.judge` records verdict=
+# 'unmatched' for (see play_physical.py::_arbitrate/_parse_arbitrate_response).
+# Ollama being unwell is not a hole in the world -- excluded from `gaps`,
+# counted separately in `arbiter_failures` (BRIEF-0084-d).
+_ARBITER_FAILURE_FORMS = {"__arbiter_error__": "error", "__arbiter_empty__": "empty"}
+
+
+@router.get("/skill-gaps")
+def list_skill_gaps(db: DbSession = Depends(get_session)) -> dict:
+    """Distinct unmatched surface forms for the active world (BRIEF-0084-d).
+
+    Read-only: performs no write of any kind. One entry per distinct
+    `surface_form` among `verdict='unmatched'` rows, most frequent first —
+    these are the terms the arbiter named that the world's catalogue does
+    not cover. The two arbiter-failure sentinels are excluded from `gaps`
+    and reported separately in `arbiter_failures`.
+    """
+    world_id = _world_id(db)
+    rows = db.exec(
+        select(
+            SkillResolution.surface_form,
+            func.count(SkillResolution.id),
+            func.max(SkillResolution.created_at),
+        )
+        .where(SkillResolution.world_id == world_id)
+        .where(SkillResolution.verdict == "unmatched")
+        .group_by(SkillResolution.surface_form)
+        .order_by(func.count(SkillResolution.id).desc(), func.max(SkillResolution.created_at).desc())
+    ).all()
+
+    gaps: list[dict] = []
+    arbiter_failures = {"error": 0, "empty": 0}
+    for surface_form, count, last_seen in rows:
+        failure_key = _ARBITER_FAILURE_FORMS.get(surface_form)
+        if failure_key is not None:
+            arbiter_failures[failure_key] = count
+            continue
+        gaps.append({"surface_form": surface_form, "count": count, "last_seen": _iso(last_seen)})
+
+    return {"gaps": gaps, "arbiter_failures": arbiter_failures}
 
 
 def _skill_definition_dict(d: SkillDefinition) -> dict:

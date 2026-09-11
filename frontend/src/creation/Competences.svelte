@@ -20,13 +20,20 @@
      carries the system delete refusal (409 while skills remain attached),
      same inline-error-in-modal idiom as the skill-definition delete above,
      no type-"Oui" step: unlike that cascade, a system delete never touches
-     a second table. */
+     a second table.
+
+     TICKET-0084 (BRIEF-0084-d): the "Trous du lexique" gaps reader, its
+     own read-only field-section between the assistant and the catalogue --
+     no create/edit affordance of its own (LedgerPanel.svelte's pattern).
+     A gap click calls addGapDraftRow, which reuses the draft/Accepter path
+     above; the panel itself never calls a write endpoint. */
   import { serverState } from '../lib/serverState.svelte.js';
   import Modal from './Modal.svelte';
   import {
     competencesState, COMPETENCES_DOMAINS, NO_SYSTEM_LABEL, resetCompetences, addManualRow,
     discardDraftRow, generateDraft, acceptDraftRow, loadList, saveRow, deleteDefinition,
     loadSystems, createSystem, saveSystem, deleteSystem, groupSkillsBySystem,
+    loadGaps, addGapDraftRow,
   } from './competences.svelte.js';
 
   let genBrief = $state('');
@@ -67,6 +74,7 @@
     systemRowStatus = {};
     loadList();
     loadSystems();
+    loadGaps();
   });
 
   export function primaryAction() {
@@ -160,6 +168,19 @@
       deleteSystemOpen = false;
     } catch (err) {
       deleteSystemStatus = err.message;
+    }
+  }
+
+  function onGapClick(surfaceForm) {
+    addGapDraftRow(surfaceForm);
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+    } catch {
+      return iso;
     }
   }
 
@@ -259,6 +280,7 @@
             <div class="field-row">
               <label>Domaine de base</label>
               <select bind:value={row.base_domain}>
+                <option value="">— domaine —</option>
                 {#each COMPETENCES_DOMAINS as d}<option value={d}>{d}</option>{/each}
               </select>
             </div>
@@ -282,6 +304,32 @@
             </div>
           </div>
         {/each}
+      </div>
+    {/if}
+  </div>
+  <div class="field-section" style="margin:0; padding:10px 14px; border-top:1px solid var(--border)">
+    <div class="field-section-title">Trous du lexique</div>
+    {#if competencesState.gapsError}
+      <div class="empty">{competencesState.gapsError}</div>
+    {:else if competencesState.gaps.length === 0}
+      <div class="empty">Aucun trou détecté — tout ce que l'arbitre a nommé est déjà dans le catalogue.</div>
+    {:else}
+      <div class="row-table">
+        {#each competencesState.gaps as gap (gap.surface_form)}
+          <div class="row-card" role="button" tabindex="0"
+            style="flex-direction:row; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px; cursor:pointer;"
+            onclick={() => onGapClick(gap.surface_form)}
+            onkeydown={(e) => { if (e.key === 'Enter') onGapClick(gap.surface_form); }}>
+            <span style="font-weight:600;">{gap.surface_form}</span>
+            <span class="badge b-other">{gap.count}</span>
+            <span style="font-size:11px; color:var(--muted);">{fmtDate(gap.last_seen)}</span>
+          </div>
+        {/each}
+      </div>
+    {/if}
+    {#if competencesState.arbiterFailures.error > 0 || competencesState.arbiterFailures.empty > 0}
+      <div style="margin-top:8px; font-size:12px; color:var(--muted);">
+        Échecs de l'arbitre (hors lexique) : {competencesState.arbiterFailures.error} erreur(s), {competencesState.arbiterFailures.empty} réponse(s) vide(s)
       </div>
     {/if}
   </div>

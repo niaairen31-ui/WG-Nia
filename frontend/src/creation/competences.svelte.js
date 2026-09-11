@@ -19,14 +19,25 @@
    itself, or a skill-definition write that attaches/detaches a system.
    Grouping the catalogue by system happens in the component
    (groupSkillsBySystem below), from these two flat lists -- never a
-   nested endpoint response (json_ui_boundary). */
+   nested endpoint response (json_ui_boundary).
+
+   TICKET-0084 (BRIEF-0084-d): the read-only gaps reader. `gaps` and
+   `arbiterFailures` follow the exact same shape as `systems` above --
+   fetched once alongside rows/systems (world load/switch), never written
+   to by this view. No re-fetch-after-write wiring: skill_resolution is
+   append-only telemetry the catalogue write path never changes, so
+   nothing here invalidates it (a stale gap simply stops recurring on the
+   next live Play turn -- history is never rewritten). */
 export const competencesState = $state({
   draft: [],   // AI-proposed rows awaiting individual accept/discard
   rows: [],    // existing world-scoped skill_definition rows
   systems: [], // existing world-scoped skill_system rows
+  gaps: [],    // distinct unmatched surface forms, most frequent first
+  arbiterFailures: { error: 0, empty: 0 },
   loading: true,
   loadError: '',
   systemsError: '',
+  gapsError: '',
 });
 
 export const COMPETENCES_DOMAINS = ['physical', 'agility', 'perception', 'composure'];
@@ -49,6 +60,14 @@ export function resetCompetences() {
 
 export function addManualRow() {
   competencesState.draft.push({ name: '', base_domain: 'physical', system_id: null, description: '' });
+}
+
+/** Item 4 (BRIEF-0084-d): a gap click opens the same create form, name
+ *  prefilled from surface_form, base_domain and system_id left unset --
+ *  unlike addManualRow's 'physical' default, Nia must choose deliberately.
+ *  Creates nothing; the row only lands in skill_definition on Accepter. */
+export function addGapDraftRow(surfaceForm) {
+  competencesState.draft.push({ name: surfaceForm, base_domain: '', system_id: null, description: '' });
 }
 
 export function discardDraftRow(i) {
@@ -124,6 +143,18 @@ export async function loadSystems() {
     competencesState.systems = await api('/api/skill-systems');
   } catch (e) {
     competencesState.systemsError = e.message;
+  }
+}
+
+/** Read-only: GET /api/skill-gaps only, never a write (BRIEF-0084-d). */
+export async function loadGaps() {
+  competencesState.gapsError = '';
+  try {
+    const data = await api('/api/skill-gaps');
+    competencesState.gaps = data.gaps || [];
+    competencesState.arbiterFailures = data.arbiter_failures || { error: 0, empty: 0 };
+  } catch (e) {
+    competencesState.gapsError = e.message;
   }
 }
 
