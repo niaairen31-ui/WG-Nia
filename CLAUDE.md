@@ -284,6 +284,10 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   (`physical`/`agility`/`perception`/`composure`, case-insensitive) — both
   write paths (creator CRUD and `_normalize_skill_catalogue`) reject/drop
   it.
+- **A `skill_definition` may carry a `system_id`** (schema v2.01), the body
+  of rules it belongs to; NULL = unaffiliated. `DELETE
+  /api/skill-systems` refuses while any skill is still attached, unlike
+  `DELETE /api/skill-definitions`, which deletes its dependents.
 - **All templated model calls resolve through
   `prompt_registry.effective_model`** — the single model resolver. New
   prompt usages must add a `PROMPT_REGISTRY` entry

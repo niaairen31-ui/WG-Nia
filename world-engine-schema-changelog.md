@@ -13,6 +13,26 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.01** — TICKET-0084, BRIEF-0084-a: `skill_system`, the world-authored
+  body of skill rules (magic, technology, ritual, ...). One new table:
+  `skill_system` (`id, world_id, name, description, created_at, updated_at`;
+  UNIQUE `(world_id, name)`; no `status`/`roll_spec`/any mechanical column —
+  a world without magic owns no row). One new nullable column:
+  `skill_definition.system_id`, FK to `skill_system(id)` ON DELETE
+  RESTRICT, `idx_skill_definition_system` — NULL for every existing row
+  (unaffiliated), set only by creator CRUD from here on.
+  `ck_skill_definition_base_domain` and `BASE_SKILL_DOMAINS` are untouched:
+  no fifth base domain, `system_id` is an axis orthogonal to `base_domain`.
+  Creator surface: `GET/POST/PUT/DELETE /api/skill-systems`
+  (`cockpit/crud/skills.py`) — `DELETE` is fail-closed (409 while any
+  `skill_definition` still carries the system's id), the deliberate
+  asymmetry with `DELETE /skill-definitions`, which deletes its dependents.
+  `POST`/`PUT /api/skill-definitions` gain `system_id`, validated against
+  the active world (422 otherwise); the existing tier-0 PC backfill on
+  `POST` is unchanged. Migration (`scripts/migrate_v2_01_skill_system.py`)
+  creates the table and the column only, purely additive: zero rows
+  created, zero rows updated, zero rows deleted (post-check verified). Its
+  reader (Creation-side grouping) ships in BRIEF-0084-b.
 - **v2.00** — TICKET-0082, BRIEF-0082-d: `connects_to` facts, the
   known-reachability floor. No new tables or columns — data only. First
   version under the rollover convention decided at QUESTION-TICKET-0082

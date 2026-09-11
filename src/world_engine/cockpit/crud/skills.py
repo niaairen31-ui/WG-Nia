@@ -47,6 +47,7 @@ from ...models import (
     Relation,
     Skill,
     SkillDefinition,
+    SkillSystem,
     World,
 )
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
@@ -154,12 +155,122 @@ def update_skill_tier(skill_id: str, body: SkillTierBody, db: DbSession = Depend
     return _skill_dict(skill)
 
 
+def _skill_system_dict(s: SkillSystem, db: DbSession) -> dict:
+    skill_count = len(db.exec(
+        select(SkillDefinition.id).where(SkillDefinition.system_id == s.id)
+    ).all())
+    return {
+        "id": s.id,
+        "world_id": s.world_id,
+        "name": s.name,
+        "description": s.description,
+        "skill_count": skill_count,
+        "updated_at": _iso(s.updated_at),
+    }
+
+
+@router.get("/skill-systems")
+def list_skill_systems(db: DbSession = Depends(get_session)) -> list[dict]:
+    """The active world's skill systems (magic, technology, ritual, ...)."""
+    rows = db.exec(
+        select(SkillSystem)
+        .where(SkillSystem.world_id == _world_id(db))
+        .order_by(SkillSystem.name)
+    ).all()
+    return [_skill_system_dict(s, db) for s in rows]
+
+
+class SkillSystemWriteBody(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+@router.post("/skill-systems", status_code=201)
+def create_skill_system(
+    body: SkillSystemWriteBody, db: DbSession = Depends(get_session)
+) -> dict:
+    """Add a skill system to the active world.
+
+    No backfill of any kind: creating a system never touches `skill` or
+    `skill_definition` — unlike `POST /skill-definitions`.
+    """
+    world_id = _world_id(db)
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(422, "name is required")
+
+    system = SkillSystem(world_id=world_id, name=name, description=body.description)
+    db.add(system)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, f"A skill system named {name!r} already exists in this world")
+    db.refresh(system)
+    return _skill_system_dict(system, db)
+
+
+@router.put("/skill-systems/{system_id}")
+def update_skill_system(
+    system_id: str, body: SkillSystemWriteBody, db: DbSession = Depends(get_session)
+) -> dict:
+    """Rename / re-word a skill system."""
+    system = db.get(SkillSystem, system_id)
+    if system is None or system.world_id != _world_id(db):
+        raise HTTPException(404, f"SkillSystem {system_id!r} not found")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(422, "name is required")
+
+    system.name = name
+    system.description = body.description
+    system.updated_at = datetime.now(UTC)
+    db.add(system)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, f"A skill system named {name!r} already exists in this world")
+    db.refresh(system)
+    return _skill_system_dict(system, db)
+
+
+@router.delete("/skill-systems/{system_id}")
+def delete_skill_system(system_id: str, db: DbSession = Depends(get_session)) -> dict:
+    """Delete a skill system (D2b-delete-refuse).
+
+    Fail-closed, unlike `DELETE /skill-definitions` above: refuses while any
+    `skill_definition` still carries this `system_id`. A system is a
+    container the creator authored — silently orphaning her catalogue is
+    worse than making her say it twice. Returns before any `db.delete` on
+    every refusal path.
+    """
+    system = db.get(SkillSystem, system_id)
+    if system is None or system.world_id != _world_id(db):
+        raise HTTPException(404, f"SkillSystem {system_id!r} not found")
+
+    attached = db.exec(
+        select(SkillDefinition.id).where(SkillDefinition.system_id == system.id)
+    ).all()
+    if attached:
+        raise HTTPException(
+            409,
+            "Cannot delete a skill system that still has skills attached — "
+            "detach or delete them first.",
+        )
+
+    db.delete(system)
+    db.commit()
+    return {"deleted": system_id}
+
+
 def _skill_definition_dict(d: SkillDefinition) -> dict:
     return {
         "id": d.id,
         "world_id": d.world_id,
         "name": d.name,
         "base_domain": d.base_domain,
+        "system_id": d.system_id,
         "description": d.description,
         "updated_at": _iso(d.updated_at),
     }
@@ -179,6 +290,7 @@ def list_skill_definitions(db: DbSession = Depends(get_session)) -> list[dict]:
 class SkillDefinitionWriteBody(BaseModel):
     name: str
     base_domain: str
+    system_id: Optional[str] = None
     description: Optional[str] = None
 
 
@@ -201,11 +313,16 @@ def create_skill_definition(
         raise HTTPException(422, "name must not be a base domain literal")
     if body.base_domain not in BASE_SKILL_DOMAINS:
         raise HTTPException(422, f"base_domain must be one of {BASE_SKILL_DOMAINS}")
+    if body.system_id is not None:
+        system = db.get(SkillSystem, body.system_id)
+        if system is None or system.world_id != world_id:
+            raise HTTPException(422, "system_id must reference a skill system of the active world")
 
     definition = SkillDefinition(
         world_id=world_id,
         name=name,
         base_domain=body.base_domain,
+        system_id=body.system_id,
         description=body.description,
     )
     db.add(definition)
@@ -257,10 +374,15 @@ def update_skill_definition(
         raise HTTPException(422, "name must not be a base domain literal")
     if body.base_domain not in BASE_SKILL_DOMAINS:
         raise HTTPException(422, f"base_domain must be one of {BASE_SKILL_DOMAINS}")
+    if body.system_id is not None:
+        system = db.get(SkillSystem, body.system_id)
+        if system is None or system.world_id != definition.world_id:
+            raise HTTPException(422, "system_id must reference a skill system of the active world")
 
     domain_changed = body.base_domain != definition.base_domain
     definition.name = name
     definition.base_domain = body.base_domain
+    definition.system_id = body.system_id
     definition.description = body.description
     definition.updated_at = datetime.now(UTC)
     db.add(definition)

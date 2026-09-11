@@ -14891,4 +14891,69 @@ place for it, not a widening of this brief.
 
 ---
 
+## SKILL_SYSTEM — MAGIC AS A ROW, NOT A FLAG (BRIEF-0084-a, schema v2.01)
+
+**A3, locked.** Magic has no structural home before this step: the word
+appears across `world.magic_status`, `location.magic_status`,
+`faction.magic_knowledge_level` and the `magic` entity type — all
+narrative, none mechanical. Rather than special-case magic, it becomes one
+instance of a world-authored `skill_system`: a named body of skill rules a
+world may or may not own. A world without magic owns no `skill_system` row
+and therefore no skill_definition row attached to one — existence is row
+presence, never a status flag. `world.magic_status` itself is untouched by
+this step (BRIEF-0084-e, its own migration, its own commit).
+
+**B3, locked.** `skill_system` carries no mechanical column — no
+`roll_spec`, `status`, or `intensity`. Differentiated magic rolls were
+discussed and explicitly parked: the house rules are not decided, and
+`resolve_physical` is not touched by this step. The table exists so the
+catalogue has a place to group by, nothing more; its reader (Creation-side
+grouping) ships one brief later (BRIEF-0084-b) — a deliberate, bounded gap,
+not license to add further unread columns here.
+
+**Rejected: a fifth base domain.** `resolve_physical` does not read
+`domain` in its math, so a fifth domain buys nothing mechanically, and it
+would break the standing "strictly physical/sensory" guard
+(`world-engine-schema.md`, skill section — social abilities are NEVER skill
+domains). `BASE_SKILL_DOMAINS` stays at exactly four and
+`ck_skill_definition_base_domain` keeps its four literals, unamended.
+Reactivates only if a magic roll must differ from the base-domain 2d6 bands
+AND that difference cannot be expressed on the `skill_system` row itself.
+
+**Rejected: D3's feasibility refusal** (a world must be able to keep a
+magic catalogue with magic mechanically switched off). Not needed this
+round — `system_id` is purely an attachment axis, orthogonal to
+`base_domain`, so a catalogue can exist whether or not its system is ever
+mechanically differentiated. Reactivates the day a world must keep a magic
+catalogue with magic mechanically off in a way row-presence alone cannot
+express.
+
+**Asymmetric delete.** `DELETE /api/skill-systems` is fail-closed (409,
+`"Cannot delete a skill system that still has skills attached — detach or
+delete them first."`) — the deliberate opposite of `DELETE
+/api/skill-definitions`, which cascades its dependent `skill` rows. A
+system is a container the creator authored; silently orphaning her
+catalogue is worse than making her say it twice. Creating a system never
+backfills anything — no `skill` or `skill_definition` row is touched,
+unlike `POST /skill-definitions`'s existing tier-0 PC backfill, which this
+step leaves untouched.
+
+**Migration v2.01** (`scripts/migrate_v2_01_skill_system.py`) — additive
+only: creates `skill_system` and its two indexes, adds
+`skill_definition.system_id` (nullable FK, ON DELETE RESTRICT) and its
+index. Zero rows created, zero rows updated, zero rows deleted —
+post-check verified (`skill_system` count is 0, `skill_definition` row
+count unchanged, every `system_id` NULL). No world, including the pilot,
+gets a default system; no existing `skill_definition` row is backfilled —
+Nia attaches them by hand.
+
+**Verify check `skill_system_shape.py`.** Fresh-SQLite-fixture (never
+Nia's real DB): `skill_system`'s column set matches exactly; `skill_
+definition.system_id` exists and is nullable; `BASE_SKILL_DOMAINS` has
+exactly four members; `ck_skill_definition_base_domain`'s constraint text
+still names exactly those four, no more, no fewer. Zero columns/
+constraints collected on any volet is a FAIL, never a vacuous pass.
+
+---
+
 *Co-built with Claude, June 2026.*
