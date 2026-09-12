@@ -15077,6 +15077,34 @@ have offered two answers to "does magic exist here" — the exact ambiguity
 `skill_system` row, and nothing else. Magic's narrative intensity, if it is
 ever wanted again, returns as a property of that row, never of the world.
 
+## NAMED-RUNG EXTRACTION — SHARED WITH THE LORE CHANTIER, CASTING STAYS DAY-ONLY (BRIEF-0085-a, no schema change)
+
+**The two named rungs (`named_exact`, `named_token`) now live in a new
+`lore_resolve.py`, shared between the day chain and TICKET-0085's lore
+consultation surface (RECON-0085-a F1).** Both rungs depended on their
+`day_concordance` context only through `world_id` — no `Character`, no
+`connects_to` reachability, no casting machinery — so extraction to a
+module parameterized on `(surface_form, category, world_id, db)` was
+mechanical. `day_concordance._rung_named_exact`/`_rung_named_token` are now
+thin adapters: they keep the `mention.kind != "named"` guard, then delegate
+to `lore_resolve.rung_named_exact`/`rung_named_token`. Behavior is
+bit-identical — same `select(`, same `normalize_surface` (moved from
+`day_concordance._normalize_surface`, now public, docstring unchanged), same
+token-length floor. `day_concordance.MATCHING_RUNGS`/`_RUNG_LOOKUPS` and its
+existing bijection check are untouched.
+
+**Casting is NOT shared, on purpose.** `_cast_one`, `CAST_PRECEDENCE`,
+`who_is_at` and `Character` stay in `day_concordance` — casting resolves an
+INFERRED mention's multiple candidates down to one by play context (presence,
+relation, stability), which is play semantics the lore chantier's creator
+questions must never apply. A NAMED mention with two or more candidates is
+`ambiguous` on both paths: the day chain reports it to the player as
+unresolved; `lore_resolve.resolve_named` reports it to the creator as
+`NamedResolution(verdict="ambiguous", ...)` for disambiguation. Neither path
+picks. `named_alias` stays a permanent no-op in `day_concordance` only — it
+is not in `lore_resolve.NAMED_RUNGS`, per RECON F1's measurement that it has
+never had a backing table.
+
 ---
 
 *Co-built with Claude, June 2026.*

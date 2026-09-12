@@ -51,13 +51,13 @@ from __future__ import annotations
 
 import logging
 import re
-import unicodedata
 from dataclasses import dataclass
 from typing import Callable, Optional
 
 from sqlmodel import Session, select
 
 from .day_extract import Mention
+from .lore_resolve import normalize_surface, rung_named_exact, rung_named_token
 from .models import (
     SCHEDULE_PHASES,
     Character,
@@ -72,8 +72,6 @@ from .schedule_reads import who_is_at
 
 _log = logging.getLogger(__name__)
 
-_CATEGORY_ENTITY_TYPE: dict[str, str] = {"place": "location", "person": "character", "faction": "faction"}
-
 MATCHING_RUNGS: tuple[str, ...] = (
     "named_exact", "named_token", "named_alias", "occupation", "presence",
 )
@@ -86,12 +84,6 @@ CAST_PRECEDENCE: tuple[str, ...] = ("presence", "relation", "stable")
 MAX_GERMS_PER_DECLARATION = 3
 
 _ALIAS_SKIP_NOTE = "rung 2 (named_alias) skipped — no alias/cover-role surface exists for entity names"
-
-_LEADING_TOKENS: frozenset[str] = frozenset({
-    "chez", "le", "la", "les", "l", "du", "de", "des", "au", "aux", "a",
-})
-
-_SURFACE_TOKEN_SPLIT = re.compile(r"[\s'’]+")
 
 _STOPWORDS = frozenset({
     "who", "that", "someone", "something", "with", "near", "from", "have",
@@ -144,26 +136,6 @@ class _ConcordContext:
     reachable_location_ids: frozenset[str]
 
 
-def _normalize_surface(text: str) -> str:
-    """Casefold; NFKD-decompose and drop combining marks; strip a leading
-    token drawn from `_LEADING_TOKENS` (bounded at three iterations, so a
-    pathological run of articles cannot loop); collapse to single-space-
-    joined tokens. Applied to BOTH sides of every named comparison — never
-    to one side only, or a real name would drift out of reach of its own
-    surface form. Splitting on apostrophes too (not just whitespace) is what
-    makes the bare `"l"` entry usable: French elision ("l'aubergiste") never
-    appears as a separate word otherwise."""
-    decomposed = unicodedata.normalize("NFKD", text.casefold())
-    without_marks = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-    tokens = [t for t in _SURFACE_TOKEN_SPLIT.split(without_marks) if t]
-    for _ in range(3):
-        if tokens and tokens[0] in _LEADING_TOKENS:
-            tokens.pop(0)
-        else:
-            break
-    return " ".join(tokens)
-
-
 def _role_keywords(role_hint: str) -> list[str]:
     words = re.findall(r"[a-zA-Zàâäéèêëïîôöùûüçñ]+", role_hint.casefold())
     return [w for w in words if len(w) >= 4 and w not in _STOPWORDS]
@@ -172,40 +144,13 @@ def _role_keywords(role_hint: str) -> list[str]:
 def _rung_named_exact(mention: Mention, ctx: _ConcordContext, db: Session) -> Optional[list[str]]:
     if mention.kind != "named":
         return None
-    entity_type = _CATEGORY_ENTITY_TYPE[mention.category]
-    target = _normalize_surface(mention.surface_form)
-    rows = db.exec(
-        select(Entity).where(
-            Entity.world_id == ctx.world_id,
-            Entity.type == entity_type,
-            Entity.status == "active",
-        )
-    ).all()
-    matches = [e.id for e in rows if _normalize_surface(e.name) == target]
-    return matches or None
+    return rung_named_exact(mention.surface_form, mention.category, ctx.world_id, db)
 
 
 def _rung_named_token(mention: Mention, ctx: _ConcordContext, db: Session) -> Optional[list[str]]:
     if mention.kind != "named":
         return None
-    entity_type = _CATEGORY_ENTITY_TYPE[mention.category]
-    surface_tokens = set(_normalize_surface(mention.surface_form).split())
-    rows = db.exec(
-        select(Entity).where(
-            Entity.world_id == ctx.world_id,
-            Entity.type == entity_type,
-            Entity.status == "active",
-        )
-    ).all()
-    matches: list[str] = []
-    for entity in rows:
-        name_tokens = set(_normalize_surface(entity.name).split())
-        if not name_tokens or not name_tokens.issubset(surface_tokens):
-            continue
-        if not any(len(token) >= 3 for token in name_tokens):
-            continue
-        matches.append(entity.id)
-    return matches or None
+    return rung_named_token(mention.surface_form, mention.category, ctx.world_id, db)
 
 
 def _rung_named_alias(mention: Mention, ctx: _ConcordContext, db: Session) -> Optional[list[str]]:
