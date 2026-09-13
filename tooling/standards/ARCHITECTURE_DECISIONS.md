@@ -15105,6 +15105,80 @@ picks. `named_alias` stays a permanent no-op in `day_concordance` only — it
 is not in `lore_resolve.NAMED_RUNGS`, per RECON F1's measurement that it has
 never had a backing table.
 
+## SELECTOR WHITELIST — THE MODEL NAMES A SELECTOR, NEVER A QUERY (BRIEF-0085-b, no schema change)
+
+**`lore_selectors.py` and `lore_query.py` complete the deterministic half of
+TICKET-0085's lore consultation surface.** The model, once BRIEF-0085-c
+wires it in, will only ever emit a plan — mentions plus selector calls drawn
+from `SELECTORS = ("entity_dossier", "world_factions")` — never a query.
+`validate_plan` rejects anything outside the whitelist, an arity mismatch, an
+unresolved mention reference, or an `arg_kinds` mismatch, before a single
+selector runs; `execute_plan` then resolves mentions through
+`lore_resolve.resolve_named` (BRIEF-0085-a) and dispatches only through
+`_SELECTOR_LOOKUPS`. Coverage grows by adding a selector to the whitelist,
+never by adding a question type to a parser — `location_contents`,
+`faction_roster`, `region_locations` and `who_knows_about` are each their own
+later ticket. The five verdicts (`answered`, `ambiguous_mention`,
+`unknown_entity`, `silent_canon`, `unsupported_selector`) are a closed set;
+there is no `"error"` catch-all.
+
+**The creator is deliberately omniscient in this ticket.** `entity_dossier`
+carries `knowledge.is_secret` rows verbatim — no viewpoint parameter, no
+filter flag. This is a current-state decision, not an oversight: the day a
+non-creator reader needs this surface, that reader gets its own filtering
+design, not a parameter bolted on here on spec.
+
+**`entity_dossier`'s `traits` section was dropped at execution (RECON R-b),
+not built as the brief specified.** The brief named `entity_trait` as a
+per-entity traits section. That table is keyed by `entity_type_id`, not
+`entity_id` — it is the runtime-custom-entity-type projection from
+TICKET-0045/BRIEF-0045-a ("which `entity_type` has checked which trait"),
+schema configuration shared by every entity of a constructor-created `ext_*`
+type, never a fact about one entity instance. Built-in types (`character`,
+`location`, `faction`) never get an `entity_type` row at all — only
+`create_entity_type`-constructed runtime types do — so the section would
+have been structurally empty for every entity the two selectors in this
+ticket can reach, and presenting it at all would read type-level schema
+capability as entity-specific canon to the creator, the same class of error
+Scope IN item 5's DORMANT-column exclusion exists to prevent. `entity_dossier`
+returns five sections (`identity`, `relations`, `knowledge`, `memberships`,
+`goals`), not six. A reader for a runtime-custom-type entity's own `ext_*`
+row data is a capability nothing in this ticket builds — no reader for
+`physical_table` exists anywhere outside `writes/schema.py`'s DDL
+construction.
+
+**The `goals` section reads `horizon`/`kind`, not `priority` (RECON R-b).**
+The brief named a `priority` field; `npc_goal` has never carried one, in
+`world-engine-schema.md` or any migration. The schema is authoritative over
+a brief's field list (per CLAUDE.md); `horizon` (`short`/`long`) and `kind`
+(`volition`/`standing`) are the columns that actually exist and are
+descriptively relevant to a dossier.
+
+**`silent_canon` excludes `identity` from its row count, or it could never
+fire through `entity_dossier`.** The brief's Scope IN item 8 defines
+`silent_canon` as "zero rows" — but `entity_dossier`'s `identity` section
+returns exactly one row unconditionally whenever a mention resolves (the
+entity, by definition, exists once `resolve_named` returns `matched`). Taken
+literally, that makes `silent_canon` unreachable through `entity_dossier`,
+contradicting the brief's own Done-means test. The ticket's own framing
+resolves it: "the entity exists and canon holds nothing on it — silence of
+canon, not absence of entity." Identity proves existence, not canon content,
+so it must not count toward "canon holds something." `SelectorSpec` carries
+a `context_sections` field (default `()`, i.e. substantive by default — an
+author who forgets it under-fires `silent_canon` rather than over-fires it,
+because a thin answer is a UX cost and a false "canon is silent" statement
+is a defect); `entity_dossier` declares `("identity",)`. `execute_plan`
+counts only non-`context_sections` rows toward `answered` vs `silent_canon`,
+but still returns every row, identity included, in the payload — the
+deterministic renderer (BRIEF-0085-d) needs the entity's name even when
+canon is silent on the actual question. Verdict stays global across every
+call in a plan (never per call): a two-mention question where one entity
+has substantive rows and the other has none is `answered`, not a sixth
+verdict — the rows themselves show which mention came up empty. G1 check
+`lore_selectors.py` R6 guards the vocabulary: a `context_sections` entry
+that names no `"section"` literal actually emitted in `lore_selectors.py`
+is a failure, so a typo cannot silently make every row substantive.
+
 ---
 
 *Co-built with Claude, June 2026.*
