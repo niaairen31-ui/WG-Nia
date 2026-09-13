@@ -170,6 +170,13 @@ def execute_plan(
         spec = _SELECTOR_LOOKUPS[call.selector]
         args = [world_id if a == "$world" else resolutions[a].entity_id for a in call.args]
         result_rows = spec.fn(*args, db)
+        for row in result_rows:
+            if "section" not in row:
+                raise ValueError(
+                    f"lore_query: selector {call.selector!r} returned a row with no "
+                    "\"section\" key -- every selector row must carry one (BRIEF-0085-d "
+                    "item 2: section is the grouping key the renderer and the trace both need)"
+                )
         truncated = len(result_rows) > spec.row_cap
         result_rows = result_rows[: spec.row_cap]
         rows.extend(result_rows)

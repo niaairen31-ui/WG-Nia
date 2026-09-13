@@ -40,8 +40,10 @@ class SelectorSpec:
 
 
 def world_factions(world_id: str, db: Session) -> list[dict]:
-    """One row per active faction in the world. Joined `entity` -> `faction`
-    on `faction.id == entity.id`, world-scoped and status-scoped at
+    """One row per active faction in the world, each carrying `"section":
+    "factions"` (BRIEF-0085-d item 3: the section contract applies to every
+    selector, not just `entity_dossier`). Joined `entity` -> `faction` on
+    `faction.id == entity.id`, world-scoped and status-scoped at
     construction."""
     rows = db.exec(
         select(Entity, Faction).join(Faction, Faction.id == Entity.id).where(
@@ -51,6 +53,7 @@ def world_factions(world_id: str, db: Session) -> list[dict]:
     ).all()
     return [
         {
+            "section": "factions",
             "entity_id": entity.id,
             "name": entity.name,
             "description": entity.description,
