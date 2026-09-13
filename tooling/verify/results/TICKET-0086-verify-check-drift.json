@@ -1,0 +1,22 @@
+{
+  "ticket": "TICKET-0086-verify-check-drift",
+  "when": "2026-09-13T21:06:43.118590+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "day_narration.py",
+      "status": "PASS",
+      "msg": "PASS: day_narration \u2014 dice-are-Python, truncation purity, narrate's DB boundary, the judge's Python-only and anti-vacuity guards, the bounded rewrite, history append-only, declared_action write-once, PROMPT_REGISTRY wiring, V1's no-direct-step-write boundary, BB1's remaining-work invariant, BRIEF-0078-b's blocked-band gates (R13-R18), and BRIEF-0079-b's bounded repair and failure-surface gates (R19-R22) are all intact"
+    },
+    {
+      "check": "npc_goal_read.py",
+      "status": "PASS",
+      "msg": "PASS: npc_goal read boundary intact (N1), D1 provenance gate intact"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 106 check(s) discovered, 106 executed, 106 passed"
+    }
+  ]
+}
