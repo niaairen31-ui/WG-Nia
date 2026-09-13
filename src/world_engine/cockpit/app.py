@@ -285,7 +285,7 @@ def serve_legacy() -> HTMLResponse:
 #
 # This literal is mirrored by SHELL_ROUTES in frontend/src/lib/router.js;
 # tooling/verify/checks/legacy_mount.py asserts the two agree.
-_SHELL_ROUTES = ("/", "/play", "/creation", "/creation/{sub_tab}", "/observation", "/journee")
+_SHELL_ROUTES = ("/", "/play", "/creation", "/creation/{sub_tab}", "/observation", "/journee", "/lore")
 
 
 def _serve_shell() -> HTMLResponse:

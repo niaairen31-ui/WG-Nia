@@ -4,6 +4,7 @@
   import Creation from './creation/Creation.svelte';
   import Observation from './observation/Observation.svelte';
   import Journee from './journee/Journee.svelte';
+  import Lore from './lore/Lore.svelte';
   import WorldCrud from './creation/WorldCrud.svelte';
   import { hideLegacyHeader, showSurface, legacyDocument } from './legacy/bridge.js';
   import { showCreationSubTab } from './creation/tabs.js';
@@ -25,7 +26,7 @@
     try {
       if (surface === 'creation') {
         showCreationSubTab(subTab || 'npc');
-      } else if (surface !== 'observation' && surface !== 'journee') {
+      } else if (surface !== 'observation' && surface !== 'journee' && surface !== 'lore') {
         showSurface(surface);
       }
     } catch (err) {
@@ -55,6 +56,7 @@
   <Creation active={currentSurface === 'creation'} />
   <Observation active={currentSurface === 'observation'} />
   <Journee active={currentSurface === 'journee'} />
+  <Lore active={currentSurface === 'lore'} />
   <WorldCrud />
 </div>
 

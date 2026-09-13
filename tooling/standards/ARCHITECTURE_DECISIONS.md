@@ -15319,6 +15319,66 @@ plan cache, by design), so the client re-sends it. BRIEF-0085-e's frontend
 already holds the plan to re-send; holding the question text alongside it is
 no additional state.
 
+## LORE CONSULTATION SURFACE — A THIRD TOP-LEVEL SURFACE, NOT A CRÉATION TAB (BRIEF-0085-e, no schema change)
+
+**R-a: the lore surface sits outside `CREATION_TABS`, as a fourth shell-native
+top-level surface alongside Play/Création/Observation/Journée.** `page_
+contract.py` governs only the Création shell's own registry and generic
+dispatcher (`showCreationSubTab`/`tabs.js`); it has no bearing on a surface
+that is not a Création sub-tab. `frontend/src/observation/` and `frontend/
+src/journee/` already establish the pattern this ticket needed: a directory
+under `frontend/src/` holding one `Xxx.svelte` (an `active` prop toggling its
+own root's `display`, nothing else) plus one `xxx.svelte.js` (a `$state`
+object plus the functions that mutate it, `api()` from `creation/
+sheetRequest.svelte.js`, world-reactivity via a `$effect` on `serverState.
+worldId`). `frontend/src/lore/Lore.svelte` + `lore.svelte.js` copy that
+pattern exactly — no new mounting mechanism, no branch in the generic
+dispatcher. Registering a fourth top-level surface costs the same four
+call sites the third one (Journée, TICKET-0075) already touched, generically:
+`SHELL_ROUTES` (`frontend/src/lib/router.js`) and `_SHELL_ROUTES` (`cockpit/
+app.py`, `legacy_mount.py`'s R-checked pair) each grow one entry, `App.svelte`
+mounts `<Lore active={currentSurface === 'lore'} />` and adds `'lore'` to
+`applyRoute`'s legacy-bridge exclusion list, and `Header.svelte` grows one
+nav button. None of this is a page-contract concern; it is the same shell-
+route vocabulary every prior top-level surface has extended.
+
+**The trace panel renders `rows` generically by section, never by selector.**
+BRIEF-0085-d's `"section"` contract (item 2) is what makes this possible: the
+component groups the response's `rows` array by each row's own `section` key
+into a `<details>` block, and renders every field of every row as a plain
+`key: value` line — no per-section formatter, no per-selector branch. Adding
+a third selector later costs the frontend nothing as long as its rows carry
+a `"section"` key already in `SECTION_LABEL`'s vocabulary (an unlabelled
+section still renders, under its raw key). The two `trace` entry shapes
+(mention: `surface_form`/`verdict`/`rung`/`entity_id`; call: `selector`/
+`args`/`row_count`/`truncated`) are told apart structurally, by which key is
+present — never by array position.
+
+**A resolved mention's display name is looked up client-side against the
+`identity` rows already in the payload — never a second request.** A
+mention's `entity_id` (present only on `matched`) is looked up in `rows`
+filtered to `section === 'identity'`; absent an `entity_id` (`unmatched` or
+`ambiguous`), the mention's own `surface_form` is shown instead — the correct
+fallback per the ticket's own empty-message-1 semantics (no entity exists to
+name).
+
+**Found during R-b, out of this step's scope: `/api/lore/ask` cannot reach
+the template-renderer fallback on a cold Ollama outage.** `ask_lore` (`cockpit/
+routes/lore.py`) calls `ollama_client.ping()` before drafting a plan and
+raises `503` on failure; `draft_plan` (question -> plan, BRIEF-0085-b) has no
+non-model path. The `answered`-verdict fallback to `render_template`
+(BRIEF-0085-d) exists only inside `render`, reachable solely once a plan has
+already been drafted and executed — so a fresh question asked while Ollama is
+down fails at the route's ping gate, never reaching a template answer. This
+surfaces the frontend's error path correctly (item 8: a non-2xx response
+displays as a server error), but it means the ticket's own live-gate item
+("With Ollama stopped, the same questions still answer via the template
+renderer") and this brief's matching Done-means item cannot both pass as
+currently wired. Not a frontend defect and not fixed here — Scope OUT
+forbids an API or engine change in this step; flagged here as a REPORT
+finding (per this brief's own "adapt, don't halt" instruction for non-blocking
+findings) for Nia to route to a follow-up ticket.
+
 ---
 
 *Co-built with Claude, June 2026.*

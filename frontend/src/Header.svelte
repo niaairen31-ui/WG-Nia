@@ -77,6 +77,7 @@
     <button class="mode-tab" class:active={activeSurface === 'creation'} onclick={() => switchSurface('creation')}>Création</button>
     <button class="mode-tab" class:active={activeSurface === 'observation'} onclick={() => switchSurface('observation')}>Observation</button>
     <button class="mode-tab" class:active={activeSurface === 'journee'} onclick={() => switchSurface('journee')}>Journée</button>
+    <button class="mode-tab" class:active={activeSurface === 'lore'} onclick={() => switchSurface('lore')}>Lore</button>
   </div>
   {#if !serverState.error}
     <select id="world-selector" onchange={onWorldChange} title="Monde actif">
