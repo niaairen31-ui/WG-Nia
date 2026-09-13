@@ -28,6 +28,10 @@ R8 (selector description coverage): the key set of `lore_plan.py`'s
 R9 (category vocabulary parity): the category literals in `lore_plan.py`'s
 `_MENTION_CATEGORIES` equal the key set of `lore_resolve.py`'s
 `_CATEGORY_ENTITY_TYPE`.
+R15 (prompt loader scoped to prompt tables): every `select(` in
+`lore_prompt.py` references only `PromptTemplate`/`PromptVersion` -- the
+module that owns the Session for this chantier's prompt resolution must
+never become a canon door by a later edit.
 
 Every rule above is vacuity-guarded — a rule that locates zero items is a
 FAILURE, not a silent pass. (R5-R7 are negative-existence checks over a
@@ -48,7 +52,10 @@ LORE_QUERY_FILE = SRC / "lore_query.py"
 LORE_PLAN_FILE = SRC / "lore_plan.py"
 LORE_RESOLVE_FILE = SRC / "lore_resolve.py"
 LORE_ROUTE_FILE = SRC / "cockpit" / "routes" / "lore.py"
+LORE_PROMPT_FILE = SRC / "lore_prompt.py"
 PURITY_FILES = (LORE_SELECTORS_FILE, LORE_QUERY_FILE)
+
+_ALLOWED_PROMPT_MODELS = {"PromptTemplate", "PromptVersion"}
 
 _FORBIDDEN_CANON_MODELS = {"Knowledge", "Relation", "NpcGoal", "FactionMembership"}
 
@@ -348,6 +355,35 @@ def check_category_vocabulary_parity() -> None:
         fail(f"lore_isolation R9: _MENTION_CATEGORIES value(s) {sorted(orphan)!r} are not in _CATEGORY_ENTITY_TYPE")
 
 
+def check_prompt_loader_scoped_to_prompt_tables() -> None:
+    """R15: every `select(` in `lore_prompt.py` references only
+    `PromptTemplate`/`PromptVersion` -- the module that owns the Session for
+    this chantier's prompt resolution must never become a canon door by a
+    later edit."""
+    tree = _parse(LORE_PROMPT_FILE)
+    if tree is None:
+        return
+    select_calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "select"
+    ]
+    if not select_calls:
+        fail(f"lore_isolation R15: {_rel(LORE_PROMPT_FILE)} contains zero select( calls -- vacuous")
+        return
+    for node in select_calls:
+        names = {
+            sub.id for sub in ast.walk(node)
+            if isinstance(sub, ast.Name) and sub.id[:1].isupper()
+        }
+        forbidden = names - _ALLOWED_PROMPT_MODELS
+        if forbidden:
+            fail(
+                f"lore_isolation R15: {_rel(LORE_PROMPT_FILE)}:{node.lineno} -- "
+                f"select( references non-prompt model(s) {sorted(forbidden)!r} -- "
+                "the prompt loader must never become a canon door"
+            )
+
+
 def main() -> None:
     check_purity()
     check_world_scoped_at_construction()
@@ -358,6 +394,7 @@ def main() -> None:
     check_resolve_never_redrafts()
     check_selector_description_coverage()
     check_category_vocabulary_parity()
+    check_prompt_loader_scoped_to_prompt_tables()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -365,8 +402,9 @@ def main() -> None:
     print(
         "PASS: lore_isolation — purity (R1, R4), world scoping at construction (R2), "
         "the discoverable_detail exclusion (R3), the planner's canon-blindness (R5), "
-        "the route's thinness (R6), the no-redraft-on-resolve guard (R7), and the "
-        "selector/category vocabulary parity checks (R8, R9) are all intact"
+        "the route's thinness (R6), the no-redraft-on-resolve guard (R7), the "
+        "selector/category vocabulary parity checks (R8, R9), and the prompt loader's "
+        "scoping to prompt tables (R15) are all intact"
     )
     sys.exit(0)
 

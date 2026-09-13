@@ -9,14 +9,11 @@ is not in `SELECTORS` is a rejected plan, not an improvised query.
 
 from __future__ import annotations
 
-from sqlmodel import Session, select
+from sqlmodel import Session
 
-from . import llm_parse
+from . import llm_parse, lore_prompt
 from .lore_query import LorePlan, PlanCall, PlanMention
-from .models import PromptTemplate
 from .ollama_client import chat
-from .prompt_registry import effective_model
-from .prompt_store import current_prompt
 
 # Independent of lore_resolve._CATEGORY_ENTITY_TYPE on purpose: this is the
 # vocabulary the MODEL is told about, and the G1 check (lore_isolation R9)
@@ -41,15 +38,6 @@ _SELECTOR_DESCRIPTIONS: dict[str, str] = {
 
 def _render_selectors() -> str:
     return "\n".join(f"- {name}: {desc}" for name, desc in _SELECTOR_DESCRIPTIONS.items())
-
-
-def _load_template(db: Session) -> "PromptTemplate | None":
-    stmt = (
-        select(PromptTemplate)
-        .where(PromptTemplate.usage == "lore_question_to_plan")
-        .where(PromptTemplate.is_active == True)  # noqa: E712
-    )
-    return db.exec(stmt).first()
 
 
 def _coerce_mention(raw: object) -> PlanMention:
@@ -83,30 +71,25 @@ def _coerce_call(raw: object) -> PlanCall:
 
 
 def draft_plan(question: str, world_id: str, db: Session) -> LorePlan:
-    """Builds the prompt, calls the model through `effective_model`, parses
-    the reply with `llm_parse.extract_object`, and maps the JSON into a
-    `LorePlan`. `LlmParseError` propagates -- a malformed reply, a missing
-    template, or an out-of-vocabulary mention category is a failed draft,
-    never silently coerced into an empty plan. `validate_plan` (lore_query.py)
-    still runs afterward against the selector whitelist; this function only
-    guards the shape it itself constructs."""
-    template = _load_template(db)
-    if template is None:
-        raise llm_parse.LlmParseError(
-            "lore_plan: no active prompt_template for usage='lore_question_to_plan'"
-        )
-    version = current_prompt(db, template)
+    """Builds the prompt, calls the model through the resolved
+    `lore_prompt.RenderSpec`, parses the reply with `llm_parse.extract_object`,
+    and maps the JSON into a `LorePlan`. `LlmParseError` propagates -- a
+    malformed reply, a missing template, or an out-of-vocabulary mention
+    category is a failed draft, never silently coerced into an empty plan.
+    `validate_plan` (lore_query.py) still runs afterward against the selector
+    whitelist; this function only guards the shape it itself constructs."""
+    spec = lore_prompt.load(db, "lore_question_to_plan")
     user_message = (
-        version.user_template
+        spec.user_template
         .replace("{selectors}", _render_selectors())
         .replace("{question}", question)
     )
     raw = chat(
         [
-            {"role": "system", "content": version.system_prompt},
+            {"role": "system", "content": spec.system_prompt},
             {"role": "user", "content": user_message},
         ],
-        model=effective_model(template, _author_model()),
+        model=spec.model,
         format="json",
     )
     parsed = llm_parse.extract_object(raw)
@@ -120,8 +103,3 @@ def draft_plan(question: str, world_id: str, db: Session) -> LorePlan:
     calls = tuple(_coerce_call(c) for c in raw_calls)
 
     return LorePlan(mentions=mentions, calls=calls)
-
-
-def _author_model() -> str:
-    from .entity_author import AUTHOR_MODEL  # lazy: avoids the import cycle (prompt_registry precedent)
-    return AUTHOR_MODEL
