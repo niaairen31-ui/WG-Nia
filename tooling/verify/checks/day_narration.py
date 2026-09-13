@@ -155,6 +155,20 @@ def _find_function(tree: ast.AST, name: str) -> "ast.FunctionDef | None":
     return None
 
 
+def _imported_local_names(tree: ast.AST, target_names: set[str]) -> set[str]:
+    """Local names bound to any of `target_names` via `from x import name`
+    or `from x import name as alias`, anywhere in `tree` (TICKET-0086): a
+    call-site scan by bare name goes blind the moment the import is
+    aliased, so callers resolve the alias here instead of hardcoding it."""
+    local_names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name in target_names:
+                    local_names.add(alias.asname or alias.name)
+    return local_names
+
+
 def _all_src_files() -> list[pathlib.Path]:
     return sorted(SRC.rglob("*.py"))
 
@@ -302,11 +316,23 @@ def check_bounded_rewrite() -> None:
     # one call site, itself inside at least one `if`, is what "reachable
     # from exactly one trigger condition" means structurally: the rewrite
     # is invoked from a single guarded place, never looped.
+    #
+    # `day.py` imports `day_narration.rewrite` under an alias
+    # (`rewrite as rewrite_narration`) to keep it apart from the unrelated
+    # `day_rewrite.render` (the declaration-rewrite concept) in the same
+    # module -- a literal name match against "rewrite" misses that call
+    # entirely (TICKET-0086). Resolve any local alias bound to `rewrite`/
+    # `day_rewrite` via this file's own `from ... import` statements first,
+    # so a rename or a future re-alias doesn't silently blind this check
+    # again.
+    rewrite_names = {"rewrite", "day_rewrite"} | _imported_local_names(
+        route_tree, {"rewrite", "day_rewrite"}
+    )
     rewrite_calls = [
         node for node in ast.walk(resolve_fn)
         if isinstance(node, ast.Call) and (
-            (isinstance(node.func, ast.Name) and node.func.id in ("rewrite", "day_rewrite"))
-            or (isinstance(node.func, ast.Attribute) and node.func.attr in ("rewrite", "day_rewrite"))
+            (isinstance(node.func, ast.Name) and node.func.id in rewrite_names)
+            or (isinstance(node.func, ast.Attribute) and node.func.attr in rewrite_names)
         )
     ]
     if not rewrite_calls:

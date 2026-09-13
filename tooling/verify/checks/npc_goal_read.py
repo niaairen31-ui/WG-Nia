@@ -74,6 +74,12 @@ ALLOWED_MODULES = {
     # content) reaches a payload, a response or a model prompt — the
     # allowlist grows by a READ MODULE, same precedent as observation_reads.py.
     "src/world_engine/day_concordance.py",
+    # TICKET-0086 (originally added by TICKET-0081, BRIEF-0081-a). A check
+    # fixture, not a reader: this golden file seeds NpcGoal rows
+    # (`_make_standing_goal`) to build its own occupation-casting test
+    # corpus. Allowlisted by name, one entry, on the same precedent as
+    # observation_runner.py's own entry above.
+    "tooling/verify/checks/day_concordance_golden.py",
 }
 
 FAILURES: list[str] = []
