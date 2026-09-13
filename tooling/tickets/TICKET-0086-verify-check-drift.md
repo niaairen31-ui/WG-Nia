@@ -3,7 +3,7 @@ id: TICKET-0086
 slug: verify-check-drift
 title: corpus_gate red on main -- two checks drifted behind legitimate refactors (day_narration R6, npc_goal_read allowlist)
 type: bug
-status: intake
+status: live-gate
 created: 2026-09-13
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
