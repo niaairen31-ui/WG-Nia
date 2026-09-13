@@ -3,14 +3,14 @@ id: TICKET-0085
 slug: lore-consultation
 title: Natural-language lore consultation surface (read-only)
 type: feature
-status: intake
+status: escalated
 created: 2026-09-11
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
 blast_radius: medium
 brief_ids: [BRIEF-0085-a, BRIEF-0085-b, BRIEF-0085-c, BRIEF-0085-d, BRIEF-0085-e]
 schema_version_touched: none
-retry_count: 0
+retry_count: 1
 ---
 
 ## Request (verbatim, as Nia stated it)
