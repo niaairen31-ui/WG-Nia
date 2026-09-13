@@ -243,6 +243,20 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         call_sites=("src/world_engine/npc_group_author.py:_load_placement_template",),
         default_model=_author_model,
     ),
+    "lore_question_to_plan": PromptSpec(
+        surface="authoring",
+        # world_scoped=False: the planner prompt carries no world content --
+        # only the fixed selector whitelist and the creator's question, both
+        # identical in every world, so a per-world override row would be a
+        # row nobody has a reason to differentiate. (Not "every authoring
+        # usage is False" -- npc_link_coherence is authoring and True, for
+        # the real reason that its content IS world-specific: it judges
+        # whether a relationship fits a given world's tone.)
+        world_scoped=False,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/lore_plan.py:draft_plan",),
+        default_model=_author_model,
+    ),
     "world_tick": PromptSpec(
         surface="play",
         world_scoped=False,

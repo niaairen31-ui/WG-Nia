@@ -135,3 +135,35 @@ def resolve_named(surface_form: str, category: str, world_id: str, db: Session) 
         verdict="unmatched", entity_id=None, candidate_ids=(), rung=None,
         rungs_tried=tuple(rungs_tried),
     )
+
+
+def pre_resolved(entity_id: str) -> NamedResolution:
+    """A creator-chosen binding from `/api/lore/resolve` (BRIEF-0085-c),
+    treated as already resolved -- never routed through a rung. Lives here,
+    not as an inline `NamedResolution(...)` in `lore_query.py`, so that
+    module's `verdict=` keyword stays exclusively `LoreResult`'s closed
+    five-value set for `lore_selectors.py`'s R5 check."""
+    return NamedResolution(
+        verdict="matched", entity_id=entity_id, candidate_ids=(entity_id,),
+        rung=None, rungs_tried=(),
+    )
+
+
+def validate_binding(entity_id: str, category: str, world_id: str, db: Session) -> bool:
+    """True iff `entity_id` is an active entity in `world_id` whose `type`
+    matches `_CATEGORY_ENTITY_TYPE[category]`. Used by `/api/lore/resolve`
+    (TICKET-0085, BRIEF-0085-c) to re-check a client-echoed binding: the id
+    was produced by this server a moment ago, but a client-supplied plan is
+    untrusted input all the same, so it is looked up again, never trusted."""
+    entity_type = _CATEGORY_ENTITY_TYPE.get(category)
+    if entity_type is None:
+        return False
+    entity = db.exec(
+        select(Entity).where(
+            Entity.id == entity_id,
+            Entity.world_id == world_id,
+            Entity.type == entity_type,
+            Entity.status == "active",
+        )
+    ).first()
+    return entity is not None

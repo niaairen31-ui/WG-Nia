@@ -15179,6 +15179,60 @@ verdict — the rows themselves show which mention came up empty. G1 check
 that names no `"section"` literal actually emitted in `lore_selectors.py`
 is a failure, so a typo cannot silently make every row substantive.
 
+## LORE CONSULTATION — QUESTION TO PLAN, CLIENT-HELD DISAMBIGUATION (BRIEF-0085-c, no schema change)
+
+**The plan is client-held, never server-stored.** `/api/lore/ask` drafts a
+`LorePlan` through the model (`lore_plan.draft_plan`, the only place in
+TICKET-0085 where a model reads the creator's question) and returns it
+serialized in the response body alongside the verdict, rows, and trace.
+`/api/lore/resolve` takes that exact plan back from the client together with
+creator-chosen bindings, and never calls `draft_plan` again — enforced
+structurally (`lore_isolation.py` R7 scans the `/api/lore/resolve` handler's
+AST for a call to `draft_plan`). No table, no server-side cache keyed by
+request id: the surface is stateless, matching BRIEF-0085-b's non-persisted
+trace. This is the first cockpit route to hand a client state it is expected
+to echo back on a later request (RECON R-h found no existing precedent) —
+the alternative (a request-id-keyed dict "just for convenience") was the
+Scope OUT item explicitly decided against.
+
+**Disambiguation resolves every ambiguous mention in one round, never one at
+a time.** `/api/lore/ask`'s `candidates` field carries every ambiguous
+mention's enriched candidate list (`lore_candidates.describe_candidates` —
+name, type, description, `location_name`; reads only `entity` and
+`character`, so nothing carrying `is_secret` is reachable from it), keyed by
+`ref`. `/api/lore/resolve` accepts a `bindings: {ref: entity_id}` map
+covering as many refs as the creator is ready to resolve in a single call.
+
+**A binding is re-validated at `/api/lore/resolve`, never trusted because the
+server produced the id a moment ago.** `lore_resolve.validate_binding`
+re-checks that a bound `entity_id` is an active entity in the given world
+whose `type` matches the bound mention's category
+(`_CATEGORY_ENTITY_TYPE`) — a client-echoed plan is untrusted input like any
+other request body. `/api/lore/ask` receives no bindings and performs no such
+validation. `execute_plan` (`lore_query.py`) grew an optional `bindings`
+parameter so a bound mention is treated as pre-resolved
+(`lore_resolve.pre_resolved`) and never re-routed through `resolve_named` —
+re-resolving an already-disambiguated mention would just reproduce the same
+ambiguity. `pre_resolved` lives in `lore_resolve.py`, not as an inline
+`NamedResolution(verdict="matched", ...)` in `lore_query.py`, so that
+module's `verdict=` keyword literals stay exclusively `LoreResult`'s closed
+five-value set — `lore_selectors.py` R5 scans every `verdict=` keyword in
+`lore_query.py` and would otherwise misread `NamedResolution`'s vocabulary as
+an undeclared sixth `LoreResult` verdict.
+
+**`world_scoped` is not an authoring-vs-play switch — it is "would a creator
+ever want a per-world override of this template."** RECON R-c measured that
+BRIEF-0085-c's original justification for `lore_question_to_plan`'s
+`world_scoped=False` ("every authoring usage is `False`") was wrong:
+`npc_link_coherence` is `surface="authoring"` and `world_scoped=True`,
+correctly, because its content — whether a relationship fits a given world's
+tone — genuinely varies by world. `lore_question_to_plan` keeps
+`world_scoped=False`, but for the corrected reason: its only variable
+content is the fixed, code-owned selector list and the creator's question,
+identical in every world, so a per-world override row would differentiate
+nothing. A future `PROMPT_REGISTRY` entry should be judged on this
+criterion, not on `surface` alone.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -16,7 +16,7 @@ from typing import Optional
 
 from sqlmodel import Session
 
-from .lore_resolve import resolve_named
+from .lore_resolve import pre_resolved, resolve_named
 from .lore_selectors import SELECTORS, _SELECTOR_LOOKUPS
 
 
@@ -91,11 +91,21 @@ def validate_plan(plan: LorePlan, db: Session) -> PlanValidation:
     return PlanValidation(True, None)
 
 
-def _resolve_mentions(plan: LorePlan, world_id: str, db: Session) -> tuple[dict, list[dict]]:
+def _resolve_mentions(
+    plan: LorePlan, world_id: str, db: Session, bindings: Optional[dict[str, str]] = None
+) -> tuple[dict, list[dict]]:
+    bindings = bindings or {}
     resolutions = {}
     trace: list[dict] = []
     for mention in plan.mentions:
-        resolution = resolve_named(mention.surface_form, mention.category, world_id, db)
+        if mention.ref in bindings:
+            # A creator-chosen binding from /api/lore/resolve: pre-resolved,
+            # never re-run through resolve_named (BRIEF-0085-c item 6) --
+            # re-resolving an already-disambiguated mention would just hit
+            # the same ambiguity again.
+            resolution = pre_resolved(bindings[mention.ref])
+        else:
+            resolution = resolve_named(mention.surface_form, mention.category, world_id, db)
         resolutions[mention.ref] = resolution
         trace.append(
             {
@@ -108,13 +118,21 @@ def _resolve_mentions(plan: LorePlan, world_id: str, db: Session) -> tuple[dict,
     return resolutions, trace
 
 
-def execute_plan(plan: LorePlan, world_id: str, db: Session) -> LoreResult:
+def execute_plan(
+    plan: LorePlan, world_id: str, db: Session, bindings: Optional[dict[str, str]] = None
+) -> LoreResult:
     """Resolves every mention through `resolve_named`, then dispatches each
     call through `_SELECTOR_LOOKUPS`, truncating at each spec's `row_cap`
     and recording the truncation in the trace rather than dropping it
     silently. Validation gates every path to a selector call: an invalid
     plan returns `unsupported_selector` before a single mention is even
-    resolved."""
+    resolved.
+
+    `bindings` (BRIEF-0085-c) maps a mention `ref` to a creator-chosen
+    `entity_id`, from `/api/lore/resolve`'s disambiguation round-trip: a
+    bound mention is treated as pre-resolved and never reaches
+    `resolve_named`. `None`/empty reproduces BRIEF-0085-b's original
+    behavior exactly -- the `/api/lore/ask` path never passes bindings."""
     validation = validate_plan(plan, db)
     if not validation.ok:
         return LoreResult(
@@ -123,7 +141,7 @@ def execute_plan(plan: LorePlan, world_id: str, db: Session) -> LoreResult:
             rejection_reason=validation.reason,
         )
 
-    resolutions, trace = _resolve_mentions(plan, world_id, db)
+    resolutions, trace = _resolve_mentions(plan, world_id, db, bindings)
 
     ambiguous = [
         {"ref": ref, "candidate_ids": resolution.candidate_ids}

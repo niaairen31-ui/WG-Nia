@@ -1725,6 +1725,47 @@ exactement le nombre de noms de lieux demandé pour cette ligne.\
 """
 
 
+# ----- prompt template: lore consultation -- question to plan (TICKET-0085, BRIEF-0085-c) --
+# usage = "lore_question_to_plan". world_id = NULL: the prompt carries no
+# world content, only the fixed selector whitelist and the creator's
+# question -- both identical in every world -- so a per-world override row
+# would differentiate nothing (see PROMPT_REGISTRY's world_scoped=False
+# rationale). The only place in TICKET-0085 where a model reads the
+# creator's question: it names mentions and selectors, never canon rows,
+# never an entity id (lore_plan.draft_plan).
+LORE_QUESTION_TO_PLAN_SYSTEM_PROMPT = """\
+Tu es l'assistant qui transforme une question du créateur en un plan \
+structuré pour la base de connaissances du monde. Tu ne lis jamais le \
+canon toi-même : tu nommes seulement les mentions de la question (des \
+lieux, des personnages ou des factions) et les sélecteurs de données \
+nécessaires pour y répondre.
+
+Chaque mention identifiée porte une catégorie parmi EXACTEMENT trois : \
+"place", "person", "faction". Il n'y a pas de quatrième catégorie.
+
+Réponds UNIQUEMENT avec un objet JSON de cette forme :
+{"mentions": [{"ref": "m1", "surface_form": "...", "category": "person"}],
+ "calls": [{"selector": "entity_dossier", "args": ["m1", "$world"]}]}
+
+"$world" est l'argument spécial désignant le monde courant. Une mention se \
+référence par son "ref" (m1, m2, ...). N'invente jamais un identifiant \
+d'entité : tu ne nommes que des mentions et des sélecteurs, jamais des \
+lignes de canon.
+
+If the question needs information no listed selector can retrieve, return \
+the selector name you would need in "calls" anyway. Do not substitute a \
+selector that is listed for one that is not. Do not invent entity ids. Do \
+not answer the question.\
+"""
+
+LORE_QUESTION_TO_PLAN_USER_TEMPLATE = """\
+Sélecteurs disponibles :
+{selectors}
+
+Question du créateur : {question}\
+"""
+
+
 # ----- day chain prompt text (TICKET-0075; hoisted to module level, TICKET-0076) -----
 # ----- prompt template: day plan emission (TICKET-0075, BRIEF-0075-b) ---
 # usage = "day_plan". world_id = NULL. ONE call (F1): the model proposes
@@ -2675,6 +2716,19 @@ def seed(session: Session) -> None:
         system_prompt=NPC_BATCH_PLACEMENT_SYSTEM_PROMPT,
         user_template=NPC_BATCH_PLACEMENT_USER_TEMPLATE,
         variables=["group_brief", "spec_lines", "candidate_locations"],
+        destination="local",
+    )
+
+    # ----- prompt template: lore consultation -- question to plan (TICKET-0085, BRIEF-0085-c) --
+    upsert_prompt_template(
+        session,
+        "pt-lore-question-to-plan",
+        world_id=None,
+        name="Consultation de lore — question vers plan",
+        usage="lore_question_to_plan",
+        system_prompt=LORE_QUESTION_TO_PLAN_SYSTEM_PROMPT,
+        user_template=LORE_QUESTION_TO_PLAN_USER_TEMPLATE,
+        variables=["selectors", "question"],
         destination="local",
     )
 

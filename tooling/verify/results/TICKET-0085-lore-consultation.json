@@ -1,0 +1,27 @@
+{
+  "ticket": "TICKET-0085-lore-consultation",
+  "when": "2026-09-13T14:38:30.893238+00:00",
+  "green": false,
+  "checks": [
+    {
+      "check": "lore_resolve.py",
+      "status": "PASS",
+      "msg": "PASS: lore_resolve \u2014 purity, no casting, the named-rung bijection, world scoping at construction, and the no-duplicate-normalizer guard are all intact"
+    },
+    {
+      "check": "lore_selectors.py",
+      "status": "PASS",
+      "msg": "PASS: lore_selectors \u2014 the whitelist bijection, table-only dispatch, declared row caps, the validation gate, and the closed verdict set are all intact"
+    },
+    {
+      "check": "lore_isolation.py",
+      "status": "PASS",
+      "msg": "PASS: lore_isolation \u2014 purity (R1, R4), world scoping at construction (R2), the discoverable_detail exclusion (R3), the planner's canon-blindness (R5), the route's thinness (R6), the no-redraft-on-resolve guard (R7), and the selector/category vocabulary parity checks (R8, R9) are all intact"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "FAIL",
+      "msg": "SUMMARY: 2 check(s) failed (0 environment, 0 crash, 0 timeout, 2 other)"
+    }
+  ]
+}
