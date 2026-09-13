@@ -15362,22 +15362,30 @@ filtered to `section === 'identity'`; absent an `entity_id` (`unmatched` or
 fallback per the ticket's own empty-message-1 semantics (no entity exists to
 name).
 
-**Found during R-b, out of this step's scope: `/api/lore/ask` cannot reach
-the template-renderer fallback on a cold Ollama outage.** `ask_lore` (`cockpit/
-routes/lore.py`) calls `ollama_client.ping()` before drafting a plan and
-raises `503` on failure; `draft_plan` (question -> plan, BRIEF-0085-b) has no
-non-model path. The `answered`-verdict fallback to `render_template`
-(BRIEF-0085-d) exists only inside `render`, reachable solely once a plan has
-already been drafted and executed — so a fresh question asked while Ollama is
-down fails at the route's ping gate, never reaching a template answer. This
-surfaces the frontend's error path correctly (item 8: a non-2xx response
-displays as a server error), but it means the ticket's own live-gate item
-("With Ollama stopped, the same questions still answer via the template
-renderer") and this brief's matching Done-means item cannot both pass as
-currently wired. Not a frontend defect and not fixed here — Scope OUT
-forbids an API or engine change in this step; flagged here as a REPORT
-finding (per this brief's own "adapt, don't halt" instruction for non-blocking
-findings) for Nia to route to a follow-up ticket.
+**Found during R-b, reclassified BLOCKING (not REPORT) by Nia: `/api/lore/ask`
+cannot reach the template-renderer fallback on a cold Ollama outage.**
+`ask_lore` (`cockpit/routes/lore.py`) calls `ollama_client.ping()` before
+drafting a plan and raises `503` on failure; `draft_plan` (question -> plan,
+BRIEF-0085-b) has no non-model path. The `answered`-verdict fallback to
+`render_template` (BRIEF-0085-d) exists only inside `render`, reachable
+solely once a plan has already been drafted and executed — so a fresh
+question asked while Ollama is down fails at the route's ping gate, never
+reaching a template answer. This surfaces the frontend's error path
+correctly (item 8: a non-2xx response displays as a server error), but it
+fails the ticket's own live-gate item ("With Ollama stopped, the same
+questions still answer via the template renderer") and this brief's matching
+Done-means item — so TICKET-0085 does not close independently of this. Not a
+frontend defect and not fixed here — Scope OUT forbids an API or engine
+change in this step. Left untouched on `ticket/0085`/`ticket/0086`; comes
+back as its own brief once Nia decides the shape of the fix, since the fix
+is not obvious: the planner is a model call, so a genuinely fresh question
+cannot be answered with Ollama down (the template renderer cannot rescue a
+question that was never parsed into a plan) — `/api/lore/resolve` is the
+opposite case and was confirmed, by a live test with a temporary
+`OLLAMA_HOST` override (no code change, reverted), to already work fully
+offline today: it does not pre-flight ping, and a previously-obtained plan
+resolved through it while Ollama is unreachable returns `"renderer":
+"template"` with correct prose.
 
 ---
 
