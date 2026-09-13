@@ -20,6 +20,8 @@ from sqlmodel import Session
 
 from ... import lore_candidates as _lore_candidates
 from ... import lore_plan as _lore_plan
+from ... import lore_prompt as _lore_prompt
+from ... import lore_render as _lore_render
 from ... import lore_resolve as _lore_resolve
 from ... import ollama_client
 from ...db import get_session
@@ -38,6 +40,12 @@ class LoreResolveBody(BaseModel):
     plan: dict
     bindings: dict[str, str]
     world_id: str
+    # The plan is client-held (no server-side plan storage); so is the
+    # question it was drafted from. A resolved plan can turn out "answered"
+    # (BRIEF-0085-c: a binding can settle every mention), and rendering that
+    # verdict needs the original question text for the model prompt --
+    # nothing server-side remembers it between /ask and /resolve.
+    question: str
 
 
 def _serialize_plan(plan: LorePlan) -> dict:
@@ -65,19 +73,23 @@ def _deserialize_plan(raw: dict) -> LorePlan:
     return LorePlan(mentions=mentions, calls=calls)
 
 
-def _result_body(plan: LorePlan, result, db: Session) -> dict:
+def _result_body(plan: LorePlan, result, question: str, db: Session) -> dict:
     candidates: dict[str, list[dict]] = {}
     if result.verdict == "ambiguous_mention":
         candidates = {
             am["ref"]: _lore_candidates.describe_candidates(am["candidate_ids"], db)
             for am in result.ambiguous_mentions
         }
+    spec = _lore_prompt.load(db, "lore_rows_to_prose")
+    rendered = _lore_render.render(result, question, spec, candidates)
     return {
         "verdict": result.verdict,
         "rows": list(result.rows),
         "trace": result.trace,
         "plan": _serialize_plan(plan),
         "candidates": candidates,
+        "answer": rendered.prose,
+        "renderer": rendered.renderer,
     }
 
 
@@ -94,7 +106,7 @@ def ask_lore(body: LoreAskBody, db: Session = Depends(get_session)) -> dict:
         raise HTTPException(status_code=502, detail=f"lore plan drafting failed: {exc}") from exc
 
     result = execute_plan(plan, body.world_id, db)
-    return _result_body(plan, result, db)
+    return _result_body(plan, result, body.question, db)
 
 
 @router.post("/api/lore/resolve")
@@ -116,4 +128,4 @@ def resolve_lore(body: LoreResolveBody, db: Session = Depends(get_session)) -> d
             )
 
     result = execute_plan(plan, body.world_id, db, bindings=body.bindings)
-    return _result_body(plan, result, db)
+    return _result_body(plan, result, body.question, db)

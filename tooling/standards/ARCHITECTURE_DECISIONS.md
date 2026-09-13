@@ -15233,6 +15233,92 @@ identical in every world, so a per-world override row would differentiate
 nothing. A future `PROMPT_REGISTRY` entry should be judged on this
 criterion, not on `surface` alone.
 
+## THE RENDERER — A THIRD MODEL ROLE, SESSION-FREE BY CONSTRUCTION (BRIEF-0085-d, no schema change)
+
+**The model proposes, judges, or renders — never more than one at a time on
+this chantier.** `lore_plan.draft_plan` proposes a plan; nothing on this
+chantier judges (there is no verdict-checking model call); `lore_render.render`
+renders prose from rows the plan's execution already produced. Only the
+`answered` verdict reaches a model: `unknown_entity`, `silent_canon`,
+`unsupported_selector` and `ambiguous_mention` are rendered by code before a
+`chat(` call is ever reachable (`lore_isolation.py` R11, which walks
+`render`'s call graph rather than trusting a single function's own body,
+since the actual model call lives one hop away in `_call_model`) — an empty
+retrieval can never be filled in by a model asked to explain an absence.
+
+**The section contract: every selector row carries a `"section"` key,
+enforced once, at the boundary.** BRIEF-0085-d's first RECON pass found that
+BRIEF-0085-b's `world_factions` rows carried none — only `entity_dossier`'s
+did — which made "group rows by section" undefined for the very
+`world_factions` question this step's Done-means tests. Fixed by the
+narrowest possible amendment, in its own commit: `world_factions` now emits
+`"section": "factions"`, and `lore_query.execute_plan` raises, naming the
+selector, if any selector ever returns a row without one
+(`lore_selectors.py` R6 already guarded `context_sections`' vocabulary; nothing
+previously guarded `"section"`'s presence). A later selector cannot repeat
+the gap silently.
+
+**R10's original text ("no `Session` parameter") was a proxy for the real
+goal ("the renderer cannot reach canon"), and the proxy under-specified the
+goal.** Every model-calling function elsewhere in this codebase
+(`lore_plan.draft_plan`, `play_stream._load_mj_narration_template`, …) loads
+its own `prompt_template` with the same `Session` it uses for everything
+else — but `effective_model` needs a `PromptTemplate` row, and fetching one
+needs a `select(`, which `render` was never going to be allowed to run
+itself. The fix is a dedicated module, `lore_prompt.py`, that owns the
+`Session` for this chantier's prompt resolution and nothing else (guarded by
+new R15: every `select(` in it names only `PromptTemplate`/`PromptVersion`),
+and hands callers a `RenderSpec` — a frozen dataclass of three plain strings
+(`system_prompt`, `user_template`, `model`) — instead of the ORM rows
+themselves. A detached `PromptTemplate`/`PromptVersion` is not inert: it can
+lazy-load through its relationships, which would make it a door back to the
+database no static check could see; a plain string cannot be. `render`'s
+signature is pinned to `(result, question, spec, candidates)` — no
+`Session`, ever, in any revision — and R10 stayed exactly as blunt as
+originally written: a G1 gate that required judgment about which `Session`
+use is acceptable would stop being a gate.
+
+**`draft_plan` was rewired onto `lore_prompt.load` in its own commit, as a
+pure refactor.** Two loaders resolving the same `prompt_template` shape for
+the same chantier is exactly the drift these isolation checks exist to
+prevent. Verified behavior-identical against the seeded test DB before and
+after (same `system_prompt`/`user_template`/`model`, same `LlmParseError` on
+a missing template) — the only observable change is the exception message's
+module-name prefix (`lore_prompt:` instead of `lore_plan:`), which nothing
+asserts against.
+
+**Ambiguous-mention detail reaches the renderer as plain data, not a second
+Session.** Rendering `ambiguous_mention`'s message needs each candidate's
+name/type/description/location — data only `lore_candidates.describe_candidates`
+can produce, and that needs a `Session` too. Rather than giving `render` a
+second database door, the route (which already computes this exact
+`{ref: [candidate, ...]}` shape for its own `candidates` response field)
+passes it into `render` as its fourth parameter, `{}` on every verdict but
+`ambiguous_mention`. The per-mention surface form for each block comes from
+`result.trace`'s mention-resolution entries (filtered to
+`verdict == "ambiguous"`), which preserve the same plan order as
+`result.ambiguous_mentions` — both are built from the single pass over
+`plan.mentions` in `lore_query._resolve_mentions`/`execute_plan` — so the two
+sequences zip correctly with no third lookup.
+
+**"Near candidates" on `unknown_entity` is a real branch with no source yet.**
+Item 5's wording carries two forms — with and without near-candidate
+suggestions — but nothing upstream computes one: `lore_resolve.resolve_named`
+has only exact/token rungs, which either match or don't; there is no fuzzy
+rung. The "with near candidates" message stays a named module-level constant
+(R13) for when a rung like that exists, but every case today renders the
+"without" form. Not a gap to close in this step — no Done-means bullet
+exercises it, and inventing a fuzzy-match source was never this brief's job.
+
+**`/api/lore/resolve` gained a `question` field.** The plan is client-held
+(BRIEF-0085-c); so, it turns out, is the question it was drafted from — and
+a resolved plan can legitimately turn `answered` (a binding can settle every
+remaining mention), which needs the original question text for the model
+prompt. Nothing server-side remembers it between `/ask` and `/resolve` (no
+plan cache, by design), so the client re-sends it. BRIEF-0085-e's frontend
+already holds the plan to re-send; holding the question text alongside it is
+no additional state.
+
 ---
 
 *Co-built with Claude, June 2026.*

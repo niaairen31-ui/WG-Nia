@@ -32,6 +32,21 @@ R15 (prompt loader scoped to prompt tables): every `select(` in
 `lore_prompt.py` references only `PromptTemplate`/`PromptVersion` -- the
 module that owns the Session for this chantier's prompt resolution must
 never become a canon door by a later edit.
+R10 (renderer isolation): `lore_render.py` contains no `select(`, no
+`db.add(`, no `.commit(`, and no `Session` identifier anywhere -- the
+renderer is Session-free by construction, not by convention.
+R11 (no model call on an empty verdict): in `render`'s AST, no path
+reachable from the verdict-gating `if` (the branch taken when
+`verdict != "answered"`) reaches a call to `chat(`, directly or through a
+local helper -- the empty branches return before the model is ever in
+reach.
+R12 (deterministic fallback wired): `lore_render.py` contains a `try` whose
+`except` names `OllamaError` and whose body reaches `render_template`.
+R13 (message constants, not inline literals): the six deterministic
+message templates exist as named module-level string constants.
+R14 (unknown section never silently dropped): `render_template`'s AST
+contains a `raise`, directly or through a local helper it calls -- a row
+in a section outside the vocabulary fails loud rather than vanishing.
 
 Every rule above is vacuity-guarded — a rule that locates zero items is a
 FAILURE, not a silent pass. (R5-R7 are negative-existence checks over a
@@ -53,9 +68,18 @@ LORE_PLAN_FILE = SRC / "lore_plan.py"
 LORE_RESOLVE_FILE = SRC / "lore_resolve.py"
 LORE_ROUTE_FILE = SRC / "cockpit" / "routes" / "lore.py"
 LORE_PROMPT_FILE = SRC / "lore_prompt.py"
+LORE_RENDER_FILE = SRC / "lore_render.py"
 PURITY_FILES = (LORE_SELECTORS_FILE, LORE_QUERY_FILE)
 
 _ALLOWED_PROMPT_MODELS = {"PromptTemplate", "PromptVersion"}
+_EXPECTED_DETERMINISTIC_MESSAGE_CONSTANTS = {
+    "_UNKNOWN_ENTITY_WITH_NEAR",
+    "_UNKNOWN_ENTITY_WITHOUT_NEAR",
+    "_SILENT_CANON_WITH_ENTITY",
+    "_SILENT_CANON_WITHOUT_ENTITY",
+    "_UNSUPPORTED_SELECTOR",
+    "_AMBIGUOUS_MENTION_HEADER",
+}
 
 _FORBIDDEN_CANON_MODELS = {"Knowledge", "Relation", "NpcGoal", "FactionMembership"}
 
@@ -355,6 +379,183 @@ def check_category_vocabulary_parity() -> None:
         fail(f"lore_isolation R9: _MENTION_CATEGORIES value(s) {sorted(orphan)!r} are not in _CATEGORY_ENTITY_TYPE")
 
 
+def _local_functions(tree: ast.AST) -> dict[str, ast.FunctionDef]:
+    return {node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+
+
+def _reaches_call(
+    node: ast.AST, target: str, functions: dict[str, ast.FunctionDef], visited: "set[str] | None" = None
+) -> bool:
+    """True if `node`'s subtree calls a function named `target`, either
+    directly or through a local function (defined in the same module,
+    resolved via `functions`) it calls -- transitively, memoized against
+    `visited` so a call cycle cannot loop forever."""
+    visited = visited if visited is not None else set()
+    for sub in ast.walk(node):
+        if not (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name)):
+            continue
+        name = sub.func.id
+        if name == target:
+            return True
+        if name in functions and name not in visited:
+            visited.add(name)
+            if _reaches_call(functions[name], target, functions, visited):
+                return True
+    return False
+
+
+def _reaches_raise(
+    node: ast.AST, functions: dict[str, ast.FunctionDef], visited: "set[str] | None" = None
+) -> bool:
+    """Same transitive-through-local-helpers idiom as `_reaches_call`, for a
+    bare `raise` statement instead of a named call."""
+    visited = visited if visited is not None else set()
+    if any(isinstance(sub, ast.Raise) for sub in ast.walk(node)):
+        return True
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name):
+            name = sub.func.id
+            if name in functions and name not in visited:
+                visited.add(name)
+                if _reaches_raise(functions[name], functions, visited):
+                    return True
+    return False
+
+
+def check_render_isolation() -> None:
+    """R10: `lore_render.py` contains no `select(`, no `db.add(`, no
+    `.commit(`, and no `Session` identifier anywhere -- Session-free by
+    construction, not by convention."""
+    tree = _parse(LORE_RENDER_FILE)
+    if tree is None:
+        return
+    hits: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if (
+                isinstance(func, ast.Attribute) and func.attr in ("add", "commit")
+                and isinstance(func.value, ast.Name) and func.value.id == "db"
+            ):
+                hits.add(f"db.{func.attr}(")
+            elif isinstance(func, ast.Name) and func.id == "select":
+                hits.add("select(")
+        elif isinstance(node, ast.Name) and node.id == "Session":
+            hits.add("Session")
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == "Session" or alias.asname == "Session":
+                    hits.add("Session (import)")
+    if hits:
+        fail(
+            f"lore_isolation R10: {_rel(LORE_RENDER_FILE)} contains forbidden reference(s) "
+            f"{sorted(hits)!r} -- the renderer must stay Session-free by construction"
+        )
+
+
+def check_render_no_chat_on_empty_path() -> None:
+    """R11: no path reachable from `render`'s verdict-gating `if` (the
+    branch taken when `verdict != "answered"`) reaches a call to `chat(`,
+    directly or through a local helper -- the empty branches return before
+    the model is ever in reach."""
+    tree = _parse(LORE_RENDER_FILE)
+    if tree is None:
+        return
+    functions = _local_functions(tree)
+    render_fn = functions.get("render")
+    if render_fn is None:
+        fail(f"lore_isolation R11: {_rel(LORE_RENDER_FILE)}: render function not found")
+        return
+    gate = None
+    for stmt in render_fn.body:
+        if isinstance(stmt, ast.If) and any(
+            isinstance(sub, ast.Attribute) and sub.attr == "verdict" for sub in ast.walk(stmt.test)
+        ):
+            gate = stmt
+            break
+    if gate is None:
+        fail(f"lore_isolation R11: {_rel(LORE_RENDER_FILE)}: render has no verdict-gating if-statement")
+        return
+    if not any(isinstance(sub, ast.Return) for sub in ast.walk(gate)):
+        fail(f"lore_isolation R11: {_rel(LORE_RENDER_FILE)}: the verdict-gating if-statement does not return")
+        return
+    if _reaches_call(gate, "chat", functions):
+        fail(
+            f"lore_isolation R11: {_rel(LORE_RENDER_FILE)}: a path reachable when verdict != 'answered' "
+            "reaches chat( -- every empty verdict must be rendered by code, never the model"
+        )
+
+
+def check_render_ollama_fallback() -> None:
+    """R12: `lore_render.py` contains a `try` whose `except` names
+    `OllamaError` and whose body reaches `render_template`."""
+    tree = _parse(LORE_RENDER_FILE)
+    if tree is None:
+        return
+    functions = _local_functions(tree)
+    found = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try):
+            continue
+        for handler in node.handlers:
+            handler_type = handler.type
+            names: set[str] = set()
+            if isinstance(handler_type, ast.Name):
+                names.add(handler_type.id)
+            elif isinstance(handler_type, ast.Attribute):
+                names.add(handler_type.attr)
+            elif isinstance(handler_type, ast.Tuple):
+                for elt in handler_type.elts:
+                    if isinstance(elt, ast.Name):
+                        names.add(elt.id)
+                    elif isinstance(elt, ast.Attribute):
+                        names.add(elt.attr)
+            if "OllamaError" in names and any(_reaches_call(stmt, "render_template", functions) for stmt in handler.body):
+                found = True
+    if not found:
+        fail(
+            f"lore_isolation R12: {_rel(LORE_RENDER_FILE)}: no try/except naming OllamaError "
+            "and reaching render_template was found"
+        )
+
+
+def check_render_deterministic_message_constants() -> None:
+    """R13: the six deterministic message templates exist as named
+    module-level string constants, not inline literals."""
+    tree = _parse(LORE_RENDER_FILE)
+    if tree is None:
+        return
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id in _EXPECTED_DETERMINISTIC_MESSAGE_CONSTANTS:
+                found.add(target.id)
+    missing = _EXPECTED_DETERMINISTIC_MESSAGE_CONSTANTS - found
+    if missing:
+        fail(f"lore_isolation R13: {_rel(LORE_RENDER_FILE)}: missing deterministic message constant(s) {sorted(missing)!r}")
+
+
+def check_render_template_raises_on_unknown_section() -> None:
+    """R14: `render_template`'s AST contains a `raise`, directly or through
+    a local helper it calls -- a row in a section outside the vocabulary
+    fails loud rather than vanishing."""
+    tree = _parse(LORE_RENDER_FILE)
+    if tree is None:
+        return
+    functions = _local_functions(tree)
+    render_template_fn = functions.get("render_template")
+    if render_template_fn is None:
+        fail(f"lore_isolation R14: {_rel(LORE_RENDER_FILE)}: render_template function not found")
+        return
+    if not _reaches_raise(render_template_fn, functions):
+        fail(
+            f"lore_isolation R14: {_rel(LORE_RENDER_FILE)}: render_template reaches no raise on the "
+            "unknown-section path -- rows must never be silently dropped"
+        )
+
+
 def check_prompt_loader_scoped_to_prompt_tables() -> None:
     """R15: every `select(` in `lore_prompt.py` references only
     `PromptTemplate`/`PromptVersion` -- the module that owns the Session for
@@ -395,6 +596,11 @@ def main() -> None:
     check_selector_description_coverage()
     check_category_vocabulary_parity()
     check_prompt_loader_scoped_to_prompt_tables()
+    check_render_isolation()
+    check_render_no_chat_on_empty_path()
+    check_render_ollama_fallback()
+    check_render_deterministic_message_constants()
+    check_render_template_raises_on_unknown_section()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -403,8 +609,10 @@ def main() -> None:
         "PASS: lore_isolation — purity (R1, R4), world scoping at construction (R2), "
         "the discoverable_detail exclusion (R3), the planner's canon-blindness (R5), "
         "the route's thinness (R6), the no-redraft-on-resolve guard (R7), the "
-        "selector/category vocabulary parity checks (R8, R9), and the prompt loader's "
-        "scoping to prompt tables (R15) are all intact"
+        "selector/category vocabulary parity checks (R8, R9), the prompt loader's "
+        "scoping to prompt tables (R15), and the renderer's isolation, no-model-on-empty-"
+        "verdict, Ollama fallback, message-constant, and unknown-section guards "
+        "(R10-R14) are all intact"
     )
     sys.exit(0)
 

@@ -336,6 +336,8 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   fact that feeds it, never from `activeTabKey` -- enforced by `creation_tab_switch.py`.
 - Inside a `$effect` body, a `$state` binding assigned there must not be read afterwards in the
   same body — enforced by `effect_self_write.py`.
+- **The lore renderer receives rows, never a `Session`,** and only the `answered` verdict reaches
+  a model — every empty verdict is rendered by code, so an absence is never explained by a model.
 
 ## Local model notes
 
