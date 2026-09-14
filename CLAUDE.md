@@ -176,6 +176,10 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   caps acquired/upgraded levels at `knows` in code; `analyze_window` has no
   structural cap (named deferral). Downgrades, forgetting, and
   `is_incorrect` correction are creator CRUD only.
+- **A `fact_participant` row is the aboutness claim for every `knowledge`
+  row on that fact.** `role` is descriptive only, never a filter or a
+  discriminator; `(fact_id, entity_id)` is unique, so every writer reads
+  before it writes.
 - **`scene_state` is a third, explicitly ephemeral write path.**
   `_write_scene_state` archives the previous snapshot to `history[]` before
   every write; cleared to `{}` on conversation close; never canon — durable

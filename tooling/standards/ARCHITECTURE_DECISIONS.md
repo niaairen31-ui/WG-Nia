@@ -15422,6 +15422,36 @@ not control whether Ollama is running (remote or multi-user access).
 already confirmed to answer fully offline via the template renderer when
 given a previously-obtained plan.
 
+## KNOWLEDGE SUBJECT IS A FACT PARTICIPANT, NOT A COLUMN (BRIEF-0087-a, no schema change)
+
+The subject of a `knowledge` row is carried by a `fact_participant` attached
+to its fact, not by a new column on `knowledge` (decision A2). Rejected:
+a nullable `knowledge.subject_entity_id`, proposed by the inbound handover —
+RECON found `fact_participant` already built at TICKET-0082 for exactly this
+purpose, sanctioned, checked, and holding zero rows. Reactivation condition:
+a `knowledge` row must carry a subject that differs from its fact's subject
+(i.e. a fact's participants and a row's actual subject genuinely diverge) —
+until then, populating the existing table is strictly less than adding a
+third notion of "what this row is about" beside `subject` and
+`fact_participant`.
+
+## FACT_PARTICIPANT HAS NO ROLE DISCRIMINATOR (BRIEF-0087-a, no schema change)
+
+`AMENDMENT-0087-1`, decision J2. `fact_participant` is keyed on
+`(fact_id, entity_id)` via `idx_fact_participant_unique`, added at
+TICKET-0082 and never widened; `role` (`Optional[str]`) is descriptive only
+and carries no identity. A participant IS the aboutness claim — a
+free-standing fact's participants are what "qui sait quoi sur X" reads,
+whether or not anyone ever marked one `role="subject"`. Rejected: J1 (keep a
+`role="subject"` marker, widen the idempotency guard to the pair) — it would
+miss the right answer whenever TICKET-0082 arity already occupies the pair,
+since the marker would never get applied. Rejected: J3 (widen the index to
+`(fact_id, entity_id, role)`) — DDL, would restore the `migration` danger
+class decision A2 removed, and would weaken TICKET-0082's arity invariant by
+admitting the same entity twice on one fact. Reactivation condition for a
+discriminator, grep-verifiable: a fact carries a participant that is not a
+subject of the knowledge attached to it.
+
 ---
 
 *Co-built with Claude, June 2026.*

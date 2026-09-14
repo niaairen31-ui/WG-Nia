@@ -25,6 +25,14 @@ fallback lives here rather than being duplicated at each caller — an
 explicit `fact_id` attaches to that existing fact; omitting it auto-creates
 a free-standing one (`writes/facts.py::create_fact`) with `content =
 subject`, matching the creator CRUD's documented behaviour exactly.
+
+`subject_entity_ids` (TICKET-0087, BRIEF-0087-a) attaches participants to
+the row's fact on create only, with no `role`; a participant IS the
+aboutness claim, so no discriminator distinguishes a subject from
+TICKET-0082 arity (decision J2, AMENDMENT-0087-1); the attachment is
+idempotent per `(fact_id, entity_id)`, which `idx_fact_participant_unique`
+enforces and the read-before-write guard exists to avoid tripping;
+validation of the ids belongs to the caller.
 """
 
 from __future__ import annotations
@@ -33,11 +41,11 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 from sqlalchemy.orm import attributes as sa_attrs
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from ..models import Entity, Knowledge
+from ..models import Entity, Fact, FactParticipant, Knowledge
 from ._shared import _clamp
-from .facts import create_fact
+from .facts import attach_participants, create_fact
 
 # knowledge.level enum (world-engine-schema.md): unaware | rumor | suspicious |
 # partial | knows | fully_understands.
@@ -117,19 +125,44 @@ def _build_knowledge_level_change(
     return k
 
 
+def _attach_subject_participants(
+    db: Session, *, fact: Fact, subject_entity_ids: Optional[list[str]],
+) -> None:
+    """Attach each id in `subject_entity_ids` to `fact`, no `role` (TICKET-0087,
+    BRIEF-0087-a, decision J2: a participant IS the aboutness claim, no
+    discriminator distinguishes a subject from TICKET-0082 arity). Idempotent
+    per `(fact_id, entity_id)`, which `idx_fact_participant_unique` enforces;
+    the read-before-write guard is mandatory, not defensive — a collision
+    raises `IntegrityError` at commit and aborts the surrounding transaction.
+    """
+    for entity_id in subject_entity_ids or []:
+        existing = db.exec(
+            select(FactParticipant).where(
+                FactParticipant.fact_id == fact.id,
+                FactParticipant.entity_id == entity_id,
+            )
+        ).first()
+        if existing is not None:
+            continue
+        attach_participants(db, fact=fact, entity_ids=[entity_id])
+
+
 def _build_knowledge_update(
     db: Session, *, knowledge_id: Optional[str], entity_id: Optional[str],
     subject: Optional[str], level: Optional[str], content: Optional[Any],
     source: Optional[Any], is_incorrect: bool, is_secret: bool,
     share_threshold: int, session_id: Optional[str], changed_by: str,
     fact_id: Optional[str] = None,
+    subject_entity_ids: Optional[list[str]] = None,
 ) -> Knowledge:
     """Pure build for `write_knowledge(mode="update")` (default) — no
     `db.add`. `level` falls back to "rumor" if missing/unrecognised
     (matches the analyzer's default for unreliable local-model output).
     On create, `fact_id` attaches to an existing fact; omitting it
     auto-creates a free-standing one via `writes/facts.py::create_fact`
-    with `content = subject` (see module docstring).
+    with `content = subject` (see module docstring). `subject_entity_ids`
+    is attached to that fact on create only (see module docstring); ignored
+    when updating an existing row.
     """
     norm_level = level if level in KNOWLEDGE_LEVELS else "rumor"
     threshold = _clamp(share_threshold)
@@ -160,9 +193,13 @@ def _build_knowledge_update(
         fact = create_fact(
             db, world_id=entity.world_id, content=resolved_subject, created_by=changed_by,
         )
-        fact_id = fact.id
+    else:
+        fact = db.get(Fact, fact_id)
+        if fact is None:
+            raise ValueError(f"write_knowledge: fact {fact_id!r} not found")
+    _attach_subject_participants(db, fact=fact, subject_entity_ids=subject_entity_ids)
     return Knowledge(
-        entity_id=entity_id, fact_id=fact_id, subject=resolved_subject, level=norm_level,
+        entity_id=entity_id, fact_id=fact.id, subject=resolved_subject, level=norm_level,
         content=content, source=source, is_incorrect=bool(is_incorrect),
         is_secret=bool(is_secret), share_threshold=threshold, session_id=session_id,
     )
@@ -184,6 +221,7 @@ def write_knowledge(
     session_id: Optional[str] = None,
     changed_by: str = "creator_crud",
     fact_id: Optional[str] = None,
+    subject_entity_ids: Optional[list[str]] = None,
 ) -> Knowledge:
     """Insert or update a `knowledge` row — the single sanctioned `knowledge`
     write site; this function itself calls `db.add`.
@@ -191,6 +229,11 @@ def write_knowledge(
     mode="update" (default; creator CRUD and `_apply_mutation`'s
     `new_knowledge`/`resource_change` branches): see `_build_knowledge_update`.
     `fact_id` is ignored when updating an existing row (`knowledge_id` set).
+    `subject_entity_ids` (TICKET-0087, BRIEF-0087-a) attaches participants to
+    the row's fact on create only, with no `role`; ignored on update and on
+    `mode="level_change"`. Idempotent per `(fact_id, entity_id)`, which
+    `idx_fact_participant_unique` enforces; validation of the ids is the
+    caller's responsibility.
 
     mode="level_change" (`_apply_mutation`'s `knowledge_change` branch
     only): see `_build_knowledge_level_change`.
@@ -204,7 +247,7 @@ def write_knowledge(
             db, knowledge_id=knowledge_id, entity_id=entity_id, subject=subject,
             level=level, content=content, source=source, is_incorrect=is_incorrect,
             is_secret=is_secret, share_threshold=share_threshold, session_id=session_id,
-            changed_by=changed_by, fact_id=fact_id,
+            changed_by=changed_by, fact_id=fact_id, subject_entity_ids=subject_entity_ids,
         )
 
     db.add(k)
