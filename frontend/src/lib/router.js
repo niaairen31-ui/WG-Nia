@@ -7,7 +7,7 @@
 
 // Mirrored verbatim in _SHELL_ROUTES (app.py); legacy_mount.py asserts
 // the two agree.
-export const SHELL_ROUTES = ["/", "/play", "/creation", "/creation/{sub_tab}", "/observation", "/journee"];
+export const SHELL_ROUTES = ["/", "/play", "/creation", "/creation/{sub_tab}", "/observation", "/journee", "/lore"];
 
 export function parse(pathname) {
   if (pathname === "/" || pathname === "/play") {
@@ -18,6 +18,9 @@ export function parse(pathname) {
   }
   if (pathname === "/journee") {
     return { surface: "journee", subTab: null };
+  }
+  if (pathname === "/lore") {
+    return { surface: "lore", subTab: null };
   }
   if (pathname === "/creation") {
     return { surface: "creation", subTab: null };

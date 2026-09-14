@@ -15077,6 +15077,351 @@ have offered two answers to "does magic exist here" — the exact ambiguity
 `skill_system` row, and nothing else. Magic's narrative intensity, if it is
 ever wanted again, returns as a property of that row, never of the world.
 
+## NAMED-RUNG EXTRACTION — SHARED WITH THE LORE CHANTIER, CASTING STAYS DAY-ONLY (BRIEF-0085-a, no schema change)
+
+**The two named rungs (`named_exact`, `named_token`) now live in a new
+`lore_resolve.py`, shared between the day chain and TICKET-0085's lore
+consultation surface (RECON-0085-a F1).** Both rungs depended on their
+`day_concordance` context only through `world_id` — no `Character`, no
+`connects_to` reachability, no casting machinery — so extraction to a
+module parameterized on `(surface_form, category, world_id, db)` was
+mechanical. `day_concordance._rung_named_exact`/`_rung_named_token` are now
+thin adapters: they keep the `mention.kind != "named"` guard, then delegate
+to `lore_resolve.rung_named_exact`/`rung_named_token`. Behavior is
+bit-identical — same `select(`, same `normalize_surface` (moved from
+`day_concordance._normalize_surface`, now public, docstring unchanged), same
+token-length floor. `day_concordance.MATCHING_RUNGS`/`_RUNG_LOOKUPS` and its
+existing bijection check are untouched.
+
+**Casting is NOT shared, on purpose.** `_cast_one`, `CAST_PRECEDENCE`,
+`who_is_at` and `Character` stay in `day_concordance` — casting resolves an
+INFERRED mention's multiple candidates down to one by play context (presence,
+relation, stability), which is play semantics the lore chantier's creator
+questions must never apply. A NAMED mention with two or more candidates is
+`ambiguous` on both paths: the day chain reports it to the player as
+unresolved; `lore_resolve.resolve_named` reports it to the creator as
+`NamedResolution(verdict="ambiguous", ...)` for disambiguation. Neither path
+picks. `named_alias` stays a permanent no-op in `day_concordance` only — it
+is not in `lore_resolve.NAMED_RUNGS`, per RECON F1's measurement that it has
+never had a backing table.
+
+## SELECTOR WHITELIST — THE MODEL NAMES A SELECTOR, NEVER A QUERY (BRIEF-0085-b, no schema change)
+
+**`lore_selectors.py` and `lore_query.py` complete the deterministic half of
+TICKET-0085's lore consultation surface.** The model, once BRIEF-0085-c
+wires it in, will only ever emit a plan — mentions plus selector calls drawn
+from `SELECTORS = ("entity_dossier", "world_factions")` — never a query.
+`validate_plan` rejects anything outside the whitelist, an arity mismatch, an
+unresolved mention reference, or an `arg_kinds` mismatch, before a single
+selector runs; `execute_plan` then resolves mentions through
+`lore_resolve.resolve_named` (BRIEF-0085-a) and dispatches only through
+`_SELECTOR_LOOKUPS`. Coverage grows by adding a selector to the whitelist,
+never by adding a question type to a parser — `location_contents`,
+`faction_roster`, `region_locations` and `who_knows_about` are each their own
+later ticket. The five verdicts (`answered`, `ambiguous_mention`,
+`unknown_entity`, `silent_canon`, `unsupported_selector`) are a closed set;
+there is no `"error"` catch-all.
+
+**The creator is deliberately omniscient in this ticket.** `entity_dossier`
+carries `knowledge.is_secret` rows verbatim — no viewpoint parameter, no
+filter flag. This is a current-state decision, not an oversight: the day a
+non-creator reader needs this surface, that reader gets its own filtering
+design, not a parameter bolted on here on spec.
+
+**`entity_dossier`'s `traits` section was dropped at execution (RECON R-b),
+not built as the brief specified.** The brief named `entity_trait` as a
+per-entity traits section. That table is keyed by `entity_type_id`, not
+`entity_id` — it is the runtime-custom-entity-type projection from
+TICKET-0045/BRIEF-0045-a ("which `entity_type` has checked which trait"),
+schema configuration shared by every entity of a constructor-created `ext_*`
+type, never a fact about one entity instance. Built-in types (`character`,
+`location`, `faction`) never get an `entity_type` row at all — only
+`create_entity_type`-constructed runtime types do — so the section would
+have been structurally empty for every entity the two selectors in this
+ticket can reach, and presenting it at all would read type-level schema
+capability as entity-specific canon to the creator, the same class of error
+Scope IN item 5's DORMANT-column exclusion exists to prevent. `entity_dossier`
+returns five sections (`identity`, `relations`, `knowledge`, `memberships`,
+`goals`), not six. A reader for a runtime-custom-type entity's own `ext_*`
+row data is a capability nothing in this ticket builds — no reader for
+`physical_table` exists anywhere outside `writes/schema.py`'s DDL
+construction.
+
+**The `goals` section reads `horizon`/`kind`, not `priority` (RECON R-b).**
+The brief named a `priority` field; `npc_goal` has never carried one, in
+`world-engine-schema.md` or any migration. The schema is authoritative over
+a brief's field list (per CLAUDE.md); `horizon` (`short`/`long`) and `kind`
+(`volition`/`standing`) are the columns that actually exist and are
+descriptively relevant to a dossier.
+
+**`silent_canon` excludes `identity` from its row count, or it could never
+fire through `entity_dossier`.** The brief's Scope IN item 8 defines
+`silent_canon` as "zero rows" — but `entity_dossier`'s `identity` section
+returns exactly one row unconditionally whenever a mention resolves (the
+entity, by definition, exists once `resolve_named` returns `matched`). Taken
+literally, that makes `silent_canon` unreachable through `entity_dossier`,
+contradicting the brief's own Done-means test. The ticket's own framing
+resolves it: "the entity exists and canon holds nothing on it — silence of
+canon, not absence of entity." Identity proves existence, not canon content,
+so it must not count toward "canon holds something." `SelectorSpec` carries
+a `context_sections` field (default `()`, i.e. substantive by default — an
+author who forgets it under-fires `silent_canon` rather than over-fires it,
+because a thin answer is a UX cost and a false "canon is silent" statement
+is a defect); `entity_dossier` declares `("identity",)`. `execute_plan`
+counts only non-`context_sections` rows toward `answered` vs `silent_canon`,
+but still returns every row, identity included, in the payload — the
+deterministic renderer (BRIEF-0085-d) needs the entity's name even when
+canon is silent on the actual question. Verdict stays global across every
+call in a plan (never per call): a two-mention question where one entity
+has substantive rows and the other has none is `answered`, not a sixth
+verdict — the rows themselves show which mention came up empty. G1 check
+`lore_selectors.py` R6 guards the vocabulary: a `context_sections` entry
+that names no `"section"` literal actually emitted in `lore_selectors.py`
+is a failure, so a typo cannot silently make every row substantive.
+
+## LORE CONSULTATION — QUESTION TO PLAN, CLIENT-HELD DISAMBIGUATION (BRIEF-0085-c, no schema change)
+
+**The plan is client-held, never server-stored.** `/api/lore/ask` drafts a
+`LorePlan` through the model (`lore_plan.draft_plan`, the only place in
+TICKET-0085 where a model reads the creator's question) and returns it
+serialized in the response body alongside the verdict, rows, and trace.
+`/api/lore/resolve` takes that exact plan back from the client together with
+creator-chosen bindings, and never calls `draft_plan` again — enforced
+structurally (`lore_isolation.py` R7 scans the `/api/lore/resolve` handler's
+AST for a call to `draft_plan`). No table, no server-side cache keyed by
+request id: the surface is stateless, matching BRIEF-0085-b's non-persisted
+trace. This is the first cockpit route to hand a client state it is expected
+to echo back on a later request (RECON R-h found no existing precedent) —
+the alternative (a request-id-keyed dict "just for convenience") was the
+Scope OUT item explicitly decided against.
+
+**Disambiguation resolves every ambiguous mention in one round, never one at
+a time.** `/api/lore/ask`'s `candidates` field carries every ambiguous
+mention's enriched candidate list (`lore_candidates.describe_candidates` —
+name, type, description, `location_name`; reads only `entity` and
+`character`, so nothing carrying `is_secret` is reachable from it), keyed by
+`ref`. `/api/lore/resolve` accepts a `bindings: {ref: entity_id}` map
+covering as many refs as the creator is ready to resolve in a single call.
+
+**A binding is re-validated at `/api/lore/resolve`, never trusted because the
+server produced the id a moment ago.** `lore_resolve.validate_binding`
+re-checks that a bound `entity_id` is an active entity in the given world
+whose `type` matches the bound mention's category
+(`_CATEGORY_ENTITY_TYPE`) — a client-echoed plan is untrusted input like any
+other request body. `/api/lore/ask` receives no bindings and performs no such
+validation. `execute_plan` (`lore_query.py`) grew an optional `bindings`
+parameter so a bound mention is treated as pre-resolved
+(`lore_resolve.pre_resolved`) and never re-routed through `resolve_named` —
+re-resolving an already-disambiguated mention would just reproduce the same
+ambiguity. `pre_resolved` lives in `lore_resolve.py`, not as an inline
+`NamedResolution(verdict="matched", ...)` in `lore_query.py`, so that
+module's `verdict=` keyword literals stay exclusively `LoreResult`'s closed
+five-value set — `lore_selectors.py` R5 scans every `verdict=` keyword in
+`lore_query.py` and would otherwise misread `NamedResolution`'s vocabulary as
+an undeclared sixth `LoreResult` verdict.
+
+**`world_scoped` is not an authoring-vs-play switch — it is "would a creator
+ever want a per-world override of this template."** RECON R-c measured that
+BRIEF-0085-c's original justification for `lore_question_to_plan`'s
+`world_scoped=False` ("every authoring usage is `False`") was wrong:
+`npc_link_coherence` is `surface="authoring"` and `world_scoped=True`,
+correctly, because its content — whether a relationship fits a given world's
+tone — genuinely varies by world. `lore_question_to_plan` keeps
+`world_scoped=False`, but for the corrected reason: its only variable
+content is the fixed, code-owned selector list and the creator's question,
+identical in every world, so a per-world override row would differentiate
+nothing. A future `PROMPT_REGISTRY` entry should be judged on this
+criterion, not on `surface` alone.
+
+## THE RENDERER — A THIRD MODEL ROLE, SESSION-FREE BY CONSTRUCTION (BRIEF-0085-d, no schema change)
+
+**The model proposes, judges, or renders — never more than one at a time on
+this chantier.** `lore_plan.draft_plan` proposes a plan; nothing on this
+chantier judges (there is no verdict-checking model call); `lore_render.render`
+renders prose from rows the plan's execution already produced. Only the
+`answered` verdict reaches a model: `unknown_entity`, `silent_canon`,
+`unsupported_selector` and `ambiguous_mention` are rendered by code before a
+`chat(` call is ever reachable (`lore_isolation.py` R11, which walks
+`render`'s call graph rather than trusting a single function's own body,
+since the actual model call lives one hop away in `_call_model`) — an empty
+retrieval can never be filled in by a model asked to explain an absence.
+
+**The section contract: every selector row carries a `"section"` key,
+enforced once, at the boundary.** BRIEF-0085-d's first RECON pass found that
+BRIEF-0085-b's `world_factions` rows carried none — only `entity_dossier`'s
+did — which made "group rows by section" undefined for the very
+`world_factions` question this step's Done-means tests. Fixed by the
+narrowest possible amendment, in its own commit: `world_factions` now emits
+`"section": "factions"`, and `lore_query.execute_plan` raises, naming the
+selector, if any selector ever returns a row without one
+(`lore_selectors.py` R6 already guarded `context_sections`' vocabulary; nothing
+previously guarded `"section"`'s presence). A later selector cannot repeat
+the gap silently.
+
+**R10's original text ("no `Session` parameter") was a proxy for the real
+goal ("the renderer cannot reach canon"), and the proxy under-specified the
+goal.** Every model-calling function elsewhere in this codebase
+(`lore_plan.draft_plan`, `play_stream._load_mj_narration_template`, …) loads
+its own `prompt_template` with the same `Session` it uses for everything
+else — but `effective_model` needs a `PromptTemplate` row, and fetching one
+needs a `select(`, which `render` was never going to be allowed to run
+itself. The fix is a dedicated module, `lore_prompt.py`, that owns the
+`Session` for this chantier's prompt resolution and nothing else (guarded by
+new R15: every `select(` in it names only `PromptTemplate`/`PromptVersion`),
+and hands callers a `RenderSpec` — a frozen dataclass of three plain strings
+(`system_prompt`, `user_template`, `model`) — instead of the ORM rows
+themselves. A detached `PromptTemplate`/`PromptVersion` is not inert: it can
+lazy-load through its relationships, which would make it a door back to the
+database no static check could see; a plain string cannot be. `render`'s
+signature is pinned to `(result, question, spec, candidates)` — no
+`Session`, ever, in any revision — and R10 stayed exactly as blunt as
+originally written: a G1 gate that required judgment about which `Session`
+use is acceptable would stop being a gate.
+
+**`draft_plan` was rewired onto `lore_prompt.load` in its own commit, as a
+pure refactor.** Two loaders resolving the same `prompt_template` shape for
+the same chantier is exactly the drift these isolation checks exist to
+prevent. Verified behavior-identical against the seeded test DB before and
+after (same `system_prompt`/`user_template`/`model`, same `LlmParseError` on
+a missing template) — the only observable change is the exception message's
+module-name prefix (`lore_prompt:` instead of `lore_plan:`), which nothing
+asserts against.
+
+**Ambiguous-mention detail reaches the renderer as plain data, not a second
+Session.** Rendering `ambiguous_mention`'s message needs each candidate's
+name/type/description/location — data only `lore_candidates.describe_candidates`
+can produce, and that needs a `Session` too. Rather than giving `render` a
+second database door, the route (which already computes this exact
+`{ref: [candidate, ...]}` shape for its own `candidates` response field)
+passes it into `render` as its fourth parameter, `{}` on every verdict but
+`ambiguous_mention`. The per-mention surface form for each block comes from
+`result.trace`'s mention-resolution entries (filtered to
+`verdict == "ambiguous"`), which preserve the same plan order as
+`result.ambiguous_mentions` — both are built from the single pass over
+`plan.mentions` in `lore_query._resolve_mentions`/`execute_plan` — so the two
+sequences zip correctly with no third lookup.
+
+**"Near candidates" on `unknown_entity` is a real branch with no source yet.**
+Item 5's wording carries two forms — with and without near-candidate
+suggestions — but nothing upstream computes one: `lore_resolve.resolve_named`
+has only exact/token rungs, which either match or don't; there is no fuzzy
+rung. The "with near candidates" message stays a named module-level constant
+(R13) for when a rung like that exists, but every case today renders the
+"without" form. Not a gap to close in this step — no Done-means bullet
+exercises it, and inventing a fuzzy-match source was never this brief's job.
+
+**`/api/lore/resolve` gained a `question` field.** The plan is client-held
+(BRIEF-0085-c); so, it turns out, is the question it was drafted from — and
+a resolved plan can legitimately turn `answered` (a binding can settle every
+remaining mention), which needs the original question text for the model
+prompt. Nothing server-side remembers it between `/ask` and `/resolve` (no
+plan cache, by design), so the client re-sends it. BRIEF-0085-e's frontend
+already holds the plan to re-send; holding the question text alongside it is
+no additional state.
+
+## LORE CONSULTATION SURFACE — A THIRD TOP-LEVEL SURFACE, NOT A CRÉATION TAB (BRIEF-0085-e, no schema change)
+
+**R-a: the lore surface sits outside `CREATION_TABS`, as a fourth shell-native
+top-level surface alongside Play/Création/Observation/Journée.** `page_
+contract.py` governs only the Création shell's own registry and generic
+dispatcher (`showCreationSubTab`/`tabs.js`); it has no bearing on a surface
+that is not a Création sub-tab. `frontend/src/observation/` and `frontend/
+src/journee/` already establish the pattern this ticket needed: a directory
+under `frontend/src/` holding one `Xxx.svelte` (an `active` prop toggling its
+own root's `display`, nothing else) plus one `xxx.svelte.js` (a `$state`
+object plus the functions that mutate it, `api()` from `creation/
+sheetRequest.svelte.js`, world-reactivity via a `$effect` on `serverState.
+worldId`). `frontend/src/lore/Lore.svelte` + `lore.svelte.js` copy that
+pattern exactly — no new mounting mechanism, no branch in the generic
+dispatcher. Registering a fourth top-level surface costs the same four
+call sites the third one (Journée, TICKET-0075) already touched, generically:
+`SHELL_ROUTES` (`frontend/src/lib/router.js`) and `_SHELL_ROUTES` (`cockpit/
+app.py`, `legacy_mount.py`'s R-checked pair) each grow one entry, `App.svelte`
+mounts `<Lore active={currentSurface === 'lore'} />` and adds `'lore'` to
+`applyRoute`'s legacy-bridge exclusion list, and `Header.svelte` grows one
+nav button. None of this is a page-contract concern; it is the same shell-
+route vocabulary every prior top-level surface has extended.
+
+**The trace panel renders `rows` generically by section, never by selector.**
+BRIEF-0085-d's `"section"` contract (item 2) is what makes this possible: the
+component groups the response's `rows` array by each row's own `section` key
+into a `<details>` block, and renders every field of every row as a plain
+`key: value` line — no per-section formatter, no per-selector branch. Adding
+a third selector later costs the frontend nothing as long as its rows carry
+a `"section"` key already in `SECTION_LABEL`'s vocabulary (an unlabelled
+section still renders, under its raw key). The two `trace` entry shapes
+(mention: `surface_form`/`verdict`/`rung`/`entity_id`; call: `selector`/
+`args`/`row_count`/`truncated`) are told apart structurally, by which key is
+present — never by array position.
+
+**A resolved mention's display name is looked up client-side against the
+`identity` rows already in the payload — never a second request.** A
+mention's `entity_id` (present only on `matched`) is looked up in `rows`
+filtered to `section === 'identity'`; absent an `entity_id` (`unmatched` or
+`ambiguous`), the mention's own `surface_form` is shown instead — the correct
+fallback per the ticket's own empty-message-1 semantics (no entity exists to
+name).
+
+**Found during R-b, reclassified BLOCKING (not REPORT) by Nia: `/api/lore/ask`
+cannot reach the template-renderer fallback on a cold Ollama outage.**
+`ask_lore` (`cockpit/routes/lore.py`) calls `ollama_client.ping()` before
+drafting a plan and raises `503` on failure; `draft_plan` (question -> plan,
+BRIEF-0085-b) has no non-model path. The `answered`-verdict fallback to
+`render_template` (BRIEF-0085-d) exists only inside `render`, reachable
+solely once a plan has already been drafted and executed — so a fresh
+question asked while Ollama is down fails at the route's ping gate, never
+reaching a template answer. This surfaces the frontend's error path
+correctly (item 8: a non-2xx response displays as a server error), but it
+fails the ticket's own live-gate item ("With Ollama stopped, the same
+questions still answer via the template renderer") and this brief's matching
+Done-means item — so TICKET-0085 does not close independently of this. Not a
+frontend defect and not fixed here — Scope OUT forbids an API or engine
+change in this step. Left untouched on `ticket/0085`/`ticket/0086`; comes
+back as its own brief once Nia decides the shape of the fix, since the fix
+is not obvious: the planner is a model call, so a genuinely fresh question
+cannot be answered with Ollama down (the template renderer cannot rescue a
+question that was never parsed into a plan) — `/api/lore/resolve` is the
+opposite case and was confirmed, by a live test with a temporary
+`OLLAMA_HOST` override (no code change, reverted), to already work fully
+offline today: it does not pre-flight ping, and a previously-obtained plan
+resolved through it while Ollama is unreachable returns `"renderer":
+"template"` with correct prose.
+
+## PLANNER UNAVAILABLE IS AN EXPLICIT MESSAGE, NOT A RAW ERROR (BRIEF-0085-f, no schema change)
+
+Closes the blocker raised above: a fresh `/api/lore/ask` question asked
+while Ollama is down failed with a raw English exception string
+(`str(exc)` from `OllamaError`) instead of the explicit, French,
+"here is why there's no answer" prose every other empty/error path in this
+ticket already gives. Nia decided (A2) to close this a minima: change the
+message, not the capability.
+
+The pre-flight `ping()` idiom in `ask_lore` is kept and is correct for this
+multi-call pipeline — precedent already exists in `PATCH
+/api/prompts/{prompt_id}/model` (BRIEF-0009-a), which also pings-then-503s
+before a write it cannot validate offline. Only the `HTTPException`'s
+`detail` changed: a new module-level constant, `PLANNER_UNAVAILABLE_MESSAGE`
+(`lore_render.py`, deliberately not underscore-prefixed and deliberately
+not a member of `_EXPECTED_DETERMINISTIC_MESSAGE_CONSTANTS` — no
+`LoreResult` exists yet at ping time, so it is not dispatched by
+`_render_deterministic`; it is the planner's own precondition failing, not
+an empty retrieval), replaces `str(exc)` in `ask_lore`'s `except
+ollama_client.OllamaError` handler. `lore_isolation.py` gained R16, asserting
+the handler's `detail=` is always a named constant reference, never a
+`str(...)` call or an f-string built from the caught exception.
+
+A model-free planner (a heuristic plan-builder bypassing `draft_plan`
+entirely) was considered and rejected as disproportionate for a
+single-operator local tool — the planner is a model call with no
+non-model path, and drafting a plan from free-form French text without a
+model is a different, much larger feature than this brief's scope.
+Reactivate this if `/api/lore/ask` must ever run where the operator does
+not control whether Ollama is running (remote or multi-user access).
+
+`/api/lore/resolve` is untouched: it does not pre-flight ping and was
+already confirmed to answer fully offline via the template renderer when
+given a previously-obtained plan.
+
 ---
 
 *Co-built with Claude, June 2026.*

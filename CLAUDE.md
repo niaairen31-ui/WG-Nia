@@ -14,10 +14,11 @@ and `world-engine-schema-changelog.md` — never here.
 
 - Python, FastAPI, SQLModel, SQLite (Supabase/PostgreSQL migration path
   preserved via the env-var DB URL).
-- Frontend: a built Svelte shell (`frontend/`) serves the cockpit at `/`. Creation, Observation and
-  Journée are shell-native Svelte components, mounted directly by `App.svelte`; Play alone stays
-  legacy (`/legacy`, one governed iframe, `cockpit/legacy.html`), sealed rather than migrated by
-  TICKET-0061, until its own ticket (TICKET-0069). No new dependency without a decision.
+- Frontend: a built Svelte shell (`frontend/`) serves the cockpit at `/`. Creation, Observation,
+  Journée and Lore are shell-native Svelte components, mounted directly by `App.svelte`; Play
+  alone stays legacy (`/legacy`, one governed iframe, `cockpit/legacy.html`), sealed rather than
+  migrated by TICKET-0061, until its own ticket (TICKET-0069). No new dependency without a
+  decision.
   Creation's Compétences tab reads `skill_system`: an editor plus a system-grouped catalogue;
   `Sans système` is a rendered group, never a stored row (TICKET-0084).
 - Local models via Ollama; Claude API reserved for heavy lore-coherence work.
@@ -336,6 +337,8 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   fact that feeds it, never from `activeTabKey` -- enforced by `creation_tab_switch.py`.
 - Inside a `$effect` body, a `$state` binding assigned there must not be read afterwards in the
   same body — enforced by `effect_self_write.py`.
+- **The lore renderer receives rows, never a `Session`,** and only the `answered` verdict reaches
+  a model — every empty verdict is rendered by code, so an absence is never explained by a model.
 
 ## Local model notes
 
@@ -418,6 +421,7 @@ WG-Nia/
 │   ├── day_narration_guard.py  # T1 judge: name containment + outcome survival, Python-only
 │   ├── day_mutations.py     # day-chain mutation emission: proposer only, never applies (V1)
 │   ├── day_feasibility.py   # feasibility veto: downward-only, clamp_verdict is the safety (Y1)
+│   ├── lore_*.py             # lore consultation: resolver, selectors, plan draft/exec, candidates
 │   ├── writes/               # canon-write helpers by domain; schema.py is the DDL authority
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
 │   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)

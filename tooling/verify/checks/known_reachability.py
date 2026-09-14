@@ -302,11 +302,11 @@ def check_db_fixture(engine) -> None:
 # ─────────────────────────────────────────────────────────────────────────
 
 # The modules the classification table documents as containing a literal
-# `"connects_to"` string (twelve traversal/write modules + three
-# vocabulary-only modules). Kept in sync with
-# tooling/tickets/connects-to-readers-TICKET-0082.md by hand; this check
-# does not parse the table's prose, only asserts the table FILE exists and
-# that no undocumented module has joined the set.
+# `"connects_to"` string (thirteen traversal/write modules + three
+# vocabulary-only modules, after BRIEF-0085-b added lore_selectors.py).
+# Kept in sync with tooling/tickets/connects-to-readers-TICKET-0082.md by
+# hand; this check does not parse the table's prose, only asserts the table
+# FILE exists and that no undocumented module has joined the set.
 DOCUMENTED_MODULES = frozenset({
     "world_engine/room_batch_author.py",
     "world_engine/day_concordance.py",
@@ -323,6 +323,7 @@ DOCUMENTED_MODULES = frozenset({
     "world_engine/context.py",
     "world_engine/cockpit/crud/_shared.py",
     "world_engine/link_author.py",
+    "world_engine/lore_selectors.py",
 })
 
 

@@ -31,10 +31,13 @@ authoring      — creator or generator building the graph itself. Reads
 vocabulary     — a type literal or exclusion list, not a traversal.
 ```
 
-Two kinds of row below. **Module rows** are the twelve modules the
-mini-RECON measured (module-count invariant — a thirteenth module with a
-literal `connects_to` string is a FAIL, checked independently of this
-table). **Call-site rows** exist only for `tick_context._reachable_locations`,
+Two kinds of row below. **Module rows** were the twelve modules the
+mini-RECON measured, plus `lore_selectors.py` added at BRIEF-0085-b
+execution (module-count invariant — an UNDOCUMENTED module with a literal
+`connects_to` string is a FAIL, checked independently of this table; adding
+one here requires adding it to `known_reachability.py`'s
+`DOCUMENTED_MODULES` in the same change). **Call-site rows** exist only for
+`tick_context._reachable_locations`,
 whose one internal query (`tick_context.py:492`) is shared by two callers
 in two different files with two different filter semantics — the module
 count stays twelve (`tick.py` contains no literal `"connects_to"` string;
@@ -42,7 +45,7 @@ it only calls the reader by name), but the classification and the
 knower_id AST check (assertion 4) both operate at call-site granularity for
 this one reader.
 
-## Module rows (twelve)
+## Module rows (thirteen)
 
 | # | Module : line(s) | Label | Why |
 |---|---|---|---|
@@ -60,12 +63,13 @@ this one reader.
 | 12 | `day_plan.py:228` (`_day_reachable_ids`) | `resolution` | **NOT repointed by this brief** (amendment 1: repointing it would violate D1 — see below). Feeds `_eval_location_reachable`, the day chain's step-precondition judge: reads canon, decides legality of an already-proposed step. This is the resolution reader B2 says stays untouched — the escalation below is why leaving it unfiltered is a real, named gap, not an oversight. |
 | 13 | `spatial_author.py:35,41` (`_live_neighbour_ids`) | `authoring` | "Active-location connects_to neighbours" feeding `materialize_doors`, the creation-side door generator. |
 | 14 | `spatial_author.py:127` (`connect_locations`) | `authoring` | Writes a `connects_to` edge and materializes doors for both endpoints — the single write point for this edge type. |
+| 15 | `lore_selectors.py` (`_relation_rows`) | `vocabulary` | `Relation.type != "connects_to"` — an exclusion, not a traversal (BRIEF-0085-b's `entity_dossier` relations section scans an entity's social relations for the creator consultation surface and structurally excludes map topology, same pattern as row 3). |
 
-(Rows 13/14 are both `spatial_author.py`, one module — twelve modules
+(Rows 13/14 are both `spatial_author.py`, one module — thirteen modules
 total: room_batch_author, day_concordance, tick_context, writes/config,
 cockpit/spatial_doors, cockpit/crud/entities, cockpit/crud/relations,
 cockpit/crud/locations, cockpit/play, cockpit/routes/regions, day_plan,
-spatial_author.)
+spatial_author, lore_selectors.)
 
 ## Call-site rows — `tick_context._reachable_locations` (two callers)
 

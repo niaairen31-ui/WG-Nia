@@ -80,6 +80,13 @@ ALLOWED_MODULES = {
     # corpus. Allowlisted by name, one entry, on the same precedent as
     # observation_runner.py's own entry above.
     "tooling/verify/checks/day_concordance_golden.py",
+    # TICKET-0085 (BRIEF-0085-b). Read-only, creator-facing dossier
+    # consultation -- never assemble_mj_context, never NPC dialogue. Same
+    # class of reader as cockpit/crud/goals.py above, not the MJ/dialogue
+    # boundary this file guards. Goal content (description/status/horizon/
+    # kind) reaches the creator's own answer payload -- exactly what
+    # entity_dossier exists to do.
+    "src/world_engine/lore_selectors.py",
 }
 
 FAILURES: list[str] = []

@@ -243,6 +243,35 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         call_sites=("src/world_engine/npc_group_author.py:_load_placement_template",),
         default_model=_author_model,
     ),
+    "lore_question_to_plan": PromptSpec(
+        surface="authoring",
+        # world_scoped=False: the planner prompt carries no world content --
+        # only the fixed selector whitelist and the creator's question, both
+        # identical in every world, so a per-world override row would be a
+        # row nobody has a reason to differentiate. (Not "every authoring
+        # usage is False" -- npc_link_coherence is authoring and True, for
+        # the real reason that its content IS world-specific: it judges
+        # whether a relationship fits a given world's tone.)
+        world_scoped=False,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/lore_plan.py:draft_plan",),
+        default_model=_author_model,
+    ),
+    "lore_rows_to_prose": PromptSpec(
+        surface="authoring",
+        # world_scoped=False, for the criterion that actually governs it
+        # (BRIEF-0085-d, second revision): whether a creator would want the
+        # template to differ between worlds, not whether the usage is
+        # "authoring" -- npc_link_coherence is authoring and True because
+        # tone/social convention ARE world properties there. Here the job is
+        # fidelity to the rows the selectors returned, not register, and no
+        # per-world override has a reader yet. Flipping it later is one line
+        # in the registry, with no migration and no data rework.
+        world_scoped=False,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/lore_render.py:_call_model",),
+        default_model=_author_model,
+    ),
     "world_tick": PromptSpec(
         surface="play",
         world_scoped=False,

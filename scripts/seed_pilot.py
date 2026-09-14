@@ -1725,6 +1725,79 @@ exactement le nombre de noms de lieux demandé pour cette ligne.\
 """
 
 
+# ----- prompt template: lore consultation -- question to plan (TICKET-0085, BRIEF-0085-c) --
+# usage = "lore_question_to_plan". world_id = NULL: the prompt carries no
+# world content, only the fixed selector whitelist and the creator's
+# question -- both identical in every world -- so a per-world override row
+# would differentiate nothing (see PROMPT_REGISTRY's world_scoped=False
+# rationale). The only place in TICKET-0085 where a model reads the
+# creator's question: it names mentions and selectors, never canon rows,
+# never an entity id (lore_plan.draft_plan).
+LORE_QUESTION_TO_PLAN_SYSTEM_PROMPT = """\
+Tu es l'assistant qui transforme une question du créateur en un plan \
+structuré pour la base de connaissances du monde. Tu ne lis jamais le \
+canon toi-même : tu nommes seulement les mentions de la question (des \
+lieux, des personnages ou des factions) et les sélecteurs de données \
+nécessaires pour y répondre.
+
+Chaque mention identifiée porte une catégorie parmi EXACTEMENT trois : \
+"place", "person", "faction". Il n'y a pas de quatrième catégorie.
+
+Réponds UNIQUEMENT avec un objet JSON de cette forme :
+{"mentions": [{"ref": "m1", "surface_form": "...", "category": "person"}],
+ "calls": [{"selector": "entity_dossier", "args": ["m1", "$world"]}]}
+
+"$world" est l'argument spécial désignant le monde courant. Une mention se \
+référence par son "ref" (m1, m2, ...). N'invente jamais un identifiant \
+d'entité : tu ne nommes que des mentions et des sélecteurs, jamais des \
+lignes de canon.
+
+If the question needs information no listed selector can retrieve, return \
+the selector name you would need in "calls" anyway. Do not substitute a \
+selector that is listed for one that is not. Do not invent entity ids. Do \
+not answer the question.\
+"""
+
+LORE_QUESTION_TO_PLAN_USER_TEMPLATE = """\
+Sélecteurs disponibles :
+{selectors}
+
+Question du créateur : {question}\
+"""
+
+# ----- prompt template: lore consultation -- rows to prose (TICKET-0085, BRIEF-0085-d) --
+# usage = "lore_rows_to_prose". world_id = NULL: the renderer's job is
+# fidelity to the rows it is given, not register -- see PROMPT_REGISTRY's
+# world_scoped=False rationale for this usage. The only place in TICKET-0085
+# where a model sees canon rows: exactly the rows the selectors returned,
+# serialized by section, and nothing else -- no world description, no
+# entity the rows do not mention, no DB access (lore_render._call_model).
+LORE_ROWS_TO_PROSE_SYSTEM_PROMPT = """\
+N'ajoute aucun fait absent des lignes fournies. Si les lignes ne répondent \
+pas à la question, dis-le au lieu de combler.
+
+Un lien social (lignes de section « relations ») et une information \
+détenue (lignes de section « knowledge ») sont deux choses distinctes. \
+Nomme-les séparément. Ne déduis jamais l'une de l'autre : deux personnes \
+liées ne savent pas forcément quelque chose l'une sur l'autre, et détenir \
+une information sur quelqu'un n'est pas le connaître.
+
+Une ligne marquée `is_incorrect` est une croyance de l'entité, pas un fait \
+du monde. Rends-la comme une croyance et signale explicitement qu'elle est \
+fausse. Ne la remplace jamais par ce qui est vrai.
+
+Réponds en français, en prose continue. Pas de listes à puces, pas de \
+titres.\
+"""
+
+LORE_ROWS_TO_PROSE_USER_TEMPLATE = """\
+Question du créateur : {question}
+
+Lignes disponibles :
+{rows}\
+"""
+
+
 # ----- day chain prompt text (TICKET-0075; hoisted to module level, TICKET-0076) -----
 # ----- prompt template: day plan emission (TICKET-0075, BRIEF-0075-b) ---
 # usage = "day_plan". world_id = NULL. ONE call (F1): the model proposes
@@ -2675,6 +2748,32 @@ def seed(session: Session) -> None:
         system_prompt=NPC_BATCH_PLACEMENT_SYSTEM_PROMPT,
         user_template=NPC_BATCH_PLACEMENT_USER_TEMPLATE,
         variables=["group_brief", "spec_lines", "candidate_locations"],
+        destination="local",
+    )
+
+    # ----- prompt template: lore consultation -- question to plan (TICKET-0085, BRIEF-0085-c) --
+    upsert_prompt_template(
+        session,
+        "pt-lore-question-to-plan",
+        world_id=None,
+        name="Consultation de lore — question vers plan",
+        usage="lore_question_to_plan",
+        system_prompt=LORE_QUESTION_TO_PLAN_SYSTEM_PROMPT,
+        user_template=LORE_QUESTION_TO_PLAN_USER_TEMPLATE,
+        variables=["selectors", "question"],
+        destination="local",
+    )
+
+    # ----- prompt template: lore consultation -- rows to prose (TICKET-0085, BRIEF-0085-d) --
+    upsert_prompt_template(
+        session,
+        "pt-lore-rows-to-prose",
+        world_id=None,
+        name="Consultation de lore — lignes vers prose",
+        usage="lore_rows_to_prose",
+        system_prompt=LORE_ROWS_TO_PROSE_SYSTEM_PROMPT,
+        user_template=LORE_ROWS_TO_PROSE_USER_TEMPLATE,
+        variables=["question", "rows"],
         destination="local",
     )
 

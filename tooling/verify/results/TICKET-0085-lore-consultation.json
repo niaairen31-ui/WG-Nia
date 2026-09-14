@@ -1,0 +1,27 @@
+{
+  "ticket": "TICKET-0085-lore-consultation",
+  "when": "2026-09-14T14:07:43.085621+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "lore_resolve.py",
+      "status": "PASS",
+      "msg": "PASS: lore_resolve \u2014 purity, no casting, the named-rung bijection, world scoping at construction, and the no-duplicate-normalizer guard are all intact"
+    },
+    {
+      "check": "lore_selectors.py",
+      "status": "PASS",
+      "msg": "PASS: lore_selectors \u2014 the whitelist bijection, table-only dispatch, declared row caps, the validation gate, and the closed verdict set are all intact"
+    },
+    {
+      "check": "lore_isolation.py",
+      "status": "PASS",
+      "msg": "PASS: lore_isolation \u2014 purity (R1, R4), world scoping at construction (R2), the discoverable_detail exclusion (R3), the planner's canon-blindness (R5), the route's thinness (R6), the ask-side named Ollama-down message (R16), the no-redraft-on-resolve guard (R7), the selector/category vocabulary parity checks (R8, R9), the prompt loader's scoping to prompt tables (R15), and the renderer's isolation, no-model-on-empty-verdict, Ollama fallback, message-constant, and unknown-section guards (R10-R14) are all intact"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 109 check(s) discovered, 109 executed, 109 passed"
+    }
+  ]
+}
