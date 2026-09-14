@@ -3,7 +3,7 @@ id: TICKET-0085
 slug: lore-consultation
 title: Natural-language lore consultation surface (read-only)
 type: feature
-status: escalated
+status: live-gate
 created: 2026-09-11
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []

@@ -1,7 +1,7 @@
 {
   "ticket": "TICKET-0085-lore-consultation",
-  "when": "2026-09-14T13:51:49.828274+00:00",
-  "green": false,
+  "when": "2026-09-14T14:07:43.085621+00:00",
+  "green": true,
   "checks": [
     {
       "check": "lore_resolve.py",
@@ -20,8 +20,8 @@
     },
     {
       "check": "corpus_gate.py",
-      "status": "FAIL",
-      "msg": "SUMMARY: 1 check(s) failed (0 environment, 0 crash, 0 timeout, 1 other)"
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 109 check(s) discovered, 109 executed, 109 passed"
     }
   ]
 }
