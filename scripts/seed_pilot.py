@@ -288,7 +288,7 @@ Every element must have these EXACT 5 keys — no other keys allowed:
 
 Payload shapes:
   relation_change  → {"entity_a_id":"…","entity_b_id":"…","relation_type":"…","intensity_delta":<signed int>}
-  new_knowledge    → {"entity_id":"…","subject":"…","level":"rumor|partial|knows|…","content":"…","source":"…"}
+  new_knowledge    → {"entity_id":"…","subject":"…","level":"rumor|partial|knows|…","content":"…","source":"…","subject_entity_id":"…" (OPTIONAL — see rubric below)}
   knowledge_change → {"entity_id":"…","subject":"…","field":"…","new_value":"…"}
   event_creation   → {"title":"…","description":"…","type":"social|political|other","involved_entities":[…]}
   resource_change  → {"entity_id":"char-player","amount":<signed int>,"counterparty_id":"…","reason":"…","knowledge":{"entity_id":"…","subject":"…","level":"…","content":"…","source":"…","is_secret":false} (knowledge is OPTIONAL — only when information changed hands)}
@@ -345,6 +345,14 @@ bloc `knowledge` SEULEMENT quand l'objet de la transaction est une
 information, et que c'est le joueur (achat) ou un PNJ (le joueur vend une
 info) qui l'acquiert — `content` recopié de ce qui a été dit, jamais
 inventé.
+
+=== NEW_KNOWLEDGE SUBJECT_ENTITY_ID RUBRIC ===
+new_knowledge — quand le fait appris porte sur une entité nommée du monde
+(un personnage, un lieu ou une faction déjà identifié dans NPC CONTEXT),
+indique son id dans "subject_entity_id". Quand le fait n'a pas de sujet
+identifiable — une rumeur générale, une information abstraite, un fait qui
+ne désigne aucune entité précise — omets entièrement le champ
+"subject_entity_id" plutôt que d'y mettre une valeur incertaine ou devinée.
 
 === GOAL_CHANGE RUBRIC ===
 goal_change — le bloc NPC CONTEXT peut contenir une section

@@ -298,6 +298,9 @@ def _build_payload_new_knowledge(
         "content": content,
         "source": "conversation",
     }
+    subject_entity_id = _first_of(item, "subject_entity_id", "about_entity_id", "about", default=None)
+    if isinstance(subject_entity_id, str) and subject_entity_id:
+        payload["subject_entity_id"] = subject_entity_id
     return payload, entity_id is None
 
 

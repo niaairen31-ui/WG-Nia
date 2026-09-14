@@ -85,6 +85,7 @@ from sqlmodel import Session, select
 
 from .day_resolve import BLOCKED_BAND, StepOutcome, outcome_line
 from .models import AgendaStepRequirement, Character, PassPlay, ProposedMutation
+from .subject_resolve import resolve_subject
 
 EMITTED_MUTATION_TYPES: tuple[str, ...] = (
     "knowledge_change", "relation_change", "agenda_step_change", "entity_creation", "new_knowledge",
@@ -242,6 +243,9 @@ def _emit_new_knowledge(
             "source": "journée bloquée",
             "is_secret": False,
         }
+        resolution = resolve_subject(subject, world_id, db)
+        if resolution.verdict == "matched":
+            payload["subject_entity_id"] = resolution.entity_id
         mutations.append(ProposedMutation(
             world_id=world_id,
             source_type="pass_play",

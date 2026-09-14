@@ -362,10 +362,29 @@ def _mutation_apply_new_knowledge(mut: ProposedMutation, payload: dict, db: Sess
     """Insert a knowledge row for the target entity. Flips `discovered=TRUE`
     on the source `discoverable_detail` when this knowledge came from an
     engine-proposed discovery — on APPLY (creator-approved), not on propose,
-    so a rejected proposal leaves the detail available for re-selection."""
+    so a rejected proposal leaves the detail available for re-selection.
+
+    `subject_entity_id` (TICKET-0087, BRIEF-0087-b) is untrusted payload
+    input, whether from the model or a client: re-looked-up here against an
+    active entity of this mutation's world before any write. A refused value
+    returns an error string and writes nothing at all — the mutation stays
+    unapplied and visible in the queue, exactly like the entity_id guard
+    above."""
     entity_id = payload.get("entity_id") or mut.target_id
     if not entity_id:
         return "new_knowledge: payload must contain entity_id (or set target_id)"
+
+    subject_entity_id = payload.get("subject_entity_id")
+    if subject_entity_id:
+        subject_entity = db.exec(
+            select(Entity).where(
+                Entity.id == subject_entity_id,
+                Entity.world_id == mut.world_id,
+                Entity.status == "active",
+            )
+        ).first()
+        if subject_entity is None:
+            return f"new_knowledge: subject_entity_id {subject_entity_id!r} is not an active entity of this world"
 
     session_id: Optional[str] = None
     if mut.conversation_id:
@@ -383,6 +402,7 @@ def _mutation_apply_new_knowledge(mut: ProposedMutation, payload: dict, db: Sess
         is_incorrect=bool(payload.get("is_incorrect", False)),
         is_secret=bool(payload.get("is_secret", False)),
         session_id=session_id,
+        subject_entity_ids=[subject_entity_id] if subject_entity_id else None,
     )
     # Both the in-conversation _find_applied_duplicate guard (routes/mutations.py) and the
     # discovered=FALSE query in _stream() prevent double-proposing the same

@@ -15452,6 +15452,29 @@ admitting the same entity twice on one fact. Reactivation condition for a
 discriminator, grep-verifiable: a fact carries a participant that is not a
 subject of the knowledge attached to it.
 
+## NEW_KNOWLEDGE'S SUBJECT_ENTITY_ID: THE MODEL NAMES IT, THE CODE VALIDATES IT (BRIEF-0087-b, no schema change)
+
+Decision B2. `ProposedMutation.payload` gains an optional
+`subject_entity_id` on `mutation_type == "new_knowledge"`. Nothing about it
+is trusted: `_mutation_apply_new_knowledge` re-looks it up against an
+active `entity` of the mutation's own `world_id` before any write, world
+scoping done in the `select(...).where(...)`, never as a post-fetch
+comparison; a value that fails the lookup returns an error string and
+writes nothing at all, the same shape as the branch's pre-existing
+`entity_id` guard. Rejected: B1 (resolver rungs only, applied at write
+time) — measured (R-06) to fill 16% of rows and no more, because analyzer-
+and day-chain-produced subjects are propositions ("Les véritables objectifs
+de..."), not entity names, so a name-matching rung alone has little to
+match against. Rejected: an ambiguity review surface for the case the
+model or the resolver names two or more candidates — R-09 measured zero
+ambiguous subjects across the whole production database (eleven worlds);
+the surface would have nothing to show. Reactivation condition: a measured
+ambiguity count above zero. The `day_mutations.py` path (no model in the
+loop) resolves the requirement string through `C-02`
+(`subject_resolve.resolve_subject`) instead, and omits the key on anything
+but a `matched` verdict — the rungs are the only source available there,
+and a null is the honest state rather than a guess.
+
 ---
 
 *Co-built with Claude, June 2026.*
