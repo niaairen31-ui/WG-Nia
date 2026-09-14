@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0085-lore-consultation",
-  "when": "2026-09-13T19:45:54.069331+00:00",
+  "when": "2026-09-14T13:51:49.828274+00:00",
   "green": false,
   "checks": [
     {
@@ -16,12 +16,12 @@
     {
       "check": "lore_isolation.py",
       "status": "PASS",
-      "msg": "PASS: lore_isolation \u2014 purity (R1, R4), world scoping at construction (R2), the discoverable_detail exclusion (R3), the planner's canon-blindness (R5), the route's thinness (R6), the no-redraft-on-resolve guard (R7), the selector/category vocabulary parity checks (R8, R9), the prompt loader's scoping to prompt tables (R15), and the renderer's isolation, no-model-on-empty-verdict, Ollama fallback, message-constant, and unknown-section guards (R10-R14) are all intact"
+      "msg": "PASS: lore_isolation \u2014 purity (R1, R4), world scoping at construction (R2), the discoverable_detail exclusion (R3), the planner's canon-blindness (R5), the route's thinness (R6), the ask-side named Ollama-down message (R16), the no-redraft-on-resolve guard (R7), the selector/category vocabulary parity checks (R8, R9), the prompt loader's scoping to prompt tables (R15), and the renderer's isolation, no-model-on-empty-verdict, Ollama fallback, message-constant, and unknown-section guards (R10-R14) are all intact"
     },
     {
       "check": "corpus_gate.py",
       "status": "FAIL",
-      "msg": "SUMMARY: 2 check(s) failed (0 environment, 0 crash, 0 timeout, 2 other)"
+      "msg": "SUMMARY: 1 check(s) failed (0 environment, 0 crash, 0 timeout, 1 other)"
     }
   ]
 }
