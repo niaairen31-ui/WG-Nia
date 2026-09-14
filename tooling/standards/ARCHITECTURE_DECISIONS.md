@@ -15475,6 +15475,29 @@ loop) resolves the requirement string through `C-02`
 but a `matched` verdict — the rungs are the only source available there,
 and a null is the honest state rather than a guess.
 
+## THE EXISTING-KNOWLEDGE BACKFILL IS ONE-OFF, UNAMBIGUOUS-ONLY, AND WRITES NO CHANGE_HISTORY (BRIEF-0087-c, no schema change)
+
+Decision C2. `scripts/apply_ticket_0087_subject_participants.py` walks
+`subject_resolve.unresolved_subjects` per world and attaches a `matched`
+subject's resolved entity to its fact(s) through `attach_participants`
+(BRIEF-0087-a's chokepoint), `role` left NULL — the same J2 rule BRIEF-0087-a
+and BRIEF-0087-b already follow, so a backfilled participant is
+indistinguishable from one attached live. `ambiguous`/`unmatched` subjects
+are left null on purpose (R-09 measured zero ambiguous; the 78% unmatched
+rate is a measured fact about the data — see BRIEF-0087-b's entry above —
+not a defect this script tries to paper over with a fuzzier match). No
+`change_history` entry is written for any touched `knowledge` row: a
+subject attachment is an index annotation on the row's fact, not an edit to
+the row itself, and writing history for it would pollute every row's
+history for a change no creator made. Measured yield on Nia's production
+database: 98 of 615 `knowledge` rows (69 of 312 distinct subjects) gain a
+subject participant, which answers "qui sait quoi sur X" for 42 of 297
+active entities (14.1%) — R-07's number, shipped knowingly partial; the
+remaining 517 rows are BRIEF-0087-d's residue to bind by hand. Idempotent
+end to end: `unresolved_subjects` measures state, not history, so a second
+`--apply --yes` run finds nothing left to attach for a subject already
+covered and reports the same coverage totals as the first.
+
 ---
 
 *Co-built with Claude, June 2026.*

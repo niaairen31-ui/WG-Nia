@@ -12,9 +12,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from .lore_resolve import _CATEGORY_ENTITY_TYPE, resolve_named
+from .models import Entity, FactParticipant, Knowledge
 
 
 @dataclass(frozen=True)
@@ -65,3 +66,42 @@ def resolve_subject(subject: str, world_id: str, db: Session) -> SubjectResoluti
             candidate_ids=(entity_id,), category=matched_category,
         )
     return SubjectResolution(verdict="unmatched", entity_id=None, candidate_ids=(), category=None)
+
+
+def unresolved_subjects(world_id: str, db: Session) -> list[dict]:
+    """One row per distinct `knowledge.subject` in `world_id` whose fact
+    carries no `fact_participant` at all (TICKET-0087, BRIEF-0087-c, C-06).
+
+    `resolve_subject` runs once per distinct subject, never once per row.
+    World scoping and the "no participant at all" filter are both applied
+    in the single `select(...).where(...)` below — an outer join to
+    `fact_participant` so a row with a match (participant_id IS NOT NULL)
+    is excluded in Python, never fetched via a second, unscoped `select(`.
+    Ordered by `row_count` descending, then `subject` ascending.
+    """
+    rows = db.exec(
+        select(Knowledge.subject, Knowledge.fact_id, FactParticipant.id)
+        .join(Entity, Entity.id == Knowledge.entity_id)
+        .outerjoin(FactParticipant, FactParticipant.fact_id == Knowledge.fact_id)
+        .where(Entity.world_id == world_id)
+    ).all()
+
+    grouped: dict[str, dict] = {}
+    for subject, fact_id, participant_id in rows:
+        if participant_id is not None:
+            continue
+        group = grouped.setdefault(subject, {"fact_ids": set(), "row_count": 0})
+        group["fact_ids"].add(fact_id)
+        group["row_count"] += 1
+
+    result = [
+        {
+            "subject": subject,
+            "fact_ids": tuple(sorted(group["fact_ids"])),
+            "row_count": group["row_count"],
+            "resolution": resolve_subject(subject, world_id, db),
+        }
+        for subject, group in grouped.items()
+    ]
+    result.sort(key=lambda entry: (-entry["row_count"], entry["subject"]))
+    return result
