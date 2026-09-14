@@ -6,6 +6,7 @@
      RelationsEditor, via the shared sheetRequest.svelte.js this brief also
      introduces. */
   import { sheetRequest, api } from './sheetRequest.svelte.js';
+  import { serverState } from '../lib/serverState.svelte.js';
 
   let { knowledge, entityId, levelOptions, legacyDoc, onSaved } = $props();
 
@@ -20,8 +21,85 @@
       is_incorrect: k.is_incorrect,
       is_secret: k.is_secret,
       content: k.content ?? '',
+      fact_id: k.fact_id,
+      subject_participants: k.subject_participants || [],
     }));
+    loadSubjectEntities();
+    loadSubjectSuggestions();
   });
+
+  /* TICKET-0087 (BRIEF-0087-d): subject entity binding -- a fact
+     participant (`fact_participant`, no role) attached to the knowledge
+     row's own fact, through the routes BRIEF-0082-b already exposes
+     (POST/DELETE /api/facts/{fact_id}/participants[/{entity_id}]).
+     Two lazily-loaded, world-scoped lists shared by every row: the picker's
+     candidate entities, and the resolver's suggestion per unresolved
+     subject (both come from GET /api/worlds/{world_id}/unresolved-subjects,
+     C-06 -- the same query the residue worklist reads). Loaded once per
+     world, reset when serverState.worldId changes (Registre.svelte's own
+     convention). */
+  let subjectEntities = $state([]);
+  let subjectEntitiesLoaded = false;
+  let subjectSuggestions = $state({}); // subject text -> suggested entity_id
+  let subjectSuggestionsLoaded = false;
+  let pickerSelections = $state({}); // knowledge row id -> chosen entity_id
+
+  $effect(() => {
+    void serverState.worldId;
+    subjectEntities = [];
+    subjectEntitiesLoaded = false;
+    subjectSuggestions = {};
+    subjectSuggestionsLoaded = false;
+    pickerSelections = {};
+  });
+
+  async function loadSubjectEntities() {
+    if (subjectEntitiesLoaded) return;
+    subjectEntitiesLoaded = true;
+    try {
+      subjectEntities = (await api('/api/entities')).filter((e) => e.status === 'active');
+    } catch (_err) { /* picker still usable, just empty until a retry */ }
+  }
+
+  async function loadSubjectSuggestions() {
+    if (subjectSuggestionsLoaded || !serverState.worldId) return;
+    subjectSuggestionsLoaded = true;
+    try {
+      const residue = await api(`/api/worlds/${encodeURIComponent(serverState.worldId)}/unresolved-subjects`);
+      const map = {};
+      for (const r of residue) {
+        if (r.resolution && r.resolution.verdict === 'matched') map[r.subject] = r.resolution.entity_id;
+      }
+      subjectSuggestions = map;
+    } catch (_err) { /* suggestion is advisory only */ }
+  }
+
+  function pickerValue(row) {
+    if (row.id in pickerSelections) return pickerSelections[row.id];
+    return subjectSuggestions[row.subject] || '';
+  }
+
+  async function bindSubject(row) {
+    const entityIdToBind = pickerValue(row);
+    if (!entityIdToBind) return;
+    await sheetRequest(
+      legacyDoc,
+      `/api/facts/${encodeURIComponent(row.fact_id)}/participants`,
+      'POST',
+      JSON.stringify({ entity_id: entityIdToBind }),
+      reloadEntity,
+    );
+  }
+
+  async function unbindSubject(row, participantEntityId) {
+    await sheetRequest(
+      legacyDoc,
+      `/api/facts/${encodeURIComponent(row.fact_id)}/participants/${encodeURIComponent(participantEntityId)}`,
+      'DELETE',
+      null,
+      reloadEntity,
+    );
+  }
 
   let newSubject = $state('');
   let newLevel = $state('rumor');
@@ -100,6 +178,27 @@
             <input type="checkbox" id={`kn-secret-${row.id}`} bind:checked={row.is_secret}>
             <label for={`kn-secret-${row.id}`}>Secret</label></div>
           <div class="field-row span-2"><label>Content</label><textarea bind:value={row.content}></textarea></div>
+          <div class="field-row span-2">
+            <label>Subject entity</label>
+            {#if row.subject_participants.length > 0}
+              <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+                {#each row.subject_participants as p (p.entity_id)}
+                  <span class="badge b-other">{p.name}{p.role ? ` (${p.role})` : ''}</span>
+                  <button class="btn-ghost" onclick={() => unbindSubject(row, p.entity_id)}>Unbind</button>
+                {/each}
+              </div>
+            {:else}
+              <div style="display:flex; gap:6px; align-items:center;">
+                <select value={pickerValue(row)} onchange={(e) => pickerSelections[row.id] = e.target.value}>
+                  <option value="">—</option>
+                  {#each subjectEntities as e (e.id)}
+                    <option value={e.id}>{e.name} ({e.type})</option>
+                  {/each}
+                </select>
+                <button class="btn-ghost" disabled={!pickerValue(row)} onclick={() => bindSubject(row)}>Bind</button>
+              </div>
+            {/if}
+          </div>
         </div>
         <div class="row-card-actions">
           <button class="btn-ghost" onclick={() => saveRow(row)}>Save</button>

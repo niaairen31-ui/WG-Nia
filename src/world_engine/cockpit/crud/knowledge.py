@@ -54,6 +54,7 @@ from ...models import (
 )
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
+from ...subject_resolve import unresolved_subjects
 from ...tick_normalize import _EVENT_TYPES
 from ...writes import (
     KNOWLEDGE_LEVELS,
@@ -138,6 +139,30 @@ def _fact_default_dict(row: FactDefault) -> dict:
 def list_entity_knowledge(entity_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
     _get_entity(db, entity_id)
     return _list_knowledge(entity_id, db)
+
+
+@router.get("/worlds/{world_id}/unresolved-subjects")
+def list_unresolved_subjects(world_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
+    """Read-only residue worklist (TICKET-0087, BRIEF-0087-d, C-06): one row
+    per distinct `knowledge.subject` in `world_id` whose fact carries no
+    `fact_participant` at all. No write, no side effect, no model call."""
+    if db.get(World, world_id) is None:
+        raise HTTPException(404, f"World {world_id!r} not found")
+    rows = unresolved_subjects(world_id, db)
+    return [
+        {
+            "subject": row["subject"],
+            "fact_ids": list(row["fact_ids"]),
+            "row_count": row["row_count"],
+            "resolution": {
+                "verdict": row["resolution"].verdict,
+                "entity_id": row["resolution"].entity_id,
+                "candidate_ids": list(row["resolution"].candidate_ids),
+                "category": row["resolution"].category,
+            },
+        }
+        for row in rows
+    ]
 
 
 def _create_knowledge_core(entity_id: str, body: KnowledgeWriteBody, db: DbSession) -> Knowledge:
