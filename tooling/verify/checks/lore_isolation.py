@@ -32,6 +32,13 @@ R15 (prompt loader scoped to prompt tables): every `select(` in
 `lore_prompt.py` references only `PromptTemplate`/`PromptVersion` -- the
 module that owns the Session for this chantier's prompt resolution must
 never become a canon door by a later edit.
+R16 (ask's Ollama-down message is named, not raw) (BRIEF-0085-f): in
+`ask_lore`'s AST, the `except` handler naming `OllamaError` raises
+`HTTPException` whose `detail` keyword argument is a named constant
+reference (`ast.Attribute`/`ast.Name`), never a call to `str(...)` and
+never an f-string built from the handler's bound exception name -- the
+creator sees the explicit `PLANNER_UNAVAILABLE_MESSAGE`, never a raw
+exception repr.
 R10 (renderer isolation): `lore_render.py` contains no `select(`, no
 `db.add(`, no `.commit(`, and no `Session` identifier anywhere -- the
 renderer is Session-free by construction, not by convention.
@@ -275,6 +282,87 @@ def check_route_is_thin() -> None:
             f"lore_isolation R6: {_rel(LORE_ROUTE_FILE)} contains forbidden call(s) {sorted(hits)!r} -- "
             "the route orchestrates and validates, matching the routes/observation.py doctrine"
         )
+
+
+def check_ask_ollama_error_uses_named_message() -> None:
+    """R16 (BRIEF-0085-f): in `ask_lore`'s AST, the `except` handler naming
+    `OllamaError` raises `HTTPException` whose `detail` keyword argument is
+    a named constant reference, never `str(...)` and never an f-string
+    built from the handler's bound exception name -- same locate-by-
+    decorator idiom as R7's `check_resolve_never_redrafts`."""
+    tree = _parse(LORE_ROUTE_FILE)
+    if tree is None:
+        return
+    target: "ast.FunctionDef | None" = None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for decorator in node.decorator_list:
+            if (
+                isinstance(decorator, ast.Call)
+                and isinstance(decorator.func, ast.Attribute)
+                and decorator.func.attr == "post"
+                and any(isinstance(a, ast.Constant) and a.value == "/api/lore/ask" for a in decorator.args)
+            ):
+                target = node
+                break
+        if target is not None:
+            break
+    if target is None:
+        fail(f"lore_isolation R16: no route handler decorated with @router.post(\"/api/lore/ask\") found in {_rel(LORE_ROUTE_FILE)}")
+        return
+
+    handler_found = False
+    for node in ast.walk(target):
+        if not isinstance(node, ast.Try):
+            continue
+        for handler in node.handlers:
+            handler_type = handler.type
+            names: set[str] = set()
+            if isinstance(handler_type, ast.Name):
+                names.add(handler_type.id)
+            elif isinstance(handler_type, ast.Attribute):
+                names.add(handler_type.attr)
+            elif isinstance(handler_type, ast.Tuple):
+                for elt in handler_type.elts:
+                    if isinstance(elt, ast.Name):
+                        names.add(elt.id)
+                    elif isinstance(elt, ast.Attribute):
+                        names.add(elt.attr)
+            if "OllamaError" not in names:
+                continue
+            handler_found = True
+            raise_found = False
+            for stmt in ast.walk(handler):
+                if not (isinstance(stmt, ast.Raise) and isinstance(stmt.exc, ast.Call)):
+                    continue
+                call = stmt.exc
+                func = call.func
+                func_name = func.id if isinstance(func, ast.Name) else (func.attr if isinstance(func, ast.Attribute) else None)
+                if func_name != "HTTPException":
+                    continue
+                raise_found = True
+                detail_kw = next((kw for kw in call.keywords if kw.arg == "detail"), None)
+                if detail_kw is None:
+                    fail(f"lore_isolation R16: {_rel(LORE_ROUTE_FILE)}:{stmt.lineno} -- HTTPException raised for OllamaError has no detail= keyword")
+                    continue
+                value = detail_kw.value
+                if isinstance(value, ast.Call):
+                    fail(
+                        f"lore_isolation R16: {_rel(LORE_ROUTE_FILE)}:{stmt.lineno} -- "
+                        "detail= is a call (e.g. str(...)), not a named message constant"
+                    )
+                elif isinstance(value, ast.JoinedStr):
+                    fail(
+                        f"lore_isolation R16: {_rel(LORE_ROUTE_FILE)}:{stmt.lineno} -- "
+                        "detail= is an f-string built from the exception, not a named message constant"
+                    )
+                elif not isinstance(value, (ast.Attribute, ast.Name)):
+                    fail(f"lore_isolation R16: {_rel(LORE_ROUTE_FILE)}:{stmt.lineno} -- detail= is not a named constant reference")
+            if not raise_found:
+                fail(f"lore_isolation R16: {_rel(LORE_ROUTE_FILE)}: OllamaError handler raises no HTTPException")
+    if not handler_found:
+        fail(f"lore_isolation R16: {_rel(LORE_ROUTE_FILE)}: ask_lore has no except handler naming OllamaError")
 
 
 def check_resolve_never_redrafts() -> None:
@@ -592,6 +680,7 @@ def main() -> None:
     check_deterministic_half_still_pure()
     check_planner_never_reads_canon()
     check_route_is_thin()
+    check_ask_ollama_error_uses_named_message()
     check_resolve_never_redrafts()
     check_selector_description_coverage()
     check_category_vocabulary_parity()
@@ -608,7 +697,8 @@ def main() -> None:
     print(
         "PASS: lore_isolation — purity (R1, R4), world scoping at construction (R2), "
         "the discoverable_detail exclusion (R3), the planner's canon-blindness (R5), "
-        "the route's thinness (R6), the no-redraft-on-resolve guard (R7), the "
+        "the route's thinness (R6), the ask-side named Ollama-down message (R16), "
+        "the no-redraft-on-resolve guard (R7), the "
         "selector/category vocabulary parity checks (R8, R9), the prompt loader's "
         "scoping to prompt tables (R15), and the renderer's isolation, no-model-on-empty-"
         "verdict, Ollama fallback, message-constant, and unknown-section guards "

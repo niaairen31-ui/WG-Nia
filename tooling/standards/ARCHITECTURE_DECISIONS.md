@@ -15387,6 +15387,41 @@ offline today: it does not pre-flight ping, and a previously-obtained plan
 resolved through it while Ollama is unreachable returns `"renderer":
 "template"` with correct prose.
 
+## PLANNER UNAVAILABLE IS AN EXPLICIT MESSAGE, NOT A RAW ERROR (BRIEF-0085-f, no schema change)
+
+Closes the blocker raised above: a fresh `/api/lore/ask` question asked
+while Ollama is down failed with a raw English exception string
+(`str(exc)` from `OllamaError`) instead of the explicit, French,
+"here is why there's no answer" prose every other empty/error path in this
+ticket already gives. Nia decided (A2) to close this a minima: change the
+message, not the capability.
+
+The pre-flight `ping()` idiom in `ask_lore` is kept and is correct for this
+multi-call pipeline — precedent already exists in `PATCH
+/api/prompts/{prompt_id}/model` (BRIEF-0009-a), which also pings-then-503s
+before a write it cannot validate offline. Only the `HTTPException`'s
+`detail` changed: a new module-level constant, `PLANNER_UNAVAILABLE_MESSAGE`
+(`lore_render.py`, deliberately not underscore-prefixed and deliberately
+not a member of `_EXPECTED_DETERMINISTIC_MESSAGE_CONSTANTS` — no
+`LoreResult` exists yet at ping time, so it is not dispatched by
+`_render_deterministic`; it is the planner's own precondition failing, not
+an empty retrieval), replaces `str(exc)` in `ask_lore`'s `except
+ollama_client.OllamaError` handler. `lore_isolation.py` gained R16, asserting
+the handler's `detail=` is always a named constant reference, never a
+`str(...)` call or an f-string built from the caught exception.
+
+A model-free planner (a heuristic plan-builder bypassing `draft_plan`
+entirely) was considered and rejected as disproportionate for a
+single-operator local tool — the planner is a model call with no
+non-model path, and drafting a plan from free-form French text without a
+model is a different, much larger feature than this brief's scope.
+Reactivate this if `/api/lore/ask` must ever run where the operator does
+not control whether Ollama is running (remote or multi-user access).
+
+`/api/lore/resolve` is untouched: it does not pre-flight ping and was
+already confirmed to answer fully offline via the template renderer when
+given a previously-obtained plan.
+
 ---
 
 *Co-built with Claude, June 2026.*

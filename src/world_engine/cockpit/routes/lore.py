@@ -98,7 +98,9 @@ def ask_lore(body: LoreAskBody, db: Session = Depends(get_session)) -> dict:
     try:
         ollama_client.ping()
     except ollama_client.OllamaError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=503, detail=_lore_render.PLANNER_UNAVAILABLE_MESSAGE
+        ) from exc
 
     try:
         plan = _lore_plan.draft_plan(body.question, body.world_id, db)

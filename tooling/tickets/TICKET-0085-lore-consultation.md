@@ -9,6 +9,7 @@ model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: []
 blast_radius: medium
 brief_ids: [BRIEF-0085-a, BRIEF-0085-b, BRIEF-0085-c, BRIEF-0085-d, BRIEF-0085-e, BRIEF-0085-f]
+lot_id: LOT-0085-planner-unavailable-message.md
 schema_version_touched: none
 retry_count: 1
 ---
@@ -152,7 +153,10 @@ model rather than the game model, overridable by env as the others are.
 - [ ] A name matching two entities in the active world returns no answer, lists
       the candidates distinguishably, and answers correctly once one is chosen
 - [ ] The trace panel lists the rows read for each of the above
-- [ ] With Ollama stopped, the same questions still answer via the template
-      renderer
+- [ ] With Ollama stopped, `/api/lore/resolve` (a previously-obtained plan)
+      still answers via the template renderer; a fresh `/api/lore/ask`
+      question instead returns `PLANNER_UNAVAILABLE_MESSAGE` rather than a
+      raw error, since drafting a new plan has no non-model path
+      (BRIEF-0085-f)
 - [ ] `/review-step` and `/close-step` run clean on every commit touching engine
       code

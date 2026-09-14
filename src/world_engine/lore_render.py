@@ -130,6 +130,15 @@ _UNSUPPORTED_SELECTOR = (
 )
 _AMBIGUOUS_MENTION_HEADER = "{count_phrase} portent le nom « {surface_form} ». Laquelle ?"
 
+# Route-level: no LoreResult exists yet at ping time, so this is not
+# dispatched by _render_deterministic and is not one of the six above --
+# it is the planner's own precondition failing, not an empty retrieval.
+PLANNER_UNAVAILABLE_MESSAGE = (
+    "Je ne peux pas répondre à une nouvelle question : le modèle local "
+    "n'est pas disponible pour en tirer un plan. Démarre Ollama, puis "
+    "repose la question."
+)
+
 
 def _render_unknown_entity(result: LoreResult) -> str:
     """One block per unmatched surface form, in plan order. No near-candidate
