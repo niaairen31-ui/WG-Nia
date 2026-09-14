@@ -82,4 +82,32 @@ the fix land given it's outside this brief's Scope IN?
   non-secret/standing goals) rather than an all-or-nothing include/exclude.
 
 ## Response
-(empty)
+(a). Goal exposure in the dossier is intended, not an oversight -- lore_plan.py's
+_SELECTOR_DESCRIPTIONS["entity_dossier"] has said "...objectifs" since BRIEF-0085-b's
+own selector spec, and it's already live-verified working in #112.
+
+Reclassifying the framing, though: this isn't the same shape as TICKET-0086's two
+fixes. Both of those allowlisted fixtures already pre-existing on main. lore_selectors.py
+doesn't exist on main -- it's new production code TICKET-0085 itself introduced. Nothing
+to land on main first; just add the allowlist entry as its own isolated commit on
+ticket/0085, with a justification comment in the same style as every other entry in
+that file:
+
+```python
+# TICKET-0085 (BRIEF-0085-b). Read-only, creator-facing dossier consultation
+# -- never assemble_mj_context, never NPC dialogue. Same class of reader as
+# cockpit/crud/goals.py above, not the MJ/dialogue boundary this file
+# guards. Goal content (description/status/horizon/kind) reaches the
+# creator's own answer payload -- exactly what entity_dossier exists to do.
+"src/world_engine/lore_selectors.py",
+```
+
+On (c): the "non-secret" framing doesn't map to anything in the schema -- NpcGoal
+carries no is_secret-style column, and _goal_rows (lore_selectors.py:167-180) already
+reads every row unfiltered by kind or status. A "standing-only" filter is mechanically
+possible (the kind field would support it) but nothing measured says it's needed today:
+the renderer already labels each goal's status in the output, so a completed/abandoned
+goal can't be mistaken for an active one. Not filtering preemptively -- revisit only if
+the dossier reads noisy against a real (non-seeded) world.
+
+Allowlist it, isolated commit on ticket/0085, re-verify.
