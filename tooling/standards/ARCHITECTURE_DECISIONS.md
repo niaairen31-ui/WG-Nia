@@ -15498,6 +15498,24 @@ end to end: `unresolved_subjects` measures state, not history, so a second
 `--apply --yes` run finds nothing left to attach for a subject already
 covered and reports the same coverage totals as the first.
 
+## THE SUBJECT-BINDING SURFACE LIVES IN CREATION, NOT LORE (BRIEF-0087-d, no schema change)
+
+The per-row "Subject entity" bind/unbind control (`KnowledgeEditor.svelte`)
+sits in the Creation shell's entity sheet, not in `frontend/src/lore/`.
+Forced, not chosen: TICKET-0085 locked the lore consultation surface
+read-only for its first perimeter (BRIEF-0085-e), and a bind action there
+would break that lock rather than merely sit oddly. Reactivation condition:
+this placement is reconsidered only if TICKET-0085's named read-write
+successor lands and takes ownership of creator-side writes on that surface.
+Until then, every write this brief makes goes through the creator CRUD's
+existing `POST/DELETE /api/facts/{fact_id}/participants[/{entity_id}]`
+routes (BRIEF-0082-b), reached one knowledge row at a time from the sheet —
+no new write path, no new registry entry. The world-scoped residue
+worklist item 5 originally asked for is deferred to TICKET-0088
+(AMENDMENT-0087-2, code `K3`): `GET /api/worlds/{world_id}/unresolved-subjects`
+is built and green in this brief, but nothing yet mounts it as its own
+panel.
+
 ---
 
 *Co-built with Claude, June 2026.*
