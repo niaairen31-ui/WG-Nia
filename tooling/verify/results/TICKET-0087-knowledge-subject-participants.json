@@ -1,0 +1,37 @@
+{
+  "ticket": "TICKET-0087-knowledge-subject-participants",
+  "when": "2026-09-15T17:02:09.293358+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "fact_spine.py",
+      "status": "PASS",
+      "msg": "PASS: fact_spine \u2014 no participant on a typed fact, no NULL knowledge.fact_id, every fact/knowledge level in vocabulary, and Fact/FactParticipant writes stay inside writes/facts.py"
+    },
+    {
+      "check": "subject_resolution.py",
+      "status": "PASS",
+      "msg": "PASS: subject_resolution \u2014 subject_resolve.py stays pure and re-implements no rung; _mutation_apply_new_knowledge refuses a cross-world subject_entity_id and writes nothing, applies an in-world one idempotently"
+    },
+    {
+      "check": "lore_isolation.py",
+      "status": "PASS",
+      "msg": "PASS: lore_isolation \u2014 purity (R1, R4), world scoping at construction (R2), the discoverable_detail exclusion (R3), the planner's canon-blindness (R5), the route's thinness (R6), the ask-side named Ollama-down message (R16), the no-redraft-on-resolve guard (R7), the selector/category vocabulary parity checks (R8, R9), the prompt loader's scoping to prompt tables (R15), and the renderer's isolation, no-model-on-empty-verdict, Ollama fallback, message-constant, and unknown-section guards (R10-R14) are all intact"
+    },
+    {
+      "check": "lore_selectors.py",
+      "status": "PASS",
+      "msg": "PASS: lore_selectors \u2014 the whitelist bijection, table-only dispatch, declared row caps, the validation gate, and the closed verdict set are all intact"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values; 91 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    }
+  ]
+}

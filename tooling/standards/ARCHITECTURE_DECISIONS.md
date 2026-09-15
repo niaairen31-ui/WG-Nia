@@ -15422,6 +15422,100 @@ not control whether Ollama is running (remote or multi-user access).
 already confirmed to answer fully offline via the template renderer when
 given a previously-obtained plan.
 
+## KNOWLEDGE SUBJECT IS A FACT PARTICIPANT, NOT A COLUMN (BRIEF-0087-a, no schema change)
+
+The subject of a `knowledge` row is carried by a `fact_participant` attached
+to its fact, not by a new column on `knowledge` (decision A2). Rejected:
+a nullable `knowledge.subject_entity_id`, proposed by the inbound handover —
+RECON found `fact_participant` already built at TICKET-0082 for exactly this
+purpose, sanctioned, checked, and holding zero rows. Reactivation condition:
+a `knowledge` row must carry a subject that differs from its fact's subject
+(i.e. a fact's participants and a row's actual subject genuinely diverge) —
+until then, populating the existing table is strictly less than adding a
+third notion of "what this row is about" beside `subject` and
+`fact_participant`.
+
+## FACT_PARTICIPANT HAS NO ROLE DISCRIMINATOR (BRIEF-0087-a, no schema change)
+
+`AMENDMENT-0087-1`, decision J2. `fact_participant` is keyed on
+`(fact_id, entity_id)` via `idx_fact_participant_unique`, added at
+TICKET-0082 and never widened; `role` (`Optional[str]`) is descriptive only
+and carries no identity. A participant IS the aboutness claim — a
+free-standing fact's participants are what "qui sait quoi sur X" reads,
+whether or not anyone ever marked one `role="subject"`. Rejected: J1 (keep a
+`role="subject"` marker, widen the idempotency guard to the pair) — it would
+miss the right answer whenever TICKET-0082 arity already occupies the pair,
+since the marker would never get applied. Rejected: J3 (widen the index to
+`(fact_id, entity_id, role)`) — DDL, would restore the `migration` danger
+class decision A2 removed, and would weaken TICKET-0082's arity invariant by
+admitting the same entity twice on one fact. Reactivation condition for a
+discriminator, grep-verifiable: a fact carries a participant that is not a
+subject of the knowledge attached to it.
+
+## NEW_KNOWLEDGE'S SUBJECT_ENTITY_ID: THE MODEL NAMES IT, THE CODE VALIDATES IT (BRIEF-0087-b, no schema change)
+
+Decision B2. `ProposedMutation.payload` gains an optional
+`subject_entity_id` on `mutation_type == "new_knowledge"`. Nothing about it
+is trusted: `_mutation_apply_new_knowledge` re-looks it up against an
+active `entity` of the mutation's own `world_id` before any write, world
+scoping done in the `select(...).where(...)`, never as a post-fetch
+comparison; a value that fails the lookup returns an error string and
+writes nothing at all, the same shape as the branch's pre-existing
+`entity_id` guard. Rejected: B1 (resolver rungs only, applied at write
+time) — measured (R-06) to fill 16% of rows and no more, because analyzer-
+and day-chain-produced subjects are propositions ("Les véritables objectifs
+de..."), not entity names, so a name-matching rung alone has little to
+match against. Rejected: an ambiguity review surface for the case the
+model or the resolver names two or more candidates — R-09 measured zero
+ambiguous subjects across the whole production database (eleven worlds);
+the surface would have nothing to show. Reactivation condition: a measured
+ambiguity count above zero. The `day_mutations.py` path (no model in the
+loop) resolves the requirement string through `C-02`
+(`subject_resolve.resolve_subject`) instead, and omits the key on anything
+but a `matched` verdict — the rungs are the only source available there,
+and a null is the honest state rather than a guess.
+
+## THE EXISTING-KNOWLEDGE BACKFILL IS ONE-OFF, UNAMBIGUOUS-ONLY, AND WRITES NO CHANGE_HISTORY (BRIEF-0087-c, no schema change)
+
+Decision C2. `scripts/apply_ticket_0087_subject_participants.py` walks
+`subject_resolve.unresolved_subjects` per world and attaches a `matched`
+subject's resolved entity to its fact(s) through `attach_participants`
+(BRIEF-0087-a's chokepoint), `role` left NULL — the same J2 rule BRIEF-0087-a
+and BRIEF-0087-b already follow, so a backfilled participant is
+indistinguishable from one attached live. `ambiguous`/`unmatched` subjects
+are left null on purpose (R-09 measured zero ambiguous; the 78% unmatched
+rate is a measured fact about the data — see BRIEF-0087-b's entry above —
+not a defect this script tries to paper over with a fuzzier match). No
+`change_history` entry is written for any touched `knowledge` row: a
+subject attachment is an index annotation on the row's fact, not an edit to
+the row itself, and writing history for it would pollute every row's
+history for a change no creator made. Measured yield on Nia's production
+database: 98 of 615 `knowledge` rows (69 of 312 distinct subjects) gain a
+subject participant, which answers "qui sait quoi sur X" for 42 of 297
+active entities (14.1%) — R-07's number, shipped knowingly partial; the
+remaining 517 rows are BRIEF-0087-d's residue to bind by hand. Idempotent
+end to end: `unresolved_subjects` measures state, not history, so a second
+`--apply --yes` run finds nothing left to attach for a subject already
+covered and reports the same coverage totals as the first.
+
+## THE SUBJECT-BINDING SURFACE LIVES IN CREATION, NOT LORE (BRIEF-0087-d, no schema change)
+
+The per-row "Subject entity" bind/unbind control (`KnowledgeEditor.svelte`)
+sits in the Creation shell's entity sheet, not in `frontend/src/lore/`.
+Forced, not chosen: TICKET-0085 locked the lore consultation surface
+read-only for its first perimeter (BRIEF-0085-e), and a bind action there
+would break that lock rather than merely sit oddly. Reactivation condition:
+this placement is reconsidered only if TICKET-0085's named read-write
+successor lands and takes ownership of creator-side writes on that surface.
+Until then, every write this brief makes goes through the creator CRUD's
+existing `POST/DELETE /api/facts/{fact_id}/participants[/{entity_id}]`
+routes (BRIEF-0082-b), reached one knowledge row at a time from the sheet —
+no new write path, no new registry entry. The world-scoped residue
+worklist item 5 originally asked for is deferred to TICKET-0088
+(AMENDMENT-0087-2, code `K3`): `GET /api/worlds/{world_id}/unresolved-subjects`
+is built and green in this brief, but nothing yet mounts it as its own
+panel.
+
 ---
 
 *Co-built with Claude, June 2026.*

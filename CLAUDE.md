@@ -176,6 +176,13 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   caps acquired/upgraded levels at `knows` in code; `analyze_window` has no
   structural cap (named deferral). Downgrades, forgetting, and
   `is_incorrect` correction are creator CRUD only.
+- **A `fact_participant` row is the aboutness claim for every `knowledge`
+  row on that fact.** `role` is descriptive only, never a filter or a
+  discriminator; `(fact_id, entity_id)` is unique, so every writer reads
+  before it writes.
+- **`new_knowledge`'s `subject_entity_id` is untrusted payload input,**
+  re-validated against an active entity of the mutation's own world at
+  apply, and it is never part of a dedup key.
 - **`scene_state` is a third, explicitly ephemeral write path.**
   `_write_scene_state` archives the previous snapshot to `history[]` before
   every write; cleared to `{}` on conversation close; never canon — durable
@@ -421,7 +428,7 @@ WG-Nia/
 │   ├── day_narration_guard.py  # T1 judge: name containment + outcome survival, Python-only
 │   ├── day_mutations.py     # day-chain mutation emission: proposer only, never applies (V1)
 │   ├── day_feasibility.py   # feasibility veto: downward-only, clamp_verdict is the safety (Y1)
-│   ├── lore_*.py             # lore consultation: resolver, selectors, plan draft/exec, candidates
+│   ├── lore_*.py, subject_resolve.py  # resolver/selectors/plan + subject<->entity via rungs
 │   ├── writes/               # canon-write helpers by domain; schema.py is the DDL authority
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
 │   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)

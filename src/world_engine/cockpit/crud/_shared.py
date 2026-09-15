@@ -211,6 +211,7 @@ def _fact_participants(fact_id: str, db: DbSession) -> list[dict]:
 
 def _knowledge_dict(k: Knowledge, db: Optional[DbSession] = None) -> dict:
     fact = db.get(Fact, k.fact_id) if db is not None else None
+    participants = _fact_participants(k.fact_id, db) if db is not None else []
     return {
         "id": k.id,
         "entity_id": k.entity_id,
@@ -227,7 +228,13 @@ def _knowledge_dict(k: Knowledge, db: Optional[DbSession] = None) -> dict:
         "fact_id": k.fact_id,
         "fact_content": fact.content if fact else None,
         "fact_default_level": fact.default_level if fact else None,
-        "fact_participants": _fact_participants(k.fact_id, db) if db is not None else [],
+        "fact_participants": participants,
+        # TICKET-0087 (BRIEF-0087-d): same rows as `fact_participants`, no
+        # role filter (J2 — a participant IS the aboutness claim). Added
+        # under this name because the creator subject-binding surface's
+        # contract (C-01/C-06) names it `subject_participants`;
+        # `fact_participants` stays untouched for its existing callers.
+        "subject_participants": participants,
     }
 
 
