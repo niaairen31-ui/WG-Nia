@@ -33,10 +33,11 @@ empty (R-02). `danger_class` is `db_write`, not `migration`.
 - **BRIEF-0087-c** `subject-participant-backfill` -- one pass over existing
   `knowledge` facts through the shared resolver, unambiguous matches only,
   plus the coverage report command.
-- **BRIEF-0087-d** `creator-subject-binding-surface` -- the creator sees the
-  unresolved residue for the active world and binds a subject to an entity.
-  The backend routes for this already exist (R-08); this is the surface and
-  the residue query.
+- **BRIEF-0087-d** `creator-subject-binding-surface` -- the creator binds a
+  subject to an entity from the entity sheet, and the residue route is
+  exposed. The backend participant routes already exist (R-08). *The
+  world-scoped residue worklist was cut from this brief by AMENDMENT-0087-2
+  and is TICKET-0088's.*
 - **BRIEF-0087-e** `who-knows-about-selector` -- the selector, its whitelist
   and description entries, its section formatters, its coverage row, and the
   three check files that must learn its name.
@@ -46,8 +47,10 @@ empty (R-02). `danger_class` is `db_write`, not `migration`.
 ```
 BRIEF-0087-a  ->  BRIEF-0087-b
               ->  BRIEF-0087-c  ->  BRIEF-0087-d
-              ->  BRIEF-0087-e
+                                ->  TICKET-0088  ->  BRIEF-0087-e
 ```
+
+*(TICKET-0088 inserted by AMENDMENT-0087-2, code `K3`.)*
 
 `a` is strictly first: `b`, `c`, `d` and `e` all consume `C-01`.
 `b`, `c` and `e` are mutually independent after `a`.
@@ -458,6 +461,46 @@ Consequence: all three are named in the Scope OUT of every brief that works
 near them. Decision A1 was rejected precisely so none of them changes, and
 "make it consistent while nearby" is the exact temptation Scope OUT exists to
 close.
+
+### R-20 -- `CREATION_ISLANDS` is a migration ledger with no greenfield path
+
+*(Added by AMENDMENT-0087-2. Measured during the escalation that produced it,
+and recorded here so TICKET-0088 inherits it rather than re-deriving it.)*
+
+Opened: `frontend/src/creation/registry.js`; `tooling/verify/checks/creation_island.py:44-70, 107, 229-248, 332-337`; `frontend/src/creation/Creation.svelte`; `frontend/src/creation/Queue.svelte`.
+
+Finding: every Creation surface mounts through `CREATION_ISLANDS` and
+`mount.js`, the only sanctioned mechanism (rule 6). Rule 2 (`:246-248`)
+requires each entry to declare a non-empty `retiredPrefixes` list; rule 7
+(`:332-337`) proves each prefix matches zero `function <prefix>...(`
+declarations in `src/world_engine/cockpit/legacy.html` (`INDEX_HTML`,
+`:107` -- the docstring still says `index.html`, the code does not). Rule 4
+requires each `containerId` to exist as an element id in `Creation.svelte`;
+rule 5 requires a matching `CREATION_TABS` declaration; rule 9 requires that
+entry to carry `loader: null` and `state.onWorldSwitch: null`.
+
+The registry holds 16 entries. Enumerated `migratedBy` values:
+
+```
+TICKET-0058 x 5   (constructeur, entityList, entitySheet, region, batch)
+TICKET-0059 x 10  (npcAgent, artefacts, competences, registre, prompts,
+                   linkAgent, pjSkillFiche, queueFilters, queue, queueBatchBar)
+```
+
+Nothing has been added since the frontend migration series. `registry.js`'s
+own header states the purpose: *"one entry per surface a brief converges ...
+It is the record of what has moved, not of what remains."*
+
+A child component of a registered island needs no entry of its own --
+`QueueCard.svelte`, `ConversationWindowConfig.svelte` (named "as its child"
+in the `prompts` entry comment) and `KnowledgeEditor.svelte` all prove it.
+`Queue.svelte` is the world-scoped panel precedent: `$effect` on
+`serverState.worldId`, a refresh button, a `panel-head`.
+
+Consequence: a greenfield Creation panel has no provenance to declare and no
+honest way to satisfy rule 2. This is a frontend-seam gap, not a
+knowledge-subject problem, and it is why BRIEF-0087-d item 5 was deferred
+rather than forced. TICKET-0088 owns it.
 
 ---
 
@@ -890,6 +933,7 @@ briefs, never re-described.
 - `verify/checks/fact_spine.py` -- satisfied by `writes/facts.py`, unchanged. The lot adds participant rows only to free-standing facts, which is assertion 1's pass condition.
 - `verify/checks/lore_isolation.py` R8 / R14 -- satisfied by `lore_plan.py` and `lore_render.py` gaining their entries in BRIEF-0087-e. Both are pure registry edits; neither module needs anything the check forbids.
 - `verify/checks/lore_selectors.py` R1/R2/R3/R6 -- satisfied by `lore_selectors.py`, **provided `SELECTOR_FUNCTION_NAMES` at line 37 gains `who_knows_about`**. Without that edit R2 passes vacuously for the new selector. This is the one check in the lot that a blunt reading would leave silently uncovered.
+- `verify/checks/creation_island.py` -- **this is the entry that should have caught BRIEF-0087-d item 5 at drafting.** Gate (e) asks, for every G1 gate a brief must pass, which module satisfies it and what that module needs which the check forbids. Item 5 required `creation_island.py` to pass and named no such module, because none can exist today: rule 2 demands a migration provenance a greenfield panel does not have (R-20). The answer gate (e) prescribes -- *specify the module the lot does not yet have* -- is TICKET-0088. Deferring item 5 is that answer, taken one ticket out.
 - **New check `verify/checks/subject_resolution.py`** -- required by two acceptance criteria that no existing check covers: that `subject_resolve.py` reaches canon only through `lore_resolve` rungs and contains no `chat(`, and that an out-of-world `subject_entity_id` is refused at apply. It needs a DB fixture (the second assertion is behavioural), which the `fact_spine.py` idiom already provides: fresh temp-file SQLite, `WORLD_ENGINE_DATABASE_URL` set before any `world_engine` import, vacuity-guarded, never touching the real database. It is specified in BRIEF-0087-b. Placing it in its own file rather than extending `fact_spine.py` follows the standing rule: when a blunt check would have to make an exception, the legitimate thing moves to its own file.
 - `verify/checks/frontend_build_fresh.py` and `static_asset_freshness.py` -- satisfied by BRIEF-0087-d running the build and committing its output, which is the project's existing contract for a frontend change (R-17). `creation_island.py` and `json_ui_boundary.py` are satisfied by keeping the new panel inside the Creation shell's existing conventions; a panel that reached into another shell would fail them, which is the structural reason the placement is not free.
 - `verify/checks/single_canon_write.py`, `module_budget.py`, `function_length.py` -- satisfied by the existing modules. `lore_selectors.py` is 210 lines and `writes/knowledge.py` 212; neither approaches the 1000-line cap, and no function in this lot approaches 80 lines.
@@ -924,3 +968,32 @@ All five briefs regenerated.
 
 No measured number changed: the 98-row / 42-entity baseline never depended on
 `role`.
+
+### AMENDMENT-0087-2 -- the residue worklist is deferred to TICKET-0088
+
+Raised by Claude Code as a STOP on BRIEF-0087-d Scope IN item 5, with items
+1-4 committed and green. Decided by Nia, code `K3`.
+Full text: `tooling/tickets/AMENDMENT-0087-2-residue-worklist-deferred.md`.
+
+Item 5 told the executor to "follow the existing panel conventions of the
+Creation shell ... where an existing panel already does the thing, copy it".
+No such convention exists for a greenfield panel: `CREATION_ISLANDS` is a
+migration-provenance ledger whose 16 entries all carry `migratedBy:
+TICKET-0058` or `TICKET-0059`, and `creation_island.py` rule 2 demands a
+non-empty `retiredPrefixes` that a surface with no legacy predecessor cannot
+honestly supply (R-20). Inventing one would be the check-gaming R-12 names.
+
+Rejected: K2, landing the worklist as a child section of `Queue.svelte` --
+that component's header calls its empty states *"the surface's meaning, not
+decoration"*, and a second unrelated list degrades it permanently to save one
+ticket. Rejected: K4, the Lore shell -- it would reopen TICKET-0085's
+read-only lock.
+
+Amended here: **R-20** added; the dependency graph gains TICKET-0088 between
+BRIEF-0087-d and BRIEF-0087-e; the brief list entry for `d` is corrected;
+gate (e) is restated around the check that should have caught this.
+BRIEF-0087-d regenerated; BRIEF-0087-e gains an ordering line only.
+
+`GET /api/worlds/{world_id}/unresolved-subjects` and `C-06` both stand: the
+route keeps BRIEF-0087-c's report as a live reader and TICKET-0088's panel as
+a named second one.

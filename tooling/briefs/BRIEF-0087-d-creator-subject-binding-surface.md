@@ -4,6 +4,8 @@ Lot: LOT-0087-knowledge-subject-participants.md (authoritative on conflict)
 Depends on: BRIEF-0087-a (C-01, C-02), BRIEF-0087-c (C-06)
 Regenerated after AMENDMENT-0087-1 (code `J2`): the `role="subject"` discriminator
 is dropped; `fact_participant` is uniquely keyed on `(fact_id, entity_id)`.
+Regenerated again after AMENDMENT-0087-2 (code `K3`): Scope IN item 5, the
+residue worklist, is deferred to TICKET-0088.
 
 ## Anchors to confirm (Mini-RECON)
 
@@ -78,13 +80,9 @@ existing knowledge row came from creator authoring, not from the analyzer.
 
 4. Do **not** put the subject binding into `saveRow`'s PUT body. Binding is a participant write on the fact; editing a knowledge row is a `write_knowledge` update. Two different writes, two different endpoints, and `C-01` explicitly ignores `subject_entity_ids` on an update.
 
-5. **The residue worklist** — a new panel in the Creation shell, reachable where the creator already works on a world, listing `GET /api/worlds/{world_id}/unresolved-subjects` for the active world:
-   - one line per unresolved subject, showing `row_count`, the subject text, and the resolver's verdict;
-   - a `Bind` action per line that attaches the chosen entity to **every** `fact_id` of that subject in one round, since one subject string maps to one meaning;
-   - the list refreshes after each bind, so the remaining count visibly falls.
-   Follow the existing panel conventions of the Creation shell — registration, mount, and styling — rather than inventing a new pattern. Where an existing panel already does the thing, copy it.
+5. **The residue worklist is not built in this brief.** Deferred to TICKET-0088, which lands the greenfield-island path in `creation_island.py` and then the panel itself, and which runs before BRIEF-0087-e. Do not add a `CREATION_ISLANDS` entry, do not add a container to `Creation.svelte`, do not touch `registry.js`, `tabs.js`, `mount.js` or `Creation.svelte`. Gap closure in this brief is item 3 alone: one knowledge row at a time, from the entity sheet.
 
-6. **The worklist lives in the Creation shell, not the Lore shell.** TICKET-0085 locked the lore consultation surface as read-only for its first perimeter; a bind action there would break that lock. This placement is derived from that lock, not chosen freely.
+6. **Item 2 stays regardless.** `GET /api/worlds/{world_id}/unresolved-subjects` keeps two concrete readers — BRIEF-0087-c's backfill report, and TICKET-0088's panel, queued with a brief and ordered before BRIEF-0087-e. It is not structure without a reader.
 
 7. The frontend build output is committed. Run the build and commit its artefacts, or `frontend_build_fresh.py` fails.
 
@@ -100,6 +98,7 @@ existing knowledge row came from creator authoring, not from the analyzer.
 - **`fact_default` / scoped knowledge defaults.** TICKET-0082's G2a resolution is a different feature on the same table.
 - **The write path for creator-asserted knowledge** — "tel personnage connaît telle chose" as a new canon row. That is TICKET-0085 queue item 5, not this.
 - **Any new mutation type or queue behaviour.**
+- **The residue worklist, and every registry it would touch** — `CREATION_ISLANDS` (`frontend/src/creation/registry.js`), `CREATION_TABS` (`tabs.js`), `mount.js`, `Creation.svelte`'s containers, and `creation_island.py` itself. Named deferral to TICKET-0088 (AMENDMENT-0087-2). Reactivation is TICKET-0088 landing, not a judgment call.
 
 ## Invariants to defend
 
@@ -114,7 +113,7 @@ existing knowledge row came from creator authoring, not from the analyzer.
 
 **STOP:**
 - Any anchor above has moved.
-- The Creation shell has no existing pattern for a world-scoped panel (as opposed to an entity-scoped one), so Scope IN item 5 has no convention to copy. Which shell a surface lives in is Nia's judgment; report what the shell does offer and wait.
+- Any work in this brief turns out to require a `CREATION_ISLANDS` entry. It should not: item 3 edits a child component of an already-registered island, which needs none. If it does, that is TICKET-0088's subject and this brief stops.
 - The entity payload the sheet reloads is assembled somewhere other than `crud/knowledge.py`, so Scope IN item 1 would have to change a second module's contract.
 - `frontend_build_fresh.py` fails and the failure is not resolved by committing the build output.
 
@@ -123,10 +122,10 @@ existing knowledge row came from creator authoring, not from the analyzer.
 - The picker needs an entity list endpoint that already exists elsewhere in the shell: reuse it rather than adding a route, proceed, report.
 - `sheetRequest`'s signature does not fit a DELETE with no body: follow how `deleteRow` (`KnowledgeEditor.svelte:51-54`) already does it, proceed, report.
 - A `confirm()` is conventional for destructive actions in this file (`KnowledgeEditor.svelte:52`): unbinding is reversible, so do not add one, and report the judgment.
-- The worklist's bind needs the subject's `fact_ids` and the response shape omits them: they are in `C-06`; if the route drops them, add them, proceed, report.
+- The route's response omits `fact_ids`: they are in `C-06` and TICKET-0088's panel needs them; add them, proceed, report.
 
 **REPORT-ONLY:**
-- The residue count per world after the surface exists, and how far it fell during any manual test.
+- The residue count per world after item 2 exists, and how far it falls during any manual binding from the entity sheet. TICKET-0088 inherits this number.
 - Any unresolved subject that names two different entities and therefore cannot be bound to one.
 - Any knowledge row whose fact already carries a non-`subject` participant.
 
@@ -145,7 +144,7 @@ existing knowledge row came from creator authoring, not from the analyzer.
 - [ ] Pressing `Unbind` removes that row and the picker returns.
 - [ ] Binding does not change the knowledge row's `subject`, `level`, `content`, `is_secret`, `is_incorrect` or `share_threshold`.
 - [ ] Saving a knowledge row through the existing `Save` button does not create, remove or alter any `fact_participant`.
-- [ ] In the residue worklist, binding a subject with three `fact_ids` creates three `fact_participant` rows in one action, and the worklist's remaining count falls by one.
+- [ ] `registry.js`, `tabs.js`, `mount.js` and `Creation.svelte` are byte-identical to their state before this brief.
 - [ ] Binding a subject already bound on one of its facts creates no duplicate on that fact and returns no error to the surface.
 - [ ] A fact carrying a participant with a non-NULL role written elsewhere displays that binding rather than a picker, and its `role` is unchanged after any action on that row.
 - [ ] `python tooling/run.py` — `fact_spine.py`, `single_canon_write.py`, `frontend_build_fresh.py`, `static_asset_freshness.py`, `creation_island.py`, `json_ui_boundary.py`, `module_budget.py`, `function_length.py`, `corpus_gate.py` all PASS.
@@ -154,5 +153,5 @@ existing knowledge row came from creator authoring, not from the analyzer.
 ## Docs to update
 
 - `ARCHITECTURE_DECISIONS.md`: one entry recording that the subject-binding surface lives in the Creation shell because TICKET-0085 locked the lore consultation surface read-only for its first perimeter; with the reactivation condition for moving it (that lock being lifted by TICKET-0085's named successor).
-- `CLAUDE.md`: the symbol-location line for the new route and panel, per the TICKET-0070 rule.
+- `CLAUDE.md`: the symbol-location line for the new route, per the TICKET-0070 rule. No panel line — there is no panel in this brief.
 - No schema changelog entry. No version bump.

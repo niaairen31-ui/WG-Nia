@@ -7,6 +7,8 @@ finding nothing blocking here is not finding a defect.
 Regenerated after AMENDMENT-0087-1 (code `J2`): the `role="subject"`
 discriminator is dropped; `fact_participant` is uniquely keyed on
 `(fact_id, entity_id)`.
+AMENDMENT-0087-2 (code `K3`) inserts TICKET-0088 between BRIEF-0087-d and
+this brief. No content change here; the ordering line is the whole of it.
 
 ## Anchors to confirm (Mini-RECON)
 
