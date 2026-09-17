@@ -1,0 +1,37 @@
+{
+  "ticket": "TICKET-0075-day-resolution-chain",
+  "when": "2026-08-25T21:44:12.603005+00:00",
+  "green": false,
+  "checks": [
+    {
+      "check": "pipeline_wiring.py",
+      "status": "PASS",
+      "msg": "PASS: pipeline_wiring \u2014 readers exist, batch table shape, declared_action write-once, no restated bound, route shape and the vacuity guard are all intact"
+    },
+    {
+      "check": "day_narration.py",
+      "status": "PASS",
+      "msg": "PASS: day_narration \u2014 dice-are-Python, truncation purity, narrate's DB boundary, the judge's Python-only and anti-vacuity guards, the bounded rewrite, history append-only, declared_action write-once, PROMPT_REGISTRY wiring, V1's no-direct-step-write boundary, and BB1's remaining-work invariant are all intact"
+    },
+    {
+      "check": "day_plan.py",
+      "status": "PASS",
+      "msg": "PASS: day_plan \u2014 evaluator bijection, requirement CHECKs, budget derivation, P2/positional exclusion, the positional wall, budget_cut purity, emit_plan wiring, named bounds, the D1 traversal-independence gate, and BRIEF-0075-f's reconciliation/Z4/AA2 gates (R11-R21) are all intact"
+    },
+    {
+      "check": "day_mutations.py",
+      "status": "PASS",
+      "msg": "PASS: day_mutations \u2014 emission bijection, npc_move absence, status/vocabulary discipline, never-applies, every-type-applicable, route shape, no agenda_id/step_id, entity_creation parks, the effects contract, no forced subject, and BB1's resolve precondition are all intact"
+    },
+    {
+      "check": "npc_schedule.py",
+      "status": "PASS",
+      "msg": "PASS: npc_schedule \u2014 vocabulary, constraints, precedence bijection, table shape, write-site registration, read-only panel, mount reachability, vocabulary source, the bare phase write and the concordance reachability are all intact"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "FAIL",
+      "msg": "SUMMARY: 1 check(s) failed (0 environment, 0 crash, 0 timeout, 1 other)"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "ticket": "TICKET-0065-creation-shell-seam-regressions",
+  "when": "2026-08-20T00:24:04.036617+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "graph_primitive.py",
+      "status": "PASS",
+      "msg": "PASS: graph_primitive \u00e2\u20ac\u201d 236 retired token(s) confirmed absent, 0 registry entry(ies) within baseline, 0 entry(ies) with a live locus, 5 graph spec(s) validated, 0 live graph impl(s), 1 retired graph impl(s) proven absent, 4 mount target(s) resolved in the shell document, 9 dispatch/listen site(s) on a single document"
+    },
+    {
+      "check": "legacy_mount.py",
+      "status": "PASS",
+      "msg": "PASS: legacy_mount \u00e2\u20ac\u201d 2 mount(s) within baseline, 2 retiring ticket(s), 2 legacy fn(s) resolved, access confined to bridge, 1 frame src site, 5 shell route(s) agreed"
+    },
+    {
+      "check": "shell_height_chain.py",
+      "status": "PASS",
+      "msg": "PASS: shell_height_chain \u00e2\u20ac\u201d 84 file(s) scanned, zero 100vh literal(s), shell chain declared on #app and .shell-layout"
+    },
+    {
+      "check": "stylesheet_partition.py",
+      "status": "PASS",
+      "msg": "PASS: stylesheet_partition \u00e2\u20ac\u201d 307 top-level selector(s) across shared.css/creation.css/inline, zero duplicates; rule7 scanned 81 frontend/src file(s), 110 applied class name(s), 100 applied id name(s), 83 inline selector name(s), zero stranded"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u00e2\u20ac\u201d 85 source file(s), 1 output asset(s), manifest hash matches"
+    }
+  ]
+}

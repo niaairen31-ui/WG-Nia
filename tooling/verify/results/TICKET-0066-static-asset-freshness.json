@@ -1,0 +1,12 @@
+{
+  "ticket": "TICKET-0066-static-asset-freshness",
+  "when": "2026-08-20T00:54:34.593302+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "static_asset_freshness.py",
+      "status": "PASS",
+      "msg": "PASS: static_asset_freshness \u00e2\u20ac\u201d mount is policy-bearing, 2 immutable file(s) / 4 revalidating file(s), 6 HTML route(s) covered"
+    }
+  ]
+}

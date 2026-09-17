@@ -1,0 +1,12 @@
+{
+  "ticket": "TICKET-0042-room-batch-generator",
+  "when": "2026-07-23T13:41:16.137426+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "room_batch_report_only.py",
+      "status": "PASS",
+      "msg": "PASS: room_batch_report_only \u2014 room_batch_author.py carries none of _apply_mutation/write_relation/_create_entity_core/db.commit("
+    }
+  ]
+}

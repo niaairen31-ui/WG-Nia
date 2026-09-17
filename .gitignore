@@ -20,3 +20,6 @@ venv/
 # purpose (E1): building at launch would fail open -- a stale or absent
 # build renders a blank page instead of refusing.
 frontend/node_modules/
+
+# Local Claude Code drop point, never a repository artifact.
+Claude outputs/
