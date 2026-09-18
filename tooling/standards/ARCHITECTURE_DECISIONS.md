@@ -15575,6 +15575,53 @@ passes rule 11 unchecked; reactivate if
 `grep -n "createPanel" frontend/src/creation/tabs.js` ever shows a
 `primaryAction: {` site with no accompanying `createPanel` field.
 
+## THE SUBJECT WORKLIST IS A NEW CREATION ISLAND, BOUND BY A CLIENT LOOP (BRIEF-0088-b, no schema change)
+
+`SubjectWorklist.svelte` is a bespoke Creation tab (`B1`) listing the
+active world's unresolved knowledge subjects, one control per subject,
+between « Événements » and « Review Queue ». *Rejected:* **B2**, a second
+island grafted inside an existing tab — no existing tab is a world-scoped
+curation list, and the Review Queue's empty states would degrade
+permanently; reactivate when an existing tab's subject becomes knowledge
+subjects.
+
+**D-0059-prompts-surface has not fired.** The worklist curates canon — it
+resolves and binds existing `knowledge` rows to entities — it does not
+configure the engine, so it is not the "second creator-tooling surface"
+that condition names.
+
+**`E1` — the sequential client loop, and why it is safe.** Binding a
+subject POSTs one `/api/facts/{fact_id}/participants` call per fact, in
+sequence, with no role; the loop stops at the first failure; the panel
+always reloads the residue afterward; every control on the row stays
+disabled until that reload has landed. This is safe because the residue
+route excludes every fact that already carries any participant, so a
+partly bound subject stays listed with only its still-unbound facts — a
+retry sends the remainder and never repeats a `(fact, entity)` pair,
+which matters because the attach route answers 500 on a duplicate
+(TICKET-0087 S-2, unrepaired here). The entity picker is additionally
+filtered to `status === 'active'` **and** `world_id === serverState.
+worldId`, so a cross-world entity can never reach a POST from this
+surface. *Rejected:* **E2**, a bulk backend route — it would bring
+`db_write` into a frontend-only ticket; reactivate when a partly bound
+subject becomes wrong, i.e. when a role discriminator returns under
+TICKET-0087's `J2` reactivation condition.
+
+**The first `origin: 'new'` entry.** `subjectWorklist` has no
+`migratedBy`, no `retiredPrefixes` — `createdBy: 'TICKET-0088'` is its
+whole provenance. The registry now records provenance for both kinds
+uniformly, per BRIEF-0088-a.
+
+**Named deferral D-0088-one-entity-per-subject.** The worklist binds all
+of a subject's facts to one entity, matching the entity sheet's existing
+one-entity-per-row bind. Reactivate when
+
+```
+SELECT COUNT(*) FROM (SELECT fp.fact_id FROM fact_participant fp JOIN knowledge k ON k.fact_id = fp.fact_id GROUP BY fp.fact_id HAVING COUNT(DISTINCT fp.entity_id) > 1)
+```
+
+returns more than 0 on the production database.
+
 ---
 
 *Co-built with Claude, June 2026.*
