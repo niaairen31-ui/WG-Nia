@@ -1,0 +1,77 @@
+{
+  "ticket": "TICKET-0088-greenfield-creation-island",
+  "when": "2026-09-18T13:41:07.100069+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "creation_island.py",
+      "status": "PASS",
+      "msg": "PASS: creation_island \u2014 16 island(s) registered (15 migration, 1 new), 15 retired legacy prefix set(s) confirmed gone, 16 component binding(s) agreed, 8 mount-action identifier(s) confined, 11 island primaryAction(s) wired, Creation.svelte mounts no component"
+    },
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u2014 CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry; 15 of 15 CREATION_TABS entries mount at least one island, 0 mount none"
+    },
+    {
+      "check": "effect_self_write.py",
+      "status": "PASS",
+      "msg": "PASS: effect_self_write \u2014 54 .svelte file(s), 40 $effect bod(y/ies), 206 $state binding(s) scanned, zero assign-then-read findings"
+    },
+    {
+      "check": "stylesheet_partition.py",
+      "status": "PASS",
+      "msg": "PASS: stylesheet_partition \u2014 311 top-level selector(s) across shared.css/creation.css/inline, zero duplicates; rule7 scanned 93 frontend/src file(s), 131 applied class name(s), 110 applied id name(s), 83 inline selector name(s), zero stranded; rule7 (legacy) scanned cockpit/legacy.html, 75 applied class name(s), 49 applied id name(s), 0 stranded; STRANDED(legacy) classes=[] ids=[]"
+    },
+    {
+      "check": "graph_primitive.py",
+      "status": "PASS",
+      "msg": "PASS: graph_primitive \u2014 236 retired token(s) confirmed absent, 0 registry entry(ies) within baseline, 0 entry(ies) with a live locus, 5 graph spec(s) validated, 0 live graph impl(s), 1 retired graph impl(s) proven absent, 4 mount target(s) resolved in the shell document, 9 dispatch/listen site(s) on a single document"
+    },
+    {
+      "check": "legacy_mount.py",
+      "status": "PASS",
+      "msg": "PASS: legacy_mount \u2014 1 mount(s) within baseline, 1 retiring ticket(s), 1 legacy fn(s) resolved, access confined to bridge, 1 frame src site, 7 shell route(s) agreed"
+    },
+    {
+      "check": "creation_tab_switch.py",
+      "status": "PASS",
+      "msg": "PASS: creation_tab_switch \u2014 reset dispatched at offset 23566 before activeTabKey move at offset 23599; 18 onTabEnter key(s) surviving"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values; 93 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u2014 97 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "static_asset_freshness.py",
+      "status": "PASS",
+      "msg": "PASS: static_asset_freshness \u2014 mount is policy-bearing, 2 immutable file(s) / 4 revalidating file(s), 8 HTML route(s) covered"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u2014 section whitelist, character/line budgets, File-structure archaeology ban, Invariants archaeology ban, tooling/ pointer freshness, .py pointer freshness"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    },
+    {
+      "check": "pipeline_state.py",
+      "status": "PASS",
+      "msg": "PASS: every ticket front-matter conforms to TEMPLATE.md"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 110 check(s) discovered, 110 executed, 110 passed"
+    }
+  ]
+}
