@@ -16,25 +16,43 @@
    one component, many owning tabs -- never three renderers racing for one
    node.
 
-   tooling/verify/checks/creation_island.py cross-references every field
-   against index.html and the real filesystem:
-     containerId:     legacy element id the component mounts into
-     component:       Svelte component filename, relative to this directory
-     migratedBy:      the ticket that performed the migration (^TICKET-\d{4}$)
-     retiredPrefixes: the legacy function-name prefixes this migration
-                      retired; the check proves zero `function <prefix>...(`
-                      declarations remain in index.html, in any context, for
-                      EVERY prefix in the list */
+   TICKET-0088 amendment (BRIEF-0088-a): the registry also records
+   surfaces that were CREATED as islands, with no legacy predecessor.
+   Each entry declares its `origin` -- 'migration' for a surface that
+   moved (the ledger described above), 'new' for one that did not.
+   Nothing is removed once added, whichever the origin.
+
+   tooling/verify/checks/creation_island.py parses this literal
+   (comments ignored, field order free) and cross-references every
+   field against the filesystem, Creation.svelte, tabs.js, mount.js
+   and, for migration entries, src/world_engine/cockpit/legacy.html.
+   The field set is closed per origin:
+     containerId:     id of the Creation.svelte element the component
+                      mounts into (both origins)
+     component:       Svelte component filename, relative to this
+                      directory (both origins)
+     origin:          'migration' | 'new'
+     migratedBy:      migration only -- the ticket that performed the
+                      migration (^TICKET-\d{4}$)
+     retiredPrefixes: migration only -- the legacy function-name
+                      prefixes the migration retired; the check proves
+                      zero `function <prefix>...(` declarations remain
+                      in legacy.html, for EVERY prefix in the list
+     createdBy:       new only -- the ticket that created the surface
+                      (^TICKET-\d{4}$)
+   Every key also needs a COMPONENTS entry in mount.js. */
 export const CREATION_ISLANDS = Object.freeze({
   constructeur: Object.freeze({
     containerId: 'creation-constructeur',
     component: 'Constructeur.svelte',
+    origin: 'migration',
     migratedBy: 'TICKET-0058',
     retiredPrefixes: ['constructeur'],
   }),
   entityList: Object.freeze({
     containerId: 'author-entity-list',
     component: 'EntityList.svelte',
+    origin: 'migration',
     migratedBy: 'TICKET-0058',
     retiredPrefixes: [
       'creationRenderEntityList',
@@ -62,6 +80,7 @@ export const CREATION_ISLANDS = Object.freeze({
   entitySheet: Object.freeze({
     containerId: 'author-main',
     component: 'Sheet.svelte',
+    origin: 'migration',
     migratedBy: 'TICKET-0058',
     retiredPrefixes: [
       'authorRenderSheet',
@@ -274,6 +293,7 @@ export const CREATION_ISLANDS = Object.freeze({
   region: Object.freeze({
     containerId: 'creation-region',
     component: 'Region.svelte',
+    origin: 'migration',
     migratedBy: 'TICKET-0058',
     retiredPrefixes: ['region', '_region', '_sheetField', '_sheetListSection', '_sheetEntityOptions'],
   }),
@@ -287,6 +307,7 @@ export const CREATION_ISLANDS = Object.freeze({
   batch: Object.freeze({
     containerId: 'batch-panel-wrap',
     component: 'RoomBatch.svelte',
+    origin: 'migration',
     migratedBy: 'TICKET-0058',
     retiredPrefixes: ['batch', '_batchNodeName'],
   }),
@@ -300,6 +321,7 @@ export const CREATION_ISLANDS = Object.freeze({
   npcAgent: Object.freeze({
     containerId: 'npcagent-panel',
     component: 'NpcAgent.svelte',
+    origin: 'migration',
     migratedBy: 'TICKET-0059',
     retiredPrefixes: [
       'npcAgentReset',
@@ -347,6 +369,7 @@ export const CREATION_ISLANDS = Object.freeze({
   artefacts: Object.freeze({
     containerId: 'creation-artefacts',
     component: 'Artefacts.svelte',
+    origin: 'migration',
     migratedBy: 'TICKET-0059',
     retiredPrefixes: ['loadCreationArtefacts', 'CREATION_ARTEFACTS_NOTICE'],
   }),
@@ -356,6 +379,7 @@ export const CREATION_ISLANDS = Object.freeze({
   competences: Object.freeze({
     containerId: 'creation-competences',
     component: 'Competences.svelte',
+    origin: 'migration',
     migratedBy: 'TICKET-0059',
     retiredPrefixes: [
       '_competencesWorldReset', 'competencesGenerateDraft',
@@ -375,6 +399,7 @@ export const CREATION_ISLANDS = Object.freeze({
   registre: Object.freeze({
     containerId: 'creation-registre',
     component: 'Registre.svelte',
+    origin: 'migration',
     migratedBy: 'TICKET-0059',
     retiredPrefixes: [
       '_registreWorldReset', '_registrePopulateEntityFilter',
@@ -390,6 +415,7 @@ export const CREATION_ISLANDS = Object.freeze({
   prompts: Object.freeze({
     containerId: 'creation-prompts',
     component: 'Prompts.svelte',
+    origin: 'migration',
     migratedBy: 'TICKET-0059',
     retiredPrefixes: [
       '_promptsResetEditState', '_promptsWorldReset', '_promptsFetchOllamaModels',
@@ -413,6 +439,7 @@ export const CREATION_ISLANDS = Object.freeze({
   linkAgent: Object.freeze({
     containerId: 'linkagent-panel',
     component: 'LinkAgent.svelte',
+    origin: 'migration',
     migratedBy: 'TICKET-0059',
     retiredPrefixes: [
       'linkAgentReset',
@@ -452,6 +479,7 @@ export const CREATION_ISLANDS = Object.freeze({
   pjSkillFiche: Object.freeze({
     containerId: 'creation-pj-skill',
     component: 'PjSkillFiche.svelte',
+    origin: 'migration',
     migratedBy: 'TICKET-0059',
     retiredPrefixes: [
       'skillInit', 'skillLoadCharacters', 'skillSelectCharacter', 'skillRender',
@@ -468,6 +496,7 @@ export const CREATION_ISLANDS = Object.freeze({
   queueFilters: Object.freeze({
     containerId: 'creation-shell-extra',
     component: 'QueueFilters.svelte',
+    origin: 'migration',
     migratedBy: 'TICKET-0059',
     retiredPrefixes: [
       'setFilter', 'setFilterByName', '_loadMutationEntityNames', '_mutationEntityName',
@@ -484,6 +513,7 @@ export const CREATION_ISLANDS = Object.freeze({
   queue: Object.freeze({
     containerId: 'creation-queue',
     component: 'Queue.svelte',
+    origin: 'migration',
     migratedBy: 'TICKET-0059',
     retiredPrefixes: [
       'loadQueue', 'renderCard', '_renderResourceChangeLegs', '_renderAgendaProvenanceSummary',
@@ -502,6 +532,7 @@ export const CREATION_ISLANDS = Object.freeze({
   queueBatchBar: Object.freeze({
     containerId: 'creation-shell-batch-bar',
     component: 'QueueBatchBar.svelte',
+    origin: 'migration',
     migratedBy: 'TICKET-0059',
     retiredPrefixes: [
       'renderBatchBar', 'getSelectedMutationIds', 'toggleSelectAll', 'updateBatchBar',
