@@ -334,6 +334,9 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   rationale: `ARCHITECTURE_DECISIONS.md`, "ENTITY-TYPE CONSTRUCTOR — rollback quarantine (B1)".
 - Every Création page is a `CREATION_TABS` registry entry rendered by the generic dispatcher; no
   page/tab-specific branch exists outside it — enforced by `page_contract.py`.
+- Every Création surface mounts as a `CREATION_ISLANDS` entry declaring its origin (`migration` or
+  `new`) through `mount.js` alone; `Creation.svelte` imports and renders no component — enforced by
+  `creation_island.py`.
 - The review tree (`review*`, `frontend/src/creation/review/registry.js`) is a generic
   accept/reject component, never driven by consumer globals — enforced by `review_component.py`.
 - The graph primitive (`frontend/src/graph/Graph.svelte`) is the ONE graph component; a second
@@ -404,7 +407,7 @@ WG-Nia/
 ├── frontend/                 # Svelte + Vite sources; build writes the committed static/ output
 │   ├── src/legacy/           # enumerated legacy-mount registry + sole bridge into legacy
 │   ├── src/graph/            # the graph primitive, its consumers, its non-converged registry
-│   └── src/creation/         # Svelte islands + review-tree; registry.js GROWS as surfaces migrate
+│   └── src/creation/         # Svelte islands + review-tree; registry.js: islands and their origin
 ├── src/world_engine/        # the importable package (PYTHONPATH=src)
 │   ├── db.py                # engine + session; URL from env var
 │   ├── schema_version.py    # code-side expected static-schema constant, checked at boot
