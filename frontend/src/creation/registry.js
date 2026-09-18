@@ -539,4 +539,13 @@ export const CREATION_ISLANDS = Object.freeze({
       'hideBatchVerdict', 'showBatchVerdict', 'doBatchAction',
     ],
   }),
+  // TICKET-0088 (BRIEF-0088-b): the unresolved-subject worklist, the first
+  // surface created directly as an island -- no legacy predecessor, so no
+  // migratedBy and no retiredPrefixes.
+  subjectWorklist: Object.freeze({
+    containerId: 'creation-subjects',
+    component: 'SubjectWorklist.svelte',
+    origin: 'new',
+    createdBy: 'TICKET-0088',
+  }),
 });
