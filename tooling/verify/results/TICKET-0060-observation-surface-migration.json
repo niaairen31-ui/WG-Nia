@@ -1,0 +1,62 @@
+{
+  "ticket": "TICKET-0060-observation-surface-migration",
+  "when": "2026-08-20T21:48:17.273000+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "observation_surface.py",
+      "status": "PASS",
+      "msg": "PASS: observation_surface \u2014 4 renderer function(s) verified, 4 outcome literal(s) collected"
+    },
+    {
+      "check": "legacy_mount.py",
+      "status": "PASS",
+      "msg": "PASS: legacy_mount \u2014 1 mount(s) within baseline, 1 retiring ticket(s), 1 legacy fn(s) resolved, access confined to bridge, 1 frame src site, 5 shell route(s) agreed"
+    },
+    {
+      "check": "legacy_call.py",
+      "status": "PASS",
+      "msg": "PASS: legacy_call \u2014 1 bridge-reach site(s) observed, 1 baselined, 0 stale, 2 reaching export(s) derived"
+    },
+    {
+      "check": "stylesheet_partition.py",
+      "status": "PASS",
+      "msg": "PASS: stylesheet_partition \u2014 305 top-level selector(s) across shared.css/creation.css/inline, zero duplicates; rule7 scanned 83 frontend/src file(s), 113 applied class name(s), 103 applied id name(s), 83 inline selector name(s), zero stranded; rule7 (legacy) scanned cockpit/index.html, 75 applied class name(s), 49 applied id name(s), 0 stranded; STRANDED(legacy) classes=[] ids=[]"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values; 83 frontend file(s) within the 1000-line cap"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u2014 every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u2014 87 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "graph_primitive.py",
+      "status": "PASS",
+      "msg": "PASS: graph_primitive \u2014 236 retired token(s) confirmed absent, 0 registry entry(ies) within baseline, 0 entry(ies) with a live locus, 5 graph spec(s) validated, 0 live graph impl(s), 1 retired graph impl(s) proven absent, 4 mount target(s) resolved in the shell document, 9 dispatch/listen site(s) on a single document"
+    },
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u2014 CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry; 14 of 14 CREATION_TABS entries have migrated at least one mount point, 0 still render entirely from legacy code"
+    },
+    {
+      "check": "creation_island.py",
+      "status": "PASS",
+      "msg": "PASS: creation_island \u2014 15 island(s) registered, 15 retired legacy prefix set(s) confirmed gone, 8 mount-action identifier(s) confined, 11 island primaryAction(s) wired"
+    },
+    {
+      "check": "shell_height_chain.py",
+      "status": "PASS",
+      "msg": "PASS: shell_height_chain \u2014 86 file(s) scanned, zero 100vh literal(s), shell chain declared on #app and .shell-layout"
+    }
+  ]
+}

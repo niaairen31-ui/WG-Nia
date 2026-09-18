@@ -15516,6 +15516,112 @@ worklist item 5 originally asked for is deferred to TICKET-0088
 is built and green in this brief, but nothing yet mounts it as its own
 panel.
 
+## CREATION ISLANDS DECLARE THEIR ORIGIN — MIGRATION OR NEW (BRIEF-0088-a, no schema change)
+
+`frontend/src/creation/registry.js`'s `:11237` sentence said the registry
+"is the record of what has MOVED: one entry per migrated surface, never
+removed once added." That is superseded on the record, not edited: the
+registry is now a record of every Creation island and its origin —
+`migration` for a surface that moved out of `legacy.html`, `new` for one
+that never had a legacy predecessor — never removed once added, whichever
+the origin.
+
+**A1b — closed field sets per origin.** `containerId` and `component` are
+required of both; `origin` is required and exactly `'migration'` or
+`'new'`; `migratedBy` (`^TICKET-\d{4}$`) and a non-empty `retiredPrefixes`
+are required of `migration` and forbidden of `new`; `createdBy`
+(`^TICKET-\d{4}$`) is required of `new` and forbidden of `migration`. Any
+other field name, a missing required field, a forbidden field present, or
+a malformed value is a FAILURE naming the entry key and the field —
+`tooling/verify/checks/creation_island.py` rule 2. *Rejected:* **A1a**, a
+`new` entry keeping `migratedBy` with `retiredPrefixes: []` — it would
+record a migration that never happened, the same false-provenance class
+TICKET-0061 removed for `retiredBy`; no reactivation condition.
+
+**A2 (a second registry) and A3 (retiring rules 2 and 7), both rejected.**
+A2 would need a second mount path or a double lookup in `mount.js`;
+reactivate at the first brief that must remove an entry from
+`CREATION_ISLANDS`. A3 assumes `legacy.html` is gone; reactivate when
+`legacy.html` is absent **and** `frontend/src/legacy/registry.js`'s
+`LEGACY_MOUNTS` is empty.
+
+**D3 — the three repairs, plus the bypass lock.** Rule 7 (the
+retired-prefix proof) now examines migration entries only and fails
+closed when `legacy.html` is missing while any migration entry exists —
+its absence can no longer be silently read as "nothing survived." Rule 12
+requires the `COMPONENTS` map in `mount.js` to agree exactly, key for key
+and specifier for specifier, with the registry — closing the gap where a
+forgotten `COMPONENTS` line rendered an empty tab with every other gate
+green. Rule 13 requires `Creation.svelte` to import and mount no
+component itself — every registered Creation surface reaches the screen
+through `mount.js`'s `mountIsland`/`activateIsland` alone, closing the
+direct-import bypass the RECON found sitting next to the registry.
+
+**The self-test lives inside `creation_island.py`, not beside it.**
+`corpus_gate.py` discovers and runs every `*.py` under
+`tooling/verify/checks/`; a self-test helper placed there would be
+discovered and run as a check in its own right. The self-test instead
+runs as the first statement of `main()`, reads no file, and seeds every
+refusal path this brief adds, each case expecting at least one message
+naming the refused thing.
+
+**Two named deferrals.** **D-0088-rule6-alias**: a bare `mount(`/
+`hydrate(` alias imported from `'svelte'` is not itself scanned for;
+reactivate if a second import of `mount`/`hydrate` from `'svelte'`
+appears anywhere under `frontend/src` besides `main.js`,
+`creation/mount.js` and `graph/mount.js`. **D-0088-rule11-unrouted**: a
+non-routed `primaryAction` object with no `createPanel` field at all
+passes rule 11 unchecked; reactivate if
+`grep -n "createPanel" frontend/src/creation/tabs.js` ever shows a
+`primaryAction: {` site with no accompanying `createPanel` field.
+
+## THE SUBJECT WORKLIST IS A NEW CREATION ISLAND, BOUND BY A CLIENT LOOP (BRIEF-0088-b, no schema change)
+
+`SubjectWorklist.svelte` is a bespoke Creation tab (`B1`) listing the
+active world's unresolved knowledge subjects, one control per subject,
+between « Événements » and « Review Queue ». *Rejected:* **B2**, a second
+island grafted inside an existing tab — no existing tab is a world-scoped
+curation list, and the Review Queue's empty states would degrade
+permanently; reactivate when an existing tab's subject becomes knowledge
+subjects.
+
+**D-0059-prompts-surface has not fired.** The worklist curates canon — it
+resolves and binds existing `knowledge` rows to entities — it does not
+configure the engine, so it is not the "second creator-tooling surface"
+that condition names.
+
+**`E1` — the sequential client loop, and why it is safe.** Binding a
+subject POSTs one `/api/facts/{fact_id}/participants` call per fact, in
+sequence, with no role; the loop stops at the first failure; the panel
+always reloads the residue afterward; every control on the row stays
+disabled until that reload has landed. This is safe because the residue
+route excludes every fact that already carries any participant, so a
+partly bound subject stays listed with only its still-unbound facts — a
+retry sends the remainder and never repeats a `(fact, entity)` pair,
+which matters because the attach route answers 500 on a duplicate
+(TICKET-0087 S-2, unrepaired here). The entity picker is additionally
+filtered to `status === 'active'` **and** `world_id === serverState.
+worldId`, so a cross-world entity can never reach a POST from this
+surface. *Rejected:* **E2**, a bulk backend route — it would bring
+`db_write` into a frontend-only ticket; reactivate when a partly bound
+subject becomes wrong, i.e. when a role discriminator returns under
+TICKET-0087's `J2` reactivation condition.
+
+**The first `origin: 'new'` entry.** `subjectWorklist` has no
+`migratedBy`, no `retiredPrefixes` — `createdBy: 'TICKET-0088'` is its
+whole provenance. The registry now records provenance for both kinds
+uniformly, per BRIEF-0088-a.
+
+**Named deferral D-0088-one-entity-per-subject.** The worklist binds all
+of a subject's facts to one entity, matching the entity sheet's existing
+one-entity-per-row bind. Reactivate when
+
+```
+SELECT COUNT(*) FROM (SELECT fp.fact_id FROM fact_participant fp JOIN knowledge k ON k.fact_id = fp.fact_id GROUP BY fp.fact_id HAVING COUNT(DISTINCT fp.entity_id) > 1)
+```
+
+returns more than 0 on the production database.
+
 ---
 
 *Co-built with Claude, June 2026.*

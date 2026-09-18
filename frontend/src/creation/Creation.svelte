@@ -246,6 +246,10 @@
   <!-- ── Registre sub-tab -- Svelte island: empty by construction ── -->
   <div id="creation-registre" style:display={containerVisible('creation-registre') ? '' : 'none'}></div>
 
+  <!-- ── Sujets sub-tab -- Svelte island created as one (origin 'new'):
+       empty by construction ── -->
+  <div id="creation-subjects" style:display={containerVisible('creation-subjects') ? '' : 'none'}></div>
+
   <!-- ── Review Queue sub-tab -- Svelte island: empty by construction ── -->
   <div id="creation-queue" style:display={containerVisible('creation-queue') ? '' : 'none'}></div>
 

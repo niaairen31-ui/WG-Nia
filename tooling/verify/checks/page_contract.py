@@ -45,7 +45,7 @@ REGISTRE_SVELTE = CREATION_SRC / "Registre.svelte"
 
 TAB_KEYS = [
     "npc", "pj", "lieux", "factions", "objets",
-    "competences", "region", "constructeur", "artefacts", "registre", "intrigues", "evenements", "queue", "prompts",
+    "competences", "region", "constructeur", "artefacts", "registre", "intrigues", "evenements", "subjects", "queue", "prompts",
 ]
 
 
@@ -370,23 +370,23 @@ def main() -> int:
             print(f"FAIL: {f}")
         return 1
 
-    migrated_count = 0
-    legacy_count = 0
+    island_count = 0
+    bare_count = 0
     if registry_src:
         for key in _registry_keys(registry_src):
             entry_src = _entry_block(registry_src, key)
             if _has_nonempty_islands(entry_src):
-                migrated_count += 1
+                island_count += 1
             else:
-                legacy_count += 1
+                bare_count += 1
 
     print(
         "PASS: page_contract — CREATION_TABS registry, generic dispatcher, "
         "no duplicate Lieux create button, PJ on the entity archetype, "
         "standard shell + primaryAction on every entry; "
-        f"{migrated_count} of {migrated_count + legacy_count} CREATION_TABS "
-        f"entries have migrated at least one mount point, {legacy_count} "
-        "still render entirely from legacy code"
+        f"{island_count} of {island_count + bare_count} CREATION_TABS "
+        f"entries mount at least one island, {bare_count} "
+        "mount none"
     )
     return 0
 

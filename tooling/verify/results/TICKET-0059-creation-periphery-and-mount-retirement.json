@@ -1,0 +1,62 @@
+{
+  "ticket": "TICKET-0059-creation-periphery-and-mount-retirement",
+  "when": "2026-08-18T21:30:06.766774+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "legacy_call.py",
+      "status": "PASS",
+      "msg": "PASS: legacy_call \u2014 1 bridge-reach site(s) observed, 1 baselined, 0 stale, 2 reaching export(s) derived"
+    },
+    {
+      "check": "legacy_mount.py",
+      "status": "PASS",
+      "msg": "PASS: legacy_mount \u2014 2 mount(s) within baseline, 2 retiring ticket(s), 2 legacy fn(s) resolved, access confined to bridge, 1 frame src site, 5 shell route(s) agreed"
+    },
+    {
+      "check": "creation_island.py",
+      "status": "PASS",
+      "msg": "PASS: creation_island \u2014 15 island(s) registered, 15 retired legacy prefix set(s) confirmed gone, 8 mount-action identifier(s) confined, 11 island primaryAction(s) wired"
+    },
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u2014 CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry; 14 of 14 CREATION_TABS entries have migrated at least one mount point, 0 still render entirely from legacy code"
+    },
+    {
+      "check": "creation_return_nav.py",
+      "status": "PASS",
+      "msg": "PASS: creation_return_nav \u2014 single-slot return crumb wired correctly"
+    },
+    {
+      "check": "faction_roster_panel.py",
+      "status": "PASS",
+      "msg": "PASS: faction_roster_panel \u2014 grouped roster panel + member authoring wired correctly"
+    },
+    {
+      "check": "review_component.py",
+      "status": "PASS",
+      "msg": "PASS: review_component \u2014 8 rules evaluated, nine region* names, reviewGraphRender and the retired string-render half all gone across every locus, four review* generics singly-defined in review/registry.js and consumer-blind, reviewCascade is a pure one-parameter function keyed on fallbackParentId, single descriptor factory per Svelte consumer (Region.svelte/RoomBatch.svelte), boundary holds in index.html (zero legacy consumers) and via the Svelte import graph"
+    },
+    {
+      "check": "location_tree.py",
+      "status": "PASS",
+      "msg": "PASS: location_tree \u2014 48 .svelte file(s) scanned, LocationTree.svelte confirmed present, 0 duplicate recursive location-tree renderer(s) found"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u2014 85 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "modal_primitive.py",
+      "status": "PASS",
+      "msg": "PASS: modal_primitive \u2014 48 .svelte file(s) scanned, Modal.svelte confirmed present, 0 duplicate backdrop-plus-panel dialog(s) found"
+    },
+    {
+      "check": "stylesheet_partition.py",
+      "status": "PASS",
+      "msg": "PASS: stylesheet_partition \u2014 307 top-level selector(s) across shared.css/creation.css/inline, zero duplicates"
+    }
+  ]
+}
