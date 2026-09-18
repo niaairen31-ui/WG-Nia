@@ -3,7 +3,7 @@ id: TICKET-0088
 slug: greenfield-creation-island
 title: Greenfield Creation islands, and the unresolved-subject worklist
 type: feature
-status: brief
+status: live-gate
 created: 2026-09-15
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: []
