@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Iterable
 
 from sqlmodel import Session, select
 
@@ -282,6 +282,59 @@ def close_open_memberships(entity_id: str, db: Session) -> list[GatheringMember]
     return list(active_rows)
 
 
+def dissolve_emptied(
+    gathering_ids: Iterable[str],
+    db: Session,
+    model: str = ollama_client.DEFAULT_MODEL,
+    host: str = ollama_client.OLLAMA_HOST,
+) -> list[str]:
+    """Dissolve every given gathering left with zero active members.
+
+    A gathering left with no active member is a shell: it stays `open`, it
+    is joinable, and it blocks the entry guard from regenerating the
+    location's partition — so every path that closes memberships ends by
+    calling this. Commits once at the end, unconditionally, because it runs
+    after its caller's own commit (unlike `close_open_memberships`, which
+    runs inside it and leaves committing to the caller).
+    """
+    now = datetime.now(UTC)
+    seen: set[str] = set()
+    ordered_ids = []
+    for gathering_id in gathering_ids:
+        if gathering_id not in seen:
+            seen.add(gathering_id)
+            ordered_ids.append(gathering_id)
+
+    dissolved: list[str] = []
+    for source_id in ordered_ids:
+        remaining = db.exec(
+            select(GatheringMember).where(
+                GatheringMember.gathering_id == source_id,
+                GatheringMember.left_at == None,  # noqa: E711
+            )
+        ).first()
+        if remaining is None:
+            source_g = db.get(Gathering, source_id)
+            if source_g is not None and source_g.status == "open":
+                open_convs = db.exec(
+                    select(Conversation).where(
+                        Conversation.gathering_id == source_id,
+                        Conversation.status == "open",
+                    )
+                ).all()
+                for conv in open_convs:
+                    try:
+                        analyze_window(conv.id, db, model=model, host=host)
+                    except (Exception, SystemExit):
+                        _log.exception("analyze_window failed for conversation %s", conv.id)
+                source_g.status = "dissolved"
+                source_g.dissolved_at = now
+                db.add(source_g)
+                dissolved.append(source_id)
+    db.commit()
+    return dissolved
+
+
 def migrate_npc(npc_id: str, target_gathering_id: str, db: Session) -> None:
     """Move an NPC from its current gathering to target_gathering_id.
 
@@ -297,8 +350,9 @@ def migrate_npc(npc_id: str, target_gathering_id: str, db: Session) -> None:
     - Idempotent: if the NPC already has an active row in target_gathering_id,
       returns immediately without any write.
     - Auto-dissolve: if closing the source leaves it with zero active members,
-      the gathering is dissolved. Only fires on NPC-cluster sources — the
-      player's gathering is always the target via C2, never the source.
+      the gathering is dissolved, via `dissolve_emptied`. Only fires on
+      NPC-cluster sources — the player's gathering is always the target via
+      C2, never the source.
     - Not a canon mutation: no proposed_mutation row is created.
     """
     now = datetime.now(UTC)
@@ -327,33 +381,7 @@ def migrate_npc(npc_id: str, target_gathering_id: str, db: Session) -> None:
     db.commit()
 
     # Auto-dissolve: any source gathering now empty of active members is dissolved.
-    for source_id in source_gathering_ids:
-        if source_id == target_gathering_id:
-            continue
-        remaining = db.exec(
-            select(GatheringMember).where(
-                GatheringMember.gathering_id == source_id,
-                GatheringMember.left_at == None,  # noqa: E711
-            )
-        ).first()
-        if remaining is None:
-            source_g = db.get(Gathering, source_id)
-            if source_g is not None and source_g.status == "open":
-                open_convs = db.exec(
-                    select(Conversation).where(
-                        Conversation.gathering_id == source_id,
-                        Conversation.status == "open",
-                    )
-                ).all()
-                for conv in open_convs:
-                    try:
-                        analyze_window(conv.id, db)
-                    except (Exception, SystemExit):
-                        _log.exception("analyze_window failed for conversation %s", conv.id)
-                source_g.status = "dissolved"
-                source_g.dissolved_at = now
-                db.add(source_g)
-    db.commit()
+    dissolve_emptied(source_gathering_ids - {target_gathering_id}, db)
 
 
 def enter_location(
