@@ -56,6 +56,18 @@ router = APIRouter()
 _log = logging.getLogger(__name__)
 
 
+def _live_gatherings(location_id: str, session_id: str, db: Session) -> list[Gathering]:
+    """The open gatherings at this location and session that still hold at
+    least one active member; the empty ones are shells left by a membership
+    close and must not be taken as evidence that the location has already
+    been entered.
+    """
+    return [
+        g for g in _open_gatherings(location_id, session_id, db)
+        if _active_members(g.id, db)
+    ]
+
+
 @router.get("/api/scene")
 def get_scene(
     player_id: Optional[str] = Query(None),
@@ -86,12 +98,12 @@ def enter_scene(
     """Enter the player's current location.
 
     Calls enter_location (dissolve open gatherings + generate a fresh partition)
-    ONLY if no open gatherings already exist for this location+session — which
-    distinguishes a genuine location transition from a re-render or F5 refresh
-    (contract B1 / invariant C1: generating once at entry, no spontaneous
-    reshuffling on re-load).
+    ONLY if no open gathering holds an active member — which distinguishes a
+    genuine location transition from a re-render or F5 refresh (contract B1 /
+    invariant C1: generating once at entry, no spontaneous reshuffling on
+    re-load).
 
-    Idempotent: calling enter again while open gatherings exist is a silent
+    Idempotent: calling enter again while a live gathering exists is a silent
     no-op that returns the existing partition.
     """
     player_id = player_id or _crud._player_character_id(db, _crud._world_id(db))
@@ -109,10 +121,10 @@ def enter_scene(
     sess        = _get_or_open_session(world_id, db)
 
     # ── Idempotent enter guard (protects C1 from F5 reshuffling) ──────────
-    open_g = _open_gatherings(location_id, sess.id, db)
+    live_g = _live_gatherings(location_id, sess.id, db)
     changes_lines: Optional[list[str]] = None
-    if not open_g:
-        # No open gatherings → genuine location transition (or first load).
+    if not live_g:
+        # No LIVE gathering → genuine transition or all-shell location; either way enter_location dissolves before generating.
         # Run window analysis on any conversation left open at the previous
         # location (trigger b) before regenerating the partition here.
         left_convs = db.exec(
