@@ -2,7 +2,7 @@
 id: TICKET-0087
 title: Knowledge subject as fact participants, and the who_knows_about selector
 type: feature
-status: brief
+status: live-gate
 created: 2026-09-14
 model_lane: { intake: opus, recon: sonnet, exec: sonnet, verify: sonnet }
 danger_class: [db_write]
