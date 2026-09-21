@@ -21,13 +21,21 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Iterable, Optional
 
 from sqlmodel import Session, select
 
 from . import llm_parse, ollama_client
 from .analyzer import analyze_window
-from .models import Character, Conversation, Entity, Gathering, GatheringMember, PromptTemplate
+from .models import (
+    Character,
+    Conversation,
+    Entity,
+    Gathering,
+    GatheringMember,
+    PromptTemplate,
+    Session as PlaySession,
+)
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
 
@@ -282,6 +290,116 @@ def close_open_memberships(entity_id: str, db: Session) -> list[GatheringMember]
     return list(active_rows)
 
 
+def dissolve_emptied(
+    gathering_ids: Iterable[str],
+    db: Session,
+    model: str = ollama_client.DEFAULT_MODEL,
+    host: str = ollama_client.OLLAMA_HOST,
+) -> list[str]:
+    """Dissolve every given gathering left with zero active members.
+
+    A gathering left with no active member is a shell: it stays `open`, it
+    is joinable, and it blocks the entry guard from regenerating the
+    location's partition — so every path that closes memberships ends by
+    calling this. Commits once at the end, unconditionally, because it runs
+    after its caller's own commit (unlike `close_open_memberships`, which
+    runs inside it and leaves committing to the caller).
+    """
+    now = datetime.now(UTC)
+    seen: set[str] = set()
+    ordered_ids = []
+    for gathering_id in gathering_ids:
+        if gathering_id not in seen:
+            seen.add(gathering_id)
+            ordered_ids.append(gathering_id)
+
+    dissolved: list[str] = []
+    for source_id in ordered_ids:
+        remaining = db.exec(
+            select(GatheringMember).where(
+                GatheringMember.gathering_id == source_id,
+                GatheringMember.left_at == None,  # noqa: E711
+            )
+        ).first()
+        if remaining is None:
+            source_g = db.get(Gathering, source_id)
+            if source_g is not None and source_g.status == "open":
+                open_convs = db.exec(
+                    select(Conversation).where(
+                        Conversation.gathering_id == source_id,
+                        Conversation.status == "open",
+                    )
+                ).all()
+                for conv in open_convs:
+                    try:
+                        analyze_window(conv.id, db, model=model, host=host)
+                    except (Exception, SystemExit):
+                        _log.exception("analyze_window failed for conversation %s", conv.id)
+                source_g.status = "dissolved"
+                source_g.dissolved_at = now
+                db.add(source_g)
+                dissolved.append(source_id)
+    db.commit()
+    return dissolved
+
+
+def attach_on_arrival(entity_id: str, location_id: Optional[str], db: Session) -> Optional[str]:
+    """The creator-side counterpart of `close_open_memberships`.
+
+    A manually relocated NPC arrives into a location the player has already
+    entered this session, where the entry guard will not regenerate because
+    a live gathering is legitimately there. The arrival is always solo: this
+    never asserts that an arriving NPC joined an existing group — the MJ
+    partition at entry is the only authority for that. Never opens a
+    session, and does not commit; the caller owns the transaction.
+    """
+    if location_id is None:
+        return None
+    entity = db.get(Entity, entity_id)
+    if entity is None or entity.status != "active":
+        return None
+    character = db.get(Character, entity_id)
+    if character is None or character.character_type != "npc" or character.vital_status != "alive":
+        return None
+    location = db.get(Entity, location_id)
+    if location is None or location.type != "location":
+        return None
+    play_session = db.exec(
+        select(PlaySession)
+        .where(PlaySession.world_id == location.world_id, PlaySession.status == "open")
+        .order_by(PlaySession.number.desc())
+    ).first()
+    if play_session is None:
+        return None
+    destination_gathering = db.exec(
+        select(Gathering).where(
+            Gathering.session_id == play_session.id,
+            Gathering.location_id == location_id,
+            Gathering.status == "open",
+        )
+    ).first()
+    if destination_gathering is None:
+        return None
+
+    now = datetime.now(UTC)
+    gathering = Gathering(
+        world_id=location.world_id,
+        session_id=play_session.id,
+        location_id=location_id,
+        label=f"{entity.name}, seul·e",
+        status="open",
+        created_at=now,
+    )
+    db.add(gathering)
+    db.add(GatheringMember(
+        gathering_id=gathering.id,
+        entity_id=entity_id,
+        joined_at=now,
+        left_at=None,
+    ))
+    return gathering.id
+
+
 def migrate_npc(npc_id: str, target_gathering_id: str, db: Session) -> None:
     """Move an NPC from its current gathering to target_gathering_id.
 
@@ -297,8 +415,9 @@ def migrate_npc(npc_id: str, target_gathering_id: str, db: Session) -> None:
     - Idempotent: if the NPC already has an active row in target_gathering_id,
       returns immediately without any write.
     - Auto-dissolve: if closing the source leaves it with zero active members,
-      the gathering is dissolved. Only fires on NPC-cluster sources — the
-      player's gathering is always the target via C2, never the source.
+      the gathering is dissolved, via `dissolve_emptied`. Only fires on
+      NPC-cluster sources — the player's gathering is always the target via
+      C2, never the source.
     - Not a canon mutation: no proposed_mutation row is created.
     """
     now = datetime.now(UTC)
@@ -327,33 +446,7 @@ def migrate_npc(npc_id: str, target_gathering_id: str, db: Session) -> None:
     db.commit()
 
     # Auto-dissolve: any source gathering now empty of active members is dissolved.
-    for source_id in source_gathering_ids:
-        if source_id == target_gathering_id:
-            continue
-        remaining = db.exec(
-            select(GatheringMember).where(
-                GatheringMember.gathering_id == source_id,
-                GatheringMember.left_at == None,  # noqa: E711
-            )
-        ).first()
-        if remaining is None:
-            source_g = db.get(Gathering, source_id)
-            if source_g is not None and source_g.status == "open":
-                open_convs = db.exec(
-                    select(Conversation).where(
-                        Conversation.gathering_id == source_id,
-                        Conversation.status == "open",
-                    )
-                ).all()
-                for conv in open_convs:
-                    try:
-                        analyze_window(conv.id, db)
-                    except (Exception, SystemExit):
-                        _log.exception("analyze_window failed for conversation %s", conv.id)
-                source_g.status = "dissolved"
-                source_g.dissolved_at = now
-                db.add(source_g)
-    db.commit()
+    dissolve_emptied(source_gathering_ids - {target_gathering_id}, db)
 
 
 def enter_location(

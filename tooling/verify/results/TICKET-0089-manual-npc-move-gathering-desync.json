@@ -1,0 +1,62 @@
+{
+  "ticket": "TICKET-0089-manual-npc-move-gathering-desync",
+  "when": "2026-09-21T17:25:41.551489+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 111 check(s) discovered, 111 executed, 111 passed"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values; 93 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u2014 every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "undefined_names.py",
+      "status": "PASS",
+      "msg": "PASS: undefined_names \u2014 pyflakes reports zero undefined names under src/"
+    },
+    {
+      "check": "import_cycle.py",
+      "status": "PASS",
+      "msg": "PASS: import_cycle \u2014 no module-level import cycle under src/world_engine"
+    },
+    {
+      "check": "json_ui_boundary.py",
+      "status": "PASS",
+      "msg": "PASS: json_ui_boundary \u2014 zero \"kind\": \"json\" CRUD fields, zero metadata_/Column(\"metadata\" references outside comments, every Column(JSON in models/*.py is a named allow-list entry, zero trait ext-column field(s) with kind 'json'"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u2014 97 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "static_asset_freshness.py",
+      "status": "PASS",
+      "msg": "PASS: static_asset_freshness \u2014 mount is policy-bearing, 2 immutable file(s) / 4 revalidating file(s), 8 HTML route(s) covered"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u2014 section whitelist, character/line budgets, File-structure archaeology ban, Invariants archaeology ban, tooling/ pointer freshness, .py pointer freshness"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    },
+    {
+      "check": "gathering_lifecycle.py",
+      "status": "PASS",
+      "msg": "PASS: gathering_lifecycle \u2014 entry guard, dissolve and arrival wired (6 rules across scene.py, gathering.py, crud/entities.py)"
+    }
+  ]
+}

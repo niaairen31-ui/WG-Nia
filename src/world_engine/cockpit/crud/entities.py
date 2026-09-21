@@ -20,7 +20,7 @@ from sqlmodel import Session as DbSession, select
 
 from ...db import get_session
 from ...entity_author import generate_npc_goals
-from ...gathering import close_open_memberships
+from ...gathering import attach_on_arrival, close_open_memberships, dissolve_emptied
 from ...ledger import get_balance, list_entries
 from ...ollama_client import OllamaError, ping
 from ...models import (
@@ -77,8 +77,6 @@ from ...writes import (
     write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
-    write_location_doors,
-    write_location_obstacles,
     write_location_subculture,
     write_membership,
     write_npc_goal,
@@ -356,11 +354,26 @@ def _apply_base_fields(db: DbSession, entity: Entity, data: dict) -> None:
         setattr(entity, name, value)
 
 
-def _build_extension_kwargs(db: DbSession, entity_type: str, data: dict) -> dict:
+def _build_extension_kwargs(
+    db: DbSession, entity_type: str, data: dict, *, present_only: bool = False, current: Any = None
+) -> dict:
+    """`present_only=False` (create): one entry per registry field, absent
+    keys coerced from `None`. `present_only=True` (update): only fields whose
+    name is a key of `data` appear; the item/equipped guard then reads each
+    input's EFFECTIVE value -- the built value when present, else
+    `getattr(current, name, None)` -- so an omitted field still guards
+    correctly against the stored row."""
     spec = ENTITY_TYPE_REGISTRY[entity_type]
-    ext_kwargs = {f["name"]: _coerce_field(db, f, data.get(f["name"])) for f in spec["fields"]}
-    if entity_type == "item" and ext_kwargs.get("equipped") and not ext_kwargs.get("owner_id"):
-        raise HTTPException(422, "Equipping an item requires an owner")
+    fields = spec["fields"]
+    if present_only:
+        ext_kwargs = {f["name"]: _coerce_field(db, f, data[f["name"]]) for f in fields if f["name"] in data}
+    else:
+        ext_kwargs = {f["name"]: _coerce_field(db, f, data.get(f["name"])) for f in fields}
+    if entity_type == "item":
+        equipped = ext_kwargs["equipped"] if "equipped" in ext_kwargs else getattr(current, "equipped", None)
+        owner_id = ext_kwargs["owner_id"] if "owner_id" in ext_kwargs else getattr(current, "owner_id", None)
+        if equipped and not owner_id:
+            raise HTTPException(422, "Equipping an item requires an owner")
     return ext_kwargs
 
 
@@ -379,29 +392,6 @@ class NpcPricesBody(BaseModel):
 
 class LocationSubcultureBody(BaseModel):
     rows: list[dict[str, Any]] = []
-
-
-class ObstacleIn(BaseModel):
-    # EITHER vertices (>= 3, polygon-ready) OR rect (v1 UI shorthand,
-    # [x, y, width, height]) — the endpoint expands rect server-side.
-    vertices: Optional[list[list[float]]] = None
-    rect: Optional[list[float]] = None
-
-
-class LocationGeometryBody(BaseModel):
-    bounds_width: Optional[float] = None
-    bounds_height: Optional[float] = None
-    obstacles: list[ObstacleIn] = []
-
-
-class DoorIn(BaseModel):
-    target_location_id: str
-    x: float
-    y: float
-
-
-class LocationDoorsBody(BaseModel):
-    doors: list[DoorIn] = []
 
 
 class EntityTypeCreateBody(BaseModel):
@@ -747,6 +737,8 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
 
 @router.put("/entities/{entity_id}")
 def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends(get_session)) -> dict:
+    """`body.entity` is whole-replace; `body.extension` is key-present-wins --
+    a key absent from it leaves the stored extension column unchanged."""
     entity = _get_entity(db, entity_id)
     data = body.entity
 
@@ -769,7 +761,8 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
             raise HTTPException(500, f"Missing {entity.type} extension row for entity {entity_id!r}")
         if entity.type == "character":
             prior_location_id = ext.current_location_id
-        ext_kwargs = _build_extension_kwargs(db, entity.type, body.extension)
+        # Key-present-wins: an absent key preserves the stored column, same distinction set_location_geometry draws via body.model_fields_set.
+        ext_kwargs = _build_extension_kwargs(db, entity.type, body.extension, present_only=True, current=ext)
         for key, value in ext_kwargs.items():
             setattr(ext, key, value)
         db.add(ext)
@@ -781,19 +774,23 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
         runtime_spec = _runtime_type_spec(db, entity.type)
         if runtime_spec is None:
             raise HTTPException(422, f"{entity.type!r} is not a governed entity type")
-        runtime_ext_kwargs = _build_runtime_ext_kwargs(db, runtime_spec["fields"], body.extension)
+        runtime_ext_kwargs = _build_runtime_ext_kwargs(db, runtime_spec["fields"], body.extension, present_only=True)
         _update_runtime_ext_row(db, runtime_spec, entity_id, runtime_ext_kwargs)
 
     # BRIEF-53 A1: a character's location change, or any transition to a
     # non-active entity.status, closes its open gathering_member rows
     # (gatherings are not canon — no proposed_mutation, no change_history).
     # Re-saving with the same current_location_id must not close anything.
+    # BRIEF-0089-d: attaches at arrival, dissolves what emptied -- after the commit, once durable.
+    closed: list = []
     if entity.type == "character" and ext is not None and ext.current_location_id != prior_location_id:
-        close_open_memberships(entity_id, db)
+        closed += close_open_memberships(entity_id, db)
+        attach_on_arrival(entity_id, ext.current_location_id, db)
     if prior_status == "active" and entity.status != "active":
-        close_open_memberships(entity_id, db)
+        closed += close_open_memberships(entity_id, db)
 
     db.commit()
+    dissolve_emptied({row.gathering_id for row in closed}, db)
     db.refresh(entity)
 
     result = _entity_dict(entity)
@@ -826,8 +823,9 @@ def delete_entity(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
     entity.status = "inactive"
     entity.updated_at = datetime.now(UTC)
     db.add(entity)
-    close_open_memberships(entity_id, db)
+    closed = close_open_memberships(entity_id, db)
     db.commit()
+    dissolve_emptied({row.gathering_id for row in closed}, db)
     db.refresh(entity)
     return _entity_dict(entity)
 
@@ -877,100 +875,6 @@ def set_location_subculture(entity_id: str, body: LocationSubcultureBody, db: Db
     result["relations"] = _list_relations(entity_id, db)
     result["knowledge"] = _list_knowledge(entity_id, db)
     result["subculture_rows"] = _location_subculture_rows(entity_id, db)
-    return result
-
-
-@router.put("/entities/{entity_id}/geometry")
-def set_location_geometry(entity_id: str, body: LocationGeometryBody, db: DbSession = Depends(get_session)) -> dict:
-    """Full-replace a location's spatial geometry — playable bounds +
-    obstacle polygons (TICKET-0029, BRIEF-0029-a). `rect` items are
-    expanded server-side into 4 vertices clockwise from top-left
-    `(x,y), (x+w,y), (x+w,y+h), (x,y+h)`; `vertices` items are
-    polygon-ready as-is. One transaction: bounds on `location` +
-    full-replace `obstacle`/`obstacle_vertex` via `write_location_obstacles`."""
-    entity = _get_entity(db, entity_id)
-    if entity.type != "location":
-        raise HTTPException(404, f"Entity {entity_id!r} is not a location")
-
-    if body.bounds_width is not None and body.bounds_width <= 0:
-        raise HTTPException(422, "bounds_width must be > 0")
-    if body.bounds_height is not None and body.bounds_height <= 0:
-        raise HTTPException(422, "bounds_height must be > 0")
-
-    polygons: list[list[tuple[float, float]]] = []
-    for item in body.obstacles:
-        if item.rect is not None:
-            if len(item.rect) != 4:
-                raise HTTPException(422, "rect must be [x, y, width, height]")
-            x, y, w, h = item.rect
-            if w <= 0 or h <= 0:
-                raise HTTPException(422, "rect width and height must be > 0")
-            polygons.append([(x, y), (x + w, y), (x + w, y + h), (x, y + h)])
-        elif item.vertices is not None:
-            polygons.append([(v[0], v[1]) for v in item.vertices])
-        else:
-            raise HTTPException(422, "each obstacle needs either 'vertices' or 'rect'")
-
-    try:
-        write_location_obstacles(
-            db, world_id=entity.world_id, location_id=entity_id,
-            obstacles=polygons, changed_by="creator",
-        )
-    except ValueError as exc:
-        raise HTTPException(422, str(exc))
-
-    location = db.get(Location, entity_id)
-    fields_set = body.model_fields_set
-    # F1, TICKET-0040: a key absent from the body preserves the stored
-    # value; an explicit null clears it. Same posture as
-    # writes.upsert_location_type, which never overwrites a decided value
-    # with NULL. Full-replace still governs `obstacle` rows below - only
-    # the two bounds columns gained this distinction.
-    if "bounds_width" in fields_set:
-        location.bounds_width = body.bounds_width
-    if "bounds_height" in fields_set:
-        location.bounds_height = body.bounds_height
-    db.add(location)
-    db.commit()
-
-    result = _entity_dict(entity)
-    db.refresh(location)
-    result["extension"] = _extension_dict("location", location)
-    result["relations"] = _list_relations(entity_id, db)
-    result["knowledge"] = _list_knowledge(entity_id, db)
-    result["subculture_rows"] = _location_subculture_rows(entity_id, db)
-    result["geometry"] = _location_geometry_dict(entity_id, db)
-    return result
-
-
-@router.put("/entities/{entity_id}/doors")
-def set_location_doors(entity_id: str, body: LocationDoorsBody, db: DbSession = Depends(get_session)) -> dict:
-    """Full-replace a location's `door` rows (TICKET-0034, BRIEF-0034-a).
-    One row per `connects_to` neighbour the creator points a door at — the
-    B1 gate (write_location_doors) rejects any target without a live
-    connects_to edge. Nothing here resolves, judges or moves; see
-    BRIEF-0034-b/-c for that."""
-    entity = _get_entity(db, entity_id)
-    if entity.type != "location":
-        raise HTTPException(404, f"Entity {entity_id!r} is not a location")
-
-    try:
-        write_location_doors(
-            db, world_id=entity.world_id, location_id=entity_id,
-            doors=[d.model_dump() for d in body.doors], changed_by="creator",
-        )
-    except ValueError as exc:
-        raise HTTPException(422, str(exc))
-    db.commit()
-
-    result = _entity_dict(entity)
-    location = db.get(Location, entity_id)
-    result["extension"] = _extension_dict("location", location)
-    result["relations"] = _list_relations(entity_id, db)
-    result["knowledge"] = _list_knowledge(entity_id, db)
-    result["subculture_rows"] = _location_subculture_rows(entity_id, db)
-    result["geometry"] = _location_geometry_dict(entity_id, db)
-    result["doors"] = _location_doors_rows(entity_id, db)
     return result
 
 

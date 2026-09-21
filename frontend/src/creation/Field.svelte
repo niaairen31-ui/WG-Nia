@@ -88,9 +88,17 @@
   </div>
 {:else if field.kind === 'entity_ref'}
   {@const candidates = (ctx.entities || []).filter((e) => e.type === field.ref_type && !(field.exclude_self && ctx.entityId && e.id === ctx.entityId))}
+  {@const missingCurrent = resolvedValue && !candidates.some((e) => e.id === resolvedValue)}
+  <!-- The select is read back verbatim by readFieldValue: a current value with no
+       matching option here is silently rewritten to "" on the next save. When
+       resolvedValue isn't among candidates (list not loaded, wrong world, entity
+       created after load), render it as an extra selected option instead. -->
   <div class="field-row"><label for={id}>{label}</label>
     <select {id} data-field={field.name} data-kind="entity_ref" disabled={!!field.readonly}>
       <option value="">—</option>
+      {#if missingCurrent}
+        <option value={resolvedValue} selected>⚠ {resolvedValue}</option>
+      {/if}
       {#each candidates as e (e.id)}
         <option value={e.id} selected={e.id === resolvedValue}>{e.name}</option>
       {/each}

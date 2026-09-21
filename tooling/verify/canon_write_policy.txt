@@ -106,7 +106,10 @@ src/world_engine/cockpit/crud/entities.py::delete_entity                 entity
 # TICKET-0029, BRIEF-0029-a: set_location_geometry writes location.bounds_*
 # directly (single_canon_write.py is function-scoped, not file-scoped — this
 # site is distinct from update_entity above despite sharing a file).
-src/world_engine/cockpit/crud/entities.py::set_location_geometry        location
+# TICKET-0089, BRIEF-0089-b: set_location_geometry re-keyed to
+# entity_geometry.py — pure move (same relocation-not-broadening rule as the
+# 0027-c/-d comments above), not a new site.
+src/world_engine/cockpit/crud/entity_geometry.py::set_location_geometry location
 src/world_engine/cockpit/crud/relations.py::delete_relation                relation
 src/world_engine/cockpit/crud/knowledge.py::delete_knowledge               knowledge
 src/world_engine/cockpit/crud/skills.py::create_skill_definition        skill_definition skill

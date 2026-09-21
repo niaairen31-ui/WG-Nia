@@ -94,6 +94,7 @@ from .entities import (
     set_npc_prices,
     update_entity,
 )
+from .entity_geometry import set_location_doors, set_location_geometry
 from .relations import (
     RELATION_DIRECTIONS,
     RELATION_FIELDS,

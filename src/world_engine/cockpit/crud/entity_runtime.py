@@ -57,7 +57,13 @@ def _reflected_ext_table(db: DbSession, physical_table: str) -> Table:
     return Table(physical_table, MetaData(), autoload_with=db.get_bind())
 
 
-def _build_runtime_ext_kwargs(db: DbSession, fields: list[dict], data: dict) -> dict:
+def _build_runtime_ext_kwargs(
+    db: DbSession, fields: list[dict], data: dict, *, present_only: bool = False
+) -> dict:
+    """Same `present_only` rule as `_build_extension_kwargs` (C-04), over the
+    runtime spec's field list. No guard clause exists on this path."""
+    if present_only:
+        return {f["name"]: _coerce_field(db, f, data[f["name"]]) for f in fields if f["name"] in data}
     return {f["name"]: _coerce_field(db, f, data.get(f["name"])) for f in fields}
 
 
@@ -89,5 +95,10 @@ def _insert_runtime_ext_row(db: DbSession, runtime_spec: dict, entity_id: str, e
 
 
 def _update_runtime_ext_row(db: DbSession, runtime_spec: dict, entity_id: str, ext_kwargs: dict) -> None:
+    """No-op on an empty `ext_kwargs` (C-06): a SQLAlchemy `update()` with no
+    `values()` is an error, and a key-present-wins caller can legitimately
+    produce `{}`."""
+    if not ext_kwargs:
+        return
     table = _reflected_ext_table(db, runtime_spec["physical_table"])
     db.execute(sa_update(table).where(table.c.id == entity_id).values(**ext_kwargs))
