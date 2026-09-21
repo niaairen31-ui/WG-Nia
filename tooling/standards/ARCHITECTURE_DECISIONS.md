@@ -15622,6 +15622,19 @@ SELECT COUNT(*) FROM (SELECT fp.fact_id FROM fact_participant fp JOIN knowledge 
 
 returns more than 0 on the production database.
 
+## THE EXTENSION BLOCK OF A PUT IS KEY-PRESENT-WINS (BRIEF-0089-e, no schema change)
+
+`PUT /api/entities/{id}`'s `entity` block stays whole-replace; only the
+`extension` block changed. A key absent from `body.extension` now leaves the
+stored extension column unchanged, instead of being coerced from `None` and
+overwriting it — the failure mode that let a partial payload erase a
+character's `current_location_id`. The create paths (`_create_static_entity_core`,
+`_create_runtime_entity_core`) keep full-field semantics on purpose: creating
+a row with only the keys the client happened to send would leave the rest
+unset rather than defaulted. The precedent for this distinction is already in
+the codebase: `set_location_geometry` reads `body.model_fields_set` to tell
+"not sent" from "sent as its default" on the two bounds columns.
+
 ---
 
 *Co-built with Claude, June 2026.*

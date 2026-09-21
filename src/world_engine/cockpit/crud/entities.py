@@ -354,11 +354,26 @@ def _apply_base_fields(db: DbSession, entity: Entity, data: dict) -> None:
         setattr(entity, name, value)
 
 
-def _build_extension_kwargs(db: DbSession, entity_type: str, data: dict) -> dict:
+def _build_extension_kwargs(
+    db: DbSession, entity_type: str, data: dict, *, present_only: bool = False, current: Any = None
+) -> dict:
+    """`present_only=False` (create): one entry per registry field, absent
+    keys coerced from `None`. `present_only=True` (update): only fields whose
+    name is a key of `data` appear; the item/equipped guard then reads each
+    input's EFFECTIVE value -- the built value when present, else
+    `getattr(current, name, None)` -- so an omitted field still guards
+    correctly against the stored row."""
     spec = ENTITY_TYPE_REGISTRY[entity_type]
-    ext_kwargs = {f["name"]: _coerce_field(db, f, data.get(f["name"])) for f in spec["fields"]}
-    if entity_type == "item" and ext_kwargs.get("equipped") and not ext_kwargs.get("owner_id"):
-        raise HTTPException(422, "Equipping an item requires an owner")
+    fields = spec["fields"]
+    if present_only:
+        ext_kwargs = {f["name"]: _coerce_field(db, f, data[f["name"]]) for f in fields if f["name"] in data}
+    else:
+        ext_kwargs = {f["name"]: _coerce_field(db, f, data.get(f["name"])) for f in fields}
+    if entity_type == "item":
+        equipped = ext_kwargs["equipped"] if "equipped" in ext_kwargs else getattr(current, "equipped", None)
+        owner_id = ext_kwargs["owner_id"] if "owner_id" in ext_kwargs else getattr(current, "owner_id", None)
+        if equipped and not owner_id:
+            raise HTTPException(422, "Equipping an item requires an owner")
     return ext_kwargs
 
 
@@ -722,6 +737,8 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
 
 @router.put("/entities/{entity_id}")
 def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends(get_session)) -> dict:
+    """`body.entity` is whole-replace; `body.extension` is key-present-wins --
+    a key absent from it leaves the stored extension column unchanged."""
     entity = _get_entity(db, entity_id)
     data = body.entity
 
@@ -744,7 +761,8 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
             raise HTTPException(500, f"Missing {entity.type} extension row for entity {entity_id!r}")
         if entity.type == "character":
             prior_location_id = ext.current_location_id
-        ext_kwargs = _build_extension_kwargs(db, entity.type, body.extension)
+        # Key-present-wins: an absent key preserves the stored column, same distinction set_location_geometry draws via body.model_fields_set.
+        ext_kwargs = _build_extension_kwargs(db, entity.type, body.extension, present_only=True, current=ext)
         for key, value in ext_kwargs.items():
             setattr(ext, key, value)
         db.add(ext)
@@ -756,7 +774,7 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
         runtime_spec = _runtime_type_spec(db, entity.type)
         if runtime_spec is None:
             raise HTTPException(422, f"{entity.type!r} is not a governed entity type")
-        runtime_ext_kwargs = _build_runtime_ext_kwargs(db, runtime_spec["fields"], body.extension)
+        runtime_ext_kwargs = _build_runtime_ext_kwargs(db, runtime_spec["fields"], body.extension, present_only=True)
         _update_runtime_ext_row(db, runtime_spec, entity_id, runtime_ext_kwargs)
 
     # BRIEF-53 A1: a character's location change, or any transition to a
