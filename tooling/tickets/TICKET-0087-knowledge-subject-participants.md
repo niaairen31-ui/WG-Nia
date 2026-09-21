@@ -91,14 +91,25 @@ The MJ context assembler's exclusion invariant is untouched and out of scope.
 
 ### Machine-checkable  ->  G1 deterministic gate
 
+*(Repaired by AMENDMENT-0087-3, code `G1`: one arrow per line, since
+`run.py` keeps only the first arrow of a line, and `corpus_gate.py` linked.
+Before the repair this section ran six checks and never `function_length.py`.)*
+
 - [ ] No `fact_participant` row whose fact carries a typed FK; no `knowledge` row with NULL `fact_id`; the AST chokepoint holds  -> verify/checks/fact_spine.py
-- [ ] Every writer of `fact_participant` reads before it writes, so `idx_fact_participant_unique` is never tripped and no transaction is aborted by an `IntegrityError`  -> verify/checks/subject_resolution.py
-- [ ] `SELECTORS`, `_SELECTOR_LOOKUPS` and `_SELECTOR_DESCRIPTIONS` agree on a three-name set including `who_knows_about`  -> verify/checks/lore_isolation.py
-- [ ] `SELECTOR_FUNCTION_NAMES` in the check names all three selectors; bijection, caps, context_sections vocabulary and the five closed verdicts hold  -> verify/checks/lore_selectors.py
+- [ ] `write_knowledge` reads before it attaches a subject participant, so re-attaching one entity to one fact writes one row and never trips `idx_fact_participant_unique`  -> verify/checks/subject_resolution.py
 - [ ] `subject_resolve.py` reaches canon only through `lore_resolve` rungs and contains no `chat(`  -> verify/checks/subject_resolution.py
 - [ ] A `subject_entity_id` naming an entity outside the mutation's world is refused at apply, not written  -> verify/checks/subject_resolution.py
+- [ ] `SELECTORS` and `_SELECTOR_LOOKUPS` are in bijection; row caps, `context_sections` vocabulary and the five closed verdicts hold  -> verify/checks/lore_selectors.py
+- [ ] No selector function is named in `lore_query.py`, the names being read from every `SelectorSpec(fn=...)` rather than from a hand-kept list  -> verify/checks/lore_selectors.py
+- [ ] `_SELECTOR_DESCRIPTIONS` has exactly the keys of `SELECTORS`; every `select(` in `lore_selectors.py` is world-scoped at construction; the lore read path stays free of writes and model calls  -> verify/checks/lore_isolation.py
 - [ ] Every `knowledge` write path still routes through `writes/knowledge.py::write_knowledge`  -> verify/checks/single_canon_write.py
-- [ ] No file over 1000 lines, no function over 80  -> verify/checks/module_budget.py, verify/checks/function_length.py
+- [ ] No module-level import cycle under `src/world_engine`  -> verify/checks/import_cycle.py
+- [ ] No undefined name under `src/`  -> verify/checks/undefined_names.py
+- [ ] No module over its line or function budget  -> verify/checks/module_budget.py
+- [ ] No function over 80 lines  -> verify/checks/function_length.py
+- [ ] Every new decision-record header matches the strict pattern and the index is regenerated  -> verify/checks/decisions_index.py
+- [ ] This ticket's front matter and section shape parse  -> verify/checks/pipeline_state.py
+- [ ] Every check in the corpus passes  -> verify/checks/corpus_gate.py
 
 ### Live  ->  human gate (Nia)
 
@@ -108,3 +119,11 @@ The MJ context assembler's exclusion invariant is untouched and out of scope.
 - [ ] An incorrect belief appears, visibly marked as a false belief.
 - [ ] The creator surface lists unresolved subjects for the active world and lets a subject be bound to an entity in one action; the coverage number moves after binding.
 - [ ] The backfill run reports filled and left-null counts matching R-06.
+
+## Amendment log
+
+| id | brief in flight | what deviated | downstream briefs regenerated |
+|----|-----------------|---------------|-------------------------------|
+| AMENDMENT-0087-1 | BRIEF-0087-a | `fact_participant` is uniquely keyed on `(fact_id, entity_id)`; the role discriminator is dropped (`J2`) | a, b, c, d, e |
+| AMENDMENT-0087-2 | BRIEF-0087-d | the residue worklist has no greenfield island path; deferred to TICKET-0088 (`K3`) | d; e (ordering line) |
+| AMENDMENT-0087-3 | none, before BRIEF-0087-e | Machine section ran 6 checks; `coverage` last could be truncated; R2 read a hand-kept literal; `e` cannot start through `/pipeline` (`G1`, `L1`, `M1`, `N1`, `P1`) | e |
