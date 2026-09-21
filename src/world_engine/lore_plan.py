@@ -34,6 +34,11 @@ _SELECTOR_DESCRIPTIONS: dict[str, str] = {
     "world_factions": (
         "world_factions($world) -- une ligne par faction active du monde."
     ),
+    "who_knows_about": (
+        "who_knows_about(entity_id, $world) -- qui, dans le monde, détient un "
+        "savoir portant sur UNE entité nommée : un connaisseur par ligne, avec "
+        "son niveau."
+    ),
 }
 
 def _render_selectors() -> str:

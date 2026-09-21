@@ -26,9 +26,11 @@ class RenderedAnswer:
 
 # --- the section contract (BRIEF-0085-d item 2) --------------------------
 # The vocabulary is the union of what the shipped selectors emit: identity,
-# relations, knowledge, memberships, goals from entity_dossier, and factions
-# from world_factions (BRIEF-0085-d item 3). Order here is the order rows
-# are grouped for both the model prompt and the template fallback.
+# relations, knowledge, memberships, goals from entity_dossier; factions
+# from world_factions (BRIEF-0085-d item 3); coverage, knowers from
+# who_knows_about (BRIEF-0087-e). Sections are grouped in the order their
+# first row appears in `rows`, for both the model prompt and the template
+# fallback -- not in the order of the dict below.
 
 def _format_identity(row: dict) -> str:
     return f"{row.get('name')} ({row.get('type')}) : {row.get('description') or '(sans description)'}"
@@ -59,6 +61,23 @@ def _format_factions(row: dict) -> str:
     return f"{row.get('name')} ({row.get('faction_type')}) : {row.get('description') or '(sans description)'}"
 
 
+def _format_knowers(row: dict) -> str:
+    line = f"{row.get('knower_name')} — {row.get('level')} : {row.get('content')}"
+    if row.get("is_incorrect"):
+        line += " (croyance fausse)"
+    if row.get("is_secret"):
+        line += " (secret)"
+    return line
+
+
+def _format_coverage(row: dict) -> str:
+    return (
+        f"{row.get('counted_rows')} ligne(s) comptée(s) sur « {row.get('subject_name')} » ; "
+        f"{row.get('uncounted_rows')} ligne(s) de ce monde portent un sujet non résolu "
+        "et ne sont pas comptées."
+    )
+
+
 _SECTION_FORMATTERS: dict[str, Callable[[dict], str]] = {
     "identity": _format_identity,
     "relations": _format_relations,
@@ -66,6 +85,8 @@ _SECTION_FORMATTERS: dict[str, Callable[[dict], str]] = {
     "memberships": _format_memberships,
     "goals": _format_goals,
     "factions": _format_factions,
+    "knowers": _format_knowers,
+    "coverage": _format_coverage,
 }
 
 
@@ -88,7 +109,7 @@ def _group_rows_by_section(rows: tuple[dict, ...]) -> dict[str, list[dict]]:
 
 
 def _serialize_rows_by_section(rows: tuple[dict, ...]) -> str:
-    """Rows serialized by section, in the section-contract order, for the
+    """Rows serialized by section, in order of first appearance, for the
     model prompt (BRIEF-0085-d item 7): the model sees the question and
     these rows and nothing else."""
     grouped = _group_rows_by_section(rows)
