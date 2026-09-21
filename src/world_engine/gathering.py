@@ -21,13 +21,21 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
 
 from sqlmodel import Session, select
 
 from . import llm_parse, ollama_client
 from .analyzer import analyze_window
-from .models import Character, Conversation, Entity, Gathering, GatheringMember, PromptTemplate
+from .models import (
+    Character,
+    Conversation,
+    Entity,
+    Gathering,
+    GatheringMember,
+    PromptTemplate,
+    Session as PlaySession,
+)
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
 
@@ -333,6 +341,63 @@ def dissolve_emptied(
                 dissolved.append(source_id)
     db.commit()
     return dissolved
+
+
+def attach_on_arrival(entity_id: str, location_id: Optional[str], db: Session) -> Optional[str]:
+    """The creator-side counterpart of `close_open_memberships`.
+
+    A manually relocated NPC arrives into a location the player has already
+    entered this session, where the entry guard will not regenerate because
+    a live gathering is legitimately there. The arrival is always solo: this
+    never asserts that an arriving NPC joined an existing group — the MJ
+    partition at entry is the only authority for that. Never opens a
+    session, and does not commit; the caller owns the transaction.
+    """
+    if location_id is None:
+        return None
+    entity = db.get(Entity, entity_id)
+    if entity is None or entity.status != "active":
+        return None
+    character = db.get(Character, entity_id)
+    if character is None or character.character_type != "npc" or character.vital_status != "alive":
+        return None
+    location = db.get(Entity, location_id)
+    if location is None or location.type != "location":
+        return None
+    play_session = db.exec(
+        select(PlaySession)
+        .where(PlaySession.world_id == location.world_id, PlaySession.status == "open")
+        .order_by(PlaySession.number.desc())
+    ).first()
+    if play_session is None:
+        return None
+    destination_gathering = db.exec(
+        select(Gathering).where(
+            Gathering.session_id == play_session.id,
+            Gathering.location_id == location_id,
+            Gathering.status == "open",
+        )
+    ).first()
+    if destination_gathering is None:
+        return None
+
+    now = datetime.now(UTC)
+    gathering = Gathering(
+        world_id=location.world_id,
+        session_id=play_session.id,
+        location_id=location_id,
+        label=f"{entity.name}, seul·e",
+        status="open",
+        created_at=now,
+    )
+    db.add(gathering)
+    db.add(GatheringMember(
+        gathering_id=gathering.id,
+        entity_id=entity_id,
+        joined_at=now,
+        left_at=None,
+    ))
+    return gathering.id
 
 
 def migrate_npc(npc_id: str, target_gathering_id: str, db: Session) -> None:

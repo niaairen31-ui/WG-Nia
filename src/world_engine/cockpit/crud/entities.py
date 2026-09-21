@@ -20,7 +20,7 @@ from sqlmodel import Session as DbSession, select
 
 from ...db import get_session
 from ...entity_author import generate_npc_goals
-from ...gathering import close_open_memberships
+from ...gathering import attach_on_arrival, close_open_memberships, dissolve_emptied
 from ...ledger import get_balance, list_entries
 from ...ollama_client import OllamaError, ping
 from ...models import (
@@ -763,12 +763,16 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
     # non-active entity.status, closes its open gathering_member rows
     # (gatherings are not canon — no proposed_mutation, no change_history).
     # Re-saving with the same current_location_id must not close anything.
+    # BRIEF-0089-d: attaches at arrival, dissolves what emptied -- after the commit, once durable.
+    closed: list = []
     if entity.type == "character" and ext is not None and ext.current_location_id != prior_location_id:
-        close_open_memberships(entity_id, db)
+        closed += close_open_memberships(entity_id, db)
+        attach_on_arrival(entity_id, ext.current_location_id, db)
     if prior_status == "active" and entity.status != "active":
-        close_open_memberships(entity_id, db)
+        closed += close_open_memberships(entity_id, db)
 
     db.commit()
+    dissolve_emptied({row.gathering_id for row in closed}, db)
     db.refresh(entity)
 
     result = _entity_dict(entity)
@@ -801,8 +805,9 @@ def delete_entity(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
     entity.status = "inactive"
     entity.updated_at = datetime.now(UTC)
     db.add(entity)
-    close_open_memberships(entity_id, db)
+    closed = close_open_memberships(entity_id, db)
     db.commit()
+    dissolve_emptied({row.gathering_id for row in closed}, db)
     db.refresh(entity)
     return _entity_dict(entity)
 
