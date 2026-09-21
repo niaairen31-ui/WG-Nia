@@ -2,7 +2,7 @@
 id: TICKET-0089
 title: Manual NPC move leaves the gathering roster behind
 type: bug
-status: brief
+status: live-gate
 created: 2026-09-18
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [db_write]
