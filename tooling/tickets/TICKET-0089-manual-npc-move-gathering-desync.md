@@ -131,6 +131,7 @@ for a parameterised variant: a measured slow sheet save traced to this call.
 - [ ] The committed static assets are the ones the build produced  -> verify/checks/static_asset_freshness.py
 - [ ] CLAUDE.md stays within its character budget and its invariant section stays reference-free  -> verify/checks/claude_md_contract.py
 - [ ] `DECISIONS_INDEX.md` equals a fresh regeneration and the new header matches the strict pattern  -> verify/checks/decisions_index.py
+- [ ] The entry guard, the dissolve and the arrival are all wired  -> verify/checks/gathering_lifecycle.py
 
 ### Live  ->  human gate (Nia)
 

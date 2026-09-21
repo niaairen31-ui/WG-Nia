@@ -269,9 +269,16 @@ Law only. Rationale, chantier history, and deferred alternatives live in
 - **Creator-CRUD edits that change a character's `current_location_id`, or
   set an entity's `status` to a non-active value, MUST close that entity's
   open `gathering_member` rows via `close_open_memberships`** (gatherings
-  are not canon — no `_apply_mutation`, no `change_history`). Roster and
+  are not canon — no `_apply_mutation`, no `change_history`). A location
+  change also attaches the entity to the destination's live open gathering
+  when the open session already holds one there, and, after the commit,
+  dissolves any gathering the move left with no active member. Roster and
   co-present reads gate on `entity.status='active' AND
   vital_status='alive'` in addition to `gathering_member.left_at IS NULL`.
+- **An open gathering with no active member is a defect state, not a legal
+  one:** dissolved the moment it is emptied, and ignored by the entry
+  guard where it survives anyway — a location counts as already entered
+  only while one of its open gatherings still holds an active member.
 - Hard deletes are a closed, named list -- enforced by `single_canon_write.py`; any new hard-
   delete path must be named there, never added silently.
 - **Custom skill lookups filter `skill_definition_id`, by construction:** a

@@ -15635,6 +15635,54 @@ unset rather than defaulted. The precedent for this distinction is already in
 the codebase: `set_location_geometry` reads `body.model_fields_set` to tell
 "not sent" from "sent as its default" on the two bounds columns.
 
+## AN EMPTY OPEN GATHERING IS A DEFECT STATE, NOT A LEGAL ONE (BRIEF-0089-a, BRIEF-0089-c, BRIEF-0089-d, no schema change)
+
+Play-side presence is gathering-derived, never read from
+`current_location_id`, and this lot does not change that. A creator-side
+location edit that closes an NPC's membership can leave the gathering it
+emptied behind as an open shell: joinable, but with no active member and no
+narration. Nothing dissolved it, and the entry guard's old form (any open
+gathering blocks regeneration) then treated the shell as proof the location
+had already been entered, freezing it — an NPC moved there stayed invisible
+for the rest of the session, and the player's join produced an empty scene.
+
+The fix is placed at both ends. `_live_gatherings` (`routes/scene.py`)
+repairs the existing state: the entry guard now counts only gatherings that
+still hold an active member, ignoring shells. `dissolve_emptied`
+(`gathering.py`) prevents the state from re-forming: every caller that can
+leave a gathering empty — `close_open_memberships`'s callers in
+`update_entity` and `migrate_npc` — dissolves it immediately afterward,
+analysing any conversation left open on it first. Rejected: filtering empty
+gatherings inside `_open_gatherings` itself, which six readers depend on for
+unfiltered rosters; reactivation condition unchanged — a seventh reader that
+needs to ignore an empty gathering on its own.
+
+A gathering created on arrival (`attach_on_arrival`) is always solo: code
+never asserts that a manually relocated NPC joined an existing cluster, only
+the MJ partition generated at entry has that authority. `dissolve_emptied`
+runs after its caller's own commit, not inside `close_open_memberships`,
+because it is a second, independent unit of work (it may itself analyse and
+commit a window) layered on top of a membership close that some callers
+(`migrate_npc`) still need to treat as a single transaction with the new
+membership insert.
+
+## THE GATHERING LIFECYCLE GATE (BRIEF-0089-g, no schema change)
+
+The three verbs above — the entry guard, the dissolve, and the arrival —
+were each a single call site with no existing gate watching it, so a later
+refactor could drop any one silently. `verify/checks/gathering_lifecycle.py`
+makes the arrangement structural: six `ast`-only rules assert that
+`enter_scene` calls `_live_gatherings` and never `_open_gatherings`
+directly, that `_live_gatherings` itself calls `_active_members`, that
+`gathering.py` declares `dissolve_emptied` and `attach_on_arrival`, that
+`migrate_npc` calls `dissolve_emptied` and assigns no `status = "dissolved"`
+of its own, that `update_entity` calls `close_open_memberships`,
+`dissolve_emptied` and `attach_on_arrival`, and that `attach_on_arrival`
+never calls `_get_or_open_session` — a manual arrival must never open a
+session on the NPC's behalf. Every rule is vacuous-proof, following the
+`world_tick.py` precedent: an unparseable file, a missing function, or zero
+collected call names is a FAILURE, never a silent pass.
+
 ---
 
 *Co-built with Claude, June 2026.*
