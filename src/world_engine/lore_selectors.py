@@ -13,10 +13,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from .context import read_public_memberships
-from .models import Character, Entity, Faction, Knowledge, NpcGoal, Relation
+from .models import Character, Entity, FactParticipant, Faction, Knowledge, NpcGoal, Relation
+from .writes.knowledge import knowledge_level_rank
 
 
 @dataclass(frozen=True)
@@ -196,7 +197,55 @@ def entity_dossier(entity_id: str, world_id: str, db: Session) -> list[dict]:
     )
 
 
-SELECTORS: tuple[str, ...] = ("entity_dossier", "world_factions")
+def who_knows_about(entity_id: str, world_id: str, db: Session) -> list[dict]:
+    """Who, in this world, holds knowledge about ONE entity (TICKET-0087,
+    BRIEF-0087-e, C-04). One `coverage` row first, always -- first so the
+    tail truncation at `row_cap` in `execute_plan` can never drop it -- then
+    one `knowers` row per `knowledge` row whose fact carries a
+    `fact_participant` for the asked entity, with no role filter (J2).
+    Secrets and false beliefs are returned and marked by the renderer
+    (F1b, F2); ordered by level rank descending, then knower name (F3)."""
+    subject = db.exec(
+        select(Entity).where(Entity.id == entity_id, Entity.world_id == world_id)
+    ).first()
+    subject_name = subject.name if subject is not None else None
+    pairs = db.exec(
+        select(Knowledge, Entity)
+        .join(Entity, Entity.id == Knowledge.entity_id)
+        .join(FactParticipant, FactParticipant.fact_id == Knowledge.fact_id)
+        .where(Entity.world_id == world_id, FactParticipant.entity_id == entity_id)
+    ).all()
+    uncounted = db.exec(
+        select(func.count(Knowledge.id))
+        .join(Entity, Entity.id == Knowledge.entity_id)
+        .outerjoin(FactParticipant, FactParticipant.fact_id == Knowledge.fact_id)
+        .where(Entity.world_id == world_id, FactParticipant.id.is_(None))
+    ).one()
+    knowers = [
+        {
+            "section": "knowers",
+            "knower_entity_id": knower.id,
+            "knower_name": knower.name,
+            "level": k.level,
+            "content": k.content,
+            "source": k.source,
+            "is_incorrect": k.is_incorrect,
+            "is_secret": k.is_secret,
+            "subject_name": subject_name,
+        }
+        for k, knower in pairs
+    ]
+    knowers.sort(key=lambda r: (-knowledge_level_rank(r["level"]), r["knower_name"] or ""))
+    coverage = {
+        "section": "coverage",
+        "subject_name": subject_name,
+        "counted_rows": len(knowers),
+        "uncounted_rows": uncounted,
+    }
+    return [coverage] + knowers
+
+
+SELECTORS: tuple[str, ...] = ("entity_dossier", "world_factions", "who_knows_about")
 
 _SELECTOR_LOOKUPS: dict[str, SelectorSpec] = {
     "entity_dossier": SelectorSpec(
@@ -205,5 +254,9 @@ _SELECTOR_LOOKUPS: dict[str, SelectorSpec] = {
     ),
     "world_factions": SelectorSpec(
         fn=world_factions, arity=1, row_cap=200, arg_kinds=("world_id",),
+    ),
+    "who_knows_about": SelectorSpec(
+        fn=who_knows_about, arity=2, row_cap=200,
+        arg_kinds=("entity_id", "world_id"), context_sections=("coverage",),
     ),
 }

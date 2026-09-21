@@ -15683,6 +15683,42 @@ session on the NPC's behalf. Every rule is vacuous-proof, following the
 `world_tick.py` precedent: an unparseable file, a missing function, or zero
 collected call names is a FAILURE, never a silent pass.
 
+## WHO_KNOWS_ABOUT DECLARES ITS OWN COVERAGE, AND DECLARES IT FIRST (BRIEF-0087-e, no schema change)
+
+**Decision (TICKET-0087, D1, M1).** The `who_knows_about` selector reports
+how much of the world it can see as one `coverage` row in a
+`context_sections` section, never as a verdict. The five verdicts are a
+closed set asserted by `lore_selectors.py` R5, and a coverage number is not
+a verdict: it accompanies both `answered` and `silent_canon`. The row is
+emitted first, before any knower, because `execute_plan` truncates a
+selector's rows from the tail at `row_cap`; a context row placed last would
+be cut exactly when the answer is largest. `entity_dossier`'s `identity`
+row already survives for the same reason.
+
+**Rejected.** D2, returning knowers with no coverage statement -- rejected
+on doctrine, not on cost: with most knowledge rows still carrying no
+subject participant, an answer that does not say it is partial is a lie;
+no reactivation condition. M2, exempting `context_sections` rows from
+truncation inside `execute_plan` -- it changes the shared executor for a
+case no world reaches today; *reactivate when* a selector must emit a
+context row after its content rows. M3, leaving `coverage` last -- it makes
+"exactly one, always" false above `row_cap - 1` knowers.
+
+**R2 of the selector check reads the code, not a list (N1).**
+`lore_selectors.py` R2 forbids naming a selector function in
+`lore_query.py`. Its names were a hand-kept literal that a third selector
+would silently escape -- measured: with the literal, a direct reference to
+`who_knows_about` in `lore_query.py` passed. R2 now reads the `fn=` keyword
+of every `SelectorSpec(...)`, vacuity-guarded. Rejected: N2, adding the name
+to the literal; the corpus-wide sweep of literal sets stays TICKET-0085
+queue item 7.
+
+**Secrets in prose (P1).** Knower lines carry " (secret)" and
+" (croyance fausse)" deterministically, in the template fallback and in
+the trace. The `lore_rows_to_prose` prompt is not changed, so whether the
+model's prose keeps the secret marker is observed, not guaranteed;
+*reactivate* a prompt version when a live answer is seen to drop it.
+
 ---
 
 *Co-built with Claude, June 2026.*

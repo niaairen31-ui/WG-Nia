@@ -4,9 +4,11 @@ FAILURES/fail()/`_parse`/`_rel` idiom as `lore_resolve.py`'s check.
 
 R1 (bijection): `SELECTORS` and `_SELECTOR_LOOKUPS` are in bijection, the
 same one-tuple/one-dict idiom as `MATCHING_RUNGS`/`_RUNG_LOOKUPS`.
-R2 (no dispatch outside the table): neither selector function name
-(`entity_dossier`, `world_factions`) appears anywhere in `lore_query.py` —
-every call goes through `_SELECTOR_LOOKUPS[...]`.
+R2 (no dispatch outside the table): no selector function name appears
+anywhere in `lore_query.py` — every call goes through
+`_SELECTOR_LOOKUPS[...]`. The names are read from the `fn=` keyword of every
+`SelectorSpec(...)` in `lore_selectors.py`, never from a hand-kept list
+(TICKET-0087, BRIEF-0087-e); zero names read is a FAILURE.
 R3 (caps declared): every `SelectorSpec(...)` construction sets a non-zero
 integer `row_cap`, and `execute_plan` references `row_cap`.
 R4 (validation precedes execution): in `execute_plan`, every top-level
@@ -35,7 +37,6 @@ SRC = ROOT / "src" / "world_engine"
 LORE_SELECTORS_FILE = SRC / "lore_selectors.py"
 LORE_QUERY_FILE = SRC / "lore_query.py"
 
-SELECTOR_FUNCTION_NAMES = {"entity_dossier", "world_factions"}
 EXPECTED_VERDICTS = {
     "answered", "ambiguous_mention", "unknown_entity", "silent_canon", "unsupported_selector",
 }
@@ -128,7 +129,38 @@ def check_bijection() -> None:
         fail(f"lore_selectors R1: _SELECTOR_LOOKUPS key(s) {sorted(orphan)!r} are not in SELECTORS")
 
 
+def _selector_function_names() -> set[str]:
+    """R2's subject list, derived from the code it guards: the `fn=` keyword
+    of every `SelectorSpec(...)` in `lore_selectors.py`. Never a
+    hand-maintained literal -- a selector added without a matching edit here
+    would silently fall outside R2 (the TICKET-0086 defect class)."""
+    tree = _parse(LORE_SELECTORS_FILE)
+    if tree is None:
+        return set()
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and (
+                (isinstance(node.func, ast.Name) and node.func.id == "SelectorSpec")
+                or (isinstance(node.func, ast.Attribute) and node.func.attr == "SelectorSpec")
+            )
+        ):
+            continue
+        for kw in node.keywords:
+            if kw.arg == "fn" and isinstance(kw.value, ast.Name):
+                names.add(kw.value.id)
+    return names
+
+
 def check_no_dispatch_outside_table() -> None:
+    selector_function_names = _selector_function_names()
+    if not selector_function_names:
+        fail(
+            f"lore_selectors R2: {_rel(LORE_SELECTORS_FILE)}: zero `fn=` names read from "
+            "SelectorSpec(...) constructions -- vacuous"
+        )
+        return
     tree = _parse(LORE_QUERY_FILE)
     if tree is None:
         return
@@ -139,7 +171,7 @@ def check_no_dispatch_outside_table() -> None:
             name = node.id
         elif isinstance(node, ast.Attribute):
             name = node.attr
-        if name in SELECTOR_FUNCTION_NAMES:
+        if name in selector_function_names:
             found.add(name)
     if found:
         fail(

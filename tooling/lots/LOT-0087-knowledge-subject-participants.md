@@ -40,7 +40,9 @@ empty (R-02). `danger_class` is `db_write`, not `migration`.
   and is TICKET-0088's.*
 - **BRIEF-0087-e** `who-knows-about-selector` -- the selector, its whitelist
   and description entries, its section formatters, its coverage row, and the
-  three check files that must learn its name.
+  three check files that must learn its name. *(AMENDMENT-0087-3: under `N1`
+  `checks/lore_selectors.py` learns it by derivation, not by an edited
+  literal; `lore_isolation.py` R8 needs no edit.)*
 
 ## Dependency graph
 
@@ -51,6 +53,10 @@ BRIEF-0087-a  ->  BRIEF-0087-b
 ```
 
 *(TICKET-0088 inserted by AMENDMENT-0087-2, code `K3`.)*
+
+*(AMENDMENT-0087-3: TICKET-0088 merged into `main` as `af672f9` (PR #114).
+`e` starts from `main` at `2ae232b` or later, on `ticket/0087` fast-forwarded
+to it -- code `L1`, R-21.)*
 
 `a` is strictly first: `b`, `c`, `d` and `e` all consume `C-01`.
 `b`, `c` and `e` are mutually independent after `a`.
@@ -295,6 +301,11 @@ BRIEF-0087-e must not be read as licence to relax it anywhere else.
 
 ### R-12 -- the selector registration surface is four places, not one
 
+*(Corrected by AMENDMENT-0087-3. The constant sits at `:38`, not `:37`; and
+under code `N1` the literal is removed -- R2 derives its names from the
+`fn=` keyword of every `SelectorSpec(...)`, so item 4 below describes the
+state `BRIEF-0087-e` removes. See R-27.)*
+
 Opened: `src/world_engine/lore_selectors.py:199-209`; `src/world_engine/lore_plan.py:23-40`; `src/world_engine/lore_render.py:27-69`; `tooling/verify/checks/lore_isolation.py:26-29, 404-435`; `tooling/verify/checks/lore_selectors.py:37`.
 
 Finding: adding a selector touches four registries and one hardcoded check
@@ -303,13 +314,16 @@ constant.
 1. `SELECTORS` tuple and `_SELECTOR_LOOKUPS` dict (`lore_selectors.py:199-209`). `SelectorSpec` fields: `fn`, `arity`, `row_cap`, `arg_kinds`, `context_sections`.
 2. `_SELECTOR_DESCRIPTIONS` (`lore_plan.py:29-37`). `lore_isolation` R8 asserts its key set equals `SELECTORS`.
 3. `_SECTION_FORMATTERS` (`lore_render.py:62-69`), currently `identity`, `relations`, `knowledge`, `memberships`, `goals`, `factions`. An unknown section raises (`lore_render.py:81-85`), guarded by `lore_isolation` R14.
-4. `SELECTOR_FUNCTION_NAMES = {"entity_dossier", "world_factions"}` at `tooling/verify/checks/lore_selectors.py:37` -- a **hardcoded literal set**. R2 of that check asserts no selector function name appears in `lore_query.py`. A third selector not added here is simply not covered by R2, silently.
+4. `SELECTOR_FUNCTION_NAMES = {"entity_dossier", "world_factions"}` at `tooling/verify/checks/lore_selectors.py:38` -- a **hardcoded literal set**. R2 of that check asserts no selector function name appears in `lore_query.py`. A third selector not added here is simply not covered by R2, silently.
 
 Consequence: item 4 is the TICKET-0086 defect class -- a check whose subject
 list drifts from the code it guards. BRIEF-0087-e carries it as a Scope IN
 item with its own done-means line, not as a nicety.
 
 ### R-13 -- what `execute_plan` requires of a selector, and what it forbids
+
+*(Extended by AMENDMENT-0087-3: truncation is a tail slice and does not
+spare `context_sections` rows -- last paragraph below.)*
 
 Opened: `src/world_engine/lore_query.py:58-197`; `tooling/verify/checks/lore_selectors.py:1-25`.
 
@@ -334,6 +348,16 @@ Consequence: the coverage report of D1 cannot be a sixth verdict and cannot
 be written into the trace by the selector, which has no access to it. It is a
 row in a `coverage` section declared in `context_sections` -- which is
 exactly the mechanism `context_sections` exists for. This is `C-04`.
+
+*(AMENDMENT-0087-3.)* Truncation is `result_rows[: spec.row_cap]`
+(`lore_query.py:180-181`), applied to the selector's whole list before the
+`context_sections` count at `:183`. A context row placed last is therefore
+cut whenever the selector returns more than `row_cap - 1` content rows.
+`entity_dossier` is immune because its only context row is its first:
+`_identity_rows(...)` opens the concatenation (`lore_selectors.py:190-191`)
+and `identity` is its sole `context_sections` entry (`:204`). Consequence:
+`C-04` emits `coverage` first (code `M1`), and `execute_plan` stays
+unmodified.
 
 ### R-14 -- the resolver's contract, and the category it requires
 
@@ -502,6 +526,126 @@ honest way to satisfy rule 2. This is a frontend-seam gap, not a
 knowledge-subject problem, and it is why BRIEF-0087-d item 5 was deferred
 rather than forced. TICKET-0088 owns it.
 
+### R-21 -- where `e` starts: the base, the branch, and why `/pipeline` cannot start it
+
+*(Added by AMENDMENT-0087-3. RECON of 2026-09-21 against `origin/main` at
+`2ae232b`, read from GitHub: tarball verified with `git get-tar-commit-id`,
+history from a blobless clone.)*
+
+Opened: `git log origin/main`, `origin/ticket/0087`; `git diff --name-only ced51c1 2ae232b`; `.claude/commands/pipeline.md`, `.claude/commands/brief-exec.md`, `.claude/settings.json`, `.claude/hooks/block-main-push.ps1`; history of `tooling/tickets/TICKET-0087-*.md` and `TICKET-0088-*.md`. [M]
+
+Finding:
+- `main` is `2ae232b` (merge of PR #115, TICKET-0089). TICKET-0087 a-d merged as `994c9b2` (PR #113), TICKET-0088 as `af672f9` (PR #114). `origin/ticket/0087` is still `ced51c1`, an ancestor of `main`.
+- Between `ced51c1` and `2ae232b`, **no file this brief edits or anchors changed**: no `lore_*.py`, `writes/knowledge.py`, `models/canon_knowledge.py`, `subject_resolve.py`, `checks/lore_*.py`, `import_cycle.py`, `run.py`. The relevant changes are `CLAUDE.md`, `ARCHITECTURE_DECISIONS.md`, `creation_island.py`, `page_contract.py`, and the new `gathering_lifecycle.py`.
+- `/pipeline` Step 0 derives status by precedence; rule 1 is "`ticket/NNNN` is merged into `main` -> `done`" (`pipeline.md:13`), and `done` stops (`:38`). Rule 2 needs a green verdict **and** a PR for the branch (`:14-19`). Rule 4, "brief file(s) exist -> eligible for `exec`" (`:22-23`), runs `/brief-exec` "for each brief in suffix order" (`:58-59`).
+- `/brief-exec` step 1 creates or switches to `ticket/<NNNN>` (`brief-exec.md:7`).
+- Pre-allowed commands include `git merge origin/main:*`, `git push origin ticket/*`, `gh pr create:*`, `python -m tooling.verify.run:*` (`settings.json`). `block-main-push.ps1` denies any `git push` whose command names `main` or `master`.
+- TICKET-0087's front matter was committed once, at deposit (`382d0b0`, `status: brief`); no `/pipeline` run ever wrote it, and PR #113 was opened by hand. TICKET-0088 went `brief` -> `live-gate` in one commit when its PR opened (`54dab3f`).
+
+Consequence: `/pipeline TICKET-0087` would answer `done` today and, once `e` has commits but no open PR, would replay `a` to `d`. Under code `L1`, `e` runs on `ticket/0087` fast-forwarded to `origin/main`, through `/brief-exec` alone; the PR is opened with `/pipeline` Step 3's own commands. The guard "no `/pipeline TICKET-0087` before the PR exists" is disciplinary; making Step 0 structural for a re-opened ticket is not this lot.
+
+### R-22 -- what `run.py` runs, and what TICKET-0087's gate actually ran
+
+*(Added by AMENDMENT-0087-3. This is S-1 of the TICKET-0088 decision RECON.)*
+
+Opened: `tooling/verify/run.py`; `tooling/verify/checks/pipeline_state.py:42-56, 89-114`; `tooling/verify/results/TICKET-0087-knowledge-subject-participants.json`; `CLAUDE.md:83-84, 535-538`. [M]
+
+Finding: `run.py` lives at `tooling/verify/run.py`; there is no `tooling/run.py`. It reads `tooling/tickets/<arg>.md` (`:30`), so `--ticket` takes the full slug. `LINK.search` (`:10, :20`) keeps the **first** arrow of each Machine line; a check linked twice runs once (`seen`, `:14, :21`); a check's recorded message is its last output line (`:60`). `run.py`'s own `machine_checks` on TICKET-0087 returns exactly:
+
+```
+['fact_spine.py', 'subject_resolution.py', 'lore_isolation.py', 'lore_selectors.py', 'single_canon_write.py', 'module_budget.py']
+```
+
+`function_length.py`, second arrow on its line, never runs; `corpus_gate.py` is not linked, although `CLAUDE.md:83-84` requires every ticket to link it. The recorded verdict (2026-09-15 17:02 UTC) lists those six checks and no other. `pipeline_state.py` requires the 11 front-matter fields, one `### Machine` then one `### Live` header, and every arrow to resolve to an existing check file; it does not enforce the `corpus_gate.py` link.
+
+Consequence: TICKET-0087's Machine section is repaired to one arrow per line with `corpus_gate.py` linked (AMENDMENT-0087-3), and `BRIEF-0087-e`'s done-means name `python -m tooling.verify.run --ticket TICKET-0087-knowledge-subject-participants`, never `tooling/run.py`.
+
+### R-23 -- rows render in order of first appearance, not in `_SECTION_FORMATTERS` order
+
+*(Added by AMENDMENT-0087-3.)*
+
+Opened: `src/world_engine/lore_render.py:27-31, 62-69, 72-112`; `frontend/src/lore/Lore.svelte:22-29, 55-63, 133-161`. [M]
+
+Finding: `_group_rows_by_section` builds its dict with `setdefault` while walking `rows` (`:78-86`), and both `_serialize_rows_by_section` (model prompt) and `render_template` (fallback) iterate that dict. Sections therefore appear in the order their first row appears. The comment at `:30-31` ("Order here is the order rows are grouped") does not describe the code. `Lore.svelte` groups the folded trace the same way (`:57-63`) and labels sections from a six-entry `SECTION_LABEL` (`:22-29`), falling back to the raw key (`:154`).
+
+Consequence: under `M1` the `coverage` line is rendered, prompted and traced before the knowers. The position of the two new `_SECTION_FORMATTERS` entries is documentation only. `BRIEF-0087-e` rewrites the comment from the code. `Lore.svelte` is not touched: the trace shows `knowers` and `coverage` under their raw keys.
+
+### R-24 -- `silent_canon` prose for this selector names no entity
+
+*(Added by AMENDMENT-0087-3.)*
+
+Opened: `src/world_engine/lore_render.py:126-127, 155-164`; `src/world_engine/cockpit/routes/lore.py:76-93`. [M]
+
+Finding: `_render_silent_canon` looks for an `identity` row and, finding none, renders `_SILENT_CANON_WITHOUT_ENTITY`, "Le canon ne détient rien sur ce point." The route returns `rows` and `trace` beside the prose (`:85-93`), and the folded trace lists every row.
+
+Consequence: for an entity with no knower the prose is the entity-less sentence; the `coverage` row is present in `rows` and in the folded trace. TICKET-0087's live criterion ("`silent_canon` with the coverage row present, never an empty silence") is met there. No renderer change.
+
+### R-25 -- the planner sees the selector through its description; the prose prompt says nothing of secrets
+
+*(Added by AMENDMENT-0087-3.)*
+
+Opened: `src/world_engine/lore_plan.py:25-40, 73-94`; `scripts/seed_pilot.py:1744-1774, 1783-1806`. [M]
+
+Finding: `draft_plan` replaces `{selectors}` in the `lore_question_to_plan` user template with `_render_selectors()`, one line per `_SELECTOR_DESCRIPTIONS` entry; the seeded user template carries `{selectors}`. So a description entry is sufficient for the planner to see the selector. The seeded system prompt's JSON shape shows `entity_dossier` as its one example call. `lore_plan.py` contains no non-ASCII character today. The `lore_rows_to_prose` system prompt tells the model how to render an `is_incorrect` row and says nothing about secrets.
+
+Consequence: no prompt edit (code `P1`). The " (secret)" suffix is guaranteed in the formatted line, so in the template fallback, and in the trace (`is_secret: true`); whether the model's prose keeps it is observed and reported, not guaranteed. The planner's routing is a REPORT-ONLY.
+
+### R-26 -- the participant attach route, and its two callers
+
+*(Added by AMENDMENT-0087-3. The route findings are LOT-0088 R-25 and R-26 [C]; the callers and the column were re-measured.)*
+
+Opened: `src/world_engine/models/canon_knowledge.py:117-129` [M]; `grep -rlE "/api/facts/.*/participants" frontend/src` [M]; LOT-0088 R-25, R-26 [C].
+
+Finding: `POST /api/facts/{fact_id}/participants` resolves the entity for existence only, with no world check, and calls `attach_participants`, whose plain `db.add` has no read before it; a duplicate `(fact_id, entity_id)` raises `IntegrityError` at commit, uncaught, HTTP 500. `FactParticipant.world_id` is `NOT NULL` (`:125`) and is stamped from the fact. The grep lists exactly `frontend/src/creation/KnowledgeEditor.svelte` and `frontend/src/creation/subjectWorklist.svelte.js`; both post only for facts they have just read to carry no participant, and both pick from world-filtered entity lists.
+
+Consequence: the route's two gaps are unreachable from the UI and are recorded as named deferrals `D-0087-attach-duplicate` and `D-0087-attach-cross-world` (see "Named deferrals"). TICKET-0087's Machine criterion "every writer of `fact_participant` reads before it writes" overstated what `subject_resolution.py` proves (its A4 exercises `write_knowledge`, `:252-270`); it is restated.
+
+### R-27 -- the selector, prototyped on a throwaway copy of `main`
+
+*(Added by AMENDMENT-0087-3. Measured by running code on a copy of `2ae232b`, never on the real tree or database. [E])*
+
+Opened: a copy of the tree with the exact edits of `BRIEF-0087-e` Scope IN items 3 to 7 applied; Python 3.12, `requirements-dev.txt`, `WORLD_ENGINE_ENV=test`; a fresh temp-file SQLite fixture built through `write_knowledge`, `create_fact` and `attach_participants`.
+
+Finding:
+- Baseline on the untouched copy: `PASS: corpus_gate — 111 check(s) discovered, 111 executed, 111 passed`. With the edits: the same line, 111 of 111.
+- Individually green with the edits: `lore_selectors`, `lore_isolation` (R2 accepts all three new `select(` chains: each `.where(` names `Entity` and `world_id`), `import_cycle` (the module-level `from .writes.knowledge import knowledge_level_rank` closes no cycle), `undefined_names`, `fact_spine` (its rule 4 scans `db.add(`/`sa_insert` of `Fact`/`FactParticipant`, never a `select(`), `function_length` (`who_knows_about` is 46 lines), `module_budget` (`lore_selectors.py` 262 lines, `lore_render.py` 260), `single_canon_write`, `subject_resolution`, `npc_goal_read`, `known_reachability`.
+- Behaviour on the fixture: the coverage row comes first; knowers sort by rank, then name; a knower of an arity fact carrying `role="conspirator"` is counted; an entity with no knower yields exactly one row, `coverage`, verdict `silent_canon`; `uncounted_rows` equals the sum of `row_count` over `unresolved_subjects(world_id, db)` and excludes the other world; 206 knowers on one entity give `truncated: true`, `row_count: 200`, one `coverage` row first, 199 knowers, `counted_rows: 206`.
+- Named mutation for `N1`: a direct reference to `who_knows_about` written into `lore_query.py` **passes** R2 under the literal set, and fails it under the derived set with `lore_selectors R2: src/world_engine/lore_query.py names selector function(s) ['who_knows_about'] directly`.
+
+Consequence: every contract in this lot is satisfiable by the module `BRIEF-0087-e` specifies, with `execute_plan` unmodified, and the code in the brief is the code that was run.
+
+### R-28 -- anchors re-measured on `main`, and what they cost
+
+*(Added by AMENDMENT-0087-3: open point O-2.)*
+
+Opened: each file below, on `2ae232b`. [M]
+
+| anchor | as drafted | on `main` |
+|---|---|---|
+| `SELECTORS` | `lore_selectors.py:199` | `:199` |
+| `_SELECTOR_LOOKUPS` | `:201-209` | `:201-209` |
+| `SelectorSpec`, `context_sections=()` | `:22-39` | `:22-39` |
+| `_knowledge_rows`, no secrecy filter | `:139-157` | `:139-157` |
+| `from .models import ...` | not anchored | `:19`, no `FactParticipant` |
+| `_SELECTOR_DESCRIPTIONS` | `lore_plan.py:29-37` | `:29-37` |
+| `_SECTION_FORMATTERS` | `lore_render.py:62-69` | `:62-69` |
+| unknown section raises | `:80-86` | `:81-85` |
+| section guard | `lore_query.py:174-179` | `:174-179` |
+| truncation | `:180-186` | slice `:180-181`, trace `:184-186` |
+| `content_row_count`, verdict | `:183, 192` | `:183, 192` |
+| `KNOWLEDGE_LEVEL_LADDER` / `knowledge_level_rank` | `writes/knowledge.py:51-65` | `:59-61` / `:64-74` |
+| `idx_fact_participant_unique`, `role` | `canon_knowledge.py:119-122` | `:119-122`, `role` `:128` |
+| `SELECTOR_FUNCTION_NAMES` | `checks/lore_selectors.py:37` | `:38` |
+| `EXPECTED_VERDICTS` | `:38-40` | `:39-41` |
+| R2 dispatch rule | not anchored | `check_no_dispatch_outside_table`, `:131-148` |
+| `lore_isolation` R8 | `:26-29` (docstring) | implementation `:404-434` |
+| `lore_isolation` R1 purity | "R1 forbids `db.add(`/`.commit(`" | `:148-170`: `db.add(`, `db.commit(`, `chat(` |
+| `lore_isolation` R2 | docstring | `:173-215` |
+
+The "TICKET-0070 rule" the brief's docs section invoked does not exist: TICKET-0070 is `paused` with no brief, and `CLAUDE.md:441` already covers `lore_*.py` as "resolver/selectors/plan".
+
+Consequence: `BRIEF-0087-e`'s anchors are regenerated from this table, each on the file that declares the property; R1 is named with its check file; the `CLAUDE.md` edit is dropped.
+
 ---
 
 ## Contract sheet
@@ -640,6 +784,13 @@ Returns a flat list of row dicts. Every row carries `"section"` (R-13).
 *(Amended by AMENDMENT-0087-1, code J2: no role filter on the join;
 `uncounted_rows` counts facts with no participant at all.)*
 
+*(Amended by AMENDMENT-0087-3, code M1: the `coverage` row is the FIRST row,
+not the last, so `execute_plan`'s tail truncation can never drop it (R-13);
+the knowers join goes `Knowledge.fact_id -> FactParticipant.fact_id`
+directly, with no `Fact` join, since neither side needs a `fact` column;
+`uncounted_rows` is defined as an outer join and equals the sum of `C-06`'s
+`row_count` for the same world (R-27).)*
+
 `section="knowers"` -- zero or more. One per `knowledge` row whose fact
 carries a `fact_participant` with `entity_id == <the asked entity>`, **with no
 role filter**, the knowing entity being world-scoped at query construction.
@@ -653,11 +804,12 @@ is_incorrect, is_secret, subject_name
 ```
 
 Ordered by `knowledge_level_rank(level)` descending
-(`writes/knowledge.py:56-65`), then by `knower_name` ascending, so the order
-is total and stable.
+(`writes/knowledge.py:64-74`), then by `knower_name` ascending, so the order
+is total and stable. The sort runs in Python after the fetch; it filters
+nothing, so world scoping stays at query construction.
 
 `section="coverage"` -- **exactly one, always, including when there are zero
-knowers.** Required keys:
+knowers, and always the first row returned.** Required keys:
 
 ```
 section, subject_name, counted_rows, uncounted_rows
@@ -666,12 +818,19 @@ section, subject_name, counted_rows, uncounted_rows
 - `counted_rows` is the number of `knowers` rows before `row_cap` truncation.
 - `uncounted_rows` is the number of `knowledge` rows in this world whose fact
   carries **no participant at all** -- the rows this selector structurally
-  cannot see.
+  cannot see. Computed as a count over `Knowledge` joined to `Entity`,
+  outer-joined to `FactParticipant` on `fact_id`, where
+  `Entity.world_id == world_id` and `FactParticipant.id IS NULL` -- the same
+  shape as `C-06`, so it equals the sum of `C-06`'s `row_count` for that
+  world.
 - `subject_name` is the asked entity's `name`.
 
 Because `coverage` is declared in `context_sections`, it never counts toward
 `content_row_count`, so a target with no knowers yields `silent_canon` and
-not a false `answered` (R-13).
+not a false `answered` (R-13). Because it is first, a selector returning
+`row_cap` or more knowers keeps it: `execute_plan` keeps `coverage` plus the
+first `row_cap - 1` knowers, records `truncated: true`, and `counted_rows`
+still states the full count.
 
 Error and empty cases: an `entity_id` that does not exist in `world_id`
 never reaches this function -- `execute_plan` returns `unknown_entity` at
@@ -697,6 +856,10 @@ one-line style of `_format_knowledge` (`lore_render.py:45-47`):
 Both markers are suffixes on the same line, in that order: false belief
 first, secret second, so a row that is both reads deterministically. The
 literal wording above is verbatim; the executor copies it.
+
+*(AMENDMENT-0087-3: the position of the two entries in the dict is
+documentation only -- sections render in order of first appearance in the
+rows (R-23), so `coverage` renders before `knowers`.)*
 
 ### C-06 -- the unresolved residue query
 
@@ -780,6 +943,31 @@ file where that property is *declared*. A table constraint traces to the
 model module, never to a writer. A finding about a writer does not license a
 claim about a schema.
 
+**Re-run at AMENDMENT-0087-3, with the declaring-file rule of the amended
+protocol.** Every property `BRIEF-0087-e` asserts now traces to a finding
+that opened the file declaring it:
+
+| property | finding | declaring file opened |
+|---|---|---|
+| selector registries, `SelectorSpec` fields | R-12, R-28 | `lore_selectors.py` |
+| tail truncation, section guard, verdict rule | R-13, R-28 | `lore_query.py` |
+| grouping order, formatter vocabulary, unknown-section raise | R-23, R-28 | `lore_render.py` |
+| silent-canon prose without identity | R-24 | `lore_render.py` |
+| description injection into the planner | R-25 | `lore_plan.py`, `seed_pilot.py` |
+| level ladder and rank | R-04, R-28 | `writes/knowledge.py` |
+| unique key, `role`, `world_id` on `fact_participant` | R-02, R-26, R-28 | `models/canon_knowledge.py` |
+| R2 dispatch rule and its literal | R-12, R-27, R-28 | `checks/lore_selectors.py` implementation |
+| R1 purity, R2 world scoping, R8 | R-28 | `checks/lore_isolation.py` implementation |
+| `fact_spine` rule 4 scope | R-27 | `checks/fact_spine.py` implementation |
+| module-level import edges | R-27 | `checks/import_cycle.py` |
+| what `run.py` runs | R-22 | `tooling/verify/run.py` |
+| how `e` can start | R-21 | `pipeline.md`, `brief-exec.md`, `settings.json` |
+
+Removed rather than traced: "the TICKET-0070 rule" (R-28: no such rule),
+"the existing French one-line style" of `_SELECTOR_DESCRIPTIONS` (R-25: the
+existing two are unaccented ASCII; the verbatim text stands on its own), and
+"R1 forbids `db.add(`" without a check name (R-28).
+
 ### (b) Unwalked rule -- case table for `who_knows_about`
 
 | input class | rows returned | `content_row_count` | verdict |
@@ -788,13 +976,19 @@ claim about a schema.
 | mention ambiguous | selector never runs | -- | `ambiguous_mention` |
 | selector not in whitelist | selector never runs | -- | `unsupported_selector` |
 | resolved entity, no subject participant anywhere | 1 coverage | 0 | `silent_canon` |
-| resolved entity, N knowers, N <= 200 | N knowers + 1 coverage | N | `answered` |
-| resolved entity, N knowers, N > 200 | 200 knowers + 1 coverage, `truncated: true` in trace | 200 | `answered` |
+| resolved entity, 1 <= N <= 199 knowers | 1 coverage, then N knowers | N | `answered` |
+| resolved entity, N >= 200 knowers | 1 coverage, then the first 199 knowers; `truncated: true`; `counted_rows` = N | 199 | `answered` |
 | knower row `is_secret` | included, suffix " (secret)" | counts | `answered` |
 | knower row `is_incorrect` | included, suffix " (croyance fausse)" | counts | `answered` |
 | knower row both | included, both suffixes, false belief first | counts | `answered` |
 | the asked entity is a TICKET-0082 arity participant on a knowledge-bearing fact | included as a knower row | counts | `answered` |
 | the asked entity participates twice on one fact | impossible: `idx_fact_participant_unique` | -- | -- |
+
+*(Re-walked at AMENDMENT-0087-3.)* The row the table first stated,
+"N > 200 -> 200 knowers + 1 coverage", was unreachable: with `coverage`
+last, the tail slice at `lore_query.py:180-181` cut it (R-13). With
+`coverage` first, every row above was run on a fixture (R-27), including
+N = 206.
 
 Every outcome is reachable and every one is correct. The `silent_canon` row
 is the one that would have been unreachable had `coverage` been left out of
@@ -919,6 +1113,28 @@ EXPECTED_VERDICTS          = {answered, ambiguous_mention, unknown_entity,
                               silent_canon, unsupported_selector}
 ```
 
+Added at AMENDMENT-0087-3 -- `run.py`'s own parser on TICKET-0087 before
+the repair (R-22):
+
+```
+['fact_spine.py', 'subject_resolution.py', 'lore_isolation.py', 'lore_selectors.py', 'single_canon_write.py', 'module_budget.py']
+```
+
+Callers of the participant routes under `frontend/src` (R-26):
+
+```
+$ grep -rlE "/api/facts/.*/participants" frontend/src
+frontend/src/creation/subjectWorklist.svelte.js
+frontend/src/creation/KnowledgeEditor.svelte
+```
+
+Corpus on a copy of `2ae232b`, before and after the brief's edits (R-27):
+
+```
+PASS: corpus_gate — 111 check(s) discovered, 111 executed, 111 passed
+PASS: corpus_gate — 111 check(s) discovered, 111 executed, 111 passed
+```
+
 ### (d) Un-rederived contract -- tick
 
 `C-04` is the selector family contract. It was written before
@@ -932,11 +1148,21 @@ briefs, never re-described.
 
 - `verify/checks/fact_spine.py` -- satisfied by `writes/facts.py`, unchanged. The lot adds participant rows only to free-standing facts, which is assertion 1's pass condition.
 - `verify/checks/lore_isolation.py` R8 / R14 -- satisfied by `lore_plan.py` and `lore_render.py` gaining their entries in BRIEF-0087-e. Both are pure registry edits; neither module needs anything the check forbids.
-- `verify/checks/lore_selectors.py` R1/R2/R3/R6 -- satisfied by `lore_selectors.py`, **provided `SELECTOR_FUNCTION_NAMES` at line 37 gains `who_knows_about`**. Without that edit R2 passes vacuously for the new selector. This is the one check in the lot that a blunt reading would leave silently uncovered.
+- `verify/checks/lore_selectors.py` R1/R2/R3/R6 -- satisfied by `lore_selectors.py`, **provided `SELECTOR_FUNCTION_NAMES` at line 37 gains `who_knows_about`**. Without that edit R2 passes vacuously for the new selector. This is the one check in the lot that a blunt reading would leave silently uncovered. *(Superseded by AMENDMENT-0087-3, code `N1`: R2 derives its names from the `fn=` keyword of every `SelectorSpec(...)`, so no edit of a literal can be forgotten; satisfied by `lore_selectors.py` declaring `fn=who_knows_about`, R-27.)*
 - `verify/checks/creation_island.py` -- **this is the entry that should have caught BRIEF-0087-d item 5 at drafting.** Gate (e) asks, for every G1 gate a brief must pass, which module satisfies it and what that module needs which the check forbids. Item 5 required `creation_island.py` to pass and named no such module, because none can exist today: rule 2 demands a migration provenance a greenfield panel does not have (R-20). The answer gate (e) prescribes -- *specify the module the lot does not yet have* -- is TICKET-0088. Deferring item 5 is that answer, taken one ticket out.
 - **New check `verify/checks/subject_resolution.py`** -- required by two acceptance criteria that no existing check covers: that `subject_resolve.py` reaches canon only through `lore_resolve` rungs and contains no `chat(`, and that an out-of-world `subject_entity_id` is refused at apply. It needs a DB fixture (the second assertion is behavioural), which the `fact_spine.py` idiom already provides: fresh temp-file SQLite, `WORLD_ENGINE_DATABASE_URL` set before any `world_engine` import, vacuity-guarded, never touching the real database. It is specified in BRIEF-0087-b. Placing it in its own file rather than extending `fact_spine.py` follows the standing rule: when a blunt check would have to make an exception, the legitimate thing moves to its own file.
 - `verify/checks/frontend_build_fresh.py` and `static_asset_freshness.py` -- satisfied by BRIEF-0087-d running the build and committing its output, which is the project's existing contract for a frontend change (R-17). `creation_island.py` and `json_ui_boundary.py` are satisfied by keeping the new panel inside the Creation shell's existing conventions; a panel that reached into another shell would fail them, which is the structural reason the placement is not free.
+- *(AMENDMENT-0087-3.)* `verify/checks/import_cycle.py` -- satisfied by `lore_selectors.py` importing `knowledge_level_rank` at module level; no edge back from `writes/` to `lore_*` exists (R-27). `verify/checks/decisions_index.py` -- satisfied by `BRIEF-0087-e`'s ADR header in the strict form and a regenerated `DECISIONS_INDEX.md`. `verify/checks/pipeline_state.py` -- satisfied by TICKET-0087's repaired Machine section, whose every arrow names an existing check. `verify/checks/corpus_gate.py` -- satisfied by the whole tree; measured 111 of 111 with the brief's edits (R-27).
 - `verify/checks/single_canon_write.py`, `module_budget.py`, `function_length.py` -- satisfied by the existing modules. `lore_selectors.py` is 210 lines and `writes/knowledge.py` 212; neither approaches the 1000-line cap, and no function in this lot approaches 80 lines.
+
+## Named deferrals
+
+*(Section added by AMENDMENT-0087-3, code `G1`.)*
+
+- **D-0087-attach-duplicate** (S-2). `POST /api/facts/{fact_id}/participants` does not read before it writes, so a duplicate `(fact_id, entity_id)` answers HTTP 500 (R-26). Unreachable from the two callers, which post only for facts they have just read to carry no participant. *Reactivate when* `grep -rlE "/api/facts/.*/participants" frontend/src` lists a file other than `frontend/src/creation/KnowledgeEditor.svelte` and `frontend/src/creation/subjectWorklist.svelte.js`.
+- **D-0087-attach-cross-world** (S-3). The same route checks that the entity exists, not that it belongs to the fact's world (R-26). Unreachable from both callers, whose pickers are world-filtered. Fixing the route was option `G2`, rejected with this condition. *Reactivate when*
+  `SELECT COUNT(*) FROM fact_participant fp JOIN entity e ON e.id = fp.entity_id WHERE e.world_id <> fp.world_id`
+  returns more than 0 on the production database.
 
 ## Amendments
 
@@ -997,3 +1223,19 @@ BRIEF-0087-d regenerated; BRIEF-0087-e gains an ordering line only.
 `GET /api/worlds/{world_id}/unresolved-subjects` and `C-06` both stand: the
 route keeps BRIEF-0087-c's report as a live reader and TICKET-0088's panel as
 a named second one.
+
+### AMENDMENT-0087-3 -- closing repairs before `e`: the Machine section, the coverage row, R2's literal, the start
+
+Decided by Nia: `G1` (TICKET-0088 decision session, 2026-09-16; deposit
+clause amended by `H1`, 2026-09-17), then `L1`, `M1`, `N1`, `P1`
+(2026-09-21). Full text:
+`tooling/tickets/AMENDMENT-0087-3-closing-repairs.md`.
+
+Amended here: the dependency graph note; **R-12** (line `:38`; literal
+removed under `N1`); **R-13** (tail truncation); **R-21 to R-28** added;
+**C-04** (`coverage` first, join shape, `uncounted_rows` definition);
+**C-05** (order note); gate (a) re-run as a property trace, (b) case table
+re-walked, (c) three enumerations, (e) restated; **Named deferrals**
+section added with `D-0087-attach-duplicate` and
+`D-0087-attach-cross-world`. TICKET-0087's Machine section repaired.
+BRIEF-0087-e regenerated. BRIEF-0087-a to -d untouched: executed and merged.
