@@ -110,7 +110,11 @@ src/world_engine/cockpit/crud/entities.py::delete_entity                 entity
 # entity_geometry.py — pure move (same relocation-not-broadening rule as the
 # 0027-c/-d comments above), not a new site.
 src/world_engine/cockpit/crud/entity_geometry.py::set_location_geometry location
-src/world_engine/cockpit/crud/relations.py::delete_relation                relation
+# TICKET-0090, BRIEF-0090-c: delete_relation cascades -- the creator-correction
+# hard delete of a relation and everything that only existed to describe it:
+# the knowledge rows on its typed fact, that fact's fact_default rows, the
+# fact, then the relation (one transaction; skill_definition-delete family).
+src/world_engine/cockpit/crud/relations.py::delete_relation                relation knowledge fact_default fact
 src/world_engine/cockpit/crud/knowledge.py::delete_knowledge               knowledge
 src/world_engine/cockpit/crud/skills.py::create_skill_definition        skill_definition skill
 src/world_engine/cockpit/crud/skills.py::update_skill_definition        skill_definition skill

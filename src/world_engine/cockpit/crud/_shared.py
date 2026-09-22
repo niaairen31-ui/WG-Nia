@@ -16,6 +16,8 @@ a brief. The set, and why each entry is here:
   `_relation_dict`, `_list_relations` — the relation field-spec and its
   dict-serializer/lister moved together to avoid a circular import between
   `relations.py` and this module (`_list_relations` calls `_relation_dict`).
+  `_target_knows` (TICKET-0090, BRIEF-0090-c) is `_relation_dict`'s private
+  knowledge lookup, extracted to keep the serializer a flat dict.
 - `KNOWLEDGE_LEVELS_ORDERED`, `KNOWLEDGE_FIELDS`, `_knowledge_dict`,
   `_list_knowledge` — same reasoning, for `knowledge.py`.
 - `EVENT_TYPE_LABELS_FR`, `EVENT_KNOWLEDGE_STATUSES`, `EVENT_FIELDS` —
@@ -29,8 +31,9 @@ a brief. The set, and why each entry is here:
   `entities.py`'s `module_budget` line cap, which the runtime-CRUD split
   alone did not clear).
 
-Every helper body below is byte-identical to its original definition; only
-its module (and the callers' import lines) changed.
+Every helper body below was byte-identical to its original definition at
+the move; `_relation_dict` has since grown the C-10 oriented keys
+(TICKET-0090, BRIEF-0090-c).
 """
 from __future__ import annotations
 
@@ -42,6 +45,8 @@ from fastapi import HTTPException
 from sqlmodel import Session as DbSession, select
 
 from ...models import Entity, Fact, FactParticipant, Knowledge, Relation, World
+from ...relation_orientation import is_social
+from ...writes import lien_fact_of
 
 
 def _iso(dt: Optional[datetime]) -> Optional[str]:
@@ -144,15 +149,38 @@ RELATION_DIRECTIONS = ("mutual", "a_to_b", "b_to_a")
 RELATION_FIELDS: list[dict[str, Any]] = [
     {"name": "type", "label": "Type", "kind": "datalist", "options": list(RELATION_TYPES), "required": True},
     {"name": "intensity", "label": "Intensity (1-100)", "kind": "number", "min": 1, "max": 100, "default": 50},
-    {"name": "direction", "label": "Direction", "kind": "select", "options": list(RELATION_DIRECTIONS), "default": "mutual"},
-    {"name": "visible_to_b", "label": "Visible to B", "kind": "bool", "default": True},
     {"name": "notes", "label": "Notes", "kind": "textarea"},
 ]
 
 
+def _target_knows(rel: Relation, db: DbSession) -> bool:
+    """True when `rel.entity_b` holds a knowledge row on the social
+    relation's lien fact; always False for a structural relation or a
+    social one with no lien fact (TICKET-0090, BRIEF-0090-c)."""
+    if not is_social(rel.type):
+        return False
+    lien = lien_fact_of(db, rel)
+    if lien is None:
+        return False
+    return db.exec(
+        select(Knowledge.id).where(Knowledge.fact_id == lien.id, Knowledge.entity_id == rel.entity_b_id)
+    ).first() is not None
+
+
 def _relation_dict(rel: Relation, perspective_id: str, db: DbSession) -> dict:
+    """Creator-facing relation payload (C-10) — never read by a player path.
+
+    Orientation rule (TICKET-0090): a social relation is `entity_a`'s
+    feeling toward `entity_b`, so `perceiver_*` IS `entity_a` and
+    `target_*` IS `entity_b` — a stored fact, not a computation.
+    `sheet_side` says which end the sheet entity (`perspective_id`) is on.
+    The pre-TICKET-0090 keys (`role`, `other_entity_*`, `direction`,
+    `visible_to_b`, ...) are kept unchanged for existing readers
+    (`DoorsEditor.svelte`)."""
     other_id = rel.entity_b_id if rel.entity_a_id == perspective_id else rel.entity_a_id
     other = db.get(Entity, other_id)
+    perceiver = db.get(Entity, rel.entity_a_id)
+    target = db.get(Entity, rel.entity_b_id)
     return {
         "id": rel.id,
         "role": "a" if rel.entity_a_id == perspective_id else "b",
@@ -165,6 +193,13 @@ def _relation_dict(rel: Relation, perspective_id: str, db: DbSession) -> dict:
         "visible_to_b": rel.visible_to_b,
         "notes": rel.notes,
         "last_evolved_at": _iso(rel.last_evolved_at),
+        "perceiver_id": rel.entity_a_id,
+        "perceiver_name": perceiver.name if perceiver else rel.entity_a_id,
+        "target_id": rel.entity_b_id,
+        "target_name": target.name if target else rel.entity_b_id,
+        "sheet_side": "perceiver" if rel.entity_a_id == perspective_id else "target",
+        "is_social": is_social(rel.type),
+        "target_knows": _target_knows(rel, db),
     }
 
 

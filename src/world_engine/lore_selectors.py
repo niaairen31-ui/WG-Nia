@@ -118,6 +118,8 @@ def _relation_rows(entity_id: str, world_id: str, db: Session) -> list[dict]:
             select(Entity).where(Entity.id.in_(other_ids), Entity.world_id == world_id)
         ).all()
     } if other_ids else {}
+    subject = db.get(Entity, entity_id)
+    subject_name = subject.name if subject is not None else entity_id
     result = []
     for r in rows:
         subject_side = "a" if r.entity_a_id == entity_id else "b"
@@ -126,6 +128,7 @@ def _relation_rows(entity_id: str, world_id: str, db: Session) -> list[dict]:
             {
                 "section": "relations",
                 "subject_side": subject_side,
+                "subject_name": subject_name,
                 "type": r.type,
                 "direction": r.direction,
                 "intensity": r.intensity,

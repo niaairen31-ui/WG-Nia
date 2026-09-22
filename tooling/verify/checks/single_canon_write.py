@@ -55,7 +55,9 @@ named here, never added silently. The list: `delete_world_cascade`
 with 409 while any `skill_definition` still carries the system's id, the
 deliberate asymmetry with `skill_definition` delete's cascade);
 creator-correction deletes `delete_relation`, `delete_knowledge` (each
-discards the row's `change_history` with the row), `delete_discoverable_
+discards the row's `change_history` with the row; since TICKET-0090,
+BRIEF-0090-c, `delete_relation` also cascades to the knowledge rows,
+`fact_default` rows and typed fact of the relation), `delete_discoverable_
 detail`, `detach_fact_participant` (TICKET-0082, BRIEF-0082-b — a
 `fact_participant` row carries no `change_history` of its own, arity
 metadata only), `delete_fact_default` (TICKET-0082, BRIEF-0082-c — same
