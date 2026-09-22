@@ -1,0 +1,67 @@
+{
+  "ticket": "TICKET-0090-oriented-relations",
+  "when": "2026-09-22T21:40:59.090888+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "relation_orientation.py",
+      "status": "PASS",
+      "msg": "PASS: relation_orientation \u00e2\u20ac\u201d (a) social direction guard [3 writes], (b) typed fact at birth [2 facts], (c) oriented delta [2 rows], (d) set_target_knows idempotent [6 observations]"
+    },
+    {
+      "check": "fact_spine.py",
+      "status": "PASS",
+      "msg": "PASS: fact_spine \u00e2\u20ac\u201d no participant on a typed fact, no NULL knowledge.fact_id, every fact/knowledge level in vocabulary, and Fact/FactParticipant writes stay inside writes/facts.py"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u00e2\u20ac\u201d every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values; 93 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v2.04'"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u00e2\u20ac\u201d 97 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "known_reachability.py",
+      "status": "PASS",
+      "msg": "PASS: known_reachability \u00e2\u20ac\u201d every connects_to relation has exactly one backing fact, every connects_to module is documented in the classification table, every _reachable_locations call site's knower_id matches its documented label, and the golden-case reader matches an independent reference BFS with no default lowered (mutation-sensitive to floor, fail-closed, and call-site labelling)"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "link_agent_strata.py",
+      "status": "PASS",
+      "msg": "PASS: link_agent_strata \u00e2\u20ac\u201d link_batch/link_batch_row stay ephemeral and narrowly scoped"
+    },
+    {
+      "check": "lore_isolation.py",
+      "status": "PASS",
+      "msg": "PASS: lore_isolation \u00e2\u20ac\u201d purity (R1, R4), world scoping at construction (R2), the discoverable_detail exclusion (R3), the planner's canon-blindness (R5), the route's thinness (R6), the ask-side named Ollama-down message (R16), the no-redraft-on-resolve guard (R7), the selector/category vocabulary parity checks (R8, R9), the prompt loader's scoping to prompt tables (R15), and the renderer's isolation, no-model-on-empty-verdict, Ollama fallback, message-constant, and unknown-section guards (R10-R14) are all intact"
+    },
+    {
+      "check": "static_asset_freshness.py",
+      "status": "PASS",
+      "msg": "PASS: static_asset_freshness \u00e2\u20ac\u201d mount is policy-bearing, 2 immutable file(s) / 4 revalidating file(s), 8 HTML route(s) covered"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 112 check(s) discovered, 112 executed, 112 passed"
+    }
+  ]
+}
