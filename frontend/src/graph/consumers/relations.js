@@ -60,6 +60,16 @@ let sidePanelEl = null;
 let panelHelpers = null; // { reload, remount }
 let lastData = { nodes: [], edges: [], mode: 'ego', centerId: null };
 
+// TICKET-0090 (BRIEF-0090-d): a social relation is entity_a's feeling toward
+// entity_b -- rendered as that oriented sentence, never a direction label.
+function nodeName(id) {
+  return (lastData.nodes.find((n) => n.id === id) || {}).name || id;
+}
+
+function orientedSentence(e) {
+  return `${escapeHtml(nodeName(e.entity_a_id))} → ${escapeHtml(e.type)} → ${escapeHtml(nodeName(e.entity_b_id))}`;
+}
+
 function renderEmptyPanel() {
   if (!sidePanelEl) return;
   sidePanelEl.innerHTML = '<div class="empty">Cliquez un nœud pour voir ses informations.</div>';
@@ -81,7 +91,7 @@ function renderNodeInfo(nodeId) {
     ? rels.map((e) => `
         <div style="margin-top:6px">
           <span class="badge b-other" style="font-size:10px">${escapeHtml(e.type)}</span>
-          <div style="font-size:11px; color:var(--muted)">intensité ${e.intensity} · ${escapeHtml(e.direction)}</div>
+          <div style="font-size:11px; color:var(--muted)">intensité ${e.intensity} · ${orientedSentence(e)}</div>
         </div>`).join('')
     : `<div class="empty" style="font-size:11px">${isGlobal ? 'Aucune relation.' : 'Aucune relation directe avec le centre.'}</div>`;
   sidePanelEl.innerHTML = `
@@ -102,13 +112,11 @@ function renderEdgeForm(ctx) {
   const isEdit = ctx.mode === 'edit';
   const sourceId = isEdit ? ctx.edge.entity_a_id : ctx.sourceId;
   const targetId = isEdit ? ctx.edge.entity_b_id : ctx.targetId;
-  const sourceName = (lastData.nodes.find((n) => n.id === sourceId) || {}).name || sourceId;
-  const targetName = (lastData.nodes.find((n) => n.id === targetId) || {}).name || targetId;
+  const sourceName = nodeName(sourceId);
+  const targetName = nodeName(targetId);
   const type = isEdit ? ctx.edge.type : '';
   const intensity = isEdit ? ctx.edge.intensity : 50;
-  const direction = isEdit ? ctx.edge.direction : 'mutual';
   const notes = isEdit ? (ctx.edge.notes || '') : '';
-  const dirOpt = (v, label) => `<option value="${v}"${direction === v ? ' selected' : ''}>${label}</option>`;
 
   sidePanelEl.innerHTML = `
     <div style="font-weight:600">${isEdit ? 'Modifier le lien' : 'Nouveau lien'}</div>
@@ -119,11 +127,9 @@ function renderEdgeForm(ctx) {
     <label style="display:block; margin-top:6px; font-size:11px">Intensité (1-100)
       <input data-f="intensity" type="number" min="1" max="100" value="${escapeHtml(String(intensity))}" style="width:100%; box-sizing:border-box">
     </label>
-    <label style="display:block; margin-top:6px; font-size:11px">Direction
-      <select data-f="direction" style="width:100%; box-sizing:border-box">
-        ${dirOpt('mutual', 'mutual')}${dirOpt('a_to_b', 'a_to_b')}${dirOpt('b_to_a', 'b_to_a')}
-      </select>
-    </label>
+    ${isEdit ? '' : `<label style="display:block; margin-top:6px; font-size:11px">
+      <input data-f="reciprocal" type="checkbox"> Réciproque (crée deux relations)
+    </label>`}
     <label style="display:block; margin-top:6px; font-size:11px">Notes
       <textarea data-f="notes" rows="3" style="width:100%; box-sizing:border-box">${escapeHtml(notes)}</textarea>
     </label>
@@ -140,9 +146,9 @@ function renderEdgeForm(ctx) {
     const body = {
       type: typeVal,
       intensity: Number(field('intensity')),
-      direction: field('direction'),
       notes: field('notes'),
     };
+    if (!isEdit) body.reciprocal = sidePanelEl.querySelector('[data-f="reciprocal"]').checked;
     try {
       if (isEdit) {
         await api(`/api/relations/${encodeURIComponent(ctx.edge.id)}`, {
