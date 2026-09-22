@@ -10,8 +10,11 @@ plus one model review over the staged batch AND the full canon character
 graph (phase 2, `link_context.py`'s serializers), producing pre-validated
 findings (`_validate_patch`, the W gate). `apply_finding` and `commit_batch`
 are the ONLY places this ticket touches canon, and both do so exclusively
-through `write_relation`/`write_knowledge` — the sanctioned chokepoints,
-never a bespoke write. `journal_append` is the append-only generation
+through `write_relation`/`write_oriented_relations`/`write_knowledge` — the
+sanctioned chokepoints, never a bespoke write. Commit normalizes each staged
+three-direction link into oriented rows via `write_oriented_relations`
+(TICKET-0090); `visible_to_b` on an `a_to_b` row becomes the target's
+knowledge row. `journal_append` is the append-only generation
 journal (R1) — long memory for a batch, kept OUTSIDE the git tree and
 outside the DB's last-2 retention purge. `link_batch`/`link_batch_row`
 never appear in `writes/` or `canon_write_policy.txt` (link_agent_strata.py
@@ -52,7 +55,7 @@ from .models import (
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
-from .writes import KNOWLEDGE_LEVELS, write_knowledge, write_relation
+from .writes import KNOWLEDGE_LEVELS, write_knowledge, write_oriented_relations, write_relation
 
 JOURNAL_DIR = Path.home() / ".world_engine" / "link_agent_journal"
 
@@ -643,7 +646,8 @@ def _mechanical_findings(db: Session, batch: LinkBatch) -> list[dict]:
 # ── Coherence pass — phase 2, model findings + patch validation (W) ─────
 
 
-_CANON_RELATION_WHITELIST = {"intensity", "notes", "type", "direction", "visible_to_b"}
+# TICKET-0090: a social canon row is always `a_to_b` -- direction/visible_to_b are not patchable.
+_CANON_RELATION_WHITELIST = {"intensity", "notes", "type"}
 _CANON_KNOWLEDGE_WHITELIST = {"level", "content", "source", "is_incorrect", "is_secret", "share_threshold"}
 
 
@@ -939,7 +943,7 @@ def commit_batch(db: Session, batch: LinkBatch) -> dict:
             if _canon_relation_exists(db, row.pair_a_id, row.pair_b_id):
                 skipped.append({"id": row.id, "reason": "pair now has a canon relation"})
                 continue
-            write_relation(db, **row.payload)
+            write_oriented_relations(db, **row.payload, changed_by="link_agent")
         elif row.kind == "knowledge":
             write_knowledge(db, **row.payload)
         row.row_status = "committed"

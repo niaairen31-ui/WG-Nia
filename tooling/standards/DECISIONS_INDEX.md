@@ -111,122 +111,122 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 7503 | NPC LINK AGENT — STAGING STRATA, RETENTION, JOURNAL (BRIEF-0036-a, schema v1.82) | BRIEF-0036-a | v1.82 |
 | 7553 | NPC LINK AGENT — PAIR PASS (BRIEF-0036-b, no schema change) | BRIEF-0036-b |  |
 | 7617 | NPC LINK AGENT — COHERENCE PASS AND COMMIT (BRIEF-0036-c, no schema change) | BRIEF-0036-c |  |
-| 7712 | NPC LINK AGENT — FRONTEND ON THE RELGRAPH PANEL (BRIEF-0036-d, no schema change) | BRIEF-0036-d |  |
-| 7772 | DOOR-WRITE VALIDATION EXTRACTION (BRIEF-0038-a, no schema change) | BRIEF-0038-a |  |
-| 7825 | NPC GROUP AGENT — STAGING SUBSTRATE (BRIEF-0037-a, schema v1.83) | BRIEF-0037-a | v1.83 |
-| 7898 | NPC GROUP AGENT — GENERATION RUN (BRIEF-0037-b, no schema change) | BRIEF-0037-b |  |
-| 7984 | NPC GROUP AGENT — COMMIT, COCKPIT SURFACE, LINK HANDOFF (BRIEF-0037-c, no schema change) | BRIEF-0037-c |  |
-| 8054 | REGION NPC RETIREMENT (BRIEF-0037-d, no schema change) | BRIEF-0037-d |  |
-| 8120 | PURGE CHILD-BEFORE-PARENT DELETE ORDERING FIX (BRIEF-0037-e, no schema change) | BRIEF-0037-e |  |
-| 8165 | LOCATION TYPE CLASSIFIED REGISTRY (BRIEF-0039-a, schema v1.84) | BRIEF-0039-a | v1.84 |
-| 8220 | DOOR MATERIALIZATION CORE (BRIEF-0039-c, no schema change) | BRIEF-0039-c |  |
-| 8318 | WIRE MATERIALIZATION AT CONNECTS_TO BIRTH (BRIEF-0039-d, no schema change) | BRIEF-0039-d |  |
-| 8389 | INVARIANTS: DOOR COVERAGE, TYPE VOCAB, STREET NOTE (BRIEF-0039-e, no schema change) | BRIEF-0039-e |  |
-| 8466 | LOCATION TYPE SIZE TEMPLATES (BRIEF-0040-a, schema v1.85) | BRIEF-0040-a | v1.85 |
-| 8546 | BOUNDS PRESERVATION AND TEMPLATE AUTHORING IN THE TYPE PICKER (BRIEF-0040-c, no schema change) | BRIEF-0040-c |  |
-| 8602 | SHARED REVIEW-TREE COMPONENT — EXTRACTION (BRIEF-0041-a, BRIEF-0041-b, BRIEF-0041-c, no schema change) | BRIEF-0041-a, BRIEF-0041-b, BRIEF-0041-c |  |
-| 8692 | ROOM BATCH MANIFEST — TYPE AUTHORITY (BRIEF-0042-a, no schema change) | BRIEF-0042-a |  |
-| 8737 | ROOM BATCH FICHE GENERATION — P1 OVERRIDE + RETRY-ONCE (BRIEF-0042-b, no schema change) | BRIEF-0042-b |  |
-| 8772 | ROOM BATCH COHERENCE — D3 RELOCATED POST-PHASE-B (BRIEF-0042-c, no schema change) | BRIEF-0042-c |  |
-| 8821 | ROOM BATCH REVIEW — SECOND CONSUMER OF THE SHARED COMPONENT (BRIEF-0042-d, no schema change) | BRIEF-0042-d |  |
-| 8876 | ROOM BATCH ATOMIC COMMIT (BRIEF-0042-e, no schema change) | BRIEF-0042-e |  |
-| 8959 | CANON.PY STRATUM SUB-SPLIT — FACTION DOMAIN EXTRACTION (BRIEF-0048-a, no schema change) | BRIEF-0048-a |  |
-| 9012 | SCHEMA VERSION — two-plane governance (C2), plane 1: stored static version + fail-closed boot guard (BRIEF-0044-a, schema v1.86) | BRIEF-0044-a | v1.86 |
-| 9056 | ENTITY-TYPE CONSTRUCTOR — socle registry + schema-birth history (BRIEF-0044-b, schema v1.87) | BRIEF-0044-b | v1.87 |
-| 9116 | ENGINE — TRANSACTIONAL DDL ON SQLITE, UNBLOCKS A1 (BRIEF-0044-f, no schema change) | BRIEF-0044-f |  |
-| 9171 | ENTITY-TYPE CONSTRUCTOR — governed runtime-DDL writer (BRIEF-0044-c, no schema change) | BRIEF-0044-c |  |
-| 9230 | SCHEMA VERSION — two-plane governance (C2), plane 2: physical-table reconciliation (BRIEF-0044-d, no schema change) | BRIEF-0044-d |  |
-| 9267 | ENTITY-TYPE CONSTRUCTOR — rollback quarantine (B1) (BRIEF-0044-e, no schema change) | BRIEF-0044-e |  |
-| 9336 | TRAIT REGISTRY — code-source-of-truth, structural reader enforcement (BRIEF-0045-b, no schema change) | BRIEF-0045-b |  |
-| 9402 | SOCLE TRAITS ARE IMPLICIT, NEVER PROJECTED (BRIEF-0045-d, no schema change) | BRIEF-0045-d |  |
-| 9425 | TRAIT EXT-COLUMN TYPING + FIELD-SPEC (BRIEF-0046-a, no schema change) | BRIEF-0046-a |  |
-| 9469 | ENTITY-TYPE CONSTRUCTOR — creator route + runtime-type serializer (BRIEF-0046-b, no schema change) | BRIEF-0046-b |  |
-| 9520 | DYNAMIC TAB FACTORY — runtime Creation tabs + page_contract mechanism assertion (BRIEF-0046-d, no schema change) | BRIEF-0046-d |  |
-| 9574 | DYNAMIC INSTANCE CRUD for custom ext_* + json_ui_boundary F1 volet (BRIEF-0046-e, no schema change) | BRIEF-0046-e |  |
-| 9649 | DB ENGINE — WORLD_ENGINE_ENV primary resolver, fail-closed (BRIEF-0049-a, no schema change) | BRIEF-0049-a |  |
-| 9667 | VERIFY — env_fail_closed + env_guard, KNOWN_OPERATOR_SCRIPT_ALLOW (BRIEF-0049-d, no schema change) | BRIEF-0049-d |  |
-| 9700 | CONVERSATION WINDOW CONFIG — dedicated table, summary default-on, editing surface deferred (BRIEF-0050-a, schema v1.89) | BRIEF-0050-a | v1.89 |
-| 9734 | CONVERSATION WINDOW — K-verbatim cap + scene-tail re-injection implemented (BRIEF-0050-b, no schema change) | BRIEF-0050-b |  |
-| 9763 | CONVERSATION SUMMARY — prompt-usage plumbing, no call site yet (BRIEF-0050-c, no schema change) | BRIEF-0050-c |  |
-| 9784 | CONVERSATION SUMMARY — budget-trigger, recompute, fail-soft insertion (BRIEF-0050-d, no schema change) | BRIEF-0050-d |  |
-| 9819 | CONVERSATION WINDOW — config editing surface + replay measurement (BRIEF-0050-e, no schema change) | BRIEF-0050-e |  |
-| 9860 | OBSERVED SCENE — socle and decision instrumentation (BRIEF-0051-a, schema v1.90) | BRIEF-0051-a | v1.90 |
-| 9932 | OBSERVED SCENE — worst-case-listener disclosure floor (BRIEF-0051-b, no schema change) | BRIEF-0051-b |  |
-| 9971 | OBSERVED SCENE — analyzer transcript seam (BRIEF-0051-c, no schema change) | BRIEF-0051-c |  |
-| 10100 | OBSERVED SCENE — intent and arbitration engine (BRIEF-0051-d, no schema change) | BRIEF-0051-d |  |
-| 10219 | OBSERVED SCENE — runner: bounded run, readiness gate, F3 proposals (BRIEF-0051-e, no schema change) | BRIEF-0051-e |  |
-| 10395 | OBSERVED SCENE — cockpit surface: top-level mode-tab, F3 read-only visibility (BRIEF-0051-f, no schema change) | BRIEF-0051-f |  |
-| 10482 | OBSERVED SCENE — run metrics: deterministic instruments, J2 (BRIEF-0051-g, no schema change) | BRIEF-0051-g |  |
-| 10579 | OBSERVATION CONTEXT WINDOW PARITY (BRIEF-0052-a, BRIEF-0052-b, BRIEF-0052-c, no schema change) | BRIEF-0052-a, BRIEF-0052-b, BRIEF-0052-c |  |
-| 10663 | OBSERVATION MULTI-BEAT SEQUENCE — client-driven loop (BRIEF-0053-a, no schema change) | BRIEF-0053-a |  |
-| 10724 | FACTION ROSTER — server-side rank ordering (BRIEF-0054-a, no schema change) | BRIEF-0054-a |  |
-| 10754 | FACTION MEMBERSHIP — creator role reassignment + capacity chokepoint (BRIEF-0054-b, no schema change) | BRIEF-0054-b |  |
-| 10793 | FACTION ROSTER — grouped panel + member authoring (BRIEF-0054-c, no schema change) | BRIEF-0054-c |  |
-| 10835 | CREATION NAVIGATION — single-slot return crumb (BRIEF-0054-d, no schema change) | BRIEF-0054-d |  |
-| 10882 | FRONTEND BUILD FOUNDATION — Svelte/Vite toolchain, static serving, committed build (BRIEF-0055-a, BRIEF-0055-b, BRIEF-0055-c, BRIEF-0055-d, no schema change) | BRIEF-0055-a, BRIEF-0055-b, BRIEF-0055-c, BRIEF-0055-d |  |
-| 10968 | COCKPIT SHELL — legacy-mount registry, iframe boundary, enumerated routing (BRIEF-0056-a, BRIEF-0056-b, BRIEF-0056-c, BRIEF-0056-d, no schema change) | BRIEF-0056-a, BRIEF-0056-b, BRIEF-0056-c, BRIEF-0056-d |  |
-| 11048 | GRAPH PRIMITIVE — one component, three consumers, a shrinking registry (BRIEF-0057-a, BRIEF-0057-b, BRIEF-0057-c, BRIEF-0057-d, BRIEF-0057-e, no schema change) | BRIEF-0057-a, BRIEF-0057-b, BRIEF-0057-c, BRIEF-0057-d, BRIEF-0057-e |  |
-| 11128 | CREATION SPINE — island seam, graph convergence, closure-driven scope (BRIEF-0058-a, BRIEF-0058-b, BRIEF-0058-c, BRIEF-0058-d, BRIEF-0058-e, BRIEF-0058-f, BRIEF-0058-g, BRIEF-0058-h, BRIEF-0058-i, BRIEF-0058-j, BRIEF-0058-k, BRIEF-0058-l, no schema change) | BRIEF-0058-a, BRIEF-0058-b, BRIEF-0058-c, BRIEF-0058-d, BRIEF-0058-e, BRIEF-0058-f, BRIEF-0058-g, BRIEF-0058-h, BRIEF-0058-i, BRIEF-0058-j, BRIEF-0058-k, BRIEF-0058-l |  |
-| 11293 | DOORS EDITOR EFFECT CYCLE — pure derivations are $derived, not $state (BRIEF-0062-a, no schema change) | BRIEF-0062-a |  |
-| 11357 | COCKPIT STYLESHEET PARTITION — one shared sheet, two documents (BRIEF-0063-a, no schema change) | BRIEF-0063-a |  |
-| 11437 | TICKET-0059 DOCTRINE SEAL — bridge-reach, LocationTree, Modal, effect-cycle, three-surface census (BRIEF-0059-m, no schema change) | BRIEF-0059-m |  |
-| 11533 | STYLESHEET COVERAGE — disjointness proves no overlap, not that Creation is reachable (BRIEF-0064-a, no schema change) | BRIEF-0064-a |  |
-| 11622 | SHELL HEIGHT CHAIN — one height authority, html/body -> #app -> .shell-layout -> surface (BRIEF-0065-a, no schema change) | BRIEF-0065-a |  |
-| 11665 | GRAPH MOUNT SEAM — single document, rule 11 (BRIEF-0065-b, no schema change) | BRIEF-0065-b |  |
-| 11746 | STATIC ASSET FRESHNESS — revalidate is the default posture, immutable is opt-in (BRIEF-0066-a, no schema change) | BRIEF-0066-a |  |
-| 11822 | OBSERVATION SURFACE — shell-native migration (BRIEF-0060-a, BRIEF-0060-b, no schema change) | BRIEF-0060-a, BRIEF-0060-b |  |
-| 11916 | STYLESHEET PARTITION RULE7 FAIL-OPEN + ROW CONTAINERS UNSTRANDED (BRIEF-0060-e, no schema change) | BRIEF-0060-e |  |
-| 11978 | STYLESHEET PARTITION RULE7 (LEGACY) — coverage mirrored onto cockpit/index.html (BRIEF-0060-c, no schema change) | BRIEF-0060-c |  |
-| 12045 | CORPUS GATE — every check runs, or the gate is red (BRIEF-0060-d, no schema change) | BRIEF-0060-d |  |
-| 12130 | RED GUARDS REPAIRED — goal-read accessor and prompt-model fixture (BRIEF-0067-a, no schema change) | BRIEF-0067-a |  |
-| 12211 | TICKET-0061 LEGACY SEAL — Play sealed not migrated, the pointer made true, the rename lands (BRIEF-0061-a, BRIEF-0061-b, BRIEF-0061-c, no schema change) | BRIEF-0061-a, BRIEF-0061-b, BRIEF-0061-c |  |
-| 12353 | CLAUDE.MD BUDGET — characters and per-line length, not lines (BRIEF-0071-a, BRIEF-0071-b, no schema change) | BRIEF-0071-a, BRIEF-0071-b |  |
-| 12399 | ENGINE — SQLITE WAL CONCURRENCY POSTURE (BRIEF-0072-a, BRIEF-0072-d, no schema change) | BRIEF-0072-a, BRIEF-0072-d |  |
-| 12578 | STANDING OCCUPATION GOALS — kind discriminator, presence not action (BRIEF-0073-b, schema v1.91) | BRIEF-0073-b | v1.91 |
-| 12638 | STANDING OCCUPATION EDITOR — one selector deriving the pair (BRIEF-0073-c, no schema change) | BRIEF-0073-c |  |
-| 12659 | NPC SCHEDULES — background versus foreground, two-branch precedence, the world's phase (BRIEF-0074-a, BRIEF-0074-b, BRIEF-0074-c, schema v1.92) | BRIEF-0074-a, BRIEF-0074-b, BRIEF-0074-c | v1.92 |
-| 12832 | DAY DECLARATION SOCLE — the day is the batch, an explicit ordinal, a new surface (BRIEF-0075-a, schema v1.93) | BRIEF-0075-a | v1.93 |
-| 12874 | DAY PLAN EMISSION AND BUDGET — model proposes, code judges (BRIEF-0075-b, schema v1.94) | BRIEF-0075-b | v1.94 |
-| 12974 | EXTRACTION AND CONCORDANCE — the resolver never authors (BRIEF-0075-c, no schema change) | BRIEF-0075-c |  |
-| 13097 | RESOLUTION, FACT SHEET AND NARRATION — the prose renders, it never decides (BRIEF-0075-d, no schema change) | BRIEF-0075-d |  |
-| 13398 | MUTATION EMISSION AND THE DAY ACCOUNT — proposer, not writer (BRIEF-0075-e, no schema change) | BRIEF-0075-e |  |
-| 13525 | THE FEASIBILITY VETO — a downward-only clamp is not an exception (BRIEF-0075-g, no schema change) | BRIEF-0075-g |  |
-| 13664 | THE REMAINING-WORK INVARIANT AND THE RESOLVE PRECONDITION (BRIEF-0075-f, no schema change) | BRIEF-0075-f |  |
-| 13726 | RECONCILIATION AND CLOSURE — Z4 repairs the source, AA2 makes replace a creator act (BRIEF-0075-f, no schema change) | BRIEF-0075-f |  |
-| 13865 | DAY CHAIN PROMPT DELIVERY AND COVERAGE GUARD (BRIEF-0076-a, no schema change) | BRIEF-0076-a |  |
-| 13953 | PARKED PLANS — direct write, not auto-approved; the owner_type index rejected (BRIEF-0077-a, schema v1.95) | BRIEF-0077-a | v1.95 |
-| 14008 | DEDICATED PLAN SELECTION AND THE RESUME ACTION — a SELECT before a CLASSIFY, an ordinal never an id (BRIEF-0077-c, no schema change) | BRIEF-0077-c |  |
-| 14084 | STEP ACTIVATION AT THE TRANSITION — Z4 bound structurally, not by convention (BRIEF-0080-a, BRIEF-0080-b, no schema change) | BRIEF-0080-a, BRIEF-0080-b |  |
-| 14178 | REQUIREMENT ANCHORING — a knowledge gate is legitimate only on a learnable subject (BRIEF-0078-a, schema v1.96) | BRIEF-0078-a | v1.96 |
-| 14246 | G1 — subject-vocabulary hygiene, deferred (BRIEF-0078-a, no schema change) | BRIEF-0078-a |  |
-| 14269 | C2 — A BLOCKED STEP IS AN OUTCOME, NOT AN ABSENCE (BRIEF-0078-b, no schema change) | BRIEF-0078-b |  |
-| 14325 | D3 — A BLOCKED STEP PROPOSES A RUMOR-LEVEL LEAD ON ITS OWN BLOCKING SUBJECT (BRIEF-0078-c, no schema change) | BRIEF-0078-c |  |
-| 14357 | H1 — ANY KNOWLEDGE LEVEL SATISFIES A GATE (BRIEF-0078-a, BRIEF-0078-c, no schema change) | BRIEF-0078-a, BRIEF-0078-c |  |
-| 14373 | A2 — THE NAME EXTRACTOR IS SENTENCE-SCOPED AND EDGE-STRIPPED, POSITION GATING STAYS REJECTED (BRIEF-0079-a, no schema change) | BRIEF-0079-a |  |
-| 14421 | THE BOUNDED REPAIR PASS AND THE STRUCTURED 422 (BRIEF-0079-b, no schema change) | BRIEF-0079-b |  |
-| 14551 | THE FACT SPINE — KNOWLEDGE'S STRUCTURAL ANCHOR, SUBJECT CUTOVER DEFERRED (BRIEF-0082-b, schema v1.98) | BRIEF-0082-b | v1.98 |
-| 14626 | SCOPED KNOWLEDGE DEFAULTS — THE G2a PRECEDENCE LADDER (BRIEF-0082-c, schema v1.99) | BRIEF-0082-c | v1.99 |
-| 14733 | THE TAB SWITCH CLEARS THE SHEET BEFORE THE KEY MOVES (BRIEF-0083-a, no schema change) | BRIEF-0083-a |  |
-| 14792 | KNOWN-REACHABILITY — THE PUBLIC FLOOR AND THE D1 CORRECTION (BRIEF-0082-d, schema v2.00) | BRIEF-0082-d | v2.00 |
-| 14894 | SKILL_SYSTEM — MAGIC AS A ROW, NOT A FLAG (BRIEF-0084-a, schema v2.01) | BRIEF-0084-a | v2.01 |
-| 14966 | THE ACTION LEXICON — SHARED RESOLVER AND SKILL_RESOLUTION (BRIEF-0084-c, schema v2.02) | BRIEF-0084-c | v2.02 |
-| 15035 | THE GAPS VIEW — G3 DISCHARGED, G2 REJECTED (BRIEF-0084-d, no schema change) | BRIEF-0084-d |  |
-| 15065 | WORLD.MAGIC_STATUS REMOVED (BRIEF-0084-e, schema v2.03) | BRIEF-0084-e | v2.03 |
-| 15080 | NAMED-RUNG EXTRACTION — SHARED WITH THE LORE CHANTIER, CASTING STAYS DAY-ONLY (BRIEF-0085-a, no schema change) | BRIEF-0085-a |  |
-| 15108 | SELECTOR WHITELIST — THE MODEL NAMES A SELECTOR, NEVER A QUERY (BRIEF-0085-b, no schema change) | BRIEF-0085-b |  |
-| 15182 | LORE CONSULTATION — QUESTION TO PLAN, CLIENT-HELD DISAMBIGUATION (BRIEF-0085-c, no schema change) | BRIEF-0085-c |  |
-| 15236 | THE RENDERER — A THIRD MODEL ROLE, SESSION-FREE BY CONSTRUCTION (BRIEF-0085-d, no schema change) | BRIEF-0085-d |  |
-| 15322 | LORE CONSULTATION SURFACE — A THIRD TOP-LEVEL SURFACE, NOT A CRÉATION TAB (BRIEF-0085-e, no schema change) | BRIEF-0085-e |  |
-| 15390 | PLANNER UNAVAILABLE IS AN EXPLICIT MESSAGE, NOT A RAW ERROR (BRIEF-0085-f, no schema change) | BRIEF-0085-f |  |
-| 15425 | KNOWLEDGE SUBJECT IS A FACT PARTICIPANT, NOT A COLUMN (BRIEF-0087-a, no schema change) | BRIEF-0087-a |  |
-| 15438 | FACT_PARTICIPANT HAS NO ROLE DISCRIMINATOR (BRIEF-0087-a, no schema change) | BRIEF-0087-a |  |
-| 15455 | NEW_KNOWLEDGE'S SUBJECT_ENTITY_ID: THE MODEL NAMES IT, THE CODE VALIDATES IT (BRIEF-0087-b, no schema change) | BRIEF-0087-b |  |
-| 15478 | THE EXISTING-KNOWLEDGE BACKFILL IS ONE-OFF, UNAMBIGUOUS-ONLY, AND WRITES NO CHANGE_HISTORY (BRIEF-0087-c, no schema change) | BRIEF-0087-c |  |
-| 15501 | THE SUBJECT-BINDING SURFACE LIVES IN CREATION, NOT LORE (BRIEF-0087-d, no schema change) | BRIEF-0087-d |  |
-| 15519 | CREATION ISLANDS DECLARE THEIR ORIGIN — MIGRATION OR NEW (BRIEF-0088-a, no schema change) | BRIEF-0088-a |  |
-| 15578 | THE SUBJECT WORKLIST IS A NEW CREATION ISLAND, BOUND BY A CLIENT LOOP (BRIEF-0088-b, no schema change) | BRIEF-0088-b |  |
-| 15625 | THE EXTENSION BLOCK OF A PUT IS KEY-PRESENT-WINS (BRIEF-0089-e, no schema change) | BRIEF-0089-e |  |
-| 15638 | AN EMPTY OPEN GATHERING IS A DEFECT STATE, NOT A LEGAL ONE (BRIEF-0089-a, BRIEF-0089-c, BRIEF-0089-d, no schema change) | BRIEF-0089-a, BRIEF-0089-c, BRIEF-0089-d |  |
-| 15669 | THE GATHERING LIFECYCLE GATE (BRIEF-0089-g, no schema change) | BRIEF-0089-g |  |
-| 15686 | WHO_KNOWS_ABOUT DECLARES ITS OWN COVERAGE, AND DECLARES IT FIRST (BRIEF-0087-e, no schema change) | BRIEF-0087-e |  |
-| 15722 | A SOCIAL RELATION HAS ONE PERCEIVER, AND ITS LIEN FACT IS ITS KNOWABLE FACE (BRIEF-0090-a, BRIEF-0090-b, schema v2.04) | BRIEF-0090-a, BRIEF-0090-b | v2.04 |
+| 7713 | NPC LINK AGENT — FRONTEND ON THE RELGRAPH PANEL (BRIEF-0036-d, no schema change) | BRIEF-0036-d |  |
+| 7773 | DOOR-WRITE VALIDATION EXTRACTION (BRIEF-0038-a, no schema change) | BRIEF-0038-a |  |
+| 7826 | NPC GROUP AGENT — STAGING SUBSTRATE (BRIEF-0037-a, schema v1.83) | BRIEF-0037-a | v1.83 |
+| 7899 | NPC GROUP AGENT — GENERATION RUN (BRIEF-0037-b, no schema change) | BRIEF-0037-b |  |
+| 7985 | NPC GROUP AGENT — COMMIT, COCKPIT SURFACE, LINK HANDOFF (BRIEF-0037-c, no schema change) | BRIEF-0037-c |  |
+| 8055 | REGION NPC RETIREMENT (BRIEF-0037-d, no schema change) | BRIEF-0037-d |  |
+| 8121 | PURGE CHILD-BEFORE-PARENT DELETE ORDERING FIX (BRIEF-0037-e, no schema change) | BRIEF-0037-e |  |
+| 8166 | LOCATION TYPE CLASSIFIED REGISTRY (BRIEF-0039-a, schema v1.84) | BRIEF-0039-a | v1.84 |
+| 8221 | DOOR MATERIALIZATION CORE (BRIEF-0039-c, no schema change) | BRIEF-0039-c |  |
+| 8319 | WIRE MATERIALIZATION AT CONNECTS_TO BIRTH (BRIEF-0039-d, no schema change) | BRIEF-0039-d |  |
+| 8390 | INVARIANTS: DOOR COVERAGE, TYPE VOCAB, STREET NOTE (BRIEF-0039-e, no schema change) | BRIEF-0039-e |  |
+| 8467 | LOCATION TYPE SIZE TEMPLATES (BRIEF-0040-a, schema v1.85) | BRIEF-0040-a | v1.85 |
+| 8547 | BOUNDS PRESERVATION AND TEMPLATE AUTHORING IN THE TYPE PICKER (BRIEF-0040-c, no schema change) | BRIEF-0040-c |  |
+| 8603 | SHARED REVIEW-TREE COMPONENT — EXTRACTION (BRIEF-0041-a, BRIEF-0041-b, BRIEF-0041-c, no schema change) | BRIEF-0041-a, BRIEF-0041-b, BRIEF-0041-c |  |
+| 8693 | ROOM BATCH MANIFEST — TYPE AUTHORITY (BRIEF-0042-a, no schema change) | BRIEF-0042-a |  |
+| 8738 | ROOM BATCH FICHE GENERATION — P1 OVERRIDE + RETRY-ONCE (BRIEF-0042-b, no schema change) | BRIEF-0042-b |  |
+| 8773 | ROOM BATCH COHERENCE — D3 RELOCATED POST-PHASE-B (BRIEF-0042-c, no schema change) | BRIEF-0042-c |  |
+| 8822 | ROOM BATCH REVIEW — SECOND CONSUMER OF THE SHARED COMPONENT (BRIEF-0042-d, no schema change) | BRIEF-0042-d |  |
+| 8877 | ROOM BATCH ATOMIC COMMIT (BRIEF-0042-e, no schema change) | BRIEF-0042-e |  |
+| 8960 | CANON.PY STRATUM SUB-SPLIT — FACTION DOMAIN EXTRACTION (BRIEF-0048-a, no schema change) | BRIEF-0048-a |  |
+| 9013 | SCHEMA VERSION — two-plane governance (C2), plane 1: stored static version + fail-closed boot guard (BRIEF-0044-a, schema v1.86) | BRIEF-0044-a | v1.86 |
+| 9057 | ENTITY-TYPE CONSTRUCTOR — socle registry + schema-birth history (BRIEF-0044-b, schema v1.87) | BRIEF-0044-b | v1.87 |
+| 9117 | ENGINE — TRANSACTIONAL DDL ON SQLITE, UNBLOCKS A1 (BRIEF-0044-f, no schema change) | BRIEF-0044-f |  |
+| 9172 | ENTITY-TYPE CONSTRUCTOR — governed runtime-DDL writer (BRIEF-0044-c, no schema change) | BRIEF-0044-c |  |
+| 9231 | SCHEMA VERSION — two-plane governance (C2), plane 2: physical-table reconciliation (BRIEF-0044-d, no schema change) | BRIEF-0044-d |  |
+| 9268 | ENTITY-TYPE CONSTRUCTOR — rollback quarantine (B1) (BRIEF-0044-e, no schema change) | BRIEF-0044-e |  |
+| 9337 | TRAIT REGISTRY — code-source-of-truth, structural reader enforcement (BRIEF-0045-b, no schema change) | BRIEF-0045-b |  |
+| 9403 | SOCLE TRAITS ARE IMPLICIT, NEVER PROJECTED (BRIEF-0045-d, no schema change) | BRIEF-0045-d |  |
+| 9426 | TRAIT EXT-COLUMN TYPING + FIELD-SPEC (BRIEF-0046-a, no schema change) | BRIEF-0046-a |  |
+| 9470 | ENTITY-TYPE CONSTRUCTOR — creator route + runtime-type serializer (BRIEF-0046-b, no schema change) | BRIEF-0046-b |  |
+| 9521 | DYNAMIC TAB FACTORY — runtime Creation tabs + page_contract mechanism assertion (BRIEF-0046-d, no schema change) | BRIEF-0046-d |  |
+| 9575 | DYNAMIC INSTANCE CRUD for custom ext_* + json_ui_boundary F1 volet (BRIEF-0046-e, no schema change) | BRIEF-0046-e |  |
+| 9650 | DB ENGINE — WORLD_ENGINE_ENV primary resolver, fail-closed (BRIEF-0049-a, no schema change) | BRIEF-0049-a |  |
+| 9668 | VERIFY — env_fail_closed + env_guard, KNOWN_OPERATOR_SCRIPT_ALLOW (BRIEF-0049-d, no schema change) | BRIEF-0049-d |  |
+| 9701 | CONVERSATION WINDOW CONFIG — dedicated table, summary default-on, editing surface deferred (BRIEF-0050-a, schema v1.89) | BRIEF-0050-a | v1.89 |
+| 9735 | CONVERSATION WINDOW — K-verbatim cap + scene-tail re-injection implemented (BRIEF-0050-b, no schema change) | BRIEF-0050-b |  |
+| 9764 | CONVERSATION SUMMARY — prompt-usage plumbing, no call site yet (BRIEF-0050-c, no schema change) | BRIEF-0050-c |  |
+| 9785 | CONVERSATION SUMMARY — budget-trigger, recompute, fail-soft insertion (BRIEF-0050-d, no schema change) | BRIEF-0050-d |  |
+| 9820 | CONVERSATION WINDOW — config editing surface + replay measurement (BRIEF-0050-e, no schema change) | BRIEF-0050-e |  |
+| 9861 | OBSERVED SCENE — socle and decision instrumentation (BRIEF-0051-a, schema v1.90) | BRIEF-0051-a | v1.90 |
+| 9933 | OBSERVED SCENE — worst-case-listener disclosure floor (BRIEF-0051-b, no schema change) | BRIEF-0051-b |  |
+| 9972 | OBSERVED SCENE — analyzer transcript seam (BRIEF-0051-c, no schema change) | BRIEF-0051-c |  |
+| 10101 | OBSERVED SCENE — intent and arbitration engine (BRIEF-0051-d, no schema change) | BRIEF-0051-d |  |
+| 10220 | OBSERVED SCENE — runner: bounded run, readiness gate, F3 proposals (BRIEF-0051-e, no schema change) | BRIEF-0051-e |  |
+| 10396 | OBSERVED SCENE — cockpit surface: top-level mode-tab, F3 read-only visibility (BRIEF-0051-f, no schema change) | BRIEF-0051-f |  |
+| 10483 | OBSERVED SCENE — run metrics: deterministic instruments, J2 (BRIEF-0051-g, no schema change) | BRIEF-0051-g |  |
+| 10580 | OBSERVATION CONTEXT WINDOW PARITY (BRIEF-0052-a, BRIEF-0052-b, BRIEF-0052-c, no schema change) | BRIEF-0052-a, BRIEF-0052-b, BRIEF-0052-c |  |
+| 10664 | OBSERVATION MULTI-BEAT SEQUENCE — client-driven loop (BRIEF-0053-a, no schema change) | BRIEF-0053-a |  |
+| 10725 | FACTION ROSTER — server-side rank ordering (BRIEF-0054-a, no schema change) | BRIEF-0054-a |  |
+| 10755 | FACTION MEMBERSHIP — creator role reassignment + capacity chokepoint (BRIEF-0054-b, no schema change) | BRIEF-0054-b |  |
+| 10794 | FACTION ROSTER — grouped panel + member authoring (BRIEF-0054-c, no schema change) | BRIEF-0054-c |  |
+| 10836 | CREATION NAVIGATION — single-slot return crumb (BRIEF-0054-d, no schema change) | BRIEF-0054-d |  |
+| 10883 | FRONTEND BUILD FOUNDATION — Svelte/Vite toolchain, static serving, committed build (BRIEF-0055-a, BRIEF-0055-b, BRIEF-0055-c, BRIEF-0055-d, no schema change) | BRIEF-0055-a, BRIEF-0055-b, BRIEF-0055-c, BRIEF-0055-d |  |
+| 10969 | COCKPIT SHELL — legacy-mount registry, iframe boundary, enumerated routing (BRIEF-0056-a, BRIEF-0056-b, BRIEF-0056-c, BRIEF-0056-d, no schema change) | BRIEF-0056-a, BRIEF-0056-b, BRIEF-0056-c, BRIEF-0056-d |  |
+| 11049 | GRAPH PRIMITIVE — one component, three consumers, a shrinking registry (BRIEF-0057-a, BRIEF-0057-b, BRIEF-0057-c, BRIEF-0057-d, BRIEF-0057-e, no schema change) | BRIEF-0057-a, BRIEF-0057-b, BRIEF-0057-c, BRIEF-0057-d, BRIEF-0057-e |  |
+| 11129 | CREATION SPINE — island seam, graph convergence, closure-driven scope (BRIEF-0058-a, BRIEF-0058-b, BRIEF-0058-c, BRIEF-0058-d, BRIEF-0058-e, BRIEF-0058-f, BRIEF-0058-g, BRIEF-0058-h, BRIEF-0058-i, BRIEF-0058-j, BRIEF-0058-k, BRIEF-0058-l, no schema change) | BRIEF-0058-a, BRIEF-0058-b, BRIEF-0058-c, BRIEF-0058-d, BRIEF-0058-e, BRIEF-0058-f, BRIEF-0058-g, BRIEF-0058-h, BRIEF-0058-i, BRIEF-0058-j, BRIEF-0058-k, BRIEF-0058-l |  |
+| 11294 | DOORS EDITOR EFFECT CYCLE — pure derivations are $derived, not $state (BRIEF-0062-a, no schema change) | BRIEF-0062-a |  |
+| 11358 | COCKPIT STYLESHEET PARTITION — one shared sheet, two documents (BRIEF-0063-a, no schema change) | BRIEF-0063-a |  |
+| 11438 | TICKET-0059 DOCTRINE SEAL — bridge-reach, LocationTree, Modal, effect-cycle, three-surface census (BRIEF-0059-m, no schema change) | BRIEF-0059-m |  |
+| 11534 | STYLESHEET COVERAGE — disjointness proves no overlap, not that Creation is reachable (BRIEF-0064-a, no schema change) | BRIEF-0064-a |  |
+| 11623 | SHELL HEIGHT CHAIN — one height authority, html/body -> #app -> .shell-layout -> surface (BRIEF-0065-a, no schema change) | BRIEF-0065-a |  |
+| 11666 | GRAPH MOUNT SEAM — single document, rule 11 (BRIEF-0065-b, no schema change) | BRIEF-0065-b |  |
+| 11747 | STATIC ASSET FRESHNESS — revalidate is the default posture, immutable is opt-in (BRIEF-0066-a, no schema change) | BRIEF-0066-a |  |
+| 11823 | OBSERVATION SURFACE — shell-native migration (BRIEF-0060-a, BRIEF-0060-b, no schema change) | BRIEF-0060-a, BRIEF-0060-b |  |
+| 11917 | STYLESHEET PARTITION RULE7 FAIL-OPEN + ROW CONTAINERS UNSTRANDED (BRIEF-0060-e, no schema change) | BRIEF-0060-e |  |
+| 11979 | STYLESHEET PARTITION RULE7 (LEGACY) — coverage mirrored onto cockpit/index.html (BRIEF-0060-c, no schema change) | BRIEF-0060-c |  |
+| 12046 | CORPUS GATE — every check runs, or the gate is red (BRIEF-0060-d, no schema change) | BRIEF-0060-d |  |
+| 12131 | RED GUARDS REPAIRED — goal-read accessor and prompt-model fixture (BRIEF-0067-a, no schema change) | BRIEF-0067-a |  |
+| 12212 | TICKET-0061 LEGACY SEAL — Play sealed not migrated, the pointer made true, the rename lands (BRIEF-0061-a, BRIEF-0061-b, BRIEF-0061-c, no schema change) | BRIEF-0061-a, BRIEF-0061-b, BRIEF-0061-c |  |
+| 12354 | CLAUDE.MD BUDGET — characters and per-line length, not lines (BRIEF-0071-a, BRIEF-0071-b, no schema change) | BRIEF-0071-a, BRIEF-0071-b |  |
+| 12400 | ENGINE — SQLITE WAL CONCURRENCY POSTURE (BRIEF-0072-a, BRIEF-0072-d, no schema change) | BRIEF-0072-a, BRIEF-0072-d |  |
+| 12579 | STANDING OCCUPATION GOALS — kind discriminator, presence not action (BRIEF-0073-b, schema v1.91) | BRIEF-0073-b | v1.91 |
+| 12639 | STANDING OCCUPATION EDITOR — one selector deriving the pair (BRIEF-0073-c, no schema change) | BRIEF-0073-c |  |
+| 12660 | NPC SCHEDULES — background versus foreground, two-branch precedence, the world's phase (BRIEF-0074-a, BRIEF-0074-b, BRIEF-0074-c, schema v1.92) | BRIEF-0074-a, BRIEF-0074-b, BRIEF-0074-c | v1.92 |
+| 12833 | DAY DECLARATION SOCLE — the day is the batch, an explicit ordinal, a new surface (BRIEF-0075-a, schema v1.93) | BRIEF-0075-a | v1.93 |
+| 12875 | DAY PLAN EMISSION AND BUDGET — model proposes, code judges (BRIEF-0075-b, schema v1.94) | BRIEF-0075-b | v1.94 |
+| 12975 | EXTRACTION AND CONCORDANCE — the resolver never authors (BRIEF-0075-c, no schema change) | BRIEF-0075-c |  |
+| 13098 | RESOLUTION, FACT SHEET AND NARRATION — the prose renders, it never decides (BRIEF-0075-d, no schema change) | BRIEF-0075-d |  |
+| 13399 | MUTATION EMISSION AND THE DAY ACCOUNT — proposer, not writer (BRIEF-0075-e, no schema change) | BRIEF-0075-e |  |
+| 13526 | THE FEASIBILITY VETO — a downward-only clamp is not an exception (BRIEF-0075-g, no schema change) | BRIEF-0075-g |  |
+| 13665 | THE REMAINING-WORK INVARIANT AND THE RESOLVE PRECONDITION (BRIEF-0075-f, no schema change) | BRIEF-0075-f |  |
+| 13727 | RECONCILIATION AND CLOSURE — Z4 repairs the source, AA2 makes replace a creator act (BRIEF-0075-f, no schema change) | BRIEF-0075-f |  |
+| 13866 | DAY CHAIN PROMPT DELIVERY AND COVERAGE GUARD (BRIEF-0076-a, no schema change) | BRIEF-0076-a |  |
+| 13954 | PARKED PLANS — direct write, not auto-approved; the owner_type index rejected (BRIEF-0077-a, schema v1.95) | BRIEF-0077-a | v1.95 |
+| 14009 | DEDICATED PLAN SELECTION AND THE RESUME ACTION — a SELECT before a CLASSIFY, an ordinal never an id (BRIEF-0077-c, no schema change) | BRIEF-0077-c |  |
+| 14085 | STEP ACTIVATION AT THE TRANSITION — Z4 bound structurally, not by convention (BRIEF-0080-a, BRIEF-0080-b, no schema change) | BRIEF-0080-a, BRIEF-0080-b |  |
+| 14179 | REQUIREMENT ANCHORING — a knowledge gate is legitimate only on a learnable subject (BRIEF-0078-a, schema v1.96) | BRIEF-0078-a | v1.96 |
+| 14247 | G1 — subject-vocabulary hygiene, deferred (BRIEF-0078-a, no schema change) | BRIEF-0078-a |  |
+| 14270 | C2 — A BLOCKED STEP IS AN OUTCOME, NOT AN ABSENCE (BRIEF-0078-b, no schema change) | BRIEF-0078-b |  |
+| 14326 | D3 — A BLOCKED STEP PROPOSES A RUMOR-LEVEL LEAD ON ITS OWN BLOCKING SUBJECT (BRIEF-0078-c, no schema change) | BRIEF-0078-c |  |
+| 14358 | H1 — ANY KNOWLEDGE LEVEL SATISFIES A GATE (BRIEF-0078-a, BRIEF-0078-c, no schema change) | BRIEF-0078-a, BRIEF-0078-c |  |
+| 14374 | A2 — THE NAME EXTRACTOR IS SENTENCE-SCOPED AND EDGE-STRIPPED, POSITION GATING STAYS REJECTED (BRIEF-0079-a, no schema change) | BRIEF-0079-a |  |
+| 14422 | THE BOUNDED REPAIR PASS AND THE STRUCTURED 422 (BRIEF-0079-b, no schema change) | BRIEF-0079-b |  |
+| 14552 | THE FACT SPINE — KNOWLEDGE'S STRUCTURAL ANCHOR, SUBJECT CUTOVER DEFERRED (BRIEF-0082-b, schema v1.98) | BRIEF-0082-b | v1.98 |
+| 14627 | SCOPED KNOWLEDGE DEFAULTS — THE G2a PRECEDENCE LADDER (BRIEF-0082-c, schema v1.99) | BRIEF-0082-c | v1.99 |
+| 14734 | THE TAB SWITCH CLEARS THE SHEET BEFORE THE KEY MOVES (BRIEF-0083-a, no schema change) | BRIEF-0083-a |  |
+| 14793 | KNOWN-REACHABILITY — THE PUBLIC FLOOR AND THE D1 CORRECTION (BRIEF-0082-d, schema v2.00) | BRIEF-0082-d | v2.00 |
+| 14895 | SKILL_SYSTEM — MAGIC AS A ROW, NOT A FLAG (BRIEF-0084-a, schema v2.01) | BRIEF-0084-a | v2.01 |
+| 14967 | THE ACTION LEXICON — SHARED RESOLVER AND SKILL_RESOLUTION (BRIEF-0084-c, schema v2.02) | BRIEF-0084-c | v2.02 |
+| 15036 | THE GAPS VIEW — G3 DISCHARGED, G2 REJECTED (BRIEF-0084-d, no schema change) | BRIEF-0084-d |  |
+| 15066 | WORLD.MAGIC_STATUS REMOVED (BRIEF-0084-e, schema v2.03) | BRIEF-0084-e | v2.03 |
+| 15081 | NAMED-RUNG EXTRACTION — SHARED WITH THE LORE CHANTIER, CASTING STAYS DAY-ONLY (BRIEF-0085-a, no schema change) | BRIEF-0085-a |  |
+| 15109 | SELECTOR WHITELIST — THE MODEL NAMES A SELECTOR, NEVER A QUERY (BRIEF-0085-b, no schema change) | BRIEF-0085-b |  |
+| 15183 | LORE CONSULTATION — QUESTION TO PLAN, CLIENT-HELD DISAMBIGUATION (BRIEF-0085-c, no schema change) | BRIEF-0085-c |  |
+| 15237 | THE RENDERER — A THIRD MODEL ROLE, SESSION-FREE BY CONSTRUCTION (BRIEF-0085-d, no schema change) | BRIEF-0085-d |  |
+| 15323 | LORE CONSULTATION SURFACE — A THIRD TOP-LEVEL SURFACE, NOT A CRÉATION TAB (BRIEF-0085-e, no schema change) | BRIEF-0085-e |  |
+| 15391 | PLANNER UNAVAILABLE IS AN EXPLICIT MESSAGE, NOT A RAW ERROR (BRIEF-0085-f, no schema change) | BRIEF-0085-f |  |
+| 15426 | KNOWLEDGE SUBJECT IS A FACT PARTICIPANT, NOT A COLUMN (BRIEF-0087-a, no schema change) | BRIEF-0087-a |  |
+| 15439 | FACT_PARTICIPANT HAS NO ROLE DISCRIMINATOR (BRIEF-0087-a, no schema change) | BRIEF-0087-a |  |
+| 15456 | NEW_KNOWLEDGE'S SUBJECT_ENTITY_ID: THE MODEL NAMES IT, THE CODE VALIDATES IT (BRIEF-0087-b, no schema change) | BRIEF-0087-b |  |
+| 15479 | THE EXISTING-KNOWLEDGE BACKFILL IS ONE-OFF, UNAMBIGUOUS-ONLY, AND WRITES NO CHANGE_HISTORY (BRIEF-0087-c, no schema change) | BRIEF-0087-c |  |
+| 15502 | THE SUBJECT-BINDING SURFACE LIVES IN CREATION, NOT LORE (BRIEF-0087-d, no schema change) | BRIEF-0087-d |  |
+| 15520 | CREATION ISLANDS DECLARE THEIR ORIGIN — MIGRATION OR NEW (BRIEF-0088-a, no schema change) | BRIEF-0088-a |  |
+| 15579 | THE SUBJECT WORKLIST IS A NEW CREATION ISLAND, BOUND BY A CLIENT LOOP (BRIEF-0088-b, no schema change) | BRIEF-0088-b |  |
+| 15626 | THE EXTENSION BLOCK OF A PUT IS KEY-PRESENT-WINS (BRIEF-0089-e, no schema change) | BRIEF-0089-e |  |
+| 15639 | AN EMPTY OPEN GATHERING IS A DEFECT STATE, NOT A LEGAL ONE (BRIEF-0089-a, BRIEF-0089-c, BRIEF-0089-d, no schema change) | BRIEF-0089-a, BRIEF-0089-c, BRIEF-0089-d |  |
+| 15670 | THE GATHERING LIFECYCLE GATE (BRIEF-0089-g, no schema change) | BRIEF-0089-g |  |
+| 15687 | WHO_KNOWS_ABOUT DECLARES ITS OWN COVERAGE, AND DECLARES IT FIRST (BRIEF-0087-e, no schema change) | BRIEF-0087-e |  |
+| 15723 | A SOCIAL RELATION HAS ONE PERCEIVER, AND ITS LIEN FACT IS ITS KNOWABLE FACE (BRIEF-0090-a, BRIEF-0090-b, schema v2.04) | BRIEF-0090-a, BRIEF-0090-b | v2.04 |

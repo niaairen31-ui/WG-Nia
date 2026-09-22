@@ -7657,7 +7657,8 @@ validated BEFORE storage (`_validate_patch`) and again at apply time
 of this world), field is on the whitelist (staged: any existing payload
 key EXCEPT identity fields — ids, `mode`, `subject`, session bookkeeping,
 never patchable, on either side, not just canon; canon relation:
-`intensity`/`notes`/`type`/`direction`/`visible_to_b`; canon knowledge:
+`intensity`/`notes`/`type` — `direction`/`visible_to_b` dropped by
+BRIEF-0090-e, a social canon row being always `a_to_b`; canon knowledge:
 `level`/`content`/`source`/`is_incorrect`/`is_secret`/`share_threshold`),
 and `new_value` passes the same vocab/clamp validation as 0036-b's item
 builders (`_coerce_patch_value`) — a canon relation `type` patch is
