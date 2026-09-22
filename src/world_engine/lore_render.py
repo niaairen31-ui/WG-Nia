@@ -37,8 +37,14 @@ def _format_identity(row: dict) -> str:
 
 
 def _format_relations(row: dict) -> str:
+    """One relation, read by its perceiver (TICKET-0090): `entity_a` feels,
+    `entity_b` receives, so the sentence always runs perceiver -> type ->
+    target, whichever side the dossier subject is on. `direction` is never
+    printed."""
     other = row.get("other_entity_name") or row.get("other_entity_id")
-    line = f"{other} — {row.get('type')} ({row.get('direction')}, intensité {row.get('intensity')})"
+    subject = row.get("subject_name")
+    perceiver, target = (other, subject) if row.get("subject_side") == "b" else (subject, other)
+    line = f"{perceiver} → {row.get('type')} → {target} (intensité {row.get('intensity')})"
     if row.get("notes"):
         line += f" : {row['notes']}"
     return line

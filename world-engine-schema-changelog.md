@@ -13,6 +13,33 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.04** — TICKET-0090, BRIEF-0090-b: perceiver-oriented relations.
+  New partial unique index `idx_relation_oriented_social` ON
+  `relation(entity_a_id, entity_b_id) WHERE type NOT IN
+  ('connects_to','controls')`: at most one social row per oriented pair
+  (A->B and B->A are independent rows); `CREATE INDEX` only, no table
+  rebuild. Orientation normalization: every social row is now
+  `direction='a_to_b'` with `entity_a` the perceiver — the 14 `b_to_a` rows
+  had their endpoints swapped and the 67 `mutual` rows were each split into
+  two rows (the original plus a mirror with the same `type`, `intensity`,
+  `notes`, `visible_to_b`, `created_at`, `last_evolved_at`); every changed
+  row records its previous endpoints and direction in `change_history`
+  (`{"migration": "v2.04", "was": {...}}`; a mirror carries `split_from`).
+  Lien facts: one typed `fact` per social relation (240 on a prod copy),
+  content `"{name_a} éprouve « {type} » envers {name_b}."`,
+  `default_level='unaware'`, `created_by='migrate_v2_04'`. The 2
+  `connects_to` edges without a fact were backfilled with v2.00's content
+  and `default_level='knows'`. The 40 `a_to_b` rows with
+  `visible_to_b=TRUE` were converted into 40 `knowledge` rows for
+  `entity_b` on the lien fact (`level='knows'`,
+  `source='migrate_v2_04 (visible_to_b)'`); the 6 `b_to_a` TRUE rows are
+  reported by name, not converted; the 67 `mutual` values are dropped.
+  `relation.visible_to_b` is NOT dropped — the column stays, read by no
+  play path, for one ticket. `controls` rows are untouched. Migration:
+  `scripts/migrate_v2_04_oriented_relations.py`, one transaction,
+  pre-checks (unknown direction, duplicated oriented pair, a social
+  relation with two facts) and post-checks before COMMIT; idempotent — a
+  second run prints zeros and changes no row.
 - **v2.03** — TICKET-0084, BRIEF-0084-e: `world.magic_status` dropped —
   the ticket's only destructive step, its own migration, its own commit.
   The column had no reader, no creator surface, and one writer

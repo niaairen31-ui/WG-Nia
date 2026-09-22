@@ -141,14 +141,16 @@
                 <input type="text" placeholder="type" style="width:110px" value={p.type || ''} disabled={rejected}
                   onchange={(e) => editField(row.id, 'type', e.currentTarget.value)}>
                 <select disabled={rejected} onchange={(e) => editField(row.id, 'direction', e.currentTarget.value)}>
-                  <option value="mutual" selected={p.direction === 'mutual'}>mutual</option>
-                  <option value="a_to_b" selected={p.direction === 'a_to_b'}>a_to_b</option>
-                  <option value="b_to_a" selected={p.direction === 'b_to_a'}>b_to_a</option>
+                  <option value="a_to_b" selected={p.direction === 'a_to_b'}>{npcName(aId)} ressent</option>
+                  <option value="b_to_a" selected={p.direction === 'b_to_a'}>{npcName(bId)} ressent</option>
+                  <option value="mutual" selected={p.direction === 'mutual'}>Réciproque (deux relations)</option>
                 </select>
                 <input type="number" min="1" max="100" style="width:52px" value={p.value} disabled={rejected}
                   onchange={(e) => editField(row.id, 'value', Number(e.currentTarget.value))}>
-                <label style="font-size:11px"><input type="checkbox" checked={p.visible_to_b} disabled={rejected}
-                  onchange={(e) => editField(row.id, 'visible_to_b', e.currentTarget.checked)}> visible à B</label>
+                {#if p.direction === 'a_to_b'}
+                  <label style="font-size:11px"><input type="checkbox" checked={p.visible_to_b} disabled={rejected}
+                    onchange={(e) => editField(row.id, 'visible_to_b', e.currentTarget.checked)}> {npcName(bId)} le sait</label>
+                {/if}
                 <input type="text" placeholder="notes" style="flex:1; min-width:100px" value={p.notes || ''} disabled={rejected}
                   onchange={(e) => editField(row.id, 'notes', e.currentTarget.value)}>
                 <button class="btn-icon" onclick={() => toggleReject(row.id, rejected)}>{rejected ? 'Rétablir' : 'Rejeter'}</button>

@@ -49,7 +49,7 @@ from ..models import (
     ProposedMutation,
 )
 from ..writes import (
-    _find_relation_pair,
+    _find_perceived_relation,
     knowledge_level_rank,
     role_capacity_state,
     write_agenda,
@@ -553,7 +553,7 @@ def _mutation_goal_change_close(
         for row in goal_prerequisites:
             if row.type != "relation_gte":
                 return f"goal_change: unknown prerequisite type {row.type!r}"
-            rel = _find_relation_pair(db, npc_id, row.target_entity_id)
+            rel = _find_perceived_relation(db, npc_id, row.target_entity_id)
             current = rel.intensity if rel else 0
             if current < row.threshold:
                 target = db.get(Entity, row.target_entity_id)

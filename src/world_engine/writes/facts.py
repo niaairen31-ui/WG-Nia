@@ -18,12 +18,19 @@ exists only to carry arity for a free-standing fact.
 route (`cockpit/crud/knowledge.py`) queries for an existing
 `(fact_id, scope_type, scope_id)` row and returns 409 before ever calling
 this function, so a duplicate never reaches the write site.
+
+`update_typed_fact_content` (TICKET-0090, BRIEF-0090-a) rewrites a typed
+fact's `content` — the lien fact of a social relation whose type changed.
+History is sacred: the previous content is appended to the fact's
+`change_history` (`{"content", "changed_by", "at"}`) before the overwrite.
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Optional
 
+from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session
 
 from ..models import Fact, FactDefault, FactParticipant
@@ -50,6 +57,22 @@ def create_fact(
         event_id=event_id,
         world_law_id=world_law_id,
     )
+    db.add(fact)
+    return fact
+
+
+def update_typed_fact_content(db: Session, *, fact: Fact, content: str, changed_by: str) -> Fact:
+    """Overwrite `fact.content`, appending the previous content to
+    `fact.change_history` first (TICKET-0090, BRIEF-0090-a)."""
+    history = list(fact.change_history or [])
+    history.append({
+        "content": fact.content,
+        "changed_by": changed_by,
+        "at": datetime.now(UTC).isoformat(),
+    })
+    fact.change_history = history
+    sa_attrs.flag_modified(fact, "change_history")
+    fact.content = content
     db.add(fact)
     return fact
 

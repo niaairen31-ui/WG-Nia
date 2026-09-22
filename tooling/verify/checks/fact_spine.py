@@ -105,7 +105,7 @@ def check_db_fixture(engine) -> None:
 
     from world_engine.models import Entity, FactParticipant, Knowledge, World
     from world_engine.writes import attach_participants, create_fact, write_knowledge
-    from world_engine.writes.relations import write_relation
+    from world_engine.writes.relations import lien_fact_of, write_relation
 
     with DbSession(engine) as session:
         world = World(name="Check World", is_active=True)
@@ -125,14 +125,15 @@ def check_db_fixture(engine) -> None:
 
         rel = write_relation(
             session, mode="set", world_id=world_id, entity_a_id=a, entity_b_id=b,
-            type="ally", value=50, direction="mutual",
+            type="ally", value=50, direction="a_to_b",
         )
         session.commit()
-        typed_fact = create_fact(
-            session, world_id=world_id, content="A and B are allies",
-            created_by="check", relation_id=rel.id,
-        )
-        session.commit()
+        # write_relation births the social relation's typed lien fact
+        # (TICKET-0090, BRIEF-0090-a); it is the typed fact of the break below.
+        typed_fact = lien_fact_of(session, rel)
+        if typed_fact is None:
+            fail("write_relation did not birth a typed lien fact for a social relation")
+            return
 
         free_fact = create_fact(
             session, world_id=world_id, content="a shared secret", created_by="check",

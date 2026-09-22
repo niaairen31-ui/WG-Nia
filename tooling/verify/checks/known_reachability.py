@@ -84,12 +84,14 @@ def _fresh_engine():
 # ─────────────────────────────────────────────────────────────────────────
 
 def _build_fixture(session):
-    """A five-location chain A-B-C-D (connects_to, each backed by a
-    default_level='knows' fact, matching migrate_v2_00's output) plus one
-    NPC standing at A. Returns (npc_id, location_ids_by_label, relation_ids,
+    """A five-location chain A-B-C-D (connects_to, each backed by the
+    default_level='knows' fact write_relation births — TICKET-0090,
+    BRIEF-0090-a — matching migrate_v2_00's output) plus one NPC standing
+    at A. Returns (npc_id, location_ids_by_label, relation_ids,
     fact_ids_by_relation, world_id)."""
-    from world_engine.models import Character, Entity, Location, World
-    from world_engine.writes import create_fact
+    from sqlmodel import select
+
+    from world_engine.models import Character, Entity, Fact, Location, World
     from world_engine.writes.relations import write_relation
 
     world = World(name="Check World", is_active=True)
@@ -128,12 +130,9 @@ def _build_fixture(session):
         session.commit()
         edge_key = f"{a}{b}"
         relation_ids[edge_key] = rel.id
-        fact = create_fact(
-            session, world_id=world_id, content=f"{a} communique avec {b}.",
-            created_by="check", default_level="knows", relation_id=rel.id,
-        )
-        session.commit()
-        fact_ids[edge_key] = fact.id
+        born = session.exec(select(Fact).where(Fact.relation_id == rel.id)).all()
+        if len(born) == 1:
+            fact_ids[edge_key] = born[0].id
 
     return npc_id, loc_ids, relation_ids, fact_ids, world_id
 
@@ -172,10 +171,11 @@ def _reference_bfs(session, origin_id: str) -> set[str]:
 
 
 def check_db_fixture(engine) -> None:
-    from sqlmodel import Session as DbSession
+    from sqlmodel import Session as DbSession, select
 
     from world_engine import tick_context
-    from world_engine.writes import create_fact, create_fact_default
+    from world_engine.models import Fact, Relation
+    from world_engine.writes import create_fact_default
     from world_engine.writes.relations import write_relation
 
     with DbSession(engine) as session:
@@ -226,11 +226,10 @@ def check_db_fixture(engine) -> None:
             type="connects_to", value=50, direction="mutual",
         )
         session.commit()
-        fact_de = create_fact(
-            session, world_id=world_id, content="D communique avec E.",
-            created_by="check", default_level="knows", relation_id=rel_de.id,
-        )
-        session.commit()
+        fact_de = session.exec(select(Fact).where(Fact.relation_id == rel_de.id)).first()
+        if fact_de is None:
+            fail("write_relation did not birth a typed fact for the connects_to edge D->E")
+            return
         create_fact_default(
             session, world_id=world_id, fact_id=fact_de.id, scope_type="world", scope_id=None,
             level="rumor", created_by="check",
@@ -274,10 +273,13 @@ def check_db_fixture(engine) -> None:
         session.refresh(f_entity)
         session.add(Location(id=f_entity.id, parent_location_id=None))
         session.commit()
-        write_relation(
-            session, mode="set", world_id=world_id, entity_a_id=loc_ids["D"], entity_b_id=f_entity.id,
-            type="connects_to", value=50, direction="mutual",
-        )
+        # Built with a direct session.add, NOT write_relation: write_relation
+        # now births the edge's typed fact (TICKET-0090, BRIEF-0090-a), and
+        # this case exists to prove the reader is fail-closed without one.
+        session.add(Relation(
+            world_id=world_id, entity_a_id=loc_ids["D"], entity_b_id=f_entity.id,
+            type="connects_to", direction="mutual", intensity=50,
+        ))
         session.commit()
         # No fact created for this relation — deliberately missing.
 
@@ -303,7 +305,11 @@ def check_db_fixture(engine) -> None:
 
 # The modules the classification table documents as containing a literal
 # `"connects_to"` string (thirteen traversal/write modules + three
-# vocabulary-only modules, after BRIEF-0085-b added lore_selectors.py).
+# vocabulary-only modules, after BRIEF-0085-b added lore_selectors.py;
+# BRIEF-0090-a adds writes/relations.py, which births a connects_to edge's
+# typed fact, and relation_orientation.py, the new home of
+# RELATION_GRAPH_EXCLUDED_TYPES — context.py stays listed, harmlessly,
+# though it now re-imports the constant instead of spelling the literal).
 # Kept in sync with tooling/tickets/connects-to-readers-TICKET-0082.md by
 # hand; this check does not parse the table's prose, only asserts the table
 # FILE exists and that no undocumented module has joined the set.
@@ -324,6 +330,8 @@ DOCUMENTED_MODULES = frozenset({
     "world_engine/cockpit/crud/_shared.py",
     "world_engine/link_author.py",
     "world_engine/lore_selectors.py",
+    "world_engine/writes/relations.py",
+    "world_engine/relation_orientation.py",
 })
 
 

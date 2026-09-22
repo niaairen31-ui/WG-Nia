@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.03
+Current schema version: v2.04
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -615,6 +615,15 @@ CREATE TABLE relation (
 --       shared/contested control, no special handling. Any future
 --       world-wide relation scan MUST explicitly exclude both
 --       type='connects_to' and type='controls'.
+-- NOTE (schema v2.04, TICKET-0090): a social relation (any `type` outside
+--       `connects_to`/`controls`) is always `direction='a_to_b'`, with
+--       `entity_a` the perceiver (who feels) and `entity_b` the target.
+--       `idx_relation_oriented_social` allows at most one social row per
+--       oriented pair (A->B and B->A are two independent rows). Every social
+--       relation carries exactly one typed `lien` fact (`fact.relation_id`,
+--       `default_level='unaware'`). `visible_to_b` is dead weight, kept for
+--       one ticket and read by no play path: who knows the feeling is carried
+--       by the `knowledge` rows on the lien fact.
 
 -----
 
@@ -2259,6 +2268,10 @@ CREATE INDEX idx_npc_goal_npc_status ON npc_goal(npc_id, status);
 CREATE INDEX idx_relation_a          ON relation(entity_a_id);
 CREATE INDEX idx_relation_b          ON relation(entity_b_id);
 CREATE INDEX idx_relation_world      ON relation(world_id);
+-- at most one social row per oriented pair (schema v2.04, TICKET-0090)
+CREATE UNIQUE INDEX idx_relation_oriented_social
+  ON relation(entity_a_id, entity_b_id)
+  WHERE type NOT IN ('connects_to','controls');
 
 -- character lookups by location and owning user
 CREATE INDEX idx_character_location  ON character(current_location_id);

@@ -51,6 +51,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 COCKPIT = ROOT / "src" / "world_engine" / "cockpit"
 CRUD_PY = COCKPIT / "crud" / "relations.py"
 CONTEXT_PY = ROOT / "src" / "world_engine" / "context.py"
+RELATION_ORIENTATION_PY = ROOT / "src" / "world_engine" / "relation_orientation.py"
 APP_PY = COCKPIT / "app.py"
 VENDOR_DIR = COCKPIT / "vendor"
 RELATIONS_CONSUMER = ROOT / "frontend" / "src" / "graph" / "consumers" / "relations.js"
@@ -98,7 +99,17 @@ def main() -> int:
             )
         else:
             context_src = CONTEXT_PY.read_text(encoding="utf-8") if CONTEXT_PY.exists() else ""
-            context_const_m = re.search(r"RELATION_GRAPH_EXCLUDED_TYPES\s*=\s*\(([^)]*)\)", context_src)
+            # TICKET-0090, BRIEF-0090-a: context.py re-imports the constant
+            # from relation_orientation.py, its single definition — follow
+            # that one re-import hop before resolving the tuple literal.
+            if re.search(r"from\s+\.relation_orientation\s+import\s+RELATION_GRAPH_EXCLUDED_TYPES", context_src):
+                context_src = (
+                    RELATION_ORIENTATION_PY.read_text(encoding="utf-8")
+                    if RELATION_ORIENTATION_PY.exists() else ""
+                )
+            context_const_m = re.search(
+                r"RELATION_GRAPH_EXCLUDED_TYPES(?:\s*:[^=]*)?\s*=\s*\(([^)]*)\)", context_src
+            )
             if not context_const_m:
                 failures.append(
                     "RELATION_GRAPH_EXCLUDED_TYPES imported from context.py but not defined there"

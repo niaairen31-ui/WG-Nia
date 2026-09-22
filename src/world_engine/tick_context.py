@@ -55,7 +55,7 @@ from .models import (
     NpcGoal,
     Relation,
 )
-from .writes import _find_relation_pair
+from .writes import _find_perceived_relation
 
 _log = logging.getLogger(__name__)
 
@@ -155,10 +155,10 @@ def _goal_prerequisite_lines(goal: NpcGoal, session: Session) -> list[str]:
     """One line per `relation_gte` prerequisite, resolved to live state
     (TICKET-0024, BRIEF-0024-b; relationalized TICKET-0025, BRIEF-0025-c) —
     code resolves, injects; the model never sees or evaluates a threshold
-    itself (G1). Reuses `_find_relation_pair` (the same pair-search helper
-    `_apply_mutation`'s judge uses) so the briefing and the judge can never
-    disagree. Empty for a goal with no prerequisites (prose-only goals stay
-    clean)."""
+    itself (G1). Reuses `_find_perceived_relation` (the same oriented
+    finder `_apply_mutation`'s judge uses, TICKET-0090) so the briefing and
+    the judge can never disagree. Empty for a goal with no prerequisites
+    (prose-only goals stay clean)."""
     rows = session.exec(
         select(GoalPrerequisite).where(GoalPrerequisite.goal_id == goal.id)
     ).all()
@@ -168,7 +168,7 @@ def _goal_prerequisite_lines(goal: NpcGoal, session: Session) -> list[str]:
             continue
         target = session.get(Entity, row.target_entity_id)
         target_name = target.name if target else row.target_entity_id
-        rel = _find_relation_pair(session, goal.npc_id, row.target_entity_id)
+        rel = _find_perceived_relation(session, goal.npc_id, row.target_entity_id)
         current = rel.intensity if rel else 0
         lines.append(f"  (prérequis : relation >= {row.threshold} avec {target_name} — actuel : {current})")
     return lines
