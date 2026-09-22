@@ -29,6 +29,14 @@ class Relation(SQLModel, table=True):
         Index("idx_relation_a", "entity_a_id"),
         Index("idx_relation_b", "entity_b_id"),
         Index("idx_relation_world", "world_id"),
+        # At most one social row per oriented pair (TICKET-0090, schema
+        # v2.04). The predicate is the same social/structural split as
+        # `relation_orientation.RELATION_GRAPH_EXCLUDED_TYPES`, re-typed here
+        # only because SQLite index predicates cannot import Python.
+        Index(
+            "idx_relation_oriented_social", "entity_a_id", "entity_b_id",
+            unique=True, sqlite_where=text("type NOT IN ('connects_to','controls')"),
+        ),
     )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
