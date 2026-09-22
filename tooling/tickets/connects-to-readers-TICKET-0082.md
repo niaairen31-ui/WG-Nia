@@ -33,7 +33,7 @@ vocabulary     — a type literal or exclusion list, not a traversal.
 
 Two kinds of row below. **Module rows** were the twelve modules the
 mini-RECON measured, plus `lore_selectors.py` added at BRIEF-0085-b
-execution (module-count invariant — an UNDOCUMENTED module with a literal
+execution and `writes/relations.py` at BRIEF-0090-a (module-count invariant — an UNDOCUMENTED module with a literal
 `connects_to` string is a FAIL, checked independently of this table; adding
 one here requires adding it to `known_reachability.py`'s
 `DOCUMENTED_MODULES` in the same change). **Call-site rows** exist only for
@@ -45,7 +45,7 @@ it only calls the reader by name), but the classification and the
 knower_id AST check (assertion 4) both operate at call-site granularity for
 this one reader.
 
-## Module rows (thirteen)
+## Module rows (fourteen)
 
 | # | Module : line(s) | Label | Why |
 |---|---|---|---|
@@ -64,12 +64,13 @@ this one reader.
 | 13 | `spatial_author.py:35,41` (`_live_neighbour_ids`) | `authoring` | "Active-location connects_to neighbours" feeding `materialize_doors`, the creation-side door generator. |
 | 14 | `spatial_author.py:127` (`connect_locations`) | `authoring` | Writes a `connects_to` edge and materializes doors for both endpoints — the single write point for this edge type. |
 | 15 | `lore_selectors.py` (`_relation_rows`) | `vocabulary` | `Relation.type != "connects_to"` — an exclusion, not a traversal (BRIEF-0085-b's `entity_dossier` relations section scans an entity's social relations for the creator consultation surface and structurally excludes map topology, same pattern as row 3). |
+| 16 | `writes/relations.py` (`_birth_typed_fact`) | `authoring` | The `relation` write chokepoint births a new `connects_to` edge's typed fact (`default_level='knows'`, TICKET-0090, BRIEF-0090-a) — every creation path crosses it (`connect_locations`, region commit). A write, never a traversal; its structural finder `_find_relation_pair` carries no type literal. |
 
-(Rows 13/14 are both `spatial_author.py`, one module — thirteen modules
+(Rows 13/14 are both `spatial_author.py`, one module — fourteen modules
 total: room_batch_author, day_concordance, tick_context, writes/config,
 cockpit/spatial_doors, cockpit/crud/entities, cockpit/crud/relations,
 cockpit/crud/locations, cockpit/play, cockpit/routes/regions, day_plan,
-spatial_author, lore_selectors.)
+spatial_author, lore_selectors, writes/relations.)
 
 ## Call-site rows — `tick_context._reachable_locations` (two callers)
 
@@ -86,7 +87,8 @@ named mutation).
 
 ## Vocabulary sites (not traversals — reported, not classified as readers)
 
-- `context.py:110` — `RELATION_GRAPH_EXCLUDED_TYPES = ("connects_to", "controls")`.
+- `relation_orientation.py` — `RELATION_GRAPH_EXCLUDED_TYPES = ("connects_to", "controls")`,
+  moved out of `context.py` at TICKET-0090, BRIEF-0090-a (`context.py` re-imports it).
 - `cockpit/crud/_shared.py:137` — the relation-type datalist literal.
 - `link_author.py:68` — `assert "connects_to" not in _LINK_RELATION_TYPES`.
 

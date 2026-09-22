@@ -9,7 +9,10 @@ session (or, for `delete_world_cascade`, own the commit) themselves.
 
 Layout, by canon domain:
     _shared.py        — closed helper set (R7): `_clamp`, `_append_history_snapshot`.
-    relations.py       — `relation`: `write_relation`, `_find_relation_pair`.
+    relations.py       — `relation`: `write_relation`, `_find_relation_pair`
+                          (structural), `_find_perceived_relation` (social),
+                          `write_oriented_relations`, `set_target_knows`,
+                          `lien_fact_of` (TICKET-0090, BRIEF-0090-a).
     knowledge.py        — `knowledge`: `write_knowledge` and the level ladder.
     facts.py            — `fact`/`fact_participant`/`fact_default`:
                           `create_fact`, `attach_participants`
@@ -50,7 +53,12 @@ from .config import (
     write_world_laws,
 )
 from .events import write_event, write_event_update
-from .facts import attach_participants, create_fact, create_fact_default
+from .facts import (
+    attach_participants,
+    create_fact,
+    create_fact_default,
+    update_typed_fact_content,
+)
 from .factions import (
     _validate_max_holders,
     active_role_counts,
@@ -103,7 +111,14 @@ from .prompts import (
     write_prompt_variables,
     write_prompt_version,
 )
-from .relations import _find_relation_pair, write_relation
+from .relations import (
+    _find_perceived_relation,
+    _find_relation_pair,
+    lien_fact_of,
+    set_target_knows,
+    write_oriented_relations,
+    write_relation,
+)
 from .worlds import delete_world_cascade
 
 __all__ = [

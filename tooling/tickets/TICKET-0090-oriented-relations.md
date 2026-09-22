@@ -2,7 +2,7 @@
 id: TICKET-0090
 title: Perceiver-oriented relations
 type: feature
-status: brief         # intake|recon|brief|exec|verify|live-gate|done|paused|escalated
+status: brief
 created: 2026-09-22
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write, destructive_data]

@@ -59,8 +59,11 @@ discards the row's `change_history` with the row), `delete_discoverable_
 detail`, `detach_fact_participant` (TICKET-0082, BRIEF-0082-b — a
 `fact_participant` row carries no `change_history` of its own, arity
 metadata only), `delete_fact_default` (TICKET-0082, BRIEF-0082-c — same
-class, a `fact_default` row carries no `change_history` of its own), and
-`write_faction_role(mode="delete")` (blocked while an active membership
+class, a `fact_default` row carries no `change_history` of its own),
+`set_target_knows(knows=False)` (TICKET-0090, BRIEF-0090-a — removes
+the target's one `knowledge` row on a social relation's lien fact; called
+with `knows=False` only from creator CRUD, never by `write_oriented_relations`),
+and `write_faction_role(mode="delete")` (blocked while an active membership
 holds the role) — creator-CRUD-only, never reachable from any AI or play
 path. Full-replace config deletes (whole-set replace, not
 single-row correction): `write_npc_prices`, `write_location_subculture`,

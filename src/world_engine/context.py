@@ -107,7 +107,7 @@ _SAFE_SUBCULTURE_KEYS = ("values",)
 # truth for cockpit.crud.relations.get_global_relation_graph /
 # get_character_relation_graph AND link_author.py's F1 pair exclusion and
 # coherence-pass canon serialization (BRIEF-0036-c) — never re-typed.
-RELATION_GRAPH_EXCLUDED_TYPES = ("connects_to", "controls")
+from .relation_orientation import RELATION_GRAPH_EXCLUDED_TYPES  # noqa: E402,F401 (re-export)
 
 # Directions under which `entity_a` / `entity_b` is the perceiving side.
 _A_PERCEIVES = ("a_to_b", "mutual")
