@@ -21,6 +21,7 @@
 
   const SECTION_LABEL = Object.freeze({
     identity: 'Identité',
+    facets: 'Faits',
     relations: 'Relations',
     knowledge: 'Connaissances',
     memberships: 'Appartenances',

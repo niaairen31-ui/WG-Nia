@@ -107,6 +107,7 @@ def _seed_fixture(engine, *, npc_count: int = 3):
     from sqlmodel import Session as DbSession
     from world_engine import writes as _writes
     from world_engine.models import Character, Entity, Location, NpcGoal, PromptTemplate, World
+    from world_engine.writes.facets import write_entity_facets
 
     with DbSession(engine) as session:
         world = World(name="Runner Check World", is_active=True)
@@ -135,6 +136,11 @@ def _seed_fixture(engine, *, npc_count: int = 3):
                 world_id=world.id, npc_id=entity.id, description="Un but.",
                 horizon="short", status="active",
             ))
+            # Readiness requires a `description` fact (TICKET-0091, BRIEF-0091-H).
+            write_entity_facets(
+                session, entity_id=entity.id, created_by="check",
+                facets={"description": f"PNJ numéro {i}."},
+            )
             session.commit()
             npc_ids.append(entity.id)
 

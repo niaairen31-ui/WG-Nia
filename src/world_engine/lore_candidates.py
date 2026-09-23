@@ -4,14 +4,16 @@ round-trip (TICKET-0085, BRIEF-0085-c).
 A resolver's `candidate_ids` (lore_resolve.py) are bare ids -- nothing in
 them lets a creator tell two same-named entities apart. This is a
 presentation lookup, not a resolver concern (RECON-0085-a F5): it reads
-`entity` and `character` only -- no `knowledge`, no `relation`, no
-`faction_membership` -- so nothing carrying `is_secret` is reachable from it.
+`entity`, `character` and the entity's `description` facts (`facts_of`,
+which drops creator-only facts by query construction) -- no `knowledge`
+content, no `relation`, no `faction_membership`.
 """
 
 from __future__ import annotations
 
 from sqlmodel import Session, select
 
+from .facet_reads import facts_of, joined
 from .models import Character, Entity
 
 
@@ -54,7 +56,7 @@ def describe_candidates(candidate_ids: list[str], db: Session) -> list[dict]:
                 "id": entity.id,
                 "name": entity.name,
                 "type": entity.type,
-                "description": entity.description,
+                "description": joined(facts_of(db, entity_id=entity.id, facets=("description",))),
                 "location_name": location_names.get(location_id) if location_id else None,
             }
         )

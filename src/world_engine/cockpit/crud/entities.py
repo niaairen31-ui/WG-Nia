@@ -234,7 +234,6 @@ def _entity_dict(e: Entity) -> dict:
         "type": e.type,
         "name": e.name,
         "internal_name": e.internal_name,
-        "description": e.description,
         "is_public": e.is_public,
         "status": e.status,
         "created_at": _iso(e.created_at),
@@ -252,16 +251,6 @@ def _npc_prices_dict(entity_id: str, db: DbSession) -> dict[str, int]:
     shape the Tarifs editor expects (TICKET-0025, BRIEF-0025-a)."""
     rows = db.exec(select(NpcPrice).where(NpcPrice.entity_id == entity_id)).all()
     return {row.tag: row.amount for row in rows}
-
-
-def _location_subculture_rows(location_id: str, db: DbSession) -> list[dict]:
-    """`location_subculture` rows for one location, as
-    `[{key, value, is_hidden}, ...]` (TICKET-0025, BRIEF-0025-b). Includes
-    `is_hidden` rows — this is the creator-facing editor; structural
-    exclusion for non-creator reads lives in context.py's query
-    construction, not here."""
-    rows = db.exec(select(LocationSubculture).where(LocationSubculture.location_id == location_id)).all()
-    return [{"key": row.key, "value": row.value, "is_hidden": row.is_hidden} for row in rows]
 
 
 def _location_geometry_dict(location_id: str, db: DbSession) -> dict:
@@ -504,7 +493,6 @@ def get_entity(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
         if entity.type == "character":
             result["prices"] = _npc_prices_dict(entity_id, db)
         elif entity.type == "location":
-            result["subculture_rows"] = _location_subculture_rows(entity_id, db)
             result["geometry"] = _location_geometry_dict(entity_id, db)
             result["doors"] = _location_doors_rows(entity_id, db)
     else:
@@ -722,7 +710,6 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
         if entity.type == "character":
             result["prices"] = {}
         elif entity.type == "location":
-            result["subculture_rows"] = []
             # TICKET-0040: read the real geometry - birth bounds come from the
             # type template (E1), so a hardcoded null stub would make the
             # client render an empty editor whose next save wipes them.
@@ -809,7 +796,6 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
         if entity.type == "character":
             result["prices"] = _npc_prices_dict(entity_id, db)
         elif entity.type == "location":
-            result["subculture_rows"] = _location_subculture_rows(entity_id, db)
             result["geometry"] = _location_geometry_dict(entity_id, db)
             result["doors"] = _location_doors_rows(entity_id, db)
     elif runtime_spec is not None:

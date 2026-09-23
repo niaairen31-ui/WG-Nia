@@ -26,11 +26,11 @@ from ...event_author import build_world_roster as _build_world_roster
 from ...event_author import generate_agenda_draft as _generate_agenda_draft
 from ...event_author import generate_event_draft as _generate_event_draft
 from ...db import get_session
+from ...facet_reads import facts_of, joined
 from ...models import (
     BASE_SKILL_DOMAINS,
     Character,
     Entity,
-    Faction,
     FactionMembership,
     ProposedMutation,
     SCHEDULE_PHASES,
@@ -65,7 +65,7 @@ def _generate_draft_with_l1(entity_type: str, brief: str, db: Session) -> dict:
 
     L1 (BRIEF-0013-b): on a successful character draft, also calls
     generate_npc_goals with the draft's public fields and the resolved
-    faction's `goals` (read-only query, None when unaffiliated) and merges
+    faction's `visee` facts (`facts_of`, joined; None when unaffiliated) and merges
     the result as `draft["public"]["goals"]`. A goal-generation failure never
     fails the draft — it's appended to `notes` and the character draft ships
     without goals.
@@ -76,8 +76,7 @@ def _generate_draft_with_l1(entity_type: str, brief: str, db: Session) -> dict:
         faction_goals = None
         faction_id = pub.get("faction_id")
         if faction_id:
-            faction = db.get(Faction, faction_id)
-            faction_goals = faction.goals if faction else None
+            faction_goals = joined(facts_of(db, entity_id=faction_id, facets=("visee",)))
         goals_result = _generate_npc_goals(
             pub.get("name", ""), facet_text(facets, "description"), facet_text(facets, "histoire"),
             faction_goals, db,
@@ -294,9 +293,10 @@ def generate_agenda(
     write_agenda's owner rule so the assistant can never draft for an owner
     the create would reject: 404/422 if the entity is missing, inactive, or
     not `faction`/`character`. owner_context is built from PUBLIC fields
-    only (faction: description + Faction.philosophy; character: description
-    + Character.backstory) — secrets stay structurally excluded: no
-    `knowledge` row, no `character.secrets`, no `internal_tensions` is ever
+    only (faction: `description` + `doctrine` facts; character: `description`
+    + `histoire` facts, via `facts_of`) — secrets stay structurally excluded:
+    `facts_of` drops the creator's note by query construction
+    (AMENDMENT-0091-01), no `knowledge` row, no `tension` fact is ever
     read here. Returns {"ok": false, "error": ...} (never a 500) on any
     failure.
     """
@@ -306,16 +306,17 @@ def generate_agenda(
     if owner.status != "active" or owner.type not in ("faction", "character"):
         raise HTTPException(422, "owner_entity_id must be an active faction or character")
 
+    description = joined(facts_of(db, entity_id=owner.id, facets=("description",)))
     if owner.type == "faction":
         owner_kind = "faction"
-        faction = db.get(Faction, owner.id)
-        philosophy = f"Philosophie : {faction.philosophy}" if faction and faction.philosophy else None
-        parts = [p for p in (owner.description, philosophy) if p]
+        doctrine = joined(facts_of(db, entity_id=owner.id, facets=("doctrine",)))
+        philosophy = f"Philosophie : {doctrine}" if doctrine else None
+        parts = [p for p in (description, philosophy) if p]
     else:
         owner_kind = "personnage"
-        character = db.get(Character, owner.id)
-        backstory = f"Passé : {character.backstory}" if character and character.backstory else None
-        parts = [p for p in (owner.description, backstory) if p]
+        histoire = joined(facts_of(db, entity_id=owner.id, facets=("histoire",)))
+        backstory = f"Passé : {histoire}" if histoire else None
+        parts = [p for p in (description, backstory) if p]
     owner_context = "\n".join(parts) if parts else "(aucune description)"
 
     return _generate_agenda_draft(owner_kind, owner.name, owner_context, body.brief, db)

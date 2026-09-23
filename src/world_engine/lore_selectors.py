@@ -16,6 +16,8 @@ from typing import Callable
 from sqlmodel import Session, func, select
 
 from .context import read_public_memberships
+from .facet_reads import creator_only_fact_ids, facts_of, joined
+from .facets import DESCRIPTIVE_FACETS, FACETS
 from .models import Character, Entity, FactParticipant, Faction, Knowledge, NpcGoal, Relation
 from .writes.knowledge import knowledge_level_rank
 
@@ -52,16 +54,19 @@ def world_factions(world_id: str, db: Session) -> list[dict]:
             Entity.status == "active",
         )
     ).all()
+    def facet(entity_id: str, name: str) -> str | None:
+        return joined(facts_of(db, entity_id=entity_id, facets=(name,)))
+
     return [
         {
             "section": "factions",
             "entity_id": entity.id,
             "name": entity.name,
-            "description": entity.description,
+            "description": facet(entity.id, "description"),
             "faction_type": faction.faction_type,
-            "philosophy": faction.philosophy,
-            "internal_structure": faction.internal_structure,
-            "internal_tensions": faction.internal_tensions,
+            "philosophy": facet(entity.id, "doctrine"),
+            "internal_structure": facet(entity.id, "organisation"),
+            "internal_tensions": facet(entity.id, "tension"),
             "magic_knowledge_level": faction.magic_knowledge_level,
         }
         for entity, faction in rows
@@ -79,7 +84,6 @@ def _identity_rows(entity_id: str, world_id: str, db: Session) -> list[dict]:
         "entity_id": entity.id,
         "name": entity.name,
         "type": entity.type,
-        "description": entity.description,
         "status": entity.status,
         "is_public": entity.is_public,
         "internal_name": entity.internal_name,
@@ -91,12 +95,36 @@ def _identity_rows(entity_id: str, world_id: str, db: Session) -> list[dict]:
                 character_type=character.character_type,
                 current_location_id=character.current_location_id,
                 vital_status=character.vital_status,
-                appearance=character.appearance,
-                backstory=character.backstory,
-                aversion=character.aversion,
                 physical_tier=character.physical_tier,
             )
     return [row]
+
+
+def _facet_rows(entity_id: str, world_id: str, db: Session) -> list[dict]:
+    """One `facets` row per descriptive fact of the entity, in registry
+    order (TICKET-0091, BRIEF-0091-H). The creator's dossier is the ONLY
+    legal `include_creator_only=True` call site (AMENDMENT-0091-01): the
+    creator sees the note, tagged `secret`, and nothing here reaches Play.
+    World-scoped: an entity of another world yields no row."""
+    entity = db.exec(
+        select(Entity).where(Entity.id == entity_id, Entity.world_id == world_id)
+    ).first()
+    if entity is None:
+        return []
+    facets = tuple(name for name in FACETS if name in DESCRIPTIVE_FACETS)
+    rows = facts_of(db, entity_id=entity_id, facets=facets, include_creator_only=True)
+    secret_ids = creator_only_fact_ids(db, [row.fact_id for row in rows])
+    return [
+        {
+            "section": "facets",
+            "facet": row.facet,
+            "label": FACETS[row.facet].label,
+            "aspect": row.aspect,
+            "content": row.content,
+            "secret": row.fact_id in secret_ids,
+        }
+        for row in rows
+    ]
 
 
 def _relation_rows(entity_id: str, world_id: str, db: Session) -> list[dict]:
@@ -185,14 +213,16 @@ def _goal_rows(entity_id: str, world_id: str, db: Session) -> list[dict]:
 
 
 def entity_dossier(entity_id: str, world_id: str, db: Session) -> list[dict]:
-    """Flat list of row dicts across five sections — identity, relations,
-    knowledge, memberships, goals — each carrying a `"section"` key. No
+    """Flat list of row dicts across six sections — identity, facets,
+    relations, knowledge, memberships, goals — each carrying a `"section"`
+    key. No
     `traits` section: `entity_trait` is keyed by `entity_type_id` (a
     runtime-custom-entity-type projection, TICKET-0045), never by
     `entity_id`, so it cannot serve as a per-entity dossier section — see
     ARCHITECTURE_DECISIONS.md."""
     return (
         _identity_rows(entity_id, world_id, db)
+        + _facet_rows(entity_id, world_id, db)
         + _relation_rows(entity_id, world_id, db)
         + _knowledge_rows(entity_id, world_id, db)
         + _membership_rows(entity_id, db)

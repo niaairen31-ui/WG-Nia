@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session as DbSession, select
 
 from ...db import get_session
+from ...facet_reads import facts_of, joined
 from ...entity_author import generate_npc_goals
 from ...gathering import close_open_memberships
 from ...ledger import get_balance, list_entries
@@ -244,8 +245,8 @@ def set_goal_prerequisites(
 
 
 def _npc_faction_goals(entity_id: str, db: DbSession) -> Optional[str]:
-    """This NPC's first PUBLIC active faction membership's `Faction.goals`
-    (read-only, generator input only — BRIEF-0013-b)."""
+    """This NPC's first PUBLIC active faction membership's `visee` facts,
+    joined (read-only, generator input only — BRIEF-0013-b)."""
     membership = db.exec(
         select(FactionMembership)
         .where(
@@ -256,8 +257,7 @@ def _npc_faction_goals(entity_id: str, db: DbSession) -> Optional[str]:
     ).first()
     if membership is None:
         return None
-    faction = db.get(Faction, membership.faction_id)
-    return faction.goals if faction else None
+    return joined(facts_of(db, entity_id=membership.faction_id, facets=("visee",)))
 
 
 class GoalBackfillBody(BaseModel):
@@ -302,8 +302,8 @@ def _backfill_one_npc(char: Character, world_id: str, db: DbSession) -> dict:
     entity = db.get(Entity, char.id)
     result = generate_npc_goals(
         entity.name if entity else "",
-        entity.description if entity else "",
-        char.backstory,
+        joined(facts_of(db, entity_id=char.id, facets=("description",))) or "",
+        joined(facts_of(db, entity_id=char.id, facets=("histoire",))),
         _npc_faction_goals(char.id, db),
         db,
     )

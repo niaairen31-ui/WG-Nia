@@ -26,14 +26,21 @@ class RenderedAnswer:
 
 # --- the section contract (BRIEF-0085-d item 2) --------------------------
 # The vocabulary is the union of what the shipped selectors emit: identity,
-# relations, knowledge, memberships, goals from entity_dossier; factions
+# facets, relations, knowledge, memberships, goals from entity_dossier
+# (facets: TICKET-0091, BRIEF-0091-H); factions
 # from world_factions (BRIEF-0085-d item 3); coverage, knowers from
 # who_knows_about (BRIEF-0087-e). Sections are grouped in the order their
 # first row appears in `rows`, for both the model prompt and the template
 # fallback -- not in the order of the dict below.
 
 def _format_identity(row: dict) -> str:
-    return f"{row.get('name')} ({row.get('type')}) : {row.get('description') or '(sans description)'}"
+    return f"{row.get('name')} ({row.get('type')})"
+
+
+def _format_facets(row: dict) -> str:
+    aspect = f" ({row['aspect']})" if row.get("aspect") else ""
+    secret = " [secret]" if row.get("secret") else ""
+    return f"{row.get('label')}{aspect} : {row.get('content')}{secret}"
 
 
 def _format_relations(row: dict) -> str:
@@ -86,6 +93,7 @@ def _format_coverage(row: dict) -> str:
 
 _SECTION_FORMATTERS: dict[str, Callable[[dict], str]] = {
     "identity": _format_identity,
+    "facets": _format_facets,
     "relations": _format_relations,
     "knowledge": _format_knowledge,
     "memberships": _format_memberships,

@@ -22,6 +22,7 @@ from ..context import (
     assemble_npc_context,
 )
 from ..db import engine
+from ..facet_reads import facts_of, joined
 from ..models import (
     BASE_SKILL_DOMAINS,
     Character,
@@ -32,7 +33,6 @@ from ..models import (
     Event,
     Gathering,
     Location,
-    LocationSubculture,
     PromptTemplate,
     Skill,
     SkillDefinition,
@@ -721,17 +721,14 @@ def _build_establishment_narration(
             return None
         loc_entity = db.get(Entity, location_id)
         location = db.get(Location, location_id)
-        description = loc_entity.description if loc_entity else None
+        description = joined(facts_of(db, entity_id=location_id, facets=("description",))) if loc_entity else None
         subculture: dict = {}
-        if location:
-            subculture_rows = db.exec(
-                select(LocationSubculture).where(
-                    LocationSubculture.location_id == location_id,
-                    LocationSubculture.key.in_(_SAFE_SUBCULTURE_KEYS),
-                    LocationSubculture.is_hidden == False,  # noqa: E712
-                )
-            ).all()
-            subculture = {row.key: row.value for row in subculture_rows if row.value}
+        if location:  # a hidden custom has no `location` default: excluded by the query
+            subculture = {
+                row.aspect: row.content
+                for row in facts_of(db, entity_id=location_id, facets=("coutume",), notorious_at_location=location_id)
+                if row.aspect in _SAFE_SUBCULTURE_KEYS and row.content
+            }
         signposts = active_signposts(db, location_id, player_character_id)
         version = current_prompt(db, template)
         user_msg = _build_establishment_user(

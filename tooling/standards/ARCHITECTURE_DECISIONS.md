@@ -15193,7 +15193,8 @@ ticket can reach, and presenting it at all would read type-level schema
 capability as entity-specific canon to the creator, the same class of error
 Scope IN item 5's DORMANT-column exclusion exists to prevent. `entity_dossier`
 returns five sections (`identity`, `relations`, `knowledge`, `memberships`,
-`goals`), not six. A reader for a runtime-custom-type entity's own `ext_*`
+`goals`), not six. (Since BRIEF-0091-h it returns six: a `facets` section
+follows `identity` — see "LORE DOSSIER FACETS" below.) A reader for a runtime-custom-type entity's own `ext_*`
 row data is a capability nothing in this ticket builds — no reader for
 `physical_table` exists anywhere outside `writes/schema.py`'s DDL
 construction.
@@ -15943,6 +15944,48 @@ sheet): every future omniscient reader would have to remember it, which is
 "guarded by instruction", not by construction. A separate facet for the
 note: C-05 and C-18 already fixed its shape and the knowledge row is the
 existing secrecy carrier.
+
+---
+
+## LORE DOSSIER FACETS (TICKET-0091) -- EVERY READER OUTSIDE PLAY READS FACTS (BRIEF-0091-h, no schema change)
+
+**The dossier shows lore by facet.** `lore_selectors.entity_dossier` now
+returns six sections: `identity`, `facets`, `relations`, `knowledge`,
+`memberships`, `goals`. `identity` keeps name, type, status, is_public,
+internal_name and the character mechanics (`character_type`,
+`current_location_id`, `vital_status`, `physical_tier`); the prose keys are
+gone. `_facet_rows` emits one `facets` row per descriptive fact, in
+registry order, with `{facet, label, aspect, content, secret}`. It is the
+only `include_creator_only=True` call site, so the creator sees their note,
+and `secret` (`creator_only_fact_ids`) tags it. `lore_render._format_facets`
+prints `label (aspect) : content [secret]`; `_format_identity` prints name
+and type only. `Lore.svelte` labels the section `Faits`. `world_factions`
+keeps its keys, filled from `description`, `doctrine`, `organisation` and
+`tension` facts (joined).
+
+**The remaining readers.** Every non-play reader of a moving column reads
+`facet_reads.facts_of` without the opt-in, so the creator's note never
+reaches a generator prompt: faction goals -> `visee` (draft L1 goals, goal
+backfill, NPC group rows); philosophy -> `doctrine` and backstory ->
+`histoire` (agenda owner context, goal backfill); description ->
+`description` (agenda owner, goal backfill, faction context of the NPC
+group agent, room batch anchor and siblings, establishment narration,
+relation-graph nodes, lore candidates). `observation_runner.
+check_run_readiness` requires at least one `description` fact per NPC.
+
+**Subculture reads (AMENDMENT-0091-02).** The room batch anchor and the
+establishment narration read `coutume` facts notorious at the location
+(`notorious_at_location`). A hidden custom carries no `location` default, so
+the hidden-subculture trap holds by query construction. The narration keeps
+the `_SAFE_SUBCULTURE_KEYS` allow-list on the aspect. The room batch keys
+every notorious custom by aspect, joins several facts under one aspect, and
+keys an aspect-less custom by the facet label, so no line is dropped or
+printed as `None`.
+
+**Payload.** `_entity_dict` no longer carries `description` (the sheet reads
+`GET /api/entities/{id}/facts`); `_location_subculture_rows` and every
+`subculture_rows` payload key (`crud/entities.py`, `crud/entity_geometry.py`)
+are removed, with the `crud/__init__.py` re-export.
 
 ---
 

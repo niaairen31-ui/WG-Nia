@@ -29,6 +29,7 @@ from sqlmodel import Session, select
 
 from . import link_author, llm_parse
 from .entity_author import AUTHOR_MODEL, facet_text, generate_entity_draft, generate_npc_goals
+from .facet_reads import facts_of, joined
 from .models import Entity, Faction, NpcBatch, NpcBatchRow, PromptTemplate, World
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
@@ -213,7 +214,8 @@ def _resolve_faction_context(db: Session, faction_id: str | None) -> dict | None
     faction_entity = db.get(Entity, faction_id)
     if faction_entity is None:
         return None
-    return {"name": faction_entity.name, "description": (faction_entity.description or "")[:300]}
+    description = joined(facts_of(db, entity_id=faction_id, facets=("description",))) or ""
+    return {"name": faction_entity.name, "description": description[:300]}
 
 
 def _batch_siblings(db: Session, batch: NpcBatch, line_index: int) -> list[NpcBatchRow]:
@@ -303,14 +305,13 @@ def _check_name_collision(db: Session, batch: NpcBatch, name: str) -> str | None
 
 def _generate_row_goals(db: Session, draft: dict, notes: list[str]) -> dict | None:
     """`generate_npc_goals` with `faction_goals` read from the resolved
-    faction's `Faction.goals` (None when factionless). A failure never
+    faction's `visee` facts, joined (None when factionless). A failure never
     blocks the row — appended as a note instead."""
     pub = draft["public"]
     faction_id = pub.get("faction_id")
     faction_goals = None
     if faction_id is not None:
-        faction = db.get(Faction, faction_id)
-        faction_goals = faction.goals if faction is not None else None
+        faction_goals = joined(facts_of(db, entity_id=faction_id, facets=("visee",)))
 
     facets = draft["facets"]
     result = generate_npc_goals(
