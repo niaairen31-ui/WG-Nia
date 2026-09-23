@@ -26,7 +26,9 @@ from sqlmodel import Session, select  # noqa: E402
 from world_engine import models as m  # noqa: E402
 from world_engine.db import engine  # noqa: E402
 from world_engine.prompt_store import list_versions  # noqa: E402
-from world_engine.writes import create_fact, write_location_subculture, write_membership, write_npc_prices, write_prompt_variables, write_prompt_version  # noqa: E402
+from world_engine.facets import normalize_aspect  # noqa: E402
+from world_engine.writes import create_fact, write_membership, write_npc_prices, write_prompt_variables, write_prompt_version  # noqa: E402
+from world_engine.writes.facets import write_entity_facets  # noqa: E402
 
 WORLD_ID = "verkhaal"
 
@@ -244,30 +246,33 @@ def ensure_npc_prices(session: Session, entity_id: str, prices: dict[str, int]) 
     _updated.append((m.NpcPrice.__tablename__, entity_id))
 
 
-def ensure_location_subculture(
+def ensure_location_customs(
     session: Session, location_id: str, entries: dict[str, tuple[str, bool]]
 ) -> None:
-    """Full-replace `location_subculture` rows for a location, idempotently
-    (TICKET-0025, BRIEF-0025-b — replaces the `location.subculture` JSON
-    column). `entries` maps key -> (value, is_hidden). A second run with
-    unchanged values records nothing changed."""
+    """Write a location's customs as `coutume` facts through
+    `write_entity_facets` (TICKET-0091, BRIEF-0091-I — replaces the
+    `location_subculture` full-replace). `entries` maps key -> (value,
+    is_hidden); the key is the fact's aspect, a hidden entry gets no default.
+    Idempotent: an entry is skipped when the location already has a
+    `coutume` fact with that aspect and content."""
     entity = session.get(m.Entity, location_id)
     if entity is None:
         return
-    existing_rows = session.exec(
-        select(m.LocationSubculture).where(m.LocationSubculture.location_id == location_id)
-    ).all()
-    existing = {row.key: (row.value, row.is_hidden) for row in existing_rows}
-    target = {key: (value, is_hidden) for key, (value, is_hidden) in entries.items()}
-    if existing == target:
-        _existing.append((m.LocationSubculture.__tablename__, location_id))
+    existing = set(session.exec(
+        select(m.Fact.aspect, m.Fact.content)
+        .join(m.FactParticipant, m.FactParticipant.fact_id == m.Fact.id)
+        .where(m.FactParticipant.entity_id == location_id, m.Fact.facet == "coutume")
+    ).all())
+    missing = [
+        {"aspect": key, "content": value, "hidden": is_hidden}
+        for key, (value, is_hidden) in entries.items()
+        if (normalize_aspect(key), value) not in existing
+    ]
+    if not missing:
+        _existing.append((m.Fact.__tablename__, f"{location_id}:coutume"))
         return
-    write_location_subculture(
-        session, world_id=entity.world_id, location_id=location_id,
-        rows=[{"key": key, "value": value, "is_hidden": is_hidden} for key, (value, is_hidden) in entries.items()],
-        changed_by="seed",
-    )
-    _updated.append((m.LocationSubculture.__tablename__, location_id))
+    write_entity_facets(session, entity_id=location_id, facets={"coutume": missing}, created_by="seed")
+    _updated.append((m.Fact.__tablename__, f"{location_id}:coutume"))
 
 
 # Analysis prompt for post-conversation mutation extraction. Usage value is
@@ -3062,7 +3067,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         magic_status="sensitive",
         access_level="public",
     )
-    ensure_location_subculture(session, "loc-dernier-verre", {
+    ensure_location_customs(session, "loc-dernier-verre", {
         "values": ("Lieu neutre où l'on ne pose pas de questions.", False),
         "hidden": ("En sous-main, point d'appui de L'Innommée.", True),
         "magic_phenomena": (

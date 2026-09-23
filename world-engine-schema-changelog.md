@@ -13,6 +13,31 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.06** — TICKET-0091, BRIEF-0091-I: lore as facts — relocation and
+  drop. Every filled prose cell became one descriptive `fact` (text
+  unchanged, outer whitespace trimmed only, L2), `created_by =
+  'migrate_v2_06'`, the source entity as its one participant:
+  `entity.description` -> `description` (`world`/`knows` default when
+  `entity.is_public`), `character.appearance` -> `physique` (`rencontre`/
+  `knows`, scope_id = the character), `character.backstory` -> `histoire`,
+  `character.aversion` -> `aversion`, `character.secrets` -> `histoire` plus
+  one `knowledge` row for the character itself (`subject='creator_meta'`,
+  `level='unaware'`, `is_secret=1`), `faction.philosophy` -> `doctrine`
+  (`world`/`knows`), `faction.internal_structure` -> `organisation`,
+  `faction.internal_tensions` -> `tension`, `faction.goals` -> `visee`,
+  `faction.aversion` -> `aversion` (no default unless stated), and each
+  `location_subculture` row -> `coutume` with `aspect = lower(trim(key))`
+  and a `location`/`knows` default at the location unless `is_hidden`. On a
+  prod copy: 1197 facts (318 / 181 / 180 / 167 / 35 / 46 / 43 / 46 / 43 /
+  42 / 96 in that order), 595 defaults (363 world, 181 rencontre, 51
+  location), 35 `creator_meta` rows. Dropped: the ten columns
+  (`ALTER TABLE ... DROP COLUMN`; `faction.scope` stays, a mechanic) and
+  the `location_subculture` table with `idx_location_subculture_key`.
+  D3b' control query printed, not merged: 78 groups of identical
+  `(world_id, facet, content)` among the migrated facts. Migration:
+  `scripts/migrate_v2_06_lore_as_facts.py`, one transaction, post-checks
+  (one fact per filled source cell) before any drop; idempotent — a second
+  run prints zeros.
 - **v2.05** — TICKET-0091, BRIEF-0091-A: facets, encounters table, fact
   chokepoint. `fact` gains `facet TEXT` and `aspect TEXT` (`ALTER TABLE ...
   ADD COLUMN`, no CHECK — the vocabulary is the code registry

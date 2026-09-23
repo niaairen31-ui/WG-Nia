@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.05
+Current schema version: v2.06
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -78,13 +78,15 @@ CREATE TABLE entity (
                 -- character | faction | location | concept | magic | artifact | item | other
   name          TEXT NOT NULL,
   internal_name TEXT,                  -- creator-only name (ex: "The Unnamed")
-  description   TEXT,
   is_public     BOOLEAN DEFAULT TRUE,  -- FALSE = existence denied or secret
   status        TEXT DEFAULT 'active', -- active | inactive | destroyed | missing
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
+-- Descriptive prose is not a column (schema v2.06, TICKET-0091): an
+-- entity's description is a `description` fact (`fact.facet`), the entity
+-- its one participant — see `fact` and `src/world_engine/facets.py`.
 
 -----
 
@@ -109,21 +111,6 @@ CREATE TABLE character (
   user_id         TEXT,                         -- NULL for NPCs
   current_location_id TEXT REFERENCES entity(id),
   vital_status    TEXT DEFAULT 'alive',         -- alive | dead | missing | unknown
-  appearance      TEXT,
-  backstory       TEXT,
-  aversion        TEXT,                         -- prose dual of philosophy
-                                                  -- (schema v1.44, BRIEF-33):
-                                                  -- what this character
-                                                  -- rejects/fears, a concept
-                                                  -- or category, never a
-                                                  -- named entity. Read into
-                                                  -- the NPC dialogue prompt
-                                                  -- (H_IDENTITY block).
-  secrets         TEXT,                         -- creator-only, plain text
-                                                  -- since schema v1.78
-                                                  -- (TICKET-0025, B1): no
-                                                  -- reader ever consumed
-                                                  -- structure.
   physical_tier   INTEGER NOT NULL DEFAULT 0     -- opposed-roll resistance
                                                   -- tier, -1..2 (schema
                                                   -- v1.77, TICKET-0025,
@@ -133,11 +120,14 @@ CREATE TABLE character (
                                                   -- 0 = ordinaire default.
 );
 ```
--- NOTE on `secrets` vs `knowledge.is_secret`: `character.secrets` holds
--- creator meta-narrative ABOUT the character (true nature, planned reveal
--- arcs, creator intentions), free-form prose. It is NEVER read by any
--- context assembler. What a character knows-but-conceals is modeled as
--- `knowledge` rows with `is_secret = TRUE`, structurally excluded by the
+-- Descriptive prose is not a column (schema v2.06, TICKET-0091):
+-- appearance -> `physique` fact, backstory -> `histoire`, aversion ->
+-- `aversion`. The creator's meta-narrative (formerly `character.secrets`)
+-- is a `histoire` fact with no default plus one `knowledge` row for the
+-- character itself, `subject='creator_meta'`, `level='unaware'`,
+-- `is_secret=TRUE` — the character never knows it, and facet reads exclude
+-- it by query construction. What a character knows-but-conceals is modeled
+-- as `knowledge` rows with `is_secret = TRUE`, structurally excluded by the
 -- assembler.
 
 -----
@@ -320,30 +310,6 @@ CREATE UNIQUE INDEX idx_entity_trait_unique
 
 -----
 
-### `location_subculture`
-
-Ambient culture lines (schema v1.78, TICKET-0025, BRIEF-0025-b — replaces
-`location.subculture` JSON). One row per key. `is_hidden = TRUE` rows are
-creator-only: every non-creator read path filters `is_hidden = FALSE` AT
-QUERY CONSTRUCTION — exclusion is structural, never instructional. Curated
-config, same family as `faction_role`: no `change_history`, full-replace
-writes via `writes.write_location_subculture` only.
-
-```sql
-CREATE TABLE location_subculture (
-  id          TEXT PRIMARY KEY,
-  world_id    TEXT NOT NULL REFERENCES world(id),
-  location_id TEXT NOT NULL REFERENCES entity(id),
-  key         TEXT NOT NULL,
-  value       TEXT NOT NULL,
-  is_hidden   BOOLEAN NOT NULL DEFAULT FALSE
-);
-CREATE UNIQUE INDEX idx_location_subculture_key
-  ON location_subculture(location_id, key COLLATE NOCASE);
-```
-
------
-
 ### `obstacle` / `obstacle_vertex`
 
 Intra-location wall geometry (schema v1.80, TICKET-0029, BRIEF-0029-a).
@@ -444,34 +410,25 @@ CREATE TABLE faction (
   id                    TEXT PRIMARY KEY REFERENCES entity(id),
   faction_type          TEXT,
                         -- government | criminal | military | esoteric | other
-  internal_structure    TEXT,
-  philosophy            TEXT,
   magic_knowledge_level TEXT DEFAULT 'unaware',
                         -- unaware | suspicious | partial | knows | understands
-  internal_tensions     TEXT,
   parent_faction_id     TEXT REFERENCES entity(id),
                         -- containment tree, mirror of location.parent_location_id.
                         -- NULL = root faction. DORMANT (BRIEF-26, schema v1.38):
                         -- no assembler or guard traverses it yet — creator-CRUD
                         -- only, metadata-config category, no change_history (same
                         -- as location_type / coord_x / coord_y).
-  scope                 TEXT,
+  scope                 TEXT
                         -- global | national | regional | local | other.
                         -- DORMANT: descriptive scale label, NOT derived from
                         -- tree depth. No code reads it yet.
-  goals                 TEXT,
-                        -- DORMANT: prose, what the faction is trying to do.
-                        -- No mechanic, no structured consumer.
-  aversion              TEXT
-                        -- DORMANT (schema v1.44, BRIEF-33): prose dual of
-                        -- philosophy — what the faction rejects/combats, a
-                        -- concept or category, never a named entity. Public-
-                        -- tagged, authored + proposed, but read by no
-                        -- assembler yet; the future reader MUST route
-                        -- through read_public_memberships.
 );
 CREATE INDEX idx_faction_parent ON faction(parent_faction_id);
 ```
+-- Descriptive prose is not a column (schema v2.06, TICKET-0091):
+-- philosophy -> `doctrine` fact, internal_structure -> `organisation`,
+-- internal_tensions -> `tension`, goals -> `visee`, aversion -> `aversion`.
+-- `scope` stays: it is a mechanic, not prose.
 
 -----
 

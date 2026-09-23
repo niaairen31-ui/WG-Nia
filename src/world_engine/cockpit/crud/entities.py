@@ -44,7 +44,6 @@ from ...models import (
     Knowledge,
     Ledger,
     Location,
-    LocationSubculture,
     NpcPrice,
     Obstacle,
     ObstacleVertex,

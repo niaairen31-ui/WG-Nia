@@ -71,14 +71,14 @@ fact; creator-CRUD only),
 and `write_faction_role(mode="delete")` (blocked while an active membership
 holds the role) — creator-CRUD-only, never reachable from any AI or play
 path. Full-replace config deletes (whole-set replace, not
-single-row correction): `write_npc_prices`, `write_location_subculture`,
-`write_world_laws`, `write_location_obstacles`, and `write_location_doors`
-each `DELETE FROM` their table(s) scoped to one parent (NPC / location /
-world / location / location) then re-insert the submitted set, in one
-transaction — creator-CRUD and world-bootstrap only (`set_npc_prices`,
-`create_world`, `set_location_geometry`, `set_location_doors`; since
-TICKET-0091, BRIEF-0091-E `write_location_subculture` has no route caller,
-only the seed), never reachable from any AI or play path. These
+single-row correction): `write_npc_prices`, `write_world_laws`,
+`write_location_obstacles`, and `write_location_doors` each `DELETE FROM`
+their table(s) scoped to one parent (NPC / world / location / location)
+then re-insert the submitted set, in one transaction — creator-CRUD and
+world-bootstrap only (`set_npc_prices`, `create_world`,
+`set_location_geometry`, `set_location_doors`; `location_subculture` and
+its writer were dropped in schema v2.06, TICKET-0091, BRIEF-0091-I), never
+reachable from any AI or play path. These
 tables carry no `change_history` by design (metadata-config category);
 the full-replace IS their write shape. No table may take a foreign key on
 `door.id` — enforced by `door_terminal.py`. `cockpit/spatial_doors.py`

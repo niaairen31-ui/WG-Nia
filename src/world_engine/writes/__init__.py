@@ -25,8 +25,7 @@ Layout, by canon domain:
     characters.py       — `character`/`skill`/`ledger`: three unbaselined movers.
     factions.py         — `faction_membership`/`faction_role`.
     config.py           — the governed-config group (`npc_price`,
-                          `location_subculture`, `world_law`, `obstacle`/
-                          `obstacle_vertex`).
+                          `world_law`, `obstacle`/`obstacle_vertex`).
     goals_agendas.py    — `npc_goal`/`goal_prerequisite`/`agenda`/
                           `agenda_step`/`goal_agenda_link`.
     events.py           — `event`.
@@ -51,7 +50,6 @@ from .config import (
     upsert_location_type,
     write_location_doors,
     write_location_obstacles,
-    write_location_subculture,
     write_npc_prices,
     write_npc_schedule,
     write_world_laws,

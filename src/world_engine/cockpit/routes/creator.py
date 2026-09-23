@@ -341,7 +341,7 @@ def generate_event(
     resolve to an active `location` entity in the active world (the same
     predicate as `_apply_mutation`'s `event_creation` branch); it then wins
     outright over the model's own location proposal. `location_context` is
-    the location's `name` + `description` only — public fields, never
+    the location's `name` + `description` facts only — public, never
     `internal_name`, never `metadata`. The J3 roster
     (`event_author.build_world_roster`) is public-only, filtered in SQL.
     Returns {"ok": false, "error": ...} (never a 500) on any failure.
@@ -364,7 +364,8 @@ def generate_event(
         ):
             raise HTTPException(422, f"location_id {body.location_id!r} is not an active location in this world")
         location_hint = location.name
-        parts = [p for p in (location.name, location.description) if p]
+        description = joined(facts_of(db, entity_id=location.id, facets=("description",)))
+        parts = [p for p in (location.name, description) if p]
         location_context = "\n".join(parts)
 
     roster = _build_world_roster(db, world_id)

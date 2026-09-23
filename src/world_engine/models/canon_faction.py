@@ -25,13 +25,13 @@ class Faction(SQLModel, table=True):
 
     id: str = Field(primary_key=True, foreign_key="entity.id")
     faction_type: Optional[str] = None
-    internal_structure: Optional[str] = None
-    philosophy: Optional[str] = None
+    # internal_structure/philosophy/internal_tensions/goals/aversion moved to
+    # facts (TICKET-0091, schema v2.06): organisation, doctrine, tension,
+    # visee, aversion.
     magic_knowledge_level: str = Field(
         default="unaware",
         sa_column_kwargs={"server_default": text("'unaware'")},
     )
-    internal_tensions: Optional[str] = None
     # DORMANT (BRIEF-26, schema v1.38): containment tree, mirror of
     # location.parent_location_id. No assembler or guard traverses it yet —
     # creator-CRUD only, metadata-config category, no change_history (same
@@ -42,14 +42,6 @@ class Faction(SQLModel, table=True):
     # DORMANT: descriptive scale label, NOT derived from tree depth. No code
     # reads it yet. global | national | regional | local | other.
     scope: Optional[str] = None
-    # DORMANT: prose, what the faction is trying to do. No mechanic, no
-    # structured consumer.
-    goals: Optional[str] = None
-    # DORMANT (BRIEF-33, schema v1.44): prose dual of `philosophy` — what the
-    # faction rejects/opposes. Public-tagged, authored + proposed, but read
-    # by no assembler yet. Future reader MUST route through
-    # `read_public_memberships` (see ARCHITECTURE_DECISIONS.md).
-    aversion: Optional[str] = None
 
 
 # -----------------------------------------------------------------------------

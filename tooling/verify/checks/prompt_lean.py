@@ -5,7 +5,9 @@ Static assertions only (source text / AST, no DB):
 1. NPC_DIALOGUE_SYSTEM_PROMPT carries none of the removed blocks.
 2. No seed prompt constant (*_SYSTEM_PROMPT, *_USER_TEMPLATE) contains any
    pilot identifier, case-insensitively.
-3. context.py: no "magiquement"; _SAFE_SUBCULTURE_KEYS == ("values",);
+3. context.py: no "magiquement"; FACETS["coutume"].aspects == ("values",)
+   (TICKET-0091, BRIEF-0091-I: the facet registry replaced the context.py
+   _SAFE_SUBCULTURE_KEYS constant as the ambient-custom allow-list);
    _affinity_tier is defined and referenced inside assemble_npc_context or
    one of its `_npc_context_*` decomposition helpers (TICKET-0028,
    BRIEF-0028-e retargeted this from assemble_npc_context's own body to
@@ -26,6 +28,9 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SEED = ROOT / "scripts" / "seed_pilot.py"
 CONTEXT = ROOT / "src" / "world_engine" / "context.py"
+
+sys.path.insert(0, str(ROOT / "src"))
+from world_engine.facets import FACETS  # noqa: E402  (pure registry, no DB)
 
 PILOT_TERMS = ("maelis", "reike", "senna", "korin", "bryn", "dernier verre", "verkhaal")
 
@@ -73,8 +78,8 @@ def main() -> int:
     # 3. context.py structural checks.
     if "magiquement" in context_text:
         failures.append("context.py still contains 'magiquement'")
-    if '_SAFE_SUBCULTURE_KEYS = ("values",)' not in context_text:
-        failures.append('context.py: _SAFE_SUBCULTURE_KEYS is not exactly ("values",)')
+    if FACETS["coutume"].aspects != ("values",):
+        failures.append('facets.py: FACETS["coutume"].aspects is not exactly ("values",)')
     if "def _affinity_tier(" not in context_text:
         failures.append("context.py: _affinity_tier is not defined")
     else:

@@ -38,7 +38,6 @@ from ...models import (
     Knowledge,
     Ledger,
     Location,
-    LocationSubculture,
     NpcGoal,
     NpcPrice,
     PromptTemplate,

@@ -42,7 +42,6 @@ from ...tick import run_world_tick as _run_world_tick
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt
 from ...context import (
-    _SAFE_SUBCULTURE_KEYS,
     assemble_mj_context,
     assemble_npc_context,
     format_mj_context,
@@ -71,7 +70,6 @@ from ...models import (
     Item,
     Knowledge,
     Location,
-    LocationSubculture,
     NpcGoal,
     PromptTemplate,
     ProposedMutation,

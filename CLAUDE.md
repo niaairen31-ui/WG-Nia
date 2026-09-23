@@ -144,8 +144,9 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   dedup (`entity_id` + `subject`; `entity_id`) via `_mutation_match_key`,
   same conversation required.
 - **Secrets are structurally excluded** from every assembled context — never
-  "guarded by instruction". `character.secrets` is creator meta-narrative
-  and is NEVER read by any context assembler. What an NPC
+  "guarded by instruction". The creator's note on an entity (a `histoire`
+  fact whose entity holds a `creator_meta` `is_secret` row) is excluded from
+  `facet_reads` by query construction; only the Lore dossier opts in. What an NPC
   knows-but-conceals lives in `knowledge` rows with `is_secret = TRUE`,
   excluded by query construction at every assembler AND every propagation
   path (`analyze_overhearing` never sources a proposal from an `is_secret`
@@ -205,9 +206,9 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   partial/success perception search (`domain="perception"`,
   `opposed_npc_id=None`). `ambient` content is read only via the pure code
   predicate `active_signposts` (scene_format.py), passed directly into the MJ
-  establishment call. A `location_subculture` row with `key = "hidden"`
-  is a TRAP — never add `"hidden"` to `_SAFE_SUBCULTURE_KEYS`, and every
-  reader filters `is_hidden = FALSE` at query construction; discoverable
+  establishment call. A hidden `coutume` fact (no `location` default) is a
+  TRAP — never add `"hidden"` to `FACETS["coutume"].aspects`, and every play
+  reader filters `notorious_at_location` at query construction; discoverable
   content lives ONLY in `discoverable_detail`.
 - **`connects_to` is location map topology, never a social signal.** Its
   `intensity=50` is meaningless. Every gameplay reader of `relation` keyed

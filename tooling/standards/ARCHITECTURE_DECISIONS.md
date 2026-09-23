@@ -15987,6 +15987,52 @@ printed as `None`.
 `subculture_rows` payload key (`crud/entities.py`, `crud/entity_geometry.py`)
 are removed, with the `crud/__init__.py` re-export.
 
+
+## LORE RELOCATED, COLUMNS DROPPED (TICKET-0091) -- PROSE LIVES ONLY IN FACTS (BRIEF-0091-i, schema v2.06)
+
+**Relocation (L2).** `scripts/migrate_v2_06_lore_as_facts.py` turns every
+filled prose cell into one descriptive fact, text unchanged (outer
+whitespace trimmed only), `created_by = 'migrate_v2_06'`, the source entity
+its one participant: `entity.description` -> `description` (world/knows
+when public), `character.appearance` -> `physique` (rencontre/knows at the
+character), `backstory` -> `histoire`, `character.aversion` -> `aversion`,
+`secrets` -> `histoire` plus the character's own `creator_meta` row
+(`unaware`, `is_secret`), `faction.philosophy` -> `doctrine` (world/knows),
+`internal_structure` -> `organisation`, `internal_tensions` -> `tension`,
+`goals` -> `visee`, `faction.aversion` -> `aversion`; each
+`location_subculture` row -> `coutume` with aspect `lower(trim(key))` and a
+location/knows default unless hidden. No splitting, no tokens, no merge.
+Ten columns (the lot said "twelve"; its own table enumerates ten) and the
+table are then dropped; `faction.scope` stays.
+
+**Order is the safety.** One transaction: relocate, then post-check (every
+filled cell has exactly one matching fact), then drop. A failed post-check
+rolls back before anything is dropped. `backstory` and `secrets` share the
+`histoire` facet, so the idempotency match is discriminated by the presence
+of the `creator_meta` row, never by content alone. On a prod copy: 1197
+facts, 595 defaults, 35 `creator_meta` rows; second run prints zeros. The
+D3b' control query (78 groups of identical `(world, facet, content)`) is
+printed, never merged.
+
+**The allow-list is the registry.** `_SAFE_SUBCULTURE_KEYS` is gone; the
+MJ location block and the establishment narration filter on
+`FACETS["coutume"].aspects` (`("values",)`, pinned by `prompt_lean.py`
+rule 3). `write_location_subculture` and `LocationSubculture` are removed
+with their policy line; `traits._ENTITY_BASE_FIELD_NAMES` keeps
+`"description"` so no runtime trait can shadow the facet.
+`checks/lore_as_facts.py` (R1-R4) keeps the columns, the class and the
+constant from coming back.
+
+**Seed customs honour their hidden flag (AMENDMENT-0091-03).**
+`seed_pilot.ensure_location_customs` writes customs through
+`write_entity_facets`; a hidden entry gets no default, exactly as C-18.
+
+**Found at execution.** `routes/creator.py::generate_event` still read
+`location.description` (missed by R-09/R-11); switched to the location's
+`description` facts. Named debt: the seed's other prose (`description=`,
+`appearance=`, ... on `get_or_create`) is silently ignored by SQLModel, so a
+fresh seed carries customs but no other lore facts.
+
 ---
 
 *Co-built with Claude, June 2026.*

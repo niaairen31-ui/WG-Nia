@@ -47,6 +47,7 @@ from .models import (
     World,
 )
 from .facet_reads import facts_of, joined, known_facts_of
+from .facets import FACETS
 from .knowledge_resolve import resolve_default_rows
 from .schedule_reads import where_is
 from .context_describe import (
@@ -101,10 +102,6 @@ def _affinity_tier(intensity: int) -> tuple[str, str]:
             return adjective, directive
     return _AFFINITY_TIERS[-1][1], _AFFINITY_TIERS[-1][2]
 
-
-# Subculture keys safe to surface as ambient atmosphere. Anything else
-# (e.g. "hidden", "secret") is deliberately withheld from the Setting section.
-_SAFE_SUBCULTURE_KEYS = ("values",)
 
 # Structural exclusion shared by every world-wide relation scan (CLAUDE.md:
 # "connects_to is location map topology, never a social signal" / "controls"
@@ -645,12 +642,13 @@ def _mj_context_location(location_id: str, blindfolded: bool, db: Session) -> tu
 
     # Ambient `coutume` facts notorious at the location (a visible custom
     # carries a `location` default there, a hidden one none), allow-listed
-    # by aspect (TICKET-0091, BRIEF-0091-G).
+    # by aspect — the registry's known `coutume` aspects, never widened
+    # (TICKET-0091, BRIEF-0091-G/-I).
     subculture: dict = {}
     if location:
         rows = facts_of(db, entity_id=location_id, facets=("coutume",),
                         notorious_at_location=location_id)
-        for aspect in _SAFE_SUBCULTURE_KEYS:
+        for aspect in FACETS["coutume"].aspects:
             text = joined([row for row in rows if row.aspect == aspect and row.content], sep=" ")
             if text:
                 subculture[aspect] = text
@@ -744,7 +742,7 @@ def assemble_mj_context(
     at every narration phase, never snapshotted):
 
     - `location` (static): the current location's `entity.name` + its
-      `description` facts, plus the allow-listed (`_SAFE_SUBCULTURE_KEYS`)
+      `description` facts, plus the allow-listed (`FACETS["coutume"].aspects`)
       `coutume` facts notorious at the location — ambiance is perceptible.
       `location.magic_status` is deliberately excluded (not directly
       perceivable).
