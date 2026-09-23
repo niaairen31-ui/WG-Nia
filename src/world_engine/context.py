@@ -40,13 +40,13 @@ from .models import (
     GoalAgendaLink,
     Knowledge,
     Location,
-    LocationSubculture,
     NpcGoal,
     NpcPrice,
     Relation,
     SkillDefinition,
     World,
 )
+from .facet_reads import facts_of, joined, known_facts_of
 from .knowledge_resolve import resolve_default_rows
 from .schedule_reads import where_is
 from .context_describe import (
@@ -233,17 +233,15 @@ def _goal_provenance_suffix(goal: NpcGoal, npc_id: str, session: Session) -> str
     return " (sert : " + ", ".join(f"« {t} »" for t in titles) + ")"
 
 
-def _npc_context_identity(npc_entity: Entity, npc_char: Character) -> str:
-    """----- 1. Identity -----"""
+def _npc_context_identity(npc_entity: Entity, npc_char: Character, session: Session) -> str:
+    """----- 1. Identity ----- One line per fact the NPC holds of itself
+    (`known_facts_of`): a `creator_meta` fact, stored `unaware`, never
+    reaches the NPC (TICKET-0091, BRIEF-0091-G)."""
     lines = [f"Tu es {npc_entity.name}."]
-    if npc_char.appearance:
-        lines.append(npc_char.appearance)
-    if npc_char.backstory:
-        lines.append(npc_char.backstory)
-    if npc_char.aversion:
-        lines.append(npc_char.aversion)
-    if npc_entity.description:
-        lines.append(npc_entity.description)
+    lines.extend(row.content for row in known_facts_of(
+        session, perceiver_id=npc_entity.id, entity_id=npc_entity.id,
+        facets=("physique", "histoire", "aversion", "description"),
+    ))
     return " ".join(lines)
 
 
@@ -544,7 +542,7 @@ def assemble_npc_context(
         interlocutor_id, audience_ids, inter_intensity, perceived
     )
 
-    identity = _npc_context_identity(npc_entity, npc_char)
+    identity = _npc_context_identity(npc_entity, npc_char, session)
     goals_section = _npc_context_goals(npc_id, session)
     standing_section = _npc_context_standing(npc_id, location_id, session)
     setting = _npc_context_setting(location_id, player_condition, session)
@@ -645,21 +643,23 @@ def _mj_context_location(location_id: str, blindfolded: bool, db: Session) -> tu
     loc_entity = db.get(Entity, location_id)
     location = db.get(Location, location_id)
 
+    # Ambient `coutume` facts notorious at the location (a visible custom
+    # carries a `location` default there, a hidden one none), allow-listed
+    # by aspect (TICKET-0091, BRIEF-0091-G).
     subculture: dict = {}
     if location:
-        subculture_rows = db.exec(
-            select(LocationSubculture).where(
-                LocationSubculture.location_id == location_id,
-                LocationSubculture.key.in_(_SAFE_SUBCULTURE_KEYS),
-                LocationSubculture.is_hidden == False,  # noqa: E712
-            )
-        ).all()
-        subculture = {row.key: row.value for row in subculture_rows if row.value}
+        rows = facts_of(db, entity_id=location_id, facets=("coutume",),
+                        notorious_at_location=location_id)
+        for aspect in _SAFE_SUBCULTURE_KEYS:
+            text = joined([row for row in rows if row.aspect == aspect and row.content], sep=" ")
+            if text:
+                subculture[aspect] = text
 
     location_block = {
         "name": loc_entity.name if loc_entity else location_id,
         # Excluded when blindfolded — visual data structurally absent (BRIEF-12).
-        "description": None if blindfolded else (loc_entity.description if loc_entity else None),
+        "description": None if blindfolded else joined(
+            facts_of(db, entity_id=location_id, facets=("description",)), sep=" "),
         "subculture": subculture,
     }
     return location_block, loc_entity
@@ -743,9 +743,9 @@ def assemble_mj_context(
     `conversation.injected_context["mj"]`) plus one dynamic part (read fresh
     at every narration phase, never snapshotted):
 
-    - `location` (static): the current location's `entity.name` +
-      `entity.description`, plus the allow-listed (`_SAFE_SUBCULTURE_KEYS`)
-      non-hidden `location_subculture` rows — ambiance is perceptible.
+    - `location` (static): the current location's `entity.name` + its
+      `description` facts, plus the allow-listed (`_SAFE_SUBCULTURE_KEYS`)
+      `coutume` facts notorious at the location — ambiance is perceptible.
       `location.magic_status` is deliberately excluded (not directly
       perceivable).
     - `player_knowledge` (static): all `knowledge` rows belonging to the
@@ -756,8 +756,9 @@ def assemble_mj_context(
       ('public', 'confirmed')` for this world, ordered by `occurred_at DESC`,
       capped at `_MJ_EVENT_CAP`; events whose `location_id` matches
       `location_id` are preferred (listed first within the cap).
-    - `co_presents` (dynamic): public name + public `entity.description` of
-      NPCs currently present, read fresh from the gathering roster
+    - `co_presents` (dynamic): public name + `description` facts of NPCs
+      currently present, plus the `physique` facts the player resolves
+      above `unaware` (the encounter registry: met -> seen, R-c), read fresh from the gathering roster
       (`GatheringMember` with `left_at IS NULL` for `gathering_id` — the
       single source of truth, since C2 migrations change co-presence
       mid-conversation). Entities with `is_public = FALSE` are excluded.
@@ -771,7 +772,7 @@ def assemble_mj_context(
 
     `blindfolded` (BRIEF-12): when True, visual information is structurally
     excluded — `location.description` is set to None and `co_presents` entries
-    carry no `description`. Sound/touch context stays. Same doctrine as secrets:
+    carry no `description` and no `physique`. Sound/touch context stays. Same doctrine as secrets:
     the data is simply absent from the prompt, never guarded by instruction.
 
     `player_condition` (BRIEF-12): the player's current scene condition
@@ -826,6 +827,7 @@ def format_mj_context(mj_context: dict) -> str:
     if co_presents:
         body = "\n".join(
             f"- {c['name']} : {c.get('description') or '(pas de description)'}"
+            + (f" {c['physique']}" if c.get("physique") else "")
             for c in co_presents
         )
         blocks.append(_section(H_MJ_PRESENT, body))

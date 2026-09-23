@@ -28,6 +28,7 @@ from sqlmodel import Session, select
 from . import llm_parse, ollama_client
 from .analyzer import analyze_window
 from .encounters import record_encounters_among, record_gathering_join
+from .facet_reads import facts_of, joined
 from .models import (
     Character,
     Conversation,
@@ -82,6 +83,15 @@ def _present_npcs(location_id: str, db: Session) -> list[tuple[Character, Entity
     return list(rows)
 
 
+def _present_description(db: Session, entity_id: str) -> str:
+    """Physique facts, else description facts (TICKET-0091, BRIEF-0091-G)."""
+    return (
+        joined(facts_of(db, entity_id=entity_id, facets=("physique",)), sep=" ")
+        or joined(facts_of(db, entity_id=entity_id, facets=("description",)), sep=" ")
+        or "(pas de description)"
+    )
+
+
 def _request_partition(
     *,
     template: PromptTemplate,
@@ -94,8 +104,8 @@ def _request_partition(
     """Ask the MJ to partition the present NPCs. Returns raw groups, or None on failure."""
     version = current_prompt(db, template)
     present_lines = "\n".join(
-        f"- {entity.name} : {char.appearance or entity.description or '(pas de description)'}"
-        for char, entity in present
+        f"- {entity.name} : {_present_description(db, entity.id)}"
+        for _char, entity in present
     )
     user_msg = (
         version.user_template

@@ -1,22 +1,24 @@
-"""Descriptive NPC/MJ context helpers (TICKET-0091 BRIEF-B, pure move).
+"""Descriptive NPC/MJ context helpers (TICKET-0091 BRIEF-B move; BRIEF-G
+switched them to facts).
 
 `_npc_context_setting`, `_npc_context_company` and `_mj_context_co_presents`
-moved verbatim out of `context.py` for its module budget; `context.py`
-imports them back. No behaviour change: the exclusion clauses (hidden
-subculture rows, the PC co-presence filter, non-public co-presents,
-blindfolded appearance) travel unchanged.
+live here for `context.py`'s module budget; `context.py` imports them back.
+They read `facet_reads` (C-10), never an entity column. The exclusion
+clauses travel unchanged: a hidden custom carries no `location` default so
+`notorious_at_location` drops it, the PC co-presence filter, non-public
+co-presents, blindfolded visual data (physique included).
 """
 
 from __future__ import annotations
 
 from sqlmodel import Session, select
 
+from .facet_reads import facts_of, joined, known_facts_of
 from .models import (
     Character,
     Entity,
     GatheringMember,
     Location,
-    LocationSubculture,
 )
 
 
@@ -26,8 +28,9 @@ def _npc_context_setting(location_id: str, player_condition: str, session: Sessi
     location = session.get(Location, location_id)
     loc_name = loc_entity.name if loc_entity else location_id
     setting_lines = [f"Tu te trouves dans un lieu nommé « {loc_name} »."]
-    if loc_entity and loc_entity.description:
-        setting_lines.append(loc_entity.description)
+    loc_text = joined(facts_of(session, entity_id=location_id, facets=("description",)), sep=" ")
+    if loc_text:
+        setting_lines.append(loc_text)
     # Inject player condition so the NPC can observe the player's state.
     if player_condition != "unharmed":
         _condition_labels = {
@@ -40,15 +43,12 @@ def _npc_context_setting(location_id: str, player_condition: str, session: Sessi
             f"{_condition_labels.get(player_condition, player_condition)}."
         )
     if location:
-        values_row = session.exec(
-            select(LocationSubculture).where(
-                LocationSubculture.location_id == location_id,
-                LocationSubculture.key == "values",
-                LocationSubculture.is_hidden == False,  # noqa: E712
-            )
-        ).first()
-        if values_row and values_row.value:
-            setting_lines.append(values_row.value)
+        values_text = joined(facts_of(
+            session, entity_id=location_id, facets=("coutume",), aspect="values",
+            notorious_at_location=location_id,
+        ), sep=" ")
+        if values_text:
+            setting_lines.append(values_text)
     return " ".join(setting_lines)
 
 
@@ -74,7 +74,15 @@ def _npc_context_company(
     for _member, co_entity, co_char in co_rows:
         if co_entity.id in (npc_id, interlocutor_id):
             continue
-        description = co_char.appearance or co_entity.description or "(pas de description)"
+        seen = known_facts_of(
+            session, perceiver_id=npc_id, entity_id=co_entity.id,
+            facets=("physique", "description"),
+        )
+        description = (
+            joined([row for row in seen if row.facet == "physique"], sep=" ")
+            or joined([row for row in seen if row.facet == "description"], sep=" ")
+            or "(pas de description)"
+        )
         co_lines.append(f"- {co_entity.name} : {description}")
     if not co_lines:
         return None
@@ -104,8 +112,14 @@ def _mj_context_co_presents(
             continue
         co_presents.append({
             "name": co_entity.name,
-            # Appearance excluded when blindfolded — visual data structurally
-            # absent; sound/touch context (names) stays (BRIEF-12).
-            "description": None if blindfolded else co_entity.description,
+            # Visual data excluded when blindfolded — structurally absent;
+            # sound/touch context (names) stays (BRIEF-12).
+            "description": None if blindfolded else joined(
+                facts_of(db, entity_id=co_entity.id, facets=("description",)), sep=" "),
+            # Physique only once the player has met them (R-c, TICKET-0091).
+            "physique": None if blindfolded else joined(known_facts_of(
+                db, perceiver_id=player_character_id, entity_id=co_entity.id,
+                facets=("physique",),
+            ), sep=" "),
         })
     return co_presents

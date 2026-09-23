@@ -10,6 +10,7 @@ from __future__ import annotations
 from sqlmodel import Session
 
 from .context import read_public_memberships
+from .facet_reads import facts_of, joined
 from .models import Character, Entity, Location
 
 
@@ -41,12 +42,15 @@ def _npc_sheet(db: Session, entity_id: str) -> str:
     location_chain = _location_chain_names(db, location_ids)
     location_text = " -> ".join(location_chain) if location_chain else "unknown"
 
+    def facet_text(facet: str) -> str:
+        return joined(facts_of(db, entity_id=entity_id, facets=(facet,)), sep=" ") or ""
+
     return "\n".join([
         f"Name: {entity.name if entity else 'unknown'}",
-        f"Description: {(entity.description if entity else None) or ''}",
-        f"Appearance: {(character.appearance if character else None) or ''}",
-        f"Backstory: {(character.backstory if character else None) or ''}",
-        f"Aversion: {(character.aversion if character else None) or ''}",
+        f"Description: {facet_text('description')}",
+        f"Appearance: {facet_text('physique')}",
+        f"Backstory: {facet_text('histoire')}",
+        f"Aversion: {facet_text('aversion')}",
         f"Vital status: {character.vital_status if character else 'unknown'}",
         f"Factions: {factions}",
         f"Location: {location_text}",

@@ -36,6 +36,7 @@ from .knowledge_resolve import (
     resolve_levels_for_entity,
     resolve_public_levels,
 )
+from .facet_reads import facts_of, joined
 from .ledger import get_balance
 from .models import (
     Agenda,
@@ -51,7 +52,6 @@ from .models import (
     GoalPrerequisite,
     Knowledge,
     Location,
-    LocationSubculture,
     NpcGoal,
     Relation,
 )
@@ -174,16 +174,29 @@ def _goal_prerequisite_lines(goal: NpcGoal, session: Session) -> list[str]:
     return lines
 
 
-def _tick_identity_block(npc_entity: Entity, npc_char: Character) -> str:
+def _facts_text(session: Session, entity_id: str, *facets: str, aspect: str | None = None,
+                notorious_at_location: str | None = None) -> str | None:
+    """Omniscient facet read (the tick has no perceiver filter, TICKET-0091
+    BRIEF-0091-G): the entity's facts of `facets`, joined inline."""
+    return joined(facts_of(
+        session, entity_id=entity_id, facets=facets, aspect=aspect,
+        notorious_at_location=notorious_at_location,
+    ), sep=" ")
+
+
+def _location_values_text(session: Session, location_id: str) -> str | None:
+    """The `coutume`/`values` facts notorious at the location (a hidden
+    custom carries no `location` default there, so it never surfaces)."""
+    return _facts_text(session, location_id, "coutume", aspect="values",
+                       notorious_at_location=location_id)
+
+
+def _tick_identity_block(npc_entity: Entity, session: Session) -> str:
     identity_lines = [f"Tu es {npc_entity.name}."]
-    if npc_char.appearance:
-        identity_lines.append(npc_char.appearance)
-    if npc_char.backstory:
-        identity_lines.append(npc_char.backstory)
-    if npc_char.aversion:
-        identity_lines.append(npc_char.aversion)
-    if npc_entity.description:
-        identity_lines.append(npc_entity.description)
+    identity_lines.extend(row.content for row in facts_of(
+        session, entity_id=npc_entity.id,
+        facets=("physique", "histoire", "aversion", "description"),
+    ))
     return " ".join(identity_lines)
 
 
@@ -299,10 +312,10 @@ def _tick_affiliations_block(npc_id: str, session: Session) -> str:
         faction = session.get(Faction, membership.faction_id)
         if faction is not None:
             posture_fields = (
-                ("Philosophie : ", faction.philosophy),
-                ("Buts : ", faction.goals),
-                ("Tensions internes : ", faction.internal_tensions),
-                ("Aversion : ", faction.aversion),
+                ("Philosophie : ", _facts_text(session, faction.id, "doctrine")),
+                ("Buts : ", _facts_text(session, faction.id, "visee")),
+                ("Tensions internes : ", _facts_text(session, faction.id, "tension")),
+                ("Aversion : ", _facts_text(session, faction.id, "aversion")),
             )
             for label, value in posture_fields:
                 if value:
@@ -319,18 +332,13 @@ def _tick_setting_block(npc_char: Character, session: Session) -> str:
     if loc_entity is None:
         return "Tu ne te trouves nulle part de particulier en ce moment."
     setting_lines = [f"Tu te trouves dans un lieu nommé « {loc_entity.name} »."]
-    if loc_entity.description:
-        setting_lines.append(loc_entity.description)
+    loc_text = _facts_text(session, location_id, "description")
+    if loc_text:
+        setting_lines.append(loc_text)
     if location is not None:
-        values_row = session.exec(
-            select(LocationSubculture).where(
-                LocationSubculture.location_id == location_id,
-                LocationSubculture.key == "values",
-                LocationSubculture.is_hidden == False,  # noqa: E712
-            )
-        ).first()
-        if values_row and values_row.value:
-            setting_lines.append(values_row.value)
+        values_text = _location_values_text(session, location_id)
+        if values_text:
+            setting_lines.append(values_text)
     return " ".join(setting_lines)
 
 
@@ -339,9 +347,9 @@ def _tick_destinations_block(destinations: list[tuple[str, str]] | None, session
     same set the destination resolver accepts)."""
     destination_lines: list[str] = []
     for dest_id, dest_name in destinations or []:
-        dest_entity = session.get(Entity, dest_id)
-        if dest_entity is not None and dest_entity.description:
-            destination_lines.append(f"- {dest_name} : {dest_entity.description}")
+        dest_text = _facts_text(session, dest_id, "description")
+        if dest_text:
+            destination_lines.append(f"- {dest_name} : {dest_text}")
         else:
             destination_lines.append(f"- {dest_name}")
     return "\n".join(destination_lines) if destination_lines else "(nulle part — aucun lieu accessible)"
@@ -361,8 +369,8 @@ def _tick_company_block(location_id: str | None, npc_id: str, session: Session) 
         other_entity = session.get(Entity, other_char.id)
         other_name = other_entity.name if other_entity else other_char.id
         description = (
-            other_char.appearance
-            or (other_entity.description if other_entity else None)
+            _facts_text(session, other_char.id, "physique")
+            or _facts_text(session, other_char.id, "description")
             or "(pas de description)"
         )
         company_lines.append(f"- {other_name} : {description}")
@@ -393,7 +401,7 @@ def assemble_tick_context(
     location_id = npc_char.current_location_id
 
     return (
-        _section(H_IDENTITY, _tick_identity_block(npc_entity, npc_char))
+        _section(H_IDENTITY, _tick_identity_block(npc_entity, session))
         + "\n"
         + _section(H_GOALS, _tick_goals_block(npc_id, session))
         + "\n"
@@ -555,18 +563,13 @@ def assemble_location_event_context(
     place_lines: list[str] = []
     if loc_entity is not None:
         place_lines.append(loc_entity.name)
-        if loc_entity.description:
-            place_lines.append(loc_entity.description)
+        loc_text = _facts_text(session, location_id, "description")
+        if loc_text:
+            place_lines.append(loc_text)
     if location is not None:
-        values_row = session.exec(
-            select(LocationSubculture).where(
-                LocationSubculture.location_id == location_id,
-                LocationSubculture.key == "values",
-                LocationSubculture.is_hidden == False,  # noqa: E712
-            )
-        ).first()
-        if values_row and values_row.value:
-            place_lines.append(values_row.value)
+        values_text = _location_values_text(session, location_id)
+        if values_text:
+            place_lines.append(values_text)
     place_body = " ".join(place_lines) if place_lines else "(lieu inconnu)"
 
     present = session.exec(
@@ -616,27 +619,31 @@ def assemble_location_event_context(
     )
 
 
-def _tick_faction_identity_block(faction_entity: Entity | None, faction: Faction | None) -> str:
+def _tick_faction_identity_block(
+    faction_entity: Entity | None, faction: Faction | None, session: Session,
+) -> str:
     la_faction_lines: list[str] = []
     if faction_entity is not None:
         la_faction_lines.append(faction_entity.name)
-        if faction_entity.description:
-            la_faction_lines.append(faction_entity.description)
+        description = _facts_text(session, faction_entity.id, "description")
+        if description:
+            la_faction_lines.append(description)
     if faction is not None:
         if faction.faction_type:
             la_faction_lines.append(f"Type : {faction.faction_type}")
-        if faction.philosophy:
-            la_faction_lines.append(faction.philosophy)
+        doctrine = _facts_text(session, faction.id, "doctrine")
+        if doctrine:
+            la_faction_lines.append(doctrine)
     return " ".join(la_faction_lines) if la_faction_lines else "(faction inconnue)"
 
 
-def _tick_faction_posture_block(faction: Faction | None) -> str:
+def _tick_faction_posture_block(faction: Faction | None, session: Session) -> str:
     posture_lines: list[str] = []
     if faction is not None:
         posture_fields = (
-            ("Buts : ", faction.goals),
-            ("Tensions internes : ", faction.internal_tensions),
-            ("Aversion : ", faction.aversion),
+            ("Buts : ", _facts_text(session, faction.id, "visee")),
+            ("Tensions internes : ", _facts_text(session, faction.id, "tension")),
+            ("Aversion : ", _facts_text(session, faction.id, "aversion")),
             ("Connaissance de la magie : ", faction.magic_knowledge_level),
         )
         for label, value in posture_fields:
@@ -722,9 +729,9 @@ def assemble_faction_event_context(faction_id: str, session: Session) -> str:
     faction = session.get(Faction, faction_id)
 
     return (
-        _section("LA FACTION", _tick_faction_identity_block(faction_entity, faction))
+        _section("LA FACTION", _tick_faction_identity_block(faction_entity, faction, session))
         + "\n"
-        + _section("POSTURE", _tick_faction_posture_block(faction))
+        + _section("POSTURE", _tick_faction_posture_block(faction, session))
         + "\n"
         + _section("AGENDA EN COURS", _tick_faction_agenda_block(faction_id, session))
         + "\n"

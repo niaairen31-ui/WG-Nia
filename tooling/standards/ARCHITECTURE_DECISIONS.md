@@ -828,6 +828,18 @@ draw on. The `relevance_hint` parameter (also added to `assemble_npc_context`)
 is accepted and inert: a future relevance-selection stage may only narrow
 this set further, never widen it.
 
+**Co-present physique follows the encounter registry (TICKET-0091,
+BRIEF-0091-G, R-c).** The MJ context now reads facts, not entity columns:
+the location's `description` facts, its `coutume` facts notorious at that
+location (a hidden custom carries no `location` default, so it never
+surfaces), and each public co-present's `description` facts. Each
+co-present entry also carries `physique`: the co-present's `physique` facts
+that the player character resolves above `unaware`
+(`facet_reads.known_facts_of`). A `physique` fact is born with a
+`rencontre` default, so it appears only once a `rencontre` row links the
+player and that NPC — the one intended change of this brief. Blindfolded
+removes it together with `description`, by construction.
+
 ---
 
 ## OBJECT PERMANENCE — ambient props vs tracked items (schema v1.18, BRIEF-06)
