@@ -366,6 +366,9 @@ class EntityWriteBody(BaseModel):
     # TICKET-0091, BRIEF-0091-E (C-11): descriptive lore, written as facts by
     # `writes/facets.py::write_entity_facets` on create only.
     facets: Optional[dict[str, Any]] = None
+    # TICKET-0091, BRIEF-0091-J (C-11): a generator's
+    # [{"name", "category": "place"|"person"|"faction"}], passed to `tokenize`.
+    mentions: Optional[list[dict]] = None
 
 
 class NpcPricesBody(BaseModel):
@@ -542,7 +545,10 @@ def _write_body_facets(body: EntityWriteBody, db: DbSession, entity: Entity) -> 
     flushed and in the same transaction. A malformed payload is a 422."""
     db.flush()
     try:
-        write_entity_facets(db, entity_id=entity.id, facets=body.facets or {}, created_by="creator_crud")
+        write_entity_facets(
+            db, entity_id=entity.id, facets=body.facets or {}, created_by="creator_crud",
+            mentions=body.mentions,
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc))
     return entity

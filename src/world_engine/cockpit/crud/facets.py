@@ -18,6 +18,7 @@ from sqlmodel import Session as DbSession, select
 from ...db import get_session
 from ...facets import DESCRIPTIVE_FACETS, FACETS
 from ...models import Fact, FactDefault, FactParticipant
+from ...prose_render import fact_text
 from ...writes import ScopeChoice, add_entity_fact, edit_entity_fact, remove_entity_fact
 
 from ._router import router
@@ -50,7 +51,7 @@ def _fact_dict(fact: Fact, db: DbSession) -> dict:
         "fact_id": fact.id,
         "facet": fact.facet,
         "aspect": fact.aspect,
-        "content": fact.content,
+        "content": fact_text(db, fact),
         "scopes": [
             {"scope_type": d.scope_type, "scope_id": d.scope_id, "level": d.level} for d in defaults
         ],

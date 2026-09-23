@@ -19,6 +19,7 @@ from .context import read_public_memberships
 from .facet_reads import creator_only_fact_ids, facts_of, joined
 from .facets import DESCRIPTIVE_FACETS, FACETS
 from .models import Character, Entity, FactParticipant, Faction, Knowledge, NpcGoal, Relation
+from .prose_render import knowledge_texts
 from .writes.knowledge import knowledge_level_rank
 
 
@@ -180,12 +181,12 @@ def _knowledge_rows(entity_id: str, world_id: str, db: Session) -> list[dict]:
             "section": "knowledge",
             "subject": k.subject,
             "level": k.level,
-            "content": k.content,
+            "content": text,
             "source": k.source,
             "is_incorrect": k.is_incorrect,
             "is_secret": k.is_secret,
         }
-        for k in rows
+        for k, text in zip(rows, knowledge_texts(db, rows))
     ]
 
 
@@ -260,13 +261,13 @@ def who_knows_about(entity_id: str, world_id: str, db: Session) -> list[dict]:
             "knower_entity_id": knower.id,
             "knower_name": knower.name,
             "level": k.level,
-            "content": k.content,
+            "content": text,
             "source": k.source,
             "is_incorrect": k.is_incorrect,
             "is_secret": k.is_secret,
             "subject_name": subject_name,
         }
-        for k, knower in pairs
+        for (k, knower), text in zip(pairs, knowledge_texts(db, [k for k, _ in pairs]))
     ]
     knowers.sort(key=lambda r: (-knowledge_level_rank(r["level"]), r["knower_name"] or ""))
     coverage = {

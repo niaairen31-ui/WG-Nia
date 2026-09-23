@@ -118,6 +118,7 @@ def check_a_orientation_guard(session, world_id, ids) -> None:
 
 def check_b_typed_fact_at_birth(session, world_id, ids) -> None:
     from world_engine.models import Entity
+    from world_engine.prose_render import fact_text
     from world_engine.relation_orientation import lien_fact_content
     from world_engine.writes.relations import write_relation
 
@@ -153,8 +154,11 @@ def check_b_typed_fact_at_birth(session, world_id, ids) -> None:
         )
         if fact.default_level != "unaware":
             fail(f"(b) social fact default_level={fact.default_level!r}, expected 'unaware'")
-        if fact.content != expected:
-            fail(f"(b) social fact content {fact.content!r} != lien_fact_content {expected!r}")
+        # BRIEF-0091-J: the stored content carries identity tokens; the
+        # RENDERED text is what equals lien_fact_content(current names).
+        rendered = fact_text(session, fact)
+        if rendered != expected:
+            fail(f"(b) social fact content {rendered!r} != lien_fact_content {expected!r}")
     if connects_facts and connects_facts[0].default_level != "knows":
         fail(f"(b) connects_to fact default_level={connects_facts[0].default_level!r}, expected 'knows'")
     COUNTS["b"] = examined

@@ -42,6 +42,7 @@ from sqlmodel import Session, select  # noqa: E402
 from world_engine import models as m  # noqa: E402
 from world_engine.context import assemble_npc_context  # noqa: E402
 from world_engine.db import engine  # noqa: E402
+from world_engine.prose_render import knowledge_text  # noqa: E402
 
 NPC_ID = "npc-test-keeper"
 PLAYER_ID = "char-test-player"
@@ -84,7 +85,7 @@ def main() -> None:
             row = keeper[subject]
             results.append(
                 (
-                    row.content in context,
+                    knowledge_text(session, row) in context,
                     f"threshold-50 row present: {subject}",
                 )
             )
@@ -93,7 +94,7 @@ def main() -> None:
         guarded = keeper["local_rumor"]
         results.append(
             (
-                guarded.content not in context,
+                knowledge_text(session, guarded) not in context,
                 f"threshold-65 row withheld: local_rumor "
                 f"(threshold={guarded.share_threshold} > 50)",
             )
@@ -103,13 +104,13 @@ def main() -> None:
         secret = keeper["the_unnamed"]
         results.append(
             (
-                secret.content not in context,
+                knowledge_text(session, secret) not in context,
                 "secret excluded entirely: the_unnamed (is_secret=TRUE)",
             )
         )
 
         # 4. No other entity's secret knowledge appears anywhere.
-        leaked = [f"{k.entity_id}:{k.subject}" for k in other_secrets if k.content in context]
+        leaked = [f"{k.entity_id}:{k.subject}" for k in other_secrets if knowledge_text(session, k) in context]
         results.append(
             (not leaked, f"no other entity's secret appears (leaks={leaked or 'none'})")
         )
@@ -117,7 +118,7 @@ def main() -> None:
         # 5. The player's own secret is absent (the NPC can't read their mind).
         results.append(
             (
-                player_secret.content not in context,
+                knowledge_text(session, player_secret) not in context,
                 "player's own secret absent: personal_magic_incident",
             )
         )

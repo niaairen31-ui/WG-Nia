@@ -68,7 +68,7 @@ def create_fact(
     _check_facet(facet, relation_id=relation_id, event_id=event_id, world_law_id=world_law_id)
     fact = Fact(
         world_id=world_id,
-        content=content,
+        content_raw=content,
         facet=facet,
         aspect=normalize_aspect(aspect),
         created_by=created_by,
@@ -107,13 +107,13 @@ def update_fact_content(db: Session, *, fact: Fact, content: str, changed_by: st
     content to `fact.change_history` first (TICKET-0091, BRIEF-0091-A, C-03)."""
     history = list(fact.change_history or [])
     history.append({
-        "content": fact.content,
+        "content": fact.content_raw,
         "changed_by": changed_by,
         "at": datetime.now(UTC).isoformat(),
     })
     fact.change_history = history
     sa_attrs.flag_modified(fact, "change_history")
-    fact.content = content
+    fact.content_raw = content
     db.add(fact)
     return fact
 
@@ -144,13 +144,13 @@ def update_typed_fact_content(db: Session, *, fact: Fact, content: str, changed_
     `fact.change_history` first (TICKET-0090, BRIEF-0090-a)."""
     history = list(fact.change_history or [])
     history.append({
-        "content": fact.content,
+        "content": fact.content_raw,
         "changed_by": changed_by,
         "at": datetime.now(UTC).isoformat(),
     })
     fact.change_history = history
     sa_attrs.flag_modified(fact, "change_history")
-    fact.content = content
+    fact.content_raw = content
     db.add(fact)
     return fact
 

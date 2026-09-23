@@ -16033,6 +16033,62 @@ constant from coming back.
 `appearance=`, ... on `get_or_create`) is silently ignored by SQLModel, so a
 fresh seed carries customs but no other lore facts.
 
+## IDENTITY TOKENS (TICKET-0091) -- A NAME IN CANON PROSE IS A REFERENCE (BRIEF-0091-j, no schema change)
+
+**Token shape.** A name written into new `fact` / `knowledge` prose is stored
+as `[[e:<entity uuid>|<name at write time>]]` (`prose_render.entity_token`,
+`]` and `|` stripped from the name). The stored name is only a fallback.
+
+**One render.** `prose_render.py` is the read chokepoint: `render` /
+`render_many` (one entity query for every cited id) turn each token into the
+entity's current `name`, fall back to the stored name when the entity row is
+gone, and return token-free text and `None` unchanged; `fact_text`,
+`knowledge_text`, `fact_texts`, `knowledge_texts` wrap them. Renaming an
+entity renames it in every rendered fact, including the `lien` /
+`connects_to` facts, whose endpoints are now tokens.
+
+**`content_raw` allow-list.** The model attribute is `content_raw` on both
+`Fact` and `Knowledge`; the SQL column stays `content`, so the DDL is
+unchanged. The rename made the interpreter find every reader. The identifier
+may appear only in `models/canon_knowledge.py`, `writes/*.py`,
+`prose_render.py`, `knowledge_resolve.py` (transient rows) and
+`scripts/migrate_*.py`. `checks/identity_tokens.py` R1 enforces this across
+`src/` and `scripts/`. A module outside `writes/` that needs raw text to
+write it back moves the merge into `writes/`: the link agent's coherence
+patch became `writes/knowledge.py::apply_knowledge_patch` (AMENDMENT-0091-04),
+and the seed's knowledge upsert became `upsert_knowledge_row`
+(AMENDMENT-0091-05, declared in the canon-write policy; seed text is never
+tokenized).
+
+**Posing, never picking.** `prose_tokens.tokenize` indexes every active
+entity name of the world plus every rendered `appellation` fact, normalized
+by `lore_resolve.normalize_surface` on both sides. It matches whole words,
+longest first, and never crosses or re-enters a token. A match extends back
+over an article the name itself carries. One candidate becomes a token; two
+or more stay plain and are reported `ambigu`. A generator `mentions` entry
+the index did not cover, and whose surface occurs in the text, goes through
+`resolve_named`: one candidate is tokenized, none is `inconnu`, several is
+`ambigu`. A mention absent from the text is ignored. There is no model
+call (R4). Posing runs on
+`add_entity_fact`, `edit_entity_fact` and `write_knowledge`'s content path.
+Text equal to the stored text, raw or rendered, is not new writing and keeps
+its tokens. Migrated text (L2) and seed knowledge are not tokenized.
+
+**The worklist.** `writes/mentions.py` is the single writer of the
+non-canon `unresolved_mention` (`record_unresolved`, `resolve_mention`,
+`dismiss_mention`); each row points at exactly one fact or knowledge row.
+K's names panel consumes it.
+
+**Found at execution.** `analyzer_transcript.py:779` (the overhearing
+proposal's `content`) reads a `Knowledge` row, not a message as R-24 said;
+it is ADAPT-routed through `knowledge_text`, so an overheard name is
+re-posed at apply. `set_target_knows` writes the lien knowledge with a
+rendered `subject` and the tokenized content. Named debt: the Création
+frontend does not yet forward a draft's `mentions` into the create body;
+the server path is wired end to end. An appellation surface renders as the
+entity's current name (the C-13 contract), and a name cited after an
+elided article renders with the name's own article ("au Le ...").
+
 ---
 
 *Co-built with Claude, June 2026.*

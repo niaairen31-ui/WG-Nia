@@ -157,6 +157,11 @@ src/world_engine/writes/facts.py::delete_free_fact        fact fact_participant 
 # the writes/facts.py and write_knowledge chokepoints above — no `.add`/
 # `.delete` of their own, so no ALLOWED_SITES entry: declaring one would
 # sanction a direct write these functions must never contain.
+# TICKET-0091, BRIEF-0091-J (AMENDMENT-0091-05): the seed's idempotent
+# knowledge upsert, moved out of scripts/seed_pilot.py so raw stored text is
+# read only in writes/. Called by the seed alone; not a new runtime path.
+# apply_knowledge_patch writes only through write_knowledge (no entry).
+src/world_engine/writes/knowledge.py::upsert_knowledge_row     knowledge
 
 # TICKET-0051, BRIEF-0051-a: observation_run, observation_run_template,
 # observation_beat, observation_intent and observation_mutation_link are

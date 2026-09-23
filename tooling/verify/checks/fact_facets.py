@@ -7,7 +7,7 @@ R1  `facets.py::FACETS` matches the C-01 table exactly: names in display
     Labels and descriptions are UI help; no rule reads them.
 R2  AST: every `create_fact(` call in `src/` and `scripts/` passes a
     `facet=` keyword. Vacuity-guarded: the three known production callers
-    (`writes/knowledge.py`, `writes/relations.py`, `scripts/seed_pilot.py`)
+    (`writes/knowledge.py`, `writes/relations.py`, `writes/facets.py`)
     must be found.
 R3  AST: a `create_fact(` whose `facet=` is a descriptive literal (a
     `DESCRIPTIVE_FACETS` name) or a non-literal appears only in
@@ -61,7 +61,9 @@ CREATOR_ONLY_READER = "src/world_engine/lore_selectors.py"
 KNOWN_CALLERS = (
     "src/world_engine/writes/knowledge.py",
     "src/world_engine/writes/relations.py",
-    "scripts/seed_pilot.py",
+    # The seed's create_fact moved into writes/knowledge.py::upsert_knowledge_row
+    # (TICKET-0091, AMENDMENT-0091-05); writes/facets.py is the third caller.
+    "src/world_engine/writes/facets.py",
 )
 
 # C-01, verbatim: (name, family, granularity, preset, aspects), display order.
@@ -259,6 +261,7 @@ def check_entity_facets_writer(engine) -> None:
 
     from world_engine.models import Entity, FactDefault, FactParticipant, Knowledge, World
     from world_engine.writes.facets import add_entity_fact, write_entity_facets
+    from world_engine.prose_render import fact_text
 
     with DbSession(engine) as session:
         world = World(name="R5 World", is_active=False)  # one active world per DB
@@ -282,7 +285,7 @@ def check_entity_facets_writer(engine) -> None:
             "aversion": "le soleil\n\n  la mer  \n", "creator_meta": "un traître", "tenue": "",
         })
         session.commit()
-        aversions = [f.content for f in facts if f.facet == "aversion"]
+        aversions = [fact_text(session, f) for f in facts if f.facet == "aversion"]
         if aversions != ["le soleil", "la mer"]:
             fail(f"R5: aversion string not split into one fact per line: {aversions!r}")
         meta = [f for f in facts if f.facet == "histoire"]
@@ -298,7 +301,7 @@ def check_entity_facets_writer(engine) -> None:
         for fact in facts:
             if session.exec(select(FactParticipant.entity_id).where(
                     FactParticipant.fact_id == fact.id)).all() != [npc.id]:
-                fail(f"R5: fact {fact.content!r} does not have the entity as its one participant")
+                fail(f"R5: fact {fact_text(session, fact)!r} does not have the entity as its one participant")
 
         customs = write_entity_facets(session, entity_id=place.id, created_by="check", facets={
             "coutume": [
@@ -396,6 +399,7 @@ def check_creator_only_reads(engine) -> None:
     from sqlmodel import Session as DbSession
 
     from world_engine.facet_reads import creator_only_fact_ids, facts_of, known_facts_of
+    from world_engine.prose_render import fact_text
     from world_engine.models import Entity, World
     from world_engine.writes.facets import write_entity_facets
 
@@ -410,7 +414,7 @@ def check_creator_only_reads(engine) -> None:
             "histoire": "ancien soldat", "creator_meta": "un traitre",
         })
         session.commit()
-        by_content = {f.content: f.id for f in facts}
+        by_content = {fact_text(session, f): f.id for f in facts}
         plain, meta = by_content.get("ancien soldat"), by_content.get("un traitre")
         if plain is None or meta is None:
             fail(f"R8: fixture facts not written: {sorted(by_content)!r}")

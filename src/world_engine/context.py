@@ -49,6 +49,7 @@ from .models import (
 from .facet_reads import facts_of, joined, known_facts_of
 from .facets import FACETS
 from .knowledge_resolve import resolve_default_rows
+from .prose_render import knowledge_texts
 from .schedule_reads import where_is
 from .context_describe import (
     _mj_context_co_presents,
@@ -120,8 +121,9 @@ def _section(title: str, body: str) -> str:
     return f"=== {title} ===\n{body.rstrip()}\n"
 
 
-def _knowledge_line(k: Knowledge) -> str:
-    text = k.content or f"{k.subject} ({k.level})"
+def _knowledge_line(k: Knowledge, content: str | None) -> str:
+    """`content` is `k`'s rendered text (`prose_render.knowledge_texts`)."""
+    text = content or f"{k.subject} ({k.level})"
     if k.is_incorrect:
         text += " (tu en es convaincu, mais c'est faux)"
     return f"- {text}"
@@ -360,7 +362,9 @@ def _npc_context_speak(npc_id: str, disclosure_intensity: int, session: Session)
         speak_body = (
             "Tu peux parler librement de ce qui suit, si la conversation s'y prête :\n"
         )
-        speak_body += "\n".join(_knowledge_line(k) for k in allowed)
+        speak_body += "\n".join(
+            _knowledge_line(k, text) for k, text in zip(allowed, knowledge_texts(session, allowed))
+        )
         return speak_body
     return "Tu n'as rien de particulier à partager spontanément."
 
@@ -675,8 +679,8 @@ def _mj_context_player_knowledge(player_character_id: str, db: Session) -> list[
         db, player_character_id, {k.fact_id for k in knowledge_rows}
     )
     return [
-        {"subject": k.subject, "level": k.level, "content": k.content}
-        for k in knowledge_rows
+        {"subject": k.subject, "level": k.level, "content": text}
+        for k, text in zip(knowledge_rows, knowledge_texts(db, knowledge_rows))
     ]
 
 

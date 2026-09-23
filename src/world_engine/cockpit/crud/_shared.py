@@ -45,6 +45,7 @@ from fastapi import HTTPException
 from sqlmodel import Session as DbSession, select
 
 from ...models import Entity, Fact, FactParticipant, Knowledge, Relation, World
+from ...prose_render import fact_text, knowledge_text
 from ...relation_orientation import is_social
 from ...writes import lien_fact_of
 
@@ -252,7 +253,7 @@ def _knowledge_dict(k: Knowledge, db: Optional[DbSession] = None) -> dict:
         "entity_id": k.entity_id,
         "subject": k.subject,
         "level": k.level,
-        "content": k.content,
+        "content": knowledge_text(db, k),
         "source": k.source,
         "is_incorrect": k.is_incorrect,
         "is_secret": k.is_secret,
@@ -261,7 +262,7 @@ def _knowledge_dict(k: Knowledge, db: Optional[DbSession] = None) -> dict:
         "acquired_at": _iso(k.acquired_at),
         "updated_at": _iso(k.updated_at),
         "fact_id": k.fact_id,
-        "fact_content": fact.content if fact else None,
+        "fact_content": fact_text(db, fact) if fact else None,
         "fact_default_level": fact.default_level if fact else None,
         "fact_participants": participants,
         # TICKET-0087 (BRIEF-0087-d): same rows as `fact_participants`, no

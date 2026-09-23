@@ -13,7 +13,12 @@ Layout, by canon domain:
                           (structural), `_find_perceived_relation` (social),
                           `write_oriented_relations`, `set_target_knows`,
                           `lien_fact_of` (TICKET-0090, BRIEF-0090-a).
-    knowledge.py        — `knowledge`: `write_knowledge` and the level ladder.
+    knowledge.py        — `knowledge`: `write_knowledge` and the level ladder;
+                          `apply_knowledge_patch`, `upsert_knowledge_row`
+                          (TICKET-0091, BRIEF-0091-J).
+    mentions.py         — `unresolved_mention` (non-canon worklist):
+                          `record_unresolved`, `resolve_mention`,
+                          `dismiss_mention` (TICKET-0091, BRIEF-0091-J).
     facts.py            — `fact`/`fact_participant`/`fact_default`:
                           `create_fact`, `attach_participants`
                           (TICKET-0082, BRIEF-0082-b), `create_fact_default`
@@ -96,10 +101,13 @@ from .knowledge import (
     KNOWLEDGE_LEVEL_LADDER,
     KNOWLEDGE_LEVELS,
     _append_knowledge_history,
+    apply_knowledge_patch,
     cap_knowledge_level,
     knowledge_level_rank,
+    upsert_knowledge_row,
     write_knowledge,
 )
+from .mentions import dismiss_mention, record_unresolved, resolve_mention
 from .pipeline import (
     BATCH_RESOLVED_STATUS,
     BATCH_STATUSES,

@@ -95,6 +95,30 @@ _TYPE_FIELDS: dict[str, str] = {
 }
 
 
+# TICKET-0091, BRIEF-0091-J (C-11): every entity draft also lists the names
+# its prose cites, so the create can pose identity tokens (`prose_tokens`).
+_MENTIONS_FIELD = (
+    'mentions (tableau d\'objets {"name","category"} — chaque personne, '
+    'lieu ou faction nommé dans le texte ; category parmi '
+    'place|person|faction)'
+)
+_TYPE_FIELDS = {key: f"{fields}\n{_MENTIONS_FIELD}" for key, fields in _TYPE_FIELDS.items()}
+_MENTION_CATEGORIES = ("place", "person", "faction")
+
+
+def _normalize_mentions(raw: Any) -> list[dict]:
+    """A draft's `mentions`: `{"name", "category"}` objects with a non-empty
+    name and a known category; anything else is dropped."""
+    if not isinstance(raw, list):
+        return []
+    return [
+        {"name": item["name"].strip(), "category": item.get("category")}
+        for item in raw
+        if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"].strip()
+        and item.get("category") in _MENTION_CATEGORIES
+    ]
+
+
 def _load_template(db: Session) -> PromptTemplate | None:
     stmt = (
         select(PromptTemplate)
@@ -422,7 +446,7 @@ def _entity_draft_call(entity_type: str, brief: str, db: Session) -> dict:
 
     Returns {"ok": False, "error": "<reason>"} on any failure mode (missing
     template, unreachable model, malformed JSON, empty parse), else
-    {"ok": True, "public_in": dict, "secret_in": dict}.
+    {"ok": True, "public_in": dict, "secret_in": dict, "mentions": Any}.
     """
     template = _load_template(db)
     if template is None:
@@ -457,7 +481,8 @@ def _entity_draft_call(entity_type: str, brief: str, db: Session) -> dict:
     public_in = public_in if isinstance(public_in, dict) else {}
     secret_in = parsed.get("secret")
     secret_in = secret_in if isinstance(secret_in, dict) else {}
-    return {"ok": True, "public_in": public_in, "secret_in": secret_in}
+    mentions = parsed.get("mentions", public_in.get("mentions"))
+    return {"ok": True, "public_in": public_in, "secret_in": secret_in, "mentions": mentions}
 
 
 def _bloc_text(raw: Any) -> str:
@@ -569,10 +594,13 @@ def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
     notes: list[str] = []
 
     if entity_type == "location":
-        return _entity_location_draft(public_in, secret_in, notes)
-    if entity_type == "faction":
-        return _entity_faction_draft(public_in, secret_in, notes)
-    return _entity_character_draft(public_in, secret_in, notes, db)
+        result = _entity_location_draft(public_in, secret_in, notes)
+    elif entity_type == "faction":
+        result = _entity_faction_draft(public_in, secret_in, notes)
+    else:
+        result = _entity_character_draft(public_in, secret_in, notes, db)
+    result["draft"]["mentions"] = _normalize_mentions(call_result.get("mentions"))
+    return result
 
 
 def generate_world_draft(brief: str, db: Session) -> dict:

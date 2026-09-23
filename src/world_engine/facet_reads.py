@@ -27,6 +27,7 @@ from sqlmodel import Session, select
 from .facets import normalize_aspect
 from .knowledge_resolve import resolve_levels_for_entity
 from .models import Fact, FactDefault, FactParticipant, Knowledge
+from .prose_render import fact_texts
 
 
 @dataclass(frozen=True)
@@ -97,10 +98,10 @@ def facts_of(
     facts = sorted(facts, key=lambda f: (order[f.facet], f.created_at, f.id))
     return [
         FactRow(
-            fact_id=f.id, facet=f.facet, aspect=f.aspect, content=f.content,
+            fact_id=f.id, facet=f.facet, aspect=f.aspect, content=text,
             created_at=f.created_at,
         )
-        for f in facts
+        for f, text in zip(facts, fact_texts(db, facts))  # rendered, one entity query
     ]
 
 

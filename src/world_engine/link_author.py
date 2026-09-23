@@ -56,7 +56,10 @@ from .models import (
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
-from .writes import KNOWLEDGE_LEVELS, write_knowledge, write_oriented_relations, write_relation
+from .prose_render import knowledge_texts
+from .writes import (
+    KNOWLEDGE_LEVELS, apply_knowledge_patch, write_knowledge, write_oriented_relations, write_relation,
+)
 
 JOURNAL_DIR = Path.home() / ".world_engine" / "link_agent_journal"
 
@@ -159,8 +162,8 @@ def _shared_knowledge_lines(db: Session, holder_id: str, other_id: str, holder_n
     ).all()
     return [
         f"- {holder_name} already knows (level={r.level}, secret={r.is_secret}): "
-        f"{r.content or '(no content recorded)'}"
-        for r in rows
+        f"{text or '(no content recorded)'}"
+        for r, text in zip(rows, knowledge_texts(db, rows))  # one entity query
     ]
 
 
@@ -809,19 +812,10 @@ def _apply_canon_relation_patch(db: Session, target_id: str, field: str, new_val
 
 
 def _apply_canon_knowledge_patch(db: Session, target_id: str, field: str, new_value) -> None:
-    know = db.get(Knowledge, target_id)
-    merged = {
-        "level": know.level, "content": know.content, "source": know.source,
-        "is_incorrect": know.is_incorrect, "is_secret": know.is_secret,
-        "share_threshold": know.share_threshold,
-    }
-    merged[field] = new_value
-    write_knowledge(
-        db, mode="update", knowledge_id=know.id, entity_id=know.entity_id,
-        subject=know.subject, level=merged["level"], content=merged["content"],
-        source=merged["source"], is_incorrect=merged["is_incorrect"],
-        is_secret=merged["is_secret"], share_threshold=merged["share_threshold"],
-        session_id=know.session_id, changed_by="link_agent_coherence",
+    # The merge reads the raw stored text, so it lives in writes/ (AMENDMENT-0091-04).
+    apply_knowledge_patch(
+        db, knowledge=db.get(Knowledge, target_id), patch={field: new_value},
+        changed_by="link_agent_coherence",
     )
 
 

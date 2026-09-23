@@ -33,6 +33,13 @@ TICKET-0082 arity (decision J2, AMENDMENT-0087-1); the attachment is
 idempotent per `(fact_id, entity_id)`, which `idx_fact_participant_unique`
 enforces and the read-before-write guard exists to avoid tripping;
 validation of the ids belongs to the caller.
+
+New knowledge prose is written with identity tokens (TICKET-0091,
+BRIEF-0091-J): `_tokenized_content` runs `prose_tokens.tokenize` on the
+content path and `write_knowledge` records the names it could not resolve
+(`writes/mentions.py`). `apply_knowledge_patch` (the link agent's coherence
+patch) and `upsert_knowledge_row` (the seed's idempotent upsert) live here so
+raw stored text is read only in `writes/`.
 """
 
 from __future__ import annotations
@@ -44,8 +51,11 @@ from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
 from ..models import Entity, Fact, FactParticipant, Knowledge
+from ..prose_render import render
+from ..prose_tokens import tokenize
 from ._shared import _clamp
 from .facts import attach_participants, create_fact
+from .mentions import record_unresolved
 
 # knowledge.level enum (world-engine-schema.md): unaware | rumor | suspicious |
 # partial | knows | fully_understands.
@@ -95,7 +105,7 @@ def _append_knowledge_history(row: Knowledge, changed_by: str) -> None:
     history = list(row.change_history or [])
     history.append({
         "level": row.level,
-        "content": row.content,
+        "content": row.content_raw,
         "source": row.source,
         "is_incorrect": row.is_incorrect,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -147,6 +157,23 @@ def _attach_subject_participants(
         attach_participants(db, fact=fact, entity_ids=[entity_id])
 
 
+def _tokenized_content(
+    db: Session, entity_id: Optional[str], content: Any, previous: Optional[str] = None,
+) -> tuple[Any, Optional[tuple]]:
+    """(stored text, pending) for knowledge prose (TICKET-0091, BRIEF-0091-J):
+    new text gets identity tokens (`prose_tokens.tokenize`); `pending` is
+    `(world_id, unresolved)` for `record_unresolved`, or None. Text equal to
+    the stored text, raw or rendered, is not new writing: the stored text is
+    kept as is, so a re-sent row never loses a token nor re-reports a name."""
+    if previous is not None and content in (previous, render(db, previous)):
+        return previous, None
+    entity = db.get(Entity, entity_id) if entity_id else None
+    if not isinstance(content, str) or not content.strip() or entity is None:
+        return content, None
+    result = tokenize(db, world_id=entity.world_id, text=content)
+    return result.text, ((entity.world_id, result.unresolved) if result.unresolved else None)
+
+
 def _build_knowledge_update(
     db: Session, *, knowledge_id: Optional[str], entity_id: Optional[str],
     subject: Optional[str], level: Optional[str], content: Optional[Any],
@@ -154,9 +181,10 @@ def _build_knowledge_update(
     share_threshold: int, session_id: Optional[str], changed_by: str,
     fact_id: Optional[str] = None,
     subject_entity_ids: Optional[list[str]] = None,
-) -> Knowledge:
+) -> tuple[Knowledge, Optional[tuple]]:
     """Pure build for `write_knowledge(mode="update")` (default) — no
-    `db.add`. `level` falls back to "rumor" if missing/unrecognised
+    `db.add`. Returns the row and its pending unresolved mentions
+    (`_tokenized_content`). `level` falls back to "rumor" if missing/unrecognised
     (matches the analyzer's default for unreliable local-model output).
     On create, `fact_id` attaches to an existing fact; omitting it
     auto-creates a free-standing one via `writes/facts.py::create_fact`
@@ -175,13 +203,13 @@ def _build_knowledge_update(
         if subject is not None:
             k.subject = subject
         k.level = norm_level
-        k.content = content
+        k.content_raw, pending = _tokenized_content(db, k.entity_id, content, previous=k.content_raw)
         k.source = source
         k.is_incorrect = bool(is_incorrect)
         k.is_secret = bool(is_secret)
         k.share_threshold = threshold
         k.updated_at = datetime.now(UTC)
-        return k
+        return k, pending
 
     if not entity_id:
         raise ValueError("write_knowledge: entity_id is required to create")
@@ -199,11 +227,12 @@ def _build_knowledge_update(
         if fact is None:
             raise ValueError(f"write_knowledge: fact {fact_id!r} not found")
     _attach_subject_participants(db, fact=fact, subject_entity_ids=subject_entity_ids)
+    stored, pending = _tokenized_content(db, entity_id, content)
     return Knowledge(
         entity_id=entity_id, fact_id=fact.id, subject=resolved_subject, level=norm_level,
-        content=content, source=source, is_incorrect=bool(is_incorrect),
+        content_raw=stored, source=source, is_incorrect=bool(is_incorrect),
         is_secret=bool(is_secret), share_threshold=threshold, session_id=session_id,
-    )
+    ), pending
 
 
 def write_knowledge(
@@ -239,12 +268,13 @@ def write_knowledge(
     mode="level_change" (`_apply_mutation`'s `knowledge_change` branch
     only): see `_build_knowledge_level_change`.
     """
+    pending = None
     if mode == "level_change":
         k = _build_knowledge_level_change(
             db, knowledge_id=knowledge_id, level=level, source=source, changed_by=changed_by,
         )
     else:
-        k = _build_knowledge_update(
+        k, pending = _build_knowledge_update(
             db, knowledge_id=knowledge_id, entity_id=entity_id, subject=subject,
             level=level, content=content, source=source, is_incorrect=is_incorrect,
             is_secret=is_secret, share_threshold=share_threshold, session_id=session_id,
@@ -252,4 +282,63 @@ def write_knowledge(
         )
 
     db.add(k)
+    if pending:
+        db.flush()
+        record_unresolved(db, world_id=pending[0], knowledge_id=k.id, items=pending[1])
     return k
+
+
+def apply_knowledge_patch(db: Session, *, knowledge: Knowledge, patch: dict, changed_by: str) -> Knowledge:
+    """Merge `patch` ({field: new value}) over `knowledge`'s current state and
+    write the result through `write_knowledge` (history appended) — moved
+    unchanged in logic out of `link_author._apply_canon_knowledge_patch`
+    (TICKET-0091, AMENDMENT-0091-04): the current text is read raw here, in
+    `writes/`, so an untouched content keeps its tokens. A patched content is
+    new writing and is tokenized by `write_knowledge`."""
+    merged = {
+        "level": knowledge.level, "content": knowledge.content_raw, "source": knowledge.source,
+        "is_incorrect": knowledge.is_incorrect, "is_secret": knowledge.is_secret,
+        "share_threshold": knowledge.share_threshold,
+    }
+    merged.update(patch)
+    return write_knowledge(
+        db, mode="update", knowledge_id=knowledge.id, entity_id=knowledge.entity_id,
+        subject=knowledge.subject, level=merged["level"], content=merged["content"],
+        source=merged["source"], is_incorrect=merged["is_incorrect"],
+        is_secret=merged["is_secret"], share_threshold=merged["share_threshold"],
+        session_id=knowledge.session_id, changed_by=changed_by,
+    )
+
+
+def upsert_knowledge_row(db: Session, *, id: str, created_by: str, **fields) -> str:
+    """Create the knowledge row `id`, or converge its fields in place — the
+    seed's idempotent upsert, moved unchanged in logic out of
+    `scripts/seed_pilot.py::upsert_knowledge` (TICKET-0091, AMENDMENT-0091-05).
+    The `content` key maps to `content_raw`; the text is stored as given,
+    never tokenized (seed text is a reproducible dataset, like migrated text).
+    On create, absent a `fact_id`, a free-standing fact is created with
+    `content = subject` (the `write_knowledge` fallback); an existing row's
+    `fact_id` is never touched. Returns "created", "updated" or "existing"."""
+    if "content" in fields:
+        fields = {("content_raw" if key == "content" else key): value for key, value in fields.items()}
+    obj = db.get(Knowledge, id)
+    if obj is None:
+        if "fact_id" not in fields:
+            entity = db.get(Entity, fields["entity_id"])
+            fact = create_fact(
+                db, world_id=entity.world_id,
+                content=fields.get("subject") or "unknown", created_by=created_by,
+                facet="information",
+            )
+            fields = {**fields, "fact_id": fact.id}
+        db.add(Knowledge(id=id, **fields))
+        return "created"
+    changed = False
+    for key, value in fields.items():
+        if getattr(obj, key) != value:
+            setattr(obj, key, value)
+            changed = True
+    if changed:
+        obj.updated_at = datetime.now(UTC)
+        return "updated"
+    return "existing"

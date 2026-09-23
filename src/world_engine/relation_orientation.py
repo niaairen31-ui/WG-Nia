@@ -37,7 +37,9 @@ def lien_fact_content(name_a: str, relation_type: str, name_b: str) -> str:
 
 def connects_to_fact_content(name_a: str, name_b: str) -> str:
     """Content of a `connects_to` edge's typed fact — byte-identical to
-    `scripts/migrate_v2_00_connects_to_facts.py`'s."""
+    `scripts/migrate_v2_00_connects_to_facts.py`'s for the same arguments;
+    `write_relation` passes identity tokens (BRIEF-0091-J), the migration
+    plain names."""
     return f"{name_a} communique avec {name_b}."
 
 

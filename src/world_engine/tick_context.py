@@ -37,6 +37,7 @@ from .knowledge_resolve import (
     resolve_public_levels,
 )
 from .facet_reads import facts_of, joined
+from .prose_render import knowledge_texts
 from .ledger import get_balance
 from .models import (
     Agenda,
@@ -122,8 +123,9 @@ def _render_perception(name: str, rel: Relation) -> str:
     return f"- {name} : {rel.notes} (perception : {rel.type}, disposition : {adjective})"
 
 
-def _knowledge_line(k: Knowledge) -> str:
-    text = k.content or f"{k.subject} ({k.level})"
+def _knowledge_line(k: Knowledge, content: Optional[str]) -> str:
+    """`content` is `k`'s rendered text (`prose_render.knowledge_texts`)."""
+    text = content or f"{k.subject} ({k.level})"
     if k.is_incorrect:
         text += " (tu en es convaincu, mais c'est faux)"
     prefix = "[SECRET] " if k.is_secret else ""
@@ -265,7 +267,11 @@ def _tick_knowledge_block(npc_id: str, session: Session) -> str:
     knowledge = knowledge + resolve_default_rows(
         session, npc_id, {k.fact_id for k in knowledge}
     )
-    return "\n".join(_knowledge_line(k) for k in knowledge) if knowledge else "(aucune connaissance)"
+    if not knowledge:
+        return "(aucune connaissance)"
+    return "\n".join(
+        _knowledge_line(k, text) for k, text in zip(knowledge, knowledge_texts(session, knowledge))
+    )
 
 
 def _tick_relations_block(npc_id: str, session: Session) -> str:
