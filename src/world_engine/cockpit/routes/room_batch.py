@@ -20,6 +20,7 @@ from sqlmodel import Session
 
 from ...db import get_session
 from ...models import Entity, Location
+from ...entity_author import facet_text
 from ...room_batch_author import _name_key  # commit-time name resolution must
 # stay bit-identical to generation-time resolution (BRIEF-0042-a's K1 spanning
 # tree, BRIEF-0042-c's coherence index both key on this) -- reused directly
@@ -134,16 +135,19 @@ def _commit_batch_rooms(
             break  # cycle guard -- K1 already guaranteed a tree at generation time
         for entry in ready:
             local_id = entry["local_id"]
-            pub = entry["result"]["draft"]["public"]
+            draft = entry["result"]["draft"]
+            pub = draft["public"]
             parent_local = parent_local_id(entry)
             parent_entity_id = room_id_map[parent_local] if parent_local else anchor_id
-            entity_data = {"type": "location", "name": entry["name"], "description": pub.get("description")}
+            entity_data = {"type": "location", "name": entry["name"]}
             ext_data = {
                 "location_type": pub.get("location_type"),
                 "access_level": pub.get("access_level") or None,
                 "parent_location_id": parent_entity_id,
             }
-            room_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data)
+            # TICKET-0091, BRIEF-0091-E: the room keeps only its description, as a fact.
+            facets = {"description": facet_text(draft.get("facets") or {}, "description")}
+            room_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data, facets=facets)
             room_entity = _crud._create_entity_core(room_body, db)
             room_id_map[local_id] = room_entity.id
             parent_entity_of[room_entity.id] = parent_entity_id

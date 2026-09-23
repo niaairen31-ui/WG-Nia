@@ -556,6 +556,23 @@ What it edits:
   from an entity's sheet (`/api/entities/{id}/relations`, `/api/relations/{id}`).
 - **In-context `knowledge` editor** — create/update/hard-delete `knowledge`
   rows (`/api/entities/{id}/knowledge`, `/api/knowledge/{id}`).
+- **Descriptive lore as facts** (TICKET-0091, BRIEF-0091-E) — an entity's
+  descriptive lore (description, physique, histoire, aversion, doctrine,
+  coutume, ...) is no longer an `entity`/extension column on the write
+  side: it is written through `writes/facets.py` (C-05) as free facts with
+  a descriptive facet, the entity as participant, and a default picked by
+  the facet's preset or an explicit scope. `EntityWriteBody.facets` carries
+  it on create (`_create_entity_core` writes it after the flush, same
+  transaction; the PC route and every generator commit — NPC batch, region
+  factions/locations, room batch — pass the same payload); `PUT
+  /api/entities/{id}` refuses a non-empty `facets` with 422. The sheet edits
+  it through `crud/facets.py`: `GET /api/facets`, `GET`/`POST
+  /api/entities/{id}/facts`, `PUT /api/facts/{id}/content` (history
+  appended via `update_fact_content`) and `DELETE /api/facts/{id}`
+  (`delete_free_fact`), each committing once and refusing a non-descriptive
+  fact. `PUT /api/entities/{id}/subculture` is retired: customs are
+  `coutume` facts. `creator_meta` becomes a `histoire` fact with no default
+  plus an `unaware`, `is_secret` knowledge row of the entity itself.
 
 Shared write rules with `_apply_mutation`: both paths call
 `writes.write_relation` / `writes.write_knowledge` so clamping and field

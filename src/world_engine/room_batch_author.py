@@ -18,7 +18,7 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from . import llm_parse
-from .entity_author import AUTHOR_MODEL, generate_entity_draft
+from .entity_author import AUTHOR_MODEL, facet_text, generate_entity_draft
 from .models import Entity, Location, LocationSubculture, LocationTypeCatalog, PromptTemplate, Relation
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
@@ -521,12 +521,13 @@ def _rooms_tree_block(rooms: list[dict]) -> str:
         return "(aucune pièce générée)"
     lines = []
     for r in rooms:
-        public = r.get("result", {}).get("draft", {}).get("public", {})
+        draft = r.get("result", {}).get("draft", {})
+        public = draft.get("public", {})
         parent = r.get("parent_room")
         suffix = f" (sous {parent})" if parent else " (sous l'ancre)"
         lines.append(
             f"- {r.get('name', '')}{suffix} [{public.get('location_type') or 'type inconnu'}] : "
-            f"{_one_line(public.get('description'))}"
+            f"{_one_line(facet_text(draft.get('facets') or {}, 'description'))}"
         )
     return "\n".join(lines)
 

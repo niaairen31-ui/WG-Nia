@@ -68,7 +68,6 @@ from ...writes import (
     write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
-    write_location_subculture,
     write_membership,
     write_npc_goal,
     write_npc_goal_prerequisites,

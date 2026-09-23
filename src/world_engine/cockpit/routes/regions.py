@@ -152,21 +152,15 @@ def _commit_region_factions(
         if local_id not in accepted_factions:
             continue
         draft = entry["result"]["draft"]
-        pub, sec = draft["public"], draft["secret"]
+        pub = draft["public"]
         entity_data: dict[str, Any] = {
             "type": "faction",
             "name": pub.get("name"),
-            "description": pub.get("description"),
         }
         ext_data = {
             "faction_type": pub.get("faction_type"),
-            "philosophy": pub.get("philosophy"),
-            "internal_structure": pub.get("internal_structure"),
-            "aversion": pub.get("aversion"),
-            "internal_tensions": sec.get("internal_tensions"),
-            "goals": sec.get("goals"),
         }
-        fac_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data)
+        fac_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data, facets=draft["facets"])
         fac_entity = _crud._create_entity_core(fac_body, db)
         fac_id_map[local_id] = fac_entity.id
         committed_factions.append({"local_id": local_id, "id": fac_entity.id, "name": fac_entity.name})
@@ -203,23 +197,18 @@ def _commit_region_locations(
         for entry in ready:
             local_id = entry["local_id"]
             draft = entry["result"]["draft"]
-            pub, sec = draft["public"], draft["secret"]
-            subculture = dict(pub.get("subculture") or {})
-            if sec.get("subculture_hidden"):
-                subculture["hidden"] = sec["subculture_hidden"]
+            pub = draft["public"]
             parent_local = _region_resolve_location_parent(entry, accepted_locations, root_local)
             entity_data = {
                 "type": "location",
                 "name": pub.get("name"),
-                "description": pub.get("description"),
             }
             ext_data = {
                 "location_type": pub.get("location_type"),
                 "access_level": pub.get("access_level") or None,
-                "subculture": subculture or None,
                 "parent_location_id": loc_id_map.get(parent_local) if parent_local else None,
             }
-            loc_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data)
+            loc_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data, facets=draft["facets"])
             loc_entity = _crud._create_entity_core(loc_body, db)
             loc_id_map[local_id] = loc_entity.id
             committed_locations.append({"local_id": local_id, "id": loc_entity.id, "name": loc_entity.name})

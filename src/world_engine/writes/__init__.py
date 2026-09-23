@@ -18,6 +18,10 @@ Layout, by canon domain:
                           `create_fact`, `attach_participants`
                           (TICKET-0082, BRIEF-0082-b), `create_fact_default`
                           (BRIEF-0082-c).
+    facets.py           — the entity-fact writer: `add_entity_fact`,
+                          `write_entity_facets`, `edit_entity_fact`,
+                          `remove_entity_fact` over the fact chokepoint
+                          (TICKET-0091, BRIEF-0091-E).
     characters.py       — `character`/`skill`/`ledger`: three unbaselined movers.
     factions.py         — `faction_membership`/`faction_role`.
     config.py           — the governed-config group (`npc_price`,
@@ -58,6 +62,14 @@ from .facts import (
     create_fact,
     create_fact_default,
     update_typed_fact_content,
+)
+from .facets import (
+    ScopeChoice,
+    add_entity_fact,
+    edit_entity_fact,
+    facts_payload_keys,
+    remove_entity_fact,
+    write_entity_facets,
 )
 from .factions import (
     _validate_max_holders,

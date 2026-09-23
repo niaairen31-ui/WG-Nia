@@ -28,7 +28,7 @@ from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
 from . import link_author, llm_parse
-from .entity_author import AUTHOR_MODEL, generate_entity_draft, generate_npc_goals
+from .entity_author import AUTHOR_MODEL, facet_text, generate_entity_draft, generate_npc_goals
 from .models import Entity, Faction, NpcBatch, NpcBatchRow, PromptTemplate, World
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
@@ -312,7 +312,11 @@ def _generate_row_goals(db: Session, draft: dict, notes: list[str]) -> dict | No
         faction = db.get(Faction, faction_id)
         faction_goals = faction.goals if faction is not None else None
 
-    result = generate_npc_goals(pub.get("name", ""), pub.get("description", ""), pub.get("backstory", ""), faction_goals, db)
+    facets = draft["facets"]
+    result = generate_npc_goals(
+        pub.get("name", ""), facet_text(facets, "description"), facet_text(facets, "histoire"),
+        faction_goals, db,
+    )
     if result.get("ok"):
         return {"long": result.get("long", ""), "shorts": result.get("shorts", [])}
     notes.append(f"Génération des objectifs échouée : {result.get('error')}")
@@ -386,7 +390,9 @@ def run_next_npc(db: Session, batch: NpcBatch) -> dict:
 
 
 _NPC_ROW_STATUS_ALLOWED = ("proposed", "rejected")
-_NPC_PLAIN_STR_FIELDS = ("description", "appearance", "backstory", "aversion")
+# TICKET-0091, BRIEF-0091-E (Q20b): facet keys, one string per facet, one line
+# per affirmation; `write_entity_facets` splits the lines at commit.
+_NPC_PLAIN_STR_FIELDS = ("description", "physique", "histoire", "aversion")
 
 
 def _coerce_npc_patch_value(db: Session, batch: NpcBatch, field: str, value):
@@ -450,6 +456,7 @@ def patch_npc_row(
     if payload_patch:
         merged = dict(row.payload)
         draft_public = dict(merged.get("draft", {}).get("public", {}))
+        draft_facets = dict(merged.get("draft", {}).get("facets", {}))
         goals = dict(merged.get("goals") or {})
         for field, value in payload_patch.items():
             ok, reason, coerced = _coerce_npc_patch_value(db, batch, field, value)
@@ -461,9 +468,11 @@ def patch_npc_row(
                 goals["long"] = coerced
             elif field == "goals.shorts":
                 goals["shorts"] = coerced
+            elif field in _NPC_PLAIN_STR_FIELDS:
+                draft_facets[field] = coerced
             else:
                 draft_public[field] = coerced
-        merged["draft"] = {**merged.get("draft", {}), "public": draft_public}
+        merged["draft"] = {**merged.get("draft", {}), "public": draft_public, "facets": draft_facets}
         merged["goals"] = goals
         row.payload = merged
         row.row_status = "edited"

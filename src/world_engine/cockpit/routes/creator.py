@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from ...entity_author import facet_text
 from ...entity_author import generate_entity_draft as _generate_entity_draft
 from ...entity_author import generate_npc_goals as _generate_npc_goals
 from ...entity_author import generate_player_draft as _generate_player_draft
@@ -41,6 +42,7 @@ from ...models import (
 from ...writes import (
     KNOWLEDGE_LEVELS,
     delete_world_cascade as _delete_world_cascade,
+    write_entity_facets,
     write_knowledge,
     write_world_laws,
 )
@@ -70,14 +72,15 @@ def _generate_draft_with_l1(entity_type: str, brief: str, db: Session) -> dict:
     """
     result = _generate_entity_draft(entity_type, brief, db)
     if entity_type == "character" and result.get("ok"):
-        pub = result["draft"]["public"]
+        pub, facets = result["draft"]["public"], result["draft"]["facets"]
         faction_goals = None
         faction_id = pub.get("faction_id")
         if faction_id:
             faction = db.get(Faction, faction_id)
             faction_goals = faction.goals if faction else None
         goals_result = _generate_npc_goals(
-            pub.get("name", ""), pub.get("description", ""), pub.get("backstory", ""), faction_goals, db
+            pub.get("name", ""), facet_text(facets, "description"), facet_text(facets, "histoire"),
+            faction_goals, db,
         )
         if goals_result.get("ok"):
             pub["goals"] = {"long": goals_result.get("long", ""), "shorts": goals_result.get("shorts", [])}
@@ -564,9 +567,9 @@ class PlayerKnowledgeItem(BaseModel):
 class PlayerCharacterCreateBody(BaseModel):
     name: str
     current_location_id: str
-    description: Optional[str] = None
-    appearance: Optional[str] = None
-    backstory: Optional[str] = None
+    # TICKET-0091, BRIEF-0091-E (C-11): descriptive lore as a `facets`
+    # payload (`writes/facets.py::write_entity_facets` shape).
+    facets: Optional[dict] = None
     knowledge: Optional[list[PlayerKnowledgeItem]] = None
 
 
@@ -640,8 +643,9 @@ def create_player_character(
     not a 500. See `_validate_pc_creation` for request validation.
 
     BRIEF-52 (E1): also accepts the optional PC creation assistant draft —
-    `description`/`appearance`/`backstory` set on the rows that own them,
-    and `knowledge` written per `_write_pc_knowledge`. The base-domain skill
+    descriptive lore as `facets`, written as facts after the entity flush
+    (TICKET-0091, BRIEF-0091-E), and `knowledge` written per
+    `_write_pc_knowledge`. The base-domain skill
     seed stays untouched (B1, no proposed tiers).
 
     BRIEF-55 (B1, schema v1.63): after the four base-domain rows, also seeds
@@ -656,7 +660,6 @@ def create_player_character(
             world_id=world_id,
             type="character",
             name=name,
-            description=(body.description or None),
         )
         db.add(entity)
         db.flush()
@@ -666,10 +669,10 @@ def create_player_character(
             character_type="player",
             user_id=creator_user.id,
             current_location_id=body.current_location_id,
-            appearance=(body.appearance or None),
-            backstory=(body.backstory or None),
         )
         db.add(character)
+        db.flush()
+        write_entity_facets(db, entity_id=entity.id, facets=body.facets or {}, created_by="creator_crud")
         for domain in BASE_SKILL_DOMAINS:
             db.add(Skill(character_id=entity.id, domain=domain, tier=0))
         # B1 (schema v1.63): flat tier-0 seed for every custom skill of the

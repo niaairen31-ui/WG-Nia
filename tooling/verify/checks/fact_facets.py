@@ -19,6 +19,14 @@ R4  Fixture: C-02's case table (facet x typed FK), run against the real
     (WORLD_ENGINE_DATABASE_URL set before any world_engine import — never
     Nia's DB). Every `ok` row is flushed and its stored facet/aspect read
     back; every refusal row must raise `ValueError`.
+R5  Fixture (BRIEF-0091-E, C-05): `writes/facets.py::add_entity_fact`
+    refuses a second fact on a `bloc` facet with the same aspect about the
+    same entity (`ValueError`), and `write_entity_facets` splits an
+    affirmation string into one fact per non-empty line, writes a hidden
+    `coutume` with no default and a visible one with a `location` default at
+    the location itself, and turns `creator_meta` into a `histoire` fact with
+    no default plus one `unaware`, `is_secret` knowledge row for the entity
+    itself.
 R6  Fixture (BRIEF-0091-D, C-09 default-row filter): a descriptive fact
     with a `world` default is absent from
     `knowledge_resolve.resolve_default_rows`; an `information` fact with the
@@ -233,6 +241,72 @@ def check_case_table(engine) -> None:
                 fail(f"R4: aspect not normalized on {label!r}: {stored.aspect!r}")
 
 
+# --- R5 -------------------------------------------------------------------------
+
+def check_entity_facets_writer(engine) -> None:
+    from sqlmodel import Session as DbSession, select
+
+    from world_engine.models import Entity, FactDefault, FactParticipant, Knowledge, World
+    from world_engine.writes.facets import add_entity_fact, write_entity_facets
+
+    with DbSession(engine) as session:
+        world = World(name="R5 World", is_active=False)  # one active world per DB
+        session.add(world)
+        session.commit()
+        wid = world.id
+        npc = Entity(world_id=wid, type="character", name="R5 NPC")
+        place = Entity(world_id=wid, type="location", name="R5 Place")
+        session.add_all([npc, place])
+        session.commit()
+
+        add_entity_fact(session, entity_id=npc.id, facet="physique", content="grand", created_by="check")
+        session.commit()
+        try:
+            add_entity_fact(session, entity_id=npc.id, facet="physique", content="petit", created_by="check")
+            fail("R5: a second physique fact on the same entity was accepted")
+        except ValueError:
+            session.rollback()
+
+        facts = write_entity_facets(session, entity_id=npc.id, created_by="check", facets={
+            "aversion": "le soleil\n\n  la mer  \n", "creator_meta": "un traître", "tenue": "",
+        })
+        session.commit()
+        aversions = [f.content for f in facts if f.facet == "aversion"]
+        if aversions != ["le soleil", "la mer"]:
+            fail(f"R5: aversion string not split into one fact per line: {aversions!r}")
+        meta = [f for f in facts if f.facet == "histoire"]
+        if len(facts) != 3 or len(meta) != 1:
+            fail(f"R5: write_entity_facets created {[f.facet for f in facts]!r}")
+        else:
+            rows = session.exec(select(Knowledge).where(Knowledge.fact_id == meta[0].id)).all()
+            if [(k.entity_id, k.level, k.is_secret, k.subject) for k in rows] != [
+                    (npc.id, "unaware", True, "creator_meta")]:
+                fail("R5: creator_meta is not one unaware, secret knowledge row of its own entity")
+            if session.exec(select(FactDefault).where(FactDefault.fact_id == meta[0].id)).first():
+                fail("R5: creator_meta fact carries a default")
+        for fact in facts:
+            if session.exec(select(FactParticipant.entity_id).where(
+                    FactParticipant.fact_id == fact.id)).all() != [npc.id]:
+                fail(f"R5: fact {fact.content!r} does not have the entity as its one participant")
+
+        customs = write_entity_facets(session, entity_id=place.id, created_by="check", facets={
+            "coutume": [
+                {"aspect": " Values ", "content": "on salue", "hidden": False},
+                {"aspect": None, "content": "un passage secret", "hidden": True},
+            ],
+        })
+        session.commit()
+        scopes = [
+            [(d.scope_type, d.scope_id, d.level) for d in session.exec(
+                select(FactDefault).where(FactDefault.fact_id == f.id)).all()]
+            for f in customs
+        ]
+        if scopes != [[("location", place.id, "knows")], []]:
+            fail(f"R5: coutume defaults are {scopes!r}")
+        if [f.aspect for f in customs] != ["values", None]:
+            fail(f"R5: coutume aspects are {[f.aspect for f in customs]!r}")
+
+
 # --- R6 -------------------------------------------------------------------------
 
 def check_default_rows_filter(engine) -> None:
@@ -279,6 +353,7 @@ def main() -> int:
     check_registry()
     check_call_sites()
     check_case_table(engine)
+    check_entity_facets_writer(engine)
     check_default_rows_filter(engine)
 
     if FAILURES:
@@ -288,6 +363,7 @@ def main() -> int:
     print(
         "PASS: fact_facets — FACETS matches C-01, every create_fact( passes a facet, "
         "descriptive/dynamic facets stay in writes/facets.py, C-02's case table holds, "
+        "the entity-fact writer guards blocs and writes customs and creator_meta, "
         "and resolve_default_rows skips descriptive facts"
     )
     return 0

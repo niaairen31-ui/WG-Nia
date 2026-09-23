@@ -151,6 +151,13 @@ src/world_engine/writes/facts.py::update_typed_fact_content     fact
 # TICKET-0091, BRIEF-0091-A
 src/world_engine/writes/facts.py::update_fact_content     fact
 src/world_engine/writes/facts.py::delete_free_fact        fact fact_participant fact_default knowledge
+# TICKET-0091, BRIEF-0091-E: writes/facets.py (add_entity_fact,
+# write_entity_facets, edit_entity_fact, remove_entity_fact) and the
+# cockpit/crud/facets.py routes (create_entity_fact,
+# update_entity_fact_content, delete_entity_fact) write canon ONLY by calling
+# the writes/facts.py and write_knowledge chokepoints above — no `.add`/
+# `.delete` of their own, so no ALLOWED_SITES entry: declaring one would
+# sanction a direct write these functions must never contain.
 
 # TICKET-0051, BRIEF-0051-a: observation_run, observation_run_template,
 # observation_beat, observation_intent and observation_mutation_link are

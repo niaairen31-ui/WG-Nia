@@ -76,8 +76,9 @@ single-row correction): `write_npc_prices`, `write_location_subculture`,
 each `DELETE FROM` their table(s) scoped to one parent (NPC / location /
 world / location / location) then re-insert the submitted set, in one
 transaction — creator-CRUD and world-bootstrap only (`set_npc_prices`,
-`set_location_subculture`, `create_world`, `set_location_geometry`,
-`set_location_doors`), never reachable from any AI or play path. These
+`create_world`, `set_location_geometry`, `set_location_doors`; since
+TICKET-0091, BRIEF-0091-E `write_location_subculture` has no route caller,
+only the seed), never reachable from any AI or play path. These
 tables carry no `change_history` by design (metadata-config category);
 the full-replace IS their write shape. No table may take a foreign key on
 `door.id` — enforced by `door_terminal.py`. `cockpit/spatial_doors.py`

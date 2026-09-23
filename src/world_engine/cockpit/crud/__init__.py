@@ -66,7 +66,6 @@ from .entities import (
     ENTITY_STATUSES,
     ENTITY_TYPE_REGISTRY,
     EntityWriteBody,
-    LocationSubcultureBody,
     NpcPricesBody,
     _apply_base_fields,
     _build_extension_kwargs,
@@ -90,11 +89,17 @@ from .entities import (
     get_entity_types,
     list_entities,
     list_entity_items,
-    set_location_subculture,
     set_npc_prices,
     update_entity,
 )
 from .entity_geometry import set_location_doors, set_location_geometry
+from .facets import (
+    create_entity_fact,
+    delete_entity_fact,
+    list_entity_facts,
+    list_facets,
+    update_entity_fact_content,
+)
 from .relations import (
     RELATION_DIRECTIONS,
     RELATION_FIELDS,
