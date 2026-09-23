@@ -1,0 +1,249 @@
+"""G1 check for TICKET-0091 (BRIEF-0091-A) — the facet registry and the
+facet-bearing fact chokepoint.
+
+R1  `facets.py::FACETS` matches the C-01 table exactly: names in display
+    order, family, granularity, preset, aspects — plus the derived sets
+    `DESCRIPTIVE_FACETS`, `KNOWLEDGE_SECTION_FACETS` and `TYPED_FACET_BY_FK`.
+    Labels and descriptions are UI help; no rule reads them.
+R2  AST: every `create_fact(` call in `src/` and `scripts/` passes a
+    `facet=` keyword. Vacuity-guarded: the three known production callers
+    (`writes/knowledge.py`, `writes/relations.py`, `scripts/seed_pilot.py`)
+    must be found.
+R3  AST: a `create_fact(` whose `facet=` is a descriptive literal (a
+    `DESCRIPTIVE_FACETS` name) or a non-literal appears only in
+    `writes/facets.py`. A negative-existence rule over a possibly-empty
+    search space (the `lore_isolation.py` R5-R7 precedent): finding nothing
+    IS the pass, so it carries no vacuity guard of its own.
+R4  Fixture: C-02's case table (facet x typed FK), run against the real
+    `writes/facts.py::create_fact` on a fresh temp-file SQLite database
+    (WORLD_ENGINE_DATABASE_URL set before any world_engine import — never
+    Nia's DB). Every `ok` row is flushed and its stored facet/aspect read
+    back; every refusal row must raise `ValueError`.
+
+FAILURES list, print FAIL lines, exit 1.
+"""
+from __future__ import annotations
+
+import ast
+import os
+import pathlib
+import sys
+import tempfile
+
+ROOT = pathlib.Path(__file__).resolve().parents[3]
+SRC = ROOT / "src"
+SCRIPTS = ROOT / "scripts"
+FACET_WRITER = "src/world_engine/writes/facets.py"
+KNOWN_CALLERS = (
+    "src/world_engine/writes/knowledge.py",
+    "src/world_engine/writes/relations.py",
+    "scripts/seed_pilot.py",
+)
+
+# C-01, verbatim: (name, family, granularity, preset, aspects), display order.
+EXPECTED_FACETS = (
+    ("appellation", "identite", "affirmation", "location", ()),
+    ("statut", "identite", "affirmation", "location", ()),
+    ("physique", "identite", "bloc", "rencontre", ()),
+    ("tenue", "identite", "bloc", "none", ()),
+    ("description", "identite", "bloc", "public_world", ()),
+    ("reputation", "identite", "affirmation", "location", ()),
+    ("histoire", "interiorite", "affirmation", "none", ()),
+    ("personnalite", "interiorite", "affirmation", "none", ()),
+    ("preference", "interiorite", "affirmation", "none", ()),
+    ("aversion", "interiorite", "affirmation", "none", ()),
+    ("doctrine", "collectif", "bloc", "world", ()),
+    ("organisation", "collectif", "bloc", "none", ()),
+    ("tension", "collectif", "affirmation", "none", ()),
+    ("visee", "collectif", "affirmation", "none", ()),
+    ("coutume", "collectif", "affirmation", "location", ("values",)),
+    ("information", "monde", "affirmation", "none", ()),
+    ("lien", "monde", "typed", "typed", ()),
+    ("evenement", "monde", "typed", "typed", ()),
+    ("loi", "monde", "typed", "typed", ()),
+)
+
+FAILURES: list[str] = []
+
+
+def fail(msg: str) -> None:
+    FAILURES.append(msg)
+
+
+def _fresh_engine():
+    tmp_dir = tempfile.mkdtemp()
+    db_path = pathlib.Path(tmp_dir) / "check.db"
+    os.environ["WORLD_ENGINE_DATABASE_URL"] = f"sqlite:///{db_path}"
+    sys.path.insert(0, str(SRC))
+    for name in list(sys.modules):
+        if name == "world_engine" or name.startswith("world_engine."):
+            del sys.modules[name]
+
+    from world_engine.db import create_db_and_tables, engine
+
+    create_db_and_tables()
+    return engine
+
+
+# --- R1 -----------------------------------------------------------------------
+
+def check_registry() -> None:
+    from world_engine import facets
+
+    actual = tuple(
+        (s.name, s.family, s.granularity, s.preset, s.aspects) for s in facets.FACETS.values()
+    )
+    if actual != EXPECTED_FACETS:
+        fail(f"R1: FACETS differs from the C-01 table: {actual!r}")
+    if any(name != spec.name for name, spec in facets.FACETS.items()):
+        fail("R1: a FACETS key differs from its spec's name")
+    for spec in facets.FACETS.values():
+        if (spec.family not in facets.FAMILIES or spec.granularity not in facets.GRANULARITIES
+                or spec.preset not in facets.PRESETS):
+            fail(f"R1: facet {spec.name!r} uses a value outside FAMILIES/GRANULARITIES/PRESETS")
+    descriptive = {n for n, f, *_ in EXPECTED_FACETS if f in ("identite", "interiorite", "collectif")}
+    if len(descriptive) != 15 or facets.DESCRIPTIVE_FACETS != frozenset(descriptive):
+        fail(f"R1: DESCRIPTIVE_FACETS is {sorted(facets.DESCRIPTIVE_FACETS)!r}")
+    if facets.KNOWLEDGE_SECTION_FACETS != frozenset({"information", "lien", "evenement", "loi"}):
+        fail(f"R1: KNOWLEDGE_SECTION_FACETS is {sorted(facets.KNOWLEDGE_SECTION_FACETS)!r}")
+    if facets.TYPED_FACET_BY_FK != {"relation_id": "lien", "event_id": "evenement",
+                                    "world_law_id": "loi"}:
+        fail(f"R1: TYPED_FACET_BY_FK is {facets.TYPED_FACET_BY_FK!r}")
+    try:
+        facets.facet_spec("nope")
+        fail("R1: facet_spec of an unknown name did not raise ValueError")
+    except ValueError:
+        pass
+    for raw, expected in (("  Values ", "values"), ("", None), ("   ", None), (None, None)):
+        if facets.normalize_aspect(raw) != expected:
+            fail(f"R1: normalize_aspect({raw!r}) != {expected!r}")
+
+
+# --- R2 / R3 --------------------------------------------------------------------
+
+def _create_fact_calls():
+    """Yield (repo-relative path, call node) for every `create_fact(` call
+    (bare name or attribute) in src/ and scripts/."""
+    for base in (SRC, SCRIPTS):
+        for path in sorted(base.rglob("*.py")):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            except SyntaxError as exc:
+                fail(f"{path}: SyntaxError: {exc}")
+                continue
+            rel = path.relative_to(ROOT).as_posix()
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = func.id if isinstance(func, ast.Name) else (
+                    func.attr if isinstance(func, ast.Attribute) else None)
+                if name == "create_fact":
+                    yield rel, node
+
+
+def check_call_sites() -> None:
+    from world_engine.facets import DESCRIPTIVE_FACETS
+
+    seen: set[str] = set()
+    for rel, node in _create_fact_calls():
+        seen.add(rel)
+        facet_kw = next((kw for kw in node.keywords if kw.arg == "facet"), None)
+        if facet_kw is None:
+            fail(f"R2: {rel}:{node.lineno} -- create_fact( without a facet= keyword")
+            continue
+        value = facet_kw.value
+        literal = value.value if isinstance(value, ast.Constant) else None
+        descriptive_or_dynamic = not isinstance(literal, str) or literal in DESCRIPTIVE_FACETS
+        if descriptive_or_dynamic and rel != FACET_WRITER:
+            fail(
+                f"R3: {rel}:{node.lineno} -- create_fact(facet={ast.unparse(value)}) is a "
+                f"descriptive or non-literal facet outside {FACET_WRITER}"
+            )
+    missing = [c for c in KNOWN_CALLERS if c not in seen]
+    if missing:
+        fail(f"R2 vacuous-proof: known create_fact callers not found by the scan: {missing}")
+
+
+# --- R4 -------------------------------------------------------------------------
+
+def check_case_table(engine) -> None:
+    from sqlmodel import Session as DbSession
+
+    from world_engine.models import Entity, Event, Fact, Relation, World, WorldLaw
+    from world_engine.writes.facts import create_fact
+
+    with DbSession(engine) as session:
+        world = World(name="Facet Check World", is_active=True)
+        session.add(world)
+        session.commit()
+        wid = world.id
+        a = Entity(world_id=wid, type="character", name="A")
+        b = Entity(world_id=wid, type="character", name="B")
+        session.add_all([a, b])
+        session.commit()
+        rel = Relation(world_id=wid, entity_a_id=a.id, entity_b_id=b.id, type="controls")
+        event = Event(world_id=wid, title="an event")
+        law = WorldLaw(world_id=wid, text_="a law")
+        session.add_all([rel, event, law])
+        session.commit()
+        fks = {"relation_id": rel.id, "event_id": event.id, "world_law_id": law.id}
+
+        cases = [
+            # (label, facet, typed FK name or None, expected ok)
+            ("None facet, free", None, None, False),
+            ("None facet, relation", None, "relation_id", False),
+            ("unknown facet", "nope", None, False),
+            ("lien + relation", "lien", "relation_id", True),
+            ("lien, free", "lien", None, False),
+            ("evenement + event", "evenement", "event_id", True),
+            ("loi + world_law", "loi", "world_law_id", True),
+            ("information, free", "information", None, True),
+            ("descriptive, free", "coutume", None, True),
+            ("information + relation", "information", "relation_id", False),
+            ("information + event", "information", "event_id", False),
+            ("descriptive + world_law", "physique", "world_law_id", False),
+            ("evenement + relation", "evenement", "relation_id", False),
+        ]
+        for label, facet, fk, expect_ok in cases:
+            kwargs = {fk: fks[fk]} if fk else {}
+            try:
+                fact = create_fact(
+                    session, world_id=wid, content=label, created_by="check",
+                    facet=facet, aspect="  Values " if facet == "coutume" else None, **kwargs,
+                )
+            except ValueError:
+                if expect_ok:
+                    fail(f"R4: case {label!r} raised ValueError, expected ok")
+                continue
+            if not expect_ok:
+                fail(f"R4: case {label!r} was accepted, expected ValueError")
+                session.rollback()
+                continue
+            session.commit()
+            stored = session.get(Fact, fact.id)
+            if stored is None or stored.facet != facet:
+                fail(f"R4: case {label!r} stored facet {getattr(stored, 'facet', None)!r}")
+            elif facet == "coutume" and stored.aspect != "values":
+                fail(f"R4: aspect not normalized on {label!r}: {stored.aspect!r}")
+
+
+def main() -> int:
+    engine = _fresh_engine()
+    check_registry()
+    check_call_sites()
+    check_case_table(engine)
+
+    if FAILURES:
+        for msg in FAILURES:
+            print(f"FAIL: {msg}")
+        return 1
+    print(
+        "PASS: fact_facets — FACETS matches C-01, every create_fact( passes a facet, "
+        "descriptive/dynamic facets stay in writes/facets.py, and C-02's case table holds"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

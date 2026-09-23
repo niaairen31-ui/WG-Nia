@@ -137,6 +137,7 @@ def check_db_fixture(engine) -> None:
 
         free_fact = create_fact(
             session, world_id=world_id, content="a shared secret", created_by="check",
+            facet="information",
         )
         session.commit()
         attach_participants(session, fact=free_fact, entity_ids=[a, b, c], role="conspirator")

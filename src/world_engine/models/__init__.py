@@ -83,6 +83,7 @@ from .canon_knowledge import Fact, FactDefault, FactParticipant, Knowledge, Rela
 from .config import AgendaStep, AgendaStepRequirement, ConversationWindowConfig
 from .schedule import SCHEDULE_PHASES, NpcSchedule
 from .ephemeral import (
+    ENCOUNTER_SOURCES,
     Conversation,
     ConversationMessage,
     Gathering,
@@ -91,6 +92,7 @@ from .ephemeral import (
     LinkBatchRow,
     NpcBatch,
     NpcBatchRow,
+    Rencontre,
     Session,
     Visit,
 )
@@ -105,6 +107,7 @@ from .pipeline import (
     PromptVersion,
     SchemaMeta,
     SkillResolution,
+    UnresolvedMention,
     User,
 )
 from .observation import (
@@ -167,6 +170,9 @@ __all__ = [
     "PromptVariable",
     "PromptVersion",
     "Visit",
+    "Rencontre",
+    "ENCOUNTER_SOURCES",
+    "UnresolvedMention",
     "Agenda",
     "AgendaStep",
     "AgendaStepRequirement",

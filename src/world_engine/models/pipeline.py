@@ -233,6 +233,31 @@ class SkillResolution(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
+# unresolved_mention  (name-resolution worklist — schema v2.05, TICKET-0091,
+# BRIEF-0091-A, contract C-15). A name in canon prose the server could not
+# bind to one entity. Exactly one of `fact_id`, `knowledge_id` is set (guarded
+# in the writer, `writes/mentions.py`, BRIEF-0091-J). `resolved_at` set with a
+# NULL `resolved_entity_id` = dismissed. Non-canon worklist; no JSON column.
+# -----------------------------------------------------------------------------
+class UnresolvedMention(SQLModel, table=True):
+    __tablename__ = "unresolved_mention"
+    __table_args__ = (
+        Index("idx_unresolved_mention_world_open", "world_id", "resolved_at"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    fact_id: Optional[str] = Field(default=None, foreign_key="fact.id")
+    knowledge_id: Optional[str] = Field(default=None, foreign_key="knowledge.id")
+    surface: str
+    reason: str             # "ambigu" | "inconnu"
+    category: Optional[str] = None
+    created_at: datetime = _created_ts()
+    resolved_at: Optional[datetime] = None
+    resolved_entity_id: Optional[str] = Field(default=None, foreign_key="entity.id")
+
+
+# -----------------------------------------------------------------------------
 # user  (system accounts)
 # -----------------------------------------------------------------------------
 class User(SQLModel, table=True):

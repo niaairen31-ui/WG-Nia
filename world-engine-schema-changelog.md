@@ -13,6 +13,27 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.05** — TICKET-0091, BRIEF-0091-A: facets, encounters table, fact
+  chokepoint. `fact` gains `facet TEXT` and `aspect TEXT` (`ALTER TABLE ...
+  ADD COLUMN`, no CHECK — the vocabulary is the code registry
+  `src/world_engine/facets.py::FACETS`, Q2a). Typed facts backfilled:
+  `lien` where `relation_id` is set (298 on a prod copy), `evenement` where
+  `event_id`, `loi` where `world_law_id` (0 each); free facts stay NULL (316
+  on a prod copy) — NULL means "predates TICKET-0091" and
+  `writes/facts.py::create_fact` now refuses it. `fact_default`'s
+  `ck_fact_default_scope_type` widened to
+  `('world','faction','location','rencontre')` by a table rebuild — the
+  first of the series: new table from the model's DDL, every column of
+  `PRAGMA table_info(fact_default)` copied, old table dropped, rename,
+  `idx_fact_default_unique` and `idx_fact_default_fact` re-created; FKs on
+  throughout; row count checked equal before COMMIT (0 rows on prod).
+  New non-canon tables: `rencontre` (encounter registry, one row per
+  unordered pair, `idx_rencontre_pair` unique, `idx_rencontre_hi`) and
+  `unresolved_mention` (name-resolution worklist,
+  `idx_unresolved_mention_world_open`); both born empty, no JSON column.
+  Migration: `scripts/migrate_v2_05_facets_encounters.py`, one
+  transaction, post-checks before COMMIT (fact_default row count, no typed
+  fact with NULL facet); idempotent — a second run prints zeros.
 - **v2.04** — TICKET-0090, BRIEF-0090-b: perceiver-oriented relations.
   New partial unique index `idx_relation_oriented_social` ON
   `relation(entity_a_id, entity_b_id) WHERE type NOT IN

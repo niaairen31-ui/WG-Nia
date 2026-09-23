@@ -148,6 +148,9 @@ src/world_engine/cockpit/crud/knowledge.py::delete_fact_default        fact_defa
 # TICKET-0090, BRIEF-0090-a
 src/world_engine/writes/relations.py::set_target_knows          knowledge
 src/world_engine/writes/facts.py::update_typed_fact_content     fact
+# TICKET-0091, BRIEF-0091-A
+src/world_engine/writes/facts.py::update_fact_content     fact
+src/world_engine/writes/facts.py::delete_free_fact        fact fact_participant fact_default knowledge
 
 # TICKET-0051, BRIEF-0051-a: observation_run, observation_run_template,
 # observation_beat, observation_intent and observation_mutation_link are

@@ -14655,7 +14655,7 @@ drift.
 **New table `fact_default`** (`models/canon_knowledge.py`): `id, world_id,
 fact_id, scope_type, scope_id, level, created_at, created_by`, with
 `ck_fact_default_scope_type` (`scope_type IN ('world','faction',
-'location')`), `ck_fact_default_scope_shape` (`scope_id` NULL iff
+'location')`; widened to `'rencontre'` at v2.05, BRIEF-0091-a), `ck_fact_default_scope_shape` (`scope_id` NULL iff
 `scope_type='world'`) and `ck_fact_default_level` (the six-value
 vocabulary). A faction scope uses the faction's `entity.id` directly —
 `faction.id` is already an `entity.id` FK, so `scope_id` needs no second
@@ -15775,6 +15775,53 @@ PC "know" what every NPC feels toward them. T2 (refuse delete while knowers
 exist) -- makes a relation undeletable by the act of being known.
 *Reactivate* O3 when a table rebuild of `relation` happens for another
 reason.
+
+---
+
+## FACET REGISTRY (TICKET-0091) -- WHAT KIND OF STATEMENT A FACT IS (BRIEF-0091-a, schema v2.05)
+
+Every descriptive piece of lore becomes a `fact` carrying a facet. The
+facet vocabulary is a code registry, `src/world_engine/facets.py::FACETS`:
+per facet a family, a granularity (`bloc` = one fact per entity,
+`affirmation` = one fact per statement, `typed` = the fact IS a
+relation/event/world_law row), a default-knowledge preset for new writing,
+a French label and description, and its known aspects. Adding a facet is a
+code change, reviewed like one; adding a reader is a query on
+`fact.facet` joined to `fact_participant`.
+
+**Q2a -- `fact.facet` is nullable TEXT, validated in `create_fact`, no
+CHECK.** A CHECK would freeze the vocabulary in the schema and make every
+new facet a table rebuild; the registry is the single authority and the
+chokepoint (`writes/facts.py::create_fact`) refuses a NULL, an unknown
+facet, a typed fact whose facet is not its FK's (`TYPED_FACET_BY_FK`), and
+a free fact with a `typed`-granularity facet. NULL means "predates
+TICKET-0091" and is never written again; v2.05 backfilled only typed facts
+(`lien`/`evenement`/`loi`), free facts stay NULL until v2.06 relocates the
+prose.
+
+**Q12d -- a general `fact.aspect`, never a per-facet exception.** An aspect
+is a normalized qualifier inside a facet (stripped, casefolded;
+`normalize_aspect`); `location_subculture` rows become `coutume` facts with
+aspect = the old key, so "who knows this precise custom" is the same
+knowledge query as for any other fact. A facet's `aspects` tuple is a
+suggestion list for the editor and a future extractor, never a closed set
+and never a CHECK.
+
+**Two companions of the chokepoint.** `update_fact_content` rewrites any
+fact's content after appending the previous one to `change_history`
+(History is sacred). `delete_free_fact` is a creator-CRUD hard delete of a
+free fact with its knowledge, scoped defaults and participants, children
+first -- a named hard-delete path (`single_canon_write.py` section 2); a
+typed fact is refused, it dies with its relation/event/world_law row.
+
+**Q3a -- `fact_default` gains scope `rencontre` by a table rebuild,** the
+first of the migration series (SQLite cannot alter a CHECK): new table
+from the model DDL, every live column copied, drop, rename, indexes
+re-created, row count checked before COMMIT, FKs on throughout.
+
+**Rejected.** A CHECK on `facet` (vocabulary frozen in DDL); a
+`coutume`-only key column (an exception the Q12 request asked to avoid); a
+facet default on `create_fact` (every caller must say what it writes).
 
 ---
 

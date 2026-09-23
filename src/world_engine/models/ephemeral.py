@@ -155,6 +155,34 @@ class Visit(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
+# rencontre  (encounter registry — schema v2.05, TICKET-0091, BRIEF-0091-A,
+# contract C-06). One row per UNORDERED entity pair (`entity_lo_id` <
+# `entity_hi_id`, compared as strings); the earliest known encounter wins.
+# Derived from play traces and authored state, never edited by hand, never
+# updated, never deleted. NOT in canon_write_policy.txt's CANON_TABLES —
+# non-canon bookkeeping like visit/gathering, with its own writer
+# (`encounters.py`, BRIEF-0091-C). No JSON column.
+# -----------------------------------------------------------------------------
+ENCOUNTER_SOURCES = ("visit", "gathering", "conversation", "schedule", "relation")
+
+
+class Rencontre(SQLModel, table=True):
+    __tablename__ = "rencontre"
+    __table_args__ = (
+        Index("idx_rencontre_pair", "entity_lo_id", "entity_hi_id", unique=True),
+        Index("idx_rencontre_hi", "entity_hi_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    entity_lo_id: str = Field(foreign_key="entity.id", nullable=False)
+    entity_hi_id: str = Field(foreign_key="entity.id", nullable=False)
+    first_at: datetime
+    source: str             # in ENCOUNTER_SOURCES
+    source_ref: Optional[str] = None  # id of the visit/gathering/conversation/relation row
+
+
+# -----------------------------------------------------------------------------
 # link_batch / link_batch_row  (NPC link agent staging — schema v1.82,
 # TICKET-0036, BRIEF-0036-a)
 #

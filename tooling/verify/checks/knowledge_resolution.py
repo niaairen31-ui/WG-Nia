@@ -117,7 +117,7 @@ def _build_fixture(session):
     session.commit()
 
     def _fact(content: str) -> str:
-        f = create_fact(session, world_id=world_id, content=content, created_by="check", default_level="suspicious")
+        f = create_fact(session, world_id=world_id, content=content, created_by="check", facet="information", default_level="suspicious")
         session.commit()
         return f.id
 

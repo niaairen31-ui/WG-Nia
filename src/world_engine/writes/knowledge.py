@@ -192,6 +192,7 @@ def _build_knowledge_update(
             raise ValueError(f"write_knowledge: entity {entity_id!r} not found")
         fact = create_fact(
             db, world_id=entity.world_id, content=resolved_subject, created_by=changed_by,
+            facet="information",
         )
     else:
         fact = db.get(Fact, fact_id)

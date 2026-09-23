@@ -143,7 +143,7 @@ def _birth_typed_fact(db: Session, rel: Relation, changed_by: str) -> Optional[F
         return None
     return create_fact(
         db, world_id=rel.world_id, content=content, created_by=changed_by,
-        default_level=level, relation_id=rel.id,
+        facet="lien", default_level=level, relation_id=rel.id,
     )
 
 

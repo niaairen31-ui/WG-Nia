@@ -106,6 +106,10 @@ class Fact(SQLModel, table=True):
     event_id: Optional[str] = Field(default=None, foreign_key="event.id")
     world_law_id: Optional[str] = Field(default=None, foreign_key="world_law.id")
     content: str
+    # facet: FACETS key (facets.py); NULL only on facts created before
+    # TICKET-0091. aspect: normalized qualifier within the facet (Q12d).
+    facet: Optional[str] = None
+    aspect: Optional[str] = None
     default_level: str = Field(
         default="unaware", sa_column_kwargs={"server_default": text("'unaware'")}
     )
@@ -151,12 +155,13 @@ class FactParticipant(SQLModel, table=True):
 # A faction scope uses the faction's `entity.id` directly — `Faction.id` is
 # already a FK to `entity.id`, so `scope_id` needs no second column and no
 # polymorphic type tag.
+# `rencontre`: scope_id is an entity; the fact is known to that entity's acquaintances (C-08).
 # -----------------------------------------------------------------------------
 class FactDefault(SQLModel, table=True):
     __tablename__ = "fact_default"
     __table_args__ = (
         CheckConstraint(
-            "scope_type IN ('world','faction','location')",
+            "scope_type IN ('world','faction','location','rencontre')",
             name="ck_fact_default_scope_type",
         ),
         CheckConstraint(

@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.04
+Current schema version: v2.05
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -642,6 +642,14 @@ false belief lives on the `knowledge` row that points here
 (`knowledge.is_incorrect`), never on the fact. `situation_id` is
 deliberately absent: the `situation` table does not exist yet.
 
+`facet` (schema v2.05, TICKET-0091, BRIEF-0091-A) says what kind of
+statement the fact is: a key of the code registry `facets.py::FACETS`,
+never a CHECK (Q2a). A typed fact carries its FK's facet (`lien`,
+`evenement`, `loi`); NULL only on free facts created before TICKET-0091,
+never written again (`writes/facts.py::create_fact` refuses NULL).
+`aspect` is a normalized (stripped, casefolded) qualifier within the facet,
+e.g. `values` for a `coutume` (Q12d).
+
 ```sql
 CREATE TABLE fact (
   id               TEXT PRIMARY KEY,
@@ -650,6 +658,8 @@ CREATE TABLE fact (
   event_id         TEXT REFERENCES event(id),
   world_law_id     TEXT REFERENCES world_law(id),
   content          TEXT NOT NULL,   -- the canonical statement of the fact
+  facet            TEXT,            -- facets.py key; NULL = predates v2.05
+  aspect           TEXT,            -- normalized qualifier within the facet
   default_level    TEXT NOT NULL DEFAULT 'unaware'
                    CHECK (default_level IN
                      ('unaware','rumor','suspicious','partial','knows','fully_understands')),
@@ -699,14 +709,18 @@ ACTIVE faction membership, the HIGHEST `world`-scoped default; then
 `fact.default_level`. A faction scope uses the faction's `entity.id`
 directly — `faction.id` is already a FK to `entity.id`, so `scope_id` needs
 no second column and no polymorphic type tag. Ships empty; the creator
-surface (`cockpit/crud/knowledge.py`) is its first writer.
+surface (`cockpit/crud/knowledge.py`) is its first writer. Scope
+`rencontre` (schema v2.05, TICKET-0091, BRIEF-0091-A): `scope_id` is an
+entity; the fact is known to that entity's acquaintances (the `rencontre`
+registry) at `level`.
 
 ```sql
 CREATE TABLE fact_default (
   id               TEXT PRIMARY KEY,
   world_id         TEXT NOT NULL REFERENCES world(id),
   fact_id          TEXT NOT NULL REFERENCES fact(id),
-  scope_type       TEXT NOT NULL CHECK (scope_type IN ('world','faction','location')),
+  scope_type       TEXT NOT NULL
+                   CHECK (scope_type IN ('world','faction','location','rencontre')),
   scope_id         TEXT REFERENCES entity(id),
                    -- NULL only when scope_type = 'world'
   level            TEXT NOT NULL
@@ -1782,6 +1796,63 @@ CREATE INDEX idx_visit_player_location ON visit(player_id, location_id, entered_
 
 -----
 
+### `rencontre`
+
+Encounter registry (schema v2.05, TICKET-0091, BRIEF-0091-A): one row per
+UNORDERED entity pair that has met — `entity_lo_id` < `entity_hi_id`,
+compared as strings; the earliest known encounter wins. Derived from play
+traces (visit, gathering, conversation) and authored state (schedule,
+relation), never edited by hand, never updated, never deleted. NOT a canon
+table (`canon_write_policy.txt`) — non-canon bookkeeping like `visit`, with
+one writer (`encounters.py`). Read by the `rencontre` scope of
+`fact_default`. `source` in `ENCOUNTER_SOURCES` (`models/ephemeral.py`):
+`visit`, `gathering`, `conversation`, `schedule`, `relation`; `source_ref`
+is the id of that row.
+
+```sql
+CREATE TABLE rencontre (
+  id                TEXT PRIMARY KEY,
+  world_id          TEXT NOT NULL REFERENCES world(id),
+  entity_lo_id      TEXT NOT NULL REFERENCES entity(id),
+  entity_hi_id      TEXT NOT NULL REFERENCES entity(id),
+  first_at          DATETIME NOT NULL,
+  source            TEXT NOT NULL,
+  source_ref        TEXT
+);
+CREATE UNIQUE INDEX idx_rencontre_pair ON rencontre(entity_lo_id, entity_hi_id);
+CREATE INDEX idx_rencontre_hi ON rencontre(entity_hi_id);
+```
+
+-----
+
+### `unresolved_mention`
+
+Name-resolution worklist (schema v2.05, TICKET-0091, BRIEF-0091-A): a name
+written into canon prose that the server could not bind to exactly one
+entity. Exactly one of `fact_id`, `knowledge_id` is set (guarded by the
+writer, `writes/mentions.py`). `reason` is `ambigu` or `inconnu`.
+`resolved_at` set with a `resolved_entity_id` = resolved; `resolved_at` set
+with a NULL `resolved_entity_id` = dismissed. NOT a canon table; no JSON
+column.
+
+```sql
+CREATE TABLE unresolved_mention (
+  id                  TEXT PRIMARY KEY,
+  world_id            TEXT NOT NULL REFERENCES world(id),
+  fact_id             TEXT REFERENCES fact(id),
+  knowledge_id        TEXT REFERENCES knowledge(id),
+  surface             TEXT NOT NULL,
+  reason              TEXT NOT NULL,   -- 'ambigu' | 'inconnu'
+  category            TEXT,
+  created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+  resolved_at         DATETIME,
+  resolved_entity_id  TEXT REFERENCES entity(id)
+);
+CREATE INDEX idx_unresolved_mention_world_open ON unresolved_mention(world_id, resolved_at);
+```
+
+-----
+
 ### `agenda`
 
 Structured intrigue (schema v1.72, TICKET-0018/BRIEF-0018-a; owner unlock
@@ -2327,6 +2398,11 @@ CREATE INDEX idx_discoverable_signpost_group ON discoverable_detail(signpost_gro
 
 -- "the player's latest visit to this location" (schema v1.71, BRIEF-0016-a)
 CREATE INDEX idx_visit_player_location ON visit(player_id, location_id, entered_at);
+
+-- encounter registry and name worklist (schema v2.05, BRIEF-0091-A)
+CREATE UNIQUE INDEX idx_rencontre_pair ON rencontre(entity_lo_id, entity_hi_id);
+CREATE INDEX idx_rencontre_hi ON rencontre(entity_hi_id);
+CREATE INDEX idx_unresolved_mention_world_open ON unresolved_mention(world_id, resolved_at);
 
 -- agendas: by owner + status (schema v1.72, BRIEF-0018-a)
 CREATE INDEX idx_agenda_owner_status ON agenda(owner_entity_id, status);

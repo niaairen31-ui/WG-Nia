@@ -117,6 +117,7 @@ def upsert_knowledge(session: Session, id: str, **fields):
             fact = create_fact(
                 session, world_id=entity.world_id,
                 content=fields.get("subject") or "unknown", created_by="seed_pilot",
+                facet="information",
             )
             fields = {**fields, "fact_id": fact.id}
         obj = m.Knowledge(id=id, **fields)

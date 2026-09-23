@@ -65,6 +65,9 @@ class, a `fact_default` row carries no `change_history` of its own),
 `set_target_knows(knows=False)` (TICKET-0090, BRIEF-0090-a — removes
 the target's one `knowledge` row on a social relation's lien fact; called
 with `knows=False` only from creator CRUD, never by `write_oriented_relations`),
+`delete_free_fact` (TICKET-0091, BRIEF-0091-A — one free fact with its
+`knowledge`, `fact_default` and `fact_participant` rows; refuses a typed
+fact; creator-CRUD only),
 and `write_faction_role(mode="delete")` (blocked while an active membership
 holds the role) — creator-CRUD-only, never reachable from any AI or play
 path. Full-replace config deletes (whole-set replace, not
