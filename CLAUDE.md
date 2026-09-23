@@ -422,6 +422,7 @@ WG-Nia/
 │   ├── models/               # SQLModel table classes, split by canon/faction/ephemeral/pipeline
 │   ├── context*.py          # NPC/MJ assembly + exclusions; context_window.py: sliding-window seam
 │   ├── knowledge_resolve.py # scoped default knowledge-level resolution (G2a); read-only, no writes
+│   ├── facets.py, facet_reads.py  # facet registry; an entity's facts by facet, read-only
 │   ├── tick*.py             # world-tick: orchestrate/assemble/normalize; sites in world_tick.py
 │   ├── gathering.py, encounters.py  # NPC clustering; rencontre's sole writer (non-canon)
 │   ├── ollama_client.py     # local Ollama HTTP client; think-stripping; ping()

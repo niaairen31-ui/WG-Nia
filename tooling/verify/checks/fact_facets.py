@@ -19,6 +19,11 @@ R4  Fixture: C-02's case table (facet x typed FK), run against the real
     (WORLD_ENGINE_DATABASE_URL set before any world_engine import — never
     Nia's DB). Every `ok` row is flushed and its stored facet/aspect read
     back; every refusal row must raise `ValueError`.
+R6  Fixture (BRIEF-0091-D, C-09 default-row filter): a descriptive fact
+    with a `world` default is absent from
+    `knowledge_resolve.resolve_default_rows`; an `information` fact with the
+    same default is present — the speakable knowledge section never
+    receives what is said of an entity (Q13a).
 
 FAILURES list, print FAIL lines, exit 1.
 """
@@ -228,11 +233,53 @@ def check_case_table(engine) -> None:
                 fail(f"R4: aspect not normalized on {label!r}: {stored.aspect!r}")
 
 
+# --- R6 -------------------------------------------------------------------------
+
+def check_default_rows_filter(engine) -> None:
+    from sqlmodel import Session as DbSession
+
+    from world_engine.knowledge_resolve import resolve_default_rows
+    from world_engine.models import Entity, World
+    from world_engine.writes.facts import attach_participants, create_fact, create_fact_default
+
+    with DbSession(engine) as session:
+        world = World(name="R6 World", is_active=False)  # one active world per DB
+        session.add(world)
+        session.commit()
+        wid = world.id
+        perceiver = Entity(world_id=wid, type="character", name="Perceiver")
+        subject = Entity(world_id=wid, type="character", name="Subject")
+        session.add_all([perceiver, subject])
+        session.commit()
+
+        fact_ids = {}
+        for facet in ("physique", "information"):
+            fact = create_fact(
+                session, world_id=wid, content=f"R6 {facet}", created_by="check", facet=facet,
+            )
+            session.flush()
+            attach_participants(session, fact=fact, entity_ids=[subject.id])
+            create_fact_default(
+                session, world_id=wid, fact_id=fact.id, scope_type="world", scope_id=None,
+                level="knows", created_by="check",
+            )
+            session.commit()
+            fact_ids[facet] = fact.id
+
+        rows = resolve_default_rows(session, perceiver.id, set())
+        present = {row.fact_id for row in rows}
+        if fact_ids["physique"] in present:
+            fail("R6: a descriptive (physique) fact with a world default reached resolve_default_rows")
+        if fact_ids["information"] not in present:
+            fail("R6: an information fact with a world default is missing from resolve_default_rows")
+
+
 def main() -> int:
     engine = _fresh_engine()
     check_registry()
     check_call_sites()
     check_case_table(engine)
+    check_default_rows_filter(engine)
 
     if FAILURES:
         for msg in FAILURES:
@@ -240,7 +287,8 @@ def main() -> int:
         return 1
     print(
         "PASS: fact_facets — FACETS matches C-01, every create_fact( passes a facet, "
-        "descriptive/dynamic facets stay in writes/facets.py, and C-02's case table holds"
+        "descriptive/dynamic facets stay in writes/facets.py, C-02's case table holds, "
+        "and resolve_default_rows skips descriptive facts"
     )
     return 0
 

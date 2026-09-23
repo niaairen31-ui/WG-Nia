@@ -14652,6 +14652,27 @@ fact, returning only the facts resolving above `'unaware'`. Both entry
 points share one pure tier function (`_resolve_tiers`) so the two never
 drift.
 
+**Amendment — seven tiers (TICKET-0091, BRIEF-0091-d, C-09).** Two tiers are
+inserted between the stored row and the location default; the ladder is now:
+(1) stored row; (2) **self** — the entity is a `fact_participant` of the fact
+AND `fact.facet in facets.DESCRIPTIVE_FACETS` -> `'knows'`; (3)
+**rencontre** — a `fact_default` at `scope_type='rencontre'` whose `scope_id`
+is one of the entity's acquaintances (`encounters.acquaintances`), highest
+level across several; (4) nearest location; (5) highest faction; (6) world;
+(7) `fact.default_level`. Self-knowledge is a resolver rule, not a stored
+row, placed after the stored row so a creator's explicit `unaware` still
+wins (Q6a). It applies to descriptive facets only (Q18a): being a
+participant of an `information` fact — a secret shared by three conspirators,
+say — confers nothing, since participation there is aboutness, not
+knowledge. The batch entry point fetches the entity's participant fact ids
+and its acquaintances once each (8 -> 10 queries per call, constant in the
+number of facts). `resolve_public_level(s)` enter at tier 6, unchanged.
+`resolve_default_rows` skips every fact whose facet is descriptive (NULL
+and the knowledge-section facets pass): what is said of an entity is read
+through `facet_reads.py` (`facts_of`, `known_facts_of`, `joined`), never
+as speakable knowledge, so the three readers' knowledge section is
+unchanged (Q13a).
+
 **New table `fact_default`** (`models/canon_knowledge.py`): `id, world_id,
 fact_id, scope_type, scope_id, level, created_at, created_by`, with
 `ck_fact_default_scope_type` (`scope_type IN ('world','faction',

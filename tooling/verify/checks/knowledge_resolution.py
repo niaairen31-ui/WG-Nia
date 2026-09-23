@@ -29,10 +29,13 @@ Four assertions:
        - **first-membership-wins**: the level of whichever faction was
          joined first, ignoring the others — also `'rumor'` here (Faction A
          joined first).
-  A fifth, non-DB unit-level demonstration of all five precedence tiers
-  (stored row > location > faction > world > fact.default_level) is run and
-  pasted separately in the brief's execution notes — this check covers the
-  four assertions above only.
+  5. C-09 case table (TICKET-0091, BRIEF-0091-D): the seven-tier order
+     (stored > self > rencontre > location > faction > world >
+     fact.default_level), rows 1-9 of the lot's table, each built through
+     the real writers (`create_fact`, `attach_participants`,
+     `create_fact_default`, `write_knowledge`, `record_encounter`) and
+     asserted on BOTH entry points — `resolve_knowledge_level` and
+     `resolve_levels_for_entity` (absent from the batch dict = `'unaware'`).
 """
 from __future__ import annotations
 
@@ -195,8 +198,11 @@ def check_fact_default_shape(session) -> None:
     if not rows:
         fail("vacuous-proof: zero fact_default rows examined on a freshly seeded fixture")
     for row in rows:
-        if row.scope_type not in ("world", "faction", "location"):
-            fail(f"fact_default {row.id}: scope_type={row.scope_type!r} outside ('world','faction','location')")
+        if row.scope_type not in ("world", "faction", "location", "rencontre"):
+            fail(
+                f"fact_default {row.id}: scope_type={row.scope_type!r} outside "
+                "('world','faction','location','rencontre')"
+            )
         if row.scope_type == "world" and row.scope_id is not None:
             fail(f"fact_default {row.id}: scope_type='world' but scope_id={row.scope_id!r} is not NULL")
         if row.scope_type != "world" and row.scope_id is None:
@@ -228,6 +234,138 @@ def check_mutation_sensitivity(session, alice_id, facts, raw_faction_levels_in_j
             "fixture also produces 'knows' — this fixture cannot distinguish "
             "highest-wins (G2a, correct) from first-membership-wins (mutation 2)"
         )
+
+
+# ── C-09 case table: seven tiers, both entry points ────────────────────────
+#
+# Fallback `fact.default_level` is `fully_understands` on every row, a level
+# no default in the table uses — a row reaching tier 7 is unambiguous.
+
+C09_FALLBACK = "fully_understands"
+
+
+def _build_c09_fixture(session):
+    """Returns (perceiver_id, {case: (fact_id, expected)})."""
+    from world_engine.encounters import record_encounter
+    from world_engine.models import (
+        Character, Entity, Faction, FactionMembership, Location, World,
+    )
+    from world_engine.writes import (
+        attach_participants, create_fact, create_fact_default, write_knowledge,
+    )
+
+    world = World(name="C-09 World", is_active=False)  # one active world per DB
+    session.add(world)
+    session.commit()
+    wid = world.id
+
+    def _entity(etype: str, name: str) -> str:
+        entity = Entity(world_id=wid, type=etype, name=name)
+        session.add(entity)
+        session.commit()
+        return entity.id
+
+    root_id = _entity("location", "C09 Root")
+    session.add(Location(id=root_id, parent_location_id=None))
+    here_id = _entity("location", "C09 Here")
+    session.add(Location(id=here_id, parent_location_id=root_id))
+    faction_id = _entity("faction", "C09 Faction")
+    session.add(Faction(id=faction_id))
+    session.commit()
+
+    perceiver_id = _entity("character", "Perceiver")
+    session.add(Character(
+        id=perceiver_id, world_id=wid, character_type="npc", current_location_id=here_id,
+    ))
+    subject_id = _entity("character", "Subject")
+    friend_id = _entity("character", "Friend")
+    stranger_id = _entity("character", "Stranger")
+    session.commit()
+    session.add(FactionMembership(world_id=wid, entity_id=perceiver_id, faction_id=faction_id))
+    record_encounter(session, world_id=wid, a_id=perceiver_id, b_id=friend_id, source="visit")
+    session.commit()
+
+    def _fact(label: str, facet: str, about: str) -> str:
+        fact = create_fact(
+            session, world_id=wid, content=f"c09 {label}", created_by="check",
+            facet=facet, default_level=C09_FALLBACK,
+        )
+        session.flush()
+        attach_participants(session, fact=fact, entity_ids=[about])
+        session.commit()
+        return fact.id
+
+    def _default(fact_id: str, scope_type: str, scope_id, level: str) -> None:
+        create_fact_default(
+            session, world_id=wid, fact_id=fact_id, scope_type=scope_type,
+            scope_id=scope_id, level=level, created_by="check",
+        )
+        session.commit()
+
+    cases: dict[int, tuple[str, str]] = {}
+
+    # 1 — stored 'unaware' beats every other tier, self included.
+    f1 = _fact("1", "physique", perceiver_id)
+    for scope_type, scope_id in (
+        ("rencontre", friend_id), ("location", here_id), ("faction", faction_id), ("world", None),
+    ):
+        _default(f1, scope_type, scope_id, "knows")
+    write_knowledge(session, entity_id=perceiver_id, fact_id=f1, subject="c09 1", level="unaware")
+    session.commit()
+    cases[1] = (f1, "unaware")
+
+    # 2 — participant of a descriptive fact: self -> knows.
+    cases[2] = (_fact("2", "physique", perceiver_id), "knows")
+
+    # 3 — participant of an `information` fact: no self tier -> fallback.
+    cases[3] = (_fact("3", "information", perceiver_id), C09_FALLBACK)
+
+    # 4 — an acquaintance's rencontre default beats the location default.
+    f4 = _fact("4", "physique", subject_id)
+    _default(f4, "rencontre", friend_id, "partial")
+    _default(f4, "location", here_id, "knows")
+    cases[4] = (f4, "partial")
+
+    # 5 — location.
+    f5 = _fact("5", "reputation", subject_id)
+    _default(f5, "location", here_id, "knows")
+    cases[5] = (f5, "knows")
+
+    # 6 — faction.
+    f6 = _fact("6", "reputation", subject_id)
+    _default(f6, "faction", faction_id, "rumor")
+    cases[6] = (f6, "rumor")
+
+    # 7 — world.
+    f7 = _fact("7", "reputation", subject_id)
+    _default(f7, "world", None, "suspicious")
+    cases[7] = (f7, "suspicious")
+
+    # 8 — nothing: fact.default_level.
+    cases[8] = (_fact("8", "reputation", subject_id), C09_FALLBACK)
+
+    # 9 — a rencontre default on someone the perceiver never met: ignored.
+    f9 = _fact("9", "physique", subject_id)
+    _default(f9, "rencontre", stranger_id, "knows")
+    cases[9] = (f9, C09_FALLBACK)
+
+    return perceiver_id, cases
+
+
+def check_c09_case_table(session) -> None:
+    from world_engine.knowledge_resolve import resolve_knowledge_level, resolve_levels_for_entity
+
+    perceiver_id, cases = _build_c09_fixture(session)
+    if len(cases) != 9:
+        fail(f"C-09 vacuous-proof: expected 9 case rows, built {len(cases)}")
+    batch = resolve_levels_for_entity(session, perceiver_id)
+    for case, (fact_id, expected) in sorted(cases.items()):
+        single = resolve_knowledge_level(session, perceiver_id, fact_id)
+        if single != expected:
+            fail(f"C-09 case {case}: resolve_knowledge_level expected {expected!r}, got {single!r}")
+        batched = batch.get(fact_id, "unaware")
+        if batched != expected:
+            fail(f"C-09 case {case}: resolve_levels_for_entity expected {expected!r}, got {batched!r}")
 
 
 # ── AST scan: no re-typed six-value vocabulary in the resolution path ──────
@@ -285,6 +423,7 @@ def main() -> int:
         check_precedence_and_vacuous_proof(session, alice_id, facts)
         check_fact_default_shape(session)
         check_mutation_sensitivity(session, alice_id, facts, raw_faction_levels_in_join_order)
+        check_c09_case_table(session)
 
     check_no_retyped_vocabulary()
 
@@ -293,7 +432,8 @@ def main() -> int:
             print(f"FAIL: {msg}")
         return 1
     print(
-        "PASS: knowledge_resolution — all five precedence tiers resolve correctly, "
+        "PASS: knowledge_resolution — the five legacy precedence rows and the nine "
+        "C-09 rows resolve correctly on both entry points, "
         "no fact_default shape violations, vocabulary imported (never re-typed), "
         "and the golden fixture is mutation-sensitive to both named alternate policies"
     )
