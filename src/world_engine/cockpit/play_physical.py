@@ -50,8 +50,8 @@ from .play import (
     _active_members,
     _load_npc_dialogue_template,
     _npc_dialogue_system_prompt,
-    _propose_engine_discovery,
 )
+from .play_discovery import _propose_engine_discovery
 
 _log = logging.getLogger(__name__)
 
