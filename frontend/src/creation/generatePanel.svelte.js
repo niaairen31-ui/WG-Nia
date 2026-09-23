@@ -8,7 +8,7 @@
    FORM STATE ONLY -- the author-f-name/author-x-* DOM fields Field.svelte
    already owns (written here the same imperative way authorApply*Draft
    always did, via legacyDoc.getElementById) plus the already-migrated
-   family-g draft stores (pendingDraftsState/subcultureDraftState/
+   family-g draft stores (pendingDraftsState/factsDraftState/
    factionPanelState, written directly -- no reverse-bridge event needed any
    more now that the writer itself is real JS, not legacy code). Nothing
    here calls a write endpoint; the only save is Sheet.svelte's existing
@@ -20,7 +20,7 @@
    generatePanelState is a shared module (not GeneratePanel.svelte-local
    state) for two reasons: Sheet.svelte's primaryAction() needs to reset it
    the same way it already resets the sibling family-g draft stores
-   (resetDraftRoles/resetSubcultureDraft/resetPendingDrafts) -- a plain
+   (resetDraftRoles/resetFactsDraft/resetPendingDrafts) -- a plain
    <GeneratePanel> instance does NOT remount on "+ Nouveau" when the target
    type doesn't change, so a component-local reset would go stale; and
    generatePendingCreation (index.html, still legacy -- germ realization is
@@ -30,7 +30,7 @@
    functions this one replaces. Both callers end up at this one apply
    implementation per type -- never two. */
 import { pendingDraftsState } from './pendingDrafts.svelte.js';
-import { subcultureDraftState } from './subcultureDraft.svelte.js';
+import { factsDraftState } from './factsDraft.svelte.js';
 import { factionPanelState } from './factionPanel.svelte.js';
 
 export const generatePanelState = $state({ brief: '', status: '', notes: [] });
@@ -46,18 +46,27 @@ function setVal(legacyDoc, id, value) {
   if (el) el.value = value ?? '';
 }
 
+/* TICKET-0091 (BRIEF-0091-F): descriptive lore arrives as draft.facets
+ * (C-05 payload shape) and goes whole into factsDraftState -- rendered by
+ * FactsEditor.svelte, sent by submitEntity as the create body's `facets`.
+ * A copy, so editing the draft never mutates the model's result. */
+function applyFacets(draft) {
+  factsDraftState.facets = JSON.parse(JSON.stringify(draft.facets || {}));
+}
+
 function applyCharacterDraft(legacyDoc, result) {
   const draft = result.draft;
   setVal(legacyDoc, 'author-f-name', draft.public.name);
-  setVal(legacyDoc, 'author-f-description', draft.public.description);
   setVal(legacyDoc, 'author-x-physical_tier', draft.public.physical_tier);
-  setVal(legacyDoc, 'author-x-appearance', draft.public.appearance);
-  setVal(legacyDoc, 'author-x-backstory', draft.public.backstory);
-  setVal(legacyDoc, 'author-x-aversion', draft.public.aversion);
   setVal(legacyDoc, 'author-x-faction_id', draft.public.faction_id || '');
-  setVal(legacyDoc, 'author-x-secrets', draft.secret.creator_meta != null ? JSON.stringify(draft.secret.creator_meta) : '');
+  applyFacets(draft);
 
   const notes = [...(result.notes || [])];
+  // creator_meta rides in the facets payload (a scope-none histoire fact the
+  // entity never knows) but has no FactsEditor block: shown here for review.
+  if ((draft.facets?.creator_meta || '').trim()) {
+    notes.push(`Note créateur (cachée) : ${draft.facets.creator_meta}`);
+  }
   for (const sw of (draft.secret.shared_with || [])) {
     notes.push(`Pourrait être partagé avec ${sw.with}${sw.note ? ' — ' + sw.note : ''}`);
   }
@@ -73,33 +82,27 @@ function applyCharacterDraft(legacyDoc, result) {
   return notes;
 }
 
-/* B1: the merge of allow-listed public subculture keys + the secret
- * "hidden" key happens HERE, in code, from the two segregated draft fields
- * (draft.public.subculture / draft.secret.subculture_hidden) -- never from a
- * single field the model controls directly. magic_status is never set
- * (stays default); coordinates is never touched. sensed_links and the full
- * subculture (public + hidden) render read-only in the notes block so the
- * creator can review the hidden content before accepting. */
+/* B1: the visible coutumes (allow-listed aspects) and the hidden one are
+ * merged server-side from the two segregated model fields (public.coutume /
+ * secret.subculture_hidden) into draft.facets.coutume, the hidden entry
+ * flagged `hidden` -- never from a single field the model controls
+ * directly. magic_status is never set (stays default); coordinates is never
+ * touched. sensed_links and the hidden coutume render read-only in the
+ * notes block so the creator can review the hidden content before
+ * accepting. */
 function applyLocationDraft(legacyDoc, result) {
   const draft = result.draft;
   setVal(legacyDoc, 'author-f-name', draft.public.name);
-  setVal(legacyDoc, 'author-f-description', draft.public.description);
   setVal(legacyDoc, 'author-x-location_type', draft.public.location_type);
   setVal(legacyDoc, 'author-x-access_level', draft.public.access_level || '');
-
-  const rows = Object.entries(draft.public.subculture || {})
-    .map(([key, value]) => ({ key, value: String(value), is_hidden: false }));
-  if (draft.secret.subculture_hidden) {
-    rows.push({ key: 'hidden', value: draft.secret.subculture_hidden, is_hidden: true });
-  }
-  subcultureDraftState.rows = rows;
+  applyFacets(draft);
 
   const notes = [...(result.notes || [])];
   for (const link of (draft.secret.sensed_links || [])) {
     notes.push(`Lien perçu (${link.kind}) : ${link.name}${link.note ? ' — ' + link.note : ''}`);
   }
-  if (draft.secret.subculture_hidden) {
-    notes.push(`Subculture cachée proposée : ${draft.secret.subculture_hidden}`);
+  for (const c of (draft.facets?.coutume || []).filter((row) => row.hidden)) {
+    notes.push(`Coutume cachée proposée : ${c.content}`);
   }
   return notes;
 }
@@ -111,13 +114,8 @@ function applyLocationDraft(legacyDoc, result) {
 function applyFactionDraft(legacyDoc, result) {
   const draft = result.draft;
   setVal(legacyDoc, 'author-f-name', draft.public.name);
-  setVal(legacyDoc, 'author-f-description', draft.public.description);
   setVal(legacyDoc, 'author-x-faction_type', draft.public.faction_type);
-  setVal(legacyDoc, 'author-x-philosophy', draft.public.philosophy);
-  setVal(legacyDoc, 'author-x-internal_structure', draft.public.internal_structure);
-  setVal(legacyDoc, 'author-x-aversion', draft.public.aversion);
-  setVal(legacyDoc, 'author-x-internal_tensions', draft.secret.internal_tensions);
-  setVal(legacyDoc, 'author-x-goals', draft.secret.goals);
+  applyFacets(draft);
 
   factionPanelState.draftRoles = (draft.public.roles || [])
     .map((r) => ({ name: r.name || '', description: r.description || '', limit: null }));

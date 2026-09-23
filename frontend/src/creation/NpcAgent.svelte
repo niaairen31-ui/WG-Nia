@@ -118,6 +118,7 @@
           <div style="font-weight:600; font-size:12px">{groupDescription(b, lineIndex)}</div>
           {#each rows as row (row.id)}
             {@const pub = (row.payload.draft && row.payload.draft.public) || {}}
+            {@const fac = (row.payload.draft && row.payload.draft.facets) || {}}
             {@const goals = row.payload.goals || {}}
             {@const notes = row.payload.notes || []}
             {@const rejected = row.row_status === 'rejected'}
@@ -125,7 +126,7 @@
               <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center">
                 <input type="text" style="width:140px" value={pub.name || ''} disabled={rejected}
                   onchange={(e) => editField(row.id, 'name', e.currentTarget.value)}>
-                <input type="text" placeholder="description" style="flex:1; min-width:140px" value={pub.description || ''} disabled={rejected}
+                <input type="text" placeholder="description" style="flex:1; min-width:140px" value={fac.description || ''} disabled={rejected}
                   onchange={(e) => editField(row.id, 'description', e.currentTarget.value)}>
                 <input type="number" min="-1" max="2" title="physical_tier" style="width:52px" value={pub.physical_tier ?? ''} disabled={rejected}
                   onchange={(e) => editField(row.id, 'physical_tier', Number(e.currentTarget.value))}>

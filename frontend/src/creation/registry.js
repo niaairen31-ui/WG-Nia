@@ -137,8 +137,8 @@ export const CREATION_ISLANDS = Object.freeze({
       'authorLoadMemberships',
       'authorRenderMemberships',
       // BRIEF-0058-g family c: Tarifs (npc_price) + location subculture --
-      // ported to PricingEditor.svelte/SubcultureEditor.svelte/
-      // subcultureDraft.svelte.js.
+      // ported to PricingEditor.svelte; the subculture editor is now
+      // FactsEditor.svelte's coutume block (TICKET-0091, BRIEF-0091-F).
       'authorRenderPricing',
       'authorSavePriceEntry',
       'authorDeletePriceEntry',
