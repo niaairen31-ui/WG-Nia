@@ -29,6 +29,7 @@ from ..context import (
 )
 from ..context_window import resolve_npc_message_list
 from ..db import engine
+from ..encounters import record_gathering_join
 from ..models import (
     Character,
     Conversation,
@@ -917,6 +918,7 @@ def _join_gathering(conv: Conversation, gathering_id: str, db: Session) -> Gathe
             joined_at=datetime.now(UTC),
             left_at=None,
         ))
+        record_gathering_join(db, gathering_id=gathering_id, joiner_id=conv.player_id)
     conv.gathering_id = gathering_id
     db.add(conv)
     db.commit()

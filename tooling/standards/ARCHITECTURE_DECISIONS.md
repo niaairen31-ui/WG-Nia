@@ -15825,4 +15825,45 @@ facet default on `create_fact` (every caller must say what it writes).
 
 ---
 
+## ENCOUNTER REGISTRY (TICKET-0091) -- WHO HAS MET WHOM (BRIEF-0091-c, no schema change)
+
+**One row per unordered pair, earliest encounter wins.** `rencontre`
+(created by v2.05) gives "known from the first encounter" a mechanism:
+`entity_lo_id < entity_hi_id` (string order), `first_at`, `source` in
+`ENCOUNTER_SOURCES`, `source_ref` = the visit/gathering/conversation/
+relation row. Never updated, never deleted.
+
+**Non-canon, one writer.** Like `visit` and `gathering`, `rencontre` is
+derived bookkeeping, outside `CANON_TABLES`: it is recorded from play
+traces and authored state, never edited by hand, and needs no
+`proposed_mutation`. `src/world_engine/encounters.py` is the only module
+that constructs a `Rencontre` (`record_encounter`, read guard before add,
+idempotent; `record_encounters_among`; `record_gathering_join`); it never
+commits. `checks/encounter_registry.py` pins the single constructor, the
+absence of any update/delete, and every live site.
+
+**Live sites.** `enter_scene` (player x each NPC present, source `visit`);
+`generate_gatherings` (pairs within each generated group); `migrate_npc`
+and `_join_gathering` (the joiner x every open member, source
+`gathering`); `start_conversation` with an NPC (`conversation`); and the
+birth hook `_on_relation_born` of `write_relation` (social types only,
+`relation`). `attach_on_arrival` (solo gathering) and NPC-less
+conversations record nothing; a declared day records nothing (R-b1).
+
+**Q10a/Q11a -- materialized state encounters.** Standing schedules and
+social relations are authored facts about who shares a life: an NPC whose
+`npc_schedule` row shares an exact `(location_id, phase)` with another NPC
+has met it (source `schedule`, written by `write_npc_schedule`); a social
+relation implies its endpoints have met. Both are materialized as rows at
+write time rather than inferred at read time, so every reader asks one
+table. `scripts/apply_ticket_0091_encounters.py` backfills all five
+sources in timestamp order; a second run inserts nothing.
+
+**Rejected.** Read-time inference from `visit`/`gathering_member`/
+`npc_schedule` (five readers of five tables, and play traces are not all
+retained in a queryable shape); an ordered pair (an encounter is mutual);
+recording encounters for a declared day (R-b1, locked).
+
+---
+
 *Co-built with Claude, June 2026.*

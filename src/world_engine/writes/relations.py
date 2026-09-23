@@ -56,6 +56,7 @@ from typing import Optional
 from sqlalchemy import inspect as sa_inspect
 from sqlmodel import Session, select
 
+from ..encounters import record_encounter
 from ..models import Entity, Fact, Knowledge, Relation
 from ..relation_orientation import (
     connects_to_fact_content,
@@ -145,6 +146,17 @@ def _birth_typed_fact(db: Session, rel: Relation, changed_by: str) -> Optional[F
         db, world_id=rel.world_id, content=content, created_by=changed_by,
         facet="lien", default_level=level, relation_id=rel.id,
     )
+
+
+def _on_relation_born(db: Session, rel: Relation, provenance: str) -> None:
+    """Birth hook of a new relation: its typed fact, then, for a social
+    type, the `relation` encounter between its endpoints (BRIEF-0091-C)."""
+    _birth_typed_fact(db, rel, provenance)
+    if is_social(rel.type):
+        record_encounter(
+            db, world_id=rel.world_id, a_id=rel.entity_a_id, b_id=rel.entity_b_id,
+            source="relation", source_ref=rel.id,
+        )
 
 
 def _refresh_lien_content(db: Session, rel: Relation, old_type: Optional[str], changed_by: str) -> None:
@@ -288,7 +300,7 @@ def write_relation(
     db.add(rel)
     if is_new:
         db.flush()
-        _birth_typed_fact(db, rel, provenance)
+        _on_relation_born(db, rel, provenance)
     elif mode == "set":
         _refresh_lien_content(db, rel, old_type, provenance)
     return rel

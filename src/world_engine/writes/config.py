@@ -50,6 +50,7 @@ from typing import Optional
 from sqlalchemy import text
 from sqlmodel import Session, select
 
+from ..encounters import record_encounter
 from ..models import (
     Character,
     ConversationWindowConfig,
@@ -536,4 +537,25 @@ def write_npc_schedule(
         )
         db.add(row)
         new_rows.append(row)
+    _record_schedule_encounters(db, world_id=world_id, npc_id=npc_id, clean=clean)
     return new_rows
+
+
+def _record_schedule_encounters(
+    db: Session, *, world_id: str, npc_id: str, clean: list[tuple[str, str, Optional[str]]]
+) -> None:
+    """Record a `schedule` encounter between `npc_id` and every other NPC
+    holding a row at the same exact `(location_id, phase)` (Q10a/Q11a)."""
+    for phase, location_id, _goal in clean:
+        others = db.exec(
+            select(NpcSchedule.npc_id).where(
+                NpcSchedule.world_id == world_id,
+                NpcSchedule.location_id == location_id,
+                NpcSchedule.phase == phase,
+                NpcSchedule.npc_id != npc_id,
+            )
+        ).all()
+        for other_id in set(others):
+            record_encounter(
+                db, world_id=world_id, a_id=npc_id, b_id=other_id, source="schedule",
+            )

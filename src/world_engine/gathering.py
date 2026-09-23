@@ -27,6 +27,7 @@ from sqlmodel import Session, select
 
 from . import llm_parse, ollama_client
 from .analyzer import analyze_window
+from .encounters import record_encounters_among, record_gathering_join
 from .models import (
     Character,
     Conversation,
@@ -257,6 +258,10 @@ def generate_gatherings(
                 joined_at=now,
                 left_at=None,
             ))
+        record_encounters_among(
+            db, world_id=location.world_id, entity_ids=group["members"],
+            source="gathering", source_ref=gathering.id,
+        )
         created.append(gathering)
 
     db.commit()
@@ -443,6 +448,7 @@ def migrate_npc(npc_id: str, target_gathering_id: str, db: Session) -> None:
         joined_at=now,
         left_at=None,
     ))
+    record_gathering_join(db, gathering_id=target_gathering_id, joiner_id=npc_id)
     db.commit()
 
     # Auto-dissolve: any source gathering now empty of active members is dissolved.

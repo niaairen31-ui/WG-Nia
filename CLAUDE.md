@@ -423,7 +423,7 @@ WG-Nia/
 │   ├── context*.py          # NPC/MJ assembly + exclusions; context_window.py: sliding-window seam
 │   ├── knowledge_resolve.py # scoped default knowledge-level resolution (G2a); read-only, no writes
 │   ├── tick*.py             # world-tick: orchestrate/assemble/normalize; sites in world_tick.py
-│   ├── gathering.py         # initial NPC clustering into gatherings
+│   ├── gathering.py, encounters.py  # NPC clustering; rencontre's sole writer (non-canon)
 │   ├── ollama_client.py     # local Ollama HTTP client; think-stripping; ping()
 │   ├── analyzer*.py         # conversation-bound wrapper + conversation-agnostic judging core
 │   ├── observation_*.py     # observed-lane socle/engine/runner/reads/writes; per-NPC window

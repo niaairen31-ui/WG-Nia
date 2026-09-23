@@ -32,6 +32,7 @@ from ...prompt_registry import effective_model
 from ...prompt_store import current_prompt
 from ...context import assemble_mj_context, assemble_npc_context
 from ...db import get_session
+from ...encounters import record_encounter
 from ... import placement
 from ...models import (
     Character,
@@ -144,6 +145,10 @@ def start_conversation(
         started_at=datetime.now(UTC),
     )
     db.add(conv)
+    record_encounter(
+        db, world_id=world_id, a_id=player_id, b_id=body.npc_id,
+        source="conversation", source_ref=conv.id,
+    )
     db.commit()
     db.refresh(conv)
     return {"conversation_id": conv.id}
