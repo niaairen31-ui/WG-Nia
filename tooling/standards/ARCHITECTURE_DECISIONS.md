@@ -15904,4 +15904,34 @@ recording encounters for a declared day (R-b1, locked).
 
 ---
 
+## CREATOR-ONLY FACTS (TICKET-0091) -- THE CREATOR'S NOTE NEVER LEAVES THE DOSSIER (BRIEF-0091-g, no schema change)
+
+AMENDMENT-0091-01, decided by Nia (Q21b). The creator's note
+(`creator_meta`, and `character.secrets` at migration) is stored as a
+`histoire` fact whose only protection is a stored `knowledge` row of the
+entity itself at `level='unaware'`, `is_secret=True`. That row guards
+`known_facts_of` (tier 1 wins over self), but an omniscient reader —
+`facts_of` with no perceiver, as the world tick and the link-agent sheet
+use — saw the note. BRIEF-0091-g's review caught it with a fixture
+(the note reaching both prompts).
+
+**The rule, structural.** A fact is *creator-only* when a stored
+`knowledge` row on it belongs to one of its own participants with
+`level = 'unaware'` and `is_secret = 1`. `facet_reads.facts_of` excludes
+creator-only facts in its query (`NOT IN` the creator-only subselect)
+unless `include_creator_only=True`; `known_facts_of` always excludes them,
+with no override parameter. `creator_only_fact_ids(db, fact_ids)` answers
+the question for a batch in one query. `include_creator_only=True` is
+legal only in `lore_selectors.py`, the creator's own dossier —
+`tooling/verify/checks/fact_facets.py` R7 (AST) locks the opt-in there and
+R8 (fixture) proves both reads drop the note and the opt-in returns it.
+
+**Rejected.** Per-reader filtering (a `known_facts_of` in the tick and the
+sheet): every future omniscient reader would have to remember it, which is
+"guarded by instruction", not by construction. A separate facet for the
+note: C-05 and C-18 already fixed its shape and the knowledge row is the
+existing secrecy carrier.
+
+---
+
 *Co-built with Claude, June 2026.*

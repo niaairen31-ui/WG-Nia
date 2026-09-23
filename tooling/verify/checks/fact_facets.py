@@ -32,6 +32,16 @@ R6  Fixture (BRIEF-0091-D, C-09 default-row filter): a descriptive fact
     `knowledge_resolve.resolve_default_rows`; an `information` fact with the
     same default is present — the speakable knowledge section never
     receives what is said of an entity (Q13a).
+R7  AST (AMENDMENT-0091-01): a keyword `include_creator_only` whose value is
+    not the literal `False` appears only in
+    `src/world_engine/lore_selectors.py` (the creator's dossier). A
+    negative-existence rule (the R3 precedent): finding nothing IS the pass;
+    its vacuity guard is on the scan itself (files parsed > 0).
+R8  Fixture (AMENDMENT-0091-01): a creator-only fact (a `creator_meta`
+    note) is absent from `facet_reads.facts_of` and `known_facts_of`,
+    present with `include_creator_only=True`, and reported by
+    `creator_only_fact_ids`; an ordinary fact of the same entity is present
+    in all three reads and not reported.
 
 FAILURES list, print FAIL lines, exit 1.
 """
@@ -47,6 +57,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
 SCRIPTS = ROOT / "scripts"
 FACET_WRITER = "src/world_engine/writes/facets.py"
+CREATOR_ONLY_READER = "src/world_engine/lore_selectors.py"
 KNOWN_CALLERS = (
     "src/world_engine/writes/knowledge.py",
     "src/world_engine/writes/relations.py",
@@ -348,6 +359,81 @@ def check_default_rows_filter(engine) -> None:
             fail("R6: an information fact with a world default is missing from resolve_default_rows")
 
 
+# --- R7 -------------------------------------------------------------------------
+
+def check_creator_only_opt_in() -> None:
+    parsed = 0
+    for base in (SRC, SCRIPTS):
+        for path in sorted(base.rglob("*.py")):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            except SyntaxError as exc:
+                fail(f"{path}: SyntaxError: {exc}")
+                continue
+            parsed += 1
+            rel = path.relative_to(ROOT).as_posix()
+            if rel == CREATOR_ONLY_READER:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                for kw in node.keywords:
+                    if kw.arg != "include_creator_only":
+                        continue
+                    if isinstance(kw.value, ast.Constant) and kw.value.value is False:
+                        continue
+                    fail(
+                        f"R7: {rel}:{node.lineno} -- include_creator_only="
+                        f"{ast.unparse(kw.value)} outside {CREATOR_ONLY_READER}"
+                    )
+    if parsed == 0:
+        fail("R7 vacuous-proof: no source file parsed")
+
+
+# --- R8 -------------------------------------------------------------------------
+
+def check_creator_only_reads(engine) -> None:
+    from sqlmodel import Session as DbSession
+
+    from world_engine.facet_reads import creator_only_fact_ids, facts_of, known_facts_of
+    from world_engine.models import Entity, World
+    from world_engine.writes.facets import write_entity_facets
+
+    with DbSession(engine) as session:
+        world = World(name="R8 World", is_active=False)  # one active world per DB
+        session.add(world)
+        session.commit()
+        npc = Entity(world_id=world.id, type="character", name="R8 NPC")
+        session.add(npc)
+        session.commit()
+        facts = write_entity_facets(session, entity_id=npc.id, created_by="check", facets={
+            "histoire": "ancien soldat", "creator_meta": "un traitre",
+        })
+        session.commit()
+        by_content = {f.content: f.id for f in facts}
+        plain, meta = by_content.get("ancien soldat"), by_content.get("un traitre")
+        if plain is None or meta is None:
+            fail(f"R8: fixture facts not written: {sorted(by_content)!r}")
+            return
+
+        def ids(rows):
+            return {row.fact_id for row in rows}
+
+        default_read = ids(facts_of(session, entity_id=npc.id, facets=("histoire",)))
+        known_read = ids(known_facts_of(
+            session, perceiver_id=npc.id, entity_id=npc.id, facets=("histoire",)))
+        dossier_read = ids(facts_of(
+            session, entity_id=npc.id, facets=("histoire",), include_creator_only=True))
+        if default_read != {plain}:
+            fail(f"R8: facts_of returned {default_read!r}, expected only the ordinary fact")
+        if known_read != {plain}:
+            fail(f"R8: known_facts_of returned {known_read!r}, expected only the ordinary fact")
+        if dossier_read != {plain, meta}:
+            fail("R8: facts_of(include_creator_only=True) does not return both facts")
+        if creator_only_fact_ids(session, [plain, meta]) != {meta}:
+            fail("R8: creator_only_fact_ids does not report exactly the creator note")
+
+
 def main() -> int:
     engine = _fresh_engine()
     check_registry()
@@ -355,6 +441,8 @@ def main() -> int:
     check_case_table(engine)
     check_entity_facets_writer(engine)
     check_default_rows_filter(engine)
+    check_creator_only_opt_in()
+    check_creator_only_reads(engine)
 
     if FAILURES:
         for msg in FAILURES:
@@ -364,7 +452,8 @@ def main() -> int:
         "PASS: fact_facets — FACETS matches C-01, every create_fact( passes a facet, "
         "descriptive/dynamic facets stay in writes/facets.py, C-02's case table holds, "
         "the entity-fact writer guards blocs and writes customs and creator_meta, "
-        "and resolve_default_rows skips descriptive facts"
+        "resolve_default_rows skips descriptive facts, "
+        "and creator-only facts stay out of facet reads outside the dossier"
     )
     return 0
 
