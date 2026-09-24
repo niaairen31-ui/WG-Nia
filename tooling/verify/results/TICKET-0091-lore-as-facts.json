@@ -1,0 +1,102 @@
+{
+  "ticket": "TICKET-0091-lore-as-facts",
+  "when": "2026-09-24T00:25:23.759984+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "fact_facets.py",
+      "status": "PASS",
+      "msg": "PASS: fact_facets \u2014 FACETS matches C-01, every create_fact( passes a facet, descriptive/dynamic facets stay in writes/facets.py, C-02's case table holds, the entity-fact writer guards blocs and writes customs and creator_meta, resolve_default_rows skips descriptive facts, and creator-only facts stay out of facet reads outside the dossier"
+    },
+    {
+      "check": "encounter_registry.py",
+      "status": "PASS",
+      "msg": "PASS: encounter_registry \u2014 R1 single constructor [225 files], R2 no update/delete [136 files], R3 live sites record [7 functions], R4 fixture [9 observations]"
+    },
+    {
+      "check": "lore_as_facts.py",
+      "status": "PASS",
+      "msg": "PASS: lore_as_facts \u2014 R1 127 module(s) read no moved column; R2/R4 no LocationSubculture / _SAFE_SUBCULTURE_KEYS identifier in 136 file(s); R3 10 dropped field(s) absent from 3 model class(es)."
+    },
+    {
+      "check": "identity_tokens.py",
+      "status": "PASS",
+      "msg": "PASS: identity_tokens \u2014 content_raw read only in the allow-list, render follows renames and falls back on deleted entities, C-14's case table holds, two same-named NPCs give one ambigu row, and token posing calls no model"
+    },
+    {
+      "check": "knowledge_resolution.py",
+      "status": "PASS",
+      "msg": "PASS: knowledge_resolution \u2014 the five legacy precedence rows and the nine C-09 rows resolve correctly on both entry points, no fact_default shape violations, vocabulary imported (never re-typed), and the golden fixture is mutation-sensitive to both named alternate policies"
+    },
+    {
+      "check": "fact_spine.py",
+      "status": "PASS",
+      "msg": "PASS: fact_spine \u2014 no participant on a typed fact, no NULL knowledge.fact_id, every fact/knowledge level in vocabulary, and Fact/FactParticipant writes stay inside writes/facts.py"
+    },
+    {
+      "check": "relation_orientation.py",
+      "status": "PASS",
+      "msg": "PASS: relation_orientation \u2014 (a) social direction guard [3 writes], (b) typed fact at birth [2 facts], (c) oriented delta [2 rows], (d) set_target_knows idempotent [6 observations]"
+    },
+    {
+      "check": "lore_isolation.py",
+      "status": "PASS",
+      "msg": "PASS: lore_isolation \u2014 purity (R1, R4), world scoping at construction (R2), the discoverable_detail exclusion (R3), the planner's canon-blindness (R5), the route's thinness (R6), the ask-side named Ollama-down message (R16), the no-redraft-on-resolve guard (R7), the selector/category vocabulary parity checks (R8, R9), the prompt loader's scoping to prompt tables (R15), and the renderer's isolation, no-model-on-empty-verdict, Ollama fallback, message-constant, and unknown-section guards (R10-R14), and the name-resolution panel's separation from the pipeline (R17) are all intact"
+    },
+    {
+      "check": "lore_selectors.py",
+      "status": "PASS",
+      "msg": "PASS: lore_selectors \u2014 the whitelist bijection, table-only dispatch, declared row caps, the validation gate, and the closed verdict set are all intact"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "json_ui_boundary.py",
+      "status": "PASS",
+      "msg": "PASS: json_ui_boundary \u2014 zero \"kind\": \"json\" CRUD fields, zero metadata_/Column(\"metadata\" references outside comments, every Column(JSON in models/*.py is a named allow-list entry, zero trait ext-column field(s) with kind 'json'"
+    },
+    {
+      "check": "visit_delta.py",
+      "status": "PASS",
+      "msg": "PASS: visit_delta \u2014 append-only + single writer, event structural exclusion intact"
+    },
+    {
+      "check": "prompt_lean.py",
+      "status": "PASS",
+      "msg": "PASS: prompt_lean \u2014 pilot purge, affinity tier resolver, pricing relocation, example trims"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values; 95 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u2014 every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v2.06'"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u2014 99 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "static_asset_freshness.py",
+      "status": "PASS",
+      "msg": "PASS: static_asset_freshness \u2014 mount is policy-bearing, 2 immutable file(s) / 4 revalidating file(s), 8 HTML route(s) covered"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 116 check(s) discovered, 116 executed, 116 passed"
+    }
+  ]
+}
