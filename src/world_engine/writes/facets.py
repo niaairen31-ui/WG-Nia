@@ -27,7 +27,8 @@ from sqlmodel import Session, select
 
 from ..facets import DESCRIPTIVE_FACETS, facet_spec, normalize_aspect
 from ..models import Entity, Fact, FactParticipant
-from ..name_index import PROSE, NameScope
+from ..lore_resolve import normalize_surface
+from ..name_index import CREATOR, PROSE, NameScope, surfaces
 from ..prose_render import fact_text
 from ..prose_tokens import tokenize
 from .facts import (
@@ -233,6 +234,33 @@ def write_entity_facets(
                     mentions=mentions,
                 ))
     return created
+
+
+_APPELLATION_SCOPES = ("rencontre", "world", "none")
+
+
+def record_appellation(
+    db: Session, *, entity_id: str, surface: str, scope_type: str, created_by: str
+) -> Optional[Fact]:
+    """A name the creator saw missed, recorded as an `appellation` of
+    `entity_id` (BRIEF-0092-d, C-09). `ValueError` on a scope outside
+    `_APPELLATION_SCOPES`, a blank surface or an unknown entity. `None`, and
+    nothing written, when `surface` normalizes to the entity's name or one of
+    its appellations. Never commits."""
+    if scope_type not in _APPELLATION_SCOPES:
+        raise ValueError(f"scope_type {scope_type!r} is not one of {_APPELLATION_SCOPES!r}")
+    if not isinstance(surface, str) or not surface.strip():
+        raise ValueError("appellation surface is empty")
+    entity = db.get(Entity, entity_id)
+    if entity is None:
+        raise ValueError(f"entity {entity_id!r} not found")
+    key = normalize_surface(surface)
+    if any(s.entity_id == entity_id and normalize_surface(s.text) == key
+           for s in surfaces(db, entity.world_id, CREATOR)):
+        return None
+    scope = ScopeChoice("rencontre", entity_id) if scope_type == "rencontre" else ScopeChoice(scope_type)
+    return add_entity_fact(db, entity_id=entity_id, facet="appellation", content=surface.strip(),
+                           created_by=created_by, scope=scope)
 
 
 def _descriptive_fact(db: Session, fact_id: str) -> Fact:

@@ -164,6 +164,8 @@ _UNSUPPORTED_SELECTOR = (
     "Je ne sais pas encore interroger : {selector}. C'est une limite de l'outil, pas du monde."
 )
 _AMBIGUOUS_MENTION_HEADER = "{count_phrase} portent le nom « {surface_form} ». Laquelle ?"
+# One near name inside `_UNKNOWN_ENTITY_WITH_NEAR`'s `{noms}` (BRIEF-0092-d).
+_NEAR_ITEM = "{nom} (ressemblance {pct} %)"
 
 # Route-level: no LoreResult exists yet at ping time, so this is not
 # dispatched by _render_deterministic and is not one of the six above --
@@ -176,14 +178,20 @@ PLANNER_UNAVAILABLE_MESSAGE = (
 
 
 def _render_unknown_entity(result: LoreResult) -> str:
-    """One block per unmatched surface form, in plan order. No near-candidate
-    source exists yet anywhere upstream (`resolve_named` has no fuzzy rung) --
-    the "with near candidates" wording stays a real branch for when one does,
-    but is unreachable today; every case renders the "without" form."""
-    blocks = [
-        _UNKNOWN_ENTITY_WITHOUT_NEAR.format(surface_form=surface_form)
-        for surface_form in result.unmatched_surface_forms
-    ]
+    """One block per unmatched surface form, in plan order. Near names are
+    computed upstream in `lore_query` and carried in `LoreResult.near`
+    (BRIEF-0092-d, C-10) -- this renderer never reads canon itself. A
+    surface with near candidates renders the "with" form, one `_NEAR_ITEM`
+    each; a surface without any renders the "without" form."""
+    near = {block["surface_form"]: block["candidates"] for block in result.near}
+    blocks = []
+    for surface_form in result.unmatched_surface_forms:
+        candidates = near.get(surface_form) or []
+        if candidates:
+            noms = ", ".join(_NEAR_ITEM.format(nom=c["name"], pct=c["score"]) for c in candidates)
+            blocks.append(_UNKNOWN_ENTITY_WITH_NEAR.format(surface_form=surface_form, noms=noms))
+        else:
+            blocks.append(_UNKNOWN_ENTITY_WITHOUT_NEAR.format(surface_form=surface_form))
     return "\n\n".join(blocks)
 
 

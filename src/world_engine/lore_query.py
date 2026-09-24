@@ -16,7 +16,7 @@ from typing import Optional
 
 from sqlmodel import Session
 
-from .lore_resolve import pre_resolved, resolve_named
+from .lore_resolve import near_candidates, pre_resolved, resolve_named
 from .lore_selectors import SELECTORS, _SELECTOR_LOOKUPS
 from .name_index import CREATOR
 
@@ -54,6 +54,10 @@ class LoreResult:
     ambiguous_mentions: tuple[dict, ...]
     unmatched_surface_forms: tuple[str, ...]
     rejection_reason: Optional[str]
+    # One block per unmatched surface form, set only on `unknown_entity`
+    # (BRIEF-0092-d, C-10): near names are computed here, never in the
+    # renderer, which receives rows and never a `Session`.
+    near: tuple[dict, ...] = ()
 
 
 def validate_plan(plan: LorePlan, db: Session) -> PlanValidation:
@@ -119,6 +123,21 @@ def _resolve_mentions(
     return resolutions, trace
 
 
+def _near_blocks(surface_forms: tuple[str, ...], world_id: str, db: Session) -> tuple[dict, ...]:
+    """C-10: the near names of each unmatched surface form, in plan order --
+    display only, never a pick (N9b)."""
+    return tuple(
+        {
+            "surface_form": surface_form,
+            "candidates": [
+                {"entity_id": c.entity_id, "name": c.name, "type": c.entity_type, "score": c.score}
+                for c in near_candidates(surface_form, world_id, db, scope=CREATOR)
+            ],
+        }
+        for surface_form in surface_forms
+    )
+
+
 def execute_plan(
     plan: LorePlan, world_id: str, db: Session, bindings: Optional[dict[str, str]] = None
 ) -> LoreResult:
@@ -162,7 +181,7 @@ def execute_plan(
         return LoreResult(
             verdict="unknown_entity", rows=(), trace=trace,
             ambiguous_mentions=(), unmatched_surface_forms=unmatched,
-            rejection_reason=None,
+            rejection_reason=None, near=_near_blocks(unmatched, world_id, db),
         )
 
     rows: list[dict] = []

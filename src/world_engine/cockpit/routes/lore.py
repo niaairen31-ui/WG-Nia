@@ -90,6 +90,7 @@ def _result_body(plan: LorePlan, result, question: str, db: Session) -> dict:
         "candidates": candidates,
         "answer": rendered.prose,
         "renderer": rendered.renderer,
+        "near": list(result.near),
     }
 
 

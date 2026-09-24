@@ -16276,6 +16276,50 @@ generator `mentions` vocabulary (`entity_author.py`) keep `place`,
 **Events stay out (N6c, named deferral).** `event` is its own table with a
 `title`, not an entity; it carries no fact participant and no category.
 
+## NEAR NAMES AND APPELLATIONS FROM THE PANEL (TICKET-0092) -- THE LORE MISS HAS A WAY OUT (BRIEF-0092-d, no schema change)
+
+**Near names in the Lore answer (N9b, C-10).** `LoreResult` gains a last
+field `near: tuple[dict, ...] = ()`, set only by the `unknown_entity`
+construction: one block per unmatched surface form, in plan order,
+`{"surface_form", "candidates": [{"entity_id", "name", "type", "score"}]}`
+from `near_candidates(surface_form, world_id, db, scope=CREATOR)`. They are
+computed in `lore_query` and carried in the result: the renderer receives
+rows, never a `Session`. `lore_render` adds a seventh constant,
+`_NEAR_ITEM = "{nom} (ressemblance {pct} %)"`; `_render_unknown_entity`
+renders `_UNKNOWN_ENTITY_WITH_NEAR` when a surface has near candidates,
+`_UNKNOWN_ENTITY_WITHOUT_NEAR` otherwise. The six existing constants are
+unedited. `/api/lore/ask` and `/api/lore/resolve` bodies carry `"near"`.
+Near names are display only, sorted by resemblance, never preselected;
+exact homonyms keep their alphabetical, unscored list.
+This gives BRIEF-0085-d's "near candidates ... no source yet" branch its
+source; that record stays as written (history).
+
+**Near names in « Noms à lier » (N13a, C-11).** `GET /api/lore/mentions`
+rows gain `"near": [{"id", "name", "type", "score"}]`, the resolver's own
+candidates excluded. `GET /api/lore/names/lookup?surface=` (422 on a blank
+surface) returns the resolver's candidates over every category, sorted by
+name, and the near names excluding them
+(`lore_mentions_read.lookup_surface`).
+
+**Recording a missed name (N7c, C-09, C-11).**
+`writes/facets.record_appellation(db, *, entity_id, surface, scope_type,
+created_by)` takes `scope_type` in `rencontre` (on the entity) | `world` |
+`none`, raises `ValueError` on anything else, a blank surface or an unknown
+entity, returns `None` and writes nothing when the surface normalizes to
+the entity's name or one of its appellations (creator regime), and
+otherwise writes one `appellation` fact through `add_entity_fact`. It never
+commits. `POST /api/lore/appellations` (422 unless the entity is an active
+entity of the world, any category) and `POST
+/api/lore/mentions/{id}/resolve` with `record_appellation: true` call it;
+the resolve route binds then records in one transaction, one commit, and a
+`ValueError` from either writer rolls back both (422). No canon-write
+policy site is added: the routes reach canon through `writes/*` only.
+
+**The consultation pipeline still never writes.** `lore_query`,
+`lore_selectors`, `lore_plan`, `lore_render`, `lore_prompt` gain no write,
+no route and no `Session` in the renderer; every write lives in the panel's
+route module (Q17d), which imports none of them (`lore_isolation.py` R17).
+
 ---
 
 *Co-built with Claude, June 2026.*
