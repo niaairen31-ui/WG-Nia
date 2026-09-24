@@ -16131,6 +16131,58 @@ on the same owner (same surface, reason, category).
 
 **Guarded like Creation.** No route authentication (R-27, named deferral).
 
+## NAME INDEX (TICKET-0092) -- ONE SOURCE FOR EVERY NAME SURFACE (BRIEF-0092-a, no schema change)
+
+**One module lists every name surface.** `name_index.surfaces(db, world_id,
+scope)` returns the active entity names of a world, then the rendered
+`appellation` facts about active entities that the `NameScope`'s regime
+admits (N1c). Names first by `entity_id`, then appellations by
+`(entity_id, fact_id)`; text is rendered (`prose_render.fact_texts`),
+never normalized — callers normalize. The tokenizer (`prose_tokens.py`)
+builds its index from it and no longer selects rows itself. This
+supersedes the index description of IDENTITY TOKENS (BRIEF-0091-j), which
+indexed every appellation.
+
+**Four regimes, one rule table (N2b).** `_APPELLATION_RULES`, keyed exactly
+by `REGIMES` (`name_index.py` R3):
+
+| regime | active entity names | appellation of an active entity |
+|---|---|---|
+| `names_only` | all | none |
+| `creator` | all | all, creator-only included |
+| `prose` | all | not creator-only AND has a scope |
+| `perceiver` | all | not creator-only AND `fact_id in known_fact_ids` |
+
+`exclude_entity_id` removes one entity's name and appellations in every
+regime. `creator` is the second opt-in to creator-only facts after the Lore
+dossier, confined to `name_index.py`, `lore_query.py`,
+`lore_mentions_read.py`, `writes/facets.py` (R5); the CLAUDE.md "Secrets
+are structurally excluded" invariant names it. Creator-only is read through
+`facet_reads.creator_only_fact_ids`, never re-derived.
+
+**"Has a scope" (N17a).** `fact.default_level != 'unaware'`, or a
+`fact_default` row for the fact with `level != 'unaware'`. Token posing
+(`prose`) indexes only scoped, non-creator-only appellations: an unscoped
+or creator-only appellation never turns into a token in new prose.
+
+**An appellation's own text is tokenized on names alone (N15b).**
+`add_entity_fact` on `appellation` tokenizes with `NameScope("names_only",
+exclude_entity_id=<owner>)`; `edit_entity_fact` does the same when the fact
+has exactly one participant, `names_only` with no exclusion otherwise.
+Another entity's appellation stays plain ("la reine" is stored as written);
+another entity's name still becomes a token ("la fille du vieil Aldric"
+follows Aldric's renames); the owner's own name stays plain.
+
+**The `appellation` preset is `rencontre` (N14b).** A new appellation is
+known, by default, to whoever meets its entity. Appellations written before
+this ticket keep their defaults: no backfill.
+
+**Lazy import.** `name_index` imports `creator_only_fact_ids` inside
+`surfaces`: a module-level import closes the cycle `facet_reads ->
+knowledge_resolve -> writes.knowledge -> prose_tokens -> lore_resolve`
+back onto `facet_reads` (R-07); `name_index.py` R4 forbids the module-level
+form.
+
 ---
 
 *Co-built with Claude, June 2026.*

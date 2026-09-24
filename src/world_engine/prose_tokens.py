@@ -3,9 +3,12 @@ C-14, decision F1).
 
 `tokenize` turns every name the server can resolve, in a text about to be
 written as `fact`/`knowledge` content, into an identity token
-(`prose_render.entity_token`). The index is every active entity `name` of
-the world plus every `appellation` fact content (rendered), each normalized
-with `lore_resolve.normalize_surface` — both sides of every comparison, never
+(`prose_render.entity_token`). The index is `name_index.surfaces` under the
+caller's scope: every active entity `name` of the world plus every
+`appellation` fact content (rendered) that has a scope and is not
+creator-only (TICKET-0092, N17a) — or names alone, for an appellation's own
+text (N15b). Each surface is normalized with
+`lore_resolve.normalize_surface` — both sides of every comparison, never
 one. Longest match first, whole words only; text already inside a token is
 skipped (a token is a barrier: no match spans it).
 
@@ -27,11 +30,12 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from .lore_resolve import normalize_surface, resolve_named
-from .models import Entity, Fact, FactParticipant
-from .prose_render import TOKEN_RE, entity_token, fact_texts
+from .models import Entity
+from .name_index import PROSE, NameScope, surfaces
+from .prose_render import TOKEN_RE, entity_token
 
 _WORD_RE = re.compile(r"[^\W_]+(?:-[^\W_]+)*")
 _GAP_RE = re.compile(r"[\s'’]*")
@@ -79,29 +83,19 @@ def _full_words(surface: str) -> tuple:
     return tuple(_fold(w) for w in _WORD_RE.findall(surface))
 
 
-def _build_index(db: Session, world_id: str) -> tuple[dict, dict]:
-    """(index key -> _Entry, entity id -> (name, type)) for the world."""
-    entities = db.exec(
-        select(Entity).where(Entity.world_id == world_id, Entity.status == "active")
-    ).all()
-    info = {e.id: (e.name, e.type) for e in entities}
-    surfaces = [(e.name, e.id) for e in entities]
-    pairs = db.exec(
-        select(Fact, FactParticipant.entity_id)
-        .join(FactParticipant, FactParticipant.fact_id == Fact.id)
-        .where(Fact.world_id == world_id, Fact.facet == "appellation")
-    ).all()
-    pairs = [(fact, entity_id) for fact, entity_id in pairs if entity_id in info]
-    texts = fact_texts(db, [fact for fact, _ in pairs])
-    surfaces += [(text, entity_id) for text, (_, entity_id) in zip(texts, pairs) if text]
+def _build_index(db: Session, world_id: str, scope: NameScope) -> tuple[dict, dict]:
+    """(index key -> _Entry, entity id -> (name, type)) for the world, from
+    the name surfaces `scope` admits (`name_index.surfaces`)."""
+    found = surfaces(db, world_id, scope)
+    info = {s.entity_id: (s.entity_name, s.entity_type) for s in found if s.source == "name"}
     index: dict = {}
-    for surface, entity_id in surfaces:
-        key = _key_words(surface)
+    for s in found:
+        key = _key_words(s.text)
         if not key:
             continue
         entry = index.setdefault(key, _Entry(set(), set()))
-        entry.ids.add(entity_id)
-        entry.full.add(_full_words(surface))
+        entry.ids.add(s.entity_id)
+        entry.full.add(_full_words(s.text))
     return index, info
 
 
@@ -198,11 +192,18 @@ def _mention_spans(db, world_id, text, runs, mentions, spans, info) -> list[Unre
     return unresolved
 
 
-def tokenize(db: Session, *, world_id: str, text: str, mentions: Optional[list] = None) -> Tokenized:
-    """Pose identity tokens on `text` (see module docstring)."""
+def tokenize(
+    db: Session, *, world_id: str, text: str, mentions: Optional[list] = None,
+    scope: NameScope = PROSE,
+) -> Tokenized:
+    """Pose identity tokens on `text` (see module docstring). `scope` is
+    `prose` (the default) or `names_only` (an appellation's own text, its
+    owner excluded — N15b); any other regime raises `ValueError`."""
+    if scope.regime not in ("prose", "names_only"):
+        raise ValueError(f"tokenize takes the prose or names_only regime, not {scope.regime!r}")
     if not text:
         return Tokenized(text, ())
-    index, info = _build_index(db, world_id)
+    index, info = _build_index(db, world_id, scope)
     runs = _words(text)
     spans = _index_spans(text, runs, index)
     unresolved = [

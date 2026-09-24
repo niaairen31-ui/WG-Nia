@@ -27,6 +27,7 @@ from sqlmodel import Session, select
 
 from ..facets import DESCRIPTIVE_FACETS, facet_spec, normalize_aspect
 from ..models import Entity, Fact, FactParticipant
+from ..name_index import PROSE, NameScope
 from ..prose_render import fact_text
 from ..prose_tokens import tokenize
 from .facts import (
@@ -121,7 +122,12 @@ def add_entity_fact(
     chosen = scope if scope is not None else _preset_scope(spec.preset, entity)
     _check_scope(chosen)
 
-    tokens = tokenize(db, world_id=entity.world_id, text=content, mentions=mentions)
+    # An appellation's own text is tokenized on names alone, its owner
+    # excluded: it is stored plain and never self-referential (N15b).
+    name_scope = (NameScope("names_only", exclude_entity_id=entity_id)
+                  if facet == "appellation" else PROSE)
+    tokens = tokenize(db, world_id=entity.world_id, text=content, mentions=mentions,
+                      scope=name_scope)
     fact = create_fact(
         db, world_id=entity.world_id, content=tokens.text, created_by=created_by,
         facet=facet, aspect=norm_aspect,
@@ -238,6 +244,15 @@ def _descriptive_fact(db: Session, fact_id: str) -> Fact:
     return fact
 
 
+def _edit_scope(db: Session, fact: Fact) -> NameScope:
+    """N15b for an edit: an appellation is tokenized on names alone, without
+    its owner when it has exactly one participant; any other facet is prose."""
+    if fact.facet != "appellation":
+        return PROSE
+    owners = db.exec(select(FactParticipant.entity_id).where(FactParticipant.fact_id == fact.id)).all()
+    return NameScope("names_only", exclude_entity_id=owners[0] if len(owners) == 1 else None)
+
+
 def edit_entity_fact(db: Session, *, fact_id: str, content: str, changed_by: str) -> Fact:
     """Rewrite a descriptive fact's content through `update_fact_content`
     (history appended). `ValueError` if unknown, not descriptive, or the
@@ -249,7 +264,7 @@ def edit_entity_fact(db: Session, *, fact_id: str, content: str, changed_by: str
         raise ValueError("fact content is empty")
     if content in (fact.content_raw, fact_text(db, fact)):
         return update_fact_content(db, fact=fact, content=fact.content_raw, changed_by=changed_by)
-    tokens = tokenize(db, world_id=fact.world_id, text=content)
+    tokens = tokenize(db, world_id=fact.world_id, text=content, scope=_edit_scope(db, fact))
     if tokens.unresolved:
         record_unresolved(db, world_id=fact.world_id, fact_id=fact.id, items=tokens.unresolved)
     return update_fact_content(db, fact=fact, content=tokens.text, changed_by=changed_by)

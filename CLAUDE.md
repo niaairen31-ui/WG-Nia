@@ -146,8 +146,11 @@ Law only. Rationale, chantier history, and deferred alternatives live in
 - **Secrets are structurally excluded** from every assembled context — never
   "guarded by instruction". The creator's note on an entity (a `histoire`
   fact whose entity holds a `creator_meta` `is_secret` row) is excluded from
-  `facet_reads` by query construction; only the Lore dossier opts in. What an NPC
-  knows-but-conceals lives in `knowledge` rows with `is_secret = TRUE`,
+  `facet_reads` by query construction; only the Lore dossier opts in, plus the
+  `creator` regime of `name_index` for name resolution (Lore question, names
+  panel). Token posing never indexes a creator-only or unscoped appellation.
+  What an NPC knows-but-conceals lives in `knowledge` rows with
+  `is_secret = TRUE`,
   excluded by query construction at every assembler AND every propagation
   path (`analyze_overhearing` never sources a proposal from an `is_secret`
   row).
