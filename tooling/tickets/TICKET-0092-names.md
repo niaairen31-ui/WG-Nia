@@ -2,14 +2,14 @@
 id: TICKET-0092
 title: Names — appellations, partial and near names, every category (B)
 type: feature
-status: brief
+status: live-gate
 created: 2026-09-24
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [db_write]
 blast_radius: medium
 lot_id: LOT-0092-names.md
 brief_ids: [A, B, C, D, E]
-current_brief:
+current_brief: E
 schema_version_touched:
 retry_count: 0
 ---
