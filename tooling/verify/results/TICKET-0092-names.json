@@ -1,0 +1,97 @@
+{
+  "ticket": "TICKET-0092-names",
+  "when": "2026-09-24T23:56:42.567718+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "name_index.py",
+      "status": "PASS",
+      "msg": "PASS: name_index \u00e2\u20ac\u201d pure and world-scoped, regimes in bijection with their rules, creator-only exclusion imported lazily, the creator regime confined, every resolver call states its scope, the Regimes table holds, and the tokenizer indexes only scoped non-creator-only appellations"
+    },
+    {
+      "check": "name_resolution.py",
+      "status": "PASS",
+      "msg": "PASS: name_resolution \u00e2\u20ac\u201d exact names resolve, appellations and partial names resolve for the creator only, near names score and order as the lot's table, the day chain sees only the appellations its character knows, subjects and tokenizer mentions stay on names, objects and every other type are nameable categories, near names reach the Lore answer and the names panel, and the panel records a missed name as an appellation"
+    },
+    {
+      "check": "lore_resolve.py",
+      "status": "PASS",
+      "msg": "PASS: lore_resolve \u00e2\u20ac\u201d purity, no casting, the named-rung bijection, world scoping at construction, and the no-duplicate-normalizer guard are all intact"
+    },
+    {
+      "check": "lore_isolation.py",
+      "status": "PASS",
+      "msg": "PASS: lore_isolation \u00e2\u20ac\u201d purity (R1, R4), world scoping at construction (R2), the discoverable_detail exclusion (R3), the planner's canon-blindness (R5), the route's thinness (R6), the ask-side named Ollama-down message (R16), the no-redraft-on-resolve guard (R7), the selector/category vocabulary parity checks (R8, R9), the prompt loader's scoping to prompt tables (R15), and the renderer's isolation, no-model-on-empty-verdict, Ollama fallback, message-constant, and unknown-section guards (R10-R14), and the name-resolution panel's separation from the pipeline (R17) are all intact"
+    },
+    {
+      "check": "fact_facets.py",
+      "status": "PASS",
+      "msg": "PASS: fact_facets \u00e2\u20ac\u201d FACETS matches C-01, every create_fact( passes a facet, descriptive/dynamic facets stay in writes/facets.py, C-02's case table holds, the entity-fact writer guards blocs and writes customs and creator_meta, resolve_default_rows skips descriptive facts, and creator-only facts stay out of facet reads outside the dossier"
+    },
+    {
+      "check": "identity_tokens.py",
+      "status": "PASS",
+      "msg": "PASS: identity_tokens \u00e2\u20ac\u201d content_raw read only in the allow-list, render follows renames and falls back on deleted entities, C-14's case table holds, two same-named NPCs give one ambigu row, and token posing calls no model"
+    },
+    {
+      "check": "day_concordance.py",
+      "status": "PASS",
+      "msg": "PASS: day_concordance \u00e2\u20ac\u201d purity, no registry leak, germ shape, no synchronous authoring, the I2 parking tripwire, PROMPT_REGISTRY wiring, rung bijection, the mentions bound, the casting bijection, the E2c reachability tripwire, the germ quota, and the germ emission guards are all intact"
+    },
+    {
+      "check": "day_concordance_golden.py",
+      "status": "PASS",
+      "msg": "PASS: day_concordance_golden \u00e2\u20ac\u201d leading-article and trailing-qualifier matching, casting (C2-partition, basis 'stable'), identity-collision ambiguity, E2c reachability scoping, the rewrite golden cases (ambiguity guard, determinism, cast/cast_basis validation, fail-closed resolve reader), and the germ emission golden cases (collision guard, pending dedup, realized-germ non-block, quota) all resolve correctly"
+    },
+    {
+      "check": "subject_resolution.py",
+      "status": "PASS",
+      "msg": "PASS: subject_resolution \u00e2\u20ac\u201d subject_resolve.py stays pure and re-implements no rung; _mutation_apply_new_knowledge refuses a cross-world subject_entity_id and writes nothing, applies an in-world one idempotently"
+    },
+    {
+      "check": "import_cycle.py",
+      "status": "PASS",
+      "msg": "PASS: import_cycle \u00e2\u20ac\u201d no module-level import cycle under src/world_engine"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u00e2\u20ac\u201d section whitelist, character/line budgets, File-structure archaeology ban, Invariants archaeology ban, tooling/ pointer freshness, .py pointer freshness"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values; 95 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u00e2\u20ac\u201d every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u00e2\u20ac\u201d 99 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "static_asset_freshness.py",
+      "status": "PASS",
+      "msg": "PASS: static_asset_freshness \u00e2\u20ac\u201d mount is policy-bearing, 2 immutable file(s) / 4 revalidating file(s), 8 HTML route(s) covered"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 118 check(s) discovered, 118 executed, 118 passed"
+    }
+  ]
+}
