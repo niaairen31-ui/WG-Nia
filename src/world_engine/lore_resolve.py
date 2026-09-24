@@ -30,9 +30,14 @@ from sqlmodel import Session, select
 from .models import Entity
 from .name_index import NameScope, NameSurface, surfaces
 
+# `other` claims no type of its own: it is every type no other category
+# claims -- runtime slugs, `artifact`, anything else (BRIEF-0092-c, C-07).
 _CATEGORY_ENTITY_TYPE: dict[str, tuple[str, ...]] = {
     "place": ("location",), "person": ("character",), "faction": ("faction",),
+    "object": ("item",), "other": (),
 }
+OTHER_CATEGORY = "other"
+CATEGORIES: tuple[str, ...] = tuple(_CATEGORY_ENTITY_TYPE)
 
 # `named_alias` is NOT here (RECON F1: a permanent no-op in day_concordance —
 # `faction_membership.cover_role` is a faction ROLE label, never a person's
@@ -49,12 +54,17 @@ _LEADING_TOKENS: frozenset[str] = frozenset({
 _SURFACE_TOKEN_SPLIT = re.compile(r"[\s'’]+")
 
 
-def category_of_type(entity_type: str) -> Optional[str]:
-    """The category whose type tuple claims `entity_type`, else None."""
+def category_of_type(entity_type: str) -> str:
+    """The category whose type tuple claims `entity_type`, else `other`."""
     for category, types in _CATEGORY_ENTITY_TYPE.items():
         if entity_type in types:
             return category
-    return None
+    return OTHER_CATEGORY
+
+
+def _claimed_types() -> tuple[str, ...]:
+    """Every type some category other than `other` claims."""
+    return tuple(t for types in _CATEGORY_ENTITY_TYPE.values() for t in types)
 
 
 def normalize_surface(text: str) -> str:
@@ -218,7 +228,8 @@ def pre_resolved(entity_id: str) -> NamedResolution:
 
 def validate_binding(entity_id: str, category: str, world_id: str, db: Session) -> bool:
     """True iff `entity_id` is an active entity in `world_id` whose `type`
-    is in `_CATEGORY_ENTITY_TYPE[category]`; an unknown category is False.
+    is in `_CATEGORY_ENTITY_TYPE[category]` -- for `other`, whose `type` no
+    other category claims; an unknown category is False.
     Used by `/api/lore/resolve` (TICKET-0085, BRIEF-0085-c) to re-check a
     client-echoed binding: the id was produced by this server a moment ago,
     but a client-supplied plan is untrusted input all the same, so it is
@@ -230,7 +241,8 @@ def validate_binding(entity_id: str, category: str, world_id: str, db: Session) 
         select(Entity).where(
             Entity.id == entity_id,
             Entity.world_id == world_id,
-            Entity.type.in_(entity_types),
+            (Entity.type.notin_(_claimed_types()) if category == OTHER_CATEGORY
+             else Entity.type.in_(entity_types)),
             Entity.status == "active",
         )
     ).first()

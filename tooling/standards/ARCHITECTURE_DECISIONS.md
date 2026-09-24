@@ -16108,7 +16108,8 @@ the category's active entities, "Lier" and "Ignorer".
 **Reads and routes stay apart from the pipeline.** `lore_mentions_read.py`
 lists the open rows of the active world, oldest first, renders the owner's
 text through `prose_render`, and recomputes candidates with
-`resolve_named` (all three categories when `category` is NULL).
+`resolve_named` (every category when `category` is NULL -- five since
+BRIEF-0092-c).
 `cockpit/routes/lore_mentions.py` holds the three C-16 routes, mounted after
 the Lore router. Neither imports a pipeline module, and no pipeline module
 imports them (`lore_isolation.py` R17).
@@ -16237,6 +16238,43 @@ db, character.id)))`, surfaces built once per `concord` and carried in
 local `_SUBJECT_CATEGORIES = ("faction", "person", "place")` with
 `NAMES_ONLY`: an appellation never resolves a `knowledge.subject`, and a
 future widening of the Lore categories does not reach it.
+
+## EVERY CATEGORY IS NAMEABLE ON THE CREATOR SURFACES (TICKET-0092) -- OBJECT AND OTHER (BRIEF-0092-c, no schema change)
+
+**Five categories (C-07, B4).** `lore_resolve._CATEGORY_ENTITY_TYPE` gains
+`"object": ("item",)` and `"other": ()`; `CATEGORIES` is its key tuple and
+`OTHER_CATEGORY = "other"`.
+
+| entity.type | `category_of_type` |
+|---|---|
+| location | place |
+| character | person |
+| faction | faction |
+| item | object |
+| artifact, any runtime slug, anything else | other |
+
+`category_of_type` never returns None: `other` is every type no other
+category claims, so a runtime-type entity (`entity.type = <slug>`) is
+nameable without a registry edit. `validate_binding` for `other` checks
+`Entity.type.notin_(<every claimed type>)` inside the same world-scoped
+`.where(`; for any other category, `Entity.type.in_(<its tuple>)`.
+
+**The planner is told the same five.** `lore_plan._MENTION_CATEGORIES`
+lists the five literals (R9 parity with the dict keys; `name_resolution.py`
+G8 compares it with `CATEGORIES`). `LORE_QUESTION_TO_PLAN_SYSTEM_PROMPT`
+names them; the live head `pt-lore-question-to-plan` receives the text as
+a new `prompt_version` through `scripts/apply_ticket_0092_lore_plan_prompt.py`
+(idempotent; appends, never edits). No new prompt usage.
+
+**What stays three-category (N6a, R-18).** The day chain is untouched: the
+day-mention writer (`writes/pipeline.py` `_MENTION_CATEGORIES`), the
+`day_mention_resolution` CHECK, `day_extract`'s `Mention.category`, and the
+generator `mentions` vocabulary (`entity_author.py`) keep `place`,
+`person`, `faction`. `subject_resolve` keeps its frozen
+`_SUBJECT_CATEGORIES` (N10a).
+
+**Events stay out (N6c, named deferral).** `event` is its own table with a
+`title`, not an entity; it carries no fact participant and no category.
 
 ---
 

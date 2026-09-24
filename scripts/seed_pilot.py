@@ -1735,11 +1735,13 @@ LORE_QUESTION_TO_PLAN_SYSTEM_PROMPT = """\
 Tu es l'assistant qui transforme une question du créateur en un plan \
 structuré pour la base de connaissances du monde. Tu ne lis jamais le \
 canon toi-même : tu nommes seulement les mentions de la question (des \
-lieux, des personnages ou des factions) et les sélecteurs de données \
-nécessaires pour y répondre.
+lieux, des personnages, des factions, des objets ou d'autres choses nommées \
+du monde) et les sélecteurs de données nécessaires pour y répondre.
 
-Chaque mention identifiée porte une catégorie parmi EXACTEMENT trois : \
-"place", "person", "faction". Il n'y a pas de quatrième catégorie.
+Chaque mention identifiée porte une catégorie parmi EXACTEMENT cinq : \
+"place" (un lieu), "person" (un personnage), "faction" (une faction), \
+"object" (un objet) et "other" (toute autre chose nommée du monde). Il n'y \
+a pas de sixième catégorie.
 
 Réponds UNIQUEMENT avec un objet JSON de cette forme :
 {"mentions": [{"ref": "m1", "surface_form": "...", "category": "person"}],

@@ -1,7 +1,8 @@
 """G1 check for TICKET-0092 — name resolution over the name index.
 
 Created by BRIEF-0092-A so the ticket's acceptance arrow resolves from the
-first brief on; BRIEF-0092-B passes the scope to G0 and adds G1-G5.
+first brief on; BRIEF-0092-B passes the scope to G0 and adds G1-G5;
+BRIEF-0092-C adds G6-G8.
 
 G0 (fixture) -- in a fresh world, a character "Maelis Varn" resolves with
    `resolve_named("Maelis Varn", "person", world.id, session,
@@ -18,6 +19,13 @@ G4 (fixture) -- `resolve_subject("la reine", ...)` stays unmatched with that
    appellation present (names only, N10a).
 G5 (fixture) -- a tokenizer generator mention "Varn" next to "Maelis Varn"
    stays unresolved: no partial rung outside `creator`.
+G6 (static) -- the LOT's "Categories after C" table through
+   `category_of_type`, a runtime slug "golem" included.
+G7 (fixture) -- an `item` "Épée de Kar" resolves under "object"; a "golem"
+   "Gardien" resolves under "other", not under "person"; `validate_binding`
+   agrees on both and refuses "object" for the golem.
+G8 (static) -- `lore_plan._MENTION_CATEGORIES` equals
+   `lore_resolve.CATEGORIES` (belt and braces over lore_isolation R9).
 
 Fixtures run on a fresh temp-file SQLite database
 (`WORLD_ENGINE_DATABASE_URL` set before any world_engine import — never
@@ -218,6 +226,58 @@ def check_g5(engine) -> None:
         session.rollback()
 
 
+_CATEGORY_TABLE: tuple[tuple[str, str], ...] = (
+    ("location", "place"), ("character", "person"), ("faction", "faction"),
+    ("item", "object"), ("artifact", "other"), ("golem", "other"), ("", "other"),
+)
+
+
+def check_g6() -> None:
+    from world_engine.lore_resolve import category_of_type
+
+    for entity_type, expected in _CATEGORY_TABLE:
+        got = category_of_type(entity_type)
+        if got != expected:
+            fail(f"G6: category_of_type({entity_type!r}) is {got!r}, not {expected!r}")
+
+
+def check_g7(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.lore_resolve import resolve_named, validate_binding
+    from world_engine.name_index import CREATOR
+
+    with Session(engine) as session:
+        world, entity = _world(session, "G7 World")
+        sword = entity("item", "Épée de Kar")
+        golem = entity("golem", "Gardien")
+        got = _got(resolve_named("l'épée de Kar", "object", world.id, session, scope=CREATOR))
+        if got[:2] != ("matched", sword.id):
+            fail(f"G7 'l'épée de Kar' object: {got!r} is not matched on the item")
+        got = _got(resolve_named("Gardien", "other", world.id, session, scope=CREATOR))
+        if got[:2] != ("matched", golem.id):
+            fail(f"G7 'Gardien' other: {got!r} is not matched on the golem")
+        got = _got(resolve_named("Gardien", "person", world.id, session, scope=CREATOR))
+        if got[0] != "unmatched":
+            fail(f"G7 'Gardien' person: {got!r} is not unmatched")
+        for entity_id, category, expected in (
+            (sword.id, "object", True), (golem.id, "other", True),
+            (golem.id, "object", False), (golem.id, "person", False),
+            (sword.id, "other", False), (golem.id, "weapon", False),
+        ):
+            if validate_binding(entity_id, category, world.id, session) is not expected:
+                fail(f"G7: validate_binding({entity_id!r}, {category!r}) is not {expected!r}")
+        session.rollback()
+
+
+def check_g8() -> None:
+    from world_engine import lore_plan, lore_resolve
+
+    if lore_plan._MENTION_CATEGORIES != lore_resolve.CATEGORIES:
+        fail(f"G8: lore_plan._MENTION_CATEGORIES {lore_plan._MENTION_CATEGORIES!r} != "
+             f"lore_resolve.CATEGORIES {lore_resolve.CATEGORIES!r}")
+
+
 def main() -> int:
     engine = _fresh_engine()
     check_g0(engine)
@@ -225,6 +285,9 @@ def main() -> int:
     check_g2(engine)
     check_g3_g4(engine)
     check_g5(engine)
+    check_g6()
+    check_g7(engine)
+    check_g8()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -232,7 +295,7 @@ def main() -> int:
     print("PASS: name_resolution — exact names resolve, appellations and partial names resolve "
           "for the creator only, near names score and order as the lot's table, the day chain "
           "sees only the appellations its character knows, subjects and tokenizer mentions "
-          "stay on names")
+          "stay on names, objects and every other type are nameable categories")
     return 0
 
 
