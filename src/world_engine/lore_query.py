@@ -18,6 +18,7 @@ from sqlmodel import Session
 
 from .lore_resolve import pre_resolved, resolve_named
 from .lore_selectors import SELECTORS, _SELECTOR_LOOKUPS
+from .name_index import CREATOR
 
 
 @dataclass(frozen=True)
@@ -105,7 +106,7 @@ def _resolve_mentions(
             # the same ambiguity again.
             resolution = pre_resolved(bindings[mention.ref])
         else:
-            resolution = resolve_named(mention.surface_form, mention.category, world_id, db)
+            resolution = resolve_named(mention.surface_form, mention.category, world_id, db, scope=CREATOR)
         resolutions[mention.ref] = resolution
         trace.append(
             {

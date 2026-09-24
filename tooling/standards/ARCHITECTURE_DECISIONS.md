@@ -16183,6 +16183,61 @@ knowledge_resolve -> writes.knowledge -> prose_tokens -> lore_resolve`
 back onto `facet_reads` (R-07); `name_index.py` R4 forbids the module-level
 form.
 
+## NAMES RESOLVE THROUGH THE INDEX (TICKET-0092) -- APPELLATIONS, PARTIAL AND NEAR NAMES (BRIEF-0092-b, no schema change)
+
+**The rungs are pure functions over surfaces (C-04).** `lore_resolve`'s
+rungs take `(surface_form, category, surfaces)` and read no table; they
+consider only surfaces whose `category_of_type(entity_type)` is the
+category and return the sorted distinct entity ids, or None. With
+`F = normalize_surface(surface_form)`, `TF` its tokens, `K`/`TK` the same
+for a surface:
+
+| rung | a surface matches when |
+|---|---|
+| `named_exact` | `F != ""` and `K == F` |
+| `named_token` | `TK` non-empty, `TK <= TF`, some token of `TK` has 3+ characters |
+| `named_partial` | `TF` non-empty, every token of `TF` has 3+ characters, `TF <= TK` |
+
+`validate_binding` keeps the module's one `select(` (world-scoped,
+`Entity.type.in_(...)`); `_CATEGORY_ENTITY_TYPE` maps a category to a tuple
+of types. No `Character` identifier enters the module.
+
+**Names and appellations are equal candidates (N11a).** A name and an
+appellation matching at the same rung rank equally: two distinct entities
+make the verdict `ambiguous`. The tool never picks.
+
+**Every caller states whose names it sees (C-05).** `resolve_named` takes a
+keyword-only `scope` with no default -- a default would silently hand the
+creator regime to a caller that forgot one. `name_index.py` R6 enforces the
+keyword on every `resolve_named`/`near_candidates` call.
+
+| caller | scope |
+|---|---|
+| `lore_query._resolve_mentions` | `CREATOR` |
+| `lore_mentions_read._candidates` | `CREATOR` |
+| `prose_tokens._mention_spans` | the scope `tokenize` received (`prose`/`names_only`) |
+| `subject_resolve.resolve_subject` | `NAMES_ONLY`, categories frozen |
+| `day_concordance` named rungs | `perceiver`, the character's resolved known facts |
+
+**The partial rung and near names are creator-surface only (N12a).**
+`resolve_named` skips `named_partial` unless the regime is `creator`;
+`near_candidates` raises `ValueError` outside it. Near candidates
+(`difflib` ratio >= 0.8, or a shared 3+ token; best surface per entity;
+at most five; score rounded half up) are display only, never a pick. The
+day chain sees only the appellations its character knows:
+`NameScope("perceiver", known_fact_ids=frozenset(resolve_levels_for_entity(
+db, character.id)))`, surfaces built once per `concord` and carried in
+`_ConcordContext.surfaces`. Reactivation in play waits for H2.
+
+**`named_alias` stays a no-op (N16a).** Known appellations join
+`named_exact`/`named_token` in play; `named_alias`, its comment and
+`MATCHING_RUNGS` are untouched.
+
+**Knowledge subjects stay on names (N10a).** `subject_resolve` walks a
+local `_SUBJECT_CATEGORIES = ("faction", "person", "place")` with
+`NAMES_ONLY`: an appellation never resolves a `knowledge.subject`, and a
+future widening of the Lore categories does not reach it.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -15,7 +15,8 @@ skipped (a token is a barrier: no match spans it).
 A surface naming exactly one entity becomes a token; two or more stay plain
 and are reported `ambigu` — this module never picks. A generator `mentions`
 entry the index did not already cover, and whose surface occurs in the text,
-is resolved with `lore_resolve.resolve_named`: one candidate -> its first
+is resolved with `lore_resolve.resolve_named` under the same scope (never
+`creator`, so never its partial rung): one candidate -> its first
 occurrence is tokenized; zero -> `inconnu`; two or more -> `ambigu`. A
 mention that does not occur in the text is not about it and is ignored.
 
@@ -32,15 +33,13 @@ from typing import Optional
 
 from sqlmodel import Session
 
-from .lore_resolve import normalize_surface, resolve_named
+from .lore_resolve import _CATEGORY_ENTITY_TYPE, category_of_type, normalize_surface, resolve_named
 from .models import Entity
 from .name_index import PROSE, NameScope, surfaces
 from .prose_render import TOKEN_RE, entity_token
 
 _WORD_RE = re.compile(r"[^\W_]+(?:-[^\W_]+)*")
 _GAP_RE = re.compile(r"[\s'’]*")
-# Mirror of `lore_resolve._CATEGORY_ENTITY_TYPE`, keyed by entity type.
-_CATEGORY_OF_TYPE = {"location": "place", "character": "person", "faction": "faction"}
 
 
 @dataclass(frozen=True)
@@ -166,23 +165,23 @@ def _find(text: str, runs: list, key: tuple, taken: list[_Span]) -> Optional[tup
 
 
 def _category(ids, info: dict) -> Optional[str]:
-    categories = {_CATEGORY_OF_TYPE.get(info[i][1]) for i in ids if i in info}
+    categories = {category_of_type(info[i][1]) for i in ids if i in info}
     return categories.pop() if len(categories) == 1 else None
 
 
-def _mention_spans(db, world_id, text, runs, mentions, spans, info) -> list[Unresolved]:
+def _mention_spans(db, world_id, text, runs, mentions, spans, info, scope) -> list[Unresolved]:
     unresolved = []
     for mention in mentions or []:
         name = mention.get("name") if isinstance(mention, dict) else None
         category = mention.get("category") if isinstance(mention, dict) else None
         key = _key_words(name) if isinstance(name, str) else ()
-        if not key or category not in _CATEGORY_OF_TYPE.values() or any(s.key == key for s in spans):
+        if not key or category not in _CATEGORY_ENTITY_TYPE or any(s.key == key for s in spans):
             continue
         found = _find(text, runs, key, spans)
         if found is None:
             continue
         surface = text[found[0]:found[1]]
-        resolution = resolve_named(name, category, world_id, db)
+        resolution = resolve_named(name, category, world_id, db, scope=scope)
         if resolution.verdict == "matched":
             spans.append(_Span(found[0], found[1], key, resolution.entity_id))
             info.setdefault(resolution.entity_id, (db.get(Entity, resolution.entity_id).name, None))
@@ -210,7 +209,7 @@ def tokenize(
         Unresolved(text[s.start:s.end], "ambigu", _category(index[s.key].ids, info))
         for s in spans if s.entity_id is None
     ]
-    unresolved += _mention_spans(db, world_id, text, runs, mentions, spans, info)
+    unresolved += _mention_spans(db, world_id, text, runs, mentions, spans, info, scope)
     out = text
     for span in sorted((s for s in spans if s.entity_id), key=lambda s: s.start, reverse=True):
         out = out[:span.start] + entity_token(span.entity_id, info[span.entity_id][0]) + out[span.end:]

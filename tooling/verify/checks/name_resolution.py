@@ -1,12 +1,23 @@
 """G1 check for TICKET-0092 — name resolution over the name index.
 
 Created by BRIEF-0092-A so the ticket's acceptance arrow resolves from the
-first brief on; BRIEF-0092-B rewrites G0 for the scoped `resolve_named`
-signature and adds the lot's rung cases.
+first brief on; BRIEF-0092-B passes the scope to G0 and adds G1-G5.
 
 G0 (fixture) -- in a fresh world, a character "Maelis Varn" resolves with
-   `resolve_named("Maelis Varn", "person", world.id, session)` to `matched`
-   on it, via the `named_exact` rung.
+   `resolve_named("Maelis Varn", "person", world.id, session,
+   scope=CREATOR)` to `matched` on it, via the `named_exact` rung.
+G1 (fixture) -- the LOT's "Rungs" table through `resolve_named`, exact
+   equality on `(verdict, entity_id, candidate_ids, rung)`.
+G2 (fixture) -- the LOT's "Near" table through `near_candidates`: "Maelys"
+   yields only Maelis (83); "reine" yields La Reine Grise (63) then Reine
+   Ysolde (59); `exclude_ids` drops an id; `scope=PROSE` raises ValueError.
+G3 (fixture) -- the day chain sees the perceiver regime: a PC who knows the
+   appellation "la reine" of an NPC resolves it via `named_exact`; a PC who
+   does not leaves it unmatched.
+G4 (fixture) -- `resolve_subject("la reine", ...)` stays unmatched with that
+   appellation present (names only, N10a).
+G5 (fixture) -- a tokenizer generator mention "Varn" next to "Maelis Varn"
+   stays unresolved: no partial rung outside `creator`.
 
 Fixtures run on a fresh temp-file SQLite database
 (`WORLD_ENGINE_DATABASE_URL` set before any world_engine import — never
@@ -62,24 +73,166 @@ def check_g0(engine) -> None:
     from sqlmodel import Session
 
     from world_engine.lore_resolve import resolve_named
+    from world_engine.name_index import CREATOR
 
     with Session(engine) as session:
         world, entity = _world(session, "G0 World")
         maelis = entity("character", "Maelis Varn")
-        got = resolve_named("Maelis Varn", "person", world.id, session)
+        got = resolve_named("Maelis Varn", "person", world.id, session, scope=CREATOR)
         if (got.verdict, got.entity_id, got.rung) != ("matched", maelis.id, "named_exact"):
             fail(f"G0: {(got.verdict, got.entity_id, got.rung)!r} "
                  f"!= ('matched', {maelis.id!r}, 'named_exact')")
         session.rollback()
 
 
+def _appellation(session, owner, content, scope=None):
+    from world_engine.writes.facets import add_entity_fact
+
+    return add_entity_fact(session, entity_id=owner.id, facet="appellation", content=content,
+                           created_by="check", scope=scope)
+
+
+def _got(resolution) -> tuple:
+    return (resolution.verdict, resolution.entity_id, resolution.candidate_ids, resolution.rung)
+
+
+def check_g1(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.lore_resolve import resolve_named
+    from world_engine.name_index import CREATOR, NAMES_ONLY
+
+    with Session(engine) as session:
+        world, entity = _world(session, "G1 World")
+        maelis = entity("character", "Maelis Varn")
+        grise = entity("location", "La Reine Grise")
+        ysolde = entity("character", "Ysolde")
+        _appellation(session, ysolde, "la reine")
+        table = [
+            ("la reine", "person", CREATOR, ("matched", ysolde.id, (ysolde.id,), "named_exact")),
+            ("la reine", "place", CREATOR, ("matched", grise.id, (grise.id,), "named_partial")),
+            ("Varn", "person", CREATOR, ("matched", maelis.id, (maelis.id,), "named_partial")),
+            ("Varn", "person", NAMES_ONLY, ("unmatched", None, (), None)),
+            ("Ma", "person", CREATOR, ("unmatched", None, (), None)),
+        ]
+        for surface, category, scope, expected in table:
+            got = _got(resolve_named(surface, category, world.id, session, scope=scope))
+            if got != expected:
+                fail(f"G1 {surface!r} {category} {scope.regime}: {got!r} != {expected!r}")
+        reine = entity("character", "Reine")
+        expected = ("ambiguous", None, tuple(sorted((ysolde.id, reine.id))), "named_exact")
+        got = _got(resolve_named("la reine", "person", world.id, session, scope=CREATOR))
+        if got != expected:
+            fail(f"G1 'la reine' person creator + 'Reine': {got!r} != {expected!r}")
+        session.rollback()
+
+
+def check_g2(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.lore_resolve import near_candidates
+    from world_engine.name_index import CREATOR, PROSE
+
+    with Session(engine) as session:
+        world, entity = _world(session, "G2 World")
+        maelis = entity("character", "Maelis")
+        entity("character", "Maelis Varn")
+        ysolde = entity("character", "Reine Ysolde")
+        grise = entity("location", "La Reine Grise")
+
+        def near(surface, **kwargs):
+            return near_candidates(surface, world.id, session, scope=CREATOR, **kwargs)
+
+        got = [(c.entity_id, c.score) for c in near("Maelys")]
+        if got != [(maelis.id, 83)]:
+            fail(f"G2 'Maelys': {got!r} != {[(maelis.id, 83)]!r}")
+        got = [(c.entity_id, c.score) for c in near("reine")]
+        if got != [(grise.id, 63), (ysolde.id, 59)]:
+            fail(f"G2 'reine': {got!r} != {[(grise.id, 63), (ysolde.id, 59)]!r}")
+        got = [c.entity_id for c in near("reine", exclude_ids=frozenset({grise.id}))]
+        if got != [ysolde.id]:
+            fail(f"G2 'reine' excluding La Reine Grise: {got!r} != {[ysolde.id]!r}")
+        try:
+            near_candidates("reine", world.id, session, scope=PROSE)
+            fail("G2: near_candidates(scope=PROSE) did not raise ValueError")
+        except ValueError:
+            pass
+        session.rollback()
+
+
+def check_g3_g4(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.day_concordance import concord
+    from world_engine.day_extract import Mention
+    from world_engine.models import Character, Location
+    from world_engine.subject_resolve import resolve_subject
+    from world_engine.writes.facets import ScopeChoice
+    from world_engine.writes.knowledge import write_knowledge
+
+    with Session(engine) as session:
+        world, entity = _world(session, "G3 World")
+        place = entity("location", "Taverne")
+        session.add(Location(id=place.id))
+
+        def character(name: str, character_type: str):
+            row = entity("character", name)
+            session.add(Character(id=row.id, world_id=world.id, character_type=character_type,
+                                  current_location_id=place.id))
+            session.flush()
+            return session.get(Character, row.id)
+
+        pc_p, npc_y = character("Pell", "player"), character("Ysolde", "npc")
+        pc_q = character("Quill", "player")
+        fact = _appellation(session, npc_y, "la reine", ScopeChoice("none"))
+        write_knowledge(session, entity_id=pc_p.id, fact_id=fact.id, subject="la reine",
+                        level="knows", is_secret=False, changed_by="check")
+        session.flush()
+        mention = Mention(category="person", surface_form="la reine", kind="named")
+        got = concord([mention], pc_p, session)
+        seen = [(m.entity_id, m.rung) for m in got.matched]
+        if seen != [(npc_y.id, "named_exact")]:
+            fail(f"G3 knowing PC: matched {seen!r} != {[(npc_y.id, 'named_exact')]!r}")
+        got = concord([mention], pc_q, session)
+        if got.matched or got.cast or got.ambiguous or len(got.unmatched) != 1:
+            fail(f"G3 unknowing PC: 'la reine' not unmatched: {got!r}")
+        subject = resolve_subject("la reine", world.id, session)
+        if subject.verdict != "unmatched":
+            fail(f"G4: resolve_subject('la reine') is {subject.verdict!r}, not 'unmatched'")
+        session.rollback()
+
+
+def check_g5(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.prose_tokens import tokenize
+
+    with Session(engine) as session:
+        world, entity = _world(session, "G5 World")
+        entity("character", "Maelis Varn")
+        got = tokenize(session, world_id=world.id, text="Varn arrive.",
+                       mentions=[{"name": "Varn", "category": "person"}])
+        pairs = [(u.surface, u.reason) for u in got.unresolved]
+        if got.text != "Varn arrive." or pairs != [("Varn", "inconnu")]:
+            fail(f"G5: {got.text!r} {pairs!r} != 'Varn arrive.' [('Varn', 'inconnu')]")
+        session.rollback()
+
+
 def main() -> int:
-    check_g0(_fresh_engine())
+    engine = _fresh_engine()
+    check_g0(engine)
+    check_g1(engine)
+    check_g2(engine)
+    check_g3_g4(engine)
+    check_g5(engine)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         return 1
-    print("PASS: name_resolution — a character's exact name resolves to it via named_exact")
+    print("PASS: name_resolution — exact names resolve, appellations and partial names resolve "
+          "for the creator only, near names score and order as the lot's table, the day chain "
+          "sees only the appellations its character knows, subjects and tokenizer mentions "
+          "stay on names")
     return 0
 
 

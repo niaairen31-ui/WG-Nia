@@ -19,6 +19,12 @@ R5 (creator confinement) -- across `src/world_engine/**/*.py`, `CREATOR`
    `NameScope(` call whose regime is the literal `"creator"` occur only in
    `name_index.py`, `lore_query.py`, `lore_mentions_read.py`,
    `writes/facets.py`. Vacuity guard: at least one file parsed.
+R6 (explicit scope, BRIEF-0092-b) -- across `src/world_engine/**/*.py`, every
+   call whose callee name (a Name, or the last part of an Attribute) is
+   `resolve_named` or `near_candidates` passes a `scope=` keyword; every call
+   whose callee name is `surfaces` or `name_surfaces` has three positional
+   arguments or a `scope=` keyword. Vacuity guard: at least one
+   `resolve_named` call found.
 F1 (fixture) -- the LOT's "Regimes" case table against `surfaces`, with
    exact set equality on `(source, entity_id, fact_id)`; malformed
    `NameScope`s raise `ValueError`.
@@ -180,6 +186,27 @@ def check_creator_confinement() -> None:
             continue
         for line in _creator_uses(ast.parse(path.read_text(encoding="utf-8"))):
             fail(f"R5 {rel}:{line} uses the creator name regime outside its allow-list")
+
+
+# --- R6 -----------------------------------------------------------------------
+
+def check_explicit_scope() -> None:
+    resolve_calls = 0
+    for path in sorted(PKG.rglob("*.py")):
+        rel = path.relative_to(ROOT).as_posix()
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            name = _call_name(node)
+            has_scope = any(k.arg == "scope" for k in node.keywords)
+            if name == "resolve_named":
+                resolve_calls += 1
+            if name in ("resolve_named", "near_candidates") and not has_scope:
+                fail(f"R6 {rel}:{node.lineno} calls {name}( without scope=")
+            if name in ("surfaces", "name_surfaces") and len(node.args) != 3 and not has_scope:
+                fail(f"R6 {rel}:{node.lineno} calls {name}( without a scope")
+    if not resolve_calls:
+        fail("R6: zero resolve_named( calls under src/world_engine -- scan is broken")
 
 
 # --- fixtures -----------------------------------------------------------------
@@ -350,6 +377,7 @@ def main() -> int:
         check_regime_bijection(tree)
         check_lazy_exclusion(tree)
     check_creator_confinement()
+    check_explicit_scope()
     engine = _fresh_engine()
     check_regimes(engine)
     check_tokenizer(engine)
@@ -360,7 +388,8 @@ def main() -> int:
         return 1
     print(
         "PASS: name_index — pure and world-scoped, regimes in bijection with their rules, "
-        "creator-only exclusion imported lazily, the creator regime confined, the Regimes "
+        "creator-only exclusion imported lazily, the creator regime confined, every resolver "
+        "call states its scope, the Regimes "
         "table holds, and the tokenizer indexes only scoped non-creator-only appellations"
     )
     return 0

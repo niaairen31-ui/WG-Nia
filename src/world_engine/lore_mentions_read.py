@@ -20,6 +20,7 @@ from sqlmodel import Session, select
 
 from .lore_resolve import _CATEGORY_ENTITY_TYPE, resolve_named, validate_binding
 from .models import Entity, Fact, Knowledge, UnresolvedMention, World
+from .name_index import CREATOR
 from .prose_render import fact_text, knowledge_text
 
 EXCERPT_LENGTH = 80
@@ -64,7 +65,7 @@ def _candidates(db: Session, mention: UnresolvedMention) -> list[dict]:
     categories = (mention.category,) if mention.category in _CATEGORY_ENTITY_TYPE else tuple(_CATEGORY_ENTITY_TYPE)
     ids: set[str] = set()
     for category in categories:
-        ids.update(resolve_named(mention.surface, category, mention.world_id, db).candidate_ids)
+        ids.update(resolve_named(mention.surface, category, mention.world_id, db, scope=CREATOR).candidate_ids)
     if not ids:
         return []
     entities = db.exec(select(Entity).where(Entity.id.in_(ids))).all()
