@@ -18,7 +18,6 @@ new `canon_write_policy.txt` ALLOWED_SITES entry is needed (mirrors why
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -206,15 +205,10 @@ def _commit_npc_row(row: NpcBatchRow, batch: NpcBatch, db: Session) -> dict:
     entity_data = {
         "type": "character",
         "name": pub.get("name"),
-        "description": pub.get("description"),
     }
     ext_data: dict = {
         "character_type": "npc",
-        "appearance": pub.get("appearance"),
-        "backstory": pub.get("backstory"),
-        "aversion": pub.get("aversion"),
         "current_location_id": row.payload["location_id"],
-        "secrets": json.dumps(sec["creator_meta"]) if sec.get("creator_meta") is not None else None,
     }
     if pub.get("physical_tier") is not None:
         ext_data["physical_tier"] = pub["physical_tier"]
@@ -222,7 +216,7 @@ def _commit_npc_row(row: NpcBatchRow, batch: NpcBatch, db: Session) -> dict:
     if faction_id is not None:
         ext_data["faction_id"] = faction_id
 
-    npc_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data)
+    npc_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data, facets=draft["facets"])
     npc_entity = _crud._create_entity_core(npc_body, db)
 
     for k in (sec.get("knowledge") or []):

@@ -40,15 +40,22 @@ from .models import (
     GoalAgendaLink,
     Knowledge,
     Location,
-    LocationSubculture,
     NpcGoal,
     NpcPrice,
     Relation,
     SkillDefinition,
     World,
 )
+from .facet_reads import facts_of, joined, known_facts_of
+from .facets import FACETS
 from .knowledge_resolve import resolve_default_rows
+from .prose_render import knowledge_texts
 from .schedule_reads import where_is
+from .context_describe import (
+    _mj_context_co_presents,
+    _npc_context_company,
+    _npc_context_setting,
+)
 
 # Section headers (kept stable so a harness can split the output reliably).
 H_IDENTITY = "QUI TU ES"
@@ -97,10 +104,6 @@ def _affinity_tier(intensity: int) -> tuple[str, str]:
     return _AFFINITY_TIERS[-1][1], _AFFINITY_TIERS[-1][2]
 
 
-# Subculture keys safe to surface as ambient atmosphere. Anything else
-# (e.g. "hidden", "secret") is deliberately withheld from the Setting section.
-_SAFE_SUBCULTURE_KEYS = ("values",)
-
 # Structural exclusion shared by every world-wide relation scan (CLAUDE.md:
 # "connects_to is location map topology, never a social signal" / "controls"
 # is a faction-control edge, also never a social signal). Single source of
@@ -118,8 +121,9 @@ def _section(title: str, body: str) -> str:
     return f"=== {title} ===\n{body.rstrip()}\n"
 
 
-def _knowledge_line(k: Knowledge) -> str:
-    text = k.content or f"{k.subject} ({k.level})"
+def _knowledge_line(k: Knowledge, content: str | None) -> str:
+    """`content` is `k`'s rendered text (`prose_render.knowledge_texts`)."""
+    text = content or f"{k.subject} ({k.level})"
     if k.is_incorrect:
         text += " (tu en es convaincu, mais c'est faux)"
     return f"- {text}"
@@ -228,17 +232,15 @@ def _goal_provenance_suffix(goal: NpcGoal, npc_id: str, session: Session) -> str
     return " (sert : " + ", ".join(f"« {t} »" for t in titles) + ")"
 
 
-def _npc_context_identity(npc_entity: Entity, npc_char: Character) -> str:
-    """----- 1. Identity -----"""
+def _npc_context_identity(npc_entity: Entity, npc_char: Character, session: Session) -> str:
+    """----- 1. Identity ----- One line per fact the NPC holds of itself
+    (`known_facts_of`): a `creator_meta` fact, stored `unaware`, never
+    reaches the NPC (TICKET-0091, BRIEF-0091-G)."""
     lines = [f"Tu es {npc_entity.name}."]
-    if npc_char.appearance:
-        lines.append(npc_char.appearance)
-    if npc_char.backstory:
-        lines.append(npc_char.backstory)
-    if npc_char.aversion:
-        lines.append(npc_char.aversion)
-    if npc_entity.description:
-        lines.append(npc_entity.description)
+    lines.extend(row.content for row in known_facts_of(
+        session, perceiver_id=npc_entity.id, entity_id=npc_entity.id,
+        facets=("physique", "histoire", "aversion", "description"),
+    ))
     return " ".join(lines)
 
 
@@ -324,38 +326,6 @@ def _npc_context_standing(npc_id: str, location_id: str, session: Session) -> st
     return _section(H_STANDING, body) + "\n"
 
 
-def _npc_context_setting(location_id: str, player_condition: str, session: Session) -> str:
-    """----- 2. Setting -----"""
-    loc_entity = session.get(Entity, location_id)
-    location = session.get(Location, location_id)
-    loc_name = loc_entity.name if loc_entity else location_id
-    setting_lines = [f"Tu te trouves dans un lieu nommé « {loc_name} »."]
-    if loc_entity and loc_entity.description:
-        setting_lines.append(loc_entity.description)
-    # Inject player condition so the NPC can observe the player's state.
-    if player_condition != "unharmed":
-        _condition_labels = {
-            "bruised": "légèrement blessé / meurtri",
-            "injured": "blessé, en mauvais état",
-            "neutralized": "hors de combat / inconscient",
-        }
-        setting_lines.append(
-            f"[ÉTAT DU JOUEUR] Le joueur est actuellement : "
-            f"{_condition_labels.get(player_condition, player_condition)}."
-        )
-    if location:
-        values_row = session.exec(
-            select(LocationSubculture).where(
-                LocationSubculture.location_id == location_id,
-                LocationSubculture.key == "values",
-                LocationSubculture.is_hidden == False,  # noqa: E712
-            )
-        ).first()
-        if values_row and values_row.value:
-            setting_lines.append(values_row.value)
-    return " ".join(setting_lines)
-
-
 def _npc_context_perceived(npc_id: str, session: Session) -> dict[str, Relation]:
     """Relations: who this NPC perceives, and how warmly toward whom."""
     relations = session.exec(
@@ -392,7 +362,9 @@ def _npc_context_speak(npc_id: str, disclosure_intensity: int, session: Session)
         speak_body = (
             "Tu peux parler librement de ce qui suit, si la conversation s'y prête :\n"
         )
-        speak_body += "\n".join(_knowledge_line(k) for k in allowed)
+        speak_body += "\n".join(
+            _knowledge_line(k, text) for k, text in zip(allowed, knowledge_texts(session, allowed))
+        )
         return speak_body
     return "Tu n'as rien de particulier à partager spontanément."
 
@@ -444,35 +416,6 @@ def _npc_context_perception(
             f"Également présents, sans que tu y prêtes attention particulière : {names}."
         )
     return "\n".join(perception_lines)
-
-
-def _npc_context_company(
-    npc_id: str, interlocutor_id: str, gathering_id: str | None, session: Session,
-) -> str | None:
-    """----- 4b. Gathering co-presence (D1 — simple, no relation modulation) -----"""
-    if not gathering_id:
-        return None
-    co_rows = session.exec(
-        select(GatheringMember, Entity, Character)
-        .join(Entity, Entity.id == GatheringMember.entity_id)
-        .join(Character, Character.id == GatheringMember.entity_id)
-        .where(
-            GatheringMember.gathering_id == gathering_id,
-            GatheringMember.left_at.is_(None),
-            Character.character_type != "player",
-            Entity.status == "active",
-            Character.vital_status == "alive",
-        )
-    ).all()
-    co_lines = []
-    for _member, co_entity, co_char in co_rows:
-        if co_entity.id in (npc_id, interlocutor_id):
-            continue
-        description = co_char.appearance or co_entity.description or "(pas de description)"
-        co_lines.append(f"- {co_entity.name} : {description}")
-    if not co_lines:
-        return None
-    return "Sont avec vous, dans le même groupe :\n" + "\n".join(co_lines)
 
 
 def _npc_context_affiliations(npc_id: str, session: Session) -> str:
@@ -600,7 +543,7 @@ def assemble_npc_context(
         interlocutor_id, audience_ids, inter_intensity, perceived
     )
 
-    identity = _npc_context_identity(npc_entity, npc_char)
+    identity = _npc_context_identity(npc_entity, npc_char, session)
     goals_section = _npc_context_goals(npc_id, session)
     standing_section = _npc_context_standing(npc_id, location_id, session)
     setting = _npc_context_setting(location_id, player_condition, session)
@@ -701,21 +644,24 @@ def _mj_context_location(location_id: str, blindfolded: bool, db: Session) -> tu
     loc_entity = db.get(Entity, location_id)
     location = db.get(Location, location_id)
 
+    # Ambient `coutume` facts notorious at the location (a visible custom
+    # carries a `location` default there, a hidden one none), allow-listed
+    # by aspect — the registry's known `coutume` aspects, never widened
+    # (TICKET-0091, BRIEF-0091-G/-I).
     subculture: dict = {}
     if location:
-        subculture_rows = db.exec(
-            select(LocationSubculture).where(
-                LocationSubculture.location_id == location_id,
-                LocationSubculture.key.in_(_SAFE_SUBCULTURE_KEYS),
-                LocationSubculture.is_hidden == False,  # noqa: E712
-            )
-        ).all()
-        subculture = {row.key: row.value for row in subculture_rows if row.value}
+        rows = facts_of(db, entity_id=location_id, facets=("coutume",),
+                        notorious_at_location=location_id)
+        for aspect in FACETS["coutume"].aspects:
+            text = joined([row for row in rows if row.aspect == aspect and row.content], sep=" ")
+            if text:
+                subculture[aspect] = text
 
     location_block = {
         "name": loc_entity.name if loc_entity else location_id,
         # Excluded when blindfolded — visual data structurally absent (BRIEF-12).
-        "description": None if blindfolded else (loc_entity.description if loc_entity else None),
+        "description": None if blindfolded else joined(
+            facts_of(db, entity_id=location_id, facets=("description",)), sep=" "),
         "subculture": subculture,
     }
     return location_block, loc_entity
@@ -733,8 +679,8 @@ def _mj_context_player_knowledge(player_character_id: str, db: Session) -> list[
         db, player_character_id, {k.fact_id for k in knowledge_rows}
     )
     return [
-        {"subject": k.subject, "level": k.level, "content": k.content}
-        for k in knowledge_rows
+        {"subject": k.subject, "level": k.level, "content": text}
+        for k, text in zip(knowledge_rows, knowledge_texts(db, knowledge_rows))
     ]
 
 
@@ -765,36 +711,6 @@ def _mj_context_public_events(world_id: str | None, location_id: str, db: Sessio
             "location_id": e.location_id,
         })
     return public_events
-
-
-def _mj_context_co_presents(
-    gathering_id: str | None, player_character_id: str, blindfolded: bool, db: Session,
-) -> list[dict]:
-    """Dynamic — gathering roster, public entities only."""
-    if not gathering_id:
-        return []
-    co_rows = db.exec(
-        select(GatheringMember, Entity)
-        .join(Entity, Entity.id == GatheringMember.entity_id)
-        .join(Character, Character.id == Entity.id)
-        .where(
-            GatheringMember.gathering_id == gathering_id,
-            GatheringMember.left_at.is_(None),
-            Entity.status == "active",
-            Character.vital_status == "alive",
-        )
-    ).all()
-    co_presents: list[dict] = []
-    for _member, co_entity in co_rows:
-        if co_entity.id == player_character_id or not co_entity.is_public:
-            continue
-        co_presents.append({
-            "name": co_entity.name,
-            # Appearance excluded when blindfolded — visual data structurally
-            # absent; sound/touch context (names) stays (BRIEF-12).
-            "description": None if blindfolded else co_entity.description,
-        })
-    return co_presents
 
 
 def _mj_context_custom_skills(world_id: str | None, db: Session) -> list[str]:
@@ -829,9 +745,9 @@ def assemble_mj_context(
     `conversation.injected_context["mj"]`) plus one dynamic part (read fresh
     at every narration phase, never snapshotted):
 
-    - `location` (static): the current location's `entity.name` +
-      `entity.description`, plus the allow-listed (`_SAFE_SUBCULTURE_KEYS`)
-      non-hidden `location_subculture` rows — ambiance is perceptible.
+    - `location` (static): the current location's `entity.name` + its
+      `description` facts, plus the allow-listed (`FACETS["coutume"].aspects`)
+      `coutume` facts notorious at the location — ambiance is perceptible.
       `location.magic_status` is deliberately excluded (not directly
       perceivable).
     - `player_knowledge` (static): all `knowledge` rows belonging to the
@@ -842,8 +758,9 @@ def assemble_mj_context(
       ('public', 'confirmed')` for this world, ordered by `occurred_at DESC`,
       capped at `_MJ_EVENT_CAP`; events whose `location_id` matches
       `location_id` are preferred (listed first within the cap).
-    - `co_presents` (dynamic): public name + public `entity.description` of
-      NPCs currently present, read fresh from the gathering roster
+    - `co_presents` (dynamic): public name + `description` facts of NPCs
+      currently present, plus the `physique` facts the player resolves
+      above `unaware` (the encounter registry: met -> seen, R-c), read fresh from the gathering roster
       (`GatheringMember` with `left_at IS NULL` for `gathering_id` — the
       single source of truth, since C2 migrations change co-presence
       mid-conversation). Entities with `is_public = FALSE` are excluded.
@@ -857,7 +774,7 @@ def assemble_mj_context(
 
     `blindfolded` (BRIEF-12): when True, visual information is structurally
     excluded — `location.description` is set to None and `co_presents` entries
-    carry no `description`. Sound/touch context stays. Same doctrine as secrets:
+    carry no `description` and no `physique`. Sound/touch context stays. Same doctrine as secrets:
     the data is simply absent from the prompt, never guarded by instruction.
 
     `player_condition` (BRIEF-12): the player's current scene condition
@@ -912,6 +829,7 @@ def format_mj_context(mj_context: dict) -> str:
     if co_presents:
         body = "\n".join(
             f"- {c['name']} : {c.get('description') or '(pas de description)'}"
+            + (f" {c['physique']}" if c.get("physique") else "")
             for c in co_presents
         )
         blocks.append(_section(H_MJ_PRESENT, body))

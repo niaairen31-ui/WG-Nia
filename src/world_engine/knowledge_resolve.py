@@ -8,14 +8,21 @@ first:
 
 1. a stored `knowledge` row for `(entity_id, fact_id)` — wins outright,
    including when it is `'unaware'`;
-2. a `fact_default` at `scope_type='location'` for the entity's current
+2. self: the entity is a `fact_participant` of the fact AND the fact's
+   facet is in `facets.DESCRIPTIVE_FACETS` — `'knows'` (TICKET-0091, Q6a,
+   Q18a: an entity knows what is said of it, not every information it
+   takes part in);
+3. rencontre: a `fact_default` at `scope_type='rencontre'` whose
+   `scope_id` is one of the entity's acquaintances
+   (`encounters.acquaintances`) — the HIGHEST level across several wins;
+4. a `fact_default` at `scope_type='location'` for the entity's current
    location or any ancestor via `location.parent_location_id` — nearest
    ancestor wins;
-3. a `fact_default` at `scope_type='faction'` for any faction the entity
+5. a `fact_default` at `scope_type='faction'` for any faction the entity
    holds an ACTIVE membership in (`left_at IS NULL`) — the HIGHEST level
    across several such memberships wins;
-4. a `fact_default` at `scope_type='world'`;
-5. `fact.default_level` — always present (NOT NULL), so this tier never
+6. a `fact_default` at `scope_type='world'`;
+7. `fact.default_level` — always present (NOT NULL), so this tier never
    fails to produce a value.
 
 `resolve_levels_for_entity` is the batch companion: one pass over every
@@ -38,7 +45,12 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from .models import Character, Entity, Fact, FactDefault, FactionMembership, Knowledge, Location
+from .encounters import acquaintances
+from .facets import DESCRIPTIVE_FACETS
+from .models import (
+    Character, Entity, Fact, FactDefault, FactionMembership, FactParticipant, Knowledge, Location,
+)
+from .prose_render import render
 from .writes.knowledge import KNOWLEDGE_LEVEL_LADDER
 
 DEFAULT_SHARE_THRESHOLD = 50
@@ -93,6 +105,8 @@ def _highest_level(levels: list[str]) -> str:
 def _resolve_tiers(
     *,
     stored_level: Optional[str],
+    self_level: Optional[str],
+    rencontre_levels: list[str],
     location_chain: list[str],
     location_defaults: dict[str, str],
     faction_ids: list[str],
@@ -105,6 +119,10 @@ def _resolve_tiers(
     identical rule."""
     if stored_level is not None:
         return stored_level
+    if self_level is not None:
+        return self_level
+    if rencontre_levels:
+        return _highest_level(rencontre_levels)
     for location_id in location_chain:
         if location_id in location_defaults:
             return location_defaults[location_id]
@@ -122,13 +140,36 @@ def _resolve_tiers(
 
 def resolve_knowledge_level(db: Session, entity_id: str, fact_id: str) -> str:
     """Total: always returns one of the six `KNOWLEDGE_LEVEL_LADDER` values,
-    never `None` — tier 5 (`fact.default_level`) is NOT NULL by schema."""
+    never `None` — tier 7 (`fact.default_level`) is NOT NULL by schema."""
+    fact = db.get(Fact, fact_id)
     stored = db.exec(
         select(Knowledge).where(
             Knowledge.entity_id == entity_id, Knowledge.fact_id == fact_id,
         )
     ).first()
     stored_level = stored.level if stored is not None else None
+
+    self_level: Optional[str] = None
+    if fact is not None and fact.facet in DESCRIPTIVE_FACETS:
+        participant = db.exec(
+            select(FactParticipant).where(
+                FactParticipant.fact_id == fact_id, FactParticipant.entity_id == entity_id,
+            )
+        ).first()
+        if participant is not None:
+            self_level = "knows"
+
+    rencontre_levels: list[str] = []
+    known_ids = acquaintances(db, entity_id)
+    if known_ids:
+        rows = db.exec(
+            select(FactDefault).where(
+                FactDefault.fact_id == fact_id,
+                FactDefault.scope_type == "rencontre",
+                FactDefault.scope_id.in_(known_ids),
+            )
+        ).all()
+        rencontre_levels = [row.level for row in rows]
 
     location_chain = _location_ancestor_chain(db, entity_id)
     location_defaults: dict[str, str] = {}
@@ -161,11 +202,12 @@ def resolve_knowledge_level(db: Session, entity_id: str, fact_id: str) -> str:
     ).first()
     world_default = world_row.level if world_row is not None else None
 
-    fact = db.get(Fact, fact_id)
     fallback_level = fact.default_level if fact is not None else "unaware"
 
     return _resolve_tiers(
         stored_level=stored_level,
+        self_level=self_level,
+        rencontre_levels=rencontre_levels,
         location_chain=location_chain,
         location_defaults=location_defaults,
         faction_ids=faction_ids,
@@ -177,10 +219,10 @@ def resolve_knowledge_level(db: Session, entity_id: str, fact_id: str) -> str:
 
 def resolve_levels_for_entity(db: Session, entity_id: str) -> dict[str, str]:
     """`fact_id -> level` for every fact in the entity's world resolving
-    above `'unaware'`. One pass: stored rows, location chain, faction
-    memberships and every `fact_default` for the world are each fetched
-    once, then every fact is resolved against that shared context — never
-    one query per fact."""
+    above `'unaware'`. One pass: stored rows, participant fact ids,
+    acquaintances, location chain, faction memberships and every
+    `fact_default` for the world are each fetched once, then every fact is
+    resolved against that shared context — never one query per fact."""
     entity = db.get(Entity, entity_id)
     if entity is None:
         return {}
@@ -192,17 +234,27 @@ def resolve_levels_for_entity(db: Session, entity_id: str) -> dict[str, str]:
     stored_rows = db.exec(select(Knowledge).where(Knowledge.entity_id == entity_id)).all()
     stored_by_fact = {row.fact_id: row.level for row in stored_rows}
 
+    participant_fact_ids = set(
+        db.exec(
+            select(FactParticipant.fact_id).where(FactParticipant.entity_id == entity_id)
+        ).all()
+    )
+    known_ids = acquaintances(db, entity_id)
     location_chain = _location_ancestor_chain(db, entity_id)
     faction_ids = _active_faction_ids(db, entity_id)
 
     fact_ids = [fact.id for fact in facts]
     defaults = db.exec(select(FactDefault).where(FactDefault.fact_id.in_(fact_ids))).all()
 
+    rencontre_levels_by_fact: dict[str, list[str]] = {}
     location_defaults_by_fact: dict[str, dict[str, str]] = {}
     faction_defaults_by_fact: dict[str, dict[str, str]] = {}
     world_default_by_fact: dict[str, str] = {}
     for row in defaults:
-        if row.scope_type == "location":
+        if row.scope_type == "rencontre":
+            if row.scope_id in known_ids:
+                rencontre_levels_by_fact.setdefault(row.fact_id, []).append(row.level)
+        elif row.scope_type == "location":
             location_defaults_by_fact.setdefault(row.fact_id, {})[row.scope_id] = row.level
         elif row.scope_type == "faction":
             faction_defaults_by_fact.setdefault(row.fact_id, {})[row.scope_id] = row.level
@@ -211,8 +263,11 @@ def resolve_levels_for_entity(db: Session, entity_id: str) -> dict[str, str]:
 
     resolved: dict[str, str] = {}
     for fact in facts:
+        is_self = fact.id in participant_fact_ids and fact.facet in DESCRIPTIVE_FACETS
         level = _resolve_tiers(
             stored_level=stored_by_fact.get(fact.id),
+            self_level="knows" if is_self else None,
+            rencontre_levels=rencontre_levels_by_fact.get(fact.id, []),
             location_chain=location_chain,
             location_defaults=location_defaults_by_fact.get(fact.id, {}),
             faction_ids=faction_ids,
@@ -228,8 +283,8 @@ def resolve_levels_for_entity(db: Session, entity_id: str) -> dict[str, str]:
 def resolve_public_level(db: Session, fact_id: str) -> str:
     """Public-floor resolution (TICKET-0082, BRIEF-0082-d amendment 1, H3):
     the same tiered authority as `resolve_knowledge_level`, entered at its
-    world tier, with NO entity — tiers 1-3 (stored row, location chain,
-    faction memberships) are skipped because each requires one. For a
+    world tier, with NO entity — tiers 1-5 (stored row, self, rencontre,
+    location chain, faction memberships) are skipped because each requires one. For a
     reader whose prompt no single character governs (classified `public`,
     never `deliberation` — a `public` site never passes an entity_id)."""
     world_row = db.exec(
@@ -241,7 +296,8 @@ def resolve_public_level(db: Session, fact_id: str) -> str:
     fact = db.get(Fact, fact_id)
     fallback_level = fact.default_level if fact is not None else "unaware"
     return _resolve_tiers(
-        stored_level=None, location_chain=[], location_defaults={},
+        stored_level=None, self_level=None, rencontre_levels=[],
+        location_chain=[], location_defaults={},
         faction_ids=[], faction_defaults={},
         world_default=world_default, fallback_level=fallback_level,
     )
@@ -266,7 +322,8 @@ def resolve_public_levels(db: Session, world_id: str) -> dict[str, str]:
     world_default_by_fact = {row.fact_id: row.level for row in world_rows}
     return {
         fact.id: _resolve_tiers(
-            stored_level=None, location_chain=[], location_defaults={},
+            stored_level=None, self_level=None, rencontre_levels=[],
+            location_chain=[], location_defaults={},
             faction_ids=[], faction_defaults={},
             world_default=world_default_by_fact.get(fact.id),
             fallback_level=fact.default_level,
@@ -285,19 +342,22 @@ def resolve_default_rows(
     own). Each row carries `is_secret=False` and
     `share_threshold=DEFAULT_SHARE_THRESHOLD` (item 5 — see module
     docstring) so it renders through the exact `_knowledge_line` shape the
-    three readers already use for a stored row."""
+    three readers already use for a stored row. A fact whose facet is in
+    `DESCRIPTIVE_FACETS` is skipped: what is said of an entity is read
+    through `facet_reads`, never as speakable knowledge, so the three
+    readers' knowledge section is unchanged (TICKET-0091, Q13a)."""
     levels = resolve_levels_for_entity(db, entity_id)
     rows: list[Knowledge] = []
     for fact_id, level in levels.items():
         if fact_id in exclude_fact_ids:
             continue
         fact = db.get(Fact, fact_id)
-        if fact is None:
+        if fact is None or fact.facet in DESCRIPTIVE_FACETS:
             continue
         rows.append(
             Knowledge(
-                entity_id=entity_id, fact_id=fact_id, subject=fact.content,
-                level=level, content=fact.content, is_secret=False,
+                entity_id=entity_id, fact_id=fact_id, subject=render(db, fact.content_raw),
+                level=level, content_raw=fact.content_raw, is_secret=False,
                 share_threshold=DEFAULT_SHARE_THRESHOLD,
             )
         )

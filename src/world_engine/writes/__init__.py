@@ -13,16 +13,25 @@ Layout, by canon domain:
                           (structural), `_find_perceived_relation` (social),
                           `write_oriented_relations`, `set_target_knows`,
                           `lien_fact_of` (TICKET-0090, BRIEF-0090-a).
-    knowledge.py        — `knowledge`: `write_knowledge` and the level ladder.
+    knowledge.py        — `knowledge`: `write_knowledge` and the level ladder;
+                          `apply_knowledge_patch`, `upsert_knowledge_row`
+                          (TICKET-0091, BRIEF-0091-J).
+    mentions.py         — `unresolved_mention` (non-canon worklist):
+                          `record_unresolved`, `resolve_mention`,
+                          `dismiss_mention` (TICKET-0091, BRIEF-0091-J);
+                          `bind_mention` (BRIEF-0091-K).
     facts.py            — `fact`/`fact_participant`/`fact_default`:
                           `create_fact`, `attach_participants`
                           (TICKET-0082, BRIEF-0082-b), `create_fact_default`
                           (BRIEF-0082-c).
+    facets.py           — the entity-fact writer: `add_entity_fact`,
+                          `write_entity_facets`, `edit_entity_fact`,
+                          `remove_entity_fact` over the fact chokepoint
+                          (TICKET-0091, BRIEF-0091-E).
     characters.py       — `character`/`skill`/`ledger`: three unbaselined movers.
     factions.py         — `faction_membership`/`faction_role`.
     config.py           — the governed-config group (`npc_price`,
-                          `location_subculture`, `world_law`, `obstacle`/
-                          `obstacle_vertex`).
+                          `world_law`, `obstacle`/`obstacle_vertex`).
     goals_agendas.py    — `npc_goal`/`goal_prerequisite`/`agenda`/
                           `agenda_step`/`goal_agenda_link`.
     events.py           — `event`.
@@ -47,7 +56,6 @@ from .config import (
     upsert_location_type,
     write_location_doors,
     write_location_obstacles,
-    write_location_subculture,
     write_npc_prices,
     write_npc_schedule,
     write_world_laws,
@@ -58,6 +66,14 @@ from .facts import (
     create_fact,
     create_fact_default,
     update_typed_fact_content,
+)
+from .facets import (
+    ScopeChoice,
+    add_entity_fact,
+    edit_entity_fact,
+    facts_payload_keys,
+    remove_entity_fact,
+    write_entity_facets,
 )
 from .factions import (
     _validate_max_holders,
@@ -86,10 +102,13 @@ from .knowledge import (
     KNOWLEDGE_LEVEL_LADDER,
     KNOWLEDGE_LEVELS,
     _append_knowledge_history,
+    apply_knowledge_patch,
     cap_knowledge_level,
     knowledge_level_rank,
+    upsert_knowledge_row,
     write_knowledge,
 )
+from .mentions import bind_mention, dismiss_mention, record_unresolved, resolve_mention
 from .pipeline import (
     BATCH_RESOLVED_STATUS,
     BATCH_STATUSES,

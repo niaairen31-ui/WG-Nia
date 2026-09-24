@@ -25,7 +25,6 @@ from .entities import (
     _extension_dict,
     _location_doors_rows,
     _location_geometry_dict,
-    _location_subculture_rows,
 )
 
 
@@ -110,7 +109,6 @@ def set_location_geometry(entity_id: str, body: LocationGeometryBody, db: DbSess
     result["extension"] = _extension_dict("location", location)
     result["relations"] = _list_relations(entity_id, db)
     result["knowledge"] = _list_knowledge(entity_id, db)
-    result["subculture_rows"] = _location_subculture_rows(entity_id, db)
     result["geometry"] = _location_geometry_dict(entity_id, db)
     return result
 
@@ -140,7 +138,6 @@ def set_location_doors(entity_id: str, body: LocationDoorsBody, db: DbSession = 
     result["extension"] = _extension_dict("location", location)
     result["relations"] = _list_relations(entity_id, db)
     result["knowledge"] = _list_knowledge(entity_id, db)
-    result["subculture_rows"] = _location_subculture_rows(entity_id, db)
     result["geometry"] = _location_geometry_dict(entity_id, db)
     result["doors"] = _location_doors_rows(entity_id, db)
     return result

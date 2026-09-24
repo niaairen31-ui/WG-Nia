@@ -18,8 +18,10 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from . import llm_parse
-from .entity_author import AUTHOR_MODEL, generate_entity_draft
-from .models import Entity, Location, LocationSubculture, LocationTypeCatalog, PromptTemplate, Relation
+from .entity_author import AUTHOR_MODEL, facet_text, generate_entity_draft
+from .facet_reads import facts_of, joined
+from .facets import FACETS
+from .models import Entity, Location, LocationTypeCatalog, PromptTemplate, Relation
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
@@ -91,26 +93,28 @@ def _one_line(description: Optional[str]) -> str:
 
 
 def _compose_batch_context(anchor_id: str, anchor_entity: Entity, db: Session) -> dict:
-    """I1 context: anchor fiche + non-hidden subculture + canon siblings
+    """I1 context: anchor fiche + notorious `coutume` facts + canon siblings
     (name/type/one_line) + existing connects_to edges among those siblings.
     NOTHING else: no hidden subculture, no discoverable_detail, no NPC.
     """
     anchor_location = db.get(Location, anchor_id)
 
-    subculture_rows = db.exec(
-        select(LocationSubculture).where(
-            LocationSubculture.location_id == anchor_id,
-            LocationSubculture.is_hidden == False,  # noqa: E712
-        )
-    ).all()
+    # `coutume` facts notorious at the anchor: a hidden custom carries no
+    # `location` default, so it is excluded by query construction. Keyed by
+    # aspect; an aspect-less custom is keyed by the facet label; several
+    # facts under one aspect are joined, never dropped.
+    subculture: dict[str, str] = {}
+    for row in facts_of(db, entity_id=anchor_id, facets=("coutume",), notorious_at_location=anchor_id):
+        key = row.aspect or FACETS["coutume"].label
+        subculture[key] = f"{subculture[key]} {row.content}" if key in subculture else row.content
 
     anchor = {
         "id": anchor_id,
         "name": anchor_entity.name,
         "location_type": anchor_location.location_type if anchor_location else None,
-        "description": anchor_entity.description,
+        "description": joined(facts_of(db, entity_id=anchor_id, facets=("description",))),
         "access_level": anchor_location.access_level if anchor_location else None,
-        "subculture": {row.key: row.value for row in subculture_rows},
+        "subculture": subculture,
     }
 
     sibling_locations = db.exec(
@@ -130,7 +134,9 @@ def _compose_batch_context(anchor_id: str, anchor_entity: Entity, db: Session) -
             {
                 "name": entity.name if entity else loc.id,
                 "location_type": loc.location_type,
-                "one_line": _one_line(entity.description if entity else None),
+                "one_line": _one_line(
+                    joined(facts_of(db, entity_id=loc.id, facets=("description",))) if entity else None
+                ),
             }
         )
 
@@ -521,12 +527,13 @@ def _rooms_tree_block(rooms: list[dict]) -> str:
         return "(aucune pièce générée)"
     lines = []
     for r in rooms:
-        public = r.get("result", {}).get("draft", {}).get("public", {})
+        draft = r.get("result", {}).get("draft", {})
+        public = draft.get("public", {})
         parent = r.get("parent_room")
         suffix = f" (sous {parent})" if parent else " (sous l'ancre)"
         lines.append(
             f"- {r.get('name', '')}{suffix} [{public.get('location_type') or 'type inconnu'}] : "
-            f"{_one_line(public.get('description'))}"
+            f"{_one_line(facet_text(draft.get('facets') or {}, 'description'))}"
         )
     return "\n".join(lines)
 

@@ -13,6 +13,52 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.06** — TICKET-0091, BRIEF-0091-I: lore as facts — relocation and
+  drop. Every filled prose cell became one descriptive `fact` (text
+  unchanged, outer whitespace trimmed only, L2), `created_by =
+  'migrate_v2_06'`, the source entity as its one participant:
+  `entity.description` -> `description` (`world`/`knows` default when
+  `entity.is_public`), `character.appearance` -> `physique` (`rencontre`/
+  `knows`, scope_id = the character), `character.backstory` -> `histoire`,
+  `character.aversion` -> `aversion`, `character.secrets` -> `histoire` plus
+  one `knowledge` row for the character itself (`subject='creator_meta'`,
+  `level='unaware'`, `is_secret=1`), `faction.philosophy` -> `doctrine`
+  (`world`/`knows`), `faction.internal_structure` -> `organisation`,
+  `faction.internal_tensions` -> `tension`, `faction.goals` -> `visee`,
+  `faction.aversion` -> `aversion` (no default unless stated), and each
+  `location_subculture` row -> `coutume` with `aspect = lower(trim(key))`
+  and a `location`/`knows` default at the location unless `is_hidden`. On a
+  prod copy: 1197 facts (318 / 181 / 180 / 167 / 35 / 46 / 43 / 46 / 43 /
+  42 / 96 in that order), 595 defaults (363 world, 181 rencontre, 51
+  location), 35 `creator_meta` rows. Dropped: the ten columns
+  (`ALTER TABLE ... DROP COLUMN`; `faction.scope` stays, a mechanic) and
+  the `location_subculture` table with `idx_location_subculture_key`.
+  D3b' control query printed, not merged: 78 groups of identical
+  `(world_id, facet, content)` among the migrated facts. Migration:
+  `scripts/migrate_v2_06_lore_as_facts.py`, one transaction, post-checks
+  (one fact per filled source cell) before any drop; idempotent — a second
+  run prints zeros.
+- **v2.05** — TICKET-0091, BRIEF-0091-A: facets, encounters table, fact
+  chokepoint. `fact` gains `facet TEXT` and `aspect TEXT` (`ALTER TABLE ...
+  ADD COLUMN`, no CHECK — the vocabulary is the code registry
+  `src/world_engine/facets.py::FACETS`, Q2a). Typed facts backfilled:
+  `lien` where `relation_id` is set (298 on a prod copy), `evenement` where
+  `event_id`, `loi` where `world_law_id` (0 each); free facts stay NULL (316
+  on a prod copy) — NULL means "predates TICKET-0091" and
+  `writes/facts.py::create_fact` now refuses it. `fact_default`'s
+  `ck_fact_default_scope_type` widened to
+  `('world','faction','location','rencontre')` by a table rebuild — the
+  first of the series: new table from the model's DDL, every column of
+  `PRAGMA table_info(fact_default)` copied, old table dropped, rename,
+  `idx_fact_default_unique` and `idx_fact_default_fact` re-created; FKs on
+  throughout; row count checked equal before COMMIT (0 rows on prod).
+  New non-canon tables: `rencontre` (encounter registry, one row per
+  unordered pair, `idx_rencontre_pair` unique, `idx_rencontre_hi`) and
+  `unresolved_mention` (name-resolution worklist,
+  `idx_unresolved_mention_world_open`); both born empty, no JSON column.
+  Migration: `scripts/migrate_v2_05_facets_encounters.py`, one
+  transaction, post-checks before COMMIT (fact_default row count, no typed
+  fact with NULL facet); idempotent — a second run prints zeros.
 - **v2.04** — TICKET-0090, BRIEF-0090-b: perceiver-oriented relations.
   New partial unique index `idx_relation_oriented_social` ON
   `relation(entity_a_id, entity_b_id) WHERE type NOT IN

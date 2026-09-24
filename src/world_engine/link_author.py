@@ -41,6 +41,7 @@ from .link_context import (
     serialize_canon_graph,
     serialize_staged_batch,
 )
+from .link_sheet import _npc_sheet
 from .models import (
     Character,
     Entity,
@@ -55,7 +56,10 @@ from .models import (
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
-from .writes import KNOWLEDGE_LEVELS, write_knowledge, write_oriented_relations, write_relation
+from .prose_render import knowledge_texts
+from .writes import (
+    KNOWLEDGE_LEVELS, apply_knowledge_patch, write_knowledge, write_oriented_relations, write_relation,
+)
 
 JOURNAL_DIR = Path.home() / ".world_engine" / "link_agent_journal"
 
@@ -144,46 +148,6 @@ def _load_pair_template(db: Session) -> PromptTemplate | None:
 # ── Context assembly (code-owned, no model call) ────────────────────────
 
 
-def _location_chain_names(db: Session, location_id: str | None) -> list[str]:
-    """Immediate location name, then each ancestor's name up the
-    `parent_location_id` chain. Cycle-guarded (visited set)."""
-    names: list[str] = []
-    visited: set[str] = set()
-    current_id = location_id
-    while current_id is not None and current_id not in visited:
-        visited.add(current_id)
-        entity = db.get(Entity, current_id)
-        location = db.get(Location, current_id)
-        if entity is None or location is None:
-            break
-        names.append(entity.name)
-        current_id = location.parent_location_id
-    return names
-
-
-def _npc_sheet(db: Session, entity_id: str) -> str:
-    entity = db.get(Entity, entity_id)
-    character = db.get(Character, entity_id)
-    memberships = read_public_memberships(entity_id, db)
-    factions = "; ".join(
-        f"{name} ({role})" if role else name for name, role in memberships
-    ) or "none"
-    location_ids = character.current_location_id if character else None
-    location_chain = _location_chain_names(db, location_ids)
-    location_text = " -> ".join(location_chain) if location_chain else "unknown"
-
-    return "\n".join([
-        f"Name: {entity.name if entity else 'unknown'}",
-        f"Description: {(entity.description if entity else None) or ''}",
-        f"Appearance: {(character.appearance if character else None) or ''}",
-        f"Backstory: {(character.backstory if character else None) or ''}",
-        f"Aversion: {(character.aversion if character else None) or ''}",
-        f"Vital status: {character.vital_status if character else 'unknown'}",
-        f"Factions: {factions}",
-        f"Location: {location_text}",
-    ])
-
-
 def _shared_knowledge_lines(db: Session, holder_id: str, other_id: str, holder_name: str) -> list[str]:
     """Existing knowledge `holder_id` holds ABOUT `other_id`, via the D3
     `npc:{entity_id}` subject convention — the same stamp this pass writes.
@@ -198,8 +162,8 @@ def _shared_knowledge_lines(db: Session, holder_id: str, other_id: str, holder_n
     ).all()
     return [
         f"- {holder_name} already knows (level={r.level}, secret={r.is_secret}): "
-        f"{r.content or '(no content recorded)'}"
-        for r in rows
+        f"{text or '(no content recorded)'}"
+        for r, text in zip(rows, knowledge_texts(db, rows))  # one entity query
     ]
 
 
@@ -848,19 +812,10 @@ def _apply_canon_relation_patch(db: Session, target_id: str, field: str, new_val
 
 
 def _apply_canon_knowledge_patch(db: Session, target_id: str, field: str, new_value) -> None:
-    know = db.get(Knowledge, target_id)
-    merged = {
-        "level": know.level, "content": know.content, "source": know.source,
-        "is_incorrect": know.is_incorrect, "is_secret": know.is_secret,
-        "share_threshold": know.share_threshold,
-    }
-    merged[field] = new_value
-    write_knowledge(
-        db, mode="update", knowledge_id=know.id, entity_id=know.entity_id,
-        subject=know.subject, level=merged["level"], content=merged["content"],
-        source=merged["source"], is_incorrect=merged["is_incorrect"],
-        is_secret=merged["is_secret"], share_threshold=merged["share_threshold"],
-        session_id=know.session_id, changed_by="link_agent_coherence",
+    # The merge reads the raw stored text, so it lives in writes/ (AMENDMENT-0091-04).
+    apply_knowledge_patch(
+        db, knowledge=db.get(Knowledge, target_id), patch={field: new_value},
+        changed_by="link_agent_coherence",
     )
 
 

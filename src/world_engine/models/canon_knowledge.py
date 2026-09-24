@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import CheckConstraint, Column, Index, JSON, text
-from sqlmodel import Field, SQLModel
+from sqlmodel import AutoString, Field, SQLModel
 
 from .canon import _created_ts, _uuid
 
@@ -105,7 +105,14 @@ class Fact(SQLModel, table=True):
     relation_id: Optional[str] = Field(default=None, foreign_key="relation.id")
     event_id: Optional[str] = Field(default=None, foreign_key="event.id")
     world_law_id: Optional[str] = Field(default=None, foreign_key="world_law.id")
-    content: str
+    # TICKET-0091, BRIEF-0091-J (F1): the stored text may carry identity
+    # tokens; SQL column stays `content`. Read it rendered through
+    # `prose_render.fact_text`, never raw outside `writes/`.
+    content_raw: str = Field(sa_column=Column("content", AutoString(), nullable=False))
+    # facet: FACETS key (facets.py); NULL only on facts created before
+    # TICKET-0091. aspect: normalized qualifier within the facet (Q12d).
+    facet: Optional[str] = None
+    aspect: Optional[str] = None
     default_level: str = Field(
         default="unaware", sa_column_kwargs={"server_default": text("'unaware'")}
     )
@@ -151,12 +158,13 @@ class FactParticipant(SQLModel, table=True):
 # A faction scope uses the faction's `entity.id` directly — `Faction.id` is
 # already a FK to `entity.id`, so `scope_id` needs no second column and no
 # polymorphic type tag.
+# `rencontre`: scope_id is an entity; the fact is known to that entity's acquaintances (C-08).
 # -----------------------------------------------------------------------------
 class FactDefault(SQLModel, table=True):
     __tablename__ = "fact_default"
     __table_args__ = (
         CheckConstraint(
-            "scope_type IN ('world','faction','location')",
+            "scope_type IN ('world','faction','location','rencontre')",
             name="ck_fact_default_scope_type",
         ),
         CheckConstraint(
@@ -204,7 +212,10 @@ class Knowledge(SQLModel, table=True):
     fact_id: str = Field(foreign_key="fact.id", nullable=False)
     subject: str
     level: str
-    content: Optional[str] = None
+    # SQL column `content`; rendered through `prose_render.knowledge_text`.
+    content_raw: Optional[str] = Field(
+        default=None, sa_column=Column("content", AutoString(), nullable=True)
+    )
     source: Optional[str] = None
     is_incorrect: bool = Field(
         default=False, sa_column_kwargs={"server_default": text("0")}

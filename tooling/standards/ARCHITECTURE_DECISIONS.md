@@ -556,6 +556,23 @@ What it edits:
   from an entity's sheet (`/api/entities/{id}/relations`, `/api/relations/{id}`).
 - **In-context `knowledge` editor** — create/update/hard-delete `knowledge`
   rows (`/api/entities/{id}/knowledge`, `/api/knowledge/{id}`).
+- **Descriptive lore as facts** (TICKET-0091, BRIEF-0091-E) — an entity's
+  descriptive lore (description, physique, histoire, aversion, doctrine,
+  coutume, ...) is no longer an `entity`/extension column on the write
+  side: it is written through `writes/facets.py` (C-05) as free facts with
+  a descriptive facet, the entity as participant, and a default picked by
+  the facet's preset or an explicit scope. `EntityWriteBody.facets` carries
+  it on create (`_create_entity_core` writes it after the flush, same
+  transaction; the PC route and every generator commit — NPC batch, region
+  factions/locations, room batch — pass the same payload); `PUT
+  /api/entities/{id}` refuses a non-empty `facets` with 422. The sheet edits
+  it through `crud/facets.py`: `GET /api/facets`, `GET`/`POST
+  /api/entities/{id}/facts`, `PUT /api/facts/{id}/content` (history
+  appended via `update_fact_content`) and `DELETE /api/facts/{id}`
+  (`delete_free_fact`), each committing once and refusing a non-descriptive
+  fact. `PUT /api/entities/{id}/subculture` is retired: customs are
+  `coutume` facts. `creator_meta` becomes a `histoire` fact with no default
+  plus an `unaware`, `is_secret` knowledge row of the entity itself.
 
 Shared write rules with `_apply_mutation`: both paths call
 `writes.write_relation` / `writes.write_knowledge` so clamping and field
@@ -810,6 +827,18 @@ rule. `scene` mode benefits most — environment prose finally has material to
 draw on. The `relevance_hint` parameter (also added to `assemble_npc_context`)
 is accepted and inert: a future relevance-selection stage may only narrow
 this set further, never widen it.
+
+**Co-present physique follows the encounter registry (TICKET-0091,
+BRIEF-0091-G, R-c).** The MJ context now reads facts, not entity columns:
+the location's `description` facts, its `coutume` facts notorious at that
+location (a hidden custom carries no `location` default, so it never
+surfaces), and each public co-present's `description` facts. Each
+co-present entry also carries `physique`: the co-present's `physique` facts
+that the player character resolves above `unaware`
+(`facet_reads.known_facts_of`). A `physique` fact is born with a
+`rencontre` default, so it appears only once a `rencontre` row links the
+player and that NPC — the one intended change of this brief. Blindfolded
+removes it together with `description`, by construction.
 
 ---
 
@@ -14652,10 +14681,31 @@ fact, returning only the facts resolving above `'unaware'`. Both entry
 points share one pure tier function (`_resolve_tiers`) so the two never
 drift.
 
+**Amendment — seven tiers (TICKET-0091, BRIEF-0091-d, C-09).** Two tiers are
+inserted between the stored row and the location default; the ladder is now:
+(1) stored row; (2) **self** — the entity is a `fact_participant` of the fact
+AND `fact.facet in facets.DESCRIPTIVE_FACETS` -> `'knows'`; (3)
+**rencontre** — a `fact_default` at `scope_type='rencontre'` whose `scope_id`
+is one of the entity's acquaintances (`encounters.acquaintances`), highest
+level across several; (4) nearest location; (5) highest faction; (6) world;
+(7) `fact.default_level`. Self-knowledge is a resolver rule, not a stored
+row, placed after the stored row so a creator's explicit `unaware` still
+wins (Q6a). It applies to descriptive facets only (Q18a): being a
+participant of an `information` fact — a secret shared by three conspirators,
+say — confers nothing, since participation there is aboutness, not
+knowledge. The batch entry point fetches the entity's participant fact ids
+and its acquaintances once each (8 -> 10 queries per call, constant in the
+number of facts). `resolve_public_level(s)` enter at tier 6, unchanged.
+`resolve_default_rows` skips every fact whose facet is descriptive (NULL
+and the knowledge-section facets pass): what is said of an entity is read
+through `facet_reads.py` (`facts_of`, `known_facts_of`, `joined`), never
+as speakable knowledge, so the three readers' knowledge section is
+unchanged (Q13a).
+
 **New table `fact_default`** (`models/canon_knowledge.py`): `id, world_id,
 fact_id, scope_type, scope_id, level, created_at, created_by`, with
 `ck_fact_default_scope_type` (`scope_type IN ('world','faction',
-'location')`), `ck_fact_default_scope_shape` (`scope_id` NULL iff
+'location')`; widened to `'rencontre'` at v2.05, BRIEF-0091-a), `ck_fact_default_scope_shape` (`scope_id` NULL iff
 `scope_type='world'`) and `ck_fact_default_level` (the six-value
 vocabulary). A faction scope uses the faction's `entity.id` directly —
 `faction.id` is already an `entity.id` FK, so `scope_id` needs no second
@@ -15143,7 +15193,8 @@ ticket can reach, and presenting it at all would read type-level schema
 capability as entity-specific canon to the creator, the same class of error
 Scope IN item 5's DORMANT-column exclusion exists to prevent. `entity_dossier`
 returns five sections (`identity`, `relations`, `knowledge`, `memberships`,
-`goals`), not six. A reader for a runtime-custom-type entity's own `ext_*`
+`goals`), not six. (Since BRIEF-0091-h it returns six: a `facets` section
+follows `identity` — see "LORE DOSSIER FACETS" below.) A reader for a runtime-custom-type entity's own `ext_*`
 row data is a capability nothing in this ticket builds — no reader for
 `physical_table` exists anywhere outside `writes/schema.py`'s DDL
 construction.
@@ -15387,6 +15438,14 @@ opposite case and was confirmed, by a live test with a temporary
 offline today: it does not pre-flight ping, and a previously-obtained plan
 resolved through it while Ollama is unreachable returns `"renderer":
 "template"` with correct prose.
+
+**Amended (TICKET-0091, BRIEF-0091-K, Q17d): the read-only lock is reopened
+in a bounded way.** The Lore shell gains one writing corner, the "Noms à
+lier" tab (see "NAME-RESOLUTION PANEL" below). The question view and the
+consultation pipeline (`lore_selectors`, `lore_query`, `lore_plan`,
+`lore_render`, `lore_prompt`, `routes/lore.py`) stay read-only; R1-R16 of
+`lore_isolation.py` are unchanged, and R17 forbids imports between the panel
+and the pipeline.
 
 ## PLANNER UNAVAILABLE IS AN EXPLICIT MESSAGE, NOT A RAW ERROR (BRIEF-0085-f, no schema change)
 
@@ -15775,6 +15834,302 @@ PC "know" what every NPC feels toward them. T2 (refuse delete while knowers
 exist) -- makes a relation undeletable by the act of being known.
 *Reactivate* O3 when a table rebuild of `relation` happens for another
 reason.
+
+---
+
+## FACET REGISTRY (TICKET-0091) -- WHAT KIND OF STATEMENT A FACT IS (BRIEF-0091-a, schema v2.05)
+
+Every descriptive piece of lore becomes a `fact` carrying a facet. The
+facet vocabulary is a code registry, `src/world_engine/facets.py::FACETS`:
+per facet a family, a granularity (`bloc` = one fact per entity,
+`affirmation` = one fact per statement, `typed` = the fact IS a
+relation/event/world_law row), a default-knowledge preset for new writing,
+a French label and description, and its known aspects. Adding a facet is a
+code change, reviewed like one; adding a reader is a query on
+`fact.facet` joined to `fact_participant`.
+
+**Q2a -- `fact.facet` is nullable TEXT, validated in `create_fact`, no
+CHECK.** A CHECK would freeze the vocabulary in the schema and make every
+new facet a table rebuild; the registry is the single authority and the
+chokepoint (`writes/facts.py::create_fact`) refuses a NULL, an unknown
+facet, a typed fact whose facet is not its FK's (`TYPED_FACET_BY_FK`), and
+a free fact with a `typed`-granularity facet. NULL means "predates
+TICKET-0091" and is never written again; v2.05 backfilled only typed facts
+(`lien`/`evenement`/`loi`), free facts stay NULL until v2.06 relocates the
+prose.
+
+**Q12d -- a general `fact.aspect`, never a per-facet exception.** An aspect
+is a normalized qualifier inside a facet (stripped, casefolded;
+`normalize_aspect`); `location_subculture` rows become `coutume` facts with
+aspect = the old key, so "who knows this precise custom" is the same
+knowledge query as for any other fact. A facet's `aspects` tuple is a
+suggestion list for the editor and a future extractor, never a closed set
+and never a CHECK.
+
+**Two companions of the chokepoint.** `update_fact_content` rewrites any
+fact's content after appending the previous one to `change_history`
+(History is sacred). `delete_free_fact` is a creator-CRUD hard delete of a
+free fact with its knowledge, scoped defaults and participants, children
+first -- a named hard-delete path (`single_canon_write.py` section 2); a
+typed fact is refused, it dies with its relation/event/world_law row.
+
+**Q3a -- `fact_default` gains scope `rencontre` by a table rebuild,** the
+first of the migration series (SQLite cannot alter a CHECK): new table
+from the model DDL, every live column copied, drop, rename, indexes
+re-created, row count checked before COMMIT, FKs on throughout.
+
+**Rejected.** A CHECK on `facet` (vocabulary frozen in DDL); a
+`coutume`-only key column (an exception the Q12 request asked to avoid); a
+facet default on `create_fact` (every caller must say what it writes).
+
+---
+
+## ENCOUNTER REGISTRY (TICKET-0091) -- WHO HAS MET WHOM (BRIEF-0091-c, no schema change)
+
+**One row per unordered pair, earliest encounter wins.** `rencontre`
+(created by v2.05) gives "known from the first encounter" a mechanism:
+`entity_lo_id < entity_hi_id` (string order), `first_at`, `source` in
+`ENCOUNTER_SOURCES`, `source_ref` = the visit/gathering/conversation/
+relation row. Never updated, never deleted.
+
+**Non-canon, one writer.** Like `visit` and `gathering`, `rencontre` is
+derived bookkeeping, outside `CANON_TABLES`: it is recorded from play
+traces and authored state, never edited by hand, and needs no
+`proposed_mutation`. `src/world_engine/encounters.py` is the only module
+that constructs a `Rencontre` (`record_encounter`, read guard before add,
+idempotent; `record_encounters_among`; `record_gathering_join`); it never
+commits. `checks/encounter_registry.py` pins the single constructor, the
+absence of any update/delete, and every live site.
+
+**Live sites.** `enter_scene` (player x each NPC present, source `visit`);
+`generate_gatherings` (pairs within each generated group); `migrate_npc`
+and `_join_gathering` (the joiner x every open member, source
+`gathering`); `start_conversation` with an NPC (`conversation`); and the
+birth hook `_on_relation_born` of `write_relation` (social types only,
+`relation`). `attach_on_arrival` (solo gathering) and NPC-less
+conversations record nothing; a declared day records nothing (R-b1).
+
+**Q10a/Q11a -- materialized state encounters.** Standing schedules and
+social relations are authored facts about who shares a life: an NPC whose
+`npc_schedule` row shares an exact `(location_id, phase)` with another NPC
+has met it (source `schedule`, written by `write_npc_schedule`); a social
+relation implies its endpoints have met. Both are materialized as rows at
+write time rather than inferred at read time, so every reader asks one
+table. `scripts/apply_ticket_0091_encounters.py` backfills all five
+sources in timestamp order; a second run inserts nothing.
+
+**Rejected.** Read-time inference from `visit`/`gathering_member`/
+`npc_schedule` (five readers of five tables, and play traces are not all
+retained in a queryable shape); an ordered pair (an encounter is mutual);
+recording encounters for a declared day (R-b1, locked).
+
+---
+
+## CREATOR-ONLY FACTS (TICKET-0091) -- THE CREATOR'S NOTE NEVER LEAVES THE DOSSIER (BRIEF-0091-g, no schema change)
+
+AMENDMENT-0091-01, decided by Nia (Q21b). The creator's note
+(`creator_meta`, and `character.secrets` at migration) is stored as a
+`histoire` fact whose only protection is a stored `knowledge` row of the
+entity itself at `level='unaware'`, `is_secret=True`. That row guards
+`known_facts_of` (tier 1 wins over self), but an omniscient reader —
+`facts_of` with no perceiver, as the world tick and the link-agent sheet
+use — saw the note. BRIEF-0091-g's review caught it with a fixture
+(the note reaching both prompts).
+
+**The rule, structural.** A fact is *creator-only* when a stored
+`knowledge` row on it belongs to one of its own participants with
+`level = 'unaware'` and `is_secret = 1`. `facet_reads.facts_of` excludes
+creator-only facts in its query (`NOT IN` the creator-only subselect)
+unless `include_creator_only=True`; `known_facts_of` always excludes them,
+with no override parameter. `creator_only_fact_ids(db, fact_ids)` answers
+the question for a batch in one query. `include_creator_only=True` is
+legal only in `lore_selectors.py`, the creator's own dossier —
+`tooling/verify/checks/fact_facets.py` R7 (AST) locks the opt-in there and
+R8 (fixture) proves both reads drop the note and the opt-in returns it.
+
+**Rejected.** Per-reader filtering (a `known_facts_of` in the tick and the
+sheet): every future omniscient reader would have to remember it, which is
+"guarded by instruction", not by construction. A separate facet for the
+note: C-05 and C-18 already fixed its shape and the knowledge row is the
+existing secrecy carrier.
+
+---
+
+## LORE DOSSIER FACETS (TICKET-0091) -- EVERY READER OUTSIDE PLAY READS FACTS (BRIEF-0091-h, no schema change)
+
+**The dossier shows lore by facet.** `lore_selectors.entity_dossier` now
+returns six sections: `identity`, `facets`, `relations`, `knowledge`,
+`memberships`, `goals`. `identity` keeps name, type, status, is_public,
+internal_name and the character mechanics (`character_type`,
+`current_location_id`, `vital_status`, `physical_tier`); the prose keys are
+gone. `_facet_rows` emits one `facets` row per descriptive fact, in
+registry order, with `{facet, label, aspect, content, secret}`. It is the
+only `include_creator_only=True` call site, so the creator sees their note,
+and `secret` (`creator_only_fact_ids`) tags it. `lore_render._format_facets`
+prints `label (aspect) : content [secret]`; `_format_identity` prints name
+and type only. `Lore.svelte` labels the section `Faits`. `world_factions`
+keeps its keys, filled from `description`, `doctrine`, `organisation` and
+`tension` facts (joined).
+
+**The remaining readers.** Every non-play reader of a moving column reads
+`facet_reads.facts_of` without the opt-in, so the creator's note never
+reaches a generator prompt: faction goals -> `visee` (draft L1 goals, goal
+backfill, NPC group rows); philosophy -> `doctrine` and backstory ->
+`histoire` (agenda owner context, goal backfill); description ->
+`description` (agenda owner, goal backfill, faction context of the NPC
+group agent, room batch anchor and siblings, establishment narration,
+relation-graph nodes, lore candidates). `observation_runner.
+check_run_readiness` requires at least one `description` fact per NPC.
+
+**Subculture reads (AMENDMENT-0091-02).** The room batch anchor and the
+establishment narration read `coutume` facts notorious at the location
+(`notorious_at_location`). A hidden custom carries no `location` default, so
+the hidden-subculture trap holds by query construction. The narration keeps
+the `_SAFE_SUBCULTURE_KEYS` allow-list on the aspect. The room batch keys
+every notorious custom by aspect, joins several facts under one aspect, and
+keys an aspect-less custom by the facet label, so no line is dropped or
+printed as `None`.
+
+**Payload.** `_entity_dict` no longer carries `description` (the sheet reads
+`GET /api/entities/{id}/facts`); `_location_subculture_rows` and every
+`subculture_rows` payload key (`crud/entities.py`, `crud/entity_geometry.py`)
+are removed, with the `crud/__init__.py` re-export.
+
+
+## LORE RELOCATED, COLUMNS DROPPED (TICKET-0091) -- PROSE LIVES ONLY IN FACTS (BRIEF-0091-i, schema v2.06)
+
+**Relocation (L2).** `scripts/migrate_v2_06_lore_as_facts.py` turns every
+filled prose cell into one descriptive fact, text unchanged (outer
+whitespace trimmed only), `created_by = 'migrate_v2_06'`, the source entity
+its one participant: `entity.description` -> `description` (world/knows
+when public), `character.appearance` -> `physique` (rencontre/knows at the
+character), `backstory` -> `histoire`, `character.aversion` -> `aversion`,
+`secrets` -> `histoire` plus the character's own `creator_meta` row
+(`unaware`, `is_secret`), `faction.philosophy` -> `doctrine` (world/knows),
+`internal_structure` -> `organisation`, `internal_tensions` -> `tension`,
+`goals` -> `visee`, `faction.aversion` -> `aversion`; each
+`location_subculture` row -> `coutume` with aspect `lower(trim(key))` and a
+location/knows default unless hidden. No splitting, no tokens, no merge.
+Ten columns (the lot said "twelve"; its own table enumerates ten) and the
+table are then dropped; `faction.scope` stays.
+
+**Order is the safety.** One transaction: relocate, then post-check (every
+filled cell has exactly one matching fact), then drop. A failed post-check
+rolls back before anything is dropped. `backstory` and `secrets` share the
+`histoire` facet, so the idempotency match is discriminated by the presence
+of the `creator_meta` row, never by content alone. On a prod copy: 1197
+facts, 595 defaults, 35 `creator_meta` rows; second run prints zeros. The
+D3b' control query (78 groups of identical `(world, facet, content)`) is
+printed, never merged.
+
+**The allow-list is the registry.** `_SAFE_SUBCULTURE_KEYS` is gone; the
+MJ location block and the establishment narration filter on
+`FACETS["coutume"].aspects` (`("values",)`, pinned by `prompt_lean.py`
+rule 3). `write_location_subculture` and `LocationSubculture` are removed
+with their policy line; `traits._ENTITY_BASE_FIELD_NAMES` keeps
+`"description"` so no runtime trait can shadow the facet.
+`checks/lore_as_facts.py` (R1-R4) keeps the columns, the class and the
+constant from coming back.
+
+**Seed customs honour their hidden flag (AMENDMENT-0091-03).**
+`seed_pilot.ensure_location_customs` writes customs through
+`write_entity_facets`; a hidden entry gets no default, exactly as C-18.
+
+**Found at execution.** `routes/creator.py::generate_event` still read
+`location.description` (missed by R-09/R-11); switched to the location's
+`description` facts. Named debt: the seed's other prose (`description=`,
+`appearance=`, ... on `get_or_create`) is silently ignored by SQLModel, so a
+fresh seed carries customs but no other lore facts.
+
+## IDENTITY TOKENS (TICKET-0091) -- A NAME IN CANON PROSE IS A REFERENCE (BRIEF-0091-j, no schema change)
+
+**Token shape.** A name written into new `fact` / `knowledge` prose is stored
+as `[[e:<entity uuid>|<name at write time>]]` (`prose_render.entity_token`,
+`]` and `|` stripped from the name). The stored name is only a fallback.
+
+**One render.** `prose_render.py` is the read chokepoint: `render` /
+`render_many` (one entity query for every cited id) turn each token into the
+entity's current `name`, fall back to the stored name when the entity row is
+gone, and return token-free text and `None` unchanged; `fact_text`,
+`knowledge_text`, `fact_texts`, `knowledge_texts` wrap them. Renaming an
+entity renames it in every rendered fact, including the `lien` /
+`connects_to` facts, whose endpoints are now tokens.
+
+**`content_raw` allow-list.** The model attribute is `content_raw` on both
+`Fact` and `Knowledge`; the SQL column stays `content`, so the DDL is
+unchanged. The rename made the interpreter find every reader. The identifier
+may appear only in `models/canon_knowledge.py`, `writes/*.py`,
+`prose_render.py`, `knowledge_resolve.py` (transient rows) and
+`scripts/migrate_*.py`. `checks/identity_tokens.py` R1 enforces this across
+`src/` and `scripts/`. A module outside `writes/` that needs raw text to
+write it back moves the merge into `writes/`: the link agent's coherence
+patch became `writes/knowledge.py::apply_knowledge_patch` (AMENDMENT-0091-04),
+and the seed's knowledge upsert became `upsert_knowledge_row`
+(AMENDMENT-0091-05, declared in the canon-write policy; seed text is never
+tokenized).
+
+**Posing, never picking.** `prose_tokens.tokenize` indexes every active
+entity name of the world plus every rendered `appellation` fact, normalized
+by `lore_resolve.normalize_surface` on both sides. It matches whole words,
+longest first, and never crosses or re-enters a token. A match extends back
+over an article the name itself carries. One candidate becomes a token; two
+or more stay plain and are reported `ambigu`. A generator `mentions` entry
+the index did not cover, and whose surface occurs in the text, goes through
+`resolve_named`: one candidate is tokenized, none is `inconnu`, several is
+`ambigu`. A mention absent from the text is ignored. There is no model
+call (R4). Posing runs on
+`add_entity_fact`, `edit_entity_fact` and `write_knowledge`'s content path.
+Text equal to the stored text, raw or rendered, is not new writing and keeps
+its tokens. Migrated text (L2) and seed knowledge are not tokenized.
+
+**The worklist.** `writes/mentions.py` is the single writer of the
+non-canon `unresolved_mention` (`record_unresolved`, `resolve_mention`,
+`dismiss_mention`); each row points at exactly one fact or knowledge row.
+K's names panel consumes it.
+
+**Found at execution.** `analyzer_transcript.py:779` (the overhearing
+proposal's `content`) reads a `Knowledge` row, not a message as R-24 said;
+it is ADAPT-routed through `knowledge_text`, so an overheard name is
+re-posed at apply. `set_target_knows` writes the lien knowledge with a
+rendered `subject` and the tokenized content. Named debt: the Création
+frontend does not yet forward a draft's `mentions` into the create body;
+the server path is wired end to end. An appellation surface renders as the
+entity's current name (the C-13 contract), and a name cited after an
+elided article renders with the name's own article ("au Le ...").
+
+## NAME-RESOLUTION PANEL (TICKET-0091) -- THE LORE SHELL'S ONE WRITING CORNER (BRIEF-0091-k, no schema change)
+
+**Where.** Q17d puts the `unresolved_mention` worklist in the Lore shell, as
+a "Noms à lier" tab beside the question view (`frontend/src/lore/
+NamesPanel.svelte` + `namesPanel.svelte.js`). Each line shows the surface,
+the reason, a rendered excerpt, the recomputed candidates plus a search over
+the category's active entities, "Lier" and "Ignorer".
+
+**Reads and routes stay apart from the pipeline.** `lore_mentions_read.py`
+lists the open rows of the active world, oldest first, renders the owner's
+text through `prose_render`, and recomputes candidates with
+`resolve_named` (all three categories when `category` is NULL).
+`cockpit/routes/lore_mentions.py` holds the three C-16 routes, mounted after
+the Lore router. Neither imports a pipeline module, and no pipeline module
+imports them (`lore_isolation.py` R17).
+
+**The write lives in `writes/`.** The route cannot read `content_raw`
+(`identity_tokens.py` R1), so the replacement is
+`writes/mentions.py::bind_mention`: first plain occurrence (outside any
+token) of the surface becomes `entity_token(entity_id, surface)`, written
+through `update_fact_content` (fact) or `apply_knowledge_patch` ->
+`write_knowledge` (knowledge), then `resolve_mention`. The route validates
+with `validate_binding` (422; any category when NULL), returns 404 for an
+unknown or closed row, 422 when the surface no longer occurs plain, and
+commits once. `bind_mention` calls chokepoints only, so the canon-write
+policy needs no new site.
+
+**The worklist asks each question once.** Rewriting a knowledge text goes
+back through `write_knowledge`, which re-tokenizes it and re-reports the
+names still plain in it. `record_unresolved` now skips an item already open
+on the same owner (same surface, reason, category).
+
+**Guarded like Creation.** No route authentication (R-27, named deferral).
 
 ---
 

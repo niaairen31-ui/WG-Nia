@@ -65,16 +65,20 @@ class, a `fact_default` row carries no `change_history` of its own),
 `set_target_knows(knows=False)` (TICKET-0090, BRIEF-0090-a — removes
 the target's one `knowledge` row on a social relation's lien fact; called
 with `knows=False` only from creator CRUD, never by `write_oriented_relations`),
+`delete_free_fact` (TICKET-0091, BRIEF-0091-A — one free fact with its
+`knowledge`, `fact_default` and `fact_participant` rows; refuses a typed
+fact; creator-CRUD only),
 and `write_faction_role(mode="delete")` (blocked while an active membership
 holds the role) — creator-CRUD-only, never reachable from any AI or play
 path. Full-replace config deletes (whole-set replace, not
-single-row correction): `write_npc_prices`, `write_location_subculture`,
-`write_world_laws`, `write_location_obstacles`, and `write_location_doors`
-each `DELETE FROM` their table(s) scoped to one parent (NPC / location /
-world / location / location) then re-insert the submitted set, in one
-transaction — creator-CRUD and world-bootstrap only (`set_npc_prices`,
-`set_location_subculture`, `create_world`, `set_location_geometry`,
-`set_location_doors`), never reachable from any AI or play path. These
+single-row correction): `write_npc_prices`, `write_world_laws`,
+`write_location_obstacles`, and `write_location_doors` each `DELETE FROM`
+their table(s) scoped to one parent (NPC / world / location / location)
+then re-insert the submitted set, in one transaction — creator-CRUD and
+world-bootstrap only (`set_npc_prices`, `create_world`,
+`set_location_geometry`, `set_location_doors`; `location_subculture` and
+its writer were dropped in schema v2.06, TICKET-0091, BRIEF-0091-I), never
+reachable from any AI or play path. These
 tables carry no `change_history` by design (metadata-config category);
 the full-replace IS their write shape. No table may take a foreign key on
 `door.id` — enforced by `door_terminal.py`. `cockpit/spatial_doors.py`

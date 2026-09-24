@@ -21,7 +21,7 @@ from typing import Any
 from sqlmodel import Session, select
 
 from . import llm_parse
-from .context import _SAFE_SUBCULTURE_KEYS
+from .facets import FACETS
 from .models import BASE_SKILL_DOMAINS, Entity, PromptTemplate, World
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
@@ -45,10 +45,10 @@ AUTHOR_MODEL = "llama3.1:8b"
 _TYPE_FIELDS: dict[str, str] = {
     "character": (
         'public.name (string) ; public.description (string) ; '
-        'public.appearance (string) ; public.backstory (string) ; '
-        'public.aversion (string — ce que ce personnage rejette ou fuit : '
-        'un concept, une catégorie ou un phénomène, ex. la technologie, le '
-        'soleil ; PAS une entité nommée) ; '
+        'public.physique (string) ; public.histoire (tableau de chaînes — un '
+        'fait du passé par entrée) ; public.aversion (tableau de chaînes — ce '
+        'que ce personnage rejette ou fuit : un concept, une catégorie ou un '
+        'phénomène, PAS une entité nommée) ; '
         'public.physical_tier (entier -1..2 : -1 chétif, 0 ordinaire, '
         '1 capable, 2 redoutable) ; public.faction_name (string ou null — '
         "nom exact d'une faction existante, ou null si aucune).\n"
@@ -63,8 +63,9 @@ _TYPE_FIELDS: dict[str, str] = {
         'public.name (string) ; public.description (string) ; '
         'public.location_type (un de city|district|building|natural|'
         'underground|other) ; public.access_level (un de public|restricted|'
-        'secret) ; public.subculture (objet JSON — uniquement des clés parmi '
-        f"{', '.join(_SAFE_SUBCULTURE_KEYS)} ; n'invente pas d'autre clé).\n"
+        'secret) ; '
+        'public.coutume (tableau d\'objets {"aspect","content"} — aspect parmi '
+        + ', '.join(FACETS["coutume"].aspects) + ' ; n\'invente pas d\'autre aspect).\n'
         'secret.subculture_hidden (string — ce que ce lieu cache vraiment, '
         "inaccessible sans découverte en jeu) ; "
         'secret.sensed_links (tableau d\'objets {"kind","name","note"} — '
@@ -76,21 +77,46 @@ _TYPE_FIELDS: dict[str, str] = {
         "public.name — nom de la faction\n"
         "public.description — présentation publique : ce que le monde sait d'elle\n"
         "public.faction_type — exactement un parmi : government | criminal | military | esoteric | other\n"
-        "public.philosophy — credo affiché, valeurs revendiquées publiquement\n"
-        "public.internal_structure — forme d'organisation CONNAISSABLE, en prose "
+        "public.doctrine — credo affiché, valeurs revendiquées publiquement\n"
+        "public.organisation — forme d'organisation CONNAISSABLE, en prose "
         "(ex. « un conseil de sept anciens »). DOIT rester cohérente avec la liste roles.\n"
         "public.roles — liste ORDONNÉE du rang le plus élevé au plus bas. Chaque "
         'entrée est un objet { "name": <intitulé du rang>, "description": <une '
-        "phrase décrivant la fonction du rang> }. DOIT refléter internal_structure.\n"
-        "public.aversion — ce que la faction rejette ou combat : un concept ou "
+        "phrase décrivant la fonction du rang> }. DOIT refléter organisation.\n"
+        "public.aversion (tableau de chaînes) — ce que la faction rejette ou combat : un concept ou "
         "une catégorie (ex. la technologie, la magie, les étrangers), PAS une "
         "entité nommée (les inimitiés envers une entité précise relèvent des "
         "relations)\n"
-        "secret.internal_tensions — fractures, rivalités, faiblesses non avouées (créateur seul)\n"
-        "secret.goals — le véritable agenda de la faction : ce qu'elle cherche réellement "
+        "secret.tension (tableau de chaînes) — fractures, rivalités, faiblesses non avouées "
+        "(créateur seul)\n"
+        "secret.visee (tableau de chaînes) — le véritable agenda de la faction : ce qu'elle cherche réellement "
         "à accomplir, par-delà son credo affiché (créateur seul)"
     ),
 }
+
+
+# TICKET-0091, BRIEF-0091-J (C-11): every entity draft also lists the names
+# its prose cites, so the create can pose identity tokens (`prose_tokens`).
+_MENTIONS_FIELD = (
+    'mentions (tableau d\'objets {"name","category"} — chaque personne, '
+    'lieu ou faction nommé dans le texte ; category parmi '
+    'place|person|faction)'
+)
+_TYPE_FIELDS = {key: f"{fields}\n{_MENTIONS_FIELD}" for key, fields in _TYPE_FIELDS.items()}
+_MENTION_CATEGORIES = ("place", "person", "faction")
+
+
+def _normalize_mentions(raw: Any) -> list[dict]:
+    """A draft's `mentions`: `{"name", "category"}` objects with a non-empty
+    name and a known category; anything else is dropped."""
+    if not isinstance(raw, list):
+        return []
+    return [
+        {"name": item["name"].strip(), "category": item.get("category")}
+        for item in raw
+        if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"].strip()
+        and item.get("category") in _MENTION_CATEGORIES
+    ]
 
 
 def _load_template(db: Session) -> PromptTemplate | None:
@@ -264,25 +290,54 @@ def _validate_access_level(raw: Any, notes: list[str]) -> str | None:
     return None
 
 
-def _filter_subculture_public(raw: Any, notes: list[str]) -> dict:
+def _filter_coutume_public(raw: Any, notes: list[str]) -> list[dict]:
     """B1 — the structural core of this brief.
 
-    Reads the LIVE `_SAFE_SUBCULTURE_KEYS` constant (imported, never
-    hardcoded) as the source of truth. Any key the model proposes under
-    `public.subculture` that is not in that allow-list is dropped and
-    noted; it can never reach the public region. `"hidden"` is not in the
-    allow-list, so it cannot be set from here — it can only ever come from
-    `secret.subculture_hidden` (see `generate_entity_draft`).
+    Reads the LIVE `FACETS["coutume"].aspects` (imported, never hardcoded)
+    as the source of truth. Any aspect the model proposes under
+    `public.coutume` that is not in that list is dropped and noted; it can
+    never reach a visible custom. A hidden custom can only ever come from
+    `secret.subculture_hidden` (see `_entity_location_draft`). Accepts the
+    requested list of `{"aspect","content"}` and, leniently, an
+    `{aspect: content}` object (TICKET-0091, BRIEF-0091-E).
     """
-    public: dict = {}
-    if not isinstance(raw, dict):
-        return public
-    for key, value in raw.items():
-        if key in _SAFE_SUBCULTURE_KEYS:
-            public[key] = value
-        else:
-            notes.append(f"Clé subculture '{key}' hors allow-list — ignorée")
+    if isinstance(raw, dict):
+        raw = [{"aspect": key, "content": value} for key, value in raw.items()]
+    if not isinstance(raw, list):
+        return []
+    allowed = FACETS["coutume"].aspects
+    public: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        aspect = str(item.get("aspect") or "").strip().casefold()
+        content = item.get("content")
+        if aspect not in allowed:
+            notes.append(f"Aspect de coutume '{aspect}' hors liste — ignoré")
+        elif isinstance(content, str) and content.strip():
+            public.append({"aspect": aspect, "content": content, "hidden": False})
     return public
+
+
+def _affirmations(raw: Any) -> list[str]:
+    """An affirmation facet's draft value as a list of non-empty strings — a
+    lone string (the local model often ignores the array shape) is split by
+    line."""
+    if isinstance(raw, str):
+        raw = raw.splitlines()
+    if not isinstance(raw, list):
+        return []
+    return [item.strip() for item in raw if isinstance(item, str) and item.strip()]
+
+
+def facet_text(facets: dict, name: str) -> str:
+    """A draft facet value as plain text: a bloc string as is, an affirmation
+    list one entry per line. Draft readers (goal generation, room commit)
+    read prose through this, never a `public` key (TICKET-0091, BRIEF-0091-E)."""
+    value = (facets or {}).get(name)
+    if isinstance(value, list):
+        return "\n".join(item for item in value if isinstance(item, str))
+    return value if isinstance(value, str) else ""
 
 
 def _validate_faction_type(raw: Any, notes: list[str]) -> str:
@@ -391,7 +446,7 @@ def _entity_draft_call(entity_type: str, brief: str, db: Session) -> dict:
 
     Returns {"ok": False, "error": "<reason>"} on any failure mode (missing
     template, unreachable model, malformed JSON, empty parse), else
-    {"ok": True, "public_in": dict, "secret_in": dict}.
+    {"ok": True, "public_in": dict, "secret_in": dict, "mentions": Any}.
     """
     template = _load_template(db)
     if template is None:
@@ -426,26 +481,36 @@ def _entity_draft_call(entity_type: str, brief: str, db: Session) -> dict:
     public_in = public_in if isinstance(public_in, dict) else {}
     secret_in = parsed.get("secret")
     secret_in = secret_in if isinstance(secret_in, dict) else {}
-    return {"ok": True, "public_in": public_in, "secret_in": secret_in}
+    mentions = parsed.get("mentions", public_in.get("mentions"))
+    return {"ok": True, "public_in": public_in, "secret_in": secret_in, "mentions": mentions}
+
+
+def _bloc_text(raw: Any) -> str:
+    """A bloc facet's draft value: the string, or "" for anything else."""
+    return raw if isinstance(raw, str) else ""
 
 
 def _entity_location_draft(public_in: dict, secret_in: dict, notes: list[str]) -> dict:
-    subculture_public = _filter_subculture_public(public_in.get("subculture"), notes)
+    coutume = _filter_coutume_public(public_in.get("coutume"), notes)
+    hidden = _bloc_text(secret_in.get("subculture_hidden"))
+    if hidden.strip():
+        coutume.append({"aspect": None, "content": hidden, "hidden": True})
     draft = {
         "public": {
             "name": public_in.get("name") or "",
-            "description": public_in.get("description") or "",
             "location_type": _validate_location_type(
                 public_in.get("location_type"), notes
             ),
             "access_level": _validate_access_level(
                 public_in.get("access_level"), notes
             ),
-            "subculture": subculture_public,
         },
         "secret": {
-            "subculture_hidden": secret_in.get("subculture_hidden") or "",
             "sensed_links": _normalize_sensed_links(secret_in.get("sensed_links")),
+        },
+        "facets": {
+            "description": _bloc_text(public_in.get("description")),
+            "coutume": coutume,
         },
     }
     return {"ok": True, "draft": draft, "notes": notes}
@@ -455,18 +520,19 @@ def _entity_faction_draft(public_in: dict, secret_in: dict, notes: list[str]) ->
     draft = {
         "public": {
             "name": public_in.get("name") or "",
-            "description": public_in.get("description") or "",
             "faction_type": _validate_faction_type(
                 public_in.get("faction_type"), notes
             ),
-            "philosophy": public_in.get("philosophy") or "",
-            "internal_structure": public_in.get("internal_structure") or "",
             "roles": _normalize_roles(public_in.get("roles"), notes),
-            "aversion": public_in.get("aversion") or "",
         },
-        "secret": {
-            "internal_tensions": secret_in.get("internal_tensions") or "",
-            "goals": secret_in.get("goals") or "",
+        "secret": {},
+        "facets": {
+            "description": _bloc_text(public_in.get("description")),
+            "doctrine": _bloc_text(public_in.get("doctrine")),
+            "organisation": _bloc_text(public_in.get("organisation")),
+            "aversion": _affirmations(public_in.get("aversion")),
+            "tension": _affirmations(secret_in.get("tension")),
+            "visee": _affirmations(secret_in.get("visee")),
         },
     }
     return {"ok": True, "draft": draft, "notes": notes}
@@ -487,17 +553,19 @@ def _entity_character_draft(
     draft = {
         "public": {
             "name": public_in.get("name") or "",
-            "description": public_in.get("description") or "",
-            "appearance": public_in.get("appearance") or "",
-            "backstory": public_in.get("backstory") or "",
-            "aversion": public_in.get("aversion") or "",
             "physical_tier": _clamp_physical_tier(public_in.get("physical_tier")),
             "faction_id": faction_id,
         },
         "secret": {
             "knowledge": knowledge_rows,
-            "creator_meta": secret_in.get("creator_meta") or None,
             "shared_with": shared_with_rows,
+        },
+        "facets": {
+            "description": _bloc_text(public_in.get("description")),
+            "physique": _bloc_text(public_in.get("physique")),
+            "histoire": _affirmations(public_in.get("histoire")),
+            "aversion": _affirmations(public_in.get("aversion")),
+            "creator_meta": _bloc_text(secret_in.get("creator_meta")),
         },
     }
     return {"ok": True, "draft": draft, "notes": notes}
@@ -526,10 +594,13 @@ def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
     notes: list[str] = []
 
     if entity_type == "location":
-        return _entity_location_draft(public_in, secret_in, notes)
-    if entity_type == "faction":
-        return _entity_faction_draft(public_in, secret_in, notes)
-    return _entity_character_draft(public_in, secret_in, notes, db)
+        result = _entity_location_draft(public_in, secret_in, notes)
+    elif entity_type == "faction":
+        result = _entity_faction_draft(public_in, secret_in, notes)
+    else:
+        result = _entity_character_draft(public_in, secret_in, notes, db)
+    result["draft"]["mentions"] = _normalize_mentions(call_result.get("mentions"))
+    return result
 
 
 def generate_world_draft(brief: str, db: Session) -> dict:

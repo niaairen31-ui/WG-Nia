@@ -116,7 +116,9 @@
         if (link.kind === 'connection' || link.kind === 'faction') continue; // wirable — rendered as a toggle, not a note
         notes.push(`Lien perçu (${link.kind}) : ${link.name}${link.note ? ' — ' + link.note : ''}`);
       }
-      if (draft.secret.subculture_hidden) notes.push(`Subculture cachée proposée : ${draft.secret.subculture_hidden}`);
+      for (const line of (draft.secret.coutume_hidden || '').split('\n').filter((l) => l.trim())) {
+        notes.push(`Coutume cachée proposée : ${line}`);
+      }
     }
     return notes;
   }
@@ -151,7 +153,7 @@
         name: l.result.draft.public.name,
         subtitle: l.result.draft.public.location_type || '',
         parentId: l.parent_local_id,
-        description: l.result.draft.public.description,
+        description: l.result.draft.facets.description,
         notes: regionEntityNotes(l, 'location'),
         raw: l,
       })),
@@ -281,7 +283,7 @@
     }
 
     closeSheet();
-    regionDraft = result.region;
+    regionDraft = toTextSurfaces(result.region);
     regionAccepted = {};
     regionConfirmedLinks = {};
     regionCommitResult = null;
@@ -302,6 +304,58 @@
     buildStatus = '';
   }
 
+  /* TICKET-0091 (BRIEF-0091-F, Q20b): this review keeps one textarea per
+   * facet, one line per affirmation -- the server splits a string by line
+   * at commit. coutume is a list of {aspect, content, hidden} on the wire:
+   * it is rendered as "aspect : texte" lines, visible ones in
+   * draft.facets.coutume and hidden ones in draft.secret.coutume_hidden (so
+   * a hidden coutume can never lose its flag by an edit), then parsed back
+   * by fromTextSurfaces on commit. */
+  const REGION_LINE_FACETS = ['aversion', 'tension', 'visee'];
+  const ASPECT_SEP = ' : ';
+
+  function coutumeLines(rows) {
+    return rows.map((r) => (r.aspect ? r.aspect + ASPECT_SEP : '') + r.content).join('\n');
+  }
+
+  function parseCoutume(text, hidden) {
+    return (text || '').split('\n').filter((l) => l.trim()).map((line) => {
+      const at = line.indexOf(ASPECT_SEP);
+      const aspect = at > 0 ? line.slice(0, at).trim() : '';
+      const single = aspect && !/\s/.test(aspect);
+      return { aspect: single ? aspect : null, content: single ? line.slice(at + ASPECT_SEP.length) : line, hidden };
+    });
+  }
+
+  function toTextSurfaces(region) {
+    for (const f of region.factions || []) {
+      const facets = f.result.draft.facets;
+      for (const name of REGION_LINE_FACETS) {
+        if (Array.isArray(facets[name])) facets[name] = facets[name].join('\n');
+      }
+    }
+    for (const l of region.locations || []) {
+      const draft = l.result.draft;
+      const rows = Array.isArray(draft.facets.coutume) ? draft.facets.coutume : [];
+      draft.facets.coutume = coutumeLines(rows.filter((r) => !r.hidden));
+      draft.secret.coutume_hidden = coutumeLines(rows.filter((r) => r.hidden));
+    }
+    return region;
+  }
+
+  function fromTextSurfaces(region) {
+    const out = JSON.parse(JSON.stringify(region));
+    for (const l of out.locations || []) {
+      const draft = l.result.draft;
+      draft.facets.coutume = [
+        ...parseCoutume(draft.facets.coutume, false),
+        ...parseCoutume(draft.secret.coutume_hidden, true),
+      ];
+      delete draft.secret.coutume_hidden;
+    }
+    return out;
+  }
+
   async function regionCommit() {
     commitPending = true;
     let result;
@@ -309,7 +363,7 @@
       result = await api('/api/regions/commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ region: regionDraft, accepted: regionAccepted, confirmed_links: regionConfirmedLinks }),
+        body: JSON.stringify({ region: fromTextSurfaces(regionDraft), accepted: regionAccepted, confirmed_links: regionConfirmedLinks }),
       });
     } catch (e) {
       result = { ok: false, error: e.message };
@@ -517,8 +571,8 @@
                 <button class="btn-icon" style="margin-left:auto" onclick={() => toggleAccept(f.local_id)}>
                   {accepted ? 'Rejeter' : 'Accepter'}</button>
               </div>
-              {#if f.result.draft.public.description}
-                <div style="font-size:12px; color:var(--muted)">{f.result.draft.public.description}</div>
+              {#if f.result.draft.facets.description}
+                <div style="font-size:12px; color:var(--muted)">{f.result.draft.facets.description}</div>
               {/if}
               {#if notes.length}
                 <div style="margin-top:4px">
@@ -574,6 +628,7 @@
   {@const type = sheetNode.type}
   {@const pub = sheetTarget.result.draft.public}
   {@const sec = sheetTarget.result.draft.secret}
+  {@const fac = sheetTarget.result.draft.facets}
   {@const notes = sheetTarget.result.notes || []}
   <Modal title={pub.name || ''} open={true} onClose={closeSheet}>
     {#snippet body()}
@@ -582,13 +637,13 @@
           <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Nom</div>
             <input type="text" style="width:100%" bind:value={pub.name}></div>
           <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Description</div>
-            <textarea rows="3" style="width:100%; resize:vertical" bind:value={pub.description}></textarea></div>
+            <textarea rows="3" style="width:100%; resize:vertical" bind:value={fac.description}></textarea></div>
           <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Type</div>
             <input type="text" style="width:100%" bind:value={pub.location_type}></div>
           <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Niveau d'accès</div>
             <input type="text" style="width:100%" bind:value={pub.access_level}></div>
-          <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Subculture</div>
-            <input type="text" style="width:100%" bind:value={pub.subculture}></div>
+          <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Coutumes (une par ligne, « aspect : texte »)</div>
+            <textarea rows="3" style="width:100%; resize:vertical" bind:value={fac.coutume}></textarea></div>
           <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Contenu dans</div>
             <select value={sheetTarget.parent_local_id || ''}
               onchange={(e) => sheetTarget.parent_local_id = e.currentTarget.value || null}>
@@ -599,8 +654,8 @@
             </select></div>
 
           <div class="sheet-section-title sheet-secret-title">Secret — caché en jeu</div>
-          <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Subculture cachée</div>
-            <textarea rows="3" style="width:100%; resize:vertical" bind:value={sec.subculture_hidden}></textarea></div>
+          <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Coutumes cachées (une par ligne)</div>
+            <textarea rows="3" style="width:100%; resize:vertical" bind:value={sec.coutume_hidden}></textarea></div>
           {#if (sec.sensed_links || []).length}
             <div class="sheet-field-label" style="font-size:11px; margin-top:6px">Liens perçus</div>
             {#each sec.sensed_links as l}
@@ -611,13 +666,13 @@
           <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Nom</div>
             <input type="text" style="width:100%" bind:value={pub.name}></div>
           <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Description</div>
-            <textarea rows="3" style="width:100%; resize:vertical" bind:value={pub.description}></textarea></div>
+            <textarea rows="3" style="width:100%; resize:vertical" bind:value={fac.description}></textarea></div>
           <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Type</div>
             <input type="text" style="width:100%" bind:value={pub.faction_type}></div>
-          <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Philosophie</div>
-            <textarea rows="3" style="width:100%; resize:vertical" bind:value={pub.philosophy}></textarea></div>
-          <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Structure interne</div>
-            <textarea rows="3" style="width:100%; resize:vertical" bind:value={pub.internal_structure}></textarea></div>
+          <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Doctrine</div>
+            <textarea rows="3" style="width:100%; resize:vertical" bind:value={fac.doctrine}></textarea></div>
+          <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Organisation</div>
+            <textarea rows="3" style="width:100%; resize:vertical" bind:value={fac.organisation}></textarea></div>
           <div class="sheet-field-label" style="font-size:11px; margin-top:6px">Rôles</div>
           {@const roles = pub.roles || []}
           <div>
@@ -637,14 +692,14 @@
           <div class="row-card-actions" style="margin-top:6px">
             <button class="btn-send" onclick={() => addRole(sheetTarget)}>+ Ajouter un rôle</button>
           </div>
-          <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Aversion</div>
-            <textarea rows="3" style="width:100%; resize:vertical" bind:value={pub.aversion}></textarea></div>
+          <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Aversions (une par ligne)</div>
+            <textarea rows="3" style="width:100%; resize:vertical" bind:value={fac.aversion}></textarea></div>
 
           <div class="sheet-section-title sheet-secret-title">Secret — caché en jeu</div>
-          <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Tensions internes</div>
-            <textarea rows="3" style="width:100%; resize:vertical" bind:value={sec.internal_tensions}></textarea></div>
-          <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Objectifs</div>
-            <textarea rows="3" style="width:100%; resize:vertical" bind:value={sec.goals}></textarea></div>
+          <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Tensions (une par ligne)</div>
+            <textarea rows="3" style="width:100%; resize:vertical" bind:value={fac.tension}></textarea></div>
+          <div class="sheet-field"><div class="sheet-field-label" style="font-size:11px">Visées (une par ligne)</div>
+            <textarea rows="3" style="width:100%; resize:vertical" bind:value={fac.visee}></textarea></div>
         {/if}
 
         {#if notes.length}

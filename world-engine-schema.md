@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.04
+Current schema version: v2.06
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -78,13 +78,15 @@ CREATE TABLE entity (
                 -- character | faction | location | concept | magic | artifact | item | other
   name          TEXT NOT NULL,
   internal_name TEXT,                  -- creator-only name (ex: "The Unnamed")
-  description   TEXT,
   is_public     BOOLEAN DEFAULT TRUE,  -- FALSE = existence denied or secret
   status        TEXT DEFAULT 'active', -- active | inactive | destroyed | missing
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
+-- Descriptive prose is not a column (schema v2.06, TICKET-0091): an
+-- entity's description is a `description` fact (`fact.facet`), the entity
+-- its one participant — see `fact` and `src/world_engine/facets.py`.
 
 -----
 
@@ -109,21 +111,6 @@ CREATE TABLE character (
   user_id         TEXT,                         -- NULL for NPCs
   current_location_id TEXT REFERENCES entity(id),
   vital_status    TEXT DEFAULT 'alive',         -- alive | dead | missing | unknown
-  appearance      TEXT,
-  backstory       TEXT,
-  aversion        TEXT,                         -- prose dual of philosophy
-                                                  -- (schema v1.44, BRIEF-33):
-                                                  -- what this character
-                                                  -- rejects/fears, a concept
-                                                  -- or category, never a
-                                                  -- named entity. Read into
-                                                  -- the NPC dialogue prompt
-                                                  -- (H_IDENTITY block).
-  secrets         TEXT,                         -- creator-only, plain text
-                                                  -- since schema v1.78
-                                                  -- (TICKET-0025, B1): no
-                                                  -- reader ever consumed
-                                                  -- structure.
   physical_tier   INTEGER NOT NULL DEFAULT 0     -- opposed-roll resistance
                                                   -- tier, -1..2 (schema
                                                   -- v1.77, TICKET-0025,
@@ -133,11 +120,14 @@ CREATE TABLE character (
                                                   -- 0 = ordinaire default.
 );
 ```
--- NOTE on `secrets` vs `knowledge.is_secret`: `character.secrets` holds
--- creator meta-narrative ABOUT the character (true nature, planned reveal
--- arcs, creator intentions), free-form prose. It is NEVER read by any
--- context assembler. What a character knows-but-conceals is modeled as
--- `knowledge` rows with `is_secret = TRUE`, structurally excluded by the
+-- Descriptive prose is not a column (schema v2.06, TICKET-0091):
+-- appearance -> `physique` fact, backstory -> `histoire`, aversion ->
+-- `aversion`. The creator's meta-narrative (formerly `character.secrets`)
+-- is a `histoire` fact with no default plus one `knowledge` row for the
+-- character itself, `subject='creator_meta'`, `level='unaware'`,
+-- `is_secret=TRUE` — the character never knows it, and facet reads exclude
+-- it by query construction. What a character knows-but-conceals is modeled
+-- as `knowledge` rows with `is_secret = TRUE`, structurally excluded by the
 -- assembler.
 
 -----
@@ -320,30 +310,6 @@ CREATE UNIQUE INDEX idx_entity_trait_unique
 
 -----
 
-### `location_subculture`
-
-Ambient culture lines (schema v1.78, TICKET-0025, BRIEF-0025-b — replaces
-`location.subculture` JSON). One row per key. `is_hidden = TRUE` rows are
-creator-only: every non-creator read path filters `is_hidden = FALSE` AT
-QUERY CONSTRUCTION — exclusion is structural, never instructional. Curated
-config, same family as `faction_role`: no `change_history`, full-replace
-writes via `writes.write_location_subculture` only.
-
-```sql
-CREATE TABLE location_subculture (
-  id          TEXT PRIMARY KEY,
-  world_id    TEXT NOT NULL REFERENCES world(id),
-  location_id TEXT NOT NULL REFERENCES entity(id),
-  key         TEXT NOT NULL,
-  value       TEXT NOT NULL,
-  is_hidden   BOOLEAN NOT NULL DEFAULT FALSE
-);
-CREATE UNIQUE INDEX idx_location_subculture_key
-  ON location_subculture(location_id, key COLLATE NOCASE);
-```
-
------
-
 ### `obstacle` / `obstacle_vertex`
 
 Intra-location wall geometry (schema v1.80, TICKET-0029, BRIEF-0029-a).
@@ -444,34 +410,25 @@ CREATE TABLE faction (
   id                    TEXT PRIMARY KEY REFERENCES entity(id),
   faction_type          TEXT,
                         -- government | criminal | military | esoteric | other
-  internal_structure    TEXT,
-  philosophy            TEXT,
   magic_knowledge_level TEXT DEFAULT 'unaware',
                         -- unaware | suspicious | partial | knows | understands
-  internal_tensions     TEXT,
   parent_faction_id     TEXT REFERENCES entity(id),
                         -- containment tree, mirror of location.parent_location_id.
                         -- NULL = root faction. DORMANT (BRIEF-26, schema v1.38):
                         -- no assembler or guard traverses it yet — creator-CRUD
                         -- only, metadata-config category, no change_history (same
                         -- as location_type / coord_x / coord_y).
-  scope                 TEXT,
+  scope                 TEXT
                         -- global | national | regional | local | other.
                         -- DORMANT: descriptive scale label, NOT derived from
                         -- tree depth. No code reads it yet.
-  goals                 TEXT,
-                        -- DORMANT: prose, what the faction is trying to do.
-                        -- No mechanic, no structured consumer.
-  aversion              TEXT
-                        -- DORMANT (schema v1.44, BRIEF-33): prose dual of
-                        -- philosophy — what the faction rejects/combats, a
-                        -- concept or category, never a named entity. Public-
-                        -- tagged, authored + proposed, but read by no
-                        -- assembler yet; the future reader MUST route
-                        -- through read_public_memberships.
 );
 CREATE INDEX idx_faction_parent ON faction(parent_faction_id);
 ```
+-- Descriptive prose is not a column (schema v2.06, TICKET-0091):
+-- philosophy -> `doctrine` fact, internal_structure -> `organisation`,
+-- internal_tensions -> `tension`, goals -> `visee`, aversion -> `aversion`.
+-- `scope` stays: it is a mechanic, not prose.
 
 -----
 
@@ -642,6 +599,14 @@ false belief lives on the `knowledge` row that points here
 (`knowledge.is_incorrect`), never on the fact. `situation_id` is
 deliberately absent: the `situation` table does not exist yet.
 
+`facet` (schema v2.05, TICKET-0091, BRIEF-0091-A) says what kind of
+statement the fact is: a key of the code registry `facets.py::FACETS`,
+never a CHECK (Q2a). A typed fact carries its FK's facet (`lien`,
+`evenement`, `loi`); NULL only on free facts created before TICKET-0091,
+never written again (`writes/facts.py::create_fact` refuses NULL).
+`aspect` is a normalized (stripped, casefolded) qualifier within the facet,
+e.g. `values` for a `coutume` (Q12d).
+
 ```sql
 CREATE TABLE fact (
   id               TEXT PRIMARY KEY,
@@ -650,6 +615,8 @@ CREATE TABLE fact (
   event_id         TEXT REFERENCES event(id),
   world_law_id     TEXT REFERENCES world_law(id),
   content          TEXT NOT NULL,   -- the canonical statement of the fact
+  facet            TEXT,            -- facets.py key; NULL = predates v2.05
+  aspect           TEXT,            -- normalized qualifier within the facet
   default_level    TEXT NOT NULL DEFAULT 'unaware'
                    CHECK (default_level IN
                      ('unaware','rumor','suspicious','partial','knows','fully_understands')),
@@ -699,14 +666,18 @@ ACTIVE faction membership, the HIGHEST `world`-scoped default; then
 `fact.default_level`. A faction scope uses the faction's `entity.id`
 directly — `faction.id` is already a FK to `entity.id`, so `scope_id` needs
 no second column and no polymorphic type tag. Ships empty; the creator
-surface (`cockpit/crud/knowledge.py`) is its first writer.
+surface (`cockpit/crud/knowledge.py`) is its first writer. Scope
+`rencontre` (schema v2.05, TICKET-0091, BRIEF-0091-A): `scope_id` is an
+entity; the fact is known to that entity's acquaintances (the `rencontre`
+registry) at `level`.
 
 ```sql
 CREATE TABLE fact_default (
   id               TEXT PRIMARY KEY,
   world_id         TEXT NOT NULL REFERENCES world(id),
   fact_id          TEXT NOT NULL REFERENCES fact(id),
-  scope_type       TEXT NOT NULL CHECK (scope_type IN ('world','faction','location')),
+  scope_type       TEXT NOT NULL
+                   CHECK (scope_type IN ('world','faction','location','rencontre')),
   scope_id         TEXT REFERENCES entity(id),
                    -- NULL only when scope_type = 'world'
   level            TEXT NOT NULL
@@ -1782,6 +1753,63 @@ CREATE INDEX idx_visit_player_location ON visit(player_id, location_id, entered_
 
 -----
 
+### `rencontre`
+
+Encounter registry (schema v2.05, TICKET-0091, BRIEF-0091-A): one row per
+UNORDERED entity pair that has met — `entity_lo_id` < `entity_hi_id`,
+compared as strings; the earliest known encounter wins. Derived from play
+traces (visit, gathering, conversation) and authored state (schedule,
+relation), never edited by hand, never updated, never deleted. NOT a canon
+table (`canon_write_policy.txt`) — non-canon bookkeeping like `visit`, with
+one writer (`encounters.py`). Read by the `rencontre` scope of
+`fact_default`. `source` in `ENCOUNTER_SOURCES` (`models/ephemeral.py`):
+`visit`, `gathering`, `conversation`, `schedule`, `relation`; `source_ref`
+is the id of that row.
+
+```sql
+CREATE TABLE rencontre (
+  id                TEXT PRIMARY KEY,
+  world_id          TEXT NOT NULL REFERENCES world(id),
+  entity_lo_id      TEXT NOT NULL REFERENCES entity(id),
+  entity_hi_id      TEXT NOT NULL REFERENCES entity(id),
+  first_at          DATETIME NOT NULL,
+  source            TEXT NOT NULL,
+  source_ref        TEXT
+);
+CREATE UNIQUE INDEX idx_rencontre_pair ON rencontre(entity_lo_id, entity_hi_id);
+CREATE INDEX idx_rencontre_hi ON rencontre(entity_hi_id);
+```
+
+-----
+
+### `unresolved_mention`
+
+Name-resolution worklist (schema v2.05, TICKET-0091, BRIEF-0091-A): a name
+written into canon prose that the server could not bind to exactly one
+entity. Exactly one of `fact_id`, `knowledge_id` is set (guarded by the
+writer, `writes/mentions.py`). `reason` is `ambigu` or `inconnu`.
+`resolved_at` set with a `resolved_entity_id` = resolved; `resolved_at` set
+with a NULL `resolved_entity_id` = dismissed. NOT a canon table; no JSON
+column.
+
+```sql
+CREATE TABLE unresolved_mention (
+  id                  TEXT PRIMARY KEY,
+  world_id            TEXT NOT NULL REFERENCES world(id),
+  fact_id             TEXT REFERENCES fact(id),
+  knowledge_id        TEXT REFERENCES knowledge(id),
+  surface             TEXT NOT NULL,
+  reason              TEXT NOT NULL,   -- 'ambigu' | 'inconnu'
+  category            TEXT,
+  created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+  resolved_at         DATETIME,
+  resolved_entity_id  TEXT REFERENCES entity(id)
+);
+CREATE INDEX idx_unresolved_mention_world_open ON unresolved_mention(world_id, resolved_at);
+```
+
+-----
+
 ### `agenda`
 
 Structured intrigue (schema v1.72, TICKET-0018/BRIEF-0018-a; owner unlock
@@ -2327,6 +2355,11 @@ CREATE INDEX idx_discoverable_signpost_group ON discoverable_detail(signpost_gro
 
 -- "the player's latest visit to this location" (schema v1.71, BRIEF-0016-a)
 CREATE INDEX idx_visit_player_location ON visit(player_id, location_id, entered_at);
+
+-- encounter registry and name worklist (schema v2.05, BRIEF-0091-A)
+CREATE UNIQUE INDEX idx_rencontre_pair ON rencontre(entity_lo_id, entity_hi_id);
+CREATE INDEX idx_rencontre_hi ON rencontre(entity_hi_id);
+CREATE INDEX idx_unresolved_mention_world_open ON unresolved_mention(world_id, resolved_at);
 
 -- agendas: by owner + status (schema v1.72, BRIEF-0018-a)
 CREATE INDEX idx_agenda_owner_status ON agenda(owner_entity_id, status);

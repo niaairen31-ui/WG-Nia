@@ -21,6 +21,7 @@ from sqlmodel import Session, select
 from .context import RELATION_GRAPH_EXCLUDED_TYPES
 from .models import Entity, Knowledge, LinkBatch, LinkBatchRow, PromptTemplate, Relation
 from .prompt_store import current_prompt
+from .prose_render import knowledge_texts
 
 # RECON-0036 R-1: hard character budget for the canon-graph blob. Exceeding
 # it truncates at a row boundary (never mid-JSON) and the batch's coherence
@@ -101,12 +102,12 @@ def _canon_entries(db: Session, batch: LinkBatch) -> list[tuple[int, str, str, d
             "type": r.type, "intensity": r.intensity, "direction": r.direction,
             "visible_to_b": r.visible_to_b, "notes": r.notes,
         }))
-    for k in know_rows:
+    for k, text in zip(know_rows, knowledge_texts(db, know_rows)):
         touch = (k.entity_id in npc_ids) + (k.subject in npc_subjects)
         entries.append((touch, "knowledge", k.id, {
             "kind": "knowledge", "id": k.id,
             "entity_id": k.entity_id, "entity_name": _entity_name(db, k.entity_id),
-            "subject": k.subject, "level": k.level, "content": k.content,
+            "subject": k.subject, "level": k.level, "content": text,
             "source": k.source, "is_incorrect": k.is_incorrect,
             "is_secret": k.is_secret, "share_threshold": k.share_threshold,
         }))

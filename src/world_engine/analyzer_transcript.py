@@ -63,6 +63,7 @@ from . import llm_parse, ollama_client
 from .models import Character, Entity, Knowledge, ProposedMutation, PromptTemplate
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
+from .prose_render import knowledge_text
 from .writes import knowledge_level_rank
 
 _log = logging.getLogger(__name__)
@@ -776,7 +777,7 @@ def _overhearing_mutation_for_receiver(
             "entity_id": receiver_id,
             "subject": subject,
             "level": acquired_level,
-            "content": speaker_row.content,
+            "content": knowledge_text(db, speaker_row),  # rendered (BRIEF-0091-J)
             "is_incorrect": speaker_row.is_incorrect,
             "source": f"overheard:{speaker_id}",
         },

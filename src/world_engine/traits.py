@@ -156,6 +156,8 @@ def socle_traits() -> tuple[TraitDef, ...]:
 # sits in the FastAPI cockpit route layer and pulls in the whole app; this
 # module is core and must stay importable (and import-cycle-free) without
 # it (BRIEF-0046-a drafting decision 5).
+# "description" stays although the column moved to facts (TICKET-0091):
+# a runtime trait of that name would shadow the `description` facet.
 _ENTITY_BASE_FIELD_NAMES = frozenset(
     {"name", "internal_name", "description", "is_public", "status"}
 )

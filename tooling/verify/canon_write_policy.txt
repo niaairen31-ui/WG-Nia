@@ -2,7 +2,7 @@
 world entity character location faction faction_membership faction_role relation
 knowledge ledger item skill skill_definition skill_system discoverable_detail
 event artifact npc_goal agenda agenda_step goal_agenda_link
-npc_price location_subculture world_law obstacle obstacle_vertex door
+npc_price world_law obstacle obstacle_vertex door
 location_type_catalog entity_type entity_type_history conversation_window_config
 npc_schedule agenda_step_requirement fact fact_participant fact_default
 
@@ -27,7 +27,6 @@ src/world_engine/writes/goals_agendas.py::write_npc_goal_status npc_goal
 src/world_engine/writes/goals_agendas.py::write_npc_goal_prerequisites npc_goal
 src/world_engine/writes/factions.py::write_faction_role        faction_role
 src/world_engine/writes/config.py::write_npc_prices            npc_price
-src/world_engine/writes/config.py::write_location_subculture   location_subculture
 src/world_engine/writes/config.py::write_world_laws            world_law
 src/world_engine/writes/config.py::write_location_obstacles    obstacle obstacle_vertex
 # TICKET-0034, BRIEF-0034-a: write_location_doors is the 24th site — door geometry full-replace, curated-config family (obstacle precedent).
@@ -148,6 +147,21 @@ src/world_engine/cockpit/crud/knowledge.py::delete_fact_default        fact_defa
 # TICKET-0090, BRIEF-0090-a
 src/world_engine/writes/relations.py::set_target_knows          knowledge
 src/world_engine/writes/facts.py::update_typed_fact_content     fact
+# TICKET-0091, BRIEF-0091-A
+src/world_engine/writes/facts.py::update_fact_content     fact
+src/world_engine/writes/facts.py::delete_free_fact        fact fact_participant fact_default knowledge
+# TICKET-0091, BRIEF-0091-E: writes/facets.py (add_entity_fact,
+# write_entity_facets, edit_entity_fact, remove_entity_fact) and the
+# cockpit/crud/facets.py routes (create_entity_fact,
+# update_entity_fact_content, delete_entity_fact) write canon ONLY by calling
+# the writes/facts.py and write_knowledge chokepoints above — no `.add`/
+# `.delete` of their own, so no ALLOWED_SITES entry: declaring one would
+# sanction a direct write these functions must never contain.
+# TICKET-0091, BRIEF-0091-J (AMENDMENT-0091-05): the seed's idempotent
+# knowledge upsert, moved out of scripts/seed_pilot.py so raw stored text is
+# read only in writes/. Called by the seed alone; not a new runtime path.
+# apply_knowledge_patch writes only through write_knowledge (no entry).
+src/world_engine/writes/knowledge.py::upsert_knowledge_row     knowledge
 
 # TICKET-0051, BRIEF-0051-a: observation_run, observation_run_template,
 # observation_beat, observation_intent and observation_mutation_link are

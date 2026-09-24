@@ -17,11 +17,12 @@ from sqlmodel import Session, select
 
 from .. import llm_parse, ollama_client, skill_lexicon
 from ..context import (
-    _SAFE_SUBCULTURE_KEYS,
     assemble_mj_context,
     assemble_npc_context,
 )
 from ..db import engine
+from ..facet_reads import facts_of, joined
+from ..facets import FACETS
 from ..models import (
     BASE_SKILL_DOMAINS,
     Character,
@@ -32,7 +33,6 @@ from ..models import (
     Event,
     Gathering,
     Location,
-    LocationSubculture,
     PromptTemplate,
     Skill,
     SkillDefinition,
@@ -50,8 +50,8 @@ from .play import (
     _active_members,
     _load_npc_dialogue_template,
     _npc_dialogue_system_prompt,
-    _propose_engine_discovery,
 )
+from .play_discovery import _propose_engine_discovery
 
 _log = logging.getLogger(__name__)
 
@@ -593,9 +593,8 @@ def _build_establishment_user(
     """Build the establishment user message (schema v1.30, BRIEF-17; `changes`
     added schema v1.71, BRIEF-0016-a).
 
-    Reads `entity.description` (passed in by the caller), NOT
-    `location.description` (no such column). Subculture is the SAME
-    `_SAFE_SUBCULTURE_KEYS` allow-listed slice `assemble_mj_context` uses —
+    Reads the location's `description` facts (passed in by the caller). Subculture is the SAME
+    `FACETS["coutume"].aspects` allow-listed slice `assemble_mj_context` uses —
     not widened, "hidden" never read. `signposts` are the ONLY
     perceptible-detail material (from `active_signposts`, never a raw
     `subject`/`signpost_group`). `changes` is the code-computed return-visit
@@ -721,17 +720,14 @@ def _build_establishment_narration(
             return None
         loc_entity = db.get(Entity, location_id)
         location = db.get(Location, location_id)
-        description = loc_entity.description if loc_entity else None
+        description = joined(facts_of(db, entity_id=location_id, facets=("description",))) if loc_entity else None
         subculture: dict = {}
-        if location:
-            subculture_rows = db.exec(
-                select(LocationSubculture).where(
-                    LocationSubculture.location_id == location_id,
-                    LocationSubculture.key.in_(_SAFE_SUBCULTURE_KEYS),
-                    LocationSubculture.is_hidden == False,  # noqa: E712
-                )
-            ).all()
-            subculture = {row.key: row.value for row in subculture_rows if row.value}
+        if location:  # a hidden custom has no `location` default: excluded by the query
+            subculture = {
+                row.aspect: row.content
+                for row in facts_of(db, entity_id=location_id, facets=("coutume",), notorious_at_location=location_id)
+                if row.aspect in FACETS["coutume"].aspects and row.content
+            }
         signposts = active_signposts(db, location_id, player_character_id)
         version = current_prompt(db, template)
         user_msg = _build_establishment_user(

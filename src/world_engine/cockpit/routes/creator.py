@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from ...entity_author import facet_text
 from ...entity_author import generate_entity_draft as _generate_entity_draft
 from ...entity_author import generate_npc_goals as _generate_npc_goals
 from ...entity_author import generate_player_draft as _generate_player_draft
@@ -25,11 +26,11 @@ from ...event_author import build_world_roster as _build_world_roster
 from ...event_author import generate_agenda_draft as _generate_agenda_draft
 from ...event_author import generate_event_draft as _generate_event_draft
 from ...db import get_session
+from ...facet_reads import facts_of, joined
 from ...models import (
     BASE_SKILL_DOMAINS,
     Character,
     Entity,
-    Faction,
     FactionMembership,
     ProposedMutation,
     SCHEDULE_PHASES,
@@ -41,6 +42,7 @@ from ...models import (
 from ...writes import (
     KNOWLEDGE_LEVELS,
     delete_world_cascade as _delete_world_cascade,
+    write_entity_facets,
     write_knowledge,
     write_world_laws,
 )
@@ -63,21 +65,21 @@ def _generate_draft_with_l1(entity_type: str, brief: str, db: Session) -> dict:
 
     L1 (BRIEF-0013-b): on a successful character draft, also calls
     generate_npc_goals with the draft's public fields and the resolved
-    faction's `goals` (read-only query, None when unaffiliated) and merges
+    faction's `visee` facts (`facts_of`, joined; None when unaffiliated) and merges
     the result as `draft["public"]["goals"]`. A goal-generation failure never
     fails the draft — it's appended to `notes` and the character draft ships
     without goals.
     """
     result = _generate_entity_draft(entity_type, brief, db)
     if entity_type == "character" and result.get("ok"):
-        pub = result["draft"]["public"]
+        pub, facets = result["draft"]["public"], result["draft"]["facets"]
         faction_goals = None
         faction_id = pub.get("faction_id")
         if faction_id:
-            faction = db.get(Faction, faction_id)
-            faction_goals = faction.goals if faction else None
+            faction_goals = joined(facts_of(db, entity_id=faction_id, facets=("visee",)))
         goals_result = _generate_npc_goals(
-            pub.get("name", ""), pub.get("description", ""), pub.get("backstory", ""), faction_goals, db
+            pub.get("name", ""), facet_text(facets, "description"), facet_text(facets, "histoire"),
+            faction_goals, db,
         )
         if goals_result.get("ok"):
             pub["goals"] = {"long": goals_result.get("long", ""), "shorts": goals_result.get("shorts", [])}
@@ -291,9 +293,10 @@ def generate_agenda(
     write_agenda's owner rule so the assistant can never draft for an owner
     the create would reject: 404/422 if the entity is missing, inactive, or
     not `faction`/`character`. owner_context is built from PUBLIC fields
-    only (faction: description + Faction.philosophy; character: description
-    + Character.backstory) — secrets stay structurally excluded: no
-    `knowledge` row, no `character.secrets`, no `internal_tensions` is ever
+    only (faction: `description` + `doctrine` facts; character: `description`
+    + `histoire` facts, via `facts_of`) — secrets stay structurally excluded:
+    `facts_of` drops the creator's note by query construction
+    (AMENDMENT-0091-01), no `knowledge` row, no `tension` fact is ever
     read here. Returns {"ok": false, "error": ...} (never a 500) on any
     failure.
     """
@@ -303,16 +306,17 @@ def generate_agenda(
     if owner.status != "active" or owner.type not in ("faction", "character"):
         raise HTTPException(422, "owner_entity_id must be an active faction or character")
 
+    description = joined(facts_of(db, entity_id=owner.id, facets=("description",)))
     if owner.type == "faction":
         owner_kind = "faction"
-        faction = db.get(Faction, owner.id)
-        philosophy = f"Philosophie : {faction.philosophy}" if faction and faction.philosophy else None
-        parts = [p for p in (owner.description, philosophy) if p]
+        doctrine = joined(facts_of(db, entity_id=owner.id, facets=("doctrine",)))
+        philosophy = f"Philosophie : {doctrine}" if doctrine else None
+        parts = [p for p in (description, philosophy) if p]
     else:
         owner_kind = "personnage"
-        character = db.get(Character, owner.id)
-        backstory = f"Passé : {character.backstory}" if character and character.backstory else None
-        parts = [p for p in (owner.description, backstory) if p]
+        histoire = joined(facts_of(db, entity_id=owner.id, facets=("histoire",)))
+        backstory = f"Passé : {histoire}" if histoire else None
+        parts = [p for p in (description, backstory) if p]
     owner_context = "\n".join(parts) if parts else "(aucune description)"
 
     return _generate_agenda_draft(owner_kind, owner.name, owner_context, body.brief, db)
@@ -337,7 +341,7 @@ def generate_event(
     resolve to an active `location` entity in the active world (the same
     predicate as `_apply_mutation`'s `event_creation` branch); it then wins
     outright over the model's own location proposal. `location_context` is
-    the location's `name` + `description` only — public fields, never
+    the location's `name` + `description` facts only — public, never
     `internal_name`, never `metadata`. The J3 roster
     (`event_author.build_world_roster`) is public-only, filtered in SQL.
     Returns {"ok": false, "error": ...} (never a 500) on any failure.
@@ -360,7 +364,8 @@ def generate_event(
         ):
             raise HTTPException(422, f"location_id {body.location_id!r} is not an active location in this world")
         location_hint = location.name
-        parts = [p for p in (location.name, location.description) if p]
+        description = joined(facts_of(db, entity_id=location.id, facets=("description",)))
+        parts = [p for p in (location.name, description) if p]
         location_context = "\n".join(parts)
 
     roster = _build_world_roster(db, world_id)
@@ -564,9 +569,9 @@ class PlayerKnowledgeItem(BaseModel):
 class PlayerCharacterCreateBody(BaseModel):
     name: str
     current_location_id: str
-    description: Optional[str] = None
-    appearance: Optional[str] = None
-    backstory: Optional[str] = None
+    # TICKET-0091, BRIEF-0091-E (C-11): descriptive lore as a `facets`
+    # payload (`writes/facets.py::write_entity_facets` shape).
+    facets: Optional[dict] = None
     knowledge: Optional[list[PlayerKnowledgeItem]] = None
 
 
@@ -640,8 +645,9 @@ def create_player_character(
     not a 500. See `_validate_pc_creation` for request validation.
 
     BRIEF-52 (E1): also accepts the optional PC creation assistant draft —
-    `description`/`appearance`/`backstory` set on the rows that own them,
-    and `knowledge` written per `_write_pc_knowledge`. The base-domain skill
+    descriptive lore as `facets`, written as facts after the entity flush
+    (TICKET-0091, BRIEF-0091-E), and `knowledge` written per
+    `_write_pc_knowledge`. The base-domain skill
     seed stays untouched (B1, no proposed tiers).
 
     BRIEF-55 (B1, schema v1.63): after the four base-domain rows, also seeds
@@ -656,7 +662,6 @@ def create_player_character(
             world_id=world_id,
             type="character",
             name=name,
-            description=(body.description or None),
         )
         db.add(entity)
         db.flush()
@@ -666,10 +671,10 @@ def create_player_character(
             character_type="player",
             user_id=creator_user.id,
             current_location_id=body.current_location_id,
-            appearance=(body.appearance or None),
-            backstory=(body.backstory or None),
         )
         db.add(character)
+        db.flush()
+        write_entity_facets(db, entity_id=entity.id, facets=body.facets or {}, created_by="creator_crud")
         for domain in BASE_SKILL_DOMAINS:
             db.add(Skill(character_id=entity.id, domain=domain, tier=0))
         # B1 (schema v1.63): flat tier-0 seed for every custom skill of the

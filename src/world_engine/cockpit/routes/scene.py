@@ -27,6 +27,7 @@ from ...prompt_registry import effective_model
 from ...prompt_store import current_prompt
 from ...context import assemble_mj_context
 from ...db import get_session
+from ...encounters import record_encounter
 from ...scene_format import format_item_list_for_interpretation
 from ...models import Character, Conversation, Entity, Gathering, GatheringMember, Visit
 from .. import crud as _crud
@@ -150,12 +151,12 @@ def enter_scene(
         # Generate the partition; never raises (falls back to all-solo on error).
         _enter_location(location_id, sess.id, db)
 
-        db.add(Visit(
-            world_id=world_id,
-            player_id=player_id,
-            location_id=location_id,
-            present_npc_ids=current_npc_ids,
-        ))
+        visit = Visit(world_id=world_id, player_id=player_id, location_id=location_id,
+                      present_npc_ids=current_npc_ids)
+        db.add(visit)
+        for npc_id in current_npc_ids:
+            record_encounter(db, world_id=world_id, a_id=player_id, b_id=npc_id,
+                             source="visit", source_ref=visit.id)
         db.commit()
 
     # Entry narration (schema v1.30, BRIEF-17, F3/G1; changes v1.71,

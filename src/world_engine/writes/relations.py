@@ -26,7 +26,9 @@ fact (`lien_fact_content`, `default_level='unaware'`); every new
 `create_fact` runs (`_birth_typed_fact`). A `mode="set"` update that
 changes a social row's type rewrites its lien fact's content through
 `writes/facts.py::update_typed_fact_content`, which keeps the previous
-content in the fact's `change_history`.
+content in the fact's `change_history`. Both endpoints are written as
+identity tokens (TICKET-0091, BRIEF-0091-J), so renaming an endpoint
+renames it in the rendered lien fact.
 
 - `write_relation(mode="delta", ...)`  : gameplay consequence. Find/create the
   relation, apply a clamped intensity delta, append the previous state to
@@ -56,7 +58,9 @@ from typing import Optional
 from sqlalchemy import inspect as sa_inspect
 from sqlmodel import Session, select
 
+from ..encounters import record_encounter
 from ..models import Entity, Fact, Knowledge, Relation
+from ..prose_render import entity_token, render
 from ..relation_orientation import (
     connects_to_fact_content,
     is_social,
@@ -130,11 +134,18 @@ def _endpoint_names(db: Session, entity_a_id: str, entity_b_id: str) -> tuple[st
     return names[0], names[1]
 
 
+def _endpoint_tokens(db: Session, rel: Relation) -> tuple[str, str]:
+    """Both endpoints as identity tokens (BRIEF-0091-J): the lien/connects_to
+    content renders to the endpoints' current names."""
+    name_a, name_b = _endpoint_names(db, rel.entity_a_id, rel.entity_b_id)
+    return entity_token(rel.entity_a_id, name_a), entity_token(rel.entity_b_id, name_b)
+
+
 def _birth_typed_fact(db: Session, rel: Relation, changed_by: str) -> Optional[Fact]:
     """Create the typed fact of a freshly flushed relation: a social lien
     fact (`unaware`), a `connects_to` fact (`knows`), or nothing for any
     other structural type."""
-    name_a, name_b = _endpoint_names(db, rel.entity_a_id, rel.entity_b_id)
+    name_a, name_b = _endpoint_tokens(db, rel)
     if is_social(rel.type):
         content, level = lien_fact_content(name_a, rel.type, name_b), "unaware"
     elif rel.type == "connects_to":
@@ -143,8 +154,19 @@ def _birth_typed_fact(db: Session, rel: Relation, changed_by: str) -> Optional[F
         return None
     return create_fact(
         db, world_id=rel.world_id, content=content, created_by=changed_by,
-        default_level=level, relation_id=rel.id,
+        facet="lien", default_level=level, relation_id=rel.id,
     )
+
+
+def _on_relation_born(db: Session, rel: Relation, provenance: str) -> None:
+    """Birth hook of a new relation: its typed fact, then, for a social
+    type, the `relation` encounter between its endpoints (BRIEF-0091-C)."""
+    _birth_typed_fact(db, rel, provenance)
+    if is_social(rel.type):
+        record_encounter(
+            db, world_id=rel.world_id, a_id=rel.entity_a_id, b_id=rel.entity_b_id,
+            source="relation", source_ref=rel.id,
+        )
 
 
 def _refresh_lien_content(db: Session, rel: Relation, old_type: Optional[str], changed_by: str) -> None:
@@ -156,7 +178,7 @@ def _refresh_lien_content(db: Session, rel: Relation, old_type: Optional[str], c
     lien = lien_fact_of(db, rel)
     if lien is None:
         return
-    name_a, name_b = _endpoint_names(db, rel.entity_a_id, rel.entity_b_id)
+    name_a, name_b = _endpoint_tokens(db, rel)
     update_typed_fact_content(
         db, fact=lien, content=lien_fact_content(name_a, rel.type, name_b), changed_by=changed_by,
     )
@@ -288,7 +310,7 @@ def write_relation(
     db.add(rel)
     if is_new:
         db.flush()
-        _birth_typed_fact(db, rel, provenance)
+        _on_relation_born(db, rel, provenance)
     elif mode == "set":
         _refresh_lien_content(db, rel, old_type, provenance)
     return rel
@@ -359,7 +381,7 @@ def set_target_knows(db: Session, *, rel: Relation, knows: bool, changed_by: str
         return existing
     return write_knowledge(
         db, mode="update", entity_id=rel.entity_b_id, fact_id=lien.id,
-        subject=lien.content, content=lien.content, level="knows",
+        subject=render(db, lien.content_raw), content=lien.content_raw, level="knows",
         source=f"relation {rel.id}", is_secret=False, is_incorrect=False,
         share_threshold=50, changed_by=changed_by,
     )

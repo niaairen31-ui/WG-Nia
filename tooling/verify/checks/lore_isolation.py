@@ -54,6 +54,12 @@ message templates exist as named module-level string constants.
 R14 (unknown section never silently dropped): `render_template`'s AST
 contains a `raise`, directly or through a local helper it calls -- a row
 in a section outside the vocabulary fails loud rather than vanishing.
+R17 (the panel stays outside the pipeline) (TICKET-0091, BRIEF-0091-K,
+decision Q17d -- the 0085 read-only lock reopened in a bounded way: the Lore
+shell gains a name-resolution panel that writes, the consultation pipeline
+stays pure): `cockpit/routes/lore_mentions.py` and `lore_mentions_read.py`
+import none of `lore_selectors`, `lore_query`, `lore_plan`, `lore_render`,
+`lore_prompt`; and those five import neither panel module.
 
 Every rule above is vacuity-guarded — a rule that locates zero items is a
 FAILURE, not a silent pass. (R5-R7 are negative-existence checks over a
@@ -77,6 +83,8 @@ LORE_ROUTE_FILE = SRC / "cockpit" / "routes" / "lore.py"
 LORE_PROMPT_FILE = SRC / "lore_prompt.py"
 LORE_RENDER_FILE = SRC / "lore_render.py"
 PURITY_FILES = (LORE_SELECTORS_FILE, LORE_QUERY_FILE)
+PANEL_FILES = (SRC / "cockpit" / "routes" / "lore_mentions.py", SRC / "lore_mentions_read.py")
+PIPELINE_FILES = (LORE_SELECTORS_FILE, LORE_QUERY_FILE, LORE_PLAN_FILE, LORE_RENDER_FILE, LORE_PROMPT_FILE)
 
 _ALLOWED_PROMPT_MODELS = {"PromptTemplate", "PromptVersion"}
 _EXPECTED_DETERMINISTIC_MESSAGE_CONSTANTS = {
@@ -673,6 +681,42 @@ def check_prompt_loader_scoped_to_prompt_tables() -> None:
             )
 
 
+def _imported_modules(tree: ast.AST) -> set[str]:
+    """Last dotted component of every imported module or imported name
+    (`from ... import lore_plan as x` and `from .lore_plan import y` both
+    yield `lore_plan`)."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name.rsplit(".", 1)[-1] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                names.add(node.module.rsplit(".", 1)[-1])
+            names.update(alias.name for alias in node.names)
+    return names
+
+
+def check_panel_outside_pipeline() -> None:
+    """R17 (Q17d): no import between the name-resolution panel's modules and
+    the consultation pipeline, in either direction."""
+    pipeline_names = {p.stem for p in PIPELINE_FILES}
+    panel_names = {p.stem for p in PANEL_FILES}
+    for path in PANEL_FILES:
+        tree = _parse(path)
+        if tree is None:
+            continue
+        hits = _imported_modules(tree) & pipeline_names
+        if hits:
+            fail(f"lore_isolation R17: {_rel(path)} imports pipeline module(s) {sorted(hits)!r}")
+    for path in PIPELINE_FILES:
+        tree = _parse(path)
+        if tree is None:
+            continue
+        hits = _imported_modules(tree) & panel_names
+        if hits:
+            fail(f"lore_isolation R17: {_rel(path)} imports panel module(s) {sorted(hits)!r}")
+
+
 def main() -> None:
     check_purity()
     check_world_scoped_at_construction()
@@ -690,6 +734,7 @@ def main() -> None:
     check_render_ollama_fallback()
     check_render_deterministic_message_constants()
     check_render_template_raises_on_unknown_section()
+    check_panel_outside_pipeline()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -702,7 +747,8 @@ def main() -> None:
         "selector/category vocabulary parity checks (R8, R9), the prompt loader's "
         "scoping to prompt tables (R15), and the renderer's isolation, no-model-on-empty-"
         "verdict, Ollama fallback, message-constant, and unknown-section guards "
-        "(R10-R14) are all intact"
+        "(R10-R14), and the name-resolution panel's separation from the pipeline (R17) "
+        "are all intact"
     )
     sys.exit(0)
 

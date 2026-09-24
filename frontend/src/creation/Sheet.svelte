@@ -86,8 +86,8 @@
   import FactionRoster from './FactionRoster.svelte';
   import MembershipsPanel from './MembershipsPanel.svelte';
   import { loadFactionMembersPanel, draftRolesForCreate, resetDraftRoles } from './factionPanel.svelte.js';
-  import { subcultureDraftForCreate, resetSubcultureDraft } from './subcultureDraft.svelte.js';
-  import SubcultureEditor from './SubcultureEditor.svelte';
+  import { factsDraftForCreate, resetFactsDraft } from './factsDraft.svelte.js';
+  import FactsEditor from './FactsEditor.svelte';
   import PricingEditor from './PricingEditor.svelte';
   import LedgerPanel from './LedgerPanel.svelte';
   import ItemsPanel from './ItemsPanel.svelte';
@@ -205,7 +205,7 @@
   export function primaryAction() {
     resetCreateDrafts();
     resetDraftRoles();
-    resetSubcultureDraft();
+    resetFactsDraft();
     resetPendingDrafts();
     resetGeneratePanel();
     resetEventDraft();
@@ -479,7 +479,6 @@
   async function submitEntity(isNewSave, type, entityData, extData) {
     const statusEl = legacyDoc.getElementById('author-status');
     const rolesToCreate = (isNewSave && type === 'faction') ? draftRolesForCreate() : [];
-    const subcultureRowsToCreate = (isNewSave && type === 'location') ? subcultureDraftForCreate() : [];
     const knowledgeToCreate = (isNewSave && type === 'character') ? knowledgeForCreate() : [];
     const goalsToCreate = (isNewSave && type === 'character') ? goalsForCreate() : [];
     const mutationId = isNewSave ? getPendingCreationMutationId() : null;
@@ -488,6 +487,7 @@
       const body = JSON.stringify({
         entity: entityData,
         extension: extData,
+        ...(isNewSave ? { facets: factsDraftForCreate() } : {}),
         ...(isNewSave && mutationId ? { mutation_id: mutationId } : {}),
       });
       let detail = isNewSave
@@ -524,13 +524,6 @@
         }
       }
 
-      if (isNewSave && subcultureRowsToCreate.length) {
-        await api(`/api/entities/${encodeURIComponent(detail.id)}/subculture`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: subcultureRowsToCreate }),
-        });
-        detail = await api(`/api/entities/${encodeURIComponent(detail.id)}`);
-      }
-
       if (isNewSave && mutationId) {
         // TICKET-0059 (BRIEF-0059-e): the original _authorConsumePendingCreationMutationId
         // did both halves as one legacyCall; the id-clear half is ported
@@ -543,7 +536,7 @@
       if (isNewSave) {
         resetGeneratePanel();
         resetDraftRoles();
-        resetSubcultureDraft();
+        resetFactsDraft();
         resetPendingDrafts();
       }
 
@@ -666,14 +659,9 @@
         </div>
       {/if}
 
-      {#if type === 'location'}
-        <div class="field-section"><div class="field-section-title">Subculture</div>
-          <div id="author-subculture">
-            <SubcultureEditor {isNew} entityId={isNew ? null : detail.id} rows={isNew ? null : detail.subculture_rows}
-              {legacyDoc} onSaved={(d) => flushSync(() => enterViewMode(d, d.type))} />
-          </div>
-        </div>
-      {/if}
+      <div class="field-section"><div class="field-section-title">Faits</div>
+        <FactsEditor {isNew} entityId={isNew ? null : detail.id} entityType={type} />
+      </div>
 
       {#if !isNew && type === 'location'}
         <div class="field-section"><div class="field-section-title">Spatial geometry</div>

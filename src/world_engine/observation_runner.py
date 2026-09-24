@@ -31,6 +31,7 @@ from sqlmodel import Session, select
 from . import llm_parse, ollama_client
 from .analyzer_transcript import AttributionContext, analyze_overheard_lines, analyze_transcript
 from .context import assemble_npc_context
+from .facet_reads import facts_of
 from .models import (
     Character,
     Entity,
@@ -120,7 +121,11 @@ def check_run_readiness(
         entities = {e.id: e for e in db.exec(select(Entity).where(Entity.id.in_(npc_ids))).all()}
         for npc_id in npc_ids:
             entity = entities.get(npc_id)
-            if entity is None or not (entity.name or "").strip() or not (entity.description or "").strip():
+            if (
+                entity is None
+                or not (entity.name or "").strip()
+                or not facts_of(db, entity_id=npc_id, facets=("description",))
+            ):
                 failures.append(f"NPC {npc_id!r} lacks a describable identity (name and description)")
 
         goal_npc_ids = npc_ids_with_active_goal(npc_ids, db)

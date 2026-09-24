@@ -18,6 +18,7 @@ from sqlmodel import Session as DbSession, select
 from ...context import RELATION_GRAPH_EXCLUDED_TYPES as _RELATION_GRAPH_EXCLUDED_TYPES
 from ...db import get_session
 from ...entity_author import generate_npc_goals
+from ...facet_reads import facts_of, joined
 from ...gathering import close_open_memberships
 from ...ledger import get_balance, list_entries
 from ...ollama_client import OllamaError, ping
@@ -41,7 +42,6 @@ from ...models import (
     Knowledge,
     Ledger,
     Location,
-    LocationSubculture,
     NpcPrice,
     PromptTemplate,
     PromptVariable,
@@ -75,7 +75,6 @@ from ...writes import (
     write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
-    write_location_subculture,
     write_membership,
     write_npc_goal,
     write_npc_goal_prerequisites,
@@ -283,14 +282,15 @@ def set_relation_target_knows(
     return _relation_dict(rel, rel.entity_a_id, db)
 
 
-def _relation_graph_nodes(rows) -> list[dict]:
-    """Node shape shared by the ego and global relation-graph endpoints."""
+def _relation_graph_nodes(rows, db: DbSession) -> list[dict]:
+    """Node shape shared by the ego and global relation-graph endpoints;
+    `description` is the entity's `description` facts (`facts_of`)."""
     return [
         {
             "id": e.id,
             "name": e.name,
             "character_type": c.character_type,
-            "description": (e.description or "")[:200],
+            "description": (joined(facts_of(db, entity_id=e.id, facets=("description",))) or "")[:200],
         }
         for e, c in rows
     ]
@@ -357,7 +357,7 @@ def get_character_relation_graph(entity_id: str, db: DbSession = Depends(get_ses
     active_chars = {e.id: (e, c) for e, c in active_char_rows}
     node_ids = set(active_chars.keys())
 
-    nodes = _relation_graph_nodes(active_chars.values())
+    nodes = _relation_graph_nodes(active_chars.values(), db)
 
     edge_rels = db.exec(
         select(Relation)
@@ -393,7 +393,7 @@ def get_global_relation_graph(db: DbSession = Depends(get_session)) -> dict:
         .where(Entity.status == "active")
     ).all()
     node_ids = {e.id for e, _c in active_char_rows}
-    nodes = _relation_graph_nodes(active_char_rows)
+    nodes = _relation_graph_nodes(active_char_rows, db)
 
     edge_rels = db.exec(
         select(Relation)

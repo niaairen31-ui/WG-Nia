@@ -126,7 +126,7 @@ class Entity(SQLModel, table=True):
     type: str
     name: str
     internal_name: Optional[str] = None
-    description: Optional[str] = None
+    # description moved to `description` facts (TICKET-0091, schema v2.06).
     is_public: bool = Field(
         default=True, sa_column_kwargs={"server_default": text("1")}
     )
@@ -168,11 +168,8 @@ class Character(SQLModel, table=True):
     vital_status: str = Field(
         default="alive", sa_column_kwargs={"server_default": text("'alive'")}
     )
-    appearance: Optional[str] = None
-    backstory: Optional[str] = None
-    aversion: Optional[str] = None
-    # Plain text since TICKET-0025 (B1): no reader ever consumed structure.
-    secrets: Optional[str] = None
+    # appearance/backstory/aversion/secrets moved to facts (TICKET-0091,
+    # schema v2.06): physique, histoire, aversion, creator_meta histoire.
     # Schema v1.77, TICKET-0025, BRIEF-0025-a: physical resistance tier for
     # opposed rolls (resolution.py). Migrated from entity.metadata
     # ['physical_tier'] — UI-visible data is never stored in JSON
@@ -271,33 +268,6 @@ class LocationTypeCatalog(SQLModel, table=True):
     # obstacle_vertex (1.0 = one world-meter), NEVER coord_x/coord_y.
     default_width: Optional[float] = None
     default_height: Optional[float] = None
-
-
-# -----------------------------------------------------------------------------
-# location_subculture  (ambient culture lines, schema v1.78,
-# TICKET-0025, BRIEF-0025-b — replaces location.subculture JSON)
-#
-# One row per key. is_hidden = 1 rows are creator-only: every
-# non-creator read path filters is_hidden = 0 AT QUERY CONSTRUCTION —
-# exclusion is structural, never instructional. Curated config
-# (faction_role family): no change_history, full-replace writes via
-# writes.write_location_subculture only.
-# -----------------------------------------------------------------------------
-class LocationSubculture(SQLModel, table=True):
-    __tablename__ = "location_subculture"
-    __table_args__ = (
-        Index(
-            "idx_location_subculture_key", "location_id", text("key COLLATE NOCASE"),
-            unique=True,
-        ),
-    )
-
-    id: str = Field(default_factory=_uuid, primary_key=True)
-    world_id: str = Field(foreign_key="world.id", nullable=False)
-    location_id: str = Field(foreign_key="entity.id", nullable=False)
-    key: str
-    value: str
-    is_hidden: bool = Field(default=False, sa_column_kwargs={"server_default": text("0")})
 
 
 # -----------------------------------------------------------------------------

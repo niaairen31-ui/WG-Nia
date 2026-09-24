@@ -44,7 +44,6 @@ from ...models import (
     Knowledge,
     Ledger,
     Location,
-    LocationSubculture,
     NpcPrice,
     Obstacle,
     ObstacleVertex,
@@ -71,13 +70,13 @@ from ...writes import (
     write_agenda_status,
     write_agenda_step,
     write_agenda_step_status,
+    write_entity_facets,
     write_event,
     write_event_update,
     write_faction_role,
     write_goal_agenda_link,
     write_knowledge,
     write_ledger_entry,
-    write_location_subculture,
     write_membership,
     write_npc_goal,
     write_npc_goal_prerequisites,
@@ -116,7 +115,6 @@ ENTITY_STATUSES = ("active", "inactive", "destroyed", "missing")
 ENTITY_BASE_FIELDS: list[dict[str, Any]] = [
     {"name": "name", "label": "Name", "kind": "text", "required": True},
     {"name": "internal_name", "label": "Internal name (creator-only)", "kind": "text"},
-    {"name": "description", "label": "Description", "kind": "textarea"},
     {"name": "is_public", "label": "Public", "kind": "bool", "default": True},
     {"name": "status", "label": "Status", "kind": "select", "options": list(ENTITY_STATUSES), "default": "active"},
 ]
@@ -136,10 +134,6 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
                 "name": "vital_status", "label": "Vital status", "kind": "select",
                 "options": ["alive", "dead", "missing", "unknown"], "default": "alive",
             },
-            {"name": "appearance", "label": "Appearance", "kind": "textarea"},
-            {"name": "backstory", "label": "Backstory", "kind": "textarea"},
-            {"name": "aversion", "label": "Aversion", "kind": "textarea"},
-            {"name": "secrets", "label": "Secrets (creator-only)", "kind": "textarea"},
             {"name": "physical_tier", "label": "Physical tier (Carrure)", "kind": "number", "min": -1, "max": 2, "default": 0},
         ],
     },
@@ -175,14 +169,10 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
                 "name": "faction_type", "label": "Faction type", "kind": "datalist",
                 "options": ["government", "criminal", "military", "esoteric", "other"],
             },
-            {"name": "internal_structure", "label": "Internal structure", "kind": "textarea"},
-            {"name": "philosophy", "label": "Philosophy", "kind": "textarea"},
-            {"name": "aversion", "label": "Aversion", "kind": "textarea"},
             {
                 "name": "magic_knowledge_level", "label": "Magic knowledge level", "kind": "select",
                 "options": ["unaware", "suspicious", "partial", "knows", "understands"], "default": "unaware",
             },
-            {"name": "internal_tensions", "label": "Internal tensions", "kind": "textarea"},
             # DORMANT trio (BRIEF-26, schema v1.38): stored and creator-editable,
             # read by no assembler or guard. See RELATION_TYPES's `controls`
             # comment and models.Faction for the same dormancy doctrine.
@@ -243,7 +233,6 @@ def _entity_dict(e: Entity) -> dict:
         "type": e.type,
         "name": e.name,
         "internal_name": e.internal_name,
-        "description": e.description,
         "is_public": e.is_public,
         "status": e.status,
         "created_at": _iso(e.created_at),
@@ -261,16 +250,6 @@ def _npc_prices_dict(entity_id: str, db: DbSession) -> dict[str, int]:
     shape the Tarifs editor expects (TICKET-0025, BRIEF-0025-a)."""
     rows = db.exec(select(NpcPrice).where(NpcPrice.entity_id == entity_id)).all()
     return {row.tag: row.amount for row in rows}
-
-
-def _location_subculture_rows(location_id: str, db: DbSession) -> list[dict]:
-    """`location_subculture` rows for one location, as
-    `[{key, value, is_hidden}, ...]` (TICKET-0025, BRIEF-0025-b). Includes
-    `is_hidden` rows — this is the creator-facing editor; structural
-    exclusion for non-creator reads lives in context.py's query
-    construction, not here."""
-    rows = db.exec(select(LocationSubculture).where(LocationSubculture.location_id == location_id)).all()
-    return [{"key": row.key, "value": row.value, "is_hidden": row.is_hidden} for row in rows]
 
 
 def _location_geometry_dict(location_id: str, db: DbSession) -> dict:
@@ -384,14 +363,16 @@ class EntityWriteBody(BaseModel):
     # this create realizes an approved entity_creation germ from the
     # Création tab's pending-creations strip.
     mutation_id: Optional[str] = None
+    # TICKET-0091, BRIEF-0091-E (C-11): descriptive lore, written as facts by
+    # `writes/facets.py::write_entity_facets` on create only.
+    facets: Optional[dict[str, Any]] = None
+    # TICKET-0091, BRIEF-0091-J (C-11): a generator's
+    # [{"name", "category": "place"|"person"|"faction"}], passed to `tokenize`.
+    mentions: Optional[list[dict]] = None
 
 
 class NpcPricesBody(BaseModel):
     prices: dict[str, int] = {}
-
-
-class LocationSubcultureBody(BaseModel):
-    rows: list[dict[str, Any]] = []
 
 
 class EntityTypeCreateBody(BaseModel):
@@ -514,7 +495,6 @@ def get_entity(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
         if entity.type == "character":
             result["prices"] = _npc_prices_dict(entity_id, db)
         elif entity.type == "location":
-            result["subculture_rows"] = _location_subculture_rows(entity_id, db)
             result["geometry"] = _location_geometry_dict(entity_id, db)
             result["doors"] = _location_doors_rows(entity_id, db)
     else:
@@ -549,7 +529,7 @@ def _create_entity_core(body: EntityWriteBody, db: DbSession) -> Entity:
     is a 422 before any table is touched (A1 fail-closed)."""
     entity_type = body.entity.get("type")
     if entity_type in ENTITY_TYPE_REGISTRY:
-        return _create_static_entity_core(body, db, entity_type)
+        return _write_body_facets(body, db, _create_static_entity_core(body, db, entity_type))
 
     runtime_spec = _runtime_type_spec(db, entity_type) if entity_type else None
     if runtime_spec is None:
@@ -557,7 +537,26 @@ def _create_entity_core(body: EntityWriteBody, db: DbSession) -> Entity:
             422,
             f"type must be one of {list(ENTITY_TYPE_REGISTRY)} or an active governed entity type",
         )
-    return _create_runtime_entity_core(body, db, entity_type, runtime_spec)
+    return _write_body_facets(body, db, _create_runtime_entity_core(body, db, entity_type, runtime_spec))
+
+
+def _write_body_facets(body: EntityWriteBody, db: DbSession, entity: Entity) -> Entity:
+    """C-11: the create's descriptive lore, as facts, after the entity row is
+    flushed and in the same transaction. A malformed payload is a 422."""
+    db.flush()
+    try:
+        write_entity_facets(
+            db, entity_id=entity.id, facets=body.facets or {}, created_by="creator_crud",
+            mentions=body.mentions,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return entity
+
+
+def _refuse_facets(body: EntityWriteBody) -> None:
+    if body.facets:
+        raise HTTPException(422, "descriptive lore is edited through /api/entities/{id}/facts")
 
 
 def _create_static_entity_core(body: EntityWriteBody, db: DbSession, entity_type: str) -> Entity:
@@ -716,7 +715,6 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
         if entity.type == "character":
             result["prices"] = {}
         elif entity.type == "location":
-            result["subculture_rows"] = []
             # TICKET-0040: read the real geometry - birth bounds come from the
             # type template (E1), so a hardcoded null stub would make the
             # client render an empty editor whose next save wipes them.
@@ -739,6 +737,7 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
 def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends(get_session)) -> dict:
     """`body.entity` is whole-replace; `body.extension` is key-present-wins --
     a key absent from it leaves the stored extension column unchanged."""
+    _refuse_facets(body)
     entity = _get_entity(db, entity_id)
     data = body.entity
 
@@ -802,7 +801,6 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
         if entity.type == "character":
             result["prices"] = _npc_prices_dict(entity_id, db)
         elif entity.type == "location":
-            result["subculture_rows"] = _location_subculture_rows(entity_id, db)
             result["geometry"] = _location_geometry_dict(entity_id, db)
             result["doors"] = _location_doors_rows(entity_id, db)
     elif runtime_spec is not None:
@@ -850,31 +848,6 @@ def set_npc_prices(entity_id: str, body: NpcPricesBody, db: DbSession = Depends(
     result["relations"] = _list_relations(entity_id, db)
     result["knowledge"] = _list_knowledge(entity_id, db)
     result["prices"] = _npc_prices_dict(entity_id, db)
-    return result
-
-
-@router.put("/entities/{entity_id}/subculture")
-def set_location_subculture(entity_id: str, body: LocationSubcultureBody, db: DbSession = Depends(get_session)) -> dict:
-    """Full-replace a location's `location_subculture` rows (TICKET-0025,
-    BRIEF-0025-b — replaces the `location.subculture` JSON textarea)."""
-    entity = _get_entity(db, entity_id)
-    if entity.type != "location":
-        raise HTTPException(422, "Subculture is a location-only field")
-    try:
-        write_location_subculture(
-            db, world_id=entity.world_id, location_id=entity_id,
-            rows=body.rows, changed_by="creator",
-        )
-    except ValueError as exc:
-        raise HTTPException(422, str(exc))
-    db.commit()
-
-    result = _entity_dict(entity)
-    ext = db.get(Location, entity_id)
-    result["extension"] = _extension_dict("location", ext)
-    result["relations"] = _list_relations(entity_id, db)
-    result["knowledge"] = _list_knowledge(entity_id, db)
-    result["subculture_rows"] = _location_subculture_rows(entity_id, db)
     return result
 
 

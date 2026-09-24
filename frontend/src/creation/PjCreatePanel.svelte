@@ -116,9 +116,9 @@
         body: JSON.stringify({
           name: trimmedName,
           current_location_id: locationId,
-          description: description.trim() || null,
-          appearance: appearance.trim() || null,
-          backstory: backstory.trim() || null,
+          // TICKET-0091 (BRIEF-0091-F, Q20b): descriptive lore as facets;
+          // histoire is one fact per line, split by the server.
+          facets: { description, physique: appearance, histoire: backstory },
           knowledge: draftKnowledge,
         }),
       });
@@ -176,11 +176,11 @@
     <textarea rows="2" placeholder="Ce qu'autrui perçoit au premier regard" bind:value={description}></textarea>
   </div>
   <div class="field-row" style="margin:0 0 6px 0">
-    <label>Apparence</label>
+    <label>Physique</label>
     <textarea rows="2" placeholder="Référence du joueur" bind:value={appearance}></textarea>
   </div>
   <div class="field-row" style="margin:0 0 6px 0">
-    <label>Histoire personnelle</label>
+    <label>Histoire (un fait par ligne)</label>
     <textarea rows="3" placeholder="Référence du joueur" bind:value={backstory}></textarea>
   </div>
   <div class="field-row" style="margin:0">
