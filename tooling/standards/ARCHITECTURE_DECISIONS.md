@@ -15439,6 +15439,14 @@ offline today: it does not pre-flight ping, and a previously-obtained plan
 resolved through it while Ollama is unreachable returns `"renderer":
 "template"` with correct prose.
 
+**Amended (TICKET-0091, BRIEF-0091-K, Q17d): the read-only lock is reopened
+in a bounded way.** The Lore shell gains one writing corner, the "Noms à
+lier" tab (see "NAME-RESOLUTION PANEL" below). The question view and the
+consultation pipeline (`lore_selectors`, `lore_query`, `lore_plan`,
+`lore_render`, `lore_prompt`, `routes/lore.py`) stay read-only; R1-R16 of
+`lore_isolation.py` are unchanged, and R17 forbids imports between the panel
+and the pipeline.
+
 ## PLANNER UNAVAILABLE IS AN EXPLICIT MESSAGE, NOT A RAW ERROR (BRIEF-0085-f, no schema change)
 
 Closes the blocker raised above: a fresh `/api/lore/ask` question asked
@@ -16088,6 +16096,40 @@ frontend does not yet forward a draft's `mentions` into the create body;
 the server path is wired end to end. An appellation surface renders as the
 entity's current name (the C-13 contract), and a name cited after an
 elided article renders with the name's own article ("au Le ...").
+
+## NAME-RESOLUTION PANEL (TICKET-0091) -- THE LORE SHELL'S ONE WRITING CORNER (BRIEF-0091-k, no schema change)
+
+**Where.** Q17d puts the `unresolved_mention` worklist in the Lore shell, as
+a "Noms à lier" tab beside the question view (`frontend/src/lore/
+NamesPanel.svelte` + `namesPanel.svelte.js`). Each line shows the surface,
+the reason, a rendered excerpt, the recomputed candidates plus a search over
+the category's active entities, "Lier" and "Ignorer".
+
+**Reads and routes stay apart from the pipeline.** `lore_mentions_read.py`
+lists the open rows of the active world, oldest first, renders the owner's
+text through `prose_render`, and recomputes candidates with
+`resolve_named` (all three categories when `category` is NULL).
+`cockpit/routes/lore_mentions.py` holds the three C-16 routes, mounted after
+the Lore router. Neither imports a pipeline module, and no pipeline module
+imports them (`lore_isolation.py` R17).
+
+**The write lives in `writes/`.** The route cannot read `content_raw`
+(`identity_tokens.py` R1), so the replacement is
+`writes/mentions.py::bind_mention`: first plain occurrence (outside any
+token) of the surface becomes `entity_token(entity_id, surface)`, written
+through `update_fact_content` (fact) or `apply_knowledge_patch` ->
+`write_knowledge` (knowledge), then `resolve_mention`. The route validates
+with `validate_binding` (422; any category when NULL), returns 404 for an
+unknown or closed row, 422 when the surface no longer occurs plain, and
+commits once. `bind_mention` calls chokepoints only, so the canon-write
+policy needs no new site.
+
+**The worklist asks each question once.** Rewriting a knowledge text goes
+back through `write_knowledge`, which re-tokenizes it and re-reports the
+names still plain in it. `record_unresolved` now skips an item already open
+on the same owner (same surface, reason, category).
+
+**Guarded like Creation.** No route authentication (R-27, named deferral).
 
 ---
 

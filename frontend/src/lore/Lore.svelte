@@ -5,14 +5,20 @@
      `active` only toggles this root's own visibility, no legacy bridge call.
 
      Read-only surface: no editing control, no "corriger", no link into the
-     CRUD forms (Scope OUT) -- the assertion path is a later ticket. */
+     CRUD forms (Scope OUT) -- the assertion path is a later ticket.
+     Bounded reopening (TICKET-0091, BRIEF-0091-K, Q17d): the "Noms à lier"
+     tab (NamesPanel.svelte) binds or dismisses plain names in canon prose;
+     the question view and the consultation pipeline stay read-only. */
   import { serverState } from '../lib/serverState.svelte.js';
+  import NamesPanel from './NamesPanel.svelte';
   import {
     loreState, askLore, selectCandidate, allAmbiguitiesResolved, confirmResolution,
     reloadForWorld,
   } from './lore.svelte.js';
 
   let { active = false } = $props();
+
+  let loreTab = $state('question');
 
   const RENDERER_LABEL = Object.freeze({
     model: 'rédigé par le modèle',
@@ -74,7 +80,14 @@
 </script>
 
 <div class="app-view" id="lore-view" style:display={active ? '' : 'none'}>
-  <div class="queue-panel" id="lore-ask-panel">
+  <div class="lore-tabs">
+    <button class:active={loreTab === 'question'} onclick={() => (loreTab = 'question')}>Question</button>
+    <button class:active={loreTab === 'names'} onclick={() => (loreTab = 'names')}>Noms à lier</button>
+  </div>
+  {#if loreTab === 'names'}
+    <NamesPanel visible={active} />
+  {/if}
+  <div class="queue-panel" id="lore-ask-panel" style:display={loreTab === 'question' ? '' : 'none'}>
     <div class="panel-head">
       <h2>Lore — poser une question</h2>
     </div>
@@ -167,6 +180,8 @@
 
 <style>
   .r-err { color: var(--red); }
+  .lore-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+  .lore-tabs button.active { font-weight: 600; }
   textarea { width: 100%; box-sizing: border-box; font: inherit; }
   .answer-prose { white-space: pre-wrap; }
   .muted { color: var(--muted); font-size: 12px; }

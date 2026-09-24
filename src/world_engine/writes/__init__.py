@@ -18,7 +18,8 @@ Layout, by canon domain:
                           (TICKET-0091, BRIEF-0091-J).
     mentions.py         — `unresolved_mention` (non-canon worklist):
                           `record_unresolved`, `resolve_mention`,
-                          `dismiss_mention` (TICKET-0091, BRIEF-0091-J).
+                          `dismiss_mention` (TICKET-0091, BRIEF-0091-J);
+                          `bind_mention` (BRIEF-0091-K).
     facts.py            — `fact`/`fact_participant`/`fact_default`:
                           `create_fact`, `attach_participants`
                           (TICKET-0082, BRIEF-0082-b), `create_fact_default`
@@ -107,7 +108,7 @@ from .knowledge import (
     upsert_knowledge_row,
     write_knowledge,
 )
-from .mentions import dismiss_mention, record_unresolved, resolve_mention
+from .mentions import bind_mention, dismiss_mention, record_unresolved, resolve_mention
 from .pipeline import (
     BATCH_RESOLVED_STATUS,
     BATCH_STATUSES,
