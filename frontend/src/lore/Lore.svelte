@@ -8,9 +8,13 @@
      CRUD forms (Scope OUT) -- the assertion path is a later ticket.
      Bounded reopening (TICKET-0091, BRIEF-0091-K, Q17d): the "Noms à lier"
      tab (NamesPanel.svelte) binds or dismisses plain names in canon prose;
-     the question view and the consultation pipeline stay read-only. */
+     the question view and the consultation pipeline stay read-only.
+     TICKET-0092 (BRIEF-0092-e): on an unknown_entity verdict, each unmatched
+     name offers a link to that tab with the name pre-filled (openLookup); the
+     question view still writes nothing -- the link only opens the panel. */
   import { serverState } from '../lib/serverState.svelte.js';
   import NamesPanel from './NamesPanel.svelte';
+  import { openLookup } from './namesPanel.svelte.js';
   import {
     loreState, askLore, selectCandidate, allAmbiguitiesResolved, confirmResolution,
     reloadForWorld,
@@ -69,6 +73,11 @@
     return grouped;
   });
 
+  function linkToNames(surface) {
+    loreTab = 'names';
+    openLookup(surface);
+  }
+
   function rowFields(row) {
     return Object.entries(row).filter(([key]) => key !== 'section');
   }
@@ -115,6 +124,16 @@
             <p class="muted renderer-label">{RENDERER_LABEL[result.renderer]}</p>
           {/if}
         </div>
+
+        {#if result.verdict === 'unknown_entity'}
+          <div class="lore-links">
+            {#each mentionTrace.filter((t) => t.verdict === 'unmatched') as entry, i (i)}
+              <button onclick={() => linkToNames(entry.surface_form)}>
+                Lier « {entry.surface_form} » à une entité…
+              </button>
+            {/each}
+          </div>
+        {/if}
 
         {#if result.verdict === 'ambiguous_mention'}
           <div class="lore-candidates">
@@ -186,6 +205,7 @@
   .answer-prose { white-space: pre-wrap; }
   .muted { color: var(--muted); font-size: 12px; }
   .renderer-label { margin-top: 4px; }
+  .lore-links { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
   .lore-candidates { display: flex; flex-direction: column; gap: 10px; }
   .candidate-group { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--border); padding-top: 8px; }
   .candidate-option { display: flex; align-items: center; gap: 6px; }

@@ -3,7 +3,8 @@
      block per facet of the registry (GET /api/facets, loaded once) whose
      family fits the entity type -- character: identite + interiorite;
      faction: identite + collectif; location: identite + coutume; any other
-     type (item, runtime types): description only. Labels come from the
+     type (item, runtime types): description and appellation (TICKET-0092,
+     BRIEF-0092-e). Labels come from the
      registry, never from this file.
 
      EXISTING entity: the facts are read from GET /api/entities/{id}/facts
@@ -42,7 +43,7 @@
     const families = TYPE_FAMILIES[entityType];
     return registry.filter((f) => (families
       ? families.includes(f.family) || (entityType === 'location' && f.name === 'coutume')
-      : f.name === 'description'));
+      : f.name === 'description' || f.name === 'appellation'));
   });
 
   async function loadRegistry() {

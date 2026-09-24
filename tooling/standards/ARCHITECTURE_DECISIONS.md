@@ -16320,6 +16320,38 @@ policy site is added: the routes reach canon through `writes/*` only.
 no route and no `Session` in the renderer; every write lives in the panel's
 route module (Q17d), which imports none of them (`lore_isolation.py` R17).
 
+
+## LORE MISS TO NAMES PANEL (TICKET-0092) -- THE CREATOR NAMES WHAT THE TOOL MISSED (BRIEF-0092-e, no schema change)
+
+**Three doors, no new route.** The frontend consumes D's routes only.
+
+**A Lore miss links to the panel (N7c).** On an `unknown_entity` verdict,
+`Lore.svelte` shows one button per `unmatched` mention of the trace,
+« Lier « nom » à une entité… »; its click switches to the « Noms à lier »
+tab and calls `namesPanel.svelte.js::openLookup(surface)`, which reads
+`GET /api/lore/names/lookup`. The question view still writes nothing (Q17d):
+the link only navigates. The lookup card offers candidates, near names
+(« — ressemblance N % »), then every active entity, a scope
+(`rencontre` default | `world` | `none`), and « Enregistrer », which posts
+`POST /api/lore/appellations`. The lookup carries its `worldId`;
+`reloadForWorld()` clears it only on a world change, so the panel's
+mount-time reset does not wipe a lookup opened from the question tab.
+
+**The panel offers near names and "also record" (N13a).** The panel loads
+every active entity once (`GET /api/entities`, no `type`) and derives the
+category client-side with `categoryOf`, the mirror of
+`lore_resolve.category_of_type` (`item` -> `object`, unclaimed -> `other`).
+Options are candidates, then near names, then search hits, no id twice.
+Each mention carries a transient "Enregistrer aussi comme appellation"
+checkbox and scope, sent with « Lier » as `record_appellation`/`scope_type`.
+
+**Every entity sheet edits appellations (B4).** `FactsEditor.svelte` shows,
+for a type outside `TYPE_FAMILIES` (item, runtime types), `description` and
+`appellation`.
+
+**Nothing new is stored client-side** beyond transient UI state; the
+appellation lives in canon as an `appellation` fact.
+
 ---
 
 *Co-built with Claude, June 2026.*
