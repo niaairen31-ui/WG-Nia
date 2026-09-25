@@ -18,8 +18,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
+from world_engine.day_narration import (  # noqa: E402
+    BAND_LABELS_FR, BAND_MARKERS, _render_fact_sheet, assemble_beats,
+)
 from world_engine.day_narration_guard import judge_narration, lowercase_offending_words  # noqa: E402
-from world_engine.day_resolve import FactSheet, NamedRef, StepFact  # noqa: E402
+from world_engine.day_resolve import BLOCKED_BAND, FactSheet, NamedRef, StepFact  # noqa: E402
+from world_engine.llm_parse import LlmParseError  # noqa: E402
 
 FAILURES: list[str] = []
 EXECUTED: list[str] = []
@@ -97,9 +101,83 @@ def check_code_repair() -> None:
             fail(f"B5: repaired prose must pass the judge, got reason={v.reason!r}")
 
 
+# --- BRIEF-0093-C: beat assembly and band labels (C-02, C-04) ----------------
+
+def _beats_fact_sheet(steps: tuple[StepFact, ...] | None = None) -> FactSheet:
+    if steps is None:
+        steps = (
+            StepFact(objective="aller au manoir", band="partial", dice=(3, 4), modifier=0, total=7),
+            StepFact(objective="entrer", band=BLOCKED_BAND, dice=None, modifier=None, total=None,
+                     blocked_detail="la porte est close"),
+        )
+    return FactSheet(
+        world_id="w", day_number=1, character_name="Eiraan", steps=steps,
+        npcs=(), locations=(), role_hints=(), authorised_names=frozenset({"Eiraan"}),
+    )
+
+
+def _expect_parse_error(case: str, raw: str, fs: FactSheet, needle: str | None) -> None:
+    try:
+        got = assemble_beats(raw, fs)
+    except LlmParseError as exc:
+        if needle is not None and needle not in str(exc):
+            fail(f"{case}: LlmParseError message {str(exc)!r} lacks {needle!r}")
+        return
+    fail(f"{case}: expected LlmParseError, got {got!r}")
+
+
+def check_beat_assembly() -> None:
+    fs = _beats_fact_sheet()
+
+    EXECUTED.append("C1")
+    raw = '{"etapes": ["[Eiraan se rend au manoir.]", "Elle s\'y heurte."]}'
+    want = "[PARTIEL] Eiraan se rend au manoir.\n\n[BLOQUÉ] Elle s'y heurte."
+    try:
+        got = assemble_beats(raw, fs)
+    except LlmParseError as exc:
+        fail(f"C1: unexpected LlmParseError {exc}")
+    else:
+        if got != want:
+            fail(f"C1: got {got!r}, want {want!r}")
+        else:
+            v = judge_narration(got, fs)
+            if v.passed is not True:
+                fail(f"C1: assembled prose must pass the judge, got reason={v.reason!r}")
+
+    EXECUTED.append("C2")
+    _expect_parse_error("C2", "pas de json", fs, None)
+
+    EXECUTED.append("C3")
+    _expect_parse_error("C3", '{"x": 1}', fs, "'etapes' is not a list")
+
+    EXECUTED.append("C4")
+    _expect_parse_error("C4", '{"etapes": ["a"]}', fs, "expected 2 texts, got 1")
+
+    EXECUTED.append("C5")
+    _expect_parse_error("C5", '{"etapes": ["a", "[]"]}', fs, "text for step 2")
+    _expect_parse_error("C5", '{"etapes": ["a", 3]}', fs, "text for step 2")
+
+    EXECUTED.append("C6")
+    _expect_parse_error("C6", '{"etapes": []}', _beats_fact_sheet(steps=()), "has no steps")
+
+    EXECUTED.append("C7")
+    if set(BAND_LABELS_FR) != set(BAND_MARKERS):
+        fail(f"C7: BAND_LABELS_FR keys {sorted(BAND_LABELS_FR)} != BAND_MARKERS keys {sorted(BAND_MARKERS)}")
+
+    EXECUTED.append("C8")
+    rendered = _render_fact_sheet(fs)
+    leaked = [m for m in BAND_MARKERS.values() if m in rendered]
+    if leaked:
+        fail(f"C8: rendered fact sheet shows marker(s) {leaked!r}")
+    for needle in ("- Étape 1 « ", "issue : réussite partielle"):
+        if needle not in rendered:
+            fail(f"C8: rendered fact sheet lacks {needle!r}")
+
+
 def main() -> int:
     check_judge_baseline()
     check_code_repair()
+    check_beat_assembly()
     if not EXECUTED:
         fail("vacuity: zero cases executed")
     if FAILURES:

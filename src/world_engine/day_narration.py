@@ -10,10 +10,11 @@ prompt asks for two things the judge (`day_narration_guard.py`) can then
 verify structurally:
   1. Name ONLY people/places on the fact sheet's authorised list, and
      render every role hint as a function, never a name.
-  2. Prefix each step's beat with the EXACT band marker
-     (`[RÉUSSITE]`/`[PARTIEL]`/`[ÉCHEC]`) — `_BAND_MARKERS` below is the
-     single source both this module's prompt-building and the judge's
-     outcome-survival check key off.
+  2. Return one text per step as JSON (`{"etapes": [...]}`); the code
+     writes each step's band marker itself (`assemble_beats`,
+     TICKET-0093 J5b), so the model never sees or writes a marker.
+     `BAND_MARKERS` below stays the single source both the assembly and
+     the judge's outcome-survival check key off.
 
 The rewrite pass exists for a late-delta trigger — a role hint resolving to
 a canon id AFTER narration was drafted — that CANNOT currently fire: no code
@@ -64,6 +65,13 @@ BAND_MARKERS: dict[str, str] = {
     "success": "[RÉUSSITE]", "partial": "[PARTIEL]", "failure": "[ÉCHEC]", BLOCKED_BAND: "[BLOQUÉ]",
 }
 
+# French outcome labels the model reads instead of markers (TICKET-0093,
+# J5b): the model never sees or writes a marker; `assemble_beats` writes
+# them. Key set equal to BAND_MARKERS'.
+BAND_LABELS_FR: dict[str, str] = {
+    "success": "réussite", "partial": "réussite partielle", "failure": "échec", BLOCKED_BAND: "bloquée",
+}
+
 
 @dataclass(frozen=True)
 class LateDelta:
@@ -91,10 +99,9 @@ def _load_day_prose_template(usage: str, world_id: Optional[str], db: Session) -
 
 def _render_fact_sheet(fact_sheet: FactSheet) -> str:
     lines = [f"Jour {fact_sheet.day_number}.", f"Personnage joueur : {fact_sheet.character_name}."]
-    for step in fact_sheet.steps:
-        marker = BAND_MARKERS[step.band]
+    for index, step in enumerate(fact_sheet.steps, start=1):
         detail = f" (jet total {step.total})" if step.total is not None else " (aucun jet)"
-        line = f"- Étape « {step.objective} » — marqueur attendu {marker}{detail}."
+        line = f"- Étape {index} « {step.objective} » — issue : {BAND_LABELS_FR[step.band]}{detail}."
         if step.blocked_detail:
             line += f" Le personnage n'a pas pu l'entreprendre : {step.blocked_detail}."
         lines.append(line)
@@ -111,10 +118,37 @@ def _render_fact_sheet(fact_sheet: FactSheet) -> str:
     return "\n".join(lines)
 
 
+def assemble_beats(raw: str, fact_sheet: FactSheet) -> str:
+    """C-02 (TICKET-0093, J5b): the model's JSON — one text per step, in
+    step order — becomes the prose, each text prefixed by the step's
+    marker from BAND_MARKERS. Brackets in the model's text are removed so
+    the code-written markers are the only bracketed spans the judge sees.
+    Pure: no db, no chat(. Every defect raises LlmParseError, which the
+    route already turns into a 502."""
+    if not fact_sheet.steps:
+        raise llm_parse.LlmParseError("day_narration: fact sheet has no steps")
+    obj = llm_parse.extract_object(raw)
+    beats = obj.get("etapes")
+    if not isinstance(beats, list):
+        raise llm_parse.LlmParseError("day_narration: 'etapes' is not a list")
+    if len(beats) != len(fact_sheet.steps):
+        raise llm_parse.LlmParseError(
+            f"day_narration: expected {len(fact_sheet.steps)} texts, got {len(beats)}"
+        )
+    parts: list[str] = []
+    for number, (step, beat) in enumerate(zip(fact_sheet.steps, beats), start=1):
+        text = beat.replace("[", "").replace("]", "").strip() if isinstance(beat, str) else ""
+        if not text:
+            raise llm_parse.LlmParseError(f"day_narration: text for step {number} is empty or not a string")
+        parts.append(f"{BAND_MARKERS[step.band]} {text}")
+    return "\n\n".join(parts)
+
+
 def narrate(fact_sheet: FactSheet, declaration: str, db: Session) -> str:
     """ONE model call (Scope IN item 3). Takes the fact sheet and the
     declaration and nothing else derived from the DB (R3): `db` is used
-    only to load and read the prompt template."""
+    only to load and read the prompt template. Returns the prose assembled
+    by assemble_beats (TICKET-0093, J5b)."""
     template = _load_day_prose_template("day_narration", fact_sheet.world_id, db)
     if template is None:
         raise llm_parse.LlmParseError("day_narration: no active prompt_template for usage='day_narration'")
@@ -133,8 +167,9 @@ def narrate(fact_sheet: FactSheet, declaration: str, db: Session) -> str:
         ],
         model=effective_model(template, ollama_client.DEFAULT_MODEL),
         host=ollama_client.OLLAMA_HOST,
+        format="json",
     )
-    return raw.strip()
+    return assemble_beats(raw, fact_sheet)
 
 
 def rewrite(fact_sheet: FactSheet, prior_prose: str, delta: LateDelta, db: Session) -> str:

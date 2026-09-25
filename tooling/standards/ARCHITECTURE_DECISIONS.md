@@ -16451,4 +16451,54 @@ constants; `day_narration_beats.py` B1-B5 hold C-01's case table.
 
 ---
 
+## ONE TEXT PER STEP (TICKET-0093) -- THE CODE WRITES THE BAND MARKERS (BRIEF-0093-c, no schema change)
+
+**The measurement (R-29).** The model wrote band markers unreliably: the
+first step came back `[RÉUSSITE]` whatever its band (4/5 multi-step
+samples), accents were dropped or cased wrongly (`[Echec]`, `[ECHEC]`,
+`[Bloqué]`), and whole paragraphs came back in brackets -- which the
+judge's `_MARKER_RE` (any bracketed span) erases before name extraction.
+
+**J5b -- one text per step, markers by code.** The `day_narration` model
+now returns `{"etapes": [...]}`, one text per step in step order, via
+`ollama_client.chat(..., format="json")`, and never sees or writes a
+marker. `day_narration.assemble_beats(raw, fact_sheet)` (C-02, pure: no
+DB, no model call) builds the prose: each text has every `[`/`]` removed
+and is stripped, then prefixed by `BAND_MARKERS[step.band]`; texts are
+joined by a blank line. So the code-written markers are the only bracketed
+spans the judge sees, and they are correct by construction. Error cases,
+each an `LlmParseError` that the route's existing branch turns into a 502
+(Nia clicks « Résoudre » again, no in-route retry): no steps on the fact
+sheet; no JSON object (`extract_object`'s own errors); `etapes` not a
+list; a count different from the step count ("expected N texts, got M");
+a text that is not a string or is empty after bracket removal ("text for
+step K ..."). `narrate` returns `assemble_beats(raw, fact_sheet)`; the
+route is unchanged.
+
+**The fact sheet shows labels, not markers.** `BAND_LABELS_FR` (C-04,
+key set equal to `BAND_MARKERS`') maps each band to its French outcome
+(`réussite`, `réussite partielle`, `échec`, `bloquée`);
+`_render_fact_sheet` numbers the steps (`- Étape N « objective » --
+issue : label`). The rewrite pass renders the same fact sheet, so it also
+receives labels (its prompt, which still mentions markers, is out of this
+lot's scope and cannot fire today). `BAND_MARKERS` stays the single source
+for the assembly and the judge's outcome-survival check.
+
+**Delivery.** The seed's `DAY_NARRATION_SYSTEM_PROMPT` /
+`DAY_NARRATION_USER_TEMPLATE` change (positive form, no marker, JSON
+answer shape); `scripts/apply_ticket_0093_narration_prompt.py` (embeds no
+text, imports the seed constants, idempotent) appends one `prompt_version`
+to `pt-day-narration` -- Nia runs it on prod at the live gate. Checks:
+`day_narration.py` R22 (the system prompt names no band marker and no
+"marqueur") and R23 (`narrate` calls `assemble_beats` and asks
+`ollama_client.chat(` for `format="json"`; `_render_fact_sheet` reads no
+`BAND_MARKERS`); `day_narration_beats.py` C1-C8 hold C-02/C-04's case
+table.
+
+**Rejected (TICKET-0093), with reactivation condition.**
+- J5a (tolerant marker counting in the judge only): reactivate if more
+  than 20 % of narrations fail with a 502 on invalid JSON after 0093.
+
+---
+
 *Co-built with Claude, June 2026.*

@@ -77,7 +77,12 @@ field, and no `.split(`, `.replace(`, `re.` call or subscript is applied to
 `offending_words` structurally, never by re-parsing the message string.
 R22 (prompt hygiene): `DAY_NARRATION_SYSTEM_PROMPT`'s source text in
 `scripts/seed_pilot.py` contains none of the removed illustrative examples
-or the removed negative-form naming instruction.
+or the removed negative-form naming instruction. TICKET-0093 (J5b): it also
+names no band marker and no "marqueur" — the code writes markers.
+R23 (code-written markers, TICKET-0093 J5b): `narrate`'s body contains a
+call named `assemble_beats` and an `ollama_client.chat(` call with keyword
+`format` equal to the constant `"json"`; `_render_fact_sheet`'s body
+contains no `Name` `BAND_MARKERS`. Either function not found is a FAILURE.
 """
 from __future__ import annotations
 
@@ -866,7 +871,8 @@ def check_narration_prompt_hygiene() -> None:
     removed illustrative examples or the removed negative-form naming
     instruction — an example in a system prompt is a vocabulary reservoir
     that tints later narration, and negative form is worthless against the
-    abliterated gameplay model."""
+    abliterated gameplay model. TICKET-0093 (J5b): it also names no band
+    marker and no "marqueur" — the code writes markers."""
     tree = _parse(SEED_PILOT_FILE)
     if tree is None:
         return
@@ -884,10 +890,47 @@ def check_narration_prompt_hygiene() -> None:
     forbidden = (
         "le marchand", "la femme aux registres", "le marché",
         "N'invente aucun autre nom propre", "jamais par un nom propre inventé",
+        "[RÉUSSITE]", "[PARTIEL]", "[ÉCHEC]", "[BLOQUÉ]", "marqueur",
     )
     for phrase in forbidden:
         if phrase in prompt_value:
             fail(f"day_narration R22: DAY_NARRATION_SYSTEM_PROMPT still contains {phrase!r}")
+
+
+def check_narration_beats_wiring() -> None:
+    """R23 (BRIEF-0093-C, J5b): narrate returns the code-assembled prose —
+    it calls assemble_beats and asks ollama_client.chat( for format="json" —
+    and _render_fact_sheet never shows the model a marker (no Name
+    BAND_MARKERS in its body). Either function missing is a FAILURE, never
+    a vacuous pass."""
+    tree = _parse(DAY_NARRATION_FILE)
+    if tree is None:
+        return
+    narrate_fn = _find_function(tree, "narrate")
+    render_fn = _find_function(tree, "_render_fact_sheet")
+    if narrate_fn is None:
+        fail(f"day_narration R23: {_rel(DAY_NARRATION_FILE)}: narrate not found")
+    if render_fn is None:
+        fail(f"day_narration R23: {_rel(DAY_NARRATION_FILE)}: _render_fact_sheet not found")
+    if narrate_fn is not None:
+        calls = [n for n in ast.walk(narrate_fn) if isinstance(n, ast.Call)]
+        if not any(isinstance(c.func, ast.Name) and c.func.id == "assemble_beats" for c in calls):
+            fail(f"day_narration R23: {_rel(DAY_NARRATION_FILE)}: narrate never calls assemble_beats")
+        json_chat = any(
+            isinstance(c.func, ast.Attribute) and c.func.attr == "chat"
+            and isinstance(c.func.value, ast.Name) and c.func.value.id == "ollama_client"
+            and any(
+                kw.arg == "format" and isinstance(kw.value, ast.Constant) and kw.value.value == "json"
+                for kw in c.keywords
+            )
+            for c in calls
+        )
+        if not json_chat:
+            fail(f"day_narration R23: {_rel(DAY_NARRATION_FILE)}: narrate has no ollama_client.chat( with format=\"json\"")
+    if render_fn is not None:
+        for node in ast.walk(render_fn):
+            if isinstance(node, ast.Name) and node.id == "BAND_MARKERS":
+                fail(f"day_narration R23: {_rel(DAY_NARRATION_FILE)}:{node.lineno} — _render_fact_sheet reads BAND_MARKERS")
 
 
 def main() -> None:
@@ -911,6 +954,7 @@ def main() -> None:
     check_bounded_repair()
     check_no_reason_parsing()
     check_narration_prompt_hygiene()
+    check_narration_beats_wiring()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -921,7 +965,7 @@ def main() -> None:
         "append-only, declared_action write-once, PROMPT_REGISTRY wiring, V1's no-direct-"
         "step-write boundary, BB1's remaining-work invariant, BRIEF-0078-b's blocked-band "
         "gates (R13-R18), and the bounded code repair, the retired model repair and the "
-        "failure-surface gates (R19-R22) are all intact"
+        "failure-surface gates (R19-R22) and the code-written markers (R23) are all intact"
     )
     sys.exit(0)
 

@@ -2,14 +2,14 @@
 id: TICKET-0093
 title: Day narration — a judge that can pass
 type: bug
-status: brief
+status: exec
 created: 2026-09-25
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [db_write]
 blast_radius: medium
 lot_id: LOT-0093-day-narration-judge.md
 brief_ids: [A, B, C]
-current_brief:
+current_brief: C
 schema_version_touched:
 retry_count: 0
 ---
