@@ -89,20 +89,27 @@ def _check_schema_version(db: Session) -> None:
         sys.exit(1)
 
 
-def _attach_matched(db: Session, entry: dict) -> tuple[int, int]:
+def _attach_matched(db: Session, entry: dict) -> tuple[int, int, int]:
     """Attach `entry`'s resolved entity to every one of its `fact_ids`.
 
-    Returns `(facts_attached, orphans)`. An orphan is a `fact_id` with no
-    matching `fact` row -- R-03 measured zero of these in production;
-    defended anyway (ADAPT), skipped and counted rather than raising.
+    Returns `(facts_attached, orphans, typed)`. An orphan is a `fact_id` with
+    no matching `fact` row -- R-03 measured zero of these in production;
+    defended anyway (ADAPT), skipped and counted rather than raising. A typed
+    fact (`relation_id`/`event_id`/`world_law_id` set) cannot carry a
+    participant (`attach_participants` refuses it); such facts appeared after
+    this script was written (schema v2.04+), and are skipped and counted.
     """
     entity_id = entry["resolution"].entity_id
     facts_attached = 0
     orphans = 0
+    typed = 0
     for fact_id in entry["fact_ids"]:
         fact = db.get(Fact, fact_id)
         if fact is None:
             orphans += 1
+            continue
+        if fact.relation_id is not None or fact.event_id is not None or fact.world_law_id is not None:
+            typed += 1
             continue
         existing = db.exec(
             select(FactParticipant).where(
@@ -114,7 +121,7 @@ def _attach_matched(db: Session, entry: dict) -> tuple[int, int]:
             continue
         attach_participants(db, fact=fact, entity_ids=[entity_id])
         facts_attached += 1
-    return facts_attached, orphans
+    return facts_attached, orphans, typed
 
 
 def _process_world(db: Session, world: World, *, apply: bool) -> dict:
@@ -133,11 +140,13 @@ def _process_world(db: Session, world: World, *, apply: bool) -> dict:
 
     facts_attached = 0
     orphans = 0
+    typed = 0
     if apply:
         for entry in matched:
-            attached, orph = _attach_matched(db, entry)
+            attached, orph, typ = _attach_matched(db, entry)
             facts_attached += attached
             orphans += orph
+            typed += typ
         db.commit()
         residual = unresolved_subjects(world.id, db)
     else:
@@ -153,6 +162,7 @@ def _process_world(db: Session, world: World, *, apply: bool) -> dict:
         "subjects_unmatched": len(unmatched),
         "facts_attached": facts_attached,
         "orphans": orphans,
+        "typed": typed,
         "rows_now_covered": rows_now_covered,
         "rows_still_uncovered": rows_still_uncovered,
         "top_unmatched": sorted(
@@ -171,7 +181,7 @@ def _print_report(reports: list[dict], *, apply: bool) -> None:
     totals = dict.fromkeys(
         (
             "subjects_matched", "subjects_ambiguous", "subjects_unmatched",
-            "facts_attached", "orphans", "rows_now_covered", "rows_still_uncovered",
+            "facts_attached", "orphans", "typed", "rows_now_covered", "rows_still_uncovered",
         ),
         0,
     )
@@ -185,6 +195,8 @@ def _print_report(reports: list[dict], *, apply: bool) -> None:
             totals[key] += r[key]
         if r["orphans"]:
             print(f"    orphan fact_id(s) with no matching fact row: {r['orphans']}")
+        if r["typed"]:
+            print(f"    typed fact(s) skipped (relation/event/world_law): {r['typed']}")
         if r["top_unmatched"]:
             print("    top unmatched subjects (report-only worklist):")
             for e in r["top_unmatched"]:
@@ -198,6 +210,8 @@ def _print_report(reports: list[dict], *, apply: bool) -> None:
     )
     if totals["orphans"]:
         print(f"orphan fact_id(s), total: {totals['orphans']}")
+    if totals["typed"]:
+        print(f"typed fact(s) skipped, total: {totals['typed']}")
 
     if not apply:
         print()
