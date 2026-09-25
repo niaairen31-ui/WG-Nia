@@ -16352,6 +16352,43 @@ for a type outside `TYPE_FAMILIES` (item, runtime types), `description` and
 **Nothing new is stored client-side** beyond transient UI state; the
 appellation lives in canon as an `appellation` fact.
 
+
+
+## CAST NPCS ARE NAMED ON THE FACT SHEET (TICKET-0093) -- THE JUDGE STOPS REJECTING CHOSEN NPCS (BRIEF-0093-a, no schema change)
+
+**The measured defect (R-20).** `freeze_facts` built the fact sheet's
+`npcs`/`locations` from `concordance.matched` only. An NPC the concordance
+chose by casting (`concordance.cast`, F1's `CAST_PRECEDENCE`) was a real
+entity the plan already showed the player, yet it never reached
+`authorised_names`: when the narration named it, the T1 judge rejected the
+name as unauthorised. One cause among those measured in LOT-0093 R-29
+(1 fresh narration in 20 passed the judge).
+
+**J3a -- cast NPCs are named.** `day_resolve._named_refs(concordance, db)`
+(C-05) is the single builder of the fact sheet's persons and places. It
+iterates `matched` then `cast`; for each item it reads the `entity` row,
+skips a missing row, files a `character` under npcs and a `location` under
+locations, skips every other type, and never adds the same `NamedRef`
+twice (first occurrence wins). An empty concordance gives `((), ())`; it
+never raises. `freeze_facts` calls it once. Role hints are unchanged: a
+cast mention was never in `role_hints`, and `authorised_names` still
+unions npcs, locations and the character name. No stored row is touched;
+only fact sheets built from now on change. A cast entity is already a
+player-facing choice of the concordance, so naming it adds no knowledge
+the player lacks.
+
+**The docstring now says what the route does.** `freeze_facts` receives
+the trace `/plan` stored in `day_rewrite`, read back through
+`day_rewrite.load_latest` (`_read_day_rewrite_concordance`,
+BRIEF-0081-b) -- never a fresh `concord()` run, as the old text claimed.
+
+**Both new checks exist from this brief on (R-25).** `pipeline_state.py`
+requires every Machine-checkable arrow of a ticket in `brief`..`done` to
+resolve. `day_fact_sheet_refs.py` holds C-05's case table on a temp-file
+SQLite fixture (killed by the matched-only mutation).
+`day_narration_beats.py` is created with the judge baseline cases A1-A3
+(no DB, no model); BRIEF-0093-B and -C add their cases to it.
+
 ---
 
 *Co-built with Claude, June 2026.*

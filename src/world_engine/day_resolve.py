@@ -364,32 +364,36 @@ def outcome_line(outcome: StepOutcome) -> str:
     return f"{outcome.band}: {v.domain} {v.dice[0]}+{v.dice[1]}{v.modifier:+d}={v.total}"
 
 
-def freeze_facts(
-    outcomes: list[StepOutcome], concordance: ConcordanceResult, batch: Batch, character: Character, db: Session,
-) -> FactSheet:
-    """Build the frozen fact sheet (Scope IN item 2). `concordance` is a
-    FRESH `day_concordance.concord()` result over `pass_play.declared_
-    action`, re-run by the caller the same way `_extract_and_concord` does
-    at `/plan` time — `ConcordanceResult` is never persisted past the call
-    that builds it (BRIEF-0075-c), and `agenda_step_requirement` almost
-    never carries a `target_entity_id` in practice (the seeded `day_plan`
-    prompt only ever asks the model for the two requirement forms that
-    don't need one — knowledge/resource). Re-running the same
-    deterministic, model-free lookup is the durable-enough substitute:
-    concordance precedes narration here exactly as it did at plan time
-    (AMENDMENT 1's ordering, restated), so a mention resolvable at all is
-    already resolved before `narrate` ever runs."""
+def _named_refs(
+    concordance: ConcordanceResult, db: Session,
+) -> tuple[tuple[NamedRef, ...], tuple[NamedRef, ...]]:
+    """Named persons and places for the fact sheet: every `matched` AND
+    every `cast` mention whose entity exists (TICKET-0093, J3a). A cast
+    NPC is a real entity the concordance chose; leaving it out made the
+    judge reject its name as unauthorised."""
     npcs: list[NamedRef] = []
     locations: list[NamedRef] = []
-    for mm in concordance.matched:
-        entity = db.get(Entity, mm.entity_id)
+    for item in (*concordance.matched, *concordance.cast):
+        entity = db.get(Entity, item.entity_id)
         if entity is None:
             continue
-        ref = NamedRef(entity_id=mm.entity_id, name=entity.name)
+        ref = NamedRef(entity_id=item.entity_id, name=entity.name)
         if entity.type == "character" and ref not in npcs:
             npcs.append(ref)
         elif entity.type == "location" and ref not in locations:
             locations.append(ref)
+    return tuple(npcs), tuple(locations)
+
+
+def freeze_facts(
+    outcomes: list[StepOutcome], concordance: ConcordanceResult, batch: Batch, character: Character, db: Session,
+) -> FactSheet:
+    """Build the frozen fact sheet (Scope IN item 2). `concordance` is the
+    trace `/plan` stored in `day_rewrite`, read back by the caller through
+    `day_rewrite.load_latest` (`_read_day_rewrite_concordance`,
+    BRIEF-0081-b) — never a fresh `concord()` run. Persons and places come
+    from `_named_refs`: matched and cast mentions alike (TICKET-0093, J3a)."""
+    npcs, locations = _named_refs(concordance, db)
 
     role_hints = tuple(sorted({
         um.mention.role_hint or um.mention.surface_form
