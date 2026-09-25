@@ -2,17 +2,28 @@
   /* TICKET-0091 (BRIEF-0091-K, Q17d). The name-resolution panel: names left
      plain in canon prose (`unresolved_mention`), each bound to an entity
      ("Lier") or dismissed ("Ignorer"). The one writing corner of the Lore
-     shell -- the consultation pipeline stays read-only. */
+     shell -- the consultation pipeline stays read-only.
+     TICKET-0092 (BRIEF-0092-e): near names join the options, "Lier" can also
+     record the name as an appellation, and a lookup card (opened from a
+     Lore miss) records a name the resolver did not find. */
   import { serverState } from '../lib/serverState.svelte.js';
   import {
     namesState, loadMentions, optionsFor, setQuery, choose, bindMention, dismissMention,
-    reloadForWorld,
+    reloadForWorld, setRecord, setRecordScope, lookupOptions, setLookupChoice, setLookupScope,
+    saveAppellation, closeLookup, DEFAULT_SCOPE,
   } from './namesPanel.svelte.js';
 
   let { visible = false } = $props();
 
   const REASON_LABEL = Object.freeze({ ambigu: 'ambigu', inconnu: 'inconnu' });
-  const CATEGORY_LABEL = Object.freeze({ place: 'lieu', person: 'personne', faction: 'faction' });
+  const CATEGORY_LABEL = Object.freeze({
+    place: 'lieu', person: 'personne', faction: 'faction', object: 'objet', other: 'autre',
+  });
+  const SCOPE_OPTIONS = Object.freeze([
+    { value: 'rencontre', label: "Ceux qui l'ont rencontré" },
+    { value: 'world', label: 'Tout le monde' },
+    { value: 'none', label: 'Personne' },
+  ]);
 
   $effect(() => {
     void serverState.worldId;
@@ -36,6 +47,30 @@
   <div class="queue-body">
     {#if namesState.error}
       <div class="r-err">{namesState.error}</div>
+    {/if}
+    {#if namesState.lookup}
+      {@const lookup = namesState.lookup}
+      <div class="lookup-card">
+        <strong>« {lookup.surface} » — enregistrer comme appellation de :</strong>
+        <select value={lookup.choice} onchange={(e) => setLookupChoice(e.currentTarget.value)}>
+          <option value="">— choisir —</option>
+          {#each lookupOptions() as option (option.id)}
+            <option value={option.id}>{option.name} ({option.type})</option>
+          {/each}
+        </select>
+        <select value={lookup.scope} onchange={(e) => setLookupScope(e.currentTarget.value)}>
+          {#each SCOPE_OPTIONS as scope (scope.value)}
+            <option value={scope.value}>{scope.label}</option>
+          {/each}
+        </select>
+        <div class="mention-actions">
+          <button disabled={lookup.busy || !lookup.choice} onclick={() => saveAppellation()}>Enregistrer</button>
+          <button onclick={() => closeLookup()}>Fermer</button>
+        </div>
+        {#if lookup.message}
+          <p class="muted">{lookup.message}</p>
+        {/if}
+      </div>
     {/if}
     {#if !namesState.loading && namesState.mentions.length === 0}
       <p class="muted">Aucun nom en attente.</p>
@@ -64,6 +99,24 @@
             <option value={option.id}>{option.name} ({option.type})</option>
           {/each}
         </select>
+        <label class="record-line">
+          <input
+            type="checkbox"
+            checked={!!namesState.record[mention.id]}
+            onchange={(e) => setRecord(mention.id, e.currentTarget.checked)}
+          />
+          Enregistrer aussi comme appellation
+        </label>
+        {#if namesState.record[mention.id]}
+          <select
+            value={namesState.recordScope[mention.id] || DEFAULT_SCOPE}
+            onchange={(e) => setRecordScope(mention.id, e.currentTarget.value)}
+          >
+            {#each SCOPE_OPTIONS as scope (scope.value)}
+              <option value={scope.value}>{scope.label}</option>
+            {/each}
+          </select>
+        {/if}
         <div class="mention-actions">
           <button
             disabled={namesState.busy[mention.id] || !namesState.choices[mention.id]}
@@ -83,4 +136,6 @@
   .mention-head { display: flex; gap: 8px; align-items: baseline; }
   .excerpt { margin: 0; white-space: pre-wrap; }
   .mention-actions { display: flex; gap: 6px; }
+  .lookup-card { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border); padding: 8px; margin-bottom: 8px; }
+  .record-line { display: flex; align-items: center; gap: 6px; }
 </style>

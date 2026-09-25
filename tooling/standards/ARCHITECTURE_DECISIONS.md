@@ -16108,7 +16108,8 @@ the category's active entities, "Lier" and "Ignorer".
 **Reads and routes stay apart from the pipeline.** `lore_mentions_read.py`
 lists the open rows of the active world, oldest first, renders the owner's
 text through `prose_render`, and recomputes candidates with
-`resolve_named` (all three categories when `category` is NULL).
+`resolve_named` (every category when `category` is NULL -- five since
+BRIEF-0092-c).
 `cockpit/routes/lore_mentions.py` holds the three C-16 routes, mounted after
 the Lore router. Neither imports a pipeline module, and no pipeline module
 imports them (`lore_isolation.py` R17).
@@ -16130,6 +16131,226 @@ names still plain in it. `record_unresolved` now skips an item already open
 on the same owner (same surface, reason, category).
 
 **Guarded like Creation.** No route authentication (R-27, named deferral).
+
+## NAME INDEX (TICKET-0092) -- ONE SOURCE FOR EVERY NAME SURFACE (BRIEF-0092-a, no schema change)
+
+**One module lists every name surface.** `name_index.surfaces(db, world_id,
+scope)` returns the active entity names of a world, then the rendered
+`appellation` facts about active entities that the `NameScope`'s regime
+admits (N1c). Names first by `entity_id`, then appellations by
+`(entity_id, fact_id)`; text is rendered (`prose_render.fact_texts`),
+never normalized — callers normalize. The tokenizer (`prose_tokens.py`)
+builds its index from it and no longer selects rows itself. This
+supersedes the index description of IDENTITY TOKENS (BRIEF-0091-j), which
+indexed every appellation.
+
+**Four regimes, one rule table (N2b).** `_APPELLATION_RULES`, keyed exactly
+by `REGIMES` (`name_index.py` R3):
+
+| regime | active entity names | appellation of an active entity |
+|---|---|---|
+| `names_only` | all | none |
+| `creator` | all | all, creator-only included |
+| `prose` | all | not creator-only AND has a scope |
+| `perceiver` | all | not creator-only AND `fact_id in known_fact_ids` |
+
+`exclude_entity_id` removes one entity's name and appellations in every
+regime. `creator` is the second opt-in to creator-only facts after the Lore
+dossier, confined to `name_index.py`, `lore_query.py`,
+`lore_mentions_read.py`, `writes/facets.py` (R5); the CLAUDE.md "Secrets
+are structurally excluded" invariant names it. Creator-only is read through
+`facet_reads.creator_only_fact_ids`, never re-derived.
+
+**"Has a scope" (N17a).** `fact.default_level != 'unaware'`, or a
+`fact_default` row for the fact with `level != 'unaware'`. Token posing
+(`prose`) indexes only scoped, non-creator-only appellations: an unscoped
+or creator-only appellation never turns into a token in new prose.
+
+**An appellation's own text is tokenized on names alone (N15b).**
+`add_entity_fact` on `appellation` tokenizes with `NameScope("names_only",
+exclude_entity_id=<owner>)`; `edit_entity_fact` does the same when the fact
+has exactly one participant, `names_only` with no exclusion otherwise.
+Another entity's appellation stays plain ("la reine" is stored as written);
+another entity's name still becomes a token ("la fille du vieil Aldric"
+follows Aldric's renames); the owner's own name stays plain.
+
+**The `appellation` preset is `rencontre` (N14b).** A new appellation is
+known, by default, to whoever meets its entity. Appellations written before
+this ticket keep their defaults: no backfill.
+
+**Lazy import.** `name_index` imports `creator_only_fact_ids` inside
+`surfaces`: a module-level import closes the cycle `facet_reads ->
+knowledge_resolve -> writes.knowledge -> prose_tokens -> lore_resolve`
+back onto `facet_reads` (R-07); `name_index.py` R4 forbids the module-level
+form.
+
+## NAMES RESOLVE THROUGH THE INDEX (TICKET-0092) -- APPELLATIONS, PARTIAL AND NEAR NAMES (BRIEF-0092-b, no schema change)
+
+**The rungs are pure functions over surfaces (C-04).** `lore_resolve`'s
+rungs take `(surface_form, category, surfaces)` and read no table; they
+consider only surfaces whose `category_of_type(entity_type)` is the
+category and return the sorted distinct entity ids, or None. With
+`F = normalize_surface(surface_form)`, `TF` its tokens, `K`/`TK` the same
+for a surface:
+
+| rung | a surface matches when |
+|---|---|
+| `named_exact` | `F != ""` and `K == F` |
+| `named_token` | `TK` non-empty, `TK <= TF`, some token of `TK` has 3+ characters |
+| `named_partial` | `TF` non-empty, every token of `TF` has 3+ characters, `TF <= TK` |
+
+`validate_binding` keeps the module's one `select(` (world-scoped,
+`Entity.type.in_(...)`); `_CATEGORY_ENTITY_TYPE` maps a category to a tuple
+of types. No `Character` identifier enters the module.
+
+**Names and appellations are equal candidates (N11a).** A name and an
+appellation matching at the same rung rank equally: two distinct entities
+make the verdict `ambiguous`. The tool never picks.
+
+**Every caller states whose names it sees (C-05).** `resolve_named` takes a
+keyword-only `scope` with no default -- a default would silently hand the
+creator regime to a caller that forgot one. `name_index.py` R6 enforces the
+keyword on every `resolve_named`/`near_candidates` call.
+
+| caller | scope |
+|---|---|
+| `lore_query._resolve_mentions` | `CREATOR` |
+| `lore_mentions_read._candidates` | `CREATOR` |
+| `prose_tokens._mention_spans` | the scope `tokenize` received (`prose`/`names_only`) |
+| `subject_resolve.resolve_subject` | `NAMES_ONLY`, categories frozen |
+| `day_concordance` named rungs | `perceiver`, the character's resolved known facts |
+
+**The partial rung and near names are creator-surface only (N12a).**
+`resolve_named` skips `named_partial` unless the regime is `creator`;
+`near_candidates` raises `ValueError` outside it. Near candidates
+(`difflib` ratio >= 0.8, or a shared 3+ token; best surface per entity;
+at most five; score rounded half up) are display only, never a pick. The
+day chain sees only the appellations its character knows:
+`NameScope("perceiver", known_fact_ids=frozenset(resolve_levels_for_entity(
+db, character.id)))`, surfaces built once per `concord` and carried in
+`_ConcordContext.surfaces`. Reactivation in play waits for H2.
+
+**`named_alias` stays a no-op (N16a).** Known appellations join
+`named_exact`/`named_token` in play; `named_alias`, its comment and
+`MATCHING_RUNGS` are untouched.
+
+**Knowledge subjects stay on names (N10a).** `subject_resolve` walks a
+local `_SUBJECT_CATEGORIES = ("faction", "person", "place")` with
+`NAMES_ONLY`: an appellation never resolves a `knowledge.subject`, and a
+future widening of the Lore categories does not reach it.
+
+## EVERY CATEGORY IS NAMEABLE ON THE CREATOR SURFACES (TICKET-0092) -- OBJECT AND OTHER (BRIEF-0092-c, no schema change)
+
+**Five categories (C-07, B4).** `lore_resolve._CATEGORY_ENTITY_TYPE` gains
+`"object": ("item",)` and `"other": ()`; `CATEGORIES` is its key tuple and
+`OTHER_CATEGORY = "other"`.
+
+| entity.type | `category_of_type` |
+|---|---|
+| location | place |
+| character | person |
+| faction | faction |
+| item | object |
+| artifact, any runtime slug, anything else | other |
+
+`category_of_type` never returns None: `other` is every type no other
+category claims, so a runtime-type entity (`entity.type = <slug>`) is
+nameable without a registry edit. `validate_binding` for `other` checks
+`Entity.type.notin_(<every claimed type>)` inside the same world-scoped
+`.where(`; for any other category, `Entity.type.in_(<its tuple>)`.
+
+**The planner is told the same five.** `lore_plan._MENTION_CATEGORIES`
+lists the five literals (R9 parity with the dict keys; `name_resolution.py`
+G8 compares it with `CATEGORIES`). `LORE_QUESTION_TO_PLAN_SYSTEM_PROMPT`
+names them; the live head `pt-lore-question-to-plan` receives the text as
+a new `prompt_version` through `scripts/apply_ticket_0092_lore_plan_prompt.py`
+(idempotent; appends, never edits). No new prompt usage.
+
+**What stays three-category (N6a, R-18).** The day chain is untouched: the
+day-mention writer (`writes/pipeline.py` `_MENTION_CATEGORIES`), the
+`day_mention_resolution` CHECK, `day_extract`'s `Mention.category`, and the
+generator `mentions` vocabulary (`entity_author.py`) keep `place`,
+`person`, `faction`. `subject_resolve` keeps its frozen
+`_SUBJECT_CATEGORIES` (N10a).
+
+**Events stay out (N6c, named deferral).** `event` is its own table with a
+`title`, not an entity; it carries no fact participant and no category.
+
+## NEAR NAMES AND APPELLATIONS FROM THE PANEL (TICKET-0092) -- THE LORE MISS HAS A WAY OUT (BRIEF-0092-d, no schema change)
+
+**Near names in the Lore answer (N9b, C-10).** `LoreResult` gains a last
+field `near: tuple[dict, ...] = ()`, set only by the `unknown_entity`
+construction: one block per unmatched surface form, in plan order,
+`{"surface_form", "candidates": [{"entity_id", "name", "type", "score"}]}`
+from `near_candidates(surface_form, world_id, db, scope=CREATOR)`. They are
+computed in `lore_query` and carried in the result: the renderer receives
+rows, never a `Session`. `lore_render` adds a seventh constant,
+`_NEAR_ITEM = "{nom} (ressemblance {pct} %)"`; `_render_unknown_entity`
+renders `_UNKNOWN_ENTITY_WITH_NEAR` when a surface has near candidates,
+`_UNKNOWN_ENTITY_WITHOUT_NEAR` otherwise. The six existing constants are
+unedited. `/api/lore/ask` and `/api/lore/resolve` bodies carry `"near"`.
+Near names are display only, sorted by resemblance, never preselected;
+exact homonyms keep their alphabetical, unscored list.
+This gives BRIEF-0085-d's "near candidates ... no source yet" branch its
+source; that record stays as written (history).
+
+**Near names in « Noms à lier » (N13a, C-11).** `GET /api/lore/mentions`
+rows gain `"near": [{"id", "name", "type", "score"}]`, the resolver's own
+candidates excluded. `GET /api/lore/names/lookup?surface=` (422 on a blank
+surface) returns the resolver's candidates over every category, sorted by
+name, and the near names excluding them
+(`lore_mentions_read.lookup_surface`).
+
+**Recording a missed name (N7c, C-09, C-11).**
+`writes/facets.record_appellation(db, *, entity_id, surface, scope_type,
+created_by)` takes `scope_type` in `rencontre` (on the entity) | `world` |
+`none`, raises `ValueError` on anything else, a blank surface or an unknown
+entity, returns `None` and writes nothing when the surface normalizes to
+the entity's name or one of its appellations (creator regime), and
+otherwise writes one `appellation` fact through `add_entity_fact`. It never
+commits. `POST /api/lore/appellations` (422 unless the entity is an active
+entity of the world, any category) and `POST
+/api/lore/mentions/{id}/resolve` with `record_appellation: true` call it;
+the resolve route binds then records in one transaction, one commit, and a
+`ValueError` from either writer rolls back both (422). No canon-write
+policy site is added: the routes reach canon through `writes/*` only.
+
+**The consultation pipeline still never writes.** `lore_query`,
+`lore_selectors`, `lore_plan`, `lore_render`, `lore_prompt` gain no write,
+no route and no `Session` in the renderer; every write lives in the panel's
+route module (Q17d), which imports none of them (`lore_isolation.py` R17).
+
+
+## LORE MISS TO NAMES PANEL (TICKET-0092) -- THE CREATOR NAMES WHAT THE TOOL MISSED (BRIEF-0092-e, no schema change)
+
+**Three doors, no new route.** The frontend consumes D's routes only.
+
+**A Lore miss links to the panel (N7c).** On an `unknown_entity` verdict,
+`Lore.svelte` shows one button per `unmatched` mention of the trace,
+« Lier « nom » à une entité… »; its click switches to the « Noms à lier »
+tab and calls `namesPanel.svelte.js::openLookup(surface)`, which reads
+`GET /api/lore/names/lookup`. The question view still writes nothing (Q17d):
+the link only navigates. The lookup card offers candidates, near names
+(« — ressemblance N % »), then every active entity, a scope
+(`rencontre` default | `world` | `none`), and « Enregistrer », which posts
+`POST /api/lore/appellations`. The lookup carries its `worldId`;
+`reloadForWorld()` clears it only on a world change, so the panel's
+mount-time reset does not wipe a lookup opened from the question tab.
+
+**The panel offers near names and "also record" (N13a).** The panel loads
+every active entity once (`GET /api/entities`, no `type`) and derives the
+category client-side with `categoryOf`, the mirror of
+`lore_resolve.category_of_type` (`item` -> `object`, unclaimed -> `other`).
+Options are candidates, then near names, then search hits, no id twice.
+Each mention carries a transient "Enregistrer aussi comme appellation"
+checkbox and scope, sent with « Lier » as `record_appellation`/`scope_type`.
+
+**Every entity sheet edits appellations (B4).** `FactsEditor.svelte` shows,
+for a type outside `TYPE_FAMILIES` (item, runtime types), `description` and
+`appellation`.
+
+**Nothing new is stored client-side** beyond transient UI state; the
+appellation lives in canon as an `appellation` fact.
 
 ---
 

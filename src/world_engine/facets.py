@@ -35,7 +35,7 @@ class FacetSpec:
 
 
 _SPECS = (
-    FacetSpec("appellation", "identite", "affirmation", "location", "Appellations",
+    FacetSpec("appellation", "identite", "affirmation", "rencontre", "Appellations",
               "Un nom, surnom ou titre sous lequel on désigne l'entité."),
     FacetSpec("statut", "identite", "affirmation", "location", "Statuts",
               "Une position sociale, une charge ou un rang que l'entité occupe."),

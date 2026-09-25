@@ -19,8 +19,9 @@ from .ollama_client import chat
 # vocabulary the MODEL is told about, and the G1 check (lore_isolation R9)
 # asserts the two stay equal rather than one importing the other -- a
 # category added to one without the other fails the check instead of
-# silently drifting apart.
-_MENTION_CATEGORIES: tuple[str, ...] = ("place", "person", "faction")
+# silently drifting apart. Five since TICKET-0092 (BRIEF-0092-c): `object`
+# and `other` make every entity nameable on the creator surfaces.
+_MENTION_CATEGORIES: tuple[str, ...] = ("place", "person", "faction", "object", "other")
 
 # One line per selector, keyed by name; the G1 check (lore_isolation R8)
 # asserts this key set equals SELECTORS, so a selector added later without a
@@ -56,7 +57,7 @@ def _coerce_mention(raw: object) -> PlanMention:
     if not isinstance(surface_form, str) or not surface_form:
         raise llm_parse.LlmParseError(f"lore_plan: mention missing a string surface_form: {raw!r}")
     if category not in _MENTION_CATEGORIES:
-        # A category outside the three literals is a rejected plan, never a
+        # A category outside the five literals is a rejected plan, never a
         # coerced one (BRIEF-0085-c item 4) -- resolve_named's
         # _CATEGORY_ENTITY_TYPE lookup would KeyError on anything else.
         raise llm_parse.LlmParseError(f"lore_plan: mention {ref!r} has an unsupported category: {category!r}")

@@ -14,8 +14,13 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from .lore_resolve import _CATEGORY_ENTITY_TYPE, resolve_named
+from .lore_resolve import resolve_named
 from .models import Entity, FactParticipant, Knowledge
+from .name_index import NAMES_ONLY
+
+# Frozen here (N10a): a knowledge subject resolves on names only, among these
+# three categories, whatever the Lore resolver's categories become.
+_SUBJECT_CATEGORIES: tuple[str, ...] = ("faction", "person", "place")
 
 
 @dataclass(frozen=True)
@@ -27,8 +32,9 @@ class SubjectResolution:
 
 
 def resolve_subject(subject: str, world_id: str, db: Session) -> SubjectResolution:
-    """Walk `_CATEGORY_ENTITY_TYPE` in sorted key order, calling
-    `resolve_named(subject, category, world_id, db)` for each.
+    """Walk `_SUBJECT_CATEGORIES` in order, calling
+    `resolve_named(subject, category, world_id, db, scope=NAMES_ONLY)` for
+    each: entity names only, never an appellation (N10a).
 
     Exactly one distinct `entity_id` across all `matched` categories, and no
     category `ambiguous` -> `matched`. Two or more distinct matched ids, or
@@ -44,8 +50,8 @@ def resolve_subject(subject: str, world_id: str, db: Session) -> SubjectResoluti
     any_ambiguous = False
     seen_candidates: set[str] = set()
 
-    for category in sorted(_CATEGORY_ENTITY_TYPE):
-        result = resolve_named(subject, category, world_id, db)
+    for category in _SUBJECT_CATEGORIES:
+        result = resolve_named(subject, category, world_id, db, scope=NAMES_ONLY)
         if result.verdict == "ambiguous":
             any_ambiguous = True
             seen_candidates.update(result.candidate_ids)

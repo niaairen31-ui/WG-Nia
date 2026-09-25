@@ -27,6 +27,8 @@ from sqlmodel import Session, select
 
 from ..facets import DESCRIPTIVE_FACETS, facet_spec, normalize_aspect
 from ..models import Entity, Fact, FactParticipant
+from ..lore_resolve import normalize_surface
+from ..name_index import CREATOR, PROSE, NameScope, surfaces
 from ..prose_render import fact_text
 from ..prose_tokens import tokenize
 from .facts import (
@@ -121,7 +123,12 @@ def add_entity_fact(
     chosen = scope if scope is not None else _preset_scope(spec.preset, entity)
     _check_scope(chosen)
 
-    tokens = tokenize(db, world_id=entity.world_id, text=content, mentions=mentions)
+    # An appellation's own text is tokenized on names alone, its owner
+    # excluded: it is stored plain and never self-referential (N15b).
+    name_scope = (NameScope("names_only", exclude_entity_id=entity_id)
+                  if facet == "appellation" else PROSE)
+    tokens = tokenize(db, world_id=entity.world_id, text=content, mentions=mentions,
+                      scope=name_scope)
     fact = create_fact(
         db, world_id=entity.world_id, content=tokens.text, created_by=created_by,
         facet=facet, aspect=norm_aspect,
@@ -229,6 +236,33 @@ def write_entity_facets(
     return created
 
 
+_APPELLATION_SCOPES = ("rencontre", "world", "none")
+
+
+def record_appellation(
+    db: Session, *, entity_id: str, surface: str, scope_type: str, created_by: str
+) -> Optional[Fact]:
+    """A name the creator saw missed, recorded as an `appellation` of
+    `entity_id` (BRIEF-0092-d, C-09). `ValueError` on a scope outside
+    `_APPELLATION_SCOPES`, a blank surface or an unknown entity. `None`, and
+    nothing written, when `surface` normalizes to the entity's name or one of
+    its appellations. Never commits."""
+    if scope_type not in _APPELLATION_SCOPES:
+        raise ValueError(f"scope_type {scope_type!r} is not one of {_APPELLATION_SCOPES!r}")
+    if not isinstance(surface, str) or not surface.strip():
+        raise ValueError("appellation surface is empty")
+    entity = db.get(Entity, entity_id)
+    if entity is None:
+        raise ValueError(f"entity {entity_id!r} not found")
+    key = normalize_surface(surface)
+    if any(s.entity_id == entity_id and normalize_surface(s.text) == key
+           for s in surfaces(db, entity.world_id, CREATOR)):
+        return None
+    scope = ScopeChoice("rencontre", entity_id) if scope_type == "rencontre" else ScopeChoice(scope_type)
+    return add_entity_fact(db, entity_id=entity_id, facet="appellation", content=surface.strip(),
+                           created_by=created_by, scope=scope)
+
+
 def _descriptive_fact(db: Session, fact_id: str) -> Fact:
     fact = db.get(Fact, fact_id)
     if fact is None:
@@ -236,6 +270,15 @@ def _descriptive_fact(db: Session, fact_id: str) -> Fact:
     if fact.facet not in DESCRIPTIVE_FACETS:
         raise ValueError(f"fact {fact_id!r} is not a descriptive fact")
     return fact
+
+
+def _edit_scope(db: Session, fact: Fact) -> NameScope:
+    """N15b for an edit: an appellation is tokenized on names alone, without
+    its owner when it has exactly one participant; any other facet is prose."""
+    if fact.facet != "appellation":
+        return PROSE
+    owners = db.exec(select(FactParticipant.entity_id).where(FactParticipant.fact_id == fact.id)).all()
+    return NameScope("names_only", exclude_entity_id=owners[0] if len(owners) == 1 else None)
 
 
 def edit_entity_fact(db: Session, *, fact_id: str, content: str, changed_by: str) -> Fact:
@@ -249,7 +292,7 @@ def edit_entity_fact(db: Session, *, fact_id: str, content: str, changed_by: str
         raise ValueError("fact content is empty")
     if content in (fact.content_raw, fact_text(db, fact)):
         return update_fact_content(db, fact=fact, content=fact.content_raw, changed_by=changed_by)
-    tokens = tokenize(db, world_id=fact.world_id, text=content)
+    tokens = tokenize(db, world_id=fact.world_id, text=content, scope=_edit_scope(db, fact))
     if tokens.unresolved:
         record_unresolved(db, world_id=fact.world_id, fact_id=fact.id, items=tokens.unresolved)
     return update_fact_content(db, fact=fact, content=tokens.text, changed_by=changed_by)

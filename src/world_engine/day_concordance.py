@@ -57,6 +57,7 @@ from typing import Callable, Optional
 from sqlmodel import Session, select
 
 from .day_extract import Mention
+from .knowledge_resolve import resolve_levels_for_entity
 from .lore_resolve import normalize_surface, rung_named_exact, rung_named_token
 from .models import (
     SCHEDULE_PHASES,
@@ -68,6 +69,7 @@ from .models import (
     ProposedMutation,
     Relation,
 )
+from .name_index import NameScope, surfaces as name_surfaces
 from .schedule_reads import who_is_at
 
 _log = logging.getLogger(__name__)
@@ -134,6 +136,9 @@ class _ConcordContext:
     world_id: str
     place_candidate_ids: tuple[str, ...]
     reachable_location_ids: frozenset[str]
+    # The perceiver's name surfaces (TICKET-0092, C-05): names plus the
+    # appellations the character knows, built once per `concord`.
+    surfaces: tuple = ()
 
 
 def _role_keywords(role_hint: str) -> list[str]:
@@ -144,13 +149,13 @@ def _role_keywords(role_hint: str) -> list[str]:
 def _rung_named_exact(mention: Mention, ctx: _ConcordContext, db: Session) -> Optional[list[str]]:
     if mention.kind != "named":
         return None
-    return rung_named_exact(mention.surface_form, mention.category, ctx.world_id, db)
+    return rung_named_exact(mention.surface_form, mention.category, ctx.surfaces)
 
 
 def _rung_named_token(mention: Mention, ctx: _ConcordContext, db: Session) -> Optional[list[str]]:
     if mention.kind != "named":
         return None
-    return rung_named_token(mention.surface_form, mention.category, ctx.world_id, db)
+    return rung_named_token(mention.surface_form, mention.category, ctx.surfaces)
 
 
 def _rung_named_alias(mention: Mention, ctx: _ConcordContext, db: Session) -> Optional[list[str]]:
@@ -252,12 +257,16 @@ _RUNG_LOOKUPS: dict[str, Callable[[Mention, _ConcordContext, Session], Optional[
 }
 
 
-def _resolve_place_candidates(mentions: list[Mention], world_id: str, db: Session) -> tuple[str, ...]:
+def _resolve_place_candidates(
+    mentions: list[Mention], world_id: str, surfaces: tuple, db: Session,
+) -> tuple[str, ...]:
     # `_rung_named_exact` ONLY — an inferred place mention never reaches this
     # set (Scope OUT). Consequence for F1: `_cast_presence` is inert whenever
     # the place a cast candidate would need to be "present at" was inferred
     # rather than named, since `place_candidate_ids` has nothing to offer it.
-    ctx = _ConcordContext(world_id=world_id, place_candidate_ids=(), reachable_location_ids=frozenset())
+    ctx = _ConcordContext(
+        world_id=world_id, place_candidate_ids=(), reachable_location_ids=frozenset(), surfaces=surfaces,
+    )
     place_ids: set[str] = set()
     for mention in mentions:
         if mention.category != "place":
@@ -353,15 +362,22 @@ def _classify(
 def concord(mentions: list[Mention], character: Character, db: Session) -> ConcordanceResult:
     """Resolve every mention to a canon id, a cast, an ambiguity, or nothing
     — never by authoring (C1). World scoping happens in every rung's query
-    construction (`ctx.world_id`), never as a post-fetch filter."""
+    construction (`ctx.world_id`, and the world-scoped `name_index.surfaces`
+    the named rungs read), never as a post-fetch filter. The named rungs see
+    the perceiver regime only: names plus the appellations `character`
+    knows (TICKET-0092, C-05)."""
     reachable_location_ids = (
         _concord_reachable_ids(character.current_location_id, db)
         if character.current_location_id is not None else frozenset()
     )
+    surfaces = name_surfaces(db, character.world_id, NameScope(
+        "perceiver", known_fact_ids=frozenset(resolve_levels_for_entity(db, character.id)),
+    ))
     ctx = _ConcordContext(
         world_id=character.world_id,
-        place_candidate_ids=_resolve_place_candidates(mentions, character.world_id, db),
+        place_candidate_ids=_resolve_place_candidates(mentions, character.world_id, surfaces, db),
         reachable_location_ids=reachable_location_ids,
+        surfaces=surfaces,
     )
 
     matched: list[MatchedMention] = []

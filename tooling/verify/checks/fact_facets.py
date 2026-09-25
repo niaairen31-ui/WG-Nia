@@ -68,7 +68,7 @@ KNOWN_CALLERS = (
 
 # C-01, verbatim: (name, family, granularity, preset, aspects), display order.
 EXPECTED_FACETS = (
-    ("appellation", "identite", "affirmation", "location", ()),
+    ("appellation", "identite", "affirmation", "rencontre", ()),
     ("statut", "identite", "affirmation", "location", ()),
     ("physique", "identite", "bloc", "rencontre", ()),
     ("tenue", "identite", "bloc", "none", ()),
