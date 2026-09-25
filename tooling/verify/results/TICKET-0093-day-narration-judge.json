@@ -1,0 +1,67 @@
+{
+  "ticket": "TICKET-0093-day-narration-judge",
+  "when": "2026-09-25T22:21:40.144451+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "day_fact_sheet_refs.py",
+      "status": "PASS",
+      "msg": "PASS: day_fact_sheet_refs \u00e2\u20ac\u201d 2 cases: matched and cast entities are named, characters as npcs, locations as locations, other types and missing rows skipped, no duplicates"
+    },
+    {
+      "check": "day_narration_beats.py",
+      "status": "PASS",
+      "msg": "PASS: day_narration_beats \u00e2\u20ac\u201d 16 cases executed (A1, A2, A3, B1, B2, B3, B4, B5, C1, C2, C3, C4, C5, C6, C7, C8)"
+    },
+    {
+      "check": "day_narration.py",
+      "status": "PASS",
+      "msg": "PASS: day_narration \u00e2\u20ac\u201d dice-are-Python, truncation purity, narrate's DB boundary, the judge's Python-only and anti-vacuity guards, the bounded rewrite, history append-only, declared_action write-once, PROMPT_REGISTRY wiring, V1's no-direct-step-write boundary, BB1's remaining-work invariant, BRIEF-0078-b's blocked-band gates (R13-R18), and the bounded code repair, the retired model repair and the failure-surface gates (R19-R22) and the code-written markers (R23) are all intact"
+    },
+    {
+      "check": "day_prompt_delivery.py",
+      "status": "PASS",
+      "msg": "PASS: day_prompt_delivery \u00e2\u20ac\u201d the 16 DAY_* constants are module-level, DAY_PROMPT_HEADS is the single seeding source, the one-shot embeds no text, prompt_coverage derives usages with no literal restatement, the day_feasibility exemption matches the code's actual Raise/Return shape, missing_usages checks E2 depth, and the guard runs before write_batch"
+    },
+    {
+      "check": "prompt_registry.py",
+      "status": "PASS",
+      "msg": "PASS: prompt_registry \u00e2\u20ac\u201d usage bijection, registry entry shape, static resolver wiring, effective_model pure-function behavior"
+    },
+    {
+      "check": "day_name_extraction.py",
+      "status": "PASS",
+      "msg": "PASS: day_name_extraction \u00e2\u20ac\u201d all 5 golden cases hold (G1-G5)"
+    },
+    {
+      "check": "import_cycle.py",
+      "status": "PASS",
+      "msg": "PASS: import_cycle \u00e2\u20ac\u201d no module-level import cycle under src/world_engine"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values; 95 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u00e2\u20ac\u201d every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    },
+    {
+      "check": "pipeline_state.py",
+      "status": "PASS",
+      "msg": "PASS: every ticket front-matter conforms to TEMPLATE.md"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 120 check(s) discovered, 120 executed, 120 passed"
+    }
+  ]
+}
