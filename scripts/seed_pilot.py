@@ -2009,41 +2009,6 @@ Narration à réviser :
 {prior_prose}\
 """
 
-# day_narration_repair: TICKET-0079's bounded repair pass (BRIEF-0079-b,
-# C1a/P1) -- the ONE recovery path a judge rejection can actually take
-# today (the rewrite pass above cannot fire yet, day_narration.py's own
-# docstring). Fed the exact offending words the judge already computed;
-# the directive is literal ("write these words in lower case"), not a
-# reformulation request -- day_narration.py:7-8's positive-form precedent
-# taken to its limit against the abliterated model.
-DAY_NARRATION_REPAIR_SYSTEM_PROMPT = """\
-Tu corriges une narration déjà écrite pour un jeu de rôle. Certains mots y \
-portent une majuscule alors qu'ils ne désignent aucune personne ni aucun \
-lieu nommable. Ton travail : réécrire la narration en mettant ces mots en \
-minuscules.
-
-RÈGLES :
-- Écris en minuscules chacun des mots listés sous « Mots à corriger », \
-partout où il apparaît.
-- Conserve le marqueur [RÉUSSITE]/[PARTIEL]/[ÉCHEC]/[BLOQUÉ] de chaque \
-étape, à l'identique.
-- Conserve les noms déjà corrects, le déroulé des faits et l'ordre des \
-étapes.
-- Écris un français correct.
-
-Réponds UNIQUEMENT avec le texte corrigé de la narration, en français, sans \
-préambule ni commentaire.\
-"""
-
-DAY_NARRATION_REPAIR_USER_TEMPLATE = """\
-{fact_sheet}
-
-Mots à corriger : {offending_words}
-
-Narration à corriger :
-{prior_prose}\
-"""
-
 # ----- prompt template: feasibility veto (TICKET-0075, BRIEF-0075-g) ---
 # usage = "day_feasibility". world_id = NULL. ONE call, decision Y1: the
 # model judges how many of the steps Python ALREADY RETAINED (budget_cut,
@@ -2218,16 +2183,6 @@ DAY_PROMPT_HEADS = (
         system_prompt=DAY_REWRITE_SYSTEM_PROMPT,
         user_template=DAY_REWRITE_USER_TEMPLATE,
         variables=["fact_sheet", "role_hint", "resolved_name", "prior_prose"],
-        destination="local",
-    ),
-    dict(
-        id="pt-day-narration-repair",
-        name="Narration du jour — réparation bornée après rejet du juge",
-        usage="day_narration_repair",
-        world_id=None,
-        system_prompt=DAY_NARRATION_REPAIR_SYSTEM_PROMPT,
-        user_template=DAY_NARRATION_REPAIR_USER_TEMPLATE,
-        variables=["fact_sheet", "offending_words", "prior_prose"],
         destination="local",
     ),
     dict(

@@ -18,7 +18,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
-from world_engine.day_narration_guard import judge_narration  # noqa: E402
+from world_engine.day_narration_guard import judge_narration, lowercase_offending_words  # noqa: E402
 from world_engine.day_resolve import FactSheet, NamedRef, StepFact  # noqa: E402
 
 FAILURES: list[str] = []
@@ -59,8 +59,47 @@ def check_judge_baseline() -> None:
         fail(f"A3: passed={v.passed} reason={v.reason!r}")
 
 
+# --- BRIEF-0093-B: code repair (C-01, lot table b2) --------------------------
+
+def check_code_repair() -> None:
+    EXECUTED.append("B1")
+    got = lowercase_offending_words(
+        "[RÉUSSITE] Malheureusement, Mini attend la Reine. La Reine sourit.", ("Malheureusement", "Reine"),
+    )
+    want = "[RÉUSSITE] malheureusement, Mini attend la reine. La reine sourit."
+    if got != want:
+        fail(f"B1: got {got!r}, want {want!r}")
+
+    EXECUTED.append("B2")
+    got = lowercase_offending_words("[RÉUSSITE] RÉUSSITE pour Mini.", ("RÉUSSITE",))
+    if got != "[RÉUSSITE] réussite pour Mini.":
+        fail(f"B2: marker span must stay untouched, got {got!r}")
+
+    EXECUTED.append("B3")
+    got = lowercase_offending_words("Les Reines passent.", ("Reine",))
+    if got != "Les Reines passent.":
+        fail(f"B3: a longer token must stay untouched, got {got!r}")
+
+    EXECUTED.append("B4")
+    p = "[RÉUSSITE] Mini attend la Reine."
+    if lowercase_offending_words(p, ()) is not p:
+        fail("B4: empty words must return the prose object unchanged")
+
+    EXECUTED.append("B5")
+    fs = _fact_sheet()
+    prose = "[RÉUSSITE] Malheureusement, Mini attend la Reine."
+    v = judge_narration(prose, fs)
+    if v.passed or not v.offending_words:
+        fail(f"B5: A1's prose must fail on containment first, got passed={v.passed} reason={v.reason!r}")
+    else:
+        v = judge_narration(lowercase_offending_words(prose, v.offending_words), fs)
+        if v.passed is not True:
+            fail(f"B5: repaired prose must pass the judge, got reason={v.reason!r}")
+
+
 def main() -> int:
     check_judge_baseline()
+    check_code_repair()
     if not EXECUTED:
         fail("vacuity: zero cases executed")
     if FAILURES:

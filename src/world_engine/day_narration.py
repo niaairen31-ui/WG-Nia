@@ -24,16 +24,13 @@ germ pathway eventually gets one; until then it is expected to always
 return None in a correctly ordered run — see the execution notes for the
 observed firing count.
 
-The repair pass (TICKET-0079, BRIEF-0079-b, `C1a`/`P1`) is, until the
-rewrite's trigger can fire, the ONLY recovery path a judge rejection can
-actually take. It fires when `judge_narration` rejects on name containment
-(`verdict.offending_words` non-empty) — never on a band-marker or
-anti-vacuity failure — and is fed the exact offending words the judge
-already computed. Its directive is literal ("write these words in lower
-case"), not a reformulation request: positive form only, per the module's
-own precedent above. Bounded by `MAX_REPAIR_ATTEMPTS`: one call, then
-whatever verdict results is final — a second rejection is a stop, never a
-loop.
+The repair (TICKET-0093, J2'a) is code, not a model call:
+`day_narration_guard.lowercase_offending_words` lower-cases the exact
+words the judge rejected on name containment, and nothing else. The
+model repair pass it replaces (TICKET-0079) lower-cased whole proses,
+which the zero-names guard then rejected. Bounded by
+`MAX_REPAIR_ATTEMPTS`: one repair, then whatever verdict results is
+final.
 """
 
 from __future__ import annotations
@@ -56,8 +53,8 @@ _log = logging.getLogger(__name__)
 # rewrite is a stop, never a retry loop (Scope OUT).
 MAX_REWRITE_ATTEMPTS = 1
 
-# One repair fires per resolution (TICKET-0079, BRIEF-0079-b) — a judge
-# failure after it is a stop, never a loop.
+# One code repair per resolution (TICKET-0093, J2'a) — the verdict after
+# it is final, never a loop.
 MAX_REPAIR_ATTEMPTS = 1
 
 # Shared with day_narration_guard.py's outcome-survival check — the single
@@ -166,34 +163,6 @@ def rewrite(fact_sheet: FactSheet, prior_prose: str, delta: LateDelta, db: Sessi
         host=ollama_client.OLLAMA_HOST,
     )
     _log.info("day_rewrite fired for role_hint=%r -> %r", delta.role_hint, delta.resolved_name)
-    return raw.strip()
-
-
-def repair(fact_sheet: FactSheet, prior_prose: str, offending_words: tuple[str, ...], db: Session) -> str:
-    """The bounded repair pass (Scope IN item 5, BRIEF-0079-b). Fed the
-    exact offending words the judge already computed — nothing re-derived
-    from `reason`, nothing re-run against the raw declaration."""
-    template = _load_day_prose_template("day_narration_repair", fact_sheet.world_id, db)
-    if template is None:
-        raise llm_parse.LlmParseError("day_narration: no active prompt_template for usage='day_narration_repair'")
-    version = current_prompt(db, template)
-
-    user_msg = (
-        version.user_template
-        .replace("{fact_sheet}", _render_fact_sheet(fact_sheet))
-        .replace("{offending_words}", ", ".join(offending_words))
-        .replace("{prior_prose}", prior_prose)
-        + "\n/no_think"
-    )
-    raw = ollama_client.chat(
-        [
-            {"role": "system", "content": version.system_prompt},
-            {"role": "user", "content": user_msg},
-        ],
-        model=effective_model(template, ollama_client.DEFAULT_MODEL),
-        host=ollama_client.OLLAMA_HOST,
-    )
-    _log.info("day_narration_repair fired for offending_words=%r", offending_words)
     return raw.strip()
 
 

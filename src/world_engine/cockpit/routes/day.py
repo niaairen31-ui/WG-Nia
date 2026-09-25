@@ -40,8 +40,8 @@ from ...day_mutations import emit_mutations
 # `rewrite` here is day_narration's late-delta prose rewrite -- unrelated to
 # the day_rewrite MODULE imported above (declaration rewrite, BRIEF-0081-b);
 # aliased to keep the two "rewrite" concepts from colliding on one name.
-from ...day_narration import detect_late_delta, narrate, repair, rewrite as rewrite_narration
-from ...day_narration_guard import JudgeVerdict, judge_narration
+from ...day_narration import detect_late_delta, narrate, rewrite as rewrite_narration
+from ...day_narration_guard import JudgeVerdict, judge_narration, lowercase_offending_words
 from ...day_plan import (
     DAY_BUDGET_SLOTS,
     EvaluatedStep,
@@ -795,8 +795,8 @@ def _narrate_and_judge(
     fact_sheet: FactSheet, pass_play: PassPlay, db: Session,
 ) -> tuple[FactSheet, str, JudgeVerdict]:
     """Narration + the T1 judge + the ONE conditional rewrite attempt
-    (Scope IN items 3-4) + the ONE conditional repair attempt (TICKET-0079,
-    BRIEF-0079-b), carved out of `resolve_day` for the function-length
+    (Scope IN items 3-4) + the ONE conditional code repair (TICKET-0093,
+    J2'a), carved out of `resolve_day` for the function-length
     ceiling (`_finalize_plan`/`write_day_plan`'s precedent). Raises
     `HTTPException` (502) on an LLM failure; returns the (possibly
     rewritten/repaired) fact sheet, the prose and the judge's final
@@ -824,11 +824,7 @@ def _narrate_and_judge(
         verdict = judge_narration(prose, fact_sheet)
 
     if not verdict.passed and verdict.offending_words:
-        try:
-            prose = repair(fact_sheet, prose, verdict.offending_words, db)
-        except LlmParseError as exc:
-            db.rollback()
-            raise HTTPException(status_code=502, detail=f"day narration repair failed: {exc}") from exc
+        prose = lowercase_offending_words(prose, verdict.offending_words)
         verdict = judge_narration(prose, fact_sheet)
 
     return fact_sheet, prose, verdict

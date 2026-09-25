@@ -16389,6 +16389,66 @@ SQLite fixture (killed by the matched-only mutation).
 `day_narration_beats.py` is created with the judge baseline cases A1-A3
 (no DB, no model); BRIEF-0093-B and -C add their cases to it.
 
+
+## THE NARRATION REPAIR IS CODE (TICKET-0093) -- THE MODEL REPAIR PASS IS RETIRED (BRIEF-0093-b, no schema change)
+
+**The measurement (R-29).** Replaying the current judge read-only on 34
+stored narration attempts: 22 zero-names, 5 band-marker, 3 unauthorised,
+4 ok. In all 22 zero-names cases the character's name is present but the
+whole prose is lower-cased, markers included -- consistent with the model
+repair pass (TICKET-0079), not provable per attempt. On a DB copy, 1 fresh
+narration in 20 passed. The rejected words were sentence-initial
+(`Malheureusement`, `Ayant`, ...) or capitals copied from the fact sheet
+(`Serviteurs`, `Reine`) -- never a name the model invented.
+
+**J2'a -- the repair is code.** The model repair's directive was already
+literal ("write these words in lower case"), so code now does exactly
+that. `day_narration_guard.lowercase_offending_words(prose, words)` (C-01)
+is pure (no DB, no model call): every `_TOKEN_RE` word token exactly equal
+(case-sensitive) to one of `words` is lower-cased, outside `_MARKER_RE`
+spans; markers, every other character, spacing and punctuation are
+byte-identical; a word inside a longer token (`Reine` in `Reines`) is not
+touched; `words == ()` returns the prose unchanged. An offending word is
+never a word of an authorised name (the judge builds it from words outside
+`_authorised_words`), so no authorised name can be damaged.
+`_narrate_and_judge` calls it once, behind the same `if not verdict.passed
+and verdict.offending_words`, then re-judges; `MAX_REPAIR_ATTEMPTS = 1`
+stays -- the verdict after it is final. Zero-names, zero-steps and
+band-marker failures carry no `offending_words` and still end in 422 (J1'a:
+the judge's four checks and their order are unchanged).
+
+**J4'a -- sentence-initial words ride the same repair.** A capitalized
+sentence start that is not an authorised name is lower-cased; the judge
+never ignores a sentence's first word. The cosmetic cost is accepted.
+
+**Known limit.** A genuinely invented name is lower-cased and passes,
+exactly as it did with the model repair it replaces.
+
+**Retired.** `day_narration.repair`, the `day_narration_repair`
+`PROMPT_REGISTRY` entry, the `pt-day-narration-repair` seed head and both
+`DAY_NARRATION_REPAIR_*` constants are removed from code, registry and
+seed together (the prompt-registry bijection reads comments too).
+`prompt_coverage.DAY_CHAIN_USAGES` derives from the registry, so
+`declare_day` no longer requires that template. The DB rows
+(`prompt_template` head and its `prompt_version` rows) stay in place --
+history is sacred -- and are no longer called. Consequence (R-18): the
+« Prompts » tab lists only registry usages, so the head no longer appears;
+a direct request by its id would reach the detail route's 500 for an
+unregistered usage. Accepted: nothing links to it. Checks:
+`day_narration.py` R19 (one `lowercase_offending_words` call behind an
+`if`, no top-level `repair`) and R20 (`day_narration_repair` is not a
+registry key); `day_prompt_delivery.py` counts drop to 9 heads, 16
+constants; `day_narration_beats.py` B1-B5 hold C-01's case table.
+
+**Rejected (TICKET-0093), with reactivation conditions.**
+- J2'b (widen the model repair): no reactivation -- measured to make
+  things worse.
+- J2'c (keep the model repair, fix its prompt): reactivate if J2'a lets
+  through a prose Nia flags as unreadable at the live gate.
+- J4'b (ignore sentence-initial words in the judge): reactivate if Nia
+  flags more than half the proses at the live gate as spoiled by a
+  lower-case sentence start.
+
 ---
 
 *Co-built with Claude, June 2026.*

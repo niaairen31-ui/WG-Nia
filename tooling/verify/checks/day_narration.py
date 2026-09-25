@@ -62,16 +62,15 @@ R17: `blocked_reason` is defined nowhere in `src/world_engine/`, and
 R18: `resolution.py` contains no `"blocked"` literal — the fourth band is
 Python-assigned by the day chain, never rolled.
 
---- BRIEF-0079-b (bounded repair pass and failure surface) ---
+--- BRIEF-0079-b, amended by TICKET-0093 (bounded code repair and failure surface) ---
 
-R19 (bounded repair): `MAX_REPAIR_ATTEMPTS` is a module-level constant in
-`day_narration.py` with the value `1`; the repair call site
-(`cockpit/routes/day.py`) is reachable from exactly one `if` condition. R6
-counts `rewrite`/`day_rewrite` by name and would not see a call named
-`repair` — this is why R19 is its own rule rather than a stretch of R6.
-R20 (registry wiring, extends R9): `day_narration_repair` is also a
-`PROMPT_REGISTRY` key, with a `call_sites` entry naming `repair` in
-`day_narration.py`.
+R19 (bounded code repair, TICKET-0093 J2'a): `MAX_REPAIR_ATTEMPTS` is a
+module-level constant in `day_narration.py` with the value `1`;
+`_narrate_and_judge` in `cockpit/routes/day.py` calls
+`lowercase_offending_words` exactly once, behind an `if`; and
+`day_narration.py` defines no top-level function named `repair`.
+R20 (model repair retired, TICKET-0093 J2'a): `day_narration_repair` is
+NOT a `PROMPT_REGISTRY` key.
 R21 (no reason parsing): `JudgeVerdict` declares an `offending_words`
 field, and no `.split(`, `.replace(`, `re.` call or subscript is applied to
 `verdict.reason` anywhere in `cockpit/routes/day.py` — the route reads
@@ -439,14 +438,13 @@ def check_declared_action_still_write_once() -> None:
 _REGISTRY_WIRING_EXPECTED = {
     "day_narration": ("narrate", "R9"),
     "day_rewrite": ("rewrite", "R9"),
-    "day_narration_repair": ("repair", "R20"),
 }
 
 
 def check_registry_wiring() -> None:
     """R9: day_narration/day_rewrite in PROMPT_REGISTRY, call_sites naming
-    narrate/rewrite. R20 (BRIEF-0079-b item 9, extends R9): same shape for
-    day_narration_repair/repair."""
+    narrate/rewrite. R20 (TICKET-0093, J2'a): day_narration_repair is NOT
+    a PROMPT_REGISTRY key -- the model repair is retired."""
     sys.path.insert(0, str(ROOT / "src"))
     from world_engine import prompt_registry  # noqa: E402
 
@@ -463,7 +461,12 @@ def check_registry_wiring() -> None:
         elif not any(fn_name in site for site in call_sites):
             fail(f"day_narration {rule}: PROMPT_REGISTRY[{usage!r}].call_sites does not name {fn_name}: {call_sites!r}")
     if not found_any:
-        fail("day_narration R9: zero day_narration/day_rewrite/day_narration_repair entries found — vacuous")
+        fail("day_narration R9: zero day_narration/day_rewrite entries found — vacuous")
+    if "day_narration_repair" in prompt_registry.PROMPT_REGISTRY:
+        fail(
+            "day_narration R20: day_narration_repair is still a PROMPT_REGISTRY key — "
+            "the model repair is retired (TICKET-0093, J2'a)"
+        )
 
 
 _AGENDA_STEP_WRITE_ATTRS = {"status", "outcome", "change_history"}
@@ -753,10 +756,11 @@ def check_resolution_never_produces_blocked() -> None:
 
 
 def check_bounded_repair() -> None:
-    """R19 (BRIEF-0079-b item 9): MAX_REPAIR_ATTEMPTS == 1 in
-    day_narration.py; the repair call site in routes/day.py is reachable
-    from exactly one `if`. Mirrors check_bounded_rewrite, for the second,
-    independently-bounded pass."""
+    """R19 (BRIEF-0079-b item 9, amended by TICKET-0093 J2'a):
+    MAX_REPAIR_ATTEMPTS == 1 in day_narration.py; the code repair
+    (`lowercase_offending_words`) is called exactly once in
+    `_narrate_and_judge`, behind an `if`; day_narration.py defines no
+    top-level `repair` (the model repair is retired)."""
     tree = _parse(DAY_NARRATION_FILE)
     if tree is None:
         return
@@ -774,6 +778,12 @@ def check_bounded_repair() -> None:
             fail(f"day_narration R19: MAX_REPAIR_ATTEMPTS is {ast.dump(value)}, expected the literal 1")
     if not found:
         fail(f"day_narration R19: {_rel(DAY_NARRATION_FILE)}: MAX_REPAIR_ATTEMPTS not found")
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "repair":
+            fail(
+                "day_narration R19: day_narration.py still defines repair — "
+                "the model repair is retired (TICKET-0093)"
+            )
 
     route_tree = _parse(DAY_ROUTE_FILE)
     if route_tree is None:
@@ -786,22 +796,22 @@ def check_bounded_repair() -> None:
     repair_calls = [
         node for node in ast.walk(resolve_fn)
         if isinstance(node, ast.Call) and (
-            (isinstance(node.func, ast.Name) and node.func.id == "repair")
-            or (isinstance(node.func, ast.Attribute) and node.func.attr == "repair")
+            (isinstance(node.func, ast.Name) and node.func.id == "lowercase_offending_words")
+            or (isinstance(node.func, ast.Attribute) and node.func.attr == "lowercase_offending_words")
         )
     ]
     if not repair_calls:
-        fail(f"day_narration R19: {_rel(DAY_ROUTE_FILE)}: {resolve_fn.name} never calls the repair pass")
+        fail(f"day_narration R19: {_rel(DAY_ROUTE_FILE)}: {resolve_fn.name} never calls the code repair")
     elif len(repair_calls) > 1:
         fail(
-            f"day_narration R19: {_rel(DAY_ROUTE_FILE)}: {resolve_fn.name} calls the repair pass "
+            f"day_narration R19: {_rel(DAY_ROUTE_FILE)}: {resolve_fn.name} calls the code repair "
             f"{len(repair_calls)} times, expected exactly 1 — no retry loop"
         )
     else:
         has_any_if = any(isinstance(node, ast.If) for node in ast.walk(resolve_fn))
         if not has_any_if:
             fail(
-                f"day_narration R19: {_rel(DAY_ROUTE_FILE)}: {resolve_fn.name} calls the repair pass "
+                f"day_narration R19: {_rel(DAY_ROUTE_FILE)}: {resolve_fn.name} calls the code repair "
                 "with no conditional guard anywhere in the function"
             )
 
@@ -910,8 +920,8 @@ def main() -> None:
         "the judge's Python-only and anti-vacuity guards, the bounded rewrite, history "
         "append-only, declared_action write-once, PROMPT_REGISTRY wiring, V1's no-direct-"
         "step-write boundary, BB1's remaining-work invariant, BRIEF-0078-b's blocked-band "
-        "gates (R13-R18), and BRIEF-0079-b's bounded repair and failure-surface gates "
-        "(R19-R22) are all intact"
+        "gates (R13-R18), and the bounded code repair, the retired model repair and the "
+        "failure-surface gates (R19-R22) are all intact"
     )
     sys.exit(0)
 
