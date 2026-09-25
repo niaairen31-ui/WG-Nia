@@ -13,6 +13,8 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.07** — TICKET-0094, BRIEF-0094-A: `day_mention_choice`, the
+  H2 choice record (additive table, two indexes, zero rows).
 - **v2.06** — TICKET-0091, BRIEF-0091-I: lore as facts — relocation and
   drop. Every filled prose cell became one descriptive `fact` (text
   unchanged, outer whitespace trimmed only, L2), `created_by =

@@ -16499,6 +16499,59 @@ table.
 - J5a (tolerant marker counting in the judge only): reactivate if more
   than 20 % of narrations fail with a 502 on invalid JSON after 0093.
 
+## THE H2 CHOICE RECORD (TICKET-0094) -- EVERY MODEL CHOICE IS STORED WITH ITS REASON (BRIEF-0094-a, schema v2.07)
+
+**Context.** H2 (LOT-0094) lets a model choose among the candidates the
+code narrowed for one named day-chain mention, and the code judges the
+choice. This brief lays the ground only: storage, its writer, and a pure
+near-name function. No behaviour change in play.
+
+**Y3b -- a dedicated table, not columns on `day_mention_resolution`.** An
+accepted choice flows through the existing rewrite trace unchanged, as a
+`MatchedMention` with `rung="model_choice"` (a stored rung, never a
+`MATCHING_RUNGS` entry; `rung` carries no CHECK). The call itself -- its
+candidates, evidence, verdict, excerpt and reason -- lives in
+`day_mention_choice` (C-01), one row per model call. Y3a (columns on the
+trace) was rejected: the trace records resolutions, and a refused call
+resolves nothing.
+
+**X1b -- refused calls are stored too.** `verdict` is one of `accepted`,
+`rejected` (the judge refused), `declined` (the model answered "none"),
+`failed` (technical failure after the retry). The shape CHECK: `accepted`
+carries `chosen_entity_id`; `declined`/`failed` never do; `rejected` may
+(the refused pick). A row is written on the 409 path as well, so the review
+loop (K1, TICKET-0095) sees every call. Non-canon; `candidate_ids` and
+`evidence_fact_ids` are JSON arrays stored as TEXT, display order.
+
+**The writer validates, then constructs.** `write_day_mention_choices`
+(`writes/pipeline.py`, C-02) checks every record (category, trigger,
+verdict, attempts in (1, 2), the shape rule, both id lists as lists of
+str) before the first row is built: any violation raises `ValueError` with
+nothing added. No flush, no commit -- the caller owns the transaction.
+`day_mention_choice_store.py` S1-S5 holds it, including the DB CHECK
+agreeing with the writer.
+
+**Append-only (W2 extended).** `day_rewrite.py`'s W2 tracks
+`DayMentionChoice` alongside `DayRewrite`/`DayMentionResolution`; its
+vacuity guard now requires a construction of each tracked model, not of
+any one.
+
+**`near_in_surfaces` -- the pure half of `near_candidates` (C-03).** The
+scoring loop moved, unchanged, into `lore_resolve.near_in_surfaces`, which
+takes the surfaces instead of building them. The caller chose the surfaces,
+and therefore the regime: the day chain passes the perceiver's own (Y2b).
+`near_candidates` keeps its signature, output and creator-regime guard:
+it is the path that BUILDS creator surfaces, so the guard stays where the
+scope is chosen. `near_in_surfaces` never builds a scope, so it cannot
+reach a surface its caller did not already hold (secrets stay excluded by
+construction). `day_choice.py` N1-N3 pin its scores; `name_resolution.py`
+G2 is unchanged.
+
+**Delivery.** Schema v2.07: `schema_version.py`, the schema doc and the
+changelog move together; `scripts/migrate_v2_07_day_mention_choice.py`
+(additive, idempotent, zero rows, converges `schema_meta`) -- Nia runs it
+on prod before starting the cockpit.
+
 ---
 
 *Co-built with Claude, June 2026.*

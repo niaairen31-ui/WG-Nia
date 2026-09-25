@@ -201,6 +201,51 @@ class DayMentionResolution(SQLModel, table=True):
     cast_basis: Optional[str] = None
 
 
+# -----------------------------------------------------------------------------
+# day_mention_choice  (the H2 choice record, schema v2.07, TICKET-0094,
+# BRIEF-0094-A)
+#
+# One row per model call that chose — or refused to choose — among the
+# candidates the code narrowed for one named mention: append-only, one row
+# per model call, including refused calls (X1b). No UPDATE, no DELETE, ever
+# (`verify/checks/day_rewrite.py`'s W2). `candidate_ids` and
+# `evidence_fact_ids` are JSON arrays stored as TEXT, display order.
+# -----------------------------------------------------------------------------
+class DayMentionChoice(SQLModel, table=True):
+    __tablename__ = "day_mention_choice"
+    __table_args__ = (
+        Index("idx_day_mention_choice_pass", "pass_play_id"),
+        Index("idx_day_mention_choice_world_verdict", "world_id", "verdict"),
+        CheckConstraint("category IN ('place','person','faction')", name="ck_day_mention_choice_category"),
+        CheckConstraint("trigger IN ('ambiguous','near')", name="ck_day_mention_choice_trigger"),
+        CheckConstraint(
+            "verdict IN ('accepted','rejected','declined','failed')", name="ck_day_mention_choice_verdict",
+        ),
+        CheckConstraint("attempts IN (1, 2)", name="ck_day_mention_choice_attempts"),
+        CheckConstraint(
+            "(verdict <> 'accepted' OR chosen_entity_id IS NOT NULL) "
+            "AND (verdict NOT IN ('declined','failed') OR chosen_entity_id IS NULL)",
+            name="ck_day_mention_choice_shape",
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    pass_play_id: str = Field(foreign_key="pass_play.id", nullable=False)
+    category: str
+    surface_form: str
+    trigger: str
+    candidate_ids: str
+    evidence_fact_ids: str
+    verdict: str
+    chosen_entity_id: Optional[str] = Field(default=None, foreign_key="entity.id")
+    excerpt: Optional[str] = None
+    reason: Optional[str] = None
+    verdict_detail: Optional[str] = None
+    attempts: int
+    created_at: datetime = _created_ts()
+
+
 # -------------------------------------------------------------------------
 # skill_resolution  (one row per arbiter classification — the action
 # lexicon's audit trail; schema v2.02, TICKET-0084)

@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.06
+Current schema version: v2.07
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1024,6 +1024,46 @@ CREATE TABLE day_mention_resolution (
 );
 CREATE UNIQUE INDEX idx_day_mention_resolution_rewrite
   ON day_mention_resolution(rewrite_id, ordinal);
+```
+
+-----
+
+### `day_mention_choice`
+
+The H2 choice record (schema v2.07, TICKET-0094, BRIEF-0094-A): one row per
+model call that chose among the candidates the code narrowed for one named
+mention of a day declaration — `trigger` says why the call happened
+(`ambiguous`: 2+ candidates at one rung; `near`: only partial/near
+candidates among the perceiver's own surfaces). Every call is stored with its
+verdict and reason, including refused ones (`rejected` by the judge,
+`declined` by the model, `failed` technically) and on the 409 path too.
+Append-only, same discipline as `day_rewrite`. Read by the review loop (K1,
+TICKET-0095). Non-canon.
+
+```sql
+CREATE TABLE day_mention_choice (
+  id                 TEXT PRIMARY KEY,
+  world_id           TEXT NOT NULL REFERENCES world(id),
+  pass_play_id       TEXT NOT NULL REFERENCES pass_play(id),
+  category           TEXT NOT NULL CHECK (category IN ('place','person','faction')),
+  surface_form       TEXT NOT NULL,
+  trigger            TEXT NOT NULL CHECK (trigger IN ('ambiguous','near')),
+  candidate_ids      TEXT NOT NULL,   -- JSON array, display order
+  evidence_fact_ids  TEXT NOT NULL,   -- JSON array, facts shown to the model
+  verdict            TEXT NOT NULL CHECK (verdict IN ('accepted','rejected','declined','failed')),
+  chosen_entity_id   TEXT REFERENCES entity(id),
+  excerpt            TEXT,
+  reason             TEXT,
+  verdict_detail     TEXT,
+  attempts           INTEGER NOT NULL CHECK (attempts IN (1, 2)),
+  created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CHECK (
+    (verdict <> 'accepted' OR chosen_entity_id IS NOT NULL)
+    AND (verdict NOT IN ('declined','failed') OR chosen_entity_id IS NULL)
+  )
+);
+CREATE INDEX idx_day_mention_choice_pass ON day_mention_choice(pass_play_id);
+CREATE INDEX idx_day_mention_choice_world_verdict ON day_mention_choice(world_id, verdict);
 ```
 
 -----
