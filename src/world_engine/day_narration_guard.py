@@ -104,8 +104,8 @@ _FUNCTION_WORD_STOPWORDS = frozenset({
 class JudgeVerdict:
     passed: bool
     reason: str
-    # Populated only by the containment branch below (TICKET-0079,
-    # BRIEF-0079-b) -- the exact words the bounded repair pass is fed.
+    # Populated only by the containment branch below -- the exact words the
+    # code repair (lowercase_offending_words, TICKET-0093) lower-cases.
     # The route must never parse `reason` to recover this.
     offending_words: tuple[str, ...] = ()
 
@@ -243,3 +243,31 @@ def judge_narration(prose: str, fact_sheet: FactSheet) -> JudgeVerdict:
         )
 
     return JudgeVerdict(passed=True, reason="ok")
+
+
+def lowercase_offending_words(prose: str, words: tuple[str, ...]) -> str:
+    """The code repair (TICKET-0093, J2'a): lower-case every word token
+    exactly equal to one of `words`, outside `[MARKER]` spans, and change
+    nothing else. It replaces the model repair pass, which lower-cased
+    whole proses. An offending word is never a word of an authorised name
+    (`judge_narration` builds it from words outside `_authorised_words`),
+    so no authorised name can be touched. A genuinely invented name is
+    lower-cased and passes, exactly as with the model repair it
+    replaces."""
+    if not words:
+        return prose
+    targets = frozenset(words)
+
+    def _lower_segment(segment: str) -> str:
+        return _TOKEN_RE.sub(
+            lambda m: m.group().lower() if m.group() in targets else m.group(), segment,
+        )
+
+    parts: list[str] = []
+    last = 0
+    for marker in _MARKER_RE.finditer(prose):
+        parts.append(_lower_segment(prose[last:marker.start()]))
+        parts.append(marker.group())
+        last = marker.end()
+    parts.append(_lower_segment(prose[last:]))
+    return "".join(parts)

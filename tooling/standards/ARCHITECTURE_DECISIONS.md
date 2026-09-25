@@ -16352,6 +16352,153 @@ for a type outside `TYPE_FAMILIES` (item, runtime types), `description` and
 **Nothing new is stored client-side** beyond transient UI state; the
 appellation lives in canon as an `appellation` fact.
 
+
+
+## CAST NPCS ARE NAMED ON THE FACT SHEET (TICKET-0093) -- THE JUDGE STOPS REJECTING CHOSEN NPCS (BRIEF-0093-a, no schema change)
+
+**The measured defect (R-20).** `freeze_facts` built the fact sheet's
+`npcs`/`locations` from `concordance.matched` only. An NPC the concordance
+chose by casting (`concordance.cast`, F1's `CAST_PRECEDENCE`) was a real
+entity the plan already showed the player, yet it never reached
+`authorised_names`: when the narration named it, the T1 judge rejected the
+name as unauthorised. One cause among those measured in LOT-0093 R-29
+(1 fresh narration in 20 passed the judge).
+
+**J3a -- cast NPCs are named.** `day_resolve._named_refs(concordance, db)`
+(C-05) is the single builder of the fact sheet's persons and places. It
+iterates `matched` then `cast`; for each item it reads the `entity` row,
+skips a missing row, files a `character` under npcs and a `location` under
+locations, skips every other type, and never adds the same `NamedRef`
+twice (first occurrence wins). An empty concordance gives `((), ())`; it
+never raises. `freeze_facts` calls it once. Role hints are unchanged: a
+cast mention was never in `role_hints`, and `authorised_names` still
+unions npcs, locations and the character name. No stored row is touched;
+only fact sheets built from now on change. A cast entity is already a
+player-facing choice of the concordance, so naming it adds no knowledge
+the player lacks.
+
+**The docstring now says what the route does.** `freeze_facts` receives
+the trace `/plan` stored in `day_rewrite`, read back through
+`day_rewrite.load_latest` (`_read_day_rewrite_concordance`,
+BRIEF-0081-b) -- never a fresh `concord()` run, as the old text claimed.
+
+**Both new checks exist from this brief on (R-25).** `pipeline_state.py`
+requires every Machine-checkable arrow of a ticket in `brief`..`done` to
+resolve. `day_fact_sheet_refs.py` holds C-05's case table on a temp-file
+SQLite fixture (killed by the matched-only mutation).
+`day_narration_beats.py` is created with the judge baseline cases A1-A3
+(no DB, no model); BRIEF-0093-B and -C add their cases to it.
+
+
+## THE NARRATION REPAIR IS CODE (TICKET-0093) -- THE MODEL REPAIR PASS IS RETIRED (BRIEF-0093-b, no schema change)
+
+**The measurement (R-29).** Replaying the current judge read-only on 34
+stored narration attempts: 22 zero-names, 5 band-marker, 3 unauthorised,
+4 ok. In all 22 zero-names cases the character's name is present but the
+whole prose is lower-cased, markers included -- consistent with the model
+repair pass (TICKET-0079), not provable per attempt. On a DB copy, 1 fresh
+narration in 20 passed. The rejected words were sentence-initial
+(`Malheureusement`, `Ayant`, ...) or capitals copied from the fact sheet
+(`Serviteurs`, `Reine`) -- never a name the model invented.
+
+**J2'a -- the repair is code.** The model repair's directive was already
+literal ("write these words in lower case"), so code now does exactly
+that. `day_narration_guard.lowercase_offending_words(prose, words)` (C-01)
+is pure (no DB, no model call): every `_TOKEN_RE` word token exactly equal
+(case-sensitive) to one of `words` is lower-cased, outside `_MARKER_RE`
+spans; markers, every other character, spacing and punctuation are
+byte-identical; a word inside a longer token (`Reine` in `Reines`) is not
+touched; `words == ()` returns the prose unchanged. An offending word is
+never a word of an authorised name (the judge builds it from words outside
+`_authorised_words`), so no authorised name can be damaged.
+`_narrate_and_judge` calls it once, behind the same `if not verdict.passed
+and verdict.offending_words`, then re-judges; `MAX_REPAIR_ATTEMPTS = 1`
+stays -- the verdict after it is final. Zero-names, zero-steps and
+band-marker failures carry no `offending_words` and still end in 422 (J1'a:
+the judge's four checks and their order are unchanged).
+
+**J4'a -- sentence-initial words ride the same repair.** A capitalized
+sentence start that is not an authorised name is lower-cased; the judge
+never ignores a sentence's first word. The cosmetic cost is accepted.
+
+**Known limit.** A genuinely invented name is lower-cased and passes,
+exactly as it did with the model repair it replaces.
+
+**Retired.** `day_narration.repair`, the `day_narration_repair`
+`PROMPT_REGISTRY` entry, the `pt-day-narration-repair` seed head and both
+`DAY_NARRATION_REPAIR_*` constants are removed from code, registry and
+seed together (the prompt-registry bijection reads comments too).
+`prompt_coverage.DAY_CHAIN_USAGES` derives from the registry, so
+`declare_day` no longer requires that template. The DB rows
+(`prompt_template` head and its `prompt_version` rows) stay in place --
+history is sacred -- and are no longer called. Consequence (R-18): the
+« Prompts » tab lists only registry usages, so the head no longer appears;
+a direct request by its id would reach the detail route's 500 for an
+unregistered usage. Accepted: nothing links to it. Checks:
+`day_narration.py` R19 (one `lowercase_offending_words` call behind an
+`if`, no top-level `repair`) and R20 (`day_narration_repair` is not a
+registry key); `day_prompt_delivery.py` counts drop to 9 heads, 16
+constants; `day_narration_beats.py` B1-B5 hold C-01's case table.
+
+**Rejected (TICKET-0093), with reactivation conditions.**
+- J2'b (widen the model repair): no reactivation -- measured to make
+  things worse.
+- J2'c (keep the model repair, fix its prompt): reactivate if J2'a lets
+  through a prose Nia flags as unreadable at the live gate.
+- J4'b (ignore sentence-initial words in the judge): reactivate if Nia
+  flags more than half the proses at the live gate as spoiled by a
+  lower-case sentence start.
+
+---
+
+## ONE TEXT PER STEP (TICKET-0093) -- THE CODE WRITES THE BAND MARKERS (BRIEF-0093-c, no schema change)
+
+**The measurement (R-29).** The model wrote band markers unreliably: the
+first step came back `[RÉUSSITE]` whatever its band (4/5 multi-step
+samples), accents were dropped or cased wrongly (`[Echec]`, `[ECHEC]`,
+`[Bloqué]`), and whole paragraphs came back in brackets -- which the
+judge's `_MARKER_RE` (any bracketed span) erases before name extraction.
+
+**J5b -- one text per step, markers by code.** The `day_narration` model
+now returns `{"etapes": [...]}`, one text per step in step order, via
+`ollama_client.chat(..., format="json")`, and never sees or writes a
+marker. `day_narration.assemble_beats(raw, fact_sheet)` (C-02, pure: no
+DB, no model call) builds the prose: each text has every `[`/`]` removed
+and is stripped, then prefixed by `BAND_MARKERS[step.band]`; texts are
+joined by a blank line. So the code-written markers are the only bracketed
+spans the judge sees, and they are correct by construction. Error cases,
+each an `LlmParseError` that the route's existing branch turns into a 502
+(Nia clicks « Résoudre » again, no in-route retry): no steps on the fact
+sheet; no JSON object (`extract_object`'s own errors); `etapes` not a
+list; a count different from the step count ("expected N texts, got M");
+a text that is not a string or is empty after bracket removal ("text for
+step K ..."). `narrate` returns `assemble_beats(raw, fact_sheet)`; the
+route is unchanged.
+
+**The fact sheet shows labels, not markers.** `BAND_LABELS_FR` (C-04,
+key set equal to `BAND_MARKERS`') maps each band to its French outcome
+(`réussite`, `réussite partielle`, `échec`, `bloquée`);
+`_render_fact_sheet` numbers the steps (`- Étape N « objective » --
+issue : label`). The rewrite pass renders the same fact sheet, so it also
+receives labels (its prompt, which still mentions markers, is out of this
+lot's scope and cannot fire today). `BAND_MARKERS` stays the single source
+for the assembly and the judge's outcome-survival check.
+
+**Delivery.** The seed's `DAY_NARRATION_SYSTEM_PROMPT` /
+`DAY_NARRATION_USER_TEMPLATE` change (positive form, no marker, JSON
+answer shape); `scripts/apply_ticket_0093_narration_prompt.py` (embeds no
+text, imports the seed constants, idempotent) appends one `prompt_version`
+to `pt-day-narration` -- Nia runs it on prod at the live gate. Checks:
+`day_narration.py` R22 (the system prompt names no band marker and no
+"marqueur") and R23 (`narrate` calls `assemble_beats` and asks
+`ollama_client.chat(` for `format="json"`; `_render_fact_sheet` reads no
+`BAND_MARKERS`); `day_narration_beats.py` C1-C8 hold C-02/C-04's case
+table.
+
+**Rejected (TICKET-0093), with reactivation condition.**
+- J5a (tolerant marker counting in the judge only): reactivate if more
+  than 20 % of narrations fail with a 502 on invalid JSON after 0093.
+
 ---
 
 *Co-built with Claude, June 2026.*
