@@ -39,6 +39,7 @@ WIRED_FILES = [
     SRC / "context_window.py",
     SRC / "day_plan.py",
     SRC / "day_extract.py",
+    SRC / "day_choice.py",
 ]
 
 # Exemption allowlist (by enclosing function name): the call path whose

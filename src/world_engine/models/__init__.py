@@ -97,6 +97,7 @@ from .ephemeral import (
 )
 from .pipeline import (
     Batch,
+    DayMentionChoice,
     DayMentionResolution,
     DayRewrite,
     PassPlay,

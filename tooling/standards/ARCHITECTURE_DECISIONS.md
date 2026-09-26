@@ -16499,6 +16499,225 @@ table.
 - J5a (tolerant marker counting in the judge only): reactivate if more
   than 20 % of narrations fail with a 502 on invalid JSON after 0093.
 
+## THE H2 CHOICE RECORD (TICKET-0094) -- EVERY MODEL CHOICE IS STORED WITH ITS REASON (BRIEF-0094-a, schema v2.07)
+
+**Context.** H2 (LOT-0094) lets a model choose among the candidates the
+code narrowed for one named day-chain mention, and the code judges the
+choice. This brief lays the ground only: storage, its writer, and a pure
+near-name function. No behaviour change in play.
+
+**Y3b -- a dedicated table, not columns on `day_mention_resolution`.** An
+accepted choice flows through the existing rewrite trace unchanged, as a
+`MatchedMention` with `rung="model_choice"` (a stored rung, never a
+`MATCHING_RUNGS` entry; `rung` carries no CHECK). The call itself -- its
+candidates, evidence, verdict, excerpt and reason -- lives in
+`day_mention_choice` (C-01), one row per model call. Y3a (columns on the
+trace) was rejected: the trace records resolutions, and a refused call
+resolves nothing.
+
+**X1b -- refused calls are stored too.** `verdict` is one of `accepted`,
+`rejected` (the judge refused), `declined` (the model answered "none"),
+`failed` (technical failure after the retry). The shape CHECK: `accepted`
+carries `chosen_entity_id`; `declined`/`failed` never do; `rejected` may
+(the refused pick). A row is written on the 409 path as well, so the review
+loop (K1, TICKET-0095) sees every call. Non-canon; `candidate_ids` and
+`evidence_fact_ids` are JSON arrays stored as TEXT, display order.
+
+**The writer validates, then constructs.** `write_day_mention_choices`
+(`writes/pipeline.py`, C-02) checks every record (category, trigger,
+verdict, attempts in (1, 2), the shape rule, both id lists as lists of
+str) before the first row is built: any violation raises `ValueError` with
+nothing added. No flush, no commit -- the caller owns the transaction.
+`day_mention_choice_store.py` S1-S5 holds it, including the DB CHECK
+agreeing with the writer.
+
+**Append-only (W2 extended).** `day_rewrite.py`'s W2 tracks
+`DayMentionChoice` alongside `DayRewrite`/`DayMentionResolution`; its
+vacuity guard now requires a construction of each tracked model, not of
+any one.
+
+**`near_in_surfaces` -- the pure half of `near_candidates` (C-03).** The
+scoring loop moved, unchanged, into `lore_resolve.near_in_surfaces`, which
+takes the surfaces instead of building them. The caller chose the surfaces,
+and therefore the regime: the day chain passes the perceiver's own (Y2b).
+`near_candidates` keeps its signature, output and creator-regime guard:
+it is the path that BUILDS creator surfaces, so the guard stays where the
+scope is chosen. `near_in_surfaces` never builds a scope, so it cannot
+reach a surface its caller did not already hold (secrets stay excluded by
+construction). `day_choice.py` N1-N3 pin its scores; `name_resolution.py`
+G2 is unchanged.
+
+**Delivery.** Schema v2.07: `schema_version.py`, the schema doc and the
+changelog move together; `scripts/migrate_v2_07_day_mention_choice.py`
+(additive, idempotent, zero rows, converges `schema_meta`) -- Nia runs it
+on prod before starting the cockpit.
+
+## H2 NARROWS AND JUDGES IN CODE (TICKET-0094) -- THE MODEL WILL ONLY CHOOSE AMONG WHAT THE CHARACTER CAN NAME (BRIEF-0094-b, no schema change)
+
+**Context.** H2's code half lands in `src/world_engine/day_choice.py`
+before any model call exists (the call is BRIEF-0094-C). The module narrows
+the candidates, gathers the evidence, renders the list, parses an answer and
+judges it. It reopens 0075 C1 / 0081 C2 knowingly: a pick now happens, but
+only here, only among entities the concordance or the character's own name
+surfaces produced, and only when the judge accepts it. `concord` is not
+modified; `choice_requests` runs on its result.
+
+**Y2b -- the triggers.** One `ambiguous` request per `AmbiguousMention`
+(candidates in `candidate_ids` order), then one `near` request per NAMED
+`UnmatchedMention` whose candidates are non-empty: `rung_named_partial` ids
+(sorted), then `near_in_surfaces` ids whose `category_of_type` equals the
+mention's category, duplicates dropped. Both read the perceiver surfaces,
+built exactly as `concord` builds them (`NameScope("perceiver",
+known_fact_ids=...)`), never `CREATOR`. Cast and inferred mentions never
+produce a request: casting stays deterministic.
+
+**Y4b -- the evidence.** Per candidate, the facts the character knows about
+it: `facts_of(db, entity_id=cid, facets=tuple(FACETS))` filtered to
+`fact_id in known`, where `known = resolve_levels_for_entity(db,
+character.id)` is computed ONCE per `choice_requests` call (the filter
+`known_facts_of` applies, without one level resolution per candidate). Fact
+text reaches the prompt only through `facts_of`'s render chokepoint
+(`prose_render.fact_texts`); no raw `Fact.text` is read.
+
+**Structural secrecy (R-08).** The gameplay model is abliterated, so the
+exclusion is by construction, never by instruction: `facts_of` drops
+creator-only facts in its query (no `include_creator_only`), the level
+filter drops every fact the character does not resolve above `unaware`, and
+the candidate set comes from the perceiver's own surfaces. Nothing the
+character does not know is ever assembled. `day_choice.py` Q1 pins it: of a
+known, an unknown and a creator-only fact, only the known one reaches the
+candidate.
+
+**The two constants.** `MAX_CANDIDATES = 8`, `MAX_FACTS_PER_CANDIDATE =
+12`. Quality comes first and calls are unbounded (X3b); the caps bound only
+what ONE prompt carries, so the numbered list stays readable for an 8b
+model. They are not a cost control.
+
+**X2b -- the judge (`judge_choice`, pure).** Rules in order:
+
+| answer | ambiguous | near |
+|---|---|---|
+| `choix` 0 | declined | declined |
+| out of range | rejected | rejected |
+| excerpt < 3 chars normalized | rejected | rejected |
+| excerpt only in declaration | rejected | accepted |
+| excerpt in chosen facts, also in another's | rejected | accepted |
+| excerpt in chosen facts only | accepted | accepted |
+| excerpt nowhere | rejected | rejected |
+
+The excerpt is stripped of edge quotes and punctuation, then compared
+through `normalize_surface` on both sides. A `rejected` verdict with an
+in-range number keeps the refused pick (`entity_id`) for the review loop;
+`record_of` builds the C-02 family shape and nulls the chosen entity on
+`declined`. `parse_answer` raises `LlmParseError` on a missing or
+ill-typed field (`choix` must be an `int`, never a `bool`) -- the
+technical failure BRIEF-0094-C retries once (Y8a).
+
+**The resolver never authors.** `day_choice.py` writes nothing: no
+`db.add(`, no `.commit(`, no model call in this brief.
+
+## THE MODEL CHOOSES, THE CODE JUDGES (TICKET-0094) -- ONE CALL PER NARROWED SET, ONE RETRY ON FAILURE (BRIEF-0094-c, no schema change)
+
+**H2, a knowing reversal.** 0075 C1 and 0081 C2 kept every day-chain
+resolution deterministic: an ambiguous named mention blocked the day, an
+unmatched one became a germ. H2 (locked before 0092) reopens that on
+purpose, and only here: `day_choice.choose` asks the gameplay model to pick
+among the candidates `choice_requests` already narrowed (BRIEF-0094-b), and
+the pure judge `judge_choice` decides whether the pick stands. The model
+never resolves on its own; the code keeps the last word.
+
+**The number, never an id.** The prompt (`day_mention_choice`, head
+`pt-day-mention-choice`) shows a numbered list of candidate names with what
+the player character knows about each (`render_candidates`, B's evidence,
+creator-only and unknown facts excluded by construction). The model answers
+`{"choix", "extrait", "raison"}`: a list number, a verbatim excerpt, a
+sentence. The code maps the number back to the candidate it rendered; no id
+emitted by a model ever reaches the concordance or a stored record.
+
+**One call per request, one retry on a technical failure only (Y5c, Y8a).**
+Each request gets up to two attempts of {render, `chat`, `parse_answer`}.
+An `OllamaError` or `LlmParseError` (transport, invalid JSON, missing or
+ill-typed field) on attempt 1 triggers attempt 2; on attempt 2 the verdict
+is `failed`, carrying the last error text. A judge refusal (`rejected`,
+`declined`) is an answer, not a failure, and is never retried. An accepted
+choice moves the mention out of `ambiguous` (or `unmatched`) and appends it
+to `matched` with rung `model_choice` -- a stored rung, not a
+`MATCHING_RUNGS` entry. Every request yields exactly one C-02 record. The
+call shape copies `day_plan_select` (`effective_model`, `format="json"`,
+`/no_think`); `day_choice.py` joins the `prompt_registry` check's
+`WIRED_FILES`.
+
+**No bound on calls (X3b).** Quality first: one call per narrowed set,
+however many sets a declaration produces. `MAX_CANDIDATES` /
+`MAX_FACTS_PER_CANDIDATE` bound one prompt's size, not the call count.
+
+**Missing prompt (X4a).** `day_mention_choice`'s call site is
+`src/world_engine/day_choice.py:choose`, so it is a day-chain usage by
+`prompt_coverage`'s derivation and the coverage guard refuses a declaration
+without it -- no edit to `prompt_coverage`. `choose` itself raises
+`LlmParseError("... no active prompt_template ...")` before the first call,
+never retried, and reads no template at all when there is no request.
+`day_prompt_delivery` counts move to 10 heads / 18 constants; its R6
+classifies the usage `Raise`.
+
+**Delivery.** `scripts/apply_ticket_0094_mention_choice_seed.py` copies the
+0077 script: it loops the full `DAY_PROMPT_HEADS` through the idempotent
+`upsert_prompt_template`, embeds no text, and reports only
+`pt-day-mention-choice` as `created` on a first run. Running it on prod is
+Nia's step. Nothing calls `choose` yet (BRIEF-0094-D wires the route).
+
+## H2 IN PLAY (TICKET-0094) -- THE PLAN ROUTE ASKS BEFORE IT GERMS OR BLOCKS (BRIEF-0094-d, no schema change)
+
+**Order: concord -> choose -> germs.** `_extract_and_concord`
+(`cockpit/routes/day.py`) now runs `choose(concord(...), declared_action,
+character, db)` and hands `outcome.result` to `emit_germs`. `concord` is
+unchanged and still never picks; the pick happens after it returns, in
+`day_choice.py`, and only there. A mention the model chose and the code
+accepted is `matched` (rung `model_choice`) before germ emission, so a
+chosen person never also becomes a parked germ. `_extract_and_concord`
+returns the choice records as a third element.
+
+**Outcome -> behaviour (the lot's table b3):**
+
+| trigger | verdict | concordance | route |
+|---|---|---|---|
+| ambiguous | accepted | -> matched `model_choice` | plan proceeds |
+| ambiguous | rejected/declined/failed | stays ambiguous | rollback, records committed, 409 |
+| near | accepted | -> matched `model_choice` | plan proceeds, no germ |
+| near | rejected/declined/failed | stays unmatched | plan proceeds, germ if person |
+
+**X1b -- the refused choice survives the 409.** An ambiguity the choice did
+not settle still blocks the plan. `_record_refused_choices` rolls the
+session back (the staged germs and any other staged plan work die), writes
+the H2 records through `write_day_mention_choices`, and commits them in
+their own transaction, so a refused choice stays reviewable for K1
+(TICKET-0095). Nothing but append-only `day_mention_choice` rows is
+committed on that path; with no record, nothing is committed at all. On the
+plan path the records are staged right after `_write_declaration_rewrite`
+and ride the plan's single commit (all-or-nothing).
+
+**Fail-closed, unchanged.** The 502 wrapper around `_extract_and_concord`
+is untouched: a missing `day_mention_choice` template surfaces as
+`day extraction failed: day_choice: no active prompt_template ...`. A choice
+failure (`failed` verdict) never 502s -- the mention simply stays where
+`concord` left it.
+
+**Docstrings corrected.** `day_concordance`'s C2-partition paragraph now
+says a named ambiguity (or a named mention with only partial/near
+candidates) may be settled after the module returns, by
+`day_choice.choose`; the module itself still never picks.
+`_extract_and_concord`'s docstring names H2's place. The CLAUDE.md
+file-map line for `day_choice.py` was not added: the File-structure section
+is at its 80-line budget (`claude_md_contract.py`).
+
+**Checks.** `tooling/verify/checks/day_choice.py` gains W1-W5 (AST,
+vacuity-guarded): `choose(` wraps the only `concord(` and precedes
+`emit_germs(` (W1); the ambiguity branch calls `_record_refused_choices(`
+before its `raise` (W2); that helper rolls back, writes, then commits (W3);
+`plan_day` writes the records once, after `_write_declaration_rewrite(`
+(W4); `day_choice.py` holds exactly one `chat(`, inside `_ask`, and no
+`db.add(` / `.commit(` (W5).
+
 ---
 
 *Co-built with Claude, June 2026.*

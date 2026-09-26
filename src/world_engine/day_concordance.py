@@ -37,6 +37,10 @@ equally good candidates on a NAMED mention is `ambiguous`, never resolved by
 picking. Two or more equally good candidates on an INFERRED mention is
 casting, not resolving — F1's `_cast_one` narrows the set through
 `CAST_PRECEDENCE` and the winner lands in `cast`, never `ambiguous`.
+Since TICKET-0094 (H2) a named ambiguity, and a named mention with no hit
+but partial or near candidates, may still be settled after this module
+returns — by `day_choice.choose`, which asks the model and judges its
+answer. This module itself still never picks.
 
 `emit_germs` writes NOTHING (no `db.add(`, no `.commit(`) — it constructs
 `ProposedMutation` objects and returns them; the caller (the

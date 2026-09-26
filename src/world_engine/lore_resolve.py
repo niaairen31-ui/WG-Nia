@@ -10,6 +10,9 @@ entity names and appellations are candidates of equal rank (N11a). Which
 appellations a caller sees is the `NameScope` it passes — every caller
 states one, there is no default. The `named_partial` rung runs only under
 the `creator` regime (N12a), and so do near candidates.
+The day chain (TICKET-0094, H2) calls the pure `rung_named_partial` and
+`near_in_surfaces` on the perceiver's own surfaces to narrow candidates for
+a model choice — never as a match.
 
 The resolver never authors and never casts. No model call happens here: a
 lookup cannot hallucinate an id. Two or more candidates on a name is an
@@ -180,21 +183,18 @@ class NearCandidate:
     score: int         # 0-100, ratio * 100 rounded half up
 
 
-def near_candidates(surface_form: str, world_id: str, db: Session, *,
-                    scope: NameScope, exclude_ids: frozenset[str] = frozenset()
-                    ) -> tuple[NearCandidate, ...]:
-    """Names close to `surface_form`, for display only — never a pick (N5c,
-    N9b). Creator regime only (N12a); every category counts. A surface
-    qualifies on a `difflib` ratio >= `NEAR_RATIO` or a shared 3+ token; per
-    entity the best-scoring qualifying surface is kept."""
-    if scope.regime != "creator":
-        raise ValueError(f"near_candidates takes the creator regime, not {scope.regime!r}")
+def near_in_surfaces(surface_form: str, name_surfaces: Sequence[NameSurface], *,
+                     exclude_ids: frozenset[str] = frozenset()) -> tuple[NearCandidate, ...]:
+    """Names close to `surface_form` among `name_surfaces` (C-03,
+    TICKET-0094): the pure half of `near_candidates`. The caller chose the
+    surfaces — and therefore the regime; the day chain passes the perceiver's
+    own (Y2b), the creator surfaces pass through `near_candidates`."""
     target = normalize_surface(surface_form)
     if not target:
         return ()
     long_target = {t for t in target.split() if len(t) >= 3}
     best: dict[str, tuple[float, NameSurface]] = {}
-    for s in surfaces(db, world_id, scope):
+    for s in name_surfaces:
         if s.entity_id in exclude_ids:
             continue
         key = normalize_surface(s.text)
@@ -212,6 +212,18 @@ def near_candidates(surface_form: str, world_id: str, db: Session, *,
     ]
     found.sort(key=lambda c: (-c.score, c.name.casefold(), c.entity_id))
     return tuple(found[:NEAR_LIMIT])
+
+
+def near_candidates(surface_form: str, world_id: str, db: Session, *,
+                    scope: NameScope, exclude_ids: frozenset[str] = frozenset()
+                    ) -> tuple[NearCandidate, ...]:
+    """Names close to `surface_form`, for display only — never a pick (N5c,
+    N9b). Creator regime only (N12a); every category counts. A surface
+    qualifies on a `difflib` ratio >= `NEAR_RATIO` or a shared 3+ token; per
+    entity the best-scoring qualifying surface is kept."""
+    if scope.regime != "creator":
+        raise ValueError(f"near_candidates takes the creator regime, not {scope.regime!r}")
+    return near_in_surfaces(surface_form, surfaces(db, world_id, scope), exclude_ids=exclude_ids)
 
 
 def pre_resolved(entity_id: str) -> NamedResolution:

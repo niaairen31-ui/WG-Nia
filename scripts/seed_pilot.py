@@ -2123,6 +2123,50 @@ Déclaration du jour : {declaration}
 À quel plan cette déclaration se rattache-t-elle, s'il y en a un ?\
 """
 
+# ----- prompt template: mention choice (TICKET-0094, H2) ------------------
+# usage = "day_mention_choice". world_id = NULL. ONE call per candidate set
+# the code has already narrowed (day_choice.choice_requests): the model picks
+# a number and copies an excerpt; the code judges it (day_choice.judge_choice)
+# and never trusts an id from the model. The evidence is what the player
+# character knows about each candidate, nothing else. Positive-form only
+# (abliterated gameplay model).
+DAY_MENTION_CHOICE_SYSTEM_PROMPT = """\
+Tu aides un jeu de rôle à comprendre de qui ou de quoi parle le joueur. Le \
+joueur a écrit une déclaration pour sa journée. Un nom qu'il emploie peut \
+désigner plusieurs entités du monde : on te donne la liste numérotée des \
+candidats possibles, avec, pour chacun, ce que le personnage joueur sait de \
+lui.
+
+Ton travail : choisir le candidat que le joueur désigne le plus \
+probablement, en t'appuyant sur les mots de la déclaration et sur ce que le \
+personnage sait des candidats.
+
+RÈGLES :
+- Choisis le numéro d'un candidat de la liste, ou 0 quand aucun ne convient \
+ou quand les informations ne permettent pas de trancher.
+- Recopie mot pour mot un court extrait qui justifie ton choix : un passage \
+de la déclaration, ou un passage de ce que le personnage sait du candidat \
+choisi. Quand plusieurs candidats portent le même nom, prends l'extrait dans \
+ce que le personnage sait du candidat choisi, et choisis un passage qui le \
+distingue des autres.
+- Explique ton choix en une phrase.
+
+Réponds UNIQUEMENT avec un objet JSON de la forme \
+{"choix": 2, "extrait": "passage recopié", "raison": "une phrase"}, en \
+français, sans préambule ni commentaire.\
+"""
+
+DAY_MENTION_CHOICE_USER_TEMPLATE = """\
+Déclaration du joueur : {declaration}
+
+Nom employé : « {surface_form} » ({category})
+
+Candidats :
+{candidates}
+
+Quel candidat le joueur désigne-t-il ?\
+"""
+
 DAY_PROMPT_HEADS = (
     dict(
         id="pt-day-plan",
@@ -2212,6 +2256,16 @@ DAY_PROMPT_HEADS = (
         system_prompt=DAY_PLAN_SELECT_SYSTEM_PROMPT,
         user_template=DAY_PLAN_SELECT_USER_TEMPLATE,
         variables=["plans", "declaration"],
+        destination="local",
+    ),
+    dict(
+        id="pt-day-mention-choice",
+        name="Journée — choix d'une mention par le modèle (H2)",
+        usage="day_mention_choice",
+        world_id=None,
+        system_prompt=DAY_MENTION_CHOICE_SYSTEM_PROMPT,
+        user_template=DAY_MENTION_CHOICE_USER_TEMPLATE,
+        variables=["declaration", "surface_form", "category", "candidates"],
         destination="local",
     ),
 )

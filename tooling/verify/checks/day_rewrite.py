@@ -7,8 +7,9 @@ W1 (purity): `day_rewrite.py` imports no `ollama_client` and constructs no
 model from a named forbidden set (`Entity`, `Character`, `NpcSchedule`,
 `ProposedMutation`).
 W2 (append-only): no assignment anywhere in `src/` targets an attribute of a
-`DayRewrite`/`DayMentionResolution` instance, and neither name appears as
-the argument of a `db.delete(`.
+`DayRewrite`/`DayMentionResolution`/`DayMentionChoice` (TICKET-0094)
+instance, and none of these names appears as the argument of a
+`db.delete(`.
 W3 (retirement): `plan_context` has no remaining definition, import or
 reference anywhere in `src/`.
 W4 (signature): `emit_plan`'s signature no longer names `concordance_summary`.
@@ -39,7 +40,7 @@ DAY_PLAN_FILE = SRC / "day_plan.py"
 DAY_ROUTE_FILE = SRC / "cockpit" / "routes" / "day.py"
 
 _FORBIDDEN_CONSTRUCTORS = {"Entity", "Character", "NpcSchedule", "ProposedMutation"}
-_TRACKED_MODELS = {"DayRewrite", "DayMentionResolution"}
+_TRACKED_MODELS = {"DayRewrite", "DayMentionResolution", "DayMentionChoice"}
 _EXTRACT_FUNCS = {"extract_places", "extract_persons", "extract_factions"}
 
 FAILURES: list[str] = []
@@ -112,7 +113,7 @@ def check_purity() -> None:
 # ── W2 ───────────────────────────────────────────────────────────────────
 
 def _tracked_names(tree: ast.Module) -> set[str]:
-    """Local names bound to a `DayRewrite`/`DayMentionResolution` instance:
+    """Local names bound to a `_TRACKED_MODELS` instance:
     a direct constructor call, a `db.get(DayRewrite, ...)` read, or a `for`
     target iterating a `select(DayRewrite)`-shaped query result."""
     names: set[str] = set()
@@ -135,14 +136,14 @@ def _tracked_names(tree: ast.Module) -> set[str]:
 
 
 def check_append_only() -> None:
-    found_construction = False
+    constructed: set[str] = set()
     for path in _all_src_files():
         tree = _parse(path)
         if tree is None:
             continue
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in _TRACKED_MODELS:
-                found_construction = True
+                constructed.add(node.func.id)
 
         names = _tracked_names(tree)
         for node in ast.walk(tree):
@@ -152,15 +153,15 @@ def check_append_only() -> None:
                     if isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name) and t.value.id in names:
                         fail(
                             f"day_rewrite W2: {_rel(path)}:{node.lineno} — attribute assignment on a "
-                            f"tracked DayRewrite/DayMentionResolution instance ({t.value.id}.{t.attr} = ...)"
+                            f"tracked {'/'.join(sorted(_TRACKED_MODELS))} instance ({t.value.id}.{t.attr} = ...)"
                         )
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "delete":
                 for arg in node.args:
                     if isinstance(arg, ast.Name) and (arg.id in _TRACKED_MODELS or arg.id in names):
                         fail(f"day_rewrite W2: {_rel(path)}:{node.lineno} — db.delete({arg.id}) on a tracked model/name")
 
-    if not found_construction:
-        fail("day_rewrite W2: zero DayRewrite/DayMentionResolution constructions found in src/ — vacuous")
+    for model in sorted(_TRACKED_MODELS - constructed):
+        fail(f"day_rewrite W2: zero {model} constructions found in src/ — vacuous")
 
 
 # ── W3 ───────────────────────────────────────────────────────────────────

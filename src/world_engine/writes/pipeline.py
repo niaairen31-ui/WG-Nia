@@ -30,6 +30,7 @@ a batch to once its day narration is judged and accepted.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Optional
 
@@ -37,13 +38,15 @@ from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, func, select
 
 from ..day_feasibility import VetoVerdict
-from ..models import Batch, DayMentionResolution, DayRewrite, PassPlay
+from ..models import Batch, DayMentionChoice, DayMentionResolution, DayRewrite, PassPlay
 
 MAX_DECLARATION_CHARS = 4000
 
 _MENTION_CATEGORIES: tuple[str, ...] = ("place", "person", "faction")
 _MENTION_KINDS: tuple[str, ...] = ("named", "inferred")
 _MENTION_VERDICTS: tuple[str, ...] = ("matched", "cast", "unmatched")
+_CHOICE_TRIGGERS: tuple[str, ...] = ("ambiguous", "near")
+_CHOICE_VERDICTS: tuple[str, ...] = ("accepted", "rejected", "declined", "failed")
 
 PASS_PLAY_STATUSES: tuple[str, ...] = ("submitted", "resolving", "resolved", "flagged")
 
@@ -258,3 +261,59 @@ def write_day_rewrite(
     ]
     db.add_all(children)
     return rewrite
+
+
+def _validate_day_mention_choice(record: dict) -> None:
+    """The `day_mention_choice` CHECK shapes, asserted in Python before any
+    row is constructed (C-02, TICKET-0094, BRIEF-0094-A)."""
+    category = record.get("category")
+    if category not in _MENTION_CATEGORIES:
+        raise ValueError(
+            f"write_day_mention_choices: category must be one of {_MENTION_CATEGORIES}, got {category!r}"
+        )
+    trigger = record.get("trigger")
+    if trigger not in _CHOICE_TRIGGERS:
+        raise ValueError(f"write_day_mention_choices: trigger must be one of {_CHOICE_TRIGGERS}, got {trigger!r}")
+    verdict = record.get("verdict")
+    if verdict not in _CHOICE_VERDICTS:
+        raise ValueError(f"write_day_mention_choices: verdict must be one of {_CHOICE_VERDICTS}, got {verdict!r}")
+    attempts = record.get("attempts")
+    if type(attempts) is not int or attempts not in (1, 2):
+        raise ValueError(f"write_day_mention_choices: attempts must be 1 or 2, got {attempts!r}")
+    chosen = record.get("chosen_entity_id")
+    if verdict == "accepted" and chosen is None:
+        raise ValueError("write_day_mention_choices: an accepted choice needs chosen_entity_id")
+    if verdict in ("declined", "failed") and chosen is not None:
+        raise ValueError("write_day_mention_choices: a declined/failed choice must not carry chosen_entity_id")
+    for key in ("candidate_ids", "evidence_fact_ids"):
+        value = record.get(key)
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise ValueError(f"write_day_mention_choices: {key} must be a list of str, got {value!r}")
+
+
+def write_day_mention_choices(
+    db: Session, *, world_id: str, pass_play_id: str, records: list[dict],
+) -> list[DayMentionChoice]:
+    """Validate-then-construct, all-or-nothing (C-02, TICKET-0094,
+    BRIEF-0094-A): every record is checked before the first row is built;
+    any violation raises `ValueError` with nothing added. One append-only
+    `day_mention_choice` row per record — a refused call is a record too
+    (X1b). The two id lists are stored as JSON text. No flush, no commit:
+    the caller commits."""
+    for record in records:
+        _validate_day_mention_choice(record)
+
+    rows = [
+        DayMentionChoice(
+            world_id=world_id, pass_play_id=pass_play_id, category=record["category"],
+            surface_form=record["surface_form"], trigger=record["trigger"],
+            candidate_ids=json.dumps(record["candidate_ids"], ensure_ascii=False),
+            evidence_fact_ids=json.dumps(record["evidence_fact_ids"], ensure_ascii=False),
+            verdict=record["verdict"], chosen_entity_id=record["chosen_entity_id"],
+            excerpt=record["excerpt"], reason=record["reason"], verdict_detail=record["verdict_detail"],
+            attempts=record["attempts"],
+        )
+        for record in records
+    ]
+    db.add_all(rows)
+    return rows

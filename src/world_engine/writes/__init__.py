@@ -120,6 +120,7 @@ from .pipeline import (
     resolution_count,
     write_batch,
     write_day_feasibility,
+    write_day_mention_choices,
     write_day_rewrite,
     write_pass_play,
     write_pass_play_resolution,
