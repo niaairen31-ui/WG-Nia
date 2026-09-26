@@ -24,8 +24,15 @@ Q1-Q4 -- `choice_requests` (C-05) on a temp SQLite world: an ambiguity's
    evidence is exactly the PC's known fact (never an unknown or creator-only
    one); a near request is category-filtered; inferred and cast mentions
    yield none; an empty result yields `()`.
+K1-K7 -- `choose` (C-07), with `choice_requests`, `_load_choice_template`,
+   `current_prompt`, `effective_model` and `ollama_client.chat` monkeypatched
+   (no DB, no Ollama): no request reads no template; a missing template
+   raises before any call; a technical failure is retried once, then
+   `failed`; an accepted choice moves the mention from ambiguous/unmatched to
+   matched with rung `model_choice`; a judge refusal is never retried; the
+   user message carries the rendered variables and ends with `/no_think`.
 
-N, J, P, Rd, Rc are pure; Q builds a fresh temp database
+N, J, P, Rd, Rc, K are pure; Q builds a fresh temp database
 (`WORLD_ENGINE_DATABASE_URL` set before any world_engine import). Vacuity
 guards: N1 must have produced candidates, Q1 must have produced a request.
 FAILURES list, print FAIL lines, exit 1.
@@ -193,6 +200,158 @@ def check_record(j6) -> None:
         fail(f"Rc: chosen/attempts {record['chosen_entity_id']!r}/{record['attempts']!r}")
 
 
+# --- choose (monkeypatched, no DB, no Ollama) ----------------------------------
+
+def _run_choose(result, requests, template, replies):
+    """Run `choose` with every collaborator stubbed. `replies` is a list of
+    str/dict (returned) or exceptions (raised), consumed one per chat call.
+    Returns (outcome or the raised exception, chat calls, loader calls)."""
+    import json
+
+    from world_engine import day_choice, ollama_client
+
+    chat_calls: list[tuple] = []
+    loader_calls: list[tuple] = []
+    queue = list(replies)
+
+    def fake_chat(messages, **kwargs):
+        chat_calls.append((messages, kwargs))
+        reply = queue.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply if isinstance(reply, str) else json.dumps(reply)
+
+    def fake_loader(world_id, db):
+        loader_calls.append((world_id, db))
+        return template
+
+    saved = (day_choice.choice_requests, day_choice._load_choice_template,
+             day_choice.current_prompt, day_choice.effective_model, ollama_client.chat)
+    day_choice.choice_requests = lambda res, character, db: tuple(requests)
+    day_choice._load_choice_template = fake_loader
+    day_choice.current_prompt = lambda db, t: t
+    day_choice.effective_model = lambda t, default: default
+    ollama_client.chat = fake_chat
+    try:
+        try:
+            outcome = day_choice.choose(result, _DECLARATION, SimpleNamespace(world_id=None), None)
+        except Exception as exc:  # noqa: BLE001 -- the case inspects it
+            outcome = exc
+    finally:
+        (day_choice.choice_requests, day_choice._load_choice_template,
+         day_choice.current_prompt, day_choice.effective_model, ollama_client.chat) = saved
+    return outcome, chat_calls, loader_calls
+
+
+def _single(out, label):
+    from world_engine.day_choice import ChoiceOutcome
+
+    if not isinstance(out, ChoiceOutcome):
+        fail(f"{label}: raised {out!r}")
+        return None
+    if len(out.records) != 1:
+        fail(f"{label}: {len(out.records)} records, expected 1")
+        return None
+    return out.records[0]
+
+
+def check_choose() -> int:
+    from world_engine.day_choice import ChoiceOutcome, render_candidates
+    from world_engine.day_concordance import AmbiguousMention, ConcordanceResult, UnmatchedMention
+    from world_engine.llm_parse import LlmParseError
+    from world_engine.ollama_client import OllamaError
+
+    ambiguous, near = _requests()
+    template = SimpleNamespace(system_prompt="S", world_id=None,
+                               user_template="{declaration}|{surface_form}|{category}|{candidates}")
+    amb_result = ConcordanceResult(matched=(), cast=(),
+                                   ambiguous=(AmbiguousMention(ambiguous.mention, ("a", "b")),),
+                                   unmatched=(), skipped_rungs=())
+    near_result = ConcordanceResult(matched=(), cast=(), ambiguous=(),
+                                    unmatched=(UnmatchedMention(near.mention, ("named_exact",)),),
+                                    skipped_rungs=())
+    accept = {"choix": 1, "extrait": "a perdu une bague", "raison": "r"}
+    cases = 0
+
+    # K1: no request -> no template read, no call, result unchanged.
+    out, calls, loads = _run_choose(amb_result, [], template, [])
+    cases += 1
+    if not isinstance(out, ChoiceOutcome) or out.records != () or out.result is not amb_result:
+        fail(f"K1: no request -> {out!r}")
+    if loads or calls:
+        fail(f"K1: loader called {len(loads)}x, chat called {len(calls)}x, expected 0/0")
+
+    # K2: a request and no template -> LlmParseError, chat never called.
+    out, calls, _ = _run_choose(amb_result, [ambiguous], None, [])
+    cases += 1
+    if not (isinstance(out, LlmParseError) and "no active prompt_template" in str(out)):
+        fail(f"K2: missing template -> {out!r}")
+    if calls:
+        fail(f"K2: chat called {len(calls)}x, expected 0")
+
+    # K3: OllamaError then an accepted answer -> accepted on attempt 2.
+    out, calls, _ = _run_choose(amb_result, [ambiguous], template, [OllamaError("down"), accept])
+    cases += 1
+    rec = _single(out, "K3")
+    if rec is not None:
+        if (rec["verdict"], rec["attempts"]) != ("accepted", 2):
+            fail(f"K3: record {rec}")
+        got = [(m.mention is ambiguous.mention, m.entity_id, m.rung) for m in out.result.matched]
+        if got != [(True, "a", "model_choice")] or out.result.ambiguous != ():
+            fail(f"K3: matched {got}, ambiguous {out.result.ambiguous}")
+
+    # K4: unparsable twice -> failed, attempts 2, detail set, result untouched.
+    out, calls, _ = _run_choose(amb_result, [ambiguous], template, ["bad", "bad"])
+    cases += 1
+    rec = _single(out, "K4")
+    if rec is not None:
+        if (rec["verdict"], rec["attempts"]) != ("failed", 2) or not rec["verdict_detail"]:
+            fail(f"K4: record {rec}")
+        if out.result != amb_result:
+            fail(f"K4: result changed: {out.result}")
+    if len(calls) != 2:
+        fail(f"K4: chat called {len(calls)}x, expected 2")
+
+    # K5: near request accepted on attempt 1 -> leaves unmatched, joins matched.
+    out, calls, _ = _run_choose(near_result, [near], template,
+                                [{"choix": 1, "extrait": "Maelys", "raison": "r"}])
+    cases += 1
+    rec = _single(out, "K5")
+    if rec is not None:
+        if (rec["verdict"], rec["attempts"]) != ("accepted", 1):
+            fail(f"K5: record {rec}")
+        got = [(m.mention is near.mention, m.entity_id, m.rung) for m in out.result.matched]
+        if got != [(True, "a", "model_choice")] or out.result.unmatched != ():
+            fail(f"K5: matched {got}, unmatched {out.result.unmatched}")
+
+    # K6: a judge refusal is never retried (Y8a).
+    out, calls, _ = _run_choose(amb_result, [ambiguous], template,
+                                [{"choix": 3, "extrait": "x", "raison": "r"}, accept])
+    cases += 1
+    rec = _single(out, "K6")
+    if len(calls) != 1:
+        fail(f"K6: chat called {len(calls)}x, expected 1")
+    if rec is not None and rec["verdict"] != "rejected":
+        fail(f"K6: record {rec}")
+
+    # K7: the rendered user message and the call shape.
+    out, calls, _ = _run_choose(amb_result, [ambiguous], template, [accept])
+    cases += 1
+    if len(calls) != 1:
+        fail(f"K7: chat called {len(calls)}x, expected 1")
+    else:
+        messages, kwargs = calls[0]
+        user = messages[-1]["content"]
+        for part in (_DECLARATION, "Maelys", "personne", render_candidates(ambiguous)):
+            if part not in user:
+                fail(f"K7: user message lacks {part!r}")
+        if not user.endswith("\n/no_think"):
+            fail(f"K7: user message does not end with /no_think: {user[-30:]!r}")
+        if kwargs.get("format") != "json":
+            fail(f"K7: format={kwargs.get('format')!r}, expected 'json'")
+    return cases
+
+
 # --- requests (temp SQLite fixture) -------------------------------------------
 
 def _fresh_engine():
@@ -309,6 +468,8 @@ def main() -> int:
     check_record(check_judge())
     check_parse()
     check_render()
+    if check_choose() != 7:
+        fail("vacuity: K1-K7 did not all run")
     if check_requests(engine) == 0:
         fail("vacuity: Q1 produced no request")
     if FAILURES:
@@ -319,7 +480,9 @@ def main() -> int:
         "PASS: day_choice — near_in_surfaces scores typos and shared tokens, honours "
         "exclude_ids, and returns every category (N1-N3); the judge follows the (b2) table "
         "(J1-J8); parse (P), render (Rd) and record (Rc) hold; requests carry only known "
-        "evidence, filter by category, skip inferred/cast, and yield () when empty (Q1-Q4)"
+        "evidence, filter by category, skip inferred/cast, and yield () when empty (Q1-Q4); "
+        "choose reads no template without a request, raises on a missing one, retries a "
+        "technical failure once, never a refusal, and applies an accepted choice (K1-K7)"
     )
     return 0
 

@@ -16616,6 +16616,56 @@ technical failure BRIEF-0094-C retries once (Y8a).
 **The resolver never authors.** `day_choice.py` writes nothing: no
 `db.add(`, no `.commit(`, no model call in this brief.
 
+## THE MODEL CHOOSES, THE CODE JUDGES (TICKET-0094) -- ONE CALL PER NARROWED SET, ONE RETRY ON FAILURE (BRIEF-0094-c, no schema change)
+
+**H2, a knowing reversal.** 0075 C1 and 0081 C2 kept every day-chain
+resolution deterministic: an ambiguous named mention blocked the day, an
+unmatched one became a germ. H2 (locked before 0092) reopens that on
+purpose, and only here: `day_choice.choose` asks the gameplay model to pick
+among the candidates `choice_requests` already narrowed (BRIEF-0094-b), and
+the pure judge `judge_choice` decides whether the pick stands. The model
+never resolves on its own; the code keeps the last word.
+
+**The number, never an id.** The prompt (`day_mention_choice`, head
+`pt-day-mention-choice`) shows a numbered list of candidate names with what
+the player character knows about each (`render_candidates`, B's evidence,
+creator-only and unknown facts excluded by construction). The model answers
+`{"choix", "extrait", "raison"}`: a list number, a verbatim excerpt, a
+sentence. The code maps the number back to the candidate it rendered; no id
+emitted by a model ever reaches the concordance or a stored record.
+
+**One call per request, one retry on a technical failure only (Y5c, Y8a).**
+Each request gets up to two attempts of {render, `chat`, `parse_answer`}.
+An `OllamaError` or `LlmParseError` (transport, invalid JSON, missing or
+ill-typed field) on attempt 1 triggers attempt 2; on attempt 2 the verdict
+is `failed`, carrying the last error text. A judge refusal (`rejected`,
+`declined`) is an answer, not a failure, and is never retried. An accepted
+choice moves the mention out of `ambiguous` (or `unmatched`) and appends it
+to `matched` with rung `model_choice` -- a stored rung, not a
+`MATCHING_RUNGS` entry. Every request yields exactly one C-02 record. The
+call shape copies `day_plan_select` (`effective_model`, `format="json"`,
+`/no_think`); `day_choice.py` joins the `prompt_registry` check's
+`WIRED_FILES`.
+
+**No bound on calls (X3b).** Quality first: one call per narrowed set,
+however many sets a declaration produces. `MAX_CANDIDATES` /
+`MAX_FACTS_PER_CANDIDATE` bound one prompt's size, not the call count.
+
+**Missing prompt (X4a).** `day_mention_choice`'s call site is
+`src/world_engine/day_choice.py:choose`, so it is a day-chain usage by
+`prompt_coverage`'s derivation and the coverage guard refuses a declaration
+without it -- no edit to `prompt_coverage`. `choose` itself raises
+`LlmParseError("... no active prompt_template ...")` before the first call,
+never retried, and reads no template at all when there is no request.
+`day_prompt_delivery` counts move to 10 heads / 18 constants; its R6
+classifies the usage `Raise`.
+
+**Delivery.** `scripts/apply_ticket_0094_mention_choice_seed.py` copies the
+0077 script: it loops the full `DAY_PROMPT_HEADS` through the idempotent
+`upsert_prompt_template`, embeds no text, and reports only
+`pt-day-mention-choice` as `created` on a first run. Running it on prod is
+Nia's step. Nothing calls `choose` yet (BRIEF-0094-D wires the route).
+
 ---
 
 *Co-built with Claude, June 2026.*

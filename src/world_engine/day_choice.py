@@ -15,20 +15,22 @@ abliterated: nothing the character does not know is ever assembled.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from . import llm_parse
-from .day_concordance import ConcordanceResult
+from . import llm_parse, ollama_client
+from .day_concordance import ConcordanceResult, MatchedMention
 from .day_extract import Mention
 from .facet_reads import facts_of
 from .facets import FACETS
 from .knowledge_resolve import resolve_levels_for_entity
 from .lore_resolve import category_of_type, near_in_surfaces, normalize_surface, rung_named_partial
-from .models import Character, Entity
+from .models import Character, Entity, PromptTemplate
 from .name_index import NameScope, surfaces as name_surfaces
+from .prompt_registry import effective_model
+from .prompt_store import current_prompt
 
 MAX_CANDIDATES = 8
 MAX_FACTS_PER_CANDIDATE = 12
@@ -187,3 +189,92 @@ def record_of(request: ChoiceRequest, verdict: ChoiceVerdict, attempts: int) -> 
         "excerpt": verdict.excerpt, "reason": verdict.reason, "verdict_detail": verdict.detail,
         "attempts": attempts,
     }
+
+
+def _load_choice_template(world_id: Optional[str], db: Session) -> Optional[PromptTemplate]:
+    """`day_plan_select._load_day_plan_select_template`'s precedent, verbatim."""
+    templates = db.exec(
+        select(PromptTemplate).where(
+            PromptTemplate.usage == "day_mention_choice",
+            PromptTemplate.is_active == True,  # noqa: E712
+        )
+    ).all()
+    if not templates:
+        return None
+    for prefer in (lambda t: t.world_id == world_id, lambda t: t.world_id is None):
+        match = next((t for t in templates if prefer(t)), None)
+        if match is not None:
+            return match
+    return templates[0]
+
+
+@dataclass(frozen=True)
+class ChoiceOutcome:
+    result: ConcordanceResult
+    records: tuple[dict, ...]
+
+
+def _ask(request: ChoiceRequest, declaration: str, template: PromptTemplate, db: Session) -> dict:
+    """One attempt: render, call, parse. Raises OllamaError/LlmParseError."""
+    version = current_prompt(db, template)
+    user_msg = (
+        version.user_template
+        .replace("{declaration}", declaration)
+        .replace("{surface_form}", request.mention.surface_form)
+        .replace("{category}", category_label(request.mention.category))
+        .replace("{candidates}", render_candidates(request))
+        + "\n/no_think"
+    )
+    raw = ollama_client.chat(
+        [
+            {"role": "system", "content": version.system_prompt},
+            {"role": "user", "content": user_msg},
+        ],
+        model=effective_model(template, ollama_client.DEFAULT_MODEL),
+        host=ollama_client.OLLAMA_HOST,
+        format="json",
+    )
+    return parse_answer(raw)
+
+
+def _decide(request: ChoiceRequest, declaration: str, template: PromptTemplate, db: Session) -> dict:
+    """Y5c/Y8a: one retry on a technical failure only, then `failed`."""
+    error = ""
+    for attempt in (1, 2):
+        try:
+            answer = _ask(request, declaration, template, db)
+        except (ollama_client.OllamaError, llm_parse.LlmParseError) as exc:
+            error = str(exc)
+            continue
+        return record_of(request, judge_choice(request, answer, declaration), attempt)
+    return record_of(request, ChoiceVerdict("failed", None, None, None, error), 2)
+
+
+def _apply(result: ConcordanceResult, request: ChoiceRequest, entity_id: str) -> ConcordanceResult:
+    """An accepted choice: the mention leaves ambiguous/unmatched and joins
+    matched with rung MODEL_CHOICE_RUNG (Y3b)."""
+    matched = (*result.matched, MatchedMention(mention=request.mention, entity_id=entity_id, rung=MODEL_CHOICE_RUNG))
+    if request.trigger == "ambiguous":
+        ambiguous = tuple(am for am in result.ambiguous if am.mention is not request.mention)
+        return replace(result, matched=matched, ambiguous=ambiguous)
+    unmatched = tuple(um for um in result.unmatched if um.mention is not request.mention)
+    return replace(result, matched=matched, unmatched=unmatched)
+
+
+def choose(result: ConcordanceResult, declaration: str, character: Character, db: Session) -> ChoiceOutcome:
+    """C-07: narrow, ask, judge, apply. No request → no template read and
+    no call. A missing template raises before the first call and is never
+    retried (X4a: the coverage guard refuses the declaration upstream)."""
+    requests = choice_requests(result, character, db)
+    if not requests:
+        return ChoiceOutcome(result=result, records=())
+    template = _load_choice_template(character.world_id, db)
+    if template is None:
+        raise llm_parse.LlmParseError("day_choice: no active prompt_template for usage='day_mention_choice'")
+    records: list[dict] = []
+    for request in requests:
+        record = _decide(request, declaration, template, db)
+        records.append(record)
+        if record["verdict"] == "accepted":
+            result = _apply(result, request, record["chosen_entity_id"])
+    return ChoiceOutcome(result=result, records=tuple(records))
