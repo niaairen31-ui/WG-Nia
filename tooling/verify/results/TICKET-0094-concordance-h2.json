@@ -1,0 +1,112 @@
+{
+  "ticket": "TICKET-0094-concordance-h2",
+  "when": "2026-09-26T02:29:49.259336+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "day_mention_choice_store.py",
+      "status": "PASS",
+      "msg": "PASS: day_mention_choice_store \u00e2\u20ac\u201d valid records round-trip, every invalid record or mixed batch adds nothing, an empty batch is a no-op, and the DB CHECK agrees with the writer (S1-S5)"
+    },
+    {
+      "check": "day_choice.py",
+      "status": "PASS",
+      "msg": "PASS: day_choice \u00e2\u20ac\u201d near_in_surfaces scores typos and shared tokens, honours exclude_ids, and returns every category (N1-N3); the judge follows the (b2) table (J1-J8); parse (P), render (Rd) and record (Rc) hold; requests carry only known evidence, filter by category, skip inferred/cast, and yield () when empty (Q1-Q4); choose reads no template without a request, raises on a missing one, retries a technical failure once, never a refusal, and applies an accepted choice (K1-K7); the plan route asks before it germs or blocks, records refused choices in their own transaction and accepted ones with the plan, and day_choice.py holds the only call (W1-W5)"
+    },
+    {
+      "check": "day_concordance.py",
+      "status": "PASS",
+      "msg": "PASS: day_concordance \u00e2\u20ac\u201d purity, no registry leak, germ shape, no synchronous authoring, the I2 parking tripwire, PROMPT_REGISTRY wiring, rung bijection, the mentions bound, the casting bijection, the E2c reachability tripwire, the germ quota, and the germ emission guards are all intact"
+    },
+    {
+      "check": "day_concordance_golden.py",
+      "status": "PASS",
+      "msg": "PASS: day_concordance_golden \u00e2\u20ac\u201d leading-article and trailing-qualifier matching, casting (C2-partition, basis 'stable'), identity-collision ambiguity, E2c reachability scoping, the rewrite golden cases (ambiguity guard, determinism, cast/cast_basis validation, fail-closed resolve reader), and the germ emission golden cases (collision guard, pending dedup, realized-germ non-block, quota) all resolve correctly"
+    },
+    {
+      "check": "day_rewrite.py",
+      "status": "PASS",
+      "msg": "PASS: day_rewrite \u00e2\u20ac\u201d W1 purity, W2 append-only, W3 plan_context retirement, W4 emit_plan signature, W5 world scope, and W6 no resolve-time extraction are all intact"
+    },
+    {
+      "check": "name_resolution.py",
+      "status": "PASS",
+      "msg": "PASS: name_resolution \u00e2\u20ac\u201d exact names resolve, appellations and partial names resolve for the creator only, near names score and order as the lot's table, the day chain sees only the appellations its character knows, subjects and tokenizer mentions stay on names, objects and every other type are nameable categories, near names reach the Lore answer and the names panel, and the panel records a missed name as an appellation"
+    },
+    {
+      "check": "name_index.py",
+      "status": "PASS",
+      "msg": "PASS: name_index \u00e2\u20ac\u201d pure and world-scoped, regimes in bijection with their rules, creator-only exclusion imported lazily, the creator regime confined, every resolver call states its scope, the Regimes table holds, and the tokenizer indexes only scoped non-creator-only appellations"
+    },
+    {
+      "check": "lore_resolve.py",
+      "status": "PASS",
+      "msg": "PASS: lore_resolve \u00e2\u20ac\u201d purity, no casting, the named-rung bijection, world scoping at construction, and the no-duplicate-normalizer guard are all intact"
+    },
+    {
+      "check": "prompt_registry.py",
+      "status": "PASS",
+      "msg": "PASS: prompt_registry \u00e2\u20ac\u201d usage bijection, registry entry shape, static resolver wiring, effective_model pure-function behavior"
+    },
+    {
+      "check": "day_prompt_delivery.py",
+      "status": "PASS",
+      "msg": "PASS: day_prompt_delivery \u00e2\u20ac\u201d the 18 DAY_* constants are module-level, DAY_PROMPT_HEADS is the single seeding source, the one-shot embeds no text, prompt_coverage derives usages with no literal restatement, the day_feasibility exemption matches the code's actual Raise/Return shape, missing_usages checks E2 depth, and the guard runs before write_batch"
+    },
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v2.07'"
+    },
+    {
+      "check": "schema_partition.py",
+      "status": "PASS",
+      "msg": "PASS: hot/cold partition holds"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "identity_tokens.py",
+      "status": "PASS",
+      "msg": "PASS: identity_tokens \u00e2\u20ac\u201d content_raw read only in the allow-list, render follows renames and falls back on deleted entities, C-14's case table holds, two same-named NPCs give one ambigu row, and token posing calls no model"
+    },
+    {
+      "check": "import_cycle.py",
+      "status": "PASS",
+      "msg": "PASS: import_cycle \u00e2\u20ac\u201d no module-level import cycle under src/world_engine"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values; 95 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u00e2\u20ac\u201d every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u00e2\u20ac\u201d section whitelist, character/line budgets, File-structure archaeology ban, Invariants archaeology ban, tooling/ pointer freshness, .py pointer freshness"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    },
+    {
+      "check": "pipeline_state.py",
+      "status": "PASS",
+      "msg": "PASS: every ticket front-matter conforms to TEMPLATE.md"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 122 check(s) discovered, 122 executed, 122 passed"
+    }
+  ]
+}
