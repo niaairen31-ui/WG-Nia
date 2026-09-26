@@ -16666,6 +16666,58 @@ classifies the usage `Raise`.
 `pt-day-mention-choice` as `created` on a first run. Running it on prod is
 Nia's step. Nothing calls `choose` yet (BRIEF-0094-D wires the route).
 
+## H2 IN PLAY (TICKET-0094) -- THE PLAN ROUTE ASKS BEFORE IT GERMS OR BLOCKS (BRIEF-0094-d, no schema change)
+
+**Order: concord -> choose -> germs.** `_extract_and_concord`
+(`cockpit/routes/day.py`) now runs `choose(concord(...), declared_action,
+character, db)` and hands `outcome.result` to `emit_germs`. `concord` is
+unchanged and still never picks; the pick happens after it returns, in
+`day_choice.py`, and only there. A mention the model chose and the code
+accepted is `matched` (rung `model_choice`) before germ emission, so a
+chosen person never also becomes a parked germ. `_extract_and_concord`
+returns the choice records as a third element.
+
+**Outcome -> behaviour (the lot's table b3):**
+
+| trigger | verdict | concordance | route |
+|---|---|---|---|
+| ambiguous | accepted | -> matched `model_choice` | plan proceeds |
+| ambiguous | rejected/declined/failed | stays ambiguous | rollback, records committed, 409 |
+| near | accepted | -> matched `model_choice` | plan proceeds, no germ |
+| near | rejected/declined/failed | stays unmatched | plan proceeds, germ if person |
+
+**X1b -- the refused choice survives the 409.** An ambiguity the choice did
+not settle still blocks the plan. `_record_refused_choices` rolls the
+session back (the staged germs and any other staged plan work die), writes
+the H2 records through `write_day_mention_choices`, and commits them in
+their own transaction, so a refused choice stays reviewable for K1
+(TICKET-0095). Nothing but append-only `day_mention_choice` rows is
+committed on that path; with no record, nothing is committed at all. On the
+plan path the records are staged right after `_write_declaration_rewrite`
+and ride the plan's single commit (all-or-nothing).
+
+**Fail-closed, unchanged.** The 502 wrapper around `_extract_and_concord`
+is untouched: a missing `day_mention_choice` template surfaces as
+`day extraction failed: day_choice: no active prompt_template ...`. A choice
+failure (`failed` verdict) never 502s -- the mention simply stays where
+`concord` left it.
+
+**Docstrings corrected.** `day_concordance`'s C2-partition paragraph now
+says a named ambiguity (or a named mention with only partial/near
+candidates) may be settled after the module returns, by
+`day_choice.choose`; the module itself still never picks.
+`_extract_and_concord`'s docstring names H2's place. The CLAUDE.md
+file-map line for `day_choice.py` was not added: the File-structure section
+is at its 80-line budget (`claude_md_contract.py`).
+
+**Checks.** `tooling/verify/checks/day_choice.py` gains W1-W5 (AST,
+vacuity-guarded): `choose(` wraps the only `concord(` and precedes
+`emit_germs(` (W1); the ambiguity branch calls `_record_refused_choices(`
+before its `raise` (W2); that helper rolls back, writes, then commits (W3);
+`plan_day` writes the records once, after `_write_declaration_rewrite(`
+(W4); `day_choice.py` holds exactly one `chat(`, inside `_ask`, and no
+`db.add(` / `.commit(` (W5).
+
 ---
 
 *Co-built with Claude, June 2026.*

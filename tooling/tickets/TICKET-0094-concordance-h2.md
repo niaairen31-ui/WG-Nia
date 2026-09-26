@@ -2,14 +2,14 @@
 id: TICKET-0094
 title: Concordance H2 — the model chooses, the code judges
 type: feature
-status: brief
+status: exec
 created: 2026-09-25
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
 blast_radius: medium
 lot_id: LOT-0094-concordance-h2.md
 brief_ids: [A, B, C, D]
-current_brief:
+current_brief: D
 schema_version_touched: v2.07
 retry_count: 0
 ---

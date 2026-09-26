@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ... import day_plan_select, day_plans, day_rewrite
+from ...day_choice import choose
 from ...day_concordance import AmbiguousMention, ConcordanceResult, concord, emit_germs
 from ...day_extract import extract_factions, extract_persons, extract_places
 from ...day_feasibility import VetoVerdict, veto as feasibility_veto
@@ -82,6 +83,7 @@ from ...writes import (
     resolution_count,
     write_batch,
     write_day_feasibility,
+    write_day_mention_choices,
     write_day_plan,
     write_day_rewrite,
     write_pass_play,
@@ -479,24 +481,26 @@ def _ambiguous_detail(ambiguous: tuple[AmbiguousMention, ...], db: Session) -> s
 
 def _extract_and_concord(
     pass_play: PassPlay, character: Character, db: Session,
-) -> tuple[ConcordanceResult, dict[int, str]]:
+) -> tuple[ConcordanceResult, dict[int, str], tuple[dict, ...]]:
     """Extraction + concordance + germ construction (BRIEF-0075-c), split
     out of `plan_day` for the function-length ceiling. Germs are returned
     already `db.add`-ed (staged, not committed) so the caller's single
     commit covers the plan and the germs together (Scope IN item 4,
-    all-or-nothing)."""
+    all-or-nothing). H2 (TICKET-0094) runs between concordance and germs: a
+    mention the model chose and the code accepted is matched, never a germ."""
     mentions = [
         *extract_places(pass_play.declared_action, db),
         *extract_persons(pass_play.declared_action, db),
         *extract_factions(pass_play.declared_action, db),
     ]
-    concordance_result = concord(mentions, character, db)
+    outcome = choose(concord(mentions, character, db), pass_play.declared_action, character, db)
+    concordance_result = outcome.result
     germs = emit_germs(concordance_result.unmatched, pass_play, db)
     person_unmatched = [um for um in concordance_result.unmatched if um.mention.category == "person"]
     germ_ids = {id(um): germ.id for um, germ in zip(person_unmatched, germs)}
     for germ in germs:
         db.add(germ)
-    return concordance_result, germ_ids
+    return concordance_result, germ_ids, outcome.records
 
 
 def _write_declaration_rewrite(
@@ -608,6 +612,16 @@ def _finalize_plan(
     }
 
 
+def _record_refused_choices(world_id: str, pass_play_id: str, records: tuple[dict, ...], db: Session) -> None:
+    """X1b (TICKET-0094): the 409 path discards the plan's staged work,
+    germs included, but keeps the H2 choice records in their own
+    transaction, so a refused choice stays reviewable (K1)."""
+    db.rollback()
+    if records:
+        write_day_mention_choices(db, world_id=world_id, pass_play_id=pass_play_id, records=list(records))
+        db.commit()
+
+
 @router.post("/api/day/{batch_id}/plan")
 def plan_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     """Emit and persist a day plan (TICKET-0075, BRIEF-0075-b; extraction and
@@ -636,22 +650,23 @@ def plan_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     # canon id the model could misuse. A failure here reports and stops —
     # no plan row, no germ row, nothing committed (Scope IN item 4).
     try:
-        concordance_result, germ_ids = _extract_and_concord(pass_play, character, db)
+        concordance_result, germ_ids, choice_records = _extract_and_concord(pass_play, character, db)
     except LlmParseError as exc:
         raise HTTPException(status_code=502, detail=f"day extraction failed: {exc}") from exc
 
-    # BRIEF-0081-a item 8: a genuine identity collision (C2-partition — a
-    # multi-candidate NAMED mention) blocks the plan outright. Nothing is
-    # committed here — the germs `_extract_and_concord` staged die with the
-    # transaction when this request's session closes (no commit precedes
-    # this raise).
+    # BRIEF-0081-a item 8, amended by TICKET-0094 (H2,
+    # X1b): an ambiguity the model's choice did not settle still blocks
+    # the plan. The staged plan work and germs are rolled back; the choice
+    # records are committed on their own.
     if concordance_result.ambiguous:
+        _record_refused_choices(world_id, pass_play.id, choice_records, db)
         raise HTTPException(status_code=409, detail=_ambiguous_detail(concordance_result.ambiguous, db))
 
     # BRIEF-0081-b, Scope IN item 4: the rewrite REPLACES `declared_action`
     # as the input to both plan selection and plan emission — staged in the
     # same transaction as the plan and the germs (all-or-nothing).
     rendered, rewrite_row = _write_declaration_rewrite(world_id, pass_play, concordance_result, db)
+    write_day_mention_choices(db, world_id=world_id, pass_play_id=pass_play.id, records=list(choice_records))
 
     plans = day_plans.open_plans(character, db)
     try:

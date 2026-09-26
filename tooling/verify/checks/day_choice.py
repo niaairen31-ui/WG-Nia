@@ -31,14 +31,24 @@ K1-K7 -- `choose` (C-07), with `choice_requests`, `_load_choice_template`,
    `failed`; an accepted choice moves the mention from ambiguous/unmatched to
    matched with rung `model_choice`; a judge refusal is never retried; the
    user message carries the rendered variables and ends with `/no_think`.
+W1-W5 -- the route wiring (C-08), static AST rules on
+   `cockpit/routes/day.py` and `day_choice.py`: `choose(` wraps the only
+   `concord(` and precedes `emit_germs(` in `_extract_and_concord` (W1); the
+   ambiguity branch of `plan_day` calls `_record_refused_choices(` before its
+   `raise` (W2); `_record_refused_choices` rolls back, writes, then commits
+   (W3); `plan_day` writes the records exactly once, after
+   `_write_declaration_rewrite(` (W4); `day_choice.py` has exactly one
+   `chat(` call, inside `_ask`, and no `db.add(` / `.commit(` (W5).
 
 N, J, P, Rd, Rc, K are pure; Q builds a fresh temp database
 (`WORLD_ENGINE_DATABASE_URL` set before any world_engine import). Vacuity
-guards: N1 must have produced candidates, Q1 must have produced a request.
+guards: N1 must have produced candidates, Q1 must have produced a request,
+every W rule must have found the function it inspects.
 FAILURES list, print FAIL lines, exit 1.
 """
 from __future__ import annotations
 
+import ast
 import os
 import pathlib
 import sys
@@ -461,6 +471,109 @@ def check_requests(engine) -> int:
     return len(q1)
 
 
+# --- route wiring (static, AST) ----------------------------------------------
+
+ROUTE = SRC / "world_engine" / "cockpit" / "routes" / "day.py"
+CHOICE = SRC / "world_engine" / "day_choice.py"
+
+
+def _functions(path: pathlib.Path) -> dict[str, ast.FunctionDef]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+
+
+def _callee(call: ast.Call) -> str:
+    func = call.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        owner = func.value.id if isinstance(func.value, ast.Name) else ""
+        return f"{owner}.{func.attr}" if owner else f".{func.attr}"
+    return ""
+
+
+def _calls(node: ast.AST, name: str) -> list[ast.Call]:
+    found = [n for n in ast.walk(node) if isinstance(n, ast.Call) and _callee(n) == name]
+    return sorted(found, key=lambda c: (c.lineno, c.col_offset))
+
+
+def _pos(node: ast.AST) -> tuple[int, int]:
+    return node.lineno, node.col_offset
+
+
+def check_wiring() -> int:
+    route = _functions(ROUTE)
+    inspected = 0
+
+    extract = route.get("_extract_and_concord")
+    if extract is None:
+        fail("W1: `_extract_and_concord` not found in routes/day.py")
+    else:
+        inspected += 1
+        chooses, germs = _calls(extract, "choose"), _calls(extract, "emit_germs")
+        concords = _calls(extract, "concord")
+        if len(chooses) != 1 or len(germs) != 1:
+            fail(f"W1: {len(chooses)} choose( / {len(germs)} emit_germs( calls, expected 1/1")
+        elif not _pos(chooses[0]) < _pos(germs[0]):
+            fail("W1: `choose(` does not precede `emit_germs(` in `_extract_and_concord`")
+        wrapped = {id(a) for c in chooses for a in c.args}
+        if not concords or any(id(c) not in wrapped for c in concords):
+            fail("W1: `concord(` must appear only as an argument of `choose(`")
+
+    plan = route.get("plan_day")
+    if plan is None:
+        fail("W2/W4: `plan_day` not found in routes/day.py")
+    else:
+        inspected += 1
+        branches = [
+            n for n in ast.walk(plan) if isinstance(n, ast.If)
+            and isinstance(n.test, ast.Attribute) and n.test.attr == "ambiguous"
+            and isinstance(n.test.value, ast.Name) and n.test.value.id == "concordance_result"
+        ]
+        if len(branches) != 1:
+            fail(f"W2: {len(branches)} `if concordance_result.ambiguous:` branches, expected 1")
+        else:
+            body = branches[0].body
+            recorded = [i for i, st in enumerate(body) if _calls(st, "_record_refused_choices")]
+            raised = [i for i, st in enumerate(body) if isinstance(st, ast.Raise)]
+            if not recorded or not raised or recorded[0] > raised[0]:
+                fail("W2: `_record_refused_choices(` does not precede the `raise` in the ambiguity branch")
+        writes = _calls(plan, "write_day_mention_choices")
+        rewrites = _calls(plan, "_write_declaration_rewrite")
+        if len(writes) != 1:
+            fail(f"W4: plan_day calls `write_day_mention_choices(` {len(writes)}x, expected 1")
+        elif len(rewrites) != 1 or not _pos(rewrites[0]) < _pos(writes[0]):
+            fail("W4: `write_day_mention_choices(` does not follow `_write_declaration_rewrite(`")
+
+    refused = route.get("_record_refused_choices")
+    if refused is None:
+        fail("W3: `_record_refused_choices` not found in routes/day.py")
+    else:
+        inspected += 1
+        steps = [_calls(refused, n) for n in ("db.rollback", "write_day_mention_choices", "db.commit")]
+        if any(len(s) != 1 for s in steps):
+            fail(f"W3: rollback/write/commit counts {[len(s) for s in steps]}, expected [1, 1, 1]")
+        elif not _pos(steps[0][0]) < _pos(steps[1][0]) < _pos(steps[2][0]):
+            fail("W3: `_record_refused_choices` must roll back, then write, then commit")
+
+    tree = ast.parse(CHOICE.read_text(encoding="utf-8"))
+    choice = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    chats = [c for c in ast.walk(tree) if isinstance(c, ast.Call) and _callee(c).endswith("chat")]
+    ask = choice.get("_ask")
+    if ask is None:
+        fail("W5: `_ask` not found in day_choice.py")
+    else:
+        inspected += 1
+        in_ask = {id(c) for c in ast.walk(ask)}
+        if len(chats) != 1 or id(chats[0]) not in in_ask:
+            fail(f"W5: day_choice.py has {len(chats)} chat( calls, expected exactly one, inside `_ask`")
+    writes = [c for c in ast.walk(tree) if isinstance(c, ast.Call)
+              and (_callee(c) == "db.add" or _callee(c).endswith(".commit"))]
+    if writes:
+        fail(f"W5: day_choice.py writes: {[_callee(c) for c in writes]}")
+    return inspected
+
+
 def main() -> int:
     engine = _fresh_engine()
     if check_near() == 0:
@@ -472,6 +585,8 @@ def main() -> int:
         fail("vacuity: K1-K7 did not all run")
     if check_requests(engine) == 0:
         fail("vacuity: Q1 produced no request")
+    if check_wiring() != 4:
+        fail("vacuity: W1-W5 did not find every function they inspect")
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -482,7 +597,9 @@ def main() -> int:
         "(J1-J8); parse (P), render (Rd) and record (Rc) hold; requests carry only known "
         "evidence, filter by category, skip inferred/cast, and yield () when empty (Q1-Q4); "
         "choose reads no template without a request, raises on a missing one, retries a "
-        "technical failure once, never a refusal, and applies an accepted choice (K1-K7)"
+        "technical failure once, never a refusal, and applies an accepted choice (K1-K7); "
+        "the plan route asks before it germs or blocks, records refused choices in their own "
+        "transaction and accepted ones with the plan, and day_choice.py holds the only call (W1-W5)"
     )
     return 0
 
