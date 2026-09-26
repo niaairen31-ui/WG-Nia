@@ -16552,6 +16552,70 @@ changelog move together; `scripts/migrate_v2_07_day_mention_choice.py`
 (additive, idempotent, zero rows, converges `schema_meta`) -- Nia runs it
 on prod before starting the cockpit.
 
+## H2 NARROWS AND JUDGES IN CODE (TICKET-0094) -- THE MODEL WILL ONLY CHOOSE AMONG WHAT THE CHARACTER CAN NAME (BRIEF-0094-b, no schema change)
+
+**Context.** H2's code half lands in `src/world_engine/day_choice.py`
+before any model call exists (the call is BRIEF-0094-C). The module narrows
+the candidates, gathers the evidence, renders the list, parses an answer and
+judges it. It reopens 0075 C1 / 0081 C2 knowingly: a pick now happens, but
+only here, only among entities the concordance or the character's own name
+surfaces produced, and only when the judge accepts it. `concord` is not
+modified; `choice_requests` runs on its result.
+
+**Y2b -- the triggers.** One `ambiguous` request per `AmbiguousMention`
+(candidates in `candidate_ids` order), then one `near` request per NAMED
+`UnmatchedMention` whose candidates are non-empty: `rung_named_partial` ids
+(sorted), then `near_in_surfaces` ids whose `category_of_type` equals the
+mention's category, duplicates dropped. Both read the perceiver surfaces,
+built exactly as `concord` builds them (`NameScope("perceiver",
+known_fact_ids=...)`), never `CREATOR`. Cast and inferred mentions never
+produce a request: casting stays deterministic.
+
+**Y4b -- the evidence.** Per candidate, the facts the character knows about
+it: `facts_of(db, entity_id=cid, facets=tuple(FACETS))` filtered to
+`fact_id in known`, where `known = resolve_levels_for_entity(db,
+character.id)` is computed ONCE per `choice_requests` call (the filter
+`known_facts_of` applies, without one level resolution per candidate). Fact
+text reaches the prompt only through `facts_of`'s render chokepoint
+(`prose_render.fact_texts`); no raw `Fact.text` is read.
+
+**Structural secrecy (R-08).** The gameplay model is abliterated, so the
+exclusion is by construction, never by instruction: `facts_of` drops
+creator-only facts in its query (no `include_creator_only`), the level
+filter drops every fact the character does not resolve above `unaware`, and
+the candidate set comes from the perceiver's own surfaces. Nothing the
+character does not know is ever assembled. `day_choice.py` Q1 pins it: of a
+known, an unknown and a creator-only fact, only the known one reaches the
+candidate.
+
+**The two constants.** `MAX_CANDIDATES = 8`, `MAX_FACTS_PER_CANDIDATE =
+12`. Quality comes first and calls are unbounded (X3b); the caps bound only
+what ONE prompt carries, so the numbered list stays readable for an 8b
+model. They are not a cost control.
+
+**X2b -- the judge (`judge_choice`, pure).** Rules in order:
+
+| answer | ambiguous | near |
+|---|---|---|
+| `choix` 0 | declined | declined |
+| out of range | rejected | rejected |
+| excerpt < 3 chars normalized | rejected | rejected |
+| excerpt only in declaration | rejected | accepted |
+| excerpt in chosen facts, also in another's | rejected | accepted |
+| excerpt in chosen facts only | accepted | accepted |
+| excerpt nowhere | rejected | rejected |
+
+The excerpt is stripped of edge quotes and punctuation, then compared
+through `normalize_surface` on both sides. A `rejected` verdict with an
+in-range number keeps the refused pick (`entity_id`) for the review loop;
+`record_of` builds the C-02 family shape and nulls the chosen entity on
+`declined`. `parse_answer` raises `LlmParseError` on a missing or
+ill-typed field (`choix` must be an `int`, never a `bool`) -- the
+technical failure BRIEF-0094-C retries once (Y8a).
+
+**The resolver never authors.** `day_choice.py` writes nothing: no
+`db.add(`, no `.commit(`, no model call in this brief.
+
 ---
 
 *Co-built with Claude, June 2026.*
