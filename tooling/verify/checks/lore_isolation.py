@@ -58,7 +58,8 @@ R17 (the panel stays outside the pipeline) (TICKET-0091, BRIEF-0091-K,
 decision Q17d -- the 0085 read-only lock reopened in a bounded way: the Lore
 shell gains a name-resolution panel that writes, the consultation pipeline
 stays pure): `cockpit/routes/lore_mentions.py` and `lore_mentions_read.py`
-(and, since TICKET-0095, `lore_choices_read.py`) import none of
+(and, since TICKET-0095, `lore_choices_read.py` and
+`cockpit/routes/lore_choices.py`) import none of
 `lore_selectors`, `lore_query`, `lore_plan`, `lore_render`, `lore_prompt`;
 and those five import no panel module.
 
@@ -88,6 +89,7 @@ PANEL_FILES = (
     SRC / "cockpit" / "routes" / "lore_mentions.py",
     SRC / "lore_mentions_read.py",
     SRC / "lore_choices_read.py",
+    SRC / "cockpit" / "routes" / "lore_choices.py",
 )
 PIPELINE_FILES = (LORE_SELECTORS_FILE, LORE_QUERY_FILE, LORE_PLAN_FILE, LORE_RENDER_FILE, LORE_PROMPT_FILE)
 

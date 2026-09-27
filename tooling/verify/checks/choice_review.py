@@ -32,6 +32,20 @@ L5 (the pending rows, tables b2/b4): measured values per row — excerpt
 source, evidence (rendered text, R-10), scopes, preselection, "planned".
 L6 (C-06): every row's key set is exactly the pending-row family's.
 Vacuity: L4 must have listed four rows.
+
+T0 (the route is thin, C-07): `cockpit/routes/lore_choices.py` holds no
+`select(` and no `chat(` call, no `CREATOR` name or attribute, and no name,
+attribute or keyword `candidate_ids` / `evidence_fact_ids`.
+T1-T10 (the review route, table b3) run after L0-L6 on the same database,
+through `fastapi.testclient.TestClient(app)` with `world_engine.cockpit.app`
+imported after the fresh engine exists and no `with` block (G11's setup):
+T1 the pending list; T2 agreed + appellation at `world`; T3 a second review
+is 409; T4 a declined / unknown choice is 404; T5 the five 422 bodies write
+nothing; T6 a bad scope rolls back; T7 disagreed with no entity; T8
+disagreed with an entity whose surface is already known; T9 agreed without
+appellation; T10 the list is empty, five reviews exist, and no choice or
+rewrite was added or removed.
+Vacuity: T1 must have listed four choices.
 """
 from __future__ import annotations
 
@@ -48,6 +62,7 @@ SRC = ROOT / "src" / "world_engine"
 
 WRITES_PIPELINE_FILE = SRC / "writes" / "pipeline.py"
 READER_FILE = SRC / "lore_choices_read.py"
+ROUTE_FILE = SRC / "cockpit" / "routes" / "lore_choices.py"
 
 _JSON_COLUMNS = {"candidate_ids", "evidence_fact_ids"}
 _READER_WRITES = {"add", "add_all", "commit"}
@@ -370,7 +385,7 @@ def _check_rows(rows_by_id: dict, ids: dict) -> None:
         _expect("c3.verdict_detail", c3["verdict_detail"], "excerpt not in the chosen candidate's facts")
 
 
-def check_reader(engine) -> int:
+def check_reader(engine) -> tuple[int, dict]:
     from sqlmodel import Session
 
     from world_engine.lore_choices_read import list_pending_choices
@@ -392,24 +407,190 @@ def check_reader(engine) -> int:
             fail(f"L6: {label} keys {sorted(set(row) ^ PENDING_ROW_KEYS)!r} differ from C-06")
         if set(row["day"]) != DAY_KEYS:
             fail(f"L6: {label} day keys {sorted(row['day'])!r} differ from C-06")
-    return len(rows)
+    return len(rows), ids
+
+
+# ── T0 ───────────────────────────────────────────────────────────────────
+
+def check_route_static() -> None:
+    tree = _parse(ROUTE_FILE)
+    if tree is None:
+        return
+    where = _rel(ROUTE_FILE)
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", "?")
+        if isinstance(node, ast.Call) and _callee_name(node) in ("select", "chat"):
+            fail(f"choice_review T0: {where}:{line} calls {_callee_name(node)}( — reads live in the reader")
+        named = _node_name(node)
+        if named == "CREATOR" and not isinstance(node, ast.keyword):
+            fail(f"choice_review T0: {where}:{line} names CREATOR (R-14)")
+        if named in _JSON_COLUMNS:
+            fail(f"choice_review T0: {where}:{line} names {named} — rows only (G1)")
+
+
+# ── T1-T10 ───────────────────────────────────────────────────────────────
+
+def _count(db, model) -> int:
+    from sqlmodel import func, select
+
+    return db.exec(select(func.count()).select_from(model)).one()
+
+
+def _reviews(db, choice_id: str) -> list:
+    from sqlmodel import select
+
+    from world_engine.models import DayMentionReview
+
+    return list(db.exec(select(DayMentionReview).where(DayMentionReview.choice_id == choice_id)).all())
+
+
+def _appellation_facts(db, entity_id: str) -> list:
+    from sqlmodel import select
+
+    from world_engine.models import Fact, FactParticipant
+
+    return list(db.exec(select(Fact).join(FactParticipant, FactParticipant.fact_id == Fact.id).where(
+        FactParticipant.entity_id == entity_id, Fact.facet == "appellation",
+    )).all())
+
+
+def _post(client, choice_id: str, body: dict, status: int, label: str, written=None) -> None:
+    resp = client.post(f"/api/lore/choices/{choice_id}/review", json=body)
+    if resp.status_code != status:
+        fail(f"{label}: {body!r} -> {resp.status_code} {resp.text}, expected {status}")
+    elif written is not None and resp.json().get("appellation_written") is not written:
+        fail(f"{label}: appellation_written = {resp.json().get('appellation_written')!r}, expected {written!r}")
+
+
+def _one_review(db, ids: dict, key: str, label: str, **want):
+    reviews = _reviews(db, ids[key])
+    if len(reviews) != 1:
+        fail(f"{label}: {key} has {len(reviews)} review(s), expected 1")
+        return None
+    review = reviews[0]
+    for field, value in want.items():
+        if getattr(review, field) != value:
+            fail(f"{label}: {key} review.{field} = {getattr(review, field)!r}, expected {value!r}")
+    return review
+
+
+def _check_t2_fact(db, ids: dict, fact_id) -> None:
+    from sqlmodel import select
+
+    from world_engine.models import Fact, FactDefault, FactParticipant
+    from world_engine.prose_render import fact_text
+
+    fact = db.get(Fact, fact_id) if fact_id else None
+    if fact is None:
+        fail(f"T2: appellation_fact_id {fact_id!r} names no fact")
+        return
+    if fact.facet != "appellation" or fact_text(db, fact) != "Maelis":
+        fail(f"T2: fact facet {fact.facet!r}, text {fact_text(db, fact)!r}, expected appellation 'Maelis'")
+    participants = list(db.exec(select(FactParticipant.entity_id).where(FactParticipant.fact_id == fact.id)).all())
+    if participants != [ids["varn"]]:
+        fail(f"T2: fact participants {participants!r}, expected [varn]")
+    defaults = [(d.scope_type, d.scope_id, d.level) for d in db.exec(
+        select(FactDefault).where(FactDefault.fact_id == fact.id)).all()]
+    if defaults != [("world", None, "knows")]:
+        fail(f"T2: fact_default rows {defaults!r}, expected [('world', None, 'knows')]")
+
+
+def _check_t1_t4(client, engine, ids: dict) -> int:
+    from sqlmodel import Session
+
+    resp = client.get("/api/lore/choices")
+    listed = [row["id"] for row in resp.json().get("choices", [])] if resp.status_code == 200 else []
+    if resp.status_code != 200 or listed != [ids["c2"], ids["c3"], ids["c1"], ids["c6"]]:
+        fail(f"T1: GET -> {resp.status_code}, {len(listed)} choice(s), expected [c2, c3, c1, c6]")
+    _post(client, ids["c1"], {"verdict": "agreed", "record_appellation": True, "scope_type": "world"},
+          200, "T2", written=True)
+    with Session(engine) as db:
+        review = _one_review(db, ids, "c1", "T2", verdict="agreed", entity_id=ids["varn"],
+                             appellation_scope="world")
+        if review is not None:
+            _check_t2_fact(db, ids, review.appellation_fact_id)
+    _post(client, ids["c1"], {"verdict": "agreed"}, 409, "T3")
+    with Session(engine) as db:
+        if len(_reviews(db, ids["c1"])) != 1:
+            fail("T3: c1 no longer has exactly one review")
+    _post(client, ids["c4"], {"verdict": "agreed"}, 404, "T4 (declined)")
+    _post(client, "no-such-choice", {"verdict": "agreed"}, 404, "T4 (unknown)")
+    return len(listed)
+
+
+def _check_t5_t9(client, engine, ids: dict) -> None:
+    from sqlmodel import Session
+
+    for body in (
+        {"verdict": "maybe"}, {"verdict": "agreed", "entity_id": ids["varn"]},
+        {"verdict": "disagreed", "entity_id": ids["orn"]},
+        {"verdict": "disagreed", "record_appellation": True},
+        {"verdict": "disagreed", "entity_id": ids["tavern"]},
+    ):
+        _post(client, ids["c2"], body, 422, "T5")
+    _post(client, ids["c3"], {"verdict": "disagreed", "entity_id": ids["varn"], "record_appellation": True,
+                              "scope_type": "nope"}, 422, "T6")
+    with Session(engine) as db:
+        if _reviews(db, ids["c2"]):
+            fail("T5: c2 has a review after five refused bodies")
+        if _reviews(db, ids["c3"]):
+            fail("T6: c3 has a review after a refused scope")
+        held = len(_appellation_facts(db, ids["varn"]))
+        if held != 1:
+            fail(f"T6: varn holds {held} appellation fact(s), expected 1")
+    _post(client, ids["c2"], {"verdict": "disagreed"}, 200, "T7", written=False)
+    _post(client, ids["c3"], {"verdict": "disagreed", "entity_id": ids["varn"], "record_appellation": True,
+                              "scope_type": "rencontre"}, 200, "T8", written=False)
+    _post(client, ids["c6"], {"verdict": "agreed"}, 200, "T9", written=False)
+    with Session(engine) as db:
+        _one_review(db, ids, "c2", "T7", verdict="disagreed", entity_id=None,
+                    appellation_fact_id=None, appellation_scope=None)
+        _one_review(db, ids, "c3", "T8", verdict="disagreed", entity_id=ids["varn"], appellation_fact_id=None)
+        _one_review(db, ids, "c6", "T9", verdict="agreed", entity_id=ids["orn"], appellation_fact_id=None)
+
+
+def check_route(engine, ids: dict) -> int:
+    from fastapi.testclient import TestClient
+    from sqlmodel import Session
+
+    from world_engine.cockpit.app import app
+    from world_engine.models import DayMentionChoice, DayMentionReview, DayRewrite
+
+    with Session(engine) as db:
+        choices_before, rewrites_before = _count(db, DayMentionChoice), _count(db, DayRewrite)
+    client = TestClient(app)
+    listed = _check_t1_t4(client, engine, ids)
+    _check_t5_t9(client, engine, ids)
+    resp = client.get("/api/lore/choices")
+    if resp.status_code != 200 or resp.json() != {"choices": []}:
+        fail(f"T10: GET -> {resp.status_code} {resp.text}, expected an empty choice list")
+    with Session(engine) as db:
+        counts = (_count(db, DayMentionReview), _count(db, DayMentionChoice), _count(db, DayRewrite))
+    if counts != (5, choices_before, rewrites_before):
+        fail(f"T10: (reviews, choices, rewrites) = {counts!r}, expected (5, {choices_before}, {rewrites_before})")
+    return listed
 
 
 def main() -> None:
     check_json_write_only()
     check_reader_read_only()
+    check_route_static()
     engine = _fresh_engine()
     check_pure_rules()
-    listed = check_reader(engine)
+    listed, ids = check_reader(engine)
     if listed != 4:
         fail(f"vacuity: L4 listed {listed} row(s), expected 4")
+    routed = check_route(engine, ids)
+    if routed != 4:
+        fail(f"vacuity: T1 listed {routed} choice(s), expected 4")
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         sys.exit(1)
     print(
         "PASS: choice_review — R0 (the JSON is write-only), L0 (the reader is read-only), "
-        "L1-L3 (excerpt key, reviewability, preselection), L4-L6 (the pending list, its rows, their shape)"
+        "L1-L3 (excerpt key, reviewability, preselection), L4-L6 (the pending list, its rows, their shape), "
+        "T0-T10 (the review route: thin, table b3, nothing else touched)"
     )
     sys.exit(0)
 

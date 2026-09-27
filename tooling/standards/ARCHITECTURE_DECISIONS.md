@@ -16844,6 +16844,58 @@ listing, the measured row values and the pending-row shape (C-06). The
 reader joins `lore_isolation.py`'s `PANEL_FILES` (R17): it imports no
 consultation-pipeline module.
 
+## THE REVIEW ROUTE (TICKET-0095) -- ONE REVIEW PER CHOICE, WRITTEN THROUGH THE CREATOR PATH (BRIEF-0095-c, no schema change)
+
+**Two endpoints.** `cockpit/routes/lore_choices.py` (mounted right after
+`lore_mentions`) serves `GET /api/lore/choices` -- the reader's pending rows
+(C-06), returned unchanged -- and `POST /api/lore/choices/{id}/review`, which
+records Nia's verdict on one H2 choice. The module is shaped like the names
+panel's: `router`, `_CHANGED_BY = "creator_crud"`, a `_world_id` helper
+answering 400 when no world is active, one commit per request, no `select(`,
+no `chat(`, no `CREATOR` (`choice_review.py` T0). It joins
+`lore_isolation.py`'s `PANEL_FILES` (R17).
+
+**Why the creator path (B1).** The click is the approval: Nia reading the
+choice, its day and its cited evidence, then agreeing or disagreeing, IS the
+creator checkpoint, so a `proposed_mutation` that she would approve a second
+time adds a step and no control (B2, rejected). The only canon write is
+`writes/facets.record_appellation` -> `add_entity_fact`, the creator-CRUD
+chokepoint, with `created_by="creator_crud"`; the verdict itself is a
+`day_mention_review` row through `writes.write_day_mention_review` (A1).
+
+**Step order (C-07), first failure wins, nothing written on any failure:**
+no active world -> 400; the choice absent, of another world, or not
+reviewable (E2) -> 404; already reviewed -> 409; a verdict other than
+`agreed` / `disagreed` -> 422; `agreed` naming an entity other than the
+model's -> 422 (the effective entity is the model's choice); `disagreed`
+recording an appellation with no entity, or naming the model's own choice
+-> 422 (the effective entity is Nia's, possibly none); an effective entity
+that is not an active entity of the choice's category in the world
+(`validate_binding`) -> 422; then, inside one `try`, the optional
+appellation and the review, a `ValueError` from either rolling back to 422
+(a bad scope is refused by `record_appellation` before it writes); then the
+single commit. Table b3 (lot) is pinned by `choice_review.py` T1-T10.
+
+**« Aucune entité connue » (H2).** `disagreed` with no entity writes one
+review with `entity_id` NULL and nothing else: no appellation (it would
+have no bearer), no germ, no change to the day.
+
+**One review per choice (J1) is a route rule.** `day_mention_review.
+choice_id` is not unique (A1): the 409 comes from `is_reviewed` in the
+route, so a later re-review flow (J2, W2 -- deferred) needs no rebuild. No
+route updates or deletes a review, a choice, a rewrite or a resolution
+(T10 counts them).
+
+**The past day is never re-planned.** A review records a verdict and, if
+asked, an appellation; the next concordance benefits (R-08: the same
+surface then resolves at `named_exact` for every character the appellation's
+scope reaches), the day already planned does not change.
+
+**"Already known" is a success.** When the surface already names the entity
+(its name or one of its appellations), `record_appellation` returns `None`
+and writes nothing; the route still writes the review and answers 200 with
+`appellation_written: false`.
+
 ---
 
 *Co-built with Claude, June 2026.*
