@@ -16792,6 +16792,58 @@ holding one planned day fails its commit on the FK. Pre-existing, and a
 destructive path: a ticket numbered above 0095 teaches the cascade every
 day-chain table.
 
+
+## THE PENDING-CHOICE READER (TICKET-0095) -- WHAT K1 SHOWS AND WHICH SCOPE IT PROPOSES (BRIEF-0095-b, no schema change)
+
+**The listing rule (E2, J1).** `lore_choices_read.list_pending_choices`
+lists every `day_mention_choice` of the world that is reviewable and not
+yet reviewed, ordered by `(created_at, id)`. Reviewable (E2): `accepted`
+(the chosen entity is set by the table's shape CHECK), or `rejected` with a
+chosen entity still named -- a refused excerpt, not an out-of-range number.
+`declined` / `failed` rows name nothing and are never listed. Reviewed (J1):
+any `day_mention_review` row on the choice; the route (C) enforces one
+review per choice, the table does not. Another world's choices are never
+listed.
+
+**The cited fact is found with the judge's own key (C-04).**
+`day_choice.excerpt_key` is `judge_choice`'s normalization, extracted
+without behaviour change (edge punctuation stripped, then
+`normalize_surface`); the reader and the judge share it. A key shorter than
+three characters shows no source. Otherwise the reader takes the choice's
+evidence fact ids (its `day_mention_choice_evidence` rows), reads the chosen
+entity's facts through `facet_reads.facts_of` (rendered text, creator-only
+facts excluded in the query -- never raw `content_raw`), keeps the cited
+ones, and the hits are those whose normalized text contains the key.
+
+**Source and preselection (C2).** Hits -> source `facts`; no hit but the
+key is in the normalized declaration -> `declaration`; otherwise `none` (a
+fact edited or deleted since, or an excerpt that spans two facts). K1
+preselects the appellation scope `world` only when the source is `facts`
+and some hit is known to everyone; `rencontre` in every other case, and
+always for « Pas d'accord » (the evidence speaks for the wrong entity).
+"Known to everyone" (R-07) is the resolver's own tiers read back: the
+fact's `default_level` is above `unaware` (tier 7), or it has a
+`fact_default` of scope `world` above `unaware`. Each hit carries its
+scopes above `unaware` -- `world` first from `default_level`, then its
+`fact_default` rows by `(scope_type, id)` with the scope entity's name,
+duplicates skipped -- read in two `IN (...)` queries.
+
+**"Planned" by timestamps (R-11).** A day is planned once, and on the plan
+path `_write_declaration_rewrite` constructs the generation-1 `day_rewrite`
+before the choice records, in one transaction; a 409 attempt commits the
+records alone, with no rewrite. So a choice is "planned" iff some
+`day_rewrite` of its `pass_play` has `created_at <= choice.created_at`; the
+panel shows « sans plan » otherwise.
+
+**Rows only (G1).** Candidates and evidence are read from their child rows,
+never from the JSON audit columns. `choice_review.py` L0 forbids, in the
+reader, any name, attribute or keyword `candidate_ids` /
+`evidence_fact_ids`, any `db.add` / `db.add_all` / `db.commit`, any `chat(`
+and any `CREATOR`; L1-L6 pin the key, reviewability, preselection, the
+listing, the measured row values and the pending-row shape (C-06). The
+reader joins `lore_isolation.py`'s `PANEL_FILES` (R17): it imports no
+consultation-pipeline module.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -148,6 +148,13 @@ def _joined(facts: tuple[str, ...]) -> str:
     return normalize_surface(" ".join(facts))
 
 
+def excerpt_key(excerpt: str) -> str:
+    """The judge's normalized excerpt (C-06 of LOT-0094): edge
+    punctuation stripped, then `normalize_surface`. Shared with the K1 reader
+    (TICKET-0095, C-04)."""
+    return normalize_surface(excerpt.strip(_EXCERPT_EDGE))
+
+
 def judge_choice(request: ChoiceRequest, answer: dict, declaration: str) -> ChoiceVerdict:
     """C-06: pure. The model's number must be on the list; its excerpt must
     be found verbatim after normalization — for an ambiguity, in the chosen
@@ -161,7 +168,7 @@ def judge_choice(request: ChoiceRequest, answer: dict, declaration: str) -> Choi
     if not 1 <= choix <= len(request.candidates):
         return ChoiceVerdict("rejected", None, excerpt, reason, "candidate out of range")
     chosen = request.candidates[choix - 1]
-    normalized = normalize_surface(answer["extrait"].strip(_EXCERPT_EDGE))
+    normalized = excerpt_key(answer["extrait"])
     if len(normalized) < 3:
         return ChoiceVerdict("rejected", chosen.entity_id, excerpt, reason, "excerpt too short")
     in_chosen = normalized in _joined(chosen.facts)
