@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0095-choice-review",
-  "when": "2026-09-27T21:08:05.959395+00:00",
+  "when": "2026-09-27T21:34:03.731709+00:00",
   "green": true,
   "checks": [
     {
@@ -11,7 +11,7 @@
     {
       "check": "choice_review.py",
       "status": "PASS",
-      "msg": "PASS: choice_review \u2014 R0"
+      "msg": "PASS: choice_review \u2014 R0 (the JSON is write-only), L0 (the reader is read-only), L1-L3 (excerpt key, reviewability, preselection), L4-L6 (the pending list, its rows, their shape)"
     },
     {
       "check": "day_mention_choice_store.py",
