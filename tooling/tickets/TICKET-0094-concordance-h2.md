@@ -2,7 +2,7 @@
 id: TICKET-0094
 title: Concordance H2 — the model chooses, the code judges
 type: feature
-status: live-gate
+status: done
 created: 2026-09-25
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
