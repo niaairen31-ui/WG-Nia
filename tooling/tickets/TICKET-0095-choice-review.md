@@ -2,14 +2,14 @@
 id: TICKET-0095
 title: Choice review (K1) — Nia reviews the model's choices
 type: feature
-status: exec
+status: live-gate
 created: 2026-09-27
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
 blast_radius: medium
 lot_id: LOT-0095-choice-review.md
 brief_ids: [A, B, C, D]
-current_brief: D
+current_brief:
 schema_version_touched: v2.08
 retry_count: 0
 ---
