@@ -16718,6 +16718,80 @@ before its `raise` (W2); that helper rolls back, writes, then commits (W3);
 (W4); `day_choice.py` holds exactly one `chat(`, inside `_ask`, and no
 `db.add(` / `.commit(` (W5).
 
+
+## THE K1 REVIEW RECORD (TICKET-0095) -- A CHOICE'S CANDIDATES AND EVIDENCE BECOME ROWS, EVERY REVIEW IS KEPT (BRIEF-0095-a, schema v2.08)
+
+**G1 -- the first UI consumer relationalizes.** H2 stored a choice's
+candidates and evidence as JSON arrays in two TEXT columns of
+`day_mention_choice`. `json_ui_boundary`'s volet c only sees `Column(JSON`,
+so a TEXT column holding JSON was invisible to it, but its allow-list
+doctrine still applies: the FIRST UI consumer of JSON-held data migrates it
+to relational storage in the same brief. K1 is that consumer. The ids now
+live as rows; the JSON columns stay NOT NULL and keep being written as an
+audit copy that nothing in `src/` reads. `day_mention_choice` is neither
+altered nor rebuilt.
+
+**Three tables (C-01).** `day_mention_choice_candidate(choice_id, ordinal,
+entity_id)` -- the `ordinal`-th candidate shown to the model;
+`day_mention_choice_evidence(choice_id, ordinal, fact_id)` -- the
+`ordinal`-th fact shown, flattened across candidates in display order;
+`day_mention_review(world_id, choice_id, verdict, entity_id,
+appellation_fact_id, appellation_scope, created_at)` -- Nia's verdict on
+one choice (`agreed`: `entity_id` is the model's choice; `disagreed`: the
+entity she picked, or NULL for "no known entity"). The appellation pair is
+set only when an appellation was actually written; its scope vocabulary
+equals `writes.facets._APPELLATION_SCOPES`. Entity ids keep their FK.
+`fact_id` and `appellation_fact_id` carry NO FK: `delete_free_fact`
+hard-deletes descriptive facts (via `remove_entity_fact` and the creator
+route `delete_entity_fact`), and an FK from history to `fact(id)` would make
+every fact ever cited as evidence, or written as a reviewed appellation,
+undeletable.
+
+**The flush before the children.** `write_day_mention_choices` (signature
+and record shape unchanged) now returns `[]` at once on empty records,
+validates every record as before, adds the parents, `db.flush()`es, then
+adds one candidate and one evidence row per id, ordinals from 1 in the
+lists' order. Without a declared ORM `relationship()`, the unit of work has
+no edge ordering a bare-FK child after its parent: measured, the same rows
+added in one session with no flush fail the commit on the FK -- the rule
+`write_day_rewrite` already states. Still no commit.
+
+**A1 / J1 -- every review is kept.** `write_day_mention_review` asserts
+the table's CHECK shapes in Python (verdict, `agreed` needs an entity, an
+appellation needs an entity, fact and scope go together, scope in
+`_REVIEW_SCOPES`), each failure a `ValueError` prefixed
+`write_day_mention_review: ` with nothing added; no flush, no commit.
+`choice_id` on the review is NOT unique: "one review per choice" (J1) is
+the route's rule (BRIEF-0095-C), so a later re-review needs no rebuild.
+
+**Migration v2.08, one transaction.** `scripts/migrate_v2_08_choice_review.py`
+creates the two child tables AND backfills them from every existing
+`day_mention_choice` row inside one `engine.begin()` (SQLite DDL is
+transactional under `db.py`'s `isolation_level = None`): an abort --
+a JSON value that is not a list of str, or a candidate id that is not an
+`entity.id`, both checked before the first INSERT -- leaves no table
+behind. Exactly one child table present aborts. The review table is created
+separately and zero-row-checked only on the run that creates it; the
+candidate/evidence counts are checked against the JSON on every run.
+
+**W2 extended.** `day_rewrite.py`'s `_TRACKED_MODELS` gains the three new
+models: no attribute assignment on, and no `db.delete(` of, an instance
+anywhere in `src/`.
+
+**R0 -- the JSON stays write-only.** `tooling/verify/checks/choice_review.py`
+fails on any `loads(...)` call whose arguments touch `.candidate_ids` /
+`.evidence_fact_ids`, and on any `DayMentionChoice.candidate_ids` /
+`.evidence_fact_ids` column reference, anywhere in `src/world_engine/`;
+vacuity-guarded on the writer's two `json.dumps(record[...])` calls.
+`day_mention_review_store.py` (V1-V7) covers the writers and the DB CHECKs.
+
+**Named deferral -- the world cascade.** `delete_world_cascade` knows none
+of the day-chain tables (`day_rewrite`, `day_mention_resolution`,
+`day_mention_choice`, nor this brief's three); measured, deleting a world
+holding one planned day fails its commit on the FK. Pre-existing, and a
+destructive path: a ticket numbered above 0095 teaches the cascade every
+day-chain table.
+
 ---
 
 *Co-built with Claude, June 2026.*

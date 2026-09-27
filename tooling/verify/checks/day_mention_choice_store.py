@@ -79,13 +79,14 @@ def _parents(db):
     db.flush()
     pc = entity("character", "Aldric")
     maelis = entity("character", "Maelis")
+    orn = entity("character", "Orn")
     pass_play = writes.write_pass_play(
         db, batch_id=batch.id, session_id=game_session.id, character_id=pc.id,
         declared_action="Je vais voir Maelis.",
     )
     db.add(pass_play)
     db.flush()
-    return world, pass_play, maelis
+    return world, pass_play, maelis, orn
 
 
 def _record(**overrides) -> dict:
@@ -107,16 +108,17 @@ def check_store(engine) -> int:
 
     read_back = 0
     with Session(engine) as db:
-        world, pass_play, maelis = _parents(db)
+        world, pass_play, maelis, orn = _parents(db)
         db.commit()
         world_id, pass_play_id, maelis_id = world.id, pass_play.id, maelis.id
+        orn_id = orn.id
 
     def write(db, records):
         return write_day_mention_choices(db, world_id=world_id, pass_play_id=pass_play_id, records=records)
 
     # S1
     accepted = _record(
-        verdict="accepted", chosen_entity_id=maelis_id, candidate_ids=[maelis_id, "autre"],
+        verdict="accepted", chosen_entity_id=maelis_id, candidate_ids=[maelis_id, orn_id],
         excerpt="Maelis", reason="typo", verdict_detail=None, attempts=1,
     )
     with Session(engine) as db:
@@ -131,7 +133,7 @@ def check_store(engine) -> int:
             fail(f"S1: expected 2 stored rows, got {read_back}")
         by_verdict = {row.verdict: row for row in stored}
         row = by_verdict.get("accepted")
-        if row is None or json.loads(row.candidate_ids) != [maelis_id, "autre"]:
+        if row is None or json.loads(row.candidate_ids) != [maelis_id, orn_id]:
             fail(f"S1: accepted row candidate_ids did not round-trip: {row and row.candidate_ids!r}")
         if "failed" not in by_verdict or by_verdict["failed"].chosen_entity_id is not None:
             fail("S1: failed row missing or carrying a chosen id")
