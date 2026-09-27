@@ -1,6 +1,6 @@
 {
   "ticket": "TICKET-0095-choice-review",
-  "when": "2026-09-27T21:47:17.194501+00:00",
+  "when": "2026-09-27T21:59:07.058025+00:00",
   "green": true,
   "checks": [
     {
@@ -76,7 +76,7 @@
     {
       "check": "module_budget.py",
       "status": "PASS",
-      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values; 95 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values; 97 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
     },
     {
       "check": "function_length.py",
@@ -86,7 +86,7 @@
     {
       "check": "frontend_build_fresh.py",
       "status": "PASS",
-      "msg": "PASS: frontend_build_fresh \u00e2\u20ac\u201d 99 source file(s), 1 output asset(s), manifest hash matches"
+      "msg": "PASS: frontend_build_fresh \u00e2\u20ac\u201d 101 source file(s), 1 output asset(s), manifest hash matches"
     },
     {
       "check": "claude_md_contract.py",
