@@ -11,9 +11,11 @@
      the question view and the consultation pipeline stay read-only.
      TICKET-0092 (BRIEF-0092-e): on an unknown_entity verdict, each unmatched
      name offers a link to that tab with the name pre-filled (openLookup); the
-     question view still writes nothing -- the link only opens the panel. */
+     question view still writes nothing -- the link only opens the panel.
+     TICKET-0095 (K1): the same tab hosts the model-choice review (ChoiceReviewPanel.svelte). */
   import { serverState } from '../lib/serverState.svelte.js';
   import NamesPanel from './NamesPanel.svelte';
+  import ChoiceReviewPanel from './ChoiceReviewPanel.svelte';
   import { openLookup } from './namesPanel.svelte.js';
   import {
     loreState, askLore, selectCandidate, allAmbiguitiesResolved, confirmResolution,
@@ -95,6 +97,7 @@
   </div>
   {#if loreTab === 'names'}
     <NamesPanel visible={active} />
+    <ChoiceReviewPanel visible={active} />
   {/if}
   <div class="queue-panel" id="lore-ask-panel" style:display={loreTab === 'question' ? '' : 'none'}>
     <div class="panel-head">

@@ -16896,6 +16896,40 @@ scope reaches), the day already planned does not change.
 and writes nothing; the route still writes the review and answers 200 with
 `appellation_written: false`.
 
+## THE REVIEW PANEL (TICKET-0095) -- K1 LIVES BESIDE THE NAMES TO LINK (BRIEF-0095-d, no schema change)
+
+**Where.** `ChoiceReviewPanel.svelte` (state in `choiceReview.svelte.js`)
+renders under `NamesPanel.svelte` inside Lore's « Noms à lier » tab. K1 is
+the same act as binding a plain name -- the creator says which entity a
+surface names -- and that tab already holds the entity selector and the
+three appellation scopes; a second place for the same gesture would split
+it. The panel reuses `categoryOf` and `api` and fetches `/api/entities`
+the same way; `NamesPanel` itself is untouched.
+
+**I1: « D'accord » records the appellation by default; « Pas d'accord »
+does not.** Agreeing confirms the model's pick, so teaching the name to the
+concordance is the expected consequence (its scope preset to the reader's
+`preselected_scope`). Disagreeing is a correction whose right entity the
+model never proposed; recording its name is a second, deliberate decision,
+so its checkbox starts unticked (scope preset `rencontre`) and is disabled
+until an entity is picked.
+
+**« — choisir — » is not « Aucune entité connue ».** The disagree select
+opens on « — choisir — » (value `""`), which keeps « Pas d'accord »
+disabled; H2 (`entity_id` null) must be an explicit pick of « Aucune entité
+connue », never the default of an untouched select. With H2 the client
+forces `record_appellation` false (the route refuses it anyway). The search
+input only filters the select's options (the row's category, the model's
+choice excluded); no free text is ever posted. Nothing posts on load or on
+a select change -- each write is one click.
+
+**« sans plan ».** A row whose day was refused at plan time (`day.planned`
+false, R-11) carries a « sans plan » badge: the choice exists, but no
+rewrite consumed it.
+
+**F1: candidates by name only.** « Candidats : » lists the candidate names;
+the appellation that made each one match (F2) is deferred.
+
 ---
 
 *Co-built with Claude, June 2026.*
