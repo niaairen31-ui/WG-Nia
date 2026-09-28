@@ -16962,6 +16962,50 @@ is red, so the fixture cannot fall behind the lists.
 **Also closed here.** TICKET-0095 (K1) passed its live gate (Nia,
 2026-09-28); its front matter moves to `done` in its own commit.
 
+## THE WORLD CASCADE (TICKET-0096) -- EVERY WORLD-SCOPED ROW IS DELETED, OR THE WORLD IS REFUSED (BRIEF-0096-b, no schema change)
+
+**Three kinds of world-scoped table.** `writes/worlds.py` now accounts for
+every table `world_cascade.py` derives from the schema:
+
+- *deleted by the cascade* -- `_DIRECT_WORLD_SCOPED_DELETES` (a `world_id`
+  column) and `_SUBQUERY_SCOPED_DELETES` (a child reached through a direct
+  parent; every parent is a direct table, so one level of subquery is
+  enough and runs before any direct delete);
+- *refused* -- `_REFUSING_TABLES`: a world holding an `entity_type` (E1) or
+  its own `prompt_template` (D1) raises `WorldDeleteRefused` before the
+  first statement, and the route answers 409 with the French message, which
+  the delete modal already displays (`worldCrud.svelte.js` reads `detail`);
+- *purged by their owner* -- the four staging tables (G1).
+
+**C1 -- the BRIEF-54 exception covers append-only tables.** `ledger`
+already fell under it; `rencontre`, `skill_resolution`, `visit`
+history and the day-chain tables now do too. A deleted world leaves no
+reader for its history, and an "archive before delete" is a ticket of its
+own (C2's reactivation). The text-regex guards (`encounter_registry` R2,
+`prompt_version` rule 5) never see the cascade's f-string SQL; the only
+thing that keeps a table out of this exception is its absence from the
+lists, which `world_cascade.py` W1 makes explicit.
+
+**E1 -- a runtime type makes its world undeletable, for now.** Deleting the
+`entity_type` row would leave its `ext_*` table registered nowhere, and the
+boot guard (`schema_reconcile.unaccounted_tables`) would refuse to start
+the cockpit -- measured. Dropping the table breaks Ddrop1. Quarantine
+(E2, the `rollback_quarantine.py` shape) is its own ticket.
+
+**D1 -- a world's own prompt template refuses the delete.** Its versions
+are append-only with no allow-list (`prompt_version.py` rule 5). No code or
+seed creates one today, so the refusal costs nothing now. The cascade's
+former `DELETE FROM prompt_template WHERE world_id = :wid` statement is
+gone: a world that reaches it is refused first.
+
+**G1 -- the staging strata purge themselves.** `link_agent_strata.py` and
+`npc_agent_strata.py` forbid those table names in any `writes/` module.
+`link_author.purge_world_link_batches` and
+`npc_group_author.purge_world_npc_batches` delete a world's batches and
+rows (children first, BRIEF-0037-e), never commit, and are called only by
+`DELETE /api/worlds/{id}`, after the cascade, in its transaction; a refusal
+raises before them. Neither strata check learned an exception (G2).
+
 ---
 
 *Co-built with Claude, June 2026.*
