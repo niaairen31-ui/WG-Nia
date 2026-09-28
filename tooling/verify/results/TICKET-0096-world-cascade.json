@@ -1,0 +1,82 @@
+{
+  "ticket": "TICKET-0096-world-cascade",
+  "when": "2026-09-28T18:07:35.658626+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "world_cascade.py",
+      "status": "PASS",
+      "msg": "PASS: world_cascade -- every world-scoped table is deleted or guarded; a populated world deletes under FK enforcement; refusals delete nothing"
+    },
+    {
+      "check": "link_agent_strata.py",
+      "status": "PASS",
+      "msg": "PASS: link_agent_strata \u2014 link_batch/link_batch_row stay ephemeral and narrowly scoped"
+    },
+    {
+      "check": "npc_agent_strata.py",
+      "status": "PASS",
+      "msg": "PASS: npc_agent_strata \u2014 npc_batch/npc_batch_row stay ephemeral and narrowly scoped"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "prompt_version.py",
+      "status": "PASS",
+      "msg": "PASS: prompt_version schema, single accessor/write-shape allowlists, append-only, H1, and the versioned edit API (PATCH/versions/restore, C1 fail-closed)"
+    },
+    {
+      "check": "encounter_registry.py",
+      "status": "PASS",
+      "msg": "PASS: encounter_registry \u2014 R1 single constructor [234 files], R2 no update/delete [140 files], R3 live sites record [7 functions], R4 fixture [9 observations]"
+    },
+    {
+      "check": "purge_fk_ordering.py",
+      "status": "PASS",
+      "msg": "PASS: purge_fk_ordering \u2014 _purge_closed_batches deletes row-children before their batch under real FK enforcement, for both link and npc batches"
+    },
+    {
+      "check": "runtime_ddl_guard.py",
+      "status": "PASS",
+      "msg": "PASS: runtime_ddl_guard \u2014 writes/schema.py is CREATE-only, enum-typed, single-sourced"
+    },
+    {
+      "check": "import_cycle.py",
+      "status": "PASS",
+      "msg": "PASS: import_cycle \u2014 no module-level import cycle under src/world_engine"
+    },
+    {
+      "check": "undefined_names.py",
+      "status": "PASS",
+      "msg": "PASS: undefined_names \u2014 pyflakes reports zero undefined names under src/"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values; 97 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u2014 every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    },
+    {
+      "check": "pipeline_state.py",
+      "status": "PASS",
+      "msg": "PASS: every ticket front-matter conforms to TEMPLATE.md"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 125 check(s) discovered, 125 executed, 125 passed"
+    }
+  ]
+}
