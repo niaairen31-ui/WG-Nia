@@ -98,7 +98,10 @@ from .ephemeral import (
 from .pipeline import (
     Batch,
     DayMentionChoice,
+    DayMentionChoiceCandidate,
+    DayMentionChoiceEvidence,
     DayMentionResolution,
+    DayMentionReview,
     DayRewrite,
     PassPlay,
     ProposedMutation,

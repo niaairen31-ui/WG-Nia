@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.07
+Current schema version: v2.08
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1064,6 +1064,81 @@ CREATE TABLE day_mention_choice (
 );
 CREATE INDEX idx_day_mention_choice_pass ON day_mention_choice(pass_play_id);
 CREATE INDEX idx_day_mention_choice_world_verdict ON day_mention_choice(world_id, verdict);
+```
+
+**NOTE — the two JSON columns are an audit copy (v2.08, TICKET-0095).**
+`day_mention_choice_candidate` and `day_mention_choice_evidence` hold the same
+ids as rows; nothing in `src/` reads the JSON (`choice_review.py` R0).
+
+-----
+
+### `day_mention_choice_candidate`
+
+A candidate row is the `ordinal`-th candidate shown to the model for one
+`day_mention_choice` (schema v2.08, TICKET-0095, BRIEF-0095-A). Append-only
+(W2), non-canon.
+
+```sql
+CREATE TABLE day_mention_choice_candidate (
+  id         TEXT PRIMARY KEY,
+  choice_id  TEXT NOT NULL REFERENCES day_mention_choice(id),
+  ordinal    INTEGER NOT NULL CHECK (ordinal >= 1),
+  entity_id  TEXT NOT NULL REFERENCES entity(id)
+);
+CREATE UNIQUE INDEX idx_day_mention_choice_candidate_choice
+  ON day_mention_choice_candidate(choice_id, ordinal);
+```
+
+-----
+
+### `day_mention_choice_evidence`
+
+An evidence row is the `ordinal`-th fact shown to the model for one
+`day_mention_choice`, flattened across candidates in display order (the JSON
+order) (schema v2.08, TICKET-0095, BRIEF-0095-A). Append-only (W2),
+non-canon.
+
+```sql
+CREATE TABLE day_mention_choice_evidence (
+  id         TEXT PRIMARY KEY,
+  choice_id  TEXT NOT NULL REFERENCES day_mention_choice(id),
+  ordinal    INTEGER NOT NULL CHECK (ordinal >= 1),
+  fact_id    TEXT NOT NULL    -- no FK: a descriptive fact can be hard-deleted (R-04)
+);
+CREATE UNIQUE INDEX idx_day_mention_choice_evidence_choice
+  ON day_mention_choice_evidence(choice_id, ordinal);
+```
+
+-----
+
+### `day_mention_review`
+
+A review row is Nia's verdict on one choice (schema v2.08, TICKET-0095,
+BRIEF-0095-A): `agreed` → `entity_id` is the model's choice; `disagreed` →
+`entity_id` is the entity she picked, or NULL for "no known entity" (H2).
+`appellation_fact_id` / `appellation_scope` are set only when an appellation
+was actually written. `choice_id` is NOT unique: "one review per choice" is
+the route's rule (J1), so a later re-review needs no rebuild (A1).
+Append-only (W2), non-canon.
+
+```sql
+CREATE TABLE day_mention_review (
+  id                   TEXT PRIMARY KEY,
+  world_id             TEXT NOT NULL REFERENCES world(id),
+  choice_id            TEXT NOT NULL REFERENCES day_mention_choice(id),
+  verdict              TEXT NOT NULL CHECK (verdict IN ('agreed','disagreed')),
+  entity_id            TEXT REFERENCES entity(id),
+  appellation_fact_id  TEXT,  -- no FK: the appellation can be hard-deleted later (R-04)
+  appellation_scope    TEXT CHECK (appellation_scope IS NULL
+                                   OR appellation_scope IN ('rencontre','world','none')),
+  created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CHECK (
+    (verdict <> 'agreed' OR entity_id IS NOT NULL)
+    AND (appellation_fact_id IS NULL OR entity_id IS NOT NULL)
+    AND ((appellation_fact_id IS NULL) = (appellation_scope IS NULL))
+  )
+);
+CREATE INDEX idx_day_mention_review_choice ON day_mention_review(choice_id);
 ```
 
 -----

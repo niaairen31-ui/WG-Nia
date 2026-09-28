@@ -13,6 +13,11 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.08** — TICKET-0095, BRIEF-0095-A: the K1 review record —
+  `day_mention_choice_candidate` and `day_mention_choice_evidence` (a
+  choice's candidates and evidence as rows, backfilled from the JSON
+  columns, which stay as an audit copy) and `day_mention_review`
+  (append-only, zero rows).
 - **v2.07** — TICKET-0094, BRIEF-0094-A: `day_mention_choice`, the
   H2 choice record (additive table, two indexes, zero rows).
 - **v2.06** — TICKET-0091, BRIEF-0091-I: lore as facts — relocation and

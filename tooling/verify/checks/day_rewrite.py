@@ -7,8 +7,9 @@ W1 (purity): `day_rewrite.py` imports no `ollama_client` and constructs no
 model from a named forbidden set (`Entity`, `Character`, `NpcSchedule`,
 `ProposedMutation`).
 W2 (append-only): no assignment anywhere in `src/` targets an attribute of a
-`DayRewrite`/`DayMentionResolution`/`DayMentionChoice` (TICKET-0094)
-instance, and none of these names appears as the argument of a
+`DayRewrite`/`DayMentionResolution`/`DayMentionChoice` (TICKET-0094)/
+`DayMentionChoiceCandidate`/`DayMentionChoiceEvidence`/`DayMentionReview`
+(TICKET-0095) instance, and none of these names appears as the argument of a
 `db.delete(`.
 W3 (retirement): `plan_context` has no remaining definition, import or
 reference anywhere in `src/`.
@@ -40,7 +41,10 @@ DAY_PLAN_FILE = SRC / "day_plan.py"
 DAY_ROUTE_FILE = SRC / "cockpit" / "routes" / "day.py"
 
 _FORBIDDEN_CONSTRUCTORS = {"Entity", "Character", "NpcSchedule", "ProposedMutation"}
-_TRACKED_MODELS = {"DayRewrite", "DayMentionResolution", "DayMentionChoice"}
+_TRACKED_MODELS = {
+    "DayRewrite", "DayMentionResolution", "DayMentionChoice",
+    "DayMentionChoiceCandidate", "DayMentionChoiceEvidence", "DayMentionReview",
+}
 _EXTRACT_FUNCS = {"extract_places", "extract_persons", "extract_factions"}
 
 FAILURES: list[str] = []

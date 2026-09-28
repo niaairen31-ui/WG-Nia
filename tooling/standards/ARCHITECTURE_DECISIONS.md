@@ -16718,6 +16718,218 @@ before its `raise` (W2); that helper rolls back, writes, then commits (W3);
 (W4); `day_choice.py` holds exactly one `chat(`, inside `_ask`, and no
 `db.add(` / `.commit(` (W5).
 
+
+## THE K1 REVIEW RECORD (TICKET-0095) -- A CHOICE'S CANDIDATES AND EVIDENCE BECOME ROWS, EVERY REVIEW IS KEPT (BRIEF-0095-a, schema v2.08)
+
+**G1 -- the first UI consumer relationalizes.** H2 stored a choice's
+candidates and evidence as JSON arrays in two TEXT columns of
+`day_mention_choice`. `json_ui_boundary`'s volet c only sees `Column(JSON`,
+so a TEXT column holding JSON was invisible to it, but its allow-list
+doctrine still applies: the FIRST UI consumer of JSON-held data migrates it
+to relational storage in the same brief. K1 is that consumer. The ids now
+live as rows; the JSON columns stay NOT NULL and keep being written as an
+audit copy that nothing in `src/` reads. `day_mention_choice` is neither
+altered nor rebuilt.
+
+**Three tables (C-01).** `day_mention_choice_candidate(choice_id, ordinal,
+entity_id)` -- the `ordinal`-th candidate shown to the model;
+`day_mention_choice_evidence(choice_id, ordinal, fact_id)` -- the
+`ordinal`-th fact shown, flattened across candidates in display order;
+`day_mention_review(world_id, choice_id, verdict, entity_id,
+appellation_fact_id, appellation_scope, created_at)` -- Nia's verdict on
+one choice (`agreed`: `entity_id` is the model's choice; `disagreed`: the
+entity she picked, or NULL for "no known entity"). The appellation pair is
+set only when an appellation was actually written; its scope vocabulary
+equals `writes.facets._APPELLATION_SCOPES`. Entity ids keep their FK.
+`fact_id` and `appellation_fact_id` carry NO FK: `delete_free_fact`
+hard-deletes descriptive facts (via `remove_entity_fact` and the creator
+route `delete_entity_fact`), and an FK from history to `fact(id)` would make
+every fact ever cited as evidence, or written as a reviewed appellation,
+undeletable.
+
+**The flush before the children.** `write_day_mention_choices` (signature
+and record shape unchanged) now returns `[]` at once on empty records,
+validates every record as before, adds the parents, `db.flush()`es, then
+adds one candidate and one evidence row per id, ordinals from 1 in the
+lists' order. Without a declared ORM `relationship()`, the unit of work has
+no edge ordering a bare-FK child after its parent: measured, the same rows
+added in one session with no flush fail the commit on the FK -- the rule
+`write_day_rewrite` already states. Still no commit.
+
+**A1 / J1 -- every review is kept.** `write_day_mention_review` asserts
+the table's CHECK shapes in Python (verdict, `agreed` needs an entity, an
+appellation needs an entity, fact and scope go together, scope in
+`_REVIEW_SCOPES`), each failure a `ValueError` prefixed
+`write_day_mention_review: ` with nothing added; no flush, no commit.
+`choice_id` on the review is NOT unique: "one review per choice" (J1) is
+the route's rule (BRIEF-0095-C), so a later re-review needs no rebuild.
+
+**Migration v2.08, one transaction.** `scripts/migrate_v2_08_choice_review.py`
+creates the two child tables AND backfills them from every existing
+`day_mention_choice` row inside one `engine.begin()` (SQLite DDL is
+transactional under `db.py`'s `isolation_level = None`): an abort --
+a JSON value that is not a list of str, or a candidate id that is not an
+`entity.id`, both checked before the first INSERT -- leaves no table
+behind. Exactly one child table present aborts. The review table is created
+separately and zero-row-checked only on the run that creates it; the
+candidate/evidence counts are checked against the JSON on every run.
+
+**W2 extended.** `day_rewrite.py`'s `_TRACKED_MODELS` gains the three new
+models: no attribute assignment on, and no `db.delete(` of, an instance
+anywhere in `src/`.
+
+**R0 -- the JSON stays write-only.** `tooling/verify/checks/choice_review.py`
+fails on any `loads(...)` call whose arguments touch `.candidate_ids` /
+`.evidence_fact_ids`, and on any `DayMentionChoice.candidate_ids` /
+`.evidence_fact_ids` column reference, anywhere in `src/world_engine/`;
+vacuity-guarded on the writer's two `json.dumps(record[...])` calls.
+`day_mention_review_store.py` (V1-V7) covers the writers and the DB CHECKs.
+
+**Named deferral -- the world cascade.** `delete_world_cascade` knows none
+of the day-chain tables (`day_rewrite`, `day_mention_resolution`,
+`day_mention_choice`, nor this brief's three); measured, deleting a world
+holding one planned day fails its commit on the FK. Pre-existing, and a
+destructive path: a ticket numbered above 0095 teaches the cascade every
+day-chain table.
+
+
+## THE PENDING-CHOICE READER (TICKET-0095) -- WHAT K1 SHOWS AND WHICH SCOPE IT PROPOSES (BRIEF-0095-b, no schema change)
+
+**The listing rule (E2, J1).** `lore_choices_read.list_pending_choices`
+lists every `day_mention_choice` of the world that is reviewable and not
+yet reviewed, ordered by `(created_at, id)`. Reviewable (E2): `accepted`
+(the chosen entity is set by the table's shape CHECK), or `rejected` with a
+chosen entity still named -- a refused excerpt, not an out-of-range number.
+`declined` / `failed` rows name nothing and are never listed. Reviewed (J1):
+any `day_mention_review` row on the choice; the route (C) enforces one
+review per choice, the table does not. Another world's choices are never
+listed.
+
+**The cited fact is found with the judge's own key (C-04).**
+`day_choice.excerpt_key` is `judge_choice`'s normalization, extracted
+without behaviour change (edge punctuation stripped, then
+`normalize_surface`); the reader and the judge share it. A key shorter than
+three characters shows no source. Otherwise the reader takes the choice's
+evidence fact ids (its `day_mention_choice_evidence` rows), reads the chosen
+entity's facts through `facet_reads.facts_of` (rendered text, creator-only
+facts excluded in the query -- never raw `content_raw`), keeps the cited
+ones, and the hits are those whose normalized text contains the key.
+
+**Source and preselection (C2).** Hits -> source `facts`; no hit but the
+key is in the normalized declaration -> `declaration`; otherwise `none` (a
+fact edited or deleted since, or an excerpt that spans two facts). K1
+preselects the appellation scope `world` only when the source is `facts`
+and some hit is known to everyone; `rencontre` in every other case, and
+always for « Pas d'accord » (the evidence speaks for the wrong entity).
+"Known to everyone" (R-07) is the resolver's own tiers read back: the
+fact's `default_level` is above `unaware` (tier 7), or it has a
+`fact_default` of scope `world` above `unaware`. Each hit carries its
+scopes above `unaware` -- `world` first from `default_level`, then its
+`fact_default` rows by `(scope_type, id)` with the scope entity's name,
+duplicates skipped -- read in two `IN (...)` queries.
+
+**"Planned" by timestamps (R-11).** A day is planned once, and on the plan
+path `_write_declaration_rewrite` constructs the generation-1 `day_rewrite`
+before the choice records, in one transaction; a 409 attempt commits the
+records alone, with no rewrite. So a choice is "planned" iff some
+`day_rewrite` of its `pass_play` has `created_at <= choice.created_at`; the
+panel shows « sans plan » otherwise.
+
+**Rows only (G1).** Candidates and evidence are read from their child rows,
+never from the JSON audit columns. `choice_review.py` L0 forbids, in the
+reader, any name, attribute or keyword `candidate_ids` /
+`evidence_fact_ids`, any `db.add` / `db.add_all` / `db.commit`, any `chat(`
+and any `CREATOR`; L1-L6 pin the key, reviewability, preselection, the
+listing, the measured row values and the pending-row shape (C-06). The
+reader joins `lore_isolation.py`'s `PANEL_FILES` (R17): it imports no
+consultation-pipeline module.
+
+## THE REVIEW ROUTE (TICKET-0095) -- ONE REVIEW PER CHOICE, WRITTEN THROUGH THE CREATOR PATH (BRIEF-0095-c, no schema change)
+
+**Two endpoints.** `cockpit/routes/lore_choices.py` (mounted right after
+`lore_mentions`) serves `GET /api/lore/choices` -- the reader's pending rows
+(C-06), returned unchanged -- and `POST /api/lore/choices/{id}/review`, which
+records Nia's verdict on one H2 choice. The module is shaped like the names
+panel's: `router`, `_CHANGED_BY = "creator_crud"`, a `_world_id` helper
+answering 400 when no world is active, one commit per request, no `select(`,
+no `chat(`, no `CREATOR` (`choice_review.py` T0). It joins
+`lore_isolation.py`'s `PANEL_FILES` (R17).
+
+**Why the creator path (B1).** The click is the approval: Nia reading the
+choice, its day and its cited evidence, then agreeing or disagreeing, IS the
+creator checkpoint, so a `proposed_mutation` that she would approve a second
+time adds a step and no control (B2, rejected). The only canon write is
+`writes/facets.record_appellation` -> `add_entity_fact`, the creator-CRUD
+chokepoint, with `created_by="creator_crud"`; the verdict itself is a
+`day_mention_review` row through `writes.write_day_mention_review` (A1).
+
+**Step order (C-07), first failure wins, nothing written on any failure:**
+no active world -> 400; the choice absent, of another world, or not
+reviewable (E2) -> 404; already reviewed -> 409; a verdict other than
+`agreed` / `disagreed` -> 422; `agreed` naming an entity other than the
+model's -> 422 (the effective entity is the model's choice); `disagreed`
+recording an appellation with no entity, or naming the model's own choice
+-> 422 (the effective entity is Nia's, possibly none); an effective entity
+that is not an active entity of the choice's category in the world
+(`validate_binding`) -> 422; then, inside one `try`, the optional
+appellation and the review, a `ValueError` from either rolling back to 422
+(a bad scope is refused by `record_appellation` before it writes); then the
+single commit. Table b3 (lot) is pinned by `choice_review.py` T1-T10.
+
+**« Aucune entité connue » (H2).** `disagreed` with no entity writes one
+review with `entity_id` NULL and nothing else: no appellation (it would
+have no bearer), no germ, no change to the day.
+
+**One review per choice (J1) is a route rule.** `day_mention_review.
+choice_id` is not unique (A1): the 409 comes from `is_reviewed` in the
+route, so a later re-review flow (J2, W2 -- deferred) needs no rebuild. No
+route updates or deletes a review, a choice, a rewrite or a resolution
+(T10 counts them).
+
+**The past day is never re-planned.** A review records a verdict and, if
+asked, an appellation; the next concordance benefits (R-08: the same
+surface then resolves at `named_exact` for every character the appellation's
+scope reaches), the day already planned does not change.
+
+**"Already known" is a success.** When the surface already names the entity
+(its name or one of its appellations), `record_appellation` returns `None`
+and writes nothing; the route still writes the review and answers 200 with
+`appellation_written: false`.
+
+## THE REVIEW PANEL (TICKET-0095) -- K1 LIVES BESIDE THE NAMES TO LINK (BRIEF-0095-d, no schema change)
+
+**Where.** `ChoiceReviewPanel.svelte` (state in `choiceReview.svelte.js`)
+renders under `NamesPanel.svelte` inside Lore's « Noms à lier » tab. K1 is
+the same act as binding a plain name -- the creator says which entity a
+surface names -- and that tab already holds the entity selector and the
+three appellation scopes; a second place for the same gesture would split
+it. The panel reuses `categoryOf` and `api` and fetches `/api/entities`
+the same way; `NamesPanel` itself is untouched.
+
+**I1: « D'accord » records the appellation by default; « Pas d'accord »
+does not.** Agreeing confirms the model's pick, so teaching the name to the
+concordance is the expected consequence (its scope preset to the reader's
+`preselected_scope`). Disagreeing is a correction whose right entity the
+model never proposed; recording its name is a second, deliberate decision,
+so its checkbox starts unticked (scope preset `rencontre`) and is disabled
+until an entity is picked.
+
+**« — choisir — » is not « Aucune entité connue ».** The disagree select
+opens on « — choisir — » (value `""`), which keeps « Pas d'accord »
+disabled; H2 (`entity_id` null) must be an explicit pick of « Aucune entité
+connue », never the default of an untouched select. With H2 the client
+forces `record_appellation` false (the route refuses it anyway). The search
+input only filters the select's options (the row's category, the model's
+choice excluded); no free text is ever posted. Nothing posts on load or on
+a select change -- each write is one click.
+
+**« sans plan ».** A row whose day was refused at plan time (`day.planned`
+false, R-11) carries a « sans plan » badge: the choice exists, but no
+rewrite consumed it.
+
+**F1: candidates by name only.** « Candidats : » lists the candidate names;
+the appellation that made each one match (F2) is deferred.
+
 ---
 
 *Co-built with Claude, June 2026.*

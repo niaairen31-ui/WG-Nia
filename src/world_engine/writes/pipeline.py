@@ -38,7 +38,16 @@ from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, func, select
 
 from ..day_feasibility import VetoVerdict
-from ..models import Batch, DayMentionChoice, DayMentionResolution, DayRewrite, PassPlay
+from ..models import (
+    Batch,
+    DayMentionChoice,
+    DayMentionChoiceCandidate,
+    DayMentionChoiceEvidence,
+    DayMentionResolution,
+    DayMentionReview,
+    DayRewrite,
+    PassPlay,
+)
 
 MAX_DECLARATION_CHARS = 4000
 
@@ -47,6 +56,8 @@ _MENTION_KINDS: tuple[str, ...] = ("named", "inferred")
 _MENTION_VERDICTS: tuple[str, ...] = ("matched", "cast", "unmatched")
 _CHOICE_TRIGGERS: tuple[str, ...] = ("ambiguous", "near")
 _CHOICE_VERDICTS: tuple[str, ...] = ("accepted", "rejected", "declined", "failed")
+_REVIEW_VERDICTS: tuple[str, ...] = ("agreed", "disagreed")
+_REVIEW_SCOPES: tuple[str, ...] = ("rencontre", "world", "none")
 
 PASS_PLAY_STATUSES: tuple[str, ...] = ("submitted", "resolving", "resolved", "flagged")
 
@@ -298,8 +309,15 @@ def write_day_mention_choices(
     BRIEF-0094-A): every record is checked before the first row is built;
     any violation raises `ValueError` with nothing added. One append-only
     `day_mention_choice` row per record — a refused call is a record too
-    (X1b). The two id lists are stored as JSON text. No flush, no commit:
-    the caller commits."""
+    (X1b). The two id lists are stored as JSON text. Then flushes the
+    parents and adds one `day_mention_choice_candidate` row per candidate id
+    and one `day_mention_choice_evidence` row per evidence fact id, ordinals
+    from 1, in the lists' order (G1, TICKET-0095, BRIEF-0095-A): the JSON
+    columns remain an audit copy, never read. The flush precedes the
+    children for the reason `write_day_rewrite` gives. No commit: the
+    caller commits."""
+    if not records:
+        return []
     for record in records:
         _validate_day_mention_choice(record)
 
@@ -316,4 +334,47 @@ def write_day_mention_choices(
         for record in records
     ]
     db.add_all(rows)
+    db.flush()
+
+    children: list[DayMentionChoiceCandidate | DayMentionChoiceEvidence] = []
+    for record, row in zip(records, rows):
+        children.extend(
+            DayMentionChoiceCandidate(choice_id=row.id, ordinal=i, entity_id=entity_id)
+            for i, entity_id in enumerate(record["candidate_ids"], start=1)
+        )
+        children.extend(
+            DayMentionChoiceEvidence(choice_id=row.id, ordinal=i, fact_id=fact_id)
+            for i, fact_id in enumerate(record["evidence_fact_ids"], start=1)
+        )
+    db.add_all(children)
     return rows
+
+
+def write_day_mention_review(
+    db: Session, *, world_id: str, choice_id: str, verdict: str, entity_id: Optional[str],
+    appellation_fact_id: Optional[str], appellation_scope: Optional[str],
+) -> DayMentionReview:
+    """One append-only `day_mention_review` row: Nia's verdict on one H2
+    choice (C-03, A1, TICKET-0095, BRIEF-0095-A). The table's CHECK shapes
+    are asserted in Python first; any violation raises `ValueError` with
+    nothing added. One review per choice is the route's rule (J1), not this
+    writer's. No flush, no commit: the caller commits."""
+    if verdict not in _REVIEW_VERDICTS:
+        raise ValueError(f"write_day_mention_review: verdict must be one of {_REVIEW_VERDICTS}, got {verdict!r}")
+    if verdict == "agreed" and entity_id is None:
+        raise ValueError("write_day_mention_review: an agreed review needs entity_id")
+    if appellation_fact_id is not None and entity_id is None:
+        raise ValueError("write_day_mention_review: an appellation needs entity_id")
+    if (appellation_fact_id is None) != (appellation_scope is None):
+        raise ValueError("write_day_mention_review: appellation_fact_id and appellation_scope go together")
+    if appellation_scope is not None and appellation_scope not in _REVIEW_SCOPES:
+        raise ValueError(
+            f"write_day_mention_review: appellation_scope must be one of {_REVIEW_SCOPES}, got {appellation_scope!r}"
+        )
+
+    review = DayMentionReview(
+        world_id=world_id, choice_id=choice_id, verdict=verdict, entity_id=entity_id,
+        appellation_fact_id=appellation_fact_id, appellation_scope=appellation_scope,
+    )
+    db.add(review)
+    return review

@@ -246,6 +246,71 @@ class DayMentionChoice(SQLModel, table=True):
     created_at: datetime = _created_ts()
 
 
+# -----------------------------------------------------------------------------
+# day_mention_choice_candidate / day_mention_choice_evidence /
+# day_mention_review  (the K1 review record, schema v2.08, TICKET-0095,
+# BRIEF-0095-A)
+#
+# The candidates and evidence of one H2 choice, as rows (G1): the JSON
+# columns of day_mention_choice stay as an audit copy that nothing in src/
+# reads (`verify/checks/choice_review.py` R0). A review row is Nia's
+# verdict on one choice (A1); the route allows one per choice (J1).
+# `fact_id` / `appellation_fact_id` carry no FK: a descriptive fact can be
+# hard-deleted by creator CRUD. Append-only, all three (W2).
+# -----------------------------------------------------------------------------
+class DayMentionChoiceCandidate(SQLModel, table=True):
+    __tablename__ = "day_mention_choice_candidate"
+    __table_args__ = (
+        Index("idx_day_mention_choice_candidate_choice", "choice_id", "ordinal", unique=True),
+        CheckConstraint("ordinal >= 1", name="ck_day_mention_choice_candidate_ordinal"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    choice_id: str = Field(foreign_key="day_mention_choice.id", nullable=False)
+    ordinal: int
+    entity_id: str = Field(foreign_key="entity.id", nullable=False)
+
+
+class DayMentionChoiceEvidence(SQLModel, table=True):
+    __tablename__ = "day_mention_choice_evidence"
+    __table_args__ = (
+        Index("idx_day_mention_choice_evidence_choice", "choice_id", "ordinal", unique=True),
+        CheckConstraint("ordinal >= 1", name="ck_day_mention_choice_evidence_ordinal"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    choice_id: str = Field(foreign_key="day_mention_choice.id", nullable=False)
+    ordinal: int
+    fact_id: str
+
+
+class DayMentionReview(SQLModel, table=True):
+    __tablename__ = "day_mention_review"
+    __table_args__ = (
+        Index("idx_day_mention_review_choice", "choice_id"),
+        CheckConstraint("verdict IN ('agreed','disagreed')", name="ck_day_mention_review_verdict"),
+        CheckConstraint(
+            "appellation_scope IS NULL OR appellation_scope IN ('rencontre','world','none')",
+            name="ck_day_mention_review_scope",
+        ),
+        CheckConstraint(
+            "(verdict <> 'agreed' OR entity_id IS NOT NULL) "
+            "AND (appellation_fact_id IS NULL OR entity_id IS NOT NULL) "
+            "AND ((appellation_fact_id IS NULL) = (appellation_scope IS NULL))",
+            name="ck_day_mention_review_shape",
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    choice_id: str = Field(foreign_key="day_mention_choice.id", nullable=False)
+    verdict: str
+    entity_id: Optional[str] = Field(default=None, foreign_key="entity.id")
+    appellation_fact_id: Optional[str] = None
+    appellation_scope: Optional[str] = None
+    created_at: datetime = _created_ts()
+
+
 # -------------------------------------------------------------------------
 # skill_resolution  (one row per arbiter classification — the action
 # lexicon's audit trail; schema v2.02, TICKET-0084)
