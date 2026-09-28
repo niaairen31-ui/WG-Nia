@@ -16930,6 +16930,38 @@ rewrite consumed it.
 **F1: candidates by name only.** « Candidats : » lists the candidate names;
 the appellation that made each one match (F2) is deferred.
 
+## THE WORLD CASCADE GATE (TICKET-0096) -- A WORLD-SCOPED TABLE THE CASCADE DOES NOT ACCOUNT FOR IS RED (BRIEF-0096-a, no schema change)
+
+**The defect.** `delete_world_cascade` names its tables by hand. Since
+BRIEF-54 more than forty world-scoped tables were added and none joined its
+lists, so every world holding a fact failed its commit with `FOREIGN KEY
+constraint failed` (measured on a fresh pilot seed: `fact`,
+`fact_participant`, `fact_default`, `npc_price`). The route rolled back, so
+nothing was ever half-deleted; nothing could be deleted either.
+
+**B2 -- the lists stay hand-written, the gate derives the truth.**
+`tooling/verify/checks/world_cascade.py` reads `SQLModel.metadata`: a table
+reaches `world` when it has a `world_id` column or a foreign key to a table
+that does. That set must equal what the delete accounts for -- the direct
+and subquery lists of `writes/worlds.py`, its refusing tables and their
+guarded children, and the four staging tables the agents purge. A new
+world-scoped table is red until someone decides which of those it is. The
+order of statements stays readable in one file; deriving it (B3) was
+rejected as implicit behaviour on an irreversible path.
+
+**F1 -- the fixture is a second registry.** One row per covered table, in
+two worlds; one world is deleted, the other must be untouched to the row,
+`PRAGMA foreign_key_check` must be empty and the boot guard's
+`unaccounted_tables` must be empty. A covered table without a fixture row
+is red, so the fixture cannot fall behind the lists.
+
+**Created red.** This brief ships the gate before the fix, on purpose: on
+`main` it names every missing table (W1, W3), reproduces the IntegrityError
+(W4) and finds no refusal (W5, W6). BRIEF-0096-b turns it green.
+
+**Also closed here.** TICKET-0095 (K1) passed its live gate (Nia,
+2026-09-28); its front matter moves to `done` in its own commit.
+
 ---
 
 *Co-built with Claude, June 2026.*
