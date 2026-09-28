@@ -25,6 +25,8 @@ from ...entity_author import generate_world_draft as _generate_world_draft
 from ...event_author import build_world_roster as _build_world_roster
 from ...event_author import generate_agenda_draft as _generate_agenda_draft
 from ...event_author import generate_event_draft as _generate_event_draft
+from ...link_author import purge_world_link_batches
+from ...npc_group_author import purge_world_npc_batches
 from ...db import get_session
 from ...facet_reads import facts_of, joined
 from ...models import (
@@ -41,6 +43,7 @@ from ...models import (
 )
 from ...writes import (
     KNOWLEDGE_LEVELS,
+    WorldDeleteRefused,
     delete_world_cascade as _delete_world_cascade,
     write_entity_facets,
     write_knowledge,
@@ -470,6 +473,8 @@ def delete_world(world_id: str, db: Session = Depends(get_session)) -> dict:
     was_active = target.is_active
     try:
         _delete_world_cascade(world_id, db)
+        purge_world_link_batches(world_id, db)
+        purge_world_npc_batches(world_id, db)
         remaining_worlds = db.exec(select(World)).all()
         remaining = len(remaining_worlds)
         if remaining == 0:
@@ -482,6 +487,9 @@ def delete_world(world_id: str, db: Session = Depends(get_session)) -> dict:
             active = next((w for w in remaining_worlds if w.is_active), None)
             active_world_id = active.id if active else None
         db.commit()
+    except WorldDeleteRefused as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         db.rollback()
         return {"ok": False, "error": str(exc)}

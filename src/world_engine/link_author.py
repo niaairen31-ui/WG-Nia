@@ -30,6 +30,7 @@ from itertools import combinations
 from pathlib import Path
 
 from fastapi import HTTPException
+from sqlalchemy import delete
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
@@ -912,3 +913,13 @@ def commit_batch(db: Session, batch: LinkBatch) -> dict:
     db.commit()
     journal_append(batch.id, {"event": "commit", "committed": committed, "skipped": skipped})
     return {"committed": committed, "skipped": skipped}
+
+
+def purge_world_link_batches(world_id: str, db: Session) -> None:
+    """Delete every `link_batch` of `world_id` and its `link_batch_row` rows,
+    whatever their status (TICKET-0096, BRIEF-0096-B). Called only by the
+    world delete route, in its transaction, after `delete_world_cascade`;
+    never commits. Children first, by statement order (BRIEF-0037-e)."""
+    batch_ids = select(LinkBatch.id).where(LinkBatch.world_id == world_id)
+    db.exec(delete(LinkBatchRow).where(LinkBatchRow.batch_id.in_(batch_ids)))
+    db.exec(delete(LinkBatch).where(LinkBatch.world_id == world_id))
