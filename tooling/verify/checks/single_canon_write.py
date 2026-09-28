@@ -49,7 +49,12 @@ relational-only by importing `traits` directly.
 Section 2 — hard deletes are a closed, named list (delegated from
 CLAUDE.md, TICKET-0071 BRIEF-0071-a); any new hard-delete path must be
 named here, never added silently. The list: `delete_world_cascade`
-(broadest — every row scoped to a world, world row included);
+(broadest — every row scoped to a world, world row included; it refuses,
+409 at the route, a world holding an `entity_type` or its own
+`prompt_template` — TICKET-0096, BRIEF-0096-B);
+`purge_world_link_batches` / `purge_world_npc_batches` (TICKET-0096,
+BRIEF-0096-B — a deleted world's ephemeral staging rows, called only by
+the world delete route, after the cascade);
 `skill_definition` delete (one definition + its dependent `skill` rows);
 `skill_system` delete (TICKET-0084, BRIEF-0084-a — fail-closed: refuses
 with 409 while any `skill_definition` still carries the system's id, the

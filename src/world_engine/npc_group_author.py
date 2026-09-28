@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import HTTPException
+from sqlalchemy import delete
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
@@ -494,3 +495,13 @@ def patch_npc_row(
         "payload_patch": payload_patch, "row_status": row_status,
     })
     return row.model_dump()
+
+
+def purge_world_npc_batches(world_id: str, db: Session) -> None:
+    """Delete every `npc_batch` of `world_id` and its `npc_batch_row` rows,
+    whatever their status (TICKET-0096, BRIEF-0096-B). Called only by the
+    world delete route, in its transaction, after `delete_world_cascade`;
+    never commits. Children first, by statement order (BRIEF-0037-e)."""
+    batch_ids = select(NpcBatch.id).where(NpcBatch.world_id == world_id)
+    db.exec(delete(NpcBatchRow).where(NpcBatchRow.batch_id.in_(batch_ids)))
+    db.exec(delete(NpcBatch).where(NpcBatch.world_id == world_id))

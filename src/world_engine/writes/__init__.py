@@ -140,7 +140,7 @@ from .relations import (
     write_oriented_relations,
     write_relation,
 )
-from .worlds import delete_world_cascade
+from .worlds import WorldDeleteRefused, delete_world_cascade
 
 __all__ = [
     "write_relation",
@@ -154,6 +154,7 @@ __all__ = [
     "write_event",
     "write_prompt_version",
     "delete_world_cascade",
+    "WorldDeleteRefused",
     "KNOWLEDGE_LEVELS",
     "KNOWLEDGE_LEVEL_LADDER",
     "knowledge_level_rank",
