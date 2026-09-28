@@ -2,7 +2,7 @@
 id: TICKET-0095
 title: Choice review (K1) — Nia reviews the model's choices
 type: feature
-status: live-gate
+status: done
 created: 2026-09-27
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
