@@ -120,6 +120,15 @@ def upsert_knowledge(session: Session, id: str, **fields):
     )
 
 
+def _fact_of(session: Session, knowledge_id: str) -> str:
+    """The `fact_id` of an already-seeded knowledge row. Two entities that
+    know the same thing share its fact (TICKET-0097, BRIEF-0097-A: a
+    knowledge row is identified by the fact it knows); passing it on
+    converges a row seeded on its own fact by an earlier run."""
+    session.flush()
+    return session.get(m.Knowledge, knowledge_id).fact_id
+
+
 def upsert_prompt_template(
     session: Session, id: str, *, system_prompt: str, user_template: str, **head_fields
 ):
@@ -3430,6 +3439,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-senna-existence",
         entity_id="npc-senna",
+        fact_id=_fact_of(session, "kn-reike-existence"),
         subject="magic_existence",
         level="knows",
         content="Savoir de base des Marcheurs : la magie est réelle, elle a dormi.",
@@ -3440,6 +3450,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-senna-awakening",
         entity_id="npc-senna",
+        fact_id=_fact_of(session, "kn-reike-awakening"),
         subject="magic_awakening",
         level="knows",
         content=(

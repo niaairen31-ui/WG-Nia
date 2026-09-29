@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.08
+Current schema version: v2.09
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -700,7 +700,9 @@ What each entity knows — structured and injectable into prompts.
 `fact_id` (schema v1.98, TICKET-0082, BRIEF-0082-b) anchors each row to the
 fact it is knowledge OF; `subject` is unchanged and still the identity key
 for the ten call sites enumerated in BRIEF-0082-b (cutover deferred to a
-successor ticket).
+successor ticket). From v2.09 (TICKET-0097, BRIEF-0097-A) a row is unique
+per `(entity_id, fact_id)`: what an entity knows is identified by the fact
+it knows (`idx_knowledge_entity_fact`).
 
 ```sql
 CREATE TABLE knowledge (
@@ -1695,6 +1697,11 @@ CREATE TABLE discoverable_detail (
                       -- propose time. Ambient rows never flip this (they are
                       -- never "discovered" — their visibility is the cluster
                       -- predicate below).
+  fact_id             TEXT REFERENCES fact(id),
+                      -- v2.09 (TICKET-0097, BRIEF-0097-A): the fact an
+                      -- approved discovery of this detail attaches the
+                      -- player's knowledge to. NULL until the first approved
+                      -- discovery creates it (content = this row's content).
   signpost_group      TEXT,
                       -- NULL = no cluster. Clusters one `ambient` panel row
                       -- with N `hidden` content rows that carry the SAME
@@ -2391,6 +2398,9 @@ CREATE INDEX idx_knowledge_subject   ON knowledge(subject);
 
 -- "the fact this knowledge row is about" (schema v1.98, BRIEF-0082-b)
 CREATE INDEX idx_knowledge_fact      ON knowledge(fact_id);
+
+-- one row per (entity, fact) (schema v2.09, TICKET-0097, BRIEF-0097-A)
+CREATE UNIQUE INDEX idx_knowledge_entity_fact ON knowledge(entity_id, fact_id);
 
 -- fact spine lookups (schema v1.98, BRIEF-0082-b)
 CREATE INDEX idx_fact_world               ON fact(world_id);

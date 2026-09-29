@@ -17006,6 +17006,50 @@ rows (children first, BRIEF-0037-e), never commit, and are called only by
 `DELETE /api/worlds/{id}`, after the cascade, in its transaction; a refusal
 raises before them. Neither strata check learned an exception (G2).
 
+## KNOWLEDGE IDENTITY (TICKET-0097) -- A KNOWLEDGE ROW IS WHO KNOWS WHICH FACT (BRIEF-0097-a, schema v2.09)
+
+**B3 -- the fact is the identity, the subject goes.** Since TICKET-0082 every
+`knowledge` row points at the fact it is knowledge of, and since 0087 a
+`fact_participant` says what that fact is about. The free-text `subject`
+still carried three jobs on top: the dedup key of the mutation pipeline, a
+bridge to other tables (`discoverable_detail`, day gates, the link agent's
+`npc:<id>`), and a label. TICKET-0097 moves each job to the fact and v2.10
+drops the column. The label survives as the fact's content: a legacy fact's
+content is its old subject, unchanged (C1); a fact born after 0097 carries a
+sentence (M1).
+
+**F1 -- the index says it once.** `idx_knowledge_entity_fact` makes
+`(entity_id, fact_id)` unique. Prod held three duplicated pairs; v2.09
+absorbs each into its highest-level twin, the absorbed state appended to the
+survivor's `change_history` (history is sacred; `absorbed_knowledge_id`
+records which row it was).
+
+**E1 -- no merge, a guard.** Measured on prod: no subject spreads over two
+facts in a world, except `creator_meta`, whose facts are distinct on purpose.
+v2.09 refuses to run if that changes, rather than carrying a merge nobody
+exercised. A test database seeded from the pilot before this ticket held two
+such subjects; `seed_pilot.py` now shares their fact, and such a database is
+rebuilt (`init_db.py`, `seed_pilot.py`) rather than migrated.
+
+**G -- the link agent's facts get their participant.** 269 prod rows carried
+`subject = npc:<uuid>`, which `subject_resolve` never resolved, so "who knows
+what about X" missed 42 % of knowledge. v2.09 attaches the entity and writes
+its identity token as the content.
+
+**H1 -- a detail owns its fact.** `discoverable_detail.fact_id` is filled by
+the first approved discovery (BRIEF-0097-C); zero detail was ever discovered
+in prod, so nothing is backfilled.
+
+**D1'a, data half.** A persisted `knowledge` gate's `target_key` becomes the
+fact id of its subject; the planner learns to emit fact codes in
+BRIEF-0097-D.
+
+**The census.** `knowledge_identity.py` K3 pins, per file, every `subject`
+reference left in `src/`; each brief lowers it in the commit that removes a
+reference, so a new reader of `subject` is red.
+
+**Also closed here.** TICKET-0096 passed its live gate (Nia, 2026-09-28).
+
 ---
 
 *Co-built with Claude, June 2026.*

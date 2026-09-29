@@ -205,6 +205,9 @@ class Knowledge(SQLModel, table=True):
         Index("idx_knowledge_entity", "entity_id"),
         Index("idx_knowledge_subject", "subject"),
         Index("idx_knowledge_fact", "fact_id"),
+        # TICKET-0097 (BRIEF-0097-A, schema v2.09): what an entity knows is
+        # identified by the fact it knows -- one row per (entity, fact).
+        Index("idx_knowledge_entity_fact", "entity_id", "fact_id", unique=True),
     )
 
     id: str = Field(default_factory=_uuid, primary_key=True)

@@ -691,6 +691,9 @@ class DiscoverableDetail(SQLModel, table=True):
     location_id: str = Field(foreign_key="entity.id", nullable=False)
     subject: str  # short tag, e.g. "lettre_innommee"
     content: str  # what the player learns on discovery
+    # TICKET-0097 (BRIEF-0097-A, schema v2.09): the fact a discovery of this
+    # detail attaches to. NULL until the first approved discovery creates it.
+    fact_id: Optional[str] = Field(default=None, foreign_key="fact.id")
     access_level: str = Field(
         default="hidden",
         sa_column_kwargs={"server_default": text("'hidden'")},
