@@ -457,7 +457,7 @@ def check_fail_closed_and_conversation_id(fixture, engine) -> None:
     import json as _json
 
     original_chat = oc.chat
-    oc.chat = lambda *a, **kw: _json.dumps([{"subject": "a_subject", "speaker": "player"}])
+    oc.chat = lambda *a, **kw: _json.dumps([{"fact": "f1", "speaker": "player"}])
     try:
         with DbSession(engine) as session:
             no_player_attr = AttributionContext(
@@ -509,7 +509,7 @@ def check_fail_closed_and_conversation_id(fixture, engine) -> None:
         with DbSession(engine) as session:
             window_mutations = analyze_window(fixture["conversation_id"], session)
         with DbSession(engine) as session:
-            oc.chat = lambda *a, **kw: _json.dumps([{"subject": "a_subject", "speaker": "npc"}])
+            oc.chat = lambda *a, **kw: _json.dumps([{"fact": "f1", "speaker": "npc"}])
             overhear_mutations = analyze_overhearing(
                 "bonjour", "salut", fixture["conversation_id"], session,
                 npc_entity_id=fixture["npc_id"],

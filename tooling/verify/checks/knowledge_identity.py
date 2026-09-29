@@ -39,6 +39,18 @@ K4 -- the mutation pipeline keys knowledge by fact (C-01, C-02):
       is refused; a leg without content is refused;
    g. window normalization drops a model-emitted `knowledge_change` (N1)
       and strips `subject` / `fact_id` from a model `new_knowledge`.
+K5 -- models name facts by code (C-03, C-04, C-05):
+   a. `code_facts` / `CodedFacts` on the `_CODE_CASES` table;
+   b. overhearing (L1): the classifier's list shows the speaker's
+      non-secret fact and never the text of its secret one; the code the
+      model answers resolves to that fact -- an unaware bystander gets a
+      `new_knowledge` on it, a bystander holding it lower gets a
+      `knowledge_change` on it; an unknown code proposes nothing;
+   c. the tick briefing tags each knowledge line with its fact code, and
+      the tick normalizer (Z2) resolves `source_fact`: a secret source sets
+      `secret_derived` and the `fact_id`, never `is_secret`; an unknown code
+      sets neither; a content containing a secret's text sets
+      `secret_derived`.
 
 Fresh temp-file SQLite databases (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB.
@@ -61,8 +73,7 @@ MIGRATION_V2_09 = ROOT / "scripts" / "migrate_v2_09_knowledge_identity.py"
 FAILURES: list[str] = []
 
 _SUBJECT_CENSUS: dict[str, int] = {
-    "src/world_engine/analyzer.py": 2,
-    "src/world_engine/analyzer_transcript.py": 10,
+    "src/world_engine/analyzer_transcript.py": 3,
     "src/world_engine/cockpit/crud/_shared.py": 3,
     "src/world_engine/cockpit/crud/knowledge.py": 8,
     "src/world_engine/cockpit/crud/locations.py": 7,
@@ -82,9 +93,6 @@ _SUBJECT_CENSUS: dict[str, int] = {
     "src/world_engine/models/canon_knowledge.py": 1,
     "src/world_engine/scene_format.py": 3,
     "src/world_engine/subject_resolve.py": 4,
-    "src/world_engine/tick.py": 2,
-    "src/world_engine/tick_context.py": 1,
-    "src/world_engine/tick_normalize.py": 2,
     "src/world_engine/writes/facets.py": 1,
     "src/world_engine/writes/knowledge.py": 8,
     "src/world_engine/writes/relations.py": 1,
@@ -407,6 +415,128 @@ def _k4_window() -> None:
         fail(f"K4g a model new_knowledge payload kept a fact name: {payload!r}")
 
 
+def _k5_codes(session, ids) -> None:
+    from world_engine.fact_refs import code_facts
+    from world_engine.writes import create_fact
+
+    one = create_fact(session, world_id=ids["w"], content="Un.", created_by="check", facet="information")
+    two = create_fact(session, world_id=ids["w"], content="Deux.", created_by="check", facet="information")
+    session.flush()
+    coded = code_facts(session, [two.id, one.id, two.id, "no-such-fact"])
+    cases = (
+        (coded.lines, ("f1 — Deux.", "f2 — Un.")), (coded.resolve("f2"), one.id),
+        (coded.resolve("[F1]"), two.id), (coded.resolve(" f1 "), two.id), (coded.resolve("f3"), None),
+        (coded.resolve(1), None), (coded.code_of(one.id), "f2"), (coded.code_of("no-such-fact"), None),
+    )
+    for index, (got, expected) in enumerate(cases):
+        if got != expected:
+            fail(f"K5a case {index}: got {got!r}, expected {expected!r}")
+
+
+def _k5_prompt_head(session, usage: str) -> None:
+    from world_engine.models import PromptTemplate
+    from world_engine.writes import write_prompt_variables, write_prompt_version
+
+    head = PromptTemplate(world_id=None, name=f"check-{usage}", usage=usage, is_active=True)
+    session.add(head)
+    session.flush()
+    write_prompt_variables(session, template_id=head.id, variables=["fact_list", "player_line", "npc_line"])
+    write_prompt_version(session, template_id=head.id, system_prompt="sys",
+                         user_template="{fact_list}|{player_line}|{npc_line}")
+
+
+def _k5_overhearing(session, ids) -> None:
+    import json as _json
+
+    from world_engine import ollama_client
+    from world_engine.analyzer_transcript import AttributionContext, analyze_overheard_lines
+    from world_engine.writes import write_knowledge
+
+    spoken = write_knowledge(session, entity_id=ids["bel"], content="Le pont est tombé.", level="knows")
+    write_knowledge(session, entity_id=ids["bel"], content="Bel vole le trésor.", level="knows",
+                    is_secret=True)
+    write_knowledge(session, entity_id=ids["cid"], fact_id=spoken.fact_id, content="x", level="rumor")
+    _k5_prompt_head(session, "overhearing_classification")
+    session.flush()
+    seen: list[str] = []
+    original = ollama_client.chat
+
+    def stub(messages, **_kw):
+        seen.append(messages[-1]["content"])
+        return _json.dumps(answer)
+
+    ollama_client.chat = stub
+    try:
+        results = []
+        for answer in ([{"fact": "f1", "speaker": "npc"}], [{"fact": "f9", "speaker": "npc"}]):
+            results.append(analyze_overheard_lines(
+                speaker_line="...", listener_line="...", receiver_ids={ids["ana"], ids["cid"]},
+                world_id=ids["w"], location_id=None, existing_keys=(set(), set()),
+                attribution=AttributionContext(default_subject_id=ids["bel"], default_counterparty_id=None),
+                db=session))
+    finally:
+        ollama_client.chat = original
+    if not seen or "f1 — Le pont est tombé." not in seen[0] or "trésor" in seen[0]:
+        fail(f"K5b the classifier list is wrong: {seen[:1]!r}")
+    got = sorted((m.mutation_type, m.payload.get("entity_id"), m.payload.get("fact_id"))
+                 for m in results[0].mutations)
+    expected = sorted([("new_knowledge", ids["ana"], spoken.fact_id),
+                       ("knowledge_change", ids["cid"], spoken.fact_id)])
+    if got != expected or any("subject" in m.payload for m in results[0].mutations):
+        fail(f"K5b overhearing proposals are {got!r}, expected {expected!r}")
+    if results[1].mutations:
+        fail("K5b an unknown code proposed something")
+
+
+def _k5_tick(session, ids) -> None:
+    from sqlmodel import select
+
+    from world_engine.models import Knowledge
+    from world_engine.tick_context import _tick_knowledge_block, tick_fact_codes
+    from world_engine.tick_normalize import _tick_normalize_new_knowledge
+
+    rows = session.exec(
+        select(Knowledge).where(Knowledge.entity_id == ids["bel"]).order_by(Knowledge.id)
+    ).all()
+    codes = tick_fact_codes(ids["bel"], session)
+    secret = next(k for k in rows if k.is_secret)
+    block = _tick_knowledge_block(ids["bel"], session)
+    if [line[:6] for line in block.splitlines()] != [f"- [f{i}]" for i in range(1, len(rows) + 1)]:
+        fail(f"K5c tick briefing lines are not code-tagged: {block!r}")
+    secret_code = codes.code_of(secret.fact_id)
+    cases = (
+        ({"source_fact": secret_code, "is_secret": False}, secret.fact_id, True),
+        ({"source_fact": "f99"}, None, False),
+        ({"content": "Il murmure que Bel vole le trésor."}, None, True),
+    )
+    for payload_in, fact_id, derived in cases:
+        payload_in = {"recipient": "self", "content": "Une nouvelle.", **payload_in}
+        payload, _t = _tick_normalize_new_knowledge(
+            payload_in, npc_id=ids["bel"], roster={}, fact_codes=codes,
+            secret_fact_ids={secret.fact_id}, secret_texts={"bel vole le trésor."})
+        if payload.get("fact_id") != fact_id or payload["secret_derived"] is not derived \
+                or payload["is_secret"] is not False:
+            fail(f"K5c tick normalizer on {payload_in!r} gave {payload!r}")
+
+
+def rule_k5(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.models import Character, Entity
+
+    with Session(engine) as session:
+        ids = _k4_world(session)
+        cid = Entity(world_id=ids["w"], type="character", name="Cid")
+        session.add(cid)
+        session.flush()
+        session.add(Character(id=cid.id, world_id=ids["w"], character_type="npc"))
+        ids["cid"] = cid.id
+        _k5_codes(session, ids)
+        _k5_overhearing(session, ids)
+        _k5_tick(session, ids)
+        session.rollback()
+
+
 def rule_k4(engine) -> None:
     from sqlmodel import Session
 
@@ -456,6 +586,7 @@ def main() -> int:
     rule_k2()
     rule_k3()
     rule_k4(engine)
+    rule_k5(engine)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")

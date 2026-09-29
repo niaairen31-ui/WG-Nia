@@ -23,8 +23,9 @@ from sqlmodel import Session, select
 
 from . import llm_parse, ollama_client
 from .analyzer import load_analysis_prompt
-from .fact_refs import knowledge_key
-from .models import Agenda, Character, Entity, FactionMembership, Knowledge, ProposedMutation
+from .fact_refs import CodedFacts, knowledge_key
+from .prose_render import fact_texts
+from .models import Agenda, Character, Entity, Fact, FactionMembership, Knowledge, ProposedMutation
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
 from .tick_context import (
@@ -32,6 +33,7 @@ from .tick_context import (
     assemble_location_event_context,
     assemble_tick_context,
     _reachable_locations,
+    tick_fact_codes,
 )
 from .tick_normalize import (
     _build_effects_roster,
@@ -100,12 +102,14 @@ def _tick_call_npc_model(briefing: str, interval_label: str, template, version, 
 def _tick_build_npc_indexes(db: Session, npc_id: str, npc_name: str, world_id: str, from_location_id: str | None) -> dict[str, Any]:
     roster = _build_roster(db, npc_id, npc_name, from_location_id)
     effects_roster = _build_effects_roster(db, world_id)
-    secret_subjects = {
-        k.subject.casefold()
-        for k in db.exec(
-            select(Knowledge).where(Knowledge.entity_id == npc_id, Knowledge.is_secret == True)  # noqa: E712
-        ).all()
-        if k.subject
+    # Z3 floor inputs (TICKET-0097, Z2): the NPC's secret facts, by id and
+    # by rendered text; the briefing's fact codes.
+    secret_rows = db.exec(
+        select(Knowledge).where(Knowledge.entity_id == npc_id, Knowledge.is_secret == True)  # noqa: E712
+    ).all()
+    secret_fact_ids = {k.fact_id for k in secret_rows if k.is_secret}
+    secret_texts = {
+        text.casefold() for text in fact_texts(db, [db.get(Fact, k.fact_id) for k in secret_rows]) if text
     }
     # Owner-restricted agendas_index (TICKET-0020, BRIEF-0020-b): name -> id
     # over ACTIVE agendas OWNED BY THIS NPC ONLY (zero or one, by the
@@ -121,7 +125,9 @@ def _tick_build_npc_indexes(db: Session, npc_id: str, npc_name: str, world_id: s
     return {
         "roster": roster,
         "effects_roster": effects_roster,
-        "secret_subjects": secret_subjects,
+        "fact_codes": tick_fact_codes(npc_id, db),
+        "secret_fact_ids": secret_fact_ids,
+        "secret_texts": secret_texts,
         "agendas_index": agendas_index,
     }
 
@@ -169,7 +175,8 @@ def _tick_npc_dedup_note(mutation_type: str, payload: dict, state: dict[str, Any
 
 
 def _tick_normalize_npc_items(
-    items: list, *, npc_id: str, world_id: str, roster: dict[str, str], secret_subjects: set[str],
+    items: list, *, npc_id: str, world_id: str, roster: dict[str, str], fact_codes: CodedFacts,
+    secret_fact_ids: set[str], secret_texts: set[str],
     destinations: dict[str, str], from_location_id: str | None, from_name: str | None,
     agendas_index: dict[str, str], effects_roster: dict[str, str], db: Session,
     tick_id: str, now: datetime,
@@ -182,8 +189,8 @@ def _tick_normalize_npc_items(
 
     for raw_item in items:
         normalized = _normalize_tick_item(
-            raw_item, npc_id=npc_id, world_id=world_id, roster=roster,
-            secret_subjects=secret_subjects, destinations=destinations,
+            raw_item, npc_id=npc_id, world_id=world_id, roster=roster, fact_codes=fact_codes,
+            secret_fact_ids=secret_fact_ids, secret_texts=secret_texts, destinations=destinations,
             from_location_id=from_location_id, from_name=from_name,
             agendas_index=agendas_index, effects_roster=effects_roster, db=db,
         )
@@ -236,7 +243,8 @@ def _tick_process_npc(
     indexes = _tick_build_npc_indexes(db, npc_id, npc_name, world_id, setup["from_location_id"])
     rows, proposed, dropped, notes = _tick_normalize_npc_items(
         items, npc_id=npc_id, world_id=world_id, roster=indexes["roster"],
-        secret_subjects=indexes["secret_subjects"], destinations=setup["destinations"],
+        fact_codes=indexes["fact_codes"], secret_fact_ids=indexes["secret_fact_ids"],
+        secret_texts=indexes["secret_texts"], destinations=setup["destinations"],
         from_location_id=setup["from_location_id"], from_name=setup["from_name"],
         agendas_index=indexes["agendas_index"], effects_roster=indexes["effects_roster"],
         db=db, tick_id=tick_id, now=now,

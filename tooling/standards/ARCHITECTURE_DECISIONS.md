@@ -17083,6 +17083,35 @@ entity already knows (the unique index would otherwise abort the SAVEPOINT).
 `discoverable_detail.fact_id` to the fact its knowledge row created; every
 later discovery of that detail attaches to that fact.
 
+## MODELS NAME FACTS BY CODE (TICKET-0097) -- OVERHEARING AND THE TICK (BRIEF-0097-c, no schema change)
+
+**The code list is the one way a model designates a fact.** `fact_refs.
+code_facts(db, fact_ids)` shows `f<n> — <the fact's rendered text>`;
+`CodedFacts.resolve` turns a code back into the fact id, and anything the
+list did not show into None. A model never emits a fact id and never copies
+a key, the same whitelist discipline as the Lore planner's selectors (0085).
+
+**L1 -- overhearing classifies against the speakers' facts.** The list is
+the facts the two possible speakers hold on a non-secret row. Before 0097
+it was every subject of the world, but only a speaker's non-secret row could
+source a proposal (K2 and secret guards), so the effective set is unchanged;
+the list is shorter, and a secret's text never reaches the classifier. A
+bystander now learns the speaker's fact itself -- one fact, several knowers
+-- which is what B3 is for. The prompt's placeholder is `{fact_list}`.
+
+**Z2 -- the tick names what an NPC passes on.** Every line of CE QUE TU SAIS
+carries its code; a `new_knowledge` may set `source_fact`. Resolved, the
+recipient learns that fact, and the Z3 floor marks `secret_derived` exactly
+when it is one of the NPC's secrets. The substring test survives as a second
+net, now on the rendered text of the NPC's secret facts: identical to the
+old test for a legacy fact (its text is its old subject), weaker for a fact
+born after 0097 (a sentence), which is why the code is the primary signal.
+`world_tick.py` rule 5 follows the rename (`secret_fact_ids`, `secret_texts`).
+
+**Prompts.** `apply_ticket_0097_fact_code_prompts.py` appends a version to
+`pt-overhearing-classification` (and full-replaces its variables) and to
+`pt-world-tick`, text imported from `seed_pilot.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*

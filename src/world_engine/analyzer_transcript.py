@@ -59,11 +59,11 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from . import llm_parse, ollama_client
-from .models import Character, Entity, Knowledge, ProposedMutation, PromptTemplate
+from .models import Character, Entity, Fact, Knowledge, ProposedMutation, PromptTemplate
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
-from .fact_refs import knowledge_key
-from .prose_render import knowledge_text
+from .fact_refs import CodedFacts, code_facts, find_held, knowledge_key
+from .prose_render import fact_text, knowledge_text
 from .writes import knowledge_level_rank
 
 _log = logging.getLogger(__name__)
@@ -663,20 +663,26 @@ def analyze_transcript(
     )
 
 
-def _overhearing_subject_set(world_id: str, db: Session) -> set[str]:
-    """c. Subject list — closed list, scoped to the world."""
-    subjects = db.exec(
-        select(Knowledge.subject)
-        .join(Entity, Entity.id == Knowledge.entity_id)
-        .where(Entity.world_id == world_id)
-        .distinct()
-    ).all()
-    return set(subjects)
+def _overhearing_fact_codes(attribution: AttributionContext, db: Session) -> CodedFacts:
+    """c. The closed, coded fact list (L1, TICKET-0097): the facts the
+    possible speakers hold on a non-secret row -- the NPC's first, then the
+    counterparty's, each in `Knowledge.id` order. Only these can source a
+    proposal (K2 guard and secret guard below), so the list is exactly the
+    classifiable set, and a secret's text never reaches the classifier."""
+    speakers = [e for e in (attribution.default_subject_id, attribution.default_counterparty_id) if e]
+    fact_ids: list[str] = []
+    for speaker_id in speakers:
+        fact_ids += db.exec(
+            select(Knowledge.fact_id)
+            .where(Knowledge.entity_id == speaker_id, Knowledge.is_secret == False)  # noqa: E712
+            .order_by(Knowledge.id)
+        ).all()
+    return code_facts(db, fact_ids)
 
 
 def _overhearing_classify(
     db: Session, world_id: str, speaker_line: str, listener_line: str,
-    subject_set: set[str], model: str, host: str,
+    facts: CodedFacts, model: str, host: str,
 ) -> list | None:
     """d. Model call."""
     template = load_analysis_prompt(
@@ -685,7 +691,7 @@ def _overhearing_classify(
     version = current_prompt(db, template)
     user_message = (
         version.user_template
-        .replace("{subject_list}", "\n".join(sorted(subject_set)))
+        .replace("{fact_list}", "\n".join(facts.lines))
         .replace("{player_line}", speaker_line)
         .replace("{npc_line}", listener_line)
     )
@@ -699,22 +705,23 @@ def _overhearing_classify(
     return llm_parse.extract_array_or_none(raw)
 
 
-def _overhearing_parse_classifications(items: list, subject_set: set[str]) -> list[tuple[str, str]]:
-    """e. Normalization — exact closed-list match only, no fuzzy matching."""
+def _overhearing_parse_classifications(items: list, facts: CodedFacts) -> list[tuple[str, str]]:
+    """e. Normalization — a code the list showed, resolved to its fact id;
+    anything else is dropped. No fuzzy matching."""
     classified: list[tuple[str, str]] = []
     for raw_item in items:
         if not isinstance(raw_item, dict):
             _log.warning("[overhearing] dropped non-dict element: %r", raw_item)
             continue
-        subject = raw_item.get("subject")
+        fact_id = facts.resolve(raw_item.get("fact"))
         speaker = raw_item.get("speaker")
-        if subject not in subject_set:
-            _log.warning("[overhearing] dropped unknown subject: %r", subject)
+        if fact_id is None:
+            _log.warning("[overhearing] dropped unknown fact code: %r", raw_item.get("fact"))
             continue
         if speaker not in ("player", "npc"):
             _log.warning("[overhearing] dropped invalid speaker: %r", speaker)
             continue
-        classified.append((subject, speaker))
+        classified.append((fact_id, speaker))
     return classified
 
 
@@ -724,24 +731,21 @@ def _resolve_location_name(db: Session, location_id: str | None) -> str:
 
 
 def _overhearing_mutation_for_receiver(
-    receiver_id: str, subject: str, speaker_id: str, speaker_row: Knowledge,
+    receiver_id: str, fact_id: str, speaker_id: str, speaker_row: Knowledge,
     acquired_level: str, world_id: str, db: Session,
     proposed_keys: set, proposed_change_keys: set, location_name: str,
     name_fn, now: datetime,
 ) -> Optional[ProposedMutation]:
-    """j/k/l for one (subject, receiver) pair — acquisition or monotone
-    upgrade, proposal-deduped, or None (skipped silently, no queue noise)."""
-    existing_row = db.exec(
-        select(Knowledge).where(
-            Knowledge.entity_id == receiver_id,
-            Knowledge.subject == subject,
-        )
-    ).first()
+    """j/k/l for one (fact, receiver) pair — acquisition or monotone
+    upgrade, proposal-deduped, or None (skipped silently, no queue noise).
+    The receiver learns the speaker's fact itself (TICKET-0097)."""
+    identity = {"fact_id": fact_id}
+    existing_row = find_held(db, receiver_id, identity)
 
     if existing_row is not None:
         if knowledge_level_rank(acquired_level) <= knowledge_level_rank(existing_row.level):
             return None
-        change_key = (receiver_id, subject)
+        change_key = (receiver_id, knowledge_key(identity))
         if change_key in proposed_change_keys:
             return None
         proposed_change_keys.add(change_key)
@@ -754,7 +758,8 @@ def _overhearing_mutation_for_receiver(
             target_id=None,
             payload={
                 "entity_id": receiver_id,
-                "subject": subject,
+                "fact_id": fact_id,
+                "fact_label": fact_text(db, db.get(Fact, fact_id)),
                 "from_level": existing_row.level,
                 "to_level": acquired_level,
                 "source": f"overheard:{speaker_id}",
@@ -768,7 +773,7 @@ def _overhearing_mutation_for_receiver(
             proposed_at=now,
         )
 
-    key = (receiver_id, subject)
+    key = (receiver_id, knowledge_key(identity))
     if key in proposed_keys:
         return None
     proposed_keys.add(key)
@@ -782,7 +787,7 @@ def _overhearing_mutation_for_receiver(
         target_id=None,
         payload={
             "entity_id": receiver_id,
-            "subject": subject,
+            "fact_id": fact_id,
             "level": acquired_level,
             "content": knowledge_text(db, speaker_row),  # rendered (BRIEF-0091-J)
             "is_incorrect": speaker_row.is_incorrect,
@@ -820,7 +825,7 @@ def _overhearing_build_mutations(
     mutations: list[ProposedMutation] = []
     dropped_unattributed = 0
     dropped_by_type: dict[str, int] = {}
-    for subject, speaker in classified:
+    for fact_id, speaker in classified:
         # f. Speaker resolution via the refusable identity contract — an
         # NPC never overhears itself, and a "player spoke" classification
         # with no player in this transcript (an observed run) is a model
@@ -841,12 +846,7 @@ def _overhearing_build_mutations(
 
         # g. K2 guard (source authority) — the speaker's row is the only
         # authority; a speaker "knowing" without a row is model noise.
-        speaker_row = db.exec(
-            select(Knowledge).where(
-                Knowledge.entity_id == speaker_id,
-                Knowledge.subject == subject,
-            )
-        ).first()
+        speaker_row = find_held(db, speaker_id, {"fact_id": fact_id})
         if speaker_row is None:
             continue
 
@@ -860,7 +860,7 @@ def _overhearing_build_mutations(
 
         for receiver_id in receivers:
             mutation = _overhearing_mutation_for_receiver(
-                receiver_id, subject, speaker_id, speaker_row, acquired_level,
+                receiver_id, fact_id, speaker_id, speaker_row, acquired_level,
                 world_id, db, proposed_keys, proposed_change_keys,
                 location_name, _name, now,
             )
@@ -891,15 +891,15 @@ def analyze_overheard_lines(
     if not receiver_ids:
         return TranscriptAnalysis(mutations=[], dropped_unattributed=0, dropped_by_type={})
 
-    subject_set = _overhearing_subject_set(world_id, db)
-    if not subject_set:
+    facts = _overhearing_fact_codes(attribution, db)
+    if not facts.lines:
         return TranscriptAnalysis(mutations=[], dropped_unattributed=0, dropped_by_type={})
 
-    items = _overhearing_classify(db, world_id, speaker_line, listener_line, subject_set, model, host)
+    items = _overhearing_classify(db, world_id, speaker_line, listener_line, facts, model, host)
     if items is None:
         return TranscriptAnalysis(mutations=[], dropped_unattributed=0, dropped_by_type={})
 
-    classified = _overhearing_parse_classifications(items, subject_set)
+    classified = _overhearing_parse_classifications(items, facts)
     if not classified:
         return TranscriptAnalysis(mutations=[], dropped_unattributed=0, dropped_by_type={})
 

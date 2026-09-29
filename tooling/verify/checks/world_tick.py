@@ -26,11 +26,12 @@ relocation): `_find_applied_duplicate` decomposed into
 `_find_applied_duplicate_tick_sourced` (the tick_id-scoped branch itself)
 plus per-type `_dup_tick_*` helpers — the scan now walks that whole
 decomposed call graph, not just the top `_find_applied_duplicate` frame.
-Rule 5 (Z3 floor + decoupling, BRIEF-0014-b): `tick.py` builds
-`secret_subjects` as a set comprehension over `Knowledge` rows filtered on
-`is_secret`, and compares against it with `in`; within
-`_normalize_tick_item`, `is_secret` never appears on the LEFT side of an
-assignment or dict-literal key whose value references `secret_subjects` or
+Rule 5 (Z3 floor + decoupling, BRIEF-0014-b; retargeted TICKET-0097,
+BRIEF-0097-c, Z2): `tick.py` builds `secret_fact_ids` as a set
+comprehension over `Knowledge` rows filtered on `is_secret`, and the
+normalizer compares against it with `in`; within `_normalize_tick_item`,
+`is_secret` never appears on the LEFT side of an assignment or dict-literal
+key whose value references `secret_fact_ids`, `secret_texts` or
 `secret_derived` — the floor forces provenance only, never confidentiality.
 
 Rule 6 (analyzer boundary, TICKET-0015/BRIEF-0015-a): `analyzer.py`'s
@@ -320,13 +321,13 @@ def check_z3_floor() -> None:
         return
     rel = TICK_FILE.relative_to(ROOT).as_posix()
 
-    # secret_subjects = {... for k in ... if ... is_secret ...} — a SetComp
+    # secret_fact_ids = {... for k in ... if ... is_secret ...} — a SetComp
     # bound to that name, filtered (somewhere in its subtree) on is_secret.
     built = False
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.Assign)
-            and any(isinstance(t, ast.Name) and t.id == "secret_subjects" for t in node.targets)
+            and any(isinstance(t, ast.Name) and t.id == "secret_fact_ids" for t in node.targets)
             and isinstance(node.value, ast.SetComp)
         ):
             has_is_secret = any(
@@ -337,7 +338,7 @@ def check_z3_floor() -> None:
             if has_is_secret:
                 built = True
     if not built:
-        fail(f"{rel}: no `secret_subjects` set comprehension filtered on is_secret found")
+        fail(f"{rel}: no `secret_fact_ids` set comprehension filtered on is_secret found")
 
     # The comparison (`in`/`not in` against secret_subjects) and the
     # decoupling guard both live inside the new_knowledge branch of the
@@ -353,23 +354,23 @@ def check_z3_floor() -> None:
         return
     norm_rel = TICK_NORMALIZE_FILE.relative_to(ROOT).as_posix()
 
-    # A comparison (`in`/`not in`) against secret_subjects somewhere.
+    # A comparison (`in`/`not in`) against secret_fact_ids somewhere.
     compared = False
     for node in ast.walk(norm_tree):
         if isinstance(node, ast.Compare):
             operands = [node.left, *node.comparators]
-            if any(isinstance(o, ast.Name) and o.id == "secret_subjects" for o in operands):
+            if any(isinstance(o, ast.Name) and o.id == "secret_fact_ids" for o in operands):
                 if any(isinstance(op, (ast.In, ast.NotIn)) for op in node.ops):
                     compared = True
     if not compared:
-        fail(f"{norm_rel}: no `in`/`not in` comparison against `secret_subjects` found")
+        fail(f"{norm_rel}: no `in`/`not in` comparison against `secret_fact_ids` found")
 
     # Decoupling: is_secret never assigned (Name/Subscript target, or
-    # dict-literal key) from a value referencing secret_subjects or
-    # secret_derived — the floor cannot set confidentiality.
+    # dict-literal key) from a value referencing secret_fact_ids,
+    # secret_texts or secret_derived — the floor cannot set confidentiality.
     def _references_forbidden(value_node: ast.AST) -> bool:
         return any(
-            isinstance(n, ast.Name) and n.id in ("secret_subjects", "secret_derived")
+            isinstance(n, ast.Name) and n.id in ("secret_fact_ids", "secret_texts", "secret_derived")
             for n in ast.walk(value_node)
         )
 
@@ -385,11 +386,11 @@ def check_z3_floor() -> None:
     for node in ast.walk(norm_tree):
         if isinstance(node, ast.Assign):
             if any(_target_is_is_secret(t) for t in node.targets) and _references_forbidden(node.value):
-                fail(f"{norm_rel}:{node.lineno} — is_secret assigned from secret_subjects/secret_derived (floor must not set confidentiality)")
+                fail(f"{norm_rel}:{node.lineno} — is_secret assigned from secret_fact_ids/secret_texts/secret_derived (floor must not set confidentiality)")
         if isinstance(node, ast.Dict):
             for key, value in zip(node.keys, node.values):
                 if isinstance(key, ast.Constant) and key.value == "is_secret" and _references_forbidden(value):
-                    fail(f"{norm_rel}:{getattr(value, 'lineno', node.lineno)} — is_secret dict value references secret_subjects/secret_derived (floor must not set confidentiality)")
+                    fail(f"{norm_rel}:{getattr(value, 'lineno', node.lineno)} — is_secret dict value references secret_fact_ids/secret_texts/secret_derived (floor must not set confidentiality)")
 
 
 def _dict_assign_target(node: ast.AST):

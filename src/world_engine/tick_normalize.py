@@ -24,7 +24,7 @@ from typing import Any
 from sqlmodel import Session, select
 
 from .analyzer import _GOAL_ACTION_MAP, _MUTATION_TYPE_MAP
-from .fact_refs import text_key
+from .fact_refs import CodedFacts
 from .models import Agenda, AgendaStep, Character, Entity, Faction, Relation
 from .tick_context import _perceived_target
 
@@ -702,8 +702,13 @@ def _tick_normalize_npc_move(
 
 
 def _tick_normalize_new_knowledge(
-    payload_in: dict, *, npc_id: str, roster: dict[str, str], secret_subjects: set[str],
+    payload_in: dict, *, npc_id: str, roster: dict[str, str], fact_codes: CodedFacts,
+    secret_fact_ids: set[str], secret_texts: set[str],
 ) -> tuple[dict, str] | None:
+    """`source_fact` is the briefing code of what the NPC passes on (Z2,
+    TICKET-0097): resolved, the recipient learns that very fact. The Z3
+    floor marks `secret_derived` when that fact is one of the NPC's secrets,
+    and, as a second net, when the content contains a secret's text."""
     recipient = str(payload_in.get("recipient") or "self").strip()
     if recipient.casefold() == "self":
         entity_id = npc_id
@@ -716,26 +721,26 @@ def _tick_normalize_new_knowledge(
     if not content:
         _log.warning("[tick] dropped new_knowledge: empty content")
         return None
-    subject = str(payload_in.get("subject") or "").strip() or text_key(content)
+    source_fact = fact_codes.resolve(payload_in.get("source_fact"))
 
-    # Z3 floor (verbatim mechanics) — mechanical provenance only, never
-    # touches is_secret: confidentiality is the receiving NPC's disposition
-    # (model proposes, creator judges).
+    # Z3 floor — mechanical provenance only, never touches is_secret:
+    # confidentiality is the receiving NPC's disposition (model proposes,
+    # creator judges).
     secret_derived = bool(payload_in.get("secret_derived", False))
-    subject_cf = subject.casefold()
     content_cf = content.casefold()
-    if subject_cf in secret_subjects or any(s in content_cf for s in secret_subjects):
+    if source_fact in secret_fact_ids or any(t in content_cf for t in secret_texts):
         secret_derived = True
 
     payload = {
         "entity_id": entity_id,
-        "subject": subject,
         "level": str(payload_in.get("level") or "rumor"),
         "content": content,
         "source": str(payload_in.get("source") or "world_tick"),
         "is_secret": bool(payload_in.get("is_secret", False)),
         "secret_derived": secret_derived,
     }
+    if source_fact is not None:
+        payload["fact_id"] = source_fact
     return payload, "knowledge"
 
 
@@ -745,7 +750,8 @@ def _normalize_tick_item(
     npc_id: str,
     world_id: str,
     roster: dict[str, str],
-    secret_subjects: set[str],
+    fact_codes: CodedFacts,
+    secret_fact_ids: set[str], secret_texts: set[str],
     destinations: dict[str, str],
     from_location_id: str | None,
     from_name: str | None,
@@ -795,7 +801,8 @@ def _normalize_tick_item(
             destinations=destinations,
         )
     else:  # new_knowledge
-        outcome = _tick_normalize_new_knowledge(payload_in, npc_id=npc_id, roster=roster, secret_subjects=secret_subjects)
+        outcome = _tick_normalize_new_knowledge(payload_in, npc_id=npc_id, roster=roster, fact_codes=fact_codes,
+                                                secret_fact_ids=secret_fact_ids, secret_texts=secret_texts)
 
     if outcome is None:
         return None

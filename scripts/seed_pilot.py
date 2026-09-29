@@ -426,25 +426,27 @@ JSON array of canon mutations ([] if nothing changed):"""
 # usage='overhearing_classification', world_id=NULL, destination='local'.
 # The model's ONLY job is closed-list classification; attribution, receiver
 # computation, and level computation happen in code (analyzer.analyze_overhearing).
-# Variables substituted with str.replace() in analyzer.py: {subject_list},
-# {player_line}, {npc_line}.
+# Variables substituted with str.replace() in analyzer_transcript.py: {fact_list},
+# {player_line}, {npc_line}. {fact_list} is a coded list ("f1 — <text>",
+# TICKET-0097, L1): the model answers with a code, the code resolves it.
 OVERHEARING_CLASSIFICATION_SYSTEM_PROMPT = """\
-You classify a single RPG conversation turn against a closed list of
-knowledge subjects. You NEVER invent subjects. You NEVER add subjects
-that are not in the provided list.
+You classify a single RPG conversation turn against a closed, coded list
+of facts the speakers know. Each line of the list is a code, a dash, and
+the fact. You NEVER invent codes. You NEVER answer with a code that is
+not in the provided list.
 
-A subject matches ONLY if the line substantively asserts, reveals, or
-discusses information about it. A mere mention of a name in passing,
-small talk, greetings, or atmosphere does NOT match.
+A fact matches ONLY if the line substantively asserts, reveals, or
+discusses it. A mere mention of a name in passing, small talk,
+greetings, or atmosphere does NOT match.
 
-Output ONLY a JSON array. Each element: {"subject": "<exact subject
-string from the list>", "speaker": "player" | "npc"}. The speaker is
-the one whose line carries the information. If nothing matches, output
-[]. An empty array is a normal, expected result for most turns."""
+Output ONLY a JSON array. Each element: {"fact": "<code from the list,
+for example f3>", "speaker": "player" | "npc"}. The speaker is the one
+whose line carries the information. If nothing matches, output []. An
+empty array is a normal, expected result for most turns."""
 
 OVERHEARING_CLASSIFICATION_USER_TEMPLATE = """\
-Known world subjects (closed list):
-{subject_list}
+Facts the speakers know (closed, coded list):
+{fact_list}
 
 Turn to classify:
 [JOUEUR] {player_line}
@@ -936,7 +938,7 @@ Never invent identifiers, ids, people, or places absent from the briefing.
 Payload shapes:
   goal_change      -> {"action":"complete|abandon|create_short","goal":"…","agenda":"<optional: title from TON INTRIGUE, only when this new goal serves it>","effects":[<optional, "complete" only, see EFFECTS below>]}
   relation_change  -> {"other":"<name from the briefing>","relation_type":"…","intensity_delta":<signed int>}
-  new_knowledge    -> {"recipient":"self" | "<name>","subject":"<short_slug>","level":"rumor|partial|knows","content":"…","source":"…","is_secret":true|false,"secret_derived":true|false}
+  new_knowledge    -> {"recipient":"self" | "<name>","source_fact":"<code from CE QUE TU SAIS>" | null,"level":"rumor|partial|knows","content":"…","source":"…","is_secret":true|false,"secret_derived":true|false}
   npc_move         -> {"destination":"<name from OÙ TU PEUX ALLER>"}
   agenda_step_change -> {"agenda":"<title from TON INTRIGUE>","action":"complete|fail","outcome":"…","effects":[<optional, "complete" only, see EFFECTS below>]}
   agenda_creation  -> {"title":"<new intrigue title>","steps":["<objective 1>","<objective 2>",…]}
@@ -958,9 +960,11 @@ work, or mere proximity is NOT a relation_change.
 
 === NEW_KNOWLEDGE RULES ===
 "recipient":"self" when the NPC LEARNED something during the interval;
-"<name>" when the NPC TOLD that person something. Set
-"secret_derived":true when the information comes from a [SECRET] item
-in your briefing. Whether the knowledge is secret FOR THE RECIPIENT is
+"<name>" when the NPC TOLD that person something. When the NPC passes on
+something it already knows, set "source_fact" to the code in brackets at
+the start of that line of CE QUE TU SAIS (for example "f3"); otherwise
+"source_fact" is null. Set "secret_derived":true when the information
+comes from a [SECRET] item in your briefing. Whether the knowledge is secret FOR THE RECIPIENT is
 a separate judgment: set "is_secret" by intent — a confidence shared
 discreetly stays secret; information wielded openly against an enemy
 does not. Never copy [SECRET]/[AFFILIATION SECRÈTE] markers into
@@ -2548,7 +2552,7 @@ def seed(session: Session) -> None:
         usage="overhearing_classification",
         system_prompt=OVERHEARING_CLASSIFICATION_SYSTEM_PROMPT,
         user_template=OVERHEARING_CLASSIFICATION_USER_TEMPLATE,
-        variables=["subject_list", "player_line", "npc_line"],
+        variables=["fact_list", "player_line", "npc_line"],
         destination="local",
     )
 
