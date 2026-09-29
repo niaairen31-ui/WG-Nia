@@ -18,8 +18,8 @@ from sqlmodel import Session, func, select
 from .context import read_public_memberships
 from .facet_reads import creator_only_fact_ids, facts_of, joined
 from .facets import DESCRIPTIVE_FACETS, FACETS
-from .models import Character, Entity, FactParticipant, Faction, Knowledge, NpcGoal, Relation
-from .prose_render import knowledge_texts
+from .models import Character, Entity, Fact, FactParticipant, Faction, Knowledge, NpcGoal, Relation
+from .prose_render import fact_texts, knowledge_texts
 from .writes.knowledge import knowledge_level_rank
 
 
@@ -176,17 +176,18 @@ def _knowledge_rows(entity_id: str, world_id: str, db: Session) -> list[dict]:
             Entity.world_id == world_id,
         )
     ).all()
+    facts = fact_texts(db, [db.get(Fact, k.fact_id) for k in rows])
     return [
         {
             "section": "knowledge",
-            "subject": k.subject,
+            "fact": fact,
             "level": k.level,
             "content": text,
             "source": k.source,
             "is_incorrect": k.is_incorrect,
             "is_secret": k.is_secret,
         }
-        for k, text in zip(rows, knowledge_texts(db, rows))
+        for k, text, fact in zip(rows, knowledge_texts(db, rows), facts)
     ]
 
 

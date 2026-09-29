@@ -61,6 +61,15 @@ K6 -- day gates name facts (D1'a, C-06):
    c. `_eval_knowledge` judges by fact id and carries the fact's text as
       `required_label`, which `requirement_detail_fr` shows instead of the id;
    d. a blocked step's lead is a `new_knowledge` on the gate's fact.
+K7 -- aboutness is the fact's participants (G1, H1):
+   a. a staged link-agent knowledge row stamps `subject_entity_ids =
+      [other side]`; committed, its new fact carries that participant;
+   b. `_shared_knowledge_lines` shows what the holder knows on facts the
+      other side participates in, and nothing about a third party;
+   c. the link canon graph lists a roster-touching knowledge row with its
+      fact's `about_entity_ids`;
+   d. a signpost cluster is silent once the player knows the fact of every
+      hidden detail in it, and speaks while one detail has no fact yet.
 
 Fresh temp-file SQLite databases (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB.
@@ -90,19 +99,10 @@ _SUBJECT_CENSUS: dict[str, int] = {
     "src/world_engine/cockpit/play_discovery.py": 3,
     "src/world_engine/cockpit/routes/creator.py": 2,
     "src/world_engine/cockpit/routes/npc_agent.py": 2,
-    "src/world_engine/context.py": 4,
     "src/world_engine/entity_author.py": 4,
-    "src/world_engine/knowledge_resolve.py": 1,
-    "src/world_engine/link_author.py": 5,
-    "src/world_engine/link_context.py": 4,
-    "src/world_engine/lore_render.py": 1,
-    "src/world_engine/lore_selectors.py": 2,
     "src/world_engine/models/canon_knowledge.py": 1,
-    "src/world_engine/scene_format.py": 3,
     "src/world_engine/subject_resolve.py": 4,
-    "src/world_engine/writes/facets.py": 1,
     "src/world_engine/writes/knowledge.py": 8,
-    "src/world_engine/writes/relations.py": 1,
 }
 
 A = "11111111-1111-1111-1111-111111111111"
@@ -637,6 +637,76 @@ def rule_k6(engine) -> None:
         session.rollback()
 
 
+def _k7_link(session, ids) -> None:
+    from sqlmodel import select
+
+    from world_engine.link_author import _build_knowledge_row, _shared_knowledge_lines, commit_batch
+    from world_engine.link_context import _canon_entries
+    from world_engine.models import FactParticipant, Knowledge, LinkBatch
+    from world_engine.writes import write_knowledge
+
+    batch = LinkBatch(world_id=ids["w"], scope={"npc_ids": [ids["ana"], ids["bel"]]},
+                      coherence_status="complete")
+    session.add(batch)
+    session.flush()
+    row = _build_knowledge_row(batch, ids["ana"], ids["bel"], {
+        "holder": "a", "level": "knows", "content": "Bel ment souvent.", "share_threshold": 50})
+    if row.payload.get("subject_entity_ids") != [ids["bel"]] or "subject" in row.payload:
+        fail(f"K7a staged payload is {row.payload!r}")
+    session.add(row)
+    session.flush()
+    commit_batch(session, batch)
+    known = session.exec(select(Knowledge).where(Knowledge.entity_id == ids["ana"])).all()
+    about = {p.entity_id for k in known for p in session.exec(
+        select(FactParticipant).where(FactParticipant.fact_id == k.fact_id)).all()}
+    if about != {ids["bel"]}:
+        fail(f"K7a the committed fact's participants are {about!r}")
+    write_knowledge(session, entity_id=ids["ana"], content="Le marché ouvre.", level="knows")
+    lines = _shared_knowledge_lines(session, ids["ana"], ids["bel"], "Ana")
+    if len(lines) != 1 or "Bel ment souvent." not in lines[0]:
+        fail(f"K7b shared knowledge lines are {lines!r}")
+    rows = [entry[3] for entry in _canon_entries(session, batch) if entry[1] == "knowledge"]
+    abouts = sorted(tuple(r["about_entity_ids"]) for r in rows)
+    if (ids["bel"],) not in abouts or any("subject" in r for r in rows):
+        fail(f"K7c canon graph knowledge rows are {rows!r}")
+
+
+def _k7_signposts(session, ids) -> None:
+    from world_engine.models import DiscoverableDetail
+    from world_engine.scene_format import active_signposts
+    from world_engine.writes import write_knowledge
+
+    for key, level in (("panel", "ambient"), ("h1", "hidden"), ("h2", "hidden")):
+        detail = DiscoverableDetail(world_id=ids["w"], location_id=ids["loc"], subject=key,
+                                    content=f"Texte {key}.", access_level=level, signpost_group="g")
+        session.add(detail)
+        session.flush()
+        ids[key] = detail
+    h1_fact = write_knowledge(session, entity_id=ids["bel"], content="Texte h1.", level="knows").fact_id
+    write_knowledge(session, entity_id=ids["ana"], fact_id=h1_fact, content="x", level="rumor")
+    session.flush()
+    ids["h1"].fact_id = h1_fact
+    session.flush()
+    if active_signposts(session, ids["loc"], ids["ana"]) != ["Texte panel."]:
+        fail("K7d the cluster fell silent while a detail had no fact")
+    h2_fact = write_knowledge(session, entity_id=ids["ana"], content="Texte h2.", level="rumor").fact_id
+    session.flush()
+    ids["h2"].fact_id = h2_fact
+    session.flush()
+    if active_signposts(session, ids["loc"], ids["ana"]) != []:
+        fail("K7d the cluster still speaks although every hidden fact is known")
+
+
+def rule_k7(engine) -> None:
+    from sqlmodel import Session
+
+    with Session(engine) as session:
+        ids = _k4_world(session)
+        _k7_link(session, ids)
+        _k7_signposts(session, ids)
+        session.rollback()
+
+
 def rule_k4(engine) -> None:
     from sqlmodel import Session
 
@@ -688,6 +758,7 @@ def main() -> int:
     rule_k4(engine)
     rule_k5(engine)
     rule_k6(engine)
+    rule_k7(engine)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")

@@ -184,7 +184,7 @@ def _write_creator_meta(
         scope=ScopeChoice("none"), mentions=mentions,
     )
     write_knowledge(
-        db, entity_id=entity_id, fact_id=fact.id, subject=CREATOR_META_KEY,
+        db, entity_id=entity_id, fact_id=fact.id,
         level="unaware", is_secret=True, changed_by=created_by,
     )
     return [fact]

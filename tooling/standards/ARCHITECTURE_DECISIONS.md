@@ -17141,6 +17141,37 @@ carries its participants. Journée shows `fact`.
 **Prompt.** `pt-day-plan`'s requirement line asks for the code of a fact
 from the appended list (`apply_ticket_0097_fact_code_prompts.py`).
 
+## PLAY READERS KNOW FACTS, NOT SUBJECTS (TICKET-0097) -- CONTEXTS, LORE, LINK AGENT, SIGNPOSTS (BRIEF-0097-e, no schema change)
+
+**A label is the fact's text.** Where a reader showed a row's `subject`
+because the row had no text of its own -- the NPC context, the MJ
+context's player knowledge, the tick briefing -- it shows the fact's
+rendered text. The Lore dossier's knowledge row and the link agent's canon
+graph carry `fact` / `about_entity_ids` instead of `subject`. The MJ
+snapshot key is `fact`; a snapshot taken before 0097 still shows its
+content, which every row but a legacy empty one has.
+
+**G1 -- the link agent's aboutness is a participant.** A staged knowledge
+row stamps `subject_entity_ids = [other side]` (the one construction site,
+D3, `link_agent_strata.py` rule 3 retargeted); `write_knowledge` attaches
+it to the row's new fact. `_shared_knowledge_lines` reads what the holder
+knows on any fact the other side participates in -- a little more than the
+old `npc:<id>` rows, which is the point: what a character knows about
+someone is everything about them, not one bucket. The coherence stamp check
+becomes `_about_stamp_findings`; duplicate detection keys on holder and
+stamp.
+
+**Writers stop naming a subject.** The lien knowledge of an oriented
+relation, the creator note (`creator_meta` is identified by its
+`unaware` + `is_secret` row, never by a label -- `fact_facets.py` R5 no
+longer asserts one), and the resolver's derived default rows pass no
+`subject`; until v2.10 drops the column, `write_knowledge` fills it from
+the fact.
+
+**H1, read half.** `active_signposts` silences a cluster once the player
+holds a row on the fact of every hidden detail in it; a detail no approved
+discovery has linked to a fact is, by construction, not known yet.
+
 ---
 
 *Co-built with Claude, June 2026.*

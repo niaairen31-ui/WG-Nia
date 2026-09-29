@@ -59,7 +59,7 @@ def _format_relations(row: dict) -> str:
 
 def _format_knowledge(row: dict) -> str:
     suffix = " (croyance fausse)" if row.get("is_incorrect") else ""
-    return f"{row.get('subject')} — {row.get('level')} : {row.get('content')}{suffix}"
+    return f"{row.get('fact')} — {row.get('level')} : {row.get('content')}{suffix}"
 
 
 def _format_memberships(row: dict) -> str:

@@ -21,12 +21,15 @@ def active_signposts(db: Session, location_id: str, player_character_id: str) ->
     Runs BEFORE any assembler, never through `assemble_mj_context`: this is
     the I3 code-predicate doctrine — the exhaustion judgment is a code
     predicate, never a prompt instruction. Returns ONLY ambient `content`
-    prose; no `subject` or `signpost_group` value ever leaves this function.
+    prose; no `signpost_group` value ever leaves this function.
 
     - Ungrouped ambient rows (`signpost_group IS NULL`) are always active.
     - Grouped ambient rows are silent iff the player holds a `knowledge` row
-      (any level — existence only) for EVERY `hidden` row sharing that
-      `signpost_group` (E1: silent only when the whole cluster is known).
+      (any level — existence only) on the fact of EVERY `hidden` row sharing
+      that `signpost_group` (E1: silent only when the whole cluster is
+      known). A hidden row's fact is `discoverable_detail.fact_id`, set by
+      its first approved discovery (TICKET-0097, H1); a row without one is
+      not known yet.
 
     `discovered` is NOT a filter here — ambient panels are not "discovered";
     their visibility is governed by the cluster predicate above.
@@ -41,7 +44,7 @@ def active_signposts(db: Session, location_id: str, player_character_id: str) ->
         return []
 
     groups_needed = {row.signpost_group for row in ambient_rows if row.signpost_group}
-    cluster_subjects: dict[str, list[str]] = {}
+    cluster_facts: dict[str, list[str | None]] = {}
     if groups_needed:
         hidden_rows = db.exec(
             select(DiscoverableDetail).where(
@@ -51,16 +54,16 @@ def active_signposts(db: Session, location_id: str, player_character_id: str) ->
             )
         ).all()
         for row in hidden_rows:
-            cluster_subjects.setdefault(row.signpost_group, []).append(row.subject)
+            cluster_facts.setdefault(row.signpost_group, []).append(row.fact_id)
 
-    all_subjects = {s for subs in cluster_subjects.values() for s in subs}
-    known_subjects: set[str] = set()
-    if all_subjects:
-        known_subjects = set(
+    all_facts = {f for facts in cluster_facts.values() for f in facts if f}
+    known_facts: set[str] = set()
+    if all_facts:
+        known_facts = set(
             db.exec(
-                select(Knowledge.subject).where(
+                select(Knowledge.fact_id).where(
                     Knowledge.entity_id == player_character_id,
-                    Knowledge.subject.in_(all_subjects),
+                    Knowledge.fact_id.in_(all_facts),
                 )
             ).all()
         )
@@ -70,8 +73,8 @@ def active_signposts(db: Session, location_id: str, player_character_id: str) ->
         if not row.signpost_group:
             active.append(row.content)
             continue
-        subjects = cluster_subjects.get(row.signpost_group, [])
-        if subjects and all(s in known_subjects for s in subjects):
+        facts = cluster_facts.get(row.signpost_group, [])
+        if facts and all(f in known_facts for f in facts):
             continue  # E1: whole cluster known — silent
         active.append(row.content)
     return active

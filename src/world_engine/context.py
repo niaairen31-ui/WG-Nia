@@ -34,6 +34,7 @@ from .models import (
     Character,
     Entity,
     Event,
+    Fact,
     FactionMembership,
     Gathering,
     GatheringMember,
@@ -49,7 +50,7 @@ from .models import (
 from .facet_reads import facts_of, joined, known_facts_of
 from .facets import FACETS
 from .knowledge_resolve import resolve_default_rows
-from .prose_render import knowledge_texts
+from .prose_render import fact_texts, knowledge_texts
 from .schedule_reads import where_is
 from .context_describe import (
     _mj_context_co_presents,
@@ -121,9 +122,16 @@ def _section(title: str, body: str) -> str:
     return f"=== {title} ===\n{body.rstrip()}\n"
 
 
-def _knowledge_line(k: Knowledge, content: str | None) -> str:
-    """`content` is `k`'s rendered text (`prose_render.knowledge_texts`)."""
-    text = content or f"{k.subject} ({k.level})"
+def _row_fact_texts(session: Session, rows: list[Knowledge]) -> list[str]:
+    """The rendered text of each row's fact, one entity query (TICKET-0097:
+    the fallback label of a row with no text of its own)."""
+    return fact_texts(session, [session.get(Fact, k.fact_id) for k in rows])
+
+
+def _knowledge_line(k: Knowledge, content: str | None, fact: str) -> str:
+    """`content` is `k`'s rendered text (`prose_render.knowledge_texts`),
+    `fact` its fact's rendered text."""
+    text = content or f"{fact} ({k.level})"
     if k.is_incorrect:
         text += " (tu en es convaincu, mais c'est faux)"
     return f"- {text}"
@@ -363,7 +371,8 @@ def _npc_context_speak(npc_id: str, disclosure_intensity: int, session: Session)
             "Tu peux parler librement de ce qui suit, si la conversation s'y prête :\n"
         )
         speak_body += "\n".join(
-            _knowledge_line(k, text) for k, text in zip(allowed, knowledge_texts(session, allowed))
+            _knowledge_line(k, text, fact) for k, text, fact
+            in zip(allowed, knowledge_texts(session, allowed), _row_fact_texts(session, allowed))
         )
         return speak_body
     return "Tu n'as rien de particulier à partager spontanément."
@@ -679,8 +688,10 @@ def _mj_context_player_knowledge(player_character_id: str, db: Session) -> list[
         db, player_character_id, {k.fact_id for k in knowledge_rows}
     )
     return [
-        {"subject": k.subject, "level": k.level, "content": text}
-        for k, text in zip(knowledge_rows, knowledge_texts(db, knowledge_rows))
+        {"fact": fact, "level": k.level, "content": text}
+        for k, text, fact in zip(
+            knowledge_rows, knowledge_texts(db, knowledge_rows), _row_fact_texts(db, knowledge_rows),
+        )
     ]
 
 
@@ -751,7 +762,7 @@ def assemble_mj_context(
       `location.magic_status` is deliberately excluded (not directly
       perceivable).
     - `player_knowledge` (static): all `knowledge` rows belonging to the
-      player character (subject, level, content) — these are the player's
+      player character (fact text, level, content) — these are the player's
       own, so no further filtering is applied (a player's own `is_secret`
       row is something they already know, not a leak).
     - `public_events` (static): `event` rows with `knowledge_status IN
@@ -806,7 +817,7 @@ def assemble_mj_context(
 
 
 def _mj_knowledge_line(k: dict) -> str:
-    text = k.get("content") or f"{k.get('subject')} ({k.get('level')})"
+    text = k.get("content") or f"{k.get('fact')} ({k.get('level')})"
     return f"- {text}"
 
 

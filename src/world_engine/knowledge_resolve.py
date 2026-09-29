@@ -50,7 +50,6 @@ from .facets import DESCRIPTIVE_FACETS
 from .models import (
     Character, Entity, Fact, FactDefault, FactionMembership, FactParticipant, Knowledge, Location,
 )
-from .prose_render import render
 from .writes.knowledge import KNOWLEDGE_LEVEL_LADDER
 
 DEFAULT_SHARE_THRESHOLD = 50
@@ -356,7 +355,7 @@ def resolve_default_rows(
             continue
         rows.append(
             Knowledge(
-                entity_id=entity_id, fact_id=fact_id, subject=render(db, fact.content_raw),
+                entity_id=entity_id, fact_id=fact_id,
                 level=level, content_raw=fact.content_raw, is_secret=False,
                 share_threshold=DEFAULT_SHARE_THRESHOLD,
             )

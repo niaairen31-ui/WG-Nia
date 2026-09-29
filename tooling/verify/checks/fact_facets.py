@@ -293,8 +293,7 @@ def check_entity_facets_writer(engine) -> None:
             fail(f"R5: write_entity_facets created {[f.facet for f in facts]!r}")
         else:
             rows = session.exec(select(Knowledge).where(Knowledge.fact_id == meta[0].id)).all()
-            if [(k.entity_id, k.level, k.is_secret, k.subject) for k in rows] != [
-                    (npc.id, "unaware", True, "creator_meta")]:
+            if [(k.entity_id, k.level, k.is_secret) for k in rows] != [(npc.id, "unaware", True)]:
                 fail("R5: creator_meta is not one unaware, secret knowledge row of its own entity")
             if session.exec(select(FactDefault).where(FactDefault.fact_id == meta[0].id)).first():
                 fail("R5: creator_meta fact carries a default")
