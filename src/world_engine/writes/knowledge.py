@@ -23,8 +23,11 @@ call site (`_apply_mutation`'s `new_knowledge`/`resource_change` branches,
 knowledge, and the creator CRUD) passes through this one function, so the
 fallback lives here rather than being duplicated at each caller — an
 explicit `fact_id` attaches to that existing fact; omitting it auto-creates
-a free-standing one (`writes/facts.py::create_fact`) with `content =
-subject`, matching the creator CRUD's documented behaviour exactly.
+a free-standing one (`writes/facts.py::create_fact`) whose content is the
+row's own stored text (TICKET-0097, M1: a fact born here carries the
+sentence, not a slug) -- the given `subject` only when the row has no text.
+`subject` is optional and derived: absent, the column takes the fact's
+stored content (v2.10 drops the column; nothing reads it as a key).
 
 `subject_entity_ids` (TICKET-0087, BRIEF-0087-a) attaches participants to
 the row's fact on create only, with no `role`; a participant IS the
@@ -188,7 +191,8 @@ def _build_knowledge_update(
     (matches the analyzer's default for unreliable local-model output).
     On create, `fact_id` attaches to an existing fact; omitting it
     auto-creates a free-standing one via `writes/facts.py::create_fact`
-    with `content = subject` (see module docstring). `subject_entity_ids`
+    whose content is the row's stored text (see module docstring).
+    `subject_entity_ids`
     is attached to that fact on create only (see module docstring); ignored
     when updating an existing row.
     """
@@ -213,13 +217,14 @@ def _build_knowledge_update(
 
     if not entity_id:
         raise ValueError("write_knowledge: entity_id is required to create")
-    resolved_subject = subject or "unknown"
+    stored, pending = _tokenized_content(db, entity_id, content)
     if fact_id is None:
         entity = db.get(Entity, entity_id)
         if entity is None:
             raise ValueError(f"write_knowledge: entity {entity_id!r} not found")
+        text = stored if isinstance(stored, str) and stored.strip() else (subject or "unknown")
         fact = create_fact(
-            db, world_id=entity.world_id, content=resolved_subject, created_by=changed_by,
+            db, world_id=entity.world_id, content=text, created_by=changed_by,
             facet="information",
         )
     else:
@@ -227,9 +232,8 @@ def _build_knowledge_update(
         if fact is None:
             raise ValueError(f"write_knowledge: fact {fact_id!r} not found")
     _attach_subject_participants(db, fact=fact, subject_entity_ids=subject_entity_ids)
-    stored, pending = _tokenized_content(db, entity_id, content)
     return Knowledge(
-        entity_id=entity_id, fact_id=fact.id, subject=resolved_subject, level=norm_level,
+        entity_id=entity_id, fact_id=fact.id, subject=subject or fact.content_raw, level=norm_level,
         content_raw=stored, source=source, is_incorrect=bool(is_incorrect),
         is_secret=bool(is_secret), share_threshold=threshold, session_id=session_id,
     ), pending

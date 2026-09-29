@@ -23,6 +23,7 @@ from sqlmodel import Session, select
 
 from . import llm_parse, ollama_client
 from .analyzer import load_analysis_prompt
+from .fact_refs import knowledge_key
 from .models import Agenda, Character, Entity, FactionMembership, Knowledge, ProposedMutation
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
@@ -139,9 +140,9 @@ def _tick_npc_dedup_note(mutation_type: str, payload: dict, state: dict[str, Any
             return f"duplicate goal_change dropped: {payload['action']} {payload['goal']!r}"
         state["goal"].add(key)
     elif mutation_type == "new_knowledge":
-        key = (payload["entity_id"], payload["subject"])
+        key = (payload["entity_id"], knowledge_key(payload))
         if key in state["knowledge"]:
-            return f"duplicate new_knowledge dropped: subject={payload['subject']!r}"
+            return f"duplicate new_knowledge dropped: {key[1][1]!r}"
         state["knowledge"].add(key)
     elif mutation_type == "npc_move":
         if state["move"]:

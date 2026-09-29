@@ -23,7 +23,8 @@ from typing import Any
 
 from sqlmodel import Session, select
 
-from .analyzer import _GOAL_ACTION_MAP, _MUTATION_TYPE_MAP, _content_to_subject_slug
+from .analyzer import _GOAL_ACTION_MAP, _MUTATION_TYPE_MAP
+from .fact_refs import text_key
 from .models import Agenda, AgendaStep, Character, Entity, Faction, Relation
 from .tick_context import _perceived_target
 
@@ -715,7 +716,7 @@ def _tick_normalize_new_knowledge(
     if not content:
         _log.warning("[tick] dropped new_knowledge: empty content")
         return None
-    subject = str(payload_in.get("subject") or "").strip() or _content_to_subject_slug(content)
+    subject = str(payload_in.get("subject") or "").strip() or text_key(content)
 
     # Z3 floor (verbatim mechanics) — mechanical provenance only, never
     # touches is_secret: confidentiality is the receiving NPC's disposition

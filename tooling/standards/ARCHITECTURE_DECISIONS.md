@@ -17050,6 +17050,39 @@ reference, so a new reader of `subject` is red.
 
 **Also closed here.** TICKET-0096 passed its live gate (Nia, 2026-09-28).
 
+## KNOWLEDGE IDENTITY IN THE MUTATION PIPELINE (TICKET-0097) -- A PROPOSAL NAMES A FACT OR CARRIES A SENTENCE (BRIEF-0097-b, no schema change)
+
+**`fact_refs.py` is the one place knowledge identity is computed.**
+`knowledge_key(payload)` is `("fact", fact_id)` when a payload names an
+existing fact, `("text", text_key(content))` otherwise; `text_key` is the
+former `_content_to_subject_slug`, moved unchanged, computed at compare time
+and never stored. `find_held(db, entity_id, payload)` is the row a payload
+would duplicate. Every dedup that keyed on `(entity_id, subject)` --
+`_mutation_match_key`, the tick emit-time note, `_dup_tick_new_knowledge`,
+the conversation-sourced duplicate guard, `_knowledge_leg_already_applied`,
+the resource leg's held-row guard -- keys on these instead.
+
+**M1 -- a fact born from a proposal carries the sentence.** `write_knowledge`
+without `fact_id` creates the fact from the row's own stored text; a model
+never names a fact: `subject` and `fact_id` leave every model-built
+`new_knowledge` payload and `resource_change` leg (a subject with no content
+becomes the content, so no model text is lost).
+
+**N1 -- a model cannot raise a level.** A `knowledge_change` the window
+analysis emits is dropped and logged; upgrades come only from code-built
+proposals that carry a `fact_id` (overhearing, BRIEF-0097-c; the day lead,
+BRIEF-0097-d). `_mutation_apply_knowledge_change` finds its row by
+`(entity_id, fact_id)` and refuses a payload without `fact_id`: the one such
+row in prod (approved, never applied) stays visible in the queue.
+
+**`fact_id` is re-checked at apply.** A `new_knowledge` `fact_id` is written
+only by code, yet `_payload_fact` refuses a fact of another world or one the
+entity already knows (the unique index would otherwise abort the SAVEPOINT).
+
+**H1, apply half.** The first approved discovery of a detail sets
+`discoverable_detail.fact_id` to the fact its knowledge row created; every
+later discovery of that detail attaches to that fact.
+
 ---
 
 *Co-built with Claude, June 2026.*

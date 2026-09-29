@@ -51,7 +51,6 @@ never migrated).
 from __future__ import annotations
 
 import logging
-import re
 import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -63,6 +62,7 @@ from . import llm_parse, ollama_client
 from .models import Character, Entity, Knowledge, ProposedMutation, PromptTemplate
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
+from .fact_refs import knowledge_key
 from .prose_render import knowledge_text
 from .writes import knowledge_level_rank
 
@@ -177,9 +177,6 @@ _KNOWLEDGE_LEVEL_DOWNGRADE: dict[str, str] = {
     "unaware": "rumor",
 }
 
-# Strips non-word chars for subject slugs.
-_SLUG_NON_WORD = re.compile(r"[^\w]")
-
 # Sentinel distinguishing "key absent from the model's item" from "key
 # present with a falsy value" — needed to know whether a field fell through
 # to an AttributionContext default (see _build_payload_relation_change /
@@ -239,15 +236,6 @@ def load_analysis_prompt(
     return templates[0]
 
 
-def _content_to_subject_slug(content: str) -> str:
-    """Derive a short DB-friendly subject slug from free-text content."""
-    if not content:
-        return "unknown"
-    words = content.lower().split()[:5]
-    parts = [_SLUG_NON_WORD.sub("", w) for w in words if w]
-    return ("_".join(p for p in parts if p))[:50] or "unknown"
-
-
 def _first_of(item: dict, *keys: str, default: Any = None) -> Any:
     """Return the value of the first key found in item."""
     for k in keys:
@@ -294,7 +282,6 @@ def _build_payload_new_knowledge(
         entity_id = attribution.default_subject_id
     payload = {
         "entity_id": entity_id,
-        "subject": _content_to_subject_slug(content),
         "level": item.get("level") or "rumor",
         "content": content,
         "source": "conversation",
@@ -362,7 +349,6 @@ def _build_payload_resource_change(
         k_content = str(raw_knowledge.get("content") or "")
         resource_payload["knowledge"] = {
             "entity_id": raw_knowledge.get("entity_id") or entity_id,
-            "subject": raw_knowledge.get("subject") or _content_to_subject_slug(k_content),
             "level": raw_knowledge.get("level") or "rumor",
             "content": k_content,
             "source": raw_knowledge.get("source") or "conversation",
@@ -416,7 +402,20 @@ def _guard_resource_change(item: dict) -> dict | None:
     payload = item["payload"]
     if not payload.get("entity_id") or not isinstance(payload.get("amount"), int):
         return None
+    if isinstance(payload.get("knowledge"), dict):
+        _strip_fact_naming(payload["knowledge"])
     return item
+
+
+def _strip_fact_naming(payload: dict) -> None:
+    # A model never names a fact (TICKET-0097, M1): a `subject` it wrote is
+    # at most the text of what was learned, and a `fact_id` it wrote is
+    # never trusted. Both leave the payload; a subject with no content
+    # becomes the content, so no model text is lost.
+    subject = payload.pop("subject", None)
+    payload.pop("fact_id", None)
+    if not str(payload.get("content") or "").strip() and subject:
+        payload["content"] = str(subject)
 
 
 def _guard_goal_change(item: dict, attribution: AttributionContext) -> tuple[dict | None, bool]:
@@ -463,6 +462,14 @@ def _apply_type_guards(item: dict, attribution: AttributionContext) -> tuple[dic
         return _guard_relation_change(item), False
     if mt == "resource_change":
         return _guard_resource_change(item), False
+    if mt == "new_knowledge":
+        _strip_fact_naming(item["payload"])
+        return item, False
+    if mt == "knowledge_change":
+        # N1 (TICKET-0097): a model cannot name the row it would raise --
+        # knowledge upgrades come only from code-built proposals.
+        _log.warning("[skip] model-emitted knowledge_change dropped (N1): %r", item["payload"])
+        return None, False
     if mt == "goal_change":
         return _guard_goal_change(item, attribution)
     return item, False
@@ -540,7 +547,7 @@ def _mutation_match_key(mutation_type: str, payload: dict):
     in `_apply_mutation` at apply time (4c), not here at propose time.
     """
     if mutation_type == "new_knowledge":
-        return ("new_knowledge", payload.get("entity_id"), payload.get("subject"))
+        return ("new_knowledge", payload.get("entity_id"), knowledge_key(payload))
     if mutation_type == "status_change":
         eid = payload.get("entity_id")
         return ("status_change", eid) if eid else None

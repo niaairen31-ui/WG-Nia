@@ -46,7 +46,6 @@ from .analyzer_transcript import (
     AttributionContext,
     _GOAL_ACTION_MAP,
     _MUTATION_TYPE_MAP,
-    _content_to_subject_slug,
     _mutation_match_key,
     analyze_overheard_lines,
     analyze_transcript,

@@ -26,6 +26,19 @@ K3 -- census. The `subject` references of `src/world_engine` (an attribute
    `subject` parameter), counted per file, equal `_SUBJECT_CENSUS` exactly.
    Each brief of TICKET-0097 lowers it in the same commit that removes a
    reference; a new reference is red until someone decides it belongs.
+K4 -- the mutation pipeline keys knowledge by fact (C-01, C-02):
+   a. `knowledge_key` on the `_KEY_CASES` table;
+   b. `new_knowledge` without `fact_id` creates a fact whose content is the
+      row's stored text (M1);
+   c. `new_knowledge` with a `fact_id` attaches to it once; a second apply
+      for the same entity, or a fact of another world, is refused;
+   d. `knowledge_change` finds its row by `fact_id`; a payload without one
+      is refused;
+   e. two approved discoveries of one detail share the detail's fact (H1);
+   f. a `resource_change` knowledge leg the buyer already holds (same text)
+      is refused; a leg without content is refused;
+   g. window normalization drops a model-emitted `knowledge_change` (N1)
+      and strips `subject` / `fact_id` from a model `new_knowledge`.
 
 Fresh temp-file SQLite databases (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB.
@@ -49,15 +62,13 @@ FAILURES: list[str] = []
 
 _SUBJECT_CENSUS: dict[str, int] = {
     "src/world_engine/analyzer.py": 2,
-    "src/world_engine/analyzer_transcript.py": 13,
+    "src/world_engine/analyzer_transcript.py": 10,
     "src/world_engine/cockpit/crud/_shared.py": 3,
     "src/world_engine/cockpit/crud/knowledge.py": 8,
     "src/world_engine/cockpit/crud/locations.py": 7,
-    "src/world_engine/cockpit/mutations.py": 11,
     "src/world_engine/cockpit/play_discovery.py": 3,
     "src/world_engine/cockpit/routes/creator.py": 2,
     "src/world_engine/cockpit/routes/day.py": 2,
-    "src/world_engine/cockpit/routes/mutations.py": 6,
     "src/world_engine/cockpit/routes/npc_agent.py": 2,
     "src/world_engine/context.py": 4,
     "src/world_engine/day_mutations.py": 4,
@@ -71,7 +82,7 @@ _SUBJECT_CENSUS: dict[str, int] = {
     "src/world_engine/models/canon_knowledge.py": 1,
     "src/world_engine/scene_format.py": 3,
     "src/world_engine/subject_resolve.py": 4,
-    "src/world_engine/tick.py": 4,
+    "src/world_engine/tick.py": 2,
     "src/world_engine/tick_context.py": 1,
     "src/world_engine/tick_normalize.py": 2,
     "src/world_engine/writes/facets.py": 1,
@@ -144,7 +155,7 @@ def _fresh_engine():
             del sys.modules[name]
     from world_engine.db import create_db_and_tables, engine
     create_db_and_tables()
-    return engine, pathlib.Path(tmp_dir) / "check.db"
+    return engine
 
 
 def rule_k1(tables) -> None:
@@ -175,7 +186,14 @@ def _insert(cursor, rows) -> None:
         cursor.execute(f"INSERT INTO {table} ({columns}) VALUES ({marks})", tuple(values.values()))
 
 
-def _v2_08_database(db_path: pathlib.Path) -> sqlite3.Connection:
+def _v2_08_database() -> sqlite3.Connection:
+    """A second database, built from the current metadata, then taken back
+    to the v2.08 shape of the two objects v2.09 creates."""
+    from sqlalchemy import create_engine
+    from sqlmodel import SQLModel
+
+    db_path = pathlib.Path(tempfile.mkdtemp()) / "v2_08.db"
+    SQLModel.metadata.create_all(create_engine(f"sqlite:///{db_path}"))
     conn = sqlite3.connect(db_path, isolation_level=None)
     conn.execute("DROP INDEX idx_knowledge_entity_fact")
     conn.execute("DROP TABLE discoverable_detail")
@@ -249,9 +267,9 @@ def _k2b_to_f(conn) -> None:
         fail(f"K2f gates are {gates!r}")
 
 
-def rule_k2(db_path: pathlib.Path) -> None:
+def rule_k2() -> None:
     migration = _load_migration()
-    conn = _v2_08_database(db_path)
+    conn = _v2_08_database()
     _k2a(conn, migration)
     try:
         _run(conn, migration)
@@ -264,6 +282,144 @@ def rule_k2(db_path: pathlib.Path) -> None:
     if report["absorbed"] or report["index_created"] or report["npc_facts"]["token"] \
             or report["detail_column_added"] or report["gates_rekeyed"] or _snapshot(conn) != before:
         fail(f"K2g the second run changed something: {report!r}")
+
+
+_KEY_CASES: tuple[tuple[dict, tuple[str, str]], ...] = (
+    ({"fact_id": "f-9"}, ("fact", "f-9")),
+    ({"fact_id": "f-9", "content": "Le Conseil ment"}, ("fact", "f-9")),
+    ({"content": "Le Conseil cache l'un de ses membres."}, ("text", "le_conseil_cache_lun_de")),
+    ({"content": ""}, ("text", "unknown")),
+    ({}, ("text", "unknown")),
+)
+
+
+def _k4_world(session):
+    from world_engine.models import Character, DiscoverableDetail, Entity, World
+
+    ids = {}
+    for key, name in (("w", "W"), ("w2", "W2")):
+        world = World(name=name)
+        session.add(world)
+        session.flush()
+        ids[key] = world.id
+    for key, world_key, etype, name in (
+        ("ana", "w", "character", "Ana"), ("bel", "w", "character", "Bel"),
+        ("loc", "w", "location", "Lieu"), ("out", "w2", "character", "Out"),
+    ):
+        entity = Entity(world_id=ids[world_key], type=etype, name=name)
+        session.add(entity)
+        session.flush()
+        ids[key] = entity.id
+        if etype == "character":
+            session.add(Character(id=entity.id, world_id=ids[world_key], character_type="npc"))
+    detail = DiscoverableDetail(world_id=ids["w"], location_id=ids["loc"], subject="lettre",
+                                content="Une lettre cachée sous le comptoir.")
+    session.add(detail)
+    session.flush()
+    ids["detail"] = detail.id
+    return ids
+
+
+def _k4_mutation(session, world_id: str, mutation_type: str):
+    from world_engine.models import ProposedMutation
+
+    mut = ProposedMutation(world_id=world_id, source_type="conversation", mutation_type=mutation_type,
+                           payload={}, status="proposed", proposed_by="check")
+    session.add(mut)
+    session.flush()
+    return mut
+
+
+def _k4_apply(session, ids) -> None:
+    from sqlmodel import select
+
+    from world_engine.cockpit.mutations import (
+        _mutation_apply_knowledge_change, _mutation_apply_new_knowledge,
+        _mutation_apply_resource_change,
+    )
+    from world_engine.models import DiscoverableDetail, Fact, Knowledge
+    from world_engine.writes import create_fact
+
+    new = _k4_mutation(session, ids["w"], "new_knowledge")
+    err = _mutation_apply_new_knowledge(new, {"entity_id": ids["ana"], "content": "La mer est rouge."}, session)
+    row = session.exec(select(Knowledge).where(Knowledge.entity_id == ids["ana"])).one()
+    fact = session.get(Fact, row.fact_id)
+    if err or fact.content_raw != row.content_raw:
+        fail(f"K4b a new fact does not carry the row's text: err={err!r} fact={fact.content_raw!r}")
+    shared = create_fact(session, world_id=ids["w"], content="Le port ferme.", created_by="check",
+                         facet="information")
+    foreign = create_fact(session, world_id=ids["w2"], content="Ailleurs.", created_by="check",
+                          facet="information")
+    session.flush()
+    for entity, fact_id, expect in ((ids["bel"], shared.id, None), (ids["bel"], shared.id, "already knows"),
+                                    (ids["bel"], foreign.id, "not a fact of this world")):
+        err = _mutation_apply_new_knowledge(
+            new, {"entity_id": entity, "fact_id": fact_id, "content": "x", "level": "rumor"}, session)
+        if (err is None) != (expect is None) or (expect and expect not in err):
+            fail(f"K4c new_knowledge on fact {fact_id[:6]}: got {err!r}, expected {expect!r}")
+    session.flush()
+    change = _k4_mutation(session, ids["w"], "knowledge_change")
+    err = _mutation_apply_knowledge_change(
+        change, {"entity_id": ids["bel"], "fact_id": shared.id, "to_level": "knows"}, session)
+    level = session.exec(select(Knowledge.level).where(
+        Knowledge.entity_id == ids["bel"], Knowledge.fact_id == shared.id)).one()
+    if err or level != "knows":
+        fail(f"K4d knowledge_change by fact_id: err={err!r} level={level!r}")
+    err = _mutation_apply_knowledge_change(
+        change, {"entity_id": ids["bel"], "subject": "Le port ferme.", "to_level": "fully_understands"}, session)
+    if not err or "fact_id" not in err:
+        fail(f"K4d a knowledge_change without fact_id was not refused: {err!r}")
+    for learner in ("ana", "bel"):
+        err = _mutation_apply_new_knowledge(new, {
+            "entity_id": ids[learner], "content": "Une lettre cachée sous le comptoir.",
+            "level": "knows", "discoverable_detail_id": ids["detail"]}, session)
+        if err:
+            fail(f"K4e discovery by {learner} refused: {err!r}")
+        session.flush()
+    detail = session.get(DiscoverableDetail, ids["detail"])
+    holders = session.exec(select(Knowledge.entity_id).where(Knowledge.fact_id == detail.fact_id)).all()
+    if not detail.discovered or sorted(holders) != sorted([ids["ana"], ids["bel"]]):
+        fail(f"K4e the detail's fact is not shared by both discoverers: {holders!r}")
+    buy = _k4_mutation(session, ids["w"], "resource_change")
+    for leg, expect in (({"entity_id": ids["ana"], "content": "La mer est rouge."}, "already held"),
+                        ({"entity_id": ids["ana"], "subject": "mer_rouge"}, "content")):
+        err = _mutation_apply_resource_change(buy, {"entity_id": ids["ana"], "amount": 0,
+                                                    "knowledge": leg}, session)
+        if not err or expect not in err:
+            fail(f"K4f resource leg {leg!r}: got {err!r}, expected {expect!r}")
+
+
+def _k4_window() -> None:
+    from world_engine.analyzer_transcript import AttributionContext, _normalize_to_schema
+
+    attribution = AttributionContext(default_subject_id="npc", default_counterparty_id="pc")
+    item, _u, _mt = _normalize_to_schema(
+        {"mutation_type": "knowledge_change", "payload": {"entity_id": "pc", "subject": "x"}},
+        "w", attribution, None)
+    if item is not None:
+        fail("K4g a model-emitted knowledge_change was not dropped (N1)")
+    item, _u, _mt = _normalize_to_schema(
+        {"mutation_type": "new_knowledge", "target_table": "knowledge",
+         "payload": {"entity_id": "pc", "subject": "mer_rouge", "fact_id": "forged", "content": ""}},
+        "w", attribution, None)
+    payload = item["payload"] if item else {}
+    if "subject" in payload or "fact_id" in payload or payload.get("content") != "mer_rouge":
+        fail(f"K4g a model new_knowledge payload kept a fact name: {payload!r}")
+
+
+def rule_k4(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.fact_refs import knowledge_key
+
+    for payload, expected in _KEY_CASES:
+        if knowledge_key(payload) != expected:
+            fail(f"K4a knowledge_key({payload!r}) = {knowledge_key(payload)!r}, expected {expected!r}")
+    with Session(engine) as session:
+        ids = _k4_world(session)
+        _k4_apply(session, ids)
+        session.rollback()
+    _k4_window()
 
 
 def census() -> dict[str, int]:
@@ -291,14 +447,15 @@ def rule_k3() -> None:
 
 
 def main() -> int:
-    _engine, db_path = _fresh_engine()
+    engine = _fresh_engine()
     from sqlmodel import SQLModel
 
     import world_engine.models  # noqa: F401 -- registers every table
 
     rule_k1(SQLModel.metadata.tables)
-    rule_k2(db_path)
+    rule_k2()
     rule_k3()
+    rule_k4(engine)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
