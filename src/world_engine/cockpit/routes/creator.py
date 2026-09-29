@@ -569,7 +569,7 @@ def get_bootstrap(db: Session = Depends(get_session)) -> dict:
 # ── Create-PC path (BRIEF-46) ──────────────────────────────────────────────────
 
 class PlayerKnowledgeItem(BaseModel):
-    subject: str
+    # TICKET-0097 (K1): no subject — the row's content is its fact's text.
     level: str
     content: str
 
@@ -626,7 +626,6 @@ def _write_pc_knowledge(entity_id: str, knowledge_items: Optional[list], db: Ses
         write_knowledge(
             db,
             entity_id=entity_id,
-            subject=item.subject,
             level=level,
             content=item.content,
             source="pc_creation",

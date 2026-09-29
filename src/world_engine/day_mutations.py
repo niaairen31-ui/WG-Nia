@@ -48,7 +48,7 @@ documented no-op so the dispatch is a literal bijection with the constant
 The armed rendezvous (I1, corrected by BRIEF-0075-e-amendment-1): not
 detected by inventing a marker. `AgendaStepRequirement` already has a
 `knowledge` requirement type (`_eval_knowledge`, `day_plan.py`) gating a
-step on the player ALREADY holding some `Knowledge` subject — meaning that
+step on the player ALREADY holding a `Knowledge` row on its fact — meaning that
 row must already exist for the step to have been attemptable at all. This
 module treats successfully completing such a step as Nia's "a contact
 found, an appointment made": deepening that SAME existing knowledge row to
@@ -68,13 +68,13 @@ approved in `step_order`, or the stale guard rejects the out-of-order one.
 Nothing here works around that — O1 stands.
 
 `new_knowledge` (BRIEF-0078-c, decision D3): a blocked step (BLOCKED_BAND,
-BRIEF-0078-b) proposes a `rumor`-level lead on the exact subject that
+BRIEF-0078-b) proposes a `rumor`-level lead on the exact fact that
 blocked it, so the gate can open through play on a later day. `_emit_new_
 knowledge`'s duplicate guard (`_blocked_lead_already_proposed`) is a
 DELIBERATE duplicate of `cockpit/mutations.py`'s `_knowledge_already_
 applied`, not a call into it: that guard is conversation-scoped and scans
 APPLIED rows, a different question with a different key from "is this
-subject already sitting in the open review queue for this world."
+fact already sitting in the open review queue for this world."
 """
 
 from __future__ import annotations
@@ -84,8 +84,8 @@ from typing import Callable, Optional
 from sqlmodel import Session, select
 
 from .day_resolve import BLOCKED_BAND, StepOutcome, outcome_line
-from .models import AgendaStepRequirement, Character, PassPlay, ProposedMutation
-from .subject_resolve import resolve_subject
+from .models import AgendaStepRequirement, Character, Fact, PassPlay, ProposedMutation
+from .prose_render import fact_text
 
 EMITTED_MUTATION_TYPES: tuple[str, ...] = (
     "knowledge_change", "relation_change", "agenda_step_change", "entity_creation", "new_knowledge",
@@ -160,6 +160,7 @@ def _emit_knowledge_change(
     ).all()
     mutations: list[ProposedMutation] = []
     for req in requirements:
+        label = _fact_label(req.target_key, db)
         mutations.append(ProposedMutation(
             world_id=world_id,
             source_type="pass_play",
@@ -167,7 +168,8 @@ def _emit_knowledge_change(
             mutation_type="knowledge_change",
             payload={
                 "entity_id": character.id,
-                "subject": req.target_key,
+                "fact_id": req.target_key,
+                "fact_label": label,
                 "to_level": _KNOWLEDGE_DEEPEN_LEVEL,
                 "source": "day resolution",
             },
@@ -175,10 +177,17 @@ def _emit_knowledge_change(
             proposed_by="local_ai",
             rationale=(
                 f"step {outcome.step_order} ({outcome.objective}) resolved — "
-                f"deepens knowledge of {req.target_key!r}"
+                f"deepens knowledge of {label!r}"
             ),
         ))
     return mutations
+
+
+def _fact_label(fact_id: Optional[str], db: Session) -> str:
+    """The rendered text of a gate's fact (TICKET-0097: `target_key` is a
+    fact id), or the key itself when no fact carries it."""
+    fact = db.get(Fact, fact_id) if fact_id else None
+    return fact_text(db, fact) if fact is not None else str(fact_id)
 
 
 def _emit_relation_change(
@@ -190,7 +199,7 @@ def _emit_relation_change(
     return []
 
 
-def _blocked_lead_already_proposed(character: Character, subject: str, db: Session) -> bool:
+def _blocked_lead_already_proposed(character: Character, fact_id: str, db: Session) -> bool:
     """Re-resolving the same blocked day before Nia clears the queue must
     not stack identical proposals. Scans the OPEN review queue in Python —
     `payload` is JSON, SQLite cannot filter it in the WHERE clause — bounded
@@ -207,7 +216,7 @@ def _blocked_lead_already_proposed(character: Character, subject: str, db: Sessi
         )
     ).all()
     return any(
-        row.payload.get("entity_id") == character.id and row.payload.get("subject") == subject
+        row.payload.get("entity_id") == character.id and row.payload.get("fact_id") == fact_id
         for row in rows
     )
 
@@ -219,7 +228,9 @@ def _emit_new_knowledge(
     hit. Returns `[]` unless `outcome.band == BLOCKED_BAND` — a successful,
     partial or failed step proposes nothing here. For a blocked outcome,
     walks `outcome.requirement_verdicts` and emits one proposal per unmet
-    `knowledge` verdict, taking the subject from `v.required`. Does NOT
+    `knowledge` verdict, on the fact `v.required` names (TICKET-0097: the
+    lead attaches the character to that very fact, which opens the gate
+    once approved; the fact already carries its participants). Does NOT
     re-query `AgendaStepRequirement`: `Verdict.type` (BRIEF-0078-a) already
     makes the verdicts self-describing, and re-deriving the same fact from a
     second source would be a second authority for it."""
@@ -229,23 +240,21 @@ def _emit_new_knowledge(
     for v in outcome.requirement_verdicts:
         if v.type != "knowledge" or v.met:
             continue
-        subject = v.required
-        if _blocked_lead_already_proposed(character, subject, db):
+        fact_id = v.required
+        if _blocked_lead_already_proposed(character, fact_id, db):
             continue
+        label = _fact_label(fact_id, db)
         payload = {
             "entity_id": character.id,
-            "subject": subject,
+            "fact_id": fact_id,
             "level": _BLOCKED_LEAD_LEVEL,
             "content": (
                 f"Piste entrevue en butant sur « {outcome.objective} » : "
-                f"il reste quelque chose à apprendre au sujet de « {subject} »."
+                f"il reste quelque chose à apprendre au sujet de « {label} »."
             ),
             "source": "journée bloquée",
             "is_secret": False,
         }
-        resolution = resolve_subject(subject, world_id, db)
-        if resolution.verdict == "matched":
-            payload["subject_entity_id"] = resolution.entity_id
         mutations.append(ProposedMutation(
             world_id=world_id,
             source_type="pass_play",
@@ -256,7 +265,7 @@ def _emit_new_knowledge(
             proposed_by="local_ai",
             rationale=(
                 f"step {outcome.step_order} ({outcome.objective}) blocked on unheld "
-                f"knowledge {subject!r} -- proposes a rumor-level lead so the gate can "
+                f"knowledge {label!r} -- proposes a rumor-level lead so the gate can "
                 f"open through play (TICKET-0078, D3)"
             ),
         ))

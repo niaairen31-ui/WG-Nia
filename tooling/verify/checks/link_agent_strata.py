@@ -14,11 +14,12 @@ Four structural guarantees, all fail-closed:
      `link_context.py` (BRIEF-0036-c's serializers), `models/ephemeral.py`
      (definition), `models/__init__.py` (package re-export surface, same
      as every other model), and `cockpit/app.py` (the retention purge).
-  3. D3 (BRIEF-0036-b): every staged knowledge payload's "subject" key is
-     built in exactly ONE function in `link_author.py`, as a code-stamped
-     f-string carrying the `npc:` literal prefix — never a passthrough of
-     the model's own `item.get(...)` output. The model proposes a
-     "holder"; code alone derives "subject".
+  3. D3 (BRIEF-0036-b; retargeted TICKET-0097, BRIEF-0097-e, G1): every
+     staged knowledge payload's "subject_entity_ids" key is built in exactly
+     ONE function in `link_author.py`, as a one-element list of a bare name
+     (the pair's other side) — never a passthrough of the model's own
+     `item.get(...)` output. The model proposes a "holder"; code alone
+     derives who the row is about.
   4. BRIEF-0036-c: `cockpit/routes/link_agent.py` and `link_author.py`
      contain no direct `db.add(Relation(...))` / `db.add(Knowledge(...))`
      and no raw SQL INSERT/UPDATE touching `relation`/`knowledge` — the
@@ -152,8 +153,8 @@ def _check_reference_scope() -> bool:
 
 
 class _SubjectKeyVisitor(ast.NodeVisitor):
-    """Finds every dict literal `"subject": <value>` and tags it with its
-    innermost enclosing function name."""
+    """Finds every dict literal `"subject_entity_ids": <value>` and tags it
+    with its innermost enclosing function name."""
 
     def __init__(self) -> None:
         self.func_stack: list[str] = []
@@ -166,18 +167,18 @@ class _SubjectKeyVisitor(ast.NodeVisitor):
 
     def visit_Dict(self, node: ast.Dict) -> None:
         for key, value in zip(node.keys, node.values):
-            if isinstance(key, ast.Constant) and key.value == "subject":
+            if isinstance(key, ast.Constant) and key.value == "subject_entity_ids":
                 fname = self.func_stack[-1] if self.func_stack else "<module>"
                 self.hits.append((fname, value))
         self.generic_visit(node)
 
 
 def _check_knowledge_subject_stamp() -> None:
-    """D3: the "subject" key of a staged knowledge payload must be built in
-    exactly one function, as an f-string carrying the `npc:` stamp — never
-    a passthrough of the model's own `item.get(...)` output."""
+    """D3: the "subject_entity_ids" key of a staged knowledge payload must be
+    built in exactly one function, as `[<name>]` — never a passthrough of the
+    model's own `item.get(...)` output."""
     if not LINK_AUTHOR_FILE.exists():
-        fail(f"{LINK_AUTHOR_FILE} not found — D3 subject stamp cannot be verified")
+        fail(f"{LINK_AUTHOR_FILE} not found — D3 participant stamp cannot be verified")
         return
 
     tree = ast.parse(LINK_AUTHOR_FILE.read_text(encoding="utf-8"), filename=str(LINK_AUTHOR_FILE))
@@ -185,23 +186,22 @@ def _check_knowledge_subject_stamp() -> None:
     visitor.visit(tree)
 
     if not visitor.hits:
-        fail(f"{LINK_AUTHOR_FILE}: no 'subject' key construction found for a knowledge payload — vacuous proof, not a pass")
+        fail(f"{LINK_AUTHOR_FILE}: no 'subject_entity_ids' key construction found for a knowledge payload — vacuous proof, not a pass")
         return
 
     functions = {fname for fname, _ in visitor.hits}
     if len(functions) != 1:
         fail(
-            f"{LINK_AUTHOR_FILE}: 'subject' key constructed in multiple functions "
+            f"{LINK_AUTHOR_FILE}: 'subject_entity_ids' key constructed in multiple functions "
             f"{sorted(functions)} — D3 stamp must be a single chokepoint"
         )
 
     for fname, value_node in visitor.hits:
-        if not isinstance(value_node, ast.JoinedStr):
-            fail(f"{LINK_AUTHOR_FILE}:{value_node.lineno} in {fname}(): 'subject' value is not an f-string — D3 stamp must be code-derived")
+        if not (isinstance(value_node, ast.List) and len(value_node.elts) == 1
+                and isinstance(value_node.elts[0], ast.Name)):
+            fail(f"{LINK_AUTHOR_FILE}:{value_node.lineno} in {fname}(): 'subject_entity_ids' value is not "
+                 "a one-element list of a name — D3 stamp must be code-derived")
             continue
-        literal_parts = [v.value for v in value_node.values if isinstance(v, ast.Constant)]
-        if not any(part.startswith("npc:") for part in literal_parts):
-            fail(f"{LINK_AUTHOR_FILE}:{value_node.lineno} in {fname}(): 'subject' f-string does not carry the 'npc:' stamp literal")
         for sub in ast.walk(value_node):
             if (
                 isinstance(sub, ast.Call)
@@ -210,7 +210,7 @@ def _check_knowledge_subject_stamp() -> None:
                 and isinstance(sub.func.value, ast.Name)
                 and sub.func.value.id == "item"
             ):
-                fail(f"{LINK_AUTHOR_FILE}:{value_node.lineno} in {fname}(): 'subject' reads item.get(...) — the model must never supply the subject")
+                fail(f"{LINK_AUTHOR_FILE}:{value_node.lineno} in {fname}(): 'subject_entity_ids' reads item.get(...) — the model must never supply it")
 
 
 class _DirectWriteVisitor(ast.NodeVisitor):

@@ -148,7 +148,7 @@
                   <li><span class="badge b-other">ressource</span> {g.status} — {JSON.stringify(g.detail)}</li>
                 {/each}
                 {#each account.gains.knowledge as g}
-                  <li><span class="badge b-other">connaissance</span> {g.subject} → {g.to_level} ({g.status})</li>
+                  <li><span class="badge b-other">connaissance</span> {g.fact} → {g.to_level} ({g.status})</li>
                 {/each}
                 {#each account.gains.relation as g}
                   <li><span class="badge b-other">relation</span> {g.status} — {JSON.stringify(g.detail)}</li>

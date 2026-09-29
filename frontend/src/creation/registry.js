@@ -541,7 +541,8 @@ export const CREATION_ISLANDS = Object.freeze({
   }),
   // TICKET-0088 (BRIEF-0088-b): the unresolved-subject worklist, the first
   // surface created directly as an island -- no legacy predecessor, so no
-  // migratedBy and no retiredPrefixes.
+  // migratedBy and no retiredPrefixes. Since TICKET-0097 it lists unbound
+  // facts (I1/J1); the key and container keep their names.
   subjectWorklist: Object.freeze({
     containerId: 'creation-subjects',
     component: 'SubjectWorklist.svelte',

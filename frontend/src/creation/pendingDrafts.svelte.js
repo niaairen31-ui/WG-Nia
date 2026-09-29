@@ -23,7 +23,7 @@ export function resetPendingDrafts() {
 }
 
 export function knowledgeForCreate() {
-  return pendingDraftsState.knowledge.filter((k) => k.subject && k.content);
+  return pendingDraftsState.knowledge.filter((k) => k.content && k.content.trim());
 }
 
 export function goalsForCreate() {

@@ -51,7 +51,6 @@ never migrated).
 from __future__ import annotations
 
 import logging
-import re
 import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -60,10 +59,11 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from . import llm_parse, ollama_client
-from .models import Character, Entity, Knowledge, ProposedMutation, PromptTemplate
+from .models import Character, Entity, Fact, Knowledge, ProposedMutation, PromptTemplate
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
-from .prose_render import knowledge_text
+from .fact_refs import CodedFacts, code_facts, find_held, knowledge_key
+from .prose_render import fact_text, knowledge_text
 from .writes import knowledge_level_rank
 
 _log = logging.getLogger(__name__)
@@ -177,9 +177,6 @@ _KNOWLEDGE_LEVEL_DOWNGRADE: dict[str, str] = {
     "unaware": "rumor",
 }
 
-# Strips non-word chars for subject slugs.
-_SLUG_NON_WORD = re.compile(r"[^\w]")
-
 # Sentinel distinguishing "key absent from the model's item" from "key
 # present with a falsy value" — needed to know whether a field fell through
 # to an AttributionContext default (see _build_payload_relation_change /
@@ -239,15 +236,6 @@ def load_analysis_prompt(
     return templates[0]
 
 
-def _content_to_subject_slug(content: str) -> str:
-    """Derive a short DB-friendly subject slug from free-text content."""
-    if not content:
-        return "unknown"
-    words = content.lower().split()[:5]
-    parts = [_SLUG_NON_WORD.sub("", w) for w in words if w]
-    return ("_".join(p for p in parts if p))[:50] or "unknown"
-
-
 def _first_of(item: dict, *keys: str, default: Any = None) -> Any:
     """Return the value of the first key found in item."""
     for k in keys:
@@ -294,7 +282,6 @@ def _build_payload_new_knowledge(
         entity_id = attribution.default_subject_id
     payload = {
         "entity_id": entity_id,
-        "subject": _content_to_subject_slug(content),
         "level": item.get("level") or "rumor",
         "content": content,
         "source": "conversation",
@@ -362,7 +349,6 @@ def _build_payload_resource_change(
         k_content = str(raw_knowledge.get("content") or "")
         resource_payload["knowledge"] = {
             "entity_id": raw_knowledge.get("entity_id") or entity_id,
-            "subject": raw_knowledge.get("subject") or _content_to_subject_slug(k_content),
             "level": raw_knowledge.get("level") or "rumor",
             "content": k_content,
             "source": raw_knowledge.get("source") or "conversation",
@@ -416,7 +402,20 @@ def _guard_resource_change(item: dict) -> dict | None:
     payload = item["payload"]
     if not payload.get("entity_id") or not isinstance(payload.get("amount"), int):
         return None
+    if isinstance(payload.get("knowledge"), dict):
+        _strip_fact_naming(payload["knowledge"])
     return item
+
+
+def _strip_fact_naming(payload: dict) -> None:
+    # A model never names a fact (TICKET-0097, M1): a `subject` it wrote is
+    # at most the text of what was learned, and a `fact_id` it wrote is
+    # never trusted. Both leave the payload; a subject with no content
+    # becomes the content, so no model text is lost.
+    subject = payload.pop("subject", None)
+    payload.pop("fact_id", None)
+    if not str(payload.get("content") or "").strip() and subject:
+        payload["content"] = str(subject)
 
 
 def _guard_goal_change(item: dict, attribution: AttributionContext) -> tuple[dict | None, bool]:
@@ -463,6 +462,14 @@ def _apply_type_guards(item: dict, attribution: AttributionContext) -> tuple[dic
         return _guard_relation_change(item), False
     if mt == "resource_change":
         return _guard_resource_change(item), False
+    if mt == "new_knowledge":
+        _strip_fact_naming(item["payload"])
+        return item, False
+    if mt == "knowledge_change":
+        # N1 (TICKET-0097): a model cannot name the row it would raise --
+        # knowledge upgrades come only from code-built proposals.
+        _log.warning("[skip] model-emitted knowledge_change dropped (N1): %r", item["payload"])
+        return None, False
     if mt == "goal_change":
         return _guard_goal_change(item, attribution)
     return item, False
@@ -540,7 +547,7 @@ def _mutation_match_key(mutation_type: str, payload: dict):
     in `_apply_mutation` at apply time (4c), not here at propose time.
     """
     if mutation_type == "new_knowledge":
-        return ("new_knowledge", payload.get("entity_id"), payload.get("subject"))
+        return ("new_knowledge", payload.get("entity_id"), knowledge_key(payload))
     if mutation_type == "status_change":
         eid = payload.get("entity_id")
         return ("status_change", eid) if eid else None
@@ -656,20 +663,26 @@ def analyze_transcript(
     )
 
 
-def _overhearing_subject_set(world_id: str, db: Session) -> set[str]:
-    """c. Subject list — closed list, scoped to the world."""
-    subjects = db.exec(
-        select(Knowledge.subject)
-        .join(Entity, Entity.id == Knowledge.entity_id)
-        .where(Entity.world_id == world_id)
-        .distinct()
-    ).all()
-    return set(subjects)
+def _overhearing_fact_codes(attribution: AttributionContext, db: Session) -> CodedFacts:
+    """c. The closed, coded fact list (L1, TICKET-0097): the facts the
+    possible speakers hold on a non-secret row -- the NPC's first, then the
+    counterparty's, each in `Knowledge.id` order. Only these can source a
+    proposal (K2 guard and secret guard below), so the list is exactly the
+    classifiable set, and a secret's text never reaches the classifier."""
+    speakers = [e for e in (attribution.default_subject_id, attribution.default_counterparty_id) if e]
+    fact_ids: list[str] = []
+    for speaker_id in speakers:
+        fact_ids += db.exec(
+            select(Knowledge.fact_id)
+            .where(Knowledge.entity_id == speaker_id, Knowledge.is_secret == False)  # noqa: E712
+            .order_by(Knowledge.id)
+        ).all()
+    return code_facts(db, fact_ids)
 
 
 def _overhearing_classify(
     db: Session, world_id: str, speaker_line: str, listener_line: str,
-    subject_set: set[str], model: str, host: str,
+    facts: CodedFacts, model: str, host: str,
 ) -> list | None:
     """d. Model call."""
     template = load_analysis_prompt(
@@ -678,7 +691,7 @@ def _overhearing_classify(
     version = current_prompt(db, template)
     user_message = (
         version.user_template
-        .replace("{subject_list}", "\n".join(sorted(subject_set)))
+        .replace("{fact_list}", "\n".join(facts.lines))
         .replace("{player_line}", speaker_line)
         .replace("{npc_line}", listener_line)
     )
@@ -692,22 +705,23 @@ def _overhearing_classify(
     return llm_parse.extract_array_or_none(raw)
 
 
-def _overhearing_parse_classifications(items: list, subject_set: set[str]) -> list[tuple[str, str]]:
-    """e. Normalization — exact closed-list match only, no fuzzy matching."""
+def _overhearing_parse_classifications(items: list, facts: CodedFacts) -> list[tuple[str, str]]:
+    """e. Normalization — a code the list showed, resolved to its fact id;
+    anything else is dropped. No fuzzy matching."""
     classified: list[tuple[str, str]] = []
     for raw_item in items:
         if not isinstance(raw_item, dict):
             _log.warning("[overhearing] dropped non-dict element: %r", raw_item)
             continue
-        subject = raw_item.get("subject")
+        fact_id = facts.resolve(raw_item.get("fact"))
         speaker = raw_item.get("speaker")
-        if subject not in subject_set:
-            _log.warning("[overhearing] dropped unknown subject: %r", subject)
+        if fact_id is None:
+            _log.warning("[overhearing] dropped unknown fact code: %r", raw_item.get("fact"))
             continue
         if speaker not in ("player", "npc"):
             _log.warning("[overhearing] dropped invalid speaker: %r", speaker)
             continue
-        classified.append((subject, speaker))
+        classified.append((fact_id, speaker))
     return classified
 
 
@@ -717,24 +731,21 @@ def _resolve_location_name(db: Session, location_id: str | None) -> str:
 
 
 def _overhearing_mutation_for_receiver(
-    receiver_id: str, subject: str, speaker_id: str, speaker_row: Knowledge,
+    receiver_id: str, fact_id: str, speaker_id: str, speaker_row: Knowledge,
     acquired_level: str, world_id: str, db: Session,
     proposed_keys: set, proposed_change_keys: set, location_name: str,
     name_fn, now: datetime,
 ) -> Optional[ProposedMutation]:
-    """j/k/l for one (subject, receiver) pair — acquisition or monotone
-    upgrade, proposal-deduped, or None (skipped silently, no queue noise)."""
-    existing_row = db.exec(
-        select(Knowledge).where(
-            Knowledge.entity_id == receiver_id,
-            Knowledge.subject == subject,
-        )
-    ).first()
+    """j/k/l for one (fact, receiver) pair — acquisition or monotone
+    upgrade, proposal-deduped, or None (skipped silently, no queue noise).
+    The receiver learns the speaker's fact itself (TICKET-0097)."""
+    identity = {"fact_id": fact_id}
+    existing_row = find_held(db, receiver_id, identity)
 
     if existing_row is not None:
         if knowledge_level_rank(acquired_level) <= knowledge_level_rank(existing_row.level):
             return None
-        change_key = (receiver_id, subject)
+        change_key = (receiver_id, knowledge_key(identity))
         if change_key in proposed_change_keys:
             return None
         proposed_change_keys.add(change_key)
@@ -747,7 +758,8 @@ def _overhearing_mutation_for_receiver(
             target_id=None,
             payload={
                 "entity_id": receiver_id,
-                "subject": subject,
+                "fact_id": fact_id,
+                "fact_label": fact_text(db, db.get(Fact, fact_id)),
                 "from_level": existing_row.level,
                 "to_level": acquired_level,
                 "source": f"overheard:{speaker_id}",
@@ -761,7 +773,7 @@ def _overhearing_mutation_for_receiver(
             proposed_at=now,
         )
 
-    key = (receiver_id, subject)
+    key = (receiver_id, knowledge_key(identity))
     if key in proposed_keys:
         return None
     proposed_keys.add(key)
@@ -775,7 +787,7 @@ def _overhearing_mutation_for_receiver(
         target_id=None,
         payload={
             "entity_id": receiver_id,
-            "subject": subject,
+            "fact_id": fact_id,
             "level": acquired_level,
             "content": knowledge_text(db, speaker_row),  # rendered (BRIEF-0091-J)
             "is_incorrect": speaker_row.is_incorrect,
@@ -813,7 +825,7 @@ def _overhearing_build_mutations(
     mutations: list[ProposedMutation] = []
     dropped_unattributed = 0
     dropped_by_type: dict[str, int] = {}
-    for subject, speaker in classified:
+    for fact_id, speaker in classified:
         # f. Speaker resolution via the refusable identity contract — an
         # NPC never overhears itself, and a "player spoke" classification
         # with no player in this transcript (an observed run) is a model
@@ -834,12 +846,7 @@ def _overhearing_build_mutations(
 
         # g. K2 guard (source authority) — the speaker's row is the only
         # authority; a speaker "knowing" without a row is model noise.
-        speaker_row = db.exec(
-            select(Knowledge).where(
-                Knowledge.entity_id == speaker_id,
-                Knowledge.subject == subject,
-            )
-        ).first()
+        speaker_row = find_held(db, speaker_id, {"fact_id": fact_id})
         if speaker_row is None:
             continue
 
@@ -853,7 +860,7 @@ def _overhearing_build_mutations(
 
         for receiver_id in receivers:
             mutation = _overhearing_mutation_for_receiver(
-                receiver_id, subject, speaker_id, speaker_row, acquired_level,
+                receiver_id, fact_id, speaker_id, speaker_row, acquired_level,
                 world_id, db, proposed_keys, proposed_change_keys,
                 location_name, _name, now,
             )
@@ -884,15 +891,15 @@ def analyze_overheard_lines(
     if not receiver_ids:
         return TranscriptAnalysis(mutations=[], dropped_unattributed=0, dropped_by_type={})
 
-    subject_set = _overhearing_subject_set(world_id, db)
-    if not subject_set:
+    facts = _overhearing_fact_codes(attribution, db)
+    if not facts.lines:
         return TranscriptAnalysis(mutations=[], dropped_unattributed=0, dropped_by_type={})
 
-    items = _overhearing_classify(db, world_id, speaker_line, listener_line, subject_set, model, host)
+    items = _overhearing_classify(db, world_id, speaker_line, listener_line, facts, model, host)
     if items is None:
         return TranscriptAnalysis(mutations=[], dropped_unattributed=0, dropped_by_type={})
 
-    classified = _overhearing_parse_classifications(items, subject_set)
+    classified = _overhearing_parse_classifications(items, facts)
     if not classified:
         return TranscriptAnalysis(mutations=[], dropped_unattributed=0, dropped_by_type={})
 

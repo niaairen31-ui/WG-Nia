@@ -30,6 +30,7 @@ from typing import Any, Optional
 
 from sqlmodel import Session, select
 
+from ..fact_refs import find_held, knowledge_key
 from ..gathering import close_open_memberships
 from ..ledger import get_balance as _get_balance
 from ..models import (
@@ -39,12 +40,12 @@ from ..models import (
     Conversation,
     DiscoverableDetail,
     Entity,
+    Fact,
     Faction,
     FactionMembership,
     FactionRole,
     GoalPrerequisite,
     Item,
-    Knowledge,
     NpcGoal,
     ProposedMutation,
 )
@@ -74,12 +75,12 @@ def _knowledge_leg_already_applied(
     db: Session,
     conversation_id: str,
     entity_id: str,
-    subject: str,
+    key: tuple[str, str],
 ) -> bool:
     """True if an equivalent knowledge acquisition was already applied for this
     conversation — scanning BOTH applied `new_knowledge` rows (payload
-    `entity_id`+`subject`) AND applied `resource_change` knowledge legs
-    (payload `knowledge.entity_id`+`knowledge.subject`). Part of the
+    `entity_id` + `knowledge_key`) AND applied `resource_change` knowledge legs
+    (payload `knowledge.entity_id` + `knowledge_key` of the leg). Part of the
     resource_change knowledge-leg block-whole guard (4c, BRIEF-19).
 
     KNOWN ACCEPTED GAP, one-directional by design: this guard protects a
@@ -99,11 +100,11 @@ def _knowledge_leg_already_applied(
     for row in rows:
         p = row.payload if isinstance(row.payload, dict) else {}
         if row.mutation_type == "new_knowledge":
-            if p.get("entity_id") == entity_id and p.get("subject") == subject:
+            if p.get("entity_id") == entity_id and knowledge_key(p) == key:
                 return True
         else:
             k = p.get("knowledge")
-            if isinstance(k, dict) and k.get("entity_id") == entity_id and k.get("subject") == subject:
+            if isinstance(k, dict) and k.get("entity_id") == entity_id and knowledge_key(k) == key:
                 return True
     return False
 
@@ -386,16 +387,20 @@ def _mutation_apply_new_knowledge(mut: ProposedMutation, payload: dict, db: Sess
         if subject_entity is None:
             return f"new_knowledge: subject_entity_id {subject_entity_id!r} is not an active entity of this world"
 
+    fact_id, refused = _payload_fact(mut, payload, entity_id, db)
+    if refused:
+        return refused
+
     session_id: Optional[str] = None
     if mut.conversation_id:
         conv = db.get(Conversation, mut.conversation_id)
         if conv:
             session_id = conv.session_id
 
-    write_knowledge(
+    known = write_knowledge(
         db,
         entity_id=entity_id,
-        subject=str(payload.get("subject") or "unknown"),
+        fact_id=fact_id,
         level=str(payload.get("level") or "rumor"),
         content=str(payload.get("content") or ""),
         source=str(payload.get("source") or "conversation"),
@@ -413,6 +418,7 @@ def _mutation_apply_new_knowledge(mut: ProposedMutation, payload: dict, db: Sess
         detail = db.get(DiscoverableDetail, str(detail_id))
         if detail is not None:
             detail.discovered = True
+            detail.fact_id = detail.fact_id or known.fact_id
             detail.updated_at = datetime.now(UTC)
             db.add(detail)
     return None
@@ -468,24 +474,40 @@ def _mutation_apply_item_update(mut: ProposedMutation, payload: dict, db: Sessio
     return None
 
 
+def _payload_fact(mut: ProposedMutation, payload: dict, entity_id: str, db: Session):
+    """(fact_id, refusal) for a `new_knowledge` payload (TICKET-0097). A
+    `fact_id` is written only by code (a coded list or a discovery), yet is
+    re-checked here: a fact of this mutation's world the entity does not
+    already know. A discovery's detail supplies its own fact (H1)."""
+    fact_id = payload.get("fact_id")
+    detail_id = payload.get("discoverable_detail_id")
+    detail = db.get(DiscoverableDetail, str(detail_id)) if detail_id else None
+    if fact_id is None and detail is not None and detail.fact_id is not None:
+        fact_id = detail.fact_id
+    if fact_id is None:
+        return None, None
+    fact = db.get(Fact, str(fact_id))
+    if fact is None or fact.world_id != mut.world_id:
+        return None, f"new_knowledge: fact {fact_id!r} is not a fact of this world"
+    if find_held(db, entity_id, {"fact_id": fact.id}) is not None:
+        return None, f"new_knowledge: entity already knows fact {fact.id!r}"
+    return fact.id, None
+
+
 # ── knowledge_change ──────────────────────────────────────────────────────────
 
 def _mutation_apply_knowledge_change(mut: ProposedMutation, payload: dict, db: Session) -> Optional[str]:
-    """Find the knowledge row by entity_id + subject, append its previous
-    state to change_history, update level and source. Monotone — never
-    applies a level that is not strictly higher than the row's current
-    level."""
+    """Find the knowledge row by entity_id + fact_id (TICKET-0097), append
+    its previous state to change_history, update level and source. Monotone
+    — never applies a level that is not strictly higher than the row's
+    current level. A payload without `fact_id` (written before 0097) is
+    refused and stays visible in the queue."""
     entity_id = payload.get("entity_id") or mut.target_id
-    subject = payload.get("subject")
-    if not entity_id or not subject:
-        return "knowledge_change: payload must contain entity_id and subject"
+    fact_id = payload.get("fact_id")
+    if not entity_id or not fact_id:
+        return "knowledge_change: payload must contain entity_id and fact_id"
 
-    row = db.exec(
-        select(Knowledge).where(
-            Knowledge.entity_id == entity_id,
-            Knowledge.subject == subject,
-        )
-    ).first()
+    row = find_held(db, entity_id, {"fact_id": fact_id})
     if row is None:
         return "knowledge row not found"
 
@@ -736,21 +758,14 @@ def _mutation_apply_resource_change(mut: ProposedMutation, payload: dict, db: Se
     # is written (not even the money leg).
     if knowledge_leg is not None:
         k_entity_id = knowledge_leg.get("entity_id")
-        k_subject = knowledge_leg.get("subject")
-        if not k_entity_id or not k_subject:
-            return "resource_change: knowledge leg must contain entity_id and subject"
+        if not k_entity_id or not str(knowledge_leg.get("content") or "").strip():
+            return "resource_change: knowledge leg must contain entity_id and content"
 
-        existing_row = db.exec(
-            select(Knowledge).where(
-                Knowledge.entity_id == k_entity_id,
-                Knowledge.subject == k_subject,
-            )
-        ).first()
-        if existing_row is not None:
+        if find_held(db, k_entity_id, knowledge_leg) is not None:
             return "knowledge already held (upgrade-by-purchase deferred)"
 
         if mut.conversation_id and _knowledge_leg_already_applied(
-            db, mut.conversation_id, k_entity_id, k_subject
+            db, mut.conversation_id, k_entity_id, knowledge_key(knowledge_leg)
         ):
             return "duplicate knowledge leg"
 
@@ -770,7 +785,6 @@ def _mutation_apply_resource_change(mut: ProposedMutation, payload: dict, db: Se
         write_knowledge(
             db,
             entity_id=knowledge_leg.get("entity_id"),
-            subject=str(knowledge_leg.get("subject") or "unknown"),
             level=str(knowledge_leg.get("level") or "rumor"),
             content=str(knowledge_leg.get("content") or ""),
             source=str(knowledge_leg.get("source") or "conversation"),

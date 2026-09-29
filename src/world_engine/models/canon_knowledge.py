@@ -203,14 +203,15 @@ class Knowledge(SQLModel, table=True):
             name="ck_knowledge_share_threshold",
         ),
         Index("idx_knowledge_entity", "entity_id"),
-        Index("idx_knowledge_subject", "subject"),
         Index("idx_knowledge_fact", "fact_id"),
+        # TICKET-0097 (BRIEF-0097-A, schema v2.09): what an entity knows is
+        # identified by the fact it knows -- one row per (entity, fact).
+        Index("idx_knowledge_entity_fact", "entity_id", "fact_id", unique=True),
     )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     entity_id: str = Field(foreign_key="entity.id", nullable=False)
     fact_id: str = Field(foreign_key="fact.id", nullable=False)
-    subject: str
     level: str
     # SQL column `content`; rendered through `prose_render.knowledge_text`.
     content_raw: Optional[str] = Field(

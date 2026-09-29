@@ -112,7 +112,7 @@ def _seed_fixture(engine):
         session.commit()
 
         write_knowledge(
-            session, entity_id=a_id, subject="the plan", level="knows",
+            session, entity_id=a_id, level="knows",
             content="Le plan se met en place demain.",
             is_secret=False, share_threshold=50, changed_by="check",
         )

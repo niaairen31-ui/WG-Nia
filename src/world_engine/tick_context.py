@@ -37,7 +37,8 @@ from .knowledge_resolve import (
     resolve_public_levels,
 )
 from .facet_reads import facts_of, joined
-from .prose_render import knowledge_texts
+from .fact_refs import CodedFacts, code_facts
+from .prose_render import fact_texts, knowledge_texts
 from .ledger import get_balance
 from .models import (
     Agenda,
@@ -123,13 +124,16 @@ def _render_perception(name: str, rel: Relation) -> str:
     return f"- {name} : {rel.notes} (perception : {rel.type}, disposition : {adjective})"
 
 
-def _knowledge_line(k: Knowledge, content: Optional[str]) -> str:
-    """`content` is `k`'s rendered text (`prose_render.knowledge_texts`)."""
-    text = content or f"{k.subject} ({k.level})"
+def _knowledge_line(k: Knowledge, content: Optional[str], fact: str, code: Optional[str]) -> str:
+    """`content` is `k`'s rendered text (`prose_render.knowledge_texts`),
+    `fact` its fact's rendered text, `code` its fact code in the briefing
+    (TICKET-0097, Z2), shown first so the model can name what it passes on."""
+    text = content or f"{fact} ({k.level})"
     if k.is_incorrect:
         text += " (tu en es convaincu, mais c'est faux)"
     prefix = "[SECRET] " if k.is_secret else ""
-    return f"- {prefix}{text}"
+    tag = f"[{code}] " if code else ""
+    return f"- {tag}{prefix}{text}"
 
 
 def _goal_provenance_suffix(goal_id: str, session: Session) -> str:
@@ -257,20 +261,32 @@ def _tick_intrigue_section(npc_id: str, session: Session) -> str:
     return _section(H_INTRIGUE, "\n".join(intrigue_lines)) + "\n"
 
 
-def _tick_knowledge_block(npc_id: str, session: Session) -> str:
+def tick_knowledge_rows(npc_id: str, session: Session) -> list[Knowledge]:
     """ALL knowledge, no share_threshold gating, no is_secret exclusion (T1
-    conscious exception): there is no interlocutor."""
+    conscious exception): there is no interlocutor. Stored rows in
+    `Knowledge.id` order, then the resolved scoped defaults (TICKET-0082,
+    BRIEF-0082-c, G2a) -- the one order the briefing and its fact codes
+    share."""
     knowledge = session.exec(
         select(Knowledge).where(Knowledge.entity_id == npc_id).order_by(Knowledge.id)
     ).all()
-    # Union with resolved scoped defaults (TICKET-0082, BRIEF-0082-c, G2a).
-    knowledge = knowledge + resolve_default_rows(
-        session, npc_id, {k.fact_id for k in knowledge}
-    )
+    return knowledge + resolve_default_rows(session, npc_id, {k.fact_id for k in knowledge})
+
+
+def tick_fact_codes(npc_id: str, session: Session) -> CodedFacts:
+    """The briefing's fact codes (Z2): one per `tick_knowledge_rows` row."""
+    return code_facts(session, [k.fact_id for k in tick_knowledge_rows(npc_id, session)])
+
+
+def _tick_knowledge_block(npc_id: str, session: Session) -> str:
+    knowledge = tick_knowledge_rows(npc_id, session)
     if not knowledge:
         return "(aucune connaissance)"
+    codes = code_facts(session, [k.fact_id for k in knowledge])
+    facts = fact_texts(session, [session.get(Fact, k.fact_id) for k in knowledge])
     return "\n".join(
-        _knowledge_line(k, text) for k, text in zip(knowledge, knowledge_texts(session, knowledge))
+        _knowledge_line(k, text, fact, codes.code_of(k.fact_id))
+        for k, text, fact in zip(knowledge, knowledge_texts(session, knowledge), facts)
     )
 
 

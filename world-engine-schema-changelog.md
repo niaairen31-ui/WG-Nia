@@ -13,6 +13,20 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.10** — TICKET-0097, BRIEF-0097-G: `knowledge.subject` and
+  `idx_knowledge_subject` dropped. `migrate_v2_10_drop_knowledge_subject.py`
+  refuses to run before v2.09, and while a row's subject is neither
+  `creator_meta`, nor its fact's content, nor backed by a participant.
+- **v2.09** — TICKET-0097, BRIEF-0097-A: knowledge identity by fact —
+  `idx_knowledge_entity_fact`, a UNIQUE index on `knowledge(entity_id,
+  fact_id)`, and `discoverable_detail.fact_id` (nullable FK to `fact`).
+  `migrate_v2_09_knowledge_identity.py` refuses a world whose `subject`
+  spreads over several facts (`creator_meta` excepted), absorbs duplicated
+  `(entity_id, fact_id)` rows into their highest-level twin (history
+  appended), gives every `npc:<id>` fact its entity as participant (and the
+  identity token as content for a uuid id), and rekeys `knowledge` day gates
+  from a subject to its fact id. `knowledge.subject` is untouched; v2.10
+  drops it.
 - **v2.08** — TICKET-0095, BRIEF-0095-A: the K1 review record —
   `day_mention_choice_candidate` and `day_mention_choice_evidence` (a
   choice's candidates and evidence as rows, backfilled from the JSON

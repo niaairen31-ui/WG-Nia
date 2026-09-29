@@ -38,6 +38,7 @@ from ...gathering import enter_location as _enter_location
 from ...gathering import migrate_npc as _migrate_npc
 from ...analyzer import analyze_overhearing as _analyze_overhearing
 from ...analyzer import analyze_window as _analyze_window
+from ...fact_refs import find_held, knowledge_key
 from ...tick import run_world_tick as _run_world_tick
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt
@@ -164,18 +165,13 @@ def _dup_tick_goal_change_create(payload: dict, db: Session) -> Optional[str]:
 
 
 def _dup_tick_new_knowledge(payload: dict, db: Session) -> Optional[str]:
-    """new_knowledge: duplicate iff a Knowledge row already exists for
-    (entity_id, subject)."""
-    existing = db.exec(
-        select(Knowledge).where(
-            Knowledge.entity_id == payload.get("entity_id"),
-            Knowledge.subject == payload.get("subject"),
-        )
-    ).first()
+    """new_knowledge: duplicate iff the entity already holds a Knowledge row
+    with the payload's identity (`fact_refs.find_held`, TICKET-0097)."""
+    existing = find_held(db, payload.get("entity_id"), payload)
     if existing is not None:
         return (
             f"new_knowledge for entity {str(payload.get('entity_id',''))[:8]}… "
-            f"subject={payload.get('subject')!r} already exists as a knowledge row."
+            f"already exists as knowledge row {existing.id[:8]}…."
         )
     return None
 
@@ -294,9 +290,9 @@ def _find_applied_duplicate_conversation_sourced(mut: ProposedMutation, db: Sess
     knowledge acquired in two different conversations is not a duplicate.
 
     Match keys (design choice):
-    - new_knowledge : same conversation_id + entity_id + subject. (entity,
-      subject) is the identity of a fact; applying twice creates duplicate
-      knowledge rows and inflates NPC context.
+    - new_knowledge : same conversation_id + entity_id + `knowledge_key`
+      (TICKET-0097: the fact, or the text of a new one); applying twice
+      creates duplicate knowledge rows and inflates NPC context.
     - status_change : same conversation_id + entity_id. Two status changes
       on the same entity in one conversation are unlikely to both be
       correct; surface for creator review.
@@ -337,10 +333,10 @@ def _find_applied_duplicate_conversation_sourced(mut: ProposedMutation, db: Sess
 
         if mut.mutation_type == "new_knowledge":
             if (prev_p.get("entity_id") == payload.get("entity_id")
-                    and prev_p.get("subject") == payload.get("subject")):
+                    and knowledge_key(prev_p) == knowledge_key(payload)):
                 return (
                     f"new_knowledge for entity {str(payload.get('entity_id',''))[:8]}… "
-                    f"subject={payload.get('subject')!r} was already applied by "
+                    f"{knowledge_key(payload)[1]!r} was already applied by "
                     f"mutation {prev.id[:8]}…  Applying again would create a "
                     f"duplicate knowledge row."
                 )

@@ -15,8 +15,9 @@ G2 (fixture) -- the LOT's "Near" table through `near_candidates`: "Maelys"
 G3 (fixture) -- the day chain sees the perceiver regime: a PC who knows the
    appellation "la reine" of an NPC resolves it via `named_exact`; a PC who
    does not leaves it unmatched.
-G4 (fixture) -- `resolve_subject("la reine", ...)` stays unmatched with that
-   appellation present (names only, N10a).
+G4 (fixture) -- the unbound-facts worklist resolver (`lookup_surface`,
+   TICKET-0097, I1 -- N10a's frozen names-only subject resolver is gone)
+   reads "la reine" as that appellation's owner.
 G5 (fixture) -- a tokenizer generator mention "Varn" next to "Maelis Varn"
    stays unresolved: no partial rung outside `creator`.
 G6 (static) -- the LOT's "Categories after C" table through
@@ -188,7 +189,7 @@ def check_g3_g4(engine) -> None:
     from world_engine.day_concordance import concord
     from world_engine.day_extract import Mention
     from world_engine.models import Character, Location
-    from world_engine.subject_resolve import resolve_subject
+    from world_engine.lore_mentions_read import lookup_surface
     from world_engine.writes.facets import ScopeChoice
     from world_engine.writes.knowledge import write_knowledge
 
@@ -207,7 +208,7 @@ def check_g3_g4(engine) -> None:
         pc_p, npc_y = character("Pell", "player"), character("Ysolde", "npc")
         pc_q = character("Quill", "player")
         fact = _appellation(session, npc_y, "la reine", ScopeChoice("none"))
-        write_knowledge(session, entity_id=pc_p.id, fact_id=fact.id, subject="la reine",
+        write_knowledge(session, entity_id=pc_p.id, fact_id=fact.id,
                         level="knows", is_secret=False, changed_by="check")
         session.flush()
         mention = Mention(category="person", surface_form="la reine", kind="named")
@@ -218,9 +219,9 @@ def check_g3_g4(engine) -> None:
         got = concord([mention], pc_q, session)
         if got.matched or got.cast or got.ambiguous or len(got.unmatched) != 1:
             fail(f"G3 unknowing PC: 'la reine' not unmatched: {got!r}")
-        subject = resolve_subject("la reine", world.id, session)
-        if subject.verdict != "unmatched":
-            fail(f"G4: resolve_subject('la reine') is {subject.verdict!r}, not 'unmatched'")
+        found = [c["id"] for c in lookup_surface(session, world.id, "la reine")["candidates"]]
+        if found != [npc_y.id]:
+            fail(f"G4: the worklist resolver reads 'la reine' as {found!r}, not [{npc_y.id!r}] (I1)")
         session.rollback()
 
 
@@ -484,8 +485,8 @@ def main() -> int:
         return 1
     print("PASS: name_resolution — exact names resolve, appellations and partial names resolve "
           "for the creator only, near names score and order as the lot's table, the day chain "
-          "sees only the appellations its character knows, subjects and tokenizer mentions "
-          "stay on names, objects and every other type are nameable categories, near names reach "
+          "sees only the appellations its character knows, the worklist reads appellations, "
+          "tokenizer mentions stay on names, objects and every other type are nameable categories, near names reach "
           "the Lore answer and the names panel, and the panel records a missed name as an "
           "appellation")
     return 0

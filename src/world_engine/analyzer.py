@@ -7,7 +7,7 @@ resulting ProposedMutation rows, and advances conv.last_analyzed_turn — all in
 one transaction.
 
 analyze_overhearing() (Tier 4, separate pass) is unaffected by the above: it
-classifies a single turn against a closed subject list and proposes
+classifies a single turn against a closed, coded fact list and proposes
 acquisition/upgrade knowledge mutations for bystanders.
 
 Both are now thin, conversation-bound wrappers (TICKET-0051, BRIEF-0051-c):
@@ -46,12 +46,12 @@ from .analyzer_transcript import (
     AttributionContext,
     _GOAL_ACTION_MAP,
     _MUTATION_TYPE_MAP,
-    _content_to_subject_slug,
     _mutation_match_key,
     analyze_overheard_lines,
     analyze_transcript,
     load_analysis_prompt,
 )
+from .fact_refs import knowledge_key
 from .models import Conversation, ConversationMessage, GatheringMember, ProposedMutation
 
 _log = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ def _overhearing_eligible_receivers(conv: Conversation, npc_entity_id: str | Non
 def _overhearing_existing_keys(conversation_id: str, db: Session) -> tuple[set, set]:
     """Existing 'proposed' new_knowledge/knowledge_change rows for this
     conversation, for the proposal-dedup guard (k) — keyed by
-    (entity_id, subject)."""
+    (entity_id, `knowledge_key`) (TICKET-0097)."""
     existing = db.exec(
         select(ProposedMutation).where(
             ProposedMutation.conversation_id == conversation_id,
@@ -87,7 +87,7 @@ def _overhearing_existing_keys(conversation_id: str, db: Session) -> tuple[set, 
     proposed_keys: set[tuple] = set()
     for pm in existing:
         p = pm.payload if isinstance(pm.payload, dict) else {}
-        proposed_keys.add((p.get("entity_id"), p.get("subject")))
+        proposed_keys.add((p.get("entity_id"), knowledge_key(p)))
 
     existing_changes = db.exec(
         select(ProposedMutation).where(
@@ -99,7 +99,7 @@ def _overhearing_existing_keys(conversation_id: str, db: Session) -> tuple[set, 
     proposed_change_keys: set[tuple] = set()
     for pm in existing_changes:
         p = pm.payload if isinstance(pm.payload, dict) else {}
-        proposed_change_keys.add((p.get("entity_id"), p.get("subject")))
+        proposed_change_keys.add((p.get("entity_id"), knowledge_key(p)))
 
     return proposed_keys, proposed_change_keys
 

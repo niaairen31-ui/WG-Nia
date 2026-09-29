@@ -106,7 +106,7 @@ class AgendaStep(SQLModel, table=True):
 # TICKET-0075, BRIEF-0075-b). `goal_prerequisite` shape precedent (same
 # id/world_id/type/target_entity_id/threshold spine), widened to a closed
 # four-form vocabulary and a `target_key` column for the two forms that gate
-# on a string (knowledge subject, resource tag) rather than an entity.
+# on a string (knowledge fact id since TICKET-0097, resource tag) rather than an entity.
 #
 # The per-type shape CHECK is the structural guarantee that an ill-formed row
 # cannot exist: `relation_gte`/`location_reachable` require target_entity_id

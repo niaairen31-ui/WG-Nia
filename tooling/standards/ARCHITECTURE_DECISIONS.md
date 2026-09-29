@@ -17006,6 +17006,222 @@ rows (children first, BRIEF-0037-e), never commit, and are called only by
 `DELETE /api/worlds/{id}`, after the cascade, in its transaction; a refusal
 raises before them. Neither strata check learned an exception (G2).
 
+## KNOWLEDGE IDENTITY (TICKET-0097) -- A KNOWLEDGE ROW IS WHO KNOWS WHICH FACT (BRIEF-0097-a, schema v2.09)
+
+**B3 -- the fact is the identity, the subject goes.** Since TICKET-0082 every
+`knowledge` row points at the fact it is knowledge of, and since 0087 a
+`fact_participant` says what that fact is about. The free-text `subject`
+still carried three jobs on top: the dedup key of the mutation pipeline, a
+bridge to other tables (`discoverable_detail`, day gates, the link agent's
+`npc:<id>`), and a label. TICKET-0097 moves each job to the fact and v2.10
+drops the column. The label survives as the fact's content: a legacy fact's
+content is its old subject, unchanged (C1); a fact born after 0097 carries a
+sentence (M1).
+
+**F1 -- the index says it once.** `idx_knowledge_entity_fact` makes
+`(entity_id, fact_id)` unique. Prod held three duplicated pairs; v2.09
+absorbs each into its highest-level twin, the absorbed state appended to the
+survivor's `change_history` (history is sacred; `absorbed_knowledge_id`
+records which row it was).
+
+**E1 -- no merge, a guard.** Measured on prod: no subject spreads over two
+facts in a world, except `creator_meta`, whose facts are distinct on purpose.
+v2.09 refuses to run if that changes, rather than carrying a merge nobody
+exercised. A test database seeded from the pilot before this ticket held two
+such subjects; `seed_pilot.py` now shares their fact, and such a database is
+rebuilt (`init_db.py`, `seed_pilot.py`) rather than migrated.
+
+**G -- the link agent's facts get their participant.** 269 prod rows carried
+`subject = npc:<uuid>`, which `subject_resolve` never resolved, so "who knows
+what about X" missed 42 % of knowledge. v2.09 attaches the entity and writes
+its identity token as the content.
+
+**H1 -- a detail owns its fact.** `discoverable_detail.fact_id` is filled by
+the first approved discovery (BRIEF-0097-C); zero detail was ever discovered
+in prod, so nothing is backfilled.
+
+**D1'a, data half.** A persisted `knowledge` gate's `target_key` becomes the
+fact id of its subject; the planner learns to emit fact codes in
+BRIEF-0097-D.
+
+**The census.** `knowledge_identity.py` K3 pins, per file, every `subject`
+reference left in `src/`; each brief lowers it in the commit that removes a
+reference, so a new reader of `subject` is red.
+
+**Also closed here.** TICKET-0096 passed its live gate (Nia, 2026-09-28).
+
+## KNOWLEDGE IDENTITY IN THE MUTATION PIPELINE (TICKET-0097) -- A PROPOSAL NAMES A FACT OR CARRIES A SENTENCE (BRIEF-0097-b, no schema change)
+
+**`fact_refs.py` is the one place knowledge identity is computed.**
+`knowledge_key(payload)` is `("fact", fact_id)` when a payload names an
+existing fact, `("text", text_key(content))` otherwise; `text_key` is the
+former `_content_to_subject_slug`, moved unchanged, computed at compare time
+and never stored. `find_held(db, entity_id, payload)` is the row a payload
+would duplicate. Every dedup that keyed on `(entity_id, subject)` --
+`_mutation_match_key`, the tick emit-time note, `_dup_tick_new_knowledge`,
+the conversation-sourced duplicate guard, `_knowledge_leg_already_applied`,
+the resource leg's held-row guard -- keys on these instead.
+
+**M1 -- a fact born from a proposal carries the sentence.** `write_knowledge`
+without `fact_id` creates the fact from the row's own stored text; a model
+never names a fact: `subject` and `fact_id` leave every model-built
+`new_knowledge` payload and `resource_change` leg (a subject with no content
+becomes the content, so no model text is lost).
+
+**N1 -- a model cannot raise a level.** A `knowledge_change` the window
+analysis emits is dropped and logged; upgrades come only from code-built
+proposals that carry a `fact_id` (overhearing, BRIEF-0097-c; the day lead,
+BRIEF-0097-d). `_mutation_apply_knowledge_change` finds its row by
+`(entity_id, fact_id)` and refuses a payload without `fact_id`: the one such
+row in prod (approved, never applied) stays visible in the queue.
+
+**`fact_id` is re-checked at apply.** A `new_knowledge` `fact_id` is written
+only by code, yet `_payload_fact` refuses a fact of another world or one the
+entity already knows (the unique index would otherwise abort the SAVEPOINT).
+
+**H1, apply half.** The first approved discovery of a detail sets
+`discoverable_detail.fact_id` to the fact its knowledge row created; every
+later discovery of that detail attaches to that fact.
+
+## MODELS NAME FACTS BY CODE (TICKET-0097) -- OVERHEARING AND THE TICK (BRIEF-0097-c, no schema change)
+
+**The code list is the one way a model designates a fact.** `fact_refs.
+code_facts(db, fact_ids)` shows `f<n> — <the fact's rendered text>`;
+`CodedFacts.resolve` turns a code back into the fact id, and anything the
+list did not show into None. A model never emits a fact id and never copies
+a key, the same whitelist discipline as the Lore planner's selectors (0085).
+
+**L1 -- overhearing classifies against the speakers' facts.** The list is
+the facts the two possible speakers hold on a non-secret row. Before 0097
+it was every subject of the world, but only a speaker's non-secret row could
+source a proposal (K2 and secret guards), so the effective set is unchanged;
+the list is shorter, and a secret's text never reaches the classifier. A
+bystander now learns the speaker's fact itself -- one fact, several knowers
+-- which is what B3 is for. The prompt's placeholder is `{fact_list}`.
+
+**Z2 -- the tick names what an NPC passes on.** Every line of CE QUE TU SAIS
+carries its code; a `new_knowledge` may set `source_fact`. Resolved, the
+recipient learns that fact, and the Z3 floor marks `secret_derived` exactly
+when it is one of the NPC's secrets. The substring test survives as a second
+net, now on the rendered text of the NPC's secret facts: identical to the
+old test for a legacy fact (its text is its old subject), weaker for a fact
+born after 0097 (a sentence), which is why the code is the primary signal.
+`world_tick.py` rule 5 follows the rename (`secret_fact_ids`, `secret_texts`).
+
+**Prompts.** `apply_ticket_0097_fact_code_prompts.py` appends a version to
+`pt-overhearing-classification` (and full-replaces its variables) and to
+`pt-world-tick`, text imported from `seed_pilot.py`.
+
+## DAY GATES NAME FACTS (TICKET-0097) -- THE PLANNER CHOOSES FROM WHAT CAN BE LEARNED (BRIEF-0097-d, no schema change)
+
+**D1'a -- the planner is given the list.** Before 0097 the day planner saw
+only the subjects the player already held and guessed a `target_key`;
+`anchor_requirements` kept a gate only when the guess equalled an existing
+subject, so knowledge gates rarely survived. `emit_plan` now appends, on
+every call site (the plan route and both reconciliation paths),
+`learnable_facts`: the facts another entity of the world holds on a
+non-secret row (B3) and the player does not hold (A1b), coded, ordered by
+text, capped at `MAX_LEARNABLE_FACTS_SHOWN` (40, truncation logged). A
+knowledge requirement's code comes back from `emit_plan` as its fact id; an
+unknown code is kept as emitted and dropped by `anchor_requirements`, which
+now compares fact ids. More gates will hold: that is the intent of 0078's
+B3, and Nia accepted the gameplay change.
+
+**The fact id is what is stored.** `agenda_step_requirement.target_key`
+holds the fact id for a `knowledge` row (v2.09 rekeyed the existing ones);
+`_eval_knowledge` compares `Knowledge.fact_id`. A verdict carries the fact's
+text as `required_label`, which `requirement_detail_fr` shows the player,
+never the id.
+
+**The day chain follows.** The completed step's `knowledge_change` and the
+blocked step's `rumor` lead carry `fact_id` (and the change a display
+`fact_label`); the lead no longer resolves an entity, since the fact already
+carries its participants. Journée shows `fact`.
+
+**Prompt.** `pt-day-plan`'s requirement line asks for the code of a fact
+from the appended list (`apply_ticket_0097_fact_code_prompts.py`).
+
+## PLAY READERS KNOW FACTS, NOT SUBJECTS (TICKET-0097) -- CONTEXTS, LORE, LINK AGENT, SIGNPOSTS (BRIEF-0097-e, no schema change)
+
+**A label is the fact's text.** Where a reader showed a row's `subject`
+because the row had no text of its own -- the NPC context, the MJ
+context's player knowledge, the tick briefing -- it shows the fact's
+rendered text. The Lore dossier's knowledge row and the link agent's canon
+graph carry `fact` / `about_entity_ids` instead of `subject`. The MJ
+snapshot key is `fact`; a snapshot taken before 0097 still shows its
+content, which every row but a legacy empty one has.
+
+**G1 -- the link agent's aboutness is a participant.** A staged knowledge
+row stamps `subject_entity_ids = [other side]` (the one construction site,
+D3, `link_agent_strata.py` rule 3 retargeted); `write_knowledge` attaches
+it to the row's new fact. `_shared_knowledge_lines` reads what the holder
+knows on any fact the other side participates in -- a little more than the
+old `npc:<id>` rows, which is the point: what a character knows about
+someone is everything about them, not one bucket. The coherence stamp check
+becomes `_about_stamp_findings`; duplicate detection keys on holder and
+stamp.
+
+**Writers stop naming a subject.** The lien knowledge of an oriented
+relation, the creator note (`creator_meta` is identified by its
+`unaware` + `is_secret` row, never by a label -- `fact_facets.py` R5 no
+longer asserts one), and the resolver's derived default rows pass no
+`subject`; until v2.10 drops the column, `write_knowledge` fills it from
+the fact.
+
+**H1, read half.** `active_signposts` silences a cluster once the player
+holds a row on the fact of every hidden detail in it; a detail no approved
+discovery has linked to a fact is, by construction, not known yet.
+
+## THE CREATOR SURFACE WRITES FACTS (TICKET-0097) -- NO SUBJECT FIELD, AND THE WORKLIST LISTS FACTS (BRIEF-0097-f, no schema change)
+
+**K1 -- the Subject field is gone.** The sheet's knowledge editor, the
+pending-knowledge editor of a new NPC, the PC creation draft and the NPC
+group agent's commit no longer send a `subject`. A new row is its content;
+its fact is born with that sentence (M1). An existing row shows its fact's
+text read-only. Attaching a character to an existing fact is the lore
+writing path's job, the next ticket.
+
+**Generators stop asking for one.** `secret.knowledge` (entity generation)
+and `knowledge` (PC generation) are `{level, content}`; the conversation
+analysis prompt loses `subject` from every knowledge shape and example, and
+loses `knowledge_change` from its type list (N1).
+
+**I1 -- one resolver.** `subject_resolve.py` is deleted (N10a's condition,
+"the Q1b ticket opens", fired). `unbound_facts.py` lists the free facts
+someone knows and no participant binds, and reads each fact's text through
+`lore_mentions_read.lookup_surface` -- the names panel's resolver: names
+and appellations, every category, the partial rung, near names. It never
+picks: a suggestion is preselected only for a single candidate.
+`GET /api/worlds/{id}/unbound-facts` replaces `/unresolved-subjects`.
+
+**J1 -- a card is a fact.** The « Sujets » tab keeps its name and place; a
+card shows the fact's text, its first knower's version (by name), how many
+know it, then the candidates or near names. Binding is one participant
+POST, since a card is one fact.
+
+## KNOWLEDGE.SUBJECT IS DROPPED (TICKET-0097) -- THE FACT IS THE ONLY IDENTITY (BRIEF-0097-g, schema v2.10)
+
+**B3, last step.** `knowledge_identity.py` K3 showed no reader left; v2.10
+drops `idx_knowledge_subject` (SQLite refuses to drop an indexed column),
+then the column. `write_knowledge` loses its `subject` parameter and refuses
+a new row with neither text nor `fact_id`; the seed names a legacy fact's
+content with `fact_content` (C1: the old slug stays the fact's text).
+
+**The migration refuses to lose a label.** v2.10 aborts before v2.09 has
+run, and while any row's subject is neither `creator_meta`, nor its fact's
+content, nor backed by a participant. Measured on prod: the only rows whose
+subject differs from their fact's content are the 34 `creator_meta` notes.
+
+**What remains in the census.** `discoverable_detail.subject` is a detail's
+own short label, not a knowledge key, and stays; the window analysis still
+reads a model's `subject` field as a hint of who learned something, never as
+an identity.
+
+**Named deferrals.** `scripts/seed_test.py` and `scripts/test_context.py`
+already fail on `main` (no `fact_id`, since 0082) and are left as they are;
+`apply_ticket_0087_subject_participants.py` imports the deleted
+`subject_resolve` -- a one-shot that ran in 0087, kept as history.
+
 ---
 
 *Co-built with Claude, June 2026.*

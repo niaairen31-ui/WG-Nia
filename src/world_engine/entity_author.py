@@ -52,7 +52,7 @@ _TYPE_FIELDS: dict[str, str] = {
         'public.physical_tier (entier -1..2 : -1 chétif, 0 ordinaire, '
         '1 capable, 2 redoutable) ; public.faction_name (string ou null — '
         "nom exact d'une faction existante, ou null si aucune).\n"
-        'secret.knowledge (tableau d\'objets {"subject","level","content"} — '
+        'secret.knowledge (tableau d\'objets {"level","content"} — '
         'level est un de rumor|suspicious|partial|knows|fully_understands) ; '
         'secret.creator_meta (string ou null — note du créateur sur la '
         "vraie nature ou l'arc prévu du personnage) ; "
@@ -202,7 +202,8 @@ def _normalize_knowledge(raw: Any, notes: list[str]) -> list[dict]:
     """Validate each secret.knowledge row; drop malformed rows, note each drop.
 
     `is_secret` is forced TRUE here in code — the model never sets it
-    (concealment is structural, never instructional).
+    (concealment is structural, never instructional). A row carries no
+    subject (TICKET-0097, M1): its content becomes its fact's text.
     """
     rows: list[dict] = []
     if not isinstance(raw, list):
@@ -210,11 +211,10 @@ def _normalize_knowledge(raw: Any, notes: list[str]) -> list[dict]:
     for item in raw:
         if not isinstance(item, dict):
             continue
-        subject = item.get("subject")
         content = item.get("content")
-        if not subject or not content:
+        if not isinstance(content, str) or not content.strip():
             notes.append(
-                "Une ligne de savoir secret sans sujet ou contenu a été ignorée"
+                "Une ligne de savoir secret sans contenu a été ignorée"
             )
             continue
         level = item.get("level")
@@ -222,7 +222,6 @@ def _normalize_knowledge(raw: Any, notes: list[str]) -> list[dict]:
             level = "rumor"
         rows.append(
             {
-                "subject": subject,
                 "level": level,
                 "content": content,
                 "is_secret": True,
@@ -244,16 +243,13 @@ def _normalize_player_knowledge(raw: Any) -> list[dict]:
     for item in raw:
         if not isinstance(item, dict):
             continue
-        subject = item.get("subject")
         content = item.get("content")
-        if not isinstance(subject, str) or not subject.strip():
-            continue
         if not isinstance(content, str) or not content.strip():
             continue
         level = item.get("level")
         if level not in KNOWLEDGE_LEVELS:
             level = "rumor"
-        rows.append({"subject": subject, "level": level, "content": content})
+        rows.append({"level": level, "content": content})
         if len(rows) >= 5:
             break
     return rows

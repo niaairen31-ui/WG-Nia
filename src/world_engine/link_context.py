@@ -19,7 +19,7 @@ import json
 from sqlmodel import Session, select
 
 from .context import RELATION_GRAPH_EXCLUDED_TYPES
-from .models import Entity, Knowledge, LinkBatch, LinkBatchRow, PromptTemplate, Relation
+from .models import Entity, FactParticipant, Knowledge, LinkBatch, LinkBatchRow, PromptTemplate, Relation
 from .prompt_store import current_prompt
 from .prose_render import knowledge_texts
 
@@ -62,11 +62,12 @@ def _canon_entries(db: Session, batch: LinkBatch) -> list[tuple[int, str, str, d
     """(touch_priority, kind, id, row) for every candidate canon row —
     relations between active characters of the world (structural exclusion,
     RECON-0036 E1-tout-le-graphe) plus knowledge rows touching the batch
-    roster (subject npc:{id} OR entity_id in the roster, RECON-0036 s.8/D3).
+    roster (a fact whose participant is in the roster OR entity_id in the
+    roster, RECON-0036 s.8/D3; TICKET-0097, G1: aboutness is the fact's
+    participants, never a `npc:{id}` subject).
     touch_priority = how many endpoints are in the batch's NPC roster —
     higher sorts first (RECON-0036 R-1: "rows touching batch NPCs first")."""
     npc_ids = set(batch.scope.get("npc_ids", []))
-    npc_subjects = {f"npc:{i}" for i in npc_ids}
 
     active_ids = set(
         db.exec(
@@ -86,9 +87,10 @@ def _canon_entries(db: Session, batch: LinkBatch) -> list[tuple[int, str, str, d
             Relation.entity_b_id.in_(active_ids),
         )
     ).all()
+    about = _participants_by_fact(db, npc_ids)
     know_rows = db.exec(
         select(Knowledge).where(
-            (Knowledge.subject.in_(npc_subjects)) | (Knowledge.entity_id.in_(npc_ids))
+            (Knowledge.fact_id.in_(about)) | (Knowledge.entity_id.in_(npc_ids))
         )
     ).all()
 
@@ -103,17 +105,34 @@ def _canon_entries(db: Session, batch: LinkBatch) -> list[tuple[int, str, str, d
             "visible_to_b": r.visible_to_b, "notes": r.notes,
         }))
     for k, text in zip(know_rows, knowledge_texts(db, know_rows)):
-        touch = (k.entity_id in npc_ids) + (k.subject in npc_subjects)
+        about_ids = about.get(k.fact_id, [])
+        touch = (k.entity_id in npc_ids) + bool(set(about_ids) & npc_ids)
         entries.append((touch, "knowledge", k.id, {
             "kind": "knowledge", "id": k.id,
             "entity_id": k.entity_id, "entity_name": _entity_name(db, k.entity_id),
-            "subject": k.subject, "level": k.level, "content": text,
+            "about_entity_ids": about_ids, "level": k.level, "content": text,
             "source": k.source, "is_incorrect": k.is_incorrect,
             "is_secret": k.is_secret, "share_threshold": k.share_threshold,
         }))
 
     entries.sort(key=lambda e: (-e[0], e[1], e[2]))
     return entries
+
+
+def _participants_by_fact(db: Session, npc_ids: set[str]) -> dict[str, list[str]]:
+    """fact id -> its sorted participant ids, for every fact one of
+    `npc_ids` participates in."""
+    fact_ids = set(db.exec(
+        select(FactParticipant.fact_id).where(FactParticipant.entity_id.in_(npc_ids))
+    ).all()) if npc_ids else set()
+    about: dict[str, list[str]] = {fact_id: [] for fact_id in fact_ids}
+    for fact_id, entity_id in db.exec(
+        select(FactParticipant.fact_id, FactParticipant.entity_id)
+        .where(FactParticipant.fact_id.in_(fact_ids))
+        .order_by(FactParticipant.entity_id)
+    ).all():
+        about[fact_id].append(entity_id)
+    return about
 
 
 def serialize_canon_graph(db: Session, batch: LinkBatch) -> tuple[str, bool]:

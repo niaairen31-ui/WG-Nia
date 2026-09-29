@@ -14,7 +14,7 @@
   $effect(() => {
     rows = (knowledge || []).map((k) => ({
       id: k.id,
-      subject: k.subject,
+      fact: k.fact_content ?? '',
       level: k.level,
       source: k.source ?? '',
       share_threshold: k.share_threshold,
@@ -33,14 +33,16 @@
      row's own fact, through the routes BRIEF-0082-b already exposes
      (POST/DELETE /api/facts/{fact_id}/participants[/{entity_id}]).
      Two lazily-loaded, world-scoped lists shared by every row: the picker's
-     candidate entities, and the resolver's suggestion per unresolved
-     subject (both come from GET /api/worlds/{world_id}/unresolved-subjects,
-     C-06 -- the same query the residue worklist reads). Loaded once per
-     world, reset when serverState.worldId changes (Registre.svelte's own
-     convention). */
+     candidate entities, and the resolver's suggestion per unbound fact
+     (TICKET-0097: GET /api/worlds/{world_id}/unbound-facts, C-08 -- the
+     same read the « Sujets » worklist shows; a suggestion exists when the
+     resolver found exactly one candidate). Loaded once per world, reset
+     when serverState.worldId changes (Registre.svelte's own convention).
+     A row shows its fact's text read-only (K1): the fact is what is known,
+     the row's content is this entity's version of it. */
   let subjectEntities = $state([]);
   let subjectEntitiesLoaded = false;
-  let subjectSuggestions = $state({}); // subject text -> suggested entity_id
+  let subjectSuggestions = $state({}); // fact_id -> suggested entity_id
   let subjectSuggestionsLoaded = false;
   let pickerSelections = $state({}); // knowledge row id -> chosen entity_id
 
@@ -65,10 +67,10 @@
     if (subjectSuggestionsLoaded || !serverState.worldId) return;
     subjectSuggestionsLoaded = true;
     try {
-      const residue = await api(`/api/worlds/${encodeURIComponent(serverState.worldId)}/unresolved-subjects`);
+      const residue = await api(`/api/worlds/${encodeURIComponent(serverState.worldId)}/unbound-facts`);
       const map = {};
       for (const r of residue) {
-        if (r.resolution && r.resolution.verdict === 'matched') map[r.subject] = r.resolution.entity_id;
+        if (r.candidates.length === 1) map[r.fact_id] = r.candidates[0].id;
       }
       subjectSuggestions = map;
     } catch (_err) { /* suggestion is advisory only */ }
@@ -76,7 +78,7 @@
 
   function pickerValue(row) {
     if (row.id in pickerSelections) return pickerSelections[row.id];
-    return subjectSuggestions[row.subject] || '';
+    return subjectSuggestions[row.fact_id] || '';
   }
 
   async function bindSubject(row) {
@@ -101,7 +103,6 @@
     );
   }
 
-  let newSubject = $state('');
   let newLevel = $state('rumor');
   let newSource = $state('');
   let newShareThreshold = $state(50);
@@ -115,7 +116,6 @@
 
   async function saveRow(row) {
     const body = JSON.stringify({
-      subject: row.subject,
       level: row.level,
       source: row.source || null,
       share_threshold: Number(row.share_threshold),
@@ -133,7 +133,6 @@
 
   async function addRow() {
     const body = JSON.stringify({
-      subject: newSubject,
       level: newLevel,
       source: newSource || null,
       share_threshold: Number(newShareThreshold),
@@ -143,7 +142,6 @@
     });
     const ok = await sheetRequest(legacyDoc, `/api/entities/${encodeURIComponent(entityId)}/knowledge`, 'POST', body, reloadEntity);
     if (ok) {
-      newSubject = '';
       newLevel = 'rumor';
       newSource = '';
       newShareThreshold = 50;
@@ -161,7 +159,7 @@
     {#each rows as row (row.id)}
       <div class="row-card">
         <div class="field-grid">
-          <div class="field-row"><label>Subject</label><input type="text" bind:value={row.subject}></div>
+          <div class="field-row span-2"><label>Fact</label><div>{row.fact}</div></div>
           <div class="field-row"><label>Level</label>
             <select bind:value={row.level}>
               {#each levelOptions as l}
@@ -211,7 +209,6 @@
 
 <div class="row-card">
   <div class="field-grid">
-    <div class="field-row"><label>Subject *</label><input type="text" bind:value={newSubject}></div>
     <div class="field-row"><label>Level *</label>
       <select bind:value={newLevel}>
         {#each levelOptions as l}
@@ -223,9 +220,9 @@
       <input type="number" min="1" max="100" bind:value={newShareThreshold}></div>
     <div class="field-row checkbox"><input type="checkbox" id="kn-new-incorrect" bind:checked={newIncorrect}><label for="kn-new-incorrect">Incorrect</label></div>
     <div class="field-row checkbox"><input type="checkbox" id="kn-new-secret" bind:checked={newSecret}><label for="kn-new-secret">Secret</label></div>
-    <div class="field-row span-2"><label>Content</label><textarea bind:value={newContent}></textarea></div>
+    <div class="field-row span-2"><label>Content *</label><textarea bind:value={newContent}></textarea></div>
   </div>
   <div class="row-card-actions">
-    <button class="btn-send" onclick={addRow}>Add knowledge</button>
+    <button class="btn-send" disabled={!newContent.trim()} onclick={addRow}>Add knowledge</button>
   </div>
 </div>

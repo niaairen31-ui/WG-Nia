@@ -46,6 +46,7 @@ from .link_sheet import _npc_sheet
 from .models import (
     Character,
     Entity,
+    FactParticipant,
     Knowledge,
     LinkBatch,
     LinkBatchRow,
@@ -150,16 +151,16 @@ def _load_pair_template(db: Session) -> PromptTemplate | None:
 
 
 def _shared_knowledge_lines(db: Session, holder_id: str, other_id: str, holder_name: str) -> list[str]:
-    """Existing knowledge `holder_id` holds ABOUT `other_id`, via the D3
-    `npc:{entity_id}` subject convention — the same stamp this pass writes.
-    is_secret=TRUE rows MAY enter (creator-surface exception, RECON-0036
-    R-4); rows about anyone else (third parties) never match this subject
-    and are excluded by construction."""
+    """Existing knowledge `holder_id` holds ABOUT `other_id`: every row on a
+    fact `other_id` participates in (TICKET-0097, G1 — the participant this
+    pass stamps, D3). is_secret=TRUE rows MAY enter (creator-surface
+    exception, RECON-0036 R-4); rows about anyone else (third parties) never
+    match and are excluded by construction."""
     rows = db.exec(
-        select(Knowledge).where(
-            Knowledge.entity_id == holder_id,
-            Knowledge.subject == f"npc:{other_id}",
-        )
+        select(Knowledge)
+        .join(FactParticipant, FactParticipant.fact_id == Knowledge.fact_id)
+        .where(Knowledge.entity_id == holder_id, FactParticipant.entity_id == other_id)
+        .order_by(Knowledge.id)
     ).all()
     return [
         f"- {holder_name} already knows (level={r.level}, secret={r.is_secret}): "
@@ -305,9 +306,11 @@ def _build_knowledge_row(batch: LinkBatch, a_id: str, b_id: str, item: dict) -> 
 
     payload = {
         "mode": "update", "knowledge_id": None, "entity_id": holder_id,
-        # D3, code-stamped: the model never emits "subject" — this is the
-        # single construction site (link_agent_strata.py asserts it).
-        "subject": f"npc:{other_id}",
+        # D3, code-stamped: the model never names who the row is about —
+        # this is the single construction site (link_agent_strata.py asserts
+        # it). `write_knowledge` attaches `other_id` as the new fact's
+        # participant (TICKET-0097, G1).
+        "subject_entity_ids": [other_id],
         "level": level,
         "content": item.get("content"), "source": item.get("source"),
         "is_incorrect": bool(item.get("is_incorrect", False)),
@@ -430,7 +433,7 @@ def patch_row(
     """Edits ONE staged row's payload fields and/or row_status (0036-d's
     one backend addition) — staging only, batch must be open. Payload
     fields reuse `_coerce_patch_value`'s vocab/clamp rules, the same gate
-    the coherence patch pipeline uses (W); ids/mode/subject/session
+    the coherence patch pipeline uses (W); ids/mode/participant stamp/session
     bookkeeping stay unpatchable here too. row_status is reversible while
     the batch stays open (reject / un-reject)."""
     if batch.status != "open":
@@ -505,13 +508,17 @@ def _flag(target_scope: str, target_id: str, problem: str) -> dict:
 
 def _duplicate_pair_findings(rows: list[LinkBatchRow]) -> list[dict]:
     """Duplicate staged rows for the same pair + kind + discriminator
-    (relation type, or knowledge subject) — flags every row past the
-    first in each group, in deterministic (created_at, id) order."""
+    (relation type, or knowledge holder and stamped participant) — flags
+    every row past the first in each group, in deterministic (created_at,
+    id) order."""
     groups: dict[tuple, list[LinkBatchRow]] = {}
     for row in rows:
         if row.kind == "no_links":
             continue
-        discriminator = row.payload.get("type") if row.kind == "relation" else row.payload.get("subject")
+        discriminator = (
+            row.payload.get("type") if row.kind == "relation"
+            else (row.payload.get("entity_id"), tuple(row.payload.get("subject_entity_ids") or ()))
+        )
         key = (frozenset((row.pair_a_id, row.pair_b_id)), row.kind, discriminator)
         groups.setdefault(key, []).append(row)
 
@@ -575,20 +582,20 @@ def _vocab_findings(rows: list[LinkBatchRow]) -> list[dict]:
     return findings
 
 
-def _subject_stamp_findings(rows: list[LinkBatchRow]) -> list[dict]:
-    """D3 defense in depth: a staged knowledge row whose subject doesn't
-    match npc:{other_id} for its own pair."""
+def _about_stamp_findings(rows: list[LinkBatchRow]) -> list[dict]:
+    """D3 defense in depth: a staged knowledge row whose stamped participant
+    isn't exactly the other side of its own pair."""
     findings = []
     for row in rows:
         if row.kind != "knowledge":
             continue
         holder_id = row.payload.get("entity_id")
         other_id = row.pair_b_id if holder_id == row.pair_a_id else row.pair_a_id
-        expected = f"npc:{other_id}"
-        if row.payload.get("subject") != expected:
+        about = row.payload.get("subject_entity_ids")
+        if about != [other_id]:
             findings.append(_flag(
                 "staged", row.id,
-                f"knowledge subject {row.payload.get('subject')!r} does not match expected {expected!r}",
+                f"knowledge row about {about!r} does not match expected {[other_id]!r}",
             ))
     return findings
 
@@ -604,7 +611,7 @@ def _mechanical_findings(db: Session, batch: LinkBatch) -> list[dict]:
         _duplicate_pair_findings(rows)
         + _stale_relation_findings(db, rows)
         + _vocab_findings(rows)
-        + _subject_stamp_findings(rows)
+        + _about_stamp_findings(rows)
     )
 
 
@@ -622,7 +629,7 @@ def _coerce_patch_value(domain: str, field: str, value):
     'canon_knowledge') — staged relation payloads name the intensity field
     'value' (write_relation's kwarg); canon patches name it 'intensity'
     (the schema column / creator-facing whitelist). Identity fields (ids,
-    mode, subject, session bookkeeping) are NEVER patchable, on either
+    mode, participant stamp, session bookkeeping) are NEVER patchable, on either
     side — "ids and subjects are NEVER patchable" applies structurally,
     not just to the canon whitelist that states it explicitly.
     Returns (ok, reason, coerced_value)."""

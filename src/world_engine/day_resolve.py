@@ -269,7 +269,7 @@ def requirement_detail_fr(verdict: RequirementVerdict) -> str:
     template = _BLOCKED_DETAIL_FR.get(verdict.type)
     if template is None:
         raise ValueError(f"day_resolve: unknown requirement type {verdict.type!r}")
-    return template.format(required=verdict.required)
+    return template.format(required=getattr(verdict, "required_label", None) or verdict.required)
 
 
 def _append_blocked_step(

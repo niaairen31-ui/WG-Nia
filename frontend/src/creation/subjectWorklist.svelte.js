@@ -1,20 +1,18 @@
-/* TICKET-0088 (BRIEF-0088-b). State and requests for the subject worklist
-   (SubjectWorklist.svelte), the first Creation island whose registry entry
-   declares origin 'new'. Same split as queue.svelte.js / Queue.svelte:
-   this module owns the state and every request, the component renders.
+/* TICKET-0088 (BRIEF-0088-b), re-aimed by TICKET-0097 (BRIEF-0097-f, I1/J1).
+   State and requests for the « Sujets » worklist (SubjectWorklist.svelte).
+   Same split as queue.svelte.js / Queue.svelte: this module owns the state
+   and every request, the component renders.
 
-   Rows are GET /api/worlds/{world_id}/unresolved-subjects unchanged: one
-   row per distinct knowledge.subject whose facts carry no fact_participant
-   at all. Binding a subject is one POST /api/facts/{fact_id}/participants
-   per fact, sequential, with no role (decision E1). Each POST is correct
-   on its own; the first failure stops the loop; the reload that always
-   follows leaves a partly bound subject listed with only its unbound
-   facts, so a retry binds the remainder and never duplicates a
-   participant. The route answers 500 on a duplicate (fact, entity) pair,
-   which is why one bind at a time runs and every control stays disabled
-   until the reload that follows it has landed.
+   Rows are GET /api/worlds/{world_id}/unbound-facts unchanged: one row per
+   free fact someone knows and no fact_participant binds, with its text, the
+   first knower's version, the knower count, and the Lore resolver's
+   candidates and near names. Binding is ONE POST
+   /api/facts/{fact_id}/participants with no role (decision E1 of 0088). The
+   reload that always follows drops the bound fact from the list. Only one
+   bind runs at a time, and every control stays disabled until its reload
+   has landed (the route answers 500 on a duplicate (fact, entity) pair).
 
-   loadSubjects() is called from the component's $effect: before its first
+   loadFacts() is called from the component's $effect: before its first
    await it only WRITES subjectState, and the world it compares against is
    a plain module variable, so the effect depends on serverState.worldId
    alone. */
@@ -27,14 +25,14 @@ export const subjectState = $state({
   rows: [],
   entities: [],
   selections: {},
-  bindingSubject: null,
+  bindingFact: null,
   bindErrors: {},
 });
 
 let loadedWorldId = null;
 let loadSeq = 0;
 
-export async function loadSubjects(worldId) {
+export async function loadFacts(worldId) {
   const seq = ++loadSeq;
   if (worldId !== loadedWorldId) {
     loadedWorldId = worldId;
@@ -51,7 +49,7 @@ export async function loadSubjects(worldId) {
   subjectState.loading = true;
   try {
     const [rows, entities] = await Promise.all([
-      api(`/api/worlds/${encodeURIComponent(worldId)}/unresolved-subjects`),
+      api(`/api/worlds/${encodeURIComponent(worldId)}/unbound-facts`),
       api('/api/entities'),
     ]);
     if (seq !== loadSeq) return;
@@ -67,49 +65,42 @@ export async function loadSubjects(worldId) {
   }
 }
 
+/* A suggestion exists only when the resolver found exactly one candidate:
+   the resolver never picks between two. */
 export function suggestedEntityId(row) {
-  const r = row.resolution;
-  if (!r || r.verdict !== 'matched') return '';
-  return subjectState.entities.some((e) => e.id === r.entity_id) ? r.entity_id : '';
+  if (row.candidates.length !== 1) return '';
+  const id = row.candidates[0].id;
+  return subjectState.entities.some((e) => e.id === id) ? id : '';
 }
 
 export function selectedEntityId(row) {
-  const chosen = subjectState.selections[row.subject];
+  const chosen = subjectState.selections[row.fact_id];
   return chosen !== undefined ? chosen : suggestedEntityId(row);
 }
 
-export function selectEntity(subject, entityId) {
-  subjectState.selections = { ...subjectState.selections, [subject]: entityId };
+export function selectEntity(factId, entityId) {
+  subjectState.selections = { ...subjectState.selections, [factId]: entityId };
 }
 
-export async function bindSubject(row) {
+export async function bindFact(row) {
   const entityId = selectedEntityId(row);
-  if (!entityId || subjectState.bindingSubject !== null) return;
+  if (!entityId || subjectState.bindingFact !== null) return;
   const worldId = loadedWorldId;
-  const subject = row.subject;
-  const factIds = Array.from(row.fact_ids);
+  const factId = row.fact_id;
   const errors = { ...subjectState.bindErrors };
-  delete errors[subject];
+  delete errors[factId];
   subjectState.bindErrors = errors;
-  subjectState.bindingSubject = subject;
-  let bound = 0;
+  subjectState.bindingFact = factId;
   try {
-    for (const factId of factIds) {
-      if (serverState.worldId !== worldId) break;
-      await api(`/api/facts/${encodeURIComponent(factId)}/participants`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entity_id: entityId }),
-      });
-      bound += 1;
-    }
+    await api(`/api/facts/${encodeURIComponent(factId)}/participants`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entity_id: entityId }),
+    });
   } catch (e) {
-    subjectState.bindErrors = {
-      ...subjectState.bindErrors,
-      [subject]: `${bound}/${factIds.length} fait(s) lié(s) avant l'échec : ${e.message}`,
-    };
+    subjectState.bindErrors = { ...subjectState.bindErrors, [factId]: `Échec de la liaison : ${e.message}` };
   } finally {
-    if (serverState.worldId === worldId) await loadSubjects(worldId);
-    subjectState.bindingSubject = null;
+    if (serverState.worldId === worldId) await loadFacts(worldId);
+    subjectState.bindingFact = null;
   }
 }

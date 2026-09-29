@@ -11,20 +11,18 @@ this check never touches Nia's real DB. `FAILURES` list, print FAIL lines,
 `sys.exit(1)`; every assertion below always collects at least one concrete
 item before judging it — never a silent, vacuous pass.
 
-Four assertions:
-  A1 (AST, purity): `subject_resolve.py` contains no `chat(` call and no
+Four assertions (A1/A2 retargeted at TICKET-0097, BRIEF-0097-f: the
+subject resolver is gone, I1; the worklist that replaced it is held to the
+same purity):
+  A1 (AST, purity): `unbound_facts.py` contains no `chat(` call and no
      `db.add(`.
-  A2 (AST, no re-implemented rung): `subject_resolve.py` reaches canon
-     ONLY through `lore_resolve.resolve_named` — every `select(` found
-     directly in the module (there should be none; C-01/BRIEF-0087-a's
-     contract is that it delegates every candidate lookup rather than
-     querying itself) must be world-constrained among its `.where(`
-     arguments, in the shape `lore_isolation.py`'s R2 already uses for
-     `lore_selectors.py`. When — as the current, correct state — zero
-     `select(` calls exist, the module must instead show at least one call
-     to `resolve_named(` and zero `db.exec(`/`text(` calls, so the
-     assertion always has something concrete to point at rather than
-     trusting an empty scan.
+  A2 (AST, no re-implemented rung): every `select(` in `unbound_facts.py`
+     is world-constrained among its `.where(` arguments, in the shape
+     `lore_isolation.py`'s R2 uses for `lore_selectors.py`; and names are
+     reached ONLY through `lore_mentions_read.lookup_surface` — at least one
+     `lookup_surface(` call, zero `resolve_named(` / `near_candidates(` /
+     `surfaces(` calls and zero `text(` calls, so the assertion always has
+     something concrete to point at.
   A3 (behavioural, refusal): a `subject_entity_id` naming an active entity
      of a DIFFERENT world is refused at apply — a non-`None` error string,
      zero `fact_participant` rows written. Healed with an in-world id:
@@ -45,7 +43,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
-SUBJECT_RESOLVE_FILE = SRC / "world_engine" / "subject_resolve.py"
+UNBOUND_FACTS_FILE = SRC / "world_engine" / "unbound_facts.py"
 
 FAILURES: list[str] = []
 
@@ -85,7 +83,7 @@ def _fresh_engine():
 
 
 def check_a1_purity() -> None:
-    tree = _parse(SUBJECT_RESOLVE_FILE)
+    tree = _parse(UNBOUND_FACTS_FILE)
     if tree is None:
         return
     hits: set[str] = set()
@@ -102,80 +100,47 @@ def check_a1_purity() -> None:
             hits.add("chat(")
     if hits:
         fail(
-            f"subject_resolution A1: {_rel(SUBJECT_RESOLVE_FILE)} contains "
+            f"subject_resolution A1: {_rel(UNBOUND_FACTS_FILE)} contains "
             f"forbidden call(s) {sorted(hits)!r} — must stay pure and read-only"
         )
 
 
+def _where_of(tree: ast.AST, node: ast.Call) -> "ast.Call | None":
+    for parent in ast.walk(tree):
+        if (isinstance(parent, ast.Call) and isinstance(parent.func, ast.Attribute)
+                and parent.func.attr == "where"
+                and any(sub is node for sub in ast.walk(parent.func.value))):
+            return parent
+    return None
+
+
 def check_a2_no_reimplemented_rung() -> None:
-    tree = _parse(SUBJECT_RESOLVE_FILE)
+    tree = _parse(UNBOUND_FACTS_FILE)
     if tree is None:
         return
-    select_calls = [
-        node for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "select"
-    ]
-
-    if select_calls:
-        for node in select_calls:
-            where_call = None
-            for parent in ast.walk(tree):
-                if not isinstance(parent, ast.Call):
-                    continue
-                if not (isinstance(parent.func, ast.Attribute) and parent.func.attr == "where"):
-                    continue
-                if any(sub is node for sub in ast.walk(parent.func.value)):
-                    where_call = parent
-                    break
-            if where_call is None:
-                fail(
-                    f"subject_resolution A2: {_rel(SUBJECT_RESOLVE_FILE)}:{node.lineno} "
-                    "— select( with no .where( call"
-                )
-                continue
-            names_in_where = {
-                sub.id if isinstance(sub, ast.Name) else sub.attr
-                for sub in ast.walk(where_call)
-                if isinstance(sub, (ast.Name, ast.Attribute))
-            }
-            if "world_id" not in names_in_where and "Entity" not in names_in_where:
-                fail(
-                    f"subject_resolution A2: {_rel(SUBJECT_RESOLVE_FILE)}:{node.lineno} — "
-                    "select(...).where(...) references neither world_id nor a join to "
-                    "Entity — not world-scoped at construction"
-                )
-        return
-
-    # The correct, current state: subject_resolve.py re-implements no rung of
-    # its own — it never calls select( directly at all. Assert THAT
-    # concretely (at least one resolve_named( call, zero raw db.exec(/text(
-    # bypasses) rather than treating an empty select( scan as a silent pass.
-    resolve_named_calls = [
-        node for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "resolve_named"
-    ]
-    if not resolve_named_calls:
-        fail(
-            f"subject_resolution A2: {_rel(SUBJECT_RESOLVE_FILE)} contains zero select( "
-            "and zero resolve_named( calls — vacuous, the resolver reaches canon through neither path"
-        )
-    bypass_hits: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
+    rel = _rel(UNBOUND_FACTS_FILE)
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
+    names = [node.func.id for node in calls if isinstance(node.func, ast.Name)]
+    for node in calls:
+        if not (isinstance(node.func, ast.Name) and node.func.id == "select"):
             continue
-        func = node.func
-        if (
-            isinstance(func, ast.Attribute) and func.attr == "exec"
-            and isinstance(func.value, ast.Name) and func.value.id == "db"
-        ):
-            bypass_hits.add("db.exec(")
-        elif isinstance(func, ast.Name) and func.id == "text":
-            bypass_hits.add("text(")
-    if bypass_hits:
-        fail(
-            f"subject_resolution A2: {_rel(SUBJECT_RESOLVE_FILE)} reaches canon through "
-            f"{sorted(bypass_hits)!r} instead of lore_resolve.resolve_named — a re-implemented rung"
-        )
+        where_call = _where_of(tree, node)
+        if where_call is None:
+            fail(f"subject_resolution A2: {rel}:{node.lineno} — select( with no .where( call")
+            continue
+        names_in_where = {
+            sub.id if isinstance(sub, ast.Name) else sub.attr
+            for sub in ast.walk(where_call) if isinstance(sub, (ast.Name, ast.Attribute))
+        }
+        if "world_id" not in names_in_where:
+            fail(f"subject_resolution A2: {rel}:{node.lineno} — select(...).where(...) is not "
+                 "world-scoped at construction")
+    if "lookup_surface" not in names:
+        fail(f"subject_resolution A2: {rel} never calls lookup_surface( — vacuous, names are "
+             "reached through no resolver")
+    direct = sorted({n for n in names if n in ("resolve_named", "near_candidates", "surfaces", "text")})
+    if direct:
+        fail(f"subject_resolution A2: {rel} calls {direct!r} directly — a re-implemented rung")
 
 
 def check_behavioural(engine) -> None:
@@ -217,7 +182,7 @@ def check_behavioural(engine) -> None:
         # ── A3, negative: a subject_entity_id from a DIFFERENT world is refused,
         #    nothing written ─────────────────────────────────────────────────
         payload_cross_world = {
-            "entity_id": learner, "subject": "s", "content": "c",
+            "entity_id": learner, "content": "c",
             "subject_entity_id": subject_other_world,
         }
         err = _mutation_apply_new_knowledge(mut, payload_cross_world, session)
@@ -233,7 +198,7 @@ def check_behavioural(engine) -> None:
 
         # ── A3, heal: an in-world id applies, one participant, role NULL ────────
         payload_in_world = {
-            "entity_id": learner, "subject": "s", "content": "c",
+            "entity_id": learner, "content": "c",
             "subject_entity_id": subject_in_world,
         }
         err2 = _mutation_apply_new_knowledge(mut, payload_in_world, session)
@@ -255,7 +220,7 @@ def check_behavioural(engine) -> None:
         fact_id = fps[0].fact_id
         second_learner = _npc(world_a.id, "Second Learner")
         write_knowledge(
-            session, entity_id=second_learner, subject="s", fact_id=fact_id,
+            session, entity_id=second_learner, fact_id=fact_id,
             subject_entity_ids=[subject_in_world],
         )
         session.commit()
@@ -280,7 +245,7 @@ def main() -> int:
             print(f"FAIL: {msg}")
         return 1
     print(
-        "PASS: subject_resolution — subject_resolve.py stays pure and "
+        "PASS: subject_resolution — unbound_facts.py stays pure and "
         "re-implements no rung; _mutation_apply_new_knowledge refuses a "
         "cross-world subject_entity_id and writes nothing, applies an "
         "in-world one idempotently"

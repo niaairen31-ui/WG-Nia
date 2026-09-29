@@ -33,7 +33,6 @@ def _propose_engine_discovery(
         target_id=conv.player_id,
         payload={
             "entity_id": conv.player_id,
-            "subject": detail.subject,
             "level": "knows",
             "content": detail.content,
             "source": "discovery",

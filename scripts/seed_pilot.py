@@ -110,14 +110,23 @@ def upsert_knowledge(session: Session, id: str, **fields):
 
     The create-or-converge logic lives in
     `writes/knowledge.py::upsert_knowledge_row` (TICKET-0091,
-    AMENDMENT-0091-05): the stored text is read raw only in `writes/`. The
-    `fact_id` fallback (`content = subject`) is unchanged; seed text is never
-    tokenized.
+    AMENDMENT-0091-05): the stored text is read raw only in `writes/`. A row
+    seeded on its own fact names that fact's content with `fact_content`
+    (TICKET-0097: the legacy slug label, C1); seed text is never tokenized.
     """
     status = upsert_knowledge_row(session, id=id, created_by="seed_pilot", **fields)
     {"created": _created, "updated": _updated, "existing": _existing}[status].append(
         (m.Knowledge.__tablename__, id)
     )
+
+
+def _fact_of(session: Session, knowledge_id: str) -> str:
+    """The `fact_id` of an already-seeded knowledge row. Two entities that
+    know the same thing share its fact (TICKET-0097, BRIEF-0097-A: a
+    knowledge row is identified by the fact it knows); passing it on
+    converges a row seeded on its own fact by an earlier run."""
+    session.flush()
+    return session.get(m.Knowledge, knowledge_id).fact_id
 
 
 def upsert_prompt_template(
@@ -270,7 +279,7 @@ Output: a JSON array only. No prose. No markdown fences. Start with [, end with 
 Nothing changed → output exactly: []
 
 Every element must have these EXACT 5 keys — no other keys allowed:
-  "mutation_type"  (string) — relation_change | new_knowledge | knowledge_change | event_creation | status_change | entity_creation | resource_change | goal_change | other
+  "mutation_type"  (string) — relation_change | new_knowledge | event_creation | status_change | entity_creation | resource_change | goal_change | other
   "target_table"   (string) — relation | knowledge | event | entity | character | location | faction | artifact | ledger | npc_goal | other
   "target_id"      (string or null) — id of the row to update; null for a new row
   "payload"        (object) — fields matching the target table (see below)
@@ -278,10 +287,9 @@ Every element must have these EXACT 5 keys — no other keys allowed:
 
 Payload shapes:
   relation_change  → {"entity_a_id":"…","entity_b_id":"…","relation_type":"…","intensity_delta":<signed int>}
-  new_knowledge    → {"entity_id":"…","subject":"…","level":"rumor|partial|knows|…","content":"…","source":"…","subject_entity_id":"…" (OPTIONAL — see rubric below)}
-  knowledge_change → {"entity_id":"…","subject":"…","field":"…","new_value":"…"}
+  new_knowledge    → {"entity_id":"…","level":"rumor|partial|knows|…","content":"…","source":"…","subject_entity_id":"…" (OPTIONAL — see rubric below)}
   event_creation   → {"title":"…","description":"…","type":"social|political|other","involved_entities":[…]}
-  resource_change  → {"entity_id":"char-player","amount":<signed int>,"counterparty_id":"…","reason":"…","knowledge":{"entity_id":"…","subject":"…","level":"…","content":"…","source":"…","is_secret":false} (knowledge is OPTIONAL — only when information changed hands)}
+  resource_change  → {"entity_id":"char-player","amount":<signed int>,"counterparty_id":"…","reason":"…","knowledge":{"entity_id":"…","level":"…","content":"…","source":"…","is_secret":false} (knowledge is OPTIONAL — only when information changed hands)}
   goal_change      → {"action":"complete|abandon|create_short","goal":"…"}
 
 === RELATION_CHANGE SIGN RUBRIC ===
@@ -370,7 +378,7 @@ Transcript :
 [JOUEUR] On dit que des voyageurs disparaissent sur la route ?
 [PNJ] On le dit, oui. Les patrouilles ont doublé depuis un mois. Personne ne sait pourquoi.
 Output:
-[{"mutation_type":"new_knowledge","target_table":"knowledge","target_id":null,"payload":{"entity_id":"char-player","subject":"disparitions_route","level":"rumor","content":"Le PNJ confirme des rumeurs de disparitions et un doublement des patrouilles depuis un mois.","source":"conversation avec le PNJ"},"rationale":"Le PNJ a directement confirmé la rumeur — le joueur dispose maintenant d'une corroboration externe."}]
+[{"mutation_type":"new_knowledge","target_table":"knowledge","target_id":null,"payload":{"entity_id":"char-player","level":"rumor","content":"Le PNJ confirme des rumeurs de disparitions et un doublement des patrouilles depuis un mois.","source":"conversation avec le PNJ"},"rationale":"Le PNJ a directement confirmé la rumeur — le joueur dispose maintenant d'une corroboration externe."}]
 
 === EXEMPLE 3 (fenêtre multi-tours, échange banal → rien à enregistrer) ===
 Transcript :
@@ -390,7 +398,7 @@ Transcript :
 [JOUEUR] Tiens.
 [PNJ] Plaisir de faire affaire.
 Output:
-[{"mutation_type":"resource_change","target_table":"ledger","target_id":null,"payload":{"entity_id":"char-player","amount":-15,"counterparty_id":"npc-b","reason":"achat d'une information sur le Conseil","knowledge":{"entity_id":"char-player","subject":"conseil_secret","level":"rumor","content":"Le Conseil cache l'un de ses propres membres.","source":"acheté au PNJ","is_secret":false}},"rationale":"Le joueur a payé 15 pièces, le PNJ a énoncé le prix et l'information, l'échange s'est conclu dans la scène."}]
+[{"mutation_type":"resource_change","target_table":"ledger","target_id":null,"payload":{"entity_id":"char-player","amount":-15,"counterparty_id":"npc-b","reason":"achat d'une information sur le Conseil","knowledge":{"entity_id":"char-player","level":"rumor","content":"Le Conseil cache l'un de ses propres membres.","source":"acheté au PNJ","is_secret":false}},"rationale":"Le joueur a payé 15 pièces, le PNJ a énoncé le prix et l'information, l'échange s'est conclu dans la scène."}]
 
 === EXEMPLE 5 (un objectif listé est accompli) ===
 NPC CONTEXT (extrait) :
@@ -417,25 +425,27 @@ JSON array of canon mutations ([] if nothing changed):"""
 # usage='overhearing_classification', world_id=NULL, destination='local'.
 # The model's ONLY job is closed-list classification; attribution, receiver
 # computation, and level computation happen in code (analyzer.analyze_overhearing).
-# Variables substituted with str.replace() in analyzer.py: {subject_list},
-# {player_line}, {npc_line}.
+# Variables substituted with str.replace() in analyzer_transcript.py: {fact_list},
+# {player_line}, {npc_line}. {fact_list} is a coded list ("f1 — <text>",
+# TICKET-0097, L1): the model answers with a code, the code resolves it.
 OVERHEARING_CLASSIFICATION_SYSTEM_PROMPT = """\
-You classify a single RPG conversation turn against a closed list of
-knowledge subjects. You NEVER invent subjects. You NEVER add subjects
-that are not in the provided list.
+You classify a single RPG conversation turn against a closed, coded list
+of facts the speakers know. Each line of the list is a code, a dash, and
+the fact. You NEVER invent codes. You NEVER answer with a code that is
+not in the provided list.
 
-A subject matches ONLY if the line substantively asserts, reveals, or
-discusses information about it. A mere mention of a name in passing,
-small talk, greetings, or atmosphere does NOT match.
+A fact matches ONLY if the line substantively asserts, reveals, or
+discusses it. A mere mention of a name in passing, small talk,
+greetings, or atmosphere does NOT match.
 
-Output ONLY a JSON array. Each element: {"subject": "<exact subject
-string from the list>", "speaker": "player" | "npc"}. The speaker is
-the one whose line carries the information. If nothing matches, output
-[]. An empty array is a normal, expected result for most turns."""
+Output ONLY a JSON array. Each element: {"fact": "<code from the list,
+for example f3>", "speaker": "player" | "npc"}. The speaker is the one
+whose line carries the information. If nothing matches, output []. An
+empty array is a normal, expected result for most turns."""
 
 OVERHEARING_CLASSIFICATION_USER_TEMPLATE = """\
-Known world subjects (closed list):
-{subject_list}
+Facts the speakers know (closed, coded list):
+{fact_list}
 
 Turn to classify:
 [JOUEUR] {player_line}
@@ -927,7 +937,7 @@ Never invent identifiers, ids, people, or places absent from the briefing.
 Payload shapes:
   goal_change      -> {"action":"complete|abandon|create_short","goal":"…","agenda":"<optional: title from TON INTRIGUE, only when this new goal serves it>","effects":[<optional, "complete" only, see EFFECTS below>]}
   relation_change  -> {"other":"<name from the briefing>","relation_type":"…","intensity_delta":<signed int>}
-  new_knowledge    -> {"recipient":"self" | "<name>","subject":"<short_slug>","level":"rumor|partial|knows","content":"…","source":"…","is_secret":true|false,"secret_derived":true|false}
+  new_knowledge    -> {"recipient":"self" | "<name>","source_fact":"<code from CE QUE TU SAIS>" | null,"level":"rumor|partial|knows","content":"…","source":"…","is_secret":true|false,"secret_derived":true|false}
   npc_move         -> {"destination":"<name from OÙ TU PEUX ALLER>"}
   agenda_step_change -> {"agenda":"<title from TON INTRIGUE>","action":"complete|fail","outcome":"…","effects":[<optional, "complete" only, see EFFECTS below>]}
   agenda_creation  -> {"title":"<new intrigue title>","steps":["<objective 1>","<objective 2>",…]}
@@ -949,9 +959,11 @@ work, or mere proximity is NOT a relation_change.
 
 === NEW_KNOWLEDGE RULES ===
 "recipient":"self" when the NPC LEARNED something during the interval;
-"<name>" when the NPC TOLD that person something. Set
-"secret_derived":true when the information comes from a [SECRET] item
-in your briefing. Whether the knowledge is secret FOR THE RECIPIENT is
+"<name>" when the NPC TOLD that person something. When the NPC passes on
+something it already knows, set "source_fact" to the code in brackets at
+the start of that line of CE QUE TU SAIS (for example "f3"); otherwise
+"source_fact" is null. Set "secret_derived":true when the information
+comes from a [SECRET] item in your briefing. Whether the knowledge is secret FOR THE RECIPIENT is
 a separate judgment: set "is_secret" by intent — a confidence shared
 discreetly stays secret; information wielded openly against an enemy
 does not. Never copy [SECRET]/[AFFILIATION SECRÈTE] markers into
@@ -1202,8 +1214,7 @@ joueur (chaîne).
 - "backstory" : son histoire personnelle, pour la référence du joueur \
 (chaîne).
 - "knowledge" : un tableau de ce que le personnage sait au départ. Chaque \
-élément est un objet { "subject": <chaîne>, "level": <niveau>, \
-"content": <chaîne> }. "level" appartient à cette échelle, du plus faible \
+élément est un objet { "level": <niveau>, "content": <chaîne> }. "level" appartient à cette échelle, du plus faible \
 au plus fort : "unaware", "rumor", "suspicious", "partial", "knows", \
 "fully_understands". Propose 0 à 5 savoirs, jamais davantage.
 
@@ -1828,8 +1839,9 @@ EXACTEMENT parmi "physical", "agility", "perception", "composure" ; sinon \
 mets null.
 - Chaque étape a un tableau "requires", vide si l'étape n'a pas de condition \
 préalable. Utilise UNIQUEMENT ces deux formes :
-  - {"type":"knowledge","target_key":"<étiquette courte>"} — le personnage \
-doit déjà savoir quelque chose.
+  - {"type":"knowledge","target_key":"<code d'un fait>"} — le personnage \
+doit déjà savoir ce fait ; le code vient de la liste des faits qu'il peut \
+apprendre, donnée après la déclaration.
   - {"type":"resource","target_key":"<étiquette courte>","threshold":<entier>} \
 — le personnage doit disposer d'au moins ce montant de ressource.
 - Émets au maximum 12 étapes.
@@ -2539,7 +2551,7 @@ def seed(session: Session) -> None:
         usage="overhearing_classification",
         system_prompt=OVERHEARING_CLASSIFICATION_SYSTEM_PROMPT,
         user_template=OVERHEARING_CLASSIFICATION_USER_TEMPLATE,
-        variables=["subject_list", "player_line", "npc_line"],
+        variables=["fact_list", "player_line", "npc_line"],
         destination="local",
     )
 
@@ -3326,7 +3338,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-maelis-tavern-daily",
         entity_id="npc-maelis",
-        subject="tavern_daily",
+        fact_content="tavern_daily",
         level="knows",
         content=(
             "Tient Le Dernier Verre au quotidien : ce qu'elle sert à boire et à "
@@ -3341,7 +3353,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-maelis-tavern-clientele",
         entity_id="npc-maelis",
-        subject="tavern_clientele",
+        fact_content="tavern_clientele",
         level="knows",
         content=(
             "Connaît les habitués et les voyageurs des deux nations qui passent "
@@ -3355,7 +3367,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-maelis-verkhaal-city",
         entity_id="npc-maelis",
-        subject="verkhaal_city",
+        fact_content="verkhaal_city",
         level="knows",
         content=(
             "Savoir public d'habitante : Verkhaal est la ville-forteresse qui "
@@ -3372,7 +3384,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-maelis-incidents",
         entity_id="npc-maelis",
-        subject="local_magic_incidents",
+        fact_content="local_magic_incidents",
         level="partial",
         content=(
             "Connaît les micro-phénomènes discrets du Dernier Verre (chaleur, "
@@ -3389,7 +3401,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-maelis-unnamed",
         entity_id="npc-maelis",
-        subject="the_unnamed",
+        fact_content="the_unnamed",
         level="partial",
         content="Sait servir le réseau, le nie en public.",
         source="appartenance",
@@ -3404,7 +3416,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-reike-existence",
         entity_id="npc-reike",
-        subject="magic_existence",
+        fact_content="magic_existence",
         level="suspicious",
         content=(
             "Ne croit plus à la version « technique » des incidents, mais ne "
@@ -3417,7 +3429,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-reike-awakening",
         entity_id="npc-reike",
-        subject="magic_awakening",
+        fact_content="magic_awakening",
         level="rumor",
         content="Sent la fréquence des incidents augmenter.",
         source="scènes de terrain",
@@ -3430,7 +3442,8 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-senna-existence",
         entity_id="npc-senna",
-        subject="magic_existence",
+        fact_id=_fact_of(session, "kn-reike-existence"),
+        fact_content="magic_existence",
         level="knows",
         content="Savoir de base des Marcheurs : la magie est réelle, elle a dormi.",
         source="savoir oral des Marcheurs",
@@ -3440,7 +3453,8 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-senna-awakening",
         entity_id="npc-senna",
-        subject="magic_awakening",
+        fact_id=_fact_of(session, "kn-reike-awakening"),
+        fact_content="magic_awakening",
         level="knows",
         content=(
             "Sait que la magie endormie se réveille ; inquiète, n'en parle "
@@ -3453,7 +3467,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-senna-nexus",
         entity_id="npc-senna",
-        subject="verkhaal_nexus",
+        fact_content="verkhaal_nexus",
         level="partial",
         content="Soupçonne un lien entre la taverne et le nœud.",
         source="savoir oral des Marcheurs",
@@ -3465,7 +3479,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-player-tavern",
         entity_id="char-player",
-        subject="le_dernier_verre",
+        fact_content="le_dernier_verre",
         level="knows",
         content="Connaît l'existence et l'emplacement du Dernier Verre.",
         source="habitué du lieu",
@@ -3475,7 +3489,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-player-maelis",
         entity_id="char-player",
-        subject="maelis",
+        fact_content="maelis",
         level="partial",
         content="Connaît Maelis de vue comme la patronne du Dernier Verre.",
         source="fréquentation du lieu",
@@ -3485,7 +3499,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-player-incident",
         entity_id="char-player",
-        subject="personal_magic_incident",
+        fact_content="personal_magic_incident",
         level="partial",
         content="A vécu un incident magique inexpliqué qu'il n'a dit à personne.",
         source="vécu personnel",
@@ -3822,7 +3836,7 @@ def main() -> None:
             for k in rows:
                 flag = "SECRET   " if k.is_secret else "shareable"
                 print(
-                    f"    - [{flag}] {k.subject} "
+                    f"    - [{flag}] {k.id} "
                     f"(level={k.level}, threshold={k.share_threshold})"
                 )
 

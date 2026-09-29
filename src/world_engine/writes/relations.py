@@ -60,7 +60,7 @@ from sqlmodel import Session, select
 
 from ..encounters import record_encounter
 from ..models import Entity, Fact, Knowledge, Relation
-from ..prose_render import entity_token, render
+from ..prose_render import entity_token
 from ..relation_orientation import (
     connects_to_fact_content,
     is_social,
@@ -381,7 +381,7 @@ def set_target_knows(db: Session, *, rel: Relation, knows: bool, changed_by: str
         return existing
     return write_knowledge(
         db, mode="update", entity_id=rel.entity_b_id, fact_id=lien.id,
-        subject=render(db, lien.content_raw), content=lien.content_raw, level="knows",
+        content=lien.content_raw, level="knows",
         source=f"relation {rel.id}", is_secret=False, is_incorrect=False,
         share_threshold=50, changed_by=changed_by,
     )

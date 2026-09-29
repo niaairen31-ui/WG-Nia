@@ -141,11 +141,13 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   pair per window, proportionate to that window. Never deduplicated against
   prior windows (not covered by `_mutation_match_key`).
 - **`new_knowledge` / `status_change` are idempotent facts:** identity-based
-  dedup (`entity_id` + `subject`; `entity_id`) via `_mutation_match_key`,
-  same conversation required.
+  dedup (`entity_id` + `fact_refs.knowledge_key`; `entity_id`) via
+  `_mutation_match_key`, same conversation required.
+- **A `knowledge` row is identified by its fact:** `(entity_id, fact_id)` is unique. A model
+  names a fact only by a code from a `fact_refs.code_facts` list; code resolves it.
 - **Secrets are structurally excluded** from every assembled context — never
   "guarded by instruction". The creator's note on an entity (a `histoire`
-  fact whose entity holds a `creator_meta` `is_secret` row) is excluded from
+  fact whose entity holds an `unaware` `is_secret` row on it) is excluded from
   `facet_reads` by query construction; only the Lore dossier opts in, plus the
   `creator` regime of `name_index` for name resolution (Lore question, names
   panel). Token posing never indexes a creator-only or unscoped appellation.
@@ -442,7 +444,7 @@ WG-Nia/
 │   ├── day_narration_guard.py  # T1 judge: name containment + outcome survival, Python-only
 │   ├── day_mutations.py     # day-chain mutation emission: proposer only, never applies (V1)
 │   ├── day_feasibility.py   # feasibility veto: downward-only, clamp_verdict is the safety (Y1)
-│   ├── lore_*.py, subject_resolve.py  # resolver/selectors/plan/names-panel reads; subject<->entity
+│   ├── lore_*.py, unbound_facts.py, fact_refs.py  # Lore reads; unbound facts; fact codes/keys
 │   ├── writes/               # canon-write helpers by domain; schema.py is the DDL authority
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
 │   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)

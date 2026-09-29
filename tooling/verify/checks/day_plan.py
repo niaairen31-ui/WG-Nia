@@ -127,16 +127,18 @@ R24 (new): `day_plan_select.py` contains no `db.add(`, no
 R25: `Verdict`'s field list starts with `type`, and all four `Verdict(`
 constructions in `day_plan.py` pass a `type=` keyword. Zero constructions
 collected is a FAILURE.
-R26: `_anchorable_subjects` exists and its body references all three of
+R26: `_anchorable_facts` exists and its body references all three of
 `world_id`, `is_secret` and a `!=`/`is_not` comparison against
-`character.id`; `_held_subjects` exists. Zero located is a FAILURE.
+`character.id`; `_held_facts` exists. Zero located is a FAILURE.
+(Retargeted TICKET-0097, BRIEF-0097-d: the gate names a fact, not a subject.)
 R27: `anchor_requirements` is called in `cockpit/routes/day.py` and the call
 appears in `_finalize_plan` BEFORE the first reference to
 `evaluate_requirements` in that function (compare `lineno`).
-R28: `emit_plan` appends `held_subjects_summary` with `+=` to the user
-message and `held_subjects_summary` appears in NO seeded prompt constant in
+R28: `emit_plan` appends `learnable_summary` with `+=` to the user
+message and `learnable_facts_summary` appears in NO seeded prompt constant in
 `scripts/seed_pilot.py` — proving it is appended text, not a template
-placeholder.
+placeholder. (Retargeted TICKET-0097, BRIEF-0097-d: the appended text is the
+coded learnable-fact list, D1'a.)
 
 --- BRIEF-0080-b (continue-guard verdict split) ---
 
@@ -986,29 +988,29 @@ def check_verdict_type_field() -> None:
 
 
 def check_anchoring_readers() -> None:
-    """R26 (BRIEF-0078-a item 4): `_anchorable_subjects` exists and its body
-    references all three of `world_id`, `is_secret` and a `!=`/`is_not`
-    comparison against `character.id`; `_held_subjects` exists. Zero located
-    is a FAILURE."""
+    """R26 (BRIEF-0078-a item 4, retargeted BRIEF-0097-d): `_anchorable_facts`
+    exists and its body references all three of `world_id`, `is_secret` and a
+    `!=`/`is_not` comparison against `character.id`; `_held_facts` exists.
+    Zero located is a FAILURE."""
     tree = _parse(DAY_PLAN_FILE)
     if tree is None:
         return
-    held = _find_function(tree, "_held_subjects")
-    anchorable = _find_function(tree, "_anchorable_subjects")
+    held = _find_function(tree, "_held_facts")
+    anchorable = _find_function(tree, "_anchorable_facts")
     if held is None and anchorable is None:
-        fail(f"day_plan R26: neither _held_subjects nor _anchorable_subjects found in {_rel(DAY_PLAN_FILE)} — vacuous")
+        fail(f"day_plan R26: neither _held_facts nor _anchorable_facts found in {_rel(DAY_PLAN_FILE)} — vacuous")
         return
     if held is None:
-        fail(f"day_plan R26: {_rel(DAY_PLAN_FILE)}: _held_subjects not found")
+        fail(f"day_plan R26: {_rel(DAY_PLAN_FILE)}: _held_facts not found")
     if anchorable is None:
-        fail(f"day_plan R26: {_rel(DAY_PLAN_FILE)}: _anchorable_subjects not found")
+        fail(f"day_plan R26: {_rel(DAY_PLAN_FILE)}: _anchorable_facts not found")
         return
 
     attrs = {node.attr for node in ast.walk(anchorable) if isinstance(node, ast.Attribute)}
     if "world_id" not in attrs:
-        fail(f"day_plan R26: {_rel(DAY_PLAN_FILE)}: _anchorable_subjects does not reference world_id")
+        fail(f"day_plan R26: {_rel(DAY_PLAN_FILE)}: _anchorable_facts does not reference world_id")
     if "is_secret" not in attrs:
-        fail(f"day_plan R26: {_rel(DAY_PLAN_FILE)}: _anchorable_subjects does not reference is_secret")
+        fail(f"day_plan R26: {_rel(DAY_PLAN_FILE)}: _anchorable_facts does not reference is_secret")
 
     has_player_exclusion = False
     for node in ast.walk(anchorable):
@@ -1022,7 +1024,7 @@ def check_anchoring_readers() -> None:
                 has_player_exclusion = True
     if not has_player_exclusion:
         fail(
-            f"day_plan R26: {_rel(DAY_PLAN_FILE)}: _anchorable_subjects has no != / is not "
+            f"day_plan R26: {_rel(DAY_PLAN_FILE)}: _anchorable_facts has no != / is not "
             "comparison against character.id"
         )
 
@@ -1060,10 +1062,11 @@ def check_anchor_requirements_wiring() -> None:
 
 
 def check_held_subjects_summary_append() -> None:
-    """R28 (BRIEF-0078-a item 6): `emit_plan` appends `held_subjects_summary`
-    with `+=` to the user message and `held_subjects_summary` appears in NO
-    seeded prompt constant in `scripts/seed_pilot.py` — proving it is
-    appended text, not a template placeholder."""
+    """R28 (BRIEF-0078-a item 6, retargeted BRIEF-0097-d): `emit_plan`
+    appends `learnable_summary` with `+=` to the user message and
+    `learnable_facts_summary` appears in NO seeded prompt constant in
+    `scripts/seed_pilot.py` — proving it is appended text, not a template
+    placeholder."""
     tree = _parse(DAY_PLAN_FILE)
     if tree is None:
         return
@@ -1078,23 +1081,23 @@ def check_held_subjects_summary_append() -> None:
             and isinstance(node.target, ast.Name) and node.target.id == "user_msg"
         ):
             if any(
-                isinstance(sub, ast.Name) and sub.id == "held_subjects_summary"
+                isinstance(sub, ast.Name) and sub.id == "learnable_summary"
                 for sub in ast.walk(node.value)
             ):
                 found = True
     if not found:
-        fail(f"day_plan R28: {_rel(DAY_PLAN_FILE)}: emit_plan does not append held_subjects_summary with +=")
+        fail(f"day_plan R28: {_rel(DAY_PLAN_FILE)}: emit_plan does not append learnable_summary with +=")
 
     seed_tree = _parse(SEED_PILOT_FILE)
     if seed_tree is not None:
         for node in ast.walk(seed_tree):
             if (
                 isinstance(node, ast.Constant) and isinstance(node.value, str)
-                and "held_subjects_summary" in node.value
+                and "learnable_facts_summary" in node.value
             ):
                 fail(
                     f"day_plan R28: {_rel(SEED_PILOT_FILE)}:{node.lineno} — a seeded prompt string "
-                    "contains 'held_subjects_summary' as a template placeholder"
+                    "contains 'learnable_facts_summary' as a template placeholder"
                 )
 
 

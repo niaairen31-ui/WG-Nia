@@ -157,7 +157,7 @@
               </div>
             {:else if row.kind === 'knowledge'}
               {@const p = row.payload}
-              {@const aboutId = (p.subject || '').replace(/^npc:/, '')}
+              {@const aboutId = (p.subject_entity_ids || [])[0] || ''}
               <div class="linkagent-row {rejected ? 'rejected' : ''}">
                 <span class="badge b-other">knowledge</span>
                 <span style="font-size:11px; color:var(--muted)">{npcName(p.entity_id)} à propos de {npcName(aboutId)}</span>

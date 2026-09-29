@@ -190,7 +190,7 @@
         (aucun)
       {:else}
         {#each draftKnowledge as k}
-          <div>{k.subject} ({k.level}) : {k.content}</div>
+          <div>({k.level}) {k.content}</div>
         {/each}
       {/if}
     </div>

@@ -53,7 +53,7 @@ from ...models import (
 )
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
-from ...subject_resolve import unresolved_subjects
+from ...unbound_facts import unbound_facts
 from ...tick_normalize import _EVENT_TYPES
 from ...writes import (
     KNOWLEDGE_LEVELS,
@@ -96,7 +96,6 @@ from ._shared import (
 
 
 class KnowledgeWriteBody(BaseModel):
-    subject: Optional[str] = None
     level: Optional[str] = None
     content: Optional[str] = None
     source: Optional[str] = None
@@ -139,28 +138,14 @@ def list_entity_knowledge(entity_id: str, db: DbSession = Depends(get_session)) 
     return _list_knowledge(entity_id, db)
 
 
-@router.get("/worlds/{world_id}/unresolved-subjects")
-def list_unresolved_subjects(world_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
-    """Read-only residue worklist (TICKET-0087, BRIEF-0087-d, C-06): one row
-    per distinct `knowledge.subject` in `world_id` whose fact carries no
-    `fact_participant` at all. No write, no side effect, no model call."""
+@router.get("/worlds/{world_id}/unbound-facts")
+def list_unbound_facts(world_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
+    """Read-only worklist (TICKET-0097, I1/J1, C-08): one row per free fact
+    of `world_id` that someone knows and no participant binds. No write, no
+    side effect, no model call."""
     if db.get(World, world_id) is None:
         raise HTTPException(404, f"World {world_id!r} not found")
-    rows = unresolved_subjects(world_id, db)
-    return [
-        {
-            "subject": row["subject"],
-            "fact_ids": list(row["fact_ids"]),
-            "row_count": row["row_count"],
-            "resolution": {
-                "verdict": row["resolution"].verdict,
-                "entity_id": row["resolution"].entity_id,
-                "candidate_ids": list(row["resolution"].candidate_ids),
-                "category": row["resolution"].category,
-            },
-        }
-        for row in rows
-    ]
+    return unbound_facts(world_id, db)
 
 
 def _create_knowledge_core(entity_id: str, body: KnowledgeWriteBody, db: DbSession) -> Knowledge:
@@ -168,11 +153,12 @@ def _create_knowledge_core(entity_id: str, body: KnowledgeWriteBody, db: DbSessi
 
     `body.fact_id`, when present, attaches to that existing fact (404 if it
     does not exist); when absent, `write_knowledge` auto-creates a
-    free-standing fact with `content = subject` (TICKET-0082, BRIEF-0082-b).
+    free-standing fact whose content is the row's text (TICKET-0097, K1/M1),
+    so a row without `fact_id` needs a content.
     """
     _get_entity(db, entity_id)
-    if not body.subject:
-        raise HTTPException(422, "subject is required")
+    if body.fact_id is None and not (body.content or "").strip():
+        raise HTTPException(422, "content is required")
     if body.level not in KNOWLEDGE_LEVELS:
         raise HTTPException(422, f"level must be one of {sorted(KNOWLEDGE_LEVELS)}")
     if body.fact_id is not None and db.get(Fact, body.fact_id) is None:
@@ -181,7 +167,6 @@ def _create_knowledge_core(entity_id: str, body: KnowledgeWriteBody, db: DbSessi
     return write_knowledge(
         db,
         entity_id=entity_id,
-        subject=body.subject,
         level=body.level,
         content=body.content,
         source=body.source,
@@ -208,13 +193,10 @@ def update_knowledge(knowledge_id: str, body: KnowledgeWriteBody, db: DbSession 
         raise HTTPException(404, f"Knowledge {knowledge_id!r} not found")
     if body.level is not None and body.level not in KNOWLEDGE_LEVELS:
         raise HTTPException(422, f"level must be one of {sorted(KNOWLEDGE_LEVELS)}")
-    if not body.subject:
-        raise HTTPException(422, "subject is required")
 
     k = write_knowledge(
         db,
         knowledge_id=knowledge_id,
-        subject=body.subject,
         level=body.level or existing.level,
         content=body.content,
         source=body.source,

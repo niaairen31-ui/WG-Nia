@@ -46,6 +46,7 @@ from typing import Callable, Optional
 from sqlmodel import Session, func, select
 
 from . import llm_parse, ollama_client
+from .fact_refs import CodedFacts, code_facts
 from .models import (
     BASE_SKILL_DOMAINS,
     SCHEDULE_PHASES,
@@ -53,6 +54,7 @@ from .models import (
     AgendaStepRequirement,
     Character,
     Entity,
+    Fact,
     Knowledge,
     Ledger,
     PromptTemplate,
@@ -60,6 +62,7 @@ from .models import (
 )
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
+from .prose_render import fact_text, fact_texts
 
 _log = logging.getLogger(__name__)
 
@@ -75,10 +78,10 @@ REQUIREMENT_TYPES: tuple[str, ...] = ("knowledge", "relation_gte", "resource", "
 # reported count (logged), not silently dropped.
 MAX_PLAN_STEPS = 12
 
-# BRIEF-0078-a Scope IN item 6: bound on how many held subjects are listed
-# in held_subjects_summary(). Anything beyond is truncated with a reported
-# count (logged), not silently dropped.
-MAX_HELD_SUBJECTS_SHOWN: int = 40
+# BRIEF-0078-a Scope IN item 6, re-aimed by TICKET-0097 (D1'a): bound on how
+# many learnable facts `learnable_facts` codes for the model. Anything beyond
+# is truncated with a reported count (logged), not silently dropped.
+MAX_LEARNABLE_FACTS_SHOWN: int = 40
 
 # Same mild repetition controls as MJ gathering — short, low-drift JSON output.
 DAY_PLAN_OPTIONS: dict = {"repeat_penalty": 1.1, "repeat_last_n": 128}
@@ -110,6 +113,9 @@ class Verdict:
     current: object
     required: object
     reason: str
+    # TICKET-0097: the player-facing text of `required` when it is an id
+    # (a `knowledge` gate's fact); None when `required` is already readable.
+    required_label: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -136,19 +142,24 @@ class BudgetResult:
 # keeps `_EVALUATORS` directly callable without a special case.
 
 def _eval_knowledge(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
+    """`target_key` is a fact id (TICKET-0097, D1'a): met iff the character
+    holds a row on that fact."""
     del reachable_ids
     row = db.exec(
         select(Knowledge).where(
-            Knowledge.entity_id == character.id, Knowledge.subject == req.target_key,
+            Knowledge.entity_id == character.id, Knowledge.fact_id == req.target_key,
         )
     ).first()
     met = row is not None
+    fact = db.get(Fact, req.target_key) if req.target_key else None
+    label = fact_text(db, fact) if fact is not None else req.target_key
     reason = (
-        f"knowledge {req.target_key!r} already held" if met
-        else f"prerequisite not met — knowledge {req.target_key!r} not held"
+        f"knowledge {label!r} already held" if met
+        else f"prerequisite not met — knowledge {label!r} not held"
     )
     return Verdict(
         type=req.type, met=met, current=("held" if met else "unheld"), required=req.target_key, reason=reason,
+        required_label=label,
     )
 
 
@@ -318,30 +329,28 @@ def budget_cut(steps: list[EvaluatedStep], budget: int) -> BudgetResult:
 
 # ── requirement anchoring (BRIEF-0078-a, decisions A5(A1b)/B3) ──────────────
 #
-# B3: a gate is legitimate only on a subject that exists to be learned --
+# B3: a gate is legitimate only on a fact that exists to be learned --
 # held in this world by an entity OTHER than the player, on a non-secret
 # row. `is_secret` is excluded because a gate on a secret is both
 # unsatisfiable and a disclosure: the reject message would reveal that the
 # secret exists.
 
-def _held_subjects(character: Character, db: Session) -> frozenset[str]:
-    """The player's own held subjects (A1b) — handed to the emission model
-    via `held_subjects_summary` so it stops proposing a dead gate on
-    something already held. Called at most once per emission (F3)."""
+def _held_facts(character: Character, db: Session) -> frozenset[str]:
+    """The fact ids the player already holds (A1b) — left out of the coded
+    list the emission model sees, so it cannot propose a dead gate."""
     rows = db.exec(
-        select(Knowledge.subject).where(Knowledge.entity_id == character.id).distinct()
+        select(Knowledge.fact_id).where(Knowledge.entity_id == character.id).distinct()
     ).all()
     return frozenset(rows)
 
 
-def _anchorable_subjects(character: Character, db: Session) -> frozenset[str]:
-    """The B3 predicate, and nowhere else: subjects that legitimately anchor
+def _anchorable_facts(character: Character, db: Session) -> frozenset[str]:
+    """The B3 predicate, and nowhere else: fact ids that legitimately anchor
     a `knowledge` requirement — held in this world (`Entity.world_id`), by an
     entity OTHER than the player (`Knowledge.entity_id != character.id`), on
-    a non-secret row (`Knowledge.is_secret == False`). Called at most once
-    per emission (F3)."""
+    a non-secret row (`Knowledge.is_secret == False`)."""
     rows = db.exec(
-        select(Knowledge.subject)
+        select(Knowledge.fact_id)
         .join(Entity, Entity.id == Knowledge.entity_id)
         .where(
             Entity.world_id == character.world_id,
@@ -356,12 +365,13 @@ def _anchorable_subjects(character: Character, db: Session) -> frozenset[str]:
 def anchor_requirements(
     steps: list[PlanStep], character: Character, db: Session,
 ) -> tuple[list[PlanStep], list[dict]]:
-    """Drop every `knowledge` requirement whose `target_key` is not anchored
-    (B3) — REQUIREMENTS are dropped, never steps: the returned step count
-    always equals the input count. A step whose only requirement was dropped
-    becomes an ungated step, the intended outcome, not a degradation.
-    `_anchorable_subjects` is called ONCE for the whole plan (F3)."""
-    anchorable = _anchorable_subjects(character, db)
+    """Drop every `knowledge` requirement whose `target_key` is not an
+    anchored fact id (B3) — REQUIREMENTS are dropped, never steps: the
+    returned step count always equals the input count. A step whose only
+    requirement was dropped becomes an ungated step, the intended outcome,
+    not a degradation. `_anchorable_facts` is called ONCE for the whole plan
+    (F3)."""
+    anchorable = _anchorable_facts(character, db)
     dropped: list[dict] = []
     anchored_steps: list[PlanStep] = []
     for step_index, step in enumerate(steps):
@@ -443,36 +453,52 @@ def _validate_step(raw: object) -> PlanStep:
     return PlanStep(objective=objective.strip(), cost=cost, domain=domain, requirements=requirements)
 
 
-def held_subjects_summary(character: Character, db: Session) -> str:
-    """A short French summary of the subjects `character` already holds
-    (BRIEF-0078-a Scope IN item 6, decision A1b) — appended to `emit_plan`'s
-    user message so the model stops proposing a `knowledge` gate on a
-    subject already held (a dead gate). Positive form only — the gameplay
-    model is abliterated. Returns "" when the player holds no subject at
-    all. Calls `_held_subjects` once."""
-    subjects = sorted(_held_subjects(character, db))
-    if not subjects:
-        return ""
-    truncated = 0
-    if len(subjects) > MAX_HELD_SUBJECTS_SHOWN:
-        truncated = len(subjects) - MAX_HELD_SUBJECTS_SHOWN
-        subjects = subjects[:MAX_HELD_SUBJECTS_SHOWN]
+def learnable_facts(character: Character, db: Session) -> CodedFacts:
+    """D1'a (TICKET-0097): the coded list of facts a `knowledge` gate may
+    name — anchorable (B3) and not already held (A1b), ordered by their
+    rendered text, at most `MAX_LEARNABLE_FACTS_SHOWN` (the rest is counted
+    in a log line, never silently dropped)."""
+    fact_ids = _anchorable_facts(character, db) - _held_facts(character, db)
+    facts = [fact for fact in (db.get(Fact, fid) for fid in fact_ids) if fact is not None]
+    ordered = [fact for _text, fact in sorted(zip(fact_texts(db, facts), facts), key=lambda p: (p[0], p[1].id))]
+    if len(ordered) > MAX_LEARNABLE_FACTS_SHOWN:
         _log.info(
-            "day_plan: held_subjects_summary truncated %d subject(s) beyond MAX_HELD_SUBJECTS_SHOWN=%d",
-            truncated, MAX_HELD_SUBJECTS_SHOWN,
+            "day_plan: learnable_facts truncated %d fact(s) beyond MAX_LEARNABLE_FACTS_SHOWN=%d",
+            len(ordered) - MAX_LEARNABLE_FACTS_SHOWN, MAX_LEARNABLE_FACTS_SHOWN,
         )
-    character_entity = db.get(Entity, character.id)
-    character_name = character_entity.name if character_entity is not None else character.id
-    liste = ", ".join(subjects)
+    return code_facts(db, [fact.id for fact in ordered[:MAX_LEARNABLE_FACTS_SHOWN]])
+
+
+def learnable_facts_summary(character_name: str, learnable: CodedFacts) -> str:
+    """The French text `emit_plan` appends for `learnable` (BRIEF-0078-a's
+    appended-text shape, never a template placeholder). Positive form only —
+    the gameplay model is abliterated. "" when the list is empty."""
+    if not learnable.lines:
+        return ""
+    liste = "\n".join(learnable.lines)
     return (
-        f"Sujets que {character_name} connaît déjà : {liste}.\n"
-        "Une condition « knowledge » porte sur un sujet absent de cette liste."
+        f"Faits que {character_name} peut apprendre (code — fait) :\n{liste}\n"
+        "Une condition « knowledge » donne comme target_key le code d'un de ces faits."
     )
 
 
+def _resolve_knowledge_codes(steps: list[PlanStep], learnable: CodedFacts) -> list[PlanStep]:
+    """Each `knowledge` requirement's code becomes its fact id; a code the
+    list did not show is kept as emitted, for `anchor_requirements` to drop
+    and report."""
+    resolved_steps = []
+    for step in steps:
+        requirements = tuple(
+            replace(req, target_key=learnable.resolve(req.target_key) or req.target_key)
+            if req.type == "knowledge" else req
+            for req in step.requirements
+        )
+        resolved_steps.append(replace(step, requirements=requirements))
+    return resolved_steps
+
+
 def emit_plan(
-    declaration: str, character: Character, db: Session,
-    standing_steps_summary: str = "", held_subjects_summary: str = "",
+    declaration: str, character: Character, db: Session, standing_steps_summary: str = "",
 ) -> list[PlanStep]:
     """ONE model call (F1). Parses through `llm_parse.extract_object`;
     domain/shape validation stays here per M9's contract. A parse failure or
@@ -484,12 +510,10 @@ def emit_plan(
     `day_rewrite.render`'s output, participants already named), never the
     raw `pass_play.declared_action` — every call site passes the rewrite.
     `standing_steps_summary` (BRIEF-0075-f, `modify`'s reconciliation path)
-    and `held_subjects_summary` (BRIEF-0078-a, item 6) are appended verbatim
-    to the user message, never woven into the seeded template text — text a
-    Python pass already built, not a new prompt-template placeholder that a
-    virgin-head-only seed (S2) could never retrofit onto an already-
-    provisioned world. Each defaults to "" (a no-op) so every pre-existing
-    call site is byte-identical."""
+    and the learnable-facts summary (TICKET-0097, D1'a — built here, on every
+    call site) are appended verbatim to the user message, never woven into
+    the seeded template text. Every `knowledge` requirement comes back with
+    its code resolved to a fact id (`_resolve_knowledge_codes`)."""
     template = _load_day_plan_template(character.world_id, db)
     if template is None:
         raise llm_parse.LlmParseError("day_plan: no active prompt_template for usage='day_plan'")
@@ -502,10 +526,12 @@ def emit_plan(
         .replace("{character_name}", character_name)
         .replace("{declaration}", declaration)
     )
+    learnable = learnable_facts(character, db)
+    learnable_summary = learnable_facts_summary(character_name, learnable)
     if standing_steps_summary:
         user_msg += f"\n\n{standing_steps_summary}"
-    if held_subjects_summary:
-        user_msg += f"\n\n{held_subjects_summary}"
+    if learnable_summary:
+        user_msg += f"\n\n{learnable_summary}"
     user_msg += "\n/no_think"
     raw = ollama_client.chat(
         [
@@ -527,7 +553,7 @@ def emit_plan(
         truncated = len(raw_steps) - MAX_PLAN_STEPS
         raw_steps = raw_steps[:MAX_PLAN_STEPS]
 
-    steps = [_validate_step(item) for item in raw_steps]
+    steps = _resolve_knowledge_codes([_validate_step(item) for item in raw_steps], learnable)
     if truncated:
         _log.info("day_plan: emitted plan truncated by %d step(s) beyond MAX_PLAN_STEPS=%d", truncated, MAX_PLAN_STEPS)
     return steps
