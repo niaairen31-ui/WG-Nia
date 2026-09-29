@@ -219,7 +219,6 @@ KNOWLEDGE_LEVELS_ORDERED = (
 
 
 KNOWLEDGE_FIELDS: list[dict[str, Any]] = [
-    {"name": "subject", "label": "Subject", "kind": "text", "required": True},
     {
         "name": "level", "label": "Level", "kind": "select",
         "options": list(KNOWLEDGE_LEVELS_ORDERED), "default": "rumor", "required": True,
@@ -251,7 +250,6 @@ def _knowledge_dict(k: Knowledge, db: Optional[DbSession] = None) -> dict:
     return {
         "id": k.id,
         "entity_id": k.entity_id,
-        "subject": k.subject,
         "level": k.level,
         "content": knowledge_text(db, k),
         "source": k.source,

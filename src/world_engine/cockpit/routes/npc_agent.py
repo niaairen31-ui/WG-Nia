@@ -221,7 +221,6 @@ def _commit_npc_row(row: NpcBatchRow, batch: NpcBatch, db: Session) -> dict:
 
     for k in (sec.get("knowledge") or []):
         k_body = _crud.KnowledgeWriteBody(
-            subject=k.get("subject"),
             level=k.get("level"),
             content=k.get("content"),
             source=None,

@@ -17172,6 +17172,33 @@ the fact.
 holds a row on the fact of every hidden detail in it; a detail no approved
 discovery has linked to a fact is, by construction, not known yet.
 
+## THE CREATOR SURFACE WRITES FACTS (TICKET-0097) -- NO SUBJECT FIELD, AND THE WORKLIST LISTS FACTS (BRIEF-0097-f, no schema change)
+
+**K1 -- the Subject field is gone.** The sheet's knowledge editor, the
+pending-knowledge editor of a new NPC, the PC creation draft and the NPC
+group agent's commit no longer send a `subject`. A new row is its content;
+its fact is born with that sentence (M1). An existing row shows its fact's
+text read-only. Attaching a character to an existing fact is the lore
+writing path's job, the next ticket.
+
+**Generators stop asking for one.** `secret.knowledge` (entity generation)
+and `knowledge` (PC generation) are `{level, content}`; the conversation
+analysis prompt loses `subject` from every knowledge shape and example, and
+loses `knowledge_change` from its type list (N1).
+
+**I1 -- one resolver.** `subject_resolve.py` is deleted (N10a's condition,
+"the Q1b ticket opens", fired). `unbound_facts.py` lists the free facts
+someone knows and no participant binds, and reads each fact's text through
+`lore_mentions_read.lookup_surface` -- the names panel's resolver: names
+and appellations, every category, the partial rung, near names. It never
+picks: a suggestion is preselected only for a single candidate.
+`GET /api/worlds/{id}/unbound-facts` replaces `/unresolved-subjects`.
+
+**J1 -- a card is a fact.** The « Sujets » tab keeps its name and place; a
+card shows the fact's text, its first knower's version (by name), how many
+know it, then the candidates or near names. Binding is one participant
+POST, since a card is one fact.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -23,7 +23,6 @@
     {#each pendingDraftsState.knowledge as k, i}
       <div class="row-card">
         <div class="field-grid">
-          <div class="field-row"><label>Subject</label><input type="text" bind:value={k.subject}></div>
           <div class="field-row"><label>Level</label>
             <select bind:value={k.level}>
               {#each levelOptions as l}<option value={l}>{l}</option>{/each}

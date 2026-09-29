@@ -8,6 +8,10 @@ live DB: models name facts by code, never by a free-text subject.
   passes on by its briefing code (`source_fact`).
 - `pt-day-plan` (BRIEF-0097-D, D1'a): a `knowledge` requirement's
   `target_key` is the code of a fact from the appended learnable list.
+- `pt-conversation-analysis` (BRIEF-0097-F, M1/N1): no `subject` in any
+  knowledge shape or example, and no `knowledge_change` type.
+- `pt-player-generation` (BRIEF-0097-F, K1): a knowledge item is a level and
+  a content, no subject.
 
 Embeds NO prompt text of its own; it imports each text from
 `scripts/seed_pilot.py` (single source of text). History is sacred: a changed
@@ -65,6 +69,20 @@ _UPDATES: tuple[tuple[str, str, str, list[str], str], ...] = (
         seed_pilot.DAY_PLAN_USER_TEMPLATE,
         ["character_name", "declaration"],
         "TICKET-0097 BRIEF-0097-D -- a knowledge gate names its fact by code (D1'a)",
+    ),
+    (
+        "pt-conversation-analysis",
+        seed_pilot.CONVERSATION_ANALYSIS_SYSTEM_PROMPT,
+        seed_pilot.CONVERSATION_ANALYSIS_USER_TEMPLATE,
+        ["transcript", "injected_context"],
+        "TICKET-0097 BRIEF-0097-F -- no subject, no knowledge_change (M1, N1)",
+    ),
+    (
+        "pt-player-generation",
+        seed_pilot.PLAYER_GENERATION_SYSTEM_PROMPT,
+        seed_pilot.PLAYER_GENERATION_USER_TEMPLATE,
+        ["brief"],
+        "TICKET-0097 BRIEF-0097-F -- a knowledge item has no subject (K1)",
     ),
 )
 

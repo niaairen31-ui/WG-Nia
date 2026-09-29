@@ -78,7 +78,6 @@
       knowledge: k
         ? {
             entityName: mutationEntityName(k.entity_id),
-            subject: k.subject || '',
             level: k.level || '',
             content: k.content || '',
           }
@@ -197,7 +196,7 @@
         <div class="row-card" style="flex-direction:row; align-items:center; gap:10px; flex-wrap:wrap;">
           <span class="badge b-new_knowledge">knowledge</span>
           <span style="font-weight:600;">{resourceLegs.knowledge.entityName}</span>
-          <span style="color:var(--muted); font-size:12px;">{resourceLegs.knowledge.subject} · {resourceLegs.knowledge.level}</span>
+          <span style="color:var(--muted); font-size:12px;">{resourceLegs.knowledge.level}</span>
           {#if resourceLegs.knowledge.content}<span style="font-size:12px;">{resourceLegs.knowledge.content}</span>{/if}
         </div>
       {/if}

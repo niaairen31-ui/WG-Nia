@@ -279,7 +279,7 @@ Output: a JSON array only. No prose. No markdown fences. Start with [, end with 
 Nothing changed → output exactly: []
 
 Every element must have these EXACT 5 keys — no other keys allowed:
-  "mutation_type"  (string) — relation_change | new_knowledge | knowledge_change | event_creation | status_change | entity_creation | resource_change | goal_change | other
+  "mutation_type"  (string) — relation_change | new_knowledge | event_creation | status_change | entity_creation | resource_change | goal_change | other
   "target_table"   (string) — relation | knowledge | event | entity | character | location | faction | artifact | ledger | npc_goal | other
   "target_id"      (string or null) — id of the row to update; null for a new row
   "payload"        (object) — fields matching the target table (see below)
@@ -287,10 +287,9 @@ Every element must have these EXACT 5 keys — no other keys allowed:
 
 Payload shapes:
   relation_change  → {"entity_a_id":"…","entity_b_id":"…","relation_type":"…","intensity_delta":<signed int>}
-  new_knowledge    → {"entity_id":"…","subject":"…","level":"rumor|partial|knows|…","content":"…","source":"…","subject_entity_id":"…" (OPTIONAL — see rubric below)}
-  knowledge_change → {"entity_id":"…","subject":"…","field":"…","new_value":"…"}
+  new_knowledge    → {"entity_id":"…","level":"rumor|partial|knows|…","content":"…","source":"…","subject_entity_id":"…" (OPTIONAL — see rubric below)}
   event_creation   → {"title":"…","description":"…","type":"social|political|other","involved_entities":[…]}
-  resource_change  → {"entity_id":"char-player","amount":<signed int>,"counterparty_id":"…","reason":"…","knowledge":{"entity_id":"…","subject":"…","level":"…","content":"…","source":"…","is_secret":false} (knowledge is OPTIONAL — only when information changed hands)}
+  resource_change  → {"entity_id":"char-player","amount":<signed int>,"counterparty_id":"…","reason":"…","knowledge":{"entity_id":"…","level":"…","content":"…","source":"…","is_secret":false} (knowledge is OPTIONAL — only when information changed hands)}
   goal_change      → {"action":"complete|abandon|create_short","goal":"…"}
 
 === RELATION_CHANGE SIGN RUBRIC ===
@@ -379,7 +378,7 @@ Transcript :
 [JOUEUR] On dit que des voyageurs disparaissent sur la route ?
 [PNJ] On le dit, oui. Les patrouilles ont doublé depuis un mois. Personne ne sait pourquoi.
 Output:
-[{"mutation_type":"new_knowledge","target_table":"knowledge","target_id":null,"payload":{"entity_id":"char-player","subject":"disparitions_route","level":"rumor","content":"Le PNJ confirme des rumeurs de disparitions et un doublement des patrouilles depuis un mois.","source":"conversation avec le PNJ"},"rationale":"Le PNJ a directement confirmé la rumeur — le joueur dispose maintenant d'une corroboration externe."}]
+[{"mutation_type":"new_knowledge","target_table":"knowledge","target_id":null,"payload":{"entity_id":"char-player","level":"rumor","content":"Le PNJ confirme des rumeurs de disparitions et un doublement des patrouilles depuis un mois.","source":"conversation avec le PNJ"},"rationale":"Le PNJ a directement confirmé la rumeur — le joueur dispose maintenant d'une corroboration externe."}]
 
 === EXEMPLE 3 (fenêtre multi-tours, échange banal → rien à enregistrer) ===
 Transcript :
@@ -399,7 +398,7 @@ Transcript :
 [JOUEUR] Tiens.
 [PNJ] Plaisir de faire affaire.
 Output:
-[{"mutation_type":"resource_change","target_table":"ledger","target_id":null,"payload":{"entity_id":"char-player","amount":-15,"counterparty_id":"npc-b","reason":"achat d'une information sur le Conseil","knowledge":{"entity_id":"char-player","subject":"conseil_secret","level":"rumor","content":"Le Conseil cache l'un de ses propres membres.","source":"acheté au PNJ","is_secret":false}},"rationale":"Le joueur a payé 15 pièces, le PNJ a énoncé le prix et l'information, l'échange s'est conclu dans la scène."}]
+[{"mutation_type":"resource_change","target_table":"ledger","target_id":null,"payload":{"entity_id":"char-player","amount":-15,"counterparty_id":"npc-b","reason":"achat d'une information sur le Conseil","knowledge":{"entity_id":"char-player","level":"rumor","content":"Le Conseil cache l'un de ses propres membres.","source":"acheté au PNJ","is_secret":false}},"rationale":"Le joueur a payé 15 pièces, le PNJ a énoncé le prix et l'information, l'échange s'est conclu dans la scène."}]
 
 === EXEMPLE 5 (un objectif listé est accompli) ===
 NPC CONTEXT (extrait) :
@@ -1215,8 +1214,7 @@ joueur (chaîne).
 - "backstory" : son histoire personnelle, pour la référence du joueur \
 (chaîne).
 - "knowledge" : un tableau de ce que le personnage sait au départ. Chaque \
-élément est un objet { "subject": <chaîne>, "level": <niveau>, \
-"content": <chaîne> }. "level" appartient à cette échelle, du plus faible \
+élément est un objet { "level": <niveau>, "content": <chaîne> }. "level" appartient à cette échelle, du plus faible \
 au plus fort : "unaware", "rumor", "suspicious", "partial", "knows", \
 "fully_understands". Propose 0 à 5 savoirs, jamais davantage.
 

@@ -70,6 +70,13 @@ K7 -- aboutness is the fact's participants (G1, H1):
       fact's `about_entity_ids`;
    d. a signpost cluster is silent once the player knows the fact of every
       hidden detail in it, and speaks while one detail has no fact yet.
+K8 -- the creator surface (K1, I1, J1, C-08):
+   a. `unbound_facts` lists a known free fact without participant with its
+      text, first knower's version, knower count and the resolver's single
+      candidate for a name; a bound fact and a typed fact are not listed;
+   b. the creator CRUD creates a row without `subject` (the fact carries
+      the content) and refuses a create with neither content nor fact_id;
+      the knowledge dict carries no `subject` key.
 
 Fresh temp-file SQLite databases (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB.
@@ -93,15 +100,9 @@ FAILURES: list[str] = []
 
 _SUBJECT_CENSUS: dict[str, int] = {
     "src/world_engine/analyzer_transcript.py": 3,
-    "src/world_engine/cockpit/crud/_shared.py": 3,
-    "src/world_engine/cockpit/crud/knowledge.py": 8,
     "src/world_engine/cockpit/crud/locations.py": 7,
     "src/world_engine/cockpit/play_discovery.py": 3,
-    "src/world_engine/cockpit/routes/creator.py": 2,
-    "src/world_engine/cockpit/routes/npc_agent.py": 2,
-    "src/world_engine/entity_author.py": 4,
     "src/world_engine/models/canon_knowledge.py": 1,
-    "src/world_engine/subject_resolve.py": 4,
     "src/world_engine/writes/knowledge.py": 8,
 }
 
@@ -707,6 +708,48 @@ def rule_k7(engine) -> None:
         session.rollback()
 
 
+def _k8(session, ids) -> None:
+    from fastapi import HTTPException
+
+    from world_engine.cockpit.crud._shared import _knowledge_dict
+    from world_engine.cockpit.crud.knowledge import KnowledgeWriteBody, _create_knowledge_core
+    from world_engine.unbound_facts import unbound_facts
+    from world_engine.writes import attach_participants, write_knowledge
+    from world_engine.models import Fact
+
+    named = write_knowledge(session, entity_id=ids["ana"], content="Bel", level="knows")
+    write_knowledge(session, entity_id=ids["bel"], fact_id=named.fact_id, content="Elle", level="rumor")
+    bound = write_knowledge(session, entity_id=ids["ana"], content="Lié.", level="knows")
+    attach_participants(session, fact=session.get(Fact, bound.fact_id), entity_ids=[ids["bel"]])
+    session.flush()
+    rows = unbound_facts(ids["w"], session)
+    listed = {r["fact_id"]: r for r in rows}
+    row = listed.get(named.fact_id)
+    if row is None or bound.fact_id in listed:
+        fail(f"K8a unbound facts are {sorted(listed)!r}")
+    elif (row["fact"], row["knower_count"], row["excerpt"], [c["id"] for c in row["candidates"]]) != (
+            "Bel", 2, {"entity_name": "Ana", "text": "Bel"}, [ids["bel"]]):
+        fail(f"K8a row is {row!r}")
+    made = _create_knowledge_core(ids["bel"], KnowledgeWriteBody(level="knows", content="Il neige."), session)
+    session.flush()
+    if session.get(Fact, made.fact_id).content_raw != "Il neige." or "subject" in _knowledge_dict(made, session):
+        fail("K8b the CRUD create does not give the fact the row's content, or the dict has a subject")
+    try:
+        _create_knowledge_core(ids["bel"], KnowledgeWriteBody(level="knows"), session)
+        fail("K8b a create with neither content nor fact_id was accepted")
+    except HTTPException as exc:
+        if exc.status_code != 422:
+            fail(f"K8b refusal status is {exc.status_code}")
+
+
+def rule_k8(engine) -> None:
+    from sqlmodel import Session
+
+    with Session(engine) as session:
+        _k8(session, _k4_world(session))
+        session.rollback()
+
+
 def rule_k4(engine) -> None:
     from sqlmodel import Session
 
@@ -759,6 +802,7 @@ def main() -> int:
     rule_k5(engine)
     rule_k6(engine)
     rule_k7(engine)
+    rule_k8(engine)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")

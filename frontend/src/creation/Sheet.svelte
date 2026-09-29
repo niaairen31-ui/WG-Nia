@@ -500,7 +500,7 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              subject: row.subject, level: row.level, source: null, share_threshold: 50,
+              level: row.level, source: null, share_threshold: 50,
               is_incorrect: false, is_secret: true, content: row.content,
             }),
           });
