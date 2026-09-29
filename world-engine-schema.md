@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.09
+Current schema version: v2.10
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -698,20 +698,17 @@ CREATE INDEX idx_fact_default_fact ON fact_default(fact_id);
 
 What each entity knows — structured and injectable into prompts.
 `fact_id` (schema v1.98, TICKET-0082, BRIEF-0082-b) anchors each row to the
-fact it is knowledge OF; `subject` is unchanged and still the identity key
-for the ten call sites enumerated in BRIEF-0082-b (cutover deferred to a
-successor ticket). From v2.09 (TICKET-0097, BRIEF-0097-A) a row is unique
-per `(entity_id, fact_id)`: what an entity knows is identified by the fact
-it knows (`idx_knowledge_entity_fact`).
+fact it is knowledge OF. From v2.09 (TICKET-0097, BRIEF-0097-A) a row is
+unique per `(entity_id, fact_id)`: what an entity knows is identified by the
+fact it knows (`idx_knowledge_entity_fact`). The free-text `subject` column
+was dropped in v2.10 (BRIEF-0097-G); the name of what is known is the fact's
+content, and what it is about is the fact's participants.
 
 ```sql
 CREATE TABLE knowledge (
   id               TEXT PRIMARY KEY,
   entity_id        TEXT NOT NULL REFERENCES entity(id),
   fact_id          TEXT NOT NULL REFERENCES fact(id),
-  subject          TEXT NOT NULL,
-                   -- ex: "magic_existence", "the_11", "verkhaal_nexus",
-                   --     "the_unnamed", "faction_X_status"
   level            TEXT NOT NULL,
                    -- unaware | rumor | suspicious | partial | knows | fully_understands
   content          TEXT,            -- what exactly it knows
@@ -2018,7 +2015,8 @@ Day-plan precondition gate on one `agenda_step` (schema v1.94, TICKET-0075,
 BRIEF-0075-b). `goal_prerequisite` shape precedent, widened to a closed
 four-form vocabulary (`knowledge`, `relation_gte`, `resource`,
 `location_reachable`) and a `target_key` column for the two forms that gate
-on a string (a knowledge subject, a resource tag) rather than an entity. The
+on a string (a knowledge fact id since v2.09, TICKET-0097; a resource tag)
+rather than an entity. The
 per-type shape CHECK is the structural guarantee that an ill-formed row
 cannot exist: `relation_gte`/`location_reachable` require `target_entity_id`
 NOT NULL; `knowledge`/`resource` require `target_key` NOT NULL;
@@ -2391,10 +2389,6 @@ CREATE INDEX idx_entity_type         ON entity(type);
 
 -- "everything entity X knows"
 CREATE INDEX idx_knowledge_entity    ON knowledge(entity_id);
-
--- "who (if anyone) holds subject S" (schema v1.96, BRIEF-0078-a) — the
--- knowledge-gate anchoring lookup, day_plan._anchorable_subjects
-CREATE INDEX idx_knowledge_subject   ON knowledge(subject);
 
 -- "the fact this knowledge row is about" (schema v1.98, BRIEF-0082-b)
 CREATE INDEX idx_knowledge_fact      ON knowledge(fact_id);

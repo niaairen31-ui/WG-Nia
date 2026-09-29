@@ -13,6 +13,10 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.10** — TICKET-0097, BRIEF-0097-G: `knowledge.subject` and
+  `idx_knowledge_subject` dropped. `migrate_v2_10_drop_knowledge_subject.py`
+  refuses to run before v2.09, and while a row's subject is neither
+  `creator_meta`, nor its fact's content, nor backed by a participant.
 - **v2.09** — TICKET-0097, BRIEF-0097-A: knowledge identity by fact —
   `idx_knowledge_entity_fact`, a UNIQUE index on `knowledge(entity_id,
   fact_id)`, and `discoverable_detail.fact_id` (nullable FK to `fact`).

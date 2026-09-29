@@ -127,7 +127,7 @@ def _build_fixture(session):
     # Tier 1 — stored row beats everything, including a faction default.
     fact_stored = _fact("tier1: stored beats faction default")
     create_fact_default(session, world_id=world_id, fact_id=fact_stored, scope_type="faction", scope_id=faction_a_id, level="knows", created_by="check")
-    write_knowledge(session, entity_id=alice_id, fact_id=fact_stored, subject="tier1", level="partial")
+    write_knowledge(session, entity_id=alice_id, fact_id=fact_stored, level="partial")
     session.commit()
 
     # Tier 2 — location beats world.
@@ -310,7 +310,7 @@ def _build_c09_fixture(session):
         ("rencontre", friend_id), ("location", here_id), ("faction", faction_id), ("world", None),
     ):
         _default(f1, scope_type, scope_id, "knows")
-    write_knowledge(session, entity_id=perceiver_id, fact_id=f1, subject="c09 1", level="unaware")
+    write_knowledge(session, entity_id=perceiver_id, fact_id=f1, level="unaware")
     session.commit()
     cases[1] = (f1, "unaware")
 

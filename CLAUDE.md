@@ -147,7 +147,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   names a fact only by a code from a `fact_refs.code_facts` list; code resolves it.
 - **Secrets are structurally excluded** from every assembled context — never
   "guarded by instruction". The creator's note on an entity (a `histoire`
-  fact whose entity holds a `creator_meta` `is_secret` row) is excluded from
+  fact whose entity holds an `unaware` `is_secret` row on it) is excluded from
   `facet_reads` by query construction; only the Lore dossier opts in, plus the
   `creator` regime of `name_index` for name resolution (Lore question, names
   panel). Token posing never indexes a creator-only or unscoped appellation.

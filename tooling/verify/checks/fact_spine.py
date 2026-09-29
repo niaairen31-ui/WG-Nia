@@ -143,8 +143,8 @@ def check_db_fixture(engine) -> None:
         attach_participants(session, fact=free_fact, entity_ids=[a, b, c], role="conspirator")
         session.commit()
 
-        write_knowledge(session, entity_id=d, subject="a shared secret", level="rumor", fact_id=free_fact.id)
-        write_knowledge(session, entity_id=d, subject="unrelated gossip", level="knows")
+        write_knowledge(session, entity_id=d, level="rumor", fact_id=free_fact.id)
+        gossip_id = write_knowledge(session, entity_id=d, content="unrelated gossip", level="knows").id
         session.commit()
 
         # ── Positive: no participant on a typed fact, no NULL fact_id, every level valid ──
@@ -188,9 +188,7 @@ def check_db_fixture(engine) -> None:
 
         # ── Negative: an out-of-vocabulary knowledge.level (no DB CHECK guards
         #    this column) -> FAILs naming it, then heals ────────────────────────
-        gossip = session.exec(
-            select(Knowledge).where(Knowledge.entity_id == d, Knowledge.subject == "unrelated gossip")
-        ).first()
+        gossip = session.get(Knowledge, gossip_id)
         gossip.level = "omniscient"
         session.add(gossip)
         session.commit()

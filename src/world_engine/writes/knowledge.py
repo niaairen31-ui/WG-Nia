@@ -9,7 +9,7 @@ decomposed from `writes.py`).
   `knowledge_change` branch. Narrower than the default update: only
   `level`, `source` and `updated_at` change (the previous state is still
   appended to `change_history` first) — `content`, `is_incorrect`,
-  `is_secret`, `share_threshold` and `subject` on the existing row are left
+  `is_secret` and `share_threshold` on the existing row are left
   untouched, unlike a default-mode update.
 
 `_build_knowledge_level_change`/`_build_knowledge_update` are pure builds
@@ -25,9 +25,9 @@ fallback lives here rather than being duplicated at each caller — an
 explicit `fact_id` attaches to that existing fact; omitting it auto-creates
 a free-standing one (`writes/facts.py::create_fact`) whose content is the
 row's own stored text (TICKET-0097, M1: a fact born here carries the
-sentence, not a slug) -- the given `subject` only when the row has no text.
-`subject` is optional and derived: absent, the column takes the fact's
-stored content (v2.10 drops the column; nothing reads it as a key).
+sentence, not a slug). A row with neither text nor `fact_id` is refused. A
+knowledge row is identified by its fact (`idx_knowledge_entity_fact`); it
+has no label of its own since v2.10.
 
 `subject_entity_ids` (TICKET-0087, BRIEF-0087-a) attaches participants to
 the row's fact on create only, with no `role`; a participant IS the
@@ -179,7 +179,7 @@ def _tokenized_content(
 
 def _build_knowledge_update(
     db: Session, *, knowledge_id: Optional[str], entity_id: Optional[str],
-    subject: Optional[str], level: Optional[str], content: Optional[Any],
+    level: Optional[str], content: Optional[Any],
     source: Optional[Any], is_incorrect: bool, is_secret: bool,
     share_threshold: int, session_id: Optional[str], changed_by: str,
     fact_id: Optional[str] = None,
@@ -204,8 +204,6 @@ def _build_knowledge_update(
         if k is None:
             raise ValueError(f"write_knowledge: knowledge {knowledge_id!r} not found")
         _append_knowledge_history(k, changed_by=changed_by)
-        if subject is not None:
-            k.subject = subject
         k.level = norm_level
         k.content_raw, pending = _tokenized_content(db, k.entity_id, content, previous=k.content_raw)
         k.source = source
@@ -222,9 +220,10 @@ def _build_knowledge_update(
         entity = db.get(Entity, entity_id)
         if entity is None:
             raise ValueError(f"write_knowledge: entity {entity_id!r} not found")
-        text = stored if isinstance(stored, str) and stored.strip() else (subject or "unknown")
+        if not isinstance(stored, str) or not stored.strip():
+            raise ValueError("write_knowledge: a new fact needs the row's content")
         fact = create_fact(
-            db, world_id=entity.world_id, content=text, created_by=changed_by,
+            db, world_id=entity.world_id, content=stored, created_by=changed_by,
             facet="information",
         )
     else:
@@ -233,7 +232,7 @@ def _build_knowledge_update(
             raise ValueError(f"write_knowledge: fact {fact_id!r} not found")
     _attach_subject_participants(db, fact=fact, subject_entity_ids=subject_entity_ids)
     return Knowledge(
-        entity_id=entity_id, fact_id=fact.id, subject=subject or fact.content_raw, level=norm_level,
+        entity_id=entity_id, fact_id=fact.id, level=norm_level,
         content_raw=stored, source=source, is_incorrect=bool(is_incorrect),
         is_secret=bool(is_secret), share_threshold=threshold, session_id=session_id,
     ), pending
@@ -245,7 +244,6 @@ def write_knowledge(
     mode: str = "update",
     knowledge_id: Optional[str] = None,
     entity_id: Optional[str] = None,
-    subject: Optional[str] = None,
     level: Optional[str] = None,
     content: Optional[Any] = None,
     source: Optional[Any] = None,
@@ -279,7 +277,7 @@ def write_knowledge(
         )
     else:
         k, pending = _build_knowledge_update(
-            db, knowledge_id=knowledge_id, entity_id=entity_id, subject=subject,
+            db, knowledge_id=knowledge_id, entity_id=entity_id,
             level=level, content=content, source=source, is_incorrect=is_incorrect,
             is_secret=is_secret, share_threshold=share_threshold, session_id=session_id,
             changed_by=changed_by, fact_id=fact_id, subject_entity_ids=subject_entity_ids,
@@ -307,7 +305,7 @@ def apply_knowledge_patch(db: Session, *, knowledge: Knowledge, patch: dict, cha
     merged.update(patch)
     return write_knowledge(
         db, mode="update", knowledge_id=knowledge.id, entity_id=knowledge.entity_id,
-        subject=knowledge.subject, level=merged["level"], content=merged["content"],
+        level=merged["level"], content=merged["content"],
         source=merged["source"], is_incorrect=merged["is_incorrect"],
         is_secret=merged["is_secret"], share_threshold=merged["share_threshold"],
         session_id=knowledge.session_id, changed_by=changed_by,
@@ -321,8 +319,10 @@ def upsert_knowledge_row(db: Session, *, id: str, created_by: str, **fields) -> 
     The `content` key maps to `content_raw`; the text is stored as given,
     never tokenized (seed text is a reproducible dataset, like migrated text).
     On create, absent a `fact_id`, a free-standing fact is created with
-    `content = subject` (the `write_knowledge` fallback); an existing row's
-    `fact_id` is never touched. Returns "created", "updated" or "existing"."""
+    `content = fact_content` (the seed's legacy fact label, C1); an existing
+    row's `fact_id` is never touched, and `fact_content` then goes unused.
+    Returns "created", "updated" or "existing"."""
+    fact_content = fields.pop("fact_content", None)
     if "content" in fields:
         fields = {("content_raw" if key == "content" else key): value for key, value in fields.items()}
     obj = db.get(Knowledge, id)
@@ -331,7 +331,7 @@ def upsert_knowledge_row(db: Session, *, id: str, created_by: str, **fields) -> 
             entity = db.get(Entity, fields["entity_id"])
             fact = create_fact(
                 db, world_id=entity.world_id,
-                content=fields.get("subject") or "unknown", created_by=created_by,
+                content=fact_content or fields.get("content_raw") or "unknown", created_by=created_by,
                 facet="information",
             )
             fields = {**fields, "fact_id": fact.id}

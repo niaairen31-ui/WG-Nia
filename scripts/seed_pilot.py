@@ -110,9 +110,9 @@ def upsert_knowledge(session: Session, id: str, **fields):
 
     The create-or-converge logic lives in
     `writes/knowledge.py::upsert_knowledge_row` (TICKET-0091,
-    AMENDMENT-0091-05): the stored text is read raw only in `writes/`. The
-    `fact_id` fallback (`content = subject`) is unchanged; seed text is never
-    tokenized.
+    AMENDMENT-0091-05): the stored text is read raw only in `writes/`. A row
+    seeded on its own fact names that fact's content with `fact_content`
+    (TICKET-0097: the legacy slug label, C1); seed text is never tokenized.
     """
     status = upsert_knowledge_row(session, id=id, created_by="seed_pilot", **fields)
     {"created": _created, "updated": _updated, "existing": _existing}[status].append(
@@ -3338,7 +3338,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-maelis-tavern-daily",
         entity_id="npc-maelis",
-        subject="tavern_daily",
+        fact_content="tavern_daily",
         level="knows",
         content=(
             "Tient Le Dernier Verre au quotidien : ce qu'elle sert à boire et à "
@@ -3353,7 +3353,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-maelis-tavern-clientele",
         entity_id="npc-maelis",
-        subject="tavern_clientele",
+        fact_content="tavern_clientele",
         level="knows",
         content=(
             "Connaît les habitués et les voyageurs des deux nations qui passent "
@@ -3367,7 +3367,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-maelis-verkhaal-city",
         entity_id="npc-maelis",
-        subject="verkhaal_city",
+        fact_content="verkhaal_city",
         level="knows",
         content=(
             "Savoir public d'habitante : Verkhaal est la ville-forteresse qui "
@@ -3384,7 +3384,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-maelis-incidents",
         entity_id="npc-maelis",
-        subject="local_magic_incidents",
+        fact_content="local_magic_incidents",
         level="partial",
         content=(
             "Connaît les micro-phénomènes discrets du Dernier Verre (chaleur, "
@@ -3401,7 +3401,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-maelis-unnamed",
         entity_id="npc-maelis",
-        subject="the_unnamed",
+        fact_content="the_unnamed",
         level="partial",
         content="Sait servir le réseau, le nie en public.",
         source="appartenance",
@@ -3416,7 +3416,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-reike-existence",
         entity_id="npc-reike",
-        subject="magic_existence",
+        fact_content="magic_existence",
         level="suspicious",
         content=(
             "Ne croit plus à la version « technique » des incidents, mais ne "
@@ -3429,7 +3429,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-reike-awakening",
         entity_id="npc-reike",
-        subject="magic_awakening",
+        fact_content="magic_awakening",
         level="rumor",
         content="Sent la fréquence des incidents augmenter.",
         source="scènes de terrain",
@@ -3443,7 +3443,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         "kn-senna-existence",
         entity_id="npc-senna",
         fact_id=_fact_of(session, "kn-reike-existence"),
-        subject="magic_existence",
+        fact_content="magic_existence",
         level="knows",
         content="Savoir de base des Marcheurs : la magie est réelle, elle a dormi.",
         source="savoir oral des Marcheurs",
@@ -3454,7 +3454,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         "kn-senna-awakening",
         entity_id="npc-senna",
         fact_id=_fact_of(session, "kn-reike-awakening"),
-        subject="magic_awakening",
+        fact_content="magic_awakening",
         level="knows",
         content=(
             "Sait que la magie endormie se réveille ; inquiète, n'en parle "
@@ -3467,7 +3467,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-senna-nexus",
         entity_id="npc-senna",
-        subject="verkhaal_nexus",
+        fact_content="verkhaal_nexus",
         level="partial",
         content="Soupçonne un lien entre la taverne et le nœud.",
         source="savoir oral des Marcheurs",
@@ -3479,7 +3479,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-player-tavern",
         entity_id="char-player",
-        subject="le_dernier_verre",
+        fact_content="le_dernier_verre",
         level="knows",
         content="Connaît l'existence et l'emplacement du Dernier Verre.",
         source="habitué du lieu",
@@ -3489,7 +3489,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-player-maelis",
         entity_id="char-player",
-        subject="maelis",
+        fact_content="maelis",
         level="partial",
         content="Connaît Maelis de vue comme la patronne du Dernier Verre.",
         source="fréquentation du lieu",
@@ -3499,7 +3499,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         "kn-player-incident",
         entity_id="char-player",
-        subject="personal_magic_incident",
+        fact_content="personal_magic_incident",
         level="partial",
         content="A vécu un incident magique inexpliqué qu'il n'a dit à personne.",
         source="vécu personnel",
@@ -3836,7 +3836,7 @@ def main() -> None:
             for k in rows:
                 flag = "SECRET   " if k.is_secret else "shareable"
                 print(
-                    f"    - [{flag}] {k.subject} "
+                    f"    - [{flag}] {k.id} "
                     f"(level={k.level}, threshold={k.share_threshold})"
                 )
 

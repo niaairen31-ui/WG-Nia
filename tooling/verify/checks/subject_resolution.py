@@ -182,7 +182,7 @@ def check_behavioural(engine) -> None:
         # ── A3, negative: a subject_entity_id from a DIFFERENT world is refused,
         #    nothing written ─────────────────────────────────────────────────
         payload_cross_world = {
-            "entity_id": learner, "subject": "s", "content": "c",
+            "entity_id": learner, "content": "c",
             "subject_entity_id": subject_other_world,
         }
         err = _mutation_apply_new_knowledge(mut, payload_cross_world, session)
@@ -198,7 +198,7 @@ def check_behavioural(engine) -> None:
 
         # ── A3, heal: an in-world id applies, one participant, role NULL ────────
         payload_in_world = {
-            "entity_id": learner, "subject": "s", "content": "c",
+            "entity_id": learner, "content": "c",
             "subject_entity_id": subject_in_world,
         }
         err2 = _mutation_apply_new_knowledge(mut, payload_in_world, session)
@@ -220,7 +220,7 @@ def check_behavioural(engine) -> None:
         fact_id = fps[0].fact_id
         second_learner = _npc(world_a.id, "Second Learner")
         write_knowledge(
-            session, entity_id=second_learner, subject="s", fact_id=fact_id,
+            session, entity_id=second_learner, fact_id=fact_id,
             subject_entity_ids=[subject_in_world],
         )
         session.commit()

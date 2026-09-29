@@ -250,7 +250,7 @@ def _appellation(session, owner, content, scope=None):
 def _make_creator_only(session, owner, fact) -> None:
     from world_engine.writes.knowledge import write_knowledge
 
-    write_knowledge(session, entity_id=owner.id, fact_id=fact.id, subject="creator_meta",
+    write_knowledge(session, entity_id=owner.id, fact_id=fact.id,
                     level="unaware", is_secret=True, changed_by="check")
     session.flush()
 

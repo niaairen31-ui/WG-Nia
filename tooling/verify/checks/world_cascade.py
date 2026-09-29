@@ -134,7 +134,7 @@ _FIXTURE: tuple[tuple[str, dict], ...] = (
                            "type": "relation_gte", "target_entity_id": "{w}-loc",
                            "threshold": 50}),
     ("knowledge", {"id": "kn-{w}", "entity_id": "{w}-char", "fact_id": "fa-{w}",
-                   "subject": "s", "level": "knows"}),
+                   "level": "knows"}),
     ("observation_run", {"id": "or-{w}", "world_id": "{w}", "location_id": "{w}-loc",
                          "max_beats": 1, "quiescence_limit": 1, "cooldown_beats": 1,
                          "debt_weight": 1.0, "propensity_mode": "flat", "model": "m"}),

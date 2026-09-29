@@ -294,7 +294,7 @@ def check_rules_5_6_7(fixture, engine) -> None:
     window_items = [{
         "mutation_type": "new_knowledge",
         "payload": {
-            "entity_id": npc_ids[1], "subject": "observed_test_subject",
+            "entity_id": npc_ids[1],
             "level": "rumor", "content": "un fait observé", "source": "conversation",
         },
     }]

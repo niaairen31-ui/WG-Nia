@@ -17199,6 +17199,29 @@ card shows the fact's text, its first knower's version (by name), how many
 know it, then the candidates or near names. Binding is one participant
 POST, since a card is one fact.
 
+## KNOWLEDGE.SUBJECT IS DROPPED (TICKET-0097) -- THE FACT IS THE ONLY IDENTITY (BRIEF-0097-g, schema v2.10)
+
+**B3, last step.** `knowledge_identity.py` K3 showed no reader left; v2.10
+drops `idx_knowledge_subject` (SQLite refuses to drop an indexed column),
+then the column. `write_knowledge` loses its `subject` parameter and refuses
+a new row with neither text nor `fact_id`; the seed names a legacy fact's
+content with `fact_content` (C1: the old slug stays the fact's text).
+
+**The migration refuses to lose a label.** v2.10 aborts before v2.09 has
+run, and while any row's subject is neither `creator_meta`, nor its fact's
+content, nor backed by a participant. Measured on prod: the only rows whose
+subject differs from their fact's content are the 34 `creator_meta` notes.
+
+**What remains in the census.** `discoverable_detail.subject` is a detail's
+own short label, not a knowledge key, and stays; the window analysis still
+reads a model's `subject` field as a hint of who learned something, never as
+an identity.
+
+**Named deferrals.** `scripts/seed_test.py` and `scripts/test_context.py`
+already fail on `main` (no `fact_id`, since 0082) and are left as they are;
+`apply_ticket_0087_subject_participants.py` imports the deleted
+`subject_resolve` -- a one-shot that ran in 0087, kept as history.
+
 ---
 
 *Co-built with Claude, June 2026.*

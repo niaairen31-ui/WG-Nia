@@ -425,7 +425,7 @@ def check_requests(engine) -> int:
         known = fact("Elle a perdu une bague.", ScopeChoice("world"))
         unknown = fact("Elle cache un poignard.", ScopeChoice("none"))
         secret = fact("Secret de créatrice.", ScopeChoice("world"))
-        write_knowledge(session, entity_id=maelis.id, fact_id=secret.id, subject="creator_meta",
+        write_knowledge(session, entity_id=maelis.id, fact_id=secret.id,
                         level="unaware", is_secret=True, changed_by="check")
         session.flush()
         pc = SimpleNamespace(id=mini.id, world_id=world.id)

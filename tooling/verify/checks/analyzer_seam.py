@@ -376,7 +376,7 @@ def _seed_fixture(engine):
 
         from world_engine.writes import write_knowledge
         write_knowledge(
-            session, entity_id=npc_id, subject="a_subject", level="knows",
+            session, entity_id=npc_id, level="knows",
             content="Fixture fact.", is_secret=False, share_threshold=50, changed_by="check",
         )
         session.commit()

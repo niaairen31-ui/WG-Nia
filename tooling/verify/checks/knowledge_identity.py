@@ -21,6 +21,13 @@ K2 -- migration v2.09 (`scripts/migrate_v2_09_knowledge_identity.py`), run
    f. a knowledge gate keyed by a subject is rekeyed to that subject's
       fact id; a gate keyed by an unknown string is untouched;
    g. a second run changes nothing.
+K9 -- migration v2.10 (`scripts/migrate_v2_10_drop_knowledge_subject.py`),
+   run on the K2 database after v2.09:
+   a. a row whose subject is neither `creator_meta`, nor its fact's content,
+      nor backed by a participant aborts the run;
+   b. otherwise `knowledge.subject` and `idx_knowledge_subject` are gone and
+      the row count is unchanged;
+   c. a second run reports the column already gone.
 K3 -- census. The `subject` references of `src/world_engine` (an attribute
    `.subject`, a string constant `"subject"`, a `subject=` keyword or a
    `subject` parameter), counted per file, equal `_SUBJECT_CENSUS` exactly.
@@ -95,15 +102,14 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
 MIGRATION_V2_09 = ROOT / "scripts" / "migrate_v2_09_knowledge_identity.py"
+MIGRATION_V2_10 = ROOT / "scripts" / "migrate_v2_10_drop_knowledge_subject.py"
 
 FAILURES: list[str] = []
 
 _SUBJECT_CENSUS: dict[str, int] = {
     "src/world_engine/analyzer_transcript.py": 3,
     "src/world_engine/cockpit/crud/locations.py": 7,
-    "src/world_engine/cockpit/play_discovery.py": 3,
-    "src/world_engine/models/canon_knowledge.py": 1,
-    "src/world_engine/writes/knowledge.py": 8,
+    "src/world_engine/cockpit/play_discovery.py": 1,
 }
 
 A = "11111111-1111-1111-1111-111111111111"
@@ -204,7 +210,8 @@ def _insert(cursor, rows) -> None:
 
 def _v2_08_database() -> sqlite3.Connection:
     """A second database, built from the current metadata, then taken back
-    to the v2.08 shape of the two objects v2.09 creates."""
+    to the v2.08 shape: without the two objects v2.09 creates, and with the
+    `knowledge.subject` column and index v2.10 drops."""
     from sqlalchemy import create_engine
     from sqlmodel import SQLModel
 
@@ -212,14 +219,16 @@ def _v2_08_database() -> sqlite3.Connection:
     SQLModel.metadata.create_all(create_engine(f"sqlite:///{db_path}"))
     conn = sqlite3.connect(db_path, isolation_level=None)
     conn.execute("DROP INDEX idx_knowledge_entity_fact")
+    conn.execute("ALTER TABLE knowledge ADD COLUMN subject TEXT NOT NULL DEFAULT ''")
+    conn.execute("CREATE INDEX idx_knowledge_subject ON knowledge(subject)")
     conn.execute("DROP TABLE discoverable_detail")
     conn.execute(_V2_08_DETAIL)
     _insert(conn.cursor(), _ROWS)
     return conn
 
 
-def _load_migration():
-    spec = importlib.util.spec_from_file_location("migrate_v2_09_check", MIGRATION_V2_09)
+def _load_migration(path: pathlib.Path = MIGRATION_V2_09):
+    spec = importlib.util.spec_from_file_location(f"{path.stem}_check", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -298,6 +307,43 @@ def rule_k2() -> None:
     if report["absorbed"] or report["index_created"] or report["npc_facts"]["token"] \
             or report["detail_column_added"] or report["gates_rekeyed"] or _snapshot(conn) != before:
         fail(f"K2g the second run changed something: {report!r}")
+    _k9(conn)
+
+
+def _k9(conn) -> None:
+    """K9 on the migrated K2 database."""
+    drop = _load_migration(MIGRATION_V2_10)
+    cursor = conn.cursor()
+    count = conn.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0]
+    conn.execute("INSERT INTO fact (id, world_id, content, created_by, change_history) "
+                 "VALUES ('f-lone', 'w1', 'lone', 'check', '[]')")
+    conn.execute("INSERT INTO knowledge (id, entity_id, fact_id, subject, level, change_history, "
+                 "updated_at) VALUES ('k-lone', ?, 'f-lone', 'other label', 'rumor', '[]', "
+                 "'2026-01-01 00:00:00')", (P,))
+    for expect_abort in (True, False):
+        cursor.execute("BEGIN")
+        try:
+            dropped = drop.migrate(cursor)
+            cursor.execute("COMMIT")
+            if expect_abort:
+                fail("K9a a label with no fact content and no participant did not abort v2.10")
+        except drop.Abort:
+            cursor.execute("ROLLBACK")
+            if not expect_abort:
+                fail("K9b v2.10 aborted on a clean database")
+                return
+        conn.execute("DELETE FROM knowledge WHERE id = 'k-lone'")
+        conn.execute("DELETE FROM fact WHERE id = 'f-lone'")
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(knowledge)")]
+    if not dropped or "subject" in columns or conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'idx_knowledge_subject'").fetchone():
+        fail(f"K9b knowledge.subject or its index survived v2.10: {columns!r}")
+    if conn.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0] != count:
+        fail("K9b v2.10 changed the knowledge row count")
+    cursor.execute("BEGIN")
+    if drop.migrate(cursor) is not False:
+        fail("K9c a second v2.10 run did not report the column already gone")
+    cursor.execute("COMMIT")
 
 
 _KEY_CASES: tuple[tuple[dict, tuple[str, str]], ...] = (
