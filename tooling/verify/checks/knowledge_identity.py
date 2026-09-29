@@ -51,6 +51,16 @@ K5 -- models name facts by code (C-03, C-04, C-05):
       `secret_derived` and the `fact_id`, never `is_secret`; an unknown code
       sets neither; a content containing a secret's text sets
       `secret_derived`.
+K6 -- day gates name facts (D1'a, C-06):
+   a. `learnable_facts` codes exactly the facts another entity of the world
+      holds on a non-secret row and the character does not hold, ordered by
+      text;
+   b. `emit_plan` appends that list, and a `knowledge` requirement's code
+      comes back as its fact id; an unknown code comes back as emitted, and
+      `anchor_requirements` drops it;
+   c. `_eval_knowledge` judges by fact id and carries the fact's text as
+      `required_label`, which `requirement_detail_fr` shows instead of the id;
+   d. a blocked step's lead is a `new_knowledge` on the gate's fact.
 
 Fresh temp-file SQLite databases (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB.
@@ -79,11 +89,8 @@ _SUBJECT_CENSUS: dict[str, int] = {
     "src/world_engine/cockpit/crud/locations.py": 7,
     "src/world_engine/cockpit/play_discovery.py": 3,
     "src/world_engine/cockpit/routes/creator.py": 2,
-    "src/world_engine/cockpit/routes/day.py": 2,
     "src/world_engine/cockpit/routes/npc_agent.py": 2,
     "src/world_engine/context.py": 4,
-    "src/world_engine/day_mutations.py": 4,
-    "src/world_engine/day_plan.py": 3,
     "src/world_engine/entity_author.py": 4,
     "src/world_engine/knowledge_resolve.py": 1,
     "src/world_engine/link_author.py": 5,
@@ -537,6 +544,99 @@ def rule_k5(engine) -> None:
         session.rollback()
 
 
+def _k6_world(session, ids) -> dict:
+    from world_engine.models import Character, Entity, PromptTemplate
+    from world_engine.writes import write_knowledge, write_prompt_variables, write_prompt_version
+
+    pc = Entity(world_id=ids["w"], type="character", name="Pia")
+    session.add(pc)
+    session.flush()
+    session.add(Character(id=pc.id, world_id=ids["w"], character_type="player"))
+    facts = {}
+    for key, text, holder, secret in (
+        ("port", "Le port ferme.", "ana", False), ("mer", "La mer monte.", "bel", False),
+        ("vol", "Bel vole.", "bel", True), ("held", "Il pleut.", "ana", False),
+        ("far", "Ailleurs.", "out", False),
+    ):
+        facts[key] = write_knowledge(session, entity_id=ids[holder], content=text, level="knows",
+                                     is_secret=secret).fact_id
+    write_knowledge(session, entity_id=pc.id, fact_id=facts["held"], content="Il pleut.", level="knows")
+    head = PromptTemplate(world_id=None, name="check-day-plan", usage="day_plan", is_active=True)
+    session.add(head)
+    session.flush()
+    write_prompt_variables(session, template_id=head.id, variables=["character_name", "declaration"])
+    write_prompt_version(session, template_id=head.id, system_prompt="sys",
+                         user_template="{character_name}: {declaration}")
+    session.flush()
+    return {"pc": pc.id, **facts}
+
+
+def _k6_plan(session, day) -> None:
+    import json as _json
+
+    from world_engine import ollama_client
+    from world_engine.day_plan import anchor_requirements, emit_plan, learnable_facts
+    from world_engine.models import Character
+
+    character = session.get(Character, day["pc"])
+    learnable = learnable_facts(character, session)
+    if learnable.lines != ("f1 — La mer monte.", "f2 — Le port ferme."):
+        fail(f"K6a learnable facts are {learnable.lines!r}")
+    sent: list[str] = []
+    plan = {"title": "t", "steps": [{"objective": "o", "cost": 1, "domain": None, "requires": [
+        {"type": "knowledge", "target_key": "f2"}, {"type": "knowledge", "target_key": "f9"}]}]}
+
+    def stub(messages, **_kw):
+        sent.append(messages[-1]["content"])
+        return _json.dumps(plan)
+
+    original = ollama_client.chat
+    ollama_client.chat = stub
+    try:
+        steps = emit_plan("déclaration", character, session)
+    finally:
+        ollama_client.chat = original
+    keys = [req.target_key for req in steps[0].requirements]
+    if not sent or "f2 — Le port ferme." not in sent[0] or keys != [day["port"], "f9"]:
+        fail(f"K6b emit_plan sent {sent[:1]!r} and returned keys {keys!r}")
+    anchored, dropped = anchor_requirements(steps, character, session)
+    if [r.target_key for r in anchored[0].requirements] != [day["port"]] \
+            or [d["target_key"] for d in dropped] != ["f9"]:
+        fail(f"K6b anchoring kept {anchored[0].requirements!r}, dropped {dropped!r}")
+
+
+def _k6_verdicts(session, day) -> None:
+    from types import SimpleNamespace
+
+    from world_engine.day_mutations import _emit_new_knowledge
+    from world_engine.day_plan import RequirementSpec, _eval_knowledge
+    from world_engine.day_resolve import BLOCKED_BAND, requirement_detail_fr
+    from world_engine.models import Character
+
+    character = session.get(Character, day["pc"])
+    held = _eval_knowledge(RequirementSpec(type="knowledge", target_key=day["held"]), character, session, None)
+    unheld = _eval_knowledge(RequirementSpec(type="knowledge", target_key=day["port"]), character, session, None)
+    detail = requirement_detail_fr(unheld)
+    if not held.met or unheld.met or unheld.required_label != "Le port ferme." \
+            or "Le port ferme." not in detail or day["port"] in detail:
+        fail(f"K6c verdicts: held={held!r} unheld={unheld!r} detail={detail!r}")
+    outcome = SimpleNamespace(band=BLOCKED_BAND, requirement_verdicts=(unheld,), objective="o", step_order=1)
+    leads = _emit_new_knowledge(outcome, SimpleNamespace(id="pp"), character, character.world_id, session)
+    if [m.payload.get("fact_id") for m in leads] != [day["port"]] or any("subject" in m.payload for m in leads):
+        fail(f"K6d blocked lead payloads are {[m.payload for m in leads]!r}")
+
+
+def rule_k6(engine) -> None:
+    from sqlmodel import Session
+
+    with Session(engine) as session:
+        ids = _k4_world(session)
+        day = _k6_world(session, ids)
+        _k6_plan(session, day)
+        _k6_verdicts(session, day)
+        session.rollback()
+
+
 def rule_k4(engine) -> None:
     from sqlmodel import Session
 
@@ -587,6 +687,7 @@ def main() -> int:
     rule_k3()
     rule_k4(engine)
     rule_k5(engine)
+    rule_k6(engine)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")

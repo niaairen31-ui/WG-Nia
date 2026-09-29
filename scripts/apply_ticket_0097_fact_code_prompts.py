@@ -6,6 +6,8 @@ live DB: models name facts by code, never by a free-text subject.
   `npc_line`.
 - `pt-world-tick` (BRIEF-0097-C, Z2): a `new_knowledge` names what the NPC
   passes on by its briefing code (`source_fact`).
+- `pt-day-plan` (BRIEF-0097-D, D1'a): a `knowledge` requirement's
+  `target_key` is the code of a fact from the appended learnable list.
 
 Embeds NO prompt text of its own; it imports each text from
 `scripts/seed_pilot.py` (single source of text). History is sacred: a changed
@@ -56,6 +58,13 @@ _UPDATES: tuple[tuple[str, str, str, list[str], str], ...] = (
         seed_pilot.WORLD_TICK_USER_TEMPLATE,
         ["tick_context", "interval_label"],
         "TICKET-0097 BRIEF-0097-C -- new_knowledge names its source fact by code (Z2)",
+    ),
+    (
+        "pt-day-plan",
+        seed_pilot.DAY_PLAN_SYSTEM_PROMPT,
+        seed_pilot.DAY_PLAN_USER_TEMPLATE,
+        ["character_name", "declaration"],
+        "TICKET-0097 BRIEF-0097-D -- a knowledge gate names its fact by code (D1'a)",
     ),
 )
 

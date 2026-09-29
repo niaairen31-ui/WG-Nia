@@ -1841,8 +1841,9 @@ EXACTEMENT parmi "physical", "agility", "perception", "composure" ; sinon \
 mets null.
 - Chaque étape a un tableau "requires", vide si l'étape n'a pas de condition \
 préalable. Utilise UNIQUEMENT ces deux formes :
-  - {"type":"knowledge","target_key":"<étiquette courte>"} — le personnage \
-doit déjà savoir quelque chose.
+  - {"type":"knowledge","target_key":"<code d'un fait>"} — le personnage \
+doit déjà savoir ce fait ; le code vient de la liste des faits qu'il peut \
+apprendre, donnée après la déclaration.
   - {"type":"resource","target_key":"<étiquette courte>","threshold":<entier>} \
 — le personnage doit disposer d'au moins ce montant de ressource.
 - Émets au maximum 12 étapes.

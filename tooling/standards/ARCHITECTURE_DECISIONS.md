@@ -17112,6 +17112,35 @@ born after 0097 (a sentence), which is why the code is the primary signal.
 `pt-overhearing-classification` (and full-replaces its variables) and to
 `pt-world-tick`, text imported from `seed_pilot.py`.
 
+## DAY GATES NAME FACTS (TICKET-0097) -- THE PLANNER CHOOSES FROM WHAT CAN BE LEARNED (BRIEF-0097-d, no schema change)
+
+**D1'a -- the planner is given the list.** Before 0097 the day planner saw
+only the subjects the player already held and guessed a `target_key`;
+`anchor_requirements` kept a gate only when the guess equalled an existing
+subject, so knowledge gates rarely survived. `emit_plan` now appends, on
+every call site (the plan route and both reconciliation paths),
+`learnable_facts`: the facts another entity of the world holds on a
+non-secret row (B3) and the player does not hold (A1b), coded, ordered by
+text, capped at `MAX_LEARNABLE_FACTS_SHOWN` (40, truncation logged). A
+knowledge requirement's code comes back from `emit_plan` as its fact id; an
+unknown code is kept as emitted and dropped by `anchor_requirements`, which
+now compares fact ids. More gates will hold: that is the intent of 0078's
+B3, and Nia accepted the gameplay change.
+
+**The fact id is what is stored.** `agenda_step_requirement.target_key`
+holds the fact id for a `knowledge` row (v2.09 rekeyed the existing ones);
+`_eval_knowledge` compares `Knowledge.fact_id`. A verdict carries the fact's
+text as `required_label`, which `requirement_detail_fr` shows the player,
+never the id.
+
+**The day chain follows.** The completed step's `knowledge_change` and the
+blocked step's `rumor` lead carry `fact_id` (and the change a display
+`fact_label`); the lead no longer resolves an entity, since the fact already
+carries its participants. Journée shows `fact`.
+
+**Prompt.** `pt-day-plan`'s requirement line asks for the code of a fact
+from the appended list (`apply_ticket_0097_fact_code_prompts.py`).
+
 ---
 
 *Co-built with Claude, June 2026.*

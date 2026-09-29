@@ -50,7 +50,6 @@ from ...day_plan import (
     budget_cut,
     emit_plan,
     evaluate_requirements,
-    held_subjects_summary,
 )
 from ...day_resolve import (
     FactSheet,
@@ -254,7 +253,7 @@ def _account_gains(mutations: list[ProposedMutation]) -> dict:
         elif m.mutation_type == "knowledge_change":
             knowledge.append({
                 "mutation_id": m.id, "status": m.status,
-                "subject": payload.get("subject"), "to_level": payload.get("to_level"),
+                "fact": payload.get("fact_label"), "to_level": payload.get("to_level"),
             })
     return {
         "resource": resource,
@@ -678,10 +677,7 @@ def plan_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     else:
         day_plans.park_active_plan(character, db)
         try:
-            raw_steps = emit_plan(
-                rendered, character, db,
-                held_subjects_summary=held_subjects_summary(character, db),
-            )
+            raw_steps = emit_plan(rendered, character, db)
         except LlmParseError as exc:
             raise HTTPException(status_code=502, detail=f"plan emission failed: {exc}") from exc
         result = _finalize_plan(world_id, character, pass_play, raw_steps, db)
