@@ -2,14 +2,14 @@
 id: TICKET-0096
 title: World cascade — deleting a world deletes every world-scoped row, or refuses
 type: bug
-status: live-gate
+status: done
 created: 2026-09-28
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [destructive_data]
 blast_radius: small
 lot_id: LOT-0096-world-cascade.md
 brief_ids: [A, B]
-current_brief: B
+current_brief:
 schema_version_touched:
 retry_count: 0
 slug: world-cascade
