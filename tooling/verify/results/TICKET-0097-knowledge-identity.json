@@ -1,0 +1,107 @@
+{
+  "ticket": "TICKET-0097-knowledge-identity",
+  "when": "2026-09-29T17:56:52.178605+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "knowledge_identity.py",
+      "status": "PASS",
+      "msg": "PASS: knowledge_identity -- knowledge is unique per (entity, fact); v2.09 migrates and is idempotent; the subject census matches"
+    },
+    {
+      "check": "world_cascade.py",
+      "status": "PASS",
+      "msg": "PASS: world_cascade -- every world-scoped table is deleted or guarded; a populated world deletes under FK enforcement; refusals delete nothing"
+    },
+    {
+      "check": "subject_resolution.py",
+      "status": "PASS",
+      "msg": "PASS: subject_resolution \u2014 unbound_facts.py stays pure and re-implements no rung; _mutation_apply_new_knowledge refuses a cross-world subject_entity_id and writes nothing, applies an in-world one idempotently"
+    },
+    {
+      "check": "world_tick.py",
+      "status": "PASS",
+      "msg": "PASS: world-tick structural gate intact (rules 1-20)"
+    },
+    {
+      "check": "day_plan.py",
+      "status": "PASS",
+      "msg": "PASS: day_plan \u2014 evaluator bijection, requirement CHECKs, budget derivation, P2/positional exclusion, the positional wall, budget_cut purity, emit_plan wiring, named bounds, the D1 traversal-independence gate, BRIEF-0075-f's reconciliation/Z4/AA2 gates (R11-R21), R22's finalizer-location gate, BRIEF-0077-c's selection/resume gates (R15 retargeted, R23-R24), BRIEF-0078-a's requirement-anchoring gates (R25-R28), and BRIEF-0080-b's continue-guard verdict split (R29-R30) are all intact"
+    },
+    {
+      "check": "link_agent_strata.py",
+      "status": "PASS",
+      "msg": "PASS: link_agent_strata \u2014 link_batch/link_batch_row stay ephemeral and narrowly scoped"
+    },
+    {
+      "check": "name_resolution.py",
+      "status": "PASS",
+      "msg": "PASS: name_resolution \u2014 exact names resolve, appellations and partial names resolve for the creator only, near names score and order as the lot's table, the day chain sees only the appellations its character knows, the worklist reads appellations, tokenizer mentions stay on names, objects and every other type are nameable categories, near names reach the Lore answer and the names panel, and the panel records a missed name as an appellation"
+    },
+    {
+      "check": "analyzer_seam.py",
+      "status": "PASS",
+      "msg": "PASS: analyzer_seam \u2014 analyzer_transcript.py is conversation-agnostic (no Conversation/ConversationMessage coupling, no commit), analyzer.py's wrapper signatures are unchanged, both modules are within budget, fail-closed attribution drops correctly on both paths, conversation_id is set by the wrapper on every returned mutation, and payload[\"source\"] has no dedup/lookup reader outside the sanctioned apply-time passthrough"
+    },
+    {
+      "check": "identity_tokens.py",
+      "status": "PASS",
+      "msg": "PASS: identity_tokens \u2014 content_raw read only in the allow-list, render follows renames and falls back on deleted entities, C-14's case table holds, two same-named NPCs give one ambigu row, and token posing calls no model"
+    },
+    {
+      "check": "fact_facets.py",
+      "status": "PASS",
+      "msg": "PASS: fact_facets \u2014 FACETS matches C-01, every create_fact( passes a facet, descriptive/dynamic facets stay in writes/facets.py, C-02's case table holds, the entity-fact writer guards blocs and writes customs and creator_meta, resolve_default_rows skips descriptive facts, and creator-only facts stay out of facet reads outside the dossier"
+    },
+    {
+      "check": "day_prompt_delivery.py",
+      "status": "PASS",
+      "msg": "PASS: day_prompt_delivery \u2014 the 18 DAY_* constants are module-level, DAY_PROMPT_HEADS is the single seeding source, the one-shot embeds no text, prompt_coverage derives usages with no literal restatement, the day_feasibility exemption matches the code's actual Raise/Return shape, missing_usages checks E2 depth, and the guard runs before write_batch"
+    },
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v2.10'"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u2014 101 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u2014 section whitelist, character/line budgets, File-structure archaeology ban, Invariants archaeology ban, tooling/ pointer freshness, .py pointer freshness"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u2014 every module over 40 functions or 1000 lines is baselined at or below its recorded values; 97 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u2014 every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    },
+    {
+      "check": "pipeline_state.py",
+      "status": "PASS",
+      "msg": "PASS: every ticket front-matter conforms to TEMPLATE.md"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 126 check(s) discovered, 126 executed, 126 passed"
+    }
+  ]
+}
