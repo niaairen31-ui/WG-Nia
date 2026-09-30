@@ -82,9 +82,13 @@ export function assistantRecord() {
   return { kind: 'assistant', persisted: false, id: ASSISTANT_RECORD_ID };
 }
 
-/** The blank record the shell's primary action opens (Sheet.svelte's
- *  primaryAction). */
-export function blankRecord() {
+/** The blank record the shell's buttons open (Sheet.svelte's
+ *  primaryAction): 'system' from the shell's secondaryAction button
+ *  (TICKET-0099, G1), a skill otherwise. */
+export function blankRecord(kind) {
+  if (kind === 'system') {
+    return { kind: 'system', persisted: false, id: null, name: '', description: '', skill_count: 0 };
+  }
   return {
     kind: 'skill', persisted: false, id: null, draftKey: null,
     name: '', base_domain: 'physical', system_id: null, description: '',
@@ -208,7 +212,9 @@ async function saveSkill(record) {
 async function saveSystem(record) {
   const name = requireName(record);
   const body = JSON.stringify({ name, description: record.description || null });
-  const saved = await api(`/api/skill-systems/${record.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
+  const saved = record.persisted
+    ? await api(`/api/skill-systems/${record.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
+    : await api('/api/skill-systems', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
   return systemRecord(saved);
 }
 

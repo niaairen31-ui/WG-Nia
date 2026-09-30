@@ -110,6 +110,14 @@ comparison.
       `createPanel` field at all passes unchecked; reactivate if
       `grep -n "createPanel" frontend/src/creation/tabs.js` ever shows a
       `primaryAction: {` site with no accompanying `createPanel` field.
+  11b. Secondary actions (TICKET-0099, BRIEF-0099-c, G1): every
+      CREATION_TABS entry declaring a `secondaryAction: { ... }` object
+      has a handler calling `triggerPrimaryAction('<key>', '<variant>')`
+      with two string literals, and its own `primaryAction.handler` calls
+      `triggerPrimaryAction('<key>')` with the SAME key -- a second button
+      is a variant of the routed primary action, never a separate route
+      and never a button without one. Zero `secondaryAction` objects
+      collected is a failure.
   12. Every registry key has a matching `COMPONENTS` entry in mount.js,
       whose value is the default import of `'./' + component`; every
       `.svelte` default import in mount.js is used by some `COMPONENTS`
@@ -180,6 +188,7 @@ def _report_and_exit(counts: dict | None = None) -> None:
         f"{counts['bindings']} component binding(s) agreed, "
         f"{counts['events']} mount-action identifier(s) confined, "
         f"{counts['primary_actions']} island primaryAction(s) wired, "
+        f"{counts['secondary_actions']} secondaryAction(s) paired, "
         f"Creation.svelte mounts no component"
     )
     sys.exit(0)
@@ -936,6 +945,43 @@ def _rule11_pairing(tabs_src: str, entries: dict[str, dict[str, object]]) -> int
     return count
 
 
+SECONDARY_CALL_RE = re.compile(r"""triggerPrimaryAction\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]\s*\)""")
+PRIMARY_CALL_RE = re.compile(r"""triggerPrimaryAction\(\s*['"]([^'"]+)['"]\s*\)""")
+
+
+def _rule11b_secondary(tabs_src: str) -> int:
+    tabs_registry_src = _braced_block(tabs_src, r"export const CREATION_TABS\s*=\s*\{")
+    if not tabs_registry_src:
+        fail(f"{TABS_FILE}: CREATION_TABS registry literal not found")
+        return 0
+    count = 0
+    for entry_name in _top_level_keys(tabs_registry_src):
+        entry_src = _entry_block(tabs_registry_src, entry_name)
+        sa_src = _braced_block(entry_src, r"secondaryAction\s*:\s*\{")
+        if not sa_src:
+            continue
+        sec_m = SECONDARY_CALL_RE.search(sa_src)
+        if not sec_m:
+            fail(f"CREATION_TABS.{entry_name}: secondaryAction.handler does not call "
+                 "triggerPrimaryAction('<key>', '<variant>') with two string literals")
+            continue
+        pa_src = _braced_block(entry_src, r"(?<!secondary)primaryAction\s*:\s*\{")
+        pri_m = PRIMARY_CALL_RE.search(pa_src) if pa_src else None
+        if not pri_m:
+            fail(f"CREATION_TABS.{entry_name}: declares a secondaryAction without a primaryAction "
+                 "routed through triggerPrimaryAction('<key>')")
+            continue
+        if pri_m.group(1) != sec_m.group(1):
+            fail(f"CREATION_TABS.{entry_name}: secondaryAction routes to {sec_m.group(1)!r} but "
+                 f"primaryAction routes to {pri_m.group(1)!r} -- a secondary action is a variant "
+                 "of the primary route, never a second route")
+            continue
+        count += 1
+    if count == 0:
+        fail("rule11b: zero paired secondaryAction(s) collected -- a rule that passes on nothing proves nothing")
+    return count
+
+
 # --------------------------------------------------------------------------
 # C-03: rule 12, COMPONENTS agreement
 # --------------------------------------------------------------------------
@@ -1404,6 +1450,7 @@ def main() -> None:
     state_ok = _rule9_state_nulls(tabs_src, entries)
     dispatch_ok = _rule10_unconditional_dispatch(tabs_src)
     primary_action_count = _rule11_pairing(tabs_src, entries)
+    secondary_action_count = _rule11b_secondary(tabs_src)
     stripped_mount = _strip_js_comments(mount_src, fail, str(MOUNT_FILE))
     binding_count = _rule12_component_bindings(stripped_mount, entries, fail) if stripped_mount is not None else 0
     tag_count = _rule13_creation_mounts_nothing(creation_svelte_src, fail)
@@ -1435,6 +1482,7 @@ def main() -> None:
             "bindings": binding_count,
             "events": action_count,
             "primary_actions": primary_action_count,
+            "secondary_actions": secondary_action_count,
         }
     )
 

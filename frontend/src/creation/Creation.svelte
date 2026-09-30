@@ -91,7 +91,8 @@
   <!-- ── Standard shell band (BRIEF-0005-c) -- one header band above every
        Création page: the entry's label (title) plus, iff it declares a
        primaryAction, exactly one button in this same fixed position on
-       every tab. #creation-shell-extra/#creation-shell-batch-bar are
+       every tab -- preceded, iff it also declares a secondaryAction
+       (TICKET-0099, G1), by that one second button. #creation-shell-extra/#creation-shell-batch-bar are
        Review Queue's mount points (a one-off relocation, not a generic
        shell concept); both are declared slots on CREATION_TABS.queue so
        containerVisible covers them the same way as any other slot. -->
@@ -109,6 +110,9 @@
         </button>
       {/each}
     </div>
+    {#if activeEntry?.primaryAction && activeEntry?.secondaryAction}
+      <button class="btn-send" id="creation-shell-secondary-action" onclick={activeEntry.secondaryAction.handler}>{activeEntry.secondaryAction.label}</button>
+    {/if}
     {#if activeEntry?.primaryAction}
       <button class="btn-send" id="creation-shell-action" onclick={activeEntry.primaryAction.handler}>{activeEntry.primaryAction.label}</button>
     {/if}

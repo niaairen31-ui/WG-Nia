@@ -316,6 +316,34 @@ def main() -> int:
             "control must not exist (BRIEF-0005-c)"
         )
 
+    # TICKET-0099/BRIEF-0099-c (G1): a page's second create button exists
+    # only as its registry secondaryAction, rendered by the shell band —
+    # "Ajouter un système" once, in tabs.js, never an in-body control; the
+    # contract comment documents the field.
+    if contract_comment_m and "secondaryAction" not in contract_comment_m.group(0):
+        failures.append(
+            f"CREATION_TABS entry-contract comment does not document 'secondaryAction' in {TABS_JS} (BRIEF-0099-c)"
+        )
+    if "activeEntry.secondaryAction.handler" not in creation_svelte:
+        failures.append(
+            "Creation.svelte's shell band does not render activeEntry.secondaryAction (BRIEF-0099-c)"
+        )
+    system_occurrences = 0
+    system_sites = []
+    if CREATION_SRC.is_dir():
+        for path in CREATION_SRC.rglob("*"):
+            if path.is_file() and path.suffix in (".js", ".svelte"):
+                n = path.read_text(encoding="utf-8").count("Ajouter un système")
+                if n:
+                    system_occurrences += n
+                    system_sites.append(path.name)
+    if system_occurrences != 1 or system_sites != ["tabs.js"]:
+        failures.append(
+            f"'Ajouter un système' appears {system_occurrences} time(s) in {system_sites} under "
+            f"{CREATION_SRC} — expected exactly once, in tabs.js (the registry's secondaryAction "
+            "label); an in-body control must not exist (BRIEF-0099-c)"
+        )
+
     # TICKET-0059 (BRIEF-0059-h commit 4): the add-form moved off static
     # markup onto Registre.svelte's own {#if addFormOpen} — collapsed by
     # construction (the node doesn't exist until toggled) is a STRONGER

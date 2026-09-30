@@ -128,11 +128,13 @@ export function activateIsland(key, tabKey) {
 
 /** Replaces the old 'island:action' dispatch (BRIEF-0059-l item 5): the
  *  standard shell band's primaryAction button forwards its click to the
- *  mounted component's own exported primaryAction(), by direct call. */
-export function triggerPrimaryAction(key) {
+ *  mounted component's own exported primaryAction(), by direct call.
+ *  TICKET-0099 (G1): a secondaryAction button reaches the same function
+ *  with a variant string; the primary button passes none. */
+export function triggerPrimaryAction(key, variant) {
   const existing = live[key];
   if (existing && typeof existing.instance.primaryAction === 'function') {
-    existing.instance.primaryAction();
+    existing.instance.primaryAction(variant);
     return;
   }
   const msg = `creation/mount: triggerPrimaryAction fired for ${JSON.stringify(key)} with no mounted primaryAction()`;

@@ -196,7 +196,12 @@
     creationState.sheetDetail = detail;
   }
 
-  /** Called by mount.js's _islandPrimaryAction('entitySheet') when the
+  /** TICKET-0099 (G1): `variant` is what a secondaryAction button passes
+   *  through triggerPrimaryAction ('system' for Compétences' second
+   *  button); the primary button passes none, and only a competences
+   *  fiche reads it.
+   *
+   *  Called by mount.js's _islandPrimaryAction('entitySheet') when the
    *  standard shell action band ("+ Nouveau"/"+ Nouvelle intrigue") is
    *  clicked -- every entity-archetype tab routes here now, including pj
    *  (BRIEF-0059-j commit 3: pj's createPanel goes null too, rule 11) and
@@ -206,7 +211,7 @@
    *  branch in this function. Mirrors creationNewEntity's own draft reset
    *  (the plain "+ Nouveau" idiom every entity tab shared before this
    *  brief), via the same legacy helper so the two paths never drift. */
-  export function primaryAction() {
+  export function primaryAction(variant) {
     resetCreateDrafts();
     resetDraftRoles();
     resetFactsDraft();
@@ -217,7 +222,7 @@
     // TICKET-0099 (BRIEF-0099-b): a competences fiche always holds a whole
     // C-01 record, never enterCreateMode's bare {} -- selected by the
     // sheetType just written, the same fact that picks the render branch.
-    if (creationState.sheetType === 'competences') creationState.sheetDetail = blankRecord();
+    if (creationState.sheetType === 'competences') creationState.sheetDetail = blankRecord(variant);
   }
 
   legacyDoc.addEventListener('creation:sheet-reset', () => {

@@ -17404,6 +17404,23 @@ left to mount. Its ledger line moved whole into `entitySheet`'s
 `retiredPrefixes`, and the registry header names the exception: an
 absorbed surface moves its line, it never drops it.
 
+## A SECOND BUTTON IN THE SHELL BAND (TICKET-0099) -- SECONDARYACTION (BRIEF-0099-c, no schema change)
+
+**G1.** A `CREATION_TABS` entry may declare `secondaryAction: { label,
+handler }`, rendered by the shell band just before its primary button.
+Compétences uses it for « + Ajouter un système » beside « + Ajouter une
+compétence ». The handler reuses the primary route with a variant --
+`triggerPrimaryAction('entitySheet', 'system')` -- so `mount.js` forwards
+the variant to the component's own `primaryAction(variant)`: no second
+mount-action function, rule 8's confinement unchanged.
+`creation_island.py` rule 11b holds the pairing (same key as a routed
+primary action, two literals); `page_contract.py` holds the label to one
+occurrence, in the registry.
+
+**Rejected.** G2, a generic `actions: [...]` list: reactivates when a
+second tab asks for a second button, or this tab for a third. G3, the
+button in the list header: not where the creator asked for it.
+
 ---
 
 *Co-built with Claude, June 2026.*
