@@ -361,6 +361,9 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   (`showCreationSubTab`), BEFORE `activeTabKey` moves and on every change, never per
   registry entry; and `Sheet.svelte` selects its render branch from `sheetType`, the same
   fact that feeds it, never from `activeTabKey` -- enforced by `creation_tab_switch.py`.
+- A Création tab that owns a single container sizes it in `frontend/public/creation.css`
+  (`flex: 1; min-height: 0`), so its content scrolls instead of being clipped -- enforced by
+  `creation_container_sizing.py`.
 - Inside a `$effect` body, a `$state` binding assigned there must not be read afterwards in the
   same body — enforced by `effect_self_write.py`.
 - **The lore renderer receives rows, never a `Session`,** and only the `answered` verdict reaches

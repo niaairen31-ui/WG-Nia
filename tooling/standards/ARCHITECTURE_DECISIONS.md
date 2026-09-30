@@ -17356,6 +17356,22 @@ mention of every new fact, so the tokenizer records it in « Noms à lier ».
 **Rejected.** A free field for an entity id or an unlisted name: the
 creator never recalls names (K1 of TICKET-0095).
 
+## EVERY SINGLE-CONTAINER CRÉATION TAB SIZES ITS CONTAINER (TICKET-0099) -- THE LAST LINK OF THE HEIGHT CHAIN (BRIEF-0099-a, no schema change)
+
+**F1.** `.app-view` clips what overflows it. A tab container with no rule of
+its own takes its content's height, so past one window of content nothing
+scrolls: the Compétences tab lost its system form and its catalogue at three
+systems, and Registre and Sujets carried the same latent defect.
+`creation_container_sizing.py` requires, for every `CREATION_TABS` entry
+with exactly one container, a `#<id>` rule in `frontend/public/creation.css`
+declaring `flex: 1` and `min-height: 0`. Registre and Sujets take the Queue/
+Prompts shape (a fixed header, a scrolling body); Compétences scrolls whole
+until it moves onto the shared editor area.
+
+**Not examined.** An entry with several containers (`lieux`, whose room
+batch panel stacks under the editor area) decides its own split; the check
+counts it in its PASS line instead of guessing.
+
 ---
 
 *Co-built with Claude, June 2026.*
