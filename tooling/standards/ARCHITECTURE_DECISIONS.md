@@ -17256,6 +17256,33 @@ first injection the creator wants to take back. B3 (typed links between
 facts): reactivates if the day chain (A2) must follow a "why" from fact to
 fact.
 
+## A LORE PROPOSAL IS WRITTEN WHOLE OR NOT AT ALL (TICKET-0098) -- ADD_LORE_FACT AND APPLY_PROPOSAL (BRIEF-0098-c, no schema change)
+
+**What one statement can write (R1, S1, P1).** A proposal holds entities to
+create (character, location, faction, item -- G3) or reuse, facts to create
+(any non-typed facet, zero or more participants), to extend (participants,
+knowers, defaults) or to rewrite (a `bloc` fact only, Q19d), `knows`
+defaults at world/faction/location/rencontre scope (E1), knowers the creator
+checked (level, secret, false belief), faction memberships and `controls`
+edges. Social relations, events and world laws are out (R2).
+
+**One chokepoint for a lore fact.** `writes/facets.py::add_lore_fact`
+extends the entity-fact writer to any free facet and any number of
+participants, because `fact_facets.py` R3 keeps every non-literal facet in
+that module. It tokenizes, guards `bloc`, and writes the defaults.
+
+**All or nothing.** `lore_write_apply.apply_proposal` validates every ref,
+id, facet, scope and level against the proposal's world before writing,
+then writes through the chokepoints in the caller's transaction and records
+each row in `lore_entry_row`. A row that already exists is skipped and
+reported, never duplicated (`find_held`, the participant and membership
+reads, the `controls` pair). Entities are created through an injected
+callable: the commit-free creation core stays with the creator CRUD, which
+this module does not import. No model is called here.
+
+**Rejected.** R2 (relations, laws, events in the first cut): reactivates
+when a story loses its sense without its relation or law.
+
 ---
 
 *Co-built with Claude, June 2026.*

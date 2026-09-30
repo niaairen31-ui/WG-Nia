@@ -25,8 +25,8 @@ from typing import Any, Optional
 
 from sqlmodel import Session, select
 
-from ..facets import DESCRIPTIVE_FACETS, facet_spec, normalize_aspect
-from ..models import Entity, Fact, FactParticipant
+from ..facets import DESCRIPTIVE_FACETS, FACETS, facet_spec, normalize_aspect
+from ..models import Entity, Fact, FactDefault, FactParticipant
 from ..lore_resolve import normalize_surface
 from ..name_index import CREATOR, PROSE, NameScope, surfaces
 from ..prose_render import fact_text
@@ -261,6 +261,85 @@ def record_appellation(
     scope = ScopeChoice("rencontre", entity_id) if scope_type == "rencontre" else ScopeChoice(scope_type)
     return add_entity_fact(db, entity_id=entity_id, facet="appellation", content=surface.strip(),
                            created_by=created_by, scope=scope)
+
+
+@dataclass(frozen=True)
+class LoreFactRows:
+    """What `add_lore_fact` wrote: the fact, its participant rows, its default rows."""
+
+    fact: Fact
+    participants: tuple[FactParticipant, ...]
+    defaults: tuple[FactDefault, ...]
+
+
+def _lore_participants(
+    db: Session, *, world_id: str, facet: str, participant_ids: list[str],
+) -> None:
+    if len(set(participant_ids)) != len(participant_ids):
+        raise ValueError("a participant is listed twice")
+    for entity_id in participant_ids:
+        entity = db.get(Entity, entity_id)
+        if entity is None or entity.world_id != world_id:
+            raise ValueError(f"participant {entity_id!r} is not an entity of this world")
+    spec = facet_spec(facet)
+    if (spec.granularity == "bloc" or facet == "appellation") and len(participant_ids) != 1:
+        raise ValueError(f"a {facet!r} fact takes exactly one participant")
+
+
+def add_lore_fact(
+    db: Session,
+    *,
+    world_id: str,
+    facet: str,
+    content: str,
+    created_by: str,
+    participant_ids: list[str],
+    aspect: Optional[str] = None,
+    scopes: tuple[ScopeChoice, ...] = (),
+    mentions: Optional[list] = None,
+) -> LoreFactRows:
+    """One free fact from the lore writing path (TICKET-0098, BRIEF-0098-C,
+    C-03): any non-typed facet, zero or more participants, zero or more
+    `knows` defaults. `ValueError` on an unknown or typed facet, empty
+    content, a participant outside `world_id` or listed twice, a `bloc` or
+    `appellation` fact without exactly one participant, a second `bloc`
+    fact with the same aspect, a `none` or malformed scope, or the same
+    scope twice. Names in `content` become identity tokens (an appellation
+    on names alone, its owner excluded); the unresolved ones and the
+    declared `mentions` are recorded against the new fact."""
+    spec = FACETS.get(facet)
+    if spec is None or spec.granularity == "typed":
+        raise ValueError(f"facet {facet!r} is not a free-fact facet")
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("fact content is empty")
+    _lore_participants(db, world_id=world_id, facet=facet, participant_ids=participant_ids)
+    norm_aspect = normalize_aspect(aspect)
+    if spec.granularity == "bloc" and _bloc_exists(
+            db, entity_id=participant_ids[0], facet=facet, aspect=norm_aspect):
+        raise ValueError("bloc facet already has a fact")
+    keys = [(scope.scope_type, scope.scope_id) for scope in scopes]
+    if len(set(keys)) != len(keys):
+        raise ValueError("the same default scope is listed twice")
+    for scope in scopes:
+        _check_scope(scope)
+        if scope.scope_type == "none":
+            raise ValueError("a default scope cannot be 'none'")
+    name_scope = (NameScope("names_only", exclude_entity_id=participant_ids[0])
+                  if facet == "appellation" else PROSE)
+    tokens = tokenize(db, world_id=world_id, text=content, mentions=mentions, scope=name_scope)
+    fact = create_fact(db, world_id=world_id, content=tokens.text, created_by=created_by,
+                       facet=facet, aspect=norm_aspect)
+    db.flush()
+    if tokens.unresolved:
+        record_unresolved(db, world_id=world_id, fact_id=fact.id, items=tokens.unresolved)
+    participants = (attach_participants(db, fact=fact, entity_ids=participant_ids)
+                    if participant_ids else [])
+    defaults = [
+        create_fact_default(db, world_id=world_id, fact_id=fact.id, scope_type=scope.scope_type,
+                            scope_id=scope.scope_id, level="knows", created_by=created_by)
+        for scope in scopes
+    ]
+    return LoreFactRows(fact=fact, participants=tuple(participants), defaults=tuple(defaults))
 
 
 def _descriptive_fact(db: Session, fact_id: str) -> Fact:
