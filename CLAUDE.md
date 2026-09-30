@@ -262,6 +262,9 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   reaches a canon row; the accept/reject cascade and link targets are
   re-derived server-side from raw client state; rejected/uncommitted/
   unresolved/self-referential targets write nothing.
+- **A lore statement commits whole or not at all, through `lore_write_apply.apply_proposal`.**
+  No model-emitted id reaches a canon row: facts by code, entities by name, both resolved in code
+  and confirmed by the creator; every row written is recorded in `lore_entry_row`.
 - **PC knowledge is written `is_secret=False`; `_normalize_knowledge` is
   NPC-only and forces `is_secret=True` — never reuse it for a PC.**
   `_normalize_player_knowledge` emits no `is_secret` key; `False` is

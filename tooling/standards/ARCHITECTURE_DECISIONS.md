@@ -17314,6 +17314,29 @@ world's facts): reactivates if the model duplicates facts about entities the
 statement did not name. J2 (several clarification rounds): reactivates if
 one round regularly leaves the draft off.
 
+## THE LORE SHELL GETS A WRITING PANEL (TICKET-0098) -- FOUR ROUTES, ONE COMMIT (BRIEF-0098-e, no schema change)
+
+**H1 -- a second bounded reopening.** The Lore shell's read-only lock (0085)
+opens again, the Q17d way: `cockpit/routes/lore_write.py` serves the
+questions, the draft, the commit and the history. It runs no query and no
+model call, and commits once, in `write_commit`. Its modules join
+`lore_isolation.py`'s panel list, so none imports the consultation pipeline.
+
+**C1 -- a minimal fiche.** A new entity is created through the creator
+CRUD's commit-free core (`_create_entity_core`, the region commit's
+precedent), in the proposal's transaction; a character is born an NPC.
+
+**K1.** Ollama down answers 503 with `WRITE_UNAVAILABLE_MESSAGE`; the
+draft routes write nothing, ever. A refused proposal answers 422 with the
+French reason and rolls back.
+
+**M1 -- rereading a story.** `GET /api/lore/write/entries` lists the world's
+last fifty entries, each with a label per written row; a row whose target
+was deleted since is labelled, never dropped.
+
+**Rejected.** H2 (the panel in Création): reactivates if the panel ever
+needs a consultation module to work.
+
 ---
 
 *Co-built with Claude, June 2026.*

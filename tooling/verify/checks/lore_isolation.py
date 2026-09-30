@@ -96,6 +96,9 @@ PANEL_FILES = (
     # TICKET-0098 (BRIEF-0098-D): the writing panel's modules.
     SRC / "lore_write_apply.py",
     SRC / "lore_write_draft.py",
+    # TICKET-0098 (BRIEF-0098-E): its route and history read.
+    SRC / "lore_write_read.py",
+    SRC / "cockpit" / "routes" / "lore_write.py",
 )
 PIPELINE_FILES = (LORE_SELECTORS_FILE, LORE_QUERY_FILE, LORE_PLAN_FILE, LORE_RENDER_FILE, LORE_PROMPT_FILE)
 

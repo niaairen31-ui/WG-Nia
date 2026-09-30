@@ -55,6 +55,20 @@ D2 -- prompts. `seed_pilot.LORE_WRITE_PROMPT_HEADS` holds exactly the usages
    `{placeholders}` of its user template; `apply_ticket_0098_lore_write_prompts.py`
    reads that tuple and embeds no prompt text; `lore_prompt.py` re-exports
    `prompt_load.load`, the loader the writing path imports.
+E1 -- routes (BRIEF-0098-E), through `TestClient(app, base_url=...)` on the
+   active fixture world, `lore_write_draft.chat` stubbed:
+   a. `POST /api/lore/write/questions` answers the questions; with Ollama
+      down it answers 503 with exactly `WRITE_UNAVAILABLE_MESSAGE`;
+   b. `POST /api/lore/write/draft` answers the draft; with Ollama down, 503;
+      no draft request changes any row count;
+   c. `POST /api/lore/write/commit` of a valid proposal creating a
+      character answers 200; the entity has its `character` row as an NPC;
+      `GET /api/lore/write/entries` lists the entry first, with a label per
+      row; an invalid proposal answers 422 and changes no row count;
+   d. the same commit with a non-local `Origin` answers 403 and changes no
+      row count.
+E2 -- thin route. `cockpit/routes/lore_write.py` contains no `select(` and
+   no `chat(`, and exactly one `.commit(` -- inside `write_commit`.
 C2 -- purity. `lore_write_apply.py` and `writes/lore_entries.py` contain no
    `chat(`, no `.commit(`, and import neither `ollama_client` nor any
    `cockpit` module; `lore_write_draft.py` contains no `db.add(`, no
@@ -84,6 +98,7 @@ FAILURES: list[str] = []
 _CENSUS_GLOBS = ("lore_write*.py", "writes/lore_entries.py", "cockpit/routes/lore_write*.py")
 _LORE_WRITE_FILES: frozenset[str] = frozenset({
     "lore_write_apply.py", "writes/lore_entries.py", "lore_write_draft.py",
+    "lore_write_read.py", "cockpit/routes/lore_write.py",
 })
 _PURE_FILES = ("lore_write_apply.py", "writes/lore_entries.py")
 _COUNTED_TABLES = ("entity", "fact", "fact_participant", "fact_default", "knowledge",
@@ -499,6 +514,98 @@ def check_d1() -> None:
             fail(f"D1e: the settled draft does not validate: {exc}")
 
 
+def check_e1() -> None:
+    from fastapi.testclient import TestClient
+    from sqlmodel import Session, select
+
+    from world_engine import lore_write_draft as lwd
+    from world_engine.cockpit.app import app
+    from world_engine.db import engine
+    from world_engine.models import Character, Entity, World
+    from world_engine.ollama_client import OllamaError
+
+    with Session(engine) as db:
+        ids = _fixture(db)
+        for world in db.exec(select(World)).all():
+            world.is_active = world.id == ids["world"]
+            db.add(world)
+        db.commit()
+    client = TestClient(app, base_url="http://127.0.0.1")
+    stub = _Stub([{"questions": ["Qui le sait ?"]}, OllamaError("down"),
+                  {"entities": [{"ref": "e1", "name": "Maëlle", "category": "person"}],
+                   "facts": [], "memberships": [], "controls": []}, OllamaError("down")])
+    original = lwd.chat
+    lwd.chat = stub
+    with Session(engine) as db:
+        before = _counts(db)
+    try:
+        body = {"statement": "Maëlle garde le Manoir Gris."}
+        resp = client.post("/api/lore/write/questions", json=body)
+        if resp.status_code != 200 or resp.json() != {"questions": ["Qui le sait ?"]}:
+            fail(f"E1a: questions answered {resp.status_code} {resp.text[:120]}")
+        resp = client.post("/api/lore/write/questions", json=body)
+        if resp.status_code != 503 or resp.json().get("detail") != lwd.WRITE_UNAVAILABLE_MESSAGE:
+            fail(f"E1a: Ollama down answered {resp.status_code} {resp.text[:120]}")
+        resp = client.post("/api/lore/write/draft", json=dict(body, answers="Tout le monde."))
+        if resp.status_code != 200 or resp.json()["entities"][0].get("entity_id") != ids["npc"]:
+            fail(f"E1b: draft answered {resp.status_code} {resp.text[:160]}")
+        resp = client.post("/api/lore/write/draft", json=body)
+        if resp.status_code != 503:
+            fail(f"E1b: Ollama down on draft answered {resp.status_code}")
+    finally:
+        lwd.chat = original
+    with Session(engine) as db:
+        if _counts(db) != before:
+            fail("E1b: a draft request changed rows")
+    proposal = {"statement": "Joss, un docker, sert Maëlle.", "entities": [
+        {"ref": "e1", "action": "create", "name": "Joss Fer", "type": "character"},
+        {"ref": "e2", "action": "existing", "entity_id": ids["npc"]}], "facts": [
+        {"ref": "f1", "action": "create", "facet": "histoire", "content": "Joss Fer sert Maëlle.",
+         "participants": ["e1", "e2"], "knowers": [{"entity_ref": "e2", "level": "knows"}]}]}
+    with Session(engine) as db:
+        before = _counts(db)
+    far = client.post("/api/lore/write/commit", json={"proposal": proposal},
+                      headers={"origin": "https://evil.example"})
+    with Session(engine) as db:
+        if far.status_code != 403 or _counts(db) != before:
+            fail(f"E1d: a non-local commit answered {far.status_code} or wrote rows")
+    resp = client.post("/api/lore/write/commit", json={"proposal": proposal})
+    with Session(engine) as db:
+        joss = db.exec(select(Entity).where(Entity.name == "Joss Fer",
+                                            Entity.world_id == ids["world"])).first()
+        char = db.get(Character, joss.id) if joss else None
+        if resp.status_code != 200 or char is None or char.character_type != "npc":
+            fail(f"E1c: commit answered {resp.status_code} {resp.text[:160]}")
+    entries = client.get("/api/lore/write/entries").json().get("entries") or [{}]
+    labels = [r["label"] for r in entries[0].get("rows", [])]
+    if entries[0].get("statement") != proposal["statement"] or not labels \
+            or not any("Joss Fer" in label for label in labels):
+        fail(f"E1c: entries listed {entries[0]!r}"[:300])
+    proposal["facts"][0]["facet"] = "lien"
+    with Session(engine) as db:
+        before = _counts(db)
+    resp = client.post("/api/lore/write/commit", json={"proposal": proposal})
+    with Session(engine) as db:
+        if resp.status_code != 422 or _counts(db) != before:
+            fail(f"E1c: an invalid commit answered {resp.status_code} or wrote rows")
+
+
+def check_e2() -> None:
+    import ast
+
+    route = SRC / "cockpit" / "routes" / "lore_write.py"
+    text = route.read_text(encoding="utf-8")
+    for needle in ("select(", "chat("):
+        if needle in text:
+            fail(f"E2: the writing route contains {needle!r}")
+    tree = ast.parse(text)
+    commits = [(fn.name, node) for fn in tree.body if isinstance(fn, ast.FunctionDef)
+               for node in ast.walk(fn) if isinstance(node, ast.Call)
+               and isinstance(node.func, ast.Attribute) and node.func.attr == "commit"]
+    if [name for name, _ in commits] != ["write_commit"]:
+        fail(f"E2: commits in {[name for name, _ in commits]}, expected only write_commit")
+
+
 def check_d2() -> None:
     import re as _re
 
@@ -534,6 +641,8 @@ def main() -> int:
     check_c2()
     check_d1()
     check_d2()
+    check_e1()
+    check_e2()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -541,7 +650,8 @@ def main() -> int:
     print(f"PASS: lore_write -- census of {len(_LORE_WRITE_FILES)} module(s) holds; "
           "v2.11 declares the source record and migrates from v2.10 only; a proposal "
           "writes all or nothing, each row recorded, existing rows skipped; the draft "
-          "names things by name and code only and resolves both in code")
+          "names things by name and code only and resolves both in code; the routes are "
+          "thin, guarded, and write only on commit")
     return 0
 
 

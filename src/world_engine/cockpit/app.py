@@ -59,6 +59,7 @@ from .routes import day as _routes_day
 from .routes import link_agent as _routes_link_agent
 from .routes import lore as _routes_lore
 from .routes import lore_mentions as _routes_lore_mentions
+from .routes import lore_write as _routes_lore_write
 from .routes import lore_choices as _routes_lore_choices
 from .routes import mutations as _routes_mutations
 from .routes import npc_agent as _routes_npc_agent
@@ -136,6 +137,7 @@ app.include_router(_routes_observation.router)
 app.include_router(_routes_lore.router)
 app.include_router(_routes_lore_mentions.router)
 app.include_router(_routes_lore_choices.router)
+app.include_router(_routes_lore_write.router)
 
 app.mount("/static", _FreshnessAwareStaticFiles(directory=_STATIC_DIR), name="static")
 
