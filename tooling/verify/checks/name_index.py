@@ -18,7 +18,9 @@ R5 (creator confinement) -- across `src/world_engine/**/*.py`, `CREATOR`
    imported from `name_index` (or read as `name_index.CREATOR`) and any
    `NameScope(` call whose regime is the literal `"creator"` occur only in
    `name_index.py`, `lore_query.py`, `lore_mentions_read.py`,
-   `writes/facets.py`. Vacuity guard: at least one file parsed.
+   `writes/facets.py`, `lore_write_draft.py` (the writing panel resolves the
+   names of the creator's own statement, TICKET-0098, BRIEF-0098-D).
+   Vacuity guard: at least one file parsed.
 R6 (explicit scope, BRIEF-0092-b) -- across `src/world_engine/**/*.py`, every
    call whose callee name (a Name, or the last part of an Attribute) is
    `resolve_named` or `near_candidates` passes a `scope=` keyword; every call
@@ -55,6 +57,7 @@ CREATOR_ALLOWED = {
     "src/world_engine/lore_query.py",
     "src/world_engine/lore_mentions_read.py",
     "src/world_engine/writes/facets.py",
+    "src/world_engine/lore_write_draft.py",
 }
 
 FAILURES: list[str] = []

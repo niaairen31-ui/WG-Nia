@@ -17222,6 +17222,140 @@ already fail on `main` (no `fact_id`, since 0082) and are left as they are;
 `apply_ticket_0087_subject_participants.py` imports the deleted
 `subject_resolve` -- a one-shot that ran in 0087, kept as history.
 
+## WRITES FROM A NON-LOCAL ORIGIN ARE REFUSED (TICKET-0098) -- ONE GUARD FOR EVERY ROUTE (BRIEF-0098-a, no schema change)
+
+**I1.** The cockpit is bound to loopback with no authentication, which does
+not stop a page open in the creator's browser from posting to `127.0.0.1`
+(a cross-site form, or a DNS-rebinding name). TICKET-0098 adds a route that
+turns free prose into canon, so the gap now reaches the world itself.
+`cockpit/origin_guard.py` refuses every POST/PUT/PATCH/DELETE whose `Host`
+hostname is not local, or whose `Origin`, when present, is not a local
+http(s) origin; reads pass. The rule is hostname-only (the cockpit runs on
+8000 and 8001). Five checks that post through `TestClient` now declare
+`base_url="http://127.0.0.1"`: no exception is taught to the guard.
+
+**Rejected.** I2 (a per-boot session token on every write): reactivates if
+the cockpit ever listens beyond loopback, or another local tool must call
+the API. I3 (nothing now, authentication later): the writing route would
+ship open.
+
+## THE LORE WRITING PATH KEEPS ITS SOURCE (TICKET-0098) -- LORE_ENTRY AND LORE_ENTRY_ROW (BRIEF-0098-b, schema v2.11)
+
+**B2 + M1.** Every statement committed from the Lore shell is kept as a
+`lore_entry` (the text, the model's clarification questions, the creator's
+answers, as plain text), and every canon row the commit created or rewrote
+gets a `lore_entry_row` (`row_table`, `row_id`, `created|updated`), so a
+story can be reread with what it produced. `row_id` carries no FK because it
+points into several tables. Both tables are world-scoped, non-canon and
+append-only; they join the world cascade. v2.11 refuses a database older
+than v2.10.
+
+**Rejected.** M2 (bulk undo in this ticket): an undo must decide what to do
+with entities completed since, or facts learned in play; reactivates at the
+first injection the creator wants to take back. B3 (typed links between
+facts): reactivates if the day chain (A2) must follow a "why" from fact to
+fact.
+
+## A LORE PROPOSAL IS WRITTEN WHOLE OR NOT AT ALL (TICKET-0098) -- ADD_LORE_FACT AND APPLY_PROPOSAL (BRIEF-0098-c, no schema change)
+
+**What one statement can write (R1, S1, P1).** A proposal holds entities to
+create (character, location, faction, item -- G3) or reuse, facts to create
+(any non-typed facet, zero or more participants), to extend (participants,
+knowers, defaults) or to rewrite (a `bloc` fact only, Q19d), `knows`
+defaults at world/faction/location/rencontre scope (E1), knowers the creator
+checked (level, secret, false belief), faction memberships and `controls`
+edges. Social relations, events and world laws are out (R2).
+
+**One chokepoint for a lore fact.** `writes/facets.py::add_lore_fact`
+extends the entity-fact writer to any free facet and any number of
+participants, because `fact_facets.py` R3 keeps every non-literal facet in
+that module. It tokenizes, guards `bloc`, and writes the defaults.
+
+**All or nothing.** `lore_write_apply.apply_proposal` validates every ref,
+id, facet, scope and level against the proposal's world before writing,
+then writes through the chokepoints in the caller's transaction and records
+each row in `lore_entry_row`. A row that already exists is skipped and
+reported, never duplicated (`find_held`, the participant and membership
+reads, the `controls` pair). Entities are created through an injected
+callable: the commit-free creation core stays with the creator CRUD, which
+this module does not import. No model is called here.
+
+**Rejected.** R2 (relations, laws, events in the first cut): reactivates
+when a story loses its sense without its relation or law.
+
+## THE MODEL DRAFTS, CODE RESOLVES, THE CREATOR CONFIRMS (TICKET-0098) -- TWO WRITING PROMPTS (BRIEF-0098-d, no schema change)
+
+**O1 + J3.** Two prompts, each editable in Prompts: `lore_statement_questions`
+asks the creator at most three clarification questions about her text;
+`lore_statement_to_proposal` turns the text and her free-text answers into a
+draft. `lore_write_draft.py` holds both calls and never writes.
+
+**L1 -- what the model sees.** The statement, the answers, the facet
+vocabulary, the entities the statement names (found by the tokenizer, a
+read) and a coded list of their facts plus the world-level facts (no
+participant), creator-only facts excluded, capped at 200 lines. It never
+sees an id. It names existing facts by code (CLAUDE.md invariant) and
+entities by name; code resolves a name with `lore_resolve.resolve_named`
+under the creator regime into matched, ambiguous (candidates, the creator
+picks) or new (near names shown). An unlisted code, a typed or unknown
+facet, an unknown level or a dangling ref is dropped, never coerced.
+
+**N1 -- one prompt loader.** `lore_prompt.load` moved to `prompt_load.py`,
+which `lore_prompt.py` re-exports: the writing panel may not import the
+consultation pipeline (`lore_isolation.py` R17), and a second loader would
+drift. R15 now scopes `prompt_load.py` to the prompt tables.
+
+**K1.** Ollama down propagates `OllamaError`; the route answers a named
+French message. No fallback extractor.
+
+**Rejected.** O2 (one prompt returning questions and draft together):
+reactivates if waiting for two calls weighs on the creator. L2 (the whole
+world's facts): reactivates if the model duplicates facts about entities the
+statement did not name. J2 (several clarification rounds): reactivates if
+one round regularly leaves the draft off.
+
+## THE LORE SHELL GETS A WRITING PANEL (TICKET-0098) -- FOUR ROUTES, ONE COMMIT (BRIEF-0098-e, no schema change)
+
+**H1 -- a second bounded reopening.** The Lore shell's read-only lock (0085)
+opens again, the Q17d way: `cockpit/routes/lore_write.py` serves the
+questions, the draft, the commit and the history. It runs no query and no
+model call, and commits once, in `write_commit`. Its modules join
+`lore_isolation.py`'s panel list, so none imports the consultation pipeline.
+
+**C1 -- a minimal fiche.** A new entity is created through the creator
+CRUD's commit-free core (`_create_entity_core`, the region commit's
+precedent), in the proposal's transaction; a character is born an NPC.
+
+**K1.** Ollama down answers 503 with `WRITE_UNAVAILABLE_MESSAGE`; the
+draft routes write nothing, ever. A refused proposal answers 422 with the
+French reason and rolls back.
+
+**M1 -- rereading a story.** `GET /api/lore/write/entries` lists the world's
+last fifty entries, each with a label per written row; a row whose target
+was deleted since is labelled, never dropped.
+
+**Rejected.** H2 (the panel in Création): reactivates if the panel ever
+needs a consultation module to work.
+
+## THE WRITING PANEL -- EVERY ENTITY FROM A LIST (TICKET-0098) -- THE ÉCRIRE TAB (BRIEF-0098-f, no schema change)
+
+**H1 + J3.** The Lore shell gains a third tab, « Écrire ». The creator
+writes, gets at most one round of questions (she may answer or skip), then
+corrects the draft: every entity is chosen from a list -- a candidate, a
+near name, any active entity of the world -- or created with a type, or kept
+as text; every fact's text, facet (offered from the draft's `facets`,
+served from `FACETS`), participants, default scopes and knowers (level,
+secret, false belief) are editable; memberships and possessions can be
+removed. The commit button stays disabled while a name is undecided.
+
+**C1 -- a name kept as text** leaves the proposal and is declared as a
+mention of every new fact, so the tokenizer records it in « Noms à lier ».
+
+**M1.** « Histoires écrites » lists what each committed story produced.
+
+**Rejected.** A free field for an entity id or an unlisted name: the
+creator never recalls names (K1 of TICKET-0095).
+
 ---
 
 *Co-built with Claude, June 2026.*

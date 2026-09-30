@@ -272,6 +272,23 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         call_sites=("src/world_engine/lore_render.py:_call_model",),
         default_model=_author_model,
     ),
+    # TICKET-0098 (BRIEF-0098-D, O1): the lore writing path's two calls.
+    # world_scoped=False for the lore_rows_to_prose reason: the job is
+    # fidelity to the creator's statement, not a world's register.
+    "lore_statement_questions": PromptSpec(
+        surface="authoring",
+        world_scoped=False,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/lore_write_draft.py:_call",),
+        default_model=_author_model,
+    ),
+    "lore_statement_to_proposal": PromptSpec(
+        surface="authoring",
+        world_scoped=False,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/lore_write_draft.py:_call",),
+        default_model=_author_model,
+    ),
     "world_tick": PromptSpec(
         surface="play",
         world_scoped=False,

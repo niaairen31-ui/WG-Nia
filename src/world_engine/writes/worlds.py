@@ -56,6 +56,7 @@ _SUBQUERY_SCOPED_DELETES: tuple[tuple[str, str, str], ...] = (
     ("observation_run_template", "run_id", "observation_run"),
     ("day_mention_choice_candidate", "choice_id", "day_mention_choice"),
     ("day_mention_choice_evidence", "choice_id", "day_mention_choice"),
+    ("lore_entry_row", "entry_id", "lore_entry"),
 )
 
 # Direct world_id-scoped deletes — order free under the FK deferral.
@@ -70,7 +71,7 @@ _DIRECT_WORLD_SCOPED_DELETES: tuple[str, ...] = (
     "day_mention_choice", "day_mention_resolution", "day_mention_review",
     "day_rewrite", "door", "fact", "fact_default", "fact_participant",
     "faction_role", "goal_agenda_link", "goal_prerequisite",
-    "location_type_catalog", "npc_goal", "npc_price",
+    "location_type_catalog", "lore_entry", "npc_goal", "npc_price",
     "npc_schedule", "observation_run", "obstacle", "rencontre",
     "skill_resolution", "skill_system", "unresolved_mention", "visit",
     "world_law",

@@ -443,7 +443,7 @@ def check_g11(engine) -> None:
     from world_engine.models import UnresolvedMention
 
     maelis_id, (bound_id, refused_id) = _g11_fixture(engine)
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://127.0.0.1")  # origin_guard (BRIEF-0098-A)
     _g11_panel_reads_and_post(client, maelis_id)
     with Session(engine) as session:
         before = len(_appellation_facts(session, maelis_id))

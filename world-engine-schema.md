@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.10
+Current schema version: v2.11
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1138,6 +1138,53 @@ CREATE TABLE day_mention_review (
   )
 );
 CREATE INDEX idx_day_mention_review_choice ON day_mention_review(choice_id);
+```
+
+-----
+
+### `lore_entry`
+
+The lore writing path's source record (schema v2.11, TICKET-0098,
+BRIEF-0098-B, decisions B2 + M1): one row per statement the creator committed
+from the Lore shell's writing panel — her text as written (`statement`), the
+model's clarification questions (`questions`, one per line) and her free-text
+answers (`answers`); both NULL when the clarification round was skipped.
+Append-only. Non-canon: it records where canon rows came from, it is never
+read as world truth.
+
+```sql
+CREATE TABLE lore_entry (
+  id          TEXT PRIMARY KEY,
+  world_id    TEXT NOT NULL REFERENCES world(id),
+  statement   TEXT NOT NULL,
+  questions   TEXT,
+  answers     TEXT,
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_lore_entry_world ON lore_entry(world_id, created_at);
+```
+
+-----
+
+### `lore_entry_row`
+
+One row per canon row a `lore_entry` commit created or updated (schema v2.11,
+TICKET-0098, BRIEF-0098-B, M1), so a story can be reread with everything it
+produced. `row_id` carries no FK: it points into the table `row_table` names.
+`updated` marks a `bloc` fact rewritten in place. Append-only; the bulk undo
+of an entry is a later ticket (M2).
+
+```sql
+CREATE TABLE lore_entry_row (
+  id         TEXT PRIMARY KEY,
+  entry_id   TEXT NOT NULL REFERENCES lore_entry(id),
+  row_table  TEXT NOT NULL CHECK (row_table IN ('entity','fact','fact_participant',
+               'fact_default','knowledge','relation','faction_membership')),
+  row_id     TEXT NOT NULL,
+  action     TEXT NOT NULL CHECK (action IN ('created','updated'))
+);
+CREATE UNIQUE INDEX idx_lore_entry_row_entry
+  ON lore_entry_row(entry_id, row_table, row_id);
 ```
 
 -----

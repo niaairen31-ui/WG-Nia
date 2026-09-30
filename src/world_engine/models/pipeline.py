@@ -311,6 +311,56 @@ class DayMentionReview(SQLModel, table=True):
     created_at: datetime = _created_ts()
 
 
+# -----------------------------------------------------------------------------
+# lore_entry / lore_entry_row  (the lore writing path's source record, schema
+# v2.11, TICKET-0098, BRIEF-0098-B, decisions B2 + M1)
+#
+# One `lore_entry` per statement the creator committed from the Lore shell:
+# her text as she wrote it, the model's clarification questions and her
+# answers (plain text, NULL when the round was skipped). One `lore_entry_row`
+# per canon row that commit created or updated, so a story can be reread with
+# everything it produced. `row_id` carries no FK: it points into one of
+# several tables, named by `row_table`. Append-only, both (no UPDATE, no
+# DELETE outside the world cascade). Non-canon.
+# -----------------------------------------------------------------------------
+LORE_ENTRY_ROW_TABLES: tuple[str, ...] = (
+    "entity", "fact", "fact_participant", "fact_default", "knowledge",
+    "relation", "faction_membership",
+)
+LORE_ENTRY_ROW_ACTIONS: tuple[str, ...] = ("created", "updated")
+
+
+class LoreEntry(SQLModel, table=True):
+    __tablename__ = "lore_entry"
+    __table_args__ = (Index("idx_lore_entry_world", "world_id", "created_at"),)
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    statement: str
+    questions: Optional[str] = None
+    answers: Optional[str] = None
+    created_at: datetime = _created_ts()
+
+
+class LoreEntryRow(SQLModel, table=True):
+    __tablename__ = "lore_entry_row"
+    __table_args__ = (
+        Index("idx_lore_entry_row_entry", "entry_id", "row_table", "row_id", unique=True),
+        CheckConstraint(
+            "row_table IN ('entity','fact','fact_participant','fact_default','knowledge',"
+            "'relation','faction_membership')",
+            name="ck_lore_entry_row_table",
+        ),
+        CheckConstraint("action IN ('created','updated')", name="ck_lore_entry_row_action"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    entry_id: str = Field(foreign_key="lore_entry.id", nullable=False)
+    row_table: str
+    row_id: str
+    action: str
+
+
 # -------------------------------------------------------------------------
 # skill_resolution  (one row per arbiter classification — the action
 # lexicon's audit trail; schema v2.02, TICKET-0084)

@@ -1,0 +1,102 @@
+{
+  "ticket": "TICKET-0098-lore-writing",
+  "when": "2026-09-30T15:48:29.001042+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "origin_guard.py",
+      "status": "PASS",
+      "msg": "PASS: origin_guard -- writes from a non-local Host or Origin are refused; reads and local writes pass; one registration; every writing test client is local"
+    },
+    {
+      "check": "lore_write.py",
+      "status": "PASS",
+      "msg": "PASS: lore_write -- census of 5 module(s) holds; v2.11 declares the source record and migrates from v2.10 only; a proposal writes all or nothing, each row recorded, existing rows skipped; the draft names things by name and code only and resolves both in code; the routes are thin, guarded, and write only on commit; the panel lives in the Lore shell's '\u00c3\u2030crire' tab"
+    },
+    {
+      "check": "lore_isolation.py",
+      "status": "PASS",
+      "msg": "PASS: lore_isolation \u00e2\u20ac\u201d purity (R1, R4), world scoping at construction (R2), the discoverable_detail exclusion (R3), the planner's canon-blindness (R5), the route's thinness (R6), the ask-side named Ollama-down message (R16), the no-redraft-on-resolve guard (R7), the selector/category vocabulary parity checks (R8, R9), the prompt loader's scoping to prompt tables (R15), and the renderer's isolation, no-model-on-empty-verdict, Ollama fallback, message-constant, and unknown-section guards (R10-R14), and the name-resolution panel's separation from the pipeline (R17) are all intact"
+    },
+    {
+      "check": "name_index.py",
+      "status": "PASS",
+      "msg": "PASS: name_index \u00e2\u20ac\u201d pure and world-scoped, regimes in bijection with their rules, creator-only exclusion imported lazily, the creator regime confined, every resolver call states its scope, the Regimes table holds, and the tokenizer indexes only scoped non-creator-only appellations"
+    },
+    {
+      "check": "fact_facets.py",
+      "status": "PASS",
+      "msg": "PASS: fact_facets \u00e2\u20ac\u201d FACETS matches C-01, every create_fact( passes a facet, descriptive/dynamic facets stay in writes/facets.py, C-02's case table holds, the entity-fact writer guards blocs and writes customs and creator_meta, resolve_default_rows skips descriptive facts, and creator-only facts stay out of facet reads outside the dossier"
+    },
+    {
+      "check": "prompt_registry.py",
+      "status": "PASS",
+      "msg": "PASS: prompt_registry \u00e2\u20ac\u201d usage bijection, registry entry shape, static resolver wiring, effective_model pure-function behavior"
+    },
+    {
+      "check": "world_cascade.py",
+      "status": "PASS",
+      "msg": "PASS: world_cascade -- every world-scoped table is deleted or guarded; a populated world deletes under FK enforcement; refusals delete nothing"
+    },
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v2.11'"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "identity_tokens.py",
+      "status": "PASS",
+      "msg": "PASS: identity_tokens \u00e2\u20ac\u201d content_raw read only in the allow-list, render follows renames and falls back on deleted entities, C-14's case table holds, two same-named NPCs give one ambigu row, and token posing calls no model"
+    },
+    {
+      "check": "json_ui_boundary.py",
+      "status": "PASS",
+      "msg": "PASS: json_ui_boundary \u00e2\u20ac\u201d zero \"kind\": \"json\" CRUD fields, zero metadata_/Column(\"metadata\" references outside comments, every Column(JSON in models/*.py is a named allow-list entry, zero trait ext-column field(s) with kind 'json'"
+    },
+    {
+      "check": "name_resolution.py",
+      "status": "PASS",
+      "msg": "PASS: name_resolution \u00e2\u20ac\u201d exact names resolve, appellations and partial names resolve for the creator only, near names score and order as the lot's table, the day chain sees only the appellations its character knows, the worklist reads appellations, tokenizer mentions stay on names, objects and every other type are nameable categories, near names reach the Lore answer and the names panel, and the panel records a missed name as an appellation"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u00e2\u20ac\u201d 103 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u00e2\u20ac\u201d section whitelist, character/line budgets, File-structure archaeology ban, Invariants archaeology ban, tooling/ pointer freshness, .py pointer freshness"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values; 99 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "function_length.py",
+      "status": "PASS",
+      "msg": "PASS: function_length \u00e2\u20ac\u201d every function over 80 lines is baselined at or below its recorded length"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    },
+    {
+      "check": "pipeline_state.py",
+      "status": "PASS",
+      "msg": "PASS: every ticket front-matter conforms to TEMPLATE.md"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 128 check(s) discovered, 128 executed, 128 passed"
+    }
+  ]
+}

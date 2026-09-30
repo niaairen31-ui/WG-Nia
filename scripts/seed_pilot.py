@@ -1809,6 +1809,139 @@ Lignes disponibles :
 """
 
 
+# ----- prompt template: lore writing -- clarification questions (TICKET-0098, BRIEF-0098-D) --
+# usage = "lore_statement_questions". world_id = NULL: the prompt carries no
+# world content of its own; the statement, the named entities and the coded
+# facts arrive as variables. First of the two writing calls (O1): at most
+# three questions, never a proposal (lore_write_draft.draft_questions).
+LORE_STATEMENT_QUESTIONS_SYSTEM_PROMPT = """\
+Tu aides la créatrice d'un monde de jeu de rôle à ajouter du lore. Elle \
+vient d'écrire un texte. Avant qu'on le découpe en faits, tu lui poses au \
+plus trois questions courtes, en français, sur ce qui reste flou pour \
+l'écrire correctement.
+
+Pose en priorité les questions qui changent qui connaît quoi : tout le \
+monde, les membres d'une faction, les personnes présentes dans un lieu, \
+ceux qui ont rencontré quelqu'un, ou seulement certains personnages ; un \
+secret ; une croyance fausse. Demande aussi si un nom désigne une chose \
+déjà connue ou une chose nouvelle, et si une règle appartient à une \
+personne ou au lieu où elle s'applique.
+
+Quand le texte est déjà clair, rends une liste vide.
+
+Réponds UNIQUEMENT avec ce JSON :
+{"questions": ["...", "..."]}\
+"""
+
+LORE_STATEMENT_QUESTIONS_USER_TEMPLATE = """\
+Texte de la créatrice :
+{statement}
+
+Entités connues que le texte nomme :
+{entities}
+
+Faits déjà connus (code — texte) :
+{facts}\
+"""
+
+# ----- prompt template: lore writing -- statement to proposal (TICKET-0098, BRIEF-0098-D) --
+# usage = "lore_statement_to_proposal". world_id = NULL. Second writing call
+# (O1): turns the statement and the creator's answers into a draft. The
+# model names entities by name and existing facts by code only; code
+# resolves both and the creator confirms before anything is written
+# (lore_write_draft.draft_proposal, lore_write_apply.apply_proposal).
+LORE_STATEMENT_TO_PROPOSAL_SYSTEM_PROMPT = """\
+Tu découpes le lore écrit par la créatrice d'un monde de jeu de rôle en \
+faits courts et apprenables un par un. Chaque fait est une phrase complète \
+en français, qui nomme les choses par leur nom.
+
+ENTITÉS. Liste chaque personne, lieu, faction ou objet que tes faits \
+concernent, avec un "ref" (e1, e2, ...), son nom tel qu'écrit et une \
+catégorie parmi "person", "place", "faction", "object", "other". Une \
+occupation partagée par un groupe (les dockers, les gardes) est une \
+"faction".
+
+FAITS. Chaque fait porte :
+- "action" : "create" pour un fait nouveau ; "existing" pour ajouter des \
+personnes qui savent un fait déjà connu, désigné par son "code" ; \
+"rewrite" pour réécrire un fait de facette bloc déjà connu, désigné par \
+son "code", avec le nouveau "content" complet ;
+- "content" et "facet" (choisie dans la liste des facettes) pour un fait \
+nouveau, avec "aspect" pour une coutume ;
+- "participants" : les refs des entités dont parle le fait (aucune pour \
+une vérité générale du monde) ;
+- "defaults" : qui le sait par défaut, parmi {"scope_type": "world"}, \
+{"scope_type": "faction", "scope_ref": "e3"}, {"scope_type": "location", \
+"scope_ref": "e2"}, {"scope_type": "rencontre", "scope_ref": "e1"} (ceux \
+qui ont rencontré e1) ;
+- "knowers" : les entités précises qui le savent, avec "level" parmi \
+"rumor", "suspicious", "partial", "knows", "fully_understands", \
+"is_secret" (vrai si elle le cache) et "is_incorrect" (vrai si c'est une \
+croyance fausse).
+Un secret ou une croyance fausse passe toujours par "knowers". Une facette \
+bloc (physique, tenue, description, doctrine, organisation) a un seul \
+participant ; si ce bloc existe déjà dans la liste des faits connus, \
+réécris-le avec "rewrite".
+
+APPARTENANCES ET POSSESSIONS. "memberships" liste les personnes qui \
+entrent dans une faction ({"entity_ref", "faction_ref"}) ; "controls" \
+liste qui possède ou dirige un lieu ({"owner_ref", "location_ref"}). La \
+possession s'écrit aussi comme un fait de facette "statut".
+
+Suis les réponses de la créatrice à la lettre. Réponds UNIQUEMENT avec ce \
+JSON :
+{"entities": [{"ref": "e1", "name": "...", "category": "person"}],
+ "facts": [{"action": "create", "content": "...", "facet": "preference",
+   "participants": ["e1"], "defaults": [{"scope_type": "rencontre",
+   "scope_ref": "e1"}], "knowers": []}],
+ "memberships": [], "controls": []}\
+"""
+
+LORE_STATEMENT_TO_PROPOSAL_USER_TEMPLATE = """\
+Facettes :
+{facets}
+
+Entités connues que le texte nomme :
+{entities}
+
+Faits déjà connus (code — texte) :
+{facts}
+
+Texte de la créatrice :
+{statement}
+
+Réponses de la créatrice aux questions :
+{answers}\
+"""
+
+
+# The lore writing heads, one tuple read by the seed and by
+# scripts/apply_ticket_0098_lore_write_prompts.py (single source, the
+# DAY_PROMPT_HEADS precedent).
+LORE_WRITE_PROMPT_HEADS = (
+    dict(
+        id="pt-lore-statement-questions",
+        name="Écriture de lore — questions de clarification",
+        usage="lore_statement_questions",
+        world_id=None,
+        system_prompt=LORE_STATEMENT_QUESTIONS_SYSTEM_PROMPT,
+        user_template=LORE_STATEMENT_QUESTIONS_USER_TEMPLATE,
+        variables=["statement", "entities", "facts"],
+        destination="local",
+    ),
+    dict(
+        id="pt-lore-statement-to-proposal",
+        name="Écriture de lore — texte vers proposition",
+        usage="lore_statement_to_proposal",
+        world_id=None,
+        system_prompt=LORE_STATEMENT_TO_PROPOSAL_SYSTEM_PROMPT,
+        user_template=LORE_STATEMENT_TO_PROPOSAL_USER_TEMPLATE,
+        variables=["facets", "entities", "facts", "statement", "answers"],
+        destination="local",
+    ),
+)
+
+
 # ----- day chain prompt text (TICKET-0075; hoisted to module level, TICKET-0076) -----
 # ----- prompt template: day plan emission (TICKET-0075, BRIEF-0075-b) ---
 # usage = "day_plan". world_id = NULL. ONE call (F1): the model proposes
@@ -2796,6 +2929,10 @@ def seed(session: Session) -> None:
         variables=["question", "rows"],
         destination="local",
     )
+
+    # ----- prompt templates: lore writing (TICKET-0098, BRIEF-0098-D) --
+    for entry in LORE_WRITE_PROMPT_HEADS:
+        upsert_prompt_template(session, **entry)
 
     # ----- prompt template: world tick — off-screen NPC advancement ----------
     # (TICKET-0014/BRIEF-0014-a). usage = "world_tick". world_id = NULL.

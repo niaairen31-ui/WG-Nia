@@ -29,7 +29,9 @@ no logic change) — see BRIEF-0027-d for the full census.
 Security
 --------
 - uvicorn is bound to 127.0.0.1 only (enforced in scripts/cockpit.py).
-- No authentication needed for this solo local tool.
+- No authentication needed for this solo local tool; every write method
+  passes `origin_guard` first (TICKET-0098, BRIEF-0098-A, I1): a non-local
+  Host or Origin is refused with a 403 before any route runs.
 - No CORS opened to any origin.
 - No external calls except the local Ollama endpoint via the existing client.
 """
@@ -51,11 +53,13 @@ from ..db import engine
 from ..models import LinkBatch, LinkBatchRow, NpcBatch, NpcBatchRow, SchemaMeta
 from ..schema_version import EXPECTED_STATIC_SCHEMA_VERSION
 from . import crud as _crud
+from .origin_guard import origin_guard
 from .routes import creator as _routes_creator
 from .routes import day as _routes_day
 from .routes import link_agent as _routes_link_agent
 from .routes import lore as _routes_lore
 from .routes import lore_mentions as _routes_lore_mentions
+from .routes import lore_write as _routes_lore_write
 from .routes import lore_choices as _routes_lore_choices
 from .routes import mutations as _routes_mutations
 from .routes import npc_agent as _routes_npc_agent
@@ -116,6 +120,7 @@ class _FreshnessAwareStaticFiles(StaticFiles):
 
 
 app = FastAPI(title="World Engine Cockpit", docs_url=None, redoc_url=None)
+app.middleware("http")(origin_guard)
 app.include_router(_crud.router)
 app.include_router(_routes_creator.router)
 app.include_router(_routes_day.router)
@@ -132,6 +137,7 @@ app.include_router(_routes_observation.router)
 app.include_router(_routes_lore.router)
 app.include_router(_routes_lore_mentions.router)
 app.include_router(_routes_lore_choices.router)
+app.include_router(_routes_lore_write.router)
 
 app.mount("/static", _FreshnessAwareStaticFiles(directory=_STATIC_DIR), name="static")
 
