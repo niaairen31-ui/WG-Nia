@@ -12,10 +12,13 @@
      TICKET-0092 (BRIEF-0092-e): on an unknown_entity verdict, each unmatched
      name offers a link to that tab with the name pre-filled (openLookup); the
      question view still writes nothing -- the link only opens the panel.
-     TICKET-0095 (K1): the same tab hosts the model-choice review (ChoiceReviewPanel.svelte). */
+     TICKET-0095 (K1): the same tab hosts the model-choice review (ChoiceReviewPanel.svelte).
+     TICKET-0098 (BRIEF-0098-F, H1): the "Écrire" tab hosts the writing panel (WritePanel.svelte),
+     a second bounded reopening; the question view still writes nothing. */
   import { serverState } from '../lib/serverState.svelte.js';
   import NamesPanel from './NamesPanel.svelte';
   import ChoiceReviewPanel from './ChoiceReviewPanel.svelte';
+  import WritePanel from './WritePanel.svelte';
   import { openLookup } from './namesPanel.svelte.js';
   import {
     loreState, askLore, selectCandidate, allAmbiguitiesResolved, confirmResolution,
@@ -94,7 +97,11 @@
   <div class="lore-tabs">
     <button class:active={loreTab === 'question'} onclick={() => (loreTab = 'question')}>Question</button>
     <button class:active={loreTab === 'names'} onclick={() => (loreTab = 'names')}>Noms à lier</button>
+    <button class:active={loreTab === 'write'} onclick={() => (loreTab = 'write')}>Écrire</button>
   </div>
+  {#if loreTab === 'write'}
+    <WritePanel visible={active} />
+  {/if}
   {#if loreTab === 'names'}
     <NamesPanel visible={active} />
     <ChoiceReviewPanel visible={active} />

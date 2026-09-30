@@ -17337,6 +17337,25 @@ was deleted since is labelled, never dropped.
 **Rejected.** H2 (the panel in Création): reactivates if the panel ever
 needs a consultation module to work.
 
+## THE WRITING PANEL -- EVERY ENTITY FROM A LIST (TICKET-0098) -- THE ÉCRIRE TAB (BRIEF-0098-f, no schema change)
+
+**H1 + J3.** The Lore shell gains a third tab, « Écrire ». The creator
+writes, gets at most one round of questions (she may answer or skip), then
+corrects the draft: every entity is chosen from a list -- a candidate, a
+near name, any active entity of the world -- or created with a type, or kept
+as text; every fact's text, facet (offered from the draft's `facets`,
+served from `FACETS`), participants, default scopes and knowers (level,
+secret, false belief) are editable; memberships and possessions can be
+removed. The commit button stays disabled while a name is undecided.
+
+**C1 -- a name kept as text** leaves the proposal and is declared as a
+mention of every new fact, so the tokenizer records it in « Noms à lier ».
+
+**M1.** « Histoires écrites » lists what each committed story produced.
+
+**Rejected.** A free field for an entity id or an unlisted name: the
+creator never recalls names (K1 of TICKET-0095).
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -69,6 +69,15 @@ E1 -- routes (BRIEF-0098-E), through `TestClient(app, base_url=...)` on the
       row count.
 E2 -- thin route. `cockpit/routes/lore_write.py` contains no `select(` and
    no `chat(`, and exactly one `.commit(` -- inside `write_commit`.
+F1 -- panel (BRIEF-0098-F), static:
+   a. `frontend/src/lore/Lore.svelte` imports `WritePanel.svelte` and renders
+      it only under `loreTab === 'write'`;
+   b. `frontend/src/lore/writePanel.svelte.js` calls exactly the paths
+      `/api/lore/write/questions`, `/api/lore/write/draft`,
+      `/api/lore/write/commit`, `/api/lore/write/entries` and `/api/entities`;
+   c. `WritePanel.svelte` lists the facets it offers from `draft.facets`
+      (served from `FACETS`), never from a literal list, and offers no free
+      text field for an entity id.
 C2 -- purity. `lore_write_apply.py` and `writes/lore_entries.py` contain no
    `chat(`, no `.commit(`, and import neither `ollama_client` nor any
    `cockpit` module; `lore_write_draft.py` contains no `db.add(`, no
@@ -606,6 +615,25 @@ def check_e2() -> None:
         fail(f"E2: commits in {[name for name, _ in commits]}, expected only write_commit")
 
 
+def check_f1() -> None:
+    lore = (ROOT / "frontend" / "src" / "lore")
+    shell = (lore / "Lore.svelte").read_text(encoding="utf-8")
+    if "import WritePanel from './WritePanel.svelte';" not in shell or \
+            "{#if loreTab === 'write'}\n    <WritePanel" not in shell:
+        fail("F1a: Lore.svelte does not render WritePanel under the 'write' tab")
+    state = (lore / "writePanel.svelte.js").read_text(encoding="utf-8")
+    paths = set(re.findall(r"'(/api/[a-z/_-]+)'", state))
+    want = {"/api/lore/write/questions", "/api/lore/write/draft", "/api/lore/write/commit",
+            "/api/lore/write/entries", "/api/entities"}
+    if paths != want:
+        fail(f"F1b: writePanel.svelte.js calls {sorted(paths)}")
+    panel = (lore / "WritePanel.svelte").read_text(encoding="utf-8")
+    if "draft.facets" not in panel or re.search(r"'(aversion|preference|coutume)'", panel):
+        fail("F1c: WritePanel.svelte does not take its facets from the draft")
+    if "entity_id" in re.sub(r"entity\.entity_id|c\.entity_id|entity_id\)", "", panel):
+        fail("F1c: WritePanel.svelte exposes an entity id outside a picker")
+
+
 def check_d2() -> None:
     import re as _re
 
@@ -643,6 +671,7 @@ def main() -> int:
     check_d2()
     check_e1()
     check_e2()
+    check_f1()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -651,7 +680,8 @@ def main() -> int:
           "v2.11 declares the source record and migrates from v2.10 only; a proposal "
           "writes all or nothing, each row recorded, existing rows skipped; the draft "
           "names things by name and code only and resolves both in code; the routes are "
-          "thin, guarded, and write only on commit")
+          "thin, guarded, and write only on commit; the panel lives in the Lore shell's "
+          "'Écrire' tab")
     return 0
 
 

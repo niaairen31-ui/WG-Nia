@@ -1,0 +1,218 @@
+/* TICKET-0098 (BRIEF-0098-F). Non-render state + API calls for the Lore
+   shell's writing panel ("Écrire"), same shape as namesPanel.svelte.js: a
+   $state object WritePanel.svelte renders, plus the functions that mutate it.
+
+   Flow (J3): the creator's text -> at most one round of questions -> a
+   draft (C-05) she corrects -> a proposal (C-02) committed in one request.
+   Every entity is picked from a list, never typed from memory (K1 of 0095):
+   an ambiguous or new name offers the world's entities; "garder en texte"
+   drops the entity and declares the name as a mention, so the tokenizer
+   records it in "Noms à lier". */
+import { api } from '../creation/sheetRequest.svelte.js';
+
+export const ENTITY_TYPES = Object.freeze([
+  { value: 'character', label: 'personnage' },
+  { value: 'location', label: 'lieu' },
+  { value: 'faction', label: 'faction' },
+  { value: 'item', label: 'objet' },
+]);
+export const SCOPE_TYPES = Object.freeze([
+  { value: 'world', label: 'Tout le monde' },
+  { value: 'faction', label: 'Les membres de la faction' },
+  { value: 'location', label: 'Ceux qui sont dans le lieu' },
+  { value: 'rencontre', label: 'Ceux qui ont rencontré' },
+]);
+export const LEVELS = Object.freeze(['rumor', 'suspicious', 'partial', 'knows', 'fully_understands']);
+const SCOPE_ENTITY_TYPE = Object.freeze({ faction: 'faction', location: 'location' });
+const TYPE_CATEGORY = Object.freeze({
+  location: 'place', character: 'person', faction: 'faction', item: 'object',
+});
+
+function blank() {
+  return {
+    stage: 'text', statement: '', answers: '', questions: [], draft: null,
+    busy: false, error: '', result: null, entities: null, entries: [], pick: {},
+  };
+}
+
+export const writeState = $state(blank());
+
+export function reloadForWorld() {
+  Object.assign(writeState, blank());
+}
+
+const post = (path, body) => api(path, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+});
+
+async function run(task) {
+  writeState.busy = true;
+  writeState.error = '';
+  try {
+    await task();
+  } catch (e) {
+    writeState.error = e.message;
+  } finally {
+    writeState.busy = false;
+  }
+}
+
+export async function loadWorldEntities() {
+  if (writeState.entities) return;
+  const rows = await api('/api/entities');
+  writeState.entities = rows.filter((e) => e.status === 'active');
+}
+
+export function askQuestions() {
+  return run(async () => {
+    const body = await post('/api/lore/write/questions', { statement: writeState.statement });
+    writeState.questions = body.questions;
+    if (body.questions.length === 0) {
+      await draftNow();
+    } else {
+      writeState.stage = 'questions';
+    }
+  });
+}
+
+async function draftNow() {
+  await loadWorldEntities();
+  const draft = await post('/api/lore/write/draft', {
+    statement: writeState.statement, answers: writeState.answers,
+  });
+  for (const entity of draft.entities) {
+    if (entity.status === 'matched') entity.decision = 'existing';
+    else if (entity.status === 'ambiguous') entity.decision = '';
+    else entity.decision = entity.type ? 'create' : '';
+  }
+  writeState.draft = draft;
+  writeState.result = null;
+  writeState.stage = 'draft';
+}
+
+export function makeDraft() {
+  return run(draftNow);
+}
+
+export function worldEntity(id) {
+  return (writeState.entities || []).find((e) => e.id === id);
+}
+
+export function pickExisting(entity, entityId) {
+  const picked = worldEntity(entityId);
+  if (!picked) return;
+  Object.assign(entity, {
+    decision: 'existing', action: 'existing', entity_id: picked.id, type: picked.type,
+  });
+}
+
+export function refLabel(ref) {
+  const entity = (writeState.draft?.entities || []).find((e) => e.ref === ref);
+  if (!entity) return ref;
+  if (entity.decision === 'existing') return worldEntity(entity.entity_id)?.name || entity.name;
+  return entity.name;
+}
+
+export function liveRefs(type) {
+  return (writeState.draft?.entities || []).filter((e) => e.decision
+    && e.decision !== 'text' && (!type || e.type === type));
+}
+
+export function scopeRefs(scopeType) {
+  return liveRefs(SCOPE_ENTITY_TYPE[scopeType]);
+}
+
+export function addKnower(fact, entityId) {
+  const picked = worldEntity(entityId);
+  if (!picked) return;
+  const draft = writeState.draft;
+  let entity = draft.entities.find((e) => e.decision === 'existing' && e.entity_id === picked.id);
+  if (!entity) {
+    entity = {
+      ref: `k${draft.entities.length + 1}`, name: picked.name, type: picked.type,
+      status: 'matched', decision: 'existing', action: 'existing', entity_id: picked.id,
+    };
+    draft.entities.push(entity);
+  }
+  if (!fact.knowers.some((k) => k.entity_ref === entity.ref)) {
+    fact.knowers.push({ entity_ref: entity.ref, level: 'knows', is_secret: false, is_incorrect: false });
+  }
+}
+
+export function addDefault(fact) {
+  fact.defaults.push({ scope_type: 'world' });
+}
+
+export function removeAt(list, index) {
+  list.splice(index, 1);
+}
+
+export function blockers() {
+  const draft = writeState.draft;
+  if (!draft) return ['Aucune proposition.'];
+  const out = [];
+  for (const e of draft.entities) {
+    if (!e.decision) out.push(`Choisis quoi faire de « ${e.name} ».`);
+    if (e.decision === 'create' && !e.type) out.push(`Choisis le type de « ${e.name} ».`);
+  }
+  for (const f of draft.facts) {
+    for (const d of f.defaults) {
+      if (d.scope_type !== 'world' && !d.scope_ref) out.push('Une portée ne nomme pas son entité.');
+    }
+  }
+  if (!draft.facts.length && !draft.memberships.length && !draft.controls.length) {
+    out.push('La proposition n’écrit rien.');
+  }
+  return out;
+}
+
+function toProposal() {
+  const draft = writeState.draft;
+  const dropped = new Set(draft.entities.filter((e) => e.decision === 'text').map((e) => e.ref));
+  const mentions = draft.entities.filter((e) => dropped.has(e.ref))
+    .map((e) => ({ name: e.name, category: TYPE_CATEGORY[e.type] || e.category || 'other' }));
+  const keep = (ref) => ref && !dropped.has(ref);
+  const entities = draft.entities.filter((e) => !dropped.has(e.ref)).map((e) => (
+    e.decision === 'existing'
+      ? { ref: e.ref, action: 'existing', entity_id: e.entity_id }
+      : { ref: e.ref, action: 'create', name: e.name, type: e.type }));
+  const facts = draft.facts.map((f) => {
+    const out = {
+      ref: f.ref, action: f.action,
+      participants: f.participants.filter(keep),
+      defaults: f.defaults.filter((d) => d.scope_type === 'world' || keep(d.scope_ref))
+        .map((d) => (d.scope_type === 'world' ? { scope_type: 'world' } : { ...d })),
+      knowers: f.knowers.filter((k) => keep(k.entity_ref)).map((k) => ({ ...k })),
+    };
+    if (f.action !== 'create') out.fact_id = f.fact_id;
+    if (f.action !== 'existing') out.content = f.content;
+    if (f.action === 'create') Object.assign(out, { facet: f.facet, aspect: f.aspect, mentions });
+    return out;
+  });
+  return {
+    statement: draft.statement, answers: draft.answers,
+    questions: writeState.questions.join('\n') || null, entities, facts,
+    memberships: draft.memberships.filter((m) => keep(m.entity_ref) && keep(m.faction_ref)),
+    controls: draft.controls.filter((c) => keep(c.owner_ref) && keep(c.location_ref)),
+  };
+}
+
+export function commit() {
+  return run(async () => {
+    const body = await post('/api/lore/write/commit', { proposal: toProposal() });
+    writeState.result = body;
+    writeState.stage = 'done';
+    writeState.entities = null;
+    await loadEntries();
+  });
+}
+
+export function restart() {
+  const entries = writeState.entries;
+  Object.assign(writeState, blank(), { entries });
+}
+
+export async function loadEntries() {
+  const body = await api('/api/lore/write/entries');
+  writeState.entries = body.entries;
+}
