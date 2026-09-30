@@ -13,6 +13,11 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.11** — TICKET-0098, BRIEF-0098-B: the lore writing path's source
+  record — `lore_entry` (the creator's statement, the clarification
+  questions and her answers) and `lore_entry_row` (one row per canon row a
+  commit created or updated). Additive, zero rows;
+  `migrate_v2_11_lore_entry.py` refuses a database older than v2.10.
 - **v2.10** — TICKET-0097, BRIEF-0097-G: `knowledge.subject` and
   `idx_knowledge_subject` dropped. `migrate_v2_10_drop_knowledge_subject.py`
   refuses to run before v2.09, and while a row's subject is neither

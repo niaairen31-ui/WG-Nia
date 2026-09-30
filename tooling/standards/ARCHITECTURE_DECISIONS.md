@@ -17239,6 +17239,23 @@ the cockpit ever listens beyond loopback, or another local tool must call
 the API. I3 (nothing now, authentication later): the writing route would
 ship open.
 
+## THE LORE WRITING PATH KEEPS ITS SOURCE (TICKET-0098) -- LORE_ENTRY AND LORE_ENTRY_ROW (BRIEF-0098-b, schema v2.11)
+
+**B2 + M1.** Every statement committed from the Lore shell is kept as a
+`lore_entry` (the text, the model's clarification questions, the creator's
+answers, as plain text), and every canon row the commit created or rewrote
+gets a `lore_entry_row` (`row_table`, `row_id`, `created|updated`), so a
+story can be reread with what it produced. `row_id` carries no FK because it
+points into several tables. Both tables are world-scoped, non-canon and
+append-only; they join the world cascade. v2.11 refuses a database older
+than v2.10.
+
+**Rejected.** M2 (bulk undo in this ticket): an undo must decide what to do
+with entities completed since, or facts learned in play; reactivates at the
+first injection the creator wants to take back. B3 (typed links between
+facts): reactivates if the day chain (A2) must follow a "why" from fact to
+fact.
+
 ---
 
 *Co-built with Claude, June 2026.*
