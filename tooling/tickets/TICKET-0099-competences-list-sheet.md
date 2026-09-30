@@ -2,7 +2,7 @@
 id: TICKET-0099
 title: Compétences on the shared list and fiche — container sizing, add-system button
 type: bug
-status: exec
+status: live-gate
 created: 2026-09-30
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: []
