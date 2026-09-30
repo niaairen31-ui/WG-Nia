@@ -2,7 +2,7 @@
 id: TICKET-0098
 title: Lore writing path — write lore in prose, confirm it, get facts
 type: feature
-status: exec
+status: live-gate
 created: 2026-09-29
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
