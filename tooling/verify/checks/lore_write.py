@@ -36,9 +36,30 @@ C1 -- apply (BRIEF-0098-C, C-02), on a fixture world, through
       the row counts of every recorded table are unchanged;
    e. a proposal refused by a write site (a second `bloc` fact on the same
       entity) raises `ProposalError`; after the rollback nothing remains.
+D1 -- draft (BRIEF-0098-D, C-05), with `lore_write_draft.chat` replaced by a
+   stub that records the messages and returns canned JSON:
+   a. `draft_context` lists the entities the statement names, codes their
+      facts and the world-level facts, and never codes a creator-only fact;
+   b. `draft_questions` keeps at most `MAX_QUESTIONS` non-empty strings;
+   c. `draft_proposal` returns a matched entity as `existing` with its id, a
+      name two entities share as `ambiguous` with both candidates, an
+      unknown name as `new` with the type of its category; resolves a
+      listed code to its fact id; drops an unlisted code and a typed or
+      unknown facet with one note per dropped fact, and silently drops a
+      knower with an unknown level and a ref to no entity;
+   d. no entity id and no fact id appears in any message sent to the model;
+   e. the draft, its ambiguity settled, passes `lore_write_apply.validate`;
+   f. an `OllamaError` from the model propagates out of both calls.
+D2 -- prompts. `seed_pilot.LORE_WRITE_PROMPT_HEADS` holds exactly the usages
+   `QUESTIONS_USAGE` and `PROPOSAL_USAGE`; each head's `variables` equal the
+   `{placeholders}` of its user template; `apply_ticket_0098_lore_write_prompts.py`
+   reads that tuple and embeds no prompt text; `lore_prompt.py` re-exports
+   `prompt_load.load`, the loader the writing path imports.
 C2 -- purity. `lore_write_apply.py` and `writes/lore_entries.py` contain no
    `chat(`, no `.commit(`, and import neither `ollama_client` nor any
-   `cockpit` module.
+   `cockpit` module; `lore_write_draft.py` contains no `db.add(`, no
+   `.commit(`, and calls no writer (`write_`, `add_lore_fact(`,
+   `apply_proposal(`).
 
 Fresh temp-file SQLite database for any fixture rule
 (`WORLD_ENGINE_DATABASE_URL` set before any world_engine import) -- never
@@ -62,7 +83,7 @@ FAILURES: list[str] = []
 
 _CENSUS_GLOBS = ("lore_write*.py", "writes/lore_entries.py", "cockpit/routes/lore_write*.py")
 _LORE_WRITE_FILES: frozenset[str] = frozenset({
-    "lore_write_apply.py", "writes/lore_entries.py",
+    "lore_write_apply.py", "writes/lore_entries.py", "lore_write_draft.py",
 })
 _PURE_FILES = ("lore_write_apply.py", "writes/lore_entries.py")
 _COUNTED_TABLES = ("entity", "fact", "fact_participant", "fact_default", "knowledge",
@@ -353,6 +374,151 @@ def check_c2() -> None:
         for needle in ("chat(", ".commit(", "ollama_client", "cockpit"):
             if needle in text:
                 fail(f"C2: {rel} contains {needle!r}")
+    draft = (SRC / "lore_write_draft.py").read_text(encoding="utf-8")
+    for needle in ("db.add(", ".commit(", "write_knowledge(", "write_lore_entry(",
+                   "add_lore_fact(", "apply_proposal("):
+        if needle in draft:
+            fail(f"C2: lore_write_draft.py contains {needle!r}")
+
+
+class _Stub:
+    def __init__(self, replies):
+        self.replies, self.messages = list(replies), []
+
+    def __call__(self, messages, **kwargs):
+        self.messages.append(messages)
+        reply = self.replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return __import__("json").dumps(reply)
+
+
+def check_d1() -> None:
+    from sqlmodel import Session
+
+    from world_engine import lore_write_apply as lwa
+    from world_engine import lore_write_draft as lwd
+    from world_engine.db import engine
+    from world_engine.models import Entity, Knowledge, Location
+    from world_engine.ollama_client import OllamaError
+    from world_engine.writes.facets import add_lore_fact
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import seed_pilot
+
+    with Session(engine) as db:
+        for head in seed_pilot.LORE_WRITE_PROMPT_HEADS:
+            if db.get(__import__("world_engine.models", fromlist=["PromptTemplate"]).PromptTemplate,
+                      head["id"]) is None:
+                seed_pilot.upsert_prompt_template(db, **head)
+        db.commit()
+        ids = _fixture(db)
+        world = ids["world"]
+        for name in ("Tour Nord", "Tour Nord"):
+            twin = Entity(world_id=world, type="location", name=name)
+            db.add(twin)
+            db.flush()
+            db.add(Location(id=twin.id))
+        general = add_lore_fact(db, world_id=world, facet="information", created_by="fixture",
+                                content="Les marées montent deux fois par nuit.", participant_ids=[])
+        hidden = add_lore_fact(db, world_id=world, facet="histoire", created_by="fixture",
+                               content="Maëlle est une espionne.", participant_ids=[ids["npc"]])
+        db.flush()
+        db.add(Knowledge(entity_id=ids["npc"], fact_id=hidden.fact.id, level="unaware",
+                         is_secret=True))
+        db.commit()
+        statement = "Maëlle dirige le Manoir Gris depuis la Tour Nord."
+        context = lwd.draft_context(db, world, statement)
+        joined = "\n".join(context.coded.lines)
+        if not any("Maëlle" in line for line in context.entity_lines) or \
+                not any("Manoir Gris" in line for line in context.entity_lines):
+            fail(f"D1a: named entities missing: {context.entity_lines}")
+        if context.coded.code_of(ids["bloc"]) is None or context.coded.code_of(general.fact.id) is None:
+            fail("D1a: an entity fact or a world-level fact is not coded")
+        if context.coded.code_of(hidden.fact.id) is not None or "espionne" in joined:
+            fail("D1a: a creator-only fact was coded")
+        bloc_code = context.coded.code_of(ids["bloc"])
+        stub = _Stub([
+            {"questions": ["Q1 ?", "", 3, "Q2 ?", "Q3 ?", "Q4 ?"]},
+            {"entities": [
+                {"ref": "e1", "name": "Maëlle", "category": "person"},
+                {"ref": "e2", "name": "Tour Nord", "category": "place"},
+                {"ref": "e3", "name": "Brume Salée", "category": "object"},
+                {"ref": "e4", "name": "Manoir Gris", "category": "place"}],
+             "facts": [
+                {"action": "create", "content": "Maëlle dirige le manoir.", "facet": "statut",
+                 "participants": ["e1", "e4"], "defaults": [{"scope_type": "location", "scope_ref": "e4"}],
+                 "knowers": [{"entity_ref": "e1", "level": "knows"},
+                             {"entity_ref": "e1", "level": "certain"}]},
+                {"action": "existing", "code": bloc_code, "participants": ["e9"]},
+                {"action": "existing", "code": "f999"},
+                {"action": "create", "content": "Lien.", "facet": "lien"},
+                {"action": "create", "content": "Humeur.", "facet": "humeur"}],
+             "memberships": [{"entity_ref": "e1", "faction_ref": "e9"}],
+             "controls": [{"owner_ref": "e1", "location_ref": "e4"}]},
+            OllamaError("down"), OllamaError("down"),
+        ])
+        original = lwd.chat
+        lwd.chat = stub
+        try:
+            questions = lwd.draft_questions(db, world, statement)
+            draft = lwd.draft_proposal(db, world, statement, "Tout le monde au manoir.")
+            for call in (lambda: lwd.draft_questions(db, world, statement),
+                         lambda: lwd.draft_proposal(db, world, statement)):
+                try:
+                    call()
+                    fail("D1f: an OllamaError did not propagate")
+                except OllamaError:
+                    pass
+        finally:
+            lwd.chat = original
+        if questions != ["Q1 ?", "Q2 ?", "Q3 ?"]:
+            fail(f"D1b: questions {questions!r}")
+        by_ref = {e["ref"]: e for e in draft["entities"]}
+        if by_ref.get("e1", {}).get("entity_id") != ids["npc"] or by_ref["e1"]["action"] != "existing":
+            fail(f"D1c: Maëlle not matched: {by_ref.get('e1')}")
+        if by_ref.get("e2", {}).get("status") != "ambiguous" or len(by_ref["e2"].get("candidates", [])) != 2:
+            fail(f"D1c: Tour Nord not ambiguous with two candidates: {by_ref.get('e2')}")
+        if by_ref.get("e3", {}).get("status") != "new" or by_ref["e3"].get("type") != "item":
+            fail(f"D1c: Brume Salée not new as an item: {by_ref.get('e3')}")
+        facts = draft["facts"]
+        if [f["action"] for f in facts] != ["create", "existing"] or facts[1].get("fact_id") != ids["bloc"]:
+            fail(f"D1c: facts kept {[(f['action'], f.get('fact_id')) for f in facts]}")
+        if len(facts[0]["knowers"]) != 1 or facts[1]["participants"] != [] or draft["memberships"]:
+            fail("D1c: an invalid knower, participant ref or membership survived")
+        if len(draft["notes"]) != 3 or draft["controls"] != [{"owner_ref": "e1", "location_ref": "e4"}]:
+            fail(f"D1c: notes {draft['notes']!r}, controls {draft['controls']!r}")
+        sent = __import__("json").dumps(stub.messages, ensure_ascii=False)
+        for secret_id in (ids["npc"], ids["manor"], ids["bloc"], general.fact.id):
+            if secret_id in sent:
+                fail(f"D1d: id {secret_id} reached the model")
+        by_ref["e2"].update(action="existing", entity_id=by_ref["e2"]["candidates"][0]["entity_id"])
+        try:
+            lwa.validate(db, world, draft)
+        except lwa.ProposalError as exc:
+            fail(f"D1e: the settled draft does not validate: {exc}")
+
+
+def check_d2() -> None:
+    import re as _re
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import seed_pilot
+
+    from world_engine import lore_prompt, lore_write_draft as lwd, prompt_load
+
+    heads = seed_pilot.LORE_WRITE_PROMPT_HEADS
+    if sorted(h["usage"] for h in heads) != sorted([lwd.QUESTIONS_USAGE, lwd.PROPOSAL_USAGE]):
+        fail(f"D2: heads carry usages {[h['usage'] for h in heads]}")
+    for head in heads:
+        found = set(_re.findall(r"\{([a-z_]+)\}", head["user_template"]))
+        if found != set(head["variables"]):
+            fail(f"D2: {head['id']} declares {head['variables']} but uses {sorted(found)}")
+    script = (ROOT / "scripts" / "apply_ticket_0098_lore_write_prompts.py").read_text(encoding="utf-8")
+    if "LORE_WRITE_PROMPT_HEADS" not in script or "Tu " in script:
+        fail("D2: the delivery script does not read the single source, or embeds text")
+    if lore_prompt.load is not prompt_load.load:
+        fail("D2: lore_prompt.load is not prompt_load.load")
 
 
 def main() -> int:
@@ -366,13 +532,16 @@ def main() -> int:
     check_w2(db_path)
     check_c1()
     check_c2()
+    check_d1()
+    check_d2()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         return 1
     print(f"PASS: lore_write -- census of {len(_LORE_WRITE_FILES)} module(s) holds; "
           "v2.11 declares the source record and migrates from v2.10 only; a proposal "
-          "writes all or nothing, each row recorded, existing rows skipped")
+          "writes all or nothing, each row recorded, existing rows skipped; the draft "
+          "names things by name and code only and resolves both in code")
     return 0
 
 

@@ -17283,6 +17283,37 @@ this module does not import. No model is called here.
 **Rejected.** R2 (relations, laws, events in the first cut): reactivates
 when a story loses its sense without its relation or law.
 
+## THE MODEL DRAFTS, CODE RESOLVES, THE CREATOR CONFIRMS (TICKET-0098) -- TWO WRITING PROMPTS (BRIEF-0098-d, no schema change)
+
+**O1 + J3.** Two prompts, each editable in Prompts: `lore_statement_questions`
+asks the creator at most three clarification questions about her text;
+`lore_statement_to_proposal` turns the text and her free-text answers into a
+draft. `lore_write_draft.py` holds both calls and never writes.
+
+**L1 -- what the model sees.** The statement, the answers, the facet
+vocabulary, the entities the statement names (found by the tokenizer, a
+read) and a coded list of their facts plus the world-level facts (no
+participant), creator-only facts excluded, capped at 200 lines. It never
+sees an id. It names existing facts by code (CLAUDE.md invariant) and
+entities by name; code resolves a name with `lore_resolve.resolve_named`
+under the creator regime into matched, ambiguous (candidates, the creator
+picks) or new (near names shown). An unlisted code, a typed or unknown
+facet, an unknown level or a dangling ref is dropped, never coerced.
+
+**N1 -- one prompt loader.** `lore_prompt.load` moved to `prompt_load.py`,
+which `lore_prompt.py` re-exports: the writing panel may not import the
+consultation pipeline (`lore_isolation.py` R17), and a second loader would
+drift. R15 now scopes `prompt_load.py` to the prompt tables.
+
+**K1.** Ollama down propagates `OllamaError`; the route answers a named
+French message. No fallback extractor.
+
+**Rejected.** O2 (one prompt returning questions and draft together):
+reactivates if waiting for two calls weighs on the creator. L2 (the whole
+world's facts): reactivates if the model duplicates facts about entities the
+statement did not name. J2 (several clarification rounds): reactivates if
+one round regularly leaves the draft off.
+
 ---
 
 *Co-built with Claude, June 2026.*

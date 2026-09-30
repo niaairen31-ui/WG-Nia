@@ -29,7 +29,9 @@ R9 (category vocabulary parity): the category literals in `lore_plan.py`'s
 `_MENTION_CATEGORIES` equal the key set of `lore_resolve.py`'s
 `_CATEGORY_ENTITY_TYPE`.
 R15 (prompt loader scoped to prompt tables): every `select(` in
-`lore_prompt.py` references only `PromptTemplate`/`PromptVersion` -- the
+`prompt_load.py` (the loader `lore_prompt.py` re-exports since TICKET-0098,
+BRIEF-0098-D, N1; `lore_prompt.py` itself holds no `select(`) references
+only `PromptTemplate`/`PromptVersion` -- the
 module that owns the Session for this chantier's prompt resolution must
 never become a canon door by a later edit.
 R16 (ask's Ollama-down message is named, not raw) (BRIEF-0085-f): in
@@ -83,6 +85,7 @@ LORE_PLAN_FILE = SRC / "lore_plan.py"
 LORE_RESOLVE_FILE = SRC / "lore_resolve.py"
 LORE_ROUTE_FILE = SRC / "cockpit" / "routes" / "lore.py"
 LORE_PROMPT_FILE = SRC / "lore_prompt.py"
+PROMPT_LOAD_FILE = SRC / "prompt_load.py"
 LORE_RENDER_FILE = SRC / "lore_render.py"
 PURITY_FILES = (LORE_SELECTORS_FILE, LORE_QUERY_FILE)
 PANEL_FILES = (
@@ -90,6 +93,9 @@ PANEL_FILES = (
     SRC / "lore_mentions_read.py",
     SRC / "lore_choices_read.py",
     SRC / "cockpit" / "routes" / "lore_choices.py",
+    # TICKET-0098 (BRIEF-0098-D): the writing panel's modules.
+    SRC / "lore_write_apply.py",
+    SRC / "lore_write_draft.py",
 )
 PIPELINE_FILES = (LORE_SELECTORS_FILE, LORE_QUERY_FILE, LORE_PLAN_FILE, LORE_RENDER_FILE, LORE_PROMPT_FILE)
 
@@ -660,11 +666,17 @@ def check_render_template_raises_on_unknown_section() -> None:
 
 
 def check_prompt_loader_scoped_to_prompt_tables() -> None:
-    """R15: every `select(` in `lore_prompt.py` references only
+    """R15: every `select(` in `prompt_load.py` references only
     `PromptTemplate`/`PromptVersion` -- the module that owns the Session for
     this chantier's prompt resolution must never become a canon door by a
     later edit."""
-    tree = _parse(LORE_PROMPT_FILE)
+    reexport = _parse(LORE_PROMPT_FILE)
+    if reexport is not None and any(
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "select"
+        for n in ast.walk(reexport)
+    ):
+        fail(f"lore_isolation R15: {_rel(LORE_PROMPT_FILE)} calls select( -- it only re-exports")
+    tree = _parse(PROMPT_LOAD_FILE)
     if tree is None:
         return
     select_calls = [
@@ -672,7 +684,7 @@ def check_prompt_loader_scoped_to_prompt_tables() -> None:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "select"
     ]
     if not select_calls:
-        fail(f"lore_isolation R15: {_rel(LORE_PROMPT_FILE)} contains zero select( calls -- vacuous")
+        fail(f"lore_isolation R15: {_rel(PROMPT_LOAD_FILE)} contains zero select( calls -- vacuous")
         return
     for node in select_calls:
         names = {
@@ -682,7 +694,7 @@ def check_prompt_loader_scoped_to_prompt_tables() -> None:
         forbidden = names - _ALLOWED_PROMPT_MODELS
         if forbidden:
             fail(
-                f"lore_isolation R15: {_rel(LORE_PROMPT_FILE)}:{node.lineno} -- "
+                f"lore_isolation R15: {_rel(PROMPT_LOAD_FILE)}:{node.lineno} -- "
                 f"select( references non-prompt model(s) {sorted(forbidden)!r} -- "
                 "the prompt loader must never become a canon door"
             )

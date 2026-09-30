@@ -150,7 +150,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   fact whose entity holds an `unaware` `is_secret` row on it) is excluded from
   `facet_reads` by query construction; only the Lore dossier opts in, plus the
   `creator` regime of `name_index` for name resolution (Lore question, names
-  panel). Token posing never indexes a creator-only or unscoped appellation.
+  panel, writing panel). Token posing never indexes a creator-only or unscoped appellation.
   What an NPC knows-but-conceals lives in `knowledge` rows with
   `is_secret = TRUE`,
   excluded by query construction at every assembler AND every propagation
@@ -444,10 +444,10 @@ WG-Nia/
 │   ├── day_narration_guard.py  # T1 judge: name containment + outcome survival, Python-only
 │   ├── day_mutations.py     # day-chain mutation emission: proposer only, never applies (V1)
 │   ├── day_feasibility.py   # feasibility veto: downward-only, clamp_verdict is the safety (Y1)
-│   ├── lore_*.py, unbound_facts.py, fact_refs.py  # Lore reads; unbound facts; fact codes/keys
+│   ├── lore_*.py, unbound_facts.py, fact_refs.py  # Lore read/write; unbound facts; fact codes
 │   ├── writes/               # canon-write helpers by domain; schema.py is the DDL authority
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
-│   ├── prompt_store.py      # prompt_version read accessor (current_prompt et al.)
+│   ├── prompt_store.py, prompt_load.py  # prompt_version accessor; Lore-shell prompt loader
 │   ├── entity_author.py     # AI authoring assistant (entities, PC, skills, agendas, events)
 │   ├── region_author.py     # region generation orchestrator (proposes names, no canon)
 │   ├── spatial_author.py    # Creation-side door materialization from live connects_to
