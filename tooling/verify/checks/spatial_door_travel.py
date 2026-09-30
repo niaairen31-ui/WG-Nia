@@ -161,7 +161,7 @@ def check_travel_endpoint() -> None:
     from world_engine.cockpit.app import app
     from world_engine.models import Conversation, Entity, GatheringMember, Relation
 
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://127.0.0.1")  # origin_guard (BRIEF-0098-A)
 
     def _rows():
         return _count_rows(engine, Conversation), _count_rows(engine, GatheringMember)

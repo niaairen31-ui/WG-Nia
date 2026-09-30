@@ -558,7 +558,7 @@ def check_route(engine, ids: dict) -> int:
 
     with Session(engine) as db:
         choices_before, rewrites_before = _count(db, DayMentionChoice), _count(db, DayRewrite)
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://127.0.0.1")  # origin_guard (BRIEF-0098-A)
     listed = _check_t1_t4(client, engine, ids)
     _check_t5_t9(client, engine, ids)
     resp = client.get("/api/lore/choices")

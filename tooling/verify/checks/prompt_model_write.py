@@ -168,7 +168,7 @@ def check_write_path_and_list_route() -> None:
         session.refresh(row)
         last_updated_at = row.updated_at
 
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://127.0.0.1")  # origin_guard (BRIEF-0098-A)
 
     # unknown id -> 404
     resp = client.patch("/api/prompts/does-not-exist/model", json={"model": None})

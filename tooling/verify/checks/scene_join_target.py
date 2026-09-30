@@ -187,7 +187,7 @@ def check_targeted_and_free_text_join() -> None:
     from world_engine.models import Conversation, GatheringMember
     from world_engine.cockpit.play import ResponseMode
 
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://127.0.0.1")  # origin_guard (BRIEF-0098-A)
 
     # ── 4. Both / neither -> 422 ────────────────────────────────────────
     resp = client.post("/api/scene/join", json={"player_id": fixture["player_id"]})

@@ -17222,6 +17222,23 @@ already fail on `main` (no `fact_id`, since 0082) and are left as they are;
 `apply_ticket_0087_subject_participants.py` imports the deleted
 `subject_resolve` -- a one-shot that ran in 0087, kept as history.
 
+## WRITES FROM A NON-LOCAL ORIGIN ARE REFUSED (TICKET-0098) -- ONE GUARD FOR EVERY ROUTE (BRIEF-0098-a, no schema change)
+
+**I1.** The cockpit is bound to loopback with no authentication, which does
+not stop a page open in the creator's browser from posting to `127.0.0.1`
+(a cross-site form, or a DNS-rebinding name). TICKET-0098 adds a route that
+turns free prose into canon, so the gap now reaches the world itself.
+`cockpit/origin_guard.py` refuses every POST/PUT/PATCH/DELETE whose `Host`
+hostname is not local, or whose `Origin`, when present, is not a local
+http(s) origin; reads pass. The rule is hostname-only (the cockpit runs on
+8000 and 8001). Five checks that post through `TestClient` now declare
+`base_url="http://127.0.0.1"`: no exception is taught to the guard.
+
+**Rejected.** I2 (a per-boot session token on every write): reactivates if
+the cockpit ever listens beyond loopback, or another local tool must call
+the API. I3 (nothing now, authentication later): the writing route would
+ship open.
+
 ---
 
 *Co-built with Claude, June 2026.*
