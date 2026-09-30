@@ -2,14 +2,14 @@
 id: TICKET-0097
 title: Knowledge identity — a knowledge row is who knows which fact; knowledge.subject goes
 type: feature
-status: live-gate
+status: done
 created: 2026-09-28
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [db_write, migration]
 blast_radius: large
 lot_id: LOT-0097-knowledge-identity.md
 brief_ids: [A, B, C, D, E, F, G]
-current_brief: G
+current_brief:
 schema_version_touched: v2.10
 retry_count: 0
 slug: knowledge-identity
