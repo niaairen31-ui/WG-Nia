@@ -17372,6 +17372,38 @@ until it moves onto the shared editor area.
 batch panel stacks under the editor area) decides its own split; the check
 counts it in its PASS line instead of guessing.
 
+## COMPÉTENCES MOVES ONTO THE SHARED LIST AND FICHE (TICKET-0099) -- A FOURTH RECORD TAB (BRIEF-0099-b, no schema change)
+
+**B1.** The Compétences tab is an `archetype: 'entity'` record tab on
+`#creation-editor-area`, the fourth after Intrigues and Événements: the
+entity list (`EntityList.svelte`, record mode) renders
+`CompetencesList.svelte`, the entity fiche (`Sheet.svelte`, `type ===
+'competences'`) renders `CompetencesSheet.svelte`. The tab's own container
+and `Competences.svelte` are gone. Chosen over a copy of the layout's CSS
+classes (B2: the same look by discipline, two lists that drift) and over a
+generic list-and-fiche component (B3: no second reader yet).
+
+**C1 + D2 + H1 -- the list.** Brouillons (the assistant entry, then every
+draft), Systèmes (each system a row of its own, its skills indented under
+it), Sans système, Trous du lexique. A gap click creates a draft and opens
+it. The assistant is a list entry, never the empty fiche: an empty fiche has
+no `sheetType`, and a branch chosen by `activeTabKey` is what CLAUDE.md
+forbids (the TICKET-0083 freeze).
+
+**C-01 -- one record per fiche.** Every row the list hands to the fiche is a
+fresh record (`kind`, `persisted`, `id`, ...): editing changes nothing until
+Save. `persisted` alone decides POST or PUT, the « Nouvelle » title and
+whether Supprimer shows -- a draft opened from the list is not
+`sheetIsNew`. Drafts survive a tab switch and empty on a world switch.
+
+**E1.** The shell's Save button saves every record but the assistant; the
+fiche carries Supprimer (and « Retirer du brouillon » on a draft).
+
+**R1 -- the island registry.** The `competences` entry had no container
+left to mount. Its ledger line moved whole into `entitySheet`'s
+`retiredPrefixes`, and the registry header names the exception: an
+absorbed surface moves its line, it never drops it.
+
 ---
 
 *Co-built with Claude, June 2026.*

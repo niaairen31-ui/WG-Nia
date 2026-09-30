@@ -232,9 +232,6 @@
        construction ── -->
   <div id="creation-artefacts" style:display={containerVisible('creation-artefacts') ? '' : 'none'}></div>
 
-  <!-- ── Compétences sub-tab -- Svelte island: empty by construction ── -->
-  <div id="creation-competences" style:display={containerVisible('creation-competences') ? '' : 'none'}></div>
-
   <!-- ── Région sub-tab -- Svelte island: generation + review + atomic
        commit ── -->
   <div id="creation-region" style:display={containerVisible('creation-region') ? '' : 'none'}></div>

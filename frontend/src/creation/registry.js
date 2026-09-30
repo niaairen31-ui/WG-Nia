@@ -20,7 +20,11 @@
    surfaces that were CREATED as islands, with no legacy predecessor.
    Each entry declares its `origin` -- 'migration' for a surface that
    moved (the ledger described above), 'new' for one that did not.
-   Nothing is removed once added, whichever the origin.
+   Nothing is removed once added, whichever the origin -- with one named
+   exception (TICKET-0099, R1): a surface ABSORBED into another island's
+   component leaves no container to mount, so its entry is removed and its
+   ledger line MOVES, whole, into the absorbing entry's retiredPrefixes
+   (rule 7 keeps proving every prefix gone). Nothing is ever dropped.
 
    tooling/verify/checks/creation_island.py parses this literal
    (comments ignored, field order free) and cross-references every
@@ -280,6 +284,18 @@ export const CREATION_ISLANDS = Object.freeze({
       'pcRenderDraftKnowledge',
       'pcGenerateDraft',
       'pcApplyDraft',
+      // TICKET-0099 (BRIEF-0099-b, R1): the Compétences tab's own ledger
+      // line, moved here whole when the tab was absorbed into this fiche
+      // (CompetencesSheet.svelte) and the shared list -- ported by
+      // BRIEF-0059-h commit 3, first recorded under its own `competences`
+      // entry, which no longer has a container to mount.
+      '_competencesWorldReset', 'competencesGenerateDraft',
+      '_competencesDomainOptions', 'competencesRenderDraft',
+      'competencesDiscardDraftRow', 'competencesAcceptDraftRow',
+      'competencesAddManualRow', 'competencesLoadList',
+      '_competencesRenderTable', 'competencesSaveRow',
+      'competencesDeleteOpen', 'competencesDeleteConfirm',
+      'COMPETENCES_DOMAINS',
     ],
   }),
   // BRIEF-0058-i (per RECON-SUPPLEMENT-0058's re-scope): region generation
@@ -374,23 +390,9 @@ export const CREATION_ISLANDS = Object.freeze({
     retiredPrefixes: ['loadCreationArtefacts', 'CREATION_ARTEFACTS_NOTICE'],
   }),
   // BRIEF-0059-h commit 3: the Compétences tab -- ported to
-  // Competences.svelte + competences.svelte.js, Modal.svelte's second
-  // consumer (delete-confirmation dialog, lock O1).
-  competences: Object.freeze({
-    containerId: 'creation-competences',
-    component: 'Competences.svelte',
-    origin: 'migration',
-    migratedBy: 'TICKET-0059',
-    retiredPrefixes: [
-      '_competencesWorldReset', 'competencesGenerateDraft',
-      '_competencesDomainOptions', 'competencesRenderDraft',
-      'competencesDiscardDraftRow', 'competencesAcceptDraftRow',
-      'competencesAddManualRow', 'competencesLoadList',
-      '_competencesRenderTable', 'competencesSaveRow',
-      'competencesDeleteOpen', 'competencesDeleteConfirm',
-      'COMPETENCES_DOMAINS',
-    ],
-  }),
+  // Competences.svelte + competences.svelte.js. Absorbed into entitySheet/
+  // entityList by TICKET-0099 (R1): its ledger line lives in entitySheet
+  // above.
   // BRIEF-0059-h commit 4: the Registre (global ledger) tab -- ported
   // wholesale to Registre.svelte. authorAddLedgerEntry closes here, not
   // with the entity sheet's own read-only LedgerPanel.svelte (RECON-0059-a

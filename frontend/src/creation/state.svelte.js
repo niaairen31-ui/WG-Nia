@@ -29,6 +29,10 @@
    quintet, which Sheet.svelte owns exclusively (set by its own
    'creation:sheet-*' listeners and its exported primaryAction/saveSheet,
    never written from outside that component).
+   TICKET-0099: a record fiche (CompetencesSheet.svelte) edits the fields
+   OF its record in place (sheetDetail.name, ...); assigning the quintet
+   stays Sheet.svelte's alone -- closing a record goes through its
+   'creation:record-closed' listener.
 
    TICKET-0059 (BRIEF-0059-l commit 1) additions, now that Creation.svelte
    drives the chrome directly instead of index.html: tabsVersion (bumped by

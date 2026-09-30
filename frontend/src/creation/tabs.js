@@ -259,12 +259,13 @@ export const CREATION_TABS = {
   },
   competences: {
     label: 'Compétences',
-    archetype: 'bespoke',
-    containers: ['creation-competences'],
+    archetype: 'entity', // non-entity records on the shared list + fiche, as intrigues/evenements (TICKET-0099)
+    containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'competences', containerId: 'creation-competences' }],
-    primaryAction: { label: '+ Ajouter une compétence', handler: () => triggerPrimaryAction('competences') },
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
+    createPanel: null,
+    primaryAction: { label: '+ Ajouter une compétence', handler: () => triggerPrimaryAction('entitySheet') },
   },
   region: {
     label: 'Région',

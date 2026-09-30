@@ -297,7 +297,8 @@ def main() -> int:
     # "Ajouter une compétence" lives in CREATION_TABS.competences'
     # primaryAction label (tabs.js) now, not index.html — scan the whole
     # frontend/src/creation/ tree (not just tabs.js) so an in-body control
-    # added to Competences.svelte would still be caught as a duplicate.
+    # added to CompetencesList.svelte/CompetencesSheet.svelte would still be
+    # caught as a duplicate.
     occurrences = 0
     if CREATION_SRC.is_dir():
         for path in CREATION_SRC.rglob("*"):
@@ -364,6 +365,27 @@ def main() -> int:
                     "CREATION_TABS.evenements does not have "
                     "containers: ['creation-editor-area'] (BRIEF-0022-a)"
                 )
+
+    # TICKET-0099/BRIEF-0099-b (B1): Compétences — fourth non-entity reader
+    # of the shared list+detail shell, the same shape as Intrigues/Événements.
+    if registry_src:
+        competences_src = _entry_block(registry_src, "competences")
+        if competences_src:
+            if not re.search(r"""archetype\s*:\s*['"]entity['"]""", competences_src):
+                failures.append(
+                    "CREATION_TABS.competences is not archetype: 'entity' (BRIEF-0099-b)"
+                )
+            if not re.search(r"""containers\s*:\s*\[\s*['"]creation-editor-area['"]\s*\]""", competences_src):
+                failures.append(
+                    "CREATION_TABS.competences does not have "
+                    "containers: ['creation-editor-area'] (BRIEF-0099-b)"
+                )
+
+    if "creation-competences" in html or "creation-competences" in creation_svelte:
+        failures.append(
+            "element id 'creation-competences' still present — Compétences must render "
+            "only through the shared creation-editor-area shell (BRIEF-0099-b)"
+        )
 
     if failures:
         for f in failures:

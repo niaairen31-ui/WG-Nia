@@ -41,12 +41,11 @@ FAILURE, never a trivially satisfied comparison.
      Sheet.svelte legitimately holds an addEventListener for the same
      name) occurs exactly once across every file under frontend/src/,
      and that occurrence is in creation/tabs.js. Zero -> FAIL.
-  4. `frontend/src/creation/Sheet.svelte` contains BOTH
-     `{:else if type === 'evenements'}` and
-     `{:else if type === 'intrigues'}`, and contains NEITHER
-     `{:else if tabKey === 'evenements'}` NOR
-     `{:else if tabKey === 'intrigues'}`. Any of the four conditions
-     violated -> FAIL.
+  4. `frontend/src/creation/Sheet.svelte` contains
+     `{:else if type === '<tab>'}` and NOT `{:else if tabKey === '<tab>'}`
+     for every record tab in RECORD_TABS -- `evenements`, `intrigues`, and
+     `competences` (TICKET-0099, BRIEF-0099-b). Any condition violated ->
+     FAIL.
   5. `frontend/src/creation/Sheet.svelte` contains
      `{:else if registry.types[type]}`. Not found -> FAIL.
   6. The identifiers `_entityTabEnterReset`, `_intriguesTabEnterReset`
@@ -71,6 +70,7 @@ DISPATCHER_HEADER_RE = re.compile(r"export function showCreationSubTab\(tab\)\s*
 LINE_INITIAL_CLOSE_RE = re.compile(r"^\}", re.MULTILINE)
 DISPATCH_RE = re.compile(r"CustomEvent\('creation:sheet-reset'")
 RETIRED_IDENTS = ("_entityTabEnterReset", "_intriguesTabEnterReset", "_evenementsTabEnterReset")
+RECORD_TABS = ("evenements", "intrigues", "competences")
 
 FAILURES: list[str] = []
 
@@ -170,18 +170,13 @@ def _rule3_single_dispatch_site() -> bool:
 
 def _rule4_type_gated(sheet_src: str) -> bool:
     ok = True
-    if "{:else if type === 'evenements'}" not in sheet_src:
-        fail(f"{SHEET_FILE}: missing \"{{:else if type === 'evenements'}}\" branch")
-        ok = False
-    if "{:else if type === 'intrigues'}" not in sheet_src:
-        fail(f"{SHEET_FILE}: missing \"{{:else if type === 'intrigues'}}\" branch")
-        ok = False
-    if "{:else if tabKey === 'evenements'}" in sheet_src:
-        fail(f"{SHEET_FILE}: stale \"{{:else if tabKey === 'evenements'}}\" branch still present")
-        ok = False
-    if "{:else if tabKey === 'intrigues'}" in sheet_src:
-        fail(f"{SHEET_FILE}: stale \"{{:else if tabKey === 'intrigues'}}\" branch still present")
-        ok = False
+    for tab in RECORD_TABS:
+        if f"{{:else if type === '{tab}'}}" not in sheet_src:
+            fail(f"{SHEET_FILE}: missing \"{{:else if type === '{tab}'}}\" branch")
+            ok = False
+        if f"{{:else if tabKey === '{tab}'}}" in sheet_src:
+            fail(f"{SHEET_FILE}: stale \"{{:else if tabKey === '{tab}'}}\" branch still present")
+            ok = False
     return ok
 
 
