@@ -2,7 +2,7 @@
 id: TICKET-0100
 title: Lieux — in-place tree, « + lot » beside « + Nouveau », graph node selection
 type: bug
-status: exec
+status: live-gate
 created: 2026-10-01
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: []
