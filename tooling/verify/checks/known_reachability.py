@@ -332,6 +332,9 @@ DOCUMENTED_MODULES = frozenset({
     "world_engine/lore_selectors.py",
     "world_engine/writes/relations.py",
     "world_engine/relation_orientation.py",
+    # TICKET-0101, BRIEF-0101-A: returns the literal as a derived link type
+    # (`geographic_link_type`); vocabulary site, never a traversal.
+    "world_engine/zone_rules.py",
 })
 
 

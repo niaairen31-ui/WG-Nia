@@ -21,7 +21,9 @@ from sqlmodel import Session, select
 
 from . import placement
 from .models import Door, Entity, Location, LocationTypeCatalog, Relation
+from .relation_orientation import MAP_TOPOLOGY_TYPES
 from .writes import write_location_doors, write_relation
+from .zone_rules import geographic_link_type
 
 
 def _live_neighbour_ids(location_id: str, db: Session) -> list[str]:
@@ -129,6 +131,61 @@ def connect_locations(
     return materialize_doors(
         db, world_id=world_id, location_ids=[entity_a_id, entity_b_id], changed_by=changed_by,
     )
+
+
+def find_map_relation(db: Session, entity_a_id: str, entity_b_id: str) -> Optional[Relation]:
+    """The geographic (`connects_to` or `borde`) row between two locations,
+    either column order, oldest first; None when they are not linked."""
+    return db.exec(
+        select(Relation)
+        .where(
+            Relation.type.in_(MAP_TOPOLOGY_TYPES),
+            ((Relation.entity_a_id == entity_a_id) & (Relation.entity_b_id == entity_b_id))
+            | ((Relation.entity_a_id == entity_b_id) & (Relation.entity_b_id == entity_a_id)),
+        )
+        .order_by(Relation.created_at, Relation.id)
+    ).first()
+
+
+def link_locations(
+    db: Session,
+    *,
+    world_id: str,
+    entity_a_id: str,
+    entity_b_id: str,
+    changed_by: str,
+) -> Relation:
+    """The creator entry for a geographic link (TICKET-0101, L1/V1): the type
+    is derived from the two endpoints (`zone_rules.geographic_link_type`),
+    never chosen. A pair already linked keeps its one row: retyped in place
+    when its type no longer matches (N1), never duplicated. A new or retyped
+    `connects_to` materializes doors for both endpoints (J1); a `borde`
+    never does. Does NOT commit — caller owns the commit."""
+    link_type = geographic_link_type(db, entity_a_id, entity_b_id)
+    existing = find_map_relation(db, entity_a_id, entity_b_id)
+    if existing is not None and existing.type == link_type:
+        return existing
+    if existing is not None:
+        write_relation(
+            db, mode="set", relation_id=existing.id, type=link_type, value=existing.intensity,
+            direction=existing.direction, visible_to_b=existing.visible_to_b,
+            notes=existing.notes, changed_by=changed_by,
+        )
+        rel = existing
+    elif link_type == "connects_to":
+        connect_locations(
+            db, world_id=world_id, entity_a_id=entity_a_id, entity_b_id=entity_b_id,
+            changed_by=changed_by,
+        )
+        return find_map_relation(db, entity_a_id, entity_b_id)
+    else:
+        rel = write_relation(
+            db, mode="set", world_id=world_id, entity_a_id=entity_a_id, entity_b_id=entity_b_id,
+            type="borde", value=50, direction="mutual", changed_by=changed_by,
+        )
+    if rel.type == "connects_to":
+        materialize_doors(db, world_id=world_id, location_ids=[entity_a_id, entity_b_id], changed_by=changed_by)
+    return rel
 
 
 def _catalog_row(db: Session, *, world_id: str, type_name: str) -> Optional[LocationTypeCatalog]:

@@ -53,8 +53,8 @@ from ...models import (
 )
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
-from ...relation_orientation import is_social
-from ...spatial_author import connect_locations
+from ...relation_orientation import MAP_TOPOLOGY_TYPES, is_social
+from ...spatial_author import link_locations
 from ...tick_normalize import _EVENT_TYPES
 from ...writes import (
     KNOWLEDGE_LEVELS,
@@ -62,7 +62,6 @@ from ...writes import (
     NPC_GOAL_PREREQUISITE_TYPES,
     PromptValidationError,
     _find_perceived_relation,
-    _find_relation_pair,
     detach_goal_agenda_link,
     set_target_knows,
     write_agenda,
@@ -160,8 +159,10 @@ def create_relation(entity_id: str, body: RelationWriteBody, db: DbSession = Dep
     """Create a relation from the sheet entity. Orientation rule
     (TICKET-0090): a social type makes the sheet entity the perceiver
     (`entity_a`) -- `reciprocal` adds the reverse row, `direction` and
-    `visible_to_b` are ignored; `connects_to` delegates to
-    `connect_locations`; `controls` makes the sheet entity the controller."""
+    `visible_to_b` are ignored; a geographic type (`connects_to` or `borde`,
+    TICKET-0101 V1) delegates to `link_locations`, which derives the type
+    from the two locations; `controls` makes the sheet entity the
+    controller."""
     entity = _get_entity(db, entity_id)
     if not body.other_entity_id:
         raise HTTPException(422, "other_entity_id is required")
@@ -171,13 +172,16 @@ def create_relation(entity_id: str, body: RelationWriteBody, db: DbSession = Dep
     if not body.type:
         raise HTTPException(422, "type is required")
 
-    if body.type == "connects_to":
-        connect_locations(
-            db, world_id=entity.world_id, entity_a_id=entity_id,
-            entity_b_id=body.other_entity_id, changed_by="creator",
-        )
+    if body.type in MAP_TOPOLOGY_TYPES:
+        try:
+            rel = link_locations(
+                db, world_id=entity.world_id, entity_a_id=entity_id,
+                entity_b_id=body.other_entity_id, changed_by="creator",
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
         db.commit()
-        rel = _find_relation_pair(db, entity_id, body.other_entity_id)
+        db.refresh(rel)
         return _relation_dict(rel, entity_id, db)
 
     if is_social(body.type):
@@ -206,23 +210,27 @@ def update_relation(relation_id: str, body: RelationWriteBody, db: DbSession = D
     (TICKET-0090): the endpoints never move; a social row stays `a_to_b`, a
     structural row keeps its own direction; `body.direction` and
     `body.visible_to_b` are never read (`visible_to_b` passes through from
-    the row)."""
+    the row). A type change into, out of, or within the geographic pair that
+    breaks L1/V1 (TICKET-0101) is a 409."""
     rel = db.get(Relation, relation_id)
     if rel is None:
         raise HTTPException(404, f"Relation {relation_id!r} not found")
     if not body.type:
         raise HTTPException(422, "type is required")
 
-    write_relation(
-        db,
-        mode="set",
-        relation_id=relation_id,
-        type=body.type,
-        value=body.intensity if body.intensity is not None else rel.intensity,
-        direction="a_to_b" if is_social(body.type) else rel.direction,
-        visible_to_b=rel.visible_to_b,
-        notes=body.notes,
-    )
+    try:
+        write_relation(
+            db,
+            mode="set",
+            relation_id=relation_id,
+            type=body.type,
+            value=body.intensity if body.intensity is not None else rel.intensity,
+            direction="a_to_b" if is_social(body.type) else rel.direction,
+            visible_to_b=rel.visible_to_b,
+            notes=body.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
     db.commit()
     db.refresh(rel)
     return _relation_dict(rel, rel.entity_a_id, db)

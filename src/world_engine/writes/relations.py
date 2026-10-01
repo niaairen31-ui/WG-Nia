@@ -22,13 +22,24 @@ Two finders, one per class of relation:
 Typed fact at birth: every newly created social relation gets one `lien`
 fact (`lien_fact_content`, `default_level='unaware'`); every new
 `connects_to` edge gets one fact (`connects_to_fact_content`,
-`default_level='knows'`); `controls` gets none. The row is flushed before
+`default_level='knows'`); every new `borde` edge gets one fact
+(`borde_fact_content`, `knows`, TICKET-0101); `controls` gets none. The row is flushed before
 `create_fact` runs (`_birth_typed_fact`). A `mode="set"` update that
 changes a social row's type rewrites its lien fact's content through
 `writes/facts.py::update_typed_fact_content`, which keeps the previous
 content in the fact's `change_history`. Both endpoints are written as
 identity tokens (TICKET-0091, BRIEF-0091-J), so renaming an endpoint
 renames it in the rendered lien fact.
+
+Map topology (TICKET-0101, L1/V1): `connects_to` and `borde` are the two
+geographic types (`MAP_TOPOLOGY_TYPES`). A new geographic row, or a row whose
+type changes, must join two locations and carry exactly the type
+`zone_rules.geographic_link_type` derives (`borde` when either end is a
+zone). Retyping a row into or out of the geographic pair is refused. A
+`connects_to` <-> `borde` change rewrites the row's typed fact through
+`update_typed_fact_content` (N1). An existing row whose type does not change
+is never re-judged: a zone that loses its last child keeps its `borde`
+links (K).
 
 - `write_relation(mode="delta", ...)`  : gameplay consequence. Find/create the
   relation, apply a clamped intensity delta, append the previous state to
@@ -62,11 +73,14 @@ from ..encounters import record_encounter
 from ..models import Entity, Fact, Knowledge, Relation
 from ..prose_render import entity_token
 from ..relation_orientation import (
+    MAP_TOPOLOGY_TYPES,
+    borde_fact_content,
     connects_to_fact_content,
     is_social,
     lien_fact_content,
     orient_legacy,
 )
+from ..zone_rules import geographic_link_type
 from ._shared import _append_history_snapshot, _clamp
 from .facts import create_fact, update_typed_fact_content
 from .knowledge import write_knowledge
@@ -148,14 +162,61 @@ def _birth_typed_fact(db: Session, rel: Relation, changed_by: str) -> Optional[F
     name_a, name_b = _endpoint_tokens(db, rel)
     if is_social(rel.type):
         content, level = lien_fact_content(name_a, rel.type, name_b), "unaware"
-    elif rel.type == "connects_to":
-        content, level = connects_to_fact_content(name_a, name_b), "knows"
+    elif rel.type in MAP_TOPOLOGY_TYPES:
+        content, level = _map_fact_content(rel.type, name_a, name_b), "knows"
     else:
         return None
     return create_fact(
         db, world_id=rel.world_id, content=content, created_by=changed_by,
         facet="lien", default_level=level, relation_id=rel.id,
     )
+
+
+def _map_fact_content(relation_type: str, name_a: str, name_b: str) -> str:
+    """The typed-fact content of a geographic edge of `relation_type`."""
+    if relation_type == "borde":
+        return borde_fact_content(name_a, name_b)
+    return connects_to_fact_content(name_a, name_b)
+
+
+def _require_map_shape(
+    db: Session, *, entity_a_id: str, entity_b_id: str, new_type: str, old_type: Optional[str],
+) -> None:
+    """L1/V1 (TICKET-0101), judged on a new row (`old_type=None`) or a type
+    change only: no retype into or out of the geographic pair; a geographic
+    row joins two locations and carries the type `geographic_link_type`
+    derives. Raises `ValueError` before anything is mutated."""
+    new_is_map = new_type in MAP_TOPOLOGY_TYPES
+    if old_type is not None and (old_type in MAP_TOPOLOGY_TYPES) != new_is_map:
+        raise ValueError(f"write_relation: a {old_type} relation cannot become {new_type}")
+    if not new_is_map:
+        return
+    for entity_id in (entity_a_id, entity_b_id):
+        entity = db.get(Entity, entity_id)
+        if entity is None or entity.type != "location":
+            raise ValueError(f"write_relation: {new_type} joins two locations, {entity_id!r} is not one")
+    expected = geographic_link_type(db, entity_a_id, entity_b_id)
+    if new_type != expected:
+        raise ValueError(
+            f"write_relation: these two locations take a {expected} link, not {new_type}"
+        )
+
+
+def _checked_old_type(db: Session, *, mode: str, relation_id: Optional[str], new_type: Optional[str]) -> Optional[str]:
+    """The current type of the row a `mode="set"` update targets (None
+    otherwise), after judging a type change against L1/V1 before anything
+    is mutated."""
+    if mode != "set" or relation_id is None:
+        return None
+    existing = db.get(Relation, relation_id)
+    if existing is None:
+        return None
+    if new_type is not None and new_type != existing.type:
+        _require_map_shape(
+            db, entity_a_id=existing.entity_a_id, entity_b_id=existing.entity_b_id,
+            new_type=new_type, old_type=existing.type,
+        )
+    return existing.type
 
 
 def _on_relation_born(db: Session, rel: Relation, provenance: str) -> None:
@@ -181,6 +242,21 @@ def _refresh_lien_content(db: Session, rel: Relation, old_type: Optional[str], c
     name_a, name_b = _endpoint_tokens(db, rel)
     update_typed_fact_content(
         db, fact=lien, content=lien_fact_content(name_a, rel.type, name_b), changed_by=changed_by,
+    )
+
+
+def _refresh_map_content(db: Session, rel: Relation, old_type: Optional[str], changed_by: str) -> None:
+    """Rewrite a geographic edge's typed fact after a `connects_to` <-> `borde`
+    change (N1); the previous content stays in the fact's `change_history`.
+    A row with no typed fact is left alone."""
+    if old_type == rel.type or old_type not in MAP_TOPOLOGY_TYPES or rel.type not in MAP_TOPOLOGY_TYPES:
+        return
+    fact = lien_fact_of(db, rel)
+    if fact is None:
+        return
+    name_a, name_b = _endpoint_tokens(db, rel)
+    update_typed_fact_content(
+        db, fact=fact, content=_map_fact_content(rel.type, name_a, name_b), changed_by=changed_by,
     )
 
 
@@ -272,7 +348,8 @@ def write_relation(
     `visible_to_b` and `notes`.
 
     A social type with a `direction` other than `'a_to_b'` raises
-    `ValueError`; so does a missing endpoint entity on create. Every create
+    `ValueError`; so does a missing endpoint entity on create, and so does a
+    geographic row that breaks L1/V1 (`_require_map_shape`). Every create
     births its typed fact (module docstring). `changed_by` is the fact's
     provenance; it defaults to `mutation:<id>` when `mutation_id` is set,
     else `creator_crud`.
@@ -282,10 +359,7 @@ def write_relation(
 
     now = datetime.now(UTC)
     provenance = changed_by or (f"mutation:{mutation_id}" if mutation_id else "creator_crud")
-    old_type = None
-    if mode == "set" and relation_id is not None:
-        existing = db.get(Relation, relation_id)
-        old_type = existing.type if existing is not None else None
+    old_type = _checked_old_type(db, mode=mode, relation_id=relation_id, new_type=type)
     _require_orientation(type if type is not None else old_type, direction)
 
     if mode == "delta":
@@ -307,12 +381,16 @@ def write_relation(
     is_new = sa_inspect(rel).transient
     if is_new:
         _endpoint_names(db, rel.entity_a_id, rel.entity_b_id)
+        _require_map_shape(
+            db, entity_a_id=rel.entity_a_id, entity_b_id=rel.entity_b_id, new_type=rel.type, old_type=None,
+        )
     db.add(rel)
     if is_new:
         db.flush()
         _on_relation_born(db, rel, provenance)
     elif mode == "set":
         _refresh_lien_content(db, rel, old_type, provenance)
+        _refresh_map_content(db, rel, old_type, provenance)
     return rel
 
 

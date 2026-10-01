@@ -5,7 +5,7 @@ phases -- same no-canon-write neighbourhood as /api/regions/manifest and
 /api/regions/generate (regions.py). The commit route (BRIEF-0042-e) is the
 SOLE canon-write path for a batch, posture identical to commit_region: the
 client is untrusted, the parent cascade is re-derived server-side, doors
-materialize through spatial_author.connect_locations, and the whole batch
+materialize through spatial_author.link_locations, and the whole batch
 commits in one transaction with full rollback on any exception.
 """
 
@@ -30,7 +30,7 @@ from ...room_batch_author import _name_key  # commit-time name resolution must
 from ...room_batch_author import generate_room_batch_draft as _generate_room_batch_draft
 from ...room_batch_author import generate_room_batch_manifest as _generate_room_batch_manifest
 from ...room_batch_author import propose_batch_coherence as _propose_batch_coherence
-from ...spatial_author import connect_locations, location_classification
+from ...spatial_author import link_locations, location_classification
 from .. import crud as _crud
 
 router = APIRouter()
@@ -158,12 +158,14 @@ def _commit_batch_rooms(
 
 def _commit_batch_tree_edges(parent_entity_of: dict[str, str], world_id: str, db: Session) -> int:
     """K1 spanning-tree edges -- every committed room's parent-child
-    adjacency IS a passage (N1: doors materialize on the perimeter via
-    connect_locations, never model-proposed). Unconditional -- not gated by
-    confirmed_edges, which governs the SUPPLEMENTARY edges only."""
+    adjacency is written, never model-proposed. Unconditional -- not gated by
+    confirmed_edges, which governs the SUPPLEMENTARY edges only. The type is
+    derived by link_locations (TICKET-0101, R1): a parent that holds a room
+    is a zone, so a tree edge is a `borde`; doors materialize only on a
+    `connects_to`."""
     written = 0
     for entity_id, parent_entity_id in parent_entity_of.items():
-        connect_locations(db, world_id=world_id, entity_a_id=parent_entity_id, entity_b_id=entity_id, changed_by="creator")
+        link_locations(db, world_id=world_id, entity_a_id=parent_entity_id, entity_b_id=entity_id, changed_by="creator")
         written += 1
     return written
 
@@ -187,7 +189,7 @@ def _commit_batch_edges(
         if a_id is None or b_id is None:
             unresolved.append({"a_id": edge["a_id"], "b_id": edge["b_id"], "reason": "Extrémité rejetée ou non commitée"})
             continue
-        connect_locations(db, world_id=world_id, entity_a_id=a_id, entity_b_id=b_id, changed_by="creator")
+        link_locations(db, world_id=world_id, entity_a_id=a_id, entity_b_id=b_id, changed_by="creator")
         written += 1
     return written, unresolved
 
@@ -216,9 +218,9 @@ def commit_room_batch(
     room batch, posture identical to commit_region (regions.py): the client
     is untrusted, the parent cascade is re-derived server-side from the
     `accepted` map (never from a client-sent effective parent), every
-    `connects_to` edge (K1 spanning tree AND confirmed supplementary edges)
-    is written through spatial_author.connect_locations so doors materialize
-    on the perimeter, and the whole batch commits in ONE transaction with
+    geographic edge (K1 spanning tree AND confirmed supplementary edges)
+    is written through spatial_author.link_locations, which derives its type
+    (TICKET-0101) and materializes doors on every `connects_to`, and the whole batch commits in ONE transaction with
     full rollback on any exception -- no half-batch is ever observable.
     """
     world_id = _crud._world_id(db)

@@ -215,11 +215,15 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   TRAP — never add `"hidden"` to `FACETS["coutume"].aspects`, and every play
   reader filters `notorious_at_location` at query construction; discoverable
   content lives ONLY in `discoverable_detail`.
-- **`connects_to` is location map topology, never a social signal.** Its
-  `intensity=50` is meaningless. Every gameplay reader of `relation` keyed
-  on a character/player id is structurally blind to `connects_to` rows; the
-  sole intentional gameplay reader is `_location_neighbours`. Any new
-  world-wide relation scan MUST exclude `type='connects_to'`.
+- **`connects_to` and `borde` are location map topology, never a social
+  signal.** Their `intensity=50` is meaningless. Every gameplay reader of
+  `relation` keyed on a character/player id is structurally blind to them;
+  the sole intentional gameplay reader is `_location_neighbours`. Any new
+  world-wide relation scan MUST exclude both (`MAP_TOPOLOGY_TYPES`).
+- **A location with an active child is a zone, derived, never stored
+  (`zone_rules.py`).** Only `connects_to` is traversable and it never
+  touches a zone; a link touching a zone is `borde`. A geographic link's
+  type is derived from its endpoints (`link_locations`), never chosen.
 - **The `ledger` is append-only.** INSERT-only on both canon-write paths;
   corrections are new compensating lines. No UPDATE/DELETE endpoint or code
   path may touch a `ledger` row.

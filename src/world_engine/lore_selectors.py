@@ -20,6 +20,7 @@ from .facet_reads import creator_only_fact_ids, facts_of, joined
 from .facets import DESCRIPTIVE_FACETS, FACETS
 from .models import Character, Entity, Fact, FactParticipant, Faction, Knowledge, NpcGoal, Relation
 from .prose_render import fact_texts, knowledge_texts
+from .relation_orientation import MAP_TOPOLOGY_TYPES
 from .writes.knowledge import knowledge_level_rank
 
 
@@ -129,15 +130,16 @@ def _facet_rows(entity_id: str, world_id: str, db: Session) -> list[dict]:
 
 
 def _relation_rows(entity_id: str, world_id: str, db: Session) -> list[dict]:
-    # `connects_to` is location map topology, never a social signal, and its
-    # intensity=50 is meaningless (CLAUDE.md invariant) -- any new
-    # world-wide relation scan must exclude it, on pain of presenting map
-    # adjacency as if it were a narrative relation in the dossier.
+    # `connects_to` and `borde` are location map topology, never a social
+    # signal, and their intensity=50 is meaningless (CLAUDE.md invariant) --
+    # any new world-wide relation scan must exclude them, on pain of
+    # presenting map adjacency as if it were a narrative relation in the
+    # dossier. `controls` stays: a dossier shows who controls a place.
     rows = db.exec(
         select(Relation).where(
             Relation.world_id == world_id,
             (Relation.entity_a_id == entity_id) | (Relation.entity_b_id == entity_id),
-            Relation.type != "connects_to",
+            Relation.type.not_in(MAP_TOPOLOGY_TYPES),
         )
     ).all()
     other_ids = {r.entity_b_id if r.entity_a_id == entity_id else r.entity_a_id for r in rows}

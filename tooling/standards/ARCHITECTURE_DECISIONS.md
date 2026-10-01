@@ -17476,6 +17476,32 @@ seulement » stays. The tree is flattened iteratively in `EntityList.svelte`
 hierarchy Nia reads at a glance. E3, the descent view restyled: the
 descent itself was what she asked to lose.
 
+## ZONES AND VISITABLE PLACES (TICKET-0101) -- `borde` AND THE DERIVED LINK TYPE (BRIEF-0101-a, no schema change)
+
+**A1, L1.** A location with at least one active child is a zone; every
+other location is visitable. The property is derived from
+`location.parent_location_id` on every read (`zone_rules.py`) and never
+stored. `connects_to` joins two visitable locations and stays the only
+traversable link; `borde` is the link whenever a zone is an endpoint. The
+type is derived from the two endpoints (`geographic_link_type`), never
+chosen: `write_relation` refuses a new geographic row, or a type change,
+whose type is not the derived one, and refuses any retype into or out of
+the geographic pair (V1). `spatial_author.link_locations` is the creator
+entry: it derives the type, reuses the pair's existing row (retyped in
+place when needed, N1), and materializes doors on `connects_to` only. The
+fiche relation form keeps one geographic entry (`connects_to`); room
+batches and regions write derived types.
+
+**O1.** `borde` joins `RELATION_GRAPH_EXCLUDED_TYPES` (kept a literal for
+`relation_graph.py`); `MAP_TOPOLOGY_TYPES = ("connects_to", "borde")`
+replaces the two `!= "connects_to"` scans (`lore_selectors.py`,
+`day_concordance.py`). A `borde` row births one typed fact, « A borde B. »,
+at `knows`, and records no encounter. The travel and reachability readers
+change no line: none can reach a zone.
+
+**Rejected.** A stored zone flag or per-type setting (A1: derived only).
+Letting the creator pick `borde` (L1: the type follows the endpoints).
+
 ---
 
 *Co-built with Claude, June 2026.*

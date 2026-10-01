@@ -91,6 +91,9 @@ named mutation).
   moved out of `context.py` at TICKET-0090, BRIEF-0090-a (`context.py` re-imports it).
 - `cockpit/crud/_shared.py:137` — the relation-type datalist literal.
 - `link_author.py:68` — `assert "connects_to" not in _LINK_RELATION_TYPES`.
+- `zone_rules.py` — `geographic_link_type` returns `"connects_to"` or `"borde"`
+  (TICKET-0101, BRIEF-0101-A); `relation_orientation.py` also gained
+  `MAP_TOPOLOGY_TYPES = ("connects_to", "borde")` there. A derived type, never a traversal.
 
 These three are outside the twelve-module traversal count (they hold a type
 literal, never execute a `connects_to` traversal) but are listed here for

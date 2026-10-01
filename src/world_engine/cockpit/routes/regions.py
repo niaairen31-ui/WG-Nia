@@ -24,6 +24,7 @@ from ...db import get_session
 from ...models import Entity, Location, Relation
 from ...spatial_author import location_classification, materialize_doors
 from ...writes import write_faction_role, write_relation
+from ...zone_rules import geographic_link_type
 from .. import crud as _crud
 
 router = APIRouter()
@@ -268,13 +269,17 @@ def _commit_region_links(
                 continue
 
             if kind == "connection":
+                # TICKET-0101 (R1): the type follows the endpoints -- `borde`
+                # when either is a zone of this commit's tree, else
+                # `connects_to`; doors materialize for `connects_to` only.
+                link_type = geographic_link_type(db, source_id, target_id)
                 write_relation(
                     db, mode="set", world_id=world_id,
                     entity_a_id=source_id, entity_b_id=target_id,
-                    type="connects_to", value=50, direction="mutual",
+                    type=link_type, value=50, direction="mutual",
                 )
                 written_links.append({
-                    "location_local_id": local_id, "kind": kind, "type": "connects_to",
+                    "location_local_id": local_id, "kind": kind, "type": link_type,
                     "entity_a_id": source_id, "entity_b_id": target_id,
                 })
             else:  # kind == "faction" — controller is entity_a, asset is entity_b
