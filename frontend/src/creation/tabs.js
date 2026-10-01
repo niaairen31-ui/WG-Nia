@@ -86,8 +86,8 @@ export function setMountActions({ triggerPrimaryAction, activateIsland }) {
   _activateIslandImpl = activateIsland;
 }
 
-function triggerPrimaryAction(key) {
-  if (_triggerPrimaryActionImpl) _triggerPrimaryActionImpl(key);
+function triggerPrimaryAction(key, variant) {
+  if (_triggerPrimaryActionImpl) _triggerPrimaryActionImpl(key, variant);
 }
 
 /** HTML-escape a value (null/undefined -> empty string) -- local copy,
@@ -182,6 +182,14 @@ async function api(path, options) {
 //                 `listRenderer` are not mutually exclusive; only
 //                 `primaryAction` and `createPanel` must stay paired on
 //                 the same side (creation_island.py rule 11).
+//   secondaryAction: { label, handler } | undefined (TICKET-0099, G1) --
+//                 a second shell-band button beside the primary one, for a
+//                 page that creates two kinds of record. Its handler calls
+//                 triggerPrimaryAction with the SAME island key as
+//                 primaryAction plus a literal variant string, which that
+//                 component's exported primaryAction(variant) receives;
+//                 never declared without a routed primaryAction
+//                 (creation_island.py rule 11b).
 // }
 // Every Création page is a registry entry. No page renders outside it.
 
@@ -259,12 +267,14 @@ export const CREATION_TABS = {
   },
   competences: {
     label: 'Compétences',
-    archetype: 'bespoke',
-    containers: ['creation-competences'],
+    archetype: 'entity', // non-entity records on the shared list + fiche, as intrigues/evenements (TICKET-0099)
+    containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'competences', containerId: 'creation-competences' }],
-    primaryAction: { label: '+ Ajouter une compétence', handler: () => triggerPrimaryAction('competences') },
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
+    createPanel: null,
+    primaryAction: { label: '+ Ajouter une compétence', handler: () => triggerPrimaryAction('entitySheet') },
+    secondaryAction: { label: '+ Ajouter un système', handler: () => triggerPrimaryAction('entitySheet', 'system') },
   },
   region: {
     label: 'Région',

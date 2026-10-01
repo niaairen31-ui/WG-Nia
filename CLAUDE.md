@@ -19,7 +19,7 @@ and `world-engine-schema-changelog.md` — never here.
   alone stays legacy (`/legacy`, one governed iframe, `cockpit/legacy.html`), sealed rather than
   migrated by TICKET-0061, until its own ticket (TICKET-0069). No new dependency without a
   decision.
-  Creation's Compétences tab reads `skill_system`: an editor plus a system-grouped catalogue;
+  Creation's Compétences tab reads `skill_system`: a list grouped by system beside one fiche;
   `Sans système` is a rendered group, never a stored row (TICKET-0084).
 - Local models via Ollama; Claude API reserved for heavy lore-coherence work.
 - Runtime: Windows / PowerShell — `.venv\Scripts\Activate.ps1`,
@@ -361,6 +361,9 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   (`showCreationSubTab`), BEFORE `activeTabKey` moves and on every change, never per
   registry entry; and `Sheet.svelte` selects its render branch from `sheetType`, the same
   fact that feeds it, never from `activeTabKey` -- enforced by `creation_tab_switch.py`.
+- A Création tab that owns a single container sizes it in `frontend/public/creation.css`
+  (`flex: 1; min-height: 0`), so its content scrolls instead of being clipped -- enforced by
+  `creation_container_sizing.py`.
 - Inside a `$effect` body, a `$state` binding assigned there must not be read afterwards in the
   same body — enforced by `effect_self_write.py`.
 - **The lore renderer receives rows, never a `Session`,** and only the `answered` verdict reaches

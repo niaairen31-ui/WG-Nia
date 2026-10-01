@@ -297,7 +297,8 @@ def main() -> int:
     # "Ajouter une compétence" lives in CREATION_TABS.competences'
     # primaryAction label (tabs.js) now, not index.html — scan the whole
     # frontend/src/creation/ tree (not just tabs.js) so an in-body control
-    # added to Competences.svelte would still be caught as a duplicate.
+    # added to CompetencesList.svelte/CompetencesSheet.svelte would still be
+    # caught as a duplicate.
     occurrences = 0
     if CREATION_SRC.is_dir():
         for path in CREATION_SRC.rglob("*"):
@@ -313,6 +314,34 @@ def main() -> int:
             f"'Ajouter une compétence' appears {occurrences} times under {CREATION_SRC} — "
             "expected exactly once (the registry's primaryAction label); an in-body "
             "control must not exist (BRIEF-0005-c)"
+        )
+
+    # TICKET-0099/BRIEF-0099-c (G1): a page's second create button exists
+    # only as its registry secondaryAction, rendered by the shell band —
+    # "Ajouter un système" once, in tabs.js, never an in-body control; the
+    # contract comment documents the field.
+    if contract_comment_m and "secondaryAction" not in contract_comment_m.group(0):
+        failures.append(
+            f"CREATION_TABS entry-contract comment does not document 'secondaryAction' in {TABS_JS} (BRIEF-0099-c)"
+        )
+    if "activeEntry.secondaryAction.handler" not in creation_svelte:
+        failures.append(
+            "Creation.svelte's shell band does not render activeEntry.secondaryAction (BRIEF-0099-c)"
+        )
+    system_occurrences = 0
+    system_sites = []
+    if CREATION_SRC.is_dir():
+        for path in CREATION_SRC.rglob("*"):
+            if path.is_file() and path.suffix in (".js", ".svelte"):
+                n = path.read_text(encoding="utf-8").count("Ajouter un système")
+                if n:
+                    system_occurrences += n
+                    system_sites.append(path.name)
+    if system_occurrences != 1 or system_sites != ["tabs.js"]:
+        failures.append(
+            f"'Ajouter un système' appears {system_occurrences} time(s) in {system_sites} under "
+            f"{CREATION_SRC} — expected exactly once, in tabs.js (the registry's secondaryAction "
+            "label); an in-body control must not exist (BRIEF-0099-c)"
         )
 
     # TICKET-0059 (BRIEF-0059-h commit 4): the add-form moved off static
@@ -364,6 +393,27 @@ def main() -> int:
                     "CREATION_TABS.evenements does not have "
                     "containers: ['creation-editor-area'] (BRIEF-0022-a)"
                 )
+
+    # TICKET-0099/BRIEF-0099-b (B1): Compétences — fourth non-entity reader
+    # of the shared list+detail shell, the same shape as Intrigues/Événements.
+    if registry_src:
+        competences_src = _entry_block(registry_src, "competences")
+        if competences_src:
+            if not re.search(r"""archetype\s*:\s*['"]entity['"]""", competences_src):
+                failures.append(
+                    "CREATION_TABS.competences is not archetype: 'entity' (BRIEF-0099-b)"
+                )
+            if not re.search(r"""containers\s*:\s*\[\s*['"]creation-editor-area['"]\s*\]""", competences_src):
+                failures.append(
+                    "CREATION_TABS.competences does not have "
+                    "containers: ['creation-editor-area'] (BRIEF-0099-b)"
+                )
+
+    if "creation-competences" in html or "creation-competences" in creation_svelte:
+        failures.append(
+            "element id 'creation-competences' still present — Compétences must render "
+            "only through the shared creation-editor-area shell (BRIEF-0099-b)"
+        )
 
     if failures:
         for f in failures:

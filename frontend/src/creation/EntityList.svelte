@@ -55,6 +55,8 @@
   import { selectEntity } from './sheetState.svelte.js';
   import { openRoomBatch } from './roomBatch.svelte.js';
   import { loadAgendas } from './intrigues.svelte.js';
+  import { loadCatalogue } from './competences.svelte.js';
+  import CompetencesList from './CompetencesList.svelte';
 
   let { legacyDoc } = $props();
 
@@ -156,6 +158,22 @@
     recordsReady = true;
   }
 
+  /** competences' own list fetch (TICKET-0099, BRIEF-0099-b) -- same shape
+   *  as loadEvents/loadAgendaRecords above; the rows land in
+   *  competencesState and CompetencesList.svelte renders them. */
+  async function loadCompetenceRecords() {
+    recordsReady = false;
+    mode = 'record';
+    try {
+      await loadCatalogue();
+    } catch (err) {
+      errorMessage = err.message;
+      mode = 'error';
+      return;
+    }
+    recordsReady = true;
+  }
+
   function activateTab(tabKey) {
     const isNewActivation = tabKey !== previousTabKey;
     previousTabKey = tabKey;
@@ -165,6 +183,10 @@
     }
     if (tabKey === 'intrigues') {
       loadAgendaRecords();
+      return;
+    }
+    if (tabKey === 'competences') {
+      loadCompetenceRecords();
       return;
     }
     if (tabKey === 'lieux' && isNewActivation) {
@@ -374,4 +396,6 @@
       </div>
     {/each}
   {/if}
+{:else if mode === 'record' && creationState.activeTabKey === 'competences'}
+  <CompetencesList onSelect={onSelectRecord} />
 {/if}

@@ -99,6 +99,8 @@
   import { resetEventDraft, eventDraftState } from './eventDraft.svelte.js';
   import Evenements from './Evenements.svelte';
   import Intrigues from './Intrigues.svelte';
+  import CompetencesSheet from './CompetencesSheet.svelte';
+  import { blankRecord, competenceSheetTitle, saveCompetenceRecord } from './competences.svelte.js';
   import PjCreatePanel from './PjCreatePanel.svelte';
   import RelationsEditor from './RelationsEditor.svelte';
   import KnowledgeEditor from './KnowledgeEditor.svelte';
@@ -122,10 +124,12 @@
   const EMPTY_BODY_BY_TAB = {
     intrigues: 'Sélectionnez une intrigue depuis la liste, ou créez-en une nouvelle.',
     evenements: 'Sélectionnez un événement depuis la liste, ou créez-en un nouveau.',
+    competences: 'Sélectionnez une compétence ou un système dans la liste, ou créez-en une nouvelle.',
   };
   const EMPTY_TITLE_BY_TAB = {
     intrigues: 'Sélectionner une intrigue',
     evenements: 'Sélectionner un événement',
+    competences: 'Sélectionner une compétence',
   };
 
   let registry = $state(null);
@@ -192,7 +196,12 @@
     creationState.sheetDetail = detail;
   }
 
-  /** Called by mount.js's _islandPrimaryAction('entitySheet') when the
+  /** TICKET-0099 (G1): `variant` is what a secondaryAction button passes
+   *  through triggerPrimaryAction ('system' for Compétences' second
+   *  button); the primary button passes none, and only a competences
+   *  fiche reads it.
+   *
+   *  Called by mount.js's _islandPrimaryAction('entitySheet') when the
    *  standard shell action band ("+ Nouveau"/"+ Nouvelle intrigue") is
    *  clicked -- every entity-archetype tab routes here now, including pj
    *  (BRIEF-0059-j commit 3: pj's createPanel goes null too, rule 11) and
@@ -202,7 +211,7 @@
    *  branch in this function. Mirrors creationNewEntity's own draft reset
    *  (the plain "+ Nouveau" idiom every entity tab shared before this
    *  brief), via the same legacy helper so the two paths never drift. */
-  export function primaryAction() {
+  export function primaryAction(variant) {
     resetCreateDrafts();
     resetDraftRoles();
     resetFactsDraft();
@@ -210,6 +219,10 @@
     resetGeneratePanel();
     resetEventDraft();
     enterCreateMode(resolveTypeForTab(creationState.activeTabKey));
+    // TICKET-0099 (BRIEF-0099-b): a competences fiche always holds a whole
+    // C-01 record, never enterCreateMode's bare {} -- selected by the
+    // sheetType just written, the same fact that picks the render branch.
+    if (creationState.sheetType === 'competences') creationState.sheetDetail = blankRecord(variant);
   }
 
   legacyDoc.addEventListener('creation:sheet-reset', () => {
@@ -274,6 +287,19 @@
   // a fetched entity's own .type.
   legacyDoc.addEventListener('creation:record-detail', (ev) => {
     flushSync(() => { enterViewMode(ev.detail.record, ev.detail.tabId); });
+  });
+
+  // TICKET-0099 (BRIEF-0099-b, C-05): a record that stops existing -- a
+  // deleted skill or system, a discarded draft -- closes its fiche.
+  // Dispatched by competences.svelte.js's closeCompetenceSheet; the reset
+  // itself stays here, with the rest of the quintet's writes.
+  legacyDoc.addEventListener('creation:record-closed', () => {
+    flushSync(() => {
+      creationState.sheetMode = 'empty';
+      creationState.sheetDetail = null;
+      creationState.sheetIsNew = false;
+      creationState.sheetType = null;
+    });
   });
 
   // #author-save-btn's onclick (creationSaveDispatch) dispatches this for
@@ -359,6 +385,17 @@
       if (saveBtn) saveBtn.style.display = 'none';
       return;
     }
+    // competences (TICKET-0099, BRIEF-0099-b): no ENTITY_TYPE_REGISTRY row
+    // either; the title comes from the record (C-01). Save shows for every
+    // record but the assistant -- it is the create AND the update submit
+    // (E1), like the entity fiche's own.
+    if (creationState.sheetType === 'competences') {
+      const record = creationState.sheetDetail;
+      if (titleEl) titleEl.textContent = competenceSheetTitle(record);
+      if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = ''; }
+      if (saveBtn) saveBtn.style.display = record && record.kind === 'assistant' ? 'none' : '';
+      return;
+    }
     if (!registry) return;
     const type = creationState.sheetType;
     const typeInfo = registry.types[type];
@@ -390,6 +427,7 @@
   });
 
   async function saveSheet() {
+    if (creationState.sheetType === 'competences') { await saveCompetenceSheet(); return; }
     if (creationState.activeTabKey === 'evenements') { await saveEventSheet(); return; }
     if (!registry) return;
     const statusEl = legacyDoc.getElementById('author-status');
@@ -424,6 +462,25 @@
     }
 
     await submitEntity(isNewSave, type, entityData, extData);
+  }
+
+  /** competences' save (TICKET-0099, BRIEF-0099-b): the header Save button
+   *  for every competences record (E1). saveCompetenceRecord owns the
+   *  write and its validation; this owns the fiche's chrome, the same tail
+   *  saveEventSheet runs below. */
+  async function saveCompetenceSheet() {
+    const statusEl = legacyDoc.getElementById('author-status');
+    if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = '…'; }
+    try {
+      const saved = await saveCompetenceRecord(creationState.sheetDetail);
+      creationRefreshList();
+      flushSync(() => { enterViewMode(saved, 'competences'); });
+      legacyDoc.dispatchEvent(new CustomEvent('creation:selection', { detail: { entityId: null, recordId: saved.id } }));
+      const st = legacyDoc.getElementById('author-status');
+      if (st) { st.className = 'author-status ok'; st.textContent = 'Enregistré.'; }
+    } catch (e) {
+      if (statusEl) { statusEl.className = 'author-status err'; statusEl.textContent = e.message; }
+    }
   }
 
   /** evenements' save (BRIEF-0058-j) -- one function for both the header
@@ -616,6 +673,8 @@
         eventFields={registry.event_fields} onSave={saveSheet} />
     {:else if type === 'intrigues'}
       <Intrigues {isNew} agenda={detail} />
+    {:else if type === 'competences'}
+      <CompetencesSheet />
     {:else if tabKey === 'pj' && isNew}
       <PjCreatePanel {legacyDoc} />
     {:else if registry.types[type]}

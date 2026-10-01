@@ -1,0 +1,72 @@
+{
+  "ticket": "TICKET-0099-competences-list-sheet",
+  "when": "2026-09-30T20:54:53.640964+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "creation_container_sizing.py",
+      "status": "PASS",
+      "msg": "PASS: creation_container_sizing \u00e2\u20ac\u201d 14 single-container entr(y/ies) size their container (flex: 1; min-height: 0); 1 multi-container entr(y/ies) not examined"
+    },
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u00e2\u20ac\u201d CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry; 15 of 15 CREATION_TABS entries mount at least one island, 0 mount none"
+    },
+    {
+      "check": "creation_island.py",
+      "status": "PASS",
+      "msg": "PASS: creation_island \u00e2\u20ac\u201d 15 island(s) registered (14 migration, 1 new), 14 retired legacy prefix set(s) confirmed gone, 15 component binding(s) agreed, 8 mount-action identifier(s) confined, 11 island primaryAction(s) wired, 1 secondaryAction(s) paired, Creation.svelte mounts no component"
+    },
+    {
+      "check": "creation_tab_switch.py",
+      "status": "PASS",
+      "msg": "PASS: creation_tab_switch \u00e2\u20ac\u201d reset dispatched at offset 24418 before activeTabKey move at offset 24451; 18 onTabEnter key(s) surviving"
+    },
+    {
+      "check": "stylesheet_partition.py",
+      "status": "PASS",
+      "msg": "PASS: stylesheet_partition \u00e2\u20ac\u201d 313 top-level selector(s) across shared.css/creation.css/inline, zero duplicates; rule7 scanned 100 frontend/src file(s), 151 applied class name(s), 118 applied id name(s), 83 inline selector name(s), zero stranded; rule7 (legacy) scanned cockpit/legacy.html, 75 applied class name(s), 49 applied id name(s), 0 stranded; STRANDED(legacy) classes=[] ids=[]"
+    },
+    {
+      "check": "modal_primitive.py",
+      "status": "PASS",
+      "msg": "PASS: modal_primitive \u00e2\u20ac\u201d 58 .svelte file(s) scanned, Modal.svelte confirmed present, 0 duplicate backdrop-plus-panel dialog(s) found"
+    },
+    {
+      "check": "effect_self_write.py",
+      "status": "PASS",
+      "msg": "PASS: effect_self_write \u00e2\u20ac\u201d 58 .svelte file(s), 41 $effect bod(y/ies), 197 $state binding(s) scanned, zero assign-then-read findings"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values; 100 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u00e2\u20ac\u201d 104 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u00e2\u20ac\u201d section whitelist, character/line budgets, File-structure archaeology ban, Invariants archaeology ban, tooling/ pointer freshness, .py pointer freshness"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    },
+    {
+      "check": "pipeline_state.py",
+      "status": "PASS",
+      "msg": "PASS: every ticket front-matter conforms to TEMPLATE.md"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 129 check(s) discovered, 129 executed, 129 passed"
+    }
+  ]
+}
