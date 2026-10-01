@@ -1,0 +1,72 @@
+{
+  "ticket": "TICKET-0100-lieux-tree-graph",
+  "when": "2026-10-01T19:58:30.112667+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "graph_primitive.py",
+      "status": "PASS",
+      "msg": "PASS: graph_primitive \u00e2\u20ac\u201d 236 retired token(s) confirmed absent, 0 registry entry(ies) within baseline, 0 entry(ies) with a live locus, 5 graph spec(s) validated, 0 live graph impl(s), 1 retired graph impl(s) proven absent, 4 mount target(s) resolved in the shell document, 9 dispatch/listen site(s) on a single document, 1 node click(s) contained"
+    },
+    {
+      "check": "creation_island.py",
+      "status": "PASS",
+      "msg": "PASS: creation_island \u00e2\u20ac\u201d 15 island(s) registered (14 migration, 1 new), 14 retired legacy prefix set(s) confirmed gone, 15 component binding(s) agreed, 8 mount-action identifier(s) confined, 11 island primaryAction(s) wired, 2 secondaryAction(s) paired, Creation.svelte mounts no component"
+    },
+    {
+      "check": "location_tree.py",
+      "status": "PASS",
+      "msg": "PASS: location_tree \u00e2\u20ac\u201d 58 .svelte file(s) scanned, LocationTree.svelte confirmed present, 0 duplicate recursive location-tree renderer(s) found"
+    },
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u00e2\u20ac\u201d CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry; 15 of 15 CREATION_TABS entries mount at least one island, 0 mount none"
+    },
+    {
+      "check": "creation_tab_switch.py",
+      "status": "PASS",
+      "msg": "PASS: creation_tab_switch \u00e2\u20ac\u201d reset dispatched at offset 24653 before activeTabKey move at offset 24686; 18 onTabEnter key(s) surviving"
+    },
+    {
+      "check": "stylesheet_partition.py",
+      "status": "PASS",
+      "msg": "PASS: stylesheet_partition \u00e2\u20ac\u201d 303 top-level selector(s) across shared.css/creation.css/inline, zero duplicates; rule7 scanned 100 frontend/src file(s), 145 applied class name(s), 118 applied id name(s), 83 inline selector name(s), zero stranded; rule7 (legacy) scanned cockpit/legacy.html, 75 applied class name(s), 49 applied id name(s), 0 stranded; STRANDED(legacy) classes=[] ids=[]"
+    },
+    {
+      "check": "effect_self_write.py",
+      "status": "PASS",
+      "msg": "PASS: effect_self_write \u00e2\u20ac\u201d 58 .svelte file(s), 41 $effect bod(y/ies), 196 $state binding(s) scanned, zero assign-then-read findings"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values; 100 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u00e2\u20ac\u201d 104 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u00e2\u20ac\u201d section whitelist, character/line budgets, File-structure archaeology ban, Invariants archaeology ban, tooling/ pointer freshness, .py pointer freshness"
+    },
+    {
+      "check": "pipeline_state.py",
+      "status": "PASS",
+      "msg": "PASS: every ticket front-matter conforms to TEMPLATE.md"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 129 check(s) discovered, 129 executed, 129 passed"
+    }
+  ]
+}
