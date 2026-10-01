@@ -102,6 +102,7 @@
   import CompetencesSheet from './CompetencesSheet.svelte';
   import { blankRecord, competenceSheetTitle, saveCompetenceRecord } from './competences.svelte.js';
   import PjCreatePanel from './PjCreatePanel.svelte';
+  import { openRoomBatch } from './roomBatch.svelte.js';
   import RelationsEditor from './RelationsEditor.svelte';
   import KnowledgeEditor from './KnowledgeEditor.svelte';
   import GoalsEditor from './GoalsEditor.svelte';
@@ -131,6 +132,7 @@
     evenements: 'Sélectionner un événement',
     competences: 'Sélectionner une compétence',
   };
+  const BATCH_NEEDS_LOCATION = 'Ouvrez un lieu pour y générer un lot.';
 
   let registry = $state(null);
 
@@ -198,8 +200,8 @@
 
   /** TICKET-0099 (G1): `variant` is what a secondaryAction button passes
    *  through triggerPrimaryAction ('system' for Compétences' second
-   *  button); the primary button passes none, and only a competences
-   *  fiche reads it.
+   *  button, 'batch' for Lieux' « + lot », TICKET-0100); the primary
+   *  button passes none.
    *
    *  Called by mount.js's _islandPrimaryAction('entitySheet') when the
    *  standard shell action band ("+ Nouveau"/"+ Nouvelle intrigue") is
@@ -212,6 +214,13 @@
    *  (the plain "+ Nouveau" idiom every entity tab shared before this
    *  brief), via the same legacy helper so the two paths never drift. */
   export function primaryAction(variant) {
+    // TICKET-0100 (BRIEF-0100-b, F-a): Lieux' « + lot » button opens no
+    // blank record -- it anchors the room batch generator on the location
+    // this fiche shows, and leaves the fiche untouched.
+    if (variant === 'batch') {
+      openBatchOnOpenLocation();
+      return;
+    }
     resetCreateDrafts();
     resetDraftRoles();
     resetFactsDraft();
@@ -223,6 +232,19 @@
     // C-01 record, never enterCreateMode's bare {} -- selected by the
     // sheetType just written, the same fact that picks the render branch.
     if (creationState.sheetType === 'competences') creationState.sheetDetail = blankRecord(variant);
+  }
+
+  /** TICKET-0100 (BRIEF-0100-b): the room batch's anchor is the location
+   *  open in this fiche -- a saved one, never a create-mode draft. With no
+   *  such location, the fiche's status line says so and nothing opens. */
+  function openBatchOnOpenLocation() {
+    const detail = creationState.sheetDetail;
+    if (creationState.sheetType === 'location' && !creationState.sheetIsNew && detail?.id) {
+      openRoomBatch(detail.id, detail.name || '');
+      return;
+    }
+    const statusEl = legacyDoc.getElementById('author-status');
+    if (statusEl) { statusEl.className = 'author-status err'; statusEl.textContent = BATCH_NEEDS_LOCATION; }
   }
 
   legacyDoc.addEventListener('creation:sheet-reset', () => {

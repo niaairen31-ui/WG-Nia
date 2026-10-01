@@ -17436,6 +17436,28 @@ click opens that location's fiche through `sheetState.svelte.js`'s
 **Rejected.** G2, fixing the Lieux consumer only: the defect sits in the
 shared primitive, and the relations graph's « Lier » arm stayed broken.
 
+## « + LOT » BESIDE « + NOUVEAU » (TICKET-0100) -- THE ROOM BATCH ON THE OPEN LOCATION (BRIEF-0100-b, no schema change)
+
+**F1 + F-a.** The room batch generator used to be reachable only from the
+Lieux list's descent view (« Générer un lot ici », anchored on the location
+descended into). Lieux now declares a `secondaryAction` « + lot »
+(TICKET-0099's G1 field), routed like every secondary action:
+`triggerPrimaryAction('entitySheet', 'batch')`. `Sheet.svelte`'s
+`primaryAction('batch')` opens no blank record: it anchors the generator on
+the saved location the fiche shows, or writes « Ouvrez un lieu pour y
+générer un lot. » in the fiche's status line when there is none.
+
+**TICKET-0099's G2 condition fired and was answered.** G2 (a generic
+`actions: [...]` list) was to reactivate "when a second tab asks for a
+second button". Lieux is that tab; each tab still needs exactly one extra
+button, which the single field already carries. Kept: G1. G2 now
+reactivates when one tab asks for a third button.
+
+**Rejected.** F-b, letting a secondary action route to another island
+(`batch`) directly: it would amend rule 11b for one button. F2, the trigger
+staying in the list header: the descent view it lived in is gone
+(BRIEF-0100-c).
+
 ---
 
 *Co-built with Claude, June 2026.*
