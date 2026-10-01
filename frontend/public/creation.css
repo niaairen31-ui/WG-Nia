@@ -225,7 +225,10 @@ input.notes::placeholder { color: var(--muted); }
 .author-list-item .ali-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .author-list-item.inactive .ali-name { opacity: 0.5; text-decoration: line-through; }
 
-/* ── Lieux hierarchy browse (BRIEF-51) ───────────────────────────────────── */
+/* ── Lieux hierarchy browse (BRIEF-51; TICKET-0100, BRIEF-0100-c: the
+   descent view's breadcrumb, typed buckets' rows, status pill and descend
+   button gave way to the shared .author-list-item rows, unfolded in place
+   by .lieux-children-btn) ─────────────────────────────────────────────── */
 .lieux-browse-head {
   padding: 8px 14px;
   border-bottom: 1px solid var(--border);
@@ -234,11 +237,6 @@ input.notes::placeholder { color: var(--muted); }
   gap: 6px;
 }
 .lieux-browse-head .field-row.checkbox { margin: 0; }
-.lieux-breadcrumb { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px; }
-.lieux-breadcrumb .lb-seg { cursor: pointer; color: var(--accent); }
-.lieux-breadcrumb .lb-seg:hover { text-decoration: underline; }
-.lieux-breadcrumb .lb-sep { color: var(--muted); }
-.lieux-breadcrumb .lb-current { color: var(--text); cursor: default; }
 .lieux-bucket-head {
   padding: 6px 14px 2px;
   font-size: 11px;
@@ -246,40 +244,18 @@ input.notes::placeholder { color: var(--muted); }
   letter-spacing: 0.04em;
   color: var(--muted);
 }
-.lieux-node-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 14px;
-}
-.lieux-node-row .ali-name-btn {
-  flex: 1;
-  text-align: left;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 7px 0;
-  color: var(--text);
-  font-size: 13px;
-}
-.lieux-node-row .ali-name-btn:hover { text-decoration: underline; }
-.lieux-node-row.dimmed .ali-name-btn { opacity: 0.5; }
-.lieux-status-pill {
-  font-size: 10px;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1px 6px;
-}
-.lieux-descend-btn {
+.lieux-children-btn {
+  margin-left: 6px;
   font-size: 11px;
   color: var(--muted);
   background: none;
-  border: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 6px;
   cursor: pointer;
   white-space: nowrap;
 }
-.lieux-descend-btn:hover { color: var(--accent); }
+.lieux-children-btn:hover { color: var(--accent); border-color: var(--accent); }
 
 /* TICKET-0060 (BRIEF-0060-e, K1): .row-table and .row-card moved to
    shared.css -- the legacy document applies both and cannot link this

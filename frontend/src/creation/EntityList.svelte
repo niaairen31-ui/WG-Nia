@@ -34,7 +34,9 @@
      buts manquants" (BRIEF-0058-j) reach the room-batch island and the
      goals-backfill endpoint by plain import/fetch now too -- neither is a
      legacy function any more, so legacy/bridge.js's openBatchPanel/
-     triggerNpcGoalsBackfill are gone.
+     triggerNpcGoalsBackfill are gone. TICKET-0100 (BRIEF-0100-c): « Générer
+     un lot ici » left with the Lieux descent view it lived in; the room
+     batch is Lieux' « + lot » shell button now (BRIEF-0100-b).
 
      No scoped <style> block: like Graph.svelte and Constructeur.svelte,
      this renders inside the legacy iframe document, where Svelte's
@@ -53,7 +55,6 @@
   import { creationState } from './state.svelte.js';
   import { creationSelectRecord } from './tabs.js';
   import { selectEntity } from './sheetState.svelte.js';
-  import { openRoomBatch } from './roomBatch.svelte.js';
   import { loadAgendas } from './intrigues.svelte.js';
   import { loadCatalogue } from './competences.svelte.js';
   import CompetencesList from './CompetencesList.svelte';
@@ -61,23 +62,19 @@
   let { legacyDoc } = $props();
 
   const GENERIC_TYPE_BY_TAB = { npc: 'character', pj: 'character', lieux: 'location', factions: 'faction', objets: 'item' };
-  const LOCATION_TYPE_ORDER = ['city', 'district', 'building', 'room', 'natural', 'underground', 'other'];
-  const LOCATION_TYPE_LABELS = {
-    city: 'Villes', district: 'Quartiers', building: 'Bâtiments', room: 'Pièces',
-    natural: 'Lieux naturels', underground: 'Souterrains', other: 'Autres',
-  };
 
   let mode = $state('loading'); // 'loading' | 'flat' | 'lieux' | 'record' | 'error'
   let errorMessage = $state('');
   let recordsReady = $state(false);
   let previousTabKey = null;
 
-  // Lieux browse view-state -- component-local (unlike entities/agendas,
-  // nothing outside this island reads it once renderLieuxBrowse and its
-  // helpers are gone; the room-batch "Générer un lot ici" trigger reaches
-  // the room-batch island's own store directly, BRIEF-0058-j).
-  let lieuxParentId = $state(null);
-  let lieuxBreadcrumb = $state([]);
+  // Lieux tree view-state -- component-local (nothing outside this island
+  // reads it). TICKET-0100 (BRIEF-0100-c, E): the descent view (a parent
+  // id plus its breadcrumb) gave way to one tree whose rows unfold in
+  // place; `lieuxExpanded` holds the ids whose children are shown. The
+  // room batch trigger left with the descent view: it is Lieux' « + lot »
+  // shell button now (BRIEF-0100-b).
+  let lieuxExpanded = $state(new Set());
   let lieuxActiveOnly = $state(false);
 
   async function api(path) {
@@ -190,8 +187,7 @@
       return;
     }
     if (tabKey === 'lieux' && isNewActivation) {
-      lieuxParentId = null;
-      lieuxBreadcrumb = [];
+      lieuxExpanded = new Set();
     }
     loadGenericEntities();
   }
@@ -274,35 +270,37 @@
     return children;
   }
 
-  function lieuxBuckets() {
-    const children = lieuxChildrenOf(lieuxParentId);
-    const buckets = {};
-    for (const loc of children) {
-      const key = LOCATION_TYPE_ORDER.includes(loc.location_type) ? loc.location_type : 'other';
-      (buckets[key] = buckets[key] || []).push(loc);
+  /** TICKET-0100 (BRIEF-0100-c, E): the Lieux list as one tree, flattened
+   *  for rendering -- every root row, then, under each EXPANDED row, its
+   *  children one level deeper, alphabetical at every level. Iterative on
+   *  purpose: the recursive location-tree render belongs to
+   *  LocationTree.svelte alone (location_tree.py), and the rows here are
+   *  the shared list's own `.author-list-item` rows, not that primitive's
+   *  labelled controls. `seen` stops a parent cycle from looping. */
+  function lieuxVisibleRows() {
+    const byName = (list) => list.slice().sort((a, b) => a.name.localeCompare(b.name));
+    const rows = [];
+    const seen = new Set();
+    const stack = byName(lieuxChildrenOf(null)).reverse().map((loc) => ({ loc, depth: 0 }));
+    while (stack.length) {
+      const { loc, depth } = stack.pop();
+      if (seen.has(loc.id)) continue;
+      seen.add(loc.id);
+      const children = byName(lieuxChildrenOf(loc.id));
+      const expanded = lieuxExpanded.has(loc.id);
+      rows.push({ loc, depth, childCount: children.length, expanded });
+      if (expanded) {
+        for (const child of children.reverse()) stack.push({ loc: child, depth: depth + 1 });
+      }
     }
-    return LOCATION_TYPE_ORDER
-      .filter((t) => buckets[t] && buckets[t].length)
-      .map((t) => ({
-        type: t,
-        label: LOCATION_TYPE_LABELS[t],
-        rows: buckets[t].slice().sort((a, b) => a.name.localeCompare(b.name)),
-      }));
+    return rows;
   }
 
-  function lieuxDescend(id, name) {
-    lieuxBreadcrumb = [...lieuxBreadcrumb, { id, name }];
-    lieuxParentId = id;
-  }
-
-  function lieuxJumpTo(index) {
-    if (index < 0) {
-      lieuxParentId = null;
-      lieuxBreadcrumb = [];
-    } else {
-      lieuxBreadcrumb = lieuxBreadcrumb.slice(0, index + 1);
-      lieuxParentId = lieuxBreadcrumb[lieuxBreadcrumb.length - 1].id;
-    }
+  function lieuxToggleExpanded(id) {
+    const next = new Set(lieuxExpanded);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    lieuxExpanded = next;
   }
 </script>
 
@@ -334,34 +332,23 @@
       <input type="checkbox" checked={lieuxActiveOnly} onchange={(ev) => { lieuxActiveOnly = ev.currentTarget.checked; }}>
       <span style="font-size:12px">Actifs seulement</span>
     </label>
-    <div class="lieux-breadcrumb">
-      <span class="lb-seg {lieuxParentId == null ? 'lb-current' : ''}" onclick={() => lieuxJumpTo(-1)}>Racine</span>
-      {#each lieuxBreadcrumb as seg, i (seg.id)}
-        <span class="lb-sep">›</span>
-        <span class="lb-seg {i === lieuxBreadcrumb.length - 1 ? 'lb-current' : ''}" onclick={() => lieuxJumpTo(i)}>{seg.name}</span>
-      {/each}
-    </div>
-    {#if lieuxParentId != null}
-      <button class="btn-icon" onclick={() => openRoomBatch(lieuxParentId, lieuxBreadcrumb[lieuxBreadcrumb.length - 1]?.name || '')}>Générer un lot ici</button>
-    {:else}
-      <button class="btn-icon" disabled title="Descends dans un lieu pour l'utiliser comme ancre">Générer un lot ici</button>
-    {/if}
   </div>
-  {#if lieuxBuckets().length === 0}
+  {#if lieuxVisibleRows().length === 0}
     <div class="empty">Aucun lieu.</div>
   {:else}
-    {#each lieuxBuckets() as bucket (bucket.type)}
-      <div class="lieux-bucket-head">{bucket.label}</div>
-      {#each bucket.rows as loc (loc.id)}
-        {@const childCount = lieuxChildrenOf(loc.id).length}
-        <div class="lieux-node-row {loc.status !== 'active' ? 'dimmed' : ''}">
-          <button class="ali-name-btn" onclick={() => onSelectEntity(loc.id)}>{loc.name}</button>
-          {#if loc.status !== 'active'}<span class="lieux-status-pill">{loc.status}</span>{/if}
-          {#if childCount > 0}
-            <button class="lieux-descend-btn" onclick={() => lieuxDescend(loc.id, loc.name)}>{childCount} enfant{childCount > 1 ? 's' : ''} ›</button>
+    {#each lieuxVisibleRows() as row (row.loc.id)}
+      <div class="author-list-item {row.loc.id === creationState.selectedEntityId ? 'active' : ''} {row.loc.status !== 'active' ? 'inactive' : ''}"
+           style="padding-left:{14 + row.depth * 16}px" role="button" tabindex="0"
+           onclick={() => onSelectEntity(row.loc.id)}
+           onkeydown={(ev) => { if (ev.key === 'Enter') onSelectEntity(row.loc.id); }}>
+        <div class="ali-name">{row.loc.name}</div>
+        <div class="ali-meta">
+          {row.loc.location_type || '—'} · {row.loc.status}
+          {#if row.childCount > 0}
+            <button class="lieux-children-btn" onclick={(ev) => { ev.stopPropagation(); lieuxToggleExpanded(row.loc.id); }}>{row.childCount} enfant{row.childCount > 1 ? 's' : ''} {row.expanded ? '⌄' : '›'}</button>
           {/if}
         </div>
-      {/each}
+      </div>
     {/each}
   {/if}
 {:else if mode === 'record' && !recordsReady}

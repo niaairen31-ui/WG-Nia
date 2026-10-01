@@ -311,9 +311,17 @@
       {/if}
     {/each}
     {#each placed as node (node.id)}
+      <!-- TICKET-0100 (BRIEF-0100-a): a node press is handled on mousedown/
+           mouseup above, but the browser still fires `click` on the node
+           afterwards, and that click bubbled to the <svg>'s own
+           handleCanvasClick, which cleared the selection in the same
+           gesture -- no node ever stayed selected, so select-to-connect
+           could never reach its second tap. The node's click stops here;
+           graph_primitive.py rule 12 holds it. -->
       <g
         style={onMoveNode ? 'cursor:grab' : undefined}
         onmousedown={(onMoveNode || onConnect || onNodeClick) ? (e) => handleNodeMouseDown(e, node.id) : undefined}
+        onclick={(e) => e.stopPropagation()}
         ondblclick={onNodeDblClick ? (e) => handleNodeDblClick(e, node.id) : undefined}
       >
         <circle cx={node.x.toFixed(1)} cy={node.y.toFixed(1)} r={NODE_R}

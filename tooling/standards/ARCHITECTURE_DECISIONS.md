@@ -17421,6 +17421,61 @@ occurrence, in the registry.
 second tab asks for a second button, or this tab for a third. G3, the
 button in the list header: not where the creator asked for it.
 
+## A NODE CLICK STAYS ON ITS NODE (TICKET-0100) -- GRAPH SELECTION (BRIEF-0100-a, no schema change)
+
+**G1.** The graph primitive handles a node press on mousedown/mouseup, but
+the browser still fires `click` on the node afterwards. That click bubbled
+to the `<svg>`'s own `handleCanvasClick`, which cleared the selection in the
+same gesture: no node ever stayed selected, so neither the Lieux graph nor
+the relations graph's « Lier » arm could reach a second tap. The node's
+`<g>` now stops its own click; `graph_primitive.py` rule 12 holds it for
+every node group. The Lieux consumer also declares `onNodeClick`: a node
+click opens that location's fiche through `sheetState.svelte.js`'s
+`selectEntity`, the function the Lieux list already calls.
+
+**Rejected.** G2, fixing the Lieux consumer only: the defect sits in the
+shared primitive, and the relations graph's « Lier » arm stayed broken.
+
+## « + LOT » BESIDE « + NOUVEAU » (TICKET-0100) -- THE ROOM BATCH ON THE OPEN LOCATION (BRIEF-0100-b, no schema change)
+
+**F1 + F-a.** The room batch generator used to be reachable only from the
+Lieux list's descent view (« Générer un lot ici », anchored on the location
+descended into). Lieux now declares a `secondaryAction` « + lot »
+(TICKET-0099's G1 field), routed like every secondary action:
+`triggerPrimaryAction('entitySheet', 'batch')`. `Sheet.svelte`'s
+`primaryAction('batch')` opens no blank record: it anchors the generator on
+the saved location the fiche shows, or writes « Ouvrez un lieu pour y
+générer un lot. » in the fiche's status line when there is none.
+
+**TICKET-0099's G2 condition fired and was answered.** G2 (a generic
+`actions: [...]` list) was to reactivate "when a second tab asks for a
+second button". Lieux is that tab; each tab still needs exactly one extra
+button, which the single field already carries. Kept: G1. G2 now
+reactivates when one tab asks for a third button.
+
+**Rejected.** F-b, letting a secondary action route to another island
+(`batch`) directly: it would amend rule 11b for one button. F2, the trigger
+staying in the list header: the descent view it lived in is gone
+(BRIEF-0100-c).
+
+## THE LIEUX LIST UNFOLDS IN PLACE (TICKET-0100) -- ONE TREE ON THE SHARED ROWS (BRIEF-0100-c, no schema change)
+
+**E.** The Lieux list stops being a descent view (a breadcrumb, a parent to
+descend into, rows bucketed by a fixed English type list that a world's own
+type catalog never matched, so every typed location fell into « Autres »).
+It is one tree drawn with the shared list's `.author-list-item` rows: name,
+then « type · status » as meta, the selected row highlighted like every
+other tab. A row with children carries « N enfant(s) › »; clicking it
+unfolds those children in place, one indentation step deeper, and clicking
+it again folds them -- the rest of the list stays where it was. « Actifs
+seulement » stays. The tree is flattened iteratively in `EntityList.svelte`
+(`lieuxVisibleRows`): the recursive location-tree render stays
+`LocationTree.svelte`'s alone (`location_tree.py`).
+
+**Rejected.** E2, a flat list with « type · parent » as meta: loses the
+hierarchy Nia reads at a glance. E3, the descent view restyled: the
+descent itself was what she asked to lose.
+
 ---
 
 *Co-built with Claude, June 2026.*

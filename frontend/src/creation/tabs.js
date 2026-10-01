@@ -184,7 +184,9 @@ async function api(path, options) {
 //                 the same side (creation_island.py rule 11).
 //   secondaryAction: { label, handler } | undefined (TICKET-0099, G1) --
 //                 a second shell-band button beside the primary one, for a
-//                 page that creates two kinds of record. Its handler calls
+//                 page that creates two kinds of record (Compétences), or
+//                 that launches a generator on the open record (Lieux'
+//                 « + lot », TICKET-0100). Its handler calls
 //                 triggerPrimaryAction with the SAME island key as
 //                 primaryAction plus a literal variant string, which that
 //                 component's exported primaryAction(variant) receives;
@@ -235,6 +237,7 @@ export const CREATION_TABS = {
     type: 'location',
     createPanel: null,
     primaryAction: { label: '+ Nouveau', handler: () => triggerPrimaryAction('entitySheet') },
+    secondaryAction: { label: '+ lot', handler: () => triggerPrimaryAction('entitySheet', 'batch') },
     showPendingCreations: true,
     slots: [{ id: 'graph', containerId: 'creation-lieux-graph', loader: null, onSelect: null,
               display: 'on_demand', toggleLabel: 'Voir le graphe',
