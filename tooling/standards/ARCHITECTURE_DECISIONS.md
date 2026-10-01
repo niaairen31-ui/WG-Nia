@@ -17458,6 +17458,24 @@ reactivates when one tab asks for a third button.
 staying in the list header: the descent view it lived in is gone
 (BRIEF-0100-c).
 
+## THE LIEUX LIST UNFOLDS IN PLACE (TICKET-0100) -- ONE TREE ON THE SHARED ROWS (BRIEF-0100-c, no schema change)
+
+**E.** The Lieux list stops being a descent view (a breadcrumb, a parent to
+descend into, rows bucketed by a fixed English type list that a world's own
+type catalog never matched, so every typed location fell into « Autres »).
+It is one tree drawn with the shared list's `.author-list-item` rows: name,
+then « type · status » as meta, the selected row highlighted like every
+other tab. A row with children carries « N enfant(s) › »; clicking it
+unfolds those children in place, one indentation step deeper, and clicking
+it again folds them -- the rest of the list stays where it was. « Actifs
+seulement » stays. The tree is flattened iteratively in `EntityList.svelte`
+(`lieuxVisibleRows`): the recursive location-tree render stays
+`LocationTree.svelte`'s alone (`location_tree.py`).
+
+**Rejected.** E2, a flat list with « type · parent » as meta: loses the
+hierarchy Nia reads at a glance. E3, the descent view restyled: the
+descent itself was what she asked to lose.
+
 ---
 
 *Co-built with Claude, June 2026.*
