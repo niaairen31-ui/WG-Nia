@@ -93,6 +93,15 @@ satisfied comparison.
              bare `document`. A dispatch against `legacyDocument()` or any
              `contentWindow`-derived document is a FAILURE. Zero dispatch
              sites collected is a FAILURE.
+  12. A node press never reaches the canvas (TICKET-0100, BRIEF-0100-a).
+      The primitive handles a node press on mousedown/mouseup, but the
+      browser still fires `click` on the node afterwards; left to bubble,
+      it reached the <svg>'s handleCanvasClick and cleared the selection in
+      the same gesture, so select-to-connect never reached its second tap
+      (Lieux and the relations "Lier" arm alike). Every `<g ...>` opening
+      tag in Graph.svelte that declares `onmousedown=` must also declare an
+      `onclick=` whose value calls `stopPropagation()`. Zero such `<g>`
+      tags collected is a FAILURE.
 """
 from __future__ import annotations
 
@@ -359,7 +368,8 @@ def _report_and_exit(counts: dict | None = None) -> None:
         f"{counts['specs']} graph spec(s) validated, "
         f"{counts['live']} live graph impl(s), {counts['retired']} retired graph impl(s) proven absent, "
         f"{counts['mounts']} mount target(s) resolved in the shell document, "
-        f"{counts['dispatches']} dispatch/listen site(s) on a single document"
+        f"{counts['dispatches']} dispatch/listen site(s) on a single document, "
+        f"{counts['node_clicks']} node click(s) contained"
     )
     sys.exit(0)
 
@@ -606,6 +616,46 @@ def _rule8_no_scoped_css() -> bool:
              "stylesheet_partition's rule7 coverage; a scoped block here would be a second, shadow authority")
         return False
     return True
+
+
+def _g_open_tags(text: str) -> list[str]:
+    """Every `<g` opening tag's full source, `{...}` attribute values
+    included -- the tag ends at the first `>` outside braces, so an arrow
+    function's `=>` inside an attribute never ends it early."""
+    tags: list[str] = []
+    for m in re.finditer(r"<g\b", text):
+        depth, i = 0, m.end()
+        while i < len(text):
+            ch = text[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+            elif ch == ">" and depth == 0:
+                tags.append(text[m.start():i + 1])
+                break
+            i += 1
+    return tags
+
+
+def _rule12_node_click_contained() -> int:
+    if not GRAPH_SVELTE.is_file():
+        fail(f"{GRAPH_SVELTE} does not exist")
+        return 0
+    count = 0
+    for tag in _g_open_tags(GRAPH_SVELTE.read_text(encoding="utf-8")):
+        if "onmousedown=" not in tag:
+            continue
+        count += 1
+        click_m = re.search(r"onclick=\{([^}]*)\}", tag)
+        if not click_m or "stopPropagation()" not in click_m.group(1):
+            fail("rule12: a node <g> in Graph.svelte declares onmousedown= without an onclick= calling "
+                 "stopPropagation() -- the node's click bubbles to handleCanvasClick and clears the "
+                 "selection in the same gesture")
+    if count == 0:
+        fail("rule12: zero node <g> tag(s) with onmousedown= collected in Graph.svelte -- "
+             "a rule that passes on nothing proves nothing")
+    return count
 
 
 _KEY_RE = re.compile(r"(\w+)\s*:")
@@ -872,6 +922,7 @@ def main() -> None:
 
     primitive_ok = _rule7_no_fetch_write()
     css_ok = _rule8_no_scoped_css()
+    node_click_count = _rule12_node_click_contained()
     spec_count = _rule9_closed_vocab(html)
 
     legacy_container_ok = _rule11a_no_legacy_container()
@@ -908,6 +959,7 @@ def main() -> None:
             "retired": retired_proven_count,
             "mounts": mount_target_count,
             "dispatches": dispatch_count + listen_count,
+            "node_clicks": node_click_count,
         }
     )
 

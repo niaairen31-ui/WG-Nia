@@ -17421,6 +17421,21 @@ occurrence, in the registry.
 second tab asks for a second button, or this tab for a third. G3, the
 button in the list header: not where the creator asked for it.
 
+## A NODE CLICK STAYS ON ITS NODE (TICKET-0100) -- GRAPH SELECTION (BRIEF-0100-a, no schema change)
+
+**G1.** The graph primitive handles a node press on mousedown/mouseup, but
+the browser still fires `click` on the node afterwards. That click bubbled
+to the `<svg>`'s own `handleCanvasClick`, which cleared the selection in the
+same gesture: no node ever stayed selected, so neither the Lieux graph nor
+the relations graph's « Lier » arm could reach a second tap. The node's
+`<g>` now stops its own click; `graph_primitive.py` rule 12 holds it for
+every node group. The Lieux consumer also declares `onNodeClick`: a node
+click opens that location's fiche through `sheetState.svelte.js`'s
+`selectEntity`, the function the Lieux list already calls.
+
+**Rejected.** G2, fixing the Lieux consumer only: the defect sits in the
+shared primitive, and the relations graph's « Lier » arm stayed broken.
+
 ---
 
 *Co-built with Claude, June 2026.*

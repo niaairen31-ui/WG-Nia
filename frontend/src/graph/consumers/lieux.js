@@ -1,7 +1,15 @@
 /* TICKET-0057. Fetch/write layer for the canonical Lieux adjacency graph.
    All three writes go through pre-existing sanctioned endpoints, unchanged
    and unwidened -- the primitive itself (Graph.svelte) never fetches or
-   writes; that invariant is what this file exists to preserve. */
+   writes; that invariant is what this file exists to preserve.
+
+   TICKET-0100 (BRIEF-0100-a): a node click opens that location's fiche,
+   through the same selectEntity the Lieux list calls -- the relations
+   consumer already imports from that module (getSelectedEntityId). The
+   shell document IS the document every Creation island receives as
+   legacyDoc (creation/mount.js passes node.ownerDocument), so `document`
+   is passed. */
+import { selectEntity } from '../../creation/sheetState.svelte.js';
 
 async function api(path, options) {
   const res = await fetch(path, options);
@@ -22,7 +30,7 @@ async function api(path, options) {
 export default {
   chrome: {
     title: 'Carte des lieux',
-    helpText: 'Cliquez un nœud pour le sélectionner, puis un second pour le connecter. Glissez pour repositionner. Cliquez un lien pour le supprimer.',
+    helpText: 'Cliquez un nœud pour le sélectionner et ouvrir sa fiche, puis un second pour le connecter. Glissez pour repositionner. Cliquez un lien pour le supprimer.',
   },
   dashedKinds: [],
 
@@ -41,6 +49,10 @@ export default {
   async onDeleteEdge(edgeId) {
     if (!confirm('Supprimer cette connexion ?')) return false;
     await api(`/api/relations/${encodeURIComponent(edgeId)}`, { method: 'DELETE' });
+  },
+
+  onNodeClick(nodeId) {
+    selectEntity(document, nodeId);
   },
 
   async onMoveNode(nodeId, x, y) {
