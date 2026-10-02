@@ -17578,6 +17578,20 @@ is a zone. A room that receives a room becomes a zone.
 **Rejected.** R3, flattening batches: changes the generator's prompt.
 Reactivates if R1 makes buildings unmanageable.
 
+## THE LIEUX GRAPH HAS THREE MODES (TICKET-0101) -- VISITABLE, ZONES, EGO (BRIEF-0101-f, no schema change)
+
+**M1.** `GET /api/locations/graph?mode=` serves the travel map
+(`visitable`: visitable nodes, `connects_to` edges), the zones (`zones`:
+zone nodes, `borde` edges, a top-level zone with `r = 30`) and the ego view
+(`ego&center=`: the zone, larger, and its children, every geographic edge
+among them; a non-zone centre answers « Ouvrez une zone. »). The graph
+primitive gains two optional axes, both exercised by Lieux: a per-node
+radius (`node.r`, `NODE_R` otherwise) and `emptyText`. The Lieux consumer
+switches modes through three head buttons (the relations consumer's
+`controls` + `capabilities(meta)` pattern), draws `borde` dashed, and
+recentres Ego on a double-clicked child zone. Linking two nodes posts
+`connects_to`; the server derives the type.
+
 ---
 
 *Co-built with Claude, June 2026.*

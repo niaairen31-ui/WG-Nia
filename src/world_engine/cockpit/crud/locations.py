@@ -56,7 +56,7 @@ from ...schedule_reads import unresolved_npcs, where_is, who_is_at
 from ...tick_normalize import _EVENT_TYPES
 from ...writes.zone_promotion import promotion_preview
 from ...relation_orientation import MAP_TOPOLOGY_TYPES
-from ...zone_rules import ZoneRefusal, is_zone, require_visitable
+from ...zone_rules import ZoneRefusal, is_zone, require_visitable, zone_ids
 from ...writes import (
     KNOWLEDGE_LEVELS,
     NPC_GOAL_HORIZONS,
@@ -224,48 +224,68 @@ def delete_discoverable_detail(
     return {"deleted": detail_id}
 
 
+# TICKET-0101 (M1): a top-level zone (no parent) is drawn larger than a
+# nested one; every other node takes the primitive's default radius.
+TOP_ZONE_RADIUS = 30
+GRAPH_MODES = ("visitable", "zones", "ego")
+
+
 @router.get("/locations/graph")
-def get_locations_graph(db: DbSession = Depends(get_session)) -> dict:
-    """Active location nodes + connects_to edges — read-only, creator surface.
+def get_locations_graph(
+    mode: str = Query(default="visitable"),
+    center: Optional[str] = Query(default=None),
+    db: DbSession = Depends(get_session),
+) -> dict:
+    """The Lieux graph, read-only, creator surface (TICKET-0101, M1):
 
-    nodes: all active location entities joined to their extension (for
-    coord_x/coord_y). edges: connects_to relations whose both endpoints are
-    in nodes (dangling edges from soft-deleted locations are filtered out
-    server-side).
-    """
+    - `visitable` (default): the travel map -- active visitable locations,
+      `connects_to` edges between two of them.
+    - `zones`: active zones, `borde` edges between two of them; a zone
+      without a parent carries `r = TOP_ZONE_RADIUS`.
+    - `ego`: the zone `center`, larger, and its active children, with every
+      geographic edge among them; a `center` that is not a zone answers no
+      node and `empty_text` « Ouvrez une zone. ».
+
+    Nodes: `{id, name, coord_x, coord_y, is_zone[, r]}`; edges: `{id,
+    entity_a_id, entity_b_id, direction, kind}` (`kind` = relation type)."""
+    if mode not in GRAPH_MODES:
+        raise HTTPException(422, f"mode must be one of {GRAPH_MODES}")
     world_id = _world_id(db)
-
     rows = db.exec(
         select(Entity, Location)
         .join(Location, Location.id == Entity.id)
-        .where(Entity.type == "location")
-        .where(Entity.world_id == world_id)
-        .where(Entity.status == "active")
+        .where(Entity.type == "location", Entity.world_id == world_id, Entity.status == "active")
         .order_by(Entity.name)
     ).all()
+    zones = zone_ids(db, world_id)
+    if mode == "visitable":
+        keep, edge_types = {e.id for e, _ in rows if e.id not in zones}, ("connects_to",)
+    elif mode == "zones":
+        keep, edge_types = {e.id for e, _ in rows if e.id in zones}, ("borde",)
+    elif center not in zones:
+        return {"nodes": [], "edges": [], "empty_text": "Ouvrez une zone."}
+    else:
+        keep = {center} | {e.id for e, loc in rows if loc.parent_location_id == center}
+        edge_types = MAP_TOPOLOGY_TYPES
 
-    active_ids = {e.id for e, _ in rows}
+    def radius(e: Entity, loc: Location) -> dict:
+        big = e.id == center if mode == "ego" else (e.id in zones and loc.parent_location_id is None)
+        return {"r": TOP_ZONE_RADIUS} if big else {}
+
     nodes = [
-        {"id": e.id, "name": e.name, "coord_x": loc.coord_x, "coord_y": loc.coord_y}
-        for e, loc in rows
+        {"id": e.id, "name": e.name, "coord_x": loc.coord_x, "coord_y": loc.coord_y,
+         "is_zone": e.id in zones, **radius(e, loc)}
+        for e, loc in rows if e.id in keep
     ]
-
     rels = db.exec(
-        select(Relation)
-        .where(Relation.world_id == world_id)
-        .where(Relation.type == "connects_to")
+        select(Relation).where(Relation.world_id == world_id, Relation.type.in_(edge_types))
     ).all()
     edges = [
-        {
-            "id": r.id,
-            "entity_a_id": r.entity_a_id,
-            "entity_b_id": r.entity_b_id,
-            "direction": r.direction,
-        }
+        {"id": r.id, "entity_a_id": r.entity_a_id, "entity_b_id": r.entity_b_id,
+         "direction": r.direction, "kind": r.type}
         for r in rels
-        if r.entity_a_id in active_ids and r.entity_b_id in active_ids
+        if r.entity_a_id in keep and r.entity_b_id in keep
     ]
-
     return {"nodes": nodes, "edges": edges}
 
 

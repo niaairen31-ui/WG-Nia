@@ -179,6 +179,7 @@ async function renderInto(containerId, consumerKey, meta) {
       onMoveNode: caps.onMoveNode || null,
       onNodeClick: wrapPlain(caps.onNodeClick),
       onNodeDblClick: wrapRemounter(containerId, caps.onNodeDblClick),
+      emptyText: data.emptyText,
     },
   });
   live[containerId] = { node, consumerKey, meta: effectiveMeta, instance, data };

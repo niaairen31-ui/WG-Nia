@@ -38,11 +38,17 @@
     onMoveNode = null,
     onNodeClick = null,
     onNodeDblClick = null,
+    // TICKET-0101 (BRIEF-0101-F, M1): what an empty graph says (the Lieux
+    // Ego mode: « Ouvrez une zone. »).
+    emptyText = 'Aucun nœud',
   } = $props();
 
   const GRAPH_W = 960;
   const GRAPH_H = 480;
   const NODE_R = 20;
+  // TICKET-0101 (BRIEF-0101-F, M1): a node may carry its own radius `r`
+  // (the Lieux Zones mode draws top-level zones larger); NODE_R otherwise.
+  const radiusOf = (node) => node.r ?? NODE_R;
   const DRAG_THRESHOLD = 5;
   const FORCE_ITERATIONS = 300;
 
@@ -294,7 +300,7 @@
      onwheel={layout === 'force' ? handleWheel : undefined}
      onmousedown={layout === 'force' ? handleCanvasMouseDown : undefined}>
   {#if nodes.length === 0}
-    <text x={GRAPH_W / 2} y={GRAPH_H / 2} text-anchor="middle" fill="var(--muted)" font-size="13">Aucun nœud</text>
+    <text x={GRAPH_W / 2} y={GRAPH_H / 2} text-anchor="middle" fill="var(--muted)" font-size="13">{emptyText}</text>
   {:else}
     {#each edges as edge (edge.id)}
       {@const a = nodeMap[edge.entity_a_id]}
@@ -324,11 +330,11 @@
         onclick={(e) => e.stopPropagation()}
         ondblclick={onNodeDblClick ? (e) => handleNodeDblClick(e, node.id) : undefined}
       >
-        <circle cx={node.x.toFixed(1)} cy={node.y.toFixed(1)} r={NODE_R}
+        <circle cx={node.x.toFixed(1)} cy={node.y.toFixed(1)} r={radiusOf(node)}
           fill={node.id === selectedNodeId ? 'var(--accent)' : 'var(--card)'}
           stroke={node.id === selectedNodeId ? 'var(--accent)' : 'var(--border)'}
           stroke-width={node.id === selectedNodeId ? 2.5 : 1.5} />
-        <text x={node.x.toFixed(1)} y={(node.y + NODE_R + 13).toFixed(1)}
+        <text x={node.x.toFixed(1)} y={(node.y + radiusOf(node) + 13).toFixed(1)}
           text-anchor="middle" fill="var(--text)" font-size="11"
           style="pointer-events:none;user-select:none">{node.name}</text>
       </g>
