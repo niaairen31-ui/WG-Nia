@@ -9,9 +9,11 @@ is not in `SELECTORS` is a rejected plan, not an improvised query.
 
 from __future__ import annotations
 
+from typing import Optional
+
 from sqlmodel import Session
 
-from . import llm_parse, lore_prompt
+from . import llm_parse, lore_prompt, model_exchange
 from .lore_query import LorePlan, PlanCall, PlanMention
 from .ollama_client import chat
 
@@ -76,20 +78,31 @@ def _coerce_call(raw: object) -> PlanCall:
     return PlanCall(selector=selector, args=tuple(args))
 
 
-def draft_plan(question: str, world_id: str, db: Session) -> LorePlan:
+PLAN_USAGE = "lore_question_to_plan"
+
+
+def draft_plan(
+    question: str, world_id: str, db: Session,
+    exchanges: Optional[list[model_exchange.ModelExchange]] = None,
+) -> LorePlan:
     """Builds the prompt, calls the model through the resolved
     `lore_prompt.RenderSpec`, parses the reply with `llm_parse.extract_object`,
     and maps the JSON into a `LorePlan`. `LlmParseError` propagates -- a
     malformed reply, a missing template, or an out-of-vocabulary mention
     category is a failed draft, never silently coerced into an empty plan.
     `validate_plan` (lore_query.py) still runs afterward against the selector
-    whitelist; this function only guards the shape it itself constructs."""
-    spec = lore_prompt.load(db, "lore_question_to_plan")
+    whitelist; this function only guards the shape it itself constructs.
+
+    `exchanges` (TICKET-0103, BRIEF-0103-B, C-03): when a list is given, the
+    model call is appended to it as a `ModelExchange`, its raw reply kept
+    before parsing."""
+    spec = lore_prompt.load(db, PLAN_USAGE)
     user_message = (
         spec.user_template
         .replace("{selectors}", _render_selectors())
         .replace("{question}", question)
     )
+    exchange = model_exchange.begin(exchanges, PLAN_USAGE, spec, spec.system_prompt, user_message)
     raw = chat(
         [
             {"role": "system", "content": spec.system_prompt},
@@ -98,6 +111,8 @@ def draft_plan(question: str, world_id: str, db: Session) -> LorePlan:
         model=spec.model,
         format="json",
     )
+    if exchange is not None:
+        exchange.raw_output = raw
     parsed = llm_parse.extract_object(raw)
 
     raw_mentions = parsed.get("mentions")

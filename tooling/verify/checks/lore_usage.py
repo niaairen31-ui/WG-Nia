@@ -30,6 +30,23 @@ U3 -- writer (C-01, C-02). `_good()` is inserted once; every row of
 U4 -- the journal outlives its world (F2). A world tagged by a journal row
    is deleted by `delete_world_cascade`; the journal row is still there,
    with its `world_ref` and `world_name` unchanged.
+U5 -- the capture shape (BRIEF-0103-B, C-03). The fields of
+   `model_exchange.ModelExchange` equal `writes/lore_usage.MODEL_CALL_KEYS`;
+   `model_exchange.py` imports nothing from `world_engine`; `prompt_load.load`
+   returns the `id` and `version_number` of the head's current
+   `prompt_version`.
+U6 -- capture (C-03), `chat` stubbed in each module, on seeded prompt heads:
+   a. `lore_plan.draft_plan` given a list appends one exchange: usage
+      `PLAN_USAGE`, the head's current version id and number, the rendered
+      user message, the raw reply; an unparsable reply raises `LlmParseError`
+      and the exchange still holds that raw reply;
+   b. `lore_render.render` appends one exchange on `answered` (usage
+      `PROSE_USAGE`) and none on any other verdict; an `OllamaError` falls
+      back to the template and leaves the exchange with no raw reply and the
+      error recorded;
+   c. `lore_write_draft.draft_questions` and `draft_proposal` each append one
+      exchange, usage `QUESTIONS_USAGE` and `PROPOSAL_USAGE`;
+   d. every exchange's `to_record()` is accepted by `write_usage_event`.
 
 Fresh temp-file SQLite database for any fixture rule
 (`WORLD_ENGINE_DATABASE_URL` set before any world_engine import) -- never
@@ -305,6 +322,182 @@ def check_u4() -> None:
             fail("U4: the journal row did not outlive its world")
 
 
+def check_u5() -> None:
+    import ast
+    import dataclasses
+
+    from sqlmodel import Session
+
+    from world_engine import model_exchange, prompt_load
+    from world_engine.db import engine
+    from world_engine.models import PromptTemplate
+    from world_engine.prompt_store import current_prompt
+    from world_engine.writes.lore_usage import MODEL_CALL_KEYS
+
+    fields = {f.name for f in dataclasses.fields(model_exchange.ModelExchange)}
+    if not fields or fields != MODEL_CALL_KEYS:
+        fail(f"U5: ModelExchange fields {sorted(fields)} != MODEL_CALL_KEYS {sorted(MODEL_CALL_KEYS)}")
+    tree = ast.parse((SRC / "model_exchange.py").read_text(encoding="utf-8"))
+    imports = [n for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
+               and (n.level > 0 or (n.module or "").startswith("world_engine"))]
+    if imports:
+        fail(f"U5: model_exchange.py imports from world_engine at line(s) {[n.lineno for n in imports]}")
+    with Session(engine) as db:
+        _seed_prompts(db)
+        spec = prompt_load.load(db, "lore_question_to_plan")
+        template = db.get(PromptTemplate, "pt-lore-question-to-plan")
+        version = current_prompt(db, template)
+        if (spec.version_id, spec.version_number) != (version.id, version.version_number):
+            fail("U5: RenderSpec does not carry the head's current prompt_version")
+
+
+def _seed_prompts(db) -> None:
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import seed_pilot
+
+    from world_engine.models import PromptTemplate
+
+    heads = [
+        dict(id="pt-lore-question-to-plan", world_id=None, name="plan", usage="lore_question_to_plan",
+             system_prompt=seed_pilot.LORE_QUESTION_TO_PLAN_SYSTEM_PROMPT,
+             user_template=seed_pilot.LORE_QUESTION_TO_PLAN_USER_TEMPLATE,
+             variables=["selectors", "question"], destination="local"),
+        dict(id="pt-lore-rows-to-prose", world_id=None, name="prose", usage="lore_rows_to_prose",
+             system_prompt=seed_pilot.LORE_ROWS_TO_PROSE_SYSTEM_PROMPT,
+             user_template=seed_pilot.LORE_ROWS_TO_PROSE_USER_TEMPLATE,
+             variables=["question", "rows"], destination="local"),
+        *seed_pilot.LORE_WRITE_PROMPT_HEADS,
+    ]
+    for head in heads:
+        if db.get(PromptTemplate, head["id"]) is None:
+            seed_pilot.upsert_prompt_template(db, **dict(head))
+    db.commit()
+
+
+class _Stub:
+    def __init__(self, replies):
+        self.replies, self.messages = list(replies), []
+
+    def __call__(self, messages, **kwargs):
+        self.messages.append(messages)
+        reply = self.replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply if isinstance(reply, str) else __import__("json").dumps(reply)
+
+
+def _swap(module, stub):
+    original = module.chat
+    module.chat = stub
+    return original
+
+
+def _check_exchange(label: str, exchange, usage: str, spec, raw) -> None:
+    if (exchange.usage, exchange.prompt_version_id, exchange.prompt_version_number,
+            exchange.model, exchange.raw_output) != (usage, spec.version_id, spec.version_number,
+                                                     spec.model, raw):
+        fail(f"{label}: exchange {exchange.to_record()!r}"[:300])
+
+
+def check_u6() -> None:
+    from sqlmodel import Session
+
+    from world_engine import lore_plan, lore_render, lore_write_draft as lwd, prompt_load
+    from world_engine.db import engine
+    from world_engine.llm_parse import LlmParseError
+    from world_engine.lore_query import LoreResult
+    from world_engine.models import World
+    from world_engine.ollama_client import OllamaError
+    from world_engine.writes.lore_usage import write_usage_event
+
+    collected = []
+    with Session(engine) as db:
+        _seed_prompts(db)
+        world = World(name="Capture 0103")
+        db.add(world)
+        db.commit()
+        plan_spec = prompt_load.load(db, lore_plan.PLAN_USAGE)
+        prose_spec = prompt_load.load(db, lore_render.PROSE_USAGE)
+        reply = '{"mentions": [], "calls": [{"selector": "world_factions", "args": ["$world"]}]}'
+        original = _swap(lore_plan, _Stub([reply, "pas du json"]))
+        try:
+            exchanges = []
+            lore_plan.draft_plan("Quelles factions ?", world.id, db, exchanges)
+            if len(exchanges) != 1:
+                fail(f"U6a: draft_plan appended {len(exchanges)} exchange(s)")
+            else:
+                _check_exchange("U6a", exchanges[0], lore_plan.PLAN_USAGE, plan_spec, reply)
+                if "Quelles factions ?" not in (exchanges[0].user_message or ""):
+                    fail("U6a: the rendered user message was not kept")
+            collected += exchanges
+            exchanges = []
+            try:
+                lore_plan.draft_plan("Encore ?", world.id, db, exchanges)
+                fail("U6a: an unparsable plan did not raise")
+            except LlmParseError:
+                pass
+            if len(exchanges) != 1 or exchanges[0].raw_output != "pas du json":
+                fail("U6a: the unparsable reply was not kept")
+        finally:
+            lore_plan.chat = original
+        answered = LoreResult(verdict="answered", rows=({"section": "factions", "name": "Guilde",
+                                                         "faction_type": "guilde"},),
+                              trace=[], ambiguous_mentions=(), unmatched_surface_forms=(),
+                              rejection_reason=None)
+        silent = LoreResult(verdict="silent_canon", rows=(), trace=[], ambiguous_mentions=(),
+                            unmatched_surface_forms=(), rejection_reason=None)
+        original = _swap(lore_render, _Stub(["Une guilde.", OllamaError("down")]))
+        try:
+            exchanges = []
+            lore_render.render(answered, "Quelles factions ?", prose_spec, {}, exchanges)
+            if len(exchanges) != 1:
+                fail(f"U6b: render appended {len(exchanges)} exchange(s) on answered")
+            else:
+                _check_exchange("U6b", exchanges[0], lore_render.PROSE_USAGE, prose_spec, "Une guilde.")
+            collected += exchanges
+            exchanges = []
+            lore_render.render(silent, "Quoi ?", prose_spec, {}, exchanges)
+            if exchanges:
+                fail("U6b: render appended an exchange on a non-answered verdict")
+            rendered = lore_render.render(answered, "Quelles factions ?", prose_spec, {}, exchanges)
+            if (rendered.renderer != "template" or len(exchanges) != 1
+                    or exchanges[0].raw_output is not None
+                    or not (exchanges[0].error or "").startswith("OllamaError")):
+                fail(f"U6b: Ollama down left {[e.to_record() for e in exchanges]}"[:300])
+            collected += exchanges
+        finally:
+            lore_render.chat = original
+        original = _swap(lwd, _Stub([{"questions": ["Qui ?"]},
+                                     {"entities": [], "facts": [], "memberships": [], "controls": []}]))
+        try:
+            for label, usage, call in (
+                ("U6c questions", lwd.QUESTIONS_USAGE,
+                 lambda ex: lwd.draft_questions(db, world.id, "Un texte.", ex)),
+                ("U6c proposal", lwd.PROPOSAL_USAGE,
+                 lambda ex: lwd.draft_proposal(db, world.id, "Un texte.", "", ex)),
+            ):
+                exchanges = []
+                call(exchanges)
+                spec = prompt_load.load(db, usage)
+                if len(exchanges) != 1:
+                    fail(f"{label}: {len(exchanges)} exchange(s)")
+                else:
+                    _check_exchange(label, exchanges[0], usage, spec, exchanges[0].raw_output or "-")
+                    if not exchanges[0].raw_output:
+                        fail(f"{label}: no raw reply kept")
+                collected += exchanges
+        finally:
+            lwd.chat = original
+        if len(collected) < 5:
+            fail(f"U6d: only {len(collected)} exchange(s) collected")
+        try:
+            write_usage_event(db, **_good(attempt_id="att-u6",
+                                          model_calls=[e.to_record() for e in collected]))
+            db.rollback()
+        except ValueError as exc:
+            fail(f"U6d: the writer refused captured exchanges: {exc}")
+
+
 def main() -> int:
     tmp = tempfile.mkdtemp(prefix="lore_usage_")
     db_path = f"{tmp}/u.db"
@@ -316,13 +509,16 @@ def main() -> int:
     check_u2(db_path)
     check_u3()
     check_u4()
+    check_u5()
+    check_u6()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         return 1
     print("PASS: lore_usage -- the journal is named by its model and its writer only; "
           "v2.13 declares it without world_id or FK and migrates from v2.12 only; the "
-          "writer refuses every malformed record; a journal row outlives its world")
+          "writer refuses every malformed record; a journal row outlives its world; every "
+          "Lore model call can be captured with its prompt version and raw reply")
     return 0
 
 

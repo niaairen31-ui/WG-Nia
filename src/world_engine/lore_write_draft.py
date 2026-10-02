@@ -25,7 +25,7 @@ from typing import Any, Optional
 
 from sqlmodel import Session, select
 
-from . import llm_parse, prompt_load
+from . import llm_parse, model_exchange, prompt_load
 from .facet_reads import creator_only_fact_ids
 from .facets import FACETS
 from .fact_refs import CodedFacts, code_facts
@@ -109,16 +109,25 @@ def _facet_lines() -> str:
     )
 
 
-def _call(db: Session, usage: str, values: dict[str, str]) -> dict:
+Exchanges = Optional[list[model_exchange.ModelExchange]]
+
+
+def _call(db: Session, usage: str, values: dict[str, str], exchanges: Exchanges) -> dict:
+    """One model call. When `exchanges` is a list (TICKET-0103, BRIEF-0103-B,
+    C-03), the call is appended to it as a `ModelExchange`, its raw reply
+    kept before parsing, so a reply that does not parse is still recorded."""
     spec = prompt_load.load(db, usage)
     user_message = spec.user_template
     for key, value in values.items():
         user_message = user_message.replace("{" + key + "}", value)
+    exchange = model_exchange.begin(exchanges, usage, spec, spec.system_prompt, user_message)
     raw = chat(
         [{"role": "system", "content": spec.system_prompt},
          {"role": "user", "content": user_message}],
         model=spec.model, format="json",
     )
+    if exchange is not None:
+        exchange.raw_output = raw
     return llm_parse.extract_object(raw)
 
 
@@ -132,10 +141,14 @@ def _values(context: DraftContext, statement: str, answers: str = "") -> dict[st
     }
 
 
-def draft_questions(db: Session, world_id: str, statement: str) -> list[str]:
+def draft_questions(
+    db: Session, world_id: str, statement: str, exchanges: Exchanges = None,
+) -> list[str]:
     """At most `MAX_QUESTIONS` non-empty questions, in the model's order.
-    `OllamaError` and `LlmParseError` propagate."""
-    parsed = _call(db, QUESTIONS_USAGE, _values(draft_context(db, world_id, statement), statement))
+    `OllamaError` and `LlmParseError` propagate. `exchanges`: see `_call`
+    (TICKET-0103, C-03)."""
+    parsed = _call(db, QUESTIONS_USAGE, _values(draft_context(db, world_id, statement), statement),
+                   exchanges)
     questions = [q.strip() for q in _as_list(parsed.get("questions"))
                  if isinstance(q, str) and q.strip()]
     return questions[:MAX_QUESTIONS]
@@ -235,14 +248,16 @@ def _pairs(raw: Any, keys: tuple[str, str], known: set[str]) -> list[dict]:
     return out
 
 
-def draft_proposal(db: Session, world_id: str, statement: str, answers: str = "") -> dict:
+def draft_proposal(
+    db: Session, world_id: str, statement: str, answers: str = "", exchanges: Exchanges = None,
+) -> dict:
     """The draft the writing panel edits (C-05), with the facet vocabulary the
     panel offers (names and French labels, from `FACETS`). Every entity carries a
     `status` (`matched` / `ambiguous` / `new`); every fact code is resolved to
     an id or dropped with a note. `OllamaError` and `LlmParseError`
-    propagate."""
+    propagate. `exchanges`: see `_call` (TICKET-0103, C-03)."""
     context = draft_context(db, world_id, statement)
-    parsed = _call(db, PROPOSAL_USAGE, _values(context, statement, answers))
+    parsed = _call(db, PROPOSAL_USAGE, _values(context, statement, answers), exchanges)
     notes: list[str] = []
     entities = [e for e in (_entity(db, world_id, raw, notes)
                             for raw in _as_list(parsed.get("entities"))) if e is not None]

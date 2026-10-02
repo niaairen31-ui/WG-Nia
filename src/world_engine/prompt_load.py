@@ -36,6 +36,10 @@ class RenderSpec:
     system_prompt: str
     user_template: str
     model: str
+    # The `prompt_version` the text came from (TICKET-0103, BRIEF-0103-B, B1):
+    # plain values, so a usage journal can name the version without a row.
+    version_id: str
+    version_number: int
 
 
 def _author_model() -> str:
@@ -63,4 +67,6 @@ def load(db: Session, usage: str) -> RenderSpec:
         system_prompt=version.system_prompt,
         user_template=version.user_template,
         model=effective_model(template, _author_model()),
+        version_id=version.id,
+        version_number=version.version_number,
     )

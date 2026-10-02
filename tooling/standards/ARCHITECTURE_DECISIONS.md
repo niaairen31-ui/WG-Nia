@@ -17633,6 +17633,20 @@ the analysis material. I2, a `world_id` column exempted by name in W1:
 reactivates when a second table must outlive its world AND be read by the
 application itself.
 
+
+## EVERY LORE MODEL CALL CAN BE CAPTURED (TICKET-0103) -- PROMPT VERSION AND RAW REPLY (BRIEF-0103-b, no schema change)
+
+**B1, C1.** `model_exchange.py` is a neutral module (the `prompt_load.py`
+precedent): `lore_plan.draft_plan`, `lore_render.render` and
+`lore_write_draft.draft_questions` / `draft_proposal` take an optional list
+and append one `ModelExchange` per `chat` call -- usage, prompt version id
+and number, model, rendered system prompt and user message, raw reply,
+error. The raw reply is kept before parsing, so a reply that fails to parse
+is still recorded; the renderer records an `OllamaError` before its template
+fallback. `prompt_load.RenderSpec` gains `version_id` and `version_number`,
+plain values, so the Session-free renderer names the version without a row.
+Without a list every call behaves as before.
+
 ---
 
 *Co-built with Claude, June 2026.*

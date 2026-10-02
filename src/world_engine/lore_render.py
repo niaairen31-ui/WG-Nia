@@ -10,8 +10,9 @@ an absence will fill it.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Optional
 
+from . import model_exchange
 from .lore_prompt import RenderSpec
 from .lore_query import LoreResult
 from .ollama_client import OllamaError, chat
@@ -246,12 +247,19 @@ def _render_deterministic(result: LoreResult, candidates: dict[str, list[dict]])
     return RenderedAnswer(prose=prose, renderer="deterministic", trace=result.trace)
 
 
-def _call_model(result: LoreResult, question: str, spec: RenderSpec) -> str:
+PROSE_USAGE = "lore_rows_to_prose"
+
+
+def _call_model(
+    result: LoreResult, question: str, spec: RenderSpec,
+    exchanges: Optional[list[model_exchange.ModelExchange]],
+) -> str:
     user_message = (
         spec.user_template
         .replace("{question}", question)
         .replace("{rows}", _serialize_rows_by_section(result.rows))
     )
+    exchange = model_exchange.begin(exchanges, PROSE_USAGE, spec, spec.system_prompt, user_message)
     raw = chat(
         [
             {"role": "system", "content": spec.system_prompt},
@@ -259,11 +267,14 @@ def _call_model(result: LoreResult, question: str, spec: RenderSpec) -> str:
         ],
         model=spec.model,
     )
+    if exchange is not None:
+        exchange.raw_output = raw
     return raw.strip()
 
 
 def render(
-    result: LoreResult, question: str, spec: RenderSpec, candidates: dict[str, list[dict]]
+    result: LoreResult, question: str, spec: RenderSpec, candidates: dict[str, list[dict]],
+    exchanges: Optional[list[model_exchange.ModelExchange]] = None,
 ) -> RenderedAnswer:
     """No `Session` parameter -- the structural guarantee, not a convention
     (R10). `candidates` is `{}` on every verdict other than
@@ -274,11 +285,16 @@ def render(
     call is possible (R11) -- an empty retrieval can never be filled in by
     the model. One `chat` attempt on the `answered` path; `OllamaError` falls
     through to `render_template` (R12); `LlmParseError` is never caught here
-    -- the renderer returns prose, not JSON."""
+    -- the renderer returns prose, not JSON.
+
+    `exchanges` (TICKET-0103, BRIEF-0103-B, C-03): when a list is given, the
+    model call is appended to it, and an `OllamaError` is recorded on it
+    before the template fallback."""
     if result.verdict != "answered":
         return _render_deterministic(result, candidates)
     try:
-        prose = _call_model(result, question, spec)
-    except OllamaError:
+        prose = _call_model(result, question, spec, exchanges)
+    except OllamaError as exc:
+        model_exchange.fail(exchanges, exc)
         return render_template(result)
     return RenderedAnswer(prose=prose, renderer="model", trace=result.trace)
