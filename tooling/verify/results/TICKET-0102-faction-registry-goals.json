@@ -1,0 +1,47 @@
+{
+  "ticket": "TICKET-0102-faction-registry-goals",
+  "when": "2026-10-02T17:24:35.728121+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "registry_model_columns.py",
+      "status": "PASS",
+      "msg": "PASS: registry_model_columns -- 4 registry type(s), 18 extension field(s), 4 base field(s), each a column of its model"
+    },
+    {
+      "check": "dynamic_ext_crud.py",
+      "status": "PASS",
+      "msg": "PASS: dynamic_ext_crud \u00e2\u20ac\u201d governed runtime type create/read/update round-trips location_id/is_secret through the reflected ext_* table; an ungoverned slug is rejected with 422 on both create and update, touching no table"
+    },
+    {
+      "check": "json_ui_boundary.py",
+      "status": "PASS",
+      "msg": "PASS: json_ui_boundary \u00e2\u20ac\u201d zero \"kind\": \"json\" CRUD fields, zero metadata_/Column(\"metadata\" references outside comments, every Column(JSON in models/*.py is a named allow-list entry, zero trait ext-column field(s) with kind 'json'"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values; 103 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u00e2\u20ac\u201d section whitelist, character/line budgets, File-structure archaeology ban, Invariants archaeology ban, tooling/ pointer freshness, .py pointer freshness"
+    },
+    {
+      "check": "pipeline_state.py",
+      "status": "PASS",
+      "msg": "PASS: every ticket front-matter conforms to TEMPLATE.md"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 136 check(s) discovered, 136 executed, 136 passed"
+    }
+  ]
+}

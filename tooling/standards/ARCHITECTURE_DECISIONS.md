@@ -17592,6 +17592,24 @@ switches modes through three head buttons (the relations consumer's
 recentres Ego on a double-clicked child zone. Linking two nodes posts
 `connects_to`; the server derives the type.
 
+## A REGISTRY FIELD IS A COLUMN OF ITS MODEL (TICKET-0102) -- FACTION GOALS (BRIEF-0102-a, no schema change)
+
+**A1.** TICKET-0091 moved a faction's goals to `visee` facts and dropped
+`faction.goals` (schema v2.06), but `ENTITY_TYPE_REGISTRY["faction"]` kept a
+`goals` field: the form rendered it, the create discarded what was typed,
+and `_extension_dict` raised on it, so every faction create, read and
+update answered 500. The field is removed; a faction's goals are written in
+the sheet's facts editor, under « Visées ». **B1.** `registry_model_columns.py`
+holds every `ENTITY_TYPE_REGISTRY` field and every `ENTITY_BASE_FIELDS`
+field to a column of the model it writes; zero collected is a failure.
+
+**Rejected.** A2, restoring the column: undoes TICKET-0091's lore-as-facts
+decision; reactivates only if that decision is reopened. B2, a live
+create/read/update per static type: heavier than the defect class; reactivates
+on a second 500 on an entity route that `registry_model_columns.py` would not
+have caught. C2, a repair script for the roles a failed create never posted:
+Nia re-enters them through the fiche.
+
 ---
 
 *Co-built with Claude, June 2026.*

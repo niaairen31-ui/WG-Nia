@@ -186,7 +186,9 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
                 "name": "scope", "label": "Scope", "kind": "select",
                 "options": ["", "global", "national", "regional", "local", "other"],
             },
-            {"name": "goals", "label": "Goals", "kind": "textarea"},
+            # A faction's goals are `visee` facts (TICKET-0091, schema v2.06),
+            # edited in the sheet's facts editor -- never a field here: every
+            # field names a column of `model` (registry_model_columns.py).
         ],
     },
     "item": {
