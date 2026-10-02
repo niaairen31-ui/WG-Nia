@@ -94,6 +94,9 @@ named mutation).
 - `zone_rules.py` — `geographic_link_type` returns `"connects_to"` or `"borde"`
   (TICKET-0101, BRIEF-0101-A); `relation_orientation.py` also gained
   `MAP_TOPOLOGY_TYPES = ("connects_to", "borde")` there. A derived type, never a traversal.
+- `writes/zone_promotion.py` — `promotion_preview` lists the `connects_to` rows touching a
+  location about to become a zone; `apply_promotion` retypes them to `borde` (TICKET-0101,
+  BRIEF-0101-C). A write site, never a traversal.
 
 These three are outside the twelve-module traversal count (they hold a type
 literal, never execute a `connects_to` traversal) but are listed here for

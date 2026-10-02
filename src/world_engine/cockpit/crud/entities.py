@@ -101,6 +101,7 @@ from ._shared import (
     _validate_entity_ref,
     _world_id,
 )
+from .zone_hooks import promote_for_child, take_promotion_gatherings
 from .entity_runtime import (
     _build_runtime_ext_kwargs,
     _insert_runtime_ext_row,
@@ -395,6 +396,9 @@ class EntityWriteBody(BaseModel):
     # TICKET-0091, BRIEF-0091-J (C-11): a generator's
     # [{"name", "category": "place"|"person"|"faction"}], passed to `tokenize`.
     mentions: Optional[list[dict]] = None
+    # TICKET-0101 (S1): the creator saw `promotion_preview` and confirmed that
+    # this location's parent becomes a zone and its contents move here.
+    confirm_promotion: bool = False
 
 
 class NpcPricesBody(BaseModel):
@@ -641,6 +645,7 @@ def _create_static_entity_core(body: EntityWriteBody, db: DbSession, entity_type
     # extension row before its own entity row.
     db.flush()
     db.add(ext_row)
+    promote_for_child(db, entity, ext_row, confirmed=body.confirm_promotion)
 
     if pending_faction_id:
         # Creator authority (this create/accept IS the creator action) — not
@@ -720,6 +725,7 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
     try:
         entity = _create_entity_core(body, db)
         db.commit()
+        dissolve_emptied(take_promotion_gatherings(db), db)
     except IntegrityError:
         db.rollback()
         raise HTTPException(
@@ -784,8 +790,8 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
         ext = db.get(ext_model, entity_id)
         if ext is None:
             raise HTTPException(500, f"Missing {entity.type} extension row for entity {entity_id!r}")
-        if entity.type == "character":
-            prior_location_id = ext.current_location_id
+        # The prior "where": a character's place, or a location's parent (TICKET-0101).
+        prior_location_id = getattr(ext, "current_location_id", getattr(ext, "parent_location_id", None))
         # Key-present-wins: an absent key preserves the stored column, same distinction set_location_geometry draws via body.model_fields_set.
         ext_kwargs = _build_extension_kwargs(db, entity.type, body.extension, present_only=True, current=ext)
         for key, value in ext_kwargs.items():
@@ -813,9 +819,10 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
         attach_on_arrival(entity_id, ext.current_location_id, db)
     if prior_status == "active" and entity.status != "active":
         closed += close_open_memberships(entity_id, db)
-
+    promote_for_child(db, entity, ext, confirmed=body.confirm_promotion,
+                      prior_parent_id=prior_location_id, prior_status=prior_status)
     db.commit()
-    dissolve_emptied({row.gathering_id for row in closed}, db)
+    dissolve_emptied({row.gathering_id for row in closed} | take_promotion_gatherings(db), db)
     db.refresh(entity)
 
     result = _entity_dict(entity)

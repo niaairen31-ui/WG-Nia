@@ -54,6 +54,7 @@ from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
 from ...schedule_reads import unresolved_npcs, where_is, who_is_at
 from ...tick_normalize import _EVENT_TYPES
+from ...writes.zone_promotion import promotion_preview
 from ...zone_rules import ZoneRefusal, require_visitable
 from ...writes import (
     KNOWLEDGE_LEVELS,
@@ -342,6 +343,19 @@ def create_or_classify_location_type(
 def _schedule_npc_brief(npc_id: str, db: DbSession) -> dict:
     entity = db.get(Entity, npc_id)
     return {"npc_id": npc_id, "name": entity.name if entity else npc_id}
+
+
+@router.get("/locations/{location_id}/promotion-preview")
+def get_promotion_preview(
+    location_id: str,
+    child_id: Optional[str] = Query(default=None),
+    db: DbSession = Depends(get_session),
+) -> dict:
+    """What `location_id` gaining `child_id` (or any first child) would move
+    -- read-only, the dialog's source (TICKET-0101, S1). The same dict a
+    refused write returns in its 409 detail (`promotion_preview`)."""
+    _get_entity(db, location_id)
+    return promotion_preview(db, location_id, child_id=child_id)
 
 
 @router.get("/locations/{location_id}/schedule")

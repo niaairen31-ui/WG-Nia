@@ -79,6 +79,7 @@
   import { creationRefreshList, loadPendingCreations } from './tabs.js';
   import { readFieldValue } from './fields.js';
   import LocationTypeModal from './LocationTypeModal.svelte';
+  import PromotionModal from './PromotionModal.svelte';
   import Field from './Field.svelte';
   import GeometryEditor from './GeometryEditor.svelte';
   import DoorsEditor from './DoorsEditor.svelte';
@@ -120,6 +121,8 @@
   // split) -- this one is not tied to any button, only saveSheet's own
   // uncatalogued-type check.
   let locTypeModal;
+  // TICKET-0101 (BRIEF-0101-C, S1): the promotion dialog, opened by submitGated.
+  let promotionModal;
 
   const GENERIC_TYPE_BY_TAB = { npc: 'character', pj: 'character', lieux: 'location', factions: 'faction', objets: 'item' };
   const EMPTY_BODY_BY_TAB = {
@@ -477,13 +480,27 @@
         const folded = chosenType.toLowerCase();
         const catalogRow = creationState.locationTypeCatalog.find((r) => r.name.toLowerCase() === folded);
         if (!catalogRow || catalogRow.classification == null) {
-          locTypeModal.openFor(chosenType, () => submitEntity(isNewSave, type, entityData, extData));
+          locTypeModal.openFor(chosenType, () => submitGated(isNewSave, type, entityData, extData));
           return;
         }
       }
     }
 
-    await submitEntity(isNewSave, type, entityData, extData);
+    await submitGated(isNewSave, type, entityData, extData);
+  }
+
+  /** TICKET-0101 (BRIEF-0101-C, S1): a location that becomes an active child
+   *  -- new, re-parented, or reactivated -- may make its parent a zone. The
+   *  same condition as the server's promote_for_child; PromotionModal shows
+   *  what moves and the save carries confirm_promotion once confirmed. */
+  async function submitGated(isNewSave, type, entityData, extData) {
+    const prior = isNewSave ? null : creationState.sheetDetail;
+    const parentId = extData.parent_location_id || null;
+    const becomesChild = type === 'location' && parentId && (entityData.status || 'active') === 'active'
+      && (!prior || (prior.extension || {}).parent_location_id !== parentId || prior.status !== 'active');
+    if (!becomesChild) { await submitEntity(isNewSave, type, entityData, extData, false); return; }
+    await promotionModal.gate(parentId, prior ? prior.id : null, entityData.name,
+      (confirmed) => submitEntity(isNewSave, type, entityData, extData, confirmed));
   }
 
   /** competences' save (TICKET-0099, BRIEF-0099-b): the header Save button
@@ -555,7 +572,7 @@
    *  fetched via legacyCall right before, exactly as authorFactionRolesDraft/
    *  authorLocationSubcultureDraft/pendingDraftKnowledge/pendingDraftGoals
    *  were read in place before. */
-  async function submitEntity(isNewSave, type, entityData, extData) {
+  async function submitEntity(isNewSave, type, entityData, extData, confirmPromotion = false) {
     const statusEl = legacyDoc.getElementById('author-status');
     const rolesToCreate = (isNewSave && type === 'faction') ? draftRolesForCreate() : [];
     const knowledgeToCreate = (isNewSave && type === 'character') ? knowledgeForCreate() : [];
@@ -568,6 +585,7 @@
         extension: extData,
         ...(isNewSave ? { facets: factsDraftForCreate() } : {}),
         ...(isNewSave && mutationId ? { mutation_id: mutationId } : {}),
+        ...(confirmPromotion ? { confirm_promotion: true } : {}),
       });
       let detail = isNewSave
         ? await api('/api/entities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
@@ -841,3 +859,4 @@
 </div>
 <div id="author-legacy-sheet-slot" style={mode === 'legacy' ? '' : 'display:none'}></div>
 <LocationTypeModal bind:this={locTypeModal} {legacyDoc} />
+<PromotionModal bind:this={promotionModal} />

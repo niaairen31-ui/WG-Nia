@@ -17520,6 +17520,38 @@ that assign `current_location_id`.
 generic fiche write. Reactivates when a seventh write site appears
 (`zone_placement.py` (c) fails on it).
 
+## A FIRST CHILD MAKES A ZONE (TICKET-0101) -- PROMOTION, CONFIRMED (BRIEF-0101-c, no schema change)
+
+**D + K, S1.** When a location becomes the first active child of another
+(created with a parent, re-parented, or reactivated), the parent is
+promoted: its `connects_to` rows are retyped to `borde` in place, its
+characters, schedule rows, items and discoverable details move to that
+child, and its open gatherings close through the fiche's own recipe. Bounds,
+obstacles, doors, events, facts, knowledge, `controls` and artefacts stay.
+`writes/zone_promotion.py` holds `promotion_preview` (read-only, also
+`GET /api/locations/{id}/promotion-preview`) and `apply_promotion`;
+`cockpit/crud/zone_hooks.py` is the CRUD seam. A promotion that moves
+something needs `confirm_promotion` on the write, else a 409 carrying the
+preview; one that moves nothing is applied silently. `PromotionModal.svelte`
+shows the preview before the fiche saves. An AI `status_change` that would
+need the dialog is refused ("Needs attention"). A zone that loses its last
+child becomes visitable again; nothing moves, its `borde` rows stay.
+
+**P2-1 (AMENDMENT-0101-01).** A location that becomes a child while it is
+itself a zone (re-parented or reactivated with active children of its own)
+cannot receive its new parent's contents: when something would move, the
+write is a 409 with a creator-facing message, confirmed or not; the preview
+says `target_is_zone` and the dialog does not open. Nothing to move: the
+promotion stays silent.
+
+**Rejected.** P2-2, re-targeting the contents to the zone's first
+visitable descendant: an arbitrary pick nobody decided. Reactivates if Nia
+wants to graft a whole subtree onto an inhabited place in one step. P2-3,
+deferring: the lot would ship a path that breaks B1.
+
+**Rejected.** S2, a client-only dialog: any other write path would promote
+silently.
+
 ---
 
 *Co-built with Claude, June 2026.*
