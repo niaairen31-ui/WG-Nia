@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.12
+Current schema version: v2.13
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1194,6 +1194,53 @@ CREATE TABLE lore_entry_row (
 );
 CREATE UNIQUE INDEX idx_lore_entry_row_entry
   ON lore_entry_row(entry_id, row_table, row_id);
+```
+
+-----
+
+### `lore_usage_event`
+
+The Lore shell's usage journal (schema v2.13, TICKET-0103, BRIEF-0103-A,
+decisions A2 + B1 + C1 + D1 + F2 + I1): one row per step of a use of the Lore
+shell — writing (`questions`, `draft`, `commit`) or consultation (`ask`,
+`resolve`) — grouped by `attempt_id`, the id the panel holds for one use.
+`payload` is what the step received and answered, as it was; `model_calls`
+is every model exchange of the step (prompt version, model, rendered system
+prompt and user message, raw output, error). `outcome` is `ok`, `unavailable`
+(Ollama down), `parse_error` (the model's reply did not parse) or `refused`
+(the request was refused after it reached the model or the apply step).
+Kept for an offline analysis of the tool: its sole reader is
+`scripts/export_lore_usage.py`; nothing in the application reads it back.
+
+Not a world's table (I1): `world_ref` and `world_name` record the world the
+step ran in, without a FK, so the journal outlives a deleted world and stays
+out of `delete_world_cascade` by construction. `lore_entry_ref` names, without
+a FK, the `lore_entry` a successful commit wrote — set on exactly that step.
+Append-only: no UPDATE, no DELETE. Non-canon.
+
+```sql
+CREATE TABLE lore_usage_event (
+  id              TEXT PRIMARY KEY NOT NULL,
+  attempt_id      TEXT NOT NULL,
+  world_ref       TEXT NOT NULL,
+  world_name      TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  step            TEXT NOT NULL,
+  outcome         TEXT NOT NULL,
+  payload         JSON NOT NULL,
+  model_calls     JSON NOT NULL DEFAULT '[]',
+  lore_entry_ref  TEXT,
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ck_lore_usage_event_step CHECK (
+    (kind = 'write' AND step IN ('questions','draft','commit'))
+    OR (kind = 'consult' AND step IN ('ask','resolve'))),
+  CONSTRAINT ck_lore_usage_event_outcome CHECK (
+    outcome IN ('ok','unavailable','parse_error','refused')),
+  CONSTRAINT ck_lore_usage_event_entry CHECK (
+    (lore_entry_ref IS NOT NULL) = (step = 'commit' AND outcome = 'ok'))
+);
+CREATE INDEX idx_lore_usage_event_attempt ON lore_usage_event(attempt_id, created_at);
+CREATE INDEX idx_lore_usage_event_world ON lore_usage_event(world_ref, created_at);
 ```
 
 -----

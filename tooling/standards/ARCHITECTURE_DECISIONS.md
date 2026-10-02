@@ -17610,6 +17610,29 @@ on a second 500 on an entity route that `registry_model_columns.py` would not
 have caught. C2, a repair script for the roles a failed create never posted:
 Nia re-enters them through the fiche.
 
+
+## THE LORE SHELL KEEPS A USAGE JOURNAL (TICKET-0103) -- IT OUTLIVES ITS WORLD (BRIEF-0103-a, schema v2.13)
+
+**A2, D1, F2, I1.** `lore_usage_event` records every step of a use of the Lore
+shell -- writing (`questions`, `draft`, `commit`) and consultation (`ask`,
+`resolve`) -- grouped by an `attempt_id`, with the step's payload as it was
+received and answered (fixed keys per step, `writes/lore_usage.PAYLOAD_KEYS`)
+and every model exchange (`MODEL_CALL_KEYS`). Nothing is diffed at write time:
+what the creator removed, changed or added is computed by the analysis, from
+the draft and the committed proposal of the same attempt. The table carries
+`world_ref` and `world_name`, never `world_id`, and no FK at all: it is a
+global journal tagged by world, not a world's table, so
+`delete_world_cascade` never reaches it and `world_cascade.py` W1 stays
+unexempted. `lore_usage.py` U0 keeps the journal named by its model and its
+writer only.
+
+**Rejected.** D2, a per-element verdict table written at commit: reactivates
+when a reader inside the application needs per-element verdicts. F1, the
+journal in the world cascade: Nia deletes test worlds, and their journal is
+the analysis material. I2, a `world_id` column exempted by name in W1:
+reactivates when a second table must outlive its world AND be read by the
+application itself.
+
 ---
 
 *Co-built with Claude, June 2026.*

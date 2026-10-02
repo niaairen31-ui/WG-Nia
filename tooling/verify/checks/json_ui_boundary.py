@@ -99,6 +99,13 @@ JSON_COLUMN_ALLOWLIST = {
     # the instant of the event, never rendered in any UI surface (same
     # posture as the change_history columns above).
     "EntityTypeHistory.definition_snapshot",
+    # The Lore shell's usage journal (TICKET-0103, BRIEF-0103-A, D1):
+    # what each step received and answered, and every model exchange, kept
+    # as they were for an offline analysis. Never rendered in any UI
+    # surface; its sole reader is scripts/export_lore_usage.py. The FIRST
+    # UI consumer must relationalize (the D2 reactivation condition).
+    "LoreUsageEvent.payload",
+    "LoreUsageEvent.model_calls",
 }
 
 

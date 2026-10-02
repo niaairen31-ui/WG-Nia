@@ -361,6 +361,66 @@ class LoreEntryRow(SQLModel, table=True):
     action: str
 
 
+# -----------------------------------------------------------------------------
+# lore_usage_event  (the Lore shell's usage journal, schema v2.13, TICKET-0103,
+# BRIEF-0103-A, decisions A2 + B1 + C1 + D1 + F2 + I1)
+#
+# One row per step of a use of the Lore shell -- writing (questions, draft,
+# commit) or consultation (ask, resolve) -- grouped by `attempt_id`. `payload`
+# is what the step received and answered, as it was; `model_calls` is every
+# model exchange of the step (prompt version, rendered input, raw output).
+# Kept for an offline analysis of the tool (`scripts/export_lore_usage.py` is
+# its reader); nothing in the application reads it back.
+#
+# Not a world's table (I1): `world_ref` names the world it was recorded in,
+# without a FK, so the journal outlives a deleted world (F2) and stays out of
+# `delete_world_cascade` by construction -- there is no `world_id` column.
+# `lore_entry_ref` likewise names, without a FK, the `lore_entry` a successful
+# commit wrote. Append-only: no UPDATE, no DELETE. Non-canon.
+# -----------------------------------------------------------------------------
+LORE_USAGE_STEPS: dict[str, tuple[str, ...]] = {
+    "write": ("questions", "draft", "commit"),
+    "consult": ("ask", "resolve"),
+}
+LORE_USAGE_OUTCOMES: tuple[str, ...] = ("ok", "unavailable", "parse_error", "refused")
+
+
+class LoreUsageEvent(SQLModel, table=True):
+    __tablename__ = "lore_usage_event"
+    __table_args__ = (
+        Index("idx_lore_usage_event_attempt", "attempt_id", "created_at"),
+        Index("idx_lore_usage_event_world", "world_ref", "created_at"),
+        CheckConstraint(
+            "(kind = 'write' AND step IN ('questions','draft','commit')) "
+            "OR (kind = 'consult' AND step IN ('ask','resolve'))",
+            name="ck_lore_usage_event_step",
+        ),
+        CheckConstraint(
+            "outcome IN ('ok','unavailable','parse_error','refused')",
+            name="ck_lore_usage_event_outcome",
+        ),
+        CheckConstraint(
+            "(lore_entry_ref IS NOT NULL) = (step = 'commit' AND outcome = 'ok')",
+            name="ck_lore_usage_event_entry",
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    attempt_id: str
+    world_ref: str
+    world_name: str
+    kind: str
+    step: str
+    outcome: str
+    payload: Any = Field(sa_column=Column(JSON, nullable=False))
+    model_calls: Any = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
+    )
+    lore_entry_ref: Optional[str] = None
+    created_at: datetime = _created_ts()
+
+
 # -------------------------------------------------------------------------
 # skill_resolution  (one row per arbiter classification — the action
 # lexicon's audit trail; schema v2.02, TICKET-0084)

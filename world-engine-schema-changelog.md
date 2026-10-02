@@ -13,6 +13,11 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.13** — TICKET-0103, BRIEF-0103-A: `lore_usage_event`, the Lore
+  shell's usage journal (one row per writing or consultation step, with its
+  payload and model exchanges, grouped by `attempt_id`). No `world_id` and no
+  FK (I1): it outlives a deleted world. `migrate_v2_13_lore_usage.py` creates
+  it empty and refuses a database older than v2.12.
 - **v2.12** — TICKET-0101, BRIEF-0101-D: `borde`, the geographic link that
   touches a zone. `idx_relation_oriented_social` is rebuilt with the
   predicate `type NOT IN ('connects_to','borde','controls')`;
