@@ -54,6 +54,7 @@ from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
 from ...schedule_reads import unresolved_npcs, where_is, who_is_at
 from ...tick_normalize import _EVENT_TYPES
+from ...zone_rules import ZoneRefusal, require_visitable
 from ...writes import (
     KNOWLEDGE_LEVELS,
     NPC_GOAL_HORIZONS,
@@ -133,8 +134,13 @@ def create_discoverable_detail(
     body: DiscoverableDetailBody,
     db: DbSession = Depends(get_session),
 ) -> dict:
-    """Seed a new discoverable detail on a location (creator direct write)."""
+    """Seed a new discoverable detail on a location (creator direct write).
+    A zone is refused (TICKET-0101, Q1): nobody is ever there to find it."""
     _get_entity(db, location_id)
+    try:
+        require_visitable(db, location_id, what="Détail découvrable")
+    except ZoneRefusal as exc:
+        raise HTTPException(409, str(exc))
     if body.access_level not in ACCESS_LEVELS:
         raise HTTPException(422, f"access_level must be one of {ACCESS_LEVELS}")
     if not (0 <= body.discovery_threshold <= 12):

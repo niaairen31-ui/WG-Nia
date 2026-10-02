@@ -60,6 +60,7 @@ from ...spatial_author import location_type_template
 from ...tick_normalize import _EVENT_TYPES
 from ...traits import checkable_traits, ext_columns_for, form_fields_for
 from ...writes.schema import create_entity_type
+from ...zone_rules import ZoneRefusal, require_visitable
 from ...writes import (
     KNOWLEDGE_LEVELS,
     NPC_GOAL_HORIZONS,
@@ -333,6 +334,30 @@ def _apply_base_fields(db: DbSession, entity: Entity, data: dict) -> None:
         setattr(entity, name, value)
 
 
+# TICKET-0101 (B1/Q1): the registry fields that place a being or an item
+# somewhere -- a zone is refused there, on create and whenever the value
+# changes (an unchanged value already sitting in a zone is reported by the
+# v2.12 migration, never re-judged on an unrelated save).
+_PLACEMENT_FIELDS: dict[str, tuple[str, str]] = {
+    "character": ("current_location_id", "Lieu du personnage"),
+    "item": ("location_id", "Lieu de l'objet"),
+}
+
+
+def _require_placement_visitable(db: DbSession, entity_type: str, ext_kwargs: dict, current: Any) -> None:
+    """409 when a placement field of `entity_type` newly points at a zone."""
+    placement = _PLACEMENT_FIELDS.get(entity_type)
+    if placement is None or placement[0] not in ext_kwargs:
+        return
+    value = ext_kwargs[placement[0]]
+    if not value or value == getattr(current, placement[0], None):
+        return
+    try:
+        require_visitable(db, value, what=placement[1])
+    except ZoneRefusal as exc:
+        raise HTTPException(409, str(exc))
+
+
 def _build_extension_kwargs(
     db: DbSession, entity_type: str, data: dict, *, present_only: bool = False, current: Any = None
 ) -> dict:
@@ -353,6 +378,7 @@ def _build_extension_kwargs(
         owner_id = ext_kwargs["owner_id"] if "owner_id" in ext_kwargs else getattr(current, "owner_id", None)
         if equipped and not owner_id:
             raise HTTPException(422, "Equipping an item requires an owner")
+    _require_placement_visitable(db, entity_type, ext_kwargs, current)
     return ext_kwargs
 
 

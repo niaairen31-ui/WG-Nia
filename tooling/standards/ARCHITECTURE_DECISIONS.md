@@ -17502,6 +17502,24 @@ change no line: none can reach a zone.
 **Rejected.** A stored zone flag or per-type setting (A1: derived only).
 Letting the creator pick `borde` (L1: the type follows the endpoints).
 
+## NOTHING IS PLACED IN A ZONE (TICKET-0101) -- ONE GUARD AT EVERY PLACEMENT WRITE (BRIEF-0101-b, no schema change)
+
+**B1, Q1, P1.** `zone_rules.require_visitable` refuses a zone at every
+write that places a being, an item or a discoverable detail: travel
+(`_travel_refusal`, status `zone_destination`, 409 on the creator route),
+`npc_move` apply ("Needs attention"), PC creation, the fiche's character
+location and item location (only when the value changes: data already in
+a zone is reported by v2.12, never re-judged on an unrelated save),
+schedules, and discoverable detail creation. The NPC batch vocabulary keeps
+the visitable members of its expansion; a root that is a zone is no
+fallback. `zone_placement.py` drives each path and pins the three sites
+that assign `current_location_id`.
+
+**Rejected.** P2, funnelling every location write through
+`write_character_location`: invasive for the PC constructor and the
+generic fiche write. Reactivates when a seventh write site appears
+(`zone_placement.py` (c) fails on it).
+
 ---
 
 *Co-built with Claude, June 2026.*

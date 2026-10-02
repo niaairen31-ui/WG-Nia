@@ -68,6 +68,7 @@ from ..writes import (
     write_npc_goal_status,
     write_relation,
 )
+from ..zone_rules import ZoneRefusal, require_visitable
 from .routes import mutations as _routes_mutations
 
 
@@ -676,6 +677,10 @@ def _mutation_apply_npc_move(mut: ProposedMutation, payload: dict, db: Session) 
         or destination.world_id != mut.world_id
     ):
         return f"npc_move: destination {to_location_id!r} is not an active location in this world"
+    try:
+        require_visitable(db, to_location_id, what="npc_move")
+    except ZoneRefusal as exc:
+        return str(exc)
 
     write_character_location(db, entity_id=npc_id, to_location_id=to_location_id, mutation_id=mut.id)
     # BRIEF-53 seam: closes the NPC's open gathering_member rows, PLAYER

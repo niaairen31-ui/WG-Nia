@@ -223,7 +223,9 @@ Law only. Rationale, chantier history, and deferred alternatives live in
 - **A location with an active child is a zone, derived, never stored
   (`zone_rules.py`).** Only `connects_to` is traversable and it never
   touches a zone; a link touching a zone is `borde`. A geographic link's
-  type is derived from its endpoints (`link_locations`), never chosen.
+  type is derived from its endpoints (`link_locations`), never chosen. No
+  being, item or discoverable detail is placed in a zone
+  (`require_visitable`, at every placement write) -- `zone_placement.py`.
 - **The `ledger` is append-only.** INSERT-only on both canon-write paths;
   corrections are new compensating lines. No UPDATE/DELETE endpoint or code
   path may touch a `ledger` row.

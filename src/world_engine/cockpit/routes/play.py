@@ -392,6 +392,8 @@ def travel(
             status_code=400,
             detail=f"{body.location_id!r} is not a location of this world",
         )
+    if result["status"] == "zone_destination":
+        raise HTTPException(status_code=409, detail=result["detail"])
     return result
 
 

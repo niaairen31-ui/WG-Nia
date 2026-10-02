@@ -22,6 +22,7 @@ import json
 import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy import delete
@@ -35,6 +36,7 @@ from .models import Entity, Faction, NpcBatch, NpcBatchRow, PromptTemplate, Worl
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
+from .zone_rules import is_zone
 
 JOURNAL_DIR = Path.home() / ".world_engine" / "npc_agent_journal"
 
@@ -55,8 +57,14 @@ def resolve_vocabulary(db: Session, root_location_id: str) -> dict:
     """Expand `root_location_id` (S1 BFS descent, `link_author.
     expand_location_ids`) into the placement vocabulary available to a batch
     anchored on this region root: the expanded location set and the active
-    world's active faction entities. Read-only, writes nothing."""
-    expanded = sorted(link_author.expand_location_ids(db, [root_location_id]))
+    world's active faction entities. Read-only, writes nothing.
+
+    TICKET-0101 (B1): a zone is never a placement, so the vocabulary keeps
+    the visitable members of the expansion only -- the root itself drops out
+    when it is a zone."""
+    expanded = sorted(
+        eid for eid in link_author.expand_location_ids(db, [root_location_id]) if not is_zone(db, eid)
+    )
 
     location_rows = db.exec(
         select(Entity.id, Entity.name).where(Entity.id.in_(expanded))
@@ -194,10 +202,11 @@ def _line_units(batch: NpcBatch) -> list[tuple[int, int]]:
 
 def _resolve_unit_location(
     batch: NpcBatch, plan: dict[int, list[str | None]], line: dict, line_index: int, ordinal: int, notes: list[str],
-) -> str:
+) -> Optional[str]:
     """Pin > plan > root fallback. A miss (absent slot, or the plan never
     resolved this line) degrades to the root, verbatim-noted — never blocks
-    the unit."""
+    the unit. A root that is a zone (outside the visitable vocabulary,
+    TICKET-0101) is no fallback: the unit gets no location, noted."""
     location_id = line.get("location_id")
     if location_id is not None:
         return location_id
@@ -205,8 +214,12 @@ def _resolve_unit_location(
     resolved = slots[ordinal] if ordinal < len(slots) else None
     if resolved is not None:
         return resolved
+    root_id = batch.scope["root_location_id"]
+    if root_id not in batch.scope.get("expanded_location_ids", []):
+        notes.append("Placement non résolu — la racine est une zone, PNJ sans lieu")
+        return None
     notes.append("Placement non résolu — replié sur la racine")
-    return batch.scope["root_location_id"]
+    return root_id
 
 
 def _resolve_faction_context(db: Session, faction_id: str | None) -> dict | None:
@@ -344,7 +357,7 @@ def run_next_npc(db: Session, batch: NpcBatch) -> dict:
 
     notes: list[str] = []
     location_id = _resolve_unit_location(batch, plan, line, line_index, ordinal, notes)
-    location_entity = db.get(Entity, location_id)
+    location_entity = db.get(Entity, location_id) if location_id else None
     location_name = location_entity.name if location_entity else None
     faction_ctx = _resolve_faction_context(db, line.get("faction_id"))
     other_lines = [l for i, l in enumerate(lines) if i != line_index]
