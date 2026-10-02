@@ -17552,6 +17552,18 @@ deferring: the lot would ship a path that breaks B1.
 **Rejected.** S2, a client-only dialog: any other write path would promote
 silently.
 
+## MIGRATION v2.12 (TICKET-0101) -- `borde` IN THE INDEX, EXISTING ZONES CONVERTED (BRIEF-0101-d, schema v2.12)
+
+**O1, N1, T1.** `idx_relation_oriented_social` excludes `borde` like the
+other two structural types. `migrate_v2_12_zone_borde.py` rebuilds it,
+retypes in place every `connects_to` touching a location that already has
+an active child (row and fact history kept, each conversion printed), and
+lists what already sits in a zone (characters, schedules, items, details)
+without moving it. Refuses a database older than v2.11; idempotent.
+
+**Rejected.** O2, the tuple alone with the index left as it was: the
+schema would claim `borde` is social.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.11
+Current schema version: v2.12
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -581,6 +581,15 @@ CREATE TABLE relation (
 --       `default_level='unaware'`). `visible_to_b` is dead weight, kept for
 --       one ticket and read by no play path: who knows the feeling is carried
 --       by the `knowledge` rows on the lien fact.
+-- NOTE (schema v2.12, TICKET-0101): `borde` is the second location map
+--       topology type, structurally isolated like `connects_to`. A location
+--       with at least one active child is a ZONE (derived from
+--       `location.parent_location_id`, never stored). `connects_to` joins two
+--       visitable (childless) locations and is the only traversable link;
+--       `borde` is the link whenever a zone is an endpoint, never traversed.
+--       The type is derived from the endpoints at write time; a `borde` row
+--       carries one typed fact ("A borde B.", `default_level='knows'`). A
+--       zone that loses its last child keeps its `borde` rows.
 
 -----
 
@@ -2462,10 +2471,11 @@ CREATE INDEX idx_npc_goal_npc_status ON npc_goal(npc_id, status);
 CREATE INDEX idx_relation_a          ON relation(entity_a_id);
 CREATE INDEX idx_relation_b          ON relation(entity_b_id);
 CREATE INDEX idx_relation_world      ON relation(world_id);
--- at most one social row per oriented pair (schema v2.04, TICKET-0090)
+-- at most one social row per oriented pair (schema v2.04, TICKET-0090;
+-- `borde` excluded since v2.12, TICKET-0101)
 CREATE UNIQUE INDEX idx_relation_oriented_social
   ON relation(entity_a_id, entity_b_id)
-  WHERE type NOT IN ('connects_to','controls');
+  WHERE type NOT IN ('connects_to','borde','controls');
 
 -- character lookups by location and owning user
 CREATE INDEX idx_character_location  ON character(current_location_id);
