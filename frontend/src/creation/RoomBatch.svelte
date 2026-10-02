@@ -44,6 +44,8 @@
   import { reviewRegister } from './review/registry.js';
   import Review from './Review.svelte';
   import { roomBatchState, resetRoomBatch } from './roomBatch.svelte.js';
+  import PromotionModal from './PromotionModal.svelte';
+  import { loadNeighbours } from './neighbourDraft.svelte.js';
 
   let { legacyDoc } = $props();
 
@@ -52,6 +54,26 @@
   // (bind:value={r.location_type} below), so it reads the typed name
   // directly instead of locationType.js's readLocationTypeName DOM read.
   let locTypeModal;
+  // TICKET-0101 (BRIEF-0101-E, R1): the anchor becomes a zone when its first
+  // room commits -- confirmed through PromotionModal -- and each top-level
+  // room may take some of the anchor's neighbours (room_links).
+  let promotionModal;
+  let anchorNeighbours = $state([]);
+
+  $effect(() => {
+    const anchorId = roomBatchState.anchorId;
+    if (!anchorId || !roomBatchState.drafts) return;
+    loadNeighbours(anchorId).then((rows) => { anchorNeighbours = rows; });
+  });
+
+  function topLevelRooms() {
+    return (roomBatchState.drafts.rooms || []).filter((r) => !r.parent_room && isAccepted(r.local_id));
+  }
+
+  function toggleRoomLink(localId, neighbourId, checked) {
+    const current = (roomBatchState.roomLinks[localId] || []).filter((x) => x !== neighbourId);
+    roomBatchState.roomLinks = { ...roomBatchState.roomLinks, [localId]: checked ? [...current, neighbourId] : current };
+  }
 
   async function api(path, opts = {}) {
     const res = await fetch(path, opts);
@@ -242,6 +264,11 @@
   });
 
   async function commit() {
+    const first = topLevelRooms()[0];
+    await promotionModal.gate(roomBatchState.anchorId, null, first ? first.name : '', (confirmed) => commitBatch(confirmed));
+  }
+
+  async function commitBatch(confirmPromotion) {
     commitPending = true;
     const rooms = (roomBatchState.drafts.rooms || []).map((r) => ({ local_id: r.local_id, name: r.name, parent_room: r.parent_room, result: r.result }));
     const edges = (roomBatchState.coherence && roomBatchState.coherence.edges) || [];
@@ -252,6 +279,7 @@
         body: JSON.stringify({
           anchor_id: roomBatchState.anchorId, rooms, accepted: roomBatchState.accepted,
           edges, confirmed_edges: roomBatchState.confirmedEdges,
+          confirm_promotion: confirmPromotion, room_links: roomBatchState.roomLinks,
         }),
       });
     } catch (e) {
@@ -288,6 +316,7 @@
     <button class="btn-icon" onclick={resetRoomBatch}>Fermer</button>
   </div>
   <LocationTypeModal bind:this={locTypeModal} {legacyDoc} />
+  <PromotionModal bind:this={promotionModal} />
   <div style="padding:10px 14px; max-height:600px; overflow-y:auto">
     {#if !roomBatchState.manifest}
       <div class="field-section" style="border:1px solid var(--border); border-radius:6px; padding:10px;">
@@ -355,6 +384,24 @@
         <span style="font-size:12px; color:var(--muted)">{coherenceStatus}</span>
         <button class="btn-send" onclick={commit} style="margin-left:auto" disabled={commitPending}>Commiter le lot</button>
       </div>
+      {#if anchorNeighbours.length && topLevelRooms().length}
+        <div class="field-section" style="border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:10px;">
+          <div class="field-section-title">Accès depuis les voisins de « {roomBatchState.anchorName} »</div>
+          <div style="font-size:11px; color:var(--muted); margin-bottom:4px">L'ancre devient une zone : cochez, pour chaque pièce de premier niveau, les voisins qui y mènent.</div>
+          {#each topLevelRooms() as r (r.local_id)}
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; font-size:12px; margin-top:4px">
+              <span style="min-width:140px">{r.name}</span>
+              {#each anchorNeighbours as n (n.id)}
+                <label style="display:flex; gap:4px; align-items:center">
+                  <input type="checkbox" checked={(roomBatchState.roomLinks[r.local_id] || []).includes(n.id)}
+                    onchange={(e) => toggleRoomLink(r.local_id, n.id, e.currentTarget.checked)}>
+                  {n.name}{n.is_zone ? ' (zone)' : ''}
+                </label>
+              {/each}
+            </div>
+          {/each}
+        </div>
+      {/if}
       {#if (roomBatchState.drafts.skipped || []).length}
         <div class="field-section" style="border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:10px;">
           <div class="field-section-title">Écartées à la génération</div>

@@ -55,7 +55,8 @@ from ...prompt_store import current_prompt, get_version, list_versions
 from ...schedule_reads import unresolved_npcs, where_is, who_is_at
 from ...tick_normalize import _EVENT_TYPES
 from ...writes.zone_promotion import promotion_preview
-from ...zone_rules import ZoneRefusal, require_visitable
+from ...relation_orientation import MAP_TOPOLOGY_TYPES
+from ...zone_rules import ZoneRefusal, is_zone, require_visitable
 from ...writes import (
     KNOWLEDGE_LEVELS,
     NPC_GOAL_HORIZONS,
@@ -343,6 +344,26 @@ def create_or_classify_location_type(
 def _schedule_npc_brief(npc_id: str, db: DbSession) -> dict:
     entity = db.get(Entity, npc_id)
     return {"npc_id": npc_id, "name": entity.name if entity else npc_id}
+
+
+@router.get("/locations/{location_id}/neighbours")
+def get_location_neighbours(location_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
+    """The active locations linked to `location_id` by a geographic relation
+    (`connects_to` or `borde`), each with `is_zone` -- read-only, the
+    neighbour checkboxes offered when a child is created (TICKET-0101, K)."""
+    _get_entity(db, location_id)
+    rels = db.exec(
+        select(Relation).where(
+            Relation.type.in_(MAP_TOPOLOGY_TYPES),
+            (Relation.entity_a_id == location_id) | (Relation.entity_b_id == location_id),
+        )
+    ).all()
+    other_ids = {r.entity_b_id if r.entity_a_id == location_id else r.entity_a_id for r in rels}
+    rows = db.exec(
+        select(Entity).where(Entity.id.in_(other_ids), Entity.type == "location", Entity.status == "active")
+        .order_by(Entity.name)
+    ).all() if other_ids else []
+    return [{"id": e.id, "name": e.name, "is_zone": is_zone(db, e.id)} for e in rows]
 
 
 @router.get("/locations/{location_id}/promotion-preview")

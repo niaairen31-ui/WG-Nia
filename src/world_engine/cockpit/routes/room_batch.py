@@ -30,6 +30,7 @@ from ...room_batch_author import _name_key  # commit-time name resolution must
 from ...room_batch_author import generate_room_batch_draft as _generate_room_batch_draft
 from ...room_batch_author import generate_room_batch_manifest as _generate_room_batch_manifest
 from ...room_batch_author import propose_batch_coherence as _propose_batch_coherence
+from ...gathering import dissolve_emptied
 from ...spatial_author import link_locations, location_classification
 from .. import crud as _crud
 
@@ -104,10 +105,15 @@ class RoomBatchCommitBody(BaseModel):
     accepted: dict[str, bool] = {}
     edges: list[RoomBatchCommitEdge] = []
     confirmed_edges: dict[str, bool] = {}
+    # TICKET-0101 (R1): the creator confirmed the anchor's promotion into a
+    # zone (S1), and, per room local_id, the anchor neighbours ticked for it.
+    confirm_promotion: bool = False
+    room_links: dict[str, list[str]] = {}
 
 
 def _commit_batch_rooms(
     rooms_in: list[dict], accepted: dict[str, bool], anchor_id: str, world_id: str, db: Session,
+    confirm_promotion: bool = False,
 ) -> tuple[dict[str, str], dict[str, str], list[dict]]:
     """Rooms only, dependency order (parent before child). Server-authoritative
     cascade (mirrors _region_resolve_location_parent's SHAPE, regions.py):
@@ -147,7 +153,9 @@ def _commit_batch_rooms(
             }
             # TICKET-0091, BRIEF-0091-E: the room keeps only its description, as a fact.
             facets = {"description": facet_text(draft.get("facets") or {}, "description")}
-            room_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data, facets=facets)
+            room_body = _crud.EntityWriteBody(
+                entity=entity_data, extension=ext_data, facets=facets, confirm_promotion=confirm_promotion,
+            )
             room_entity = _crud._create_entity_core(room_body, db)
             room_id_map[local_id] = room_entity.id
             parent_entity_of[room_entity.id] = parent_entity_id
@@ -194,6 +202,21 @@ def _commit_batch_edges(
     return written, unresolved
 
 
+def _commit_room_links(room_links: dict[str, list[str]], room_id_map: dict[str, str], world_id: str, db: Session) -> int:
+    """R1 (TICKET-0101): each committed room's ticked anchor neighbours,
+    linked with the type `link_locations` derives. A room that was rejected
+    or never committed writes nothing."""
+    written = 0
+    for local_id, neighbour_ids in room_links.items():
+        room_id = room_id_map.get(local_id)
+        if room_id is None:
+            continue
+        for neighbour_id in dict.fromkeys(neighbour_ids):
+            link_locations(db, world_id=world_id, entity_a_id=room_id, entity_b_id=neighbour_id, changed_by="creator")
+            written += 1
+    return written
+
+
 def _anchor_t1_note(anchor_location: Optional[Location], world_id: str, db: Session) -> Optional[str]:
     """T1: an anchor with NULL bounds or NULL classification never blocks
     the batch -- doors on that side degrade to the origin (placement.py).
@@ -234,20 +257,23 @@ def commit_room_batch(
 
     try:
         room_id_map, parent_entity_of, committed_rooms = _commit_batch_rooms(
-            rooms_in, body.accepted, body.anchor_id, world_id, db,
+            rooms_in, body.accepted, body.anchor_id, world_id, db, body.confirm_promotion,
         )
         tree_written = _commit_batch_tree_edges(parent_entity_of, world_id, db)
         supplementary_written, unresolved = _commit_batch_edges(
             edges_in, body.confirmed_edges, room_id_map, world_id, db,
         )
+        supplementary_written += _commit_room_links(body.room_links, room_id_map, world_id, db)
         notes = []
         t1_note = _anchor_t1_note(anchor_location, world_id, db)
         if t1_note:
             notes.append(t1_note)
         db.commit()
+        dissolve_emptied(_crud.take_promotion_gatherings(db), db)
     except HTTPException as exc:
         db.rollback()
-        return {"ok": False, "error": str(exc.detail)}
+        detail = exc.detail.get("code") if isinstance(exc.detail, dict) else exc.detail
+        return {"ok": False, "error": str(detail)}
     except IntegrityError as exc:
         db.rollback()
         return {"ok": False, "error": f"Database integrity error: {exc}"}

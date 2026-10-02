@@ -33,6 +33,7 @@ from sqlmodel import Session as DbSession
 
 from ...gathering import attach_on_arrival, close_open_memberships
 from ...models import Entity
+from ...spatial_author import link_locations
 from ...writes.zone_promotion import apply_promotion, promotion_preview
 
 _PENDING_KEY = "zone_promotion_gatherings"
@@ -83,6 +84,24 @@ def promote_for_child(
     if not parent_id or (parent_id == prior_parent_id and prior_status == "active"):
         return None
     return promote_parent(db, parent_id=parent_id, child_id=entity.id, confirmed=confirmed)
+
+
+def link_new_location(db: DbSession, entity: Entity, neighbour_ids: list[str]) -> None:
+    """K, "creating any child of a zone": the neighbours the creator ticked
+    are linked to the new location through `link_locations`, which derives
+    each type (`connects_to` to a visitable neighbour, `borde` to a zone).
+    Runs after any promotion, so the parent is already a zone. A neighbour
+    that is not a location is a 422."""
+    for neighbour_id in dict.fromkeys(neighbour_ids or []):
+        if neighbour_id == entity.id:
+            continue
+        try:
+            link_locations(
+                db, world_id=entity.world_id, entity_a_id=entity.id, entity_b_id=neighbour_id,
+                changed_by="creator",
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
 
 
 def take_promotion_gatherings(db: DbSession) -> set[str]:

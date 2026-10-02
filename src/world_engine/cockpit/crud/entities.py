@@ -101,7 +101,7 @@ from ._shared import (
     _validate_entity_ref,
     _world_id,
 )
-from .zone_hooks import promote_for_child, take_promotion_gatherings
+from .zone_hooks import link_new_location, promote_for_child, take_promotion_gatherings
 from .entity_runtime import (
     _build_runtime_ext_kwargs,
     _insert_runtime_ext_row,
@@ -399,6 +399,9 @@ class EntityWriteBody(BaseModel):
     # TICKET-0101 (S1): the creator saw `promotion_preview` and confirmed that
     # this location's parent becomes a zone and its contents move here.
     confirm_promotion: bool = False
+    # TICKET-0101 (K): on a location create, the parent's neighbours the
+    # creator ticked; each is linked with its derived type.
+    link_to: list[str] = []
 
 
 class NpcPricesBody(BaseModel):
@@ -646,6 +649,8 @@ def _create_static_entity_core(body: EntityWriteBody, db: DbSession, entity_type
     db.flush()
     db.add(ext_row)
     promote_for_child(db, entity, ext_row, confirmed=body.confirm_promotion)
+    if entity_type == "location":
+        link_new_location(db, entity, body.link_to)
 
     if pending_faction_id:
         # Creator authority (this create/accept IS the creator action) — not

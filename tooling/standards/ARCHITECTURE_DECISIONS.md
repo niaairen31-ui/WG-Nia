@@ -17564,6 +17564,20 @@ without moving it. Refuses a database older than v2.11; idempotent.
 **Rejected.** O2, the tuple alone with the index left as it was: the
 schema would claim `borde` is social.
 
+## A ZONE'S CHILDREN TAKE ITS NEIGHBOURS (TICKET-0101) -- CHECKBOXES, ROOM BATCH (BRIEF-0101-e, no schema change)
+
+**K, R1.** Creating a location under a parent offers the parent's
+geographic neighbours as checkboxes (`NeighbourPicker.svelte`,
+`GET /api/locations/{id}/neighbours`); the ticked ones are sent as
+`link_to` and linked with their derived type after any promotion. The room
+batch confirms the anchor's promotion through the same dialog
+(`confirm_promotion`) and offers the anchor's neighbours per top-level room
+(`room_links`); its tree edges are `borde`, since a parent that holds a room
+is a zone. A room that receives a room becomes a zone.
+
+**Rejected.** R3, flattening batches: changes the generator's prompt.
+Reactivates if R1 makes buildings unmanageable.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -80,6 +80,8 @@
   import { readFieldValue } from './fields.js';
   import LocationTypeModal from './LocationTypeModal.svelte';
   import PromotionModal from './PromotionModal.svelte';
+  import NeighbourPicker from './NeighbourPicker.svelte';
+  import { neighboursForCreate, resetNeighbourDraft } from './neighbourDraft.svelte.js';
   import Field from './Field.svelte';
   import GeometryEditor from './GeometryEditor.svelte';
   import DoorsEditor from './DoorsEditor.svelte';
@@ -586,6 +588,7 @@
         ...(isNewSave ? { facets: factsDraftForCreate() } : {}),
         ...(isNewSave && mutationId ? { mutation_id: mutationId } : {}),
         ...(confirmPromotion ? { confirm_promotion: true } : {}),
+        ...(isNewSave && type === 'location' ? { link_to: neighboursForCreate() } : {}),
       });
       let detail = isNewSave
         ? await api('/api/entities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
@@ -634,6 +637,7 @@
         resetGeneratePanel();
         resetDraftRoles();
         resetFactsDraft();
+        resetNeighbourDraft();
         resetPendingDrafts();
       }
 
@@ -751,6 +755,12 @@
           <Field field={f} value={isNew ? undefined : (detail.extension ? detail.extension[f.name] : undefined)} idPrefix="author-x" ctx={fieldCtx} />
         {/each}
       </div></div>
+
+      {#if isNew && type === 'location'}
+        <div class="field-section"><div class="field-section-title">Voisins</div>
+          <NeighbourPicker {legacyDoc} />
+        </div>
+      {/if}
 
       {#if type === 'faction'}
         <div class="field-section"><div class="field-section-title">Roles</div>

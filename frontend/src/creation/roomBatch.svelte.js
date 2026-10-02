@@ -25,6 +25,9 @@ export const roomBatchState = $state({
   coherence: null,         // {edges: [{id, a_id, b_id, a_local, b_local, reason}], unresolved, notes}
   accepted: {},
   confirmedEdges: {},
+  // TICKET-0101 (BRIEF-0101-E, R1): local_id -> anchor neighbour ids ticked
+  // for that top-level room; sent as the commit's `room_links`.
+  roomLinks: {},
   graphOpen: false,
   commitResult: null,
 });
@@ -42,6 +45,7 @@ export function resetRoomBatch() {
   roomBatchState.coherence = null;
   roomBatchState.accepted = {};
   roomBatchState.confirmedEdges = {};
+  roomBatchState.roomLinks = {};
   roomBatchState.graphOpen = false;
   roomBatchState.commitResult = null;
 }
