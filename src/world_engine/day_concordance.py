@@ -74,6 +74,7 @@ from .models import (
     Relation,
 )
 from .name_index import NameScope, surfaces as name_surfaces
+from .relation_orientation import MAP_TOPOLOGY_TYPES
 from .schedule_reads import who_is_at
 
 _log = logging.getLogger(__name__)
@@ -293,12 +294,12 @@ def _cast_presence(candidates: list[str], ctx: _ConcordContext, character: Chara
 
 def _cast_relation(candidates: list[str], ctx: _ConcordContext, character: Character, db: Session) -> list[str]:
     # A NEW relation scan keyed on `character.id` (a player id): structurally
-    # blind to `connects_to` — that type is location map topology, never a
-    # social signal, and its `intensity=50` is meaningless here.
+    # blind to `connects_to` and `borde` — location map topology, never a
+    # social signal, and their `intensity=50` is meaningless here.
     rows = db.exec(
         select(Relation).where(
             Relation.world_id == ctx.world_id,
-            Relation.type != "connects_to",
+            Relation.type.not_in(MAP_TOPOLOGY_TYPES),
             (
                 (Relation.entity_a_id == character.id) & Relation.entity_b_id.in_(tuple(candidates))
             ) | (

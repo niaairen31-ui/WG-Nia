@@ -60,6 +60,7 @@ from ...spatial_author import location_type_template
 from ...tick_normalize import _EVENT_TYPES
 from ...traits import checkable_traits, ext_columns_for, form_fields_for
 from ...writes.schema import create_entity_type
+from ...zone_rules import ZoneRefusal, require_visitable
 from ...writes import (
     KNOWLEDGE_LEVELS,
     NPC_GOAL_HORIZONS,
@@ -100,6 +101,7 @@ from ._shared import (
     _validate_entity_ref,
     _world_id,
 )
+from .zone_hooks import link_new_location, promote_for_child, take_promotion_gatherings
 from .entity_runtime import (
     _build_runtime_ext_kwargs,
     _insert_runtime_ext_row,
@@ -333,6 +335,30 @@ def _apply_base_fields(db: DbSession, entity: Entity, data: dict) -> None:
         setattr(entity, name, value)
 
 
+# TICKET-0101 (B1/Q1): the registry fields that place a being or an item
+# somewhere -- a zone is refused there, on create and whenever the value
+# changes (an unchanged value already sitting in a zone is reported by the
+# v2.12 migration, never re-judged on an unrelated save).
+_PLACEMENT_FIELDS: dict[str, tuple[str, str]] = {
+    "character": ("current_location_id", "Lieu du personnage"),
+    "item": ("location_id", "Lieu de l'objet"),
+}
+
+
+def _require_placement_visitable(db: DbSession, entity_type: str, ext_kwargs: dict, current: Any) -> None:
+    """409 when a placement field of `entity_type` newly points at a zone."""
+    placement = _PLACEMENT_FIELDS.get(entity_type)
+    if placement is None or placement[0] not in ext_kwargs:
+        return
+    value = ext_kwargs[placement[0]]
+    if not value or value == getattr(current, placement[0], None):
+        return
+    try:
+        require_visitable(db, value, what=placement[1])
+    except ZoneRefusal as exc:
+        raise HTTPException(409, str(exc))
+
+
 def _build_extension_kwargs(
     db: DbSession, entity_type: str, data: dict, *, present_only: bool = False, current: Any = None
 ) -> dict:
@@ -353,6 +379,7 @@ def _build_extension_kwargs(
         owner_id = ext_kwargs["owner_id"] if "owner_id" in ext_kwargs else getattr(current, "owner_id", None)
         if equipped and not owner_id:
             raise HTTPException(422, "Equipping an item requires an owner")
+    _require_placement_visitable(db, entity_type, ext_kwargs, current)
     return ext_kwargs
 
 
@@ -369,6 +396,12 @@ class EntityWriteBody(BaseModel):
     # TICKET-0091, BRIEF-0091-J (C-11): a generator's
     # [{"name", "category": "place"|"person"|"faction"}], passed to `tokenize`.
     mentions: Optional[list[dict]] = None
+    # TICKET-0101 (S1): the creator saw `promotion_preview` and confirmed that
+    # this location's parent becomes a zone and its contents move here.
+    confirm_promotion: bool = False
+    # TICKET-0101 (K): on a location create, the parent's neighbours the
+    # creator ticked; each is linked with its derived type.
+    link_to: list[str] = []
 
 
 class NpcPricesBody(BaseModel):
@@ -615,6 +648,9 @@ def _create_static_entity_core(body: EntityWriteBody, db: DbSession, entity_type
     # extension row before its own entity row.
     db.flush()
     db.add(ext_row)
+    promote_for_child(db, entity, ext_row, confirmed=body.confirm_promotion)
+    if entity_type == "location":
+        link_new_location(db, entity, body.link_to)
 
     if pending_faction_id:
         # Creator authority (this create/accept IS the creator action) — not
@@ -694,6 +730,7 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
     try:
         entity = _create_entity_core(body, db)
         db.commit()
+        dissolve_emptied(take_promotion_gatherings(db), db)
     except IntegrityError:
         db.rollback()
         raise HTTPException(
@@ -758,8 +795,8 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
         ext = db.get(ext_model, entity_id)
         if ext is None:
             raise HTTPException(500, f"Missing {entity.type} extension row for entity {entity_id!r}")
-        if entity.type == "character":
-            prior_location_id = ext.current_location_id
+        # The prior "where": a character's place, or a location's parent (TICKET-0101).
+        prior_location_id = getattr(ext, "current_location_id", getattr(ext, "parent_location_id", None))
         # Key-present-wins: an absent key preserves the stored column, same distinction set_location_geometry draws via body.model_fields_set.
         ext_kwargs = _build_extension_kwargs(db, entity.type, body.extension, present_only=True, current=ext)
         for key, value in ext_kwargs.items():
@@ -787,9 +824,10 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
         attach_on_arrival(entity_id, ext.current_location_id, db)
     if prior_status == "active" and entity.status != "active":
         closed += close_open_memberships(entity_id, db)
-
+    promote_for_child(db, entity, ext, confirmed=body.confirm_promotion,
+                      prior_parent_id=prior_location_id, prior_status=prior_status)
     db.commit()
-    dissolve_emptied({row.gathering_id for row in closed}, db)
+    dissolve_emptied({row.gathering_id for row in closed} | take_promotion_gatherings(db), db)
     db.refresh(entity)
 
     result = _entity_dict(entity)

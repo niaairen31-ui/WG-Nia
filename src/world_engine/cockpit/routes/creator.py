@@ -49,6 +49,7 @@ from ...writes import (
     write_knowledge,
     write_world_laws,
 )
+from ...zone_rules import ZoneRefusal, require_visitable
 from .. import crud as _crud
 
 router = APIRouter()
@@ -602,6 +603,10 @@ def _validate_pc_creation(body: "PlayerCharacterCreateBody", db: Session) -> tup
             status_code=400,
             detail="current_location_id must be a location entity in the active world",
         )
+    try:
+        require_visitable(db, body.current_location_id, what="Lieu du personnage")
+    except ZoneRefusal as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
     creator_user = db.exec(select(User).where(User.role == "creator")).first()
     if creator_user is None:

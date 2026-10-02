@@ -29,6 +29,7 @@ from ..models import (
     ProposedMutation,
     PromptTemplate,
 )
+from ..zone_rules import ZoneRefusal, require_visitable
 from .play import (
     ResponseMode,
     _TurnCtx,
@@ -380,19 +381,13 @@ def _scene_response(
     }
 
 
-def _perform_travel(player_id: str, location_id: str, db: Session) -> dict:
-    """Clean location transition for a player. Shared by the creator travel
-    tool and the in-fiction /say travel path. NOT a canon mutation — a state
-    transition (same category as gathering join/migrate); writes no
-    proposed_mutation row. Validates the destination is a location of the
-    player's world; no-ops if already there; otherwise closes open
-    conversations (running analyze_window first), closes the player's open
-    gathering_member rows, updates current_location_id — single commit."""
-    from . import play_physical as _play_physical
-
+def _travel_refusal(player_id: str, location_id: str, db: Session) -> Optional[dict]:
+    """`_perform_travel`'s refusals, nothing written: `invalid_destination`
+    for an unknown, foreign or inactive location or an unknown player;
+    `zone_destination` (with the creator-facing `detail`) for a zone
+    (TICKET-0101, B1). None when the destination is acceptable."""
     player_entity = db.get(Entity, player_id)
     world_id = player_entity.world_id if player_entity else None
-
     dest = db.get(Entity, location_id)
     if (
         dest is None
@@ -400,12 +395,31 @@ def _perform_travel(player_id: str, location_id: str, db: Session) -> dict:
         or world_id is None
         or dest.world_id != world_id
         or dest.status != "active"
+        or db.get(Character, player_id) is None
     ):
         return {"status": "invalid_destination", "location_id": location_id}
+    try:
+        require_visitable(db, location_id, what="Voyage")
+    except ZoneRefusal as exc:
+        return {"status": "zone_destination", "location_id": location_id, "detail": str(exc)}
+    return None
 
+
+def _perform_travel(player_id: str, location_id: str, db: Session) -> dict:
+    """Clean location transition for a player. Shared by the creator travel
+    tool and the in-fiction /say travel path. NOT a canon mutation — a state
+    transition (same category as gathering join/migrate); writes no
+    proposed_mutation row. Validates the destination is a location of the
+    player's world; no-ops if already there; otherwise closes open
+    conversations (running analyze_window first), closes the player's open
+    gathering_member rows, updates current_location_id — single commit.
+    Refusals: `_travel_refusal`."""
+    from . import play_physical as _play_physical
+
+    refusal = _travel_refusal(player_id, location_id, db)
+    if refusal is not None:
+        return refusal
     char = db.get(Character, player_id)
-    if char is None:
-        return {"status": "invalid_destination", "location_id": location_id}
 
     if char.current_location_id == location_id:
         return {"status": "noop", "location_id": location_id}

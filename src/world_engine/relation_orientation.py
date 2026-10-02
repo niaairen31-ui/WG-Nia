@@ -2,7 +2,8 @@
 
 The single source of the social/structural split of `relation` types
 (`RELATION_GRAPH_EXCLUDED_TYPES`, `is_social`) and of the two typed-fact
-content templates (`lien_fact_content`, `connects_to_fact_content`).
+content templates (`lien_fact_content`, `connects_to_fact_content`,
+`borde_fact_content`) and of the map-topology pair (`MAP_TOPOLOGY_TYPES`).
 `context.py` re-imports `RELATION_GRAPH_EXCLUDED_TYPES` from here, so every
 existing importer of `context.RELATION_GRAPH_EXCLUDED_TYPES` keeps working
 and the constant is never re-typed.
@@ -18,9 +19,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 # Structural exclusion shared by every world-wide relation scan (CLAUDE.md:
-# "connects_to is location map topology, never a social signal" / "controls"
-# is a faction-control edge, also never a social signal).
-RELATION_GRAPH_EXCLUDED_TYPES: tuple[str, str] = ("connects_to", "controls")
+# "connects_to and borde are location map topology, never a social signal" /
+# "controls" is a faction-control edge, also never a social signal).
+RELATION_GRAPH_EXCLUDED_TYPES: tuple[str, str, str] = ("connects_to", "borde", "controls")
+
+# The two geographic link types (TICKET-0101, L1). `connects_to` joins two
+# visitable locations and is the only traversable link; `borde` is the link
+# whenever a zone is an endpoint. The type is derived from the endpoints
+# (`zone_rules.geographic_link_type`), never chosen by the creator.
+MAP_TOPOLOGY_TYPES: tuple[str, str] = ("connects_to", "borde")
 
 
 def is_social(relation_type: str) -> bool:
@@ -41,6 +48,12 @@ def connects_to_fact_content(name_a: str, name_b: str) -> str:
     `write_relation` passes identity tokens (BRIEF-0091-J), the migration
     plain names."""
     return f"{name_a} communique avec {name_b}."
+
+
+def borde_fact_content(name_a: str, name_b: str) -> str:
+    """Content of a `borde` edge's typed fact (TICKET-0101) — the sibling of
+    `connects_to_fact_content`, same arguments, same `knows` default."""
+    return f"{name_a} borde {name_b}."
 
 
 @dataclass(frozen=True)

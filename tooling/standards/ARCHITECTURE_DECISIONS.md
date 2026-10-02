@@ -17476,6 +17476,122 @@ seulement » stays. The tree is flattened iteratively in `EntityList.svelte`
 hierarchy Nia reads at a glance. E3, the descent view restyled: the
 descent itself was what she asked to lose.
 
+## ZONES AND VISITABLE PLACES (TICKET-0101) -- `borde` AND THE DERIVED LINK TYPE (BRIEF-0101-a, no schema change)
+
+**A1, L1.** A location with at least one active child is a zone; every
+other location is visitable. The property is derived from
+`location.parent_location_id` on every read (`zone_rules.py`) and never
+stored. `connects_to` joins two visitable locations and stays the only
+traversable link; `borde` is the link whenever a zone is an endpoint. The
+type is derived from the two endpoints (`geographic_link_type`), never
+chosen: `write_relation` refuses a new geographic row, or a type change,
+whose type is not the derived one, and refuses any retype into or out of
+the geographic pair (V1). `spatial_author.link_locations` is the creator
+entry: it derives the type, reuses the pair's existing row (retyped in
+place when needed, N1), and materializes doors on `connects_to` only. The
+fiche relation form keeps one geographic entry (`connects_to`); room
+batches and regions write derived types.
+
+**O1.** `borde` joins `RELATION_GRAPH_EXCLUDED_TYPES` (kept a literal for
+`relation_graph.py`); `MAP_TOPOLOGY_TYPES = ("connects_to", "borde")`
+replaces the two `!= "connects_to"` scans (`lore_selectors.py`,
+`day_concordance.py`). A `borde` row births one typed fact, « A borde B. »,
+at `knows`, and records no encounter. The travel and reachability readers
+change no line: none can reach a zone.
+
+**Rejected.** A stored zone flag or per-type setting (A1: derived only).
+Letting the creator pick `borde` (L1: the type follows the endpoints).
+
+## NOTHING IS PLACED IN A ZONE (TICKET-0101) -- ONE GUARD AT EVERY PLACEMENT WRITE (BRIEF-0101-b, no schema change)
+
+**B1, Q1, P1.** `zone_rules.require_visitable` refuses a zone at every
+write that places a being, an item or a discoverable detail: travel
+(`_travel_refusal`, status `zone_destination`, 409 on the creator route),
+`npc_move` apply ("Needs attention"), PC creation, the fiche's character
+location and item location (only when the value changes: data already in
+a zone is reported by v2.12, never re-judged on an unrelated save),
+schedules, and discoverable detail creation. The NPC batch vocabulary keeps
+the visitable members of its expansion; a root that is a zone is no
+fallback. `zone_placement.py` drives each path and pins the three sites
+that assign `current_location_id`.
+
+**Rejected.** P2, funnelling every location write through
+`write_character_location`: invasive for the PC constructor and the
+generic fiche write. Reactivates when a seventh write site appears
+(`zone_placement.py` (c) fails on it).
+
+## A FIRST CHILD MAKES A ZONE (TICKET-0101) -- PROMOTION, CONFIRMED (BRIEF-0101-c, no schema change)
+
+**D + K, S1.** When a location becomes the first active child of another
+(created with a parent, re-parented, or reactivated), the parent is
+promoted: its `connects_to` rows are retyped to `borde` in place, its
+characters, schedule rows, items and discoverable details move to that
+child, and its open gatherings close through the fiche's own recipe. Bounds,
+obstacles, doors, events, facts, knowledge, `controls` and artefacts stay.
+`writes/zone_promotion.py` holds `promotion_preview` (read-only, also
+`GET /api/locations/{id}/promotion-preview`) and `apply_promotion`;
+`cockpit/crud/zone_hooks.py` is the CRUD seam. A promotion that moves
+something needs `confirm_promotion` on the write, else a 409 carrying the
+preview; one that moves nothing is applied silently. `PromotionModal.svelte`
+shows the preview before the fiche saves. An AI `status_change` that would
+need the dialog is refused ("Needs attention"). A zone that loses its last
+child becomes visitable again; nothing moves, its `borde` rows stay.
+
+**P2-1 (AMENDMENT-0101-01).** A location that becomes a child while it is
+itself a zone (re-parented or reactivated with active children of its own)
+cannot receive its new parent's contents: when something would move, the
+write is a 409 with a creator-facing message, confirmed or not; the preview
+says `target_is_zone` and the dialog does not open. Nothing to move: the
+promotion stays silent.
+
+**Rejected.** P2-2, re-targeting the contents to the zone's first
+visitable descendant: an arbitrary pick nobody decided. Reactivates if Nia
+wants to graft a whole subtree onto an inhabited place in one step. P2-3,
+deferring: the lot would ship a path that breaks B1.
+
+**Rejected.** S2, a client-only dialog: any other write path would promote
+silently.
+
+## MIGRATION v2.12 (TICKET-0101) -- `borde` IN THE INDEX, EXISTING ZONES CONVERTED (BRIEF-0101-d, schema v2.12)
+
+**O1, N1, T1.** `idx_relation_oriented_social` excludes `borde` like the
+other two structural types. `migrate_v2_12_zone_borde.py` rebuilds it,
+retypes in place every `connects_to` touching a location that already has
+an active child (row and fact history kept, each conversion printed), and
+lists what already sits in a zone (characters, schedules, items, details)
+without moving it. Refuses a database older than v2.11; idempotent.
+
+**Rejected.** O2, the tuple alone with the index left as it was: the
+schema would claim `borde` is social.
+
+## A ZONE'S CHILDREN TAKE ITS NEIGHBOURS (TICKET-0101) -- CHECKBOXES, ROOM BATCH (BRIEF-0101-e, no schema change)
+
+**K, R1.** Creating a location under a parent offers the parent's
+geographic neighbours as checkboxes (`NeighbourPicker.svelte`,
+`GET /api/locations/{id}/neighbours`); the ticked ones are sent as
+`link_to` and linked with their derived type after any promotion. The room
+batch confirms the anchor's promotion through the same dialog
+(`confirm_promotion`) and offers the anchor's neighbours per top-level room
+(`room_links`); its tree edges are `borde`, since a parent that holds a room
+is a zone. A room that receives a room becomes a zone.
+
+**Rejected.** R3, flattening batches: changes the generator's prompt.
+Reactivates if R1 makes buildings unmanageable.
+
+## THE LIEUX GRAPH HAS THREE MODES (TICKET-0101) -- VISITABLE, ZONES, EGO (BRIEF-0101-f, no schema change)
+
+**M1.** `GET /api/locations/graph?mode=` serves the travel map
+(`visitable`: visitable nodes, `connects_to` edges), the zones (`zones`:
+zone nodes, `borde` edges, a top-level zone with `r = 30`) and the ego view
+(`ego&center=`: the zone, larger, and its children, every geographic edge
+among them; a non-zone centre answers « Ouvrez une zone. »). The graph
+primitive gains two optional axes, both exercised by Lieux: a per-node
+radius (`node.r`, `NODE_R` otherwise) and `emptyText`. The Lieux consumer
+switches modes through three head buttons (the relations consumer's
+`controls` + `capabilities(meta)` pattern), draws `borde` dashed, and
+recentres Ego on a double-clicked child zone. Linking two nodes posts
+`connects_to`; the server derives the type.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -13,6 +13,13 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.12** — TICKET-0101, BRIEF-0101-D: `borde`, the geographic link that
+  touches a zone. `idx_relation_oriented_social` is rebuilt with the
+  predicate `type NOT IN ('connects_to','borde','controls')`;
+  `migrate_v2_12_zone_borde.py` retypes every `connects_to` touching a
+  location that already has an active child to `borde` in place (row and
+  fact history kept), reports what already sits in a zone without moving
+  it, and refuses a database older than v2.11. No table or column change.
 - **v2.11** — TICKET-0098, BRIEF-0098-B: the lore writing path's source
   record — `lore_entry` (the creator's statement, the clarification
   questions and her answers) and `lore_entry_row` (one row per canon row a

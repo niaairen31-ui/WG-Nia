@@ -110,6 +110,9 @@ _SUBJECT_CENSUS: dict[str, int] = {
     "src/world_engine/analyzer_transcript.py": 3,
     "src/world_engine/cockpit/crud/locations.py": 7,
     "src/world_engine/cockpit/play_discovery.py": 1,
+    # TICKET-0101, BRIEF-0101-C: `discoverable_detail.subject`, the label a
+    # promotion lists for a detail it moves -- never a knowledge key.
+    "src/world_engine/writes/zone_promotion.py": 3,
 }
 
 A = "11111111-1111-1111-1111-111111111111"

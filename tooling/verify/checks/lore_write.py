@@ -202,7 +202,11 @@ def check_w2(db_path: str) -> None:
         version = conn.execute("SELECT static_version FROM schema_meta WHERE id = 1").fetchone()[0]
         counts = [conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
                   for t in ("lore_entry", "lore_entry_row")] if result.returncode == 0 else None
-    if result.returncode != 0 or counts != [0, 0] or version != "v2.11":
+    # The migration converges `schema_meta` to the code constant, which moves
+    # on with every later migration (v2.12, TICKET-0101) -- never a pinned literal.
+    from world_engine.schema_version import EXPECTED_STATIC_SCHEMA_VERSION
+
+    if result.returncode != 0 or counts != [0, 0] or version != EXPECTED_STATIC_SCHEMA_VERSION:
         fail(f"W2b: first run exit {result.returncode}, counts {counts}, version {version!r}: "
              f"{result.stderr.strip()[-200:]}")
     again = _run_migration(db_path)

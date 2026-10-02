@@ -5,7 +5,7 @@ phases -- same no-canon-write neighbourhood as /api/regions/manifest and
 /api/regions/generate (regions.py). The commit route (BRIEF-0042-e) is the
 SOLE canon-write path for a batch, posture identical to commit_region: the
 client is untrusted, the parent cascade is re-derived server-side, doors
-materialize through spatial_author.connect_locations, and the whole batch
+materialize through spatial_author.link_locations, and the whole batch
 commits in one transaction with full rollback on any exception.
 """
 
@@ -30,7 +30,8 @@ from ...room_batch_author import _name_key  # commit-time name resolution must
 from ...room_batch_author import generate_room_batch_draft as _generate_room_batch_draft
 from ...room_batch_author import generate_room_batch_manifest as _generate_room_batch_manifest
 from ...room_batch_author import propose_batch_coherence as _propose_batch_coherence
-from ...spatial_author import connect_locations, location_classification
+from ...gathering import dissolve_emptied
+from ...spatial_author import link_locations, location_classification
 from .. import crud as _crud
 
 router = APIRouter()
@@ -104,10 +105,15 @@ class RoomBatchCommitBody(BaseModel):
     accepted: dict[str, bool] = {}
     edges: list[RoomBatchCommitEdge] = []
     confirmed_edges: dict[str, bool] = {}
+    # TICKET-0101 (R1): the creator confirmed the anchor's promotion into a
+    # zone (S1), and, per room local_id, the anchor neighbours ticked for it.
+    confirm_promotion: bool = False
+    room_links: dict[str, list[str]] = {}
 
 
 def _commit_batch_rooms(
     rooms_in: list[dict], accepted: dict[str, bool], anchor_id: str, world_id: str, db: Session,
+    confirm_promotion: bool = False,
 ) -> tuple[dict[str, str], dict[str, str], list[dict]]:
     """Rooms only, dependency order (parent before child). Server-authoritative
     cascade (mirrors _region_resolve_location_parent's SHAPE, regions.py):
@@ -147,7 +153,9 @@ def _commit_batch_rooms(
             }
             # TICKET-0091, BRIEF-0091-E: the room keeps only its description, as a fact.
             facets = {"description": facet_text(draft.get("facets") or {}, "description")}
-            room_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data, facets=facets)
+            room_body = _crud.EntityWriteBody(
+                entity=entity_data, extension=ext_data, facets=facets, confirm_promotion=confirm_promotion,
+            )
             room_entity = _crud._create_entity_core(room_body, db)
             room_id_map[local_id] = room_entity.id
             parent_entity_of[room_entity.id] = parent_entity_id
@@ -158,12 +166,14 @@ def _commit_batch_rooms(
 
 def _commit_batch_tree_edges(parent_entity_of: dict[str, str], world_id: str, db: Session) -> int:
     """K1 spanning-tree edges -- every committed room's parent-child
-    adjacency IS a passage (N1: doors materialize on the perimeter via
-    connect_locations, never model-proposed). Unconditional -- not gated by
-    confirmed_edges, which governs the SUPPLEMENTARY edges only."""
+    adjacency is written, never model-proposed. Unconditional -- not gated by
+    confirmed_edges, which governs the SUPPLEMENTARY edges only. The type is
+    derived by link_locations (TICKET-0101, R1): a parent that holds a room
+    is a zone, so a tree edge is a `borde`; doors materialize only on a
+    `connects_to`."""
     written = 0
     for entity_id, parent_entity_id in parent_entity_of.items():
-        connect_locations(db, world_id=world_id, entity_a_id=parent_entity_id, entity_b_id=entity_id, changed_by="creator")
+        link_locations(db, world_id=world_id, entity_a_id=parent_entity_id, entity_b_id=entity_id, changed_by="creator")
         written += 1
     return written
 
@@ -187,9 +197,24 @@ def _commit_batch_edges(
         if a_id is None or b_id is None:
             unresolved.append({"a_id": edge["a_id"], "b_id": edge["b_id"], "reason": "Extrémité rejetée ou non commitée"})
             continue
-        connect_locations(db, world_id=world_id, entity_a_id=a_id, entity_b_id=b_id, changed_by="creator")
+        link_locations(db, world_id=world_id, entity_a_id=a_id, entity_b_id=b_id, changed_by="creator")
         written += 1
     return written, unresolved
+
+
+def _commit_room_links(room_links: dict[str, list[str]], room_id_map: dict[str, str], world_id: str, db: Session) -> int:
+    """R1 (TICKET-0101): each committed room's ticked anchor neighbours,
+    linked with the type `link_locations` derives. A room that was rejected
+    or never committed writes nothing."""
+    written = 0
+    for local_id, neighbour_ids in room_links.items():
+        room_id = room_id_map.get(local_id)
+        if room_id is None:
+            continue
+        for neighbour_id in dict.fromkeys(neighbour_ids):
+            link_locations(db, world_id=world_id, entity_a_id=room_id, entity_b_id=neighbour_id, changed_by="creator")
+            written += 1
+    return written
 
 
 def _anchor_t1_note(anchor_location: Optional[Location], world_id: str, db: Session) -> Optional[str]:
@@ -216,9 +241,9 @@ def commit_room_batch(
     room batch, posture identical to commit_region (regions.py): the client
     is untrusted, the parent cascade is re-derived server-side from the
     `accepted` map (never from a client-sent effective parent), every
-    `connects_to` edge (K1 spanning tree AND confirmed supplementary edges)
-    is written through spatial_author.connect_locations so doors materialize
-    on the perimeter, and the whole batch commits in ONE transaction with
+    geographic edge (K1 spanning tree AND confirmed supplementary edges)
+    is written through spatial_author.link_locations, which derives its type
+    (TICKET-0101) and materializes doors on every `connects_to`, and the whole batch commits in ONE transaction with
     full rollback on any exception -- no half-batch is ever observable.
     """
     world_id = _crud._world_id(db)
@@ -232,20 +257,23 @@ def commit_room_batch(
 
     try:
         room_id_map, parent_entity_of, committed_rooms = _commit_batch_rooms(
-            rooms_in, body.accepted, body.anchor_id, world_id, db,
+            rooms_in, body.accepted, body.anchor_id, world_id, db, body.confirm_promotion,
         )
         tree_written = _commit_batch_tree_edges(parent_entity_of, world_id, db)
         supplementary_written, unresolved = _commit_batch_edges(
             edges_in, body.confirmed_edges, room_id_map, world_id, db,
         )
+        supplementary_written += _commit_room_links(body.room_links, room_id_map, world_id, db)
         notes = []
         t1_note = _anchor_t1_note(anchor_location, world_id, db)
         if t1_note:
             notes.append(t1_note)
         db.commit()
+        dissolve_emptied(_crud.take_promotion_gatherings(db), db)
     except HTTPException as exc:
         db.rollback()
-        return {"ok": False, "error": str(exc.detail)}
+        detail = exc.detail.get("code") if isinstance(exc.detail, dict) else exc.detail
+        return {"ok": False, "error": str(detail)}
     except IntegrityError as exc:
         db.rollback()
         return {"ok": False, "error": f"Database integrity error: {exc}"}

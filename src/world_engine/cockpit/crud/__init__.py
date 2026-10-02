@@ -258,4 +258,6 @@ from .prompts import (
     update_prompt_text,
 )
 
+from .zone_hooks import take_promotion_gatherings
+
 __all__ = ["router", "ENTITY_TYPE_REGISTRY"]

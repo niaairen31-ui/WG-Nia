@@ -62,6 +62,7 @@ from ..models import (
     World,
     WorldLaw,
 )
+from ..zone_rules import require_visitable
 
 
 def write_npc_prices(
@@ -424,9 +425,9 @@ def write_npc_schedule(
     str | None}` — validated all-or-nothing before any write: `phase` in
     `SCHEDULE_PHASES`, no duplicate phase within one payload (defense in
     depth — `idx_npc_schedule_npc_phase` is the structural guard),
-    `location_id` resolves to an ACTIVE location of the same world, and
-    `standing_goal_id`, when present, resolves to an `npc_goal` row
-    belonging to `npc_id` with `kind == "standing"`.
+    `location_id` resolves to an ACTIVE, non-zone location of the same world
+    (zone: `ZoneRefusal`, a `ValueError`), and `standing_goal_id`, when
+    present, is a `kind == "standing"` `npc_goal` row of `npc_id`.
 
     An empty `rows` list is legal and means "this NPC has no schedule" —
     the delete runs, nothing is inserted (B1, sparse table).
@@ -455,6 +456,7 @@ def write_npc_schedule(
                 f"write_npc_schedule: location_id {location_id!r} is not an active "
                 "location of this world"
             )
+        require_visitable(db, location_id, what=f"Horaire ({phase})")
 
         if standing_goal_id is not None:
             # Raw SQL, not the NpcGoal ORM class: N1 (npc_goal_read.py) scopes

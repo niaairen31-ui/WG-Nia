@@ -46,6 +46,7 @@ from ..models import (
     FactionRole,
     GoalPrerequisite,
     Item,
+    Location,
     NpcGoal,
     ProposedMutation,
 )
@@ -68,6 +69,8 @@ from ..writes import (
     write_npc_goal_status,
     write_relation,
 )
+from ..writes.zone_promotion import promotion_preview
+from ..zone_rules import ZoneRefusal, require_visitable
 from .routes import mutations as _routes_mutations
 
 
@@ -443,11 +446,31 @@ def _mutation_apply_status_change(mut: ProposedMutation, payload: dict, db: Sess
     entity = db.get(Entity, str(entity_id))
     if entity is None:
         return f"status_change: entity {entity_id!r} not found"
+    refusal = _zone_promotion_refusal(entity, str(new_status), db)
+    if refusal:
+        return refusal
 
     entity.status = str(new_status)
     entity.updated_at = datetime.now(UTC)
     db.add(entity)
     return None
+
+
+def _zone_promotion_refusal(entity: Entity, new_status: str, db: Session) -> Optional[str]:
+    """TICKET-0101 (S1): reactivating a location that would promote its
+    parent into a zone AND move something there needs the creator's
+    confirmation, which only the fiche gives -- "Needs attention" here. A
+    promotion with nothing to move proceeds."""
+    if entity.type != "location" or entity.status == "active" or new_status != "active":
+        return None
+    location = db.get(Location, entity.id)
+    preview = promotion_preview(db, location.parent_location_id if location else None, child_id=entity.id)
+    if not preview["needs_confirmation"]:
+        return None
+    return (
+        f"status_change: réactiver « {entity.name} » fait de « {preview['location_name']} » une zone "
+        "et déplace son contenu -- à faire depuis la fiche"
+    )
 
 
 # ── item_update (BRIEF-07, schema v1.19 — equip toggle) ────────────────────
@@ -676,6 +699,10 @@ def _mutation_apply_npc_move(mut: ProposedMutation, payload: dict, db: Session) 
         or destination.world_id != mut.world_id
     ):
         return f"npc_move: destination {to_location_id!r} is not an active location in this world"
+    try:
+        require_visitable(db, to_location_id, what="npc_move")
+    except ZoneRefusal as exc:
+        return str(exc)
 
     write_character_location(db, entity_id=npc_id, to_location_id=to_location_id, mutation_id=mut.id)
     # BRIEF-53 seam: closes the NPC's open gathering_member rows, PLAYER

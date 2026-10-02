@@ -54,6 +54,9 @@ from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
 from ...schedule_reads import unresolved_npcs, where_is, who_is_at
 from ...tick_normalize import _EVENT_TYPES
+from ...writes.zone_promotion import promotion_preview
+from ...relation_orientation import MAP_TOPOLOGY_TYPES
+from ...zone_rules import ZoneRefusal, is_zone, require_visitable, zone_ids
 from ...writes import (
     KNOWLEDGE_LEVELS,
     NPC_GOAL_HORIZONS,
@@ -133,8 +136,13 @@ def create_discoverable_detail(
     body: DiscoverableDetailBody,
     db: DbSession = Depends(get_session),
 ) -> dict:
-    """Seed a new discoverable detail on a location (creator direct write)."""
+    """Seed a new discoverable detail on a location (creator direct write).
+    A zone is refused (TICKET-0101, Q1): nobody is ever there to find it."""
     _get_entity(db, location_id)
+    try:
+        require_visitable(db, location_id, what="Détail découvrable")
+    except ZoneRefusal as exc:
+        raise HTTPException(409, str(exc))
     if body.access_level not in ACCESS_LEVELS:
         raise HTTPException(422, f"access_level must be one of {ACCESS_LEVELS}")
     if not (0 <= body.discovery_threshold <= 12):
@@ -216,48 +224,68 @@ def delete_discoverable_detail(
     return {"deleted": detail_id}
 
 
+# TICKET-0101 (M1): a top-level zone (no parent) is drawn larger than a
+# nested one; every other node takes the primitive's default radius.
+TOP_ZONE_RADIUS = 30
+GRAPH_MODES = ("visitable", "zones", "ego")
+
+
 @router.get("/locations/graph")
-def get_locations_graph(db: DbSession = Depends(get_session)) -> dict:
-    """Active location nodes + connects_to edges — read-only, creator surface.
+def get_locations_graph(
+    mode: str = Query(default="visitable"),
+    center: Optional[str] = Query(default=None),
+    db: DbSession = Depends(get_session),
+) -> dict:
+    """The Lieux graph, read-only, creator surface (TICKET-0101, M1):
 
-    nodes: all active location entities joined to their extension (for
-    coord_x/coord_y). edges: connects_to relations whose both endpoints are
-    in nodes (dangling edges from soft-deleted locations are filtered out
-    server-side).
-    """
+    - `visitable` (default): the travel map -- active visitable locations,
+      `connects_to` edges between two of them.
+    - `zones`: active zones, `borde` edges between two of them; a zone
+      without a parent carries `r = TOP_ZONE_RADIUS`.
+    - `ego`: the zone `center`, larger, and its active children, with every
+      geographic edge among them; a `center` that is not a zone answers no
+      node and `empty_text` « Ouvrez une zone. ».
+
+    Nodes: `{id, name, coord_x, coord_y, is_zone[, r]}`; edges: `{id,
+    entity_a_id, entity_b_id, direction, kind}` (`kind` = relation type)."""
+    if mode not in GRAPH_MODES:
+        raise HTTPException(422, f"mode must be one of {GRAPH_MODES}")
     world_id = _world_id(db)
-
     rows = db.exec(
         select(Entity, Location)
         .join(Location, Location.id == Entity.id)
-        .where(Entity.type == "location")
-        .where(Entity.world_id == world_id)
-        .where(Entity.status == "active")
+        .where(Entity.type == "location", Entity.world_id == world_id, Entity.status == "active")
         .order_by(Entity.name)
     ).all()
+    zones = zone_ids(db, world_id)
+    if mode == "visitable":
+        keep, edge_types = {e.id for e, _ in rows if e.id not in zones}, ("connects_to",)
+    elif mode == "zones":
+        keep, edge_types = {e.id for e, _ in rows if e.id in zones}, ("borde",)
+    elif center not in zones:
+        return {"nodes": [], "edges": [], "empty_text": "Ouvrez une zone."}
+    else:
+        keep = {center} | {e.id for e, loc in rows if loc.parent_location_id == center}
+        edge_types = MAP_TOPOLOGY_TYPES
 
-    active_ids = {e.id for e, _ in rows}
+    def radius(e: Entity, loc: Location) -> dict:
+        big = e.id == center if mode == "ego" else (e.id in zones and loc.parent_location_id is None)
+        return {"r": TOP_ZONE_RADIUS} if big else {}
+
     nodes = [
-        {"id": e.id, "name": e.name, "coord_x": loc.coord_x, "coord_y": loc.coord_y}
-        for e, loc in rows
+        {"id": e.id, "name": e.name, "coord_x": loc.coord_x, "coord_y": loc.coord_y,
+         "is_zone": e.id in zones, **radius(e, loc)}
+        for e, loc in rows if e.id in keep
     ]
-
     rels = db.exec(
-        select(Relation)
-        .where(Relation.world_id == world_id)
-        .where(Relation.type == "connects_to")
+        select(Relation).where(Relation.world_id == world_id, Relation.type.in_(edge_types))
     ).all()
     edges = [
-        {
-            "id": r.id,
-            "entity_a_id": r.entity_a_id,
-            "entity_b_id": r.entity_b_id,
-            "direction": r.direction,
-        }
+        {"id": r.id, "entity_a_id": r.entity_a_id, "entity_b_id": r.entity_b_id,
+         "direction": r.direction, "kind": r.type}
         for r in rels
-        if r.entity_a_id in active_ids and r.entity_b_id in active_ids
+        if r.entity_a_id in keep and r.entity_b_id in keep
     ]
-
     return {"nodes": nodes, "edges": edges}
 
 
@@ -336,6 +364,39 @@ def create_or_classify_location_type(
 def _schedule_npc_brief(npc_id: str, db: DbSession) -> dict:
     entity = db.get(Entity, npc_id)
     return {"npc_id": npc_id, "name": entity.name if entity else npc_id}
+
+
+@router.get("/locations/{location_id}/neighbours")
+def get_location_neighbours(location_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
+    """The active locations linked to `location_id` by a geographic relation
+    (`connects_to` or `borde`), each with `is_zone` -- read-only, the
+    neighbour checkboxes offered when a child is created (TICKET-0101, K)."""
+    _get_entity(db, location_id)
+    rels = db.exec(
+        select(Relation).where(
+            Relation.type.in_(MAP_TOPOLOGY_TYPES),
+            (Relation.entity_a_id == location_id) | (Relation.entity_b_id == location_id),
+        )
+    ).all()
+    other_ids = {r.entity_b_id if r.entity_a_id == location_id else r.entity_a_id for r in rels}
+    rows = db.exec(
+        select(Entity).where(Entity.id.in_(other_ids), Entity.type == "location", Entity.status == "active")
+        .order_by(Entity.name)
+    ).all() if other_ids else []
+    return [{"id": e.id, "name": e.name, "is_zone": is_zone(db, e.id)} for e in rows]
+
+
+@router.get("/locations/{location_id}/promotion-preview")
+def get_promotion_preview(
+    location_id: str,
+    child_id: Optional[str] = Query(default=None),
+    db: DbSession = Depends(get_session),
+) -> dict:
+    """What `location_id` gaining `child_id` (or any first child) would move
+    -- read-only, the dialog's source (TICKET-0101, S1). The same dict a
+    refused write returns in its 409 detail (`promotion_preview`)."""
+    _get_entity(db, location_id)
+    return promotion_preview(db, location_id, child_id=child_id)
 
 
 @router.get("/locations/{location_id}/schedule")
