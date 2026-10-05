@@ -17770,6 +17770,26 @@ entities acquaintances (Q5a) but is not a contact.
 place characters through `**ext_kwargs`, which no static scan can see.
 Reactivates if the listener proves incompatible with a write path.
 
+
+## A REWRITE SAYS WHETHER IT CORRECTS OR CHANGES THE WORLD (TICKET-0105) -- THE VERSION KNOWN FOLLOWS THE CHANGES (BRIEF-0105-c, no schema change)
+
+**G1.** `update_fact_content` and `update_typed_fact_content` take a
+required `kind` in `FACT_CHANGE_KINDS` (`correction`, `changement`),
+written into the history entry. A correction fixes the text for everyone; a
+change in the world leaves whoever knew the fact with the version they
+learned. `fact_versions.version_text` is that rule, pure: someone last in
+contact at `as_of` knows the text the fact had just before the first change
+in the world made after `as_of`, corrections before it included, or the
+current text. An entry without `kind` predates the ticket and reads as a
+correction (M1). `prose_render.fact_texts_at` renders a version; it stays
+the one reader of the raw text outside `writes/`.
+
+**U1.** The rewrites the code makes name their kind: a social relation that
+changes type changed in the world (`changement`); a geographic link that
+follows the zones (`connects_to` <-> `borde`) and a name bound to its entity
+are corrections. Until BRIEF-0105-F, the fiche and the Lore panel pass
+`correction`, which is today's behaviour.
+
 ---
 
 *Co-built with Claude, June 2026.*

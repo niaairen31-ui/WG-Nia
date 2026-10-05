@@ -282,7 +282,7 @@ class _Writer:
             fact = self.db.get(Fact, item["fact_id"])
             if item["action"] == "rewrite":
                 edit_entity_fact(self.db, fact_id=fact.id, content=item["content"],
-                                 changed_by=CREATED_BY)
+                                 changed_by=CREATED_BY, kind="correction")
                 self.record("fact", fact.id, "updated")
             self.add_participants(fact, participants)
             self.add_defaults(fact, self.scopes(item))

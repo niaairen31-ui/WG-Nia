@@ -22,6 +22,7 @@ from typing import Iterable, Optional
 
 from sqlmodel import Session, select
 
+from .fact_versions import version_text
 from .models import Entity
 
 TOKEN_RE = re.compile(r"\[\[e:([0-9a-fA-F-]{36})\|([^\]|]*)\]\]")
@@ -75,3 +76,14 @@ def fact_texts(db: Session, facts: list) -> list[str]:
 def knowledge_texts(db: Session, rows: list) -> list[Optional[str]]:
     """`knowledge_text` for many rows, one entity query."""
     return render_many(db, [k.content_raw for k in rows])
+
+
+def fact_texts_at(db: Session, pairs: list[tuple]) -> list[str]:
+    """`(fact, as_of)` pairs -> each fact's text as known at `as_of`
+    (`fact_versions.version_text`, TICKET-0105), rendered; one entity query."""
+    return render_many(db, [version_text(f.change_history, f.content_raw, at) for f, at in pairs])
+
+
+def fact_is_stale(fact, as_of) -> bool:
+    """True when the version known at `as_of` is not the current text."""
+    return version_text(fact.change_history, fact.content_raw, as_of) != fact.content_raw

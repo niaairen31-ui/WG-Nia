@@ -240,8 +240,10 @@ def _refresh_lien_content(db: Session, rel: Relation, old_type: Optional[str], c
     if lien is None:
         return
     name_a, name_b = _endpoint_tokens(db, rel)
+    # A social relation that changes type changed in the world (TICKET-0105, U1).
     update_typed_fact_content(
         db, fact=lien, content=lien_fact_content(name_a, rel.type, name_b), changed_by=changed_by,
+        kind="changement",
     )
 
 
@@ -255,8 +257,10 @@ def _refresh_map_content(db: Session, rel: Relation, old_type: Optional[str], ch
     if fact is None:
         return
     name_a, name_b = _endpoint_tokens(db, rel)
+    # `connects_to` <-> `borde` follows the zones: a correction (TICKET-0105, U1).
     update_typed_fact_content(
         db, fact=fact, content=_map_fact_content(rel.type, name_a, name_b), changed_by=changed_by,
+        kind="correction",
     )
 
 

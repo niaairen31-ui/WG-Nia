@@ -107,7 +107,9 @@ def bind_mention(db: Session, *, mention: UnresolvedMention, entity_id: str, cha
         raise ValueError(f"unresolved_mention {mention.id!r}: {mention.surface!r} no longer occurs in the text")
     new_text = text[:at] + entity_token(entity_id, mention.surface) + text[at + len(mention.surface):]
     if isinstance(owner, Fact):
-        update_fact_content(db, fact=owner, content=new_text, changed_by=changed_by)
+        # Binding a name to its entity fixes the text: a correction (TICKET-0105, U1).
+        update_fact_content(db, fact=owner, content=new_text, changed_by=changed_by,
+                            kind="correction")
     else:
         apply_knowledge_patch(db, knowledge=owner, patch={"content": new_text}, changed_by=changed_by)
     return resolve_mention(db, mention=mention, entity_id=entity_id)

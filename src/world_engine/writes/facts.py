@@ -33,6 +33,13 @@ same history-first shape as `update_typed_fact_content`. `delete_free_fact`
 is a creator-CRUD hard delete of a free fact: its `knowledge`, `fact_default`
 and `fact_participant` rows, then the fact, children first (FKs are on); it
 refuses a typed fact, which belongs to its relation/event/world_law row.
+
+TICKET-0105, BRIEF-0105-C (G1): both rewrites take a required `kind` in
+`FACT_CHANGE_KINDS`, recorded in the history entry. A `correction` fixes the
+text everyone sees; a `changement` is a change in the world, and whoever
+knew the fact keeps the previous version until a later contact
+(`fact_versions.py`). A history entry without `kind` predates the ticket and
+reads as a correction.
 """
 
 from __future__ import annotations
@@ -45,6 +52,24 @@ from sqlmodel import Session, select
 
 from ..facets import FACETS, TYPED_FACET_BY_FK, normalize_aspect
 from ..models import Fact, FactDefault, FactParticipant, Knowledge
+
+FACT_CHANGE_KINDS: tuple[str, ...] = ("correction", "changement")
+
+
+def _append_history(fact: Fact, *, changed_by: str, kind: str) -> None:
+    """Append the current content to `fact.change_history` with its `kind`;
+    `ValueError` on a kind outside `FACT_CHANGE_KINDS`."""
+    if kind not in FACT_CHANGE_KINDS:
+        raise ValueError(f"unknown change kind {kind!r}")
+    history = list(fact.change_history or [])
+    history.append({
+        "content": fact.content_raw,
+        "changed_by": changed_by,
+        "at": datetime.now(UTC).isoformat(),
+        "kind": kind,
+    })
+    fact.change_history = history
+    sa_attrs.flag_modified(fact, "change_history")
 
 
 def create_fact(
@@ -102,17 +127,13 @@ def _check_facet(
         raise ValueError(f"create_fact: typed facet {facet!r} on a free fact")
 
 
-def update_fact_content(db: Session, *, fact: Fact, content: str, changed_by: str) -> Fact:
+def update_fact_content(
+    db: Session, *, fact: Fact, content: str, changed_by: str, kind: str,
+) -> Fact:
     """Overwrite `fact.content` on a free or typed fact, appending the previous
-    content to `fact.change_history` first (TICKET-0091, BRIEF-0091-A, C-03)."""
-    history = list(fact.change_history or [])
-    history.append({
-        "content": fact.content_raw,
-        "changed_by": changed_by,
-        "at": datetime.now(UTC).isoformat(),
-    })
-    fact.change_history = history
-    sa_attrs.flag_modified(fact, "change_history")
+    content to `fact.change_history` first (TICKET-0091, BRIEF-0091-A, C-03),
+    with `kind` (TICKET-0105, C-04)."""
+    _append_history(fact, changed_by=changed_by, kind=kind)
     fact.content_raw = content
     db.add(fact)
     return fact
@@ -139,17 +160,13 @@ def delete_free_fact(db: Session, *, fact: Fact) -> None:
     db.delete(fact)
 
 
-def update_typed_fact_content(db: Session, *, fact: Fact, content: str, changed_by: str) -> Fact:
+def update_typed_fact_content(
+    db: Session, *, fact: Fact, content: str, changed_by: str, kind: str,
+) -> Fact:
     """Overwrite `fact.content`, appending the previous content to
-    `fact.change_history` first (TICKET-0090, BRIEF-0090-a)."""
-    history = list(fact.change_history or [])
-    history.append({
-        "content": fact.content_raw,
-        "changed_by": changed_by,
-        "at": datetime.now(UTC).isoformat(),
-    })
-    fact.change_history = history
-    sa_attrs.flag_modified(fact, "change_history")
+    `fact.change_history` first (TICKET-0090, BRIEF-0090-a), with `kind`
+    (TICKET-0105, C-04)."""
+    _append_history(fact, changed_by=changed_by, kind=kind)
     fact.content_raw = content
     db.add(fact)
     return fact

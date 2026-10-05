@@ -117,7 +117,8 @@ def update_entity_fact_content(
 ) -> dict:
     _get_fact(db, fact_id)
     try:
-        fact = edit_entity_fact(db, fact_id=fact_id, content=body.content, changed_by=CREATED_BY)
+        fact = edit_entity_fact(db, fact_id=fact_id, content=body.content, changed_by=CREATED_BY,
+                                kind="correction")
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc))

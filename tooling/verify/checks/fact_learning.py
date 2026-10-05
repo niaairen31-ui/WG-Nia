@@ -42,6 +42,23 @@ B4 -- encounters move their last contact (fixture): a new pair has
    keeps `first_at` and the row count; a later `relation` encounter and an
    earlier `gathering` one move nothing.
 
+C1 -- the kind of a rewrite (BRIEF-0105-C, fixture). `update_fact_content`
+   without `kind` raises `TypeError`; with a kind outside
+   `FACT_CHANGE_KINDS` it raises `ValueError` and appends nothing; with
+   `correction` and `changement` each history entry carries its kind.
+C2 -- every rewrite names its kind (AST). Every call to
+   `update_fact_content`, `update_typed_fact_content` and
+   `edit_entity_fact` under `src/` and `scripts/` passes `kind=`; the
+   literal is `correction` in `writes/mentions.py::bind_mention` and
+   `writes/relations.py::_refresh_map_content`, `changement` in
+   `writes/relations.py::_refresh_lien_content`.
+C3 -- the version known (`fact_versions.version_text`, pure). History:
+   correction at t1, changement at t2 (text before it "v1"), correction at
+   t3, changement at t4 (text before it "v2b"), current "v3", and one entry
+   without kind at t5 (text "old"). As of t0 < t1 and as of t1.5 -> "v1";
+   as of t2.5 and t3.5 -> "v2b"; as of t4.5 and t6 -> "v3"; as of None ->
+   "v3".
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that examines zero rows is a
 FAILURE.
@@ -376,6 +393,102 @@ def check_b4(engine) -> None:
             fail("B4: a relation or an earlier encounter moved last_at")
 
 
+# --- C1-C3 ---------------------------------------------------------------------
+
+def check_c1(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.writes import create_fact
+    from world_engine.writes.facts import update_fact_content
+
+    with Session(engine) as session:
+        ids = _world(session, "C1")
+        fact = create_fact(session, world_id=ids["world"], content="a", created_by="check",
+                           facet="information")
+        session.flush()
+        try:
+            update_fact_content(session, fact=fact, content="b", changed_by="check")  # type: ignore[call-arg]
+            fail("C1: a rewrite without kind was accepted")
+        except TypeError:
+            pass
+        try:
+            update_fact_content(session, fact=fact, content="b", changed_by="check", kind="x")
+            fail("C1: an unknown kind was accepted")
+        except ValueError:
+            pass
+        if fact.change_history:
+            fail("C1: a refused rewrite appended history")
+        update_fact_content(session, fact=fact, content="b", changed_by="check", kind="correction")
+        update_fact_content(session, fact=fact, content="c", changed_by="check", kind="changement")
+        kinds = [e.get("kind") for e in fact.change_history]
+        if kinds != ["correction", "changement"] or fact.content_raw != "c":
+            fail(f"C1: history kinds {kinds}, content {fact.content_raw!r}")
+        session.rollback()
+
+
+_KIND_CALLS = {"update_fact_content", "update_typed_fact_content", "edit_entity_fact"}
+_KIND_LITERALS = {
+    ("src/world_engine/writes/mentions.py", "bind_mention"): "correction",
+    ("src/world_engine/writes/relations.py", "_refresh_map_content"): "correction",
+    ("src/world_engine/writes/relations.py", "_refresh_lien_content"): "changement",
+}
+
+
+def check_c2() -> None:
+    import ast
+
+    calls = 0
+    literals: dict = {}
+    for base in (ROOT / "src", ROOT / "scripts"):
+        for path in sorted(base.rglob("*.py")):
+            rel = path.relative_to(ROOT).as_posix()
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for func in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+                for node in ast.walk(func):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    name = node.func.id if isinstance(node.func, ast.Name) else (
+                        node.func.attr if isinstance(node.func, ast.Attribute) else None)
+                    if name not in _KIND_CALLS:
+                        continue
+                    calls += 1
+                    kind = next((k.value for k in node.keywords if k.arg == "kind"), None)
+                    if kind is None:
+                        fail(f"C2: {rel}::{func.name} calls {name} without kind=")
+                    elif (rel, func.name) in _KIND_LITERALS:
+                        literals[(rel, func.name)] = getattr(kind, "value", None)
+    if calls == 0:
+        fail("C2: no rewrite call found")
+    if literals != _KIND_LITERALS:
+        fail(f"C2: the code-made rewrites name {literals}")
+
+
+def check_c3() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from world_engine.fact_versions import version_text
+
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def t(n: float) -> datetime:
+        return base + timedelta(days=n)
+
+    history = [
+        {"content": "v0", "at": t(1).isoformat(), "kind": "correction"},
+        {"content": "v1", "at": t(2).isoformat(), "kind": "changement"},
+        {"content": "v2a", "at": t(3).isoformat(), "kind": "correction"},
+        {"content": "v2b", "at": t(4).isoformat(), "kind": "changement"},
+        {"content": "old", "at": t(5).isoformat()},
+    ]
+    cases = ((t(0), "v1"), (t(1.5), "v1"), (t(2.5), "v2b"), (t(3.5), "v2b"),
+             (t(4.5), "v3"), (t(6), "v3"), (None, "v3"),
+             (t(2.5).replace(tzinfo=None), "v2b"))
+    for as_of, want in cases:
+        got = version_text(history, "v3", as_of)
+        if got != want:
+            fail(f"C3: as of {as_of} -> {got!r}, expected {want!r}")
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_a1()
@@ -386,13 +499,18 @@ def main() -> int:
     create_db_and_tables()
     check_b3(engine)
     check_b4(engine)
+    check_c1(engine)
+    check_c2()
+    check_c3()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         return 1
     print("PASS: fact_learning -- v2.14 declares passage and the encounter's last "
           "contact, presets tenue to rencontre, and migrates from v2.13 only; every "
-          "placement and every encounter moves its last contact, through one writer each")
+          "placement and every encounter moves its last contact, through one writer each; "
+          "every rewrite says whether it corrects or changes the world, and the version "
+          "known follows the changes alone")
     return 0
 
 
