@@ -2,7 +2,7 @@
 id: TICKET-0105
 title: A fact once learned is kept, in the version learned, until the next contact
 type: feature
-status: exec
+status: live-gate
 created: 2026-10-05
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write]
