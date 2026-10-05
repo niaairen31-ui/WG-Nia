@@ -47,6 +47,37 @@ U6 -- capture (C-03), `chat` stubbed in each module, on seeded prompt heads:
    c. `lore_write_draft.draft_questions` and `draft_proposal` each append one
       exchange, usage `QUESTIONS_USAGE` and `PROPOSAL_USAGE`;
    d. every exchange's `to_record()` is accepted by `write_usage_event`.
+U7 -- the recorder (BRIEF-0103-C, C-04). `lore_usage.attempt_id` keeps a
+   UUID in canonical form and mints a fresh, distinct one for None, '' and a
+   malformed id; `record` writes one row carrying the world's name and
+   commits it; a world id matching no world is journaled as
+   `WORLD_NAME_UNKNOWN`.
+U8 -- the writing routes (C-05), `TestClient` on the active fixture world,
+   `lore_write_draft.chat` stubbed, one attempt id:
+   a. questions answered -> one `questions/ok` row, its questions as
+      answered, one model call; Ollama down -> `questions/unavailable`, error
+      `WRITE_UNAVAILABLE_MESSAGE`, its model call carrying the error;
+   b. draft answered -> one `draft/ok` row whose `draft` equals the response
+      body; an unparsable reply -> 502 and one `draft/parse_error` row whose
+      model call keeps the raw reply;
+   c. a valid commit -> one `commit/ok` row, `lore_entry_ref` the response's
+      `entry_id`, its proposal as sent; an invalid commit -> 422, one
+      `commit/refused` row with the response's detail, no canon row written;
+   d. every row carries the attempt id and the world's name; a request with
+      no attempt id is journaled under a fresh one.
+U9 -- the consultation routes (C-05), same client, `lore_plan.chat`,
+   `lore_render.chat` and `ollama_client.ping` stubbed:
+   a. ping down -> 503 and one `ask/unavailable` row with no model call;
+   b. an answered question -> one `ask/ok` row whose `response` equals the
+      response body, model calls `[PLAN_USAGE, PROSE_USAGE]`;
+   c. an unparsable plan -> 502 and one `ask/parse_error` row keeping the raw
+      reply; Ollama failing mid-plan -> 503, one `ask/unavailable` row;
+   d. a binding to an unknown ref -> 422 and one `resolve/refused` row; a
+      valid resolve -> one `resolve/ok` row under the same attempt.
+U10 -- structure. Neither route file calls `write_usage_event` (they go
+   through `lore_usage`); `lore_usage.py` contains no `chat(` and no
+   `select(`, and imports no consultation-pipeline and no writing-panel
+   module.
 
 Fresh temp-file SQLite database for any fixture rule
 (`WORLD_ENGINE_DATABASE_URL` set before any world_engine import) -- never
@@ -71,7 +102,11 @@ FAILURES: list[str] = []
 _NAMING_FILES: frozenset[str] = frozenset({
     "models/pipeline.py", "models/__init__.py", "writes/lore_usage.py",
 })
-_WRITER_CALLERS: frozenset[str] = frozenset({"writes/lore_usage.py"})
+_WRITER_CALLERS: frozenset[str] = frozenset({"writes/lore_usage.py", "lore_usage.py"})
+_ROUTES = ("cockpit/routes/lore.py", "cockpit/routes/lore_write.py")
+_PIPELINE = {"lore_selectors", "lore_query", "lore_plan", "lore_render", "lore_prompt"}
+_PANEL = {"lore_write_apply", "lore_write_draft", "lore_write_read", "lore_mentions_read",
+          "lore_choices_read"}
 _NOT_NULL = ("attempt_id", "world_ref", "world_name", "kind", "step", "outcome",
              "payload", "model_calls")
 
@@ -498,6 +533,243 @@ def check_u6() -> None:
             fail(f"U6d: the writer refused captured exchanges: {exc}")
 
 
+def _events(db, attempt: str) -> list:
+    from sqlmodel import select
+
+    from world_engine.models import LoreUsageEvent
+
+    return list(db.exec(select(LoreUsageEvent).where(LoreUsageEvent.attempt_id == attempt)
+                        .order_by(LoreUsageEvent.created_at, LoreUsageEvent.id)).all())
+
+
+def check_u7() -> None:
+    import uuid
+
+    from sqlmodel import Session
+
+    from world_engine import lore_usage
+    from world_engine.db import engine
+    from world_engine.models import World
+
+    raw = "A0B1C2D3-0000-4000-8000-000000000001"
+    if lore_usage.attempt_id(raw) != raw.lower():
+        fail("U7: a UUID attempt id is not kept in canonical form")
+    minted = [lore_usage.attempt_id(v) for v in (None, "", "pas-un-uuid")]
+    if len(set(minted)) != 3 or any(str(uuid.UUID(m)) != m for m in minted):
+        fail(f"U7: minted ids {minted}")
+    with Session(engine) as db:
+        world = World(name="Recorder 0103")
+        db.add(world)
+        db.commit()
+        payload = {"question": "q", "response": None, "error": "x"}
+        lore_usage.record(db, attempt="att-u7", world_id=world.id, kind="consult", step="ask",
+                          outcome="unavailable", payload=payload)
+        lore_usage.record(db, attempt="att-u7", world_id="no-such-world", kind="consult",
+                          step="ask", outcome="unavailable", payload=payload)
+    with Session(engine) as db:
+        names = [e.world_name for e in _events(db, "att-u7")]
+        if names != ["Recorder 0103", lore_usage.WORLD_NAME_UNKNOWN]:
+            fail(f"U7: recorded world names {names}")
+
+
+def _route_world(db) -> dict:
+    from sqlmodel import select
+
+    from world_engine.models import Entity, Faction, World
+
+    world = World(name="Routes 0103")
+    db.add(world)
+    db.flush()
+    faction = Entity(world_id=world.id, type="faction", name="Guilde des Passeurs")
+    db.add(faction)
+    db.flush()
+    db.add(Faction(id=faction.id))
+    for other in db.exec(select(World)).all():
+        other.is_active = False
+        db.add(other)
+    db.flush()
+    world.is_active = True
+    db.add(world)
+    db.commit()
+    return {"world": world.id, "faction": faction.id}
+
+
+def _canon_counts(db) -> dict:
+    from sqlalchemy import text
+
+    tables = ("entity", "fact", "knowledge", "lore_entry", "lore_entry_row")
+    return {t: db.exec(text(f"SELECT COUNT(*) FROM {t}")).one()[0] for t in tables}
+
+
+def _one(db, attempt: str, step: str, outcome: str, label: str):
+    rows = [e for e in _events(db, attempt) if (e.step, e.outcome) == (step, outcome)]
+    if len(rows) != 1:
+        fail(f"{label}: {len(rows)} {step}/{outcome} row(s) under {attempt}")
+        return None
+    return rows[0]
+
+
+def check_u8() -> None:
+    from fastapi.testclient import TestClient
+    from sqlmodel import Session
+
+    from world_engine import lore_write_draft as lwd
+    from world_engine.cockpit.app import app
+    from world_engine.db import engine
+    from world_engine.ollama_client import OllamaError
+
+    with Session(engine) as db:
+        _seed_prompts(db)
+        ids = _route_world(db)
+    client = TestClient(app, base_url="http://127.0.0.1")
+    attempt = "0b0b0b0b-0000-4000-8000-000000000008"
+    body = {"statement": "La Guilde des Passeurs garde le port.", "attempt_id": attempt}
+    original = _swap(lwd, _Stub([{"questions": ["Qui le sait ?"]}, OllamaError("down"),
+                                 {"entities": [], "facts": [], "memberships": [], "controls": []},
+                                 "pas du json"]))
+    try:
+        ok_q = client.post("/api/lore/write/questions", json=body)
+        down = client.post("/api/lore/write/questions", json=body)
+        draft = client.post("/api/lore/write/draft", json=dict(body, answers="Tout le monde."))
+        broken = client.post("/api/lore/write/draft", json=body)
+    finally:
+        lwd.chat = original
+    if (ok_q.status_code, down.status_code, draft.status_code, broken.status_code) != (200, 503, 200, 502):
+        fail(f"U8: statuses {ok_q.status_code} {down.status_code} {draft.status_code} {broken.status_code}")
+        return
+    proposal = {"statement": body["statement"], "entities": [
+        {"ref": "e1", "action": "existing", "entity_id": ids["faction"]}], "facts": [
+        {"ref": "f1", "action": "create", "facet": "information", "content": "Le port ferme la nuit.",
+         "participants": ["e1"], "defaults": [{"scope_type": "world"}], "knowers": []}]}
+    with Session(engine) as db:
+        before = _canon_counts(db)
+    bad = dict(proposal, facts=[dict(proposal["facts"][0], facet="lien")])
+    refused = client.post("/api/lore/write/commit", json={"proposal": bad, "attempt_id": attempt})
+    with Session(engine) as db:
+        if refused.status_code != 422 or _canon_counts(db) != before:
+            fail(f"U8c: an invalid commit answered {refused.status_code} or wrote canon")
+    done = client.post("/api/lore/write/commit", json={"proposal": proposal, "attempt_id": attempt})
+    anonymous = client.post("/api/lore/write/commit", json={"proposal": bad})
+    with Session(engine) as db:
+        row = _one(db, attempt, "questions", "ok", "U8a")
+        if row and (row.payload["questions"] != ["Qui le sait ?"] or len(row.model_calls) != 1):
+            fail(f"U8a: questions row {row.payload} / {len(row.model_calls)} call(s)")
+        row = _one(db, attempt, "questions", "unavailable", "U8a")
+        if row and (row.payload["error"] != lwd.WRITE_UNAVAILABLE_MESSAGE
+                    or not (row.model_calls[0]["error"] or "").startswith("OllamaError")):
+            fail("U8a: the unavailable row lacks its message or its model call's error")
+        row = _one(db, attempt, "draft", "ok", "U8b")
+        if row and row.payload["draft"] != draft.json():
+            fail("U8b: the draft row is not the response body")
+        row = _one(db, attempt, "draft", "parse_error", "U8b")
+        if row and row.model_calls[0]["raw_output"] != "pas du json":
+            fail("U8b: the parse_error row lost the raw reply")
+        row = _one(db, attempt, "commit", "ok", "U8c")
+        if row and (done.status_code != 200 or row.lore_entry_ref != done.json().get("entry_id")
+                    or row.payload["proposal"] != proposal):
+            fail(f"U8c: commit answered {done.status_code}; row {row.lore_entry_ref} {row.payload}"[:300])
+        row = _one(db, attempt, "commit", "refused", "U8c")
+        if row and row.payload["error"] != refused.json().get("detail"):
+            fail("U8c: the refused row does not carry the response's detail")
+        rows = _events(db, attempt)
+        if len(rows) != 6 or {e.world_name for e in rows} != {"Routes 0103"} \
+                or {e.kind for e in rows} != {"write"}:
+            fail(f"U8d: {len(rows)} row(s) under the attempt, worlds {[e.world_name for e in rows]}")
+        from sqlmodel import select
+
+        from world_engine.models import LoreUsageEvent
+
+        strays = db.exec(select(LoreUsageEvent).where(
+            LoreUsageEvent.world_ref == ids["world"], LoreUsageEvent.attempt_id != attempt)).all()
+        if anonymous.status_code != 422 or len(strays) != 1:
+            fail(f"U8d: a request without attempt id left {len(strays)} row(s) under another id")
+
+
+def check_u9() -> None:
+    from fastapi.testclient import TestClient
+    from sqlmodel import Session
+
+    from world_engine import lore_plan, lore_render, ollama_client
+    from world_engine.cockpit.app import app
+    from world_engine.db import engine
+
+    with Session(engine) as db:
+        _seed_prompts(db)
+        ids = _route_world(db)
+    client = TestClient(app, base_url="http://127.0.0.1")
+    attempt = "0c0c0c0c-0000-4000-8000-000000000009"
+    body = {"question": "Quelles factions ?", "world_id": ids["world"], "attempt_id": attempt}
+    plan = {"mentions": [], "calls": [{"selector": "world_factions", "args": ["$world"]}]}
+    original_ping = ollama_client.ping
+
+    def down(*args, **kwargs):
+        raise ollama_client.OllamaError("down")
+
+    plan_original = _swap(lore_plan, _Stub([plan, "pas du json", ollama_client.OllamaError("down")]))
+    prose_original = _swap(lore_render, _Stub(["Une guilde garde le port.", "Toujours elle."]))
+    try:
+        ollama_client.ping = down
+        unavailable = client.post("/api/lore/ask", json=body)
+        ollama_client.ping = lambda *a, **k: []
+        answered = client.post("/api/lore/ask", json=body)
+        broken = client.post("/api/lore/ask", json=body)
+        mid = client.post("/api/lore/ask", json=body)
+        resolve = {"plan": answered.json().get("plan", plan), "world_id": ids["world"],
+                   "question": body["question"], "attempt_id": attempt}
+        refused = client.post("/api/lore/resolve", json=dict(resolve, bindings={"m9": ids["faction"]}))
+        resolved = client.post("/api/lore/resolve", json=dict(resolve, bindings={}))
+    finally:
+        ollama_client.ping = original_ping
+        lore_plan.chat = plan_original
+        lore_render.chat = prose_original
+    statuses = (unavailable.status_code, answered.status_code, broken.status_code, mid.status_code,
+                refused.status_code, resolved.status_code)
+    if statuses != (503, 200, 502, 503, 422, 200):
+        fail(f"U9: statuses {statuses}")
+        return
+    with Session(engine) as db:
+        rows = [e for e in _events(db, attempt) if (e.step, e.outcome) == ("ask", "unavailable")]
+        if len(rows) != 2 or rows[0].model_calls != [] or len(rows[1].model_calls) != 1:
+            fail(f"U9a/c: unavailable rows carry {[len(r.model_calls) for r in rows]} model call(s)")
+        row = _one(db, attempt, "ask", "ok", "U9b")
+        if row and (row.payload["response"] != answered.json()
+                    or [c["usage"] for c in row.model_calls] != [lore_plan.PLAN_USAGE, lore_render.PROSE_USAGE]):
+            fail(f"U9b: ask row usages {[c['usage'] for c in row.model_calls]}")
+        row = _one(db, attempt, "ask", "parse_error", "U9c")
+        if row and row.model_calls[0]["raw_output"] != "pas du json":
+            fail("U9c: the parse_error row lost the raw reply")
+        row = _one(db, attempt, "resolve", "refused", "U9d")
+        if row and row.payload["error"] != refused.json().get("detail"):
+            fail("U9d: the refused row does not carry the response's detail")
+        row = _one(db, attempt, "resolve", "ok", "U9d")
+        if row and (row.payload["response"] != resolved.json() or row.kind != "consult"):
+            fail("U9d: the resolve row is not the response body")
+
+
+def check_u10() -> None:
+    import ast
+
+    for rel in _ROUTES:
+        if "write_usage_event" in (SRC / rel).read_text(encoding="utf-8"):
+            fail(f"U10: {rel} calls write_usage_event directly")
+    text = (SRC / "lore_usage.py").read_text(encoding="utf-8")
+    for needle in ("chat(", "select("):
+        if needle in text:
+            fail(f"U10: lore_usage.py contains {needle!r}")
+    imported: set[str] = set()
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, ast.ImportFrom):
+            imported.add((node.module or "").rsplit(".", 1)[-1])
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.Import):
+            imported.update(alias.name.rsplit(".", 1)[-1] for alias in node.names)
+    if not imported:
+        fail("U10: no import collected from lore_usage.py")
+    hits = imported & (_PIPELINE | _PANEL)
+    if hits:
+        fail(f"U10: lore_usage.py imports {sorted(hits)}")
+
+
 def main() -> int:
     tmp = tempfile.mkdtemp(prefix="lore_usage_")
     db_path = f"{tmp}/u.db"
@@ -511,6 +783,10 @@ def main() -> int:
     check_u4()
     check_u5()
     check_u6()
+    check_u7()
+    check_u8()
+    check_u9()
+    check_u10()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -518,7 +794,8 @@ def main() -> int:
     print("PASS: lore_usage -- the journal is named by its model and its writer only; "
           "v2.13 declares it without world_id or FK and migrates from v2.12 only; the "
           "writer refuses every malformed record; a journal row outlives its world; every "
-          "Lore model call can be captured with its prompt version and raw reply")
+          "Lore model call can be captured with its prompt version and raw reply; every "
+          "writing and consultation step is journaled under its attempt, failures included")
     return 0
 
 

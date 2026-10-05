@@ -17647,6 +17647,23 @@ fallback. `prompt_load.RenderSpec` gains `version_id` and `version_number`,
 plain values, so the Session-free renderer names the version without a row.
 Without a list every call behaves as before.
 
+
+## EVERY LORE STEP IS JOURNALED UNDER ITS ATTEMPT (TICKET-0103) -- FAILURES INCLUDED (BRIEF-0103-c, no schema change)
+
+**A2, C1.** `lore_usage.py` is the routes' recorder: `attempt_id` keeps the
+panel's UUID or mints one (a journal id never fails a request), `stage` adds
+a row to the caller's transaction and `record` stages and commits. The five
+Lore routes journal every step that reaches the model or the apply step:
+`questions`, `draft`, `ask` in their own transaction (`ok`, `unavailable`,
+`parse_error`, each with its model exchanges); `commit` atomically with the
+canon it wrote, or after its rollback when refused; `resolve` likewise.
+Requests refused before that point (no active world, empty text, non-local
+origin) are not journaled. The committed proposal is journaled as the panel
+sent it: `apply_proposal` annotates the dict it validates, so the route
+copies it first. `ask` now answers an `OllamaError` raised while drafting
+the plan with the named 503 message, as it already did for a failed ping,
+instead of an unhandled 500 -- the step must be caught to be journaled.
+
 ---
 
 *Co-built with Claude, June 2026.*
