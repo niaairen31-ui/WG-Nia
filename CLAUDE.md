@@ -374,6 +374,9 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   same body — enforced by `effect_self_write.py`.
 - **The lore renderer receives rows, never a `Session`,** and only the `answered` verdict reaches
   a model — every empty verdict is rendered by code, so an absence is never explained by a model.
+- **The Lore usage journal (`lore_usage_event`) is written only through `lore_usage` and read only
+  by `scripts/export_lore_usage.py`;** no prompt, play or creator path reads it back, and it has no
+  `world_id`, so it outlives its world -- enforced by `lore_usage.py`.
 
 ## Local model notes
 

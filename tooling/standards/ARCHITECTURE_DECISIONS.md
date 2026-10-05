@@ -17678,6 +17678,24 @@ and mints its own for a missing or malformed one. A write attempt without
 an `ok` commit is an abandoned one: the analysis reads that from the
 journal, nothing records it.
 
+
+## THE LORE USAGE JOURNAL HAS ONE READER (TICKET-0103) -- A JSONL EXPORT (BRIEF-0103-e, no schema change)
+
+**E1.** `scripts/export_lore_usage.py` is the journal's sole reader (the
+"no structure without a reader" doctrine): one JSON line per attempt, keyed
+by `(attempt_id, world_ref, kind)`, its events in order with payloads and
+model calls as stored, plus `committed` (true / false for a write attempt,
+null for a consultation). It filters by `--since` and `--world-ref` (a
+deleted world's id still works) and writes nothing to the database. The
+export holds every world's secrets and creator notes, so the script refuses
+an `--out` inside the repository: it cannot be staged by accident. The
+analysis -- what the creator removed, changed, added, abandoned -- runs on
+the export, in a Claude Code session, never in the application.
+
+**Rejected.** E2, an analysis panel in the cockpit: reactivates once an
+analysis has shown which measures deserve a screen; its first UI consumer
+relationalizes the JSON columns (D2).
+
 ---
 
 *Co-built with Claude, June 2026.*

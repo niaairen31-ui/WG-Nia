@@ -8,6 +8,8 @@ U0 -- census. The files under `src/world_engine` that name the journal
    (`LoreUsageEvent` or `lore_usage_event`) equal `_NAMING_FILES` exactly,
    and the files that call `write_usage_event` equal `_WRITER_CALLERS`:
    nothing in the application reads the journal, and one module writes it.
+   Under `scripts/`, the files naming the journal equal `_SCRIPTS` (its
+   migration and its one reader, BRIEF-0103-E).
 U1 -- schema (BRIEF-0103-A, v2.13, I1). `lore_usage_event` has no
    `world_id` column and no foreign key at all; `world_ref`, `world_name`,
    `attempt_id`, `kind`, `step`, `outcome`, `payload`, `model_calls` are NOT
@@ -86,6 +88,20 @@ U11 -- the panels carry the attempt (BRIEF-0103-D), static:
       crypto.randomUUID()` before its POST, both POSTs send `attempt_id:
       loreState.attemptId`, and `reloadForWorld()` clears it;
    c. the built bundle under `cockpit/static/assets` carries `attempt_id`.
+U12 -- the reader (BRIEF-0103-E, E1), `scripts/export_lore_usage.py` run as
+   a subprocess on this check's database once U3-U9 have filled it:
+   a. one line per `(attempt_id, world_ref, kind)` in the journal, each with
+      exactly that attempt's events, in order;
+   b. U8's write attempt is `committed: true` with its one `lore_entry_ref`;
+      U3's (a draft, no commit) is `committed: false`; U9's consultation is
+      `committed: null`; U4's attempt is exported with its deleted world's
+      name;
+   c. `--world-ref` keeps one world's attempts only; `--since` a day after
+      today writes an empty file and exits zero;
+   d. the script is read-only: no `.add(`, `.commit(`, `.delete(`,
+      `.execute(` and no `write_` call;
+   e. an `--out` inside the repository is refused (non-zero exit) and no
+      file is written there.
 
 Fresh temp-file SQLite database for any fixture rule
 (`WORLD_ENGINE_DATABASE_URL` set before any world_engine import) -- never
@@ -112,6 +128,8 @@ _NAMING_FILES: frozenset[str] = frozenset({
 })
 _WRITER_CALLERS: frozenset[str] = frozenset({"writes/lore_usage.py", "lore_usage.py"})
 _ROUTES = ("cockpit/routes/lore.py", "cockpit/routes/lore_write.py")
+_SCRIPTS: frozenset[str] = frozenset({"migrate_v2_13_lore_usage.py", "export_lore_usage.py"})
+EXPORT = ROOT / "scripts" / "export_lore_usage.py"
 _PIPELINE = {"lore_selectors", "lore_query", "lore_plan", "lore_render", "lore_prompt"}
 _PANEL = {"lore_write_apply", "lore_write_draft", "lore_write_read", "lore_mentions_read",
           "lore_choices_read"}
@@ -186,6 +204,9 @@ def check_u0() -> None:
         fail(f"U0: {extra} calls write_usage_event but is not in _WRITER_CALLERS")
     for missing in sorted(_WRITER_CALLERS - callers):
         fail(f"U0: {missing} is in _WRITER_CALLERS but never names write_usage_event")
+    scripts = {p.name for p in (ROOT / "scripts").glob("*.py") if _naming(p)}
+    if scripts != _SCRIPTS:
+        fail(f"U0: scripts naming the journal are {sorted(scripts)}, expected {sorted(_SCRIPTS)}")
 
 
 def _check_sql(table, name: str) -> str:
@@ -809,6 +830,80 @@ def check_u11() -> None:
         fail("U11c: the built bundle does not carry attempt_id (rebuild the frontend)")
 
 
+def _export(db_path: str, out: str, *extra: str) -> tuple[subprocess.CompletedProcess, list[dict]]:
+    import json
+
+    env = dict(os.environ, WORLD_ENGINE_DATABASE_URL=f"sqlite:///{db_path}", WORLD_ENGINE_ENV="test")
+    result = subprocess.run([sys.executable, str(EXPORT), "--out", out, *extra], env=env,
+                            capture_output=True, text=True, cwd=str(ROOT), timeout=120)
+    lines = []
+    if result.returncode == 0:
+        lines = [json.loads(line) for line in pathlib.Path(out).read_text(encoding="utf-8").splitlines()]
+    return result, lines
+
+
+def check_u12(db_path: str) -> None:
+    import ast
+    from datetime import date, timedelta
+
+    from sqlmodel import Session, select
+
+    from world_engine.db import engine
+    from world_engine.models import LoreUsageEvent
+
+    with Session(engine) as db:
+        rows = list(db.exec(select(LoreUsageEvent)).all())
+    keys: dict[tuple, int] = {}
+    for row in rows:
+        keys[(row.attempt_id, row.world_ref, row.kind)] = keys.get((row.attempt_id, row.world_ref, row.kind), 0) + 1
+    if len(keys) < 4:
+        fail(f"U12: only {len(keys)} attempt(s) to export")
+        return
+    tmp = tempfile.mkdtemp(prefix="lore_usage_export_")
+    result, lines = _export(db_path, f"{tmp}/all.jsonl")
+    if result.returncode != 0:
+        fail(f"U12a: export exit {result.returncode}: {result.stderr.strip()[-200:]}")
+        return
+    got = {(a["attempt_id"], a["world_ref"], a["kind"]): len(a["events"]) for a in lines}
+    if got != keys or len(lines) != len(keys):
+        fail(f"U12a: exported {len(lines)} attempt(s), journal holds {len(keys)}")
+    for attempt in lines:
+        stamps = [e["created_at"] for e in attempt["events"]]
+        if stamps != sorted(stamps):
+            fail(f"U12a: attempt {attempt['attempt_id']} events out of order")
+    by_id = {a["attempt_id"]: a for a in lines}
+    write = by_id.get("0b0b0b0b-0000-4000-8000-000000000008", {})
+    if write.get("committed") is not True or len(write.get("lore_entry_refs", [])) != 1:
+        fail(f"U12b: the committed write attempt exported as {write.get('committed')!r}")
+    if by_id.get("att-u3", {}).get("committed") is not False:
+        fail("U12b: an attempt without commit is not committed: false")
+    if by_id.get("0c0c0c0c-0000-4000-8000-000000000009", {}).get("committed", "-") is not None:
+        fail("U12b: a consultation is not committed: null")
+    if by_id.get("att-u4", {}).get("world_name") != "Doomed 0103":
+        fail("U12b: the deleted world's attempt is missing or nameless")
+    world_ref = write.get("world_ref", "")
+    result, lines = _export(db_path, f"{tmp}/one.jsonl", "--world-ref", world_ref)
+    if result.returncode != 0 or not lines or {a["world_ref"] for a in lines} != {world_ref}:
+        fail(f"U12c: --world-ref exported {[a['world_ref'] for a in lines]}")
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    result, lines = _export(db_path, f"{tmp}/none.jsonl", "--since", tomorrow)
+    if result.returncode != 0 or lines:
+        fail(f"U12c: --since {tomorrow} exit {result.returncode}, {len(lines)} line(s)")
+    inside = ROOT / "tooling" / "verify" / "results" / "lore_usage_refused.jsonl"
+    result, _ = _export(db_path, str(inside))
+    if result.returncode == 0 or inside.exists():
+        fail(f"U12e: an --out inside the repository was accepted (exit {result.returncode})")
+        inside.unlink(missing_ok=True)
+    tree = ast.parse(EXPORT.read_text(encoding="utf-8"))
+    calls = [n.func for n in ast.walk(tree) if isinstance(n, ast.Call)]
+    if not calls:
+        fail("U12d: no call collected from the export script")
+    for func in calls:
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        if name in ("add", "commit", "delete", "execute") or name.startswith("write_"):
+            fail(f"U12d: the export script calls {name}() at line {func.lineno}")
+
+
 def main() -> int:
     tmp = tempfile.mkdtemp(prefix="lore_usage_")
     db_path = f"{tmp}/u.db"
@@ -827,6 +922,7 @@ def main() -> int:
     check_u9()
     check_u10()
     check_u11()
+    check_u12(db_path)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -836,7 +932,7 @@ def main() -> int:
           "writer refuses every malformed record; a journal row outlives its world; every "
           "Lore model call can be captured with its prompt version and raw reply; every "
           "writing and consultation step is journaled under its attempt, failures included; "
-          "both panels send their attempt id")
+          "both panels send their attempt id; the export reads every attempt and writes nothing")
     return 0
 
 
