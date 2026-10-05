@@ -29,6 +29,7 @@ from .facets import DESCRIPTIVE_FACETS, FACETS
 from .fact_refs import find_held
 from .models import Entity, Fact, FactDefault, FactionMembership, FactParticipant, Relation
 from .writes.facets import ScopeChoice, add_lore_fact, edit_entity_fact
+from .writes.facts import FACT_CHANGE_KINDS
 from .writes.facts import attach_participants, create_fact_default
 from .writes.factions import write_membership
 from .writes.knowledge import KNOWLEDGE_LEVEL_LADDER, write_knowledge
@@ -167,6 +168,9 @@ def _validate_fact(db: Session, world_id: str, refs: dict[str, dict], item: dict
             spec = FACETS.get(fact.facet or "")
             if fact.facet not in DESCRIPTIVE_FACETS or spec is None or spec.granularity != "bloc":
                 raise ProposalError(f"{where} : seul un fait « bloc » se réécrit.")
+            if item.get("kind") not in FACT_CHANGE_KINDS:
+                raise ProposalError(
+                    f"{where} : dis si la réécriture est une correction ou un changement dans le monde.")
     _validate_scopes(refs, item, where)
     _validate_knowers(refs, item, where)
 
@@ -282,7 +286,7 @@ class _Writer:
             fact = self.db.get(Fact, item["fact_id"])
             if item["action"] == "rewrite":
                 edit_entity_fact(self.db, fact_id=fact.id, content=item["content"],
-                                 changed_by=CREATED_BY, kind="correction")
+                                 changed_by=CREATED_BY, kind=item["kind"])
                 self.record("fact", fact.id, "updated")
             self.add_participants(fact, participants)
             self.add_defaults(fact, self.scopes(item))

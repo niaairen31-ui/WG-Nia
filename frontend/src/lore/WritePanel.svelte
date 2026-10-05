@@ -129,6 +129,14 @@
           {#if fact.action !== 'existing'}
             <textarea bind:value={fact.content} rows="2"></textarea>
           {/if}
+          {#if fact.action === 'rewrite'}
+            <div class="row">
+              <label><input type="radio" checked={fact.kind === 'correction'}
+                onchange={() => (fact.kind = 'correction')} /> Correction</label>
+              <label><input type="radio" checked={fact.kind === 'changement'}
+                onchange={() => (fact.kind = 'changement')} /> Changement dans le monde</label>
+            </div>
+          {/if}
           {#if fact.action === 'create'}
             <select bind:value={fact.facet}>
               {#each draft.facets as f (f.name)}<option value={f.name}>{f.label}</option>{/each}

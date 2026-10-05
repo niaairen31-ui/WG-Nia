@@ -17839,6 +17839,23 @@ absent when blindfolded. Being at the same place is a contact right now
 (O1), so the outfit shown in a scene is the current one; the versions
 matter for whoever is elsewhere.
 
+
+## THE CREATOR SAYS WHETHER A REWRITE CORRECTS OR CHANGES THE WORLD (TICKET-0105) -- PRESELECTED BY FACET (BRIEF-0105-f, no schema change)
+
+**H1.** Both places where the creator rewrites a fact ask the kind. The
+fiche's facts editor shows a « Correction / Changement dans le monde »
+choice beside each save and sends it as `kind` with `PUT
+/api/facts/{id}/content`, whose body now requires it. The Lore writing
+panel shows the same choice on a rewritten fact; the proposal carries it
+and `lore_write_apply` refuses a rewrite without one. The choice is
+preselected from the facet: `FacetSpec.edit_kind`, `changement` for
+`physique` and `tenue` (what one sees of an entity and can change in the
+world), `correction` for every other facet, served by `GET /api/facets` and
+put on a rewrite by the Lore draft.
+
+**Rejected.** H2, no preselection: every outfit change would need a click
+the facet already answers.
+
 ---
 
 *Co-built with Claude, June 2026.*

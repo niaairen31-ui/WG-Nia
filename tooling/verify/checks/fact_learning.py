@@ -97,6 +97,22 @@ E3 -- the outfit in the scene (V1, fixture). A public NPC wearing a `tenue`
    same place: `_mj_context_co_presents` gives its `tenue` text; blindfolded,
    `None`.
 
+F1 -- the preselected kind (BRIEF-0105-F, H1). Every `FACETS` spec has an
+   `edit_kind` in `FACT_CHANGE_KINDS`; exactly `physique` and `tenue`
+   preselect `changement`; `GET /api/facets` serves `edit_kind`;
+   `lore_write_draft._preset_kind` gives a physique fact `changement` and a
+   description fact `correction`, and `draft_proposal` calls it for a
+   rewrite.
+F2 -- the fiche route (fixture). `FactContentBody` refuses a body without
+   `kind` or with another value; `update_entity_fact_content` with
+   `changement` appends a `changement` entry. (A Lore rewrite without
+   `kind` is refused by `lore_write.py` C1d.)
+F3 -- the panels send it (static). `FactsEditor.svelte` sends
+   `kind: kindOf(` with both of its content PUTs and offers both kinds;
+   `WritePanel.svelte` offers both kinds on a rewrite;
+   `writePanel.svelte.js` puts `kind` on a rewrite in `toProposal`; the
+   built bundle carries « Changement dans le monde ».
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that examines zero rows is a
 FAILURE.
@@ -776,6 +792,88 @@ def check_e3(engine) -> None:
             fail(f"E3: blindfolded, the scene shows {blind}")
 
 
+# --- F1-F3 ---------------------------------------------------------------------
+
+def check_f1(engine) -> None:
+    import ast
+
+    from sqlmodel import Session
+
+    from world_engine.cockpit.crud.facets import list_facets
+    from world_engine.facets import FACETS
+    from world_engine.lore_write_draft import _preset_kind
+    from world_engine.writes import add_entity_fact
+    from world_engine.writes.facts import FACT_CHANGE_KINDS
+
+    if any(spec.edit_kind not in FACT_CHANGE_KINDS for spec in FACETS.values()):
+        fail("F1: an edit_kind is outside FACT_CHANGE_KINDS")
+    changes = {name for name, spec in FACETS.items() if spec.edit_kind == "changement"}
+    if changes != {"physique", "tenue"}:
+        fail(f"F1: the facets preselecting changement are {sorted(changes)}")
+    served = {f["name"]: f.get("edit_kind") for f in list_facets()["facets"]}
+    if not served or any(served[n] != FACETS[n].edit_kind for n in served):
+        fail(f"F1: /api/facets serves {served}")
+    with Session(engine) as session:
+        ids = _d_world(session)
+        kinds = {}
+        for facet in ("physique", "description"):
+            fact = add_entity_fact(session, entity_id=ids["A"], facet=facet, content=facet,
+                                   created_by="check")
+            session.flush()
+            kinds[facet] = _preset_kind(session, fact.id)
+        session.rollback()
+    if kinds != {"physique": "changement", "description": "correction"}:
+        fail(f"F1: _preset_kind gives {kinds}")
+    tree = ast.parse((SRC / "lore_write_draft.py").read_text(encoding="utf-8"))
+    draft = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+                  and n.name == "draft_proposal"), None)
+    if draft is None or not any(isinstance(n, ast.Call) and getattr(n.func, "id", None) == "_preset_kind"
+                                for n in ast.walk(draft)):
+        fail("F1: draft_proposal does not preselect a rewrite's kind")
+
+
+def check_f2(engine) -> None:
+    from pydantic import ValidationError
+    from sqlmodel import Session
+
+    from world_engine.cockpit.crud.facets import FactContentBody, update_entity_fact_content
+    from world_engine.models import Fact
+    from world_engine.writes import add_entity_fact
+
+    for body in ({"content": "x"}, {"content": "x", "kind": "retcon"}):
+        try:
+            FactContentBody(**body)
+            fail(f"F2: FactContentBody accepted {body}")
+        except ValidationError:
+            pass
+    with Session(engine) as session:
+        ids = _d_world(session)
+        fact = add_entity_fact(session, entity_id=ids["A"], facet="tenue", content="veste",
+                               created_by="check")
+        session.commit()
+        update_entity_fact_content(fact.id, FactContentBody(content="manteau", kind="changement"), session)
+        history = session.get(Fact, fact.id).change_history
+        if not history or history[-1].get("kind") != "changement":
+            fail(f"F2: the fiche route wrote {history}")
+
+
+def check_f3() -> None:
+    root = ROOT / "frontend" / "src"
+    editor = (root / "creation" / "FactsEditor.svelte").read_text(encoding="utf-8")
+    panel = (root / "lore" / "WritePanel.svelte").read_text(encoding="utf-8")
+    state = (root / "lore" / "writePanel.svelte.js").read_text(encoding="utf-8")
+    if editor.count("kind: kindOf(") != 2 or 'value="changement"' not in editor \
+            or 'value="correction"' not in editor:
+        fail("F3: FactsEditor.svelte does not send and offer the kind")
+    if "fact.kind = 'correction'" not in panel or "fact.kind = 'changement'" not in panel:
+        fail("F3: WritePanel.svelte does not offer both kinds on a rewrite")
+    if "if (f.action === 'rewrite') out.kind = f.kind;" not in state:
+        fail("F3: toProposal does not send a rewrite's kind")
+    bundles = list((SRC / "cockpit" / "static" / "assets").glob("*.js"))
+    if not bundles or not any("Changement dans le monde" in b.read_text(encoding="utf-8") for b in bundles):
+        fail("F3: the built bundle does not carry the choice (rebuild the frontend)")
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_a1()
@@ -794,6 +892,9 @@ def main() -> int:
     check_e1(engine)
     check_e2()
     check_e3(engine)
+    check_f1(engine)
+    check_f2(engine)
+    check_f3()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -804,7 +905,8 @@ def main() -> int:
           "every rewrite says whether it corrects or changes the world, and the version "
           "known follows the changes alone; a default is learned by a contact after it, kept "
           "after leaving, and dated by the last contact with its anchors; every knower "
-          "reader gives the version known, and the scene shows the outfit")
+          "reader gives the version known, and the scene shows the outfit; both editors make "
+          "the creator say whether a rewrite corrects or changes the world")
     return 0
 
 
