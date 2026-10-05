@@ -2,14 +2,14 @@
 id: TICKET-0103
 title: Keep a usage journal of the Lore shell — proposed, refused, changed — for an offline analysis
 type: feature
-status: exec
+status: live-gate
 created: 2026-10-02
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write]
 blast_radius: medium
 lot_id: LOT-0103-lore-usage-journal.md
 brief_ids: [A, B, C, D, E]
-current_brief: E
+current_brief:
 schema_version_touched: v2.13
 retry_count: 0
 slug: lore-usage-journal
