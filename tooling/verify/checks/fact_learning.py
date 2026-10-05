@@ -113,6 +113,13 @@ F3 -- the panels send it (static). `FactsEditor.svelte` sends
    `writePanel.svelte.js` puts `kind` on a rewrite in `toProposal`; the
    built bundle carries « Changement dans le monde ».
 
+G1 -- the dossier marks an old version (BRIEF-0105-G, K1/T1, fixture). P
+   holds a stored row with no text of its own on A's `tenue`; the outfit is
+   then rewritten as a `changement`. In `entity_dossier(P)` and
+   `who_knows_about(A)`, that row's `content` is « <old> (version ancienne —
+   actuelle : <new>) »; a row on an unchanged fact keeps `content` None;
+   after an encounter of P with A, the outfit row's `content` is None again.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that examines zero rows is a
 FAILURE.
@@ -874,6 +881,46 @@ def check_f3() -> None:
         fail("F3: the built bundle does not carry the choice (rebuild the frontend)")
 
 
+# --- G1 ------------------------------------------------------------------------
+
+def check_g1(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.encounters import record_encounter
+    from world_engine.lore_selectors import entity_dossier, who_knows_about
+    from world_engine.models import Fact
+    from world_engine.writes import write_knowledge
+    from world_engine.writes.facts import update_fact_content
+
+    with Session(engine) as session:
+        ids = _d_world(session)
+        w = ids["world"]
+        tenue = _d_fact(session, ids, "cape grise", facet="tenue", about="A")
+        still = _d_fact(session, ids, "rien de neuf", about="A")
+        for fact_id in (tenue, still):
+            write_knowledge(session, entity_id=ids["P"], fact_id=fact_id, level="knows")
+        session.commit()
+        update_fact_content(session, fact=session.get(Fact, tenue), content="D1 cape rouge",
+                            changed_by="check", kind="changement")
+        session.commit()
+        want = "D1 cape grise (version ancienne — actuelle : D1 cape rouge)"
+
+        def contents():
+            mine = [r["content"] for r in entity_dossier(ids["P"], w, session) if r["section"] == "knowledge"]
+            theirs = [r["content"] for r in who_knows_about(ids["A"], w, session) if r["section"] == "knowers"]
+            order = lambda v: (v is not None, v or "")  # noqa: E731
+            return sorted(mine, key=order), sorted(theirs, key=order)
+
+        mine, theirs = contents()
+        if mine != [None, want] or theirs != [None, want]:
+            fail(f"G1: the dossier shows {mine} / {theirs}")
+        record_encounter(session, world_id=w, a_id=ids["P"], b_id=ids["A"], source="conversation")
+        session.commit()
+        mine, theirs = contents()
+        if mine != [None, None] or theirs != [None, None]:
+            fail(f"G1: after an encounter the dossier shows {mine} / {theirs}")
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_a1()
@@ -895,6 +942,7 @@ def main() -> int:
     check_f1(engine)
     check_f2(engine)
     check_f3()
+    check_g1(engine)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -906,7 +954,8 @@ def main() -> int:
           "known follows the changes alone; a default is learned by a contact after it, kept "
           "after leaving, and dated by the last contact with its anchors; every knower "
           "reader gives the version known, and the scene shows the outfit; both editors make "
-          "the creator say whether a rewrite corrects or changes the world")
+          "the creator say whether a rewrite corrects or changes the world; the Lore dossier "
+          "marks an old version")
     return 0
 
 

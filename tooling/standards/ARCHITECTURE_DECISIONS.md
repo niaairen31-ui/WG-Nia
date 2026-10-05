@@ -17856,6 +17856,25 @@ put on a rewrite by the Lore draft.
 **Rejected.** H2, no preselection: every outfit change would need a click
 the facet already answers.
 
+
+## THE LORE DOSSIER MARKS AN OLD VERSION (TICKET-0105) -- IN THE ROW'S TEXT, PROMPT UNCHANGED (BRIEF-0105-g, no schema change)
+
+**K1, T1.** In `entity_dossier` and `who_knows_about`, a stored knowledge
+row with no text of its own whose holder knows an older version of its
+fact carries, as its `content`, « <old> (version ancienne — actuelle :
+<current>) », built by code (`lore_selectors._stale_label`). The template
+renderer prints it and the model receives it as text, so the Lore prompt
+does not change -- the precedent of the secret marker (0087, P1). A row
+with its own text, or whose holder knows the current version, is
+unchanged. Play prompts never carry the mark: there, the old version is
+simply what the character knows.
+
+**Carried forward.** What a character knows only through a default is not
+in the dossier (it lists stored rows); showing it is its own ticket.
+
+**Rejected.** T2, a rule in the Lore prompt (a new prompt version) for a
+mark the code already writes.
+
 ---
 
 *Co-built with Claude, June 2026.*
