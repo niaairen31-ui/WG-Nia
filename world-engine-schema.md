@@ -678,7 +678,13 @@ no second column and no polymorphic type tag. Ships empty; the creator
 surface (`cockpit/crud/knowledge.py`) is its first writer. Scope
 `rencontre` (schema v2.05, TICKET-0091, BRIEF-0091-A): `scope_id` is an
 entity; the fact is known to that entity's acquaintances (the `rencontre`
-registry) at `level`.
+registry) at `level`. Since TICKET-0105 (BRIEF-0105-D) a `rencontre`,
+`location` or `faction` default is known only through a contact AT OR AFTER
+the row's `created_at` -- an encounter (`rencontre.last_at`), a passage in
+the place or a place inside it (`passage.last_at`), a membership open or
+closed after it -- or a contact right now; what is learned stays learned,
+and among several such defaults the HIGHEST level wins
+(`knowledge_resolve.py` docstring).
 
 ```sql
 CREATE TABLE fact_default (

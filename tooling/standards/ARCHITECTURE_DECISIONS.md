@@ -17790,6 +17790,34 @@ follows the zones (`connects_to` <-> `borde`) and a name bound to its entity
 are corrections. Until BRIEF-0105-F, the fiche and the Lore panel pass
 `correction`, which is today's behaviour.
 
+
+## A DEFAULT IS LEARNED BY A CONTACT AFTER IT, AND KEPT (TICKET-0105) -- RESOLUTION DATED BY CONTACT (BRIEF-0105-d, no schema change)
+
+**B5.** `knowledge_resolve.resolve_knowledge` returns `Known(level, as_of)`.
+A `rencontre`, `location` or `faction` default is known through a contact
+at or after its `created_at`: an encounter with its entity
+(`rencontre.last_at`), a passage in its place or in a place inside it
+(`passage.last_at`), a membership open now or closed after it (J2). A
+contact right now needs no date: the current place and its ancestors, the
+places one's schedule names, an entity at the same exact current place (O1)
+or in the same schedule slot (L1), an active membership. Reading the last
+contact means a fact once learned stays learned.
+
+**C1.** Among several applicable `location` defaults the highest level
+wins, like `faction` and `rencontre`; the nearest-ancestor rule is gone.
+
+**N1.** `as_of` is the last contact with any anchor of the fact -- its
+participants and the entities its non-world defaults name -- or a stored
+row's `updated_at` if later. A fact with a `world` default, one's own facts
+and the tiers without a scope are always current (`as_of = None`).
+`resolve_knowledge_level` and `resolve_levels_for_entity` keep their
+signatures and return the level alone.
+
+**Rejected.** C2, the current place first and the past ones after: it ranks
+contacts the model of a collection does not rank. N2, only the anchor of
+the tier that gave the level: meeting the wearer would not refresh an
+outfit known through a place.
+
 ---
 
 *Co-built with Claude, June 2026.*

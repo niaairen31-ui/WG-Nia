@@ -1,34 +1,47 @@
 """Scoped default knowledge-level resolution (TICKET-0082, BRIEF-0082-c,
-G2a).
+G2a), dated by contact (TICKET-0105, BRIEF-0105-D, B5).
 
-`resolve_knowledge_level` is the single resolution authority for "what level
-does this entity hold on this fact", total over the six-value ladder
-(`writes/knowledge.py::KNOWLEDGE_LEVEL_LADDER`) — precedence, most specific
-first:
+`resolve_knowledge` is the single resolution authority for "what does this
+entity hold of this fact": a `Known(level, as_of)`, total over the six-value
+ladder (`writes/knowledge.py::KNOWLEDGE_LEVEL_LADDER`). Precedence, most
+specific first:
 
-1. a stored `knowledge` row for `(entity_id, fact_id)` — wins outright,
+1. a stored `knowledge` row for `(entity_id, fact_id)` -- wins outright,
    including when it is `'unaware'`;
 2. self: the entity is a `fact_participant` of the fact AND the fact's
-   facet is in `facets.DESCRIPTIVE_FACETS` — `'knows'` (TICKET-0091, Q6a,
-   Q18a: an entity knows what is said of it, not every information it
-   takes part in);
-3. rencontre: a `fact_default` at `scope_type='rencontre'` whose
-   `scope_id` is one of the entity's acquaintances
-   (`encounters.acquaintances`) — the HIGHEST level across several wins;
-4. a `fact_default` at `scope_type='location'` for the entity's current
-   location or any ancestor via `location.parent_location_id` — nearest
-   ancestor wins;
-5. a `fact_default` at `scope_type='faction'` for any faction the entity
-   holds an ACTIVE membership in (`left_at IS NULL`) — the HIGHEST level
-   across several such memberships wins;
+   facet is in `facets.DESCRIPTIVE_FACETS` -- `'knows'` (TICKET-0091, Q6a,
+   Q18a);
+3. rencontre: a `fact_default` at `scope_type='rencontre'` whose `scope_id`
+   the entity met (`rencontre.last_at`) AT OR AFTER the default was written,
+   or is in contact with right now -- the HIGHEST level wins;
+4. location: a `fact_default` at `scope_type='location'` whose place, or a
+   place inside it, the entity was in (`passage.last_at`) at or after the
+   default was written, or is in right now -- the HIGHEST level wins (C1);
+5. faction: a `fact_default` at `scope_type='faction'` for a faction the
+   entity belongs to, or belonged to at or after the default was written
+   (J2) -- the HIGHEST level wins;
 6. a `fact_default` at `scope_type='world'`;
-7. `fact.default_level` — always present (NOT NULL), so this tier never
-   fails to produce a value.
+7. `fact.default_level` -- always present (NOT NULL).
 
-`resolve_levels_for_entity` is the batch companion: one pass over every
-fact in the entity's world, returning only the facts resolving above
-`'unaware'`, so a context assembler calls it once per assembly rather than
-once per fact.
+A fact once learned stays learned: tiers 3-5 read the LAST contact, so
+leaving a place, a group or a person forgets nothing.
+
+Contact "right now" (no date to compare, always in contact): being in a
+place or a place inside it (`current_location_id` and its ancestors), a
+place one's schedule names, an entity at the same exact current location
+(O1) or sharing one of one's schedule slots (L1), an active membership.
+
+`as_of` is when the entity last saw the fact as it is (N1): the latest
+contact with any of the fact's anchors -- its participants and the
+entities its non-world defaults name -- or, for a stored row, that or the
+row's `updated_at`, whichever is later. It is `None` (always current) for
+a fact with a `world` default, for one's own facts (tier 2), and at tiers
+6-7. `fact_versions.version_text` turns it into the text the entity knows.
+
+`resolve_known_for_entity` is the batch companion: every fact of the
+entity's world resolving above `'unaware'`, each context query run once.
+`resolve_knowledge_level` and `resolve_levels_for_entity` return the level
+alone.
 
 # A resolved default never carries is_secret. Secrecy is a property of a
 # stored knowledge row, structurally excluded at query level by the
@@ -41,14 +54,17 @@ is ever written back as a `knowledge` row.
 
 from __future__ import annotations
 
-from typing import Optional
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Iterable, Optional
 
 from sqlmodel import Session, select
 
-from .encounters import acquaintances
+from .fact_versions import utc
 from .facets import DESCRIPTIVE_FACETS
 from .models import (
     Character, Entity, Fact, FactDefault, FactionMembership, FactParticipant, Knowledge, Location,
+    NpcSchedule, Passage, Rencontre,
 )
 from .writes.knowledge import KNOWLEDGE_LEVEL_LADDER
 
@@ -61,6 +77,14 @@ DEFAULT_SHARE_THRESHOLD = 50
 KNOWN_EDGE_FLOOR = "partial"
 
 
+@dataclass(frozen=True)
+class Known:
+    """What an entity holds of a fact: its level, and when it last saw the
+    fact as it is (`None`: always current)."""
+    level: str
+    as_of: Optional[datetime]
+
+
 def meets_floor(level: str, floor: str) -> bool:
     """True iff `level` is at or above `floor` on `KNOWLEDGE_LEVEL_LADDER`.
     The one place a floor comparison indexes the ladder — callers (e.g.
@@ -69,214 +93,202 @@ def meets_floor(level: str, floor: str) -> bool:
     return KNOWLEDGE_LEVEL_LADDER.index(level) >= KNOWLEDGE_LEVEL_LADDER.index(floor)
 
 
-def _location_ancestor_chain(db: Session, entity_id: str) -> list[str]:
-    """The entity's current location, then each ancestor up
-    `parent_location_id`, nearest first. Empty when the entity has no
-    `Character` row or no current location. Cycle-safe (stops on repeat)."""
-    character = db.get(Character, entity_id)
-    if character is None or not character.current_location_id:
-        return []
-    chain: list[str] = []
-    seen: set[str] = set()
-    current_id: Optional[str] = character.current_location_id
-    while current_id and current_id not in seen:
-        chain.append(current_id)
-        seen.add(current_id)
-        location = db.get(Location, current_id)
-        current_id = location.parent_location_id if location else None
-    return chain
-
-
-def _active_faction_ids(db: Session, entity_id: str) -> list[str]:
-    rows = db.exec(
-        select(FactionMembership).where(
-            FactionMembership.entity_id == entity_id,
-            FactionMembership.left_at.is_(None),
-        )
-    ).all()
-    return [row.faction_id for row in rows]
-
-
 def _highest_level(levels: list[str]) -> str:
     return max(levels, key=KNOWLEDGE_LEVEL_LADDER.index)
 
 
-def _resolve_tiers(
-    *,
-    stored_level: Optional[str],
-    self_level: Optional[str],
-    rencontre_levels: list[str],
-    location_chain: list[str],
-    location_defaults: dict[str, str],
-    faction_ids: list[str],
-    faction_defaults: dict[str, str],
-    world_default: Optional[str],
-    fallback_level: str,
-) -> str:
-    """Pure precedence resolution over already-fetched context (item 2/G2a).
-    Shared by the single-fact and batch entry points so both apply the
-    identical rule."""
-    if stored_level is not None:
-        return stored_level
-    if self_level is not None:
-        return self_level
-    if rencontre_levels:
-        return _highest_level(rencontre_levels)
-    for location_id in location_chain:
-        if location_id in location_defaults:
-            return location_defaults[location_id]
-    faction_levels = [
-        faction_defaults[faction_id]
-        for faction_id in faction_ids
-        if faction_id in faction_defaults
-    ]
-    if faction_levels:
-        return _highest_level(faction_levels)
-    if world_default is not None:
-        return world_default
-    return fallback_level
+def _later(a: Optional[datetime], b: Optional[datetime]) -> Optional[datetime]:
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return max(a, b)
+
+
+@dataclass
+class _Contacts:
+    """The perceiver's dated contacts, fetched once. Each map holds the last
+    contact per entity id; `now` stands for contact right now."""
+    now: datetime
+    met: dict[str, datetime] = field(default_factory=dict)
+    places: dict[str, datetime] = field(default_factory=dict)
+    factions: dict[str, datetime] = field(default_factory=dict)
+
+    def any(self, entity_id: str) -> Optional[datetime]:
+        """The last contact with `entity_id` through any registry."""
+        return _later(_later(self.met.get(entity_id), self.places.get(entity_id)),
+                      self.factions.get(entity_id))
+
+
+def _keep(target: dict[str, datetime], key: str, at: datetime) -> None:
+    if key not in target or target[key] < at:
+        target[key] = at
+
+
+def _ancestors(db: Session, location_id: str, memo: dict[str, list[str]]) -> list[str]:
+    """`location_id` then each ancestor up `parent_location_id`; cycle-safe."""
+    if location_id in memo:
+        return memo[location_id]
+    chain: list[str] = []
+    current: Optional[str] = location_id
+    while current and current not in chain:
+        chain.append(current)
+        row = db.get(Location, current)
+        current = row.parent_location_id if row else None
+    memo[location_id] = chain
+    return chain
+
+
+def _place_contacts(db: Session, entity_id: str, char: Optional[Character],
+                    schedule: list[NpcSchedule], ctx: _Contacts) -> None:
+    memo: dict[str, list[str]] = {}
+    for row in db.exec(select(Passage).where(Passage.entity_id == entity_id)).all():
+        for place in _ancestors(db, row.location_id, memo):
+            _keep(ctx.places, place, utc(row.last_at))
+    now_places = [s.location_id for s in schedule]
+    if char is not None and char.current_location_id:
+        now_places.append(char.current_location_id)
+    for location_id in now_places:
+        for place in _ancestors(db, location_id, memo):
+            ctx.places[place] = ctx.now
+
+
+def _met_contacts(db: Session, entity_id: str, char: Optional[Character],
+                  schedule: list[NpcSchedule], ctx: _Contacts) -> None:
+    for row in db.exec(select(Rencontre).where(
+            (Rencontre.entity_lo_id == entity_id) | (Rencontre.entity_hi_id == entity_id))).all():
+        other = row.entity_hi_id if row.entity_lo_id == entity_id else row.entity_lo_id
+        _keep(ctx.met, other, utc(row.last_at or row.first_at))
+    present: set[str] = set()
+    if char is not None and char.current_location_id:
+        present.update(db.exec(select(Character.id).where(
+            Character.current_location_id == char.current_location_id)).all())
+    for slot in schedule:
+        present.update(db.exec(select(NpcSchedule.npc_id).where(
+            NpcSchedule.location_id == slot.location_id, NpcSchedule.phase == slot.phase)).all())
+    present.discard(entity_id)
+    for other in present:
+        ctx.met[other] = ctx.now
+
+
+def _contacts(db: Session, entity_id: str) -> _Contacts:
+    ctx = _Contacts(now=datetime.now(UTC))
+    char = db.get(Character, entity_id)
+    schedule = list(db.exec(select(NpcSchedule).where(NpcSchedule.npc_id == entity_id)).all())
+    _place_contacts(db, entity_id, char, schedule, ctx)
+    _met_contacts(db, entity_id, char, schedule, ctx)
+    for row in db.exec(select(FactionMembership).where(
+            FactionMembership.entity_id == entity_id)).all():
+        _keep(ctx.factions, row.faction_id, ctx.now if row.left_at is None else utc(row.left_at))
+    return ctx
+
+
+_SCOPE_CONTACTS = {"rencontre": "met", "location": "places", "faction": "factions"}
+
+
+def _tier_level(ctx: _Contacts, defaults: list[FactDefault], scope_type: str) -> Optional[str]:
+    """The highest level among `scope_type` defaults whose scope the entity
+    was in contact with at or after the default was written."""
+    contacts = getattr(ctx, _SCOPE_CONTACTS[scope_type])
+    levels = []
+    for row in defaults:
+        if row.scope_type != scope_type:
+            continue
+        seen = contacts.get(row.scope_id)
+        if seen is not None and seen >= utc(row.created_at):
+            levels.append(row.level)
+    return _highest_level(levels) if levels else None
+
+
+def _as_of(ctx: _Contacts, defaults: list[FactDefault], participants: Iterable[str],
+           stored: Optional[Knowledge]) -> Optional[datetime]:
+    """When the entity last saw the fact as it is (N1); `None`: current."""
+    if any(row.scope_type == "world" for row in defaults):
+        return None
+    anchors = set(participants) | {row.scope_id for row in defaults if row.scope_id}
+    seen: Optional[datetime] = None
+    for anchor in anchors:
+        seen = _later(seen, ctx.any(anchor))
+    if stored is not None and stored.updated_at is not None:
+        seen = _later(seen, utc(stored.updated_at))
+    return seen
+
+
+def _resolve_fact(ctx: _Contacts, entity_id: str, fact: Fact, defaults: list[FactDefault],
+                  participants: set[str], stored: Optional[Knowledge]) -> Known:
+    """Tiers 1-7 for one fact over already-fetched context (module docstring)."""
+    if stored is not None:
+        return Known(stored.level, _as_of(ctx, defaults, participants, stored))
+    if entity_id in participants and fact.facet in DESCRIPTIVE_FACETS:
+        return Known("knows", None)
+    for scope_type in ("rencontre", "location", "faction"):
+        level = _tier_level(ctx, defaults, scope_type)
+        if level is not None:
+            return Known(level, _as_of(ctx, defaults, participants, None))
+    world = [row.level for row in defaults if row.scope_type == "world"]
+    if world:
+        return Known(world[0], None)
+    return Known(fact.default_level, None)
+
+
+def resolve_knowledge(db: Session, entity_id: str, fact_id: str) -> Known:
+    """Total: one of the six `KNOWLEDGE_LEVEL_LADDER` values, never `None`;
+    `Known("unaware", None)` for an unknown fact id."""
+    fact = db.get(Fact, fact_id)
+    if fact is None:
+        return Known("unaware", None)
+    stored = db.exec(select(Knowledge).where(
+        Knowledge.entity_id == entity_id, Knowledge.fact_id == fact_id)).first()
+    defaults = list(db.exec(select(FactDefault).where(FactDefault.fact_id == fact_id)).all())
+    participants = set(db.exec(select(FactParticipant.entity_id).where(
+        FactParticipant.fact_id == fact_id)).all())
+    return _resolve_fact(_contacts(db, entity_id), entity_id, fact, defaults, participants, stored)
 
 
 def resolve_knowledge_level(db: Session, entity_id: str, fact_id: str) -> str:
-    """Total: always returns one of the six `KNOWLEDGE_LEVEL_LADDER` values,
-    never `None` — tier 7 (`fact.default_level`) is NOT NULL by schema."""
-    fact = db.get(Fact, fact_id)
-    stored = db.exec(
-        select(Knowledge).where(
-            Knowledge.entity_id == entity_id, Knowledge.fact_id == fact_id,
-        )
-    ).first()
-    stored_level = stored.level if stored is not None else None
-
-    self_level: Optional[str] = None
-    if fact is not None and fact.facet in DESCRIPTIVE_FACETS:
-        participant = db.exec(
-            select(FactParticipant).where(
-                FactParticipant.fact_id == fact_id, FactParticipant.entity_id == entity_id,
-            )
-        ).first()
-        if participant is not None:
-            self_level = "knows"
-
-    rencontre_levels: list[str] = []
-    known_ids = acquaintances(db, entity_id)
-    if known_ids:
-        rows = db.exec(
-            select(FactDefault).where(
-                FactDefault.fact_id == fact_id,
-                FactDefault.scope_type == "rencontre",
-                FactDefault.scope_id.in_(known_ids),
-            )
-        ).all()
-        rencontre_levels = [row.level for row in rows]
-
-    location_chain = _location_ancestor_chain(db, entity_id)
-    location_defaults: dict[str, str] = {}
-    if location_chain:
-        rows = db.exec(
-            select(FactDefault).where(
-                FactDefault.fact_id == fact_id,
-                FactDefault.scope_type == "location",
-                FactDefault.scope_id.in_(location_chain),
-            )
-        ).all()
-        location_defaults = {row.scope_id: row.level for row in rows}
-
-    faction_ids = _active_faction_ids(db, entity_id)
-    faction_defaults: dict[str, str] = {}
-    if faction_ids:
-        rows = db.exec(
-            select(FactDefault).where(
-                FactDefault.fact_id == fact_id,
-                FactDefault.scope_type == "faction",
-                FactDefault.scope_id.in_(faction_ids),
-            )
-        ).all()
-        faction_defaults = {row.scope_id: row.level for row in rows}
-
-    world_row = db.exec(
-        select(FactDefault).where(
-            FactDefault.fact_id == fact_id, FactDefault.scope_type == "world",
-        )
-    ).first()
-    world_default = world_row.level if world_row is not None else None
-
-    fallback_level = fact.default_level if fact is not None else "unaware"
-
-    return _resolve_tiers(
-        stored_level=stored_level,
-        self_level=self_level,
-        rencontre_levels=rencontre_levels,
-        location_chain=location_chain,
-        location_defaults=location_defaults,
-        faction_ids=faction_ids,
-        faction_defaults=faction_defaults,
-        world_default=world_default,
-        fallback_level=fallback_level,
-    )
+    """The level of `resolve_knowledge`."""
+    return resolve_knowledge(db, entity_id, fact_id).level
 
 
-def resolve_levels_for_entity(db: Session, entity_id: str) -> dict[str, str]:
-    """`fact_id -> level` for every fact in the entity's world resolving
-    above `'unaware'`. One pass: stored rows, participant fact ids,
-    acquaintances, location chain, faction memberships and every
-    `fact_default` for the world are each fetched once, then every fact is
-    resolved against that shared context — never one query per fact."""
+def resolve_known_for_entity(db: Session, entity_id: str) -> dict[str, Known]:
+    """`fact_id -> Known` for every fact in the entity's world resolving
+    above `'unaware'`. One pass: stored rows, participants, defaults and the
+    entity's contacts are each fetched once."""
     entity = db.get(Entity, entity_id)
     if entity is None:
         return {}
-
     facts = db.exec(select(Fact).where(Fact.world_id == entity.world_id)).all()
     if not facts:
         return {}
-
-    stored_rows = db.exec(select(Knowledge).where(Knowledge.entity_id == entity_id)).all()
-    stored_by_fact = {row.fact_id: row.level for row in stored_rows}
-
-    participant_fact_ids = set(
-        db.exec(
-            select(FactParticipant.fact_id).where(FactParticipant.entity_id == entity_id)
-        ).all()
-    )
-    known_ids = acquaintances(db, entity_id)
-    location_chain = _location_ancestor_chain(db, entity_id)
-    faction_ids = _active_faction_ids(db, entity_id)
-
     fact_ids = [fact.id for fact in facts]
-    defaults = db.exec(select(FactDefault).where(FactDefault.fact_id.in_(fact_ids))).all()
-
-    rencontre_levels_by_fact: dict[str, list[str]] = {}
-    location_defaults_by_fact: dict[str, dict[str, str]] = {}
-    faction_defaults_by_fact: dict[str, dict[str, str]] = {}
-    world_default_by_fact: dict[str, str] = {}
-    for row in defaults:
-        if row.scope_type == "rencontre":
-            if row.scope_id in known_ids:
-                rencontre_levels_by_fact.setdefault(row.fact_id, []).append(row.level)
-        elif row.scope_type == "location":
-            location_defaults_by_fact.setdefault(row.fact_id, {})[row.scope_id] = row.level
-        elif row.scope_type == "faction":
-            faction_defaults_by_fact.setdefault(row.fact_id, {})[row.scope_id] = row.level
-        elif row.scope_type == "world":
-            world_default_by_fact[row.fact_id] = row.level
-
-    resolved: dict[str, str] = {}
+    stored = {row.fact_id: row for row in db.exec(
+        select(Knowledge).where(Knowledge.entity_id == entity_id)).all()}
+    defaults: dict[str, list[FactDefault]] = {}
+    for row in db.exec(select(FactDefault).where(FactDefault.fact_id.in_(fact_ids))).all():
+        defaults.setdefault(row.fact_id, []).append(row)
+    participants: dict[str, set[str]] = {}
+    for fact_id, member in db.exec(select(FactParticipant.fact_id, FactParticipant.entity_id).where(
+            FactParticipant.fact_id.in_(fact_ids))).all():
+        participants.setdefault(fact_id, set()).add(member)
+    ctx = _contacts(db, entity_id)
+    resolved: dict[str, Known] = {}
     for fact in facts:
-        is_self = fact.id in participant_fact_ids and fact.facet in DESCRIPTIVE_FACETS
-        level = _resolve_tiers(
-            stored_level=stored_by_fact.get(fact.id),
-            self_level="knows" if is_self else None,
-            rencontre_levels=rencontre_levels_by_fact.get(fact.id, []),
-            location_chain=location_chain,
-            location_defaults=location_defaults_by_fact.get(fact.id, {}),
-            faction_ids=faction_ids,
-            faction_defaults=faction_defaults_by_fact.get(fact.id, {}),
-            world_default=world_default_by_fact.get(fact.id),
-            fallback_level=fact.default_level,
-        )
-        if level != "unaware":
-            resolved[fact.id] = level
+        known = _resolve_fact(ctx, entity_id, fact, defaults.get(fact.id, []),
+                              participants.get(fact.id, set()), stored.get(fact.id))
+        if known.level != "unaware":
+            resolved[fact.id] = known
     return resolved
+
+
+def resolve_levels_for_entity(db: Session, entity_id: str) -> dict[str, str]:
+    """`fact_id -> level` of `resolve_known_for_entity`."""
+    return {fact_id: known.level for fact_id, known in resolve_known_for_entity(db, entity_id).items()}
+
+
+def _public_tier(world_default: Optional[str], fallback_level: str) -> str:
+    """Tiers 6-7 alone: the public floor has no entity, so no stored row,
+    no self, no contact."""
+    return world_default if world_default is not None else fallback_level
 
 
 def resolve_public_level(db: Session, fact_id: str) -> str:
@@ -294,12 +306,7 @@ def resolve_public_level(db: Session, fact_id: str) -> str:
     world_default = world_row.level if world_row is not None else None
     fact = db.get(Fact, fact_id)
     fallback_level = fact.default_level if fact is not None else "unaware"
-    return _resolve_tiers(
-        stored_level=None, self_level=None, rencontre_levels=[],
-        location_chain=[], location_defaults={},
-        faction_ids=[], faction_defaults={},
-        world_default=world_default, fallback_level=fallback_level,
-    )
+    return _public_tier(world_default, fallback_level)
 
 
 def resolve_public_levels(db: Session, world_id: str) -> dict[str, str]:
@@ -320,13 +327,7 @@ def resolve_public_levels(db: Session, world_id: str) -> dict[str, str]:
     ).all()
     world_default_by_fact = {row.fact_id: row.level for row in world_rows}
     return {
-        fact.id: _resolve_tiers(
-            stored_level=None, self_level=None, rencontre_levels=[],
-            location_chain=[], location_defaults={},
-            faction_ids=[], faction_defaults={},
-            world_default=world_default_by_fact.get(fact.id),
-            fallback_level=fact.default_level,
-        )
+        fact.id: _public_tier(world_default_by_fact.get(fact.id), fact.default_level)
         for fact in facts
     }
 

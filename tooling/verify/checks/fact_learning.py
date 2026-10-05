@@ -59,6 +59,25 @@ C3 -- the version known (`fact_versions.version_text`, pure). History:
    as of t2.5 and t3.5 -> "v2b"; as of t4.5 and t6 -> "v3"; as of None ->
    "v3".
 
+D1 -- resolution dated by contact (BRIEF-0105-D, fixture, times t0 < t1 <
+   t2 < t3 before now), each row on `resolve_knowledge` AND
+   `resolve_known_for_entity` (absent from the batch = `unaware`):
+   a. a place passed at t1, its default written at t2 -> unaware;
+   b. a place passed at t1, its default written at t0 -> its level, kept
+      after leaving;
+   c. a zone's default at t0, a place inside it passed at t1 -> known;
+   d. two passed places, `rumor` and `knows` -> `knows` (C1);
+   e. an entity met at t1, its rencontre default at t2 -> unaware; at t0 ->
+      known;
+   f. a faction left at t1: its default at t0 -> known (J2), at t2 ->
+      unaware; an active membership -> known whatever the date;
+   g. an entity never met but at the same current place (O1), or sharing a
+      schedule slot (L1), its rencontre default at t3 -> known.
+D2 -- `as_of` (N1). A `tenue` of A with a rencontre default on A at t0, A
+   met at t1, then rewritten as a `changement`: `as_of == t1` and the
+   version known is the old text; after a new encounter, the current one.
+   A fact with a `world` default and one's own description -> `as_of` None.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that examines zero rows is a
 FAILURE.
@@ -489,6 +508,151 @@ def check_c3() -> None:
             fail(f"C3: as of {as_of} -> {got!r}, expected {want!r}")
 
 
+# --- D1-D2 ---------------------------------------------------------------------
+
+def _d_world(session):
+    from datetime import UTC, datetime, timedelta
+
+    from world_engine.models import Character, Entity, Faction, Location, World
+
+    world = World(name="D1", is_active=False)
+    session.add(world)
+    session.flush()
+    ids: dict = {"world": world.id}
+    now = datetime.now(UTC)
+    ids.update({f"t{i}": now - timedelta(days=4 - i) for i in range(4)})
+
+    def entity(etype: str, name: str) -> str:
+        row = Entity(world_id=world.id, type=etype, name=f"D1 {name}")
+        session.add(row)
+        session.flush()
+        return row.id
+
+    for key, parent in (("Z", None), ("C", "Z"), ("L", None), ("M", None), ("Q", None)):
+        ids[key] = entity("location", key)
+        session.add(Location(id=ids[key], parent_location_id=ids[parent] if parent else None))
+    for key in ("F1", "F2", "F3"):
+        ids[key] = entity("faction", key)
+        session.add(Faction(id=ids[key]))
+    for key in ("P", "A", "B", "S"):
+        ids[key] = entity("character", key)
+        session.add(Character(id=ids[key], world_id=world.id, character_type="npc"))
+    session.commit()
+    return ids
+
+
+def _d_fact(session, ids, label, facet="information", about=None, scopes=()):
+    from world_engine.writes import attach_participants, create_fact, create_fact_default
+
+    fact = create_fact(session, world_id=ids["world"], content=f"D1 {label}", created_by="check",
+                       facet=facet)
+    session.flush()
+    if about:
+        attach_participants(session, fact=fact, entity_ids=[ids[about]])
+    for scope_type, key, level, at in scopes:
+        row = create_fact_default(session, world_id=ids["world"], fact_id=fact.id,
+                                  scope_type=scope_type, scope_id=ids[key] if key else None,
+                                  level=level, created_by="check")
+        session.flush()
+        row.created_at = ids[at] if at else row.created_at
+        session.add(row)
+    session.commit()
+    return fact.id
+
+
+def _d_cases(session, ids) -> dict:
+    from world_engine.encounters import record_encounter
+    from world_engine.models import Character, FactionMembership
+    from world_engine.passages import record_passage
+    from world_engine.writes import write_npc_schedule
+
+    w = ids["world"]
+    for key, at in (("L", "t1"), ("M", "t1"), ("C", "t1")):
+        record_passage(session, world_id=w, entity_id=ids["P"], location_id=ids[key], at=ids[at])
+    record_encounter(session, world_id=w, a_id=ids["P"], b_id=ids["A"], source="visit", at=ids["t1"])
+    session.add(FactionMembership(world_id=w, entity_id=ids["P"], faction_id=ids["F1"], left_at=ids["t1"]))
+    session.add(FactionMembership(world_id=w, entity_id=ids["P"], faction_id=ids["F2"], left_at=ids["t1"]))
+    session.add(FactionMembership(world_id=w, entity_id=ids["P"], faction_id=ids["F3"]))
+    session.commit()
+    cases = {
+        "a": (_d_fact(session, ids, "a", scopes=[("location", "L", "knows", "t2")]), "unaware"),
+        "b": (_d_fact(session, ids, "b", scopes=[("location", "M", "partial", "t0")]), "partial"),
+        "c": (_d_fact(session, ids, "c", scopes=[("location", "Z", "knows", "t0")]), "knows"),
+        "d": (_d_fact(session, ids, "d", scopes=[("location", "L", "rumor", "t0"),
+                                                 ("location", "M", "knows", "t0")]), "knows"),
+        "e-late": (_d_fact(session, ids, "e1", scopes=[("rencontre", "A", "knows", "t2")]), "unaware"),
+        "e-early": (_d_fact(session, ids, "e2", scopes=[("rencontre", "A", "rumor", "t0")]), "rumor"),
+        "f-early": (_d_fact(session, ids, "f1", scopes=[("faction", "F1", "knows", "t0")]), "knows"),
+        "f-late": (_d_fact(session, ids, "f2", scopes=[("faction", "F2", "knows", "t2")]), "unaware"),
+        "f-active": (_d_fact(session, ids, "f3", scopes=[("faction", "F3", "rumor", "t3")]), "rumor"),
+        "g-place": (_d_fact(session, ids, "g1", scopes=[("rencontre", "B", "knows", "t3")]), "knows"),
+        "g-slot": (_d_fact(session, ids, "g2", scopes=[("rencontre", "S", "partial", "t3")]), "partial"),
+    }
+    for key in ("P", "B"):
+        char = session.get(Character, ids[key])
+        char.current_location_id = ids["Q"]
+        session.add(char)
+    for key in ("P", "S"):
+        session.add_all(write_npc_schedule(session, world_id=w, npc_id=ids[key],
+                                           rows=[{"phase": "soir", "location_id": ids["M"]}],
+                                           changed_by="check"))
+    session.commit()
+    return cases
+
+
+def check_d1(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.knowledge_resolve import resolve_known_for_entity, resolve_knowledge
+
+    with Session(engine) as session:
+        ids = _d_world(session)
+        cases = _d_cases(session, ids)
+        batch = resolve_known_for_entity(session, ids["P"])
+        for case, (fact_id, want) in sorted(cases.items()):
+            single = resolve_knowledge(session, ids["P"], fact_id).level
+            batched = batch[fact_id].level if fact_id in batch else "unaware"
+            if single != want or batched != want:
+                fail(f"D1 {case}: expected {want!r}, got {single!r} / {batched!r}")
+
+
+def check_d2(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.encounters import record_encounter
+    from world_engine.fact_versions import version_text
+    from world_engine.knowledge_resolve import resolve_known_for_entity, resolve_knowledge
+    from world_engine.models import Fact
+    from world_engine.writes.facts import update_fact_content
+
+    with Session(engine) as session:
+        ids = _d_world(session)
+        w = ids["world"]
+        record_encounter(session, world_id=w, a_id=ids["P"], b_id=ids["A"], source="visit", at=ids["t1"])
+        session.commit()
+        tenue = _d_fact(session, ids, "noir", facet="tenue", about="A",
+                        scopes=[("rencontre", "A", "knows", "t0")])
+        fact = session.get(Fact, tenue)
+        update_fact_content(session, fact=fact, content="D1 rouge", changed_by="check", kind="changement")
+        session.commit()
+        known = resolve_knowledge(session, ids["P"], tenue)
+        batched = resolve_known_for_entity(session, ids["P"]).get(tenue)
+        if known.as_of != ids["t1"] or batched is None or batched.as_of != ids["t1"]:
+            fail(f"D2: as_of is {known.as_of} / {batched}, expected {ids['t1']}")
+        elif version_text(fact.change_history, fact.content_raw, known.as_of) != "D1 noir":
+            fail("D2: the version known before the new encounter is not the old text")
+        record_encounter(session, world_id=w, a_id=ids["P"], b_id=ids["A"], source="gathering")
+        session.commit()
+        again = resolve_knowledge(session, ids["P"], tenue)
+        if version_text(fact.change_history, fact.content_raw, again.as_of) != "D1 rouge":
+            fail("D2: a new encounter did not bring the current text")
+        public = _d_fact(session, ids, "public", scopes=[("world", None, "rumor", None)])
+        own = _d_fact(session, ids, "own", facet="physique", about="P")
+        for label, fact_id in (("world", public), ("own", own)):
+            if resolve_knowledge(session, ids["P"], fact_id).as_of is not None:
+                fail(f"D2: a {label} fact is not always current")
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_a1()
@@ -502,6 +666,8 @@ def main() -> int:
     check_c1(engine)
     check_c2()
     check_c3()
+    check_d1(engine)
+    check_d2(engine)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -510,7 +676,8 @@ def main() -> int:
           "contact, presets tenue to rencontre, and migrates from v2.13 only; every "
           "placement and every encounter moves its last contact, through one writer each; "
           "every rewrite says whether it corrects or changes the world, and the version "
-          "known follows the changes alone")
+          "known follows the changes alone; a default is learned by a contact after it, kept "
+          "after leaving, and dated by the last contact with its anchors")
     return 0
 
 
