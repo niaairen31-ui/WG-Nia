@@ -7,7 +7,8 @@
   import { serverState } from '../lib/serverState.svelte.js';
   import {
     writeState, ENTITY_TYPES, SCOPE_TYPES, LEVELS, reloadForWorld, askQuestions, makeDraft,
-    pickExisting, refLabel, liveRefs, scopeRefs, addKnower, addDefault, removeAt, blockers,
+    pickExisting, refLabel, liveRefs, scopeOptions, scopeValue, pickScope, setScopeType,
+    addKnower, addDefault, removeAt, blockers,
     commit, restart, loadEntries, worldEntity,
   } from './writePanel.svelte.js';
 
@@ -141,13 +142,13 @@
           <div>Qui le sait par défaut :</div>
           {#each fact.defaults as scope, si (si)}
             <div class="row">
-              <select bind:value={scope.scope_type}>
+              <select value={scope.scope_type} onchange={(e) => setScopeType(scope, e.currentTarget.value)}>
                 {#each SCOPE_TYPES as s (s.value)}<option value={s.value}>{s.label}</option>{/each}
               </select>
               {#if scope.scope_type !== 'world'}
-                <select bind:value={scope.scope_ref}>
-                  <option value={undefined}>— choisir —</option>
-                  {#each scopeRefs(scope.scope_type) as e (e.ref)}<option value={e.ref}>{refLabel(e.ref)}</option>{/each}
+                <select value={scopeValue(scope)} onchange={(e) => pickScope(scope, e.currentTarget.value)}>
+                  <option value="">— choisir —</option>
+                  {#each scopeOptions(scope.scope_type) as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
                 </select>
               {/if}
               <button onclick={() => removeAt(fact.defaults, si)}>×</button>
