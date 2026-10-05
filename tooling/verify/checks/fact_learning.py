@@ -78,6 +78,25 @@ D2 -- `as_of` (N1). A `tenue` of A with a rencontre default on A at t0, A
    version known is the old text; after a new encounter, the current one.
    A fact with a `world` default and one's own description -> `as_of` None.
 
+E1 -- the readers give the version known (BRIEF-0105-E, fixture). P passed
+   a place at t1 whose `information` default dates from t0, and met A at t1
+   whose `tenue` has a rencontre default from t0; both facts are then
+   rewritten as a `changement`. `resolve_default_rows(P)` carries the old
+   information text, `known_facts_of(P, A, ("tenue",))` and
+   `known_fact_texts(P, [tenue])` the old outfit; after a new encounter with
+   A, the new outfit.
+E2 -- every knower reader goes through the version (AST):
+   `knowledge_resolve.resolve_default_rows` calls `version_text`;
+   `facet_reads.known_facts_of` and `day_choice._candidates` call
+   `versioned`; `context._row_fact_texts` and
+   `tick_context._tick_knowledge_block` call `known_fact_texts`;
+   `context_describe._npc_context_company` and `_mj_context_co_presents`
+   name the `tenue` facet.
+E3 -- the outfit in the scene (V1, fixture). A public NPC wearing a `tenue`
+   with its rencontre default, in an open gathering with the player at the
+   same place: `_mj_context_co_presents` gives its `tenue` text; blindfolded,
+   `None`.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that examines zero rows is a
 FAILURE.
@@ -653,6 +672,110 @@ def check_d2(engine) -> None:
                 fail(f"D2: a {label} fact is not always current")
 
 
+# --- E1-E3 ---------------------------------------------------------------------
+
+def check_e1(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.encounters import record_encounter
+    from world_engine.facet_reads import known_fact_texts, known_facts_of
+    from world_engine.knowledge_resolve import resolve_default_rows
+    from world_engine.models import Fact
+    from world_engine.passages import record_passage
+    from world_engine.writes.facts import update_fact_content
+
+    with Session(engine) as session:
+        ids = _d_world(session)
+        w = ids["world"]
+        record_passage(session, world_id=w, entity_id=ids["P"], location_id=ids["L"], at=ids["t1"])
+        record_encounter(session, world_id=w, a_id=ids["P"], b_id=ids["A"], source="visit", at=ids["t1"])
+        session.commit()
+        info = _d_fact(session, ids, "info-old", scopes=[("location", "L", "knows", "t0")])
+        tenue = _d_fact(session, ids, "tenue-old", facet="tenue", about="A",
+                        scopes=[("rencontre", "A", "knows", "t0")])
+        for fact_id, text in ((info, "D1 info-new"), (tenue, "D1 tenue-new")):
+            update_fact_content(session, fact=session.get(Fact, fact_id), content=text,
+                                changed_by="check", kind="changement")
+        session.commit()
+        rows = {k.fact_id: k.content_raw for k in resolve_default_rows(session, ids["P"], set())}
+        if rows.get(info) != "D1 info-old":
+            fail(f"E1: resolve_default_rows gives {rows.get(info)!r}")
+        seen = [r.content for r in known_facts_of(session, perceiver_id=ids["P"], entity_id=ids["A"],
+                                                   facets=("tenue",))]
+        label = known_fact_texts(session, ids["P"], [session.get(Fact, tenue)])
+        if seen != ["D1 tenue-old"] or label != ["D1 tenue-old"]:
+            fail(f"E1: the outfit known before a new encounter is {seen} / {label}")
+        record_encounter(session, world_id=w, a_id=ids["P"], b_id=ids["A"], source="conversation")
+        session.commit()
+        seen = [r.content for r in known_facts_of(session, perceiver_id=ids["P"], entity_id=ids["A"],
+                                                   facets=("tenue",))]
+        if seen != ["D1 tenue-new"]:
+            fail(f"E1: after a new encounter the outfit known is {seen}")
+
+
+_E2_CALLS = (
+    ("knowledge_resolve.py", "resolve_default_rows", "version_text"),
+    ("facet_reads.py", "known_facts_of", "versioned"),
+    ("day_choice.py", "_candidates", "versioned"),
+    ("context.py", "_row_fact_texts", "known_fact_texts"),
+    ("tick_context.py", "_tick_knowledge_block", "known_fact_texts"),
+)
+
+
+def check_e2() -> None:
+    import ast
+
+    for module, function, callee in _E2_CALLS:
+        tree = ast.parse((SRC / module).read_text(encoding="utf-8"))
+        fn = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == function), None)
+        if fn is None:
+            fail(f"E2: {module}::{function} is missing")
+            continue
+        names = {n.func.id if isinstance(n.func, ast.Name) else getattr(n.func, "attr", None)
+                 for n in ast.walk(fn) if isinstance(n, ast.Call)}
+        if callee not in names:
+            fail(f"E2: {module}::{function} does not call {callee}")
+    tree = ast.parse((SRC / "context_describe.py").read_text(encoding="utf-8"))
+    for function in ("_npc_context_company", "_mj_context_co_presents"):
+        fn = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == function), None)
+        if fn is None or not any(isinstance(n, ast.Constant) and n.value == "tenue" for n in ast.walk(fn)):
+            fail(f"E2: context_describe.py::{function} does not name the tenue facet")
+
+
+def check_e3(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.context_describe import _mj_context_co_presents
+    from world_engine.models import Character, Entity, Gathering, GatheringMember
+    from world_engine.models import Session as PlaySession
+
+    with Session(engine) as session:
+        ids = _d_world(session)
+        w = ids["world"]
+        for key in ("P", "A"):
+            char = session.get(Character, ids[key])
+            char.current_location_id = ids["Q"]
+            session.add(char)
+        session.get(Entity, ids["A"]).is_public = True
+        play = PlaySession(world_id=w, number=1)
+        session.add(play)
+        session.flush()
+        gathering = Gathering(world_id=w, session_id=play.id, location_id=ids["Q"], label="g")
+        session.add(gathering)
+        session.flush()
+        for key in ("P", "A"):
+            session.add(GatheringMember(gathering_id=gathering.id, entity_id=ids[key]))
+        session.commit()
+        _d_fact(session, ids, "veste verte", facet="tenue", about="A",
+                scopes=[("rencontre", "A", "knows", "t0")])
+        seen = _mj_context_co_presents(gathering.id, ids["P"], False, session)
+        blind = _mj_context_co_presents(gathering.id, ids["P"], True, session)
+        if [c.get("tenue") for c in seen] != ["D1 veste verte"]:
+            fail(f"E3: the scene shows {seen}")
+        if [c.get("tenue") for c in blind] != [None]:
+            fail(f"E3: blindfolded, the scene shows {blind}")
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_a1()
@@ -668,6 +791,9 @@ def main() -> int:
     check_c3()
     check_d1(engine)
     check_d2(engine)
+    check_e1(engine)
+    check_e2()
+    check_e3(engine)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -677,7 +803,8 @@ def main() -> int:
           "placement and every encounter moves its last contact, through one writer each; "
           "every rewrite says whether it corrects or changes the world, and the version "
           "known follows the changes alone; a default is learned by a contact after it, kept "
-          "after leaving, and dated by the last contact with its anchors")
+          "after leaving, and dated by the last contact with its anchors; every knower "
+          "reader gives the version known, and the scene shows the outfit")
     return 0
 
 

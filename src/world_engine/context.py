@@ -47,10 +47,10 @@ from .models import (
     SkillDefinition,
     World,
 )
-from .facet_reads import facts_of, joined, known_facts_of
+from .facet_reads import facts_of, joined, known_fact_texts, known_facts_of
 from .facets import FACETS
 from .knowledge_resolve import resolve_default_rows
-from .prose_render import fact_texts, knowledge_texts
+from .prose_render import knowledge_texts
 from .schedule_reads import where_is
 from .context_describe import (
     _mj_context_co_presents,
@@ -123,9 +123,12 @@ def _section(title: str, body: str) -> str:
 
 
 def _row_fact_texts(session: Session, rows: list[Knowledge]) -> list[str]:
-    """The rendered text of each row's fact, one entity query (TICKET-0097:
-    the fallback label of a row with no text of its own)."""
-    return fact_texts(session, [session.get(Fact, k.fact_id) for k in rows])
+    """The text of each row's fact as the row's holder knows it (TICKET-0097:
+    the fallback label of a row with no text of its own; TICKET-0105: the
+    version known). The rows of one call belong to one holder."""
+    if not rows:
+        return []
+    return known_fact_texts(session, rows[0].entity_id, [session.get(Fact, k.fact_id) for k in rows])
 
 
 def _knowledge_line(k: Knowledge, content: str | None, fact: str) -> str:
@@ -841,6 +844,7 @@ def format_mj_context(mj_context: dict) -> str:
         body = "\n".join(
             f"- {c['name']} : {c.get('description') or '(pas de description)'}"
             + (f" {c['physique']}" if c.get("physique") else "")
+            + (f" Tenue : {c['tenue']}" if c.get("tenue") else "")
             for c in co_presents
         )
         blocks.append(_section(H_MJ_PRESENT, body))

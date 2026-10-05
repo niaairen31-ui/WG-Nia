@@ -17818,6 +17818,27 @@ contacts the model of a collection does not rank. N2, only the anchor of
 the tier that gave the level: meeting the wearer would not refresh an
 outfit known through a place.
 
+
+## EVERY KNOWER READER GIVES THE VERSION KNOWN (TICKET-0105) -- AND THE SCENE SHOWS THE OUTFIT (BRIEF-0105-e, no schema change)
+
+**G1, N1.** The readers that show a fact as some entity knows it render the
+version known at that entity's `as_of`: the default rows of the NPC, MJ and
+tick contexts (`resolve_default_rows`), `facet_reads.known_facts_of` and
+its new `versioned`, the day-choice evidence, and the fallback label of a
+stored knowledge row with no text of its own (`facet_reads.
+known_fact_texts`, used by `context._row_fact_texts` and the tick
+briefing). A stored row with its own text is the holder's own version and
+is never rewritten. Readers that speak for the creator or for no one
+(`facts_of`, the authoring assistants, the dossier's facet rows) keep the
+current text.
+
+**V1.** The scene shows the outfit: a co-present NPC's line in the NPC
+context carries its known physique and outfit, and the MJ context's
+co-present entry gains a `tenue` key, known through the player's contact,
+absent when blindfolded. Being at the same place is a contact right now
+(O1), so the outfit shown in a scene is the current one; the versions
+matter for whoever is elsewhere.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -8,9 +8,10 @@ character's own name surfaces produced, and only when the judge accepts it.
 Every call is recorded (`writes.write_day_mention_choices`).
 
 Evidence is what the character knows about each candidate, read through
-`facet_reads.facts_of` (creator-only facts excluded by construction) and
-filtered by one `resolve_levels_for_entity` call. The gameplay model is
-abliterated: nothing the character does not know is ever assembled.
+`facet_reads.facts_of` (creator-only facts excluded by construction),
+filtered by one `resolve_known_for_entity` call and given in the version the
+character knows (`facet_reads.versioned`, TICKET-0105). The gameplay model
+is abliterated: nothing the character does not know is ever assembled.
 """
 
 from __future__ import annotations
@@ -23,9 +24,9 @@ from sqlmodel import Session, select
 from . import llm_parse, ollama_client
 from .day_concordance import ConcordanceResult, MatchedMention
 from .day_extract import Mention
-from .facet_reads import facts_of
+from .facet_reads import facts_of, versioned
 from .facets import FACETS
-from .knowledge_resolve import resolve_levels_for_entity
+from .knowledge_resolve import Known, resolve_known_for_entity
 from .lore_resolve import category_of_type, near_in_surfaces, normalize_surface, rung_named_partial
 from .models import Character, Entity, PromptTemplate
 from .name_index import NameScope, surfaces as name_surfaces
@@ -74,7 +75,7 @@ def _near_ids(mention: Mention, surfaces: tuple) -> list[str]:
     return ids[:MAX_CANDIDATES]
 
 
-def _candidates(ids: list[str], known: dict[str, str], db: Session) -> tuple[Candidate, ...]:
+def _candidates(ids: list[str], known: dict[str, Known], db: Session) -> tuple[Candidate, ...]:
     """C-05 step 3: evidence per candidate, known facts only."""
     out: list[Candidate] = []
     for entity_id in ids:
@@ -82,7 +83,7 @@ def _candidates(ids: list[str], known: dict[str, str], db: Session) -> tuple[Can
         if entity is None:
             continue
         rows = [r for r in facts_of(db, entity_id=entity_id, facets=tuple(FACETS)) if r.fact_id in known]
-        rows = rows[:MAX_FACTS_PER_CANDIDATE]
+        rows = versioned(db, rows[:MAX_FACTS_PER_CANDIDATE], known)
         out.append(Candidate(
             entity_id=entity_id, name=entity.name,
             facts=tuple(r.content for r in rows), fact_ids=tuple(r.fact_id for r in rows),
@@ -97,7 +98,7 @@ def choice_requests(result: ConcordanceResult, character: Character, db: Session
     near_mentions = [um.mention for um in result.unmatched if um.mention.kind == "named"]
     if not result.ambiguous and not near_mentions:
         return ()
-    known = resolve_levels_for_entity(db, character.id)
+    known = resolve_known_for_entity(db, character.id)
     requests: list[ChoiceRequest] = []
     for am in result.ambiguous:
         candidates = _candidates(list(am.candidate_ids), known, db)

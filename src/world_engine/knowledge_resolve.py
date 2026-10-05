@@ -60,7 +60,7 @@ from typing import Iterable, Optional
 
 from sqlmodel import Session, select
 
-from .fact_versions import utc
+from .fact_versions import utc, version_text
 from .facets import DESCRIPTIVE_FACETS
 from .models import (
     Character, Entity, Fact, FactDefault, FactionMembership, FactParticipant, Knowledge, Location,
@@ -345,10 +345,11 @@ def resolve_default_rows(
     three readers already use for a stored row. A fact whose facet is in
     `DESCRIPTIVE_FACETS` is skipped: what is said of an entity is read
     through `facet_reads`, never as speakable knowledge, so the three
-    readers' knowledge section is unchanged (TICKET-0091, Q13a)."""
-    levels = resolve_levels_for_entity(db, entity_id)
+    readers' knowledge section is unchanged (TICKET-0091, Q13a). Each row's
+    text is the version of the fact the entity knows (TICKET-0105,
+    `fact_versions.version_text` at its `as_of`)."""
     rows: list[Knowledge] = []
-    for fact_id, level in levels.items():
+    for fact_id, known in resolve_known_for_entity(db, entity_id).items():
         if fact_id in exclude_fact_ids:
             continue
         fact = db.get(Fact, fact_id)
@@ -356,9 +357,9 @@ def resolve_default_rows(
             continue
         rows.append(
             Knowledge(
-                entity_id=entity_id, fact_id=fact_id,
-                level=level, content_raw=fact.content_raw, is_secret=False,
-                share_threshold=DEFAULT_SHARE_THRESHOLD,
+                entity_id=entity_id, fact_id=fact_id, level=known.level,
+                content_raw=version_text(fact.change_history, fact.content_raw, known.as_of),
+                is_secret=False, share_threshold=DEFAULT_SHARE_THRESHOLD,
             )
         )
     return rows
