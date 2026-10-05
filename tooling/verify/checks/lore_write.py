@@ -80,6 +80,17 @@ F1 -- panel (BRIEF-0098-F), static:
    c. `WritePanel.svelte` lists the facets it offers from `draft.facets`
       (served from `FACETS`), never from a literal list, and offers no free
       text field for an entity id.
+F2 -- scope picker (TICKET-0104, BRIEF-0104-A, A1 / A1'a), static, in
+   `frontend/src/lore/writePanel.svelte.js` and `WritePanel.svelte`:
+   a. `scopeOptions` reads `writeState.entities` (the world's entities) and
+      `liveRefs(` (the draft's): a scope is never limited to what the text
+      named;
+   b. the key set of `SCOPE_ENTITY_TYPE` is exactly {faction, location} --
+      `rencontre` takes any type, like the preset in `writes/facets.py`;
+   c. `addKnower` and `pickScope` both call `existingRef(`: one path adds a
+      world entity to the draft;
+   d. `WritePanel.svelte` calls `scopeOptions(`, `pickScope(` and
+      `setScopeType(`, and no longer names `scopeRefs`.
 C2 -- purity. `lore_write_apply.py` and `writes/lore_entries.py` contain no
    `chat(`, no `.commit(`, and import neither `ollama_client` nor any
    `cockpit` module; `lore_write_draft.py` contains no `db.add(`, no
@@ -640,6 +651,26 @@ def check_f1() -> None:
         fail("F1c: WritePanel.svelte exposes an entity id outside a picker")
 
 
+def check_f2() -> None:
+    lore = ROOT / "frontend" / "src" / "lore"
+    state = (lore / "writePanel.svelte.js").read_text(encoding="utf-8")
+    start = state.find("export function scopeOptions(")
+    body = state[start:state.find("\n}\n", start)] if start >= 0 else ""
+    if "writeState.entities" not in body or "liveRefs(" not in body:
+        fail("F2a: scopeOptions does not offer both the world's and the draft's entities")
+    keys = re.search(r"SCOPE_ENTITY_TYPE = Object\.freeze\(\{([^}]*)\}\)", state)
+    if keys is None or set(re.findall(r"(\w+):", keys.group(1))) != {"faction", "location"}:
+        fail("F2b: SCOPE_ENTITY_TYPE keys are not exactly {faction, location}")
+    for name in ("export function addKnower(", "export function pickScope("):
+        at = state.find(name)
+        if at < 0 or "existingRef(" not in state[at:state.find("\n}\n", at)]:
+            fail(f"F2c: {name.split()[-1]} does not go through existingRef(")
+    panel = (lore / "WritePanel.svelte").read_text(encoding="utf-8")
+    if not all(f"{n}(" in panel for n in ("scopeOptions", "pickScope", "setScopeType")) \
+            or "scopeRefs" in panel:
+        fail("F2d: WritePanel.svelte does not use the world-wide scope picker")
+
+
 def check_d2() -> None:
     import re as _re
 
@@ -678,6 +709,7 @@ def main() -> int:
     check_e1()
     check_e2()
     check_f1()
+    check_f2()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -687,7 +719,7 @@ def main() -> int:
           "writes all or nothing, each row recorded, existing rows skipped; the draft "
           "names things by name and code only and resolves both in code; the routes are "
           "thin, guarded, and write canon only on commit; the panel lives in the Lore shell's "
-          "'Écrire' tab")
+          "'Écrire' tab, and its scopes pick from the whole world")
     return 0
 
 

@@ -127,13 +127,16 @@ export function liveRefs(type) {
     && e.decision !== 'text' && (!type || e.type === type));
 }
 
-export function scopeRefs(scopeType) {
-  return liveRefs(SCOPE_ENTITY_TYPE[scopeType]);
-}
-
-export function addKnower(fact, entityId) {
+/* TICKET-0104 (BRIEF-0104-A, A1, A1'a). A scope picks its entity from the
+   whole world, not only from the entities the text named: the entities of
+   the draft first (a new one included), then every active entity of the
+   world of the scope's type that the draft does not hold yet. `rencontre`
+   has no entry in SCOPE_ENTITY_TYPE: any type, like the preset
+   (writes/facets.py). A world entity picked here joins the draft as
+   'existing', by the same path as a knower (`existingRef`). */
+function existingRef(entityId) {
   const picked = worldEntity(entityId);
-  if (!picked) return;
+  if (!picked) return undefined;
   const draft = writeState.draft;
   let entity = draft.entities.find((e) => e.decision === 'existing' && e.entity_id === picked.id);
   if (!entity) {
@@ -143,8 +146,44 @@ export function addKnower(fact, entityId) {
     };
     draft.entities.push(entity);
   }
-  if (!fact.knowers.some((k) => k.entity_ref === entity.ref)) {
-    fact.knowers.push({ entity_ref: entity.ref, level: 'knows', is_secret: false, is_incorrect: false });
+  return entity.ref;
+}
+
+export function scopeOptions(scopeType) {
+  const want = SCOPE_ENTITY_TYPE[scopeType];
+  const inDraft = liveRefs(want);
+  const held = new Set(inDraft.filter((e) => e.decision === 'existing').map((e) => e.entity_id));
+  const world = (writeState.entities || [])
+    .filter((e) => (!want || e.type === want) && !held.has(e.id))
+    .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  return [
+    ...inDraft.map((e) => ({ value: `ref:${e.ref}`, label: refLabel(e.ref) })),
+    ...world.map((e) => ({ value: `id:${e.id}`, label: e.name })),
+  ];
+}
+
+export function scopeValue(scope) {
+  return scope.scope_ref ? `ref:${scope.scope_ref}` : '';
+}
+
+export function pickScope(scope, value) {
+  if (value.startsWith('ref:')) scope.scope_ref = value.slice(4);
+  else if (value.startsWith('id:')) scope.scope_ref = existingRef(value.slice(3));
+  else scope.scope_ref = undefined;
+}
+
+export function setScopeType(scope, scopeType) {
+  scope.scope_type = scopeType;
+  const want = SCOPE_ENTITY_TYPE[scopeType];
+  const entity = (writeState.draft?.entities || []).find((e) => e.ref === scope.scope_ref);
+  if (scopeType === 'world' || !entity || (want && entity.type !== want)) scope.scope_ref = undefined;
+}
+
+export function addKnower(fact, entityId) {
+  const ref = existingRef(entityId);
+  if (!ref) return;
+  if (!fact.knowers.some((k) => k.entity_ref === ref)) {
+    fact.knowers.push({ entity_ref: ref, level: 'knows', is_secret: false, is_incorrect: false });
   }
 }
 

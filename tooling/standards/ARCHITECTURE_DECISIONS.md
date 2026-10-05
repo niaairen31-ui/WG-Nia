@@ -17696,6 +17696,32 @@ the export, in a Claude Code session, never in the application.
 analysis has shown which measures deserve a screen; its first UI consumer
 relationalizes the JSON columns (D2).
 
+
+## A LORE SCOPE PICKS FROM THE WHOLE WORLD (TICKET-0104) -- RENCONTRE TAKES ANY TYPE (BRIEF-0104-a, no schema change)
+
+**A1.** In the Lore writing panel, « Qui le sait par défaut » picks the
+entity of a `location` or `faction` scope among the draft's entities first
+(a new one included), then among every active entity of the world of that
+type. Before, it offered only the entities the text named: a text naming no
+place left « Ceux qui sont dans le lieu » with nothing to choose. A world
+entity picked for a scope joins the draft as `existing`, by the same helper
+(`existingRef`) a knower uses, so the server's validation is unchanged:
+`lore_write_apply._validate_scopes` already checks every scope's ref and its
+type.
+
+**A1'a.** A `rencontre` scope takes an entity of any type. The preset
+(`writes/facets.py::_preset_scope`) already gives an appellation of a place,
+a faction or an object a `rencontre` scope on its own entity, and a social
+relation records an encounter whatever the types of its two ends
+(`writes/relations.py::_on_relation_born`). Changing the scope type clears a
+picked entity whose type the new scope refuses.
+
+**Rejected.** A1'b, `rencontre` limited to characters in the panel and on
+the server: the `rencontre` scope of a non-character appellation could no
+longer be written from the Lore tool. Reactivates if a production
+measurement shows no `rencontre` pair involving anything but two
+characters.
+
 ---
 
 *Co-built with Claude, June 2026.*

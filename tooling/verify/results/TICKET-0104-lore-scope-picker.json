@@ -1,0 +1,32 @@
+{
+  "ticket": "TICKET-0104-lore-scope-picker",
+  "when": "2026-10-05T15:18:29.513496+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "lore_write.py",
+      "status": "PASS",
+      "msg": "PASS: lore_write -- census of 5 module(s) holds; v2.11 declares the source record and migrates from v2.10 only; a proposal writes all or nothing, each row recorded, existing rows skipped; the draft names things by name and code only and resolves both in code; the routes are thin, guarded, and write canon only on commit; the panel lives in the Lore shell's '\u00c9crire' tab, and its scopes pick from the whole world"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u2014 107 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "lore_usage.py",
+      "status": "PASS",
+      "msg": "PASS: lore_usage -- the journal is named by its model and its writer only; v2.13 declares it without world_id or FK and migrates from v2.12 only; the writer refuses every malformed record; a journal row outlives its world; every Lore model call can be captured with its prompt version and raw reply; every writing and consultation step is journaled under its attempt, failures included; both panels send their attempt id; the export reads every attempt and writes nothing"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 137 check(s) discovered, 137 executed, 137 passed"
+    }
+  ]
+}
