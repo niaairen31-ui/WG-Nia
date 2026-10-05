@@ -24,6 +24,24 @@ A2 -- migration `scripts/migrate_v2_14_passage.py`, on a v2.13-shaped
       `schema_meta` to the code's version;
    c. a second run exits zero and changes no row.
 
+B1 -- one writer (BRIEF-0105-B, AST). No `Passage(` call under `src/` or
+   `scripts/` outside `src/world_engine/passages.py` and
+   `scripts/migrate_v2_14_passage.py`; the text `UPDATE passage` /
+   `DELETE FROM passage` (case-insensitive) appears nowhere in `src/`.
+B2 -- the listener. `src/world_engine/db.py` imports `passages`, and
+   `passages.listener_registered()` is true once `world_engine.db` is
+   imported.
+B3 -- every placement is a passage (fixture): a character created at L1;
+   moved to L2 by `write_character_location`; moved to L3 by assigning
+   `current_location_id` (the travel path); each flush leaves exactly the
+   passages of the places entered and left, `last_at` never moving back;
+   recording one pair twice in one flush leaves one row; an NPC schedule
+   at L4, then replaced by one at L5, leaves passages at L4 and L5.
+B4 -- encounters move their last contact (fixture): a new pair has
+   `last_at == first_at`; a later `visit` encounter moves `last_at` and
+   keeps `first_at` and the row count; a later `relation` encounter and an
+   earlier `gathering` one move nothing.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that examines zero rows is a
 FAILURE.
@@ -206,16 +224,175 @@ def check_a2(db_path: str) -> None:
         fail(f"A2c: second run exit {again.returncode} or changed rows: {again.stdout.strip()[-200:]}")
 
 
+# --- B1-B4 ---------------------------------------------------------------------
+
+def check_b1() -> None:
+    import ast
+    import re
+
+    allowed = {"src/world_engine/passages.py", "scripts/migrate_v2_14_passage.py"}
+    seen = 0
+    for base in (ROOT / "src", ROOT / "scripts"):
+        for path in sorted(base.rglob("*.py")):
+            rel = path.relative_to(ROOT).as_posix()
+            text = path.read_text(encoding="utf-8")
+            seen += 1
+            for node in ast.walk(ast.parse(text)):
+                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                        and node.func.id == "Passage" and rel not in allowed):
+                    fail(f"B1: Passage( constructed in {rel}")
+            if rel.startswith("src/") and re.search(r"(UPDATE\s+passage|DELETE\s+FROM\s+passage)\b",
+                                                    text, re.IGNORECASE):
+                fail(f"B1: raw passage mutation in {rel}")
+    if seen == 0:
+        fail("B1: no file scanned")
+
+
+def check_b2() -> None:
+    db_text = (SRC / "db.py").read_text(encoding="utf-8")
+    if "from world_engine import passages" not in db_text:
+        fail("B2: db.py does not import passages")
+    import world_engine.db  # noqa: F401
+    from world_engine import passages
+    if not passages.listener_registered():
+        fail("B2: the placement listener is not registered")
+
+
+def _world(session, name: str) -> dict:
+    from world_engine.models import Entity, Location, World
+
+    world = World(name=name, is_active=False)
+    session.add(world)
+    session.flush()
+    ids = {"world": world.id}
+    for key in ("L1", "L2", "L3", "L4", "L5"):
+        row = Entity(world_id=world.id, type="location", name=f"{name} {key}")
+        session.add(row)
+        session.flush()
+        session.add(Location(id=row.id, parent_location_id=None))
+        ids[key] = row.id
+    for key in ("A", "B"):
+        row = Entity(world_id=world.id, type="character", name=f"{name} {key}")
+        session.add(row)
+        session.flush()
+        ids[key] = row.id
+    session.commit()
+    return ids
+
+
+def _passages_of(session, entity_id: str) -> dict:
+    from sqlmodel import select
+
+    from world_engine.models import Passage
+    rows = session.exec(select(Passage).where(Passage.entity_id == entity_id)).all()
+    return {r.location_id: r.last_at for r in rows}
+
+
+def check_b3(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.models import Character
+    from world_engine.passages import record_passage
+    from world_engine.writes import write_character_location, write_npc_schedule
+
+    with Session(engine) as session:
+        ids = _world(session, "B3")
+        session.add(Character(id=ids["A"], world_id=ids["world"], character_type="npc",
+                              current_location_id=ids["L1"]))
+        session.commit()
+        first = _passages_of(session, ids["A"])
+        if set(first) != {ids["L1"]}:
+            fail(f"B3: creation left passages {sorted(first)}")
+            return
+        write_character_location(session, entity_id=ids["A"], to_location_id=ids["L2"])
+        session.commit()
+        moved = _passages_of(session, ids["A"])
+        if set(moved) != {ids["L1"], ids["L2"]} or moved[ids["L1"]] < first[ids["L1"]]:
+            fail(f"B3: a move left passages {moved}")
+        char = session.get(Character, ids["A"])
+        char.current_location_id = ids["L3"]
+        session.add(char)
+        session.commit()
+        travelled = _passages_of(session, ids["A"])
+        if set(travelled) != {ids["L1"], ids["L2"], ids["L3"]} or travelled[ids["L2"]] < moved[ids["L2"]]:
+            fail(f"B3: an assignment left passages {travelled}")
+        record_passage(session, world_id=ids["world"], entity_id=ids["A"], location_id=ids["L4"])
+        record_passage(session, world_id=ids["world"], entity_id=ids["A"], location_id=ids["L4"])
+        session.commit()
+        if len(_passages_of(session, ids["A"])) != 4:
+            fail("B3: one pair recorded twice in one flush is not one row")
+        session.add(Character(id=ids["B"], world_id=ids["world"], character_type="npc"))
+        session.commit()
+        for place in ("L4", "L5"):
+            session.add_all(write_npc_schedule(
+                session, world_id=ids["world"], npc_id=ids["B"],
+                rows=[{"phase": "soir", "location_id": ids[place]}], changed_by="check"))
+            session.commit()
+        if set(_passages_of(session, ids["B"])) != {ids["L4"], ids["L5"]}:
+            fail(f"B3: schedules left passages {sorted(_passages_of(session, ids['B']))}")
+
+
+def check_b4(engine) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from sqlmodel import Session, select
+
+    from world_engine.encounters import record_encounter
+    from world_engine.models import Rencontre
+
+    with Session(engine) as session:
+        ids = _world(session, "B4")
+        t0 = datetime(2026, 1, 1, tzinfo=UTC)
+
+        def row():
+            rows = session.exec(select(Rencontre).where(Rencontre.world_id == ids["world"])).all()
+            return rows[0] if len(rows) == 1 else None
+
+        def stamp(value):
+            return value.replace(tzinfo=UTC) if value.utcoffset() is None else value
+
+        record_encounter(session, world_id=ids["world"], a_id=ids["A"], b_id=ids["B"],
+                         source="gathering", at=t0)
+        session.commit()
+        created = row()
+        if created is None or stamp(created.last_at) != stamp(created.first_at):
+            fail("B4: a new pair's last_at is not its first_at")
+            return
+        later = t0 + timedelta(days=3)
+        record_encounter(session, world_id=ids["world"], a_id=ids["B"], b_id=ids["A"],
+                         source="visit", at=later)
+        session.commit()
+        moved = row()
+        if moved is None or stamp(moved.last_at) != later or stamp(moved.first_at) != t0:
+            fail("B4: a later visit did not move last_at alone")
+            return
+        record_encounter(session, world_id=ids["world"], a_id=ids["A"], b_id=ids["B"],
+                         source="relation", at=later + timedelta(days=1))
+        record_encounter(session, world_id=ids["world"], a_id=ids["A"], b_id=ids["B"],
+                         source="gathering", at=t0)
+        session.commit()
+        kept = row()
+        if kept is None or stamp(kept.last_at) != later:
+            fail("B4: a relation or an earlier encounter moved last_at")
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_a1()
     check_a2(db_path)
+    check_b1()
+    check_b2()
+    from world_engine.db import create_db_and_tables, engine
+    create_db_and_tables()
+    check_b3(engine)
+    check_b4(engine)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         return 1
     print("PASS: fact_learning -- v2.14 declares passage and the encounter's last "
-          "contact, presets tenue to rencontre, and migrates from v2.13 only")
+          "contact, presets tenue to rencontre, and migrates from v2.13 only; every "
+          "placement and every encounter moves its last contact, through one writer each")
     return 0
 
 

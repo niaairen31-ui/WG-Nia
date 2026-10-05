@@ -1,8 +1,10 @@
 """G1 check: the encounter registry (TICKET-0091, BRIEF-0091-C, gate (e)).
 
 `rencontre` is non-canon bookkeeping with exactly one writer
-(`src/world_engine/encounters.py`), never updated, never deleted, fed by
-every live encounter site. Four rules:
+(`src/world_engine/encounters.py`), never deleted, fed by every live
+encounter site; its only moving column, `last_at` (TICKET-0105), is set by
+attribute in `encounters.py` and covered by `fact_learning.py` B4. Four
+rules:
 
 R1 (AST) -- no `Rencontre(` call anywhere under `src/` or `scripts/`
    outside `src/world_engine/encounters.py` and

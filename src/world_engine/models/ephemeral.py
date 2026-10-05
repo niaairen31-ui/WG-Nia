@@ -159,7 +159,8 @@ class Visit(SQLModel, table=True):
 # contract C-06). One row per UNORDERED entity pair (`entity_lo_id` <
 # `entity_hi_id`, compared as strings); the earliest known encounter wins.
 # Derived from play traces and authored state, never edited by hand, never
-# updated, never deleted. NOT in canon_write_policy.txt's CANON_TABLES —
+# deleted; only `last_at` moves forward (TICKET-0105, BRIEF-0105-B). NOT in
+# canon_write_policy.txt's CANON_TABLES —
 # non-canon bookkeeping like visit/gathering, with its own writer
 # (`encounters.py`, BRIEF-0091-C). No JSON column.
 # -----------------------------------------------------------------------------

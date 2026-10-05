@@ -47,6 +47,7 @@ from sqlalchemy import text
 from sqlmodel import Session, select
 
 from ..encounters import record_encounter
+from ..passages import record_passages
 from ..models import (
     Character,
     ConversationWindowConfig,
@@ -475,6 +476,7 @@ def write_npc_schedule(
 
         clean.append((phase, location_id, standing_goal_id))
 
+    _record_schedule_contacts(db, world_id=world_id, npc_id=npc_id, clean=clean)
     db.execute(text("DELETE FROM npc_schedule WHERE npc_id = :npc_id"), {"npc_id": npc_id})
 
     new_rows: list[NpcSchedule] = []
@@ -488,8 +490,20 @@ def write_npc_schedule(
         )
         db.add(row)
         new_rows.append(row)
-    _record_schedule_encounters(db, world_id=world_id, npc_id=npc_id, clean=clean)
     return new_rows
+
+
+def _record_schedule_contacts(
+    db: Session, *, world_id: str, npc_id: str, clean: list[tuple[str, str, Optional[str]]]
+) -> None:
+    """Before the old rows go: the encounters the new schedule makes, and the
+    passages of every place the old or the new schedule names. A schedule
+    names places without moving anyone, so naming a place and dropping it
+    are both contacts of this moment (TICKET-0105, BRIEF-0105-B, L1)."""
+    previous = db.exec(select(NpcSchedule.location_id).where(NpcSchedule.npc_id == npc_id)).all()
+    _record_schedule_encounters(db, world_id=world_id, npc_id=npc_id, clean=clean)
+    record_passages(db, world_id=world_id, entity_id=npc_id,
+                    location_ids=list(previous) + [loc for _phase, loc, _goal in clean])
 
 
 def _record_schedule_encounters(

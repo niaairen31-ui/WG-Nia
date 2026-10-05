@@ -158,3 +158,9 @@ def get_session():
     """Yield a database session (FastAPI dependency-friendly)."""
     with Session(engine) as session:
         yield session
+
+
+# Every placement write records a `passage` (TICKET-0105, BRIEF-0105-B, P1):
+# the listener attaches to the Session class when this module is imported, so
+# no session that reaches the engine can write a location without it.
+from world_engine import passages as _passages  # noqa: E402,F401

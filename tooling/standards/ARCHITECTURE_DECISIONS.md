@@ -17749,6 +17749,27 @@ acquaintance would forget them. B4, writing knowledge rows at each
 contact: rows by the thousand and the end of read-time resolution;
 reactivates if a reader needs a stored row where only a default exists.
 
+
+## EVERY PLACEMENT AND EVERY ENCOUNTER IS A CONTACT (TICKET-0105) -- ONE LISTENER, ONE WRITER (BRIEF-0105-b, no schema change)
+
+**P1.** `passages.py` is the sole writer of `passage`. Its `before_flush`
+listener, attached to the SQLAlchemy `Session` class when `db.py` is
+imported, sees every character created with a location or whose
+`current_location_id` changes, whatever the path (travel, the tick's NPC
+move, zone promotion, the fiche, PC creation, a batch), and records both
+the place entered and the place left: leaving is a contact too. A schedule
+names places without moving anyone, so `write_npc_schedule` records the
+passages of every place its old and new rows name, before the old rows go.
+
+**L1.** `record_encounter` moves an existing pair's `last_at` forward --
+never back -- for every source but `relation`: a social relation makes two
+entities acquaintances (Q5a) but is not a contact.
+
+**Rejected.** P2, routing every placement through
+`write_character_location` with an AST check: the fiche and batch creators
+place characters through `**ext_kwargs`, which no static scan can see.
+Reactivates if the listener proves incompatible with a write path.
+
 ---
 
 *Co-built with Claude, June 2026.*
