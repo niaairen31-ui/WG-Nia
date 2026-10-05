@@ -71,7 +71,7 @@ EXPECTED_FACETS = (
     ("appellation", "identite", "affirmation", "rencontre", ()),
     ("statut", "identite", "affirmation", "location", ()),
     ("physique", "identite", "bloc", "rencontre", ()),
-    ("tenue", "identite", "bloc", "none", ()),
+    ("tenue", "identite", "bloc", "rencontre", ()),
     ("description", "identite", "bloc", "public_world", ()),
     ("reputation", "identite", "affirmation", "location", ()),
     ("histoire", "interiorite", "affirmation", "none", ()),

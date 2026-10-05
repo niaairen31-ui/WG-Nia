@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.13
+Current schema version: v2.14
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1981,7 +1981,12 @@ Encounter registry (schema v2.05, TICKET-0091, BRIEF-0091-A): one row per
 UNORDERED entity pair that has met — `entity_lo_id` < `entity_hi_id`,
 compared as strings; the earliest known encounter wins. Derived from play
 traces (visit, gathering, conversation) and authored state (schedule,
-relation), never edited by hand, never updated, never deleted. NOT a canon
+relation), never edited by hand, never deleted. `last_at` (schema v2.14,
+TICKET-0105) is the pair's last contact: set to `first_at` on creation and
+moved forward by every later encounter except a `relation` one -- the only
+column ever updated, only by `encounters.py`. Nullable in SQL (SQLite adds
+no NOT NULL column without a constant default); the v2.14 migration dated
+every existing row with its own time. NOT a canon
 table (`canon_write_policy.txt`) — non-canon bookkeeping like `visit`, with
 one writer (`encounters.py`). Read by the `rencontre` scope of
 `fact_default`. `source` in `ENCOUNTER_SOURCES` (`models/ephemeral.py`):
@@ -1996,10 +2001,36 @@ CREATE TABLE rencontre (
   entity_hi_id      TEXT NOT NULL REFERENCES entity(id),
   first_at          DATETIME NOT NULL,
   source            TEXT NOT NULL,
-  source_ref        TEXT
+  source_ref        TEXT,
+  last_at           DATETIME          -- last contact (v2.14); filled by every writer
 );
 CREATE UNIQUE INDEX idx_rencontre_pair ON rencontre(entity_lo_id, entity_hi_id);
 CREATE INDEX idx_rencontre_hi ON rencontre(entity_hi_id);
+```
+
+-----
+
+### `passage`
+
+Place registry (schema v2.14, TICKET-0105, BRIEF-0105-A): one row per
+(character, location) pair; `last_at` is the last moment the character was
+there -- entering it, leaving it, or a schedule naming it. Written only by
+`passages.py`, from every placement write, never deleted except by the world
+cascade. NOT a canon table -- non-canon bookkeeping like `visit` and
+`rencontre`. Read by the `location` tier of `knowledge_resolve.py`: a
+`location` default is known to whoever was in its place, or in a place
+inside it, after the default was written.
+
+```sql
+CREATE TABLE passage (
+  id                TEXT PRIMARY KEY,
+  world_id          TEXT NOT NULL REFERENCES world(id),
+  entity_id         TEXT NOT NULL REFERENCES entity(id),
+  location_id       TEXT NOT NULL REFERENCES entity(id),
+  last_at           DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX idx_passage_entity_location ON passage(entity_id, location_id);
+CREATE INDEX idx_passage_location ON passage(location_id);
 ```
 
 -----
@@ -2583,6 +2614,10 @@ CREATE INDEX idx_visit_player_location ON visit(player_id, location_id, entered_
 CREATE UNIQUE INDEX idx_rencontre_pair ON rencontre(entity_lo_id, entity_hi_id);
 CREATE INDEX idx_rencontre_hi ON rencontre(entity_hi_id);
 CREATE INDEX idx_unresolved_mention_world_open ON unresolved_mention(world_id, resolved_at);
+
+-- place registry: one row per (character, location) (schema v2.14, BRIEF-0105-A)
+CREATE UNIQUE INDEX idx_passage_entity_location ON passage(entity_id, location_id);
+CREATE INDEX idx_passage_location ON passage(location_id);
 
 -- agendas: by owner + status (schema v1.72, BRIEF-0018-a)
 CREATE INDEX idx_agenda_owner_status ON agenda(owner_entity_id, status);

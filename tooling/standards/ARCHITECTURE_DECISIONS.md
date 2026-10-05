@@ -17722,6 +17722,33 @@ longer be written from the Lore tool. Reactivates if a production
 measurement shows no `rencontre` pair involving anything but two
 characters.
 
+
+## WHAT A CHARACTER KEEPS OF A FACT (TICKET-0105) -- PASSAGE AND THE ENCOUNTER'S LAST CONTACT (BRIEF-0105-a, schema v2.14)
+
+**B5.** Knowing a fact through a place or an encounter is decided at read
+time from the date of the last contact, never by writing knowledge rows.
+Two registries hold that date: `passage`, one row per (character,
+location) with `last_at`, and `rencontre.last_at`, the last contact of a
+pair. `last_at` is the one column of `rencontre` that is ever updated
+(only by `encounters.py`); it is nullable in SQL because SQLite adds no
+NOT NULL column without a constant default, and every writer sets it.
+
+**V1.** The `tenue` facet presets `rencontre`: an outfit is learned by
+meeting its wearer, like the physique. The migration gives the existing
+one-participant `tenue` facts that default.
+
+**M1, Q1.** The migration dates every existing encounter with its own time
+(everyone who has met has seen the other as they are today), fills
+`passage` from current locations, NPC schedules and visits, and leaves
+change histories alone: an entry without a `kind` reads as a correction,
+so nobody's knowledge is stale after it.
+
+**Rejected.** Q2, `last_at = first_at`: the physique facts the v2.06
+migration created carry that migration's date, so every older
+acquaintance would forget them. B4, writing knowledge rows at each
+contact: rows by the thousand and the end of read-time resolution;
+reactivates if a reader needs a stored row where only a default exists.
+
 ---
 
 *Co-built with Claude, June 2026.*

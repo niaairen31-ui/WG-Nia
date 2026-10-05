@@ -41,7 +41,7 @@ _SPECS = (
               "Une position sociale, une charge ou un rang que l'entité occupe."),
     FacetSpec("physique", "identite", "bloc", "rencontre", "Physique",
               "Ce que l'on voit durablement de l'entité : corps, visage, allure."),
-    FacetSpec("tenue", "identite", "bloc", "none", "Tenue",
+    FacetSpec("tenue", "identite", "bloc", "rencontre", "Tenue",
               "Ce que l'entité porte en ce moment et qui peut changer."),
     FacetSpec("description", "identite", "bloc", "public_world", "Description",
               "La présentation générale de l'entité."),
