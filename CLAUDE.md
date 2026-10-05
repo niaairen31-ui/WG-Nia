@@ -372,6 +372,9 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   `creation_container_sizing.py`.
 - Inside a `$effect` body, a `$state` binding assigned there must not be read afterwards in the
   same body — enforced by `effect_self_write.py`.
+- `passage` is written only by `passages.py`, whose `before_flush` listener records every
+  placement write; `rencontre.last_at` moves forward only, in `encounters.py` -- enforced by
+  `fact_learning.py`.
 - **The lore renderer receives rows, never a `Session`,** and only the `answered` verdict reaches
   a model — every empty verdict is rendered by code, so an absence is never explained by a model.
 - **The Lore usage journal (`lore_usage_event`) is written only through `lore_usage` and read only
@@ -444,7 +447,7 @@ WG-Nia/
 │   ├── context*.py          # NPC/MJ assembly + exclusions; context_window.py: sliding-window seam
 │   ├── knowledge_resolve.py, facet_reads.py, prose_*.py  # level resolution; facet reads; tokens
 │   ├── tick*.py             # world-tick: orchestrate/assemble/normalize; sites in world_tick.py
-│   ├── gathering.py, encounters.py  # NPC clustering; rencontre's sole writer (non-canon)
+│   ├── gathering.py, encounters.py, passages.py  # clustering; rencontre's, passage's writers
 │   ├── ollama_client.py     # local Ollama HTTP client; think-stripping; ping()
 │   ├── analyzer*.py         # conversation-bound wrapper + conversation-agnostic judging core
 │   ├── observation_*.py     # observed-lane socle/engine/runner/reads/writes; per-NPC window

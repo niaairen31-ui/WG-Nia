@@ -19,6 +19,12 @@
      factsDraftState, sent by Sheet.svelte's submitEntity as the create
      body's `facets`. No network write here in create mode.
 
+     TICKET-0105 (BRIEF-0105-F, H1): every rewrite of an existing fact says
+     whether it is a correction (everyone sees the new text) or a change in
+     the world (whoever knew the fact keeps the old text until they see it
+     again). The choice is preselected from the registry's `edit_kind` for
+     the fact's facet and sent as `kind` with PUT /api/facts/{id}/content.
+
      Errors show the route's detail. Creator-only: nothing here renders in
      Play. */
   import { api } from './sheetRequest.svelte.js';
@@ -30,6 +36,7 @@
   let facts = $state([]);
   let buffers = $state({});
   let adds = $state({});
+  let kinds = $state({});
   let error = $state('');
 
   const TYPE_FAMILIES = {
@@ -78,6 +85,12 @@
     return facts.filter((f) => f.facet === name);
   }
 
+  function kindOf(fact) {
+    return kinds[fact.fact_id]
+      ?? (registry || []).find((spec) => spec.name === fact.facet)?.edit_kind
+      ?? 'correction';
+  }
+
   function isHidden(fact) {
     return fact.scopes.length === 0;
   }
@@ -99,7 +112,8 @@
   function saveBloc(spec) {
     const existing = factsOf(spec.name)[0];
     if (existing) {
-      write(`/api/facts/${encodeURIComponent(existing.fact_id)}/content`, 'PUT', { content: buffers[existing.fact_id] });
+      write(`/api/facts/${encodeURIComponent(existing.fact_id)}/content`, 'PUT',
+        { content: buffers[existing.fact_id], kind: kindOf(existing) });
     } else {
       write(`/api/entities/${encodeURIComponent(entityId)}/facts`, 'POST',
         { facet: spec.name, content: adds[spec.name].content });
@@ -107,7 +121,8 @@
   }
 
   function saveLine(fact) {
-    write(`/api/facts/${encodeURIComponent(fact.fact_id)}/content`, 'PUT', { content: buffers[fact.fact_id] });
+    write(`/api/facts/${encodeURIComponent(fact.fact_id)}/content`, 'PUT',
+      { content: buffers[fact.fact_id], kind: kindOf(fact) });
   }
 
   function deleteLine(fact) {
@@ -151,6 +166,14 @@
   }
 </script>
 
+{#snippet kindPicker(fact)}
+  <select title="Nature de la modification" style="font-size:12px" value={kindOf(fact)}
+    onchange={(e) => { kinds[fact.fact_id] = e.currentTarget.value; }}>
+    <option value="correction">Correction</option>
+    <option value="changement">Changement dans le monde</option>
+  </select>
+{/snippet}
+
 {#if error}
   <div class="author-status err" style="margin-bottom:6px">{error}</div>
 {/if}
@@ -178,6 +201,7 @@
             <textarea rows="2" bind:value={adds[spec.name].content}></textarea>
           {/if}
           <div class="row-card-actions" style="margin-top:4px">
+            {#if existing}{@render kindPicker(existing)}{/if}
             <button class="btn-send" onclick={() => saveBloc(spec)}>💾 Enregistrer</button>
           </div>
         {/if}
@@ -206,6 +230,7 @@
               <span style="flex:1; font-size:12px; color:var(--muted)">{fact.aspect || '—'}{isHidden(fact) ? ' · caché' : ''}</span>
             {/if}
             <input type="text" style="flex:3" bind:value={buffers[fact.fact_id]}>
+            {@render kindPicker(fact)}
             <button class="btn-icon" title="Enregistrer" onclick={() => saveLine(fact)}>💾</button>
             <button class="btn-icon" title="Supprimer" onclick={() => deleteLine(fact)}>✕</button>
           </div>

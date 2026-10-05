@@ -31,7 +31,8 @@ C1 -- apply (BRIEF-0098-C, C-02), on a fixture world, through
       and reports the existing knower, participant, membership, default and
       `controls` edge as skipped;
    c. a `rewrite` of a `bloc` fact changes its text, appends the previous
-      one to `change_history`, and records `updated`;
+      one to `change_history` with the proposal's `kind` (TICKET-0105), and
+      records `updated`;
    d. every row of `_REFUSALS` raises `ProposalError` before any write:
       the row counts of every recorded table are unchanged;
    e. a proposal refused by a write site (a second `bloc` fact on the same
@@ -318,7 +319,11 @@ _REFUSALS = (
     ("same scope twice", lambda p: p["facts"][0]["defaults"].append({"scope_type": "world"})),
     ("fact of another world", lambda p: p["facts"][3].update(fact_id="nope")),
     ("rewrite of a non-bloc fact", lambda p: p["facts"].append(
-        {"ref": "f9", "action": "rewrite", "fact_id": "__f3__", "content": "x"})),
+        {"ref": "f9", "action": "rewrite", "fact_id": "__f3__", "content": "x", "kind": "correction"})),
+    ("rewrite without kind (TICKET-0105)", lambda p: p["facts"].append(
+        {"ref": "f9", "action": "rewrite", "fact_id": "__bloc__", "content": "x"})),
+    ("rewrite of an unknown kind", lambda p: p["facts"].append(
+        {"ref": "f9", "action": "rewrite", "fact_id": "__bloc__", "content": "x", "kind": "retcon"})),
     ("membership of a location", lambda p: p["memberships"][0].update(entity_ref="e2")),
     ("control of a faction", lambda p: p["controls"][0].update(location_ref="e3")),
     ("nothing to write", lambda p: [p.update(facts=[], memberships=[], controls=[])]),
@@ -370,13 +375,14 @@ def check_c1() -> None:
             fail(f"C1b: a second apply skipped {second.skipped}, expected the existing rows")
         rewrite = {"statement": "Maëlle a changé.", "entities": [], "facts": [
             {"ref": "f1", "action": "rewrite", "fact_id": ids["bloc"],
-             "content": "Une passeuse devenue célèbre."}]}
+             "content": "Une passeuse devenue célèbre.", "kind": "changement"}]}
         res = lwa.apply_proposal(db, ids["world"], rewrite, _creator(db, ids["world"]))
         db.commit()
         bloc = db.get(Fact, ids["bloc"])
         rows = db.exec(__import__("sqlmodel").select(LoreEntryRow).where(
             LoreEntryRow.entry_id == res.entry_id)).all()
         if ("célèbre" not in fact_text(db, bloc) or not bloc.change_history
+                or bloc.change_history[-1].get("kind") != "changement"
                 or [(r.row_table, r.action) for r in rows] != [("fact", "updated")]):
             fail("C1c: the bloc rewrite did not update in place with history and one row")
         for label, mutate in _REFUSALS:
@@ -385,6 +391,8 @@ def check_c1() -> None:
             for item in proposal.get("facts") or []:
                 if item.get("fact_id") == "__f3__":
                     item["fact_id"] = f3.id if f3 else "nope"
+                elif item.get("fact_id") == "__bloc__":
+                    item["fact_id"] = ids["bloc"]
             before = _counts(db)
             try:
                 lwa.apply_proposal(db, ids["world"], proposal, _creator(db, ids["world"]))

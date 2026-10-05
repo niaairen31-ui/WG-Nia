@@ -29,6 +29,8 @@ Four assertions:
        - **first-membership-wins**: the level of whichever faction was
          joined first, ignoring the others — also `'rumor'` here (Faction A
          joined first).
+  Tier 2b follows C1 (TICKET-0105): the highest location default among the
+  places one is in wins, no longer the nearest ancestor's.
   5. C-09 case table (TICKET-0091, BRIEF-0091-D): the seven-tier order
      (stored > self > rencontre > location > faction > world >
      fact.default_level), rows 1-9 of the lot's table, each built through
@@ -136,9 +138,10 @@ def _build_fixture(session):
     create_fact_default(session, world_id=world_id, fact_id=fact_loc_vs_world, scope_type="location", scope_id=child_id, level="knows", created_by="check")
     session.commit()
 
-    # Tier 2b — nearest ancestor beats a farther one.
-    fact_loc_nearest = _fact("tier2b: nearest location ancestor wins")
-    create_fact_default(session, world_id=world_id, fact_id=fact_loc_nearest, scope_type="location", scope_id=root_id, level="suspicious", created_by="check")
+    # Tier 2b — the HIGHEST level across the places one is in wins (C1,
+    # TICKET-0105): the farther ancestor's `knows` beats the nearer `partial`.
+    fact_loc_nearest = _fact("tier2b: highest location default wins")
+    create_fact_default(session, world_id=world_id, fact_id=fact_loc_nearest, scope_type="location", scope_id=root_id, level="knows", created_by="check")
     create_fact_default(session, world_id=world_id, fact_id=fact_loc_nearest, scope_type="location", scope_id=child_id, level="partial", created_by="check")
     session.commit()
 
@@ -171,7 +174,7 @@ def check_precedence_and_vacuous_proof(session, alice_id, facts) -> None:
     expected = {
         "stored": "partial",
         "loc_vs_world": "knows",
-        "loc_nearest": "partial",
+        "loc_nearest": "knows",
         "faction_highest": "knows",
         "no_default": "suspicious",
     }
@@ -348,6 +351,11 @@ def _build_c09_fixture(session):
     f9 = _fact("9", "physique", subject_id)
     _default(f9, "rencontre", stranger_id, "knows")
     cases[9] = (f9, C09_FALLBACK)
+
+    # A contact with the friend AFTER every default was written (TICKET-0105,
+    # B5): a rencontre default is known only by a contact at or after it.
+    record_encounter(session, world_id=wid, a_id=perceiver_id, b_id=friend_id, source="visit")
+    session.commit()
 
     return perceiver_id, cases
 

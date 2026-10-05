@@ -5,7 +5,10 @@
 encounter winning. It is non-canon bookkeeping, like `visit` and
 `gathering` — derived from play traces (visit, gathering membership,
 conversation) and authored state (NPC schedules, social relations), never
-edited by hand, never updated, never deleted.
+edited by hand, never deleted. `last_at` (TICKET-0105, BRIEF-0105-B, B5) is
+the pair's last contact: `first_at` on creation, then moved forward -- never
+back -- by every later encounter except a `relation` one, which is not a
+contact (L1). It is the only column ever updated.
 
 This module is the ONLY site that adds a `Rencontre` row
 (`tooling/verify/checks/encounter_registry.py`). No function here commits;
@@ -35,6 +38,20 @@ def _find_pair(db: Session, lo_id: str, hi_id: str) -> Optional[Rencontre]:
     ).first()
 
 
+def _utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.utcoffset() is None else value.astimezone(UTC)
+
+
+def _touch(db: Session, row: Rencontre, when: datetime, source: str) -> None:
+    """Move an existing pair's `last_at` forward to `when`; a `relation`
+    encounter is not a contact (L1) and moves nothing."""
+    if source == "relation":
+        return
+    if row.last_at is None or _utc(row.last_at) < _utc(when):
+        row.last_at = when
+        db.add(row)
+
+
 def record_encounter(
     db: Session,
     *,
@@ -47,22 +64,27 @@ def record_encounter(
 ) -> Optional[Rencontre]:
     """Record that `a_id` and `b_id` have met. Returns the new row, or
     `None` for a self pair or a pair already recorded (idempotent: read
-    guard before add). `source` outside `ENCOUNTER_SOURCES` raises
-    `ValueError`. `at` defaults to now (UTC)."""
+    guard before add); an already recorded pair has its `last_at` moved
+    forward to `at` unless `source` is `relation`. `source` outside
+    `ENCOUNTER_SOURCES` raises `ValueError`. `at` defaults to now (UTC)."""
     if source not in ENCOUNTER_SOURCES:
         raise ValueError(f"record_encounter: invalid source {source!r}")
     if a_id == b_id:
         return None
+    when = at or datetime.now(UTC)
     lo_id, hi_id = _ordered(a_id, b_id)
-    if _find_pair(db, lo_id, hi_id) is not None:
+    existing = _find_pair(db, lo_id, hi_id)
+    if existing is not None:
+        _touch(db, existing, when, source)
         return None
     row = Rencontre(
         world_id=world_id,
         entity_lo_id=lo_id,
         entity_hi_id=hi_id,
-        first_at=at or datetime.now(UTC),
+        first_at=when,
         source=source,
         source_ref=source_ref,
+        last_at=when,
     )
     db.add(row)
     db.flush()

@@ -248,6 +248,13 @@ def _pairs(raw: Any, keys: tuple[str, str], known: set[str]) -> list[dict]:
     return out
 
 
+def _preset_kind(db: Session, fact_id: str) -> str:
+    """The rewrite kind preselected for a fact's facet (TICKET-0105, H1)."""
+    fact = db.get(Fact, fact_id)
+    spec = FACETS.get(fact.facet or "") if fact is not None else None
+    return spec.edit_kind if spec is not None else "correction"
+
+
 def draft_proposal(
     db: Session, world_id: str, statement: str, answers: str = "", exchanges: Exchanges = None,
 ) -> dict:
@@ -270,6 +277,8 @@ def draft_proposal(
                          for raw in _as_list(parsed.get("facts"))) if f is not None]
     for index, fact in enumerate(facts, start=1):
         fact["ref"] = f"f{index}"
+        if fact["action"] == "rewrite":
+            fact["kind"] = _preset_kind(db, fact["fact_id"])
     return {
         "statement": statement.strip(), "answers": answers.strip() or None,
         "entities": entities, "facts": facts,

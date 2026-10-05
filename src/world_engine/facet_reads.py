@@ -5,7 +5,9 @@ said of an entity, facet by facet.
 R-06 — `role` never filters) whose facet is one of `facets`, in the order of
 `facets`, then `created_at`, then `fact_id`. `known_facts_of` narrows that
 list to the facts a perceiver resolves above `'unaware'`
-(`knowledge_resolve.resolve_levels_for_entity`, one batch call).
+(`knowledge_resolve.resolve_known_for_entity`, one batch call), each with
+the text the perceiver knows (TICKET-0105, BRIEF-0105-E: `versioned`).
+`known_fact_texts` gives that text for any list of facts.
 
 Creator-only facts (AMENDMENT-0091-01) are excluded by query construction:
 a fact is creator-only when a stored `knowledge` row on it belongs to one of
@@ -18,16 +20,16 @@ Resolution is a read: no function here ever calls `db.add`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Iterable, Optional
 
 from sqlmodel import Session, select
 
 from .facets import normalize_aspect
-from .knowledge_resolve import resolve_levels_for_entity
+from .knowledge_resolve import Known, resolve_known_for_entity
 from .models import Fact, FactDefault, FactParticipant, Knowledge
-from .prose_render import fact_texts
+from .prose_render import fact_texts, fact_texts_at
 
 
 @dataclass(frozen=True)
@@ -115,12 +117,35 @@ def known_facts_of(
 ) -> list[FactRow]:
     """`facts_of` (creator-only facts always excluded, no override), filtered
     to the facts `perceiver_id` resolves above `'unaware'` — one
-    `resolve_levels_for_entity` call, never one per fact."""
+    `resolve_known_for_entity` call, never one per fact — each with the text
+    the perceiver knows (`versioned`)."""
     rows = facts_of(db, entity_id=entity_id, facets=facets, aspect=aspect)
     if not rows:
         return []
-    known = resolve_levels_for_entity(db, perceiver_id)
-    return [row for row in rows if row.fact_id in known]
+    known = resolve_known_for_entity(db, perceiver_id)
+    return versioned(db, [row for row in rows if row.fact_id in known], known)
+
+
+def versioned(db: Session, rows: list[FactRow], known: dict[str, Known]) -> list[FactRow]:
+    """`rows` with each content replaced by the version known at its
+    `known[fact_id].as_of` (TICKET-0105); a row absent from `known` keeps the
+    current text. One fact query, one entity query."""
+    if not rows:
+        return []
+    facts = {f.id: f for f in db.exec(select(Fact).where(Fact.id.in_([r.fact_id for r in rows]))).all()}
+    texts = fact_texts_at(db, [
+        (facts[r.fact_id], known[r.fact_id].as_of if r.fact_id in known else None) for r in rows
+    ])
+    return [replace(row, content=text) for row, text in zip(rows, texts)]
+
+
+def known_fact_texts(db: Session, perceiver_id: str, facts: list[Fact]) -> list[str]:
+    """Each fact's text as `perceiver_id` knows it (TICKET-0105): the
+    fallback label of a stored knowledge row with no text of its own."""
+    if not facts:
+        return []
+    known = resolve_known_for_entity(db, perceiver_id)
+    return fact_texts_at(db, [(f, known[f.id].as_of if f.id in known else None) for f in facts])
 
 
 def joined(rows: list[FactRow], sep: str = "\n") -> Optional[str]:

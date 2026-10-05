@@ -159,7 +159,8 @@ class Visit(SQLModel, table=True):
 # contract C-06). One row per UNORDERED entity pair (`entity_lo_id` <
 # `entity_hi_id`, compared as strings); the earliest known encounter wins.
 # Derived from play traces and authored state, never edited by hand, never
-# updated, never deleted. NOT in canon_write_policy.txt's CANON_TABLES —
+# deleted; only `last_at` moves forward (TICKET-0105, BRIEF-0105-B). NOT in
+# canon_write_policy.txt's CANON_TABLES —
 # non-canon bookkeeping like visit/gathering, with its own writer
 # (`encounters.py`, BRIEF-0091-C). No JSON column.
 # -----------------------------------------------------------------------------
@@ -180,6 +181,37 @@ class Rencontre(SQLModel, table=True):
     first_at: datetime
     source: str             # in ENCOUNTER_SOURCES
     source_ref: Optional[str] = None  # id of the visit/gathering/conversation/relation row
+    # Last contact between the pair (schema v2.14, TICKET-0105, B5). Set to
+    # `first_at` on creation and moved forward by every later encounter except
+    # a `relation` one (L1); the one column of `rencontre` that is ever
+    # updated, only by `encounters.py`. Nullable in SQL because SQLite cannot
+    # add a NOT NULL column without a constant default; the v2.14 migration
+    # fills every row and the writer always sets it.
+    last_at: Optional[datetime] = None
+
+
+# -----------------------------------------------------------------------------
+# passage  (last time a character was at a location — schema v2.14,
+# TICKET-0105, BRIEF-0105-A, B5). One row per (character, location) pair;
+# `last_at` is the last moment the character was there (entering, leaving,
+# or a schedule naming the place). Written ONLY by `passages.py`, from every
+# placement write (P1); never deleted except by the world cascade. NOT in
+# canon_write_policy.txt's CANON_TABLES -- non-canon bookkeeping like
+# `visit` and `rencontre`. Read by the `location` tier of
+# `knowledge_resolve.py`.
+# -----------------------------------------------------------------------------
+class Passage(SQLModel, table=True):
+    __tablename__ = "passage"
+    __table_args__ = (
+        Index("idx_passage_entity_location", "entity_id", "location_id", unique=True),
+        Index("idx_passage_location", "location_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    entity_id: str = Field(foreign_key="entity.id", nullable=False)
+    location_id: str = Field(foreign_key="entity.id", nullable=False)
+    last_at: datetime
 
 
 # -----------------------------------------------------------------------------

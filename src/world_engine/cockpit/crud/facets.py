@@ -9,7 +9,7 @@ writer is a 422; an unknown entity or fact is a 404.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
@@ -41,6 +41,8 @@ class EntityFactCreateBody(BaseModel):
 
 class FactContentBody(BaseModel):
     content: str
+    # TICKET-0105 (H1): a correction, or a change in the world.
+    kind: Literal["correction", "changement"]
 
 
 def _fact_dict(fact: Fact, db: DbSession) -> dict:
@@ -73,7 +75,7 @@ def list_facets() -> dict:
         {
             "name": spec.name, "label": spec.label, "family": spec.family,
             "granularity": spec.granularity, "preset": spec.preset,
-            "aspects": list(spec.aspects),
+            "aspects": list(spec.aspects), "edit_kind": spec.edit_kind,
         }
         for spec in FACETS.values() if spec.name in DESCRIPTIVE_FACETS
     ]}
@@ -117,7 +119,8 @@ def update_entity_fact_content(
 ) -> dict:
     _get_fact(db, fact_id)
     try:
-        fact = edit_entity_fact(db, fact_id=fact_id, content=body.content, changed_by=CREATED_BY)
+        fact = edit_entity_fact(db, fact_id=fact_id, content=body.content, changed_by=CREATED_BY,
+                                kind=body.kind)
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc))

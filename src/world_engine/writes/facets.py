@@ -360,21 +360,25 @@ def _edit_scope(db: Session, fact: Fact) -> NameScope:
     return NameScope("names_only", exclude_entity_id=owners[0] if len(owners) == 1 else None)
 
 
-def edit_entity_fact(db: Session, *, fact_id: str, content: str, changed_by: str) -> Fact:
+def edit_entity_fact(
+    db: Session, *, fact_id: str, content: str, changed_by: str, kind: str,
+) -> Fact:
     """Rewrite a descriptive fact's content through `update_fact_content`
-    (history appended). `ValueError` if unknown, not descriptive, or the
-    content is empty. New text gets identity tokens and its unresolved names
+    (history appended, with `kind`: `correction` or `changement`, TICKET-0105).
+    `ValueError` if unknown, not descriptive, the content is empty, or the
+    kind is unknown. New text gets identity tokens and its unresolved names
     are recorded (BRIEF-0091-J); text equal to the stored text, raw or
     rendered, keeps the stored text as is."""
     fact = _descriptive_fact(db, fact_id)
     if not isinstance(content, str) or not content.strip():
         raise ValueError("fact content is empty")
     if content in (fact.content_raw, fact_text(db, fact)):
-        return update_fact_content(db, fact=fact, content=fact.content_raw, changed_by=changed_by)
+        return update_fact_content(db, fact=fact, content=fact.content_raw,
+                                   changed_by=changed_by, kind=kind)
     tokens = tokenize(db, world_id=fact.world_id, text=content, scope=_edit_scope(db, fact))
     if tokens.unresolved:
         record_unresolved(db, world_id=fact.world_id, fact_id=fact.id, items=tokens.unresolved)
-    return update_fact_content(db, fact=fact, content=tokens.text, changed_by=changed_by)
+    return update_fact_content(db, fact=fact, content=tokens.text, changed_by=changed_by, kind=kind)
 
 
 def remove_entity_fact(db: Session, *, fact_id: str) -> None:

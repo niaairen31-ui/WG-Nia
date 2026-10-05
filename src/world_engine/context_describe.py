@@ -76,10 +76,11 @@ def _npc_context_company(
             continue
         seen = known_facts_of(
             session, perceiver_id=npc_id, entity_id=co_entity.id,
-            facets=("physique", "description"),
+            facets=("physique", "tenue", "description"),
         )
+        # What one sees of them: physique and outfit as known (TICKET-0105, V1).
         description = (
-            joined([row for row in seen if row.facet == "physique"], sep=" ")
+            joined([row for row in seen if row.facet in ("physique", "tenue")], sep=" ")
             or joined([row for row in seen if row.facet == "description"], sep=" ")
             or "(pas de description)"
         )
@@ -120,6 +121,11 @@ def _mj_context_co_presents(
             "physique": None if blindfolded else joined(known_facts_of(
                 db, perceiver_id=player_character_id, entity_id=co_entity.id,
                 facets=("physique",),
+            ), sep=" "),
+            # Outfit as the player last saw it (TICKET-0105, V1).
+            "tenue": None if blindfolded else joined(known_facts_of(
+                db, perceiver_id=player_character_id, entity_id=co_entity.id,
+                facets=("tenue",),
             ), sep=" "),
         })
     return co_presents

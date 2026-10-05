@@ -9,6 +9,10 @@
    drops the entity and declares the name as a mention, so the tokenizer
    records it in "Noms à lier".
 
+   TICKET-0105 (BRIEF-0105-F, H1): a rewritten fact carries the `kind` the
+   draft preselected from its facet -- a correction, or a change in the
+   world -- and the creator can switch it before committing.
+
    TICKET-0103 (BRIEF-0103-D): `attemptId` names one use of the panel, from
    the text to its commit, for the usage journal. A fresh one comes with
    every blank state (a new text, a world change); every request of the use
@@ -234,6 +238,7 @@ function toProposal() {
     };
     if (f.action !== 'create') out.fact_id = f.fact_id;
     if (f.action !== 'existing') out.content = f.content;
+    if (f.action === 'rewrite') out.kind = f.kind;
     if (f.action === 'create') Object.assign(out, { facet: f.facet, aspect: f.aspect, mentions });
     return out;
   });

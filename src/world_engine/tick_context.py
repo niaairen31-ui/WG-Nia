@@ -36,9 +36,9 @@ from .knowledge_resolve import (
     resolve_levels_for_entity,
     resolve_public_levels,
 )
-from .facet_reads import facts_of, joined
+from .facet_reads import facts_of, joined, known_fact_texts
 from .fact_refs import CodedFacts, code_facts
-from .prose_render import fact_texts, knowledge_texts
+from .prose_render import knowledge_texts
 from .ledger import get_balance
 from .models import (
     Agenda,
@@ -283,7 +283,7 @@ def _tick_knowledge_block(npc_id: str, session: Session) -> str:
     if not knowledge:
         return "(aucune connaissance)"
     codes = code_facts(session, [k.fact_id for k in knowledge])
-    facts = fact_texts(session, [session.get(Fact, k.fact_id) for k in knowledge])
+    facts = known_fact_texts(session, npc_id, [session.get(Fact, k.fact_id) for k in knowledge])
     return "\n".join(
         _knowledge_line(k, text, fact, codes.code_of(k.fact_id))
         for k, text, fact in zip(knowledge, knowledge_texts(session, knowledge), facts)

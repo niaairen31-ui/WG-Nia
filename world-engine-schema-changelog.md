@@ -13,6 +13,14 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.14** — TICKET-0105, BRIEF-0105-A: what a character keeps of a fact.
+  `passage` (one row per character and location, with the last time the
+  character was there) and `rencontre.last_at` (the last contact of a pair,
+  nullable in SQL). `migrate_v2_14_passage.py` gives every one-participant
+  `tenue` fact with no default the `rencontre` default its facet now
+  presets, dates every encounter with the migration's own time, fills
+  `passage` from current locations, NPC schedules and visits, and refuses a
+  database older than v2.13.
 - **v2.13** — TICKET-0103, BRIEF-0103-A: `lore_usage_event`, the Lore
   shell's usage journal (one row per writing or consultation step, with its
   payload and model exchanges, grouped by `attempt_id`). No `world_id` and no

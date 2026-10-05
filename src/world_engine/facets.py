@@ -8,6 +8,10 @@ statement; `typed` = the fact IS a relation/event/world_law row), the
 default-knowledge preset applied to NEW writing, a French label and a French
 one-line description (UI help and future extractor vocabulary; no check reads
 them), and the known aspects — a suggestion list, never a closed set (Q12d).
+`edit_kind` (TICKET-0105, H1) is the kind preselected when the creator
+rewrites a fact of that facet: `changement` for what one sees of an entity
+and can change in the world (physique, tenue), `correction` otherwise; the
+creator can always pick the other one.
 
 `FACETS` insertion order is the display order. This module imports nothing
 from `models` or `writes`.
@@ -32,6 +36,7 @@ class FacetSpec:
     label: str           # French UI label
     description: str     # one French sentence: what belongs here
     aspects: tuple[str, ...] = ()   # known aspects, suggestion only
+    edit_kind: str = "correction"   # preselected rewrite kind (H1): correction | changement
 
 
 _SPECS = (
@@ -40,9 +45,11 @@ _SPECS = (
     FacetSpec("statut", "identite", "affirmation", "location", "Statuts",
               "Une position sociale, une charge ou un rang que l'entité occupe."),
     FacetSpec("physique", "identite", "bloc", "rencontre", "Physique",
-              "Ce que l'on voit durablement de l'entité : corps, visage, allure."),
-    FacetSpec("tenue", "identite", "bloc", "none", "Tenue",
-              "Ce que l'entité porte en ce moment et qui peut changer."),
+              "Ce que l'on voit durablement de l'entité : corps, visage, allure.",
+              edit_kind="changement"),
+    FacetSpec("tenue", "identite", "bloc", "rencontre", "Tenue",
+              "Ce que l'entité porte en ce moment et qui peut changer.",
+              edit_kind="changement"),
     FacetSpec("description", "identite", "bloc", "public_world", "Description",
               "La présentation générale de l'entité."),
     FacetSpec("reputation", "identite", "affirmation", "location", "Réputation",

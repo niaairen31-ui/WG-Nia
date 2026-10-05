@@ -17722,6 +17722,159 @@ longer be written from the Lore tool. Reactivates if a production
 measurement shows no `rencontre` pair involving anything but two
 characters.
 
+
+## WHAT A CHARACTER KEEPS OF A FACT (TICKET-0105) -- PASSAGE AND THE ENCOUNTER'S LAST CONTACT (BRIEF-0105-a, schema v2.14)
+
+**B5.** Knowing a fact through a place or an encounter is decided at read
+time from the date of the last contact, never by writing knowledge rows.
+Two registries hold that date: `passage`, one row per (character,
+location) with `last_at`, and `rencontre.last_at`, the last contact of a
+pair. `last_at` is the one column of `rencontre` that is ever updated
+(only by `encounters.py`); it is nullable in SQL because SQLite adds no
+NOT NULL column without a constant default, and every writer sets it.
+
+**V1.** The `tenue` facet presets `rencontre`: an outfit is learned by
+meeting its wearer, like the physique. The migration gives the existing
+one-participant `tenue` facts that default.
+
+**M1, Q1.** The migration dates every existing encounter with its own time
+(everyone who has met has seen the other as they are today), fills
+`passage` from current locations, NPC schedules and visits, and leaves
+change histories alone: an entry without a `kind` reads as a correction,
+so nobody's knowledge is stale after it.
+
+**Rejected.** Q2, `last_at = first_at`: the physique facts the v2.06
+migration created carry that migration's date, so every older
+acquaintance would forget them. B4, writing knowledge rows at each
+contact: rows by the thousand and the end of read-time resolution;
+reactivates if a reader needs a stored row where only a default exists.
+
+
+## EVERY PLACEMENT AND EVERY ENCOUNTER IS A CONTACT (TICKET-0105) -- ONE LISTENER, ONE WRITER (BRIEF-0105-b, no schema change)
+
+**P1.** `passages.py` is the sole writer of `passage`. Its `before_flush`
+listener, attached to the SQLAlchemy `Session` class when `db.py` is
+imported, sees every character created with a location or whose
+`current_location_id` changes, whatever the path (travel, the tick's NPC
+move, zone promotion, the fiche, PC creation, a batch), and records both
+the place entered and the place left: leaving is a contact too. A schedule
+names places without moving anyone, so `write_npc_schedule` records the
+passages of every place its old and new rows name, before the old rows go.
+
+**L1.** `record_encounter` moves an existing pair's `last_at` forward --
+never back -- for every source but `relation`: a social relation makes two
+entities acquaintances (Q5a) but is not a contact.
+
+**Rejected.** P2, routing every placement through
+`write_character_location` with an AST check: the fiche and batch creators
+place characters through `**ext_kwargs`, which no static scan can see.
+Reactivates if the listener proves incompatible with a write path.
+
+
+## A REWRITE SAYS WHETHER IT CORRECTS OR CHANGES THE WORLD (TICKET-0105) -- THE VERSION KNOWN FOLLOWS THE CHANGES (BRIEF-0105-c, no schema change)
+
+**G1.** `update_fact_content` and `update_typed_fact_content` take a
+required `kind` in `FACT_CHANGE_KINDS` (`correction`, `changement`),
+written into the history entry. A correction fixes the text for everyone; a
+change in the world leaves whoever knew the fact with the version they
+learned. `fact_versions.version_text` is that rule, pure: someone last in
+contact at `as_of` knows the text the fact had just before the first change
+in the world made after `as_of`, corrections before it included, or the
+current text. An entry without `kind` predates the ticket and reads as a
+correction (M1). `prose_render.fact_texts_at` renders a version; it stays
+the one reader of the raw text outside `writes/`.
+
+**U1.** The rewrites the code makes name their kind: a social relation that
+changes type changed in the world (`changement`); a geographic link that
+follows the zones (`connects_to` <-> `borde`) and a name bound to its entity
+are corrections. Until BRIEF-0105-F, the fiche and the Lore panel pass
+`correction`, which is today's behaviour.
+
+
+## A DEFAULT IS LEARNED BY A CONTACT AFTER IT, AND KEPT (TICKET-0105) -- RESOLUTION DATED BY CONTACT (BRIEF-0105-d, no schema change)
+
+**B5.** `knowledge_resolve.resolve_knowledge` returns `Known(level, as_of)`.
+A `rencontre`, `location` or `faction` default is known through a contact
+at or after its `created_at`: an encounter with its entity
+(`rencontre.last_at`), a passage in its place or in a place inside it
+(`passage.last_at`), a membership open now or closed after it (J2). A
+contact right now needs no date: the current place and its ancestors, the
+places one's schedule names, an entity at the same exact current place (O1)
+or in the same schedule slot (L1), an active membership. Reading the last
+contact means a fact once learned stays learned.
+
+**C1.** Among several applicable `location` defaults the highest level
+wins, like `faction` and `rencontre`; the nearest-ancestor rule is gone.
+
+**N1.** `as_of` is the last contact with any anchor of the fact -- its
+participants and the entities its non-world defaults name -- or a stored
+row's `updated_at` if later. A fact with a `world` default, one's own facts
+and the tiers without a scope are always current (`as_of = None`).
+`resolve_knowledge_level` and `resolve_levels_for_entity` keep their
+signatures and return the level alone.
+
+**Rejected.** C2, the current place first and the past ones after: it ranks
+contacts the model of a collection does not rank. N2, only the anchor of
+the tier that gave the level: meeting the wearer would not refresh an
+outfit known through a place.
+
+
+## EVERY KNOWER READER GIVES THE VERSION KNOWN (TICKET-0105) -- AND THE SCENE SHOWS THE OUTFIT (BRIEF-0105-e, no schema change)
+
+**G1, N1.** The readers that show a fact as some entity knows it render the
+version known at that entity's `as_of`: the default rows of the NPC, MJ and
+tick contexts (`resolve_default_rows`), `facet_reads.known_facts_of` and
+its new `versioned`, the day-choice evidence, and the fallback label of a
+stored knowledge row with no text of its own (`facet_reads.
+known_fact_texts`, used by `context._row_fact_texts` and the tick
+briefing). A stored row with its own text is the holder's own version and
+is never rewritten. Readers that speak for the creator or for no one
+(`facts_of`, the authoring assistants, the dossier's facet rows) keep the
+current text.
+
+**V1.** The scene shows the outfit: a co-present NPC's line in the NPC
+context carries its known physique and outfit, and the MJ context's
+co-present entry gains a `tenue` key, known through the player's contact,
+absent when blindfolded. Being at the same place is a contact right now
+(O1), so the outfit shown in a scene is the current one; the versions
+matter for whoever is elsewhere.
+
+
+## THE CREATOR SAYS WHETHER A REWRITE CORRECTS OR CHANGES THE WORLD (TICKET-0105) -- PRESELECTED BY FACET (BRIEF-0105-f, no schema change)
+
+**H1.** Both places where the creator rewrites a fact ask the kind. The
+fiche's facts editor shows a « Correction / Changement dans le monde »
+choice beside each save and sends it as `kind` with `PUT
+/api/facts/{id}/content`, whose body now requires it. The Lore writing
+panel shows the same choice on a rewritten fact; the proposal carries it
+and `lore_write_apply` refuses a rewrite without one. The choice is
+preselected from the facet: `FacetSpec.edit_kind`, `changement` for
+`physique` and `tenue` (what one sees of an entity and can change in the
+world), `correction` for every other facet, served by `GET /api/facets` and
+put on a rewrite by the Lore draft.
+
+**Rejected.** H2, no preselection: every outfit change would need a click
+the facet already answers.
+
+
+## THE LORE DOSSIER MARKS AN OLD VERSION (TICKET-0105) -- IN THE ROW'S TEXT, PROMPT UNCHANGED (BRIEF-0105-g, no schema change)
+
+**K1, T1.** In `entity_dossier` and `who_knows_about`, a stored knowledge
+row with no text of its own whose holder knows an older version of its
+fact carries, as its `content`, « <old> (version ancienne — actuelle :
+<current>) », built by code (`lore_selectors._stale_label`). The template
+renderer prints it and the model receives it as text, so the Lore prompt
+does not change -- the precedent of the secret marker (0087, P1). A row
+with its own text, or whose holder knows the current version, is
+unchanged. Play prompts never carry the mark: there, the old version is
+simply what the character knows.
+
+**Carried forward.** What a character knows only through a default is not
+in the dossier (it lists stored rows); showing it is its own ticket.
+
+**Rejected.** T2, a rule in the Lore prompt (a new prompt version) for a
+mark the code already writes.
+
 ---
 
 *Co-built with Claude, June 2026.*

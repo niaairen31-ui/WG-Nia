@@ -11,15 +11,16 @@ adding a question type.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Optional
 
 from sqlmodel import Session, func, select
 
 from .context import read_public_memberships
 from .facet_reads import creator_only_fact_ids, facts_of, joined
 from .facets import DESCRIPTIVE_FACETS, FACETS
+from .knowledge_resolve import resolve_knowledge
 from .models import Character, Entity, Fact, FactParticipant, Faction, Knowledge, NpcGoal, Relation
-from .prose_render import fact_texts, knowledge_texts
+from .prose_render import fact_is_stale, fact_texts, fact_texts_at, knowledge_texts
 from .relation_orientation import MAP_TOPOLOGY_TYPES
 from .writes.knowledge import knowledge_level_rank
 
@@ -171,6 +172,21 @@ def _relation_rows(entity_id: str, world_id: str, db: Session) -> list[dict]:
     return result
 
 
+def _stale_label(db: Session, knower_id: str, fact: Optional[Fact]) -> Optional[str]:
+    """K1/T1 (TICKET-0105, BRIEF-0105-G): for a knowledge row with no text
+    of its own, the version its holder knows when it is not the current one,
+    written « <old> (version ancienne — actuelle : <current>) »; `None` when
+    the holder knows the current version. The prompt is unchanged: the mark
+    travels in the row's text."""
+    if fact is None:
+        return None
+    known = resolve_knowledge(db, knower_id, fact.id)
+    if not fact_is_stale(fact, known.as_of):
+        return None
+    old, current = fact_texts_at(db, [(fact, known.as_of), (fact, None)])
+    return f"{old} (version ancienne — actuelle : {current})"
+
+
 def _knowledge_rows(entity_id: str, world_id: str, db: Session) -> list[dict]:
     rows = db.exec(
         select(Knowledge).join(Entity, Entity.id == Knowledge.entity_id).where(
@@ -178,18 +194,19 @@ def _knowledge_rows(entity_id: str, world_id: str, db: Session) -> list[dict]:
             Entity.world_id == world_id,
         )
     ).all()
-    facts = fact_texts(db, [db.get(Fact, k.fact_id) for k in rows])
+    fact_rows = [db.get(Fact, k.fact_id) for k in rows]
+    facts = fact_texts(db, fact_rows)
     return [
         {
             "section": "knowledge",
             "fact": fact,
             "level": k.level,
-            "content": text,
+            "content": text if text is not None else _stale_label(db, entity_id, fact_row),
             "source": k.source,
             "is_incorrect": k.is_incorrect,
             "is_secret": k.is_secret,
         }
-        for k, text, fact in zip(rows, knowledge_texts(db, rows), facts)
+        for k, text, fact, fact_row in zip(rows, knowledge_texts(db, rows), facts, fact_rows)
     ]
 
 
@@ -264,7 +281,7 @@ def who_knows_about(entity_id: str, world_id: str, db: Session) -> list[dict]:
             "knower_entity_id": knower.id,
             "knower_name": knower.name,
             "level": k.level,
-            "content": text,
+            "content": text if text is not None else _stale_label(db, knower.id, db.get(Fact, k.fact_id)),
             "source": k.source,
             "is_incorrect": k.is_incorrect,
             "is_secret": k.is_secret,
