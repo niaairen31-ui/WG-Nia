@@ -2,7 +2,7 @@
 id: TICKET-0104
 title: The Lore writing panel's default scopes pick their entity from the whole world
 type: bug
-status: brief
+status: live-gate
 created: 2026-10-05
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: []
