@@ -17664,6 +17664,20 @@ copies it first. `ask` now answers an `OllamaError` raised while drafting
 the plan with the named 503 message, as it already did for a failed ping,
 instead of an unhandled 500 -- the step must be caught to be journaled.
 
+
+## THE LORE PANELS NAME THEIR ATTEMPT (TICKET-0103) -- CLIENT-MINTED UUID (BRIEF-0103-d, no schema change)
+
+**D1.** An attempt is one use of a panel. The writing panel mints
+`attemptId` with every blank state (a world change, « Recommencer ») and
+sends it with its questions, draft and commit requests; a
+re-draft or a refused commit stays in the same attempt. The consultation
+panel mints one per question and reuses it for the disambiguation round.
+The id is minted by the client so that a failed first request, which
+answers no body, still belongs to its attempt; the server keeps any UUID
+and mints its own for a missing or malformed one. A write attempt without
+an `ok` commit is an abandoned one: the analysis reads that from the
+journal, nothing records it.
+
 ---
 
 *Co-built with Claude, June 2026.*

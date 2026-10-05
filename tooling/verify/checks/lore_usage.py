@@ -78,6 +78,14 @@ U10 -- structure. Neither route file calls `write_usage_event` (they go
    through `lore_usage`); `lore_usage.py` contains no `chat(` and no
    `select(`, and imports no consultation-pipeline and no writing-panel
    module.
+U11 -- the panels carry the attempt (BRIEF-0103-D), static:
+   a. `writePanel.svelte.js`: `blank()` mints `attemptId:
+      crypto.randomUUID()`, and its POSTs to `/api/lore/write/questions`,
+      `/draft` and `/commit` each send `attempt_id: writeState.attemptId`;
+   b. `lore.svelte.js`: `askLore()` mints `loreState.attemptId =
+      crypto.randomUUID()` before its POST, both POSTs send `attempt_id:
+      loreState.attemptId`, and `reloadForWorld()` clears it;
+   c. the built bundle under `cockpit/static/assets` carries `attempt_id`.
 
 Fresh temp-file SQLite database for any fixture rule
 (`WORLD_ENGINE_DATABASE_URL` set before any world_engine import) -- never
@@ -770,6 +778,37 @@ def check_u10() -> None:
         fail(f"U10: lore_usage.py imports {sorted(hits)}")
 
 
+def _function_body(text: str, header: str) -> str:
+    start = text.find(header)
+    if start < 0:
+        return ""
+    end = text.find("\n}\n", start)
+    return text[start:end if end > 0 else len(text)]
+
+
+def check_u11() -> None:
+    lore = ROOT / "frontend" / "src" / "lore"
+    write = (lore / "writePanel.svelte.js").read_text(encoding="utf-8")
+    if "attemptId: crypto.randomUUID()" not in _function_body(write, "function blank()"):
+        fail("U11a: blank() does not mint an attemptId")
+    for path in ("questions", "draft", "commit"):
+        call = write.find(f"'/api/lore/write/{path}'")
+        if call < 0 or "attempt_id: writeState.attemptId" not in write[call:write.find("});", call)]:
+            fail(f"U11a: the {path} request does not carry the attempt id")
+    consult = (lore / "lore.svelte.js").read_text(encoding="utf-8")
+    ask = _function_body(consult, "export async function askLore()")
+    minted = ask.find("loreState.attemptId = crypto.randomUUID();")
+    if minted < 0 or minted > ask.find("'/api/lore/ask'"):
+        fail("U11b: askLore() does not mint an attempt id before its request")
+    if consult.count("attempt_id: loreState.attemptId") != 2:
+        fail("U11b: the ask and resolve requests do not both carry the attempt id")
+    if "loreState.attemptId = '';" not in _function_body(consult, "export function reloadForWorld()"):
+        fail("U11b: reloadForWorld() does not clear the attempt id")
+    bundles = list((SRC / "cockpit" / "static" / "assets").glob("*.js"))
+    if not bundles or not any("attempt_id" in b.read_text(encoding="utf-8") for b in bundles):
+        fail("U11c: the built bundle does not carry attempt_id (rebuild the frontend)")
+
+
 def main() -> int:
     tmp = tempfile.mkdtemp(prefix="lore_usage_")
     db_path = f"{tmp}/u.db"
@@ -787,6 +826,7 @@ def main() -> int:
     check_u8()
     check_u9()
     check_u10()
+    check_u11()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -795,7 +835,8 @@ def main() -> int:
           "v2.13 declares it without world_id or FK and migrates from v2.12 only; the "
           "writer refuses every malformed record; a journal row outlives its world; every "
           "Lore model call can be captured with its prompt version and raw reply; every "
-          "writing and consultation step is journaled under its attempt, failures included")
+          "writing and consultation step is journaled under its attempt, failures included; "
+          "both panels send their attempt id")
     return 0
 
 

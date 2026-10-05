@@ -7,7 +7,12 @@
    Every entity is picked from a list, never typed from memory (K1 of 0095):
    an ambiguous or new name offers the world's entities; "garder en texte"
    drops the entity and declares the name as a mention, so the tokenizer
-   records it in "Noms à lier". */
+   records it in "Noms à lier".
+
+   TICKET-0103 (BRIEF-0103-D): `attemptId` names one use of the panel, from
+   the text to its commit, for the usage journal. A fresh one comes with
+   every blank state (a new text, a world change); every request of the use
+   carries it. */
 import { api } from '../creation/sheetRequest.svelte.js';
 
 export const ENTITY_TYPES = Object.freeze([
@@ -32,6 +37,7 @@ function blank() {
   return {
     stage: 'text', statement: '', answers: '', questions: [], draft: null,
     busy: false, error: '', result: null, entities: null, entries: [], pick: {},
+    attemptId: crypto.randomUUID(),
   };
 }
 
@@ -65,7 +71,9 @@ export async function loadWorldEntities() {
 
 export function askQuestions() {
   return run(async () => {
-    const body = await post('/api/lore/write/questions', { statement: writeState.statement });
+    const body = await post('/api/lore/write/questions', {
+      statement: writeState.statement, attempt_id: writeState.attemptId,
+    });
     writeState.questions = body.questions;
     if (body.questions.length === 0) {
       await draftNow();
@@ -79,6 +87,7 @@ async function draftNow() {
   await loadWorldEntities();
   const draft = await post('/api/lore/write/draft', {
     statement: writeState.statement, answers: writeState.answers,
+    attempt_id: writeState.attemptId,
   });
   for (const entity of draft.entities) {
     if (entity.status === 'matched') entity.decision = 'existing';
@@ -199,7 +208,9 @@ function toProposal() {
 
 export function commit() {
   return run(async () => {
-    const body = await post('/api/lore/write/commit', { proposal: toProposal() });
+    const body = await post('/api/lore/write/commit', {
+      proposal: toProposal(), attempt_id: writeState.attemptId,
+    });
     writeState.result = body;
     writeState.stage = 'done';
     writeState.entities = null;
