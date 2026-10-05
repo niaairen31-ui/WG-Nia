@@ -17610,6 +17610,92 @@ on a second 500 on an entity route that `registry_model_columns.py` would not
 have caught. C2, a repair script for the roles a failed create never posted:
 Nia re-enters them through the fiche.
 
+
+## THE LORE SHELL KEEPS A USAGE JOURNAL (TICKET-0103) -- IT OUTLIVES ITS WORLD (BRIEF-0103-a, schema v2.13)
+
+**A2, D1, F2, I1.** `lore_usage_event` records every step of a use of the Lore
+shell -- writing (`questions`, `draft`, `commit`) and consultation (`ask`,
+`resolve`) -- grouped by an `attempt_id`, with the step's payload as it was
+received and answered (fixed keys per step, `writes/lore_usage.PAYLOAD_KEYS`)
+and every model exchange (`MODEL_CALL_KEYS`). Nothing is diffed at write time:
+what the creator removed, changed or added is computed by the analysis, from
+the draft and the committed proposal of the same attempt. The table carries
+`world_ref` and `world_name`, never `world_id`, and no FK at all: it is a
+global journal tagged by world, not a world's table, so
+`delete_world_cascade` never reaches it and `world_cascade.py` W1 stays
+unexempted. `lore_usage.py` U0 keeps the journal named by its model and its
+writer only.
+
+**Rejected.** D2, a per-element verdict table written at commit: reactivates
+when a reader inside the application needs per-element verdicts. F1, the
+journal in the world cascade: Nia deletes test worlds, and their journal is
+the analysis material. I2, a `world_id` column exempted by name in W1:
+reactivates when a second table must outlive its world AND be read by the
+application itself.
+
+
+## EVERY LORE MODEL CALL CAN BE CAPTURED (TICKET-0103) -- PROMPT VERSION AND RAW REPLY (BRIEF-0103-b, no schema change)
+
+**B1, C1.** `model_exchange.py` is a neutral module (the `prompt_load.py`
+precedent): `lore_plan.draft_plan`, `lore_render.render` and
+`lore_write_draft.draft_questions` / `draft_proposal` take an optional list
+and append one `ModelExchange` per `chat` call -- usage, prompt version id
+and number, model, rendered system prompt and user message, raw reply,
+error. The raw reply is kept before parsing, so a reply that fails to parse
+is still recorded; the renderer records an `OllamaError` before its template
+fallback. `prompt_load.RenderSpec` gains `version_id` and `version_number`,
+plain values, so the Session-free renderer names the version without a row.
+Without a list every call behaves as before.
+
+
+## EVERY LORE STEP IS JOURNALED UNDER ITS ATTEMPT (TICKET-0103) -- FAILURES INCLUDED (BRIEF-0103-c, no schema change)
+
+**A2, C1.** `lore_usage.py` is the routes' recorder: `attempt_id` keeps the
+panel's UUID or mints one (a journal id never fails a request), `stage` adds
+a row to the caller's transaction and `record` stages and commits. The five
+Lore routes journal every step that reaches the model or the apply step:
+`questions`, `draft`, `ask` in their own transaction (`ok`, `unavailable`,
+`parse_error`, each with its model exchanges); `commit` atomically with the
+canon it wrote, or after its rollback when refused; `resolve` likewise.
+Requests refused before that point (no active world, empty text, non-local
+origin) are not journaled. The committed proposal is journaled as the panel
+sent it: `apply_proposal` annotates the dict it validates, so the route
+copies it first. `ask` now answers an `OllamaError` raised while drafting
+the plan with the named 503 message, as it already did for a failed ping,
+instead of an unhandled 500 -- the step must be caught to be journaled.
+
+
+## THE LORE PANELS NAME THEIR ATTEMPT (TICKET-0103) -- CLIENT-MINTED UUID (BRIEF-0103-d, no schema change)
+
+**D1.** An attempt is one use of a panel. The writing panel mints
+`attemptId` with every blank state (a world change, « Recommencer ») and
+sends it with its questions, draft and commit requests; a
+re-draft or a refused commit stays in the same attempt. The consultation
+panel mints one per question and reuses it for the disambiguation round.
+The id is minted by the client so that a failed first request, which
+answers no body, still belongs to its attempt; the server keeps any UUID
+and mints its own for a missing or malformed one. A write attempt without
+an `ok` commit is an abandoned one: the analysis reads that from the
+journal, nothing records it.
+
+
+## THE LORE USAGE JOURNAL HAS ONE READER (TICKET-0103) -- A JSONL EXPORT (BRIEF-0103-e, no schema change)
+
+**E1.** `scripts/export_lore_usage.py` is the journal's sole reader (the
+"no structure without a reader" doctrine): one JSON line per attempt, keyed
+by `(attempt_id, world_ref, kind)`, its events in order with payloads and
+model calls as stored, plus `committed` (true / false for a write attempt,
+null for a consultation). It filters by `--since` and `--world-ref` (a
+deleted world's id still works) and writes nothing to the database. The
+export holds every world's secrets and creator notes, so the script refuses
+an `--out` inside the repository: it cannot be staged by accident. The
+analysis -- what the creator removed, changed, added, abandoned -- runs on
+the export, in a Claude Code session, never in the application.
+
+**Rejected.** E2, an analysis panel in the cockpit: reactivates once an
+analysis has shown which measures deserve a screen; its first UI consumer
+relationalizes the JSON columns (D2).
+
 ---
 
 *Co-built with Claude, June 2026.*

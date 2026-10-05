@@ -7,7 +7,10 @@
    answer, renderer) -- the component renders directly off it rather than
    this module reshaping it. `selections` is the only local addition: the
    creator's in-progress candidate choice per ambiguous mention ref, kept
-   here (not in `result`) until confirmResolution() sends it back. */
+   here (not in `result`) until confirmResolution() sends it back.
+
+   TICKET-0103 (BRIEF-0103-D): `attemptId` names one question for the usage
+   journal: askLore() opens a fresh one, confirmResolution() reuses it. */
 import { api } from '../creation/sheetRequest.svelte.js';
 import { serverState } from '../lib/serverState.svelte.js';
 
@@ -17,6 +20,7 @@ export const loreState = $state({
   askError: '',
   result: null,
   selections: {},
+  attemptId: '',
 });
 
 export async function askLore() {
@@ -24,11 +28,14 @@ export async function askLore() {
   if (!question || loreState.asking) return;
   loreState.asking = true;
   loreState.askError = '';
+  loreState.attemptId = crypto.randomUUID();
   try {
     const result = await api('/api/lore/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, world_id: serverState.worldId }),
+      body: JSON.stringify({
+        question, world_id: serverState.worldId, attempt_id: loreState.attemptId,
+      }),
     });
     loreState.result = result;
     loreState.selections = {};
@@ -69,6 +76,7 @@ export async function confirmResolution() {
         bindings: { ...loreState.selections },
         world_id: serverState.worldId,
         question: loreState.question,
+        attempt_id: loreState.attemptId,
       }),
     });
     loreState.result = resolved;
@@ -85,4 +93,5 @@ export function reloadForWorld() {
   loreState.askError = '';
   loreState.result = null;
   loreState.selections = {};
+  loreState.attemptId = '';
 }

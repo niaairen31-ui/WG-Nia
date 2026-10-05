@@ -60,7 +60,9 @@ E1 -- routes (BRIEF-0098-E), through `TestClient(app, base_url=...)` on the
    a. `POST /api/lore/write/questions` answers the questions; with Ollama
       down it answers 503 with exactly `WRITE_UNAVAILABLE_MESSAGE`;
    b. `POST /api/lore/write/draft` answers the draft; with Ollama down, 503;
-      no draft request changes any row count;
+      no draft request changes any row count of `_COUNTED_TABLES` (the
+      usage journal, which every step now writes, is TICKET-0103's and is
+      held by `lore_usage.py` U8);
    c. `POST /api/lore/write/commit` of a valid proposal creating a
       character answers 200; the entity has its `character` row as an NPC;
       `GET /api/lore/write/entries` lists the entry first, with a label per
@@ -684,7 +686,7 @@ def main() -> int:
           "v2.11 declares the source record and migrates from v2.10 only; a proposal "
           "writes all or nothing, each row recorded, existing rows skipped; the draft "
           "names things by name and code only and resolves both in code; the routes are "
-          "thin, guarded, and write only on commit; the panel lives in the Lore shell's "
+          "thin, guarded, and write canon only on commit; the panel lives in the Lore shell's "
           "'Écrire' tab")
     return 0
 
