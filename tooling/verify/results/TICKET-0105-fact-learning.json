@@ -1,0 +1,62 @@
+{
+  "ticket": "TICKET-0105-fact-learning",
+  "when": "2026-10-05T19:25:11.337165+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "fact_learning.py",
+      "status": "PASS",
+      "msg": "PASS: fact_learning -- v2.14 declares passage and the encounter's last contact, presets tenue to rencontre, and migrates from v2.13 only; every placement and every encounter moves its last contact, through one writer each; every rewrite says whether it corrects or changes the world, and the version known follows the changes alone; a default is learned by a contact after it, kept after leaving, and dated by the last contact with its anchors; every knower reader gives the version known, and the scene shows the outfit; both editors make the creator say whether a rewrite corrects or changes the world; the Lore dossier marks an old version"
+    },
+    {
+      "check": "knowledge_resolution.py",
+      "status": "PASS",
+      "msg": "PASS: knowledge_resolution \u2014 the five legacy precedence rows and the nine C-09 rows resolve correctly on both entry points, no fact_default shape violations, vocabulary imported (never re-typed), and the golden fixture is mutation-sensitive to both named alternate policies"
+    },
+    {
+      "check": "encounter_registry.py",
+      "status": "PASS",
+      "msg": "PASS: encounter_registry \u2014 R1 single constructor [259 files], R2 no update/delete [156 files], R3 live sites record [7 functions], R4 fixture [9 observations]"
+    },
+    {
+      "check": "fact_facets.py",
+      "status": "PASS",
+      "msg": "PASS: fact_facets \u2014 FACETS matches C-01, every create_fact( passes a facet, descriptive/dynamic facets stay in writes/facets.py, C-02's case table holds, the entity-fact writer guards blocs and writes customs and creator_meta, resolve_default_rows skips descriptive facts, and creator-only facts stay out of facet reads outside the dossier"
+    },
+    {
+      "check": "lore_write.py",
+      "status": "PASS",
+      "msg": "PASS: lore_write -- census of 5 module(s) holds; v2.11 declares the source record and migrates from v2.10 only; a proposal writes all or nothing, each row recorded, existing rows skipped; the draft names things by name and code only and resolves both in code; the routes are thin, guarded, and write canon only on commit; the panel lives in the Lore shell's '\u00c9crire' tab, and its scopes pick from the whole world"
+    },
+    {
+      "check": "world_cascade.py",
+      "status": "PASS",
+      "msg": "PASS: world_cascade -- every world-scoped table is deleted or guarded; a populated world deletes under FK enforcement; refusals delete nothing"
+    },
+    {
+      "check": "identity_tokens.py",
+      "status": "PASS",
+      "msg": "PASS: identity_tokens \u2014 content_raw read only in the allow-list, render follows renames and falls back on deleted entities, C-14's case table holds, two same-named NPCs give one ambigu row, and token posing calls no model"
+    },
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v2.14'"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u2014 section whitelist, character/line budgets, File-structure archaeology ban, Invariants archaeology ban, tooling/ pointer freshness, .py pointer freshness"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u2014 107 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 138 check(s) discovered, 138 executed, 138 passed"
+    }
+  ]
+}
