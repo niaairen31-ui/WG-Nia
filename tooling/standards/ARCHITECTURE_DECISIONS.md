@@ -17971,6 +17971,31 @@ an `agenda_step_change` whose step has a `domain` -- with that mutation's
 status: proposed, the point waits for the approval; applied, it is earned.
 The former « pas encore de gain de compétence » note is retired.
 
+
+## AN NPC HAS A SKILL SHEET (TICKET-0107) -- ITS ROWS OPPOSE THE ROLL, THE CARRURE BECOMES A ROW (BRIEF-0107-a, schema v2.16)
+
+**D1.** An NPC holds only the skill rows the creator gives it; every
+character has the four base domains, so a base domain an NPC holds no row
+for reads Initié (+0). An opposing NPC's modifier is its row for the skill
+rolled, else its base row for that skill's domain, else Initié
+(`skill_access.opposition_modifier`). `skill_access` also picks the
+player's row; both moved out of `play_physical.py` and joined
+`stream_session_readonly.py`'s declared set (reads only).
+
+**E1.** `character.physical_tier` is gone. A generator's carrure (-1..2,
+the prompt unchanged) becomes, at creation, the NPC's `physical` row through
+`skill_ranks.TIER_TO_RANK` -- none when it maps to Initié; the migration
+does the same for every NPC's non-zero tier and drops the column. A
+player's tier is ignored: its roll always read its own rows. The fiche's
+« Carrure » field is retired.
+
+**Schema for the lock (BRIEF-0107-b).** `skill_definition.requires_master`
+and `skill.taught_by_id` are added here, read from the next brief on.
+
+**Rejected.** Four seeded base rows per NPC on every creation path: the
+same reading as an absent row, through many more writes. Keeping
+`physical_tier` beside the rows: two sources for one modifier.
+
 ---
 
 *Co-built with Claude, June 2026.*

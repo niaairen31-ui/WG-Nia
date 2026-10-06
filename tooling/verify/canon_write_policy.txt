@@ -25,6 +25,8 @@ src/world_engine/writes/factions.py::write_membership          faction_membershi
 src/world_engine/writes/characters.py::write_skill_rank        skill
 # TICKET-0106, BRIEF-0106-B: write_skill_progress adds a roll's points to a skill row and moves its rank at a threshold; called only from inside _apply_mutation (the skill_progress applier and the agenda_step_change applier).
 src/world_engine/writes/characters.py::write_skill_progress    skill
+# TICKET-0107, BRIEF-0107-A: write_skill_row creates one skill row for a character -- an NPC's skill, a carrure at creation, a skill learned -- refusing a second row for the same character and skill.
+src/world_engine/writes/characters.py::write_skill_row         skill
 src/world_engine/writes/goals_agendas.py::write_npc_goal       npc_goal
 src/world_engine/writes/goals_agendas.py::write_npc_goal_status npc_goal
 src/world_engine/writes/goals_agendas.py::write_npc_goal_prerequisites npc_goal

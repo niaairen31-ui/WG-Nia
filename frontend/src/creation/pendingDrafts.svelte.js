@@ -15,11 +15,19 @@
 export const pendingDraftsState = $state({
   knowledge: [],
   goals: { long: '', shorts: ['', ''] },
+  // TICKET-0107 (E1): the generator's carrure (-1..2), sent as the create
+  // body's `carrure`; the server makes it the NPC's physical skill row.
+  carrure: null,
 });
 
 export function resetPendingDrafts() {
   pendingDraftsState.knowledge = [];
   pendingDraftsState.goals = { long: '', shorts: ['', ''] };
+  pendingDraftsState.carrure = null;
+}
+
+export function carrureForCreate() {
+  return pendingDraftsState.carrure;
 }
 
 export function knowledgeForCreate() {

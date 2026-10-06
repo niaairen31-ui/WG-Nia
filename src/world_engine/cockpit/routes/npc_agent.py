@@ -210,13 +210,13 @@ def _commit_npc_row(row: NpcBatchRow, batch: NpcBatch, db: Session) -> dict:
         "character_type": "npc",
         "current_location_id": row.payload["location_id"],
     }
-    if pub.get("physical_tier") is not None:
-        ext_data["physical_tier"] = pub["physical_tier"]
     faction_id = pub.get("faction_id")
     if faction_id is not None:
         ext_data["faction_id"] = faction_id
 
-    npc_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data, facets=draft["facets"])
+    # The draft's carrure becomes the NPC's physical skill row (TICKET-0107, E1).
+    npc_body = _crud.EntityWriteBody(entity=entity_data, extension=ext_data, facets=draft["facets"],
+                                     carrure=pub.get("physical_tier"))
     npc_entity = _crud._create_entity_core(npc_body, db)
 
     for k in (sec.get("knowledge") or []):

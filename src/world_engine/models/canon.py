@@ -170,11 +170,8 @@ class Character(SQLModel, table=True):
     )
     # appearance/backstory/aversion/secrets moved to facts (TICKET-0091,
     # schema v2.06): physique, histoire, aversion, creator_meta histoire.
-    # Schema v1.77, TICKET-0025, BRIEF-0025-a: physical resistance tier for
-    # opposed rolls (resolution.py). Migrated from entity.metadata
-    # ['physical_tier'] — UI-visible data is never stored in JSON
-    # (json_ui_boundary). 0 = untrained default.
-    physical_tier: int = Field(default=0, sa_column_kwargs={"server_default": text("0")})
+    # `physical_tier` (v1.77) became the NPC's `physical` skill row at v2.16
+    # (TICKET-0107): an NPC's opposition reads its skill rows.
 
 
 # -----------------------------------------------------------------------------
@@ -647,12 +644,16 @@ class SkillDefinition(SQLModel, table=True):
     points_to_rank_3: Optional[int] = None
     points_to_rank_4: Optional[int] = None
     points_to_rank_5: Optional[int] = None
+    # Learned only from a master (v2.16, TICKET-0107, A2): a player
+    # character holds no row for it until taught, and cannot roll it.
+    requires_master: bool = Field(default=False, sa_column_kwargs={"server_default": text("0")})
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
 
 
 # -----------------------------------------------------------------------------
-# skill  (player character skill sheet — physical/sensory domains, schema v1.22;
+# skill  (a character's skill sheet — physical/sensory domains, schema v1.22;
+# NPC rows too since v2.16, TICKET-0107;
 # skill_definition_id added schema v1.63; `rank` and `xp` replace `tier` at
 # v2.15, TICKET-0106 — the dice modifier is `skill_ranks.rank_modifier(rank)`)
 # -----------------------------------------------------------------------------
@@ -685,6 +686,10 @@ class Skill(SQLModel, table=True):
             nullable=True,
         ),
     )
+    # Who taught this skill (v2.16, TICKET-0107, C1): a character at Maître in
+    # it when the row was learned; NULL for a row seeded or granted without
+    # a master.
+    taught_by_id: Optional[str] = Field(default=None, foreign_key="entity.id")
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
 

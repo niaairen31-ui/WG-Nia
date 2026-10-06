@@ -128,7 +128,7 @@
                   onchange={(e) => editField(row.id, 'name', e.currentTarget.value)}>
                 <input type="text" placeholder="description" style="flex:1; min-width:140px" value={fac.description || ''} disabled={rejected}
                   onchange={(e) => editField(row.id, 'description', e.currentTarget.value)}>
-                <input type="number" min="-1" max="2" title="physical_tier" style="width:52px" value={pub.physical_tier ?? ''} disabled={rejected}
+                <input type="number" min="-1" max="2" title="Carrure (devient la compétence Physique)" style="width:52px" value={pub.physical_tier ?? ''} disabled={rejected}
                   onchange={(e) => editField(row.id, 'physical_tier', Number(e.currentTarget.value))}>
                 <select disabled={rejected} onchange={(e) => editField(row.id, 'faction_id', e.currentTarget.value || null)}>
                   <option value="">(aucune)</option>

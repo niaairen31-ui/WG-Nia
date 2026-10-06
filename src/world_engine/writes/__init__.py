@@ -52,6 +52,7 @@ from __future__ import annotations
 from ._shared import _append_history_snapshot, _clamp
 from .characters import (
     SkillProgress, write_character_location, write_ledger_entry, write_skill_progress, write_skill_rank,
+    write_skill_row,
 )
 from .config import (
     upsert_conversation_window_config,
@@ -153,6 +154,7 @@ __all__ = [
     "attach_participants",
     "write_skill_rank",
     "write_skill_progress",
+    "write_skill_row",
     "SkillProgress",
     "write_ledger_entry",
     "write_membership",

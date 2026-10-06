@@ -13,6 +13,13 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.16** — TICKET-0107, BRIEF-0107-A: NPC skill sheets and skills
+  learned from a master. `skill_definition.requires_master` (default 0) and
+  `skill.taught_by_id` (FK `entity`, nullable) are added; an NPC holds skill
+  rows. `character.physical_tier` is dropped: `migrate_v2_16_npc_skills.py`
+  turns every NPC's non-zero tier into its `physical` row
+  (`TIER_TO_RANK`), refuses a database older than v2.15 or a SQLite older
+  than 3.35.
 - **v2.15** — TICKET-0106, BRIEF-0106-A: a skill has a rank and points.
   `skill.tier` (-1..2) becomes `skill.rank` (0..5: Inexpérimenté, Initié,
   Apprenti, Confirmé, Expert, Maître) plus `skill.xp`; the dice modifier is

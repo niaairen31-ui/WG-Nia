@@ -9,6 +9,10 @@ none of these three functions were baselined.
   (history is sacred on this path too) and restarting its points at 0
   (U2). The sole write shape for a creator's rank edit (TICKET-0106,
   BRIEF-0106-A; formerly `write_skill_tier`).
+- `write_skill_row(...)`                : create one `skill` row for a
+  character -- an NPC's skill, a carrure, a skill learned (TICKET-0107,
+  BRIEF-0107-A). The sole creator of a row outside the PC seed and the
+  catalogue backfill.
 - `write_skill_progress(...)`           : add points to a `skill` row and
   move its rank when a threshold is crossed (TICKET-0106, BRIEF-0106-B).
   The sole write shape for points; called by the `skill_progress` applier
@@ -27,9 +31,9 @@ from datetime import UTC, datetime
 from typing import Optional
 
 from sqlalchemy.orm import attributes as sa_attrs
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from ..models import Character, Ledger, Skill
+from ..models import BASE_SKILL_DOMAINS, Character, Ledger, Skill, SkillDefinition
 from ..skill_ranks import MAX_RANK, RANKS, skill_points_to_next
 
 
@@ -96,6 +100,46 @@ def write_skill_rank(
 
     db.add(skill)
     return skill
+
+
+def write_skill_row(
+    db: Session,
+    *,
+    character_id: str,
+    rank: int,
+    domain: Optional[str] = None,
+    skill_definition_id: Optional[str] = None,
+    taught_by_id: Optional[str] = None,
+) -> Skill:
+    """Create one `skill` row: a base domain (`domain`, no definition) or a
+    skill definition (`skill_definition_id`; the row's `domain` is the
+    definition's base domain, never the caller's). Caller adds nothing and
+    commits. `ValueError` before any write on a rank outside `RANKS`, both
+    or neither of `domain`/`skill_definition_id`, an unknown definition, a
+    base domain outside `BASE_SKILL_DOMAINS`, or a row the character already
+    holds for that skill (one row per character and skill)."""
+    if rank not in RANKS:
+        raise ValueError(f"write_skill_row: rank {rank!r} is not one of {RANKS}")
+    if (domain is None) == (skill_definition_id is None):
+        raise ValueError("write_skill_row: exactly one of domain and skill_definition_id")
+    if skill_definition_id is not None:
+        definition = db.get(SkillDefinition, skill_definition_id)
+        if definition is None:
+            raise ValueError(f"write_skill_row: skill definition {skill_definition_id!r} not found")
+        domain = definition.base_domain
+        clash = select(Skill).where(Skill.character_id == character_id,
+                                    Skill.skill_definition_id == skill_definition_id)
+    else:
+        if domain not in BASE_SKILL_DOMAINS:
+            raise ValueError(f"write_skill_row: {domain!r} is not a base domain")
+        clash = select(Skill).where(Skill.character_id == character_id, Skill.domain == domain,
+                                    Skill.skill_definition_id.is_(None))
+    if db.exec(clash).first() is not None:
+        raise ValueError("write_skill_row: the character already holds this skill")
+    row = Skill(character_id=character_id, domain=domain, rank=rank,
+                skill_definition_id=skill_definition_id, taught_by_id=taught_by_id)
+    db.add(row)
+    return row
 
 
 @dataclass(frozen=True)
