@@ -2,7 +2,7 @@
 id: TICKET-0106
 title: A skill progresses from Inexpérimenté to Maître, a point per roll
 type: feature
-status: exec
+status: live-gate
 created: 2026-10-05
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write]
