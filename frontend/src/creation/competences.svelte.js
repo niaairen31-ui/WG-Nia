@@ -22,13 +22,20 @@
    of this store, so editing a fiche changes nothing until Save.
    `persisted` is the one fact that decides POST vs PUT, the "Nouvelle"
    title and whether Delete shows -- never sheetIsNew, which a draft opened
-   from the list does not carry. */
+   from the list does not carry.
+
+   TICKET-0106 (BRIEF-0106-C, O1/P2): a skill and a system carry the five
+   optional rank thresholds (`points_to_rank_1..5`, null = inherit), and a
+   third record kind, 'ranks', edits the world's ladder (GET/PUT
+   /api/skill-ranks): each rank's name and the points to leave it. The most
+   specific value wins -- skill, then system, then world. */
 import { serverState } from '../lib/serverState.svelte.js';
 
 export const competencesState = $state({
   draft: [],   // proposed rows awaiting Save: {key, name, base_domain, system_id, description}
   rows: [],    // existing world-scoped skill_definition rows
   systems: [], // existing world-scoped skill_system rows
+  ranks: [],   // the world's ladder: {rank, label, points_to_next}, index = rank
   gaps: [],    // distinct unmatched surface forms, most frequent first
   arbiterFailures: { error: 0, empty: 0 },
   gapsError: '',
@@ -43,6 +50,28 @@ export const COMPETENCES_DOMAINS = ['physical', 'agility', 'perception', 'compos
 export const NO_SYSTEM_LABEL = 'Sans système';
 
 export const ASSISTANT_RECORD_ID = 'assistant';
+export const RANKS_RECORD_ID = 'ranks';
+
+// `points_to_rank_<n>` holds the points to REACH rank n (to leave rank n-1).
+export const RANK_POINT_KEYS = [1, 2, 3, 4, 5].map((n) => `points_to_rank_${n}`);
+
+function rankPoints(row) {
+  const points = {};
+  for (const key of RANK_POINT_KEYS) points[key] = row?.[key] ?? null;
+  return points;
+}
+
+/** The value a blank threshold inherits (O1): for a skill, its system's
+ *  value; then the world's. `n` is the rank reached (1-5). */
+export function inheritedPoints(record, n) {
+  const key = RANK_POINT_KEYS[n - 1];
+  if (record.kind === 'skill' && record.system_id) {
+    const sys = competencesState.systems.find((s) => s.id === record.system_id);
+    if (sys && sys[key] != null) return sys[key];
+  }
+  const step = competencesState.ranks[n - 1];
+  return step ? step.points_to_next : null;
+}
 
 let nextDraftKey = 1;
 
@@ -59,7 +88,7 @@ export function skillRecord(row) {
   return {
     kind: 'skill', persisted: true, id: row.id, draftKey: null,
     name: row.name, base_domain: row.base_domain, system_id: row.system_id ?? null,
-    description: row.description ?? '',
+    description: row.description ?? '', ...rankPoints(row),
   };
 }
 
@@ -67,6 +96,14 @@ export function systemRecord(sys) {
   return {
     kind: 'system', persisted: true, id: sys.id,
     name: sys.name, description: sys.description ?? '', skill_count: sys.skill_count ?? 0,
+    ...rankPoints(sys),
+  };
+}
+
+export function ranksRecord() {
+  return {
+    kind: 'ranks', persisted: true, id: RANKS_RECORD_ID,
+    steps: competencesState.ranks.map((r) => ({ ...r })),
   };
 }
 
@@ -74,7 +111,7 @@ export function draftRecord(d) {
   return {
     kind: 'skill', persisted: false, id: `draft:${d.key}`, draftKey: d.key,
     name: d.name ?? '', base_domain: d.base_domain ?? '', system_id: d.system_id ?? null,
-    description: d.description ?? '',
+    description: d.description ?? '', ...rankPoints(null),
   };
 }
 
@@ -87,11 +124,13 @@ export function assistantRecord() {
  *  (TICKET-0099, G1), a skill otherwise. */
 export function blankRecord(kind) {
   if (kind === 'system') {
-    return { kind: 'system', persisted: false, id: null, name: '', description: '', skill_count: 0 };
+    return {
+      kind: 'system', persisted: false, id: null, name: '', description: '', skill_count: 0, ...rankPoints(null),
+    };
   }
   return {
     kind: 'skill', persisted: false, id: null, draftKey: null,
-    name: '', base_domain: 'physical', system_id: null, description: '',
+    name: '', base_domain: 'physical', system_id: null, description: '', ...rankPoints(null),
   };
 }
 
@@ -99,6 +138,7 @@ export function blankRecord(kind) {
 export function competenceSheetTitle(record) {
   if (!record) return '';
   if (record.kind === 'assistant') return 'Assistant de compétences';
+  if (record.kind === 'ranks') return 'Rangs du monde';
   if (record.kind === 'system') return record.persisted ? record.name : 'Nouveau système';
   return record.persisted ? record.name : 'Nouvelle compétence';
 }
@@ -113,12 +153,14 @@ export async function loadCatalogue() {
     competencesState.draft = [];
     competencesState.draftWorldId = serverState.worldId;
   }
-  const [rows, systems] = await Promise.all([
+  const [rows, systems, ranks] = await Promise.all([
     api('/api/skill-definitions'),
     api('/api/skill-systems'),
+    api('/api/skill-ranks'),
   ]);
   competencesState.rows = rows;
   competencesState.systems = systems;
+  competencesState.ranks = ranks;
   await loadGaps();
 }
 
@@ -189,6 +231,20 @@ export function discardDraft(key) {
 
 /* ── Writes (C-04) ──────────────────────────────────────────────────────── */
 
+/** A threshold input's value: an integer >= 1, or null (inherit). */
+function pointsValue(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) throw new Error('Un seuil est un nombre entier de points, au moins 1.');
+  return n;
+}
+
+function pointsBody(record) {
+  const points = {};
+  for (const key of RANK_POINT_KEYS) points[key] = pointsValue(record[key]);
+  return points;
+}
+
 function requireName(record) {
   const name = (record.name || '').trim();
   if (!name) throw new Error('Nom requis.');
@@ -200,7 +256,7 @@ async function saveSkill(record) {
   if (!COMPETENCES_DOMAINS.includes(record.base_domain)) throw new Error('Domaine de base requis.');
   const body = JSON.stringify({
     name, base_domain: record.base_domain, system_id: record.system_id || null,
-    description: record.description || '',
+    description: record.description || '', ...pointsBody(record),
   });
   const saved = record.persisted
     ? await api(`/api/skill-definitions/${record.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
@@ -211,11 +267,26 @@ async function saveSkill(record) {
 
 async function saveSystem(record) {
   const name = requireName(record);
-  const body = JSON.stringify({ name, description: record.description || null });
+  const body = JSON.stringify({ name, description: record.description || null, ...pointsBody(record) });
   const saved = record.persisted
     ? await api(`/api/skill-systems/${record.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
     : await api('/api/skill-systems', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
   return systemRecord(saved);
+}
+
+async function saveRanks(record) {
+  const ranks = record.steps.map((step) => {
+    const label = (step.label || '').trim();
+    if (!label) throw new Error('Chaque rang a un nom.');
+    return { rank: step.rank, label, points_to_next: step.rank < 5 ? pointsValue(step.points_to_next) : null };
+  });
+  if (ranks.some((step) => step.rank < 5 && step.points_to_next === null)) {
+    throw new Error('Chaque rang sauf le dernier demande un nombre de points.');
+  }
+  competencesState.ranks = await api('/api/skill-ranks', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ranks }),
+  });
+  return ranksRecord();
 }
 
 /** Saves the open fiche's record; returns the saved record (C-01). Throws
@@ -223,6 +294,7 @@ async function saveSystem(record) {
 export async function saveCompetenceRecord(record) {
   if (record.kind === 'skill') return saveSkill(record);
   if (record.kind === 'system') return saveSystem(record);
+  if (record.kind === 'ranks') return saveRanks(record);
   throw new Error('Rien à enregistrer.');
 }
 

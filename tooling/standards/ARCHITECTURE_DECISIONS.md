@@ -454,6 +454,15 @@ fails, only the canon writes roll back; the mutation-row update (status,
 > functional, ready for reactivation if combat design later needs an in-hand
 > state. Any extension of this category is a creator decision, recorded here.
 
+**Extension -- `skill_progress` (TICKET-0106, Q1, Nia 2026-10-05).** A Play
+roll's point is the category's second member, and its only live one: one
+point on the skill row rolled (`proposed_by='engine_roll'`, never the
+reviewed `'engine'` tag), applied at proposal time through `_apply_mutation`
+by `cockpit/skill_progress.record_roll`. It meets all four conditions: a
+`skill_progress` of -1 point undoes it, rank included; it creates and
+destroys nothing; it touches no relation and no knowledge; it is recorded
+`applied` and listed with the applied mutations.
+
 ### The "Needs attention" tab
 
 `status = 'approved'` is an **exception bucket**, not a success state. A
@@ -17874,6 +17883,93 @@ in the dossier (it lists stored rows); showing it is its own ticket.
 
 **Rejected.** T2, a rule in the Lore prompt (a new prompt version) for a
 mark the code already writes.
+
+
+## A SKILL HAS A RANK AND POINTS (TICKET-0106) -- SIX RANKS, A MODIFIER TABLE, THRESHOLDS AT THREE LEVELS (BRIEF-0106-a, schema v2.15)
+
+**G1, L1.** `skill.tier` (-1..2) becomes `skill.rank`: six ranks fixed in
+the engine (0 Inexpérimenté, 1 Initié, 2 Apprenti, 3 Confirmé, 4 Expert,
+5 Maître), read as numbers by the code. The dice modifier is not the rank:
+`skill_ranks.RANK_MODIFIERS` maps it (-1, 0, +1, +2, +2, +3), so the four
+former tiers keep their exact roll (tier -1/0/1/2 became rank 0/1/2/3) and
+a Maître can still fail. Both rolls (`play_physical`, `day_resolve`) read
+`rank_modifier`. A new skill row starts at Initié, the former tier 0. NPCs
+keep `character.physical_tier` until they have skill sheets.
+
+**U2, O1, P2.** `skill.xp` counts the points earned within the current
+rank; a creator's rank edit restarts it at 0 and archives the previous rank
+and points. A world names its ranks and sets the default points to leave
+each one in `skill_rank` (absent rows read the engine defaults: 5, 10, 20,
+40, 80); a skill system and a skill definition may each override any of
+the five thresholds (`points_to_rank_<n>`, NULL = inherit). The most
+specific value wins: definition, system, world, engine
+(`skill_ranks.points_to_next`).
+
+**Rejected.** G2, a ladder whose length each world chooses: every reader
+would carry a variable scale; reactivates when a world needs it. G3, rank =
+modifier: a Maître against an untrained NPC could almost never fail. T2,
+widening `tier` to 0..5: a misleading name forever. Override rows in a
+separate table: a cleared override would be a hard delete.
+
+
+## A ROLL EARNS A POINT (TICKET-0106) -- AUTO-APPLIED IN PLAY, GIVEN AT A DAY STEP'S APPROVAL (BRIEF-0106-b, no schema change)
+
+**M2, N2, S1.** Every roll of the player earns one point on the skill row
+that was rolled -- the custom skill when the arbiter named one -- whatever
+the band (one learns from failing too), with no cap. A Maître earns nothing
+more: no mutation is written for it.
+
+**Q1, K1.** In Play the point is a `skill_progress` mutation, auto-applied
+(see "Auto-applied mutations"). `writes.write_skill_progress` is its sole
+write shape: when the points reach the current rank's threshold
+(`skill_ranks.points_to_next`), the rank rises by one and the points restart
+at 0; a negative amount undoes it exactly. The row's `change_history`
+records a rank move only -- each point is audited by the mutation that
+carried it. A failure while recording is logged and swallowed: a point
+never breaks a turn.
+
+**A day.** A day's dice are replayable and write no canon, so its points
+are given when Nia approves the step's `agenda_step_change` -- complete or
+fail -- by `grant_step_roll`, which reads the base skill from the step's
+own `domain`, never from the payload. A faction's or an NPC's step earns
+nothing: they have no skill rows.
+
+**Y1b.** Play is sealed (TICKET-0061, A3): the point rides on the verdict
+event as `progress`, which `legacy.html` ignores until Play's migration
+(TICKET-0069). Until then it is seen on the PC's fiche, in the day's
+account, and among the applied mutations.
+
+**Rejected.** Q2, a proposal per roll for review: the queue would fill with
+single points. Q3, a direct write outside `_apply_mutation`: a third canon
+write path. Y1a, a line-neutral edit of `_appendVerdict`: it would break
+the seal for one function.
+
+
+## THE CREATOR SETS THE RANKS (TICKET-0106) -- A LADDER PER WORLD, THRESHOLDS PER SYSTEM AND SKILL (BRIEF-0106-c, no schema change)
+
+**W1, P2, O1.** Création › Compétences carries a « Rangs du monde » record:
+the six rank names of the world and the points to leave each rank below
+Maître, saved all at once (`PUT /api/skill-ranks`, six
+`writes.upsert_skill_rank` calls, one transaction, 422 before any write on
+an invalid step). A system's and a skill's fiche carry the five thresholds
+(`points_to_rank_<n>`): blank inherits, and shows the inherited value as a
+placeholder -- for a skill, its system's value, then the world's. A PUT of
+a system or a skill replaces its thresholds like every other field of its
+body.
+
+**Rejected.** Labels per system (P1): one ladder per world is simpler to
+edit; reactivates if two systems of one world need different rank names.
+
+
+## THE POINTS ARE SHOWN (TICKET-0106) -- ON THE PC'S FICHE AND IN THE DAY'S ACCOUNT (BRIEF-0106-d, no schema change)
+
+**Y1b.** Until Play's migration shows the verdict's `progress`, the points
+are seen in two places. The PC's skill fiche shows, beside each rank, the
+points earned within it out of the points needed to leave it (« rang
+maximal » at Maître). The day's account lists one point per rolled step --
+an `agenda_step_change` whose step has a `domain` -- with that mutation's
+status: proposed, the point waits for the approval; applied, it is earned.
+The former « pas encore de gain de compétence » note is retired.
 
 ---
 

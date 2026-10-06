@@ -35,6 +35,11 @@ none of these three functions were baselined.
   curated-config discipline as `write_location_doors`: no `change_history`,
   delete-then-insert inside the caller's transaction. Sparse by decision
   (B1): an empty `rows` list is legal.
+- `upsert_skill_rank(...)`              : upsert-one of a world's
+  `skill_rank` row for one rank (TICKET-0106, BRIEF-0106-C — the rank's
+  name and the default points to leave it). Same curated-config discipline
+  as `upsert_conversation_window_config`: no `change_history`,
+  fetch-or-create, never a DELETE.
 """
 
 from __future__ import annotations
@@ -60,9 +65,11 @@ from ..models import (
     ObstacleVertex,
     Relation,
     SCHEDULE_PHASES,
+    SkillRank,
     World,
     WorldLaw,
 )
+from ..skill_ranks import MAX_RANK, RANKS
 from ..zone_rules import require_visitable
 
 
@@ -524,3 +531,39 @@ def _record_schedule_encounters(
             record_encounter(
                 db, world_id=world_id, a_id=npc_id, b_id=other_id, source="schedule",
             )
+
+
+def upsert_skill_rank(
+    db: Session,
+    *,
+    world_id: str,
+    rank: int,
+    label: str,
+    points_to_next: Optional[int],
+) -> SkillRank:
+    """Upsert the `skill_rank` row of one (world, rank). Caller commits.
+
+    `label` is stripped and must be non-empty; `points_to_next` is a
+    positive integer below MAX_RANK and None at MAX_RANK (the table's own
+    CHECK, raised here as `ValueError` before any write). Fetch-or-create:
+    never a DELETE (TICKET-0106, BRIEF-0106-C).
+    """
+    if rank not in RANKS:
+        raise ValueError(f"upsert_skill_rank: rank {rank!r} is not one of {RANKS}")
+    label = (label or "").strip()
+    if not label:
+        raise ValueError("upsert_skill_rank: label must be a non-empty string")
+    if rank == MAX_RANK and points_to_next is not None:
+        raise ValueError("upsert_skill_rank: the top rank has no next rank")
+    if rank < MAX_RANK and (not isinstance(points_to_next, int) or isinstance(points_to_next, bool)
+                            or points_to_next < 1):
+        raise ValueError(f"upsert_skill_rank: points_to_next must be an integer >= 1, got {points_to_next!r}")
+    row = db.exec(select(SkillRank).where(SkillRank.world_id == world_id, SkillRank.rank == rank)).first()
+    if row is None:
+        row = SkillRank(world_id=world_id, rank=rank, label=label, points_to_next=points_to_next)
+    else:
+        row.label = label
+        row.points_to_next = points_to_next
+        row.updated_at = datetime.now(UTC)
+    db.add(row)
+    return row

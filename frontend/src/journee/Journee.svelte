@@ -153,7 +153,11 @@
                 {#each account.gains.relation as g}
                   <li><span class="badge b-other">relation</span> {g.status} — {JSON.stringify(g.detail)}</li>
                 {/each}
-                {#if account.gains.resource.length === 0 && account.gains.knowledge.length === 0 && account.gains.relation.length === 0}
+                {#each account.gains.skill.produced as g}
+                  <li><span class="badge b-other">compétence</span> {g.domain} +{g.points} point
+                    ({g.status === 'applied' ? 'acquis' : g.status === 'proposed' ? "à l'approbation" : g.status})</li>
+                {/each}
+                {#if account.gains.resource.length === 0 && account.gains.knowledge.length === 0 && account.gains.relation.length === 0 && account.gains.skill.produced.length === 0}
                   <li class="muted">Rien pour l'instant.</li>
                 {/if}
               </ul>

@@ -50,10 +50,13 @@ _find_relation_pair`, etc.) is untouched, byte for byte, by this split.
 from __future__ import annotations
 
 from ._shared import _append_history_snapshot, _clamp
-from .characters import write_character_location, write_ledger_entry, write_skill_tier
+from .characters import (
+    SkillProgress, write_character_location, write_ledger_entry, write_skill_progress, write_skill_rank,
+)
 from .config import (
     upsert_conversation_window_config,
     upsert_location_type,
+    upsert_skill_rank,
     write_location_doors,
     write_location_obstacles,
     write_npc_prices,
@@ -148,7 +151,9 @@ __all__ = [
     "create_fact",
     "create_fact_default",
     "attach_participants",
-    "write_skill_tier",
+    "write_skill_rank",
+    "write_skill_progress",
+    "SkillProgress",
     "write_ledger_entry",
     "write_membership",
     "write_event",

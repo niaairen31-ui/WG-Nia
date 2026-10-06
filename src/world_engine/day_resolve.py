@@ -84,6 +84,7 @@ from .models import (
     Skill,
 )
 from .resolution import Verdict, resolve_physical
+from .skill_ranks import rank_modifier
 
 _log = logging.getLogger(__name__)
 
@@ -163,7 +164,9 @@ class _RolledStep:
 
 
 def _step_player_tier(character: Character, domain: str, db: Session) -> int:
-    """`play_physical.py`'s base-domain derivation (D1), verbatim: a day
+    """The dice modifier of the step's base-domain skill row, through
+    `skill_ranks.rank_modifier` (TICKET-0106, L1); 0 without a row.
+    `play_physical.py`'s base-domain derivation (D1), verbatim: a day
     step's `domain` is always a base domain (`day_plan._validate_step`
     rejects anything else) — the custom-skill branch that precedent also
     has never applies here, so it is not reproduced."""
@@ -174,7 +177,7 @@ def _step_player_tier(character: Character, domain: str, db: Session) -> int:
             Skill.skill_definition_id.is_(None),
         )
     ).first()
-    return skill_row.tier if skill_row else 0
+    return rank_modifier(skill_row.rank) if skill_row else 0
 
 
 _TERMINAL_AGENDA_STEP_STATUSES = ("completed", "failed")

@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session as DbSession, select
@@ -53,6 +53,7 @@ from ...models import (
 )
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
+from ...skill_ranks import DEFAULT_RANK, RANK_POINTS_COLUMNS, RANKS, RankStep, points_to_next, skill_owners, world_ladder
 from ...tick_normalize import _EVENT_TYPES
 from ...writes import (
     KNOWLEDGE_LEVELS,
@@ -77,7 +78,8 @@ from ...writes import (
     write_npc_prices,
     write_prompt_version,
     write_relation,
-    write_skill_tier,
+    upsert_skill_rank,
+    write_skill_rank,
 )
 
 from ._router import router
@@ -87,20 +89,64 @@ from ._shared import _get_entity, _iso, _world_id
 SKILL_DOMAINS = BASE_SKILL_DOMAINS
 
 
-SKILL_TIERS = (-1, 0, 1, 2)
-
-
-def _skill_dict(s: Skill, definition_name: str | None = None) -> dict:
+def _skill_dict(
+    s: Skill, ladder: tuple[RankStep, ...], definition: SkillDefinition | None = None,
+    system: SkillSystem | None = None,
+) -> dict:
     return {
         "id": s.id,
         "character_id": s.character_id,
         "domain": s.domain,
         "skill_definition_id": s.skill_definition_id,
-        "definition_name": definition_name,
-        "tier": s.tier,
+        "definition_name": definition.name if definition else None,
+        "rank": s.rank,
+        "rank_label": ladder[s.rank].label,
+        "xp": s.xp,
+        "points_to_next": points_to_next(s.rank, ladder, system=system, definition=definition),
         "change_history": s.change_history,
         "updated_at": _iso(s.updated_at),
     }
+
+
+def _rank_step_dict(step: RankStep) -> dict:
+    return {"rank": step.rank, "label": step.label, "points_to_next": step.points_to_next}
+
+
+@router.get("/skill-ranks")
+def list_skill_ranks(db: DbSession = Depends(get_session)) -> list[dict]:
+    """The active world's six ranks, index = rank (`skill_ranks.world_ladder`:
+    its `skill_rank` rows over the engine defaults). Read-only."""
+    return [_rank_step_dict(step) for step in world_ladder(db, _world_id(db))]
+
+
+class SkillRankStepBody(BaseModel):
+    rank: int
+    label: str
+    points_to_next: Optional[int] = None
+
+
+class SkillRanksBody(BaseModel):
+    ranks: list[SkillRankStepBody]
+
+
+@router.put("/skill-ranks")
+def update_skill_ranks(body: SkillRanksBody, db: DbSession = Depends(get_session)) -> list[dict]:
+    """Creator edit of the active world's ladder (TICKET-0106, BRIEF-0106-C,
+    P2/O1): all six ranks at once, each a name and, below Maître, the points
+    to leave it. Upserts the six `skill_rank` rows in one transaction; 422 on
+    any invalid step, before any write."""
+    world_id = _world_id(db)
+    if sorted(step.rank for step in body.ranks) != list(RANKS):
+        raise HTTPException(422, f"ranks must list each of {RANKS} exactly once")
+    try:
+        for step in body.ranks:
+            upsert_skill_rank(db, world_id=world_id, rank=step.rank, label=step.label,
+                              points_to_next=step.points_to_next)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc))
+    db.commit()
+    return [_rank_step_dict(step) for step in world_ladder(db, world_id)]
 
 
 @router.get("/skills/player-characters")
@@ -118,41 +164,47 @@ def list_skill_player_characters(db: DbSession = Depends(get_session)) -> list[d
 
 @router.get("/skills")
 def list_skills(character_id: str = Query(...), db: DbSession = Depends(get_session)) -> list[dict]:
-    """A player character's skill sheet, in fixed domain order."""
-    _get_entity(db, character_id)
-    pairs = db.exec(
-        select(Skill, SkillDefinition)
+    """A player character's skill sheet, in fixed domain order, each row with
+    its rank's name and the points it needs to leave that rank."""
+    entity = _get_entity(db, character_id)
+    ladder = world_ladder(db, entity.world_id)
+    rows = db.exec(
+        select(Skill, SkillDefinition, SkillSystem)
         .outerjoin(SkillDefinition, Skill.skill_definition_id == SkillDefinition.id)
+        .outerjoin(SkillSystem, SkillDefinition.system_id == SkillSystem.id)
         .where(Skill.character_id == character_id)
     ).all()
     order = {domain: i for i, domain in enumerate(SKILL_DOMAINS)}
-    pairs.sort(key=lambda p: order.get(p[0].domain, len(SKILL_DOMAINS)))
-    return [_skill_dict(s, d.name if d else None) for s, d in pairs]
+    rows.sort(key=lambda r: order.get(r[0].domain, len(SKILL_DOMAINS)))
+    return [_skill_dict(s, ladder, d, sys) for s, d, sys in rows]
 
 
-class SkillTierBody(BaseModel):
-    tier: int
+class SkillRankBody(BaseModel):
+    rank: int
 
 
 @router.patch("/skills/{skill_id}")
-def update_skill_tier(skill_id: str, body: SkillTierBody, db: DbSession = Depends(get_session)) -> dict:
-    """Creator edit: set a skill's tier directly (canon write, no checkpoint).
+def update_skill_rank(skill_id: str, body: SkillRankBody, db: DbSession = Depends(get_session)) -> dict:
+    """Creator edit: set a skill's rank directly (canon write, no checkpoint).
 
-    Archives the previous tier into `change_history` and bumps `updated_at`
-    — but only on an actual change, so resubmitting the same tier is a no-op.
+    Archives the previous rank and points into `change_history`, restarts the
+    points at 0 (U2) and bumps `updated_at` — but only on an actual change,
+    so resubmitting the same rank is a no-op.
     """
     skill = db.get(Skill, skill_id)
     if skill is None:
         raise HTTPException(404, f"Skill {skill_id!r} not found")
-    if body.tier not in SKILL_TIERS:
-        raise HTTPException(422, f"tier must be one of {SKILL_TIERS}")
+    if body.rank not in RANKS:
+        raise HTTPException(422, f"rank must be one of {RANKS}")
 
-    if body.tier != skill.tier:
-        write_skill_tier(db, skill_id=skill_id, tier=body.tier, changed_by="creator")
+    if body.rank != skill.rank:
+        write_skill_rank(db, skill_id=skill_id, rank=body.rank, changed_by="creator")
         db.commit()
         db.refresh(skill)
 
-    return _skill_dict(skill)
+    entity = _get_entity(db, skill.character_id)
+    system, definition = skill_owners(db, skill.skill_definition_id)
+    return _skill_dict(skill, world_ladder(db, entity.world_id), definition, system)
 
 
 def _skill_system_dict(s: SkillSystem, db: DbSession) -> dict:
@@ -165,6 +217,7 @@ def _skill_system_dict(s: SkillSystem, db: DbSession) -> dict:
         "name": s.name,
         "description": s.description,
         "skill_count": skill_count,
+        **_rank_points(s),
         "updated_at": _iso(s.updated_at),
     }
 
@@ -180,7 +233,27 @@ def list_skill_systems(db: DbSession = Depends(get_session)) -> list[dict]:
     return [_skill_system_dict(s, db) for s in rows]
 
 
-class SkillSystemWriteBody(BaseModel):
+class RankPointsBody(BaseModel):
+    """The five optional rank thresholds of a system or a skill (TICKET-0106,
+    BRIEF-0106-C, O1): a positive count, or None to inherit. A PUT replaces
+    all five, like every other field of its body."""
+    points_to_rank_1: Optional[int] = Field(default=None, ge=1)
+    points_to_rank_2: Optional[int] = Field(default=None, ge=1)
+    points_to_rank_3: Optional[int] = Field(default=None, ge=1)
+    points_to_rank_4: Optional[int] = Field(default=None, ge=1)
+    points_to_rank_5: Optional[int] = Field(default=None, ge=1)
+
+
+def _rank_points(row: Any) -> dict:
+    return {column: getattr(row, column) for column in RANK_POINTS_COLUMNS}
+
+
+def _set_rank_points(row: Any, body: RankPointsBody) -> None:
+    for column in RANK_POINTS_COLUMNS:
+        setattr(row, column, getattr(body, column))
+
+
+class SkillSystemWriteBody(RankPointsBody):
     name: str
     description: Optional[str] = None
 
@@ -200,6 +273,7 @@ def create_skill_system(
         raise HTTPException(422, "name is required")
 
     system = SkillSystem(world_id=world_id, name=name, description=body.description)
+    _set_rank_points(system, body)
     db.add(system)
     try:
         db.commit()
@@ -224,6 +298,7 @@ def update_skill_system(
 
     system.name = name
     system.description = body.description
+    _set_rank_points(system, body)
     system.updated_at = datetime.now(UTC)
     db.add(system)
     try:
@@ -314,6 +389,7 @@ def _skill_definition_dict(d: SkillDefinition) -> dict:
         "base_domain": d.base_domain,
         "system_id": d.system_id,
         "description": d.description,
+        **_rank_points(d),
         "updated_at": _iso(d.updated_at),
     }
 
@@ -329,7 +405,7 @@ def list_skill_definitions(db: DbSession = Depends(get_session)) -> list[dict]:
     return [_skill_definition_dict(d) for d in rows]
 
 
-class SkillDefinitionWriteBody(BaseModel):
+class SkillDefinitionWriteBody(RankPointsBody):
     name: str
     base_domain: str
     system_id: Optional[str] = None
@@ -342,7 +418,7 @@ def create_skill_definition(
 ) -> dict:
     """Add a custom skill to the active world's catalogue (D2-backfill-yes).
 
-    Backfills: inserts a tier-0 `skill` row for this definition onto every
+    Backfills: inserts a `skill` row at `DEFAULT_RANK` (Initié) for this definition onto every
     existing player character of the world, in the SAME transaction, so the
     catalogue<->PC alignment that makes the arbiter lookup total never
     lapses (BRIEF-55's invariant — every PC always has every world skill).
@@ -367,6 +443,7 @@ def create_skill_definition(
         system_id=body.system_id,
         description=body.description,
     )
+    _set_rank_points(definition, body)
     db.add(definition)
     try:
         db.flush()
@@ -383,7 +460,7 @@ def create_skill_definition(
         db.add(Skill(
             character_id=character_id,
             domain=definition.base_domain,
-            tier=0,
+            rank=DEFAULT_RANK,
             skill_definition_id=definition.id,
         ))
 
@@ -426,6 +503,7 @@ def update_skill_definition(
     definition.base_domain = body.base_domain
     definition.system_id = body.system_id
     definition.description = body.description
+    _set_rank_points(definition, body)
     definition.updated_at = datetime.now(UTC)
     db.add(definition)
 

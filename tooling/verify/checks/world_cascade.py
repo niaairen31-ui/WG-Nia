@@ -108,6 +108,8 @@ _FIXTURE: tuple[tuple[str, dict], ...] = (
                    "last_at": "2026-01-01 00:00:00", "source": "fixture"}),
     ("session", {"id": "ses-{w}", "world_id": "{w}", "number": 1}),
     ("skill_system", {"id": "ss-{w}", "world_id": "{w}", "name": "s"}),
+    ("skill_rank", {"id": "srk-{w}", "world_id": "{w}", "rank": 2, "label": "Apprenti",
+                    "points_to_next": 20}),
     ("visit", {"id": "vis-{w}", "world_id": "{w}", "player_id": "{w}-char",
                "location_id": "{w}-loc"}),
     ("world_law", {"id": "wl-{w}", "world_id": "{w}", "text": "t"}),

@@ -15,7 +15,7 @@ from typing import Any, Iterator, Optional
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from .. import llm_parse, ollama_client, skill_lexicon
+from .. import llm_parse, ollama_client, skill_lexicon, skill_ranks
 from ..context import (
     assemble_mj_context,
     assemble_npc_context,
@@ -52,6 +52,7 @@ from .play import (
     _npc_dialogue_system_prompt,
 )
 from .play_discovery import _propose_engine_discovery
+from .skill_progress import record_roll
 
 _log = logging.getLogger(__name__)
 
@@ -190,9 +191,9 @@ def _say_physical_resolve_verdict(
             ).first()
 
     # Player-roll rule (resolution.py): the roll always belongs to the
-    # player — player_tier from the skill sheet, npc_tier (if opposed)
-    # from character.physical_tier, default 0 either way.
-    player_tier = skill_row.tier if skill_row else 0
+    # player — player_tier is its skill row's rank modifier (TICKET-0106),
+    # npc_tier (if opposed) character.physical_tier, default 0 either way.
+    player_tier = skill_ranks.rank_modifier(skill_row.rank) if skill_row else 0
 
     opposed_entity: Optional[Entity] = None
     # npc_tier already set for gated turns above; normal turns start at 0.
@@ -211,7 +212,8 @@ def _say_physical_resolve_verdict(
         verdict.domain, verdict.dice, verdict.modifier, verdict.total,
         verdict.band, player_tier, npc_tier, opposed_npc_id or "none",
     )
-    verdict_sse_line = f"data: {json.dumps({'verdict': {'domain': verdict.domain, 'dice': list(verdict.dice), 'modifier': verdict.modifier, 'total': verdict.total, 'band': verdict.band}})}\n\n"
+    progress = record_roll(world_id=ctx.world_id, conversation_id=ctx.conv_id, skill_id=skill_row.id if skill_row else None, band=verdict.band)
+    verdict_sse_line = f"data: {json.dumps({'verdict': {'domain': verdict.domain, 'dice': list(verdict.dice), 'modifier': verdict.modifier, 'total': verdict.total, 'band': verdict.band, 'progress': progress}})}\n\n"
     return resolved_base_domain, verdict, opposed_entity, verdict_sse_line
 
 

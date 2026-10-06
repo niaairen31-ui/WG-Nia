@@ -82,7 +82,7 @@ from ...writes import (
     write_oriented_relations,
     write_prompt_version,
     write_relation,
-    write_skill_tier,
+    write_skill_rank,
 )
 
 from ._router import router

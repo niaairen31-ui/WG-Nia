@@ -72,6 +72,7 @@ from ..writes import (
 from ..writes.zone_promotion import promotion_preview
 from ..zone_rules import ZoneRefusal, require_visitable
 from .routes import mutations as _routes_mutations
+from .skill_progress import grant_step_roll
 
 
 def _knowledge_leg_already_applied(
@@ -828,7 +829,8 @@ def _mutation_apply_agenda_step_change(mut: ProposedMutation, payload: dict, db:
     """Stale guard (0014 doctrine, canon-existence): the step must still be
     the ACTIVE one. Completion effects (TICKET-0024, BRIEF-0024-c) —
     `complete` only, never `fail`. Subject is FORCED to the agenda's owner;
-    a role_change effect on a faction-owned agenda is a whole reject."""
+    a role_change effect on a faction-owned agenda is a whole reject. The
+    step's roll earns its point either way (`grant_step_roll`, TICKET-0106)."""
     step_id = payload.get("step_id")
     action = payload.get("action")
     if not step_id or action not in ("complete", "fail"):
@@ -863,6 +865,7 @@ def _mutation_apply_agenda_step_change(mut: ProposedMutation, payload: dict, db:
         if not effects:
             extra_history["no_footprint"] = True
 
+    grant_step_roll(db, step=step, owner_id=agenda.owner_entity_id, world_id=mut.world_id, mutation_id=mut.id)
     new_status = "completed" if action == "complete" else "failed"
     write_agenda_step_status(
         db, step=step, status=new_status, outcome=payload.get("outcome"), mutation_id=mut.id,

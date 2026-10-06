@@ -6,7 +6,8 @@
      own onSelectRecord (creationSelectRecord, tabs.js), so the fiche opens
      through the one record path intrigues/evenements already use.
 
-     Four sections, top to bottom:
+     Five sections, top to bottom:
+       Rangs            -- the world's ladder, one record (TICKET-0106, C-06).
        Brouillons       -- the assistant entry (H1), then every draft row.
        Systèmes         -- each system is a row of its own (its fiche), its
                            skills indented under it (C1).
@@ -19,8 +20,8 @@
      the same ones). */
   import { creationState } from './state.svelte.js';
   import {
-    competencesState, NO_SYSTEM_LABEL, ASSISTANT_RECORD_ID, groupSkillsBySystem,
-    skillRecord, systemRecord, draftRecord, assistantRecord, addGapDraft,
+    competencesState, NO_SYSTEM_LABEL, ASSISTANT_RECORD_ID, RANKS_RECORD_ID, groupSkillsBySystem,
+    skillRecord, systemRecord, draftRecord, assistantRecord, ranksRecord, addGapDraft,
   } from './competences.svelte.js';
 
   let { onSelect } = $props();
@@ -46,6 +47,14 @@
     }
   }
 </script>
+
+<div class="lieux-bucket-head">Rangs</div>
+<div class="author-list-item {creationState.selectedRecordId === RANKS_RECORD_ID ? 'active' : ''}"
+     role="button" tabindex="0"
+     onclick={() => onSelect(ranksRecord())} onkeydown={(ev) => onKey(ev, ranksRecord())}>
+  <div class="ali-name">Rangs du monde</div>
+  <div class="ali-meta">{competencesState.ranks.map((r) => r.label).join(' → ')}</div>
+</div>
 
 <div class="lieux-bucket-head">Brouillons</div>
 <div class="author-list-item {creationState.selectedRecordId === ASSISTANT_RECORD_ID ? 'active' : ''}"

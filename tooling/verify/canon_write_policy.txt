@@ -5,6 +5,7 @@ event artifact npc_goal agenda agenda_step goal_agenda_link
 npc_price world_law obstacle obstacle_vertex door
 location_type_catalog entity_type entity_type_history conversation_window_config
 npc_schedule agenda_step_requirement fact fact_participant fact_default
+skill_rank
 
 [ALLOWED_SITES]
 # path::function                                              tables
@@ -21,7 +22,9 @@ src/world_engine/writes/characters.py::write_character_location character
 src/world_engine/writes/knowledge.py::write_knowledge          knowledge
 src/world_engine/writes/characters.py::write_ledger_entry      ledger
 src/world_engine/writes/factions.py::write_membership          faction_membership
-src/world_engine/writes/characters.py::write_skill_tier        skill
+src/world_engine/writes/characters.py::write_skill_rank        skill
+# TICKET-0106, BRIEF-0106-B: write_skill_progress adds a roll's points to a skill row and moves its rank at a threshold; called only from inside _apply_mutation (the skill_progress applier and the agenda_step_change applier).
+src/world_engine/writes/characters.py::write_skill_progress    skill
 src/world_engine/writes/goals_agendas.py::write_npc_goal       npc_goal
 src/world_engine/writes/goals_agendas.py::write_npc_goal_status npc_goal
 src/world_engine/writes/goals_agendas.py::write_npc_goal_prerequisites npc_goal
@@ -37,6 +40,8 @@ src/world_engine/writes/config.py::upsert_location_type        location_type_cat
 src/world_engine/writes/config.py::upsert_conversation_window_config conversation_window_config
 # TICKET-0074, BRIEF-0074-a: write_npc_schedule is the 29th site — standing per-phase location default, curated-config family (write_location_doors precedent).
 src/world_engine/writes/config.py::write_npc_schedule          npc_schedule
+# TICKET-0106, BRIEF-0106-C: upsert_skill_rank is the one writer of skill_rank -- a world's rank names and default points, curated-config family (upsert_conversation_window_config precedent), never a DELETE.
+src/world_engine/writes/config.py::upsert_skill_rank           skill_rank
 # TICKET-0101, BRIEF-0101-C: apply_promotion moves the items and discoverable details lying in a location that becomes a zone to its first child (creator CRUD only, behind the S1 confirmation); its characters, schedules and links go through write_character_location, write_npc_schedule and write_relation, allow-listed above.
 src/world_engine/writes/zone_promotion.py::apply_promotion     item discoverable_detail
 # TICKET-0075, BRIEF-0075-b: write_day_plan is the 30th site — its OWN body writes agenda_step_requirement only (it calls write_agenda/write_agenda_step, whose own db.add sites are already allow-listed above; single_canon_write.py is function-scoped, not interprocedural).

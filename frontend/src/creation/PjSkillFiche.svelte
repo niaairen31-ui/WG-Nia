@@ -16,8 +16,8 @@
      (sheetState.svelte.js's selectEntity writes it), the same
      already-established channel a cross-component "onSelect" needs.
 
-     skillSaveTier's route (PATCH /api/skills/{id}) is untouched by this
-     port -- confirmed neither role_capacity_chokepoint.py nor
+     skillSaveTier's route (PATCH /api/skills/{id}, body {rank} since
+     TICKET-0106) was untouched by this port -- confirmed neither role_capacity_chokepoint.py nor
      role_closed_vocab.py greps index.html or mentions "skill", so no
      re-homing is triggered.
 
@@ -31,10 +31,10 @@
     physical: 'Physical', agility: 'Agility',
     perception: 'Perception', composure: 'Composure',
   };
-  const SKILL_TIER_LABELS = {
-    '-1': '-1 · Weak', '0': '0 · Average', '1': '+1 · Trained', '2': '+2 · Exceptional',
-  };
+  // TICKET-0106 (BRIEF-0106-A): a skill row carries a rank (0-5); its
+  // name is the world's (GET /api/skill-ranks), never a literal here.
 
+  let ranks = $state([]);
   let characters = $state([]);
   let characterId = $state(null);
   let loadError = $state('');
@@ -59,6 +59,7 @@
   async function loadCharacters() {
     let fetched;
     try {
+      ranks = await api('/api/skill-ranks');
       fetched = await api('/api/skills/player-characters');
       loadError = '';
     } catch (e) {
@@ -103,12 +104,18 @@
     selectCharacter(ev.currentTarget.value);
   }
 
-  async function saveTier(skillId, tier) {
+  // TICKET-0106 (BRIEF-0106-D): the points earned within the rank, out of
+  // the points needed to leave it (null at the top rank).
+  function pointsLine(s) {
+    return s.points_to_next == null ? `${s.xp} pt · rang maximal` : `${s.xp} / ${s.points_to_next} pts`;
+  }
+
+  async function saveRank(skillId, rank) {
     try {
       const updated = await api(`/api/skills/${encodeURIComponent(skillId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tier: Number(tier) }),
+        body: JSON.stringify({ rank: Number(rank) }),
       });
       const idx = rows.findIndex((s) => s.id === skillId);
       if (idx !== -1) rows[idx] = updated;
@@ -153,14 +160,15 @@
             {/if}
           </label>
           {#if playerMode}
-            <input type="text" value={SKILL_TIER_LABELS[String(s.tier)] || s.tier} disabled>
+            <input type="text" value={s.rank_label} disabled>
           {:else}
-            <select onchange={(ev) => saveTier(s.id, ev.currentTarget.value)}>
-              {#each [-1, 0, 1, 2] as t}
-                <option value={t} selected={t === s.tier}>{SKILL_TIER_LABELS[String(t)]}</option>
+            <select onchange={(ev) => saveRank(s.id, ev.currentTarget.value)}>
+              {#each ranks as r (r.rank)}
+                <option value={r.rank} selected={r.rank === s.rank}>{r.label}</option>
               {/each}
             </select>
           {/if}
+          <small style="color:var(--muted)">{pointsLine(s)}</small>
         </div>
       {/each}
     </div></div>

@@ -73,7 +73,7 @@ _DIRECT_WORLD_SCOPED_DELETES: tuple[str, ...] = (
     "faction_role", "goal_agenda_link", "goal_prerequisite",
     "location_type_catalog", "lore_entry", "npc_goal", "npc_price",
     "npc_schedule", "observation_run", "obstacle", "passage", "rencontre",
-    "skill_resolution", "skill_system", "unresolved_mention", "visit",
+    "skill_rank", "skill_resolution", "skill_system", "unresolved_mention", "visit",
     "world_law",
 )
 

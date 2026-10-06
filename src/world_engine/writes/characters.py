@@ -4,9 +4,15 @@ none of these three functions were baselined.
 
 - `write_character_location(...)`      : write a character's
   `current_location_id` (TICKET-0015, BRIEF-0015-a).
-- `write_skill_tier(...)`               : set a `skill` row's tier,
-  appending the previous tier to `change_history` first (history is sacred
-  on this path too). The sole write shape for `skill` tier changes.
+- `write_skill_rank(...)`               : set a `skill` row's rank,
+  appending the previous rank and points to `change_history` first
+  (history is sacred on this path too) and restarting its points at 0
+  (U2). The sole write shape for a creator's rank edit (TICKET-0106,
+  BRIEF-0106-A; formerly `write_skill_tier`).
+- `write_skill_progress(...)`           : add points to a `skill` row and
+  move its rank when a threshold is crossed (TICKET-0106, BRIEF-0106-B).
+  The sole write shape for points; called by the `skill_progress` applier
+  and the day step's roll, both inside `_apply_mutation`.
 - `write_ledger_entry(...)`             : pure INSERT into the append-only
   `ledger` table (BRIEF-18). No UPDATE, no DELETE, ever — a correction is a
   new compensating line. The single chokepoint for ledger writes, shared by
@@ -16,6 +22,7 @@ none of these three functions were baselined.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Optional
 
@@ -23,6 +30,7 @@ from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session
 
 from ..models import Character, Ledger, Skill
+from ..skill_ranks import MAX_RANK, RANKS, skill_points_to_next
 
 
 def write_character_location(
@@ -50,39 +58,112 @@ def write_character_location(
     return character
 
 
-def write_skill_tier(
+def write_skill_rank(
     db: Session,
     *,
     skill_id: str,
-    tier: int,
+    rank: int,
     changed_by: str = "creator",
 ) -> Skill:
-    """Set a `skill` row's tier. Caller adds the row to the session.
+    """Set a `skill` row's rank. Caller adds the row to the session.
 
-    The sole write shape for `skill` tier changes (`cockpit/crud.py`'s
-    `update_skill_tier` is its only caller). Appends the previous tier to
-    `change_history` first (history is sacred), then sets `tier` and bumps
+    The sole write shape for a creator's rank edit (`cockpit/crud/skills.py`'s
+    `update_skill_rank` is its only caller). Appends the previous rank and
+    points to `change_history` first (history is sacred), then sets `rank`,
+    restarts `xp` at 0 (U2: points count within a rank) and bumps
     `updated_at`. The caller decides whether to call this at all — a
-    resubmission of the same tier should be a no-op, not an empty history
-    entry.
+    resubmission of the same rank should be a no-op, not an empty history
+    entry. `ValueError` outside `skill_ranks.RANKS`, before any write.
     """
+    if rank not in RANKS:
+        raise ValueError(f"write_skill_rank: rank {rank!r} is not one of {RANKS}")
     skill = db.get(Skill, skill_id)
     if skill is None:
-        raise ValueError(f"write_skill_tier: skill {skill_id!r} not found")
+        raise ValueError(f"write_skill_rank: skill {skill_id!r} not found")
 
     history = list(skill.change_history or [])
     history.append({
-        "tier": skill.tier,
+        "rank": skill.rank,
+        "xp": skill.xp,
         "changed_at": datetime.now(UTC).isoformat(),
         "by": changed_by,
     })
     skill.change_history = history
     sa_attrs.flag_modified(skill, "change_history")
-    skill.tier = tier
+    skill.rank = rank
+    skill.xp = 0
     skill.updated_at = datetime.now(UTC)
 
     db.add(skill)
     return skill
+
+
+@dataclass(frozen=True)
+class SkillProgress:
+    rank_before: int
+    rank: int
+    xp: int
+    points_to_next: Optional[int]  # None at MAX_RANK
+
+
+def write_skill_progress(
+    db: Session,
+    *,
+    skill_id: str,
+    world_id: str,
+    points: int,
+    changed_by: str,
+) -> SkillProgress:
+    """Add `points` (non-zero, may be negative) to a `skill` row's `xp`.
+    Caller adds the row to the session.
+
+    Gaining: when `xp` reaches the points needed to leave the current rank
+    (`skill_ranks.skill_points_to_next`), the rank rises by one and `xp`
+    restarts at 0 (U2) -- at most one rank per call. At MAX_RANK the points
+    still accumulate. Losing (the inverse of a gain): below 0, the rank falls
+    by one and `xp` becomes that lower rank's threshold minus the remainder,
+    so -1 exactly undoes a +1 that ranked up; at rank 0 `xp` stops at 0.
+    `change_history` gets the previous rank and points only when the rank
+    moves -- a point alone is audited by the mutation that carried it.
+    `ValueError` on zero points or an unknown row, before any write.
+    """
+    if not isinstance(points, int) or isinstance(points, bool) or points == 0:
+        raise ValueError(f"write_skill_progress: points must be a non-zero integer, got {points!r}")
+    skill = db.get(Skill, skill_id)
+    if skill is None:
+        raise ValueError(f"write_skill_progress: skill {skill_id!r} not found")
+
+    def threshold(rank: int) -> Optional[int]:
+        return skill_points_to_next(db, world_id=world_id, rank=rank, skill_definition_id=skill.skill_definition_id)
+
+    rank_before, xp_before = skill.rank, skill.xp
+    rank, xp = rank_before, xp_before + points
+    needed = threshold(rank)
+    if points > 0 and needed is not None and xp >= needed:
+        rank, xp = rank + 1, 0
+    elif xp < 0 and rank > 0:
+        rank -= 1
+        xp = max(0, (threshold(rank) or 1) + xp)
+    xp = max(0, xp)
+
+    if rank != rank_before:
+        history = list(skill.change_history or [])
+        history.append({
+            "rank": rank_before,
+            "xp": xp_before,
+            "changed_at": datetime.now(UTC).isoformat(),
+            "by": changed_by,
+        })
+        skill.change_history = history
+        sa_attrs.flag_modified(skill, "change_history")
+    skill.rank = rank
+    skill.xp = xp
+    skill.updated_at = datetime.now(UTC)
+    db.add(skill)
+    return SkillProgress(
+        rank_before=rank_before, rank=rank, xp=xp,
+        points_to_next=None if rank >= MAX_RANK else threshold(rank),
+    )
 
 
 def write_ledger_entry(
