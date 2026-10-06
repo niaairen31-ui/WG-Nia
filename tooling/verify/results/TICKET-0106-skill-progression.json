@@ -1,0 +1,57 @@
+{
+  "ticket": "TICKET-0106-skill-progression",
+  "when": "2026-10-06T15:17:39.031707+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "skill_progression.py",
+      "status": "PASS",
+      "msg": "PASS: skill_progression -- v2.15 gives a skill a rank (0-5) and points in place of its tier, keeps every former tier's roll, lets a world, a system and a skill set the points of each rank, and migrates from v2.14 only; every roll earns a point, auto-applied in Play and given at a day step's approval, and a threshold moves the rank; the creator names the ranks and sets their points per world, system and skill; the PC's fiche shows the points within the rank and the day's account the points earned"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "stream_session_readonly.py",
+      "status": "PASS",
+      "msg": "PASS: stream_session_readonly \u00e2\u20ac\u201d 10 module(s) declared, 28 writer(s) (transitive), 8 alias(es), 38 request-session call site(s), zero writes on the request session"
+    },
+    {
+      "check": "skill_system_shape.py",
+      "status": "PASS",
+      "msg": "PASS: skill_system_shape \u00e2\u20ac\u201d skill_system table shape matches, skill_definition.system_id exists and is nullable, BASE_SKILL_DOMAINS is exactly four, and ck_skill_definition_base_domain names all four"
+    },
+    {
+      "check": "world_cascade.py",
+      "status": "PASS",
+      "msg": "PASS: world_cascade -- every world-scoped table is deleted or guarded; a populated world deletes under FK enforcement; refusals delete nothing"
+    },
+    {
+      "check": "module_budget.py",
+      "status": "PASS",
+      "msg": "PASS: module_budget \u00e2\u20ac\u201d every module over 40 functions or 1000 lines is baselined at or below its recorded values; 103 frontend file(s) within the 1000-line cap; legacy document at its ratcheted 2762-line ceiling"
+    },
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v2.15'"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u00e2\u20ac\u201d section whitelist, character/line budgets, File-structure archaeology ban, Invariants archaeology ban, tooling/ pointer freshness, .py pointer freshness"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u00e2\u20ac\u201d 107 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 139 check(s) discovered, 139 executed, 139 passed"
+    }
+  ]
+}
