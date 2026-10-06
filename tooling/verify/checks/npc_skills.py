@@ -22,7 +22,10 @@ A2 -- migration `scripts/migrate_v2_16_npc_skills.py`, on a v2.15-shaped
       NPC that held a row keeps it at rank 4, alone; `physical_tier` is
       gone, both new columns exist (the definition's `requires_master` 0),
       the three tables have the models' columns, `PRAGMA
-      foreign_key_check` is empty and `schema_meta` is the code's version;
+      foreign_key_check` is empty on those three tables, and `schema_meta`
+      is the code's version -- with a `session` row pointing to a missing
+      world in the database, which the migration lists and does not stop on
+      (AMENDMENT-0107-01);
    c. a second run exits zero and changes no row.
 A3 -- the rows a roll reads (fixture, D1). For the player:
    `skill_access.player_skill` on a base domain reads the base row; on a
@@ -207,6 +210,8 @@ def _seed_v215(db_path: str) -> dict:
                      (ids["world"],))
         conn.execute("INSERT INTO skill (id, character_id, domain, rank) VALUES ('held-phys', ?, 'physical', 4)",
                      (ids["held"],))
+        # A dangling reference this migration never wrote (AMENDMENT-0107-01).
+        conn.execute("INSERT INTO session (id, world_id, number) VALUES ('orphan-session', 'gone-world', 9)")
     return ids
 
 
@@ -222,7 +227,8 @@ def _state(db_path: str) -> dict:
             "shapes": {t: _shape(conn, t) for t in ("skill", "skill_definition", "character")},
             "skills": sorted(conn.execute("SELECT character_id, domain, rank, skill_definition_id FROM skill").fetchall()),
             "definitions": conn.execute("SELECT * FROM skill_definition").fetchall(),
-            "fk": conn.execute("PRAGMA foreign_key_check").fetchall(),
+            "fk": [r for t in ("skill", "skill_definition", "character")
+                   for r in conn.execute(f"PRAGMA foreign_key_check({t})").fetchall()],
         }
 
 
@@ -242,6 +248,8 @@ def check_a2(db_path: str) -> None:
     _set(db_path, "UPDATE character SET physical_tier = 0 WHERE id = ?", (ids["z"],))
     result = _run_migration(db_path)
     after = _state(db_path)
+    if result.returncode == 0 and "session rowid" not in result.stdout:
+        fail("A2b: the dangling session row was not listed")
     from world_engine.schema_version import EXPECTED_STATIC_SCHEMA_VERSION
     if result.returncode != 0 or after["version"] != EXPECTED_STATIC_SCHEMA_VERSION:
         fail(f"A2b: exit {result.returncode}, version {after['version']!r}: {result.stderr.strip()[-400:]}")

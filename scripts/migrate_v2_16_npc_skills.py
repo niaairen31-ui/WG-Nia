@@ -22,7 +22,10 @@ while `character.physical_tier` exists.
 
 Post-checks, before `schema_meta` converges: both new columns exist,
 `character.physical_tier` is gone, every converted NPC holds its `physical`
-row at the mapped rank, and `PRAGMA foreign_key_check` is empty.
+row at the mapped rank, and `PRAGMA foreign_key_check` is empty on the three
+tables this migration changes (`skill`, `skill_definition`, `character`).
+A dangling reference elsewhere in the database predates it: it is listed,
+never a reason to stop (AMENDMENT-0107-01).
 
 Run from the project root:
 
@@ -61,6 +64,8 @@ from world_engine.skill_ranks import TIER_TO_RANK  # noqa: E402
 from world_engine.writes import write_skill_row  # noqa: E402
 
 _PREVIOUS_VERSION = "v2.15"
+# The tables this migration writes: the only ones its foreign-key post-check judges.
+_TOUCHED_TABLES = ("skill", "skill_definition", "character")
 
 
 def _version_key(version: str) -> tuple[int, int]:
@@ -144,9 +149,14 @@ def _post_checks(converted: dict[str, int]) -> None:
             if row is None or row.rank != rank:
                 raise SystemExit(f"Migration v2.16 aborted, post-check failed: NPC {npc_id} physical row {row}.")
     with engine.connect() as conn:
-        dangling = conn.execute(text("PRAGMA foreign_key_check")).fetchall()
+        dangling = [row for table in _TOUCHED_TABLES
+                    for row in conn.execute(text(f"PRAGMA foreign_key_check({table})")).fetchall()]
+        elsewhere = [row for row in conn.execute(text("PRAGMA foreign_key_check")).fetchall()
+                     if row[0] not in _TOUCHED_TABLES]
     if dangling:
         raise SystemExit(f"Migration v2.16 aborted, post-check failed: foreign_key_check {dangling}.")
+    for table, rowid, parent, _fk in elsewhere:
+        print(f"  Note: {table} rowid {rowid} points to a missing {parent} row (not written by this migration).")
     print(f"Post-check: columns in place; physical_tier dropped; {len(converted)} carrure(s) converted.")
 
 
