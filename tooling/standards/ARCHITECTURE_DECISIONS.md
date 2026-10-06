@@ -17996,6 +17996,34 @@ and `skill.taught_by_id` are added here, read from the next brief on.
 same reading as an absent row, through many more writes. Keeping
 `physical_tier` beside the rows: two sources for one modifier.
 
+
+## A SKILL MAY REQUIRE A MASTER (TICKET-0107) -- NOT HELD UNTIL TAUGHT, NOT ROLLED UNTIL THEN (BRIEF-0107-b, no schema change)
+
+**A2.** A skill definition may set `requires_master`. A player holds no row for
+it until taught: creating such a skill backfills nobody, a new PC is not
+seeded with it, and turning the flag on keeps every row already held.
+Turning it off backfills every PC lacking it -- open skills stay aligned
+with every PC.
+
+**B1.** In Play, the arbiter may still name a skill the player was never
+taught (the lexicon judges against the whole catalogue). `skill_access`
+then reports it locked: no fallback to the base domain, no dice, no point.
+The verdict band is `locked` (dice 0, the skill's name as its domain), the
+MJ receives `locked_rubric` in place of the verdict block, and no scene
+state moves. Play's sealed client prints the band as it prints any other.
+
+**C1.** `POST /api/skills` grants one row: taught by another character at
+Maître in that skill (`taught_by_id`, checked), or granted without a master
+-- the creator's bypass. `GET /api/skills/learnable` lists what a character
+may be given: for a player, the master skills he lacks; for an NPC, every
+skill and base domain it lacks; each with its masters. A skill learned
+starts where the UI sends it -- Inexpérimenté for « Apprendre ».
+
+**Rejected.** A2's alternative A1, locking every custom skill: Nia's world
+keeps open skills. B2, rolling the base domain for a locked skill:
+« impossible à lancer ». Learning through a conversation's proposal (C2):
+deferred to quests.
+
 ---
 
 *Co-built with Claude, June 2026.*

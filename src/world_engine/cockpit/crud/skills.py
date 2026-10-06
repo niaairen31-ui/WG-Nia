@@ -53,7 +53,7 @@ from ...models import (
 )
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
-from ...skill_ranks import DEFAULT_RANK, RANK_POINTS_COLUMNS, RANKS, RankStep, points_to_next, skill_owners, world_ladder
+from ...skill_ranks import DEFAULT_RANK, MAX_RANK, RANK_POINTS_COLUMNS, RANKS, RankStep, points_to_next, skill_owners, world_ladder
 from ...tick_normalize import _EVENT_TYPES
 from ...writes import (
     KNOWLEDGE_LEVELS,
@@ -80,6 +80,7 @@ from ...writes import (
     write_relation,
     upsert_skill_rank,
     write_skill_rank,
+    write_skill_row,
 )
 
 from ._router import router
@@ -103,6 +104,8 @@ def _skill_dict(
         "rank_label": ladder[s.rank].label,
         "xp": s.xp,
         "points_to_next": points_to_next(s.rank, ladder, system=system, definition=definition),
+        "requires_master": bool(definition.requires_master) if definition else False,
+        "taught_by_id": s.taught_by_id,
         "change_history": s.change_history,
         "updated_at": _iso(s.updated_at),
     }
@@ -150,22 +153,116 @@ def update_skill_ranks(body: SkillRanksBody, db: DbSession = Depends(get_session
 
 
 @router.get("/skills/player-characters")
-def list_skill_player_characters(db: DbSession = Depends(get_session)) -> list[dict]:
-    """Player characters (`character_type = 'player'`), for the Fiche selector."""
+def list_skill_player_characters(
+    character_type: str = Query("player"), db: DbSession = Depends(get_session),
+) -> list[dict]:
+    """The active world's characters of one type (`player` by default, or
+    `npc` since TICKET-0107), for the Fiche selector."""
+    if character_type not in ("player", "npc"):
+        raise HTTPException(422, "character_type must be 'player' or 'npc'")
     rows = db.exec(
         select(Entity, Character)
         .join(Character, Character.id == Entity.id)
-        .where(Character.character_type == "player")
+        .where(Character.character_type == character_type)
         .where(Character.world_id == _world_id(db))
         .order_by(Entity.name)
     ).all()
     return [{"id": e.id, "name": e.name} for e, _ in rows]
 
 
+def _masters(db: DbSession, world_id: str, *, definition_id: Optional[str], domain: Optional[str]) -> list[dict]:
+    """The characters of the world at Maître in one skill (C1)."""
+    stmt = (
+        select(Entity)
+        .join(Skill, Skill.character_id == Entity.id)
+        .where(Entity.world_id == world_id, Skill.rank == MAX_RANK)
+    )
+    if definition_id is not None:
+        stmt = stmt.where(Skill.skill_definition_id == definition_id)
+    else:
+        stmt = stmt.where(Skill.domain == domain, Skill.skill_definition_id.is_(None))
+    return [{"id": e.id, "name": e.name} for e in db.exec(stmt.order_by(Entity.name)).all()]
+
+
+@router.get("/skills/learnable")
+def list_learnable_skills(character_id: str = Query(...), db: DbSession = Depends(get_session)) -> list[dict]:
+    """The skills a character does not hold and may be given (TICKET-0107):
+    for a player, the `requires_master` skills he was never taught (every
+    open skill is held already); for an NPC, every base domain and every
+    definition it holds no row for. Each with the masters who could teach
+    it."""
+    entity = _get_entity(db, character_id)
+    character = db.get(Character, character_id)
+    if character is None:
+        raise HTTPException(422, f"{character_id!r} is not a character")
+    held = db.exec(select(Skill).where(Skill.character_id == character_id)).all()
+    held_definitions = {r.skill_definition_id for r in held if r.skill_definition_id}
+    held_domains = {r.domain for r in held if r.skill_definition_id is None}
+    out: list[dict] = []
+    if character.character_type != "player":
+        for domain in SKILL_DOMAINS:
+            if domain not in held_domains:
+                out.append({"domain": domain, "skill_definition_id": None, "name": domain, "requires_master": False,
+                            "masters": _masters(db, entity.world_id, definition_id=None, domain=domain)})
+    for definition in db.exec(select(SkillDefinition).where(SkillDefinition.world_id == entity.world_id)
+                              .order_by(SkillDefinition.name)).all():
+        if definition.id in held_definitions:
+            continue
+        if character.character_type == "player" and not definition.requires_master:
+            continue
+        out.append({"domain": definition.base_domain, "skill_definition_id": definition.id, "name": definition.name,
+                    "requires_master": definition.requires_master,
+                    "masters": _masters(db, entity.world_id, definition_id=definition.id, domain=None)})
+    return out
+
+
+class SkillGrantBody(BaseModel):
+    character_id: str
+    skill_definition_id: Optional[str] = None
+    domain: Optional[str] = None
+    rank: int = 0
+    taught_by_id: Optional[str] = None
+
+
+@router.post("/skills", status_code=201)
+def grant_skill(body: SkillGrantBody, db: DbSession = Depends(get_session)) -> dict:
+    """Creator grant of one skill row (TICKET-0107, C1): a skill learned, or
+    an NPC's skill. `taught_by_id`, when given, must be another character of
+    the world at Maître in that skill (422 otherwise); none = granted without
+    a master, the creator's bypass. 409 when the character holds it already."""
+    world_id = _world_id(db)
+    entity = _get_entity(db, body.character_id)
+    if entity.world_id != world_id or db.get(Character, body.character_id) is None:
+        raise HTTPException(422, "character_id must be a character of the active world")
+    if body.skill_definition_id is not None:
+        definition = db.get(SkillDefinition, body.skill_definition_id)
+        if definition is None or definition.world_id != world_id:
+            raise HTTPException(422, "skill_definition_id must be a skill of the active world")
+    if body.taught_by_id is not None:
+        masters = _masters(db, world_id, definition_id=body.skill_definition_id, domain=body.domain)
+        if body.taught_by_id == body.character_id or body.taught_by_id not in {m["id"] for m in masters}:
+            raise HTTPException(422, "taught_by_id must be another character at Maître in this skill")
+    held = select(Skill).where(Skill.character_id == body.character_id)
+    held = (held.where(Skill.skill_definition_id == body.skill_definition_id) if body.skill_definition_id
+            else held.where(Skill.domain == body.domain, Skill.skill_definition_id.is_(None)))
+    if db.exec(held).first() is not None:
+        raise HTTPException(409, "This character already holds this skill")
+    try:
+        row = write_skill_row(db, character_id=body.character_id, rank=body.rank, domain=body.domain,
+                              skill_definition_id=body.skill_definition_id, taught_by_id=body.taught_by_id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    db.commit()
+    db.refresh(row)
+    system, definition = skill_owners(db, row.skill_definition_id)
+    return _skill_dict(row, world_ladder(db, world_id), definition, system)
+
+
 @router.get("/skills")
 def list_skills(character_id: str = Query(...), db: DbSession = Depends(get_session)) -> list[dict]:
-    """A player character's skill sheet, in fixed domain order, each row with
-    its rank's name and the points it needs to leave that rank."""
+    """A character's skill sheet (a player's, or an NPC's since TICKET-0107),
+    in fixed domain order, each row with its rank's name and the points it
+    needs to leave that rank."""
     entity = _get_entity(db, character_id)
     ladder = world_ladder(db, entity.world_id)
     rows = db.exec(
@@ -389,6 +486,7 @@ def _skill_definition_dict(d: SkillDefinition) -> dict:
         "base_domain": d.base_domain,
         "system_id": d.system_id,
         "description": d.description,
+        "requires_master": d.requires_master,
         **_rank_points(d),
         "updated_at": _iso(d.updated_at),
     }
@@ -410,6 +508,23 @@ class SkillDefinitionWriteBody(RankPointsBody):
     base_domain: str
     system_id: Optional[str] = None
     description: Optional[str] = None
+    # TICKET-0107 (A2): learned only from a master -- no player character
+    # holds a row for it until taught.
+    requires_master: bool = False
+
+
+def _backfill_open_skill(db: DbSession, definition: SkillDefinition) -> None:
+    """A skill open to all (`requires_master` false): every player character
+    of its world that lacks a row for it gets one at `DEFAULT_RANK`, through
+    `write_skill_row` -- the catalogue<->PC alignment of open skills."""
+    holders = set(db.exec(select(Skill.character_id).where(Skill.skill_definition_id == definition.id)).all())
+    for character_id in db.exec(
+        select(Character.id)
+        .where(Character.world_id == definition.world_id)
+        .where(Character.character_type == "player")
+    ).all():
+        if character_id not in holders:
+            write_skill_row(db, character_id=character_id, skill_definition_id=definition.id, rank=DEFAULT_RANK)
 
 
 @router.post("/skill-definitions", status_code=201)
@@ -418,10 +533,11 @@ def create_skill_definition(
 ) -> dict:
     """Add a custom skill to the active world's catalogue (D2-backfill-yes).
 
-    Backfills: inserts a `skill` row at `DEFAULT_RANK` (Initié) for this definition onto every
-    existing player character of the world, in the SAME transaction, so the
-    catalogue<->PC alignment that makes the arbiter lookup total never
-    lapses (BRIEF-55's invariant — every PC always has every world skill).
+    Backfills, for a skill open to all, a `skill` row at `DEFAULT_RANK`
+    (Initié) onto every existing player character of the world, in the SAME
+    transaction (`_backfill_open_skill`): every PC always holds every open
+    skill. A `requires_master` skill backfills nothing -- it is held only
+    once taught (TICKET-0107, A2).
     """
     world_id = _world_id(db)
     name = body.name.strip()
@@ -442,6 +558,7 @@ def create_skill_definition(
         base_domain=body.base_domain,
         system_id=body.system_id,
         description=body.description,
+        requires_master=body.requires_master,
     )
     _set_rank_points(definition, body)
     db.add(definition)
@@ -451,18 +568,8 @@ def create_skill_definition(
         db.rollback()
         raise HTTPException(409, f"A skill named {name!r} already exists in this world")
 
-    pc_ids = db.exec(
-        select(Character.id)
-        .where(Character.world_id == world_id)
-        .where(Character.character_type == "player")
-    ).all()
-    for character_id in pc_ids:
-        db.add(Skill(
-            character_id=character_id,
-            domain=definition.base_domain,
-            rank=DEFAULT_RANK,
-            skill_definition_id=definition.id,
-        ))
+    if not definition.requires_master:
+        _backfill_open_skill(db, definition)
 
     db.commit()
     db.refresh(definition)
@@ -482,6 +589,8 @@ def update_skill_definition(
     resolution for every existing PC `skill` row referencing this
     definition — also updates their `domain` column so the 2d6 bands and
     the base-domain CHECK stay consistent (mirrors the create-time seed).
+    Turning `requires_master` off backfills the open skill onto every PC
+    lacking it; turning it on keeps every row already held (TICKET-0107).
     """
     definition = db.get(SkillDefinition, definition_id)
     if definition is None or definition.world_id != _world_id(db):
@@ -499,6 +608,8 @@ def update_skill_definition(
             raise HTTPException(422, "system_id must reference a skill system of the active world")
 
     domain_changed = body.base_domain != definition.base_domain
+    opened = definition.requires_master and not body.requires_master
+    definition.requires_master = body.requires_master
     definition.name = name
     definition.base_domain = body.base_domain
     definition.system_id = body.system_id
@@ -515,6 +626,9 @@ def update_skill_definition(
             skill.domain = body.base_domain
             skill.updated_at = datetime.now(UTC)
             db.add(skill)
+    if opened:
+        db.flush()
+        _backfill_open_skill(db, definition)
 
     try:
         db.commit()

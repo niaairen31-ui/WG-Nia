@@ -173,14 +173,18 @@ def _say_physical_resolve_verdict(
         if opposed_entity is not None:
             npc_tier = skill_access.opposition_modifier(db, opposed_npc_id, resolved_base_domain, rolled.definition)
 
-    verdict = resolve_physical(resolved_base_domain, player_tier, npc_tier)
+    if rolled.locked:  # B1: a skill never taught is not rolled
+        verdict = skill_access.locked_verdict(domain)
+    else:
+        verdict = resolve_physical(resolved_base_domain, player_tier, npc_tier)
     _log.info(
         "Physical verdict: domain=%s dice=%s modifier=%d total=%d band=%s "
         "(player_tier=%d, npc_tier=%d, opposed=%s)",
         verdict.domain, verdict.dice, verdict.modifier, verdict.total,
         verdict.band, player_tier, npc_tier, opposed_npc_id or "none",
     )
-    progress = record_roll(world_id=ctx.world_id, conversation_id=ctx.conv_id, skill_id=skill_row.id if skill_row else None, band=verdict.band)
+    progress = None if rolled.locked else record_roll(
+        world_id=ctx.world_id, conversation_id=ctx.conv_id, skill_id=skill_row.id if skill_row else None, band=verdict.band)
     verdict_sse_line = f"data: {json.dumps({'verdict': {'domain': verdict.domain, 'dice': list(verdict.dice), 'modifier': verdict.modifier, 'total': verdict.total, 'band': verdict.band, 'progress': progress}})}\n\n"
     return resolved_base_domain, verdict, opposed_entity, verdict_sse_line
 
@@ -339,6 +343,8 @@ def _say_physical_discovery(
     content ONLY after selection.
     """
     db = ctx.db
+    if verdict.band == skill_access.LOCKED_BAND:
+        return skill_access.locked_rubric(verdict.domain)
     if resolved_base_domain != "perception" or opposed_npc_id is not None:
         return None
 

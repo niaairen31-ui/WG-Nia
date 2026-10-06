@@ -38,6 +38,31 @@ A4 -- the carrure at creation (fixture and static). Creating a character
    (AST); `npc_agent.py` passes `carrure=`; `play_physical.py` calls
    `skill_access.opposition_modifier(` and `skill_access.player_skill(`.
 
+B1 -- the flag (BRIEF-0107-B, fixture, A2). `POST /api/skill-definitions`
+   with `requires_master` gives no player a row and serves the flag; without
+   it, every player gets one at `DEFAULT_RANK`. Turning the flag off
+   (`PUT`) backfills every player lacking the row; turning it on keeps every
+   row held. `_pc_custom_skill_defs` (a new PC's seed) lists no
+   `requires_master` definition.
+B2 -- the lock in Play (fixture, B1). `player_skill` on a `requires_master`
+   definition the player lacks is `locked`, row None, with no fallback to
+   the base row; on one he holds, it is that row. With a minimal turn
+   context, `_say_physical_resolve_verdict` on the locked skill returns the
+   band `locked`, dice (0, 0), the skill's name as `domain`, `progress`
+   None on the verdict event, and writes no `skill_progress` mutation.
+   `_say_physical_discovery` returns `locked_rubric`; `_mj_user_physical`
+   with the band `locked` carries the rubric and no « Résultat mécanique ».
+B3 -- learning (fixture, C1). `GET /api/skills/learnable` lists, for a
+   player, exactly the `requires_master` definitions he lacks, each with its
+   masters (characters at rank 5 in it); for an NPC, its missing base
+   domains and every definition it lacks. `POST /api/skills` with a master
+   writes the row at the given rank with `taught_by_id`; with a non-master,
+   or the learner as his own master, 422; a second time, 409; without a
+   master, the row with `taught_by_id` None; an NPC base domain at rank 4.
+   `GET /api/skills` serves `requires_master` and `taught_by_id`.
+B4 -- documentation (static). CLAUDE.md names `requires_master` and
+   `skill_access`'s lock.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that examines zero rows is a
 FAILURE.
@@ -339,6 +364,153 @@ def check_a4(engine) -> None:
         fail("A4: play_physical.py does not read its rows through skill_access")
 
 
+# --- B1-B4 ---------------------------------------------------------------------
+
+def check_b1(engine) -> None:
+    from sqlmodel import Session, select
+
+    from world_engine.cockpit.crud.skills import (
+        SkillDefinitionWriteBody, create_skill_definition, update_skill_definition,
+    )
+    from world_engine.cockpit.routes.creator import _pc_custom_skill_defs
+    from world_engine.models import Skill
+    from world_engine.skill_ranks import DEFAULT_RANK
+
+    with Session(engine) as session:
+        ids = _a_world(session)
+
+        def holders(definition_id: str) -> list:
+            return sorted((r.character_id, r.rank) for r in session.exec(
+                select(Skill).where(Skill.skill_definition_id == definition_id)).all())
+
+        locked = create_skill_definition(SkillDefinitionWriteBody(
+            name="Alchimie", base_domain="perception", requires_master=True), session)
+        if holders(locked["id"]) or locked.get("requires_master") is not True:
+            fail(f"B1: a requires_master skill gave rows {holders(locked['id'])} / served {locked}")
+        open_ = create_skill_definition(SkillDefinitionWriteBody(name="Course", base_domain="agility"), session)
+        if holders(open_["id"]) != [(ids["pc"], DEFAULT_RANK)]:
+            fail(f"B1: an open skill gave rows {holders(open_['id'])}")
+        update_skill_definition(locked["id"], SkillDefinitionWriteBody(
+            name="Alchimie", base_domain="perception", requires_master=False), session)
+        if holders(locked["id"]) != [(ids["pc"], DEFAULT_RANK)]:
+            fail(f"B1: opening the skill gave rows {holders(locked['id'])}")
+        update_skill_definition(locked["id"], SkillDefinitionWriteBody(
+            name="Alchimie", base_domain="perception", requires_master=True), session)
+        if holders(locked["id"]) != [(ids["pc"], DEFAULT_RANK)]:
+            fail(f"B1: locking the skill again changed rows to {holders(locked['id'])}")
+        seeded = {d.name for d in _pc_custom_skill_defs(ids["world"], session)}
+        if "Alchimie" in seeded or "Course" not in seeded:
+            fail(f"B1: a new PC would be seeded with {sorted(seeded)}")
+
+
+def check_b2(engine) -> None:
+    import json
+    from types import SimpleNamespace
+
+    from sqlmodel import Session, select
+
+    from world_engine.cockpit.play_physical import _say_physical_discovery, _say_physical_resolve_verdict
+    from world_engine.cockpit.play_stream import _mj_user_physical
+    from world_engine.models import Conversation, ProposedMutation, Session as GameSession, Skill, SkillDefinition
+    from world_engine.skill_access import locked_rubric, player_skill
+
+    with Session(engine) as session:
+        ids = _a_world(session)
+        magic = SkillDefinition(world_id=ids["world"], name="Magie", base_domain="composure", requires_master=True)
+        rune = SkillDefinition(world_id=ids["world"], name="Rune", base_domain="composure", requires_master=True)
+        session.add(magic)
+        session.add(rune)
+        session.flush()
+        session.add(Skill(character_id=ids["pc"], domain="composure", rank=3, skill_definition_id=rune.id))
+        game = GameSession(world_id=ids["world"], number=1)
+        session.add(game)
+        session.flush()
+        conv = Conversation(world_id=ids["world"], session_id=game.id, player_id=ids["pc"])
+        session.add(conv)
+        session.commit()
+        defs = {"Magie": magic, "Rune": rune}
+        got = player_skill(session, ids["pc"], "Magie", defs)
+        if not got.locked or got.row is not None:
+            fail(f"B2: an untaught master skill read locked={got.locked}, row={got.row}")
+        got = player_skill(session, ids["pc"], "Rune", defs)
+        if got.locked or got.row is None or got.row.rank != 3:
+            fail(f"B2: a taught master skill read locked={got.locked}, row={got.row}")
+        ctx = SimpleNamespace(db=session, conv=SimpleNamespace(player_id=ids["pc"]), world_id=ids["world"],
+                              conv_id=conv.id)
+        base, verdict, _opposed, line = _say_physical_resolve_verdict(ctx, "Magie", None, None, defs)
+        event = json.loads(line[len("data: "):])["verdict"]
+        if (verdict.band, tuple(verdict.dice), verdict.domain, base) != ("locked", (0, 0), "Magie", "composure") \
+                or event.get("progress") is not None:
+            fail(f"B2: the locked roll gave {verdict} / {event}")
+        written = session.exec(select(ProposedMutation).where(ProposedMutation.world_id == ids["world"])).all()
+        if written:
+            fail(f"B2: the locked roll wrote {len(written)} mutation(s)")
+        rubric = _say_physical_discovery(ctx, base, None, verdict)
+        if rubric != locked_rubric("Magie"):
+            fail(f"B2: discovery returned {rubric!r}")
+        text = _mj_user_physical("", "", "Salle", "je lance un sort", "", "", "locked", rubric)
+        if "Résultat mécanique" in text or "COMPÉTENCE NON MAÎTRISÉE" not in text:
+            fail("B2: the MJ message for a locked skill keeps the verdict block or lacks the rubric")
+
+
+def check_b3(engine) -> None:
+    from fastapi import HTTPException
+    from sqlmodel import Session
+
+    from world_engine.cockpit.crud.skills import SkillGrantBody, grant_skill, list_learnable_skills, list_skills
+    from world_engine.models import SkillDefinition
+
+    with Session(engine) as session:
+        ids = _a_world(session)
+        alch = SkillDefinition(world_id=ids["world"], name="Alchimie", base_domain="perception", requires_master=True)
+        session.add(alch)
+        session.commit()
+        ids["escrime"].requires_master = True
+        session.add(ids["escrime"])
+        session.commit()
+        learnable = {e["name"]: [m["id"] for m in e["masters"]] for e in list_learnable_skills(ids["pc"], session)}
+        if learnable != {"Alchimie": []}:
+            fail(f"B3: the player may learn {learnable}")
+        npc = {e["name"] for e in list_learnable_skills(ids["brute"], session)}
+        if npc != {"agility", "perception", "composure", "Alchimie", "escrime", "feu"}:
+            fail(f"B3: the NPC may be given {sorted(npc)}")
+        plain_learn = {e["name"]: [m["id"] for m in e["masters"]] for e in list_learnable_skills(ids["plain"], session)}
+        if plain_learn.get("escrime") != [ids["master"]]:
+            fail(f"B3: escrime's masters are {plain_learn.get('escrime')}")
+
+        def call(**kwargs):
+            try:
+                return grant_skill(SkillGrantBody(**kwargs), session)
+            except HTTPException as exc:
+                session.rollback()
+                return exc.status_code
+
+        if call(character_id=ids["plain"], skill_definition_id=ids["escrime"].id, taught_by_id=ids["brute"]) != 422:
+            fail("B3: a non-master taught")
+        if call(character_id=ids["master"], skill_definition_id=alch.id, taught_by_id=ids["master"]) != 422:
+            fail("B3: a character taught himself")
+        row = call(character_id=ids["plain"], skill_definition_id=ids["escrime"].id, taught_by_id=ids["master"])
+        if not isinstance(row, dict) or (row["rank"], row["taught_by_id"]) != (0, ids["master"]):
+            fail(f"B3: learning from the master gave {row}")
+        if call(character_id=ids["plain"], skill_definition_id=ids["escrime"].id) != 409:
+            fail("B3: a second grant of the same skill was not refused")
+        row = call(character_id=ids["pc"], skill_definition_id=alch.id)
+        if not isinstance(row, dict) or row["taught_by_id"] is not None or row["requires_master"] is not True:
+            fail(f"B3: the creator's grant without a master gave {row}")
+        row = call(character_id=ids["plain"], domain="agility", rank=4)
+        if not isinstance(row, dict) or (row["domain"], row["rank"]) != ("agility", 4):
+            fail(f"B3: an NPC base domain grant gave {row}")
+        sheet = {r["definition_name"]: r for r in list_skills(character_id=ids["plain"], db=session)}
+        if sheet.get("escrime", {}).get("taught_by_id") != ids["master"]:
+            fail(f"B3: GET /api/skills served {sheet.get('escrime')}")
+
+
+def check_b4() -> None:
+    text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    if "requires_master" not in text or "skill_access" not in text:
+        fail("B4: CLAUDE.md does not name requires_master and skill_access")
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_a1()
@@ -347,13 +519,19 @@ def main() -> int:
     create_db_and_tables()
     check_a3(engine)
     check_a4(engine)
+    check_b1(engine)
+    check_b2(engine)
+    check_b3(engine)
+    check_b4()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         return 1
     print("PASS: npc_skills -- v2.16 gives NPCs skill rows in place of physical_tier, migrates "
           "every carrure to a physical row from v2.15 only, and an opposing NPC rolls its own "
-          "row for the skill, else its base domain, else Initié")
+          "row for the skill, else its base domain, else Initié; a skill that requires a master "
+          "is held only once taught, cannot be rolled until then, and is taught by a Maître or "
+          "granted by the creator")
     return 0
 
 
