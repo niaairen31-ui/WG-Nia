@@ -27,7 +27,8 @@ Idempotent: each table is rebuilt only while it lacks its new columns;
 Post-checks, before `schema_meta` converges: row counts kept, `skill` has no
 `tier` column and every rank is within 0-5, the three tables carry the
 models' CHECK constraints, `skill_rank` exists, and
-`PRAGMA foreign_key_check` is empty.
+`PRAGMA foreign_key_check` is empty on the four tables this migration
+writes (a pre-existing orphan elsewhere is not this migration's to judge).
 
 Run from the project root:
 
@@ -79,6 +80,10 @@ _EXPECTED_CHECKS = {
     "skill_definition": {"ck_skill_definition_base_domain", "ck_skill_definition_rank_points"},
     "skill": {"ck_skill_rank", "ck_skill_xp"},
 }
+
+
+# The tables this migration writes: the foreign-key post-check is scoped to them.
+_CHECKED_TABLES = ("skill_system", "skill_definition", "skill", "skill_rank")
 
 
 def _version_key(version: str) -> tuple[int, int]:
@@ -195,7 +200,11 @@ def _post_checks(before: dict[str, int]) -> None:
         raise SystemExit("Migration v2.15 aborted, post-check failed: skill_rank is missing.")
     with engine.connect() as conn:
         out_of_range = conn.execute(text("SELECT COUNT(*) FROM skill WHERE rank NOT BETWEEN 0 AND 5")).scalar_one()
-        dangling = conn.execute(text("PRAGMA foreign_key_check")).fetchall()
+        dangling = [
+            row
+            for table in _CHECKED_TABLES
+            for row in conn.execute(text(f"PRAGMA foreign_key_check({table})")).fetchall()
+        ]
     if out_of_range or dangling:
         raise SystemExit(
             f"Migration v2.15 aborted, post-check failed: {out_of_range} rank(s) out of range, "
