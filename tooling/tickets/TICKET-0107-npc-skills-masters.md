@@ -2,14 +2,14 @@
 id: TICKET-0107
 title: NPCs have skill sheets; a skill may require a master, and cannot be rolled until taught
 type: feature
-status: exec
+status: live-gate
 created: 2026-10-06
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write]
 blast_radius: medium
 lot_id: LOT-0107-npc-skills-masters.md
 brief_ids: [A, B, C]
-current_brief: C
+current_brief:
 schema_version_touched: v2.16
 retry_count: 0
 slug: npc-skills-masters
