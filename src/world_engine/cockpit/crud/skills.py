@@ -273,7 +273,10 @@ def list_skills(character_id: str = Query(...), db: DbSession = Depends(get_sess
     ).all()
     order = {domain: i for i, domain in enumerate(SKILL_DOMAINS)}
     rows.sort(key=lambda r: order.get(r[0].domain, len(SKILL_DOMAINS)))
-    return [_skill_dict(s, ladder, d, sys) for s, d, sys in rows]
+    teachers = {r[0].taught_by_id for r in rows if r[0].taught_by_id}
+    names = {e.id: e.name for e in db.exec(select(Entity).where(Entity.id.in_(teachers))).all()} if teachers else {}
+    # TICKET-0107 (BRIEF-0107-C): the master's name, for the fiche.
+    return [{**_skill_dict(s, ladder, d, sys), "taught_by_name": names.get(s.taught_by_id)} for s, d, sys in rows]
 
 
 class SkillRankBody(BaseModel):

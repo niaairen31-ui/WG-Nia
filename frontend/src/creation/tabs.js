@@ -202,7 +202,7 @@ export const CREATION_TABS = {
     containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: () => _npcTabEnterReset(), onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'npcAgent', containerId: 'npcagent-panel' }, { key: 'linkAgent', containerId: 'linkagent-panel' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'npcAgent', containerId: 'npcagent-panel' }, { key: 'linkAgent', containerId: 'linkagent-panel' }, { key: 'pjSkillFiche', containerId: 'creation-pj-skill' }],
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && !creationState.playerCharIds.has(e.id)),
     createPanel: null,
@@ -212,7 +212,9 @@ export const CREATION_TABS = {
               onSelect: (id) => document.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'relations', meta: { id } } })),
               onOpen: null,
               display: 'on_demand', toggleLabel: 'Voir le graphe',
-              graph: { consumer: 'relations', mountId: 'relgraph-mount' } }],
+              graph: { consumer: 'relations', mountId: 'relgraph-mount' } },
+            // TICKET-0107 (BRIEF-0107-C): the skill fiche, shared with pj.
+            { id: 'fiche', containerId: 'creation-pj-skill', loader: null, onSelect: null }],
   },
   pj: {
     label: 'Personnages joueurs',

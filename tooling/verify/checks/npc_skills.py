@@ -63,6 +63,19 @@ B3 -- learning (fixture, C1). `GET /api/skills/learnable` lists, for a
 B4 -- documentation (static). CLAUDE.md names `requires_master` and
    `skill_access`'s lock.
 
+C1 -- the routes the fiche reads (BRIEF-0107-C, fixture).
+   `GET /api/skills/player-characters?character_type=npc` lists the
+   world's NPCs only, `player` its players only, another value 422; `GET
+   /api/skills` serves `taught_by_name` (the master's name, None without
+   one).
+C2 -- the UI (static). `tabs.js`'s `npc` entry mounts the `pjSkillFiche`
+   island and declares its `fiche` slot; `PjSkillFiche.svelte` asks for
+   `character_type=${characterType}`, reads `/api/skills/learnable`, POSTs
+   `/api/skills` with rank 0 for a player, offers « Apprendre » and « Sans
+   maître »; `CompetencesSheet.svelte` binds `requires_master`;
+   `competences.svelte.js` sends it; the built bundle carries « Exige un
+   maître » and « À apprendre ».
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that examines zero rows is a
 FAILURE.
@@ -511,6 +524,61 @@ def check_b4() -> None:
         fail("B4: CLAUDE.md does not name requires_master and skill_access")
 
 
+# --- C1-C2 ---------------------------------------------------------------------
+
+def check_c1(engine) -> None:
+    from fastapi import HTTPException
+    from sqlmodel import Session
+
+    from world_engine.cockpit.crud.skills import list_skill_player_characters, list_skills
+    from world_engine.models import Skill
+
+    with Session(engine) as session:
+        ids = _a_world(session)
+        npcs = {c["id"] for c in list_skill_player_characters("npc", session)}
+        players = {c["id"] for c in list_skill_player_characters("player", session)}
+        if npcs != {ids["master"], ids["brute"], ids["plain"]} or players != {ids["pc"]}:
+            fail(f"C1: npc list {npcs}, player list {players}")
+        try:
+            list_skill_player_characters("monster", session)
+            fail("C1: an unknown character_type was accepted")
+        except HTTPException as exc:
+            if exc.status_code != 422:
+                fail(f"C1: an unknown character_type answered {exc.status_code}")
+        row = session.get(Skill, ids["brute_phys"])
+        row.taught_by_id = ids["master"]
+        session.add(row)
+        session.commit()
+        names = {r["id"]: r["taught_by_name"] for r in list_skills(character_id=ids["brute"], db=session)}
+        if names.get(ids["brute_phys"]) != "master":
+            fail(f"C1: taught_by_name is {names}")
+        others = [r["taught_by_name"] for r in list_skills(character_id=ids["pc"], db=session)]
+        if any(others) or not others:
+            fail(f"C1: rows without a master serve {others}")
+
+
+def check_c2() -> None:
+    root = ROOT / "frontend" / "src" / "creation"
+    tabs = (root / "tabs.js").read_text(encoding="utf-8")
+    npc = tabs[tabs.index("  npc: {"):tabs.index("  pj: {")]
+    if "key: 'pjSkillFiche'" not in npc or "id: 'fiche', containerId: 'creation-pj-skill'" not in npc:
+        fail("C2: the npc tab does not mount the skill fiche")
+    fiche = (root / "PjSkillFiche.svelte").read_text(encoding="utf-8")
+    for needle in ("character_type=${characterType}", "/api/skills/learnable", "method: 'POST'",
+                   "characterType === 'player' ? 0", "'Apprendre'", "Sans maître"):
+        if needle not in fiche:
+            fail(f"C2: PjSkillFiche.svelte lacks {needle!r}")
+    if "bind:checked={creationState.sheetDetail.requires_master}" not in (root / "CompetencesSheet.svelte").read_text(encoding="utf-8"):
+        fail("C2: CompetencesSheet.svelte does not bind requires_master")
+    if "requires_master: !!record.requires_master" not in (root / "competences.svelte.js").read_text(encoding="utf-8"):
+        fail("C2: competences.svelte.js does not send requires_master")
+    bundle = "".join(p.read_text(encoding="utf-8") for p in
+                     (ROOT / "src" / "world_engine" / "cockpit" / "static" / "assets").glob("*.js"))
+    for needle in ("Exige un maître", "À apprendre"):
+        if needle not in bundle:
+            fail(f"C2: the built bundle does not carry « {needle} »")
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_a1()
@@ -523,6 +591,8 @@ def main() -> int:
     check_b2(engine)
     check_b3(engine)
     check_b4()
+    check_c1(engine)
+    check_c2()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -531,7 +601,7 @@ def main() -> int:
           "every carrure to a physical row from v2.15 only, and an opposing NPC rolls its own "
           "row for the skill, else its base domain, else Initié; a skill that requires a master "
           "is held only once taught, cannot be rolled until then, and is taught by a Maître or "
-          "granted by the creator")
+          "granted by the creator; the fiche serves NPCs and players, and teaches from it")
     return 0
 
 

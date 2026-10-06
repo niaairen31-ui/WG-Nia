@@ -18024,6 +18024,21 @@ keeps open skills. B2, rolling the base domain for a locked skill:
 « impossible à lancer ». Learning through a conversation's proposal (C2):
 deferred to quests.
 
+
+## ONE SKILL FICHE FOR EVERY CHARACTER (TICKET-0107) -- NPCS GIVEN SKILLS, PLAYERS TAUGHT (BRIEF-0107-c, no schema change)
+
+**F1.** The skill fiche is an island of both the `pj` and `npc` tabs (mounted
+once, its character list following `activeTabKey`). An NPC lists the
+skills it lacks under « Compétences à donner », at the rank the creator
+picks, from a master or none. A player lists the master skills he was never
+taught under « À apprendre »; « Apprendre » grants the row at
+Inexpérimenté, from a master of the world or « sans maître » -- the
+creator's bypass. Each row names its master. A skill's fiche carries
+« Exige un maître ».
+
+**Rejected.** A second component for NPC sheets: the same rows, the same
+routes, two places to keep in step.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -28,7 +28,10 @@
    optional rank thresholds (`points_to_rank_1..5`, null = inherit), and a
    third record kind, 'ranks', edits the world's ladder (GET/PUT
    /api/skill-ranks): each rank's name and the points to leave it. The most
-   specific value wins -- skill, then system, then world. */
+   specific value wins -- skill, then system, then world.
+
+   TICKET-0107 (BRIEF-0107-C, A2): a skill record carries `requires_master`
+   (« Exige un maître »): no player holds it until taught. */
 import { serverState } from '../lib/serverState.svelte.js';
 
 export const competencesState = $state({
@@ -88,7 +91,7 @@ export function skillRecord(row) {
   return {
     kind: 'skill', persisted: true, id: row.id, draftKey: null,
     name: row.name, base_domain: row.base_domain, system_id: row.system_id ?? null,
-    description: row.description ?? '', ...rankPoints(row),
+    description: row.description ?? '', requires_master: !!row.requires_master, ...rankPoints(row),
   };
 }
 
@@ -111,7 +114,7 @@ export function draftRecord(d) {
   return {
     kind: 'skill', persisted: false, id: `draft:${d.key}`, draftKey: d.key,
     name: d.name ?? '', base_domain: d.base_domain ?? '', system_id: d.system_id ?? null,
-    description: d.description ?? '', ...rankPoints(null),
+    description: d.description ?? '', requires_master: false, ...rankPoints(null),
   };
 }
 
@@ -130,7 +133,7 @@ export function blankRecord(kind) {
   }
   return {
     kind: 'skill', persisted: false, id: null, draftKey: null,
-    name: '', base_domain: 'physical', system_id: null, description: '', ...rankPoints(null),
+    name: '', base_domain: 'physical', system_id: null, description: '', requires_master: false, ...rankPoints(null),
   };
 }
 
@@ -256,7 +259,7 @@ async function saveSkill(record) {
   if (!COMPETENCES_DOMAINS.includes(record.base_domain)) throw new Error('Domaine de base requis.');
   const body = JSON.stringify({
     name, base_domain: record.base_domain, system_id: record.system_id || null,
-    description: record.description || '', ...pointsBody(record),
+    description: record.description || '', requires_master: !!record.requires_master, ...pointsBody(record),
   });
   const saved = record.persisted
     ? await api(`/api/skill-definitions/${record.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })

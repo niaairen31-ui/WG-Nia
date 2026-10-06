@@ -174,6 +174,10 @@
           {/each}
         </select>
       </div>
+      <div class="field-row checkbox">
+        <input id="competence-f-master" type="checkbox" bind:checked={creationState.sheetDetail.requires_master}>
+        <label for="competence-f-master">Exige un maître — un personnage joueur ne l'a pas tant qu'on ne la lui a pas apprise</label>
+      </div>
       <div class="field-row" style="grid-column:1/-1">
         <label for="competence-f-description">Description</label>
         <textarea id="competence-f-description" rows="3" bind:value={creationState.sheetDetail.description}></textarea>
