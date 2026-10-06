@@ -104,6 +104,12 @@
     selectCharacter(ev.currentTarget.value);
   }
 
+  // TICKET-0106 (BRIEF-0106-D): the points earned within the rank, out of
+  // the points needed to leave it (null at the top rank).
+  function pointsLine(s) {
+    return s.points_to_next == null ? `${s.xp} pt · rang maximal` : `${s.xp} / ${s.points_to_next} pts`;
+  }
+
   async function saveRank(skillId, rank) {
     try {
       const updated = await api(`/api/skills/${encodeURIComponent(skillId)}`, {
@@ -162,6 +168,7 @@
               {/each}
             </select>
           {/if}
+          <small style="color:var(--muted)">{pointsLine(s)}</small>
         </div>
       {/each}
     </div></div>

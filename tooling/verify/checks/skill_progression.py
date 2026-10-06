@@ -88,6 +88,15 @@ C3 -- the Compétences UI (static). `CompetencesList.svelte` lists « Rangs
    `/api/skill-ranks` and sends `pointsBody(record)` with a skill and with a
    system; the built bundle carries « Rangs du monde ».
 
+D1 -- the day's account (BRIEF-0106-D, fixture). `routes/day._account_gains`
+   lists under `skill.produced` one {mutation_id, status, domain, points 1}
+   per `agenda_step_change` whose step has a domain, none for a step
+   without one, and its `note` is no longer the « pas encore » text.
+D2 -- the displays (static). `Journee.svelte` renders
+   `account.gains.skill.produced`; `PjSkillFiche.svelte` shows `s.xp` out
+   of `s.points_to_next`, « rang maximal » at the top; the built bundle
+   carries « rang maximal ».
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that examines zero rows is a
 FAILURE.
@@ -745,6 +754,49 @@ def check_c3() -> None:
         fail("C3: the built bundle does not carry « Rangs du monde »")
 
 
+# --- D1-D2 ---------------------------------------------------------------------
+
+def check_d1(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.cockpit.routes.day import _account_gains
+    from world_engine.models import Agenda, AgendaStep, ProposedMutation
+
+    with Session(engine) as session:
+        ids = _b_world(session)
+        plan = Agenda(world_id=ids["world"], owner_entity_id=ids["pc"], title="Journée D")
+        session.add(plan)
+        session.flush()
+        rolled = AgendaStep(agenda_id=plan.id, step_order=1, objective="courir", status="active", domain="agility")
+        talked = AgendaStep(agenda_id=plan.id, step_order=2, objective="parler", status="pending", domain=None)
+        session.add(rolled)
+        session.add(talked)
+        session.flush()
+        muts = [ProposedMutation(id=f"m-{n}", world_id=ids["world"], source_type="pass_play",
+                                 mutation_type="agenda_step_change", status=status,
+                                 payload={"step_id": step.id, "action": "complete"})
+                for n, (step, status) in enumerate(((rolled, "proposed"), (talked, "applied")))]
+        gains = _account_gains(muts, session)
+        produced = gains["skill"]["produced"]
+        if produced != [{"mutation_id": "m-0", "status": "proposed", "domain": "agility", "points": 1}]:
+            fail(f"D1: skill.produced is {produced}")
+        if "pas encore" in gains["skill"]["note"]:
+            fail(f"D1: the note still says {gains['skill']['note']!r}")
+
+
+def check_d2() -> None:
+    journee = (ROOT / "frontend" / "src" / "journee" / "Journee.svelte").read_text(encoding="utf-8")
+    fiche = (ROOT / "frontend" / "src" / "creation" / "PjSkillFiche.svelte").read_text(encoding="utf-8")
+    if "account.gains.skill.produced" not in journee:
+        fail("D2: Journee.svelte does not render the skill gains")
+    if "s.xp" not in fiche or "s.points_to_next" not in fiche or "rang maximal" not in fiche:
+        fail("D2: PjSkillFiche.svelte does not show the points within the rank")
+    bundle = "".join(p.read_text(encoding="utf-8") for p in
+                     (ROOT / "src" / "world_engine" / "cockpit" / "static" / "assets").glob("*.js"))
+    if "rang maximal" not in bundle:
+        fail("D2: the built bundle does not carry « rang maximal »")
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_a1()
@@ -761,6 +813,8 @@ def main() -> int:
     check_c1(engine)
     check_c2(engine)
     check_c3()
+    check_d1(engine)
+    check_d2()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -769,7 +823,8 @@ def main() -> int:
           "its tier, keeps every former tier's roll, lets a world, a system and a skill set "
           "the points of each rank, and migrates from v2.14 only; every roll earns a point, "
           "auto-applied in Play and given at a day step's approval, and a threshold moves the rank; "
-          "the creator names the ranks and sets their points per world, system and skill")
+          "the creator names the ranks and sets their points per world, system and skill; the PC's "
+          "fiche shows the points within the rank and the day's account the points earned")
     return 0
 
 

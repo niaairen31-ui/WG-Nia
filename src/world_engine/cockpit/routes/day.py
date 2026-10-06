@@ -228,19 +228,24 @@ def list_days(db: Session = Depends(get_session)) -> list[dict]:
     return [_day_dict(batch, pass_play) for batch, pass_play in rows]
 
 
-def _account_gains(mutations: list[ProposedMutation]) -> dict:
+def _account_gains(mutations: list[ProposedMutation], db: Session) -> dict:
     """Gains block (Scope IN item 4): resource/relation gains are read from
     the `effects` embedded in `agenda_step_change` payloads (the delta
     contract, BRIEF-0075-e-amendment-1) plus any standalone
     `relation_change` row; knowledge gains are the rendezvous
-    `knowledge_change` rows. Skill deltas have no carrier in v1 (X1) —
-    reported positively, never silently omitted."""
+    `knowledge_change` rows. Skill gains (TICKET-0106, BRIEF-0106-D): one
+    point per `agenda_step_change` whose step was rolled (its own `domain`),
+    given when that mutation is approved (`grant_step_roll`)."""
     resource: list[dict] = []
     relation: list[dict] = []
     knowledge: list[dict] = []
+    skill: list[dict] = []
     for m in mutations:
         payload = m.payload if isinstance(m.payload, dict) else {}
         if m.mutation_type == "agenda_step_change":
+            step = db.get(AgendaStep, payload.get("step_id")) if payload.get("step_id") else None
+            if step is not None and step.domain is not None:
+                skill.append({"mutation_id": m.id, "status": m.status, "domain": step.domain, "points": 1})
             for eff in payload.get("effects") or []:
                 if not isinstance(eff, dict):
                     continue
@@ -260,8 +265,8 @@ def _account_gains(mutations: list[ProposedMutation]) -> dict:
         "relation": relation,
         "knowledge": knowledge,
         "skill": {
-            "produced": [],
-            "note": "La résolution de journée ne produit pas encore de gain de compétence.",
+            "produced": skill,
+            "note": "Un point par jet, donné à l'approbation de l'étape.",
         },
     }
 
@@ -342,7 +347,7 @@ def _day_account_dict(pass_play: PassPlay, batch: Batch, db: Session) -> dict:
         "npcs": fact_sheet.get("npcs", []),
         "locations": fact_sheet.get("locations", []),
         "role_hints": fact_sheet.get("role_hints", []),
-        "gains": _account_gains(mutations),
+        "gains": _account_gains(mutations, db),
         "pending_review": pending_review,
         "germs": germs,
         "rendezvous": _account_rendezvous(mutations, db),

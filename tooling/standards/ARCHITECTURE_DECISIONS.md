@@ -17960,6 +17960,17 @@ body.
 **Rejected.** Labels per system (P1): one ladder per world is simpler to
 edit; reactivates if two systems of one world need different rank names.
 
+
+## THE POINTS ARE SHOWN (TICKET-0106) -- ON THE PC'S FICHE AND IN THE DAY'S ACCOUNT (BRIEF-0106-d, no schema change)
+
+**Y1b.** Until Play's migration shows the verdict's `progress`, the points
+are seen in two places. The PC's skill fiche shows, beside each rank, the
+points earned within it out of the points needed to leave it (« rang
+maximal » at Maître). The day's account lists one point per rolled step --
+an `agenda_step_change` whose step has a `domain` -- with that mutation's
+status: proposed, the point waits for the approval; applied, it is earned.
+The former « pas encore de gain de compétence » note is retired.
+
 ---
 
 *Co-built with Claude, June 2026.*
