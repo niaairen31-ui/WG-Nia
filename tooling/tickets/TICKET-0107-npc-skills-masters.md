@@ -106,4 +106,4 @@ slug: npc-skills-masters
 
 | id | brief in flight | what deviated | downstream briefs regenerated |
 |----|-----------------|---------------|-------------------------------|
-|    |                 |               |                               |
+| AMENDMENT-0107-01 | none (live gate, PR #138) | the v2.16 post-check judged the whole database and stopped on a dangling `session` row after the DDL committed; now scoped to `skill`, `skill_definition`, `character`, other rows noted | none (migration script and npc_skills.py A2 only) |

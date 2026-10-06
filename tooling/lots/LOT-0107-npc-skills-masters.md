@@ -144,7 +144,10 @@ Produced by: BRIEF-0107-A   Consumed by: B, C
 `skill.taught_by_id` nullable FK `entity`; `character.physical_tier` gone.
 Migration: refuses below v2.15, on SQLite < 3.35, on a tier outside -1..2;
 every NPC with a non-zero tier and no `physical` base row gets one at
-`TIER_TO_RANK[tier]`; players ignored; column dropped.
+`TIER_TO_RANK[tier]`; players ignored; column dropped. Post-check
+(AMENDMENT-0107-01): `PRAGMA foreign_key_check` empty on `skill`,
+`skill_definition`, `character`; a dangling row elsewhere is printed as a
+note, never a reason to stop.
 
 ### C-02 — the rows a roll reads (`skill_access.py`)
 Produced by: BRIEF-0107-A (lock: B)   Consumed by: Play
@@ -324,4 +327,7 @@ C1.
 
 ## Amendments
 
-(none)
+- **AMENDMENT-0107-01** (live gate, 2026-10-06) — the v2.16 post-check
+  judged the whole database and stopped on a `session` row whose world is
+  gone, after the DDL had committed. C-01's post-check now judges the three
+  tables the migration writes; A2 carries a dangling `session` row.
