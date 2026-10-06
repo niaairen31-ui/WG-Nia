@@ -57,7 +57,6 @@ function applyFacets(draft) {
 function applyCharacterDraft(legacyDoc, result) {
   const draft = result.draft;
   setVal(legacyDoc, 'author-f-name', draft.public.name);
-  setVal(legacyDoc, 'author-x-physical_tier', draft.public.physical_tier);
   setVal(legacyDoc, 'author-x-faction_id', draft.public.faction_id || '');
   applyFacets(draft);
 
@@ -78,6 +77,8 @@ function applyCharacterDraft(legacyDoc, result) {
   const shorts = (goals && Array.isArray(goals.shorts)) ? goals.shorts : [];
   pendingDraftsState.knowledge = (draft.secret.knowledge || []).map((k) => ({ ...k }));
   pendingDraftsState.goals = { long: (goals && goals.long) || '', shorts: [shorts[0] || '', shorts[1] || ''] };
+  pendingDraftsState.carrure = draft.public.physical_tier ?? null;
+  if (draft.public.physical_tier) notes.push(`Carrure proposée : ${draft.public.physical_tier} (devient la compétence Physique)`);
 
   return notes;
 }

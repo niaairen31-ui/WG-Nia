@@ -86,7 +86,7 @@
            style="padding-left:28px" role="button" tabindex="0"
            onclick={() => onSelect(skillRecord(row))} onkeydown={(ev) => onKey(ev, skillRecord(row))}>
         <div class="ali-name">{row.name}</div>
-        <div class="ali-meta">{row.base_domain}</div>
+        <div class="ali-meta">{row.base_domain}{row.requires_master ? ' · exige un maître' : ''}</div>
       </div>
     {/each}
   {/each}

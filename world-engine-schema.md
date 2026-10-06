@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.15
+Current schema version: v2.16
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -110,15 +110,10 @@ CREATE TABLE character (
   character_type  TEXT NOT NULL,                -- player | npc
   user_id         TEXT,                         -- NULL for NPCs
   current_location_id TEXT REFERENCES entity(id),
-  vital_status    TEXT DEFAULT 'alive',         -- alive | dead | missing | unknown
-  physical_tier   INTEGER NOT NULL DEFAULT 0     -- opposed-roll resistance
-                                                  -- tier, -1..2 (schema
-                                                  -- v1.77, TICKET-0025,
-                                                  -- BRIEF-0025-a). Migrated
-                                                  -- from entity.metadata
-                                                  -- ['physical_tier'].
-                                                  -- 0 = ordinaire default.
+  vital_status    TEXT DEFAULT 'alive'          -- alive | dead | missing | unknown
 );
+-- physical_tier (v1.77) was dropped at v2.16 (TICKET-0107): an NPC's
+-- non-zero tier became its `physical` skill row.
 ```
 -- Descriptive prose is not a column (schema v2.06, TICKET-0091):
 -- appearance -> `physique` fact, backstory -> `histoire`, aversion ->
@@ -1710,6 +1705,7 @@ CREATE TABLE skill_definition (
   points_to_rank_3  INTEGER,           -- then the world's (skill_rank)
   points_to_rank_4  INTEGER,
   points_to_rank_5  INTEGER,
+  requires_master   BOOLEAN NOT NULL DEFAULT 0,  -- learned only from a master (v2.16)
   created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT ck_skill_definition_rank_points CHECK (
@@ -1771,16 +1767,20 @@ CREATE TABLE skill (
                         -- row — rename-safe by construction. ON DELETE
                         -- RESTRICT is a structural floor only (chantier 2
                         -- owns the real delete/cascade UX).
+  taught_by_id          TEXT REFERENCES entity(id),
+                        -- the master who taught it (v2.16); NULL when
+                        -- seeded or granted without a master
   created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_skill_character ON skill(character_id);
 ```
 
--- NOTE: skill rows exist ONLY for player characters in this phase. NPC
--- physical capability is a single tier in character.physical_tier
--- (-1..2, default 0; schema v1.77, TICKET-0025 — moved off
--- entity.metadata). Domains are strictly physical/sensory: social
+-- NOTE: a player character holds the four base rows and one row per
+-- skill definition that does not require a master; a row for a
+-- requires_master definition exists only once taught (v2.16). An NPC holds
+-- only the rows the creator gives it; a base domain it has no row for
+-- reads Initié (+0) (skill_access.py). Domains are strictly physical/sensory: social
 -- abilities (persuasion, deception, charm) are NEVER skill domains — they
 -- belong to the free-dialogue layer and the relation graph. This is a
 -- standing design guard, not a deferral.

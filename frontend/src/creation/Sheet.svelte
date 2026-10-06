@@ -94,7 +94,7 @@
   import PricingEditor from './PricingEditor.svelte';
   import LedgerPanel from './LedgerPanel.svelte';
   import ItemsPanel from './ItemsPanel.svelte';
-  import { resetPendingDrafts, knowledgeForCreate, goalsForCreate } from './pendingDrafts.svelte.js';
+  import { resetPendingDrafts, knowledgeForCreate, goalsForCreate, carrureForCreate } from './pendingDrafts.svelte.js';
   import PendingKnowledgeEditor from './PendingKnowledgeEditor.svelte';
   import PendingGoalsEditor from './PendingGoalsEditor.svelte';
   import { resetGeneratePanel, applyGeneratedDraft } from './generatePanel.svelte.js';
@@ -589,6 +589,7 @@
         ...(isNewSave && mutationId ? { mutation_id: mutationId } : {}),
         ...(confirmPromotion ? { confirm_promotion: true } : {}),
         ...(isNewSave && type === 'location' ? { link_to: neighboursForCreate() } : {}),
+        ...(isNewSave && type === 'character' && carrureForCreate() ? { carrure: carrureForCreate() } : {}),
       });
       let detail = isNewSave
         ? await api('/api/entities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })

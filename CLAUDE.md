@@ -303,16 +303,18 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   base-domain `skill` lookup MUST include `AND skill_definition_id IS NULL`.
   A custom skill resolves via its `skill_definition.base_domain` — never
   its own `domain` column — and that resolved `base_domain` is what every
-  base-domain-keyed downstream branch keys off. `skill_definition` and
-  custom `skill` rows are PC-only and MJ-narration-only this phase: no
-  NPC-side read (named deferral).
+  base-domain-keyed downstream branch keys off. An NPC holds only the rows it
+  was given; Play's roll reads both sides through `skill_access` (NPC: skill,
+  else base domain, else Initié) -- enforced by `npc_skills.py`.
 - **A `skill_definition` delete always succeeds** (no `ON DELETE RESTRICT`,
   no `change_history` snapshot): dependent PC `skill` rows then the
   definition, one transaction. The type-"Oui" modal is the sole safeguard —
   a named exception to "History is sacred", scoped to one row.
-- **A new `skill_definition` backfills a default-rank `skill` row onto every
+- **A new open `skill_definition` backfills a default-rank `skill` row onto every
   existing PC of its world, in the create's own transaction** — the
-  catalogue<->PC alignment is never partial. Renaming touches no `skill`
+  catalogue<->PC alignment of open skills is never partial. A `requires_master`
+  skill is held only once taught (`POST /api/skills`), and `skill_access` locks
+  it in Play until then. Renaming touches no `skill`
   row (FK-by-id); re-basing (`base_domain` change) updates `domain` on
   every dependent `skill` row in the same write.
 - **A `skill_definition.name` can never equal a base-domain literal**

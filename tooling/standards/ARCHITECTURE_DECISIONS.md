@@ -17971,6 +17971,74 @@ an `agenda_step_change` whose step has a `domain` -- with that mutation's
 status: proposed, the point waits for the approval; applied, it is earned.
 The former « pas encore de gain de compétence » note is retired.
 
+
+## AN NPC HAS A SKILL SHEET (TICKET-0107) -- ITS ROWS OPPOSE THE ROLL, THE CARRURE BECOMES A ROW (BRIEF-0107-a, schema v2.16)
+
+**D1.** An NPC holds only the skill rows the creator gives it; every
+character has the four base domains, so a base domain an NPC holds no row
+for reads Initié (+0). An opposing NPC's modifier is its row for the skill
+rolled, else its base row for that skill's domain, else Initié
+(`skill_access.opposition_modifier`). `skill_access` also picks the
+player's row; both moved out of `play_physical.py` and joined
+`stream_session_readonly.py`'s declared set (reads only).
+
+**E1.** `character.physical_tier` is gone. A generator's carrure (-1..2,
+the prompt unchanged) becomes, at creation, the NPC's `physical` row through
+`skill_ranks.TIER_TO_RANK` -- none when it maps to Initié; the migration
+does the same for every NPC's non-zero tier and drops the column. A
+player's tier is ignored: its roll always read its own rows. The fiche's
+« Carrure » field is retired.
+
+**Schema for the lock (BRIEF-0107-b).** `skill_definition.requires_master`
+and `skill.taught_by_id` are added here, read from the next brief on.
+
+**Rejected.** Four seeded base rows per NPC on every creation path: the
+same reading as an absent row, through many more writes. Keeping
+`physical_tier` beside the rows: two sources for one modifier.
+
+
+## A SKILL MAY REQUIRE A MASTER (TICKET-0107) -- NOT HELD UNTIL TAUGHT, NOT ROLLED UNTIL THEN (BRIEF-0107-b, no schema change)
+
+**A2.** A skill definition may set `requires_master`. A player holds no row for
+it until taught: creating such a skill backfills nobody, a new PC is not
+seeded with it, and turning the flag on keeps every row already held.
+Turning it off backfills every PC lacking it -- open skills stay aligned
+with every PC.
+
+**B1.** In Play, the arbiter may still name a skill the player was never
+taught (the lexicon judges against the whole catalogue). `skill_access`
+then reports it locked: no fallback to the base domain, no dice, no point.
+The verdict band is `locked` (dice 0, the skill's name as its domain), the
+MJ receives `locked_rubric` in place of the verdict block, and no scene
+state moves. Play's sealed client prints the band as it prints any other.
+
+**C1.** `POST /api/skills` grants one row: taught by another character at
+Maître in that skill (`taught_by_id`, checked), or granted without a master
+-- the creator's bypass. `GET /api/skills/learnable` lists what a character
+may be given: for a player, the master skills he lacks; for an NPC, every
+skill and base domain it lacks; each with its masters. A skill learned
+starts where the UI sends it -- Inexpérimenté for « Apprendre ».
+
+**Rejected.** A2's alternative A1, locking every custom skill: Nia's world
+keeps open skills. B2, rolling the base domain for a locked skill:
+« impossible à lancer ». Learning through a conversation's proposal (C2):
+deferred to quests.
+
+
+## ONE SKILL FICHE FOR EVERY CHARACTER (TICKET-0107) -- NPCS GIVEN SKILLS, PLAYERS TAUGHT (BRIEF-0107-c, no schema change)
+
+**F1.** The skill fiche is an island of both the `pj` and `npc` tabs (mounted
+once, its character list following `activeTabKey`). An NPC lists the
+skills it lacks under « Compétences à donner », at the rank the creator
+picks, from a master or none. A player lists the master skills he was never
+taught under « À apprendre »; « Apprendre » grants the row at
+Inexpérimenté, from a master of the world or « sans maître » -- the
+creator's bypass. Each row names its master. A skill's fiche carries
+« Exige un maître ».
+
+**Rejected.** A second component for NPC sheets: the same rows, the same
+routes, two places to keep in step.
+
 ---
 
 *Co-built with Claude, June 2026.*

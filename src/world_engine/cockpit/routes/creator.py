@@ -616,8 +616,13 @@ def _validate_pc_creation(body: "PlayerCharacterCreateBody", db: Session) -> tup
 
 
 def _pc_custom_skill_defs(world_id: str, db: Session) -> list[SkillDefinition]:
+    """The skills a new PC holds: every definition open to all -- a
+    `requires_master` one is held only once taught (TICKET-0107, A2)."""
     return db.exec(
-        select(SkillDefinition).where(SkillDefinition.world_id == world_id)
+        select(SkillDefinition).where(
+            SkillDefinition.world_id == world_id,
+            SkillDefinition.requires_master == False,  # noqa: E712
+        )
     ).all()
 
 

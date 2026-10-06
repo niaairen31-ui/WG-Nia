@@ -29,6 +29,7 @@ from ..models import (
     ProposedMutation,
     PromptTemplate,
 )
+from ..skill_access import LOCKED_BAND
 from ..zone_rules import ZoneRefusal, require_visitable
 from .play import (
     ResponseMode,
@@ -240,12 +241,20 @@ def _mj_user_physical(
     context_block: str, inventory_block: str, location_name: str, player_line: str,
     npc_name: str, npc_reply: str, verdict_band: Optional[str], search_rubric: Optional[str],
 ) -> str:
-    """BRIEF-11: `verdict_band` injects the verbatim resolution rubric."""
+    """BRIEF-11: `verdict_band` injects the verbatim resolution rubric. A
+    locked skill (TICKET-0107, B1) rolled nothing: its rubric, carried in
+    `search_rubric`, replaces the verdict block."""
     band = verdict_band or "failure"
     npc_reaction_block = (
         f"{npc_name} réagit :\n{npc_reply}\n\n" if npc_reply else ""
     )
     search_rubric_block = f"\n{search_rubric}\n" if search_rubric else ""
+    if band == LOCKED_BAND:
+        return (
+            f"{context_block}{inventory_block}Lieu : « {location_name} ».\n"
+            f"Mode : résolution physique.\n\nAction du joueur :\n{player_line}\n\n"
+            f"{npc_reaction_block}{search_rubric_block}\nNarration MJ :\n/no_think"
+        )
     return (
         f"{context_block}"
         f"{inventory_block}"

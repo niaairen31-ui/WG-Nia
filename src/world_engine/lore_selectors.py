@@ -98,7 +98,6 @@ def _identity_rows(entity_id: str, world_id: str, db: Session) -> list[dict]:
                 character_type=character.character_type,
                 current_location_id=character.current_location_id,
                 vital_status=character.vital_status,
-                physical_tier=character.physical_tier,
             )
     return [row]
 

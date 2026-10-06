@@ -15,7 +15,7 @@ from typing import Any, Iterator, Optional
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from .. import llm_parse, ollama_client, skill_lexicon, skill_ranks
+from .. import llm_parse, ollama_client, skill_access, skill_lexicon, skill_ranks
 from ..context import (
     assemble_mj_context,
     assemble_npc_context,
@@ -34,7 +34,6 @@ from ..models import (
     Gathering,
     Location,
     PromptTemplate,
-    Skill,
     SkillDefinition,
     Visit,
 )
@@ -158,41 +157,11 @@ def _say_physical_resolve_verdict(
     the dice verdict. Returns (resolved_base_domain, verdict, opposed_entity,
     verdict_sse_line)."""
     db = ctx.db
-    # BRIEF-55 (5d, schema v1.63): resolution mapping. `domain` may now
-    # be a base domain OR a custom skill name (constraint-gated turns
-    # above only ever set a base domain, so they fall in the first
-    # branch). `resolved_base_domain` is what bands/discovery key off.
-    custom_def = world_skill_defs_by_name.get(domain)
-    if custom_def is None:
-        resolved_base_domain = domain
-        skill_row = db.exec(
-            select(Skill).where(
-                Skill.character_id == ctx.conv.player_id,
-                Skill.domain == domain,
-                Skill.skill_definition_id.is_(None),
-            )
-        ).first()
-    else:
-        resolved_base_domain = custom_def.base_domain
-        skill_row = db.exec(
-            select(Skill).where(
-                Skill.character_id == ctx.conv.player_id,
-                Skill.skill_definition_id == custom_def.id,
-            )
-        ).first()
-        if skill_row is None:
-            # Defensive fallback: the PC somehow lacks the custom row.
-            skill_row = db.exec(
-                select(Skill).where(
-                    Skill.character_id == ctx.conv.player_id,
-                    Skill.domain == resolved_base_domain,
-                    Skill.skill_definition_id.is_(None),
-                )
-            ).first()
-
-    # Player-roll rule (resolution.py): the roll always belongs to the
-    # player — player_tier is its skill row's rank modifier (TICKET-0106),
-    # npc_tier (if opposed) character.physical_tier, default 0 either way.
+    # BRIEF-55 (5d): `domain` is a base domain OR a custom skill name;
+    # `skill_access` (TICKET-0107) picks the player's row and the opposing
+    # NPC's modifier (D1). `resolved_base_domain` is what bands/discovery key off.
+    rolled = skill_access.player_skill(db, ctx.conv.player_id, domain, world_skill_defs_by_name)
+    resolved_base_domain, skill_row = rolled.base_domain, rolled.row
     player_tier = skill_ranks.rank_modifier(skill_row.rank) if skill_row else 0
 
     opposed_entity: Optional[Entity] = None
@@ -202,17 +171,20 @@ def _say_physical_resolve_verdict(
     if opposed_npc_id:
         opposed_entity = db.get(Entity, opposed_npc_id)
         if opposed_entity is not None:
-            opposed_character = db.get(Character, opposed_npc_id)
-            npc_tier = opposed_character.physical_tier if opposed_character is not None else 0
+            npc_tier = skill_access.opposition_modifier(db, opposed_npc_id, resolved_base_domain, rolled.definition)
 
-    verdict = resolve_physical(resolved_base_domain, player_tier, npc_tier)
+    if rolled.locked:  # B1: a skill never taught is not rolled
+        verdict = skill_access.locked_verdict(domain)
+    else:
+        verdict = resolve_physical(resolved_base_domain, player_tier, npc_tier)
     _log.info(
         "Physical verdict: domain=%s dice=%s modifier=%d total=%d band=%s "
         "(player_tier=%d, npc_tier=%d, opposed=%s)",
         verdict.domain, verdict.dice, verdict.modifier, verdict.total,
         verdict.band, player_tier, npc_tier, opposed_npc_id or "none",
     )
-    progress = record_roll(world_id=ctx.world_id, conversation_id=ctx.conv_id, skill_id=skill_row.id if skill_row else None, band=verdict.band)
+    progress = None if rolled.locked else record_roll(
+        world_id=ctx.world_id, conversation_id=ctx.conv_id, skill_id=skill_row.id if skill_row else None, band=verdict.band)
     verdict_sse_line = f"data: {json.dumps({'verdict': {'domain': verdict.domain, 'dice': list(verdict.dice), 'modifier': verdict.modifier, 'total': verdict.total, 'band': verdict.band, 'progress': progress}})}\n\n"
     return resolved_base_domain, verdict, opposed_entity, verdict_sse_line
 
@@ -371,6 +343,8 @@ def _say_physical_discovery(
     content ONLY after selection.
     """
     db = ctx.db
+    if verdict.band == skill_access.LOCKED_BAND:
+        return skill_access.locked_rubric(verdict.domain)
     if resolved_base_domain != "perception" or opposed_npc_id is not None:
         return None
 

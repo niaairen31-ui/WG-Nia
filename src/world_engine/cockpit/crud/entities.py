@@ -61,6 +61,7 @@ from ...tick_normalize import _EVENT_TYPES
 from ...traits import checkable_traits, ext_columns_for, form_fields_for
 from ...writes.schema import create_entity_type
 from ...zone_rules import ZoneRefusal, require_visitable
+from ...skill_ranks import DEFAULT_RANK, TIER_TO_RANK
 from ...writes import (
     KNOWLEDGE_LEVELS,
     NPC_GOAL_HORIZONS,
@@ -79,6 +80,7 @@ from ...writes import (
     write_knowledge,
     write_ledger_entry,
     write_membership,
+    write_skill_row,
     write_npc_goal,
     write_npc_goal_prerequisites,
     write_npc_goal_status,
@@ -136,7 +138,6 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
                 "name": "vital_status", "label": "Vital status", "kind": "select",
                 "options": ["alive", "dead", "missing", "unknown"], "default": "alive",
             },
-            {"name": "physical_tier", "label": "Physical tier (Carrure)", "kind": "number", "min": -1, "max": 2, "default": 0},
         ],
     },
     "location": {
@@ -404,6 +405,10 @@ class EntityWriteBody(BaseModel):
     # TICKET-0101 (K): on a location create, the parent's neighbours the
     # creator ticked; each is linked with its derived type.
     link_to: list[str] = []
+    # TICKET-0107 (E1): a generator's carrure (-1..2, clamped), on a
+    # character create only; it becomes the `physical` skill row
+    # (`skill_ranks.TIER_TO_RANK`), none at 0.
+    carrure: Optional[int] = None
 
 
 class NpcPricesBody(BaseModel):
@@ -667,6 +672,10 @@ def _create_static_entity_core(body: EntityWriteBody, db: DbSession, entity_type
             is_primary=True,
             is_secret=False,
         )
+    if entity_type == "character" and body.carrure:
+        rank = TIER_TO_RANK[max(-1, min(2, body.carrure))]
+        if rank != DEFAULT_RANK:
+            write_skill_row(db, character_id=entity.id, domain="physical", rank=rank)
 
     return entity
 

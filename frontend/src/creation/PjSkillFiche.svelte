@@ -21,6 +21,14 @@
      role_closed_vocab.py greps index.html or mentions "skill", so no
      re-homing is triggered.
 
+     TICKET-0107 (BRIEF-0107-C): the same fiche serves the npc tab (an
+     island of both entries; its character list follows activeTabKey). A
+     player's master skills he was never taught are listed under « À
+     apprendre » with their masters; « Apprendre » grants the row at
+     Inexpérimenté (rank 0), from a master or without one (the creator's
+     bypass). An NPC lists every skill it lacks under « Ajouter », at the
+     rank the creator picks.
+
      No scoped <style> block: like every other Creation island, this
      renders inside the legacy iframe document. */
   import { creationState } from './state.svelte.js';
@@ -42,15 +50,28 @@
   let rowsLoading = $state(false);
   let rowsError = $state('');
   let playerMode = $state(false);
+  let learnable = $state([]);
+  let teacherFor = $state({}); // learnable key -> chosen master id ('' = without a master)
+  let rankFor = $state({}); // learnable key -> rank for an NPC grant
+  let grantError = $state('');
+
+  const characterType = $derived(creationState.activeTabKey === 'npc' ? 'npc' : 'player');
+
+  function learnKey(entry) {
+    return entry.skill_definition_id || `domain:${entry.domain}`;
+  }
 
   async function selectCharacter(id) {
     characterId = id;
     rowsLoading = true;
     rowsError = '';
+    grantError = '';
     try {
       rows = await api(`/api/skills?character_id=${encodeURIComponent(id)}`);
+      learnable = await api(`/api/skills/learnable?character_id=${encodeURIComponent(id)}`);
     } catch (e) {
       rows = [];
+      learnable = [];
       rowsError = e.message;
     }
     rowsLoading = false;
@@ -60,7 +81,7 @@
     let fetched;
     try {
       ranks = await api('/api/skill-ranks');
-      fetched = await api('/api/skills/player-characters');
+      fetched = await api(`/api/skills/player-characters?character_type=${characterType}`);
       loadError = '';
     } catch (e) {
       characters = [];
@@ -81,6 +102,7 @@
   // per-activation loader.
   $effect(() => {
     void serverState.worldId;
+    void characterType;
     characterId = null;
     rows = [];
     loadCharacters();
@@ -110,6 +132,26 @@
     return s.points_to_next == null ? `${s.xp} pt · rang maximal` : `${s.xp} / ${s.points_to_next} pts`;
   }
 
+  async function grant(entry) {
+    grantError = '';
+    const key = learnKey(entry);
+    const body = {
+      character_id: characterId,
+      skill_definition_id: entry.skill_definition_id,
+      domain: entry.skill_definition_id ? null : entry.domain,
+      rank: characterType === 'player' ? 0 : Number(rankFor[key] ?? 1),
+      taught_by_id: teacherFor[key] || null,
+    };
+    try {
+      await api('/api/skills', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      await selectCharacter(characterId);
+    } catch (e) {
+      grantError = e.message;
+    }
+  }
+
   async function saveRank(skillId, rank) {
     try {
       const updated = await api(`/api/skills/${encodeURIComponent(skillId)}`, {
@@ -127,7 +169,7 @@
 </script>
 
 <div class="panel-head" style="flex-shrink:0; border-top:2px solid var(--border)">
-  <h2 style="font-size:12px">Fiche de compétences</h2>
+  <h2 style="font-size:12px">Fiche de compétences{characterType === 'npc' ? ' (PNJ)' : ''}</h2>
   <select value={characterId ?? ''} onchange={onCharacterChange}>
     {#each characters as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
   </select>
@@ -146,9 +188,10 @@
     <div class="empty"><span class="spin">⟳</span></div>
   {:else if rowsError}
     <div class="empty">{rowsError}</div>
-  {:else if rows.length === 0}
-    <div class="empty">No skill rows for this character.</div>
   {:else}
+    {#if rows.length === 0}
+      <div class="empty">{characterType === 'npc' ? 'Aucune compétence : Initié dans chaque domaine de base.' : 'Aucune compétence.'}</div>
+    {/if}
     <div class="field-section"><div class="field-grid">
       {#each rows as s (s.id)}
         <div class="field-row">
@@ -168,9 +211,36 @@
               {/each}
             </select>
           {/if}
-          <small style="color:var(--muted)">{pointsLine(s)}</small>
+          <small style="color:var(--muted)">{pointsLine(s)}{s.taught_by_name ? ` · enseignée par ${s.taught_by_name}` : (s.requires_master ? ' · accordée sans maître' : '')}</small>
         </div>
       {/each}
     </div></div>
+    {#if learnable.length && !playerMode}
+      <div class="field-section">
+        <div style="font-size:12px; font-weight:600; margin-bottom:4px">
+          {characterType === 'player' ? 'À apprendre (exige un maître)' : 'Compétences à donner'}
+        </div>
+        {#each learnable as entry (learnKey(entry))}
+          <div class="field-row" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
+            <span style="min-width:120px">{SKILL_DOMAIN_LABELS[entry.name] || entry.name}</span>
+            <select title="Maître" onchange={(ev) => { teacherFor[learnKey(entry)] = ev.currentTarget.value; }}>
+              <option value="">Sans maître (créatrice)</option>
+              {#each entry.masters.filter((m) => m.id !== characterId) as m (m.id)}
+                <option value={m.id}>{m.name}</option>
+              {/each}
+            </select>
+            {#if characterType === 'npc'}
+              <select title="Rang" onchange={(ev) => { rankFor[learnKey(entry)] = ev.currentTarget.value; }}>
+                {#each ranks as r (r.rank)}
+                  <option value={r.rank} selected={r.rank === 1}>{r.label}</option>
+                {/each}
+              </select>
+            {/if}
+            <button class="btn-ghost" onclick={() => grant(entry)}>{characterType === 'player' ? 'Apprendre' : 'Ajouter'}</button>
+          </div>
+        {/each}
+        {#if grantError}<div style="color:var(--red); font-size:12px">{grantError}</div>{/if}
+      </div>
+    {/if}
   {/if}
 </div>
