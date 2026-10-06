@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.14
+Current schema version: v2.15
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1663,8 +1663,17 @@ CREATE TABLE skill_system (
   world_id     TEXT NOT NULL REFERENCES world(id),
   name         TEXT NOT NULL,
   description  TEXT,                   -- rendered as the group subtitle (F2)
+  points_to_rank_1  INTEGER,           -- points to reach rank n, for every skill
+  points_to_rank_2  INTEGER,           -- of this system (v2.15); NULL = the
+  points_to_rank_3  INTEGER,           -- world's default (skill_rank)
+  points_to_rank_4  INTEGER,
+  points_to_rank_5  INTEGER,
   created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+  updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ck_skill_system_rank_points CHECK (
+    (points_to_rank_1 IS NULL OR points_to_rank_1 >= 1) AND (points_to_rank_2 IS NULL OR points_to_rank_2 >= 1)
+    AND (points_to_rank_3 IS NULL OR points_to_rank_3 >= 1) AND (points_to_rank_4 IS NULL OR points_to_rank_4 >= 1)
+    AND (points_to_rank_5 IS NULL OR points_to_rank_5 >= 1))
 );
 CREATE UNIQUE INDEX idx_skill_system_world_name
   ON skill_system(world_id, name);
@@ -1696,8 +1705,17 @@ CREATE TABLE skill_definition (
   system_id    TEXT REFERENCES skill_system(id) ON DELETE RESTRICT,
   description  TEXT,                   -- prose; authored in chantier 2, NOT
                                        -- read by any consumer this round
+  points_to_rank_1  INTEGER,           -- points to reach rank n for this skill
+  points_to_rank_2  INTEGER,           -- (v2.15); NULL = its system's value,
+  points_to_rank_3  INTEGER,           -- then the world's (skill_rank)
+  points_to_rank_4  INTEGER,
+  points_to_rank_5  INTEGER,
   created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+  updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ck_skill_definition_rank_points CHECK (
+    (points_to_rank_1 IS NULL OR points_to_rank_1 >= 1) AND (points_to_rank_2 IS NULL OR points_to_rank_2 >= 1)
+    AND (points_to_rank_3 IS NULL OR points_to_rank_3 >= 1) AND (points_to_rank_4 IS NULL OR points_to_rank_4 >= 1)
+    AND (points_to_rank_5 IS NULL OR points_to_rank_5 >= 1))
 );
 CREATE UNIQUE INDEX idx_skill_definition_world_name
   ON skill_definition(world_id, name);
@@ -1724,7 +1742,8 @@ CREATE INDEX idx_skill_definition_system ON skill_definition(system_id);
 ### `skill`
 
 The player character's skill sheet (schema v1.22) — physical/sensory domains
-with a tier value and full change history. `skill_definition_id` added
+with a rank, the points earned within it (v2.15, replacing `tier`) and full
+change history. `skill_definition_id` added
 schema v1.63 distinguishes a base-domain row (NULL) from a custom-skill row
 (set).
 
@@ -1734,9 +1753,13 @@ CREATE TABLE skill (
   character_id          TEXT NOT NULL REFERENCES entity(id),
   domain                TEXT NOT NULL,
                         -- physical | agility | perception | composure
-  tier                  INTEGER NOT NULL DEFAULT 0 CHECK (tier BETWEEN -1 AND 2),
-                        -- -1 weak | 0 average | +1 trained | +2 exceptional
-                        -- translated directly into the 2d6 modifier (later step)
+  rank                  INTEGER NOT NULL DEFAULT 1 CHECK (rank BETWEEN 0 AND 5),
+                        -- 0 Inexpérimenté | 1 Initié | 2 Apprenti |
+                        -- 3 Confirmé | 4 Expert | 5 Maître (names: skill_rank);
+                        -- 2d6 modifier = skill_ranks.RANK_MODIFIERS[rank]
+                        -- (-1, 0, +1, +2, +2, +3) -- v2.15, replaces tier
+  xp                    INTEGER NOT NULL DEFAULT 0 CHECK (xp >= 0),
+                        -- points earned within the current rank (U2)
   change_history        JSON DEFAULT '[]',  -- archived previous states, same
                                              -- pattern as relation.change_history
   skill_definition_id    TEXT REFERENCES skill_definition(id) ON DELETE RESTRICT,
@@ -1762,6 +1785,35 @@ CREATE INDEX idx_skill_character ON skill(character_id);
 -- belong to the free-dialogue layer and the relation graph. This is a
 -- standing design guard, not a deferral.
 
+
+-----
+
+### `skill_rank`
+
+A world's rank ladder (schema v2.15, TICKET-0106): the name the world gives
+each of the six ranks and the default points a skill needs to leave it.
+At most one row per (world, rank); a missing row reads the engine default
+(`skill_ranks.DEFAULT_RANK_LABELS`, `DEFAULT_POINTS_TO_NEXT`: 5, 10, 20, 40,
+80). A skill system's or a skill definition's `points_to_rank_<n>` overrides
+it, the most specific value winning.
+
+```sql
+CREATE TABLE skill_rank (
+  id              TEXT PRIMARY KEY,
+  world_id        TEXT NOT NULL REFERENCES world(id),
+  rank            INTEGER NOT NULL CHECK (rank BETWEEN 0 AND 5),
+  label           TEXT NOT NULL,
+  points_to_next  INTEGER,              -- NULL only for rank 5
+  updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ck_skill_rank_points CHECK (
+    (rank = 5 AND points_to_next IS NULL) OR (rank < 5 AND points_to_next >= 1))
+);
+CREATE UNIQUE INDEX idx_skill_rank_world_rank ON skill_rank(world_id, rank);
+```
+
+-- NOTE: curated config, no change_history; written only by
+-- `writes.upsert_skill_rank` (creator CRUD), read by
+-- `skill_ranks.world_ladder`, which never writes on read.
 -----
 
 ### `discoverable_detail`

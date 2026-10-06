@@ -15,7 +15,7 @@ from typing import Any, Iterator, Optional
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from .. import llm_parse, ollama_client, skill_lexicon
+from .. import llm_parse, ollama_client, skill_lexicon, skill_ranks
 from ..context import (
     assemble_mj_context,
     assemble_npc_context,
@@ -190,9 +190,9 @@ def _say_physical_resolve_verdict(
             ).first()
 
     # Player-roll rule (resolution.py): the roll always belongs to the
-    # player — player_tier from the skill sheet, npc_tier (if opposed)
-    # from character.physical_tier, default 0 either way.
-    player_tier = skill_row.tier if skill_row else 0
+    # player — player_tier is its skill row's rank modifier (TICKET-0106),
+    # npc_tier (if opposed) character.physical_tier, default 0 either way.
+    player_tier = skill_ranks.rank_modifier(skill_row.rank) if skill_row else 0
 
     opposed_entity: Optional[Entity] = None
     # npc_tier already set for gated turns above; normal turns start at 0.

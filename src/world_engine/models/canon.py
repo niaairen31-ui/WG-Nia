@@ -573,6 +573,12 @@ class Item(SQLModel, table=True):
 # `SKILL_DOMAINS`); all three now import this constant instead.
 BASE_SKILL_DOMAINS = ("physical", "agility", "perception", "composure")
 
+# A rank threshold is a positive count of points, or NULL to inherit (v2.15,
+# TICKET-0106). One literal for the two tables that carry the five columns.
+RANK_POINTS_CHECK = " AND ".join(
+    f"(points_to_rank_{n} IS NULL OR points_to_rank_{n} >= 1)" for n in range(1, 6)
+)
+
 
 # -----------------------------------------------------------------------------
 # skill_system  (world-authored body of skill rules — magic, technology,
@@ -581,6 +587,7 @@ BASE_SKILL_DOMAINS = ("physical", "agility", "perception", "composure")
 class SkillSystem(SQLModel, table=True):
     __tablename__ = "skill_system"
     __table_args__ = (
+        CheckConstraint(RANK_POINTS_CHECK, name="ck_skill_system_rank_points"),
         Index("idx_skill_system_world_name", "world_id", "name", unique=True),
         Index("idx_skill_system_world", "world_id"),
     )
@@ -589,6 +596,13 @@ class SkillSystem(SQLModel, table=True):
     world_id: str = Field(foreign_key="world.id", nullable=False)
     name: str
     description: Optional[str] = None  # rendered as the group subtitle (F2)
+    # Points to reach each rank, for every skill of this system (v2.15,
+    # TICKET-0106). NULL = the world's default (`skill_ranks.points_to_next`).
+    points_to_rank_1: Optional[int] = None
+    points_to_rank_2: Optional[int] = None
+    points_to_rank_3: Optional[int] = None
+    points_to_rank_4: Optional[int] = None
+    points_to_rank_5: Optional[int] = None
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
 
@@ -603,6 +617,7 @@ class SkillDefinition(SQLModel, table=True):
             "base_domain IN ('physical','agility','perception','composure')",
             name="ck_skill_definition_base_domain",
         ),  # canonical list: BASE_SKILL_DOMAINS above
+        CheckConstraint(RANK_POINTS_CHECK, name="ck_skill_definition_rank_points"),
         Index("idx_skill_definition_world_name", "world_id", "name", unique=True),
         Index("idx_skill_definition_world", "world_id"),
         Index("idx_skill_definition_system", "system_id"),
@@ -625,27 +640,35 @@ class SkillDefinition(SQLModel, table=True):
         ),
     )
     description: Optional[str] = None  # authored in chantier 2, not read this round
+    # Points to reach each rank for this skill (v2.15, TICKET-0106). NULL =
+    # its system's value, then the world's (`skill_ranks.points_to_next`).
+    points_to_rank_1: Optional[int] = None
+    points_to_rank_2: Optional[int] = None
+    points_to_rank_3: Optional[int] = None
+    points_to_rank_4: Optional[int] = None
+    points_to_rank_5: Optional[int] = None
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
 
 
 # -----------------------------------------------------------------------------
 # skill  (player character skill sheet — physical/sensory domains, schema v1.22;
-# skill_definition_id added schema v1.63)
+# skill_definition_id added schema v1.63; `rank` and `xp` replace `tier` at
+# v2.15, TICKET-0106 — the dice modifier is `skill_ranks.rank_modifier(rank)`)
 # -----------------------------------------------------------------------------
 class Skill(SQLModel, table=True):
     __tablename__ = "skill"
     __table_args__ = (
-        CheckConstraint("tier BETWEEN -1 AND 2", name="ck_skill_tier"),
+        CheckConstraint("rank BETWEEN 0 AND 5", name="ck_skill_rank"),
+        CheckConstraint("xp >= 0", name="ck_skill_xp"),
         Index("idx_skill_character", "character_id"),
     )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     character_id: str = Field(foreign_key="entity.id", nullable=False)
     domain: str  # physical | agility | perception | composure
-    tier: int = Field(
-        default=0, sa_column_kwargs={"server_default": text("0")}
-    )
+    rank: int = Field(default=1, sa_column_kwargs={"server_default": text("1")})
+    xp: int = Field(default=0, sa_column_kwargs={"server_default": text("0")})
     change_history: list = Field(
         default_factory=list,
         sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),

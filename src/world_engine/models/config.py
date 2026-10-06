@@ -9,7 +9,9 @@ family as `Agenda` (still in `canon.py`) — only its FILE moved, not its
 identity, and every existing `from ..models import AgendaStep` import is
 unaffected (resolved through `models/__init__.py`). `agenda_step_requirement`
 is canon curated-config, same family as `location_type_catalog` / `world_law`
-(metadata-config category, no `change_history`).
+(metadata-config category, no `change_history`). `skill_rank` (TICKET-0106,
+BRIEF-0106-A) is the same curated-config family, placed here for the same
+module budget.
 """
 
 from __future__ import annotations
@@ -145,3 +147,32 @@ class AgendaStepRequirement(SQLModel, table=True):
     target_entity_id: Optional[str] = Field(default=None, foreign_key="entity.id")
     target_key: Optional[str] = None
     threshold: Optional[int] = None
+
+
+# -----------------------------------------------------------------------------
+# skill_rank  (a world's rank ladder — schema v2.15, TICKET-0106, BRIEF-0106-A)
+#
+# At most one row per (world, rank): the name the world gives that rank and
+# the points a skill needs to leave it (`points_to_next`, NULL only for the
+# top rank). Absence of a row is legal: the reader (`skill_ranks.world_ladder`)
+# applies `skill_ranks.DEFAULT_RANK_LABELS` / `DEFAULT_POINTS_TO_NEXT` and
+# never writes on read (`conversation_window_config` precedent). Curated
+# config, no `change_history`; written only by `writes.upsert_skill_rank`.
+# -----------------------------------------------------------------------------
+class SkillRank(SQLModel, table=True):
+    __tablename__ = "skill_rank"
+    __table_args__ = (
+        CheckConstraint("rank BETWEEN 0 AND 5", name="ck_skill_rank_rank"),
+        CheckConstraint(
+            "(rank = 5 AND points_to_next IS NULL) OR (rank < 5 AND points_to_next >= 1)",
+            name="ck_skill_rank_points",
+        ),
+        Index("idx_skill_rank_world_rank", "world_id", "rank", unique=True),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    rank: int
+    label: str
+    points_to_next: Optional[int] = None
+    updated_at: datetime = _created_ts()

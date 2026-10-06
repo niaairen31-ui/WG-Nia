@@ -4,9 +4,11 @@ none of these three functions were baselined.
 
 - `write_character_location(...)`      : write a character's
   `current_location_id` (TICKET-0015, BRIEF-0015-a).
-- `write_skill_tier(...)`               : set a `skill` row's tier,
-  appending the previous tier to `change_history` first (history is sacred
-  on this path too). The sole write shape for `skill` tier changes.
+- `write_skill_rank(...)`               : set a `skill` row's rank,
+  appending the previous rank and points to `change_history` first
+  (history is sacred on this path too) and restarting its points at 0
+  (U2). The sole write shape for a creator's rank edit (TICKET-0106,
+  BRIEF-0106-A; formerly `write_skill_tier`).
 - `write_ledger_entry(...)`             : pure INSERT into the append-only
   `ledger` table (BRIEF-18). No UPDATE, no DELETE, ever — a correction is a
   new compensating line. The single chokepoint for ledger writes, shared by
@@ -23,6 +25,7 @@ from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session
 
 from ..models import Character, Ledger, Skill
+from ..skill_ranks import RANKS
 
 
 def write_character_location(
@@ -50,35 +53,40 @@ def write_character_location(
     return character
 
 
-def write_skill_tier(
+def write_skill_rank(
     db: Session,
     *,
     skill_id: str,
-    tier: int,
+    rank: int,
     changed_by: str = "creator",
 ) -> Skill:
-    """Set a `skill` row's tier. Caller adds the row to the session.
+    """Set a `skill` row's rank. Caller adds the row to the session.
 
-    The sole write shape for `skill` tier changes (`cockpit/crud.py`'s
-    `update_skill_tier` is its only caller). Appends the previous tier to
-    `change_history` first (history is sacred), then sets `tier` and bumps
+    The sole write shape for a creator's rank edit (`cockpit/crud/skills.py`'s
+    `update_skill_rank` is its only caller). Appends the previous rank and
+    points to `change_history` first (history is sacred), then sets `rank`,
+    restarts `xp` at 0 (U2: points count within a rank) and bumps
     `updated_at`. The caller decides whether to call this at all — a
-    resubmission of the same tier should be a no-op, not an empty history
-    entry.
+    resubmission of the same rank should be a no-op, not an empty history
+    entry. `ValueError` outside `skill_ranks.RANKS`, before any write.
     """
+    if rank not in RANKS:
+        raise ValueError(f"write_skill_rank: rank {rank!r} is not one of {RANKS}")
     skill = db.get(Skill, skill_id)
     if skill is None:
-        raise ValueError(f"write_skill_tier: skill {skill_id!r} not found")
+        raise ValueError(f"write_skill_rank: skill {skill_id!r} not found")
 
     history = list(skill.change_history or [])
     history.append({
-        "tier": skill.tier,
+        "rank": skill.rank,
+        "xp": skill.xp,
         "changed_at": datetime.now(UTC).isoformat(),
         "by": changed_by,
     })
     skill.change_history = history
     sa_attrs.flag_modified(skill, "change_history")
-    skill.tier = tier
+    skill.rank = rank
+    skill.xp = 0
     skill.updated_at = datetime.now(UTC)
 
     db.add(skill)

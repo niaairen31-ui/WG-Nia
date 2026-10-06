@@ -3400,8 +3400,8 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
 
     # ----- skill sheet test player character (entity + character + skill) ----
     # BRIEF-10: dedicated test character for the skill sheet, separate from
-    # char-player. Four skill rows at tier 0 — the creator edits tiers via the
-    # cockpit "Fiche" view afterwards.
+    # char-player. Four skill rows at rank 1 (Initié) — the creator edits ranks via
+    # the cockpit "Fiche" view afterwards.
     get_or_create(
         session,
         m.Entity,
@@ -3427,7 +3427,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
             f"skill-{SKILL_SHEET_PC_ID}-{domain}",
             character_id=SKILL_SHEET_PC_ID,
             domain=domain,
-            tier=0,
+            rank=1,
         )
 
     # ----- world-scoped custom skill catalogue (BRIEF-55, schema v1.63) -----
@@ -3450,7 +3450,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         base_domain="perception",
     )
     # B1: the pilot PC seeds every custom skill of its world too, flat at
-    # tier 0, mirroring create_player_character's seed loop.
+    # rank 1, mirroring create_player_character's seed loop.
     for def_id, def_domain in (
         (SKILL_DEF_DIPLOMATIE_ID, "composure"),
         (SKILL_DEF_PISTAGE_ID, "perception"),
@@ -3461,7 +3461,7 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
             f"skill-{SKILL_SHEET_PC_ID}-custom-{def_id}",
             character_id=SKILL_SHEET_PC_ID,
             domain=def_domain,
-            tier=0,
+            rank=1,
             skill_definition_id=def_id,
         )
 

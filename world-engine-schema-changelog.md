@@ -13,6 +13,15 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.15** — TICKET-0106, BRIEF-0106-A: a skill has a rank and points.
+  `skill.tier` (-1..2) becomes `skill.rank` (0..5: Inexpérimenté, Initié,
+  Apprenti, Confirmé, Expert, Maître) plus `skill.xp`; the dice modifier is
+  `skill_ranks.RANK_MODIFIERS[rank]` (-1, 0, +1, +2, +2, +3), so each
+  former tier keeps its roll. `skill_system` and `skill_definition` gain
+  `points_to_rank_1..5` (NULL = inherit); `skill_rank` holds a world's rank
+  names and default points. `migrate_v2_15_skill_ranks.py` rebuilds the
+  three skill tables from the models (tier -1/0/1/2 -> rank 0/1/2/3, xp 0),
+  creates `skill_rank` empty, and refuses a database older than v2.14.
 - **v2.14** — TICKET-0105, BRIEF-0105-A: what a character keeps of a fact.
   `passage` (one row per character and location, with the last time the
   character was there) and `rencontre.last_at` (the last contact of a pair,

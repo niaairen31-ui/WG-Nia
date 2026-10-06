@@ -307,7 +307,7 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   no `change_history` snapshot): dependent PC `skill` rows then the
   definition, one transaction. The type-"Oui" modal is the sole safeguard —
   a named exception to "History is sacred", scoped to one row.
-- **A new `skill_definition` backfills a tier-0 `skill` row onto every
+- **A new `skill_definition` backfills a default-rank `skill` row onto every
   existing PC of its world, in the create's own transaction** — the
   catalogue<->PC alignment is never partial. Renaming touches no `skill`
   row (FK-by-id); re-basing (`base_domain` change) updates `domain` on

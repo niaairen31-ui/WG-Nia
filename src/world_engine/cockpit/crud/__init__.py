@@ -207,18 +207,18 @@ from .factions import (
 )
 from .skills import (
     SKILL_DOMAINS,
-    SKILL_TIERS,
     SkillDefinitionWriteBody,
-    SkillTierBody,
+    SkillRankBody,
     _skill_definition_dict,
     _skill_dict,
     create_skill_definition,
     delete_skill_definition,
     list_skill_definitions,
     list_skill_player_characters,
+    list_skill_ranks,
     list_skills,
     update_skill_definition,
-    update_skill_tier,
+    update_skill_rank,
 )
 from .locations import (
     ACCESS_LEVELS,

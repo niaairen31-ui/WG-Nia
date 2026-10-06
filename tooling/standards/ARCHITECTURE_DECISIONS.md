@@ -17875,6 +17875,33 @@ in the dossier (it lists stored rows); showing it is its own ticket.
 **Rejected.** T2, a rule in the Lore prompt (a new prompt version) for a
 mark the code already writes.
 
+
+## A SKILL HAS A RANK AND POINTS (TICKET-0106) -- SIX RANKS, A MODIFIER TABLE, THRESHOLDS AT THREE LEVELS (BRIEF-0106-a, schema v2.15)
+
+**G1, L1.** `skill.tier` (-1..2) becomes `skill.rank`: six ranks fixed in
+the engine (0 Inexpérimenté, 1 Initié, 2 Apprenti, 3 Confirmé, 4 Expert,
+5 Maître), read as numbers by the code. The dice modifier is not the rank:
+`skill_ranks.RANK_MODIFIERS` maps it (-1, 0, +1, +2, +2, +3), so the four
+former tiers keep their exact roll (tier -1/0/1/2 became rank 0/1/2/3) and
+a Maître can still fail. Both rolls (`play_physical`, `day_resolve`) read
+`rank_modifier`. A new skill row starts at Initié, the former tier 0. NPCs
+keep `character.physical_tier` until they have skill sheets.
+
+**U2, O1, P2.** `skill.xp` counts the points earned within the current
+rank; a creator's rank edit restarts it at 0 and archives the previous rank
+and points. A world names its ranks and sets the default points to leave
+each one in `skill_rank` (absent rows read the engine defaults: 5, 10, 20,
+40, 80); a skill system and a skill definition may each override any of
+the five thresholds (`points_to_rank_<n>`, NULL = inherit). The most
+specific value wins: definition, system, world, engine
+(`skill_ranks.points_to_next`).
+
+**Rejected.** G2, a ladder whose length each world chooses: every reader
+would carry a variable scale; reactivates when a world needs it. G3, rank =
+modifier: a Maître against an untrained NPC could almost never fail. T2,
+widening `tier` to 0..5: a misleading name forever. Override rows in a
+separate table: a cleared override would be a hard delete.
+
 ---
 
 *Co-built with Claude, June 2026.*

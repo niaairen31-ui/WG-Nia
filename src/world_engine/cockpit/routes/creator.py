@@ -650,7 +650,7 @@ def create_player_character(
     Binds to the lone creator user (`role='creator'`) — there is no real
     multiplayer user identity yet. Mirrors `seed_pilot.py`'s `char-player`
     creation: entity + `character` row + the four `skill` rows (physical,
-    agility, perception, composure) at `tier=0`, since the skill sheet and
+    agility, perception, composure) at the model's default rank (Initié), since the skill sheet and
     physical-resolution arbiter both read those rows off a PC. One PC per
     user per world is defended by `idx_character_one_pc_per_user_world`
     (partial unique index) — a collision surfaces as a clean `{"ok": false}`,
@@ -660,10 +660,10 @@ def create_player_character(
     descriptive lore as `facets`, written as facts after the entity flush
     (TICKET-0091, BRIEF-0091-E), and `knowledge` written per
     `_write_pc_knowledge`. The base-domain skill
-    seed stays untouched (B1, no proposed tiers).
+    seed stays untouched (B1, no proposed ranks).
 
     BRIEF-55 (B1, schema v1.63): after the four base-domain rows, also seeds
-    one `skill` row per `skill_definition` of the PC's world, at `tier=0`,
+    one `skill` row per `skill_definition` of the PC's world, at the default rank,
     `domain=<definition.base_domain>`, `skill_definition_id=<definition.id>`
     — never proposed by a model.
     """
@@ -688,15 +688,14 @@ def create_player_character(
         db.flush()
         write_entity_facets(db, entity_id=entity.id, facets=body.facets or {}, created_by="creator_crud")
         for domain in BASE_SKILL_DOMAINS:
-            db.add(Skill(character_id=entity.id, domain=domain, tier=0))
-        # B1 (schema v1.63): flat tier-0 seed for every custom skill of the
+            db.add(Skill(character_id=entity.id, domain=domain))
+        # B1 (schema v1.63): flat default-rank seed for every custom skill of the
         # PC's world — never proposed by a model, set here after the draft
         # is accepted.
         for definition in _pc_custom_skill_defs(world_id, db):
             db.add(Skill(
                 character_id=entity.id,
                 domain=definition.base_domain,
-                tier=0,
                 skill_definition_id=definition.id,
             ))
         _write_pc_knowledge(entity.id, body.knowledge, db)

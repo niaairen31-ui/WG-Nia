@@ -79,7 +79,7 @@ from .canon_faction import (
     FactionRole,
 )
 from .canon_knowledge import Fact, FactDefault, FactParticipant, Knowledge, Relation
-from .config import AgendaStep, AgendaStepRequirement, ConversationWindowConfig
+from .config import AgendaStep, AgendaStepRequirement, ConversationWindowConfig, SkillRank
 from .schedule import SCHEDULE_PHASES, NpcSchedule
 from .ephemeral import (
     ENCOUNTER_SOURCES,
@@ -171,6 +171,7 @@ __all__ = [
     "Item",
     "SkillDefinition",
     "SkillSystem",
+    "SkillRank",
     "Skill",
     "DiscoverableDetail",
     "User",
