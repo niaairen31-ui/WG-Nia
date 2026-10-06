@@ -69,6 +69,25 @@ B4 -- wiring (static). `_apply_mutation` dispatches `skill_progress` to
    names `skill_progress` as auto-applied; `ARCHITECTURE_DECISIONS.md`'s
    "Auto-applied mutations" section names it.
 
+C1 -- the ladder (BRIEF-0106-C, fixture). `upsert_skill_rank` creates one
+   row per (world, rank) and updates it on a second call; it refuses an
+   empty label, points at rank 5, no points or 0 below rank 5, and rank 6,
+   each with `ValueError` before any write. `PUT /api/skill-ranks` refuses a
+   body without each rank exactly once (422) and a body with one invalid step
+   (422, no row written), and with six valid steps serves and stores them.
+C2 -- the thresholds (fixture). `POST /api/skill-systems` and `POST
+   /api/skill-definitions` store `points_to_rank_<n>` and serve them; a PUT
+   without them clears them; a body with 0 is refused by its model. With a
+   system setting rank 2 at 7, a skill of that system setting rank 3 at 3,
+   and the world's ladder renamed, `GET /api/skills` serves the skill's
+   `points_to_next` from the most specific level.
+C3 -- the Compétences UI (static). `CompetencesList.svelte` lists « Rangs
+   du monde » through `ranksRecord()`; `CompetencesSheet.svelte` renders a
+   `ranks` record and the `RANK_POINT_KEYS` inputs with `inheritedPoints`
+   placeholders on both fiches; `competences.svelte.js` PUTs
+   `/api/skill-ranks` and sends `pointsBody(record)` with a skill and with a
+   system; the built bundle carries « Rangs du monde ».
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that examines zero rows is a
 FAILURE.
@@ -599,6 +618,133 @@ def check_b4() -> None:
         fail("B4: the Auto-applied mutations section does not name skill_progress")
 
 
+# --- C1-C3 ---------------------------------------------------------------------
+
+def _c_world(session) -> dict:
+    from sqlmodel import select
+
+    from world_engine.models import Character, Entity, Skill, World
+
+    for world in session.exec(select(World)).all():
+        world.is_active = False
+        session.add(world)
+    world = World(name="Ranks C", is_active=True)
+    session.add(world)
+    session.flush()
+    pc = Entity(world_id=world.id, type="character", name="PC C")
+    session.add(pc)
+    session.flush()
+    session.add(Character(id=pc.id, world_id=world.id, character_type="player"))
+    session.add(Skill(character_id=pc.id, domain="agility", rank=2))
+    session.commit()
+    return {"world": world.id, "pc": pc.id}
+
+
+def check_c1(engine) -> None:
+    from fastapi import HTTPException
+    from sqlmodel import Session, select
+
+    from world_engine.cockpit.crud.skills import SkillRanksBody, update_skill_ranks
+    from world_engine.models import SkillRank
+    from world_engine.writes import upsert_skill_rank
+
+    with Session(engine) as session:
+        ids = _c_world(session)
+        upsert_skill_rank(session, world_id=ids["world"], rank=1, label="Novice", points_to_next=4)
+        session.commit()
+        upsert_skill_rank(session, world_id=ids["world"], rank=1, label="Élève", points_to_next=6)
+        session.commit()
+        rows = session.exec(select(SkillRank).where(SkillRank.world_id == ids["world"])).all()
+        if [(r.rank, r.label, r.points_to_next) for r in rows] != [(1, "Élève", 6)]:
+            fail(f"C1: two upserts left {[(r.rank, r.label, r.points_to_next) for r in rows]}")
+        for rank, label, points in ((2, "  ", 5), (5, "Maître", 3), (3, "x", None), (3, "x", 0), (6, "x", 1)):
+            try:
+                upsert_skill_rank(session, world_id=ids["world"], rank=rank, label=label, points_to_next=points)
+                fail(f"C1: upsert_skill_rank accepted rank {rank}, {label!r}, {points}")
+            except ValueError:
+                pass
+        session.rollback()
+        steps = [{"rank": r, "label": f"R{r}", "points_to_next": None if r == 5 else r + 1} for r in range(6)]
+        for bad in (steps[:5], steps[:5] + [{"rank": 5, "label": "R5", "points_to_next": 9}]):
+            try:
+                update_skill_ranks(SkillRanksBody(ranks=bad), session)
+                fail(f"C1: PUT accepted {bad[-1]}")
+            except HTTPException as exc:
+                if exc.status_code != 422:
+                    fail(f"C1: PUT answered {exc.status_code}")
+        if session.get(SkillRank, rows[0].id).label != "Élève" or len(
+                session.exec(select(SkillRank).where(SkillRank.world_id == ids["world"])).all()) != 1:
+            fail("C1: a refused PUT wrote rows")
+        served = update_skill_ranks(SkillRanksBody(ranks=steps), session)
+        if [(s["label"], s["points_to_next"]) for s in served] != [(f"R{r}", None if r == 5 else r + 1) for r in range(6)]:
+            fail(f"C1: PUT served {served}")
+
+
+def check_c2(engine) -> None:
+    from pydantic import ValidationError
+    from sqlmodel import Session
+
+    from world_engine.cockpit.crud.skills import (
+        SkillDefinitionWriteBody, SkillRanksBody, SkillSystemWriteBody, create_skill_definition,
+        create_skill_system, list_skills, update_skill_ranks, update_skill_system,
+    )
+    from world_engine.models import Skill, SkillSystem
+
+    with Session(engine) as session:
+        ids = _c_world(session)
+        system = create_skill_system(SkillSystemWriteBody(name="Épée", points_to_rank_2=7), session)
+        if system.get("points_to_rank_2") != 7 or system.get("points_to_rank_1") is not None:
+            fail(f"C2: the system was served {system}")
+        cleared = update_skill_system(system["id"], SkillSystemWriteBody(name="Épée"), session)
+        if cleared.get("points_to_rank_2") is not None or session.get(SkillSystem, system["id"]).points_to_rank_2:
+            fail(f"C2: a PUT without thresholds left {cleared}")
+        update_skill_system(system["id"], SkillSystemWriteBody(name="Épée", points_to_rank_2=7), session)
+        for body in (SkillSystemWriteBody, SkillDefinitionWriteBody):
+            try:
+                body(name="x", base_domain="agility", points_to_rank_1=0)
+                fail(f"C2: {body.__name__} accepted 0 points")
+            except ValidationError:
+                pass
+        definition = create_skill_definition(SkillDefinitionWriteBody(
+            name="Rapière", base_domain="agility", system_id=system["id"], points_to_rank_3=3), session)
+        if definition.get("points_to_rank_3") != 3:
+            fail(f"C2: the definition was served {definition}")
+        steps = [{"rank": r, "label": f"N{r}", "points_to_next": 50 + r if r < 5 else None} for r in range(6)]
+        update_skill_ranks(SkillRanksBody(ranks=steps), session)
+        custom = session.exec(__import__("sqlmodel").select(Skill).where(
+            Skill.skill_definition_id == definition["id"])).first()
+        sheet = {row["id"]: row for row in list_skills(character_id=ids["pc"], db=session)}
+        cases = ((1, 7), (2, 3), (3, 53))
+        for rank, want in cases:
+            custom.rank = rank
+            session.add(custom)
+            session.commit()
+            sheet = {row["id"]: row for row in list_skills(character_id=ids["pc"], db=session)}
+            got = sheet[custom.id]
+            if (got["points_to_next"], got["rank_label"]) != (want, f"N{rank}"):
+                fail(f"C2: rank {rank} was served {got['points_to_next']} / {got['rank_label']}, want {want}")
+        if not any(row["definition_name"] is None and row["points_to_next"] == 52 for row in sheet.values()):
+            fail(f"C2: the base agility row (rank 2) does not read the world's 52: {list(sheet.values())}")
+
+
+def check_c3() -> None:
+    root = ROOT / "frontend" / "src" / "creation"
+    listing = (root / "CompetencesList.svelte").read_text(encoding="utf-8")
+    sheet = (root / "CompetencesSheet.svelte").read_text(encoding="utf-8")
+    state = (root / "competences.svelte.js").read_text(encoding="utf-8")
+    if "Rangs du monde" not in listing or "ranksRecord()" not in listing:
+        fail("C3: CompetencesList.svelte does not list the world's ranks")
+    if "rec.kind === 'ranks'" not in sheet or "RANK_POINT_KEYS" not in sheet or "inheritedPoints(" not in sheet \
+            or sheet.count("{@render thresholds()}") != 2:
+        fail("C3: CompetencesSheet.svelte does not render the ranks record and both threshold blocks")
+    if "'/api/skill-ranks', {" not in state or state.count("...pointsBody(record)") != 2:
+        fail("C3: competences.svelte.js does not PUT the ladder and send the thresholds of both records")
+    bundle = "".join(p.read_text(encoding="utf-8") for p in
+                     (ROOT / "src" / "world_engine" / "cockpit" / "static" / "assets").glob("*.js"))
+    if "Rangs du monde" not in bundle:
+        fail("C3: the built bundle does not carry « Rangs du monde »")
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_a1()
@@ -612,6 +758,9 @@ def main() -> int:
     check_b2(engine)
     check_b3(engine)
     check_b4()
+    check_c1(engine)
+    check_c2(engine)
+    check_c3()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -619,7 +768,8 @@ def main() -> int:
     print("PASS: skill_progression -- v2.15 gives a skill a rank (0-5) and points in place of "
           "its tier, keeps every former tier's roll, lets a world, a system and a skill set "
           "the points of each rank, and migrates from v2.14 only; every roll earns a point, "
-          "auto-applied in Play and given at a day step's approval, and a threshold moves the rank")
+          "auto-applied in Play and given at a day step's approval, and a threshold moves the rank; "
+          "the creator names the ranks and sets their points per world, system and skill")
     return 0
 
 

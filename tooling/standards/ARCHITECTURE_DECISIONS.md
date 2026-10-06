@@ -17944,6 +17944,22 @@ single points. Q3, a direct write outside `_apply_mutation`: a third canon
 write path. Y1a, a line-neutral edit of `_appendVerdict`: it would break
 the seal for one function.
 
+
+## THE CREATOR SETS THE RANKS (TICKET-0106) -- A LADDER PER WORLD, THRESHOLDS PER SYSTEM AND SKILL (BRIEF-0106-c, no schema change)
+
+**W1, P2, O1.** Création › Compétences carries a « Rangs du monde » record:
+the six rank names of the world and the points to leave each rank below
+Maître, saved all at once (`PUT /api/skill-ranks`, six
+`writes.upsert_skill_rank` calls, one transaction, 422 before any write on
+an invalid step). A system's and a skill's fiche carry the five thresholds
+(`points_to_rank_<n>`): blank inherits, and shows the inherited value as a
+placeholder -- for a skill, its system's value, then the world's. A PUT of
+a system or a skill replaces its thresholds like every other field of its
+body.
+
+**Rejected.** Labels per system (P1): one ladder per world is simpler to
+edit; reactivates if two systems of one world need different rank names.
+
 ---
 
 *Co-built with Claude, June 2026.*

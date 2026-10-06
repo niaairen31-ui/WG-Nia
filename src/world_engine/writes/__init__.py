@@ -56,6 +56,7 @@ from .characters import (
 from .config import (
     upsert_conversation_window_config,
     upsert_location_type,
+    upsert_skill_rank,
     write_location_doors,
     write_location_obstacles,
     write_npc_prices,

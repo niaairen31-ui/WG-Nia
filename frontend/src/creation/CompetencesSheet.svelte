@@ -16,14 +16,18 @@
      "Oui" step (it cascades onto player-character skill rows), the system
      delete shows the server's 409 refusal inline.
 
+     TICKET-0106 (BRIEF-0106-C): a skill and a system fiche carry the five
+     rank thresholds (blank = inherited, the inherited value as placeholder);
+     the 'ranks' record edits the world's six rank names and default points.
+
      No scoped <style> block: like every other Creation island, classes
      come from frontend/public/creation.css / shared.css. */
   import { creationState } from './state.svelte.js';
   import { creationRefreshList } from './tabs.js';
   import Modal from './Modal.svelte';
   import {
-    competencesState, COMPETENCES_DOMAINS, NO_SYSTEM_LABEL, generateDraft,
-    discardDraft, deleteSkill, deleteSystem, closeCompetenceSheet,
+    competencesState, COMPETENCES_DOMAINS, NO_SYSTEM_LABEL, RANK_POINT_KEYS, generateDraft,
+    discardDraft, deleteSkill, deleteSystem, closeCompetenceSheet, inheritedPoints,
   } from './competences.svelte.js';
 
   const rec = $derived(creationState.sheetDetail);
@@ -82,7 +86,47 @@
   }
 </script>
 
-{#if rec && rec.kind === 'assistant'}
+{#snippet thresholds()}
+  <div class="field-section">
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px">
+      Points pour atteindre chaque rang — vide : hérité (valeur grisée).
+    </div>
+    <div class="field-grid">
+      {#each RANK_POINT_KEYS as key, i (key)}
+        <div class="field-row">
+          <label for="competence-f-{key}">Vers {competencesState.ranks[i + 1]?.label ?? `rang ${i + 1}`}</label>
+          <input id="competence-f-{key}" type="number" min="1" step="1"
+            placeholder={String(inheritedPoints(rec, i + 1) ?? '')} value={rec[key] ?? ''}
+            oninput={(e) => { creationState.sheetDetail[key] = e.currentTarget.value === '' ? null : e.currentTarget.value; }}>
+        </div>
+      {/each}
+    </div>
+  </div>
+{/snippet}
+
+{#if rec && rec.kind === 'ranks'}
+  <div class="field-section">
+    <div style="font-size:12px; color:var(--muted); margin-bottom:6px">
+      Le nom de chaque rang dans ce monde et les points qu'il faut pour le quitter.
+      Un système ou une compétence peut remplacer ces points sur sa propre fiche.
+    </div>
+    <div class="field-grid">
+      {#each rec.steps as step, i (step.rank)}
+        <div class="field-row">
+          <label for="rank-f-label-{step.rank}">Rang {step.rank}</label>
+          <input id="rank-f-label-{step.rank}" type="text" bind:value={creationState.sheetDetail.steps[i].label}>
+        </div>
+        <div class="field-row">
+          <label for="rank-f-points-{step.rank}">{step.rank < 5 ? 'Points pour passer au rang suivant' : 'Rang le plus haut'}</label>
+          {#if step.rank < 5}
+            <input id="rank-f-points-{step.rank}" type="number" min="1" step="1"
+              bind:value={creationState.sheetDetail.steps[i].points_to_next}>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  </div>
+{:else if rec && rec.kind === 'assistant'}
   <div class="field-section">
     <div class="field-row">
       <label for="competences-gen-brief">Intention</label>
@@ -136,6 +180,7 @@
       </div>
     </div>
   </div>
+  {@render thresholds()}
 {:else if rec && rec.kind === 'system'}
   {#if rec.persisted}
     <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">
@@ -157,6 +202,7 @@
       <div style="margin-top:8px; font-size:12px; color:var(--muted)">{rec.skill_count} compétence(s) dans ce système.</div>
     {/if}
   </div>
+  {@render thresholds()}
 {/if}
 
 <Modal title={rec && rec.kind === 'system' ? 'Supprimer le système' : 'Supprimer la compétence'}
