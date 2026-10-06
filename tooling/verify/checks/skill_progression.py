@@ -42,6 +42,33 @@ A4 -- no tier left (AST and static). No `.tier` attribute and no `tier=`
    `PjSkillFiche.svelte` and `cockpit/crud/skills.py` do not contain the
    word `tier`; `play_physical.py` calls `rank_modifier(`.
 
+B1 -- the points writer (BRIEF-0106-B, fixture, the default ladder). On a
+   rank-1 row at 8 points: +1 -> rank 1, 9; +1 -> rank 2, 0, one history
+   entry {rank 1, xp 9}; -1 -> rank 1, 9 (the rank-up undone), one more
+   entry; a rank-0 row at 0 points, -1 -> 0, 0, no entry; a rank-5 row, +1
+   -> rank 5, one more point; a custom row whose system sets
+   `points_to_rank_2 = 2`, at rank 1 and 1 point, +1 -> rank 2, 0; points 0
+   -> `ValueError`, nothing written.
+B2 -- a Play roll (fixture). `record_roll` on a rank-1 row writes exactly
+   one `skill_progress` mutation, `status='applied'`,
+   `proposed_by='engine_roll'`, payload {skill_id, points 1, band}, with an
+   `applied_at`, and the row gains one point; it returns the new state
+   (`rank_label`, `xp`, `points_to_next`, `ranked_up` False). The roll that
+   reaches the threshold returns `ranked_up` True. On a rank-5 row, on no
+   row (`skill_id` None) and on an unknown id it returns None and writes no
+   mutation. `_apply_mutation` refuses a payload with 0 points.
+B3 -- a day step (fixture). A PC's agenda with an active `physical` step:
+   approving its `agenda_step_change` (`complete`) through `_apply_mutation`
+   gives the PC's base `physical` row one point; a `fail` on the next step
+   gives one more; a step without a domain gives none; a faction-owned
+   agenda's step gives none and fails nothing.
+B4 -- wiring (static). `_apply_mutation` dispatches `skill_progress` to
+   `skill_progress.apply_skill_progress`; `play_physical.py` calls
+   `record_roll(` and puts `progress` on the verdict event;
+   `_mutation_apply_agenda_step_change` calls `grant_step_roll(`; CLAUDE.md
+   names `skill_progress` as auto-applied; `ARCHITECTURE_DECISIONS.md`'s
+   "Auto-applied mutations" section names it.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that examines zero rows is a
 FAILURE.
@@ -55,6 +82,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from typing import Optional
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src" / "world_engine"
@@ -392,6 +420,185 @@ def check_a4() -> None:
         fail("A4: play_physical.py does not call rank_modifier(")
 
 
+# --- B1-B4 ---------------------------------------------------------------------
+
+def _b_world(session) -> dict:
+    from world_engine.models import (
+        Character, Conversation, Entity, Session as GameSession, Skill, SkillDefinition, SkillSystem, World,
+    )
+
+    world = World(name="Ranks B", is_active=False)
+    session.add(world)
+    session.flush()
+    pc = Entity(world_id=world.id, type="character", name="Millys")
+    faction = Entity(world_id=world.id, type="faction", name="Secte")
+    session.add(pc)
+    session.add(faction)
+    session.flush()
+    session.add(Character(id=pc.id, world_id=world.id, character_type="player"))
+    system = SkillSystem(world_id=world.id, name="Lame", points_to_rank_2=2)
+    session.add(system)
+    session.flush()
+    definition = SkillDefinition(world_id=world.id, name="Escrime", base_domain="physical", system_id=system.id)
+    session.add(definition)
+    game = GameSession(world_id=world.id, number=1)
+    session.add(game)
+    session.flush()
+    conv = Conversation(world_id=world.id, session_id=game.id, player_id=pc.id)
+    session.add(conv)
+    rows = {}
+    for key, domain, rank, xp, def_id in (("physical", "physical", 1, 8, None), ("agility", "agility", 0, 0, None),
+                                          ("perception", "perception", 5, 3, None),
+                                          ("custom", "physical", 1, 1, definition.id)):
+        row = Skill(character_id=pc.id, domain=domain, rank=rank, xp=xp, skill_definition_id=def_id)
+        session.add(row)
+        rows[key] = row
+    session.commit()
+    return {"world": world.id, "pc": pc.id, "faction": faction.id, "conv": conv.id,
+            **{k: r.id for k, r in rows.items()}}
+
+
+def check_b1(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.models import Skill
+    from world_engine.writes import write_skill_progress
+
+    with Session(engine) as session:
+        ids = _b_world(session)
+
+        def step(key: str, points: int) -> tuple:
+            write_skill_progress(session, skill_id=ids[key], world_id=ids["world"], points=points, changed_by="check")
+            session.commit()
+            row = session.get(Skill, ids[key])
+            return row.rank, row.xp, len(row.change_history)
+
+        table = (("physical", 1, (1, 9, 0)), ("physical", 1, (2, 0, 1)), ("physical", -1, (1, 9, 2)),
+                 ("agility", -1, (0, 0, 0)), ("perception", 1, (5, 4, 0)), ("custom", 1, (2, 0, 1)))
+        for key, points, want in table:
+            got = step(key, points)
+            if got != want:
+                fail(f"B1: {key} {points:+d} gave (rank, xp, history) {got}, want {want}")
+        history = session.get(Skill, ids["physical"]).change_history
+        entry = history[0] if history else {}
+        if (entry.get("rank"), entry.get("xp")) != (1, 9):
+            fail(f"B1: the rank-up history entry is {entry}")
+        try:
+            write_skill_progress(session, skill_id=ids["agility"], world_id=ids["world"], points=0, changed_by="check")
+            fail("B1: zero points accepted")
+        except ValueError:
+            pass
+
+
+def check_b2(engine) -> None:
+    from sqlmodel import Session, select
+
+    from world_engine.cockpit.routes.mutations import _apply_mutation
+    from world_engine.cockpit.skill_progress import record_roll
+    from world_engine.models import ProposedMutation, Skill
+
+    with Session(engine) as session:
+        ids = _b_world(session)
+
+    def mutations() -> list:
+        with Session(engine) as session:
+            return session.exec(select(ProposedMutation).where(
+                ProposedMutation.mutation_type == "skill_progress",
+                ProposedMutation.world_id == ids["world"])).all()
+
+    got = record_roll(world_id=ids["world"], conversation_id=ids["conv"], skill_id=ids["physical"], band="failure")
+    rows = mutations()
+    if len(rows) != 1:
+        fail(f"B2: one roll wrote {len(rows)} skill_progress mutation(s)")
+    else:
+        mut = rows[0]
+        if (mut.status, mut.proposed_by, mut.payload, mut.applied_at is None) != (
+                "applied", "engine_roll", {"skill_id": ids["physical"], "points": 1, "band": "failure"}, False):
+            fail(f"B2: the mutation is {mut.status}/{mut.proposed_by}/{mut.payload}/{mut.applied_at}")
+    if not got or (got.get("rank_label"), got.get("xp"), got.get("points_to_next"), got.get("ranked_up")) != (
+            "Initié", 9, 10, False):
+        fail(f"B2: record_roll returned {got}")
+    got = record_roll(world_id=ids["world"], conversation_id=ids["conv"], skill_id=ids["physical"], band="success")
+    if not got or (got.get("rank_label"), got.get("ranked_up")) != ("Apprenti", True):
+        fail(f"B2: the threshold roll returned {got}")
+    for skill_id in (ids["perception"], None, "no-such-skill"):
+        if record_roll(world_id=ids["world"], conversation_id=ids["conv"], skill_id=skill_id, band="partial") is not None:
+            fail(f"B2: record_roll on {skill_id!r} returned a state")
+    if len(mutations()) != 2:
+        fail(f"B2: {len(mutations())} mutations after two earning rolls")
+    with Session(engine) as session:
+        if session.get(Skill, ids["perception"]).xp != 3:
+            fail("B2: a Maître row gained a point")
+        bad = ProposedMutation(world_id=ids["world"], source_type="conversation", conversation_id=ids["conv"],
+                               mutation_type="skill_progress", payload={"skill_id": ids["physical"], "points": 0})
+        if not _apply_mutation(bad, session):
+            fail("B2: _apply_mutation accepted 0 points")
+
+
+def check_b3(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.cockpit.routes.mutations import _apply_mutation
+    from world_engine.models import Agenda, AgendaStep, ProposedMutation, Skill
+
+    with Session(engine) as session:
+        ids = _b_world(session)
+        plan = Agenda(world_id=ids["world"], owner_entity_id=ids["pc"], title="Journée")
+        intrigue = Agenda(world_id=ids["world"], owner_entity_id=ids["faction"], title="Intrigue")
+        session.add(plan)
+        session.add(intrigue)
+        session.flush()
+        steps = [AgendaStep(agenda_id=plan.id, step_order=n, objective=f"o{n}", status=status, domain=domain)
+                 for n, status, domain in ((1, "active", "physical"), (2, "pending", "physical"),
+                                           (3, "pending", None))]
+        steps.append(AgendaStep(agenda_id=intrigue.id, step_order=1, objective="f", status="active", domain="physical"))
+        for st in steps:
+            session.add(st)
+        session.commit()
+
+        def approve(step, action: str) -> Optional:
+            mut = ProposedMutation(world_id=ids["world"], source_type="pass_play", mutation_type="agenda_step_change",
+                                   payload={"step_id": step.id, "action": action, "outcome": "o"})
+            error = _apply_mutation(mut, session)
+            session.commit()
+            return error
+
+        def xp() -> tuple:
+            row = session.get(Skill, ids["physical"])
+            session.refresh(row)
+            return row.rank, row.xp
+
+        for step, action, want in ((steps[0], "complete", (1, 9)), (steps[1], "fail", (2, 0))):
+            error = approve(step, action)
+            if error or xp() != want:
+                fail(f"B3: approving {action} gave {xp()}, error {error!r}, want {want}")
+        session.get(AgendaStep, steps[2].id).status = "active"
+        session.commit()
+        before = xp()
+        if approve(steps[2], "complete") or xp() != before:
+            fail(f"B3: a step without a domain moved the skill to {xp()}")
+        if approve(steps[3], "complete") or xp() != before:
+            fail(f"B3: a faction step moved the skill to {xp()}")
+
+
+def check_b4() -> None:
+    routes = (SRC / "cockpit" / "routes" / "mutations.py").read_text(encoding="utf-8")
+    if '"skill_progress": _skill_progress.apply_skill_progress' not in routes:
+        fail("B4: _apply_mutation does not dispatch skill_progress")
+    play = (SRC / "cockpit" / "play_physical.py").read_text(encoding="utf-8")
+    if "record_roll(" not in play or "'progress': progress" not in play:
+        fail("B4: play_physical.py does not record the roll on the verdict event")
+    if "grant_step_roll(" not in (SRC / "cockpit" / "mutations.py").read_text(encoding="utf-8"):
+        fail("B4: the agenda_step_change applier does not call grant_step_roll(")
+    if "skill_progress" not in (ROOT / "CLAUDE.md").read_text(encoding="utf-8"):
+        fail("B4: CLAUDE.md does not name skill_progress")
+    decisions = (ROOT / "tooling" / "standards" / "ARCHITECTURE_DECISIONS.md").read_text(encoding="utf-8")
+    start = decisions.find("### Auto-applied mutations")
+    end = decisions.find("\n### ", start + 1)
+    if start < 0 or "skill_progress" not in decisions[start:end]:
+        fail("B4: the Auto-applied mutations section does not name skill_progress")
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_a1()
@@ -401,13 +608,18 @@ def main() -> int:
     create_db_and_tables()
     check_a3(engine)
     check_a4()
+    check_b1(engine)
+    check_b2(engine)
+    check_b3(engine)
+    check_b4()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         return 1
     print("PASS: skill_progression -- v2.15 gives a skill a rank (0-5) and points in place of "
           "its tier, keeps every former tier's roll, lets a world, a system and a skill set "
-          "the points of each rank, and migrates from v2.14 only")
+          "the points of each rank, and migrates from v2.14 only; every roll earns a point, "
+          "auto-applied in Play and given at a day step's approval, and a threshold moves the rank")
     return 0
 
 

@@ -392,6 +392,8 @@ def _find_applied_duplicate(
       the monotone re-check inside _apply_mutation ("level already >=
       proposed") is the correct guard, not an identity-based duplicate
       check.
+    - skill_progress (TICKET-0106): one point per roll, accumulating like
+      relation_change -- two rolls in one conversation earn two points.
     - resource_change (BRIEF-19): its money leg accumulates exactly like
       relation_change — two genuine purchases in one conversation must
       both apply. Its knowledge leg IS idempotent, but that guard lives
@@ -439,6 +441,7 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
     endpoint short-circuits before this function ever sees that type.
     """
     from .. import mutations as _mutations
+    from .. import skill_progress as _skill_progress
 
     # ── Duplicate guard ───────────────────────────────────────────────────────
     # Must run before any write.  If an equivalent mutation was already applied
@@ -463,6 +466,7 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
         "agenda_step_change": _mutations._mutation_apply_agenda_step_change,
         "agenda_creation": _mutations._mutation_apply_agenda_creation,
         "agenda_delegation": _mutations._mutation_apply_agenda_delegation,
+        "skill_progress": _skill_progress.apply_skill_progress,
     }
     applier = appliers.get(mut.mutation_type)
     if applier is None:

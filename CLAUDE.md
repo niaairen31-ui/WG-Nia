@@ -196,6 +196,9 @@ Law only. Rationale, chantier history, and deferred alternatives live in
 - **`proposed_by='engine'` deterministic proposals**
   (`_propose_engine_injury`, `_propose_engine_discovery`) follow the same
   review queue as AI proposals — never auto-applied.
+- **`skill_progress` is the one live auto-applied mutation:** a roll's point
+  (`proposed_by='engine_roll'`) applied through `_apply_mutation` at proposal time;
+  `write_skill_progress` moves the rank -- enforced by `skill_progression.py`.
 - **Constraint gating is structural, not instructional:** gagged/restrained/
   blindfolded effects are enforced in Python before any model call
   (`_stream` in `app.py`). Blindfolded exclusion is a data exclusion in
