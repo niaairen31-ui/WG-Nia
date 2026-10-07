@@ -188,6 +188,15 @@ _FIXTURE: tuple[tuple[str, dict], ...] = (
                "skill_definition_id": "sd-{w}"}),
     ("skill_resolution", {"id": "sr-{w}", "world_id": "{w}", "conversation_id": "co-{w}",
                           "surface_form": "s", "verdict": "unmatched"}),
+    ("quest_offer", {"id": "qo-{w}", "world_id": "{w}", "giver_entity_id": "{w}-char",
+                     "title": "q"}),
+    ("quest_offer_step", {"id": "qos-{w}", "world_id": "{w}", "offer_id": "qo-{w}",
+                          "step_order": 1, "objective": "o", "cost": 1}),
+    ("quest_offer_requirement", {"id": "qor-{w}", "world_id": "{w}", "offer_id": "qo-{w}",
+                                 "step_id": "qos-{w}", "type": "has_met",
+                                 "target_entity_id": "{w}-char"}),
+    ("quest", {"id": "qu-{w}", "world_id": "{w}", "offer_id": "qo-{w}",
+               "character_id": "{w}-char", "agenda_id": "ag-{w}"}),
 )
 
 

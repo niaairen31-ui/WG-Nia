@@ -107,14 +107,19 @@ class AgendaStep(SQLModel, table=True):
 # agenda_step_requirement  (day-plan precondition gate, schema v1.94,
 # TICKET-0075, BRIEF-0075-b). `goal_prerequisite` shape precedent (same
 # id/world_id/type/target_entity_id/threshold spine), widened to a closed
-# four-form vocabulary and a `target_key` column for the two forms that gate
-# on a string (knowledge fact id since TICKET-0097, resource tag) rather than an entity.
+# vocabulary and a `target_key` column for the forms that gate on a string
+# (knowledge fact id since TICKET-0097, resource tag, skill key, quest offer
+# id) rather than an entity. Eight forms since v2.17 (TICKET-0108,
+# BRIEF-0108-A): the four the day-plan model may emit, plus `has_met`,
+# `faction_member`, `skill_rank_gte` and `quest_completed`, authored by the
+# creator only (`day_plan.MODEL_REQUIREMENT_TYPES`).
 #
 # The per-type shape CHECK is the structural guarantee that an ill-formed row
-# cannot exist: `relation_gte`/`location_reachable` require target_entity_id
-# NOT NULL; `knowledge`/`resource` require target_key NOT NULL;
-# `relation_gte`/`resource` require threshold NOT NULL. Curated plan
-# metadata, same family as `npc_schedule` — no `change_history`.
+# cannot exist; its three groups are `day_plan.ENTITY_TARGET_TYPES`,
+# `KEY_TARGET_TYPES` and `THRESHOLD_TYPES`. `quest_offer_requirement`
+# (models/quests.py) carries the same two CHECK texts, byte for byte
+# (`quests.py` check, QA1). Curated plan metadata, same family as
+# `npc_schedule` — no `change_history`.
 #
 # THE POSITIONAL WALL: `location_reachable`'s target lives HERE, on the
 # requirement row, never on `agenda_step` — a requirement states "the player
@@ -125,13 +130,16 @@ class AgendaStepRequirement(SQLModel, table=True):
     __tablename__ = "agenda_step_requirement"
     __table_args__ = (
         CheckConstraint(
-            "type IN ('knowledge','relation_gte','resource','location_reachable')",
+            "type IN ('knowledge','relation_gte','resource','location_reachable',"
+            "'has_met','faction_member','skill_rank_gte','quest_completed')",
             name="ck_agenda_step_requirement_type",
         ),
         CheckConstraint(
-            "(type NOT IN ('relation_gte','location_reachable') OR target_entity_id IS NOT NULL) "
-            "AND (type NOT IN ('knowledge','resource') OR target_key IS NOT NULL) "
-            "AND (type NOT IN ('relation_gte','resource') OR threshold IS NOT NULL)",
+            "(type NOT IN ('relation_gte','location_reachable','has_met','faction_member') "
+            "OR target_entity_id IS NOT NULL) "
+            "AND (type NOT IN ('knowledge','resource','skill_rank_gte','quest_completed') "
+            "OR target_key IS NOT NULL) "
+            "AND (type NOT IN ('relation_gte','resource','skill_rank_gte') OR threshold IS NOT NULL)",
             name="ck_agenda_step_requirement_shape",
         ),
         Index(

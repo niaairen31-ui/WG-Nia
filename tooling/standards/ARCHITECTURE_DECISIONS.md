@@ -18039,6 +18039,44 @@ creator's bypass. Each row names its master. A skill's fiche carries
 **Rejected.** A second component for NPC sheets: the same rows, the same
 routes, two places to keep in step.
 
+
+## A QUEST IS OFFERED, THEN ACCEPTED AS AN OPEN PLAN (TICKET-0108) -- EIGHT REQUIREMENT FORMS, FOUR FOR THE MODEL (BRIEF-0108-a, schema v2.17)
+
+**B1, A1.** A quest offer (`quest_offer`, its steps, its requirements) is
+authored by the creator; accepting it creates an agenda of the player born
+`paused` -- one open plan among the others, so several quests run at once
+without lifting the one-active-agenda rule: a day selects the plan it
+advances (TICKET-0077), or the player pins it. `quest` links the agenda to
+its offer and holds no state of its own (M1).
+
+**B, one language.** `agenda_step_requirement` gains four forms --
+`has_met`, `faction_member`, `skill_rank_gte`, `quest_completed` -- and
+`quest_offer_requirement` carries its two CHECK texts byte for byte; a
+requirement with no step is eligibility. `day_plan.evaluate_specs` judges
+both. The day-plan model may still emit only the four forms it always
+could (`MODEL_REQUIREMENT_TYPES`); a creator form in its plan is a parse
+failure. `resource` stays money, its key a label: an object is never a
+resource.
+
+**B-dir.** `relation_gte` reads what the target feels toward the
+character (the social row target -> character), the same row the NPC-goal
+prerequisite judge reads (`_find_perceived_relation`); before this, a day
+plan read the first row of the pair in either direction, structural rows
+included.
+
+**A secret membership counts** for `faction_member`: it is the character's
+own (the `tick_context` self-briefing precedent).
+
+**Offers are curated content.** Saving an offer replaces its steps and
+requirements whole (the `npc_price` precedent, a named exception to
+"history is sacred"); an accepted quest keeps its own copy in its agenda,
+and the offer row keeps a `change_history`.
+
+**Rejected.** A3, several active agendas per character: `pass_play.
+agenda_id`, the resolve guard and `active_plan` all assume one. A separate
+targeting vocabulary for eligibility (B2): a second language. Renaming
+`resource`: a data migration and a prompt change for a label.
+
 ---
 
 *Co-built with Claude, June 2026.*
