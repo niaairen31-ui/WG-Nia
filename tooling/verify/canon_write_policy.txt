@@ -7,6 +7,7 @@ location_type_catalog entity_type entity_type_history conversation_window_config
 npc_schedule agenda_step_requirement fact fact_participant fact_default
 skill_rank quest_offer quest_offer_step quest_offer_requirement quest
 item_holding quest_offer_term quest_term quest_economy
+debt debt_term
 
 [ALLOWED_SITES]
 # path::function                                              tables

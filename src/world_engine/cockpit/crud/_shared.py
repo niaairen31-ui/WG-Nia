@@ -140,8 +140,9 @@ def _coerce_field(db: DbSession, field: dict, raw: Any) -> Any:
 # The fiche relation form's datalist. `connects_to` is its ONE geographic
 # entry (TICKET-0101, V1): `borde` is never offered, the server derives the
 # geographic type from the two locations (`spatial_author.link_locations`).
+# `debt` is retired (TICKET-0110, I2): « X owes Y » is a `debt` row.
 RELATION_TYPES = (
-    "ally", "enemy", "debt", "fear", "fascination", "shared_secret",
+    "ally", "enemy", "fear", "fascination", "shared_secret",
     "instrumentalizes", "interest", "indifference", "rejection",
     "passive_attention", "other", "connects_to", "controls",
 )

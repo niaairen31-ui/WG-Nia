@@ -31,9 +31,12 @@
   let value = $derived(questOffersState.value);
 
   // TICKET-0109 (E1): the world's rates; '' = the code's default.
+  // TICKET-0110: the two debt settings, in relation points.
   const RATE_LABELS = {
     rate_money: 'Pièce', rate_relation: 'Point de relation', rate_fact: 'Fait', rate_skill: 'Compétence',
     band_low_pct: 'Bande basse (%)', band_high_pct: 'Bande haute (%)',
+    debt_fact_relation: 'Dette : fait déjà su (relation −)',
+    debt_skill_relation: 'Dette : compétence déjà connue (relation −)',
   };
   let showEconomy = $state(false);
   let economyDraft = $state({});

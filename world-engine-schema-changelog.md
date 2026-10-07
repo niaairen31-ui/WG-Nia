@@ -13,6 +13,16 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.19** — TICKET-0110, BRIEF-0110-A: debts. `debt` (debtor, creditor,
+  a faction creditor's contact, origin, reason, secrecy, its fact, status
+  open/settled/forgiven -- never deleted) and `debt_term` (money, items, a
+  fact to deliver, a skill to teach) are added. `agenda_step_requirement`'s
+  and `quest_offer_requirement`'s two CHECKs gain `has_debt_to` and
+  `no_debt_to` (an entity target). `quest_offer.contact_entity_id` and
+  `quest_economy.debt_fact_relation`/`debt_skill_relation` are added. The
+  relation type `debt` is retired in code. `migrate_v2_19_debts.py`
+  rebuilds the three tables whose CHECK changes, adds the column, creates
+  the two tables, and refuses a database older than v2.18.
 - **v2.18** — TICKET-0109, BRIEF-0109-A: objects held in quantity, quest
   terms, the quest economy. `item` becomes a kind: `owner_id`,
   `location_id`, `equipped` and `ck_item_equipped_owner` dropped, `value`

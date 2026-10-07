@@ -192,6 +192,8 @@ _MODEL_FILES = (CANON_FILE, CONFIG_FILE)
 EXPECTED_REQUIREMENT_TYPES = (
     "knowledge", "relation_gte", "resource", "location_reachable",
     "has_met", "faction_member", "skill_rank_gte", "quest_completed",
+    # TICKET-0110 (BRIEF-0110-A, G1): ten since v2.19.
+    "has_debt_to", "no_debt_to",
 )
 EXPECTED_RECONCILE_VERDICTS = ("continue", "modify", "replace")
 EXPECTED_PLAN_ACTIONS = ("continue", "modify", "replace", "resume")
@@ -365,6 +367,8 @@ def check_shape_constraint() -> None:
         ("skill_rank_gte", "target_key"),
         ("quest_completed", "target_key"),
         ("skill_rank_gte", "threshold"),
+        ("has_debt_to", "target_entity_id"),
+        ("no_debt_to", "target_entity_id"),
     ]
     missing = [pair for pair in required_pairs if pair[0] not in expr or pair[1] not in expr]
     if missing:

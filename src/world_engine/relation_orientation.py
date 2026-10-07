@@ -29,6 +29,12 @@ RELATION_GRAPH_EXCLUDED_TYPES: tuple[str, str, str] = ("connects_to", "borde", "
 # (`zone_rules.geographic_link_type`), never chosen by the creator.
 MAP_TOPOLOGY_TYPES: tuple[str, str] = ("connects_to", "borde")
 
+# Relation types no path may write any more (TICKET-0110, BRIEF-0110-A, I2):
+# « X owes Y » lives in the `debt` table alone, never in a relation's type.
+# `write_relation` refuses them; no row of production carried one when the
+# type was retired (Nia's query, 2026-10-07).
+RETIRED_RELATION_TYPES: tuple[str, ...] = ("debt",)
+
 
 def is_social(relation_type: str) -> bool:
     """True for a social relation type; False for a structural one or None."""

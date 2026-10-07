@@ -1653,7 +1653,7 @@ Shared context: {shared_context}
 Reply ONLY with JSON:
 {"verdict": "links" or "no_links", "links": [ ... ]}
 Each link is one of:
-{"kind":"relation","type":<one of: ally, enemy, debt, fear, fascination, \
+{"kind":"relation","type":<one of: ally, enemy, fear, fascination, \
 shared_secret, instrumentalizes, interest, indifference, rejection, \
 passive_attention, other>,"direction":"mutual"|"a_to_b"|"b_to_a", \
 "intensity":1-100,"visible_to_b":true|false,"notes":"..."}

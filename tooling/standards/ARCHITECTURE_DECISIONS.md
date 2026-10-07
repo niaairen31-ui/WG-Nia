@@ -18235,6 +18235,45 @@ cost cannot be paid. A completed quest still to settle reads « accomplie —
 **Rejected.** Computing the value in the browser: a second implementation
 of the rates to keep in step; the server already has them.
 
+## A DEBT IS A ROW, NEVER A RELATION TYPE (TICKET-0110) -- TEN REQUIREMENT FORMS, AN OFFER'S CONTACT (BRIEF-0110-a, schema v2.19)
+
+**J2.** `debt` records what a character owes a character or a faction (J1):
+origin (`service`, `quest`, `creator`), an optional motive (V1), secrecy
+(F-b1), the debt's fact, a status that leaves `open` once -- `settled` or
+`forgiven`, never deleted: deleting would be a correction (I1 of 0105),
+paying is a change. What is owed is a list of typed terms in `debt_term`
+(C2): money, items, a fact to deliver, a skill to teach (T1) -- never
+relation, which is not repaid. Its value in the indicative unit is computed
+at read, never stored, never converted (C1 of the series).
+
+**I2.** « X owes Y » has one home. The relation type `debt` is retired:
+offered neither in the fiche's list nor to the link agent, and
+`write_relation` refuses it (`RETIRED_RELATION_TYPES`). Production held no
+such row. The live link-pair prompt loses it through
+`apply_ticket_0110_link_prompt.py`, which edits the current head's text so
+an edit of the creator is kept.
+
+**X1.** A faction creditor is always linked to a person: the contact, an
+active member. An offer given by a faction may name its contact
+(`quest_offer.contact_entity_id`); a debt born of it is linked to him.
+
+**G1.** `has_debt_to` and `no_debt_to`: the character is the debtor of at
+least one open debt toward the target, or of none -- existence only,
+creator only (the model still emits four forms). The target is a character
+or a faction.
+
+**The economy.** `quest_economy` gains `debt_fact_relation` and
+`debt_skill_relation` (defaults 10 and 20): what the creditor's regard falls
+by when a debt's fact or skill can no longer be delivered, because he
+already holds it. Set in the ⚖ panel with the rates.
+
+**Rejected.** A relation of type `debt` with a fact (I3): one social row per
+oriented pair would overwrite the feeling it stands on, and it has no place
+for terms, an origin or a settlement. A value in units alone (C1 of this
+ticket): repaying in any currency at the rates would make the unit a
+currency.
+
+
 ---
 
 *Co-built with Claude, June 2026.*

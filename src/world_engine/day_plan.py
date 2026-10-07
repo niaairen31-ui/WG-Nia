@@ -54,6 +54,7 @@ from .models import (
     AgendaStep,
     AgendaStepRequirement,
     Character,
+    Debt,
     Entity,
     Fact,
     FactionMembership,
@@ -81,9 +82,12 @@ DAY_BUDGET_SLOTS: int = len(SCHEDULE_PHASES)
 # S1: the closed requirement vocabulary, each form with a named evaluator.
 # Eight forms since v2.17 (TICKET-0108, BRIEF-0108-A, C-01): the four the
 # day-plan model may emit, then four only the creator authors (quest offers).
+# Ten since v2.19 (TICKET-0110, BRIEF-0110-A, G1): `has_debt_to` and
+# `no_debt_to`, creator only as well.
 REQUIREMENT_TYPES: tuple[str, ...] = (
     "knowledge", "relation_gte", "resource", "location_reachable",
     "has_met", "faction_member", "skill_rank_gte", "quest_completed",
+    "has_debt_to", "no_debt_to",
 )
 
 # What `emit_plan`'s parser accepts from the model (TICKET-0108): the four
@@ -93,7 +97,9 @@ MODEL_REQUIREMENT_TYPES: tuple[str, ...] = ("knowledge", "relation_gte", "resour
 
 # The shape of each form, the three groups of the `*_requirement_shape`
 # CHECK (C-01): which column names its target, and which need a threshold.
-ENTITY_TARGET_TYPES: tuple[str, ...] = ("relation_gte", "location_reachable", "has_met", "faction_member")
+ENTITY_TARGET_TYPES: tuple[str, ...] = (
+    "relation_gte", "location_reachable", "has_met", "faction_member", "has_debt_to", "no_debt_to",
+)
 KEY_TARGET_TYPES: tuple[str, ...] = ("knowledge", "resource", "skill_rank_gte", "quest_completed")
 THRESHOLD_TYPES: tuple[str, ...] = ("relation_gte", "resource", "skill_rank_gte")
 
@@ -334,6 +340,38 @@ def _eval_quest_completed(req: RequirementSpec, character: Character, db: Sessio
     )
 
 
+def _open_debt(db: Session, debtor_id: str, creditor_id: Optional[str]) -> bool:
+    return db.exec(select(Debt.id).where(
+        Debt.debtor_entity_id == debtor_id, Debt.creditor_entity_id == creditor_id, Debt.status == "open",
+    )).first() is not None
+
+
+def _eval_has_debt_to(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
+    """TICKET-0110 (G1): the character owes the target (a character or a
+    faction) at least one OPEN debt -- one he is the debtor of; existence
+    only, no amount. A settled or forgiven debt is not owed."""
+    del reachable_ids
+    met = _open_debt(db, character.id, req.target_entity_id)
+    name = _entity_name(db, req.target_entity_id)
+    reason = f"owes {name}" if met else f"prerequisite not met — owes {name} nothing"
+    return Verdict(
+        type=req.type, met=met, current=("owes" if met else "owes nothing"), required=req.target_entity_id,
+        reason=reason, required_label=name,
+    )
+
+
+def _eval_no_debt_to(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
+    """TICKET-0110 (G1): the exact negation of `has_debt_to`."""
+    del reachable_ids
+    owes = _open_debt(db, character.id, req.target_entity_id)
+    name = _entity_name(db, req.target_entity_id)
+    reason = f"prerequisite not met — still owes {name}" if owes else f"owes {name} nothing"
+    return Verdict(
+        type=req.type, met=not owes, current=("owes" if owes else "owes nothing"), required=req.target_entity_id,
+        reason=reason, required_label=name,
+    )
+
+
 _EVALUATORS: dict[str, Callable[[RequirementSpec, Character, Session, object], Verdict]] = {
     "knowledge": _eval_knowledge,
     "relation_gte": _eval_relation_gte,
@@ -343,6 +381,8 @@ _EVALUATORS: dict[str, Callable[[RequirementSpec, Character, Session, object], V
     "faction_member": _eval_faction_member,
     "skill_rank_gte": _eval_skill_rank_gte,
     "quest_completed": _eval_quest_completed,
+    "has_debt_to": _eval_has_debt_to,
+    "no_debt_to": _eval_no_debt_to,
 }
 
 

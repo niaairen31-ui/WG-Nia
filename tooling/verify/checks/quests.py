@@ -6,7 +6,7 @@ The lot adds its pieces brief by brief; this check grows with it (the
 the same commit.
 
 QA1 -- vocabulary (BRIEF-0108-A, static and import). `day_plan.REQUIREMENT_
-   TYPES` holds the eight forms; `MODEL_REQUIREMENT_TYPES` is exactly the
+   TYPES` holds the eight forms, then TICKET-0110's two debt forms; `MODEL_REQUIREMENT_TYPES` is exactly the
    model's four and a subset of it; `ENTITY_TARGET_TYPES` and
    `KEY_TARGET_TYPES` partition it and `THRESHOLD_TYPES` is inside it; the
    three `type NOT IN (...)` groups of `ck_agenda_step_requirement_shape`
@@ -103,6 +103,8 @@ FAILURES: list[str] = []
 
 MODEL_FORMS = ("knowledge", "relation_gte", "resource", "location_reachable")
 CREATOR_FORMS = ("has_met", "faction_member", "skill_rank_gte", "quest_completed")
+# TICKET-0110 (BRIEF-0110-A, G1): two more creator-only forms; `debts.py` owns them.
+DEBT_FORMS = ("has_debt_to", "no_debt_to")
 QUEST_TABLES = ("quest_offer", "quest_offer_step", "quest_offer_requirement", "quest")
 
 # `agenda_step_requirement` as v2.16 created it (dumped from `main` at 4b06dde).
@@ -150,7 +152,7 @@ def check_qa1() -> None:
     from world_engine.models import AgendaStepRequirement, QuestOfferRequirement
 
     types = day_plan.REQUIREMENT_TYPES
-    if tuple(types) != MODEL_FORMS + CREATOR_FORMS:
+    if tuple(types) != MODEL_FORMS + CREATOR_FORMS + DEBT_FORMS:
         fail(f"QA1: REQUIREMENT_TYPES is {types}")
     if tuple(day_plan.MODEL_REQUIREMENT_TYPES) != MODEL_FORMS or not set(MODEL_FORMS) <= set(types):
         fail(f"QA1: MODEL_REQUIREMENT_TYPES is {day_plan.MODEL_REQUIREMENT_TYPES}")
@@ -177,7 +179,7 @@ def check_qa1() -> None:
             day_plan._validate_requirement({"type": form, "target_key": "k", "threshold": 1})
         except llm_parse.LlmParseError as exc:
             fail(f"QA1: the model's parser refuses {form!r}: {exc}")
-    for form in CREATOR_FORMS:
+    for form in CREATOR_FORMS + DEBT_FORMS:
         try:
             day_plan._validate_requirement({"type": form, "target_key": "k", "threshold": 1})
         except llm_parse.LlmParseError:

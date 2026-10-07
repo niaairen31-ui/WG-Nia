@@ -604,8 +604,10 @@ def write_agenda_status(
 # The entity type each entity-targeted form must name (TICKET-0108, C-01);
 # `None` accepts any entity of the world -- the two model-emitted forms keep
 # the check they always had, so a day plan is refused for nothing new.
-_TARGET_ENTITY_TYPE: dict[str, Optional[str]] = {
-    "relation_gte": None, "location_reachable": None, "has_met": None, "faction_member": "faction",
+_TARGET_ENTITY_TYPE: dict[str, Optional[tuple[str, ...]]] = {
+    "relation_gte": None, "location_reachable": None, "has_met": None, "faction_member": ("faction",),
+    # TICKET-0110 (G1): a debt's creditor, a character or a faction (J1).
+    "has_debt_to": ("character", "faction"), "no_debt_to": ("character", "faction"),
 }
 
 
@@ -647,7 +649,7 @@ def _clean_requirement(db: Session, world_id: str, step_index: int, req: Require
             )
         target = db.get(Entity, req.target_entity_id)
         wanted = _TARGET_ENTITY_TYPE[req.type]
-        if target is None or target.world_id != world_id or (wanted is not None and target.type != wanted):
+        if target is None or target.world_id != world_id or (wanted is not None and target.type not in wanted):
             raise ValueError(f"write_day_plan: unknown target entity {req.target_entity_id!r}")
     else:
         if not req.target_key:

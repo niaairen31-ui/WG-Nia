@@ -112,7 +112,9 @@ class AgendaStep(SQLModel, table=True):
 # id) rather than an entity. Eight forms since v2.17 (TICKET-0108,
 # BRIEF-0108-A): the four the day-plan model may emit, plus `has_met`,
 # `faction_member`, `skill_rank_gte` and `quest_completed`, authored by the
-# creator only (`day_plan.MODEL_REQUIREMENT_TYPES`).
+# creator only (`day_plan.MODEL_REQUIREMENT_TYPES`). Ten since v2.19
+# (TICKET-0110, BRIEF-0110-A, G1): `has_debt_to` and `no_debt_to`, an open
+# debt toward the target entity or none, creator only too.
 #
 # The per-type shape CHECK is the structural guarantee that an ill-formed row
 # cannot exist; its three groups are `day_plan.ENTITY_TARGET_TYPES`,
@@ -131,11 +133,11 @@ class AgendaStepRequirement(SQLModel, table=True):
     __table_args__ = (
         CheckConstraint(
             "type IN ('knowledge','relation_gte','resource','location_reachable',"
-            "'has_met','faction_member','skill_rank_gte','quest_completed')",
+            "'has_met','faction_member','skill_rank_gte','quest_completed','has_debt_to','no_debt_to')",
             name="ck_agenda_step_requirement_type",
         ),
         CheckConstraint(
-            "(type NOT IN ('relation_gte','location_reachable','has_met','faction_member') "
+            "(type NOT IN ('relation_gte','location_reachable','has_met','faction_member','has_debt_to','no_debt_to') "
             "OR target_entity_id IS NOT NULL) "
             "AND (type NOT IN ('knowledge','resource','skill_rank_gte','quest_completed') "
             "OR target_key IS NOT NULL) "

@@ -92,6 +92,8 @@ class EconomyBody(BaseModel):
     rate_skill: Optional[int] = None
     band_low_pct: Optional[int] = None
     band_high_pct: Optional[int] = None
+    debt_fact_relation: Optional[int] = None
+    debt_skill_relation: Optional[int] = None
 
 
 def _term(term: TermBody) -> TermSpec:
